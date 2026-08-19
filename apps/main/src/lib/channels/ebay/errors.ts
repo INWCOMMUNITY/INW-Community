@@ -32,6 +32,13 @@ export class EbayApiError extends Error {
   }
 }
 
+/** Collect `warnings` from a successful eBay REST envelope (HTTP 200 can still rewrite fields). */
+export function extractEbayWarnings(body: unknown): EbayErrorRow[] {
+  if (!body || typeof body !== "object") return [];
+  const warnings = (body as { warnings?: EbayErrorRow[] }).warnings;
+  return Array.isArray(warnings) ? warnings : [];
+}
+
 /** Collect errors from both top-level `errors` and bulk `responses[].errors` envelopes. */
 export function parseEbayErrorRows(body: unknown): EbayErrorRow[] {
   if (!body || typeof body !== "object") return [];

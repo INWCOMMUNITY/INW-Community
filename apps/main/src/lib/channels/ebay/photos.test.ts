@@ -38,6 +38,6 @@ describe("extractEbayItemPhotos", () => {
           <GalleryURL>https://i.ebayimg.com/thumbs/images/g/g1/s-l140.jpg</GalleryURL>
         </PictureDetails>
       </Item>`;
-    expect(extractEbayItemPhotos(xml)).toEqual(["https://i.ebayimg.com/thumbs/images/g/g1/s-l500.jpg"]);
+    expect(extractEbayItemPhotos(xml)).toEqual(["https://i.ebayimg.com/thumbs/images/g/g1/s-l2000.jpg"]);
   });
 });

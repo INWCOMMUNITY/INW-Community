@@ -32,6 +32,7 @@ export function ThemeLoader() {
             columnGap: "--column-gap",
             maxWidth: "--max-width",
             sectionAltColor: "--color-section-alt",
+            earthColor: "--color-earth",
           };
           Object.entries(data).forEach(([key, value]) => {
             const cssVar = map[key];

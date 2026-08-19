@@ -11,7 +11,7 @@
 
 import { prisma, Prisma } from "database";
 
-const EBAY_DAILY_REVISION_LIMIT = 250;
+export const EBAY_DAILY_REVISION_LIMIT = 250;
 
 /** In-memory cache of revision counts per SKU per day. */
 const revisionCounts = new Map<string, { date: string; count: number }>();

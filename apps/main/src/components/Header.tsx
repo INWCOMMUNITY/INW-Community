@@ -8,7 +8,7 @@ import { useSession } from "next-auth/react";
 import { useCart } from "@/contexts/CartContext";
 import { isImmersiveMobileChromeRoute } from "@/lib/immersive-mobile-chrome";
 
-const SEGMENT_COLOR = "#5F6955";
+const SEGMENT_COLOR = "var(--color-earth)";
 
 type NavChild = { href: string; label: string };
 type NavItem =
@@ -20,12 +20,6 @@ const navItems: NavItem[] = [
     label: "Home",
     href: "/",
     icon: "leaf-outline",
-    children: [
-      { href: "/", label: "Home" },
-      { href: "/download-app", label: "Download App" },
-      { href: "/about", label: "About" },
-      { href: "/support-nwc", label: "Support NWC" },
-    ],
   },
   {
     label: "Community",
@@ -54,7 +48,7 @@ const navItems: NavItem[] = [
     ],
   },
   {
-    label: "Members",
+    label: "For Businesses",
     href: "/business-hub",
     icon: "person-circle-outline",
     children: [
@@ -116,7 +110,7 @@ export function Header() {
 
   return (
     <div className={hideOnMobile ? "max-md:hidden" : undefined}>
-    <header className="sticky top-0 z-50 bg-white border-b-2 no-print py-3 sm:py-4" style={{ backgroundColor: "white", borderBottomColor: "var(--color-primary)" }}>
+    <header className="sticky top-0 z-50 bg-white border-b no-print py-3 sm:py-4" style={{ backgroundColor: "white", borderBottomColor: "var(--color-primary)" }}>
       <div className="max-w-[var(--max-width)] mx-auto px-3 sm:px-4 flex items-center">
         {/* Mobile: three-part layout — NWC left, hamburger center, My Community + cart right */}
         <div className="flex md:hidden flex-1 items-center justify-between min-w-0 w-full">
@@ -145,7 +139,7 @@ export function Header() {
                   className="rounded-full px-2.5 py-2 font-medium text-[0.86rem] text-white hover:opacity-95 transition-opacity shrink-0"
                   style={{ backgroundColor: SEGMENT_COLOR }}
                 >
-                  My Community
+                  {session ? "My Community" : "Sign in"}
                 </Link>
               </div>
             )}
@@ -175,23 +169,14 @@ export function Header() {
           </Link>
         </div>
         <nav className="hidden md:flex flex-1 items-stretch min-w-0 px-[0.5in]">
-          <div
-            className="flex w-full max-w-full rounded-md overflow-visible border-2"
-            style={{ borderColor: "var(--color-primary)", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}
-          >
-            {navItems.map((item, index) => {
+          <div className="flex w-full max-w-full items-stretch justify-evenly gap-1">
+            {navItems.map((item) => {
               const active = isPathActive(pathname, item);
-              const isFirst = index === 0;
-              const isLast = index === navItems.length - 1;
               const hasChildren = "children" in item && (item.children?.length ?? 0) > 0;
-              const content = (
-                <>
-                  <span className="text-center">{item.label}</span>
-                </>
-              );
-              const segmentClass = `flex-1 min-w-0 py-5 font-bold text-base whitespace-nowrap border-r-2 gap-2 ${isLast ? "border-r-0 rounded-r-md" : ""} ${isFirst ? "rounded-l-md" : ""} ${active ? "text-white" : "hover:bg-[var(--color-section-alt)]"} flex items-center justify-center text-center`;
-              const segmentBorderStyle = isLast ? undefined : { borderRightColor: "var(--color-primary)" };
-              const segmentStyle = active ? { backgroundColor: SEGMENT_COLOR } : { backgroundColor: "white", color: "var(--color-primary)" };
+              const linkClass = `flex-1 min-w-0 py-5 px-2 font-medium text-sm lg:text-base whitespace-nowrap rounded-full gap-2 flex items-center justify-center text-center transition-colors ${active ? "text-white" : "hover:bg-[var(--color-section-alt)]"}`;
+              const linkStyle = active
+                ? { backgroundColor: SEGMENT_COLOR }
+                : { color: "var(--color-primary)" };
 
               if (hasChildren) {
                 return (
@@ -199,14 +184,13 @@ export function Header() {
                     <Link
                       href={"href" in item ? item.href : "#"}
                       prefetch={false}
-                      className={segmentClass}
-                      style={{ ...segmentStyle, ...segmentBorderStyle, display: "inline-flex", alignItems: "center" }}
+                      className={linkClass}
+                      style={{ ...linkStyle, display: "inline-flex", alignItems: "center" }}
                     >
-                      {content}
+                      <span className="text-center">{item.label}</span>
                     </Link>
-                    {/* Wrapper includes pt-2 bridge so hover is preserved when moving from trigger to menu */}
                     <div className="absolute top-full left-0 right-0 pt-2 pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 transition-opacity duration-150 z-[100]">
-                      <div className="w-full bg-white border-2 rounded-md shadow-lg" style={{ borderColor: "var(--color-primary)", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+                      <div className="w-full bg-white border rounded-md shadow-lg" style={{ borderColor: "var(--color-primary)", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
                         {navDropdownChildren(item).map((c) => {
                           const isChildActive = pathname === c.href || (c.href !== "/" && pathname.startsWith(c.href));
                           return (
@@ -225,7 +209,7 @@ export function Header() {
                           <Link
                             href="/admin"
                             prefetch={false}
-                            className="block py-2.5 px-5 rounded-b-md text-base text-center hover:bg-[var(--color-section-alt)] border-t-2 flex justify-center items-center"
+                            className="block py-2.5 px-5 rounded-b-md text-base text-center hover:bg-[var(--color-section-alt)] border-t flex justify-center items-center"
                             style={{
                               borderTopColor: "var(--color-primary)",
                               color: pathname.startsWith("/admin") ? "white" : "var(--color-primary)",
@@ -245,8 +229,8 @@ export function Header() {
                   key={item.href}
                   href={item.href}
                   prefetch={false}
-                  className={segmentClass}
-                  style={{ ...segmentStyle, ...segmentBorderStyle }}
+                  className={linkClass}
+                  style={linkStyle}
                 >
                   <span className="text-center">{item.label}</span>
                 </Link>
@@ -273,11 +257,11 @@ export function Header() {
                 className="rounded-full px-3 py-2 sm:px-5 sm:py-2.5 font-medium text-sm sm:text-[1.1375rem] text-white hover:opacity-95 transition-opacity inline-flex items-center justify-center"
                 style={{ backgroundColor: SEGMENT_COLOR }}
               >
-                My Community
+                {session ? "My Community" : "Sign in"}
               </Link>
               {session && (
                 <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 transition-opacity duration-150 z-[100]">
-                  <div className="bg-white border-2 rounded-md shadow-lg min-w-[10rem]" style={{ borderColor: "var(--color-primary)", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+                  <div className="bg-white border rounded-md shadow-lg min-w-[10rem]" style={{ borderColor: "var(--color-primary)", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
                     <Link
                       href="/my-community/messages"
                       prefetch={false}
@@ -343,17 +327,17 @@ export function Header() {
           onClick={() => setMobileOpen(false)}
         >
           <div
-            className={`relative w-auto min-w-[max-content] max-w-[min(90vw,280px)] mx-auto bg-white border-b-2 border-[var(--color-primary)] shadow-xl rounded-lg shrink-0 transition-[max-height] duration-200 ${!expandedMobileItem ? "overflow-y-auto max-h-[70vh]" : ""}`}
+            className={`relative w-auto min-w-[max-content] max-w-[min(90vw,280px)] mx-auto bg-white shadow-xl rounded-lg shrink-0 transition-[max-height] duration-200 ${!expandedMobileItem ? "overflow-y-auto max-h-[70vh]" : ""}`}
             style={{
               animation: "headerSlideDown 0.2s ease-out",
             }}
             onClick={(e) => e.stopPropagation()}
           >
-          <nav className="px-4 py-4 space-y-3 flex flex-col items-center text-center">
+          <nav className="px-4 py-4 space-y-1 flex flex-col items-center text-center">
             <Link
               href="/"
               onClick={() => setMobileOpen(false)}
-              className="flex justify-center pb-3 border-b border-gray-200 mb-1 w-full"
+              className="flex justify-center pb-3 border-b border-gray-200 mb-2 w-full"
               aria-label="Northwest Community"
             >
               <img
@@ -367,8 +351,7 @@ export function Header() {
                 href="/admin/dashboard"
                 prefetch={false}
                 onClick={() => setMobileOpen(false)}
-                className="w-full rounded-lg border-2 overflow-hidden text-left block py-3 px-4 font-medium text-gray-800 hover:bg-[var(--color-section-alt)]"
-                style={{ borderColor: "var(--color-primary)" }}
+                className="w-full rounded-lg overflow-hidden text-left block py-3 px-4 font-medium text-gray-800 hover:bg-[var(--color-section-alt)]"
               >
                 Admin
               </Link>
@@ -376,18 +359,17 @@ export function Header() {
             {navItems.map((item) => {
               const hasChildren = "children" in item && (item.children?.length ?? 0) > 0;
               const isExpanded = expandedMobileItem === item.label;
-              const boxClass = "w-full rounded-lg border-2 overflow-hidden text-left";
-              const boxStyle = { borderColor: "var(--color-primary)" };
+              const rowClass = "w-full rounded-lg overflow-hidden text-left";
 
               if (hasChildren) {
                 return (
-                  <div key={item.label} className={boxClass} style={boxStyle}>
+                  <div key={item.label} className={rowClass}>
                     <div className="flex items-center justify-between gap-2 bg-white">
                       <Link
                         href={"href" in item ? item.href : "#"}
                         prefetch={false}
                         onClick={() => setMobileOpen(false)}
-                        className={`flex-1 py-3 px-3 font-medium ${isPathActive(pathname, item) ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
+                        className={`flex-1 py-3 px-3 font-medium rounded-lg ${isPathActive(pathname, item) ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
                         style={isPathActive(pathname, item) ? { backgroundColor: "var(--color-primary)" } : undefined}
                       >
                         {item.label}
@@ -395,7 +377,7 @@ export function Header() {
                       <button
                         type="button"
                         onClick={() => toggleMobileExpand(item.label)}
-                        className="shrink-0 p-3 text-gray-600 hover:bg-gray-100"
+                        className="shrink-0 p-3 text-gray-600 hover:bg-gray-100 rounded-lg"
                         aria-label={isExpanded ? "Collapse" : "Expand"}
                         aria-expanded={isExpanded}
                       >
@@ -410,7 +392,7 @@ export function Header() {
                       </button>
                     </div>
                     {isExpanded && (
-                      <div className="border-t border-gray-200 bg-gray-50/80">
+                      <div className="bg-[var(--color-section-alt)]/40">
                         {navDropdownChildren(item).map((c) => {
                           const isChildActive = pathname === c.href || (c.href !== "/" && pathname.startsWith(c.href));
                           return (
@@ -419,7 +401,7 @@ export function Header() {
                               href={c.href}
                               prefetch={false}
                               onClick={() => setMobileOpen(false)}
-                              className={`block py-2.5 px-4 text-sm ${isChildActive ? "text-white hover:bg-opacity-90" : "text-gray-700 hover:bg-[var(--color-section-alt)]"}`}
+                              className={`block py-2.5 px-4 text-sm rounded-lg ${isChildActive ? "text-white hover:bg-opacity-90" : "text-gray-700 hover:bg-[var(--color-section-alt)]"}`}
                               style={isChildActive ? { backgroundColor: "var(--color-primary)" } : undefined}
                             >
                               {c.label}
@@ -431,7 +413,7 @@ export function Header() {
                             href="/admin"
                             prefetch={false}
                             onClick={() => setMobileOpen(false)}
-                            className={`block py-2.5 px-4 text-sm ${pathname.startsWith("/admin") ? "text-white hover:bg-opacity-90" : "text-gray-700 hover:bg-[var(--color-section-alt)]"}`}
+                            className={`block py-2.5 px-4 text-sm rounded-lg ${pathname.startsWith("/admin") ? "text-white hover:bg-opacity-90" : "text-gray-700 hover:bg-[var(--color-section-alt)]"}`}
                             style={pathname.startsWith("/admin") ? { backgroundColor: "var(--color-primary)" } : undefined}
                           >
                             Admin
@@ -449,8 +431,8 @@ export function Header() {
                   href={item.href}
                   prefetch={false}
                   onClick={() => setMobileOpen(false)}
-                  className={`${boxClass} block py-3 px-4 font-medium ${active ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
-                  style={{ ...boxStyle, ...(active ? { backgroundColor: "var(--color-primary)" } : {}) }}
+                  className={`${rowClass} block py-3 px-4 font-medium ${active ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
+                  style={active ? { backgroundColor: "var(--color-primary)" } : undefined}
                 >
                   {item.label}
                 </Link>
@@ -461,8 +443,8 @@ export function Header() {
                 href="/my-community/messages"
                 prefetch={false}
                 onClick={() => setMobileOpen(false)}
-                className={`w-full rounded-lg border-2 overflow-hidden text-left block py-3 px-4 font-medium ${pathname?.startsWith("/my-community/messages") ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
-                style={{ borderColor: "var(--color-primary)", ...(pathname?.startsWith("/my-community/messages") ? { backgroundColor: "var(--color-primary)" } : {}) }}
+                className={`w-full rounded-lg overflow-hidden text-left block py-3 px-4 font-medium ${pathname?.startsWith("/my-community/messages") ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
+                style={pathname?.startsWith("/my-community/messages") ? { backgroundColor: "var(--color-primary)" } : undefined}
               >
                 Messages ({unreadMessages})
               </Link>
@@ -471,8 +453,7 @@ export function Header() {
               <Link
                 href="/api/auth/signout?callbackUrl=%2F"
                 onClick={() => setMobileOpen(false)}
-                className="w-full rounded-lg border-2 overflow-hidden text-left block py-3 px-4 font-medium text-gray-800 hover:bg-[var(--color-section-alt)]"
-                style={{ borderColor: "var(--color-primary)" }}
+                className="w-full rounded-lg overflow-hidden text-left block py-3 px-4 font-medium text-gray-800 hover:bg-[var(--color-section-alt)]"
               >
                 Log out
               </Link>

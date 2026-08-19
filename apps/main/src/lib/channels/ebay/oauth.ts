@@ -6,6 +6,7 @@ import {
   EBAY_APIZ_BASE,
   getEbayConfig,
 } from "./config";
+import { EbayApiError } from "./errors";
 import type { TokenResponse } from "../types";
 
 /**
@@ -135,6 +136,22 @@ let cachedApplicationToken: { token: string; expiresAtMs: number } | null = null
 /** Force a fresh client-credentials token on the next Taxonomy request (e.g. after HTTP 401). */
 export function clearEbayApplicationAccessTokenCache(): void {
   cachedApplicationToken = null;
+}
+
+/**
+ * Run an app-token request; on HTTP 401 mint a fresh client-credentials token and retry once.
+ */
+export async function withEbayApplicationTokenRetry<T>(
+  fn: (accessToken: string) => Promise<T>,
+  getToken: () => Promise<string> = getEbayApplicationAccessToken
+): Promise<T> {
+  try {
+    return await fn(await getToken());
+  } catch (e) {
+    if (!(e instanceof EbayApiError) || e.status !== 401) throw e;
+    clearEbayApplicationAccessTokenCache();
+    return await fn(await getToken());
+  }
 }
 
 /** Client-credentials token for Taxonomy and other app-level read APIs (no user consent). */

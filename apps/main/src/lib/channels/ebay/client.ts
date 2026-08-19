@@ -4,10 +4,59 @@ import {
   EBAY_CONTENT_LANGUAGE,
   EBAY_MARKETPLACE_ID,
 } from "./config";
-import { EbayApiError, formatEbayApiErrorMessage } from "./errors";
+import {
+  EbayApiError,
+  extractEbayWarnings,
+  formatEbayApiErrorMessage,
+  formatEbayErrorRow,
+  type EbayErrorRow,
+} from "./errors";
 
 export { EbayApiError } from "./errors";
 export { describeEbayThrownError, describeChannelSyncError, ebayErrorActionHint } from "./errors";
+
+const MAX_RETRY_AFTER_MS = 30_000;
+const DEFAULT_RETRY_BACKOFF_MS = 1_100;
+
+/** Parse Retry-After (seconds or HTTP-date) into a capped delay. */
+export function parseRetryAfterMs(header: string | null | undefined, nowMs = Date.now()): number | null {
+  if (!header?.trim()) return null;
+  const raw = header.trim();
+  const asSeconds = Number(raw);
+  if (Number.isFinite(asSeconds) && asSeconds >= 0) {
+    return Math.min(MAX_RETRY_AFTER_MS, Math.round(asSeconds * 1000));
+  }
+  const asDate = Date.parse(raw);
+  if (!Number.isNaN(asDate)) {
+    return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, asDate - nowMs));
+  }
+  return null;
+}
+
+function retryDelayMs(res: Response, attempt: number): number {
+  const fromHeader = parseRetryAfterMs(res.headers.get("retry-after") ?? res.headers.get("Retry-After"));
+  if (fromHeader != null) return fromHeader;
+  return DEFAULT_RETRY_BACKOFF_MS * (attempt + 1);
+}
+
+let lastEbayWarnings: EbayErrorRow[] = [];
+
+/** Warnings from the most recent successful eBay REST call (cleared on read). */
+export function takeEbayCallWarnings(): EbayErrorRow[] {
+  const rows = lastEbayWarnings;
+  lastEbayWarnings = [];
+  return rows;
+}
+
+function noteSuccessWarnings(path: string, body: unknown): void {
+  const warnings = extractEbayWarnings(body);
+  lastEbayWarnings = warnings;
+  if (warnings.length === 0) return;
+  console.warn("[ebay] REST 200 with warnings", {
+    path,
+    warnings: warnings.map((row) => formatEbayErrorRow(row)),
+  });
+}
 
 function baseHeaders(accessToken: string, opts?: { contentLanguage?: boolean }): Record<string, string> {
   const headers: Record<string, string> = {
@@ -70,13 +119,15 @@ async function ebayRequest<T>(
     );
   }
   if (isRetryableStatus(res.status) && attempt < 2) {
-    await new Promise((r) => setTimeout(r, 1100 * (attempt + 1)));
+    await new Promise((r) => setTimeout(r, retryDelayMs(res, attempt)));
     return ebayRequest<T>(accessToken, path, init, attempt + 1);
   }
   const body = await parseBody(res);
   if (!res.ok) {
+    lastEbayWarnings = [];
     throw new EbayApiError(formatEbayApiErrorMessage(body, res.status, path), res.status, body, path);
   }
+  noteSuccessWarnings(path, body);
   return body as T;
 }
 

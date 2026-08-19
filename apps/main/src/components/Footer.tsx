@@ -1,35 +1,52 @@
 import Link from "next/link";
 import { NWCRequestsTrigger } from "./NWCRequestsTrigger";
 
+const FOOTER_INK = "#ffffff";
+
 export function Footer() {
   return (
-    <footer className="bg-white border-t-2 border-[var(--color-primary)] mt-auto no-print">
-      <div className="max-w-[var(--max-width)] mx-auto px-4 py-6 text-center text-sm" style={{ color: "var(--color-text)" }}>
-        <p>
-          Northwest Community<br />
-          Connecting Eastern Washington & North Idaho Residents & Local Businesses
-        </p>
-        <div className="mt-4 mb-4">
-          <NWCRequestsTrigger />
-        </div>
-        <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-sm" style={{ display: "flex", flexWrap: "wrap", gap: "1rem", justifyContent: "center" }}>
-          <Link href="/about" className="hover:underline">About NWC</Link>
-          <span className="opacity-50" style={{ color: "var(--color-primary)" }} aria-hidden>·</span>
-          <Link href="/calendars" className="hover:underline">Calendars</Link>
-          <span className="opacity-50" style={{ color: "var(--color-primary)" }} aria-hidden>·</span>
-          <Link href="/support-local" className="hover:underline">Local Businesses</Link>
-          <span className="opacity-50" style={{ color: "var(--color-primary)" }} aria-hidden>·</span>
-          <Link href="/storefront" className="hover:underline">Storefront</Link>
-          <span className="opacity-50" style={{ color: "var(--color-primary)" }} aria-hidden>·</span>
-          <Link href="/coupons" className="hover:underline">Coupons</Link>
-          <span className="opacity-50" style={{ color: "var(--color-primary)" }} aria-hidden>·</span>
-          <Link href="/download-app" className="hover:underline">Download INW Community App</Link>
-          <span className="opacity-50" style={{ color: "var(--color-primary)" }} aria-hidden>·</span>
-          <Link href="/support-nwc" className="hover:underline">Subscribe</Link>
-          <span className="opacity-50" style={{ color: "var(--color-primary)" }} aria-hidden>·</span>
-          <Link href="/terms" className="hover:underline">Terms</Link>
-          <span className="opacity-50" style={{ color: "var(--color-primary)" }} aria-hidden>·</span>
-          <Link href="/privacy" className="hover:underline">Privacy</Link>
+    <footer className="mt-auto no-print" style={{ backgroundColor: "var(--color-earth)", color: FOOTER_INK }}>
+      <div className="max-w-[var(--max-width)] mx-auto px-4 py-10 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 text-center sm:text-left">
+          <div>
+            <p className="font-semibold mb-2" style={{ fontFamily: "var(--font-heading)" }}>
+              Northwest Community
+            </p>
+            <p className="leading-relaxed opacity-90">
+              Connecting Eastern Washington & North Idaho Residents & Local Businesses
+            </p>
+          </div>
+          <div>
+            <h2 className="text-base font-semibold mb-3" style={{ fontFamily: "var(--font-heading)", color: FOOTER_INK }}>
+              Explore
+            </h2>
+            <ul className="space-y-2">
+              <li><Link href="/about" className="hover:underline" style={{ color: FOOTER_INK }}>About</Link></li>
+              <li><Link href="/calendars" className="hover:underline" style={{ color: FOOTER_INK }}>Calendars</Link></li>
+              <li><Link href="/support-local" className="hover:underline" style={{ color: FOOTER_INK }}>Local businesses</Link></li>
+              <li><Link href="/storefront" className="hover:underline" style={{ color: FOOTER_INK }}>Storefront</Link></li>
+              <li><Link href="/coupons" className="hover:underline" style={{ color: FOOTER_INK }}>Coupons</Link></li>
+            </ul>
+          </div>
+          <div>
+            <h2 className="text-base font-semibold mb-3" style={{ fontFamily: "var(--font-heading)", color: FOOTER_INK }}>
+              Get involved
+            </h2>
+            <ul className="space-y-2">
+              <li><Link href="/download-app" className="hover:underline" style={{ color: FOOTER_INK }}>Download app</Link></li>
+              <li><Link href="/support-nwc" className="hover:underline" style={{ color: FOOTER_INK }}>Subscribe</Link></li>
+              <li><NWCRequestsTrigger variant="link" /></li>
+            </ul>
+          </div>
+          <div>
+            <h2 className="text-base font-semibold mb-3" style={{ fontFamily: "var(--font-heading)", color: FOOTER_INK }}>
+              Legal
+            </h2>
+            <ul className="space-y-2">
+              <li><Link href="/terms" className="hover:underline" style={{ color: FOOTER_INK }}>Terms</Link></li>
+              <li><Link href="/privacy" className="hover:underline" style={{ color: FOOTER_INK }}>Privacy</Link></li>
+            </ul>
+          </div>
         </div>
       </div>
     </footer>

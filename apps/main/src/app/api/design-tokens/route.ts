@@ -8,6 +8,7 @@ const TOKEN_KEYS = [
   "headingFont", "bodyFont", "headingFontSize", "bodyFontSize", "lineHeight", "letterSpacing",
   "buttonBorderRadius", "buttonPadding", "sectionPadding", "columnGap", "maxWidth",
   "sectionAltColor",
+  "earthColor",
 ];
 
 export async function GET() {

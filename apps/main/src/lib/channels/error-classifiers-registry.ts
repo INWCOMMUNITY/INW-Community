@@ -155,7 +155,7 @@ const EBAY_CLASSIFIERS: TraceClassifier[] = [
     pattern: /revision.*limit|#21917|too many.*updates/i,
     category: "rate_limit",
     analyze: (ctx) => {
-      return `eBay revision limit reached for SKU "${ctx.sku}". eBay allows 750 updates per day per listing. Wait until tomorrow or reduce update frequency.`;
+      return `eBay revision limit reached for SKU "${ctx.sku}". eBay allows 250 updates per day per listing. Wait until tomorrow or reduce update frequency.`;
     },
   },
   {

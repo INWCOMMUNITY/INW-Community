@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPassthroughInventoryBody,
+  buildPassthroughInventoryContentPutBody,
   buildPassthroughLiveOverlayBody,
   buildPassthroughOfferBody,
   buildPassthroughTitleInventoryBody,
@@ -614,6 +615,34 @@ describe("passthrough-push", () => {
     expect(product.imageUrls).toEqual(["https://i.ebayimg.com/new.jpg"]);
     expect(product.title).toBe("Keep Title");
     expect(product.aspects).toEqual({ Grade: ["MS 67"], "Numerical grade": ["67"] });
+  });
+
+  it("buildPassthroughInventoryContentPutBody applies title and photos in one PUT", () => {
+    const live = {
+      condition: "LIKE_NEW",
+      availability: { shipToLocationAvailability: { quantity: 1 } },
+      product: {
+        title: "Old Militaria Pin Title",
+        aspects: { Type: ["Pin"] },
+        imageUrls: ["https://i.ebayimg.com/old.jpg"],
+      },
+    };
+    const { body, aspectMode } = buildPassthroughInventoryContentPutBody(
+      live,
+      {
+        ...coinItem,
+        title: "New Militaria Pin Title From INW",
+        photos: ["https://i.ebayimg.com/new.jpg"],
+        ebayCategoryId: 36059,
+      },
+      { title: true, photos: true },
+      false
+    );
+    expect(aspectMode).toBe("live_overlay");
+    const product = body.product as Record<string, unknown>;
+    expect(product.title).toBe("New Militaria Pin Title From INW");
+    expect(product.imageUrls).toEqual(["https://i.ebayimg.com/new.jpg"]);
+    expect(product.aspects).toEqual({ Type: ["Pin"] });
   });
 
   it("formatPassthroughPutNote reports preserved aspects", () => {

@@ -22,8 +22,9 @@ export type PassthroughChangedFields = {
 };
 
 /**
- * Inventory PUT rewrites all product.aspects — only for photo changes (rare).
- * Title uses GET-and-PUT with only product.title changed; description uses Offer PUT.
+ * Inventory PUT rewrites all product.aspects — used for title and/or photo changes.
+ * Title + photos share one PUT when both change so a photo-only overlay cannot revert title.
+ * Description uses Offer PUT.
  */
 export function needsInventoryPut(changed: PassthroughChangedFields): boolean {
   return changed.photos === true;
@@ -409,25 +410,43 @@ export function buildPassthroughTitleInventoryBody(
   );
 }
 
+/** Single inventory PUT for title and/or photo overlays — avoids a second PUT clobbering title. */
+export function buildPassthroughInventoryContentPutBody(
+  live: LiveInventoryItem,
+  item: SyncStoreItem,
+  overlays: { title?: boolean; photos?: boolean },
+  usePrepared: boolean,
+  options: PassthroughBuildOptions = {}
+): { body: Record<string, unknown>; aspectMode: "prepared" | "live_overlay" } {
+  const pushTitle = overlays.title === true;
+  const pushPhotos = overlays.photos === true;
+  if (usePrepared) {
+    return {
+      body: buildPassthroughInventoryBody(
+        live,
+        item,
+        { title: pushTitle, photos: pushPhotos, content: false, quantity: false, price: false },
+        { ...options, preserveLiveWireGrades: false }
+      ),
+      aspectMode: "prepared",
+    };
+  }
+  const patch: { title?: string; imageUrls?: string[] } = {};
+  if (pushTitle) patch.title = item.title;
+  if (pushPhotos) patch.imageUrls = item.photos;
+  return {
+    body: buildPassthroughLiveOverlayBody(live, patch),
+    aspectMode: "live_overlay",
+  };
+}
+
 export function buildPassthroughTitlePutBody(
   live: LiveInventoryItem,
   item: SyncStoreItem,
   usePrepared: boolean,
   options: PassthroughBuildOptions = {}
 ): { body: Record<string, unknown>; aspectMode: "prepared" | "live_overlay" } {
-  if (usePrepared) {
-    return {
-      body: buildPassthroughTitleInventoryBody(live, item, {
-        ...options,
-        preserveLiveWireGrades: false,
-      }),
-      aspectMode: "prepared",
-    };
-  }
-  return {
-    body: buildPassthroughTitleOnlyInventoryBody(live, item),
-    aspectMode: "live_overlay",
-  };
+  return buildPassthroughInventoryContentPutBody(live, item, { title: true }, usePrepared, options);
 }
 
 export function buildPassthroughPhotosPutBody(
@@ -436,19 +455,7 @@ export function buildPassthroughPhotosPutBody(
   usePrepared: boolean,
   options: PassthroughBuildOptions = {}
 ): { body: Record<string, unknown>; aspectMode: "prepared" | "live_overlay" } {
-  if (usePrepared) {
-    return {
-      body: buildPassthroughPhotoInventoryBody(live, item, {
-        ...options,
-        preserveLiveWireGrades: false,
-      }),
-      aspectMode: "prepared",
-    };
-  }
-  return {
-    body: buildPassthroughLiveOverlayBody(live, { imageUrls: item.photos }),
-    aspectMode: "live_overlay",
-  };
+  return buildPassthroughInventoryContentPutBody(live, item, { photos: true }, usePrepared, options);
 }
 
 /** Inventory PUT for photo-only edits — aspect-safe body with GetItem/taxonomy fallbacks. */

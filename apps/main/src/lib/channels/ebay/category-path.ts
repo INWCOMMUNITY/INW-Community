@@ -7,7 +7,7 @@ import { prisma } from "database";
 import { ebayGet } from "./client";
 import { EBAY_API_BASE, EBAY_TAXONOMY_BASE } from "./config";
 import { getDefaultCategoryTreeId } from "./aspects";
-import { getEbayApplicationAccessToken } from "./oauth";
+import { withEbayApplicationTokenRetry } from "./oauth";
 
 type TaxonomySubtreeNode = {
   category?: { categoryId?: string; categoryName?: string };
@@ -57,26 +57,28 @@ export async function getEbayCategoryPathFromId(
 
   try {
     const treeId = await getDefaultCategoryTreeId();
-    const accessToken = await getEbayApplicationAccessToken();
-    const segments: string[] = [];
-    let href = `${EBAY_TAXONOMY_BASE}/category_tree/${encodeURIComponent(
-      treeId
-    )}/get_category_subtree?category_id=${encodeURIComponent(id)}`;
+    const path = await withEbayApplicationTokenRetry(async (accessToken) => {
+      const segments: string[] = [];
+      let href = `${EBAY_TAXONOMY_BASE}/category_tree/${encodeURIComponent(
+        treeId
+      )}/get_category_subtree?category_id=${encodeURIComponent(id)}`;
 
-    for (let depth = 0; depth < 12 && href; depth++) {
-      const res = await ebayGet<{ categorySubtreeNode?: TaxonomySubtreeNode }>(
-        accessToken,
-        href
-      );
-      const node = res.categorySubtreeNode;
-      const name = node?.category?.categoryName?.trim();
-      if (name) segments.unshift(name);
+      for (let depth = 0; depth < 12 && href; depth++) {
+        const res = await ebayGet<{ categorySubtreeNode?: TaxonomySubtreeNode }>(
+          accessToken,
+          href
+        );
+        const node = res.categorySubtreeNode;
+        const name = node?.category?.categoryName?.trim();
+        if (name) segments.unshift(name);
 
-      const parentHref = node?.parentCategoryTreeNodeHref?.trim();
-      href = parentHref ? normalizeTaxonomyHref(parentHref) : "";
-    }
+        const parentHref = node?.parentCategoryTreeNodeHref?.trim();
+        href = parentHref ? normalizeTaxonomyHref(parentHref) : "";
+      }
 
-    if (segments.length > 0) return segments.join(" > ");
+      return segments.length > 0 ? segments.join(" > ") : null;
+    });
+    if (path) return path;
   } catch (e) {
     console.warn("[ebay] getEbayCategoryPathFromId failed", {
       categoryId: id,

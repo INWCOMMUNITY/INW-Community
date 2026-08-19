@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getItemAspectsForCategory, requireEbayTaxonomyConfig } from "@/lib/channels/ebay/aspects";
 import { filterSellerVisibleCategoryAspects } from "@/lib/channels/ebay/aspect-prep";
-import { describeEbayThrownError } from "@/lib/channels/ebay/errors";
+import { describeEbayThrownError, EbayApiError } from "@/lib/channels/ebay/errors";
 import { prisma } from "database";
 import { isImportedEbayLink } from "@/lib/channels/ebay/listing-origin";
 
@@ -61,6 +61,12 @@ export async function GET(req: NextRequest) {
     }
     return NextResponse.json({ aspects, readOnly });
   } catch (e) {
-    return NextResponse.json({ error: describeEbayThrownError(e) }, { status: 502 });
+    const authRejected =
+      (e instanceof EbayApiError && e.status === 401) ||
+      /invalid access token|unauthorized|#1001/i.test(describeEbayThrownError(e));
+    const error = authRejected
+      ? "eBay category lookup failed — application credentials were rejected. Check EBAY_CLIENT_ID and EBAY_CLIENT_SECRET (Production keyset)."
+      : describeEbayThrownError(e);
+    return NextResponse.json({ error }, { status: 502 });
   }
 }

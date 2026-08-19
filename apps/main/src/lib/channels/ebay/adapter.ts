@@ -7,7 +7,7 @@ import type {
   SyncStoreItem,
   TokenResponse,
 } from "../types";
-import { EbayApiError, ebayAction, ebayGet, ebayGetInventoryItem, ebayJson } from "./client";
+import { EbayApiError, ebayAction, ebayGet, ebayGetInventoryItem, ebayJson, takeEbayCallWarnings } from "./client";
 import {
   describeEbayThrownError,
   formatEbayErrorDiagnostics,
@@ -20,16 +20,41 @@ import {
   refreshEbayToken,
 } from "./oauth";
 import { fetchEbayConnectionConfig, readEbayConfig } from "./account";
+import { enrichInventoryBodyWithCatalogProduct } from "./catalog";
+import { enableCommerceNotifications } from "./commerce-notifications";
+import {
+  appendConditionDescriptorsToInventoryBody,
+  fetchConditionDescriptorMetadata,
+  isEbayConditionSyncError,
+} from "./conditions";
+import { resolveRemappedEbayCategoryId } from "./expired-categories";
 import { getItemAspectsForCategory } from "./aspects";
+import { formatListingFeeSummary, getListingFeeBlockReason, getListingFees } from "./fees";
+import {
+  buildInventoryItemGroupBody,
+  buildVariantInventorySkus,
+  createOrReplaceInventoryItemGroup,
+  publishOfferByInventoryItemGroup,
+  shouldUseInventoryItemGroup,
+} from "./inventory-groups";
+import { listInventoryItems, mergeInventoryRowsWithTrading } from "./inventory-import";
+import { ensureEbayHostedPhotoUrls, isEbayImageRelatedInventoryError } from "./media";
 import {
   checkRevisionLimit,
   getRevisionLimitWarning,
   hydrateRevisionCountsFromConfig,
+  EBAY_DAILY_REVISION_LIMIT,
   persistRevisionCount,
 } from "./rate-limits";
 import { resolveProviderCategoryId } from "../category-map";
-import { buildEbayInventoryItem, buildEbayOffer, ebayListingToSummary, ebayPriceFromCents, resolveCategoryId, resolveSyncLegacyListingId } from "./mapping";
-import { isEbayConditionSyncError } from "./conditions";
+import {
+  buildEbayInventoryItem,
+  buildEbayOffer,
+  ebayListingToSummary,
+  ebayPriceFromCents,
+  resolveCategoryId,
+  resolveSyncLegacyListingId,
+} from "./mapping";
 import {
   enrichSyncItemConditionFromEbay,
   prepareEbaySyncCondition,
@@ -64,8 +89,7 @@ import { prisma } from "database";
 import { isImportedEbayLink, extractEbayInventoryAspects, resolveEbayInventorySku } from "./listing-origin";
 import { passthroughUsePreparedInventoryAspects } from "./aspect-prep";
 import {
-  buildPassthroughPhotosPutBody,
-  buildPassthroughTitlePutBody,
+  buildPassthroughInventoryContentPutBody,
   detectLivePassthroughChanges,
   fetchLiveInventoryItem,
   formatPassthroughFieldSyncSummary,
@@ -80,6 +104,7 @@ import {
 } from "./passthrough-push";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
 import { detectStoreItemFieldChanges } from "../sync-baseline";
+import type { ListingAspect } from "@/lib/listing-limits";
 
 type EbayOffer = { offerId?: string; status?: string; listing?: { listingId?: string } };
 type OfferSearch = { offers?: EbayOffer[] };
@@ -115,6 +140,38 @@ async function getOfferDetails(
 
 async function publishOffer(accessToken: string, offerId: string): Promise<void> {
   await ebayAction(accessToken, `/sell/inventory/v1/offer/${offerId}/publish`, "POST");
+}
+
+async function finalizeInventoryBody(
+  accessToken: string,
+  body: Record<string, unknown>,
+  args: {
+    categoryId: string | null;
+    pushAspects: ListingAspect[];
+    operation: "create" | "update";
+    item: SyncStoreItem;
+  }
+): Promise<Record<string, unknown>> {
+  const productAspects = aspectsToEbayProductAspects(args.pushAspects);
+  if (args.categoryId) {
+    try {
+      const descriptorMeta = await fetchConditionDescriptorMetadata(accessToken, args.categoryId);
+      body = appendConditionDescriptorsToInventoryBody(body, productAspects, descriptorMeta);
+    } catch (e) {
+      console.warn("[ebay] condition descriptor metadata unavailable", {
+        categoryId: args.categoryId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+  if (args.operation === "create") {
+    body = await enrichInventoryBodyWithCatalogProduct({
+      itemTitle: args.item.title,
+      categoryId: args.categoryId,
+      body,
+    });
+  }
+  return body;
 }
 
 /**
@@ -190,7 +247,7 @@ async function upsertListing(
       validationChecks.push({
         name: "rate_limit",
         passed: true,
-        detail: `Approaching rate limit: ${limitCheck.count}/750`,
+        detail: `Approaching rate limit: ${limitCheck.count}/${EBAY_DAILY_REVISION_LIMIT}`,
         severity: "warning",
       });
       console.warn("[ebay] upsertListing: approaching rate limit", { sku, count: limitCheck.count });
@@ -199,9 +256,16 @@ async function upsertListing(
     }
 
     const cat = await resolveProviderCategoryId(conn, "ebay", item.category);
-    const targetCategoryId = resolveCategoryId(item, cat.ebayCategoryId ?? null);
+    let targetCategoryId = resolveCategoryId(item, cat.ebayCategoryId ?? null);
+    targetCategoryId = await resolveRemappedEbayCategoryId(targetCategoryId, {
+      storeItemId: item.id,
+      persist: true,
+      currentStoredId: item.ebayCategoryId,
+      persistCategoryId: persistEbayCategoryId,
+    });
 
     const existingOffer = await findOffer(conn.accessToken, sku);
+    const hadOfferAtStart = Boolean(existingOffer?.offerId);
     let offerId = existingOffer?.offerId ?? null;
     let existingOfferCategoryId: string | null = null;
     let liveOffer: Record<string, unknown> | null = null;
@@ -209,6 +273,12 @@ async function upsertListing(
       liveOffer = await getOfferDetails(conn.accessToken, offerId);
       const rawCategory = liveOffer?.categoryId;
       existingOfferCategoryId = typeof rawCategory === "string" ? rawCategory.trim() : null;
+      existingOfferCategoryId = await resolveRemappedEbayCategoryId(existingOfferCategoryId, {
+        storeItemId: item.id,
+        persist: true,
+        currentStoredId: item.ebayCategoryId,
+        persistCategoryId: persistEbayCategoryId,
+      });
     }
 
     const isImported = isImportedEbayLink({
@@ -220,7 +290,13 @@ async function upsertListing(
 
     // Imported eBay listings: passthrough push — preserve live inventory aspects verbatim.
     if (isImported) {
-      const offerCategoryId = targetCategoryId ?? existingOfferCategoryId;
+      let offerCategoryId = targetCategoryId ?? existingOfferCategoryId;
+      offerCategoryId = await resolveRemappedEbayCategoryId(offerCategoryId, {
+        storeItemId: item.id,
+        persist: true,
+        currentStoredId: item.ebayCategoryId,
+        persistCategoryId: persistEbayCategoryId,
+      });
       validationChecks.push({
         name: "category",
         passed: !!offerCategoryId,
@@ -335,8 +411,13 @@ async function upsertListing(
           overlays: [
             changed.price || changed.quantity ? "bulk_price_qty" : null,
             changed.description ? "offer_description" : null,
-            changed.title ? "inventory_title_only" : null,
-            putInventory ? "inventory_photos_only" : null,
+            changed.title && putInventory
+              ? "inventory_title_and_photos"
+              : changed.title
+                ? "inventory_title_only"
+                : putInventory
+                  ? "inventory_photos_only"
+                  : null,
           ].filter(Boolean),
         },
         remaps: [],
@@ -379,103 +460,37 @@ async function upsertListing(
         fieldResults.push(...bulkFields);
       }
 
-      if (changed.title) {
-        let { body: titleBody, aspectMode } = buildPassthroughTitlePutBody(
-          live,
-          item,
-          usePreparedAspects,
-          aspectBuildOptions
-        );
-        console.warn("[ebay] upsertListing passthrough PUT title only", {
-          storeItemId: item.id,
-          sku,
-          aspectMode,
-          aspectKeys: Object.keys(
-            ((titleBody.product as Record<string, unknown> | undefined)?.aspects ?? {}) as Record<
-              string,
-              string[]
-            >
-          ),
-          titleLength: item.title.length,
-          usePreparedAspects,
-          legacyListingId: legacyListingId ?? null,
-        });
-        addRequest(trace, titleBody);
-        try {
-          await ebayJson(
-            conn.accessToken,
-            `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
-            "PUT",
-            titleBody
-          );
-          await persistRevisionCount(conn.id, sku, conn.config);
-          addResponse(trace, 200, { success: true, field: "title", aspectMode });
-          fieldResults.push({ field: "title", ok: true });
-        } catch (e) {
-          if (!usePreparedAspects && isEbayInventoryAspectValidationError(e)) {
-            const retry = buildPassthroughTitlePutBody(live, item, true, aspectBuildOptions);
-            aspectMode = retry.aspectMode;
-            titleBody = retry.body;
-            console.warn("[ebay] passthrough PUT title retry with prepared aspects", {
-              storeItemId: item.id,
-              sku,
-              aspectMode,
-            });
-            try {
-              await ebayJson(
-                conn.accessToken,
-                `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
-                "PUT",
-                titleBody
-              );
-              await persistRevisionCount(conn.id, sku, conn.config);
-              addResponse(trace, 200, { success: true, field: "title", aspectMode });
-              fieldResults.push({ field: "title", ok: true });
-            } catch (retryErr) {
-              e = retryErr;
-            }
-          }
-          if (!fieldResults.some((r) => r.field === "title" && r.ok)) {
-            const titleAspects = (
-              (titleBody.product as Record<string, unknown> | undefined)?.aspects ?? {}
-            ) as Record<string, string[]>;
-            console.error("[ebay] passthrough PUT title failed — full eBay error", {
-              storeItemId: item.id,
-              sku,
-              offerCategoryId,
-              aspectKeys: Object.keys(titleAspects),
-              aspectValues: titleAspects,
-              aspectMode,
-              usePreparedAspects,
-              ...formatEbayErrorDiagnostics(e),
-            });
-            if (e instanceof EbayApiError) {
-              addResponse(trace, e.status, { error: e.message, body: e.body });
-            }
-            const aspectSummary = formatPassthroughPutNote(titleBody);
-            const msg = `${describeEbayThrownError(e)}. ${aspectSummary}`;
-            fieldResults.push({ field: "title", ok: false, error: msg });
-          }
-        }
-      }
+      const pushInventoryContent = changed.title === true || putInventory;
 
-      if (putInventory) {
-        let { body: inventoryBody, aspectMode } = buildPassthroughPhotosPutBody(
+      if (pushInventoryContent) {
+        const contentOverlays = { title: changed.title === true, photos: putInventory };
+        let { body: inventoryBody, aspectMode } = buildPassthroughInventoryContentPutBody(
           live,
           item,
+          contentOverlays,
           usePreparedAspects,
           aspectBuildOptions
         );
         const putNote = formatPassthroughPutNote(inventoryBody);
-        console.warn("[ebay] upsertListing passthrough PUT inventory photos", {
+        console.warn("[ebay] upsertListing passthrough PUT inventory content", {
           storeItemId: item.id,
           sku,
           linkExternalId,
           changed,
+          contentOverlays,
           aspectMode,
+          aspectKeys: Object.keys(
+            ((inventoryBody.product as Record<string, unknown> | undefined)?.aspects ?? {}) as Record<
+              string,
+              string[]
+            >
+          ),
+          titleLength: changed.title ? item.title.length : undefined,
           usePreparedAspects,
+          legacyListingId: legacyListingId ?? null,
         });
         addRequest(trace, inventoryBody);
+        let contentPutOk = false;
         try {
           await ebayJson(
             conn.accessToken,
@@ -483,14 +498,31 @@ async function upsertListing(
             "PUT",
             inventoryBody
           );
-          addResponse(trace, 200, { success: true, field: "photos", aspectMode });
           await persistRevisionCount(conn.id, sku, conn.config);
-          fieldResults.push({ field: "photos", ok: true });
+          addResponse(trace, 200, {
+            success: true,
+            contentOverlays,
+            aspectMode,
+            warnings: takeEbayCallWarnings().map((w) => w.longMessage || w.message),
+          });
+          contentPutOk = true;
         } catch (e) {
           if (!usePreparedAspects && isEbayInventoryAspectValidationError(e)) {
-            const retry = buildPassthroughPhotosPutBody(live, item, true, aspectBuildOptions);
+            const retry = buildPassthroughInventoryContentPutBody(
+              live,
+              item,
+              contentOverlays,
+              true,
+              aspectBuildOptions
+            );
             aspectMode = retry.aspectMode;
             inventoryBody = retry.body;
+            console.warn("[ebay] passthrough PUT inventory content retry with prepared aspects", {
+              storeItemId: item.id,
+              sku,
+              contentOverlays,
+              aspectMode,
+            });
             try {
               await ebayJson(
                 conn.accessToken,
@@ -498,20 +530,48 @@ async function upsertListing(
                 "PUT",
                 inventoryBody
               );
-              addResponse(trace, 200, { success: true, field: "photos", aspectMode });
               await persistRevisionCount(conn.id, sku, conn.config);
-              fieldResults.push({ field: "photos", ok: true });
+              addResponse(trace, 200, {
+            success: true,
+            contentOverlays,
+            aspectMode,
+            warnings: takeEbayCallWarnings().map((w) => w.longMessage || w.message),
+          });
+              contentPutOk = true;
             } catch (retryErr) {
               e = retryErr;
             }
           }
-          if (!fieldResults.some((r) => r.field === "photos" && r.ok)) {
+          if (!contentPutOk) {
+            const contentAspects = (
+              (inventoryBody.product as Record<string, unknown> | undefined)?.aspects ?? {}
+            ) as Record<string, string[]>;
+            console.error("[ebay] passthrough PUT inventory content failed — full eBay error", {
+              storeItemId: item.id,
+              sku,
+              offerCategoryId,
+              contentOverlays,
+              aspectKeys: Object.keys(contentAspects),
+              aspectValues: contentAspects,
+              aspectMode,
+              usePreparedAspects,
+              ...formatEbayErrorDiagnostics(e),
+            });
             if (e instanceof EbayApiError) {
               addResponse(trace, e.status, { error: e.message, body: e.body });
             }
             const msg = `${describeEbayThrownError(e)}. ${putNote}`;
-            fieldResults.push({ field: "photos", ok: false, error: msg });
+            if (changed.title) {
+              fieldResults.push({ field: "title", ok: false, error: msg });
+            }
+            if (putInventory) {
+              fieldResults.push({ field: "photos", ok: false, error: msg });
+            }
           }
+        }
+        if (contentPutOk) {
+          if (changed.title) fieldResults.push({ field: "title", ok: true });
+          if (putInventory) fieldResults.push({ field: "photos", ok: true });
         }
       }
 
@@ -772,18 +832,38 @@ async function upsertListing(
       if (traceCtx) {
         addRequest(traceCtx, body);
       }
-      try {
+      const putInventory = async (payload: Record<string, unknown>) => {
         await ebayJson(
           conn.accessToken,
           `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
           "PUT",
-          body
+          payload
         );
         if (traceCtx) {
-          addResponse(traceCtx, 200, { success: true });
+          addResponse(traceCtx, 200, { success: true, warnings: takeEbayCallWarnings() });
         }
         await persistRevisionCount(conn.id, sku, conn.config);
+      };
+      try {
+        await putInventory(body);
       } catch (e) {
+        const msg = describeEbayThrownError(e);
+        const product =
+          body.product && typeof body.product === "object"
+            ? (body.product as Record<string, unknown>)
+            : null;
+        const imageUrls = Array.isArray(product?.imageUrls)
+          ? product.imageUrls.filter((url): url is string => typeof url === "string")
+          : [];
+        if (isEbayImageRelatedInventoryError(msg) && imageUrls.length > 0) {
+          const hosted = await ensureEbayHostedPhotoUrls(conn.accessToken, imageUrls);
+          const retryBody = {
+            ...body,
+            product: { ...(product ?? {}), imageUrls: hosted },
+          };
+          await putInventory(retryBody);
+          return;
+        }
         if (traceCtx && e instanceof EbayApiError) {
           addResponse(traceCtx, e.status, { error: e.message, body: e.body });
         }
@@ -791,8 +871,98 @@ async function upsertListing(
       }
     }
 
+    let inventoryBody = await finalizeInventoryBody(
+      conn.accessToken,
+      buildEbayInventoryItem(syncItem, pushAspects),
+      {
+        categoryId: aspectCategoryId,
+        pushAspects,
+        operation,
+        item: syncItem,
+      }
+    );
     const offerBody = buildEbayOffer(syncItem, cfg, aspectCategoryId, sku);
-    const inventoryBody = buildEbayInventoryItem(syncItem, pushAspects);
+
+    if (shouldUseInventoryItemGroup(syncItem)) {
+      const variantSkus = buildVariantInventorySkus(syncItem);
+      for (const variantSku of variantSkus) {
+        const variantBody = await finalizeInventoryBody(
+          conn.accessToken,
+          buildEbayInventoryItem({ ...syncItem, sku: variantSku }, pushAspects),
+          {
+            categoryId: aspectCategoryId,
+            pushAspects,
+            operation,
+            item: syncItem,
+          }
+        );
+        await ebayJson(
+          conn.accessToken,
+          `/sell/inventory/v1/inventory_item/${encodeURIComponent(variantSku)}`,
+          "PUT",
+          variantBody
+        );
+        const variantOffer = await findOffer(conn.accessToken, variantSku);
+        const variantOfferBody = buildEbayOffer(
+          { ...syncItem, sku: variantSku },
+          cfg,
+          aspectCategoryId,
+          variantSku
+        );
+        if (variantOffer?.offerId) {
+          await ebayJson(
+            conn.accessToken,
+            `/sell/inventory/v1/offer/${variantOffer.offerId}`,
+            "PUT",
+            variantOfferBody
+          );
+        } else {
+          await ebayJson(conn.accessToken, `/sell/inventory/v1/offer`, "POST", variantOfferBody);
+        }
+      }
+      await createOrReplaceInventoryItemGroup(
+        conn.accessToken,
+        buildInventoryItemGroupBody(syncItem, variantSkus)
+      );
+      const shouldPublishGroup =
+        cfg.canPublish && item.status === "active" && item.quantity > 0 && !hadOfferAtStart;
+      if (shouldPublishGroup) {
+        if (!hadOfferAtStart) {
+          try {
+            const fees = await getListingFees(
+              conn.accessToken,
+              (
+                await Promise.all(
+                  variantSkus.map(async (variantSku) => (await findOffer(conn.accessToken, variantSku))?.offerId)
+                )
+              ).filter((id): id is string => Boolean(id))
+            );
+            const blockReason = getListingFeeBlockReason(fees);
+            if (blockReason) {
+              await completeTrace(trace, "failed", new Error(blockReason));
+              return { sku: variantSkus[0] ?? sku, publishError: blockReason };
+            }
+          } catch (e) {
+            console.warn("[ebay] getListingFees failed for variant group; continuing", {
+              sku,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+        }
+        try {
+          await publishOfferByInventoryItemGroup(
+            conn.accessToken,
+            buildInventoryItemGroupBody(syncItem, variantSkus).inventoryItemGroupKey as string
+          );
+        } catch (e) {
+          const msg = describeEbayThrownError(e);
+          await completeTrace(trace, "failed", e);
+          return { sku: variantSkus[0] ?? sku, publishError: msg };
+        }
+      }
+      await completeTrace(trace, "success");
+      return { sku: variantSkus[0] ?? sku };
+    }
 
     // Existing offers: set category on the offer before updating inventory condition (eBay #25021).
     if (offerId) {
@@ -814,7 +984,19 @@ async function upsertListing(
           sku,
           syncConditionEnum: prepared.conditionEnum,
         });
-        await pushInventoryBody(buildEbayInventoryItem(syncItem, pushAspects), trace);
+        await pushInventoryBody(
+          await finalizeInventoryBody(
+            conn.accessToken,
+            buildEbayInventoryItem(syncItem, pushAspects),
+            {
+              categoryId: aspectCategoryId,
+              pushAspects,
+              operation,
+              item: syncItem,
+            }
+          ),
+          trace
+        );
       }
     } else {
       await pushInventoryBody(inventoryBody, trace);
@@ -823,6 +1005,25 @@ async function upsertListing(
 
     const shouldPublish = cfg.canPublish && item.status === "active" && item.quantity > 0 && !!offerId;
     if (shouldPublish && offerId) {
+      if (!hadOfferAtStart) {
+        try {
+          const fees = await getListingFees(conn.accessToken, [offerId]);
+          const blockReason = getListingFeeBlockReason(fees);
+          if (blockReason) {
+            await completeTrace(trace, "failed", new Error(blockReason));
+            return { sku, publishError: blockReason };
+          }
+          const feeSummary = formatListingFeeSummary(fees);
+          if (feeSummary) {
+            console.info("[ebay] publish listing fees", { offerId, feeSummary });
+          }
+        } catch (e) {
+          console.warn("[ebay] getListingFees failed; continuing to publish", {
+            offerId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
       try {
         await publishOffer(conn.accessToken, offerId);
         await persistRevisionCount(conn.id, sku, conn.config);
@@ -841,7 +1042,19 @@ async function upsertListing(
             sku,
             syncConditionEnum: prepared.conditionEnum,
           });
-          await pushInventoryBody(buildEbayInventoryItem(syncItem, pushAspects), trace);
+          await pushInventoryBody(
+            await finalizeInventoryBody(
+              conn.accessToken,
+              buildEbayInventoryItem(syncItem, pushAspects),
+              {
+                categoryId: aspectCategoryId,
+                pushAspects,
+                operation,
+                item: syncItem,
+              }
+            ),
+            trace
+          );
           await publishOffer(conn.accessToken, offerId);
           await persistRevisionCount(conn.id, sku, conn.config);
         } else {
@@ -917,9 +1130,14 @@ export const ebayAdapter: ChannelAdapter = {
   async getInitialConfig(accessToken): Promise<Record<string, unknown>> {
     const cfg = await fetchEbayConnectionConfig(accessToken);
 
-    // Subscribe to eBay Platform Notifications for real-time sync
     const webhookUrl = `${getBaseUrl()}/api/channels/ebay/webhook`;
     const notifResult = await subscribeToEbayNotifications(accessToken, webhookUrl);
+    const commerceNotif = await enableCommerceNotifications(accessToken, webhookUrl).catch((e) => {
+      console.warn("[ebay] Commerce Notification API setup failed", {
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return { destinationId: null, subscriptionIds: [] as string[] };
+    });
 
     return {
       ...cfg,
@@ -927,6 +1145,8 @@ export const ebayAdapter: ChannelAdapter = {
       notificationsWebhookUrl: notifResult.success ? webhookUrl : undefined,
       notificationsEnabledAt: notifResult.success ? new Date().toISOString() : undefined,
       notificationsError: notifResult.error,
+      commerceNotificationsDestinationId: commerceNotif.destinationId,
+      commerceNotificationSubscriptionIds: commerceNotif.subscriptionIds,
     };
   },
 
@@ -960,15 +1180,6 @@ export const ebayAdapter: ChannelAdapter = {
       } catch (e) {
         if (!(e instanceof EbayApiError && e.status === 404)) throw e;
       }
-    }
-    try {
-      await ebayAction(
-        conn.accessToken,
-        `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
-        "DELETE"
-      );
-    } catch (e) {
-      if (!(e instanceof EbayApiError && e.status === 404)) throw e;
     }
   },
 
@@ -1042,9 +1253,16 @@ export const ebayAdapter: ChannelAdapter = {
   },
 
   async listRemoteListings(conn, opts?: { skipPhotoEnrichment?: boolean }): Promise<RemoteListingSummary[]> {
-    const listings = await enumerateEbayListings(conn.accessToken, {
+    const tradingListings = await enumerateEbayListings(conn.accessToken, {
       skipPhotoEnrichment: opts?.skipPhotoEnrichment,
     });
+    const inventoryRows = await listInventoryItems(conn.accessToken).catch((e) => {
+      console.warn("[ebay] listInventoryItems failed during import", {
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return [];
+    });
+    const listings = mergeInventoryRowsWithTrading(tradingListings, inventoryRows);
     return listings.map((l) =>
       ebayListingToSummary({
         listingId: l.listingId,

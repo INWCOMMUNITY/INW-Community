@@ -2,10 +2,31 @@ import { describe, expect, it } from "vitest";
 import {
   EbayApiError,
   describeEbayThrownError,
+  extractEbayWarnings,
   formatEbayApiBody,
   formatEbayErrorDiagnostics,
   formatMigrateListingError,
 } from "./errors";
+
+describe("extractEbayWarnings", () => {
+  it("returns empty when the envelope has no warnings", () => {
+    expect(extractEbayWarnings({ errors: [{ errorId: 1 }] })).toEqual([]);
+    expect(extractEbayWarnings(null)).toEqual([]);
+  });
+
+  it("reads warnings from a successful envelope", () => {
+    const rows = extractEbayWarnings({
+      warnings: [
+        {
+          errorId: 25007,
+          longMessage: "The listing was updated but a warning occurred.",
+        },
+      ],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.errorId).toBe(25007);
+  });
+});
 
 describe("formatEbayApiBody", () => {
   it("includes error id and long message instead of a bare HTTP code", () => {

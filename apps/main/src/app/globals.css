@@ -14,9 +14,10 @@
   --color-button-hover: #FDEDCC;
   --color-button-hover-text: #505542;
   --color-section-alt: #FDEDCC;
+  --color-earth: #5d4f40;
   --font-heading: var(--font-fahkwang, "Fahkwang", sans-serif);
   --font-body: "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-body-weight: 300;
+  --font-body-weight: 400;
   --font-size-heading: 2rem;
   --font-size-body: 1rem;
   --line-height: 1.6;
@@ -161,6 +162,24 @@ a {
   background-color: #ffffff;
   color: #505542;
   border-color: #505542;
+}
+
+.btn-outline {
+  display: inline-block;
+  padding: var(--button-padding);
+  background-color: transparent;
+  color: var(--color-heading);
+  border: 2px solid var(--color-primary);
+  border-radius: var(--button-border-radius);
+  text-decoration: none;
+  font-family: var(--font-heading);
+  font-weight: 500;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.btn-outline:hover {
+  background-color: var(--color-section-alt);
+  color: var(--color-heading);
 }
 
 /* Action Pill button system - matching app's pill/action button styles */

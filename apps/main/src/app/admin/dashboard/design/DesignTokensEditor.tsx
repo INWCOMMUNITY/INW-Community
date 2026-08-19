@@ -9,6 +9,7 @@ const TOKEN_KEYS = [
   "headingFont", "bodyFont", "headingFontSize", "bodyFontSize", "lineHeight", "letterSpacing",
   "buttonBorderRadius", "buttonPadding", "sectionPadding", "columnGap", "maxWidth",
   "sectionAltColor",
+  "earthColor",
 ];
 
 const DEFAULTS: Record<string, string> = {
@@ -34,6 +35,7 @@ const DEFAULTS: Record<string, string> = {
   columnGap: "2rem",
   maxWidth: "1200px",
   sectionAltColor: "#FDEDCC",
+  earthColor: "#5d4f40",
 };
 
 export function DesignTokensEditor() {

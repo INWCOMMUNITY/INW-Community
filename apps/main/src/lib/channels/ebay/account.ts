@@ -337,3 +337,178 @@ export function applyEbayPolicySelection(
   });
   return next;
 }
+
+/** Opt-in helper for Seller Hub setup — creates a default merchant location when none exist. */
+export async function createDefaultMerchantLocation(accessToken: string): Promise<string | null> {
+  const key = `inw-default-${Date.now()}`.slice(0, 36);
+  try {
+    await ebayJson(
+      accessToken,
+      `/sell/inventory/v1/location/${encodeURIComponent(key)}`,
+      "POST",
+      {
+        name: "INW Default Location",
+        merchantLocationStatus: "ENABLED",
+        locationTypes: ["WAREHOUSE"],
+        location: {
+          address: {
+            city: "Spokane",
+            stateOrProvince: "WA",
+            country: "US",
+            postalCode: "99201",
+          },
+        },
+      },
+      { contentLanguage: false }
+    );
+    return key;
+  } catch (e) {
+    console.warn("[ebay] createDefaultMerchantLocation failed", {
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return null;
+  }
+}
+
+/** Create simple default business policies for first-time eBay sellers. */
+export async function createDefaultBusinessPolicies(
+  accessToken: string
+): Promise<Partial<EbayConnectionConfig>> {
+  const mp = EBAY_MARKETPLACE_ID;
+  const created: Partial<EbayConnectionConfig> = {};
+
+  try {
+    const fulfillment = await ebayJson<{ fulfillmentPolicyId?: string; name?: string }>(
+      accessToken,
+      `/sell/account/v1/fulfillment_policy`,
+      "POST",
+      {
+        name: "INW Default Shipping",
+        marketplaceId: mp,
+        categoryTypes: [{ name: "ALL_EXCLUDING_MOTORS_VEHICLES", default: true }],
+        handlingTime: { value: 1, unit: "DAY" },
+        shippingOptions: [
+          {
+            optionType: "DOMESTIC",
+            costType: "FLAT_RATE",
+            shippingServices: [
+              {
+                sortOrder: 1,
+                shippingCarrierCode: "USPS",
+                shippingServiceCode: "USPSPriorityFlatRateBox",
+                shippingCost: { value: "0.00", currency: "USD" },
+              },
+            ],
+          },
+        ],
+      },
+      { contentLanguage: false }
+    );
+    created.fulfillmentPolicyId = fulfillment.fulfillmentPolicyId ?? null;
+    created.fulfillmentPolicyName = fulfillment.name ?? "INW Default Shipping";
+  } catch (e) {
+    console.warn("[ebay] createDefaultBusinessPolicies fulfillment failed", {
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+
+  try {
+    const payment = await ebayJson<{ paymentPolicyId?: string; name?: string }>(
+      accessToken,
+      `/sell/account/v1/payment_policy`,
+      "POST",
+      {
+        name: "INW Default Payment",
+        marketplaceId: mp,
+        categoryTypes: [{ name: "ALL_EXCLUDING_MOTORS_VEHICLES", default: true }],
+        paymentMethods: [{ paymentMethodType: "PAYPAL" }],
+      },
+      { contentLanguage: false }
+    );
+    created.paymentPolicyId = payment.paymentPolicyId ?? null;
+    created.paymentPolicyName = payment.name ?? "INW Default Payment";
+  } catch (e) {
+    console.warn("[ebay] createDefaultBusinessPolicies payment failed", {
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+
+  try {
+    const ret = await ebayJson<{ returnPolicyId?: string; name?: string }>(
+      accessToken,
+      `/sell/account/v1/return_policy`,
+      "POST",
+      {
+        name: "INW Default Returns",
+        marketplaceId: mp,
+        categoryTypes: [{ name: "ALL_EXCLUDING_MOTORS_VEHICLES", default: true }],
+        returnsAccepted: true,
+        returnPeriod: { value: 30, unit: "DAY" },
+        refundMethod: "MONEY_BACK",
+        returnShippingCostPayer: "BUYER",
+      },
+      { contentLanguage: false }
+    );
+    created.returnPolicyId = ret.returnPolicyId ?? null;
+    created.returnPolicyName = ret.name ?? "INW Default Returns";
+  } catch (e) {
+    console.warn("[ebay] createDefaultBusinessPolicies return failed", {
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+
+  return created;
+}
+
+export async function bootstrapDefaultEbayAccountSetup(
+  accessToken: string,
+  current: EbayConnectionConfig
+): Promise<EbayConnectionConfig> {
+  await optInToSellingPolicyManagement(accessToken);
+  const options = await fetchEbayPolicyOptions(accessToken);
+  let next = { ...current, sellingPolicyOptedIn: true };
+
+  if (!next.merchantLocationKey) {
+    const createdLocation = await createDefaultMerchantLocation(accessToken);
+    if (createdLocation) {
+      next = applyEbayPolicySelection(next, {
+        merchantLocationKey: createdLocation,
+        merchantLocationName: "INW Default Location",
+        merchantLocationEnabled: true,
+      });
+    }
+  }
+
+  if (!next.fulfillmentPolicyId || !next.paymentPolicyId || !next.returnPolicyId) {
+    const createdPolicies = await createDefaultBusinessPolicies(accessToken);
+    next = applyEbayPolicySelection(next, createdPolicies);
+  }
+
+  if (!next.fulfillmentPolicyId && options.fulfillmentPolicies[0]) {
+    next = applyEbayPolicySelection(next, {
+      fulfillmentPolicyId: options.fulfillmentPolicies[0].id,
+      fulfillmentPolicyName: options.fulfillmentPolicies[0].name,
+    });
+  }
+  if (!next.paymentPolicyId && options.paymentPolicies[0]) {
+    next = applyEbayPolicySelection(next, {
+      paymentPolicyId: options.paymentPolicies[0].id,
+      paymentPolicyName: options.paymentPolicies[0].name,
+    });
+  }
+  if (!next.returnPolicyId && options.returnPolicies[0]) {
+    next = applyEbayPolicySelection(next, {
+      returnPolicyId: options.returnPolicies[0].id,
+      returnPolicyName: options.returnPolicies[0].name,
+    });
+  }
+  if (!next.merchantLocationKey && options.merchantLocations[0]) {
+    next = applyEbayPolicySelection(next, {
+      merchantLocationKey: options.merchantLocations[0].id,
+      merchantLocationName: options.merchantLocations[0].name,
+      merchantLocationEnabled: options.merchantLocations[0].enabled ?? false,
+    });
+  }
+
+  return next;
+}

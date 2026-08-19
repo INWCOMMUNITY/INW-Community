@@ -5,6 +5,7 @@ import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { isEbayConfigured } from "@/lib/channels/ebay/config";
 import {
   applyEbayPolicySelection,
+  bootstrapDefaultEbayAccountSetup,
   fetchEbayPolicyOptions,
   readEbayConfig,
 } from "@/lib/channels/ebay/account";
@@ -88,6 +89,33 @@ export async function PATCH(req: NextRequest) {
     merchantLocationEnabled: location?.enabled ?? current.merchantLocationEnabled,
   });
 
+  await prisma.channelConnection.update({
+    where: { id: ctx.id },
+    data: { config: next as object },
+  });
+
+  return NextResponse.json({ ok: true, config: next });
+}
+
+/** POST — opt-in and create default eBay policies/location when the seller confirms. */
+export async function POST(req: NextRequest) {
+  const session = await getSessionForApi(req);
+  const userId = session?.user?.id;
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!isEbayConfigured()) {
+    return NextResponse.json({ error: "eBay not configured" }, { status: 503 });
+  }
+
+  const ctx = await getMemberConnectionContext(userId, "ebay");
+  if (!ctx) return NextResponse.json({ error: "eBay not connected" }, { status: 404 });
+
+  const body = (await req.json().catch(() => null)) as { confirm?: boolean } | null;
+  if (!body?.confirm) {
+    return NextResponse.json({ error: "confirm: true is required" }, { status: 400 });
+  }
+
+  const current = readEbayConfig(ctx.config);
+  const next = await bootstrapDefaultEbayAccountSetup(ctx.accessToken, current);
   await prisma.channelConnection.update({
     where: { id: ctx.id },
     data: { config: next as object },

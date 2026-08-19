@@ -44,22 +44,8 @@ export function buildEbayInventoryItem(
 
   if (axes && axes.length > 0) {
     const primary = axes[0];
-    const baseSku = getEffectiveSku(item);
-    // Variant axis values join the stored specifics; the axis name wins if both are present.
     product.aspects = { ...storedAspects, [primary.name]: primary.options.map((o) => o.value) };
-    const variations = primary.options.map((o) => ({
-      sku: `${baseSku}-${o.value}`.slice(0, 50),
-      aspects: { [primary.name]: [o.value] },
-      availability: { shipToLocationAvailability: { quantity: Math.max(0, o.quantity) } },
-    }));
-    return {
-      condition: ebayCondition(item),
-      product,
-      variations,
-    };
-  }
-
-  if (Object.keys(storedAspects).length > 0) {
+  } else if (Object.keys(storedAspects).length > 0) {
     product.aspects = storedAspects;
   }
 

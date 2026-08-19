@@ -135,7 +135,171 @@ type MetadataConditionRow = {
   conditionId?: string | number;
   conditionDescription?: string;
   conditionDisplayName?: string;
+  conditionDescriptors?: MetadataDescriptorRow[];
 };
+
+type MetadataDescriptorRow = {
+  conditionDescriptorId?: string | number;
+  conditionDescriptorName?: string;
+  conditionDescriptorHelpText?: string;
+  conditionDescriptorConstraint?: { aspectRequired?: boolean };
+  conditionDescriptorValues?: {
+    conditionDescriptorValueId?: string | number;
+    conditionDescriptorValueName?: string;
+  }[];
+};
+
+export type EbayConditionDescriptorMeta = {
+  descriptorId: string;
+  name: string;
+  required: boolean;
+  values: { id: string; label: string }[];
+};
+
+export type EbayInventoryConditionDescriptor = {
+  name: string;
+  values: string[];
+  additionalInfo?: string;
+};
+
+const DESCRIPTOR_ASPECT_ALIASES: Record<string, string[]> = {
+  grader: ["professional grader", "grader", "certification", "certification service"],
+  grade: ["numerical grade", "letter grade", "grade"],
+  certification: ["certification number", "cert number", "cert #"],
+};
+
+function normalizeDescriptorKey(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function pickAspectValues(
+  aspects: Record<string, string[]>,
+  aliases: string[]
+): string[] {
+  for (const alias of aliases) {
+    for (const [name, values] of Object.entries(aspects)) {
+      if (normalizeDescriptorKey(name) === alias) {
+        return values.map((v) => v.trim()).filter(Boolean);
+      }
+    }
+  }
+  return [];
+}
+
+function resolveDescriptorValueId(
+  meta: EbayConditionDescriptorMeta,
+  aspectValues: string[]
+): string | null {
+  for (const aspectValue of aspectValues) {
+    const normalized = normalizeDescriptorKey(aspectValue);
+    const exact = meta.values.find((v) => normalizeDescriptorKey(v.label) === normalized);
+    if (exact) return exact.id;
+    const partial = meta.values.find(
+      (v) =>
+        normalizeDescriptorKey(v.label).includes(normalized) ||
+        normalized.includes(normalizeDescriptorKey(v.label))
+    );
+    if (partial) return partial.id;
+  }
+  return null;
+}
+
+function descriptorKind(name: string): "grader" | "grade" | "certification" | "other" {
+  const key = normalizeDescriptorKey(name);
+  if (/grader|certification service/.test(key)) return "grader";
+  if (/grade|card condition/.test(key)) return "grade";
+  if (/certification number|cert number|cert #/.test(key)) return "certification";
+  return "other";
+}
+
+/** Parse condition descriptor metadata from Metadata API policy rows. */
+export function parseConditionDescriptorMetadata(
+  rows: MetadataConditionRow[]
+): EbayConditionDescriptorMeta[] {
+  const out: EbayConditionDescriptorMeta[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    for (const descriptor of row.conditionDescriptors ?? []) {
+      const descriptorId = String(descriptor.conditionDescriptorId ?? "").trim();
+      const name = descriptor.conditionDescriptorName?.trim();
+      if (!descriptorId || !name || seen.has(descriptorId)) continue;
+      seen.add(descriptorId);
+      out.push({
+        descriptorId,
+        name,
+        required: Boolean(descriptor.conditionDescriptorConstraint?.aspectRequired),
+        values: (descriptor.conditionDescriptorValues ?? [])
+          .map((value) => ({
+            id: String(value.conditionDescriptorValueId ?? "").trim(),
+            label: value.conditionDescriptorValueName?.trim() ?? "",
+          }))
+          .filter((value) => value.id && value.label),
+      });
+    }
+  }
+  return out;
+}
+
+export async function fetchConditionDescriptorMetadata(
+  accessToken: string,
+  categoryId: string
+): Promise<EbayConditionDescriptorMeta[]> {
+  const id = categoryId.trim();
+  if (!id) return [];
+
+  const url =
+    `https://api.ebay.com/sell/metadata/v1/marketplace/${encodeURIComponent(EBAY_MARKETPLACE_ID)}` +
+    `/get_item_condition_policies?filter=${encodeURIComponent(`categoryIds:{${id}}`)}`;
+
+  const res = await ebayGet<MetadataPolicyResponse>(accessToken, url);
+  const policy = res.itemConditionPolicies?.find((p) => p.categoryId === id) ?? res.itemConditionPolicies?.[0];
+  return parseConditionDescriptorMetadata(policy?.itemConditions ?? []);
+}
+
+/** Build Inventory API conditionDescriptors from product aspects when category requires them. */
+export function buildConditionDescriptorsFromAspects(
+  productAspects: Record<string, string[]>,
+  metadata: EbayConditionDescriptorMeta[]
+): EbayInventoryConditionDescriptor[] | undefined {
+  if (metadata.length === 0) return undefined;
+  const descriptors: EbayInventoryConditionDescriptor[] = [];
+
+  for (const meta of metadata) {
+    const kind = descriptorKind(meta.name);
+    const aliases =
+      kind === "grader"
+        ? DESCRIPTOR_ASPECT_ALIASES.grader
+        : kind === "grade"
+          ? DESCRIPTOR_ASPECT_ALIASES.grade
+          : kind === "certification"
+            ? DESCRIPTOR_ASPECT_ALIASES.certification
+            : [meta.name];
+    const aspectValues = pickAspectValues(productAspects, aliases);
+    if (aspectValues.length === 0) continue;
+    const valueId = resolveDescriptorValueId(meta, aspectValues);
+    if (!valueId) continue;
+    const row: EbayInventoryConditionDescriptor = {
+      name: meta.descriptorId,
+      values: [valueId],
+    };
+    if (kind === "certification") {
+      row.additionalInfo = aspectValues[0];
+    }
+    descriptors.push(row);
+  }
+
+  return descriptors.length > 0 ? descriptors : undefined;
+}
+
+export function appendConditionDescriptorsToInventoryBody(
+  body: Record<string, unknown>,
+  productAspects: Record<string, string[]>,
+  metadata: EbayConditionDescriptorMeta[]
+): Record<string, unknown> {
+  const descriptors = buildConditionDescriptorsFromAspects(productAspects, metadata);
+  if (!descriptors) return body;
+  return { ...body, conditionDescriptors: descriptors };
+}
 
 type MetadataPolicyResponse = {
   itemConditionPolicies?: {

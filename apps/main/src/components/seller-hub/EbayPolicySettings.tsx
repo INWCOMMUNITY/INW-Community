@@ -33,6 +33,7 @@ export function EbayPolicySettings() {
   const [data, setData] = useState<PoliciesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [bootstrapping, setBootstrapping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -63,6 +64,30 @@ export function EbayPolicySettings() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function bootstrapDefaults() {
+    if (!window.confirm("Create default eBay shipping, payment, return policies and a merchant location?")) {
+      return;
+    }
+    setBootstrapping(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/channels/ebay/policies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      });
+      const json = (await res.json()) as { error?: string; config?: PoliciesResponse["selected"] };
+      if (!res.ok) throw new Error(json.error || "Failed to create default eBay setup");
+      setMessage("Default eBay policies and location created.");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create default eBay setup");
+    } finally {
+      setBootstrapping(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -190,6 +215,17 @@ export function EbayPolicySettings() {
 
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
       {message ? <p className="text-sm text-green-700">{message}</p> : null}
+
+      {!data.canPublish ? (
+        <button
+          type="button"
+          onClick={() => void bootstrapDefaults()}
+          disabled={bootstrapping || saving}
+          className="action-pill action-pill-sm btn-pill-secondary disabled:opacity-50"
+        >
+          {bootstrapping ? "Creating defaults…" : "Create default eBay setup"}
+        </button>
+      ) : null}
 
       <button
         type="button"

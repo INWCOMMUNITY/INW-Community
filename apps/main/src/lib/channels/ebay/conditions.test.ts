@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildConditionDescriptorsFromAspects,
   conditionEnumFromId,
   conditionIdFromEnum,
   defaultEbayConditionEnum,
   inwConditionFromEbayEnum,
   isEbayConditionSyncError,
+  parseConditionDescriptorMetadata,
   presentEbayConditionChoices,
   resolveEbayInventoryCondition,
   resolveEbaySyncConditionFromChoices,
   type EbayConditionChoice,
+  type EbayConditionDescriptorMeta,
 } from "./conditions";
 
 describe("conditionEnumFromId", () => {
@@ -90,5 +93,44 @@ describe("inwConditionFromEbayEnum", () => {
     expect(inwConditionFromEbayEnum("USED_EXCELLENT")).toBe("used");
     expect(conditionIdFromEnum("NEW")).toBe(1000);
     expect(defaultEbayConditionEnum("used")).toBe("USED_EXCELLENT");
+  });
+});
+
+describe("buildConditionDescriptorsFromAspects", () => {
+  const metadata: EbayConditionDescriptorMeta[] = parseConditionDescriptorMetadata([
+    {
+      conditionDescriptors: [
+        {
+          conditionDescriptorId: "27501",
+          conditionDescriptorName: "Professional Grader",
+          conditionDescriptorConstraint: { aspectRequired: true },
+          conditionDescriptorValues: [
+            { conditionDescriptorValueId: "275010", conditionDescriptorValueName: "PCGS" },
+          ],
+        },
+        {
+          conditionDescriptorId: "27502",
+          conditionDescriptorName: "Grade",
+          conditionDescriptorConstraint: { aspectRequired: true },
+          conditionDescriptorValues: [
+            { conditionDescriptorValueId: "275020", conditionDescriptorValueName: "67" },
+          ],
+        },
+      ],
+    },
+  ]);
+
+  it("maps grader and grade aspects to descriptor ids", () => {
+    const descriptors = buildConditionDescriptorsFromAspects(
+      {
+        "Professional grader": ["PCGS"],
+        "Numerical grade": ["67"],
+      },
+      metadata
+    );
+    expect(descriptors).toEqual([
+      { name: "27501", values: ["275010"] },
+      { name: "27502", values: ["275020"] },
+    ]);
   });
 });

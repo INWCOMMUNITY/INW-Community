@@ -29,6 +29,7 @@ export interface DesignTheme {
   columnGap: string;
   maxWidth: string;
   sectionAltColor?: string;
+  earthColor?: string;
 }
 
 export const defaultTheme: DesignTheme = {
@@ -54,6 +55,7 @@ export const defaultTheme: DesignTheme = {
   columnGap: "2rem",
   maxWidth: "1200px",
   sectionAltColor: "#FDEDCC",
+  earthColor: "#5d4f40",
 };
 
 export function themeToCssVariables(theme: Partial<DesignTheme>): Record<string, string> {
@@ -81,5 +83,6 @@ export function themeToCssVariables(theme: Partial<DesignTheme>): Record<string,
     "--column-gap": t.columnGap,
     "--max-width": t.maxWidth,
     "--color-section-alt": t.sectionAltColor ?? "#FDEDCC",
+    "--color-earth": t.earthColor ?? "#5d4f40",
   };
 }
