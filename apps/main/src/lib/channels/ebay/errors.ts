@@ -318,7 +318,7 @@ export function ebayErrorActionHint(reason: string): string | undefined {
     return "This listing needs a condition that matches its eBay category. Open the listing in INW and choose New or Used when prompted.";
   }
   if (/\b25064\b|professional grader|numerical grade|item specific|item specifics/i.test(reason)) {
-    return "eBay rejected the sync because grader info is missing on the Inventory API payload. Your listing uses Certification (e.g. NGC) — try Refresh from eBay, then sync again. If it persists, ensure the title includes the grader and grade (e.g. NGC MS 67).";
+    return "eBay Inventory rejected the payload. Check the sent aspect keys in this error; edit title or photos in INW only when those actually changed.";
   }
   if (/\b25001\b|system error has occurred|Internal error/i.test(reason)) {
     return "eBay's service hit a temporary error. Wait a minute and try again.";
@@ -357,7 +357,7 @@ export function describeChannelSyncError(provider: string, e: unknown): string {
     }
     if (/#25064|item specific|required field.*aspect|aspect.*required|Letter grade/i.test(msg)) {
       const hint = ebayErrorActionHint(msg);
-      const base = `Listing details didn't update on eBay: ${msg}. Edit title, price, photos, or description in INW; edit item specifics on eBay.`;
+      const base = `Listing details didn't update on eBay: ${msg}`;
       return hint ? `${base} — ${hint}` : base;
     }
     if (/policy|fulfillment|merchant location|401|403|unauthorized/i.test(msg)) {

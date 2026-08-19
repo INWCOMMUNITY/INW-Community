@@ -16,7 +16,17 @@ export type PassthroughChangedFields = {
   content: boolean;
   quantity: boolean;
   price: boolean;
+  title?: boolean;
+  photos?: boolean;
+  description?: boolean;
 };
+
+/** Inventory PUT is only required when title or photos change (full product replace). */
+export function needsInventoryPut(changed: PassthroughChangedFields): boolean {
+  if (changed.title === true || changed.photos === true) return true;
+  if (changed.title === false && changed.photos === false) return false;
+  return changed.content;
+}
 
 export type LiveInventoryItem = Record<string, unknown>;
 
@@ -37,6 +47,85 @@ export function detectPassthroughChangedFields(
     content,
     quantity,
     price: content,
+  };
+}
+
+function normalizeCompareText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizePhotoUrl(url: string): string {
+  return url
+    .trim()
+    .replace(/\?.*$/, "")
+    .replace(/\/s-l\d+(\.\w+)?$/i, "")
+    .replace(/\/\$\d+\.\w+$/i, "")
+    .toLowerCase();
+}
+
+function photosMatch(live: string[], inw: string[]): boolean {
+  const a = live.map(normalizePhotoUrl).filter(Boolean);
+  const b = inw.map(normalizePhotoUrl).filter(Boolean);
+  if (a.length !== b.length) return false;
+  if (a.length === 0) return true;
+  const setA = new Set(a);
+  return b.every((url) => setA.has(url));
+}
+
+function liveQuantity(live: LiveInventoryItem): number | null {
+  const availability = live.availability;
+  if (!availability || typeof availability !== "object") return null;
+  const ship = (availability as { shipToLocationAvailability?: { quantity?: unknown } })
+    .shipToLocationAvailability;
+  if (ship?.quantity == null) return null;
+  const n = Number(ship.quantity);
+  return Number.isFinite(n) ? n : null;
+}
+
+function offerPriceCents(offer: Record<string, unknown> | null | undefined): number | null {
+  const summary = offer?.pricingSummary;
+  if (!summary || typeof summary !== "object") return null;
+  const price = (summary as { price?: { value?: unknown } }).price;
+  if (price?.value == null) return null;
+  const n = Number(price.value);
+  return Number.isFinite(n) ? Math.round(n * 100) : null;
+}
+
+function offerDescription(offer: Record<string, unknown> | null | undefined): string {
+  const raw = offer?.listingDescription;
+  return typeof raw === "string" ? raw : "";
+}
+
+/** Compare INW fields to live eBay inventory + offer so we only rewrite what changed. */
+export function detectLivePassthroughChanges(
+  live: LiveInventoryItem,
+  item: SyncStoreItem,
+  liveOffer?: Record<string, unknown> | null
+): PassthroughChangedFields {
+  const product =
+    live.product && typeof live.product === "object"
+      ? (live.product as Record<string, unknown>)
+      : {};
+  const liveTitle = typeof product.title === "string" ? product.title : "";
+  const livePhotos = Array.isArray(product.imageUrls)
+    ? product.imageUrls.map((u) => String(u))
+    : [];
+  const title = normalizeCompareText(liveTitle) !== normalizeCompareText(item.title.slice(0, EBAY_TITLE_MAX));
+  const photos = !photosMatch(livePhotos.slice(0, 12), item.photos.slice(0, 12));
+  const wantedDescription = listingDescriptionForHtmlChannel(item.description, item.title);
+  const liveDesc = offerDescription(liveOffer) || (typeof product.description === "string" ? product.description : "");
+  const description = normalizeCompareText(liveDesc) !== normalizeCompareText(wantedDescription);
+  const liveQty = liveQuantity(live);
+  const quantity = liveQty != null && liveQty !== Math.max(0, item.quantity);
+  const livePrice = offerPriceCents(liveOffer);
+  const price = livePrice != null && livePrice !== item.priceCents;
+  return {
+    title,
+    photos,
+    description,
+    quantity,
+    price,
+    content: title || photos || description,
   };
 }
 
@@ -133,9 +222,12 @@ export function buildPassthroughInventoryBody(
     delete liveProduct.aspects;
   }
 
-  if (changed.content) {
+  const overlayTitle = changed.title ?? changed.content;
+  const overlayPhotos = changed.photos ?? changed.content;
+  if (overlayTitle) {
     liveProduct.title = item.title.slice(0, EBAY_TITLE_MAX);
-    liveProduct.description = listingDescriptionForHtmlChannel(item.description, item.title);
+  }
+  if (overlayPhotos) {
     liveProduct.imageUrls = item.photos.slice(0, 12);
   }
 
@@ -170,6 +262,52 @@ export function buildPassthroughInventoryBody(
   return body;
 }
 
+const OFFER_READ_ONLY_KEYS = new Set([
+  "offerId",
+  "status",
+  "listing",
+  "listingId",
+  "soldQuantity",
+  "href",
+]);
+
+/** Overlay INW description/qty on a live GET offer — never rewrite category or policies. */
+export function overlayPassthroughOffer(
+  liveOffer: Record<string, unknown>,
+  item: SyncStoreItem,
+  changed: PassthroughChangedFields
+): Record<string, unknown> {
+  const offer: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(liveOffer)) {
+    if (OFFER_READ_ONLY_KEYS.has(key)) continue;
+    offer[key] = value;
+  }
+
+  if (changed.quantity) {
+    offer.availableQuantity = Math.max(0, item.quantity);
+  }
+
+  if (changed.price) {
+    const existing =
+      offer.pricingSummary && typeof offer.pricingSummary === "object"
+        ? { ...(offer.pricingSummary as Record<string, unknown>) }
+        : {};
+    offer.pricingSummary = {
+      ...existing,
+      price: { value: ebayPriceFromCents(item.priceCents), currency: "USD" },
+    };
+  }
+
+  if (changed.description || (changed.content && changed.description == null)) {
+    offer.listingDescription = listingDescriptionForHtmlChannel(item.description, item.title).slice(
+      0,
+      500000
+    );
+  }
+
+  return offer;
+}
+
 /** Overlay INW price/qty/description on an existing offer body for imported listings. */
 export function buildPassthroughOfferBody(
   item: SyncStoreItem,
@@ -185,7 +323,7 @@ export function buildPassthroughOfferBody(
     };
   }
 
-  if (changed.content) {
+  if (changed.description || changed.content) {
     offer.listingDescription = listingDescriptionForHtmlChannel(item.description, item.title).slice(
       0,
       500000
@@ -193,4 +331,13 @@ export function buildPassthroughOfferBody(
   }
 
   return offer;
+}
+
+export function formatPushedAspectsSummary(aspects: Record<string, string[]> | null | undefined): string {
+  if (!aspects || Object.keys(aspects).length === 0) return "Sent aspects: (none)";
+  const keys = Object.keys(aspects);
+  const grader = aspects["Professional grader"]?.join(",") ?? "(missing)";
+  const letter = aspects["Letter grade"]?.join(",") ?? "(missing)";
+  const numerical = aspects["Numerical grade"]?.join(",") ?? "(missing)";
+  return `Sent aspects: ${keys.join(", ")}. Professional grader=${grader}; Letter grade=${letter}; Numerical grade=${numerical}`;
 }

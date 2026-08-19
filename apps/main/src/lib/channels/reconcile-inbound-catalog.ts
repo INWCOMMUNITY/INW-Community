@@ -295,13 +295,15 @@ export async function reconcileConnectionInboundCatalog(
       conflictResolution,
     });
 
-    if (staleRemoteNeedsPush && contentDecision !== "push") {
-      contentDecision = "push";
+    // Hash already matches the agreed baseline — photo-URL / title-truncation drift
+    // must not force a full channel rewrite (eBay Inventory PUT #25064 loop).
+    if (!inwContentChanged && staleRemoteNeedsPush) {
+      contentDecision = "noop";
     }
 
     // Never pull when the remote listing is older than INW and did not change since baseline.
     if (contentDecision === "pull" && !remoteContentChanged && inwNewerThanRemote) {
-      contentDecision = staleRemoteNeedsPush ? "push" : "noop";
+      contentDecision = "noop";
     }
 
     const inwQtyChangedSinceBaseline =
@@ -344,7 +346,7 @@ export async function reconcileConnectionInboundCatalog(
     }
 
     if (contentDecision === "noop" && !qtyDiffers) {
-      if (link.syncBaselineHash == null || link.syncBaselineAt == null) {
+      if (staleRemoteNeedsPush || link.syncBaselineHash == null || link.syncBaselineAt == null) {
         await writeBaseline(link.id, link.storeItemId, remote, false);
       }
       continue;

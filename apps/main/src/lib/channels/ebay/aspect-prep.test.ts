@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { EbayCategoryAspect } from "./aspects";
 import {
+  enrichInventoryProductAspectsForPush,
   ensureGradedCoinInventoryAspects,
   filterSellerVisibleCategoryAspects,
   prepareAspectRowsForForm,
@@ -103,5 +104,31 @@ describe("prepareAspectRowsForForm", () => {
     expect(rows.some((a) => a.name === "Certification")).toBe(false);
     expect(rows.find((a) => a.name === "Professional grader")?.value).toBe("NGC");
     expect(rows.some((a) => a.name === "Letter grade")).toBe(false);
+  });
+});
+
+describe("enrichInventoryProductAspectsForPush", () => {
+  it("keeps live aspects as base and snaps grader to taxonomy suggested value", () => {
+    const taxonomy: EbayCategoryAspect[] = [
+      {
+        name: "Professional grader",
+        required: true,
+        mode: "SELECTION_ONLY",
+        cardinality: "SINGLE",
+        suggestedValues: ["NGC (Numismatic Guaranty Corporation)", "PCGS"],
+      },
+    ];
+    const product = enrichInventoryProductAspectsForPush(
+      { Grade: ["MS 67"], Year: ["1938"] },
+      "1938 Jefferson Nickel NGC MS 67",
+      taxonomy,
+      { Certification: ["NGC"] }
+    );
+    expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
+    expect(product.Grade).toEqual(["MS 67"]);
+    expect(product.Year).toEqual(["1938"]);
+    expect(product["Letter grade"]).toEqual(["MS"]);
+    expect(product["Numerical grade"]).toEqual(["67"]);
+    expect(product.Certification).toBeUndefined();
   });
 });

@@ -25,6 +25,11 @@ import { getRecentTraces, type SyncTraceSummary } from "@/lib/channels/sync-trac
 import { getErrorCategoryLabel, getSuggestedFixes } from "@/lib/channels/error-classifiers-registry";
 import { isImportedEbayLink, extractEbayInventoryAspects } from "@/lib/channels/ebay/listing-origin";
 import { ebayGetInventoryItem } from "@/lib/channels/ebay/client";
+import {
+  getCircuitStatus,
+  hydrateCircuitFromConfig,
+  resetCircuit,
+} from "@/lib/channels/circuit-breaker";
 
 export const dynamic = "force-dynamic";
 
@@ -77,6 +82,13 @@ type DiagnosisResult = {
   repairAttempted?: boolean;
   repairResults?: { storeItemId: string; ok: boolean; error?: string }[];
   baselineReset?: { reset: number; linkIds: string[] };
+  circuitBreaker?: {
+    state: string;
+    failures: number;
+    lastFailure: string | null;
+    openedAt: string | null;
+  };
+  circuitReset?: boolean;
   refreshedConfig?: boolean;
   syncReadiness?: {
     storeItemId: string;
@@ -103,6 +115,7 @@ type DiagnosisResult = {
  *   - storeItemId — focus on one linked item
  *   - repair=1 — run a sync push for linked items, then re-diagnose
  *   - resetBaseline=1 — reset poisoned syncBaselineQty values
+ *   - resetCircuit=1 — clear paused sync circuit (after fixing underlying errors)
  *   - refreshConfig=1 — re-fetch business policies and update connection config
  *   - optIn=1 — attempt to opt seller into Business Policies program
  *
@@ -142,6 +155,7 @@ export async function GET(req: NextRequest) {
   const storeItemId = searchParams.get("storeItemId")?.trim() || null;
   const repair = searchParams.get("repair") === "1";
   const resetBaseline = searchParams.get("resetBaseline") === "1";
+  const resetCircuitParam = searchParams.get("resetCircuit") === "1";
   const refreshConfig = searchParams.get("refreshConfig") === "1";
   const optIn = searchParams.get("optIn") === "1";
 
@@ -184,6 +198,14 @@ export async function GET(req: NextRequest) {
     refreshedConfig = true;
   }
 
+  hydrateCircuitFromConfig(ctx.id, ctx.config);
+
+  let circuitReset = false;
+  if (resetCircuitParam) {
+    await resetCircuit(ctx.id, "ebay", userId);
+    circuitReset = true;
+  }
+
   // Reset corrupt baselines if requested
   let baselineReset: { reset: number; linkIds: string[] } | undefined;
   if (resetBaseline) {
@@ -223,6 +245,7 @@ export async function GET(req: NextRequest) {
   // Repair if requested
   let repairResults: { storeItemId: string; ok: boolean; error?: string }[] | undefined;
   if (repair && linkRows.length > 0) {
+    await resetCircuit(ctx.id, "ebay", userId);
     repairResults = [];
     for (const row of linkRows) {
       const results = await syncInventoryToChannels(row.storeItemId);
@@ -268,6 +291,14 @@ export async function GET(req: NextRequest) {
   // Count errors
   const errorCount = links.filter((l) => l.syncStatus === "error").length;
 
+  const circuitStatus = getCircuitStatus(ctx.id);
+  const circuitBreaker = {
+    state: circuitStatus.state,
+    failures: circuitStatus.failures,
+    lastFailure: circuitStatus.lastFailure?.toISOString() ?? null,
+    openedAt: circuitStatus.openedAt?.toISOString() ?? null,
+  };
+
   // Get revision stats
   const revisionStats = getRevisionStats().slice(0, 10);
 
@@ -288,6 +319,11 @@ export async function GET(req: NextRequest) {
     verdict = "CANNOT_PUBLISH";
     summary = config.publishBlockReason || "Missing required business policies or merchant location.";
     nextStep = "Set up payment, return, and shipping policies plus enable a merchant location in eBay Seller Hub. Then use ?refreshConfig=1.";
+  } else if (circuitStatus.state === "OPEN") {
+    verdict = "CIRCUIT_OPEN";
+    summary = "Sync is temporarily paused due to repeated failures.";
+    nextStep =
+      "Use Sync Now in the app, or ?resetCircuit=1 then ?repair=1 on this diagnose URL after deploying the latest fix.";
   } else if (linkRows.length === 0) {
     verdict = "NO_LINKS";
     summary = storeItemId
@@ -429,6 +465,8 @@ export async function GET(req: NextRequest) {
     repairAttempted: repair,
     repairResults,
     baselineReset,
+    circuitBreaker,
+    circuitReset: circuitReset || undefined,
     refreshedConfig,
     syncReadiness,
     passthroughDebug,

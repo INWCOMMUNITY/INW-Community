@@ -7,6 +7,10 @@ import { updateStoreItemOnChannels } from "@/lib/channels/outbound";
 import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
 import { setEtsyConnectionContext } from "@/lib/channels/etsy/client";
 import type { ChannelProvider } from "@/lib/channels/types";
+import {
+  hydrateCircuitFromConfig,
+  resetCircuit,
+} from "@/lib/channels/circuit-breaker";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -104,6 +108,10 @@ export async function POST(req: NextRequest) {
         results.push(result);
         continue;
       }
+
+      // User explicitly requested sync — clear any paused circuit so we can retry.
+      hydrateCircuitFromConfig(conn.id, conn.config);
+      await resetCircuit(conn.id, provider, userId);
 
       // INBOUND: Pull changes from channel to INW
       if (direction === "inbound" || direction === "both") {

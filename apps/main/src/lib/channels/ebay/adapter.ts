@@ -24,7 +24,7 @@ import {
   persistRevisionCount,
 } from "./rate-limits";
 import { resolveProviderCategoryId } from "../category-map";
-import { buildEbayInventoryItem, buildEbayOffer, ebayListingToSummary, resolveCategoryId, resolveSyncLegacyListingId } from "./mapping";
+import { buildEbayInventoryItem, buildEbayOffer, ebayListingToSummary, ebayPriceFromCents, resolveCategoryId, resolveSyncLegacyListingId } from "./mapping";
 import { isEbayConditionSyncError } from "./conditions";
 import {
   enrichSyncItemConditionFromEbay,
@@ -64,13 +64,15 @@ import {
 } from "./listing-origin";
 import {
   buildPassthroughInventoryBody,
-  buildPassthroughOfferBody,
+  detectLivePassthroughChanges,
   fetchLiveInventoryItem,
+  formatPushedAspectsSummary,
+  needsInventoryPut,
+  overlayPassthroughOffer,
 } from "./passthrough-push";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
 
 type EbayOffer = { offerId?: string; status?: string; listing?: { listingId?: string } };
-type EbayOfferDetails = { offerId?: string; categoryId?: string };
 type OfferSearch = { offers?: EbayOffer[] };
 
 /** Find the first offer for a SKU (used to resolve offerId from the stored SKU). */
@@ -90,9 +92,9 @@ async function findOffer(accessToken: string, sku: string): Promise<EbayOffer | 
 async function getOfferDetails(
   accessToken: string,
   offerId: string
-): Promise<EbayOfferDetails | null> {
+): Promise<Record<string, unknown> | null> {
   try {
-    return await ebayGet<EbayOfferDetails>(
+    return await ebayGet<Record<string, unknown>>(
       accessToken,
       `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`
     );
@@ -186,9 +188,11 @@ async function upsertListing(
     const existingOffer = await findOffer(conn.accessToken, sku);
     let offerId = existingOffer?.offerId ?? null;
     let existingOfferCategoryId: string | null = null;
+    let liveOffer: Record<string, unknown> | null = null;
     if (offerId) {
-      const offerDetails = await getOfferDetails(conn.accessToken, offerId);
-      existingOfferCategoryId = offerDetails?.categoryId?.trim() ?? null;
+      liveOffer = await getOfferDetails(conn.accessToken, offerId);
+      const rawCategory = liveOffer?.categoryId;
+      existingOfferCategoryId = typeof rawCategory === "string" ? rawCategory.trim() : null;
     }
 
     const isImported = isImportedEbayLink({
@@ -227,6 +231,9 @@ async function upsertListing(
         throw error;
       }
 
+      const changed = detectLivePassthroughChanges(live, item, liveOffer);
+      const putInventory = needsInventoryPut(changed);
+
       const liveAspects = extractEbayInventoryAspects(live) ?? {};
       const cachedAspects =
         ebayLink?.ebayInventoryAspects &&
@@ -237,110 +244,130 @@ async function upsertListing(
       const storedAspects = aspectsToEbayProductAspects(parseStoredAspects(item.aspects));
 
       let tradingAspects: Record<string, string[]> | null = null;
-      const legacyListingId = await resolveSyncLegacyListingId(conn.accessToken, {
-        linkedSku: linkExternalId,
-        sku,
-        itemSku: item.sku,
-        offerId,
-      });
-      if (legacyListingId) {
-        try {
-          const details = await fetchEbayItemDetails(conn.accessToken, legacyListingId);
-          tradingAspects = aspectsToEbayProductAspects(parseStoredAspects(details.aspects));
-        } catch (e) {
-          console.warn("[ebay] passthrough GetItem trading aspects failed", {
-            storeItemId: item.id,
-            legacyListingId,
-            error: describeEbayThrownError(e),
-          });
-        }
-      }
-
       let categoryAspects: Awaited<ReturnType<typeof getItemAspectsForCategory>> = [];
-      if (offerCategoryId) {
-        try {
-          categoryAspects = await getItemAspectsForCategory(offerCategoryId);
-        } catch (e) {
-          console.warn("[ebay] passthrough category taxonomy failed", {
-            storeItemId: item.id,
-            offerCategoryId,
-            error: describeEbayThrownError(e),
-          });
+      if (putInventory) {
+        const legacyListingId = await resolveSyncLegacyListingId(conn.accessToken, {
+          linkedSku: linkExternalId,
+          sku,
+          itemSku: item.sku,
+          offerId,
+        });
+        if (legacyListingId) {
+          try {
+            const details = await fetchEbayItemDetails(conn.accessToken, legacyListingId);
+            tradingAspects = aspectsToEbayProductAspects(parseStoredAspects(details.aspects));
+          } catch (e) {
+            console.warn("[ebay] passthrough GetItem trading aspects failed", {
+              storeItemId: item.id,
+              legacyListingId,
+              error: describeEbayThrownError(e),
+            });
+          }
+        }
+        if (offerCategoryId) {
+          try {
+            categoryAspects = await getItemAspectsForCategory(offerCategoryId);
+          } catch (e) {
+            console.warn("[ebay] passthrough category taxonomy failed", {
+              storeItemId: item.id,
+              offerCategoryId,
+              error: describeEbayThrownError(e),
+            });
+          }
         }
       }
-
-      const passthroughOpts = {
-        cachedAspects,
-        storedAspects,
-        tradingAspects,
-        categoryAspects,
-      };
-
-      const changed = { content: true, quantity: true, price: true };
-      const inventoryBody = buildPassthroughInventoryBody(live, item, changed, passthroughOpts);
-      const pushAspects = (inventoryBody.product as Record<string, unknown>)?.aspects;
 
       addTransform(trace, {
-        before: { passthrough: true, liveAspects, tradingAspects, storedAspects },
+        before: { passthrough: true, liveAspects, tradingAspects, storedAspects, changed },
         after: {
-          overlays: ["title", "description", "photos", "quantity", "price"],
-          pushAspects,
+          overlays: [
+            putInventory ? "inventory_title_photos" : null,
+            changed.description ? "offer_description" : null,
+            changed.price || changed.quantity ? "bulk_price_qty" : null,
+          ].filter(Boolean),
         },
         remaps: [],
         dropped: [],
       });
-      const offerBody = buildPassthroughOfferBody(
-        item,
-        changed,
-        buildEbayOffer(item, cfg, offerCategoryId, sku) as Record<string, unknown>
-      );
 
-      async function pushOfferBodyPassthrough(body: Record<string, unknown>) {
-        if (offerId) {
-          await ebayJson(conn.accessToken, `/sell/inventory/v1/offer/${offerId}`, "PUT", body);
-          await persistRevisionCount(conn.id, sku, conn.config);
-          return;
-        }
-        const created = await ebayJson<{ offerId?: string }>(
-          conn.accessToken,
-          `/sell/inventory/v1/offer`,
-          "POST",
-          body
-        );
-        offerId = created.offerId ?? null;
-      }
-
-      async function pushInventoryBodyPassthrough(
-        body: Record<string, unknown>,
-        traceCtx?: SyncTraceContext
-      ) {
-        if (traceCtx) addRequest(traceCtx, body);
+      if (putInventory) {
+        const inventoryBody = buildPassthroughInventoryBody(live, item, changed, {
+          cachedAspects,
+          storedAspects,
+          tradingAspects,
+          categoryAspects,
+        });
+        const pushAspects = ((inventoryBody.product as Record<string, unknown>)?.aspects ??
+          {}) as Record<string, string[]>;
+        const aspectSummary = formatPushedAspectsSummary(pushAspects);
+        console.warn("[ebay] upsertListing passthrough PUT inventory", {
+          storeItemId: item.id,
+          sku,
+          linkExternalId,
+          changed,
+          pushAspectKeys: Object.keys(pushAspects),
+          letterGrade: pushAspects["Letter grade"],
+          numericalGrade: pushAspects["Numerical grade"],
+          professionalGrader: pushAspects["Professional grader"],
+        });
+        addRequest(trace, inventoryBody);
         try {
           await ebayJson(
             conn.accessToken,
             `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
             "PUT",
-            body
+            inventoryBody
           );
-          if (traceCtx) addResponse(traceCtx, 200, { success: true, passthrough: true });
+          addResponse(trace, 200, { success: true, passthrough: true });
           await persistRevisionCount(conn.id, sku, conn.config);
         } catch (e) {
-          if (traceCtx && e instanceof EbayApiError) {
-            addResponse(traceCtx, e.status, { error: e.message, body: e.body });
+          if (e instanceof EbayApiError) {
+            addResponse(trace, e.status, { error: e.message, body: e.body });
           }
-          throw e;
+          const msg = describeEbayThrownError(e);
+          throw new Error(`${msg}. ${aspectSummary}`);
         }
       }
 
-      await pushInventoryBodyPassthrough(inventoryBody, trace);
-      try {
-        await pushOfferBodyPassthrough(offerBody);
-      } catch (e) {
-        const msg = describeEbayThrownError(e);
-        throw new Error(`eBay offer update failed after inventory push: ${msg}`);
+      if (changed.description && liveOffer && offerId) {
+        const offerBody = overlayPassthroughOffer(liveOffer, item, {
+          ...changed,
+          price: false,
+          quantity: false,
+        });
+        try {
+          await ebayJson(conn.accessToken, `/sell/inventory/v1/offer/${offerId}`, "PUT", offerBody);
+          await persistRevisionCount(conn.id, sku, conn.config);
+        } catch (e) {
+          const msg = describeEbayThrownError(e);
+          throw new Error(`eBay offer update failed: ${msg}`);
+        }
       }
 
-      if (ebayLink) {
+      if (changed.price || changed.quantity) {
+        const quantity = Math.max(0, item.quantity);
+        const request: Record<string, unknown> = {
+          sku,
+          shipToLocationAvailability: { quantity },
+        };
+        if (offerId) {
+          request.offers = [
+            {
+              offerId,
+              availableQuantity: quantity,
+              ...(changed.price
+                ? { price: { value: ebayPriceFromCents(item.priceCents), currency: "USD" } }
+                : {}),
+            },
+          ];
+        }
+        await ebayJson(conn.accessToken, `/sell/inventory/v1/bulk_update_price_quantity`, "POST", {
+          requests: [request],
+        });
+        await persistRevisionCount(conn.id, sku, conn.config);
+      }
+
+      if (ebayLink && putInventory) {
         await fetchAndCacheEbayInventoryAspects(conn.accessToken, ebayLink.id, sku);
       }
 
@@ -349,16 +376,8 @@ async function upsertListing(
         sku,
         linkExternalId,
         linkOrigin: ebayLink?.linkOrigin ?? null,
-        liveAspectCount: liveAspects ? Object.keys(liveAspects).length : 0,
-        pushAspectKeys:
-          pushAspects && typeof pushAspects === "object"
-            ? Object.keys(pushAspects as Record<string, unknown>)
-            : [],
-        letterGrade: (pushAspects as Record<string, string[]> | undefined)?.["Letter grade"],
-        numericalGrade: (pushAspects as Record<string, string[]> | undefined)?.["Numerical grade"],
-        professionalGrader: (pushAspects as Record<string, string[]> | undefined)?.[
-          "Professional grader"
-        ],
+        changed,
+        putInventory,
       });
 
       await completeTrace(trace, "success");

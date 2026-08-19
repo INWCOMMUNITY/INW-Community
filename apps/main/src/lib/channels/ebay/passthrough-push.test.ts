@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildPassthroughInventoryBody,
   buildPassthroughOfferBody,
+  detectLivePassthroughChanges,
   detectPassthroughChangedFields,
+  formatPushedAspectsSummary,
+  needsInventoryPut,
+  overlayPassthroughOffer,
 } from "./passthrough-push";
 import type { SyncStoreItem } from "../types";
 import { syncContentHash } from "../sync-baseline";
@@ -252,6 +256,75 @@ describe("passthrough-push", () => {
     expect(offer.availableQuantity).toBe(2);
     expect((offer.pricingSummary as { price: { value: string } }).price.value).toBe("150.00");
     expect(offer.listingDescription).toContain("Beautiful coin");
+  });
+
+  it("keeps Certification when Professional grader cannot be derived", () => {
+    const liveNoGrader = {
+      product: {
+        aspects: {
+          Year: ["1938"],
+          Denomination: ["5C"],
+        },
+      },
+    };
+    const body = buildPassthroughInventoryBody(
+      liveNoGrader,
+      { ...coinItem, title: "1938 Jefferson Nickel" },
+      { content: true, quantity: false, price: false }
+    );
+    const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(aspects["Professional grader"]).toBeUndefined();
+    expect(aspects.Year).toEqual(["1938"]);
+  });
+
+  it("needsInventoryPut only for title or photo changes", () => {
+    expect(needsInventoryPut({ content: false, quantity: true, price: true, title: false, photos: false })).toBe(false);
+    expect(needsInventoryPut({ content: true, quantity: false, price: false, title: true, photos: false })).toBe(true);
+    expect(needsInventoryPut({ content: true, quantity: false, price: false, title: false, photos: true })).toBe(true);
+    expect(needsInventoryPut({ content: true, quantity: false, price: false, title: false, photos: false, description: true })).toBe(false);
+  });
+
+  it("detectLivePassthroughChanges skips inventory when title and photos match", () => {
+    const changed = detectLivePassthroughChanges(
+      liveJeffersonNickel,
+      { ...coinItem, photos: ["https://i.ebayimg.com/original.jpg"] },
+      {
+        listingDescription: "Original eBay description",
+        pricingSummary: { price: { value: "125.00" } },
+      }
+    );
+    expect(changed.title).toBe(false);
+    expect(changed.photos).toBe(false);
+    expect(needsInventoryPut(changed)).toBe(false);
+  });
+
+  it("overlayPassthroughOffer does not rewrite categoryId", () => {
+    const offer = overlayPassthroughOffer(
+      {
+        categoryId: "39458",
+        listingPolicies: { paymentPolicyId: "p1" },
+        listingDescription: "old",
+        offerId: "offer-1",
+        status: "PUBLISHED",
+      },
+      coinItem,
+      { content: true, quantity: false, price: false, description: true }
+    );
+    expect(offer.categoryId).toBe("39458");
+    expect(offer.listingPolicies).toEqual({ paymentPolicyId: "p1" });
+    expect(offer.offerId).toBeUndefined();
+    expect(offer.listingDescription).toContain("Beautiful coin");
+  });
+
+  it("formatPushedAspectsSummary includes wire keys", () => {
+    expect(
+      formatPushedAspectsSummary({
+        Grade: ["MS 67"],
+        "Professional grader": ["NGC"],
+        "Letter grade": ["MS"],
+        "Numerical grade": ["67"],
+      })
+    ).toContain("Professional grader=NGC");
   });
 
   it("detectPassthroughChangedFields uses baseline hash", () => {

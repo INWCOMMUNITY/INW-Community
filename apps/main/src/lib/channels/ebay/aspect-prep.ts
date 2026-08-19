@@ -290,28 +290,84 @@ function isGradedCoinContext(merged: Record<string, string[]>, title: string): b
  * Letter grade = prefix (MS, PR, …); Numerical grade = numeric (67, 69, …).
  * Preserves live inventory GET values when eBay already accepted them.
  */
+function snapToSuggestedValue(aspect: CategoryAspectSchema | undefined, value: string): string {
+  if (!aspect) return value;
+  const normalized = normalizeSelectionValue(aspect, value);
+  if (normalized.adjusted || aspect.suggestedValues.includes(normalized.value)) {
+    return normalized.value;
+  }
+  const v = value.trim().toLowerCase();
+  const hit = aspect.suggestedValues.find((s) => {
+    const sl = s.toLowerCase();
+    return sl === v || sl.startsWith(`${v} `) || sl.includes(`(${v})`) || sl.split(/[\s(/]+/)[0] === v;
+  });
+  return hit ?? value;
+}
+
+function hasAspectValue(product: Record<string, string[]>, name: string): boolean {
+  return !!pickFirstAspectValue(product, name);
+}
+
+function setAspectValue(product: Record<string, string[]>, name: string, value: string): void {
+  const existing = Object.keys(product).find((k) => k.toLowerCase() === name.toLowerCase());
+  product[existing ?? name] = [value];
+}
+
+function findSourceValueForAspect(
+  sources: Record<string, string[]>,
+  aspectName: string
+): string | null {
+  const direct = pickFirstAspectValue(sources, aspectName);
+  if (direct) return direct;
+  const nameLower = aspectName.toLowerCase();
+  const aliases = EBAY_ASPECT_SYNONYMS[nameLower] ?? [];
+  for (const alias of aliases) {
+    const hit = pickFirstAspectValue(sources, alias);
+    if (hit) return hit;
+  }
+  for (const [canonical, list] of Object.entries(EBAY_ASPECT_SYNONYMS)) {
+    if (canonical !== nameLower && !list.includes(nameLower)) continue;
+    for (const alias of [canonical, ...list]) {
+      const hit = pickFirstAspectValue(sources, alias);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
 export function applyGradedCoinWireAspects(
   product: Record<string, string[]>,
   merged: Record<string, string[]>,
   title: string,
   liveAspects: Record<string, string[]> = {},
-  _categoryAspects: CategoryAspectSchema[] = []
+  categoryAspects: CategoryAspectSchema[] = []
 ): void {
-  if (!isGradedCoinContext(merged, title)) return;
+  if (!isGradedCoinContext(merged, title) && !extractGradePartsFromAspectRecord(merged, title)) {
+    return;
+  }
 
   const parts = extractGradePartsFromAspectRecord(merged, title);
   const grader = extractGraderFromAspectRecord(merged, title);
-  if (grader) product["Professional grader"] = [grader];
+  const graderSchema = categoryAspects.find((a) => a.name.toLowerCase() === "professional grader");
+  const graderName = graderSchema?.name ?? "Professional grader";
+  if (grader && !hasAspectValue(product, graderName)) {
+    setAspectValue(product, graderName, snapToSuggestedValue(graderSchema, grader));
+  }
 
   const liveLetter = pickFirstAspectValue(liveAspects, "Letter grade");
   const liveNumerical = pickFirstAspectValue(liveAspects, "Numerical grade");
+  const letterSchema = categoryAspects.find((a) => a.name.toLowerCase() === "letter grade");
+  const numericalSchema = categoryAspects.find((a) => a.name.toLowerCase() === "numerical grade");
+  const letterName = letterSchema?.name ?? "Letter grade";
+  const numericalName = numericalSchema?.name ?? "Numerical grade";
 
-  if (parts) {
-    product["Numerical grade"] = [liveNumerical ?? parts.numeric];
-    product["Letter grade"] = [liveLetter ?? parts.prefix];
-  } else {
-    if (liveNumerical) product["Numerical grade"] = [liveNumerical];
-    if (liveLetter) product["Letter grade"] = [liveLetter];
+  if (!hasAspectValue(product, letterName)) {
+    const letter = liveLetter ?? parts?.prefix;
+    if (letter) setAspectValue(product, letterName, snapToSuggestedValue(letterSchema, letter));
+  }
+  if (!hasAspectValue(product, numericalName)) {
+    const numerical = liveNumerical ?? parts?.numeric;
+    if (numerical) setAspectValue(product, numericalName, snapToSuggestedValue(numericalSchema, numerical));
   }
 }
 
@@ -325,8 +381,8 @@ function stripTradingGraderAliases(product: Record<string, string[]>): void {
 }
 
 /**
- * Passthrough push helper — silently translate Trading names (Certification, Grade) to
- * Inventory API keys (Professional grader, Letter grade). Sellers never see the latter.
+ * Inventory PUT aspects: live GET keys stay verbatim; fill required Taxonomy keys
+ * from GetItem / stored rows using localized names and suggested values.
  */
 export function enrichInventoryProductAspectsForPush(
   liveAspects: Record<string, string[]>,
@@ -335,20 +391,45 @@ export function enrichInventoryProductAspectsForPush(
   ...fallbackAspects: Array<Record<string, string[]> | null | undefined>
 ): Record<string, string[]> {
   const merged = mergeProductAspectRecords(liveAspects, ...fallbackAspects);
-  let rows = productAspectsToListingAspects(merged);
-  rows = remapTradingAspectRowsForInventoryPut(rows);
-  const enriched = ensureGradedCoinInventoryAspects(categoryAspects, rows, rows, title);
-  const product = aspectsToEbayProductAspects(enriched);
+  const product: Record<string, string[]> = {};
+  for (const [name, values] of Object.entries(liveAspects)) {
+    const kept = values.map((v) => String(v).trim()).filter(Boolean);
+    if (kept.length > 0) product[name] = kept;
+  }
+
+  if (Object.keys(product).length === 0) {
+    for (const [name, values] of Object.entries(merged)) {
+      const kept = values.map((v) => String(v).trim()).filter(Boolean);
+      if (kept.length > 0) product[name] = kept;
+    }
+  }
+
+  for (const aspect of categoryAspects) {
+    if (!aspect.required) continue;
+    if (hasAspectValue(product, aspect.name)) {
+      const current = pickFirstAspectValue(product, aspect.name);
+      if (current) setAspectValue(product, aspect.name, snapToSuggestedValue(aspect, current));
+      continue;
+    }
+    const raw = findSourceValueForAspect(merged, aspect.name);
+    if (!raw) continue;
+    setAspectValue(product, aspect.name, snapToSuggestedValue(aspect, raw));
+  }
 
   applyGradedCoinWireAspects(product, merged, title, liveAspects, categoryAspects);
 
-  // Fallback when Grade/title parsing above missed grader but Certification is present.
-  if (!product["Professional grader"]?.some((v) => v.trim())) {
+  if (!hasAspectValue(product, "Professional grader")) {
     const grader = extractGraderFromAspectRecord(merged, title);
-    if (grader) product["Professional grader"] = [grader];
+    if (grader) {
+      const schema = categoryAspects.find((a) => a.name.toLowerCase() === "professional grader");
+      setAspectValue(product, schema?.name ?? "Professional grader", snapToSuggestedValue(schema, grader));
+    }
   }
 
-  stripTradingGraderAliases(product);
+  if (hasAspectValue(product, "Professional grader")) {
+    stripTradingGraderAliases(product);
+  }
+
   return product;
 }
 
