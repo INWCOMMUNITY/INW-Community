@@ -289,9 +289,17 @@ async function upsertListing(
           } catch (e) {
             console.warn("[ebay] passthrough GetItem trading aspects failed", {
               storeItemId: item.id,
+              legacyListingId,
               error: describeEbayThrownError(e),
             });
           }
+        } else {
+          console.warn("[ebay] passthrough could not resolve legacy listing id for GetItem aspects", {
+            storeItemId: item.id,
+            sku,
+            linkExternalId,
+            offerId,
+          });
         }
         if (offerCategoryId) {
           try {
@@ -367,10 +375,19 @@ async function upsertListing(
 
       if (changed.title) {
         const titleBody = buildPassthroughTitleInventoryBody(live, item, aspectBuildOptions);
+        const titleAspects = (
+          (titleBody.product as Record<string, unknown> | undefined)?.aspects ?? {}
+        ) as Record<string, string[]>;
         console.warn("[ebay] upsertListing passthrough PUT title only", {
           storeItemId: item.id,
           sku,
           aspectMode: "prepared",
+          aspectKeys: Object.keys(titleAspects),
+          hasProfessionalGrader: "Professional grader" in titleAspects,
+          hasLetterGrade: "Letter grade" in titleAspects,
+          hasNumericalGrade: "Numerical grade" in titleAspects,
+          hasTradingAspects: !!tradingAspects,
+          legacyListingIdResolved: !!tradingAspects,
         });
         addRequest(trace, titleBody);
         try {

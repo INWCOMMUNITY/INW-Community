@@ -177,6 +177,7 @@ describe("prepareLiveAspectsForInventoryPut", () => {
 
   it("preserveLiveWireGrades skips rewriting live wire grades on title-only PUT", () => {
     const live = {
+      Certification: ["NGC"],
       "Professional grader": ["NGC"],
       Grade: ["MS 67"],
       "Letter grade": ["MS"],

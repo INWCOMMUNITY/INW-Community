@@ -395,6 +395,63 @@ describe("passthrough-push", () => {
     expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 1 } });
   });
 
+  it("buildPassthroughTitleInventoryBody includes Professional grader when live GET only has Composition and Mint", () => {
+    const nickelTaxonomy = [
+      { name: "Professional grader", required: true, mode: "SELECTION_ONLY" as const, cardinality: "SINGLE" as const, suggestedValues: ["NGC", "PCGS"] },
+      { name: "Letter grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+      { name: "Numerical grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+      { name: "Grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+      { name: "Year", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+    ];
+    const live = {
+      condition: "LIKE_NEW",
+      product: {
+        title: "1938 Jefferson Nickel NGC MS 67",
+        aspects: { Composition: ["Copper-Nickel"], Mint: ["Denver"] },
+      },
+    };
+    const body = buildPassthroughTitleInventoryBody(live, coinItem, {
+      tradingAspects: {
+        Certification: ["NGC"],
+        Grade: ["MS 67"],
+        Year: ["1938"],
+        "Strike Type": ["Business"],
+      },
+      categoryAspects: nickelTaxonomy,
+    });
+    const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(aspects["Professional grader"]).toEqual(["NGC"]);
+    expect(aspects["Letter grade"]).toEqual(["MS"]);
+    expect(aspects["Numerical grade"]).toEqual(["67"]);
+    expect(aspects.Year).toEqual(["1938"]);
+    expect(aspects.Composition).toEqual(["Copper-Nickel"]);
+    expect(aspects.Certification).toBeUndefined();
+  });
+
+  it("buildPassthroughTitleInventoryBody backfills Letter and Numerical grade when live has grader+Grade but omits wire sub-fields", () => {
+    const nickelTaxonomy = [
+      { name: "Professional grader", required: true, mode: "SELECTION_ONLY" as const, cardinality: "SINGLE" as const, suggestedValues: ["NGC", "PCGS"] },
+      { name: "Letter grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+      { name: "Numerical grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+      { name: "Grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+    ];
+    const live = {
+      condition: "LIKE_NEW",
+      product: {
+        title: "1938 Jefferson Nickel NGC MS 67",
+        aspects: {
+          "Professional grader": ["NGC"],
+          Grade: ["MS 67"],
+          Composition: ["Copper-Nickel"],
+        },
+      },
+    };
+    const body = buildPassthroughTitleInventoryBody(live, coinItem, { categoryAspects: nickelTaxonomy });
+    const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(aspects["Letter grade"]).toEqual(["MS"]);
+    expect(aspects["Numerical grade"]).toEqual(["67"]);
+  });
+
   it("buildPassthroughTitleInventoryBody backfills Year from GetItem when live GET omits it", () => {
     const live = {
       condition: "LIKE_NEW",

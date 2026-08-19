@@ -478,18 +478,82 @@ export type PrepareLiveAspectsOptions = {
   preserveLiveWireGrades?: boolean;
 };
 
-function liveHasAcceptedWireGrades(
-  liveAspects: Record<string, string[]>,
-  title: string
-): boolean {
+function liveHasAcceptedWireGrades(liveAspects: Record<string, string[]>): boolean {
   const hasGrader =
     hasAspectValue(liveAspects, "Professional grader") ||
-    !!extractGraderFromAspectRecord(liveAspects, title);
+    hasAspectValue(liveAspects, "Certification");
   const hasGrade =
     hasAspectValue(liveAspects, "Grade") ||
     hasAspectValue(liveAspects, "Letter grade") ||
     hasAspectValue(liveAspects, "Numerical grade");
   return hasGrader && hasGrade;
+}
+
+function ensureProfessionalGrader(
+  product: Record<string, string[]>,
+  merged: Record<string, string[]>,
+  title: string,
+  categoryAspects: CategoryAspectSchema[]
+): void {
+  if (hasAspectValue(product, "Professional grader")) return;
+  const grader = extractGraderFromAspectRecord(merged, title);
+  if (!grader) return;
+  const schema = categoryAspects.find((a) => a.name.toLowerCase() === "professional grader");
+  setAspectValue(
+    product,
+    schema?.name ?? "Professional grader",
+    snapToSuggestedValue(schema, grader)
+  );
+}
+
+/** Final pass: Inventory PUT must include every required category aspect (eBay validates full set). */
+function ensureRequiredAspectsForInventoryPut(
+  product: Record<string, string[]>,
+  merged: Record<string, string[]>,
+  title: string,
+  categoryAspects: CategoryAspectSchema[]
+): void {
+  ensureProfessionalGrader(product, merged, title, categoryAspects);
+
+  for (const aspect of categoryAspects) {
+    if (!aspect.required) continue;
+    if (hasAspectValue(product, aspect.name)) continue;
+    const raw = findSourceValueForAspect(merged, aspect.name);
+    if (raw) setAspectValue(product, aspect.name, snapToSuggestedValue(aspect, raw));
+  }
+
+  if (!hasAspectValue(product, "Year")) {
+    const year = findSourceValueForAspect(merged, "Year");
+    if (year) {
+      setAspectValue(product, "Year", year);
+    } else {
+      const fromTitle = title.match(/\b(18|19|20)\d{2}\b/);
+      if (fromTitle) setAspectValue(product, "Year", fromTitle[0]!);
+    }
+  }
+
+  const letterRequired = categoryAspects.some(
+    (a) => a.required && a.name.toLowerCase() === "letter grade"
+  );
+  const numericalRequired = categoryAspects.some(
+    (a) => a.required && a.name.toLowerCase() === "numerical grade"
+  );
+  const hasGradeSource =
+    hasAspectValue(merged, "Grade") || !!extractGradePartsFromAspectRecord(merged, title);
+  const needsWireGrades =
+    isGradedCoinContext(merged, title) ||
+    letterRequired ||
+    numericalRequired ||
+    hasGradeSource;
+
+  if (
+    needsWireGrades &&
+    (!hasAspectValue(product, "Numerical grade") ||
+      !hasAspectValue(product, "Professional grader") ||
+      !hasAspectValue(product, "Letter grade"))
+  ) {
+    backfillInventoryOnlyWireAspects(product, merged, title, categoryAspects);
+  }
 }
 
 /**
@@ -503,25 +567,26 @@ export function prepareLiveAspectsForInventoryPut(
   options: PrepareLiveAspectsOptions = {},
   ...fallbackAspects: Array<Record<string, string[]> | null | undefined>
 ): Record<string, string[]> {
+  const merged = mergeProductAspectRecords(liveAspects, ...fallbackAspects);
+
+  // eBay validates the FULL required aspect set on every PUT — merge all sources, live wins conflicts.
   const product: Record<string, string[]> = {};
+  for (const [name, values] of Object.entries(merged)) {
+    const kept = values.map((v) => String(v).trim()).filter(Boolean);
+    if (kept.length > 0) product[name] = kept;
+  }
   for (const [name, values] of Object.entries(liveAspects)) {
     const kept = values.map((v) => String(v).trim()).filter(Boolean);
     if (kept.length > 0) product[name] = kept;
   }
 
-  const merged = mergeProductAspectRecords(liveAspects, ...fallbackAspects);
-  if (Object.keys(product).length === 0) {
-    for (const [name, values] of Object.entries(merged)) {
-      const kept = values.map((v) => String(v).trim()).filter(Boolean);
-      if (kept.length > 0) product[name] = kept;
-    }
-  }
+  const skipLetterNumericalRewrite =
+    options.preserveLiveWireGrades === true && liveHasAcceptedWireGrades(liveAspects);
 
-  const skipWireRewrite =
-    options.preserveLiveWireGrades === true && liveHasAcceptedWireGrades(liveAspects, title);
-
-  if (!skipWireRewrite) {
+  if (!skipLetterNumericalRewrite) {
     applyGradedCoinWireAspects(product, merged, title, liveAspects, categoryAspects);
+  } else {
+    ensureProfessionalGrader(product, merged, title, categoryAspects);
   }
 
   for (const aspect of categoryAspects) {
@@ -535,20 +600,12 @@ export function prepareLiveAspectsForInventoryPut(
     if (current) setAspectValue(product, aspect.name, snapToSuggestedValue(aspect, current));
   }
 
-  if (!hasAspectValue(product, "Year")) {
-    const year = findSourceValueForAspect(merged, "Year");
-    if (year) {
-      setAspectValue(product, "Year", year);
-    } else {
-      const fromTitle = title.match(/\b(18|19|20)\d{2}\b/);
-      if (fromTitle) setAspectValue(product, "Year", fromTitle[0]!);
-    }
-  }
-
   stripWireAspectsNotInTaxonomy(product, categoryAspects);
-  if (!skipWireRewrite) {
+  if (!skipLetterNumericalRewrite) {
     backfillInventoryOnlyWireAspects(product, merged, title, categoryAspects);
   }
+
+  ensureRequiredAspectsForInventoryPut(product, merged, title, categoryAspects);
 
   if (hasAspectValue(product, "Professional grader")) {
     stripTradingGraderAliases(product);
