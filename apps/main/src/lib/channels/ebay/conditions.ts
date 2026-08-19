@@ -3,6 +3,7 @@
  */
 
 import type { SyncStoreItem } from "../types";
+import { inventoryPutLetterGradeIsNumeric } from "./aspect-prep";
 import { ebayGet } from "./client";
 import { EBAY_MARKETPLACE_ID } from "./config";
 
@@ -188,12 +189,19 @@ function pickAspectValues(
 
 function resolveDescriptorValueId(
   meta: EbayConditionDescriptorMeta,
-  aspectValues: string[]
+  aspectValues: string[],
+  options?: { allowNumericLetterGrade?: boolean }
 ): string | null {
   const isLetterGradeDescriptor = /letter grade/.test(normalizeDescriptorKey(meta.name));
   for (const aspectValue of aspectValues) {
     const normalized = normalizeDescriptorKey(aspectValue);
-    if (isLetterGradeDescriptor && /^\d{1,2}$/.test(normalized)) continue;
+    if (
+      isLetterGradeDescriptor &&
+      /^\d{1,2}$/.test(normalized) &&
+      !options?.allowNumericLetterGrade
+    ) {
+      continue;
+    }
     const exact = meta.values.find((v) => normalizeDescriptorKey(v.label) === normalized);
     if (exact) return exact.id;
     const partial = meta.values.find(
@@ -273,9 +281,14 @@ function parseGradePrefixFromTitle(title: string): string | null {
 
 function letterGradeDescriptorValues(
   productAspects: Record<string, string[]>,
-  title?: string
+  title?: string,
+  categoryId?: string | null
 ): string[] {
   const letter = pickAspectValues(productAspects, ["letter grade"]);
+  if (inventoryPutLetterGradeIsNumeric(categoryId) && letter.length > 0 && /^\d{1,2}$/.test(letter[0]!)) {
+    // Dime wire Letter grade is numeric (69); condition descriptors must pair with Numerical grade.
+    return [letter[0]!];
+  }
   if (letter.length > 0 && !/^\d{1,2}$/.test(letter[0]!)) {
     return letter;
   }
@@ -283,21 +296,21 @@ function letterGradeDescriptorValues(
     parseGradePrefixFromAspects(productAspects) ??
     (title ? parseGradePrefixFromTitle(title) : null);
   if (prefix) return [prefix];
-  // Dime wire aspects store numeric Letter grade (69); never map that to a letter-grade descriptor.
   return [];
 }
 
 function aspectValuesForDescriptorName(
   descriptorName: string,
   productAspects: Record<string, string[]>,
-  title?: string
+  title?: string,
+  categoryId?: string | null
 ): string[] {
   const key = normalizeDescriptorKey(descriptorName);
   if (/professional grader|^grader$|certification service/.test(key)) {
     return pickAspectValues(productAspects, DESCRIPTOR_ASPECT_ALIASES.grader);
   }
   if (/letter grade/.test(key)) {
-    return letterGradeDescriptorValues(productAspects, title);
+    return letterGradeDescriptorValues(productAspects, title, categoryId);
   }
   if (/numerical grade|numeric grade/.test(key)) {
     return pickAspectValues(productAspects, ["numerical grade", "numeric grade"]);
@@ -346,15 +359,20 @@ export function readLiveConditionDescriptors(
 export function buildConditionDescriptorsFromAspects(
   productAspects: Record<string, string[]>,
   metadata: EbayConditionDescriptorMeta[],
-  title?: string
+  title?: string,
+  categoryId?: string | null
 ): EbayInventoryConditionDescriptor[] | undefined {
   if (metadata.length === 0) return undefined;
   const descriptors: EbayInventoryConditionDescriptor[] = [];
+  const allowNumericLetterGrade = inventoryPutLetterGradeIsNumeric(categoryId);
 
   for (const meta of metadata) {
-    const aspectValues = aspectValuesForDescriptorName(meta.name, productAspects, title);
+    const aspectValues = aspectValuesForDescriptorName(meta.name, productAspects, title, categoryId);
     if (aspectValues.length === 0) continue;
-    const valueId = resolveDescriptorValueId(meta, aspectValues);
+    const valueId = resolveDescriptorValueId(meta, aspectValues, {
+      allowNumericLetterGrade:
+        allowNumericLetterGrade && /letter grade/.test(normalizeDescriptorKey(meta.name)),
+    });
     if (!valueId) continue;
     const kind = descriptorKind(meta.name);
     const row: EbayInventoryConditionDescriptor = {
@@ -375,9 +393,10 @@ export function preserveOrBuildConditionDescriptorsOnBody(
   live: Record<string, unknown> | null | undefined,
   productAspects: Record<string, string[]>,
   metadata: EbayConditionDescriptorMeta[],
-  title?: string
+  title?: string,
+  categoryId?: string | null
 ): Record<string, unknown> {
-  const built = buildConditionDescriptorsFromAspects(productAspects, metadata, title);
+  const built = buildConditionDescriptorsFromAspects(productAspects, metadata, title, categoryId);
   if (built && built.length > 0) {
     return { ...body, conditionDescriptors: built };
   }
@@ -392,9 +411,15 @@ export function appendConditionDescriptorsToInventoryBody(
   body: Record<string, unknown>,
   productAspects: Record<string, string[]>,
   metadata: EbayConditionDescriptorMeta[],
-  title?: string
+  title?: string,
+  categoryId?: string | null
 ): Record<string, unknown> {
-  const descriptors = buildConditionDescriptorsFromAspects(productAspects, metadata, title);
+  const descriptors = buildConditionDescriptorsFromAspects(
+    productAspects,
+    metadata,
+    title,
+    categoryId
+  );
   if (!descriptors) return body;
   return { ...body, conditionDescriptors: descriptors };
 }

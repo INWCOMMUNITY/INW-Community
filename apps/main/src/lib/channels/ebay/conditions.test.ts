@@ -148,7 +148,35 @@ describe("buildConditionDescriptorsFromAspects", () => {
     ]);
   });
 
-  it("maps Roosevelt dime PR 69 wire aspects to PR letter descriptor and 69 numeric descriptor", () => {
+  it("maps Roosevelt dime PR 69 wire aspects to numeric letter descriptor and 69 numeric descriptor", () => {
+    const dimeDescriptorMeta: EbayConditionDescriptorMeta[] = parseConditionDescriptorMetadata([
+      {
+        conditionDescriptors: [
+          {
+            conditionDescriptorId: "27501",
+            conditionDescriptorName: "Professional Grader",
+            conditionDescriptorValues: [
+              { conditionDescriptorValueId: "275010", conditionDescriptorValueName: "NGC" },
+            ],
+          },
+          {
+            conditionDescriptorId: "27503",
+            conditionDescriptorName: "Letter grade",
+            conditionDescriptorValues: [
+              { conditionDescriptorValueId: "275031", conditionDescriptorValueName: "PR" },
+              { conditionDescriptorValueId: "275069", conditionDescriptorValueName: "69" },
+            ],
+          },
+          {
+            conditionDescriptorId: "27504",
+            conditionDescriptorName: "Numerical grade",
+            conditionDescriptorValues: [
+              { conditionDescriptorValueId: "275041", conditionDescriptorValueName: "69" },
+            ],
+          },
+        ],
+      },
+    ]);
     const descriptors = buildConditionDescriptorsFromAspects(
       {
         "Professional grader": ["NGC"],
@@ -156,12 +184,13 @@ describe("buildConditionDescriptorsFromAspects", () => {
         "Numerical grade": ["69"],
         Grade: ["PR 69"],
       },
-      coinConditionDescriptorMeta,
-      "2002-S NGC PR 69 Ultra Cameo Roosevelt Dime"
+      dimeDescriptorMeta,
+      "2002-S NGC PR 69 Ultra Cameo Roosevelt Dime",
+      "39458"
     );
     expect(descriptors).toEqual([
       { name: "27501", values: ["275010"] },
-      { name: "27503", values: ["275031"] },
+      { name: "27503", values: ["275069"] },
       { name: "27504", values: ["275041"] },
     ]);
   });
@@ -194,14 +223,45 @@ describe("buildConditionDescriptorsFromAspects", () => {
         "Numerical grade": ["69"],
       },
       metaWithNumericLetter,
-      "Generic coin title without grade prefix"
+      "Generic coin title without grade prefix",
+      "39458"
     );
-    expect(descriptors).toEqual([{ name: "27504", values: ["275041"] }]);
+    expect(descriptors).toEqual([
+      { name: "27503", values: ["275069"] },
+      { name: "27504", values: ["275041"] },
+    ]);
   });
 });
 
 describe("preserveOrBuildConditionDescriptorsOnBody", () => {
   it("rebuilds conditionDescriptors from aspects instead of preserving stale live values", () => {
+    const dimeDescriptorMeta: EbayConditionDescriptorMeta[] = parseConditionDescriptorMetadata([
+      {
+        conditionDescriptors: [
+          {
+            conditionDescriptorId: "27501",
+            conditionDescriptorName: "Professional Grader",
+            conditionDescriptorValues: [
+              { conditionDescriptorValueId: "275010", conditionDescriptorValueName: "NGC" },
+            ],
+          },
+          {
+            conditionDescriptorId: "27503",
+            conditionDescriptorName: "Letter grade",
+            conditionDescriptorValues: [
+              { conditionDescriptorValueId: "275069", conditionDescriptorValueName: "69" },
+            ],
+          },
+          {
+            conditionDescriptorId: "27504",
+            conditionDescriptorName: "Numerical grade",
+            conditionDescriptorValues: [
+              { conditionDescriptorValueId: "275041", conditionDescriptorValueName: "69" },
+            ],
+          },
+        ],
+      },
+    ]);
     const body = preserveOrBuildConditionDescriptorsOnBody(
       {
         product: {
@@ -218,12 +278,13 @@ describe("preserveOrBuildConditionDescriptorsOnBody", () => {
         "Letter grade": ["69"],
         "Numerical grade": ["69"],
       },
-      coinConditionDescriptorMeta,
-      "2002-S NGC PR 69 Ultra Cameo Roosevelt Dime"
+      dimeDescriptorMeta,
+      "2002-S NGC PR 69 Ultra Cameo Roosevelt Dime",
+      "39458"
     );
     expect(body.conditionDescriptors).toEqual([
       { name: "27501", values: ["275010"] },
-      { name: "27503", values: ["275031"] },
+      { name: "27503", values: ["275069"] },
       { name: "27504", values: ["275041"] },
     ]);
   });
