@@ -1,4 +1,4 @@
-import { ebayJson } from "./client";
+import { ebayGet, ebayJson } from "./client";
 import { EBAY_APIZ_BASE } from "./config";
 
 const IMAGE_RELATED_ERROR = /image|photo|picture|url|media|hosted/i;
@@ -23,10 +23,9 @@ export async function uploadEbayImageFromUrl(
     );
     const imageId = created.imageId?.trim();
     if (!imageId) return null;
-    const details = await ebayJson<{ imageUrl?: string }>(
+    const details = await ebayGet<{ imageUrl?: string }>(
       accessToken,
-      `${EBAY_APIZ_BASE}/commerce/media/v1_beta/image/${encodeURIComponent(imageId)}`,
-      "GET"
+      `${EBAY_APIZ_BASE}/commerce/media/v1_beta/image/${encodeURIComponent(imageId)}`
     );
     return details.imageUrl?.trim() || null;
   } catch (e) {

@@ -36,7 +36,7 @@ export function formatListingFeeSummary(fees: EbayListingFeeRow[]): string | nul
 export function getListingFeeBlockReason(fees: EbayListingFeeRow[]): string | null {
   for (const row of fees) {
     if (Array.isArray(row.errors) && row.errors.length > 0) {
-      return formatEbayApiBody({ errors: row.errors as never[] }) || "Listing fee check failed.";
+      return formatEbayApiBody({ errors: row.errors as never[] }, 400) || "Listing fee check failed.";
     }
   }
   return null;

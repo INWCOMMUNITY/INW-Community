@@ -90,6 +90,7 @@ import { isImportedEbayLink, extractEbayInventoryAspects, resolveEbayInventorySk
 import { passthroughUsePreparedInventoryAspects } from "./aspect-prep";
 import {
   buildPassthroughInventoryContentPutBody,
+  buildPassthroughLiveOverlayBody,
   detectLivePassthroughChanges,
   fetchLiveInventoryItem,
   formatPassthroughFieldSyncSummary,
