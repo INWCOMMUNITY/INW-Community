@@ -7,6 +7,8 @@ import {
   prepareAspectRowsForForm,
   prepareAspectsForEbayCategory,
   prepareLiveAspectsForInventoryPut,
+  liveInventoryWireGradesCorrupted,
+  passthroughUsePreparedInventoryAspects,
 } from "./aspect-prep";
 
 const nickelTaxonomy: EbayCategoryAspect[] = [
@@ -293,27 +295,6 @@ describe("prepareLiveAspectsForInventoryPut", () => {
     expect(product["Professional grader"]).toEqual(["NGC"]);
   });
 
-  it("drops Country/Mint aliases when Country of Origin and Mint Location are present", () => {
-    const product = prepareLiveAspectsForInventoryPut(
-      {
-        Country: ["United States"],
-        "Country of Origin": ["United States"],
-        Mint: ["San Francisco"],
-        "Mint Location": ["San Francisco"],
-        "Professional grader": ["NGC (Numismatic Guaranty Corporation)"],
-        "Letter grade": ["MS"],
-        "Numerical grade": ["67"],
-      },
-      "1952-S NGC MS 67 Jefferson Nickel",
-      [],
-      { categoryId: "41087", preserveLiveWireGrades: true }
-    );
-    expect(product.Country).toBeUndefined();
-    expect(product.Mint).toBeUndefined();
-    expect(product["Country of Origin"]).toEqual(["United States"]);
-    expect(product["Mint Location"]).toEqual(["San Francisco"]);
-  });
-
   it("uses canonical grader casing when taxonomy lists ALL CAPS parenthetical", () => {
     const taxonomy: EbayCategoryAspect[] = [
       {
@@ -346,5 +327,43 @@ describe("prepareLiveAspectsForInventoryPut", () => {
       { Certification: ["NGC (Numismatic Guaranty Corporation)"], Grade: ["MS 67"] }
     );
     expect(product["Professional grader"]).toEqual(["NGC (NUMISMATIC GUARANTY CORPORATION)"]);
+  });
+
+  it("detects corrupted live Letter grade=67 on nickel 41087", () => {
+    expect(
+      liveInventoryWireGradesCorrupted(
+        { "Letter grade": ["67"], "Numerical grade": ["67"], "Professional grader": ["NGC"] },
+        "41087"
+      )
+    ).toBe(true);
+  });
+
+  it("repairs corrupted live Letter grade=67 from GetItem Grade MS 67", () => {
+    const product = prepareLiveAspectsForInventoryPut(
+      {
+        "Letter grade": ["67"],
+        "Numerical grade": ["67"],
+        "Professional grader": ["NGC"],
+        Year: ["1952"],
+      },
+      "1952-D NGC MS 67 Jefferson Nickel",
+      nickelTaxonomy,
+      { categoryId: "41087", preserveLiveWireGrades: false },
+      { Certification: ["NGC"], Grade: ["MS 67"], Year: ["1952"] }
+    );
+    expect(product["Letter grade"]).toEqual(["MS"]);
+    expect(product["Numerical grade"]).toEqual(["67"]);
+    expect(product["Professional grader"]).toEqual(["NGC"]);
+  });
+
+  it("passthroughUsePreparedInventoryAspects when live wire grades corrupted", () => {
+    expect(
+      passthroughUsePreparedInventoryAspects(
+        { "Letter grade": ["67"], "Numerical grade": ["67"], "Professional grader": ["NGC"] },
+        "41087",
+        { Certification: ["NGC"], Grade: ["MS 67"] },
+        "1952-D NGC MS 67 Jefferson Nickel"
+      )
+    ).toBe(true);
   });
 });

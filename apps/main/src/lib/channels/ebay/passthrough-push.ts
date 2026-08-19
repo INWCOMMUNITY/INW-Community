@@ -8,7 +8,7 @@ import type { SyncStoreItem } from "../types";
 import { syncContentHash, type StoreItemContentFieldFlags, type SyncContentInput } from "../sync-baseline";
 import { ebayGetInventoryItem } from "./client";
 import { extractEbayInventoryAspects } from "./listing-origin";
-import { enrichInventoryProductAspectsForPush, prepareLiveAspectsForInventoryPut, type CategoryAspectSchema } from "./aspect-prep";
+import { enrichInventoryProductAspectsForPush, prepareLiveAspectsForInventoryPut, passthroughUsePreparedInventoryAspects, type CategoryAspectSchema } from "./aspect-prep";
 import { ebayPriceFromCents } from "./mapping";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 
@@ -405,8 +405,50 @@ export function buildPassthroughTitleInventoryBody(
     live,
     item,
     { title: true, content: false, quantity: false, price: false, photos: false },
-    { ...options, preserveLiveWireGrades: true }
+    { ...options, preserveLiveWireGrades: options.preserveLiveWireGrades ?? true }
   );
+}
+
+export function buildPassthroughTitlePutBody(
+  live: LiveInventoryItem,
+  item: SyncStoreItem,
+  usePrepared: boolean,
+  options: PassthroughBuildOptions = {}
+): { body: Record<string, unknown>; aspectMode: "prepared" | "live_overlay" } {
+  if (usePrepared) {
+    return {
+      body: buildPassthroughTitleInventoryBody(live, item, {
+        ...options,
+        preserveLiveWireGrades: false,
+      }),
+      aspectMode: "prepared",
+    };
+  }
+  return {
+    body: buildPassthroughTitleOnlyInventoryBody(live, item),
+    aspectMode: "live_overlay",
+  };
+}
+
+export function buildPassthroughPhotosPutBody(
+  live: LiveInventoryItem,
+  item: SyncStoreItem,
+  usePrepared: boolean,
+  options: PassthroughBuildOptions = {}
+): { body: Record<string, unknown>; aspectMode: "prepared" | "live_overlay" } {
+  if (usePrepared) {
+    return {
+      body: buildPassthroughPhotoInventoryBody(live, item, {
+        ...options,
+        preserveLiveWireGrades: false,
+      }),
+      aspectMode: "prepared",
+    };
+  }
+  return {
+    body: buildPassthroughLiveOverlayBody(live, { imageUrls: item.photos }),
+    aspectMode: "live_overlay",
+  };
 }
 
 /** Inventory PUT for photo-only edits — aspect-safe body with GetItem/taxonomy fallbacks. */

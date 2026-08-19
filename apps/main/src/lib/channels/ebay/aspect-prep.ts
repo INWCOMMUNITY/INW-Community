@@ -309,6 +309,31 @@ function isGradedCoinContext(merged: Record<string, string[]>, title: string): b
   );
 }
 
+/** Live inventory GET stored numeric value in Letter grade where nickel expects prefix (MS). */
+export function liveInventoryWireGradesCorrupted(
+  liveAspects: Record<string, string[]>,
+  categoryId?: string | number | null
+): boolean {
+  const letter = pickFirstAspectValue(liveAspects, "Letter grade");
+  if (!letter) return false;
+  if (inventoryPutLetterGradeIsNumeric(categoryId)) {
+    return /^[A-Z]{1,3}$/.test(letter) && letter !== pickFirstAspectValue(liveAspects, "Numerical grade");
+  }
+  return /^\d{1,2}$/.test(letter);
+}
+
+/** Graded coins (or corrupted live wire grades) need GetItem-backed aspect prep, not live overlay. */
+export function passthroughUsePreparedInventoryAspects(
+  liveAspects: Record<string, string[]>,
+  categoryId: string | number | null | undefined,
+  tradingAspects: Record<string, string[]> | null | undefined,
+  title: string
+): boolean {
+  if (liveInventoryWireGradesCorrupted(liveAspects, categoryId)) return true;
+  const merged = mergeProductAspectRecords(liveAspects, tradingAspects ?? {});
+  return isGradedCoinContext(merged, title);
+}
+
 /**
  * Inventory API wire-only sub-fields (Letter grade / Numerical grade).
  * Letter grade = prefix (MS, PR, …); Numerical grade = numeric (67, 69, …).
@@ -591,7 +616,11 @@ export type PrepareLiveAspectsOptions = {
   categoryId?: string | number | null;
 };
 
-function liveHasAcceptedWireGrades(liveAspects: Record<string, string[]>): boolean {
+function liveHasAcceptedWireGrades(
+  liveAspects: Record<string, string[]>,
+  categoryId?: string | number | null
+): boolean {
+  if (liveInventoryWireGradesCorrupted(liveAspects, categoryId)) return false;
   const hasGrader =
     hasAspectValue(liveAspects, "Professional grader") ||
     hasAspectValue(liveAspects, "Certification");
@@ -642,11 +671,16 @@ const INVENTORY_PUT_WIRE_GRADE_NAMES = ["Professional grader", "Letter grade", "
 /** Title/photo PUT: keep live inventory GET wire values verbatim when eBay already accepted them. */
 function restoreLiveWireGradeAspects(
   product: Record<string, string[]>,
-  liveAspects: Record<string, string[]>
+  liveAspects: Record<string, string[]>,
+  categoryId?: string | number | null
 ): void {
   for (const name of INVENTORY_PUT_WIRE_GRADE_NAMES) {
     const liveVal = pickFirstAspectValue(liveAspects, name);
-    if (liveVal) setAspectValue(product, name, liveVal);
+    if (!liveVal) continue;
+    if (name.toLowerCase() === "letter grade" && liveInventoryWireGradesCorrupted(liveAspects, categoryId)) {
+      continue;
+    }
+    setAspectValue(product, name, liveVal);
   }
 }
 
@@ -730,7 +764,8 @@ export function prepareLiveAspectsForInventoryPut(
 
   const categoryId = options.categoryId;
   const skipLetterNumericalRewrite =
-    options.preserveLiveWireGrades === true && liveHasAcceptedWireGrades(liveAspects);
+    options.preserveLiveWireGrades === true &&
+    liveHasAcceptedWireGrades(liveAspects, categoryId);
 
   if (!skipLetterNumericalRewrite) {
     applyGradedCoinWireAspects(
@@ -773,7 +808,7 @@ export function prepareLiveAspectsForInventoryPut(
   dedupeInventoryPutAspectAliases(product);
 
   if (options.preserveLiveWireGrades) {
-    restoreLiveWireGradeAspects(product, liveAspects);
+    restoreLiveWireGradeAspects(product, liveAspects, categoryId);
   }
 
   return product;
