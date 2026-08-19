@@ -67,6 +67,7 @@ describe("passthrough-push", () => {
       price: true,
     }, {
       tradingAspects: jeffersonGetItemTrading,
+      enrichAspects: true,
     });
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
     expect(aspects["Professional grader"]).toEqual(["NGC"]);
@@ -77,14 +78,14 @@ describe("passthrough-push", () => {
   });
 
   it("preserves live aspects verbatim when overlaying INW title and qty", () => {
-    const changed = { content: true, quantity: true, price: true };
+    const changed = { content: true, quantity: true, price: true, title: true };
     const body = buildPassthroughInventoryBody(liveJeffersonNickel, coinItem, changed);
 
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
     expect(aspects["Letter grade"]).toEqual(["MS"]);
     expect(aspects["Numerical grade"]).toEqual(["67"]);
-    expect(aspects["Professional grader"]).toEqual(["NGC"]);
-    expect(aspects.Certification).toBeUndefined();
+    expect(aspects.Certification).toEqual(["NGC"]);
+    expect(aspects["Professional grader"]).toBeUndefined();
     expect(aspects.Grade).toEqual(["MS 67"]);
 
     expect((body.product as Record<string, unknown>).title).toBe(coinItem.title);
@@ -107,7 +108,7 @@ describe("passthrough-push", () => {
       content: true,
       quantity: true,
       price: true,
-    });
+    }, { enrichAspects: true });
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
     expect(aspects["Letter grade"]).toEqual(["MS"]);
     expect(aspects["Numerical grade"]).toEqual(["67"]);
@@ -129,7 +130,7 @@ describe("passthrough-push", () => {
       content: true,
       quantity: true,
       price: true,
-    });
+    }, { enrichAspects: true });
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
     expect(aspects["Professional grader"]).toEqual(["NGC"]);
     expect(aspects.Certification).toBeUndefined();
@@ -159,6 +160,7 @@ describe("passthrough-push", () => {
       price: true,
     }, {
       tradingAspects: { Certification: ["NGC"], Grade: ["PR 69"] },
+      enrichAspects: true,
     });
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
     expect(aspects["Professional grader"]).toEqual(["NGC"]);
@@ -181,6 +183,7 @@ describe("passthrough-push", () => {
       price: true,
     }, {
       tradingAspects: { Certification: ["NGC"] },
+      enrichAspects: true,
     });
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
     expect(aspects["Professional grader"]).toEqual(["NGC"]);
@@ -203,7 +206,8 @@ describe("passthrough-push", () => {
     const body = buildPassthroughInventoryBody(
       liveOnlyCertification,
       { ...coinItem, aspects: [] },
-      { content: true, quantity: true, price: true }
+      { content: true, quantity: true, price: true },
+      { enrichAspects: true }
     );
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
     expect(aspects["Professional grader"]).toEqual(["NGC"]);
@@ -225,7 +229,7 @@ describe("passthrough-push", () => {
       content: true,
       quantity: true,
       price: true,
-    });
+    }, { enrichAspects: true });
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
     expect(aspects["Professional grader"]).toEqual(["NGC"]);
     expect(aspects.Certification).toBeUndefined();
@@ -277,24 +281,24 @@ describe("passthrough-push", () => {
     expect(aspects.Year).toEqual(["1938"]);
   });
 
-  it("needsInventoryPut only for title or photo changes", () => {
+  it("needsInventoryPut only for title changes", () => {
     expect(needsInventoryPut({ content: false, quantity: true, price: true, title: false, photos: false })).toBe(false);
     expect(needsInventoryPut({ content: true, quantity: false, price: false, title: true, photos: false })).toBe(true);
-    expect(needsInventoryPut({ content: true, quantity: false, price: false, title: false, photos: true })).toBe(true);
+    expect(needsInventoryPut({ content: true, quantity: false, price: false, title: false, photos: true })).toBe(false);
     expect(needsInventoryPut({ content: true, quantity: false, price: false, title: false, photos: false, description: true })).toBe(false);
   });
 
-  it("detectLivePassthroughChanges skips inventory when title and photos match", () => {
+  it("detectLivePassthroughChanges skips inventory when title matches even if photos differ by CDN URL", () => {
     const changed = detectLivePassthroughChanges(
       liveJeffersonNickel,
-      { ...coinItem, photos: ["https://i.ebayimg.com/original.jpg"] },
+      { ...coinItem, photos: ["https://i.ebayimg.com/different-size.jpg"] },
       {
         listingDescription: "Original eBay description",
         pricingSummary: { price: { value: "125.00" } },
       }
     );
     expect(changed.title).toBe(false);
-    expect(changed.photos).toBe(false);
+    expect(changed.photos).toBe(true);
     expect(needsInventoryPut(changed)).toBe(false);
   });
 
@@ -324,7 +328,38 @@ describe("passthrough-push", () => {
         "Letter grade": ["MS"],
         "Numerical grade": ["67"],
       })
-    ).toContain("Professional grader=NGC");
+    ).toContain("Grader=NGC");
+  });
+
+  it("matches user-reported live inventory aspects verbatim without enrichment", () => {
+    const liveLikeProduction = {
+      product: {
+        title: "1938 Jefferson Nickel NGC MS 67",
+        aspects: {
+          Composition: ["Copper-Nickel"],
+          Mint: ["Denver"],
+          "Letter grade": ["MS"],
+          "Strike Type": ["Business"],
+          Grade: ["MS 67"],
+          Modified: ["No"],
+        },
+      },
+    };
+    const body = buildPassthroughInventoryBody(
+      liveLikeProduction,
+      coinItem,
+      { content: true, quantity: true, price: true, title: false }
+    );
+    const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(Object.keys(aspects).sort()).toEqual([
+      "Composition",
+      "Grade",
+      "Letter grade",
+      "Mint",
+      "Modified",
+      "Strike Type",
+    ]);
+    expect(aspects["Professional grader"]).toBeUndefined();
   });
 
   it("detectPassthroughChangedFields uses baseline hash", () => {

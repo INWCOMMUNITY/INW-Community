@@ -305,10 +305,12 @@ async function upsertListing(
           sku,
           linkExternalId,
           changed,
+          aspectMode: Object.keys(liveAspects).length > 0 ? "live_verbatim" : "enriched",
           pushAspectKeys: Object.keys(pushAspects),
-          letterGrade: pushAspects["Letter grade"],
-          numericalGrade: pushAspects["Numerical grade"],
-          professionalGrader: pushAspects["Professional grader"],
+          grader:
+            pushAspects["Professional grader"]?.[0] ?? pushAspects["Certification"]?.[0] ?? null,
+          letterGrade: pushAspects["Letter grade"]?.[0] ?? null,
+          numericalGrade: pushAspects["Numerical grade"]?.[0] ?? null,
         });
         addRequest(trace, inventoryBody);
         try {

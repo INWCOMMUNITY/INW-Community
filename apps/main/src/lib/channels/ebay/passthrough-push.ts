@@ -21,11 +21,13 @@ export type PassthroughChangedFields = {
   description?: boolean;
 };
 
-/** Inventory PUT is only required when title or photos change (full product replace). */
+/**
+ * Inventory PUT is only required when the seller changed the title in INW.
+ * Photo URL formats differ between import (Trading) and inventory GET — comparing
+ * them caused a full aspect rewrite on every sync (#25064 loop).
+ */
 export function needsInventoryPut(changed: PassthroughChangedFields): boolean {
-  if (changed.title === true || changed.photos === true) return true;
-  if (changed.title === false && changed.photos === false) return false;
-  return changed.content;
+  return changed.title === true;
 }
 
 export type LiveInventoryItem = Record<string, unknown>;
@@ -150,6 +152,11 @@ export type PassthroughBuildOptions = {
   storedAspects?: Record<string, string[]> | null;
   /** GetItem trading aspects — authoritative for Certification when inventory GET omits it. */
   tradingAspects?: Record<string, string[]> | null;
+  /**
+   * When true, rebuild aspects from GetItem/taxonomy (live GET returned none).
+   * Default: preserve live GET aspects verbatim — eBay already accepted them.
+   */
+  enrichAspects?: boolean;
 };
 
 function readRawProductAspects(product: Record<string, unknown>): Record<string, string[]> {
@@ -165,6 +172,18 @@ function readRawProductAspects(product: Record<string, unknown>): Record<string,
     } else if (values != null && String(values).trim()) {
       out[trimmedName] = [String(values).trim()];
     }
+  }
+  return out;
+}
+
+/** Copy live inventory aspects exactly — do not remap or enrich. */
+export function copyLiveInventoryAspects(
+  liveAspects: Record<string, string[]>
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const [name, values] of Object.entries(liveAspects)) {
+    const kept = values.map((v) => String(v).trim()).filter(Boolean);
+    if (kept.length > 0) out[name] = kept;
   }
   return out;
 }
@@ -208,22 +227,25 @@ export function buildPassthroughInventoryBody(
     extractEbayInventoryAspects(live) ?? {},
     readRawProductAspects(liveProduct)
   );
-  const pushAspects = enrichInventoryProductAspectsForPush(
-    liveAspects,
-    item.title,
-    options.categoryAspects ?? [],
-    options.tradingAspects,
-    options.cachedAspects,
-    options.storedAspects
-  );
+  const mustEnrich = options.enrichAspects === true || Object.keys(liveAspects).length === 0;
+  const pushAspects = mustEnrich
+    ? enrichInventoryProductAspectsForPush(
+        liveAspects,
+        item.title,
+        options.categoryAspects ?? [],
+        options.tradingAspects,
+        options.cachedAspects,
+        options.storedAspects
+      )
+    : copyLiveInventoryAspects(liveAspects);
   if (Object.keys(pushAspects).length > 0) {
     liveProduct.aspects = pushAspects;
   } else {
     delete liveProduct.aspects;
   }
 
-  const overlayTitle = changed.title ?? changed.content;
-  const overlayPhotos = changed.photos ?? changed.content;
+  const overlayTitle = changed.title === true;
+  const overlayPhotos = changed.photos === true;
   if (overlayTitle) {
     liveProduct.title = item.title.slice(0, EBAY_TITLE_MAX);
   }
@@ -333,11 +355,27 @@ export function buildPassthroughOfferBody(
   return offer;
 }
 
+function aspectValues(aspects: Record<string, string[]>, name: string): string {
+  const key = Object.keys(aspects).find((k) => k.toLowerCase() === name.toLowerCase());
+  if (!key) return "(missing)";
+  const vals = aspects[key]?.map((v) => v.trim()).filter(Boolean);
+  return vals.length > 0 ? vals.join(",") : "(empty)";
+}
+
 export function formatPushedAspectsSummary(aspects: Record<string, string[]> | null | undefined): string {
   if (!aspects || Object.keys(aspects).length === 0) return "Sent aspects: (none)";
   const keys = Object.keys(aspects);
-  const grader = aspects["Professional grader"]?.join(",") ?? "(missing)";
-  const letter = aspects["Letter grade"]?.join(",") ?? "(missing)";
-  const numerical = aspects["Numerical grade"]?.join(",") ?? "(missing)";
-  return `Sent aspects: ${keys.join(", ")}. Professional grader=${grader}; Letter grade=${letter}; Numerical grade=${numerical}`;
+  const grader =
+    aspectValues(aspects, "Professional grader") !== "(missing)"
+      ? aspectValues(aspects, "Professional grader")
+      : aspectValues(aspects, "Certification");
+  const letter = aspectValues(aspects, "Letter grade");
+  const numerical = aspectValues(aspects, "Numerical grade");
+  const mode =
+    aspectValues(aspects, "Professional grader") === "(missing)" &&
+    aspectValues(aspects, "Certification") === "(missing)" &&
+    Object.keys(aspects).length > 0
+      ? "enriched"
+      : "live verbatim";
+  return `Sent aspects (${mode}): ${keys.join(", ")}. Grader=${grader}; Letter grade=${letter}; Numerical grade=${numerical}`;
 }

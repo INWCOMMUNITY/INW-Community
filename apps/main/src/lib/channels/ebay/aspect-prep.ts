@@ -350,7 +350,7 @@ export function applyGradedCoinWireAspects(
   const grader = extractGraderFromAspectRecord(merged, title);
   const graderSchema = categoryAspects.find((a) => a.name.toLowerCase() === "professional grader");
   const graderName = graderSchema?.name ?? "Professional grader";
-  if (grader && !hasAspectValue(product, graderName)) {
+  if (grader) {
     setAspectValue(product, graderName, snapToSuggestedValue(graderSchema, grader));
   }
 
@@ -361,8 +361,17 @@ export function applyGradedCoinWireAspects(
   const letterName = letterSchema?.name ?? "Letter grade";
   const numericalName = numericalSchema?.name ?? "Numerical grade";
 
-  if (!hasAspectValue(product, letterName)) {
-    const letter = liveLetter ?? parts?.prefix;
+  const currentLetter = pickFirstAspectValue(product, letterName);
+  const letterIsNumericOnly = currentLetter != null && /^\d{1,2}$/.test(currentLetter);
+  const letterIsFullGrade =
+    currentLetter != null && parts != null && parseCoinGradeLabel(currentLetter) != null;
+  if (
+    !hasAspectValue(product, letterName) ||
+    letterIsNumericOnly ||
+    (letterIsFullGrade && parts && parseCoinGradeLabel(currentLetter!)!.prefix !== parts.prefix)
+  ) {
+    const letter =
+      liveLetter && !letterIsNumericOnly && !letterIsFullGrade ? liveLetter : parts?.prefix;
     if (letter) setAspectValue(product, letterName, snapToSuggestedValue(letterSchema, letter));
   }
   if (!hasAspectValue(product, numericalName)) {
