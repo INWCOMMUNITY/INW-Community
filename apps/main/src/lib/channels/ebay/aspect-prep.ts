@@ -232,9 +232,32 @@ function remapTradingAspectRowsForInventoryPut(rows: ListingAspect[]): ListingAs
   return normalizeListingAspects(Array.from(out.values()));
 }
 
+/** Trading/GetItem grader fields — sellers see Certification, not Professional grader. */
+function extractGraderFromAspectRecord(
+  merged: Record<string, string[]>,
+  title: string
+): string | null {
+  for (const [name, values] of Object.entries(merged)) {
+    if (!GRADER_SOURCE_NAMES.has(name.trim().toLowerCase())) continue;
+    const v = values.find((x) => String(x).trim());
+    if (v) return String(v).trim().toUpperCase();
+  }
+  const m = title.trim().match(/\b(NGC|PCGS|ANACS|ICG|PMG|CACG)\b/i);
+  return m ? m[1]!.toUpperCase() : null;
+}
+
+/** Remove Trading-only grader aliases from Inventory PUT payload (wire uses Professional grader). */
+function stripTradingGraderAliases(product: Record<string, string[]>): void {
+  for (const key of Object.keys(product)) {
+    const lower = key.toLowerCase();
+    if (lower === "professional grader") continue;
+    if (GRADER_SOURCE_NAMES.has(lower)) delete product[key];
+  }
+}
+
 /**
- * Passthrough push helper — remap Trading names to Inventory keys, inject derived grade
- * sub-fields, preserve other live aspect values without re-introducing dropped aliases.
+ * Passthrough push helper — silently translate Trading names (Certification, Grade) to
+ * Inventory API keys (Professional grader, Letter grade). Sellers never see the latter.
  */
 export function enrichInventoryProductAspectsForPush(
   liveAspects: Record<string, string[]>,
@@ -245,7 +268,16 @@ export function enrichInventoryProductAspectsForPush(
   let rows = productAspectsToListingAspects(merged);
   rows = remapTradingAspectRowsForInventoryPut(rows);
   const enriched = ensureGradedCoinInventoryAspects([], rows, rows, title);
-  return aspectsToEbayProductAspects(enriched);
+  const product = aspectsToEbayProductAspects(enriched);
+
+  // Inventory API requires "Professional grader"; live GET and GetItem use Certification.
+  if (!product["Professional grader"]?.some((v) => v.trim())) {
+    const grader = extractGraderFromAspectRecord(merged, title);
+    if (grader) product["Professional grader"] = [grader];
+  }
+
+  stripTradingGraderAliases(product);
+  return product;
 }
 
 export function mergeListingAspects(base: ListingAspect[], extra: ListingAspect[]): ListingAspect[] {

@@ -84,6 +84,49 @@ describe("passthrough-push", () => {
     expect(aspects.Grade).toEqual(["MS 67"]);
   });
 
+  it("uses GetItem Certification when live inventory omits grader fields", () => {
+    const liveNoGrader = {
+      product: {
+        aspects: {
+          Grade: ["MS 67"],
+          Year: ["1938"],
+        },
+      },
+    };
+    const body = buildPassthroughInventoryBody(liveNoGrader, coinItem, {
+      content: true,
+      quantity: true,
+      price: true,
+    }, {
+      tradingAspects: { Certification: ["NGC"] },
+    });
+    const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(aspects["Professional grader"]).toEqual(["NGC"]);
+    expect(aspects.Certification).toBeUndefined();
+    expect(aspects["Letter grade"]).toEqual(["67"]);
+  });
+
+  it("never sends raw Certification when enrich must translate for Inventory PUT", () => {
+    const liveOnlyCertification = {
+      product: {
+        title: "1938 Jefferson Nickel NGC MS 67",
+        aspects: {
+          Certification: ["NGC"],
+          Grade: ["MS 67"],
+          Year: ["1938"],
+        },
+      },
+    };
+    const body = buildPassthroughInventoryBody(
+      liveOnlyCertification,
+      { ...coinItem, aspects: [] },
+      { content: true, quantity: true, price: true }
+    );
+    const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(aspects["Professional grader"]).toEqual(["NGC"]);
+    expect(aspects.Certification).toBeUndefined();
+  });
+
   it("maps Certification to Professional grader for Inventory PUT", () => {
     const liveTradingNames = {
       product: {

@@ -53,9 +53,51 @@ export async function fetchLiveInventoryItem(
 }
 
 export type PassthroughBuildOptions = {
+  /** Live inventory GET cache on the channel link. */
   cachedAspects?: Record<string, string[]> | null;
+  /** INW StoreItem.aspects (Trading names like Certification). */
   storedAspects?: Record<string, string[]> | null;
+  /** GetItem trading aspects — authoritative for Certification when inventory GET omits it. */
+  tradingAspects?: Record<string, string[]> | null;
 };
+
+function readRawProductAspects(product: Record<string, unknown>): Record<string, string[]> {
+  const aspects = product.aspects;
+  if (!aspects || typeof aspects !== "object" || Array.isArray(aspects)) return {};
+  const out: Record<string, string[]> = {};
+  for (const [name, values] of Object.entries(aspects as Record<string, unknown>)) {
+    const trimmedName = name.trim();
+    if (!trimmedName) continue;
+    if (Array.isArray(values)) {
+      const arr = values.map((v) => String(v).trim()).filter(Boolean);
+      if (arr.length > 0) out[trimmedName] = arr;
+    } else if (values != null && String(values).trim()) {
+      out[trimmedName] = [String(values).trim()];
+    }
+  }
+  return out;
+}
+
+function mergeAspectRecords(
+  ...sources: Array<Record<string, string[]> | null | undefined>
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const src of sources) {
+    if (!src) continue;
+    for (const [name, values] of Object.entries(src)) {
+      const trimmedName = name.trim();
+      if (!trimmedName) continue;
+      const key =
+        Object.keys(out).find((k) => k.toLowerCase() === trimmedName.toLowerCase()) ?? trimmedName;
+      if (!out[key]) out[key] = [];
+      for (const v of values) {
+        const val = String(v).trim();
+        if (val && !out[key].includes(val)) out[key].push(val);
+      }
+    }
+  }
+  return out;
+}
 
 /**
  * Merge live eBay inventory item with INW edits. Aspects come from live eBay + silent inventory-only enrichment.
@@ -71,15 +113,22 @@ export function buildPassthroughInventoryBody(
       ? ({ ...(live.product as Record<string, unknown>) } as Record<string, unknown>)
       : ({} as Record<string, unknown>);
 
-  const liveAspects = extractEbayInventoryAspects(live) ?? {};
+  const liveAspects = mergeAspectRecords(
+    extractEbayInventoryAspects(live) ?? {},
+    readRawProductAspects(liveProduct)
+  );
   const pushAspects = enrichInventoryProductAspectsForPush(
     liveAspects,
     item.title,
+    options.tradingAspects,
     options.cachedAspects,
     options.storedAspects
   );
+  // Always send wire-translated aspects — never raw Certification on Inventory PUT.
   if (Object.keys(pushAspects).length > 0) {
     liveProduct.aspects = pushAspects;
+  } else {
+    delete liveProduct.aspects;
   }
 
   if (changed.content) {

@@ -317,8 +317,8 @@ export function ebayErrorActionHint(reason: string): string | undefined {
   if (/\b25021\b|condition.*invalid|invalid.*condition/i.test(reason)) {
     return "This listing needs a condition that matches its eBay category. Open the listing in INW and choose New or Used when prompted.";
   }
-  if (/\b25064\b|numerical grade|item specific|item specifics/i.test(reason)) {
-    return "This listing is missing required eBay item specifics (for example Numerical grade on graded coins). Open the listing and fill in eBay Listing Requirements, or ensure the title includes the grader and grade (e.g. NGC MS 67).";
+  if (/\b25064\b|professional grader|numerical grade|item specific|item specifics/i.test(reason)) {
+    return "eBay rejected the sync because grader info is missing on the Inventory API payload. Your listing uses Certification (e.g. NGC) — try Refresh from eBay, then sync again. If it persists, ensure the title includes the grader and grade (e.g. NGC MS 67).";
   }
   if (/\b25001\b|system error has occurred|Internal error/i.test(reason)) {
     return "eBay's service hit a temporary error. Wait a minute and try again.";

@@ -234,14 +234,35 @@ async function upsertListing(
           ? (ebayLink.ebayInventoryAspects as Record<string, string[]>)
           : null;
       const storedAspects = aspectsToEbayProductAspects(parseStoredAspects(item.aspects));
-      const passthroughOpts = { cachedAspects, storedAspects };
+
+      let tradingAspects: Record<string, string[]> | null = null;
+      const legacyListingId = await resolveSyncLegacyListingId(conn.accessToken, {
+        linkedSku: linkExternalId,
+        sku,
+        itemSku: item.sku,
+        offerId,
+      });
+      if (legacyListingId) {
+        try {
+          const details = await fetchEbayItemDetails(conn.accessToken, legacyListingId);
+          tradingAspects = aspectsToEbayProductAspects(parseStoredAspects(details.aspects));
+        } catch (e) {
+          console.warn("[ebay] passthrough GetItem trading aspects failed", {
+            storeItemId: item.id,
+            legacyListingId,
+            error: describeEbayThrownError(e),
+          });
+        }
+      }
+
+      const passthroughOpts = { cachedAspects, storedAspects, tradingAspects };
 
       const changed = { content: true, quantity: true, price: true };
       const inventoryBody = buildPassthroughInventoryBody(live, item, changed, passthroughOpts);
       const pushAspects = (inventoryBody.product as Record<string, unknown>)?.aspects;
 
       addTransform(trace, {
-        before: { passthrough: true, liveAspects },
+        before: { passthrough: true, liveAspects, tradingAspects, storedAspects },
         after: {
           overlays: ["title", "description", "photos", "quantity", "price"],
           pushAspects,
@@ -292,13 +313,8 @@ async function upsertListing(
         }
       }
 
-      if (offerId) {
-        await pushOfferBodyPassthrough(offerBody);
-        await pushInventoryBodyPassthrough(inventoryBody, trace);
-      } else {
-        await pushInventoryBodyPassthrough(inventoryBody, trace);
-        await pushOfferBodyPassthrough(offerBody);
-      }
+      await pushInventoryBodyPassthrough(inventoryBody, trace);
+      await pushOfferBodyPassthrough(offerBody);
 
       if (ebayLink) {
         await fetchAndCacheEbayInventoryAspects(conn.accessToken, ebayLink.id, sku);
@@ -711,7 +727,7 @@ export const ebayAdapter: ChannelAdapter = {
   async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {
     const ebayLink = await prisma.channelListingLink.findFirst({
       where: { storeItemId: item.id, provider: "ebay" },
-      select: { linkOrigin: true },
+      select: { linkOrigin: true, externalListingId: true, ebayInventoryAspects: true },
     });
     const inventorySku = resolveEbayInventorySku(externalListingId);
     hydrateRevisionCountsFromConfig(conn.config);
@@ -744,12 +760,35 @@ export const ebayAdapter: ChannelAdapter = {
         if (!live) {
           throw new Error("Could not fetch live eBay inventory for passthrough qty update");
         }
+        const cachedAspects =
+          ebayLink?.ebayInventoryAspects &&
+          typeof ebayLink.ebayInventoryAspects === "object" &&
+          !Array.isArray(ebayLink.ebayInventoryAspects)
+            ? (ebayLink.ebayInventoryAspects as Record<string, string[]>)
+            : null;
+        let tradingAspects: Record<string, string[]> | null = null;
+        const legacyListingId = await resolveSyncLegacyListingId(conn.accessToken, {
+          linkedSku: externalListingId,
+          sku: inventorySku,
+          itemSku: item.sku,
+          offerId: null,
+        });
+        if (legacyListingId) {
+          try {
+            const details = await fetchEbayItemDetails(conn.accessToken, legacyListingId);
+            tradingAspects = aspectsToEbayProductAspects(parseStoredAspects(details.aspects));
+          } catch {
+            /* optional */
+          }
+        }
         inventoryBody = buildPassthroughInventoryBody(live, qtyItem, {
           content: false,
           quantity: true,
           price: false,
         }, {
+          cachedAspects,
           storedAspects: aspectsToEbayProductAspects(parseStoredAspects(item.aspects)),
+          tradingAspects,
         });
       } else {
         inventoryBody = buildEbayInventoryItem(qtyItem);
