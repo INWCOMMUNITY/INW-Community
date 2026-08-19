@@ -12,7 +12,6 @@ import { enrichInventoryProductAspectsForPush, prepareLiveAspectsForInventoryPut
 import { applyBestOfferTermsToOfferBody, bestOfferStatesMatch, inwBestOfferState, readOfferBestOfferTerms } from "./best-offer";
 import { EBAY_CURRENCY } from "./config";
 import { ebayPriceFromCents } from "./mapping";
-import { readLiveConditionDescriptors } from "./conditions";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 
 export type PassthroughChangedFields = {
@@ -53,8 +52,6 @@ export function buildPassthroughLiveOverlayBody(
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   if (typeof live.condition === "string") body.condition = live.condition;
-  const liveDescriptors = readLiveConditionDescriptors(live);
-  if (liveDescriptors) body.conditionDescriptors = structuredClone(liveDescriptors);
 
   if (patch.quantity != null) {
     body.availability = {
@@ -492,6 +489,8 @@ const OFFER_READ_ONLY_KEYS = new Set([
   "listingId",
   "soldQuantity",
   "href",
+  /** Inventory item owns conditionDescriptors — copying stale offer values triggers #25069. */
+  "conditionDescriptors",
 ]);
 
 /** Overlay INW description/qty on a live GET offer — never rewrite category or policies. */

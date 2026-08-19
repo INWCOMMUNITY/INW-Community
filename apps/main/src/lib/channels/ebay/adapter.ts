@@ -187,7 +187,13 @@ async function enrichPassthroughInventoryPutBody(
 ): Promise<Record<string, unknown>> {
   if (!categoryId?.trim()) return body;
   const product = body.product as Record<string, unknown> | undefined;
-  const productAspects = (product?.aspects ?? {}) as Record<string, string[]>;
+  const bodyAspects = (product?.aspects ?? {}) as Record<string, string[]>;
+  const liveProduct =
+    live.product && typeof live.product === "object"
+      ? (live.product as Record<string, unknown>)
+      : null;
+  const liveAspects = (liveProduct?.aspects ?? {}) as Record<string, string[]>;
+  const productAspects = { ...liveAspects, ...bodyAspects };
   try {
     const metadata = await fetchConditionDescriptorMetadata(accessToken, categoryId);
     return preserveOrBuildConditionDescriptorsOnBody(body, live, productAspects, metadata, title);

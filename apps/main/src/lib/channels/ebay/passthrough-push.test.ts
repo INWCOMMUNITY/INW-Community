@@ -341,6 +341,25 @@ describe("passthrough-push", () => {
     expect(offer.listingDescription).toBe("old");
   });
 
+  it("overlayPassthroughOffer omits stale conditionDescriptors from offer PUT", () => {
+    const offer = overlayPassthroughOffer(
+      {
+        categoryId: "39458",
+        listingDescription: "old",
+        conditionDescriptors: [
+          { name: "27503", values: ["275030"] },
+          { name: "27504", values: ["275040"] },
+        ],
+        pricingSummary: { price: { value: "125.00", currency: "USD" } },
+        offerId: "offer-1",
+        status: "PUBLISHED",
+      },
+      { ...coinItem, priceCents: 14500 },
+      { content: false, quantity: false, price: true, description: false }
+    );
+    expect(offer.conditionDescriptors).toBeUndefined();
+  });
+
   it("overlayPassthroughOffer does not rewrite categoryId", () => {
     const offer = overlayPassthroughOffer(
       {

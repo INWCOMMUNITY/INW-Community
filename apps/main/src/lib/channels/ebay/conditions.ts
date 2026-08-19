@@ -190,8 +190,10 @@ function resolveDescriptorValueId(
   meta: EbayConditionDescriptorMeta,
   aspectValues: string[]
 ): string | null {
+  const isLetterGradeDescriptor = /letter grade/.test(normalizeDescriptorKey(meta.name));
   for (const aspectValue of aspectValues) {
     const normalized = normalizeDescriptorKey(aspectValue);
+    if (isLetterGradeDescriptor && /^\d{1,2}$/.test(normalized)) continue;
     const exact = meta.values.find((v) => normalizeDescriptorKey(v.label) === normalized);
     if (exact) return exact.id;
     const partial = meta.values.find(
@@ -281,7 +283,8 @@ function letterGradeDescriptorValues(
     parseGradePrefixFromAspects(productAspects) ??
     (title ? parseGradePrefixFromTitle(title) : null);
   if (prefix) return [prefix];
-  return letter;
+  // Dime wire aspects store numeric Letter grade (69); never map that to a letter-grade descriptor.
+  return [];
 }
 
 function aspectValuesForDescriptorName(
