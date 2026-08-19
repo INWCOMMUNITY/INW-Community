@@ -261,22 +261,45 @@ async function upsertListing(
         before: { passthrough: true, liveChanges, inwFields, changed },
         after: {
           overlays: [
+            changed.price || changed.quantity ? "bulk_price_qty" : null,
+            changed.description ? "offer_description" : null,
             changed.title ? "inventory_title_only" : null,
             putInventory ? "inventory_photos_only" : null,
-            changed.description ? "offer_description" : null,
-            changed.price || changed.quantity ? "bulk_price_qty" : null,
           ].filter(Boolean),
         },
         remaps: [],
         dropped: [],
       });
 
+      if (changed.price || changed.quantity) {
+        const quantity = Math.max(0, item.quantity);
+        const request: Record<string, unknown> = {
+          sku,
+          shipToLocationAvailability: { quantity },
+        };
+        if (offerId) {
+          request.offers = [
+            {
+              offerId,
+              availableQuantity: quantity,
+              ...(changed.price
+                ? { price: { value: ebayPriceFromCents(item.priceCents), currency: "USD" } }
+                : {}),
+            },
+          ];
+        }
+        await ebayJson(conn.accessToken, `/sell/inventory/v1/bulk_update_price_quantity`, "POST", {
+          requests: [request],
+        });
+        await persistRevisionCount(conn.id, sku, conn.config);
+      }
+
       if (changed.title) {
         const titleBody = buildPassthroughTitleOnlyInventoryBody(live, item);
         console.warn("[ebay] upsertListing passthrough PUT title only", {
           storeItemId: item.id,
           sku,
-          aspectsOmitted: true,
+          aspectsPreserved: true,
         });
         try {
           await ebayJson(
@@ -306,7 +329,7 @@ async function upsertListing(
           sku,
           linkExternalId,
           changed,
-          aspectsOmitted: true,
+          aspectsPreserved: true,
         });
         addRequest(trace, inventoryBody);
         try {
@@ -352,29 +375,6 @@ async function upsertListing(
           const msg = describeEbayThrownError(e);
           throw new Error(`eBay offer update failed: ${msg}`);
         }
-      }
-
-      if (changed.price || changed.quantity) {
-        const quantity = Math.max(0, item.quantity);
-        const request: Record<string, unknown> = {
-          sku,
-          shipToLocationAvailability: { quantity },
-        };
-        if (offerId) {
-          request.offers = [
-            {
-              offerId,
-              availableQuantity: quantity,
-              ...(changed.price
-                ? { price: { value: ebayPriceFromCents(item.priceCents), currency: "USD" } }
-                : {}),
-            },
-          ];
-        }
-        await ebayJson(conn.accessToken, `/sell/inventory/v1/bulk_update_price_quantity`, "POST", {
-          requests: [request],
-        });
-        await persistRevisionCount(conn.id, sku, conn.config);
       }
 
       if (ebayLink && putInventory) {

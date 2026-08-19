@@ -380,7 +380,7 @@ describe("passthrough-push", () => {
     });
     const product = body.product as Record<string, unknown>;
     expect(product.title).toBe("New Title From INW");
-    expect(product.aspects).toBeUndefined();
+    expect(product.aspects).toEqual({ Grade: ["MS 67"], "Letter grade": ["MS"] });
     expect(product.imageUrls).toEqual(["https://i.ebayimg.com/a.jpg"]);
     expect(body.condition).toBe("LIKE_NEW");
     expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 1 } });
@@ -432,15 +432,15 @@ describe("passthrough-push", () => {
     const product = body.product as Record<string, unknown>;
     expect(product.imageUrls).toEqual(["https://i.ebayimg.com/new.jpg"]);
     expect(product.title).toBe("Keep Title");
-    expect(product.aspects).toBeUndefined();
+    expect(product.aspects).toEqual({ Grade: ["MS 67"], "Numerical grade": ["67"] });
   });
 
-  it("formatPassthroughPutNote reports omitted aspects", () => {
+  it("formatPassthroughPutNote reports preserved aspects", () => {
     expect(
       formatPassthroughPutNote({
-        product: { title: "T", imageUrls: [] },
+        product: { title: "T", aspects: { Year: ["1938"] }, imageUrls: [] },
       })
-    ).toContain("aspects omitted");
+    ).toContain("Year");
   });
 
   it("formatPushedAspectsSummary includes wire keys", () => {

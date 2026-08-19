@@ -29,15 +29,14 @@ export function needsInventoryPut(changed: PassthroughChangedFields): boolean {
   return changed.photos === true;
 }
 
-/** Strip aspect fields — eBay already has them; re-sending triggers #25064 validation. */
-function stripProductAspects(product: Record<string, unknown>): void {
-  delete product.aspects;
+/** Description lives on the offer for imported listings — omit from inventory product overlay. */
+function stripProductDescription(product: Record<string, unknown>): void {
   delete product.description;
 }
 
 /**
  * Re-PUT a live inventory GET with selective product/availability overlays.
- * Never includes product.aspects (eBay retains existing specifics server-side).
+ * Preserves live product.aspects verbatim (eBay Inventory PUT validates required specifics).
  */
 export function buildPassthroughLiveOverlayBody(
   live: LiveInventoryItem,
@@ -62,7 +61,7 @@ export function buildPassthroughLiveOverlayBody(
     live.product && typeof live.product === "object"
       ? (structuredClone(live.product) as Record<string, unknown>)
       : {};
-  stripProductAspects(liveProduct);
+  stripProductDescription(liveProduct);
   if (patch.title != null) {
     liveProduct.title = patch.title.slice(0, EBAY_TITLE_MAX);
   }
@@ -73,7 +72,7 @@ export function buildPassthroughLiveOverlayBody(
   return body;
 }
 
-/** PUT live inventory with only product.title changed — aspects omitted. */
+/** PUT live inventory with only product.title changed — live aspects preserved. */
 export function buildPassthroughTitleOnlyInventoryBody(
   live: LiveInventoryItem,
   item: SyncStoreItem
@@ -462,5 +461,5 @@ export function formatPassthroughPutNote(
   if (aspects != null) {
     return formatPushedAspectsSummary(aspects as Record<string, string[]>);
   }
-  return "Inventory PUT: aspects omitted (eBay retains existing specifics).";
+  return "Inventory PUT: live aspects preserved verbatim from eBay GET.";
 }
