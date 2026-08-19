@@ -246,6 +246,42 @@ function extractGraderFromAspectRecord(
   return m ? m[1]!.toUpperCase() : null;
 }
 
+/** Derive numeric grade (67, 69, …) from Trading Grade or title — not from stale live GET sub-fields. */
+function extractGradeNumericFromAspectRecord(
+  merged: Record<string, string[]>,
+  title: string
+): string | null {
+  for (const [name, values] of Object.entries(merged)) {
+    const nameLower = name.trim().toLowerCase();
+    if (nameLower !== "grade") continue;
+    for (const v of values) {
+      const parsed = parseCoinGradeLabel(String(v));
+      if (parsed) return parsed.numeric;
+    }
+  }
+  const titleGrade = title.trim().match(/\b(MS|PR|PF|SP|AU|XF|VF|F|VG|G|AG)[\s-]*(\d{1,2})\b/i);
+  return titleGrade ? titleGrade[2]! : null;
+}
+
+/**
+ * Inventory API wire-only sub-fields (Letter grade / Numerical grade).
+ * Always derived from Trading Grade (e.g. MS 67 → 67), overwriting stale live GET values like "MS".
+ */
+function ensureWireDerivedGradeFields(
+  product: Record<string, string[]>,
+  merged: Record<string, string[]>,
+  title: string
+): void {
+  const numeric = extractGradeNumericFromAspectRecord(merged, title);
+  if (!numeric) return;
+
+  product["Letter grade"] = [numeric];
+  product["Numerical grade"] = [numeric];
+
+  const grader = extractGraderFromAspectRecord(merged, title);
+  if (grader) product["Professional grader"] = [grader];
+}
+
 /** Remove Trading-only grader aliases from Inventory PUT payload (wire uses Professional grader). */
 function stripTradingGraderAliases(product: Record<string, string[]>): void {
   for (const key of Object.keys(product)) {
@@ -270,7 +306,10 @@ export function enrichInventoryProductAspectsForPush(
   const enriched = ensureGradedCoinInventoryAspects([], rows, rows, title);
   const product = aspectsToEbayProductAspects(enriched);
 
-  // Inventory API requires "Professional grader"; live GET and GetItem use Certification.
+  // Inventory API requires wire-only derived fields from Trading Grade + Certification.
+  ensureWireDerivedGradeFields(product, merged, title);
+
+  // Fallback when Grade/title parsing above missed grader but Certification is present.
   if (!product["Professional grader"]?.some((v) => v.trim())) {
     const grader = extractGraderFromAspectRecord(merged, title);
     if (grader) product["Professional grader"] = [grader];

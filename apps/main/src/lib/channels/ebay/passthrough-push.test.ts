@@ -49,7 +49,7 @@ describe("passthrough-push", () => {
     const body = buildPassthroughInventoryBody(liveJeffersonNickel, coinItem, changed);
 
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
-    expect(aspects["Letter grade"]).toEqual(["MS"]);
+    expect(aspects["Letter grade"]).toEqual(["67"]);
     expect(aspects["Numerical grade"]).toEqual(["67"]);
     expect(aspects["Professional grader"]).toEqual(["NGC"]);
     expect(aspects.Certification).toBeUndefined();
@@ -60,7 +60,29 @@ describe("passthrough-push", () => {
     expect(body.condition).toBe("LIKE_NEW");
   });
 
-  it("injects Letter grade when live GET omits it but Grade and Certification present", () => {
+  it("overwrites stale live Letter grade MS with numeric 67 from Grade", () => {
+    const liveStaleLetter = {
+      product: {
+        aspects: {
+          Certification: ["NGC"],
+          Grade: ["MS 67"],
+          "Letter grade": ["MS"],
+          Year: ["1938"],
+        },
+      },
+    };
+    const body = buildPassthroughInventoryBody(liveStaleLetter, coinItem, {
+      content: true,
+      quantity: true,
+      price: true,
+    });
+    const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(aspects["Letter grade"]).toEqual(["67"]);
+    expect(aspects["Numerical grade"]).toEqual(["67"]);
+    expect(aspects["Professional grader"]).toEqual(["NGC"]);
+  });
+
+  it("injects Numerical and Letter grade from GetItem when live inventory omits both", () => {
     const liveWithoutLetter = {
       condition: "LIKE_NEW",
       product: {
@@ -82,6 +104,34 @@ describe("passthrough-push", () => {
     expect(aspects["Letter grade"]).toEqual(["67"]);
     expect(aspects["Numerical grade"]).toEqual(["67"]);
     expect(aspects.Grade).toEqual(["MS 67"]);
+  });
+
+  it("derives grade sub-fields for PR 69 dime from GetItem trading aspects", () => {
+    const dimeItem = {
+      ...coinItem,
+      id: "cmszcc1qk0002paaut7jwo9oh",
+      title: "2002-S NGC PF 69 Ultra Cameo Roosevelt Dime",
+      ebayCategoryId: 39458,
+    };
+    const liveNoGrader = {
+      product: {
+        aspects: {
+          Grade: ["PR 69"],
+          Year: ["2002"],
+        },
+      },
+    };
+    const body = buildPassthroughInventoryBody(liveNoGrader, dimeItem, {
+      content: true,
+      quantity: true,
+      price: true,
+    }, {
+      tradingAspects: { Certification: ["NGC"], Grade: ["PR 69"] },
+    });
+    const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(aspects["Professional grader"]).toEqual(["NGC"]);
+    expect(aspects["Numerical grade"]).toEqual(["69"]);
+    expect(aspects["Letter grade"]).toEqual(["69"]);
   });
 
   it("uses GetItem Certification when live inventory omits grader fields", () => {
