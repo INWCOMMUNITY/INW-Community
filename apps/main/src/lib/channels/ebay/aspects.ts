@@ -6,9 +6,9 @@
  * and fill in the item specifics eBay requires for that category before we push.
  */
 
-import { ebayGet } from "./client";
+import { ebayGet, EbayApiError } from "./client";
 import { EBAY_TAXONOMY_BASE, EBAY_TAXONOMY_MARKETPLACE_ID, isEbayConfigured } from "./config";
-import { getEbayApplicationAccessToken } from "./oauth";
+import { clearEbayApplicationAccessTokenCache, getEbayApplicationAccessToken } from "./oauth";
 
 /** Taxonomy uses app credentials (client_credentials), not the seller OAuth token. */
 export function requireEbayTaxonomyConfig(): void {
@@ -107,18 +107,39 @@ type AspectApiResponse = {
  * Required + recommended item specifics for an eBay leaf category.
  * Returns required aspects first, each with mode, cardinality, and suggested values.
  */
+async function fetchItemAspectsForCategory(
+  categoryId: string,
+  treeId: string
+): Promise<AspectApiResponse> {
+  const accessToken = await getEbayApplicationAccessToken();
+  try {
+    return await ebayGet<AspectApiResponse>(
+      accessToken,
+      `${EBAY_TAXONOMY_BASE}/category_tree/${encodeURIComponent(
+        treeId
+      )}/get_item_aspects_for_category?category_id=${encodeURIComponent(categoryId)}`
+    );
+  } catch (e) {
+    if (e instanceof EbayApiError && e.status === 401) {
+      clearEbayApplicationAccessTokenCache();
+      const retryToken = await getEbayApplicationAccessToken();
+      return await ebayGet<AspectApiResponse>(
+        retryToken,
+        `${EBAY_TAXONOMY_BASE}/category_tree/${encodeURIComponent(
+          treeId
+        )}/get_item_aspects_for_category?category_id=${encodeURIComponent(categoryId)}`
+      );
+    }
+    throw e;
+  }
+}
+
 export async function getItemAspectsForCategory(categoryId: string): Promise<EbayCategoryAspect[]> {
   const id = categoryId.trim();
   if (!id) return [];
   requireEbayTaxonomyConfig();
   const treeId = await getDefaultCategoryTreeId();
-  const accessToken = await getEbayApplicationAccessToken();
-  const res = await ebayGet<AspectApiResponse>(
-    accessToken,
-    `${EBAY_TAXONOMY_BASE}/category_tree/${encodeURIComponent(
-      treeId
-    )}/get_item_aspects_for_category?category_id=${encodeURIComponent(id)}`
-  );
+  const res = await fetchItemAspectsForCategory(id, treeId);
 
   const aspects: EbayCategoryAspect[] = [];
   for (const a of res.aspects ?? []) {

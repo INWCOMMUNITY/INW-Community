@@ -343,7 +343,7 @@ export function buildPassthroughInventoryBody(
     options.categoryAspects ?? [],
     {
       preserveLiveWireGrades: options.preserveLiveWireGrades,
-      categoryId: options.categoryId,
+      categoryId: options.categoryId ?? item.ebayCategoryId ?? null,
     },
     options.tradingAspects,
     options.cachedAspects,

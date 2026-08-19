@@ -67,24 +67,26 @@ const GRADER_SOURCE_NAMES = new Set([
 export const EBAY_DERIVED_GRADE_ASPECTS = new Set(["letter grade", "numerical grade"]);
 
 /**
- * Leaf categories where eBay Inventory PUT uses Numerical grade only (no Letter grade).
- * Jefferson Nickel (41087) is NOT in this set — taxonomy may omit Letter grade but PUT still requires it.
+ * Dime categories where Inventory PUT Letter grade uses the numeric part (69) not the prefix (PR).
+ * Runtime evidence: 39458 rejects Letter grade=PR but requires Letter grade on PUT.
  */
-export const EBAY_NUMERICAL_GRADE_ONLY_CATEGORY_IDS = new Set([
+export const EBAY_DIME_NUMERIC_LETTER_GRADE_CATEGORY_IDS = new Set([
   "39458", // US Roosevelt Dimes
 ]);
 
-/** Whether Inventory PUT for this category expects Letter grade (MS, PR, …) alongside Numerical grade. */
-export function inventoryPutUsesLetterGrade(
-  categoryAspects: CategoryAspectSchema[],
-  categoryId?: string | number | null
-): boolean {
+/** @deprecated Use EBAY_DIME_NUMERIC_LETTER_GRADE_CATEGORY_IDS */
+export const EBAY_NUMERICAL_GRADE_ONLY_CATEGORY_IDS = EBAY_DIME_NUMERIC_LETTER_GRADE_CATEGORY_IDS;
+
+export function inventoryPutLetterGradeIsNumeric(categoryId?: string | number | null): boolean {
   const id = categoryId != null ? String(categoryId).trim() : "";
-  if (id && EBAY_NUMERICAL_GRADE_ONLY_CATEGORY_IDS.has(id)) return false;
-  const names = new Set(categoryAspects.map((a) => a.name.toLowerCase()));
-  if (names.has("letter grade")) return true;
-  // 41087-style: taxonomy GET lists Numerical grade but omits Letter grade; Inventory PUT still requires prefix.
-  if (names.has("numerical grade")) return true;
+  return id !== "" && EBAY_DIME_NUMERIC_LETTER_GRADE_CATEGORY_IDS.has(id);
+}
+
+/** Inventory PUT requires Letter grade for graded coins (nickel prefix MS; dime numeric 69). */
+export function inventoryPutUsesLetterGrade(
+  _categoryAspects: CategoryAspectSchema[] = [],
+  _categoryId?: string | number | null
+): boolean {
   return true;
 }
 
@@ -326,6 +328,33 @@ function snapToSuggestedValue(aspect: CategoryAspectSchema | undefined, value: s
   return hit ?? value;
 }
 
+const KNOWN_GRADER_LABELS: Record<string, string> = {
+  NGC: "NGC (Numismatic Guaranty Corporation)",
+  PCGS: "PCGS (Professional Coin Grading Service)",
+  ANACS: "ANACS",
+  ICG: "ICG",
+  PMG: "PMG",
+  CACG: "CACG",
+};
+
+function snapGraderValue(schema: CategoryAspectSchema | undefined, grader: string): string {
+  const trimmed = grader.trim();
+  const snapped = snapToSuggestedValue(schema, trimmed);
+  if (schema?.suggestedValues.length) return snapped;
+  const upper = trimmed.toUpperCase();
+  return KNOWN_GRADER_LABELS[upper] ?? snapped;
+}
+
+function resolveLetterGradeWireValue(
+  categoryId: string | number | null | undefined,
+  parts: { prefix: string; numeric: string },
+  liveLetter: string | null
+): string {
+  if (inventoryPutLetterGradeIsNumeric(categoryId)) return parts.numeric;
+  if (liveLetter && !/^\d{1,2}$/.test(liveLetter)) return liveLetter;
+  return parts.prefix;
+}
+
 function hasAspectValue(product: Record<string, string[]>, name: string): boolean {
   return !!pickFirstAspectValue(product, name);
 }
@@ -374,7 +403,7 @@ export function applyGradedCoinWireAspects(
   const graderSchema = categoryAspects.find((a) => a.name.toLowerCase() === "professional grader");
   const graderName = graderSchema?.name ?? "Professional grader";
   if (grader) {
-    setAspectValue(product, graderName, snapToSuggestedValue(graderSchema, grader));
+    setAspectValue(product, graderName, snapGraderValue(graderSchema, grader));
   }
 
   const liveLetter = pickFirstAspectValue(liveAspects, "Letter grade");
@@ -387,21 +416,20 @@ export function applyGradedCoinWireAspects(
   const usesLetterGrade = inventoryPutUsesLetterGrade(categoryAspects, categoryId);
   const currentLetter = pickFirstAspectValue(product, letterName);
   const letterIsNumericOnly = currentLetter != null && /^\d{1,2}$/.test(currentLetter);
+  const letterIsPrefixOnly =
+    currentLetter != null && /^[A-Z]{1,3}$/.test(currentLetter) && inventoryPutLetterGradeIsNumeric(categoryId);
   const letterIsFullGrade =
     currentLetter != null && parts != null && parseCoinGradeLabel(currentLetter) != null;
   if (
     usesLetterGrade &&
+    parts &&
     (!hasAspectValue(product, letterName) ||
       letterIsNumericOnly ||
-      (letterIsFullGrade && parts && parseCoinGradeLabel(currentLetter!)!.prefix !== parts.prefix))
+      letterIsPrefixOnly ||
+      (letterIsFullGrade && parseCoinGradeLabel(currentLetter!)!.prefix !== parts.prefix))
   ) {
-    const letter =
-      liveLetter && !letterIsNumericOnly && !letterIsFullGrade ? liveLetter : parts?.prefix;
-    if (letter) setAspectValue(product, letterName, snapToSuggestedValue(letterSchema, letter));
-  } else if (!usesLetterGrade && hasAspectValue(product, letterName)) {
-    for (const key of Object.keys(product)) {
-      if (key.toLowerCase() === "letter grade") delete product[key];
-    }
+    const letter = resolveLetterGradeWireValue(categoryId, parts, liveLetter);
+    setAspectValue(product, letterName, snapToSuggestedValue(letterSchema, letter));
   }
 
   const currentNumerical = pickFirstAspectValue(product, numericalName);
@@ -450,17 +478,22 @@ function stripWireAspectsNotInTaxonomy(
   categoryAspects: CategoryAspectSchema[],
   categoryId?: string | number | null
 ): void {
-  if (!inventoryPutUsesLetterGrade(categoryAspects, categoryId)) {
-    for (const key of Object.keys(product)) {
-      if (key.toLowerCase() === "letter grade") delete product[key];
+  const letterVal = pickFirstAspectValue(product, "Letter grade");
+  const numericalVal = pickFirstAspectValue(product, "Numerical grade");
+  if (!letterVal) return;
+
+  if (inventoryPutLetterGradeIsNumeric(categoryId)) {
+    // Dime: Letter grade must be numeric (69). Drop prefix-only values like PR.
+    if (/^[A-Z]{1,3}$/.test(letterVal) && letterVal !== numericalVal) {
+      for (const key of Object.keys(product)) {
+        if (key.toLowerCase() === "letter grade") delete product[key];
+      }
     }
     return;
   }
 
-  // Remove invalid numeric-only Letter grade duplicates (legacy bad live GET, e.g. Letter grade=69).
-  const letterVal = pickFirstAspectValue(product, "Letter grade");
-  const numericalVal = pickFirstAspectValue(product, "Numerical grade");
-  if (letterVal && (/^\d{1,2}$/.test(letterVal) || (numericalVal && letterVal === numericalVal))) {
+  // Nickel: drop numeric-only Letter grade duplicates (e.g. Letter grade=69).
+  if (/^\d{1,2}$/.test(letterVal) || (numericalVal && letterVal === numericalVal)) {
     for (const key of Object.keys(product)) {
       if (key.toLowerCase() === "letter grade") delete product[key];
     }
@@ -484,7 +517,7 @@ function backfillInventoryOnlyWireAspects(
     setAspectValue(
       product,
       schema?.name ?? "Professional grader",
-      snapToSuggestedValue(schema, grader)
+      snapGraderValue(schema, grader)
     );
   }
 
@@ -495,9 +528,11 @@ function backfillInventoryOnlyWireAspects(
 
   if (
     inventoryPutUsesLetterGrade(categoryAspects, categoryId) &&
-    !hasAspectValue(product, letterName)
+    !hasAspectValue(product, letterName) &&
+    parts
   ) {
-    setAspectValue(product, letterName, snapToSuggestedValue(letterSchema, parts.prefix));
+    const letter = resolveLetterGradeWireValue(categoryId, parts, null);
+    setAspectValue(product, letterName, snapToSuggestedValue(letterSchema, letter));
   }
   if (!hasAspectValue(product, numericalName)) {
     setAspectValue(product, numericalName, snapToSuggestedValue(numericalSchema, parts.numeric));
@@ -535,7 +570,7 @@ function ensureProfessionalGrader(
   setAspectValue(
     product,
     schema?.name ?? "Professional grader",
-    snapToSuggestedValue(schema, grader)
+    snapGraderValue(schema, grader)
   );
 }
 
@@ -655,6 +690,29 @@ export function prepareLiveAspectsForInventoryPut(
   if (hasAspectValue(product, "Professional grader")) {
     stripTradingGraderAliases(product);
   }
+
+  // #region agent log
+  fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "fb0ace" },
+    body: JSON.stringify({
+      sessionId: "fb0ace",
+      runId: "pre-fix-verify",
+      hypothesisId: "H1-H3",
+      location: "aspect-prep.ts:prepareLiveAspectsForInventoryPut",
+      message: "final inventory PUT aspects",
+      data: {
+        categoryId: options.categoryId ?? null,
+        letterGradeIsNumeric: inventoryPutLetterGradeIsNumeric(options.categoryId),
+        professionalGrader: pickFirstAspectValue(product, "Professional grader"),
+        letterGrade: pickFirstAspectValue(product, "Letter grade"),
+        numericalGrade: pickFirstAspectValue(product, "Numerical grade"),
+        aspectKeys: Object.keys(product),
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
 
   return product;
 }

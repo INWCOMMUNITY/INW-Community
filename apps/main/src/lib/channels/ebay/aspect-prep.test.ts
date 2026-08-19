@@ -171,7 +171,7 @@ describe("prepareLiveAspectsForInventoryPut", () => {
       dimeTaxonomy,
       { categoryId: "39458" }
     );
-    expect(product["Letter grade"]).toBeUndefined();
+    expect(product["Letter grade"]).toEqual(["69"]);
     expect(product["Numerical grade"]).toEqual(["69"]);
     expect(product["Professional grader"]).toEqual(["NGC"]);
   });
@@ -217,6 +217,18 @@ describe("prepareLiveAspectsForInventoryPut", () => {
     expect(product["Numerical grade"]).toEqual(["67"]);
     expect(product["Professional grader"]).toEqual(["NGC"]);
     expect(product.Certification).toBeUndefined();
+  });
+
+  it("snaps Professional grader to full label when taxonomy is unavailable", () => {
+    const product = prepareLiveAspectsForInventoryPut(
+      { Composition: ["Clad"] },
+      "2002-S NGC PF 69 Ultra Cameo Roosevelt Dime",
+      [],
+      { categoryId: "39458" },
+      { Certification: ["NGC"], Grade: ["PR 69"] }
+    );
+    expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
+    expect(product["Letter grade"]).toEqual(["69"]);
   });
 
   it("keeps Letter grade for 41087 when taxonomy has Numerical grade but omits Letter and live GET only has Composition/Mint", () => {

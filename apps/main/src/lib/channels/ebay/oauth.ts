@@ -132,6 +132,11 @@ export async function refreshEbayToken(refreshToken: string): Promise<TokenRespo
 
 let cachedApplicationToken: { token: string; expiresAtMs: number } | null = null;
 
+/** Force a fresh client-credentials token on the next Taxonomy request (e.g. after HTTP 401). */
+export function clearEbayApplicationAccessTokenCache(): void {
+  cachedApplicationToken = null;
+}
+
 /** Client-credentials token for Taxonomy and other app-level read APIs (no user consent). */
 export async function getEbayApplicationAccessToken(): Promise<string> {
   const now = Date.now();
