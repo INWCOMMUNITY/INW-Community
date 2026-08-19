@@ -16,7 +16,6 @@ import {
   refreshEbayToken,
 } from "./oauth";
 import { fetchEbayConnectionConfig, readEbayConfig } from "./account";
-import { getItemAspectsForCategory } from "./aspects";
 import {
   checkRevisionLimit,
   getRevisionLimitWarning,
@@ -57,17 +56,13 @@ import {
   type ValidationCheck,
 } from "../sync-trace";
 import { prisma } from "database";
+import { isImportedEbayLink, resolveEbayInventorySku } from "./listing-origin";
 import {
-  isImportedEbayLink,
-  extractEbayInventoryAspects,
-  resolveEbayInventorySku,
-} from "./listing-origin";
-import {
-  buildPassthroughInventoryBody,
+  buildPassthroughLiveOverlayBody,
   buildPassthroughTitleOnlyInventoryBody,
   detectLivePassthroughChanges,
   fetchLiveInventoryItem,
-  formatPushedAspectsSummary,
+  formatPassthroughPutNote,
   needsInventoryPut,
   overlayPassthroughOffer,
   resolvePassthroughChanges,
@@ -262,57 +257,12 @@ async function upsertListing(
       });
       const putInventory = needsInventoryPut(changed);
 
-      const liveAspects = extractEbayInventoryAspects(live) ?? {};
-      const cachedAspects =
-        ebayLink?.ebayInventoryAspects &&
-        typeof ebayLink.ebayInventoryAspects === "object" &&
-        !Array.isArray(ebayLink.ebayInventoryAspects)
-          ? (ebayLink.ebayInventoryAspects as Record<string, string[]>)
-          : null;
-      const storedAspects = aspectsToEbayProductAspects(parseStoredAspects(item.aspects));
-
-      let legacyListingId: string | null = null;
-      if (putInventory) {
-        legacyListingId = await resolveSyncLegacyListingId(conn.accessToken, {
-          linkedSku: linkExternalId,
-          sku,
-          itemSku: item.sku,
-          offerId,
-        });
-      }
-
-      let tradingAspects: Record<string, string[]> | null = null;
-      let categoryAspects: Awaited<ReturnType<typeof getItemAspectsForCategory>> = [];
-      if (putInventory && legacyListingId) {
-        try {
-          const details = await fetchEbayItemDetails(conn.accessToken, legacyListingId);
-          tradingAspects = aspectsToEbayProductAspects(parseStoredAspects(details.aspects));
-        } catch (e) {
-          console.warn("[ebay] passthrough GetItem trading aspects failed", {
-            storeItemId: item.id,
-            legacyListingId,
-            error: describeEbayThrownError(e),
-          });
-        }
-        if (offerCategoryId) {
-          try {
-            categoryAspects = await getItemAspectsForCategory(offerCategoryId);
-          } catch (e) {
-            console.warn("[ebay] passthrough category taxonomy failed", {
-              storeItemId: item.id,
-              offerCategoryId,
-              error: describeEbayThrownError(e),
-            });
-          }
-        }
-      }
-
       addTransform(trace, {
-        before: { passthrough: true, liveAspects, tradingAspects, storedAspects, liveChanges, inwFields, changed },
+        before: { passthrough: true, liveChanges, inwFields, changed },
         after: {
           overlays: [
             changed.title ? "inventory_title_only" : null,
-            putInventory ? "inventory_photos" : null,
+            putInventory ? "inventory_photos_only" : null,
             changed.description ? "offer_description" : null,
             changed.price || changed.quantity ? "bulk_price_qty" : null,
           ].filter(Boolean),
@@ -323,13 +273,10 @@ async function upsertListing(
 
       if (changed.title) {
         const titleBody = buildPassthroughTitleOnlyInventoryBody(live, item);
-        const titleAspects = (
-          (titleBody.product as Record<string, unknown> | undefined)?.aspects ?? {}
-        ) as Record<string, string[]>;
         console.warn("[ebay] upsertListing passthrough PUT title only", {
           storeItemId: item.id,
           sku,
-          aspectKeys: Object.keys(titleAspects),
+          aspectsOmitted: true,
         });
         try {
           await ebayJson(
@@ -343,33 +290,23 @@ async function upsertListing(
           if (e instanceof EbayApiError) {
             addResponse(trace, e.status, { error: e.message, body: e.body });
           }
-          const aspectSummary = formatPushedAspectsSummary(titleAspects);
+          const aspectSummary = formatPassthroughPutNote(titleBody);
           const msg = describeEbayThrownError(e);
           throw new Error(`${msg}. ${aspectSummary}`);
         }
       }
 
       if (putInventory) {
-        const inventoryBody = buildPassthroughInventoryBody(live, item, changed, {
-          cachedAspects,
-          storedAspects,
-          tradingAspects,
-          categoryAspects,
+        const inventoryBody = buildPassthroughLiveOverlayBody(live, {
+          imageUrls: item.photos,
         });
-        const pushAspects = ((inventoryBody.product as Record<string, unknown>)?.aspects ??
-          {}) as Record<string, string[]>;
-        const aspectSummary = formatPushedAspectsSummary(pushAspects);
+        const putNote = formatPassthroughPutNote(inventoryBody);
         console.warn("[ebay] upsertListing passthrough PUT inventory", {
           storeItemId: item.id,
           sku,
           linkExternalId,
           changed,
-          aspectMode: "prepared",
-          pushAspectKeys: Object.keys(pushAspects),
-          grader:
-            pushAspects["Professional grader"]?.[0] ?? pushAspects["Certification"]?.[0] ?? null,
-          letterGrade: pushAspects["Letter grade"]?.[0] ?? null,
-          numericalGrade: pushAspects["Numerical grade"]?.[0] ?? null,
+          aspectsOmitted: true,
         });
         addRequest(trace, inventoryBody);
         try {
@@ -386,7 +323,7 @@ async function upsertListing(
             addResponse(trace, e.status, { error: e.message, body: e.body });
           }
           const msg = describeEbayThrownError(e);
-          throw new Error(`${msg}. ${aspectSummary}`);
+          throw new Error(`${msg}. ${putNote}`);
         }
       }
 
@@ -885,35 +822,8 @@ export const ebayAdapter: ChannelAdapter = {
         if (!live) {
           throw new Error("Could not fetch live eBay inventory for passthrough qty update");
         }
-        const cachedAspects =
-          ebayLink?.ebayInventoryAspects &&
-          typeof ebayLink.ebayInventoryAspects === "object" &&
-          !Array.isArray(ebayLink.ebayInventoryAspects)
-            ? (ebayLink.ebayInventoryAspects as Record<string, string[]>)
-            : null;
-        let tradingAspects: Record<string, string[]> | null = null;
-        const legacyListingId = await resolveSyncLegacyListingId(conn.accessToken, {
-          linkedSku: externalListingId,
-          sku: inventorySku,
-          itemSku: item.sku,
-          offerId: null,
-        });
-        if (legacyListingId) {
-          try {
-            const details = await fetchEbayItemDetails(conn.accessToken, legacyListingId);
-            tradingAspects = aspectsToEbayProductAspects(parseStoredAspects(details.aspects));
-          } catch {
-            /* optional */
-          }
-        }
-        inventoryBody = buildPassthroughInventoryBody(live, qtyItem, {
-          content: false,
-          quantity: true,
-          price: false,
-        }, {
-          cachedAspects,
-          storedAspects: aspectsToEbayProductAspects(parseStoredAspects(item.aspects)),
-          tradingAspects,
+        inventoryBody = buildPassthroughLiveOverlayBody(live, {
+          quantity: Math.max(0, absoluteQuantity),
         });
       } else {
         inventoryBody = buildEbayInventoryItem(qtyItem);

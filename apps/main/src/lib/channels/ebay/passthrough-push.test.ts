@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPassthroughInventoryBody,
+  buildPassthroughLiveOverlayBody,
   buildPassthroughOfferBody,
   buildPassthroughTitleOnlyInventoryBody,
   detectLivePassthroughChanges,
   detectPassthroughChangedFields,
+  formatPassthroughPutNote,
   formatPushedAspectsSummary,
   needsInventoryPut,
   overlayPassthroughOffer,
@@ -378,7 +380,7 @@ describe("passthrough-push", () => {
     });
     const product = body.product as Record<string, unknown>;
     expect(product.title).toBe("New Title From INW");
-    expect(product.aspects).toEqual({ Grade: ["MS 67"], "Letter grade": ["MS"] });
+    expect(product.aspects).toBeUndefined();
     expect(product.imageUrls).toEqual(["https://i.ebayimg.com/a.jpg"]);
     expect(body.condition).toBe("LIKE_NEW");
     expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 1 } });
@@ -412,6 +414,33 @@ describe("passthrough-push", () => {
     );
     expect(changed.title).toBe(true);
     expect(needsInventoryPut(changed)).toBe(false);
+  });
+
+  it("buildPassthroughLiveOverlayBody omits aspects on photo-only PUT", () => {
+    const live = {
+      condition: "LIKE_NEW",
+      availability: { shipToLocationAvailability: { quantity: 1 } },
+      product: {
+        title: "Keep Title",
+        aspects: { Grade: ["MS 67"], "Numerical grade": ["67"] },
+        imageUrls: ["https://i.ebayimg.com/old.jpg"],
+      },
+    };
+    const body = buildPassthroughLiveOverlayBody(live, {
+      imageUrls: ["https://i.ebayimg.com/new.jpg"],
+    });
+    const product = body.product as Record<string, unknown>;
+    expect(product.imageUrls).toEqual(["https://i.ebayimg.com/new.jpg"]);
+    expect(product.title).toBe("Keep Title");
+    expect(product.aspects).toBeUndefined();
+  });
+
+  it("formatPassthroughPutNote reports omitted aspects", () => {
+    expect(
+      formatPassthroughPutNote({
+        product: { title: "T", imageUrls: [] },
+      })
+    ).toContain("aspects omitted");
   });
 
   it("formatPushedAspectsSummary includes wire keys", () => {

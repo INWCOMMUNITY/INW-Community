@@ -29,23 +29,56 @@ export function needsInventoryPut(changed: PassthroughChangedFields): boolean {
   return changed.photos === true;
 }
 
-/** PUT live inventory item back with only product.title changed — aspects untouched. */
-export function buildPassthroughTitleOnlyInventoryBody(
+/** Strip aspect fields — eBay already has them; re-sending triggers #25064 validation. */
+function stripProductAspects(product: Record<string, unknown>): void {
+  delete product.aspects;
+  delete product.description;
+}
+
+/**
+ * Re-PUT a live inventory GET with selective product/availability overlays.
+ * Never includes product.aspects (eBay retains existing specifics server-side).
+ */
+export function buildPassthroughLiveOverlayBody(
   live: LiveInventoryItem,
-  item: SyncStoreItem
+  patch: {
+    title?: string;
+    imageUrls?: string[];
+    quantity?: number;
+  } = {}
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   if (typeof live.condition === "string") body.condition = live.condition;
-  if (live.availability && typeof live.availability === "object") {
+
+  if (patch.quantity != null) {
+    body.availability = {
+      shipToLocationAvailability: { quantity: Math.max(0, patch.quantity) },
+    };
+  } else if (live.availability && typeof live.availability === "object") {
     body.availability = structuredClone(live.availability);
   }
+
   const liveProduct =
     live.product && typeof live.product === "object"
       ? (structuredClone(live.product) as Record<string, unknown>)
       : {};
-  liveProduct.title = item.title.slice(0, EBAY_TITLE_MAX);
+  stripProductAspects(liveProduct);
+  if (patch.title != null) {
+    liveProduct.title = patch.title.slice(0, EBAY_TITLE_MAX);
+  }
+  if (patch.imageUrls != null) {
+    liveProduct.imageUrls = patch.imageUrls.slice(0, 12);
+  }
   body.product = liveProduct;
   return body;
+}
+
+/** PUT live inventory with only product.title changed — aspects omitted. */
+export function buildPassthroughTitleOnlyInventoryBody(
+  live: LiveInventoryItem,
+  item: SyncStoreItem
+): Record<string, unknown> {
+  return buildPassthroughLiveOverlayBody(live, { title: item.title });
 }
 
 export type LiveInventoryItem = Record<string, unknown>;
@@ -418,4 +451,16 @@ export function formatPushedAspectsSummary(aspects: Record<string, string[]> | n
   const numerical = aspectValues(aspects, "Numerical grade");
   const mode = Object.keys(aspects).length === 0 ? "empty" : "prepared";
   return `Sent aspects (${mode}): ${keys.join(", ")}. Grader=${grader}; Letter grade=${letter}; Numerical grade=${numerical}`;
+}
+
+export function formatPassthroughPutNote(
+  body: Record<string, unknown> | null | undefined
+): string {
+  const product = body?.product;
+  if (!product || typeof product !== "object") return "Inventory PUT: aspects omitted.";
+  const aspects = (product as Record<string, unknown>).aspects;
+  if (aspects != null) {
+    return formatPushedAspectsSummary(aspects as Record<string, string[]>);
+  }
+  return "Inventory PUT: aspects omitted (eBay retains existing specifics).";
 }
