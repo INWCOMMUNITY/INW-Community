@@ -69,8 +69,10 @@ import {
   formatPushedAspectsSummary,
   needsInventoryPut,
   overlayPassthroughOffer,
+  resolvePassthroughChanges,
 } from "./passthrough-push";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
+import { detectStoreItemFieldChanges } from "../sync-baseline";
 
 type EbayOffer = { offerId?: string; status?: string; listing?: { listingId?: string } };
 type OfferSearch = { offers?: EbayOffer[] };
@@ -124,7 +126,14 @@ async function upsertListing(
 ): Promise<UpsertResult> {
   const ebayLink = await prisma.channelListingLink.findFirst({
     where: { storeItemId: item.id, provider: "ebay" },
-    select: { id: true, externalListingId: true, linkOrigin: true, ebayInventoryAspects: true },
+    select: {
+      id: true,
+      externalListingId: true,
+      linkOrigin: true,
+      ebayInventoryAspects: true,
+      lastPushedHash: true,
+      connection: { select: { memberId: true } },
+    },
   });
   const linkExternalId = linkedSku ?? ebayLink?.externalListingId ?? item.id;
   const sku = resolveEbayInventorySku(linkExternalId);
@@ -231,7 +240,25 @@ async function upsertListing(
         throw error;
       }
 
-      const changed = detectLivePassthroughChanges(live, item, liveOffer);
+      const liveChanges = detectLivePassthroughChanges(live, item, liveOffer);
+      const inwFields = detectStoreItemFieldChanges(item, ebayLink?.lastPushedHash);
+      const syncPrefsRow = ebayLink?.connection?.memberId
+        ? await prisma.memberSyncPreferences.findUnique({
+            where: { memberId: ebayLink.connection.memberId },
+            select: {
+              syncTitles: true,
+              syncDescriptions: true,
+              syncPhotos: true,
+              syncPrices: true,
+            },
+          })
+        : null;
+      const changed = resolvePassthroughChanges(liveChanges, inwFields, {
+        syncTitles: syncPrefsRow?.syncTitles ?? true,
+        syncDescriptions: syncPrefsRow?.syncDescriptions ?? true,
+        syncPhotos: syncPrefsRow?.syncPhotos ?? true,
+        syncPrices: syncPrefsRow?.syncPrices ?? true,
+      });
       const putInventory = needsInventoryPut(changed);
 
       const liveAspects = extractEbayInventoryAspects(live) ?? {};
@@ -278,7 +305,7 @@ async function upsertListing(
       }
 
       addTransform(trace, {
-        before: { passthrough: true, liveAspects, tradingAspects, storedAspects, changed },
+        before: { passthrough: true, liveAspects, tradingAspects, storedAspects, liveChanges, inwFields, changed },
         after: {
           overlays: [
             putInventory ? "inventory_title_photos" : null,
@@ -331,7 +358,19 @@ async function upsertListing(
         }
       }
 
-      if (changed.description && liveOffer && offerId) {
+      if (changed.description) {
+        if (!offerId) {
+          const recovered = await findOffer(conn.accessToken, sku);
+          offerId = recovered?.offerId ?? null;
+          if (offerId && !liveOffer) {
+            liveOffer = await getOfferDetails(conn.accessToken, offerId);
+          }
+        }
+        if (!offerId || !liveOffer) {
+          throw new Error(
+            "Could not update eBay description — no published offer found for this imported listing."
+          );
+        }
         const offerBody = overlayPassthroughOffer(liveOffer, item, {
           ...changed,
           price: false,

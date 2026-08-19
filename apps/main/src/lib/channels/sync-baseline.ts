@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { variantsFingerprint } from "./variant-sync";
 import { ebayAspectsFingerprint } from "./ebay/ebay-compat";
+import type { SyncStoreItem } from "./types";
 
 /**
  * Differential two-way sync helpers.
@@ -19,6 +20,65 @@ export type SyncContentInput = {
   priceCents: number;
   photos: string[];
 };
+
+export type StoreItemContentFieldFlags = {
+  title: boolean;
+  description: boolean;
+  photos: boolean;
+  price: boolean;
+};
+
+/** Full StoreItem fingerprint used for lastPushedHash / skip-no-op content pushes. */
+export function storeItemContentHash(item: SyncStoreItem): string {
+  return createHash("sha1")
+    .update(
+      JSON.stringify({
+        t: item.title,
+        d: item.description,
+        p: item.priceCents,
+        q: item.quantity,
+        s: item.status,
+        ph: item.photos,
+        v: item.variants,
+        c: item.condition,
+        ewm: item.etsyWhoMade,
+        eww: item.etsyWhenMade,
+        eis: item.etsyIsSupply,
+        etx: item.etsyTaxonomyId,
+        ebc: item.ebayCategoryId,
+        cat: item.category,
+        sub: item.subcategory,
+        sc: item.secondaryCategory,
+        ship: item.shippingCostCents,
+        asp: ebayAspectsFingerprint(item.aspects),
+        ecc: item.ebayConditionEnum ?? null,
+      })
+    )
+    .digest("hex");
+}
+
+/**
+ * Which content fields changed since the last successful channel content push.
+ * Uses the same hash as storeItemContentHash / lastPushedHash.
+ */
+export function detectStoreItemFieldChanges(
+  item: SyncStoreItem,
+  previousHash: string | null | undefined
+): StoreItemContentFieldFlags {
+  if (!previousHash) {
+    return { title: true, description: true, photos: true, price: true };
+  }
+  const current = storeItemContentHash(item);
+  if (current === previousHash) {
+    return { title: false, description: false, photos: false, price: false };
+  }
+  return {
+    title: storeItemContentHash({ ...item, title: "" }) !== previousHash,
+    description: storeItemContentHash({ ...item, description: "" }) !== previousHash,
+    photos: storeItemContentHash({ ...item, photos: [] }) !== previousHash,
+    price: storeItemContentHash({ ...item, priceCents: 0 }) !== previousHash,
+  };
+}
 
 /** Stable content fingerprint for one side (title, description, price, photos). */
 export function syncContentHash(item: SyncContentInput): string {

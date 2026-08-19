@@ -1,9 +1,13 @@
 import { prisma } from "database";
-import { createHash } from "crypto";
 import { getAdapter } from "./registry";
 import { getActiveConnectionsForMember, getConnectionContext } from "./connection";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
-import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
+import {
+  storeItemContentHash,
+  syncContentHash,
+  syncMetaHash,
+  SYNC_ECHO_SKEW_MS,
+} from "./sync-baseline";
 import { variantsFingerprint } from "./variant-sync";
 import type {
   ChannelConnectionContext,
@@ -22,36 +26,9 @@ import {
   hydrateCircuitFromConfig,
 } from "./circuit-breaker";
 import { logSyncEvent } from "./sync-log";
-import { ebayAspectsFingerprint } from "./ebay/ebay-compat";
-
 /** Content fingerprint so we can skip no-op pushes on update. */
 function contentHash(item: SyncStoreItem): string {
-  return createHash("sha1")
-    .update(
-      JSON.stringify({
-        t: item.title,
-        d: item.description,
-        p: item.priceCents,
-        q: item.quantity,
-        s: item.status,
-        ph: item.photos,
-        v: item.variants,
-        c: item.condition,
-        // Channel-specific attributes so edits to just these still push to the channel.
-        ewm: item.etsyWhoMade,
-        eww: item.etsyWhenMade,
-        eis: item.etsyIsSupply,
-        etx: item.etsyTaxonomyId,
-        ebc: item.ebayCategoryId,
-        cat: item.category,
-        sub: item.subcategory,
-        sc: item.secondaryCategory,
-        ship: item.shippingCostCents,
-        asp: ebayAspectsFingerprint(item.aspects),
-        ecc: item.ebayConditionEnum ?? null,
-      })
-    )
-    .digest("hex");
+  return storeItemContentHash(item);
 }
 
 async function loadSyncItem(storeItemId: string): Promise<SyncStoreItem | null> {

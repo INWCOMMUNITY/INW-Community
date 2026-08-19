@@ -5,7 +5,7 @@
 import { EBAY_TITLE_MAX } from "@/lib/listing-limits";
 import { listingDescriptionForHtmlChannel } from "../rich-description";
 import type { SyncStoreItem } from "../types";
-import { syncContentHash, type SyncContentInput } from "../sync-baseline";
+import { syncContentHash, type StoreItemContentFieldFlags, type SyncContentInput } from "../sync-baseline";
 import { ebayGetInventoryItem } from "./client";
 import { extractEbayInventoryAspects } from "./listing-origin";
 import { enrichInventoryProductAspectsForPush, type CategoryAspectSchema } from "./aspect-prep";
@@ -128,6 +128,36 @@ export function detectLivePassthroughChanges(
     quantity,
     price,
     content: title || photos || description,
+  };
+}
+
+export type PassthroughSyncPrefs = {
+  syncTitles: boolean;
+  syncDescriptions: boolean;
+  syncPhotos: boolean;
+  syncPrices: boolean;
+};
+
+/**
+ * Merge live eBay drift with INW edits since lastPushedHash.
+ * Live comparison alone misses title/description when HTML or CDN URLs differ cosmetically.
+ */
+export function resolvePassthroughChanges(
+  live: PassthroughChangedFields,
+  inwFields: StoreItemContentFieldFlags,
+  prefs: PassthroughSyncPrefs
+): PassthroughChangedFields {
+  const title = prefs.syncTitles && (inwFields.title || live.title);
+  const description = prefs.syncDescriptions && (inwFields.description || live.description);
+  const photos = prefs.syncPhotos && (inwFields.photos || live.photos);
+  const price = prefs.syncPrices && (inwFields.price || live.price);
+  return {
+    title,
+    photos,
+    description,
+    quantity: live.quantity,
+    price,
+    content: !!(title || photos || description),
   };
 }
 

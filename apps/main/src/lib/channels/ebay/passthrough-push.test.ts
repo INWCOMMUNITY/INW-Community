@@ -7,7 +7,9 @@ import {
   formatPushedAspectsSummary,
   needsInventoryPut,
   overlayPassthroughOffer,
+  resolvePassthroughChanges,
 } from "./passthrough-push";
+import { storeItemContentHash } from "../sync-baseline";
 import type { SyncStoreItem } from "../types";
 import { syncContentHash } from "../sync-baseline";
 
@@ -318,6 +320,67 @@ describe("passthrough-push", () => {
     expect(offer.listingPolicies).toEqual({ paymentPolicyId: "p1" });
     expect(offer.offerId).toBeUndefined();
     expect(offer.listingDescription).toContain("Beautiful coin");
+  });
+
+  it("resolvePassthroughChanges pushes description when INW edited since last push", () => {
+    const item = { ...coinItem, description: "<p>Updated copy</p>" };
+    const previousHash = storeItemContentHash({ ...coinItem, description: "<p>Old copy</p>" });
+    const inwFields = {
+      title: false,
+      description: storeItemContentHash(item) !== previousHash &&
+        storeItemContentHash({ ...item, description: "" }) !== previousHash,
+      photos: false,
+      price: false,
+    };
+    expect(inwFields.description).toBe(true);
+
+    const live = {
+      title: false,
+      photos: false,
+      description: false,
+      quantity: false,
+      price: false,
+      content: false,
+    };
+    const changed = resolvePassthroughChanges(live, inwFields, {
+      syncTitles: true,
+      syncDescriptions: true,
+      syncPhotos: true,
+      syncPrices: true,
+    });
+    expect(changed.description).toBe(true);
+    expect(changed.title).toBe(false);
+    expect(needsInventoryPut(changed)).toBe(false);
+  });
+
+  it("resolvePassthroughChanges pushes title via inventory PUT when INW title edited", () => {
+    const item = { ...coinItem, title: "1938 Jefferson Nickel NGC MS 67 Revised" };
+    const previousHash = storeItemContentHash(coinItem);
+    const inwFields = {
+      title: storeItemContentHash(item) !== previousHash,
+      description: false,
+      photos: false,
+      price: false,
+    };
+    const changed = resolvePassthroughChanges(
+      {
+        title: false,
+        photos: false,
+        description: false,
+        quantity: false,
+        price: false,
+        content: false,
+      },
+      inwFields,
+      {
+        syncTitles: true,
+        syncDescriptions: true,
+        syncPhotos: true,
+        syncPrices: true,
+      }
+    );
+    expect(changed.title).toBe(true);
+    expect(needsInventoryPut(changed)).toBe(true);
   });
 
   it("formatPushedAspectsSummary includes wire keys", () => {
