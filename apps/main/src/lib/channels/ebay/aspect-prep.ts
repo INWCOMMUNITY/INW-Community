@@ -193,9 +193,48 @@ function mergeProductAspectRecords(
   return out;
 }
 
+function remapTradingAspectRowsForInventoryPut(rows: ListingAspect[]): ListingAspect[] {
+  const displayNames: Record<string, string> = {
+    "professional grader": "Professional grader",
+    grade: "Grade",
+    "letter grade": "Letter grade",
+    "numerical grade": "Numerical grade",
+    year: "Year",
+    mint: "Mint",
+    "strike type": "Strike Type",
+    denomination: "Denomination",
+    country: "Country",
+    "certification number": "Certification Number",
+  };
+
+  const out = new Map<string, ListingAspect>();
+  for (const raw of rows) {
+    const value = raw.value.trim();
+    if (!value) continue;
+    const nameLower = raw.name.trim().toLowerCase();
+
+    let canonicalName = displayNames[nameLower] ?? null;
+    if (!canonicalName) {
+      for (const [canonicalLower, aliases] of Object.entries(EBAY_ASPECT_SYNONYMS)) {
+        if (aliases.includes(nameLower)) {
+          canonicalName = displayNames[canonicalLower] ?? raw.name.trim();
+          break;
+        }
+      }
+    }
+    if (!canonicalName) canonicalName = raw.name.trim();
+
+    const key = canonicalName.toLowerCase();
+    if (!out.has(key)) {
+      out.set(key, { name: canonicalName, value });
+    }
+  }
+  return normalizeListingAspects(Array.from(out.values()));
+}
+
 /**
- * Passthrough push helper — keep live eBay aspect values, silently inject Inventory-only
- * graded-coin sub-fields (Letter grade / Numerical grade) when GET omits them but PUT requires them.
+ * Passthrough push helper — remap Trading names to Inventory keys, inject derived grade
+ * sub-fields, preserve other live aspect values without re-introducing dropped aliases.
  */
 export function enrichInventoryProductAspectsForPush(
   liveAspects: Record<string, string[]>,
@@ -203,15 +242,10 @@ export function enrichInventoryProductAspectsForPush(
   ...fallbackAspects: Array<Record<string, string[]> | null | undefined>
 ): Record<string, string[]> {
   const merged = mergeProductAspectRecords(liveAspects, ...fallbackAspects);
-  const rows = productAspectsToListingAspects(merged);
+  let rows = productAspectsToListingAspects(merged);
+  rows = remapTradingAspectRowsForInventoryPut(rows);
   const enriched = ensureGradedCoinInventoryAspects([], rows, rows, title);
-  const enrichedProduct = aspectsToEbayProductAspects(enriched);
-
-  const result = { ...enrichedProduct };
-  for (const [name, values] of Object.entries(liveAspects)) {
-    if (values.length > 0) result[name] = values;
-  }
-  return result;
+  return aspectsToEbayProductAspects(enriched);
 }
 
 export function mergeListingAspects(base: ListingAspect[], extra: ListingAspect[]): ListingAspect[] {

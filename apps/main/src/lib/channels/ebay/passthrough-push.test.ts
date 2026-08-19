@@ -51,7 +51,8 @@ describe("passthrough-push", () => {
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
     expect(aspects["Letter grade"]).toEqual(["MS"]);
     expect(aspects["Numerical grade"]).toEqual(["67"]);
-    expect(aspects.Certification).toEqual(["NGC"]);
+    expect(aspects["Professional grader"]).toEqual(["NGC"]);
+    expect(aspects.Certification).toBeUndefined();
     expect(aspects.Grade).toEqual(["MS 67"]);
 
     expect((body.product as Record<string, unknown>).title).toBe(coinItem.title);
@@ -76,9 +77,33 @@ describe("passthrough-push", () => {
       price: true,
     });
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(aspects["Professional grader"]).toEqual(["NGC"]);
+    expect(aspects.Certification).toBeUndefined();
     expect(aspects["Letter grade"]).toEqual(["67"]);
     expect(aspects["Numerical grade"]).toEqual(["67"]);
     expect(aspects.Grade).toEqual(["MS 67"]);
+  });
+
+  it("maps Certification to Professional grader for Inventory PUT", () => {
+    const liveTradingNames = {
+      product: {
+        aspects: {
+          Certification: ["NGC"],
+          Grade: ["MS 67"],
+          Year: ["1938"],
+          "Circulated/Uncirculated": ["Uncirculated"],
+        },
+      },
+    };
+    const body = buildPassthroughInventoryBody(liveTradingNames, coinItem, {
+      content: true,
+      quantity: true,
+      price: true,
+    });
+    const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(aspects["Professional grader"]).toEqual(["NGC"]);
+    expect(aspects.Certification).toBeUndefined();
+    expect(aspects["Circulated/Uncirculated"]).toEqual(["Uncirculated"]);
   });
 
   it("qty-only overlay leaves product content untouched", () => {
