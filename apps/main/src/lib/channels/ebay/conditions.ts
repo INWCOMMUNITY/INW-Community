@@ -285,9 +285,13 @@ function letterGradeDescriptorValues(
   categoryId?: string | null
 ): string[] {
   const letter = pickAspectValues(productAspects, ["letter grade"]);
-  if (inventoryPutLetterGradeIsNumeric(categoryId) && letter.length > 0 && /^\d{1,2}$/.test(letter[0]!)) {
-    // Dime wire Letter grade is numeric (69); condition descriptors must pair with Numerical grade.
-    return [letter[0]!];
+  if (inventoryPutLetterGradeIsNumeric(categoryId)) {
+    // Dime wire Letter grade is numeric (69). Condition descriptors must pair with Numerical grade,
+    // not the PR/MS prefix from title/Grade (that mismatch triggers #25069).
+    if (letter.length > 0 && /^\d{1,2}$/.test(letter[0]!)) return [letter[0]!];
+    const numeric = pickAspectValues(productAspects, ["numerical grade", "numeric grade"]);
+    if (numeric.length > 0) return [numeric[0]!];
+    return [];
   }
   if (letter.length > 0 && !/^\d{1,2}$/.test(letter[0]!)) {
     return letter;
@@ -297,6 +301,60 @@ function letterGradeDescriptorValues(
     (title ? parseGradePrefixFromTitle(title) : null);
   if (prefix) return [prefix];
   return [];
+}
+
+function findDescriptorMeta(
+  metadata: EbayConditionDescriptorMeta[],
+  pattern: RegExp
+): EbayConditionDescriptorMeta | undefined {
+  return metadata.find((meta) => pattern.test(normalizeDescriptorKey(meta.name)));
+}
+
+function resolveNumericLetterGradeDescriptorValueId(
+  letterMeta: EbayConditionDescriptorMeta,
+  numeric: string
+): string | null {
+  const fromAspect = resolveDescriptorValueId(letterMeta, [numeric], { allowNumericLetterGrade: true });
+  if (fromAspect) return fromAspect;
+  const normalized = normalizeDescriptorKey(numeric);
+  for (const value of letterMeta.values) {
+    const label = normalizeDescriptorKey(value.label);
+    if (label === normalized) return value.id;
+    const trailing = label.match(/\b(\d{1,2})\b$/);
+    if (trailing?.[1] === normalized) return value.id;
+  }
+  return null;
+}
+
+/** Ensure dime Letter grade descriptor (3) pairs with Numerical grade descriptor (4) for wire Letter grade=69. */
+function alignDimeNumericLetterConditionDescriptor(
+  descriptors: EbayInventoryConditionDescriptor[],
+  metadata: EbayConditionDescriptorMeta[],
+  productAspects: Record<string, string[]>
+): void {
+  const letterMeta = findDescriptorMeta(metadata, /letter grade/);
+  const numericalMeta = findDescriptorMeta(metadata, /numerical grade|numeric grade/);
+  if (!letterMeta || !numericalMeta) return;
+
+  const letterWire = pickAspectValues(productAspects, ["letter grade"])[0];
+  const numericWire =
+    pickAspectValues(productAspects, ["numerical grade", "numeric grade"])[0] ?? letterWire;
+  if (!numericWire || !/^\d{1,2}$/.test(numericWire)) return;
+
+  const numericalDesc = descriptors.find((descriptor) => descriptor.name === numericalMeta.descriptorId);
+  if (!numericalDesc?.values[0]) return;
+
+  let letterValueId = resolveNumericLetterGradeDescriptorValueId(letterMeta, numericWire);
+  if (!letterValueId) {
+    letterValueId = numericalDesc.values[0]!;
+  }
+
+  const existing = descriptors.find((descriptor) => descriptor.name === letterMeta.descriptorId);
+  if (existing) {
+    existing.values = [letterValueId];
+  } else {
+    descriptors.push({ name: letterMeta.descriptorId, values: [letterValueId] });
+  }
 }
 
 function aspectValuesForDescriptorName(
@@ -385,7 +443,30 @@ export function buildConditionDescriptorsFromAspects(
     descriptors.push(row);
   }
 
+  if (allowNumericLetterGrade) {
+    alignDimeNumericLetterConditionDescriptor(descriptors, metadata, productAspects);
+  }
+
   return descriptors.length > 0 ? descriptors : undefined;
+}
+
+/** Log-friendly summary of conditionDescriptors with metadata labels when available. */
+export function summarizeConditionDescriptors(
+  descriptors: EbayInventoryConditionDescriptor[] | undefined,
+  metadata: EbayConditionDescriptorMeta[] = []
+): Array<{ id: string; name: string; valueId: string; valueLabel: string | null }> {
+  if (!descriptors?.length) return [];
+  return descriptors.map((descriptor) => {
+    const meta = metadata.find((row) => row.descriptorId === descriptor.name);
+    const valueId = descriptor.values[0] ?? "";
+    const valueLabel = meta?.values.find((value) => value.id === valueId)?.label ?? null;
+    return {
+      id: descriptor.name,
+      name: meta?.name ?? descriptor.name,
+      valueId,
+      valueLabel,
+    };
+  });
 }
 
 export function preserveOrBuildConditionDescriptorsOnBody(

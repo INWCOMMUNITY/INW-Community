@@ -231,6 +231,56 @@ describe("buildConditionDescriptorsFromAspects", () => {
       { name: "27504", values: ["275041"] },
     ]);
   });
+
+  it("pairs dime Letter grade descriptor with Numerical grade when metadata has no bare numeric letter value", () => {
+    const prefixOnlyLetterMeta: EbayConditionDescriptorMeta[] = parseConditionDescriptorMetadata([
+      {
+        conditionDescriptors: [
+          {
+            conditionDescriptorId: "27501",
+            conditionDescriptorName: "Professional Grader",
+            conditionDescriptorValues: [
+              { conditionDescriptorValueId: "275010", conditionDescriptorValueName: "NGC" },
+            ],
+          },
+          {
+            conditionDescriptorId: "27503",
+            conditionDescriptorName: "Letter grade",
+            conditionDescriptorValues: [
+              { conditionDescriptorValueId: "275031", conditionDescriptorValueName: "PR" },
+              { conditionDescriptorValueId: "275030", conditionDescriptorValueName: "MS" },
+            ],
+          },
+          {
+            conditionDescriptorId: "27504",
+            conditionDescriptorName: "Numerical grade",
+            conditionDescriptorValues: [
+              { conditionDescriptorValueId: "275041", conditionDescriptorValueName: "69" },
+            ],
+          },
+        ],
+      },
+    ]);
+    const descriptors = buildConditionDescriptorsFromAspects(
+      {
+        "Professional grader": ["NGC"],
+        "Letter grade": ["69"],
+        "Numerical grade": ["69"],
+        Grade: ["PR 69"],
+      },
+      prefixOnlyLetterMeta,
+      "2002-S NGC PR 69 Ultra Cameo Roosevelt Dime",
+      "39458"
+    );
+    expect(descriptors).toHaveLength(3);
+    expect(descriptors).toEqual(
+      expect.arrayContaining([
+        { name: "27501", values: ["275010"] },
+        { name: "27503", values: ["275041"] },
+        { name: "27504", values: ["275041"] },
+      ])
+    );
+  });
 });
 
 describe("preserveOrBuildConditionDescriptorsOnBody", () => {
