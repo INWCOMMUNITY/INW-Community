@@ -44,6 +44,34 @@ const liveJeffersonNickel = {
 };
 
 describe("passthrough-push", () => {
+  it("builds wire aspects from GetItem when live inventory GET is empty (403004607151)", () => {
+    const liveEmptyInventory = { condition: "LIKE_NEW", product: { title: coinItem.title } };
+    const jeffersonGetItemTrading = {
+      "Country of Origin": ["United States"],
+      Coin: ["Jefferson Nickel"],
+      Certification: ["NGC"],
+      "Strike Type": ["Business"],
+      "Mint Location": ["Denver"],
+      Grade: ["MS 67"],
+      Year: ["1938"],
+      "Circulated/Uncirculated": ["Uncirculated"],
+      Denomination: ["5C"],
+    };
+    const body = buildPassthroughInventoryBody(liveEmptyInventory, coinItem, {
+      content: true,
+      quantity: true,
+      price: true,
+    }, {
+      tradingAspects: jeffersonGetItemTrading,
+    });
+    const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(aspects["Professional grader"]).toEqual(["NGC"]);
+    expect(aspects["Letter grade"]).toEqual(["MS"]);
+    expect(aspects["Numerical grade"]).toEqual(["67"]);
+    expect(aspects.Grade).toEqual(["MS 67"]);
+    expect(aspects.Certification).toBeUndefined();
+  });
+
   it("preserves live aspects verbatim when overlaying INW title and qty", () => {
     const changed = { content: true, quantity: true, price: true };
     const body = buildPassthroughInventoryBody(liveJeffersonNickel, coinItem, changed);

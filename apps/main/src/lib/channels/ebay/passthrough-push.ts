@@ -8,7 +8,7 @@ import type { SyncStoreItem } from "../types";
 import { syncContentHash, type SyncContentInput } from "../sync-baseline";
 import { ebayGetInventoryItem } from "./client";
 import { extractEbayInventoryAspects } from "./listing-origin";
-import { enrichInventoryProductAspectsForPush } from "./aspect-prep";
+import { enrichInventoryProductAspectsForPush, type CategoryAspectSchema } from "./aspect-prep";
 import { ebayPriceFromCents } from "./mapping";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 
@@ -53,6 +53,8 @@ export async function fetchLiveInventoryItem(
 }
 
 export type PassthroughBuildOptions = {
+  /** eBay leaf category taxonomy — used for category-specific wire aspect rules. */
+  categoryAspects?: CategoryAspectSchema[] | null;
   /** Live inventory GET cache on the channel link. */
   cachedAspects?: Record<string, string[]> | null;
   /** INW StoreItem.aspects (Trading names like Certification). */
@@ -120,11 +122,11 @@ export function buildPassthroughInventoryBody(
   const pushAspects = enrichInventoryProductAspectsForPush(
     liveAspects,
     item.title,
+    options.categoryAspects ?? [],
     options.tradingAspects,
     options.cachedAspects,
     options.storedAspects
   );
-  // Always send wire-translated aspects — never raw Certification on Inventory PUT.
   if (Object.keys(pushAspects).length > 0) {
     liveProduct.aspects = pushAspects;
   } else {

@@ -269,23 +269,50 @@ function extractGradePartsFromAspectRecord(
   return null;
 }
 
+function pickFirstAspectValue(
+  aspects: Record<string, string[]>,
+  name: string
+): string | null {
+  const key = Object.keys(aspects).find((k) => k.toLowerCase() === name.toLowerCase());
+  if (!key) return null;
+  const v = aspects[key]?.find((x) => String(x).trim());
+  return v ? String(v).trim() : null;
+}
+
+function isGradedCoinContext(merged: Record<string, string[]>, title: string): boolean {
+  return (
+    !!extractGraderFromAspectRecord(merged, title) && !!extractGradePartsFromAspectRecord(merged, title)
+  );
+}
+
 /**
  * Inventory API wire-only sub-fields (Letter grade / Numerical grade).
- * Letter grade = prefix (MS, PR, …); Numerical grade = numeric (67, 69, …) — matches live eBay inventory GET.
+ * Letter grade = prefix (MS, PR, …); Numerical grade = numeric (67, 69, …).
+ * Preserves live inventory GET values when eBay already accepted them.
  */
-function ensureWireDerivedGradeFields(
+export function applyGradedCoinWireAspects(
   product: Record<string, string[]>,
   merged: Record<string, string[]>,
-  title: string
+  title: string,
+  liveAspects: Record<string, string[]> = {},
+  _categoryAspects: CategoryAspectSchema[] = []
 ): void {
+  if (!isGradedCoinContext(merged, title)) return;
+
   const parts = extractGradePartsFromAspectRecord(merged, title);
-  if (!parts) return;
-
-  product["Letter grade"] = [parts.prefix];
-  product["Numerical grade"] = [parts.numeric];
-
   const grader = extractGraderFromAspectRecord(merged, title);
   if (grader) product["Professional grader"] = [grader];
+
+  const liveLetter = pickFirstAspectValue(liveAspects, "Letter grade");
+  const liveNumerical = pickFirstAspectValue(liveAspects, "Numerical grade");
+
+  if (parts) {
+    product["Numerical grade"] = [liveNumerical ?? parts.numeric];
+    product["Letter grade"] = [liveLetter ?? parts.prefix];
+  } else {
+    if (liveNumerical) product["Numerical grade"] = [liveNumerical];
+    if (liveLetter) product["Letter grade"] = [liveLetter];
+  }
 }
 
 /** Remove Trading-only grader aliases from Inventory PUT payload (wire uses Professional grader). */
@@ -304,16 +331,16 @@ function stripTradingGraderAliases(product: Record<string, string[]>): void {
 export function enrichInventoryProductAspectsForPush(
   liveAspects: Record<string, string[]>,
   title: string,
+  categoryAspects: CategoryAspectSchema[] = [],
   ...fallbackAspects: Array<Record<string, string[]> | null | undefined>
 ): Record<string, string[]> {
   const merged = mergeProductAspectRecords(liveAspects, ...fallbackAspects);
   let rows = productAspectsToListingAspects(merged);
   rows = remapTradingAspectRowsForInventoryPut(rows);
-  const enriched = ensureGradedCoinInventoryAspects([], rows, rows, title);
+  const enriched = ensureGradedCoinInventoryAspects(categoryAspects, rows, rows, title);
   const product = aspectsToEbayProductAspects(enriched);
 
-  // Inventory API requires wire-only derived fields from Trading Grade + Certification.
-  ensureWireDerivedGradeFields(product, merged, title);
+  applyGradedCoinWireAspects(product, merged, title, liveAspects, categoryAspects);
 
   // Fallback when Grade/title parsing above missed grader but Certification is present.
   if (!product["Professional grader"]?.some((v) => v.trim())) {

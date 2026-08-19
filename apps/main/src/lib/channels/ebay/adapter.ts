@@ -16,6 +16,7 @@ import {
   refreshEbayToken,
 } from "./oauth";
 import { fetchEbayConnectionConfig, readEbayConfig } from "./account";
+import { getItemAspectsForCategory } from "./aspects";
 import {
   checkRevisionLimit,
   getRevisionLimitWarning,
@@ -255,7 +256,25 @@ async function upsertListing(
         }
       }
 
-      const passthroughOpts = { cachedAspects, storedAspects, tradingAspects };
+      let categoryAspects: Awaited<ReturnType<typeof getItemAspectsForCategory>> = [];
+      if (offerCategoryId) {
+        try {
+          categoryAspects = await getItemAspectsForCategory(offerCategoryId);
+        } catch (e) {
+          console.warn("[ebay] passthrough category taxonomy failed", {
+            storeItemId: item.id,
+            offerCategoryId,
+            error: describeEbayThrownError(e),
+          });
+        }
+      }
+
+      const passthroughOpts = {
+        cachedAspects,
+        storedAspects,
+        tradingAspects,
+        categoryAspects,
+      };
 
       const changed = { content: true, quantity: true, price: true };
       const inventoryBody = buildPassthroughInventoryBody(live, item, changed, passthroughOpts);
@@ -314,7 +333,12 @@ async function upsertListing(
       }
 
       await pushInventoryBodyPassthrough(inventoryBody, trace);
-      await pushOfferBodyPassthrough(offerBody);
+      try {
+        await pushOfferBodyPassthrough(offerBody);
+      } catch (e) {
+        const msg = describeEbayThrownError(e);
+        throw new Error(`eBay offer update failed after inventory push: ${msg}`);
+      }
 
       if (ebayLink) {
         await fetchAndCacheEbayInventoryAspects(conn.accessToken, ebayLink.id, sku);
@@ -326,6 +350,15 @@ async function upsertListing(
         linkExternalId,
         linkOrigin: ebayLink?.linkOrigin ?? null,
         liveAspectCount: liveAspects ? Object.keys(liveAspects).length : 0,
+        pushAspectKeys:
+          pushAspects && typeof pushAspects === "object"
+            ? Object.keys(pushAspects as Record<string, unknown>)
+            : [],
+        letterGrade: (pushAspects as Record<string, string[]> | undefined)?.["Letter grade"],
+        numericalGrade: (pushAspects as Record<string, string[]> | undefined)?.["Numerical grade"],
+        professionalGrader: (pushAspects as Record<string, string[]> | undefined)?.[
+          "Professional grader"
+        ],
       });
 
       await completeTrace(trace, "success");
