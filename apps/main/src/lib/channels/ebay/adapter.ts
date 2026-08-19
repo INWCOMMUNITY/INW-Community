@@ -332,7 +332,7 @@ async function upsertListing(
           sku,
           linkExternalId,
           changed,
-          aspectMode: Object.keys(liveAspects).length > 0 ? "live_wire_fix" : "enriched",
+          aspectMode: "prepared",
           pushAspectKeys: Object.keys(pushAspects),
           grader:
             pushAspects["Professional grader"]?.[0] ?? pushAspects["Certification"]?.[0] ?? null,

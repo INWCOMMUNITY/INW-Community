@@ -174,4 +174,27 @@ describe("prepareLiveAspectsForInventoryPut", () => {
     expect(product["Numerical grade"]).toEqual(["69"]);
     expect(product["Professional grader"]).toEqual(["NGC"]);
   });
+
+  it("keeps Letter grade when taxonomy omits it but Inventory requires it (41087 nickel)", () => {
+    const taxonomyMissingLetter: EbayCategoryAspect[] = nickelTaxonomy.filter(
+      (a) => a.name !== "Letter grade"
+    );
+    const liveNickel = {
+      Composition: ["Copper-Nickel"],
+      Mint: ["Denver"],
+      "Strike Type": ["Business"],
+      Grade: ["MS 67"],
+      "Modified Item": ["No"],
+    };
+    const product = prepareLiveAspectsForInventoryPut(
+      liveNickel,
+      "1938 Jefferson Nickel NGC MS 67",
+      taxonomyMissingLetter,
+      { Certification: ["NGC"] }
+    );
+    expect(product["Letter grade"]).toEqual(["MS"]);
+    expect(product["Numerical grade"]).toEqual(["67"]);
+    expect(product["Professional grader"]).toEqual(["NGC"]);
+    expect(product.Certification).toBeUndefined();
+  });
 });

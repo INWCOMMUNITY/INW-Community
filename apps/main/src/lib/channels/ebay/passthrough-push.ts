@@ -257,24 +257,14 @@ export function buildPassthroughInventoryBody(
     extractEbayInventoryAspects(live) ?? {},
     readRawProductAspects(liveProduct)
   );
-  const mustEnrich = options.enrichAspects === true || Object.keys(liveAspects).length === 0;
-  const pushAspects = mustEnrich
-    ? enrichInventoryProductAspectsForPush(
-        liveAspects,
-        item.title,
-        options.categoryAspects ?? [],
-        options.tradingAspects,
-        options.cachedAspects,
-        options.storedAspects
-      )
-    : prepareLiveAspectsForInventoryPut(
-        liveAspects,
-        item.title,
-        options.categoryAspects ?? [],
-        options.tradingAspects,
-        options.cachedAspects,
-        options.storedAspects
-      );
+  const pushAspects = prepareLiveAspectsForInventoryPut(
+    liveAspects,
+    item.title,
+    options.categoryAspects ?? [],
+    options.tradingAspects,
+    options.cachedAspects,
+    options.storedAspects
+  );
   if (Object.keys(pushAspects).length > 0) {
     liveProduct.aspects = pushAspects;
   } else {
@@ -408,11 +398,6 @@ export function formatPushedAspectsSummary(aspects: Record<string, string[]> | n
       : aspectValues(aspects, "Certification");
   const letter = aspectValues(aspects, "Letter grade");
   const numerical = aspectValues(aspects, "Numerical grade");
-  const mode =
-    aspectValues(aspects, "Professional grader") === "(missing)" &&
-    aspectValues(aspects, "Certification") === "(missing)" &&
-    Object.keys(aspects).length > 0
-      ? "enriched"
-      : "live+wire-fix";
+  const mode = Object.keys(aspects).length === 0 ? "empty" : "prepared";
   return `Sent aspects (${mode}): ${keys.join(", ")}. Grader=${grader}; Letter grade=${letter}; Numerical grade=${numerical}`;
 }

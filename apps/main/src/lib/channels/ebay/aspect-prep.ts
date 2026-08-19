@@ -407,47 +407,12 @@ export function enrichInventoryProductAspectsForPush(
   categoryAspects: CategoryAspectSchema[] = [],
   ...fallbackAspects: Array<Record<string, string[]> | null | undefined>
 ): Record<string, string[]> {
-  const merged = mergeProductAspectRecords(liveAspects, ...fallbackAspects);
-  const product: Record<string, string[]> = {};
-  for (const [name, values] of Object.entries(liveAspects)) {
-    const kept = values.map((v) => String(v).trim()).filter(Boolean);
-    if (kept.length > 0) product[name] = kept;
-  }
-
-  if (Object.keys(product).length === 0) {
-    for (const [name, values] of Object.entries(merged)) {
-      const kept = values.map((v) => String(v).trim()).filter(Boolean);
-      if (kept.length > 0) product[name] = kept;
-    }
-  }
-
-  for (const aspect of categoryAspects) {
-    if (!aspect.required) continue;
-    if (hasAspectValue(product, aspect.name)) {
-      const current = pickFirstAspectValue(product, aspect.name);
-      if (current) setAspectValue(product, aspect.name, snapToSuggestedValue(aspect, current));
-      continue;
-    }
-    const raw = findSourceValueForAspect(merged, aspect.name);
-    if (!raw) continue;
-    setAspectValue(product, aspect.name, snapToSuggestedValue(aspect, raw));
-  }
-
-  applyGradedCoinWireAspects(product, merged, title, liveAspects, categoryAspects);
-
-  if (!hasAspectValue(product, "Professional grader")) {
-    const grader = extractGraderFromAspectRecord(merged, title);
-    if (grader) {
-      const schema = categoryAspects.find((a) => a.name.toLowerCase() === "professional grader");
-      setAspectValue(product, schema?.name ?? "Professional grader", snapToSuggestedValue(schema, grader));
-    }
-  }
-
-  if (hasAspectValue(product, "Professional grader")) {
-    stripTradingGraderAliases(product);
-  }
-
-  return product;
+  return prepareLiveAspectsForInventoryPut(
+    liveAspects,
+    title,
+    categoryAspects,
+    ...fallbackAspects
+  );
 }
 
 function stripWireAspectsNotInTaxonomy(
@@ -456,11 +421,54 @@ function stripWireAspectsNotInTaxonomy(
 ): void {
   if (categoryAspects.length === 0) return;
   const inTaxonomy = new Set(categoryAspects.map((a) => a.name.toLowerCase()));
-  for (const wire of ["letter grade", "numerical grade", "professional grader"]) {
-    if (inTaxonomy.has(wire)) continue;
+  const hasLetter = inTaxonomy.has("letter grade");
+  const hasNumerical = inTaxonomy.has("numerical grade");
+
+  // Dime-style categories: Numerical grade in taxonomy, Letter grade omitted — drop bad Letter grade.
+  if (hasNumerical && !hasLetter) {
     for (const key of Object.keys(product)) {
-      if (key.toLowerCase() === wire) delete product[key];
+      if (key.toLowerCase() === "letter grade") delete product[key];
     }
+  }
+
+  // Never strip Professional grader / Numerical grade / Letter grade merely because the
+  // Taxonomy GET omitted them (41087 nickel omits Letter grade but Inventory PUT requires it).
+}
+
+/** Taxonomy GET often omits Inventory-only wire fields; backfill after taxonomy strip. */
+function backfillInventoryOnlyWireAspects(
+  product: Record<string, string[]>,
+  merged: Record<string, string[]>,
+  title: string,
+  categoryAspects: CategoryAspectSchema[] = []
+): void {
+  const parts = extractGradePartsFromAspectRecord(merged, title);
+  if (!parts) return;
+
+  const grader = extractGraderFromAspectRecord(merged, title);
+  if (grader && !hasAspectValue(product, "Professional grader")) {
+    const schema = categoryAspects.find((a) => a.name.toLowerCase() === "professional grader");
+    setAspectValue(
+      product,
+      schema?.name ?? "Professional grader",
+      snapToSuggestedValue(schema, grader)
+    );
+  }
+
+  const letterSchema = categoryAspects.find((a) => a.name.toLowerCase() === "letter grade");
+  const numericalSchema = categoryAspects.find((a) => a.name.toLowerCase() === "numerical grade");
+  const letterName = letterSchema?.name ?? "Letter grade";
+  const numericalName = numericalSchema?.name ?? "Numerical grade";
+  const inTaxonomy = new Set(categoryAspects.map((a) => a.name.toLowerCase()));
+
+  if (
+    (!categoryAspects.length || !inTaxonomy.has("numerical grade") || inTaxonomy.has("letter grade")) &&
+    !hasAspectValue(product, letterName)
+  ) {
+    setAspectValue(product, letterName, snapToSuggestedValue(letterSchema, parts.prefix));
+  }
+  if (!hasAspectValue(product, numericalName)) {
+    setAspectValue(product, numericalName, snapToSuggestedValue(numericalSchema, parts.numeric));
   }
 }
 
@@ -481,6 +489,13 @@ export function prepareLiveAspectsForInventoryPut(
   }
 
   const merged = mergeProductAspectRecords(liveAspects, ...fallbackAspects);
+  if (Object.keys(product).length === 0) {
+    for (const [name, values] of Object.entries(merged)) {
+      const kept = values.map((v) => String(v).trim()).filter(Boolean);
+      if (kept.length > 0) product[name] = kept;
+    }
+  }
+
   applyGradedCoinWireAspects(product, merged, title, liveAspects, categoryAspects);
 
   for (const aspect of categoryAspects) {
@@ -495,6 +510,7 @@ export function prepareLiveAspectsForInventoryPut(
   }
 
   stripWireAspectsNotInTaxonomy(product, categoryAspects);
+  backfillInventoryOnlyWireAspects(product, merged, title, categoryAspects);
 
   if (hasAspectValue(product, "Professional grader")) {
     stripTradingGraderAliases(product);
