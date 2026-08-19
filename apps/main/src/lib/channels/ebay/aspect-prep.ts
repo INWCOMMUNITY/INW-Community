@@ -3,7 +3,7 @@
  * No server-only imports; safe for client components and shared validation.
  */
 
-import { normalizeListingAspects, type ListingAspect } from "@/lib/listing-limits";
+import { aspectsToEbayProductAspects, normalizeListingAspects, type ListingAspect } from "@/lib/listing-limits";
 
 export type EbayAspectMode = "FREE_TEXT" | "SELECTION_ONLY";
 
@@ -147,21 +147,71 @@ export function ensureGradedCoinInventoryAspects(
     out.set(gradeName.toLowerCase(), { name: gradeName, value: info.gradeLabel });
   }
 
-  const taxonomyHasLetter = categoryAspects.some((a) => a.name.toLowerCase() === "letter grade");
-  const taxonomyHasNumerical = categoryAspects.some((a) => a.name.toLowerCase() === "numerical grade");
-
-  if (taxonomyHasNumerical && !has("numerical grade")) {
+  if (!has("numerical grade")) {
     const numName = findCategoryAspectName(categoryAspects, ["Numerical grade"]) ?? "Numerical grade";
     out.set(numName.toLowerCase(), { name: numName, value: info.numeric });
   }
 
   // Letter grade: taxonomy may omit it (e.g. 41087) while Inventory API still requires it.
-  if ((taxonomyHasLetter || (!taxonomyHasLetter && !taxonomyHasNumerical)) && !has("letter grade")) {
+  if (!has("letter grade")) {
     const letterName = findCategoryAspectName(categoryAspects, ["Letter grade"]) ?? "Letter grade";
     out.set(letterName.toLowerCase(), { name: letterName, value: info.numeric });
   }
 
   return normalizeListingAspects(Array.from(out.values()));
+}
+
+function productAspectsToListingAspects(aspects: Record<string, string[]>): ListingAspect[] {
+  const rows: ListingAspect[] = [];
+  for (const [name, values] of Object.entries(aspects)) {
+    for (const v of values) {
+      const value = String(v).trim();
+      if (value) rows.push({ name, value });
+    }
+  }
+  return rows;
+}
+
+function mergeProductAspectRecords(
+  ...sources: Array<Record<string, string[]> | null | undefined>
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const src of sources) {
+    if (!src) continue;
+    for (const [name, values] of Object.entries(src)) {
+      const trimmedName = name.trim();
+      if (!trimmedName) continue;
+      const existingKey = Object.keys(out).find((k) => k.toLowerCase() === trimmedName.toLowerCase());
+      const key = existingKey ?? trimmedName;
+      if (!out[key]) out[key] = [];
+      for (const v of values) {
+        const val = String(v).trim();
+        if (val && !out[key].includes(val)) out[key].push(val);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Passthrough push helper — keep live eBay aspect values, silently inject Inventory-only
+ * graded-coin sub-fields (Letter grade / Numerical grade) when GET omits them but PUT requires them.
+ */
+export function enrichInventoryProductAspectsForPush(
+  liveAspects: Record<string, string[]>,
+  title: string,
+  ...fallbackAspects: Array<Record<string, string[]> | null | undefined>
+): Record<string, string[]> {
+  const merged = mergeProductAspectRecords(liveAspects, ...fallbackAspects);
+  const rows = productAspectsToListingAspects(merged);
+  const enriched = ensureGradedCoinInventoryAspects([], rows, rows, title);
+  const enrichedProduct = aspectsToEbayProductAspects(enriched);
+
+  const result = { ...enrichedProduct };
+  for (const [name, values] of Object.entries(liveAspects)) {
+    if (values.length > 0) result[name] = values;
+  }
+  return result;
 }
 
 export function mergeListingAspects(base: ListingAspect[], extra: ListingAspect[]): ListingAspect[] {

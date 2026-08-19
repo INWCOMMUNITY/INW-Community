@@ -76,6 +76,7 @@ describe("ensureGradedCoinInventoryAspects", () => {
       "1952-D NGC MS 67 Jefferson Nickel"
     );
     expect(ensured.find((a) => a.name === "Letter grade")?.value).toBe("67");
+    expect(ensured.find((a) => a.name === "Numerical grade")?.value).toBe("67");
     expect(ensured.find((a) => a.name === "Professional grader")?.value).toBe("NGC");
   });
 });

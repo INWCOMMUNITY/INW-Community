@@ -8,6 +8,7 @@ import type { SyncStoreItem } from "../types";
 import { syncContentHash, type SyncContentInput } from "../sync-baseline";
 import { ebayGetInventoryItem } from "./client";
 import { extractEbayInventoryAspects } from "./listing-origin";
+import { enrichInventoryProductAspectsForPush } from "./aspect-prep";
 import { ebayPriceFromCents } from "./mapping";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 
@@ -51,22 +52,34 @@ export async function fetchLiveInventoryItem(
   }
 }
 
+export type PassthroughBuildOptions = {
+  cachedAspects?: Record<string, string[]> | null;
+  storedAspects?: Record<string, string[]> | null;
+};
+
 /**
- * Merge live eBay inventory item with INW edits. Aspects always come from live eBay.
+ * Merge live eBay inventory item with INW edits. Aspects come from live eBay + silent inventory-only enrichment.
  */
 export function buildPassthroughInventoryBody(
   live: LiveInventoryItem,
   item: SyncStoreItem,
-  changed: PassthroughChangedFields
+  changed: PassthroughChangedFields,
+  options: PassthroughBuildOptions = {}
 ): Record<string, unknown> {
   const liveProduct =
     live.product && typeof live.product === "object"
       ? ({ ...(live.product as Record<string, unknown>) } as Record<string, unknown>)
       : ({} as Record<string, unknown>);
 
-  const liveAspects = extractEbayInventoryAspects(live);
-  if (liveAspects && Object.keys(liveAspects).length > 0) {
-    liveProduct.aspects = liveAspects;
+  const liveAspects = extractEbayInventoryAspects(live) ?? {};
+  const pushAspects = enrichInventoryProductAspectsForPush(
+    liveAspects,
+    item.title,
+    options.cachedAspects,
+    options.storedAspects
+  );
+  if (Object.keys(pushAspects).length > 0) {
+    liveProduct.aspects = pushAspects;
   }
 
   if (changed.content) {

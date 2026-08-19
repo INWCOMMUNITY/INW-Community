@@ -35,7 +35,7 @@ import {
   persistEbayCategoryId,
   prepareEbaySyncAspects,
 } from "./sync-aspects";
-import { parseStoredAspects } from "@/lib/listing-limits";
+import { parseStoredAspects, aspectsToEbayProductAspects } from "@/lib/listing-limits";
 import { hasOptionQuantities } from "../../store-item-variants";
 import {
   enumerateEbayListings,
@@ -121,7 +121,7 @@ async function upsertListing(
 ): Promise<UpsertResult> {
   const ebayLink = await prisma.channelListingLink.findFirst({
     where: { storeItemId: item.id, provider: "ebay" },
-    select: { id: true, externalListingId: true, linkOrigin: true },
+    select: { id: true, externalListingId: true, linkOrigin: true, ebayInventoryAspects: true },
   });
   const linkExternalId = linkedSku ?? ebayLink?.externalListingId ?? item.id;
   const sku = resolveEbayInventorySku(linkExternalId);
@@ -226,16 +226,29 @@ async function upsertListing(
         throw error;
       }
 
-      const liveAspects = extractEbayInventoryAspects(live);
+      const liveAspects = extractEbayInventoryAspects(live) ?? {};
+      const cachedAspects =
+        ebayLink?.ebayInventoryAspects &&
+        typeof ebayLink.ebayInventoryAspects === "object" &&
+        !Array.isArray(ebayLink.ebayInventoryAspects)
+          ? (ebayLink.ebayInventoryAspects as Record<string, string[]>)
+          : null;
+      const storedAspects = aspectsToEbayProductAspects(parseStoredAspects(item.aspects));
+      const passthroughOpts = { cachedAspects, storedAspects };
+
+      const changed = { content: true, quantity: true, price: true };
+      const inventoryBody = buildPassthroughInventoryBody(live, item, changed, passthroughOpts);
+      const pushAspects = (inventoryBody.product as Record<string, unknown>)?.aspects;
+
       addTransform(trace, {
         before: { passthrough: true, liveAspects },
-        after: { overlays: ["title", "description", "photos", "quantity", "price"] },
+        after: {
+          overlays: ["title", "description", "photos", "quantity", "price"],
+          pushAspects,
+        },
         remaps: [],
         dropped: [],
       });
-
-      const changed = { content: true, quantity: true, price: true };
-      const inventoryBody = buildPassthroughInventoryBody(live, item, changed);
       const offerBody = buildPassthroughOfferBody(
         item,
         changed,
@@ -735,6 +748,8 @@ export const ebayAdapter: ChannelAdapter = {
           content: false,
           quantity: true,
           price: false,
+        }, {
+          storedAspects: aspectsToEbayProductAspects(parseStoredAspects(item.aspects)),
         });
       } else {
         inventoryBody = buildEbayInventoryItem(qtyItem);

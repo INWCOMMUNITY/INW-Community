@@ -59,6 +59,28 @@ describe("passthrough-push", () => {
     expect(body.condition).toBe("LIKE_NEW");
   });
 
+  it("injects Letter grade when live GET omits it but Grade and Certification present", () => {
+    const liveWithoutLetter = {
+      condition: "LIKE_NEW",
+      product: {
+        aspects: {
+          Certification: ["NGC"],
+          Grade: ["MS 67"],
+          Year: ["1938"],
+        },
+      },
+    };
+    const body = buildPassthroughInventoryBody(liveWithoutLetter, coinItem, {
+      content: true,
+      quantity: true,
+      price: true,
+    });
+    const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(aspects["Letter grade"]).toEqual(["67"]);
+    expect(aspects["Numerical grade"]).toEqual(["67"]);
+    expect(aspects.Grade).toEqual(["MS 67"]);
+  });
+
   it("qty-only overlay leaves product content untouched", () => {
     const changed = { content: false, quantity: true, price: false };
     const body = buildPassthroughInventoryBody(
