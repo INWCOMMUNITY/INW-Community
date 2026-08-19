@@ -8,7 +8,11 @@ import type {
   TokenResponse,
 } from "../types";
 import { EbayApiError, ebayAction, ebayGet, ebayGetInventoryItem, ebayJson } from "./client";
-import { describeEbayThrownError, formatEbayErrorDiagnostics } from "./errors";
+import {
+  describeEbayThrownError,
+  formatEbayErrorDiagnostics,
+  isEbayInventoryAspectValidationError,
+} from "./errors";
 import {
   exchangeEbayCode,
   fetchEbayShopInfo,
@@ -36,11 +40,13 @@ import {
   persistEbayCategoryId,
   prepareEbaySyncAspects,
 } from "./sync-aspects";
-import { parseStoredAspects, aspectsToEbayProductAspects } from "@/lib/listing-limits";
+import { parseStoredAspects, aspectsToEbayProductAspects, EBAY_TITLE_MAX } from "@/lib/listing-limits";
+import { listingDescriptionForHtmlChannel } from "../rich-description";
 import { hasOptionQuantities } from "../../store-item-variants";
 import {
   enumerateEbayListings,
   fetchEbayItemDetails,
+  reviseImportedListingContent,
   subscribeToEbayNotifications,
 } from "./trading";
 import { EBAY_MARKETPLACE_ID } from "./config";
@@ -262,6 +268,13 @@ async function upsertListing(
       });
       const putInventory = needsInventoryPut(changed);
 
+      const legacyListingId = await resolveSyncLegacyListingId(conn.accessToken, {
+        linkedSku: linkExternalId,
+        sku,
+        itemSku: item.sku,
+        offerId,
+      });
+
       const fieldResults: PassthroughFieldResult[] = [];
 
       addTransform(trace, {
@@ -315,45 +328,79 @@ async function upsertListing(
       }
 
       if (changed.title) {
-        const titleBody = buildPassthroughTitleOnlyInventoryBody(live, item);
-        const liveAspects = extractEbayInventoryAspects(live) ?? {};
-        console.warn("[ebay] upsertListing passthrough PUT title only", {
-          storeItemId: item.id,
-          sku,
-          aspectMode: "live_overlay",
-          aspectKeys: Object.keys(liveAspects),
-          titleLength: item.title.length,
-        });
-        addRequest(trace, titleBody);
-        try {
-          await ebayJson(
-            conn.accessToken,
-            `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
-            "PUT",
-            titleBody
-          );
-          await persistRevisionCount(conn.id, sku, conn.config);
-          addResponse(trace, 200, { success: true, field: "title" });
-          fieldResults.push({ field: "title", ok: true });
-        } catch (e) {
-          const titleAspects = (
-            (titleBody.product as Record<string, unknown> | undefined)?.aspects ?? {}
-          ) as Record<string, string[]>;
-          console.error("[ebay] passthrough PUT title failed — full eBay error", {
+        let titleOk = false;
+        let titleError: string | undefined;
+
+        if (legacyListingId) {
+          try {
+            await reviseImportedListingContent(conn.accessToken, legacyListingId, {
+              title: item.title.slice(0, EBAY_TITLE_MAX),
+            });
+            await persistRevisionCount(conn.id, sku, conn.config);
+            addResponse(trace, 200, { success: true, field: "title", via: "trading" });
+            fieldResults.push({ field: "title", ok: true });
+            titleOk = true;
+            console.warn("[ebay] upsertListing passthrough Trading ReviseFixedPriceItem title", {
+              storeItemId: item.id,
+              sku,
+              legacyListingId,
+              aspectMode: "trading",
+              titleLength: item.title.length,
+            });
+          } catch (e) {
+            titleError = describeEbayThrownError(e);
+            console.warn("[ebay] passthrough Trading title failed, falling back to inventory PUT", {
+              storeItemId: item.id,
+              sku,
+              legacyListingId,
+              error: titleError,
+            });
+          }
+        }
+
+        if (!titleOk) {
+          const titleBody = buildPassthroughTitleOnlyInventoryBody(live, item);
+          const liveAspects = extractEbayInventoryAspects(live) ?? {};
+          console.warn("[ebay] upsertListing passthrough PUT title only", {
             storeItemId: item.id,
             sku,
-            offerCategoryId,
-            aspectKeys: Object.keys(titleAspects),
-            aspectValues: titleAspects,
             aspectMode: "live_overlay",
-            ...formatEbayErrorDiagnostics(e),
+            aspectKeys: Object.keys(liveAspects),
+            titleLength: item.title.length,
+            legacyListingId: legacyListingId ?? null,
           });
-          if (e instanceof EbayApiError) {
-            addResponse(trace, e.status, { error: e.message, body: e.body });
+          addRequest(trace, titleBody);
+          try {
+            await ebayJson(
+              conn.accessToken,
+              `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+              "PUT",
+              titleBody
+            );
+            await persistRevisionCount(conn.id, sku, conn.config);
+            addResponse(trace, 200, { success: true, field: "title", via: "inventory" });
+            fieldResults.push({ field: "title", ok: true });
+          } catch (e) {
+            const titleAspects = (
+              (titleBody.product as Record<string, unknown> | undefined)?.aspects ?? {}
+            ) as Record<string, string[]>;
+            console.error("[ebay] passthrough PUT title failed — full eBay error", {
+              storeItemId: item.id,
+              sku,
+              offerCategoryId,
+              aspectKeys: Object.keys(titleAspects),
+              aspectValues: titleAspects,
+              aspectMode: "live_overlay",
+              tradingFallbackError: titleError,
+              ...formatEbayErrorDiagnostics(e),
+            });
+            if (e instanceof EbayApiError) {
+              addResponse(trace, e.status, { error: e.message, body: e.body });
+            }
+            const aspectSummary = formatPassthroughPutNote(titleBody);
+            const msg = `${describeEbayThrownError(e)}. ${aspectSummary}`;
+            fieldResults.push({ field: "title", ok: false, error: msg });
           }
-          const aspectSummary = formatPassthroughPutNote(titleBody);
-          const msg = `${describeEbayThrownError(e)}. ${aspectSummary}`;
-          fieldResults.push({ field: "title", ok: false, error: msg });
         }
       }
 
@@ -415,8 +462,39 @@ async function upsertListing(
             await persistRevisionCount(conn.id, sku, conn.config);
             fieldResults.push({ field: "description", ok: true });
           } catch (e) {
-            const msg = describeEbayThrownError(e);
-            fieldResults.push({ field: "description", ok: false, error: `eBay offer update failed: ${msg}` });
+            if (legacyListingId && isEbayInventoryAspectValidationError(e)) {
+              try {
+                const html = listingDescriptionForHtmlChannel(item.description, item.title).slice(
+                  0,
+                  500000
+                );
+                await reviseImportedListingContent(conn.accessToken, legacyListingId, {
+                  description: html,
+                });
+                await persistRevisionCount(conn.id, sku, conn.config);
+                fieldResults.push({ field: "description", ok: true });
+                console.warn("[ebay] passthrough Trading ReviseFixedPriceItem description", {
+                  storeItemId: item.id,
+                  sku,
+                  legacyListingId,
+                  aspectMode: "trading",
+                });
+              } catch (tradingErr) {
+                const msg = describeEbayThrownError(tradingErr);
+                fieldResults.push({
+                  field: "description",
+                  ok: false,
+                  error: `eBay description update failed: ${msg}`,
+                });
+              }
+            } else {
+              const msg = describeEbayThrownError(e);
+              fieldResults.push({
+                field: "description",
+                ok: false,
+                error: `eBay offer update failed: ${msg}`,
+              });
+            }
           }
         }
       }

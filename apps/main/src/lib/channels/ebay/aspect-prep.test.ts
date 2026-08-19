@@ -210,7 +210,7 @@ describe("prepareLiveAspectsForInventoryPut", () => {
       [],
       { categoryId: "41087" }
     );
-    expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
+    expect(product["Professional grader"]).toEqual(["NGC"]);
     expect(product.Grade).toBeUndefined();
   });
 
@@ -238,7 +238,7 @@ describe("prepareLiveAspectsForInventoryPut", () => {
     expect(product.Certification).toBeUndefined();
   });
 
-  it("snaps Professional grader to full label when taxonomy is unavailable", () => {
+  it("snaps Professional grader to bare prefix when taxonomy is unavailable", () => {
     const product = prepareLiveAspectsForInventoryPut(
       { Composition: ["Clad"] },
       "2002-S NGC PF 69 Ultra Cameo Roosevelt Dime",
@@ -246,7 +246,7 @@ describe("prepareLiveAspectsForInventoryPut", () => {
       { categoryId: "39458" },
       { Certification: ["NGC (Numismatic Guaranty Corporation)"], Grade: ["PR 69"] }
     );
-    expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
+    expect(product["Professional grader"]).toEqual(["NGC"]);
     expect(product["Letter grade"]).toEqual(["69"]);
   });
 

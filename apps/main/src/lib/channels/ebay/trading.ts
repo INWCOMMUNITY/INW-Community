@@ -405,7 +405,11 @@ export async function reviseImportedListingContent(
 ): Promise<void> {
   if (!fields.title?.trim() && !fields.description?.trim()) return;
   const xml = buildReviseImportedListingXml(legacyListingId, fields);
-  await callTrading(accessToken, "ReviseFixedPriceItem", xml);
+  const response = await callTrading(accessToken, "ReviseFixedPriceItem", xml);
+  const ack = parseTradingAck(response);
+  if (!ack.ok) {
+    throw new Error(ack.error ?? "ReviseFixedPriceItem failed");
+  }
 }
 
 /** Trading API returns HTTP 200 with <Ack>Failure</Ack> + <Errors> for logical failures. */

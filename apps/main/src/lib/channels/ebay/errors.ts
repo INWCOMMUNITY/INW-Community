@@ -153,6 +153,14 @@ export function describeEbayThrownError(e: unknown): string {
   return String(e).slice(0, 500);
 }
 
+/** True when eBay Inventory rejected item specifics / wire grade aspects (#25064 and kin). */
+export function isEbayInventoryAspectValidationError(e: unknown): boolean {
+  const msg = describeEbayThrownError(e);
+  return /#25064|#25002|letter grade|numerical grade|professional grader|item specific|item specifics|required field/i.test(
+    msg
+  );
+}
+
 export function formatMigrateListingError(args: {
   statusCode?: number;
   errors?: EbayErrorRow[];

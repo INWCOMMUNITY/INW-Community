@@ -359,8 +359,8 @@ function snapGraderValue(schema: CategoryAspectSchema | undefined, grader: strin
     return trimmed;
   }
 
-  if (prefix && KNOWN_GRADER_LABELS[prefix]) {
-    return KNOWN_GRADER_LABELS[prefix];
+  if (prefix) {
+    return prefix;
   }
   return trimmed;
 }
