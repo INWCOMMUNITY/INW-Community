@@ -411,6 +411,7 @@ export function enrichInventoryProductAspectsForPush(
     liveAspects,
     title,
     categoryAspects,
+    {},
     ...fallbackAspects
   );
 }
@@ -472,6 +473,25 @@ function backfillInventoryOnlyWireAspects(
   }
 }
 
+export type PrepareLiveAspectsOptions = {
+  /** Title-only PUT: keep live Letter/Numerical grade when live GET already has grader + Grade. */
+  preserveLiveWireGrades?: boolean;
+};
+
+function liveHasAcceptedWireGrades(
+  liveAspects: Record<string, string[]>,
+  title: string
+): boolean {
+  const hasGrader =
+    hasAspectValue(liveAspects, "Professional grader") ||
+    !!extractGraderFromAspectRecord(liveAspects, title);
+  const hasGrade =
+    hasAspectValue(liveAspects, "Grade") ||
+    hasAspectValue(liveAspects, "Letter grade") ||
+    hasAspectValue(liveAspects, "Numerical grade");
+  return hasGrader && hasGrade;
+}
+
 /**
  * Live inventory GET aspects plus minimal graded-coin wire fixes for Inventory PUT.
  * Keeps seller-visible specifics verbatim; only repairs wire keys eBay validates on PUT.
@@ -480,6 +500,7 @@ export function prepareLiveAspectsForInventoryPut(
   liveAspects: Record<string, string[]>,
   title: string,
   categoryAspects: CategoryAspectSchema[] = [],
+  options: PrepareLiveAspectsOptions = {},
   ...fallbackAspects: Array<Record<string, string[]> | null | undefined>
 ): Record<string, string[]> {
   const product: Record<string, string[]> = {};
@@ -496,7 +517,12 @@ export function prepareLiveAspectsForInventoryPut(
     }
   }
 
-  applyGradedCoinWireAspects(product, merged, title, liveAspects, categoryAspects);
+  const skipWireRewrite =
+    options.preserveLiveWireGrades === true && liveHasAcceptedWireGrades(liveAspects, title);
+
+  if (!skipWireRewrite) {
+    applyGradedCoinWireAspects(product, merged, title, liveAspects, categoryAspects);
+  }
 
   for (const aspect of categoryAspects) {
     if (!aspect.required) continue;
@@ -509,8 +535,20 @@ export function prepareLiveAspectsForInventoryPut(
     if (current) setAspectValue(product, aspect.name, snapToSuggestedValue(aspect, current));
   }
 
+  if (!hasAspectValue(product, "Year")) {
+    const year = findSourceValueForAspect(merged, "Year");
+    if (year) {
+      setAspectValue(product, "Year", year);
+    } else {
+      const fromTitle = title.match(/\b(18|19|20)\d{2}\b/);
+      if (fromTitle) setAspectValue(product, "Year", fromTitle[0]!);
+    }
+  }
+
   stripWireAspectsNotInTaxonomy(product, categoryAspects);
-  backfillInventoryOnlyWireAspects(product, merged, title, categoryAspects);
+  if (!skipWireRewrite) {
+    backfillInventoryOnlyWireAspects(product, merged, title, categoryAspects);
+  }
 
   if (hasAspectValue(product, "Professional grader")) {
     stripTradingGraderAliases(product);

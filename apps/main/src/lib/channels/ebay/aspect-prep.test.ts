@@ -175,6 +175,24 @@ describe("prepareLiveAspectsForInventoryPut", () => {
     expect(product["Professional grader"]).toEqual(["NGC"]);
   });
 
+  it("preserveLiveWireGrades skips rewriting live wire grades on title-only PUT", () => {
+    const live = {
+      "Professional grader": ["NGC"],
+      Grade: ["MS 67"],
+      "Letter grade": ["MS"],
+      "Numerical grade": ["67"],
+      Year: ["1938"],
+    };
+    const withPreserve = prepareLiveAspectsForInventoryPut(
+      live,
+      "1938 Jefferson Nickel NGC MS 67 Revised",
+      nickelTaxonomy,
+      { preserveLiveWireGrades: true }
+    );
+    expect(withPreserve["Letter grade"]).toEqual(["MS"]);
+    expect(withPreserve["Numerical grade"]).toEqual(["67"]);
+  });
+
   it("keeps Letter grade when taxonomy omits it but Inventory requires it (41087 nickel)", () => {
     const taxonomyMissingLetter: EbayCategoryAspect[] = nickelTaxonomy.filter(
       (a) => a.name !== "Letter grade"
@@ -190,6 +208,7 @@ describe("prepareLiveAspectsForInventoryPut", () => {
       liveNickel,
       "1938 Jefferson Nickel NGC MS 67",
       taxonomyMissingLetter,
+      {},
       { Certification: ["NGC"] }
     );
     expect(product["Letter grade"]).toEqual(["MS"]);

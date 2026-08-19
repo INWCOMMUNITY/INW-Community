@@ -3,13 +3,15 @@ import {
   buildPassthroughInventoryBody,
   buildPassthroughLiveOverlayBody,
   buildPassthroughOfferBody,
-  buildPassthroughTitleOnlyInventoryBody,
+  buildPassthroughTitleInventoryBody,
   detectLivePassthroughChanges,
   detectPassthroughChangedFields,
+  formatPassthroughFieldSyncSummary,
   formatPassthroughPutNote,
   formatPushedAspectsSummary,
   needsInventoryPut,
   overlayPassthroughOffer,
+  passthroughSyncHasFailures,
   resolvePassthroughChanges,
 } from "./passthrough-push";
 import { storeItemContentHash } from "../sync-baseline";
@@ -364,26 +366,68 @@ describe("passthrough-push", () => {
     expect(needsInventoryPut(changed)).toBe(false);
   });
 
-  it("buildPassthroughTitleOnlyInventoryBody changes only product.title", () => {
+  it("buildPassthroughTitleInventoryBody changes title with prepared aspects", () => {
     const live = {
       condition: "LIKE_NEW",
       availability: { shipToLocationAvailability: { quantity: 1 } },
       product: {
         title: "Old Title",
-        aspects: { Grade: ["MS 67"], "Letter grade": ["MS"] },
+        aspects: {
+          Grade: ["MS 67"],
+          "Letter grade": ["MS"],
+          "Numerical grade": ["67"],
+          "Professional grader": ["NGC"],
+        },
         imageUrls: ["https://i.ebayimg.com/a.jpg"],
       },
     };
-    const body = buildPassthroughTitleOnlyInventoryBody(live, {
+    const body = buildPassthroughTitleInventoryBody(live, {
       ...coinItem,
       title: "New Title From INW",
     });
     const product = body.product as Record<string, unknown>;
     expect(product.title).toBe("New Title From INW");
-    expect(product.aspects).toEqual({ Grade: ["MS 67"], "Letter grade": ["MS"] });
+    const aspects = product.aspects as Record<string, string[]>;
+    expect(aspects["Letter grade"]).toEqual(["MS"]);
+    expect(aspects["Numerical grade"]).toEqual(["67"]);
     expect(product.imageUrls).toEqual(["https://i.ebayimg.com/a.jpg"]);
     expect(body.condition).toBe("LIKE_NEW");
     expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 1 } });
+  });
+
+  it("buildPassthroughTitleInventoryBody backfills Year from GetItem when live GET omits it", () => {
+    const live = {
+      condition: "LIKE_NEW",
+      product: {
+        title: "1938 Jefferson Nickel NGC MS 67",
+        aspects: {
+          Grade: ["MS 67"],
+          "Professional grader": ["NGC"],
+          "Letter grade": ["MS"],
+          "Numerical grade": ["67"],
+        },
+      },
+    };
+    const body = buildPassthroughTitleInventoryBody(live, coinItem, {
+      tradingAspects: { Year: ["1938"] },
+    });
+    const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(aspects.Year).toEqual(["1938"]);
+  });
+
+  it("formatPassthroughFieldSyncSummary reports partial sync outcomes", () => {
+    const summary = formatPassthroughFieldSyncSummary([
+      { field: "price", ok: true },
+      { field: "title", ok: false, error: "#25002 Year is missing" },
+      { field: "description", ok: true },
+    ]);
+    expect(summary).toContain("price: updated");
+    expect(summary).toContain("title: failed");
+    expect(summary).toContain("description: updated");
+    expect(passthroughSyncHasFailures([
+      { field: "price", ok: true },
+      { field: "title", ok: false, error: "x" },
+    ])).toBe(true);
   });
 
   it("resolvePassthroughChanges pushes title without requiring photo inventory PUT", () => {

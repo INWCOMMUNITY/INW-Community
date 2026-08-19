@@ -355,7 +355,10 @@ export function describeChannelSyncError(provider: string, e: unknown): string {
       const base = `Quantity didn't update on eBay: ${msg}`;
       return hint ? `${base} — ${hint}` : base;
     }
-    if (/#25064|item specific|required field.*aspect|aspect.*required|Letter grade/i.test(msg)) {
+    if (/passthrough partial sync|:\s*updated|:\s*failed/i.test(msg)) {
+      return msg;
+    }
+    if (/#25064|#25002|item specific|required field.*aspect|aspect.*required|Letter grade/i.test(msg)) {
       const hint = ebayErrorActionHint(msg);
       const base = `Listing details didn't update on eBay: ${msg}`;
       return hint ? `${base} — ${hint}` : base;

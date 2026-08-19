@@ -237,7 +237,35 @@ export type PassthroughBuildOptions = {
    * Default: preserve live GET aspects verbatim — eBay already accepted them.
    */
   enrichAspects?: boolean;
+  /** Title-only PUT: do not rewrite live wire grade fields eBay already accepted. */
+  preserveLiveWireGrades?: boolean;
 };
+
+export type PassthroughFieldResult = {
+  field: "price" | "quantity" | "title" | "description" | "photos";
+  ok: boolean;
+  error?: string;
+};
+
+/** Summarize per-field passthrough push outcomes for sync errors. */
+export function formatPassthroughFieldSyncSummary(results: PassthroughFieldResult[]): string {
+  if (results.length === 0) return "No fields attempted.";
+  return results
+    .map((r) =>
+      r.ok
+        ? `${r.field}: updated`
+        : `${r.field}: failed (${(r.error ?? "unknown").slice(0, 160)})`
+    )
+    .join(". ");
+}
+
+export function passthroughSyncHasFailures(results: PassthroughFieldResult[]): boolean {
+  return results.some((r) => !r.ok);
+}
+
+export function passthroughAllAttemptedFailed(results: PassthroughFieldResult[]): boolean {
+  return results.length > 0 && results.every((r) => !r.ok);
+}
 
 function readRawProductAspects(product: Record<string, unknown>): Record<string, string[]> {
   const aspects = product.aspects;
@@ -311,6 +339,7 @@ export function buildPassthroughInventoryBody(
     liveAspects,
     item.title,
     options.categoryAspects ?? [],
+    { preserveLiveWireGrades: options.preserveLiveWireGrades },
     options.tradingAspects,
     options.cachedAspects,
     options.storedAspects
@@ -359,6 +388,34 @@ export function buildPassthroughInventoryBody(
   }
 
   return body;
+}
+
+/** Inventory PUT for title-only edits — aspect-safe body with GetItem/taxonomy fallbacks. */
+export function buildPassthroughTitleInventoryBody(
+  live: LiveInventoryItem,
+  item: SyncStoreItem,
+  options: PassthroughBuildOptions = {}
+): Record<string, unknown> {
+  return buildPassthroughInventoryBody(
+    live,
+    item,
+    { title: true, content: false, quantity: false, price: false, photos: false },
+    { ...options, preserveLiveWireGrades: true }
+  );
+}
+
+/** Inventory PUT for photo-only edits — aspect-safe body with GetItem/taxonomy fallbacks. */
+export function buildPassthroughPhotoInventoryBody(
+  live: LiveInventoryItem,
+  item: SyncStoreItem,
+  options: PassthroughBuildOptions = {}
+): Record<string, unknown> {
+  return buildPassthroughInventoryBody(
+    live,
+    item,
+    { photos: true, content: false, quantity: false, price: false, title: false },
+    options
+  );
 }
 
 const OFFER_READ_ONLY_KEYS = new Set([
