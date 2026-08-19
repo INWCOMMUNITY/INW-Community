@@ -115,6 +115,32 @@ export function formatEbayApiErrorMessage(body: unknown, httpStatus: number, pat
   return formatEbayApiBody(body, httpStatus, path);
 }
 
+/** Structured eBay error payload for logs (full codes, messages, parameters). */
+export function formatEbayErrorDiagnostics(e: unknown): Record<string, unknown> {
+  if (e instanceof EbayApiError) {
+    const rows = parseEbayErrorRows(e.body);
+    return {
+      status: e.status,
+      path: e.path,
+      summary: formatEbayApiBody(e.body, e.status, e.path),
+      errors: rows.map((row) => ({
+        errorId: row.errorId,
+        domain: row.domain,
+        subdomain: row.subdomain,
+        category: row.category,
+        message: row.message,
+        longMessage: row.longMessage,
+        parameters: row.parameters,
+      })),
+      rawBody: e.body,
+    };
+  }
+  if (e instanceof Error) {
+    return { message: e.message, name: e.name };
+  }
+  return { message: String(e) };
+}
+
 /** Best-effort detail for a thrown value (EbayApiError, Error, or unknown). */
 export function describeEbayThrownError(e: unknown): string {
   if (e instanceof EbayApiError) {

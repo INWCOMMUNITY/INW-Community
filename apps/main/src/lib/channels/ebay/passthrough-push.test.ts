@@ -411,6 +411,7 @@ describe("passthrough-push", () => {
       },
     };
     const body = buildPassthroughTitleInventoryBody(live, coinItem, {
+      categoryId: 41087,
       tradingAspects: {
         Certification: ["NGC"],
         Grade: ["MS 67"],
@@ -426,6 +427,31 @@ describe("passthrough-push", () => {
     expect(aspects.Year).toEqual(["1938"]);
     expect(aspects.Composition).toEqual(["Copper-Nickel"]);
     expect(aspects.Certification).toBeUndefined();
+  });
+
+  it("buildPassthroughTitleInventoryBody keeps Letter grade for 41087 when taxonomy has Numerical but omits Letter", () => {
+    const nickel41087Taxonomy = [
+      { name: "Professional grader", required: true, mode: "SELECTION_ONLY" as const, cardinality: "SINGLE" as const, suggestedValues: ["NGC", "PCGS"] },
+      { name: "Grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+      { name: "Numerical grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+      { name: "Year", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+    ];
+    const live = {
+      condition: "LIKE_NEW",
+      product: {
+        title: "1938 Jefferson Nickel NGC MS 67",
+        aspects: { Composition: ["Copper-Nickel"], Mint: ["Denver"] },
+      },
+    };
+    const body = buildPassthroughTitleInventoryBody(live, coinItem, {
+      categoryId: "41087",
+      tradingAspects: { Certification: ["NGC"], Grade: ["MS 67"], Year: ["1938"] },
+      categoryAspects: nickel41087Taxonomy,
+    });
+    const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(aspects["Letter grade"]).toEqual(["MS"]);
+    expect(aspects["Numerical grade"]).toEqual(["67"]);
+    expect(aspects["Professional grader"]).toEqual(["NGC"]);
   });
 
   it("buildPassthroughTitleInventoryBody backfills Letter and Numerical grade when live has grader+Grade but omits wire sub-fields", () => {
@@ -578,7 +604,7 @@ describe("passthrough-push", () => {
       liveBadWire,
       { ...coinItem, title: "2002-S NGC PR 69 Ultra Cameo Roosevelt Dime Revised" },
       { content: true, title: true, quantity: false, price: false },
-      { categoryAspects: dimeTaxonomy }
+      { categoryId: "39458", categoryAspects: dimeTaxonomy }
     );
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
     expect(aspects["Letter grade"]).toBeUndefined();

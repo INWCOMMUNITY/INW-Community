@@ -224,6 +224,8 @@ export async function fetchLiveInventoryItem(
 }
 
 export type PassthroughBuildOptions = {
+  /** eBay leaf category id — wire grade rules (nickel vs dime). */
+  categoryId?: string | number | null;
   /** eBay leaf category taxonomy — used for category-specific wire aspect rules. */
   categoryAspects?: CategoryAspectSchema[] | null;
   /** Live inventory GET cache on the channel link. */
@@ -339,7 +341,10 @@ export function buildPassthroughInventoryBody(
     liveAspects,
     item.title,
     options.categoryAspects ?? [],
-    { preserveLiveWireGrades: options.preserveLiveWireGrades },
+    {
+      preserveLiveWireGrades: options.preserveLiveWireGrades,
+      categoryId: options.categoryId,
+    },
     options.tradingAspects,
     options.cachedAspects,
     options.storedAspects
@@ -505,8 +510,10 @@ export function formatPushedAspectsSummary(aspects: Record<string, string[]> | n
       : aspectValues(aspects, "Certification");
   const letter = aspectValues(aspects, "Letter grade");
   const numerical = aspectValues(aspects, "Numerical grade");
-  const mode = Object.keys(aspects).length === 0 ? "empty" : "prepared";
-  return `Sent aspects (${mode}): ${keys.join(", ")}. Grader=${grader}; Letter grade=${letter}; Numerical grade=${numerical}`;
+  const keyDetails = keys
+    .map((k) => `${k}=${aspectValues(aspects, k)}`)
+    .join("; ");
+  return `Sent aspects (prepared): ${keys.join(", ")}. ${keyDetails}. Grader=${grader}; Letter grade=${letter}; Numerical grade=${numerical}`;
 }
 
 export function formatPassthroughPutNote(

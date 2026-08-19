@@ -66,6 +66,28 @@ const GRADER_SOURCE_NAMES = new Set([
  */
 export const EBAY_DERIVED_GRADE_ASPECTS = new Set(["letter grade", "numerical grade"]);
 
+/**
+ * Leaf categories where eBay Inventory PUT uses Numerical grade only (no Letter grade).
+ * Jefferson Nickel (41087) is NOT in this set — taxonomy may omit Letter grade but PUT still requires it.
+ */
+export const EBAY_NUMERICAL_GRADE_ONLY_CATEGORY_IDS = new Set([
+  "39458", // US Roosevelt Dimes
+]);
+
+/** Whether Inventory PUT for this category expects Letter grade (MS, PR, …) alongside Numerical grade. */
+export function inventoryPutUsesLetterGrade(
+  categoryAspects: CategoryAspectSchema[],
+  categoryId?: string | number | null
+): boolean {
+  const id = categoryId != null ? String(categoryId).trim() : "";
+  if (id && EBAY_NUMERICAL_GRADE_ONLY_CATEGORY_IDS.has(id)) return false;
+  const names = new Set(categoryAspects.map((a) => a.name.toLowerCase()));
+  if (names.has("letter grade")) return true;
+  // 41087-style: taxonomy GET lists Numerical grade but omits Letter grade; Inventory PUT still requires prefix.
+  if (names.has("numerical grade")) return true;
+  return true;
+}
+
 /** Category aspects sellers actually fill in (excludes eBay-only derived grade sub-fields). */
 export function filterSellerVisibleCategoryAspects(
   categoryAspects: CategoryAspectSchema[]
@@ -340,7 +362,8 @@ export function applyGradedCoinWireAspects(
   merged: Record<string, string[]>,
   title: string,
   liveAspects: Record<string, string[]> = {},
-  categoryAspects: CategoryAspectSchema[] = []
+  categoryAspects: CategoryAspectSchema[] = [],
+  categoryId?: string | number | null
 ): void {
   if (!isGradedCoinContext(merged, title) && !extractGradePartsFromAspectRecord(merged, title)) {
     return;
@@ -361,18 +384,24 @@ export function applyGradedCoinWireAspects(
   const letterName = letterSchema?.name ?? "Letter grade";
   const numericalName = numericalSchema?.name ?? "Numerical grade";
 
+  const usesLetterGrade = inventoryPutUsesLetterGrade(categoryAspects, categoryId);
   const currentLetter = pickFirstAspectValue(product, letterName);
   const letterIsNumericOnly = currentLetter != null && /^\d{1,2}$/.test(currentLetter);
   const letterIsFullGrade =
     currentLetter != null && parts != null && parseCoinGradeLabel(currentLetter) != null;
   if (
-    !hasAspectValue(product, letterName) ||
-    letterIsNumericOnly ||
-    (letterIsFullGrade && parts && parseCoinGradeLabel(currentLetter!)!.prefix !== parts.prefix)
+    usesLetterGrade &&
+    (!hasAspectValue(product, letterName) ||
+      letterIsNumericOnly ||
+      (letterIsFullGrade && parts && parseCoinGradeLabel(currentLetter!)!.prefix !== parts.prefix))
   ) {
     const letter =
       liveLetter && !letterIsNumericOnly && !letterIsFullGrade ? liveLetter : parts?.prefix;
     if (letter) setAspectValue(product, letterName, snapToSuggestedValue(letterSchema, letter));
+  } else if (!usesLetterGrade && hasAspectValue(product, letterName)) {
+    for (const key of Object.keys(product)) {
+      if (key.toLowerCase() === "letter grade") delete product[key];
+    }
   }
 
   const currentNumerical = pickFirstAspectValue(product, numericalName);
@@ -418,22 +447,24 @@ export function enrichInventoryProductAspectsForPush(
 
 function stripWireAspectsNotInTaxonomy(
   product: Record<string, string[]>,
-  categoryAspects: CategoryAspectSchema[]
+  categoryAspects: CategoryAspectSchema[],
+  categoryId?: string | number | null
 ): void {
-  if (categoryAspects.length === 0) return;
-  const inTaxonomy = new Set(categoryAspects.map((a) => a.name.toLowerCase()));
-  const hasLetter = inTaxonomy.has("letter grade");
-  const hasNumerical = inTaxonomy.has("numerical grade");
+  if (!inventoryPutUsesLetterGrade(categoryAspects, categoryId)) {
+    for (const key of Object.keys(product)) {
+      if (key.toLowerCase() === "letter grade") delete product[key];
+    }
+    return;
+  }
 
-  // Dime-style categories: Numerical grade in taxonomy, Letter grade omitted — drop bad Letter grade.
-  if (hasNumerical && !hasLetter) {
+  // Remove invalid numeric-only Letter grade duplicates (legacy bad live GET, e.g. Letter grade=69).
+  const letterVal = pickFirstAspectValue(product, "Letter grade");
+  const numericalVal = pickFirstAspectValue(product, "Numerical grade");
+  if (letterVal && (/^\d{1,2}$/.test(letterVal) || (numericalVal && letterVal === numericalVal))) {
     for (const key of Object.keys(product)) {
       if (key.toLowerCase() === "letter grade") delete product[key];
     }
   }
-
-  // Never strip Professional grader / Numerical grade / Letter grade merely because the
-  // Taxonomy GET omitted them (41087 nickel omits Letter grade but Inventory PUT requires it).
 }
 
 /** Taxonomy GET often omits Inventory-only wire fields; backfill after taxonomy strip. */
@@ -441,7 +472,8 @@ function backfillInventoryOnlyWireAspects(
   product: Record<string, string[]>,
   merged: Record<string, string[]>,
   title: string,
-  categoryAspects: CategoryAspectSchema[] = []
+  categoryAspects: CategoryAspectSchema[] = [],
+  categoryId?: string | number | null
 ): void {
   const parts = extractGradePartsFromAspectRecord(merged, title);
   if (!parts) return;
@@ -460,10 +492,9 @@ function backfillInventoryOnlyWireAspects(
   const numericalSchema = categoryAspects.find((a) => a.name.toLowerCase() === "numerical grade");
   const letterName = letterSchema?.name ?? "Letter grade";
   const numericalName = numericalSchema?.name ?? "Numerical grade";
-  const inTaxonomy = new Set(categoryAspects.map((a) => a.name.toLowerCase()));
 
   if (
-    (!categoryAspects.length || !inTaxonomy.has("numerical grade") || inTaxonomy.has("letter grade")) &&
+    inventoryPutUsesLetterGrade(categoryAspects, categoryId) &&
     !hasAspectValue(product, letterName)
   ) {
     setAspectValue(product, letterName, snapToSuggestedValue(letterSchema, parts.prefix));
@@ -476,6 +507,8 @@ function backfillInventoryOnlyWireAspects(
 export type PrepareLiveAspectsOptions = {
   /** Title-only PUT: keep live Letter/Numerical grade when live GET already has grader + Grade. */
   preserveLiveWireGrades?: boolean;
+  /** eBay leaf category id — disambiguates nickel vs dime wire-grade rules. */
+  categoryId?: string | number | null;
 };
 
 function liveHasAcceptedWireGrades(liveAspects: Record<string, string[]>): boolean {
@@ -511,7 +544,8 @@ function ensureRequiredAspectsForInventoryPut(
   product: Record<string, string[]>,
   merged: Record<string, string[]>,
   title: string,
-  categoryAspects: CategoryAspectSchema[]
+  categoryAspects: CategoryAspectSchema[],
+  categoryId?: string | number | null
 ): void {
   ensureProfessionalGrader(product, merged, title, categoryAspects);
 
@@ -546,13 +580,16 @@ function ensureRequiredAspectsForInventoryPut(
     numericalRequired ||
     hasGradeSource;
 
+  const missingLetter =
+    inventoryPutUsesLetterGrade(categoryAspects, categoryId) &&
+    !hasAspectValue(product, "Letter grade");
   if (
     needsWireGrades &&
     (!hasAspectValue(product, "Numerical grade") ||
       !hasAspectValue(product, "Professional grader") ||
-      !hasAspectValue(product, "Letter grade"))
+      missingLetter)
   ) {
-    backfillInventoryOnlyWireAspects(product, merged, title, categoryAspects);
+    backfillInventoryOnlyWireAspects(product, merged, title, categoryAspects, categoryId);
   }
 }
 
@@ -580,11 +617,19 @@ export function prepareLiveAspectsForInventoryPut(
     if (kept.length > 0) product[name] = kept;
   }
 
+  const categoryId = options.categoryId;
   const skipLetterNumericalRewrite =
     options.preserveLiveWireGrades === true && liveHasAcceptedWireGrades(liveAspects);
 
   if (!skipLetterNumericalRewrite) {
-    applyGradedCoinWireAspects(product, merged, title, liveAspects, categoryAspects);
+    applyGradedCoinWireAspects(
+      product,
+      merged,
+      title,
+      liveAspects,
+      categoryAspects,
+      categoryId
+    );
   } else {
     ensureProfessionalGrader(product, merged, title, categoryAspects);
   }
@@ -600,12 +645,12 @@ export function prepareLiveAspectsForInventoryPut(
     if (current) setAspectValue(product, aspect.name, snapToSuggestedValue(aspect, current));
   }
 
-  stripWireAspectsNotInTaxonomy(product, categoryAspects);
+  stripWireAspectsNotInTaxonomy(product, categoryAspects, categoryId);
   if (!skipLetterNumericalRewrite) {
-    backfillInventoryOnlyWireAspects(product, merged, title, categoryAspects);
+    backfillInventoryOnlyWireAspects(product, merged, title, categoryAspects, categoryId);
   }
 
-  ensureRequiredAspectsForInventoryPut(product, merged, title, categoryAspects);
+  ensureRequiredAspectsForInventoryPut(product, merged, title, categoryAspects, categoryId);
 
   if (hasAspectValue(product, "Professional grader")) {
     stripTradingGraderAliases(product);

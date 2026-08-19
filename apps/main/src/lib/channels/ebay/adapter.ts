@@ -8,7 +8,7 @@ import type {
   TokenResponse,
 } from "../types";
 import { EbayApiError, ebayAction, ebayGet, ebayGetInventoryItem, ebayJson } from "./client";
-import { describeEbayThrownError } from "./errors";
+import { describeEbayThrownError, formatEbayErrorDiagnostics } from "./errors";
 import {
   exchangeEbayCode,
   fetchEbayShopInfo,
@@ -315,6 +315,7 @@ async function upsertListing(
       }
 
       const aspectBuildOptions: PassthroughBuildOptions = {
+        categoryId: offerCategoryId,
         cachedAspects,
         storedAspects,
         tradingAspects,
@@ -401,6 +402,15 @@ async function upsertListing(
           addResponse(trace, 200, { success: true, field: "title" });
           fieldResults.push({ field: "title", ok: true });
         } catch (e) {
+          console.error("[ebay] passthrough PUT title failed — full eBay error", {
+            storeItemId: item.id,
+            sku,
+            offerCategoryId,
+            aspectKeys: Object.keys(titleAspects),
+            aspectValues: titleAspects,
+            hasTradingAspects: !!tradingAspects,
+            ...formatEbayErrorDiagnostics(e),
+          });
           if (e instanceof EbayApiError) {
             addResponse(trace, e.status, { error: e.message, body: e.body });
           }

@@ -168,7 +168,8 @@ describe("prepareLiveAspectsForInventoryPut", () => {
         Year: ["2002"],
       },
       "2002-S NGC PF 69 Ultra Cameo Roosevelt Dime",
-      dimeTaxonomy
+      dimeTaxonomy,
+      { categoryId: "39458" }
     );
     expect(product["Letter grade"]).toBeUndefined();
     expect(product["Numerical grade"]).toEqual(["69"]);
@@ -209,12 +210,55 @@ describe("prepareLiveAspectsForInventoryPut", () => {
       liveNickel,
       "1938 Jefferson Nickel NGC MS 67",
       taxonomyMissingLetter,
-      {},
+      { categoryId: "41087" },
       { Certification: ["NGC"] }
     );
     expect(product["Letter grade"]).toEqual(["MS"]);
     expect(product["Numerical grade"]).toEqual(["67"]);
     expect(product["Professional grader"]).toEqual(["NGC"]);
     expect(product.Certification).toBeUndefined();
+  });
+
+  it("keeps Letter grade for 41087 when taxonomy has Numerical grade but omits Letter and live GET only has Composition/Mint", () => {
+    const nickel41087Taxonomy: EbayCategoryAspect[] = [
+      {
+        name: "Professional grader",
+        required: true,
+        mode: "SELECTION_ONLY",
+        cardinality: "SINGLE",
+        suggestedValues: ["NGC", "PCGS"],
+      },
+      {
+        name: "Grade",
+        required: true,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+      {
+        name: "Numerical grade",
+        required: true,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+      {
+        name: "Year",
+        required: true,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+    ];
+    const product = prepareLiveAspectsForInventoryPut(
+      { Composition: ["Copper-Nickel"], Mint: ["Denver"] },
+      "1938 Jefferson Nickel NGC MS 67",
+      nickel41087Taxonomy,
+      { categoryId: "41087", preserveLiveWireGrades: true },
+      { Certification: ["NGC"], Grade: ["MS 67"], Year: ["1938"] }
+    );
+    expect(product["Letter grade"]).toEqual(["MS"]);
+    expect(product["Numerical grade"]).toEqual(["67"]);
+    expect(product["Professional grader"]).toEqual(["NGC"]);
   });
 });

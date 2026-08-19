@@ -3,6 +3,7 @@ import {
   EbayApiError,
   describeEbayThrownError,
   formatEbayApiBody,
+  formatEbayErrorDiagnostics,
   formatMigrateListingError,
 } from "./errors";
 
@@ -61,6 +62,27 @@ describe("describeEbayThrownError", () => {
     });
     expect(describeEbayThrownError(err)).toContain("#25718");
     expect(describeEbayThrownError(err)).toContain("Missing SKU");
+  });
+});
+
+describe("formatEbayErrorDiagnostics", () => {
+  it("returns structured error rows with parameters", () => {
+    const err = new EbayApiError("eBay API error (400)", 400, {
+      errors: [
+        {
+          errorId: 25064,
+          domain: "API_INVENTORY",
+          category: "REQUEST",
+          message: "Letter grade (3) is a required field.",
+          parameters: [{ name: "0", value: "Letter grade" }],
+        },
+      ],
+    }, "/sell/inventory/v1/inventory_item/SKU");
+    const diag = formatEbayErrorDiagnostics(err);
+    expect(diag.status).toBe(400);
+    expect(diag.path).toContain("inventory_item");
+    expect(Array.isArray(diag.errors)).toBe(true);
+    expect((diag.errors as { errorId: number }[])[0]?.errorId).toBe(25064);
   });
 });
 
