@@ -36,12 +36,11 @@ import {
   persistEbayCategoryId,
   prepareEbaySyncAspects,
 } from "./sync-aspects";
-import { parseStoredAspects, aspectsToEbayProductAspects, EBAY_TITLE_MAX } from "@/lib/listing-limits";
+import { parseStoredAspects, aspectsToEbayProductAspects } from "@/lib/listing-limits";
 import { hasOptionQuantities } from "../../store-item-variants";
 import {
   enumerateEbayListings,
   fetchEbayItemDetails,
-  reviseImportedListingContent,
   subscribeToEbayNotifications,
 } from "./trading";
 import { EBAY_MARKETPLACE_ID } from "./config";
@@ -65,6 +64,7 @@ import {
 } from "./listing-origin";
 import {
   buildPassthroughInventoryBody,
+  buildPassthroughTitleOnlyInventoryBody,
   detectLivePassthroughChanges,
   fetchLiveInventoryItem,
   formatPushedAspectsSummary,
@@ -272,7 +272,7 @@ async function upsertListing(
       const storedAspects = aspectsToEbayProductAspects(parseStoredAspects(item.aspects));
 
       let legacyListingId: string | null = null;
-      if (changed.title || changed.description || putInventory) {
+      if (putInventory) {
         legacyListingId = await resolveSyncLegacyListingId(conn.accessToken, {
           linkedSku: linkExternalId,
           sku,
@@ -311,7 +311,7 @@ async function upsertListing(
         before: { passthrough: true, liveAspects, tradingAspects, storedAspects, liveChanges, inwFields, changed },
         after: {
           overlays: [
-            changed.title ? "trading_title" : null,
+            changed.title ? "inventory_title_only" : null,
             putInventory ? "inventory_photos" : null,
             changed.description ? "offer_description" : null,
             changed.price || changed.quantity ? "bulk_price_qty" : null,
@@ -322,19 +322,30 @@ async function upsertListing(
       });
 
       if (changed.title) {
-        if (!legacyListingId) {
-          throw new Error(
-            "Could not update eBay title — legacy listing id not found for this imported listing."
-          );
-        }
+        const titleBody = buildPassthroughTitleOnlyInventoryBody(live, item);
+        const titleAspects = (
+          (titleBody.product as Record<string, unknown> | undefined)?.aspects ?? {}
+        ) as Record<string, string[]>;
+        console.warn("[ebay] upsertListing passthrough PUT title only", {
+          storeItemId: item.id,
+          sku,
+          aspectKeys: Object.keys(titleAspects),
+        });
         try {
-          await reviseImportedListingContent(conn.accessToken, legacyListingId, {
-            title: item.title.slice(0, EBAY_TITLE_MAX),
-          });
+          await ebayJson(
+            conn.accessToken,
+            `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+            "PUT",
+            titleBody
+          );
           await persistRevisionCount(conn.id, sku, conn.config);
         } catch (e) {
+          if (e instanceof EbayApiError) {
+            addResponse(trace, e.status, { error: e.message, body: e.body });
+          }
+          const aspectSummary = formatPushedAspectsSummary(titleAspects);
           const msg = describeEbayThrownError(e);
-          throw new Error(`eBay title update failed: ${msg}`);
+          throw new Error(`${msg}. ${aspectSummary}`);
         }
       }
 

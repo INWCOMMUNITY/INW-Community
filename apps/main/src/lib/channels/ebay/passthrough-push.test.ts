@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPassthroughInventoryBody,
   buildPassthroughOfferBody,
+  buildPassthroughTitleOnlyInventoryBody,
   detectLivePassthroughChanges,
   detectPassthroughChangedFields,
   formatPushedAspectsSummary,
@@ -361,7 +362,29 @@ describe("passthrough-push", () => {
     expect(needsInventoryPut(changed)).toBe(false);
   });
 
-  it("resolvePassthroughChanges pushes title via inventory PUT when INW title edited", () => {
+  it("buildPassthroughTitleOnlyInventoryBody changes only product.title", () => {
+    const live = {
+      condition: "LIKE_NEW",
+      availability: { shipToLocationAvailability: { quantity: 1 } },
+      product: {
+        title: "Old Title",
+        aspects: { Grade: ["MS 67"], "Letter grade": ["MS"] },
+        imageUrls: ["https://i.ebayimg.com/a.jpg"],
+      },
+    };
+    const body = buildPassthroughTitleOnlyInventoryBody(live, {
+      ...coinItem,
+      title: "New Title From INW",
+    });
+    const product = body.product as Record<string, unknown>;
+    expect(product.title).toBe("New Title From INW");
+    expect(product.aspects).toEqual({ Grade: ["MS 67"], "Letter grade": ["MS"] });
+    expect(product.imageUrls).toEqual(["https://i.ebayimg.com/a.jpg"]);
+    expect(body.condition).toBe("LIKE_NEW");
+    expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 1 } });
+  });
+
+  it("resolvePassthroughChanges pushes title without requiring photo inventory PUT", () => {
     const item = { ...coinItem, title: "1938 Jefferson Nickel NGC MS 67 Revised" };
     const previousHash = storeItemContentHash(coinItem);
     const inwFields = {

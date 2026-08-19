@@ -22,11 +22,30 @@ export type PassthroughChangedFields = {
 };
 
 /**
- * Inventory PUT rewrites all product.aspects — only use for photo changes (rare).
- * Title uses Trading ReviseFixedPriceItem; description uses Offer PUT; price/qty use bulk API.
+ * Inventory PUT rewrites all product.aspects — only for photo changes (rare).
+ * Title uses GET-and-PUT with only product.title changed; description uses Offer PUT.
  */
 export function needsInventoryPut(changed: PassthroughChangedFields): boolean {
   return changed.photos === true;
+}
+
+/** PUT live inventory item back with only product.title changed — aspects untouched. */
+export function buildPassthroughTitleOnlyInventoryBody(
+  live: LiveInventoryItem,
+  item: SyncStoreItem
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  if (typeof live.condition === "string") body.condition = live.condition;
+  if (live.availability && typeof live.availability === "object") {
+    body.availability = structuredClone(live.availability);
+  }
+  const liveProduct =
+    live.product && typeof live.product === "object"
+      ? (structuredClone(live.product) as Record<string, unknown>)
+      : {};
+  liveProduct.title = item.title.slice(0, EBAY_TITLE_MAX);
+  body.product = liveProduct;
+  return body;
 }
 
 export type LiveInventoryItem = Record<string, unknown>;
