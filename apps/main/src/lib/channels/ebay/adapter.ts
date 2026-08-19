@@ -715,6 +715,10 @@ async function upsertListing(
               } else if (row.field === "bestOffer") {
                 const appliedBest = readOfferBestOfferTerms(refreshed);
                 if (!bestOfferStatesMatch(appliedBest, wantedBest)) {
+                  console.warn("[ebay] passthrough bestOffer verification mismatch", {
+                    wanted: wantedBest,
+                    applied: appliedBest,
+                  });
                   row.error = "Best Offer settings didn't update on eBay.";
                 } else {
                   row.ok = true;

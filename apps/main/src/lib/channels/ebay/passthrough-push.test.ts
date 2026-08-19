@@ -615,9 +615,12 @@ describe("passthrough-push", () => {
       { ...coinItem, acceptOffers: true, minOfferCents: 10000 },
       { content: false, quantity: false, price: false, bestOffer: true, description: false }
     );
-    expect(offer.bestOfferTerms).toEqual({
-      bestOfferEnabled: true,
-      minimumBestOfferPrice: { value: "100.00", currency: "USD" },
+    expect(offer.bestOfferTerms).toBeUndefined();
+    expect(offer.listingPolicies).toMatchObject({
+      bestOfferTerms: {
+        bestOfferEnabled: true,
+        autoDeclinePrice: { value: "99.99", currency: "USD" },
+      },
     });
   });
 

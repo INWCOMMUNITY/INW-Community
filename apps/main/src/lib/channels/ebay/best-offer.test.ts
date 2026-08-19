@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyBestOfferTermsToOfferBody,
   bestOfferStatesMatch,
   buildEbayBestOfferTerms,
   inwBestOfferEnabled,
@@ -42,22 +43,41 @@ describe("best-offer helpers", () => {
     });
   });
 
-  it("builds minimumBestOfferPrice when minOfferCents set", () => {
+  it("builds autoDeclinePrice when minOfferCents set", () => {
     expect(buildEbayBestOfferTerms(usedItem)).toEqual({
       bestOfferEnabled: true,
-      minimumBestOfferPrice: { value: "80.00", currency: "USD" },
+      autoDeclinePrice: { value: "79.99", currency: "USD" },
     });
   });
 
-  it("reads live offer bestOfferTerms", () => {
+  it("reads live offer bestOfferTerms from listingPolicies", () => {
     expect(
       readOfferBestOfferTerms({
-        bestOfferTerms: {
-          bestOfferEnabled: true,
-          minimumBestOfferPrice: { value: "75.00", currency: "USD" },
+        listingPolicies: {
+          bestOfferTerms: {
+            bestOfferEnabled: true,
+            autoDeclinePrice: { value: "79.99", currency: "USD" },
+          },
         },
       })
-    ).toEqual({ acceptOffers: true, minOfferCents: 7500 });
+    ).toEqual({ acceptOffers: true, minOfferCents: 8000 });
+  });
+
+  it("applyBestOfferTermsToOfferBody writes listingPolicies.bestOfferTerms", () => {
+    const offer: Record<string, unknown> = {
+      listingPolicies: { paymentPolicyId: "pay-1", returnPolicyId: "ret-1" },
+      bestOfferTerms: { bestOfferEnabled: false },
+    };
+    applyBestOfferTermsToOfferBody(offer, usedItem);
+    expect(offer.bestOfferTerms).toBeUndefined();
+    expect(offer.listingPolicies).toEqual({
+      paymentPolicyId: "pay-1",
+      returnPolicyId: "ret-1",
+      bestOfferTerms: {
+        bestOfferEnabled: true,
+        autoDeclinePrice: { value: "79.99", currency: "USD" },
+      },
+    });
   });
 
   it("matches normalized INW and eBay best offer states", () => {
