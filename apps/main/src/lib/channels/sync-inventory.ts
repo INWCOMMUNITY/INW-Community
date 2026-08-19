@@ -1,7 +1,7 @@
 import { waitUntil } from "@vercel/functions";
 import { prisma } from "database";
 import { getAdapter } from "./registry";
-import { getConnectionContext } from "./connection";
+import { withConnectionAuthRetry } from "./connection";
 import { assertSaneInventoryQty, clampSaneInventoryQty } from "./inventory-sanity";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
 import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
@@ -93,8 +93,6 @@ export async function syncInventoryToChannels(
     }
 
     try {
-      const ctx = await getConnectionContext(link.connection);
-      if (!ctx) throw new Error("Channel connection unavailable or needs reconnecting.");
       const freshItem = await prisma.storeItem.findUnique({
         where: { id: storeItemId },
         select: syncStoreItemSelect,
@@ -122,7 +120,9 @@ export async function syncInventoryToChannels(
       }
       
       const qty = assertSaneInventoryQty(adjustedQty, `syncInventory(${provider})`);
-      await adapter.updateInventory(ctx, link.externalListingId, qty, item);
+      await withConnectionAuthRetry(link.connection, (ctx) =>
+        adapter.updateInventory(ctx, link.externalListingId, qty, item)
+      );
       const baselineQty = clampSaneInventoryQty(qty);
       await prisma.channelListingLink.update({
         where: { id: link.id },

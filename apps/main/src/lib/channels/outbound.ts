@@ -1,6 +1,6 @@
 import { prisma } from "database";
 import { getAdapter } from "./registry";
-import { getActiveConnectionsForMember, getConnectionContext } from "./connection";
+import { getActiveConnectionsForMember, withConnectionAuthRetry } from "./connection";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
 import {
   storeItemContentHash,
@@ -325,15 +325,15 @@ export async function updateStoreItemOnChannels(
       }
 
       try {
-        const ctx = await getConnectionContext(link.connection);
-        if (!ctx) throw new Error("Channel connection unavailable or needs reconnecting.");
-        const adapter = getAdapter(provider);
         const freshItem = await loadSyncItem(storeItemId);
         if (!freshItem) continue;
         const channelInventoryOffset = (connConfig.inventoryOffset as number) ?? 0;
         const globalSafetyBuffer = syncPrefs?.safetyBuffer ?? 0;
         const adjustedQty = Math.max(0, freshItem.quantity - globalSafetyBuffer - channelInventoryOffset);
-        await adapter.updateInventory(ctx, link.externalListingId, adjustedQty, freshItem);
+        await withConnectionAuthRetry(link.connection, (ctx) => {
+          const adapter = getAdapter(provider);
+          return adapter.updateInventory(ctx, link.externalListingId, adjustedQty, freshItem);
+        });
         await prisma.channelListingLink.update({
           where: { id: link.id },
           data: {
@@ -389,15 +389,15 @@ export async function updateStoreItemOnChannels(
     }
 
     try {
-      const ctx = await getConnectionContext(link.connection);
-      if (!ctx) throw new Error("Channel connection unavailable or needs reconnecting.");
-      const adapter = getAdapter(provider);
-      
-      // Apply per-channel price adjustment
-      const priceAdjustmentPercent = (connConfig.priceAdjustmentPercent as number) ?? 0;
-      const adjustedItem = applyPriceAdjustment(item, priceAdjustmentPercent);
-      
-      await adapter.updateListing(ctx, link.externalListingId, adjustedItem);
+      await withConnectionAuthRetry(link.connection, async (ctx) => {
+        const adapter = getAdapter(provider);
+        
+        // Apply per-channel price adjustment
+        const priceAdjustmentPercent = (connConfig.priceAdjustmentPercent as number) ?? 0;
+        const adjustedItem = applyPriceAdjustment(item, priceAdjustmentPercent);
+        
+        await adapter.updateListing(ctx, link.externalListingId, adjustedItem);
+      });
       await prisma.channelListingLink.update({
         where: { id: link.id },
         data: {
@@ -451,10 +451,10 @@ async function removeStoreItemFromChannelLinks(
   for (const link of links) {
     const provider = link.provider as ChannelProvider;
     try {
-      const ctx = await getConnectionContext(link.connection);
-      if (!ctx) throw new Error("Channel connection unavailable or needs reconnecting.");
-      const adapter = getAdapter(provider);
-      await adapter.deleteListing(ctx, link.externalListingId);
+      await withConnectionAuthRetry(link.connection, (ctx) => {
+        const adapter = getAdapter(provider);
+        return adapter.deleteListing(ctx, link.externalListingId);
+      });
       results.push({ provider, ok: true });
     } catch (e) {
       const msg = describeChannelSyncError(provider, e);

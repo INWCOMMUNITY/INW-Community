@@ -294,7 +294,7 @@ export function needsReauthorization(body: unknown): boolean {
 export function ebayErrorActionHint(reason: string): string | undefined {
   // Check for specific error codes first
   if (/\b1001\b|Invalid access token/i.test(reason)) {
-    return "eBay session expired — disconnect and reconnect eBay in Sync Stores.";
+    return "eBay access token expired. Sync will retry after refreshing; if this persists, disconnect and reconnect eBay in Sync Stores.";
   }
   if (/\b1100\b|Insufficient permissions/i.test(reason)) {
     return "Your eBay connection lacks required permissions. Disconnect and reconnect eBay to grant all needed scopes.";
