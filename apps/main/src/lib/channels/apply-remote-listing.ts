@@ -41,6 +41,27 @@ export function remoteContentDiffersFromStoreItem(
   );
 }
 
+/** Apply Best Offer on/off + minimum from a channel snapshot. */
+export async function applyRemoteBestOfferToStoreItem(
+  storeItemId: string,
+  remote: Pick<RemoteListingSummary, "acceptOffers" | "minOfferCents" | "acceptOffersKnown">
+): Promise<boolean> {
+  if (remote.acceptOffersKnown !== true) return false;
+  const item = await prisma.storeItem.findUnique({
+    where: { id: storeItemId },
+    select: { acceptOffers: true, minOfferCents: true },
+  });
+  if (!item) return false;
+  const remoteAccept = remote.acceptOffers ?? false;
+  const remoteMin = remote.minOfferCents ?? null;
+  if (item.acceptOffers === remoteAccept && item.minOfferCents === remoteMin) return false;
+  await prisma.storeItem.update({
+    where: { id: storeItemId },
+    data: { acceptOffers: remoteAccept, minOfferCents: remoteMin },
+  });
+  return true;
+}
+
 /** Apply title, price, photos, description from a channel catalog snapshot (not quantity). */
 export async function applyRemoteContentToStoreItem(
   storeItemId: string,

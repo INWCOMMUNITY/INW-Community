@@ -26,6 +26,7 @@ export type StoreItemContentFieldFlags = {
   description: boolean;
   photos: boolean;
   price: boolean;
+  bestOffer: boolean;
 };
 
 /** Full StoreItem fingerprint used for lastPushedHash / skip-no-op content pushes. */
@@ -52,6 +53,8 @@ export function storeItemContentHash(item: SyncStoreItem): string {
         ship: item.shippingCostCents,
         asp: ebayAspectsFingerprint(item.aspects),
         ecc: item.ebayConditionEnum ?? null,
+        ao: item.acceptOffers ?? true,
+        moc: item.minOfferCents ?? null,
       })
     )
     .digest("hex");
@@ -66,17 +69,19 @@ export function detectStoreItemFieldChanges(
   previousHash: string | null | undefined
 ): StoreItemContentFieldFlags {
   if (!previousHash) {
-    return { title: true, description: true, photos: true, price: true };
+    return { title: true, description: true, photos: true, price: true, bestOffer: true };
   }
   const current = storeItemContentHash(item);
   if (current === previousHash) {
-    return { title: false, description: false, photos: false, price: false };
+    return { title: false, description: false, photos: false, price: false, bestOffer: false };
   }
   return {
     title: storeItemContentHash({ ...item, title: "" }) !== previousHash,
     description: storeItemContentHash({ ...item, description: "" }) !== previousHash,
     photos: storeItemContentHash({ ...item, photos: [] }) !== previousHash,
     price: storeItemContentHash({ ...item, priceCents: 0 }) !== previousHash,
+    bestOffer:
+      storeItemContentHash({ ...item, acceptOffers: false, minOfferCents: null }) !== previousHash,
   };
 }
 
@@ -149,6 +154,8 @@ export type SyncMetaInput = {
   variants: unknown;
   aspects?: unknown;
   ebayConditionEnum?: string | null;
+  acceptOffers?: boolean;
+  minOfferCents?: number | null;
 };
 
 /** Stable fingerprint for category, shipping, product options, and eBay-specific fields. */
@@ -163,6 +170,8 @@ export function syncMetaHash(item: SyncMetaInput): string {
         v: variantsFingerprint(item.variants),
         asp: ebayAspectsFingerprint(item.aspects),
         ecc: item.ebayConditionEnum ?? null,
+        ao: item.acceptOffers ?? true,
+        moc: item.minOfferCents ?? null,
       })
     )
     .digest("hex");

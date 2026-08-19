@@ -41,9 +41,11 @@ export type SyncStoreItem = {
   ebayConditionEnum: string | null;
   /** Item specifics / product aspects: [{ name, value }]. Mapped to eBay product.aspects. */
   aspects: unknown;
+  /** Used listings: allow buyer make-offer (INW marketplace + eBay Best Offer). */
+  acceptOffers?: boolean;
+  /** Auto-decline offers below this amount (cents); null = no minimum. */
+  minOfferCents?: number | null;
 };
-
-/** Returns the user-defined SKU if set, otherwise falls back to item.id. */
 export function getEffectiveSku(item: SyncStoreItem): string {
   return item.sku?.trim() || item.id;
 }
@@ -102,6 +104,11 @@ export type RemoteListingSummary = {
   /** Item specifics parsed from the remote listing: [{ name, value }]. */
   aspects?: { name: string; value: string }[];
   aspectsKnown?: boolean;
+  /** eBay Best Offer enabled on the remote listing. */
+  acceptOffers?: boolean;
+  /** eBay auto-decline floor in cents when known. */
+  minOfferCents?: number | null;
+  acceptOffersKnown?: boolean;
 };
 
 export type ChannelSyncResult = {

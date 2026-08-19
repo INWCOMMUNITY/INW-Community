@@ -406,7 +406,10 @@ export async function importRemoteListing(args: {
         status: importQty > 0 ? "active" : "sold_out",
         condition: "used",
         listingType: "new",
-        acceptOffers: false,
+        acceptOffers:
+          listing.acceptOffersKnown === true ? (listing.acceptOffers ?? false) : false,
+        minOfferCents:
+          listing.acceptOffersKnown === true ? (listing.minOfferCents ?? null) : null,
         slug: uniqueSlug(slugify(listing.title)),
         category: resolvedCat?.category ?? listing.category?.slice(0, 200) ?? null,
         subcategory: resolvedCat?.subcategory ?? listing.subcategory?.slice(0, 200) ?? null,

@@ -84,6 +84,29 @@ export function parseEbayConditionEnum(itemXml: string): string | null {
   return conditionEnumFromId(Number(id));
 }
 
+export type EbayTradingBestOffer = {
+  acceptOffers: boolean;
+  minOfferCents: number | null;
+};
+
+function parseXmlAmountCents(raw: string | null | undefined): number | null {
+  if (!raw?.trim()) return null;
+  const n = Number(raw.trim());
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null;
+}
+
+/** Read Best Offer enabled + minimum from GetItem Trading XML. */
+export function parseEbayBestOffer(itemXml: string): EbayTradingBestOffer {
+  const bestOfferDetails = tag(itemXml, "BestOfferDetails") ?? "";
+  const enabledRaw =
+    tag(bestOfferDetails, "BestOfferEnabled") ?? tag(itemXml, "BestOfferEnabled") ?? "";
+  const acceptOffers = enabledRaw.trim().toLowerCase() === "true";
+  const listingDetails = tag(itemXml, "ListingDetails") ?? "";
+  const minRaw = tag(listingDetails, "MinimumBestOfferPrice");
+  const minOfferCents = acceptOffers ? parseXmlAmountCents(minRaw) : null;
+  return { acceptOffers, minOfferCents };
+}
+
 /** Parse LastModifiedTime / RevisionTime from Trading XML. */
 export function parseEbayLastModified(itemXml: string): Date | null {
   const raw =

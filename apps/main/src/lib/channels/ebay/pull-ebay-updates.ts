@@ -76,6 +76,8 @@ export async function refreshEbayListingByItemId(
           ebayConditionEnum: true,
           ebayCategoryId: true,
           status: true,
+          acceptOffers: true,
+          minOfferCents: true,
         },
       },
     },
@@ -168,6 +170,18 @@ export async function refreshEbayListingByItemId(
   if (remotePrice !== storeItem.priceCents) {
     updateData.priceCents = remotePrice;
     changes.push(`price ($${(remotePrice / 100).toFixed(2)})`);
+  }
+
+  if (details.acceptOffers !== storeItem.acceptOffers) {
+    updateData.acceptOffers = details.acceptOffers;
+    changes.push(details.acceptOffers ? "acceptOffers (on)" : "acceptOffers (off)");
+  }
+  const remoteMin = details.minOfferCents ?? null;
+  if (remoteMin !== storeItem.minOfferCents) {
+    updateData.minOfferCents = remoteMin;
+    changes.push(
+      remoteMin != null ? `minOffer ($${(remoteMin / 100).toFixed(2)})` : "minOffer (none)"
+    );
   }
 
   if (!opts?.skipQuantity && remoteQty !== storeItem.quantity) {

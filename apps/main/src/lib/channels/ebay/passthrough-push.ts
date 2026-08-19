@@ -9,6 +9,7 @@ import { syncContentHash, type StoreItemContentFieldFlags, type SyncContentInput
 import { ebayGetInventoryItem } from "./client";
 import { extractEbayInventoryAspects } from "./listing-origin";
 import { enrichInventoryProductAspectsForPush, prepareLiveAspectsForInventoryPut, passthroughUsePreparedInventoryAspects, type CategoryAspectSchema } from "./aspect-prep";
+import { applyBestOfferTermsToOfferBody, bestOfferStatesMatch, inwBestOfferState, readOfferBestOfferTerms } from "./best-offer";
 import { EBAY_CURRENCY } from "./config";
 import { ebayPriceFromCents } from "./mapping";
 import { readLiveConditionDescriptors } from "./conditions";
@@ -18,6 +19,7 @@ export type PassthroughChangedFields = {
   content: boolean;
   quantity: boolean;
   price: boolean;
+  bestOffer?: boolean;
   title?: boolean;
   photos?: boolean;
   description?: boolean;
@@ -177,12 +179,16 @@ export function detectLivePassthroughChanges(
   const quantity = liveQty != null && liveQty !== Math.max(0, item.quantity);
   const livePrice = readOfferPriceCents(liveOffer);
   const price = livePrice != null && livePrice !== item.priceCents;
+  const liveBest = readOfferBestOfferTerms(liveOffer);
+  const wantedBest = inwBestOfferState(item);
+  const bestOffer = !bestOfferStatesMatch(liveBest, wantedBest);
   return {
     title,
     photos,
     description,
     quantity,
     price,
+    bestOffer,
     content: title || photos || description,
   };
 }
@@ -207,12 +213,14 @@ export function resolvePassthroughChanges(
   const description = prefs.syncDescriptions && (inwFields.description || live.description);
   const photos = prefs.syncPhotos && (inwFields.photos || live.photos);
   const price = prefs.syncPrices && (inwFields.price || live.price);
+  const bestOffer = inwFields.bestOffer || live.bestOffer === true;
   return {
     title,
     photos,
     description,
     quantity: live.quantity,
     price,
+    bestOffer,
     content: !!(title || photos || description),
   };
 }
@@ -250,7 +258,7 @@ export type PassthroughBuildOptions = {
 };
 
 export type PassthroughFieldResult = {
-  field: "price" | "quantity" | "title" | "description" | "photos";
+  field: "price" | "quantity" | "title" | "description" | "photos" | "bestOffer";
   ok: boolean;
   error?: string;
 };
@@ -520,6 +528,10 @@ export function overlayPassthroughOffer(
     );
   }
 
+  if (changed.bestOffer) {
+    applyBestOfferTermsToOfferBody(offer, item);
+  }
+
   return offer;
 }
 
@@ -543,6 +555,10 @@ export function buildPassthroughOfferBody(
       0,
       500000
     );
+  }
+
+  if (changed.bestOffer) {
+    applyBestOfferTermsToOfferBody(offer, item);
   }
 
   return offer;

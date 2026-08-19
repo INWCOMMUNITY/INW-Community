@@ -105,6 +105,7 @@ import {
   type PassthroughBuildOptions,
   type PassthroughFieldResult,
 } from "./passthrough-push";
+import { bestOfferStatesMatch, inwBestOfferState, readOfferBestOfferTerms } from "./best-offer";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
 import { detectStoreItemFieldChanges } from "../sync-baseline";
 import type { ListingAspect } from "@/lib/listing-limits";
@@ -435,7 +436,9 @@ async function upsertListing(
         after: {
           overlays: [
             changed.quantity ? "bulk_quantity" : null,
-            changed.price || changed.description ? "offer_price_description" : null,
+            changed.price || changed.description || changed.bestOffer
+              ? "offer_price_description_best_offer"
+              : null,
             changed.title && putInventory
               ? "inventory_title_and_photos"
               : changed.title
@@ -475,7 +478,7 @@ async function upsertListing(
         fieldResults.push(...bulkFields);
       }
 
-      if (changed.price || changed.description) {
+      if (changed.price || changed.description || changed.bestOffer) {
         if (!offerId) {
           const recovered = await findOffer(conn.accessToken, sku);
           offerId = recovered?.offerId ?? null;
@@ -492,6 +495,9 @@ async function upsertListing(
           if (changed.description) {
             fieldResults.push({ field: "description", ok: false, error: missingOfferError });
           }
+          if (changed.bestOffer) {
+            fieldResults.push({ field: "bestOffer", ok: false, error: missingOfferError });
+          }
         } else {
           const offerBody = overlayPassthroughOffer(liveOffer, item, {
             ...changed,
@@ -502,6 +508,7 @@ async function upsertListing(
           const offerFields: PassthroughFieldResult[] = [];
           if (changed.price) offerFields.push({ field: "price", ok: false });
           if (changed.description) offerFields.push({ field: "description", ok: false });
+          if (changed.bestOffer) offerFields.push({ field: "bestOffer", ok: false });
           try {
             await ebayJson(
               conn.accessToken,
@@ -511,11 +518,19 @@ async function upsertListing(
             );
             await persistRevisionCount(conn.id, sku, conn.config);
             const refreshed = await getOfferDetails(conn.accessToken, offerId);
+            const wantedBest = inwBestOfferState(item);
             for (const row of offerFields) {
               if (row.field === "price") {
                 const applied = readOfferPriceCents(refreshed);
                 if (applied != null && applied !== item.priceCents) {
                   row.error = `Price didn't update on eBay (offer still $${(applied / 100).toFixed(2)}).`;
+                } else {
+                  row.ok = true;
+                }
+              } else if (row.field === "bestOffer") {
+                const appliedBest = readOfferBestOfferTerms(refreshed);
+                if (!bestOfferStatesMatch(appliedBest, wantedBest)) {
+                  row.error = "Best Offer settings didn't update on eBay.";
                 } else {
                   row.ok = true;
                 }

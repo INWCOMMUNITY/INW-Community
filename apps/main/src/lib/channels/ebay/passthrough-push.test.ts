@@ -573,6 +573,35 @@ describe("passthrough-push", () => {
     expect(aspects.Year).toEqual(["1938"]);
   });
 
+  it("detectLivePassthroughChanges detects best offer drift from live offer", () => {
+    const changed = detectLivePassthroughChanges(
+      liveJeffersonNickel,
+      { ...coinItem, acceptOffers: true, minOfferCents: 10000 },
+      {
+        listingDescription: "Original eBay description",
+        pricingSummary: { price: { value: "125.00" } },
+        bestOfferTerms: { bestOfferEnabled: false },
+      }
+    );
+    expect(changed.bestOffer).toBe(true);
+    expect(changed.price).toBe(false);
+  });
+
+  it("overlayPassthroughOffer applies bestOfferTerms from INW", () => {
+    const offer = overlayPassthroughOffer(
+      {
+        categoryId: "41087",
+        bestOfferTerms: { bestOfferEnabled: false },
+      },
+      { ...coinItem, acceptOffers: true, minOfferCents: 10000 },
+      { content: false, quantity: false, price: false, bestOffer: true, description: false }
+    );
+    expect(offer.bestOfferTerms).toEqual({
+      bestOfferEnabled: true,
+      minimumBestOfferPrice: { value: "100.00", currency: "USD" },
+    });
+  });
+
   it("formatPassthroughFieldSyncSummary reports partial sync outcomes", () => {
     const summary = formatPassthroughFieldSyncSummary([
       { field: "price", ok: true },

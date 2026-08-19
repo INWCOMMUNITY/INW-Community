@@ -8,6 +8,7 @@ import { EbayApiError } from "./errors";
 import { describeEbayThrownError, extractBulkMigrateResponse, formatMigrateListingError } from "./errors";
 import { allTags, extractEbayItemPhotos, tag } from "./photos";
 import {
+  parseEbayBestOffer,
   parseEbayCondition,
   parseEbayConditionEnum,
   parseEbayDescription,
@@ -53,6 +54,8 @@ export type EbayItemDetails = {
   priceCents: number | null;
   variants: EbayVariationAxis[] | null;
   listingEnded: boolean;
+  acceptOffers: boolean;
+  minOfferCents: number | null;
 };
 
 const TRADING_ENDPOINT = `${EBAY_API_BASE}/ws/api.dll`;
@@ -206,6 +209,7 @@ export async function fetchEbayItemDetails(
       tag(sellingStatus, "CurrentPrice") ?? tag(item, "StartPrice") ?? tag(item, "CurrentPrice") ?? "";
     const priceCents = priceStr !== "" ? Math.round((Number(priceStr) || 0) * 100) : null;
     const titleRaw = tag(item, "Title");
+    const bestOffer = parseEbayBestOffer(item);
 
     return {
       aspects,
@@ -221,6 +225,8 @@ export async function fetchEbayItemDetails(
       priceCents,
       variants: parseEbayVariations(item),
       listingEnded: listingStatus === "completed" || listingStatus === "ended",
+      acceptOffers: bestOffer.acceptOffers,
+      minOfferCents: bestOffer.minOfferCents,
     };
   } catch (e) {
     console.error("[ebay] fetchEbayItemDetails failed", { listingId, error: e instanceof Error ? e.message : String(e) });
@@ -238,6 +244,8 @@ export async function fetchEbayItemDetails(
       priceCents: null,
       variants: null,
       listingEnded: false,
+      acceptOffers: false,
+      minOfferCents: null,
     };
   }
 }

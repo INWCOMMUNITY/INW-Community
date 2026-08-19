@@ -3,6 +3,7 @@ import type { RemoteListingSummary, SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 import { EBAY_CURRENCY, EBAY_MARKETPLACE_ID, getEbayConfig } from "./config";
+import { applyBestOfferTermsToOfferBody } from "./best-offer";
 import type { EbayConnectionConfig } from "./account";
 import { normalizeEbayPhotoUrl } from "./photos";
 import {
@@ -100,6 +101,7 @@ export function buildEbayOffer(
   if (cfg.paymentPolicyId) listingPolicies.paymentPolicyId = cfg.paymentPolicyId;
   if (cfg.returnPolicyId) listingPolicies.returnPolicyId = cfg.returnPolicyId;
   if (Object.keys(listingPolicies).length > 0) offer.listingPolicies = listingPolicies;
+  applyBestOfferTermsToOfferBody(offer, item);
   return offer;
 }
 
