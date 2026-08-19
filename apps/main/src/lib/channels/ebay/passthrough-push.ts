@@ -389,8 +389,6 @@ export function buildPassthroughInventoryBody(
     ...(typeof live.condition === "string" ? { condition: live.condition } : {}),
     product: liveProduct,
   };
-  const liveDescriptors = readLiveConditionDescriptors(live);
-  if (liveDescriptors) body.conditionDescriptors = structuredClone(liveDescriptors);
 
   if (changed.quantity || changed.content) {
     body.availability = {

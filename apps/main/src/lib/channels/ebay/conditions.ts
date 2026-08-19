@@ -256,16 +256,45 @@ export async function fetchConditionDescriptorMetadata(
   return parseConditionDescriptorMetadata(policy?.itemConditions ?? []);
 }
 
+function parseGradePrefixFromAspects(productAspects: Record<string, string[]>): string | null {
+  for (const g of pickAspectValues(productAspects, ["grade"])) {
+    const m = g.trim().match(/\b(MS|PR|PF|SP|AU|XF|VF|F|VG|G|AG)[\s-]*(\d{1,2})\b/i);
+    if (m) return m[1]!.toUpperCase();
+  }
+  return null;
+}
+
+function parseGradePrefixFromTitle(title: string): string | null {
+  const m = title.trim().match(/\b(MS|PR|PF|SP|AU|XF|VF|F|VG|G|AG)[\s-]*(\d{1,2})\b/i);
+  return m ? m[1]!.toUpperCase() : null;
+}
+
+function letterGradeDescriptorValues(
+  productAspects: Record<string, string[]>,
+  title?: string
+): string[] {
+  const letter = pickAspectValues(productAspects, ["letter grade"]);
+  if (letter.length > 0 && !/^\d{1,2}$/.test(letter[0]!)) {
+    return letter;
+  }
+  const prefix =
+    parseGradePrefixFromAspects(productAspects) ??
+    (title ? parseGradePrefixFromTitle(title) : null);
+  if (prefix) return [prefix];
+  return letter;
+}
+
 function aspectValuesForDescriptorName(
   descriptorName: string,
-  productAspects: Record<string, string[]>
+  productAspects: Record<string, string[]>,
+  title?: string
 ): string[] {
   const key = normalizeDescriptorKey(descriptorName);
   if (/professional grader|^grader$|certification service/.test(key)) {
     return pickAspectValues(productAspects, DESCRIPTOR_ASPECT_ALIASES.grader);
   }
   if (/letter grade/.test(key)) {
-    return pickAspectValues(productAspects, ["letter grade"]);
+    return letterGradeDescriptorValues(productAspects, title);
   }
   if (/numerical grade|numeric grade/.test(key)) {
     return pickAspectValues(productAspects, ["numerical grade", "numeric grade"]);
@@ -313,13 +342,14 @@ export function readLiveConditionDescriptors(
 /** Build Inventory API conditionDescriptors from product aspects when category requires them. */
 export function buildConditionDescriptorsFromAspects(
   productAspects: Record<string, string[]>,
-  metadata: EbayConditionDescriptorMeta[]
+  metadata: EbayConditionDescriptorMeta[],
+  title?: string
 ): EbayInventoryConditionDescriptor[] | undefined {
   if (metadata.length === 0) return undefined;
   const descriptors: EbayInventoryConditionDescriptor[] = [];
 
   for (const meta of metadata) {
-    const aspectValues = aspectValuesForDescriptorName(meta.name, productAspects);
+    const aspectValues = aspectValuesForDescriptorName(meta.name, productAspects, title);
     if (aspectValues.length === 0) continue;
     const valueId = resolveDescriptorValueId(meta, aspectValues);
     if (!valueId) continue;
@@ -341,21 +371,27 @@ export function preserveOrBuildConditionDescriptorsOnBody(
   body: Record<string, unknown>,
   live: Record<string, unknown> | null | undefined,
   productAspects: Record<string, string[]>,
-  metadata: EbayConditionDescriptorMeta[]
+  metadata: EbayConditionDescriptorMeta[],
+  title?: string
 ): Record<string, unknown> {
+  const built = buildConditionDescriptorsFromAspects(productAspects, metadata, title);
+  if (built && built.length > 0) {
+    return { ...body, conditionDescriptors: built };
+  }
   const liveDescriptors = readLiveConditionDescriptors(live ?? undefined);
   if (liveDescriptors) {
     return { ...body, conditionDescriptors: liveDescriptors };
   }
-  return appendConditionDescriptorsToInventoryBody(body, productAspects, metadata);
+  return body;
 }
 
 export function appendConditionDescriptorsToInventoryBody(
   body: Record<string, unknown>,
   productAspects: Record<string, string[]>,
-  metadata: EbayConditionDescriptorMeta[]
+  metadata: EbayConditionDescriptorMeta[],
+  title?: string
 ): Record<string, unknown> {
-  const descriptors = buildConditionDescriptorsFromAspects(productAspects, metadata);
+  const descriptors = buildConditionDescriptorsFromAspects(productAspects, metadata, title);
   if (!descriptors) return body;
   return { ...body, conditionDescriptors: descriptors };
 }
