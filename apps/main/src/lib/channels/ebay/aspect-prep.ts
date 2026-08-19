@@ -563,15 +563,26 @@ function ensureProfessionalGrader(
   title: string,
   categoryAspects: CategoryAspectSchema[]
 ): void {
-  if (hasAspectValue(product, "Professional grader")) return;
-  const grader = extractGraderFromAspectRecord(merged, title);
-  if (!grader) return;
   const schema = categoryAspects.find((a) => a.name.toLowerCase() === "professional grader");
-  setAspectValue(
-    product,
-    schema?.name ?? "Professional grader",
-    snapGraderValue(schema, grader)
-  );
+  const proName = schema?.name ?? "Professional grader";
+  const existing = pickFirstAspectValue(product, proName);
+  const grader = existing ?? extractGraderFromAspectRecord(merged, title);
+  if (!grader) return;
+  // Always re-snap: live GET often stores bare "NGC" but Inventory PUT requires taxonomy label.
+  setAspectValue(product, proName, snapGraderValue(schema, grader));
+}
+
+/** Inventory wire fields replace seller Grade on PUT — keeping both triggers misleading #25064 errors. */
+function stripSellerGradeWhenWireAspectsPresent(product: Record<string, string[]>): void {
+  if (
+    !hasAspectValue(product, "Professional grader") ||
+    !hasAspectValue(product, "Numerical grade")
+  ) {
+    return;
+  }
+  for (const key of Object.keys(product)) {
+    if (key.toLowerCase() === "grade") delete product[key];
+  }
 }
 
 /** Final pass: Inventory PUT must include every required category aspect (eBay validates full set). */
@@ -687,6 +698,9 @@ export function prepareLiveAspectsForInventoryPut(
 
   ensureRequiredAspectsForInventoryPut(product, merged, title, categoryAspects, categoryId);
 
+  ensureProfessionalGrader(product, merged, title, categoryAspects);
+  stripSellerGradeWhenWireAspectsPresent(product);
+
   if (hasAspectValue(product, "Professional grader")) {
     stripTradingGraderAliases(product);
   }
@@ -697,16 +711,17 @@ export function prepareLiveAspectsForInventoryPut(
     headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "fb0ace" },
     body: JSON.stringify({
       sessionId: "fb0ace",
-      runId: "pre-fix-verify",
-      hypothesisId: "H1-H3",
+      runId: "post-fix-verify",
+      hypothesisId: "H1-H2",
       location: "aspect-prep.ts:prepareLiveAspectsForInventoryPut",
       message: "final inventory PUT aspects",
       data: {
         categoryId: options.categoryId ?? null,
-        letterGradeIsNumeric: inventoryPutLetterGradeIsNumeric(options.categoryId),
+        preserveLiveWireGrades: options.preserveLiveWireGrades ?? false,
         professionalGrader: pickFirstAspectValue(product, "Professional grader"),
         letterGrade: pickFirstAspectValue(product, "Letter grade"),
         numericalGrade: pickFirstAspectValue(product, "Numerical grade"),
+        hasGradeKey: hasAspectValue(product, "Grade"),
         aspectKeys: Object.keys(product),
       },
       timestamp: Date.now(),

@@ -126,7 +126,7 @@ describe("enrichInventoryProductAspectsForPush", () => {
       { Certification: ["NGC"] }
     );
     expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
-    expect(product.Grade).toEqual(["MS 67"]);
+    expect(product.Grade).toBeUndefined();
     expect(product.Year).toEqual(["1938"]);
     expect(product["Letter grade"]).toEqual(["MS"]);
     expect(product["Numerical grade"]).toEqual(["67"]);
@@ -193,6 +193,25 @@ describe("prepareLiveAspectsForInventoryPut", () => {
     );
     expect(withPreserve["Letter grade"]).toEqual(["MS"]);
     expect(withPreserve["Numerical grade"]).toEqual(["67"]);
+    expect(withPreserve["Professional grader"]).toEqual(["NGC"]);
+    expect(withPreserve.Grade).toBeUndefined();
+  });
+
+  it("snaps bare live Professional grader to full label on title-only PUT", () => {
+    const live = {
+      "Professional grader": ["NGC"],
+      Grade: ["MS 67"],
+      "Letter grade": ["MS"],
+      "Numerical grade": ["67"],
+    };
+    const product = prepareLiveAspectsForInventoryPut(
+      live,
+      "1952-D NGC MS 67 Jefferson Nickel",
+      [],
+      { preserveLiveWireGrades: true, categoryId: "41087" }
+    );
+    expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
+    expect(product.Grade).toBeUndefined();
   });
 
   it("keeps Letter grade when taxonomy omits it but Inventory requires it (41087 nickel)", () => {
