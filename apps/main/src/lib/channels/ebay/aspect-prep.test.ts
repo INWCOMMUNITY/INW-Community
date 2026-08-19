@@ -6,6 +6,7 @@ import {
   filterSellerVisibleCategoryAspects,
   prepareAspectRowsForForm,
   prepareAspectsForEbayCategory,
+  prepareLiveAspectsForInventoryPut,
 } from "./aspect-prep";
 
 const nickelTaxonomy: EbayCategoryAspect[] = [
@@ -130,5 +131,47 @@ describe("enrichInventoryProductAspectsForPush", () => {
     expect(product["Letter grade"]).toEqual(["MS"]);
     expect(product["Numerical grade"]).toEqual(["67"]);
     expect(product.Certification).toBeUndefined();
+  });
+});
+
+describe("prepareLiveAspectsForInventoryPut", () => {
+  it("fixes live Letter grade=69 and drops it when taxonomy has Numerical grade only", () => {
+    const dimeTaxonomy: EbayCategoryAspect[] = [
+      {
+        name: "Professional grader",
+        required: true,
+        mode: "SELECTION_ONLY",
+        cardinality: "SINGLE",
+        suggestedValues: ["NGC", "PCGS"],
+      },
+      {
+        name: "Grade",
+        required: true,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+      {
+        name: "Numerical grade",
+        required: true,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+    ];
+    const product = prepareLiveAspectsForInventoryPut(
+      {
+        "Professional grader": ["NGC"],
+        Grade: ["PR 69"],
+        "Letter grade": ["69"],
+        "Numerical grade": ["69"],
+        Year: ["2002"],
+      },
+      "2002-S NGC PF 69 Ultra Cameo Roosevelt Dime",
+      dimeTaxonomy
+    );
+    expect(product["Letter grade"]).toBeUndefined();
+    expect(product["Numerical grade"]).toEqual(["69"]);
+    expect(product["Professional grader"]).toEqual(["NGC"]);
   });
 });

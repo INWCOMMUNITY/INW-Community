@@ -374,8 +374,16 @@ export function applyGradedCoinWireAspects(
       liveLetter && !letterIsNumericOnly && !letterIsFullGrade ? liveLetter : parts?.prefix;
     if (letter) setAspectValue(product, letterName, snapToSuggestedValue(letterSchema, letter));
   }
-  if (!hasAspectValue(product, numericalName)) {
-    const numerical = liveNumerical ?? parts?.numeric;
+
+  const currentNumerical = pickFirstAspectValue(product, numericalName);
+  const numericalMatchesBadLetter =
+    letterIsNumericOnly && currentNumerical != null && currentNumerical === currentLetter;
+  if (
+    !hasAspectValue(product, numericalName) ||
+    numericalMatchesBadLetter ||
+    (parts?.numeric && currentNumerical === parts.prefix)
+  ) {
+    const numerical = parts?.numeric ?? liveNumerical;
     if (numerical) setAspectValue(product, numericalName, snapToSuggestedValue(numericalSchema, numerical));
   }
 }
@@ -434,6 +442,59 @@ export function enrichInventoryProductAspectsForPush(
       setAspectValue(product, schema?.name ?? "Professional grader", snapToSuggestedValue(schema, grader));
     }
   }
+
+  if (hasAspectValue(product, "Professional grader")) {
+    stripTradingGraderAliases(product);
+  }
+
+  return product;
+}
+
+function stripWireAspectsNotInTaxonomy(
+  product: Record<string, string[]>,
+  categoryAspects: CategoryAspectSchema[]
+): void {
+  if (categoryAspects.length === 0) return;
+  const inTaxonomy = new Set(categoryAspects.map((a) => a.name.toLowerCase()));
+  for (const wire of ["letter grade", "numerical grade", "professional grader"]) {
+    if (inTaxonomy.has(wire)) continue;
+    for (const key of Object.keys(product)) {
+      if (key.toLowerCase() === wire) delete product[key];
+    }
+  }
+}
+
+/**
+ * Live inventory GET aspects plus minimal graded-coin wire fixes for Inventory PUT.
+ * Keeps seller-visible specifics verbatim; only repairs wire keys eBay validates on PUT.
+ */
+export function prepareLiveAspectsForInventoryPut(
+  liveAspects: Record<string, string[]>,
+  title: string,
+  categoryAspects: CategoryAspectSchema[] = [],
+  ...fallbackAspects: Array<Record<string, string[]> | null | undefined>
+): Record<string, string[]> {
+  const product: Record<string, string[]> = {};
+  for (const [name, values] of Object.entries(liveAspects)) {
+    const kept = values.map((v) => String(v).trim()).filter(Boolean);
+    if (kept.length > 0) product[name] = kept;
+  }
+
+  const merged = mergeProductAspectRecords(liveAspects, ...fallbackAspects);
+  applyGradedCoinWireAspects(product, merged, title, liveAspects, categoryAspects);
+
+  for (const aspect of categoryAspects) {
+    if (!aspect.required) continue;
+    if (!hasAspectValue(product, aspect.name)) {
+      const raw = findSourceValueForAspect(merged, aspect.name);
+      if (raw) setAspectValue(product, aspect.name, snapToSuggestedValue(aspect, raw));
+      continue;
+    }
+    const current = pickFirstAspectValue(product, aspect.name);
+    if (current) setAspectValue(product, aspect.name, snapToSuggestedValue(aspect, current));
+  }
+
+  stripWireAspectsNotInTaxonomy(product, categoryAspects);
 
   if (hasAspectValue(product, "Professional grader")) {
     stripTradingGraderAliases(product);

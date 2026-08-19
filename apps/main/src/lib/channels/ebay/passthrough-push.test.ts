@@ -79,15 +79,23 @@ describe("passthrough-push", () => {
     expect(aspects.Certification).toBeUndefined();
   });
 
-  it("preserves live aspects verbatim when overlaying INW title and qty", () => {
+  it("preserves live aspects and repairs wire keys when overlaying INW title", () => {
     const changed = { content: true, quantity: true, price: true, title: true };
-    const body = buildPassthroughInventoryBody(liveJeffersonNickel, coinItem, changed);
+    const nickelTaxonomy = [
+      { name: "Professional grader", required: true, mode: "SELECTION_ONLY" as const, cardinality: "SINGLE" as const, suggestedValues: ["NGC", "PCGS"] },
+      { name: "Grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+      { name: "Letter grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+      { name: "Numerical grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+    ];
+    const body = buildPassthroughInventoryBody(liveJeffersonNickel, coinItem, changed, {
+      categoryAspects: nickelTaxonomy,
+    });
 
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
     expect(aspects["Letter grade"]).toEqual(["MS"]);
     expect(aspects["Numerical grade"]).toEqual(["67"]);
-    expect(aspects.Certification).toEqual(["NGC"]);
-    expect(aspects["Professional grader"]).toBeUndefined();
+    expect(aspects["Professional grader"]).toEqual(["NGC"]);
+    expect(aspects.Certification).toBeUndefined();
     expect(aspects.Grade).toEqual(["MS 67"]);
 
     expect((body.product as Record<string, unknown>).title).toBe(coinItem.title);
@@ -394,7 +402,38 @@ describe("passthrough-push", () => {
     ).toContain("Grader=NGC");
   });
 
-  it("matches user-reported live inventory aspects verbatim without enrichment", () => {
+  it("repairs live Letter grade=69 when title push requires inventory PUT", () => {
+    const liveBadWire = {
+      condition: "LIKE_NEW",
+      product: {
+        title: "2002-S NGC PF 69 Ultra Cameo Roosevelt Dime",
+        aspects: {
+          "Professional grader": ["NGC"],
+          Grade: ["PR 69"],
+          "Letter grade": ["69"],
+          "Numerical grade": ["69"],
+          Year: ["2002"],
+        },
+      },
+    };
+    const dimeTaxonomy = [
+      { name: "Professional grader", required: true, mode: "SELECTION_ONLY" as const, cardinality: "SINGLE" as const, suggestedValues: ["NGC", "PCGS"] },
+      { name: "Numerical grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+      { name: "Grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+    ];
+    const body = buildPassthroughInventoryBody(
+      liveBadWire,
+      { ...coinItem, title: "2002-S NGC PR 69 Ultra Cameo Roosevelt Dime Revised" },
+      { content: true, title: true, quantity: false, price: false },
+      { categoryAspects: dimeTaxonomy }
+    );
+    const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
+    expect(aspects["Letter grade"]).toBeUndefined();
+    expect(aspects["Numerical grade"]).toEqual(["69"]);
+    expect(aspects["Professional grader"]).toEqual(["NGC"]);
+  });
+
+  it("matches user-reported live inventory aspects with wire repair on title PUT", () => {
     const liveLikeProduction = {
       product: {
         title: "1938 Jefferson Nickel NGC MS 67",
@@ -408,21 +447,22 @@ describe("passthrough-push", () => {
         },
       },
     };
+    const nickelTaxonomy = [
+      { name: "Professional grader", required: true, mode: "SELECTION_ONLY" as const, cardinality: "SINGLE" as const, suggestedValues: ["NGC", "PCGS"] },
+      { name: "Letter grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+      { name: "Numerical grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+      { name: "Grade", required: true, mode: "FREE_TEXT" as const, cardinality: "SINGLE" as const, suggestedValues: [] },
+    ];
     const body = buildPassthroughInventoryBody(
       liveLikeProduction,
       coinItem,
-      { content: true, quantity: true, price: true, title: false }
+      { content: true, quantity: true, price: true, title: true },
+      { categoryAspects: nickelTaxonomy }
     );
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
-    expect(Object.keys(aspects).sort()).toEqual([
-      "Composition",
-      "Grade",
-      "Letter grade",
-      "Mint",
-      "Modified",
-      "Strike Type",
-    ]);
-    expect(aspects["Professional grader"]).toBeUndefined();
+    expect(aspects["Professional grader"]).toEqual(["NGC"]);
+    expect(aspects["Letter grade"]).toEqual(["MS"]);
+    expect(aspects["Numerical grade"]).toEqual(["67"]);
   });
 
   it("detectPassthroughChangedFields uses baseline hash", () => {

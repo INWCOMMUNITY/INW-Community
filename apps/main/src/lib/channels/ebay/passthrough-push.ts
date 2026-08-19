@@ -8,7 +8,7 @@ import type { SyncStoreItem } from "../types";
 import { syncContentHash, type StoreItemContentFieldFlags, type SyncContentInput } from "../sync-baseline";
 import { ebayGetInventoryItem } from "./client";
 import { extractEbayInventoryAspects } from "./listing-origin";
-import { enrichInventoryProductAspectsForPush, type CategoryAspectSchema } from "./aspect-prep";
+import { enrichInventoryProductAspectsForPush, prepareLiveAspectsForInventoryPut, type CategoryAspectSchema } from "./aspect-prep";
 import { ebayPriceFromCents } from "./mapping";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 
@@ -267,7 +267,14 @@ export function buildPassthroughInventoryBody(
         options.cachedAspects,
         options.storedAspects
       )
-    : copyLiveInventoryAspects(liveAspects);
+    : prepareLiveAspectsForInventoryPut(
+        liveAspects,
+        item.title,
+        options.categoryAspects ?? [],
+        options.tradingAspects,
+        options.cachedAspects,
+        options.storedAspects
+      );
   if (Object.keys(pushAspects).length > 0) {
     liveProduct.aspects = pushAspects;
   } else {
@@ -406,6 +413,6 @@ export function formatPushedAspectsSummary(aspects: Record<string, string[]> | n
     aspectValues(aspects, "Certification") === "(missing)" &&
     Object.keys(aspects).length > 0
       ? "enriched"
-      : "live verbatim";
+      : "live+wire-fix";
   return `Sent aspects (${mode}): ${keys.join(", ")}. Grader=${grader}; Letter grade=${letter}; Numerical grade=${numerical}`;
 }
