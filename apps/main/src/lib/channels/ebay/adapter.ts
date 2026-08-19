@@ -225,6 +225,15 @@ async function enrichPassthroughInventoryPutBody(
     );
     if (summary.length > 0) {
       console.warn("[ebay] passthrough conditionDescriptors resolved", { categoryId, summary });
+      const letter = summary.find((row) => row.name.toLowerCase().includes("letter grade"));
+      const numerical = summary.find((row) => row.name.toLowerCase().includes("numerical grade"));
+      if (letter && numerical && letter.valueId === numerical.valueId) {
+        console.warn("[ebay] passthrough conditionDescriptors duplicate grade valueId", {
+          categoryId,
+          letter,
+          numerical,
+        });
+      }
     }
     return enriched;
   } catch (e) {
