@@ -123,7 +123,7 @@ describe("enrichInventoryProductAspectsForPush", () => {
       { Grade: ["MS 67"], Year: ["1938"] },
       "1938 Jefferson Nickel NGC MS 67",
       taxonomy,
-      { Certification: ["NGC"] }
+      { Certification: ["NGC (Numismatic Guaranty Corporation)"] }
     );
     expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
     expect(product.Grade).toBeUndefined();
@@ -161,7 +161,7 @@ describe("prepareLiveAspectsForInventoryPut", () => {
     ];
     const product = prepareLiveAspectsForInventoryPut(
       {
-        "Professional grader": ["NGC"],
+        "Professional grader": ["NGC (Numismatic Guaranty Corporation)"],
         Grade: ["PR 69"],
         "Letter grade": ["69"],
         "Numerical grade": ["69"],
@@ -173,13 +173,13 @@ describe("prepareLiveAspectsForInventoryPut", () => {
     );
     expect(product["Letter grade"]).toEqual(["69"]);
     expect(product["Numerical grade"]).toEqual(["69"]);
-    expect(product["Professional grader"]).toEqual(["NGC"]);
+    expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
   });
 
   it("preserveLiveWireGrades skips rewriting live wire grades on title-only PUT", () => {
     const live = {
-      Certification: ["NGC"],
-      "Professional grader": ["NGC"],
+      Certification: ["NGC (Numismatic Guaranty Corporation)"],
+      "Professional grader": ["NGC (Numismatic Guaranty Corporation)"],
       Grade: ["MS 67"],
       "Letter grade": ["MS"],
       "Numerical grade": ["67"],
@@ -193,13 +193,13 @@ describe("prepareLiveAspectsForInventoryPut", () => {
     );
     expect(withPreserve["Letter grade"]).toEqual(["MS"]);
     expect(withPreserve["Numerical grade"]).toEqual(["67"]);
-    expect(withPreserve["Professional grader"]).toEqual(["NGC"]);
+    expect(withPreserve["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
     expect(withPreserve.Grade).toBeUndefined();
   });
 
   it("snaps bare live Professional grader to full label on title-only PUT", () => {
     const live = {
-      "Professional grader": ["NGC"],
+      "Professional grader": ["NGC (Numismatic Guaranty Corporation)"],
       Grade: ["MS 67"],
       "Letter grade": ["MS"],
       "Numerical grade": ["67"],
@@ -230,11 +230,11 @@ describe("prepareLiveAspectsForInventoryPut", () => {
       "1938 Jefferson Nickel NGC MS 67",
       taxonomyMissingLetter,
       { categoryId: "41087" },
-      { Certification: ["NGC"] }
+      { Certification: ["NGC (Numismatic Guaranty Corporation)"] }
     );
     expect(product["Letter grade"]).toEqual(["MS"]);
     expect(product["Numerical grade"]).toEqual(["67"]);
-    expect(product["Professional grader"]).toEqual(["NGC"]);
+    expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
     expect(product.Certification).toBeUndefined();
   });
 
@@ -244,7 +244,7 @@ describe("prepareLiveAspectsForInventoryPut", () => {
       "2002-S NGC PF 69 Ultra Cameo Roosevelt Dime",
       [],
       { categoryId: "39458" },
-      { Certification: ["NGC"], Grade: ["PR 69"] }
+      { Certification: ["NGC (Numismatic Guaranty Corporation)"], Grade: ["PR 69"] }
     );
     expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
     expect(product["Letter grade"]).toEqual(["69"]);
@@ -286,10 +286,65 @@ describe("prepareLiveAspectsForInventoryPut", () => {
       "1938 Jefferson Nickel NGC MS 67",
       nickel41087Taxonomy,
       { categoryId: "41087", preserveLiveWireGrades: true },
-      { Certification: ["NGC"], Grade: ["MS 67"], Year: ["1938"] }
+      { Certification: ["NGC (Numismatic Guaranty Corporation)"], Grade: ["MS 67"], Year: ["1938"] }
     );
     expect(product["Letter grade"]).toEqual(["MS"]);
     expect(product["Numerical grade"]).toEqual(["67"]);
-    expect(product["Professional grader"]).toEqual(["NGC"]);
+    expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
+  });
+
+  it("drops Country/Mint aliases when Country of Origin and Mint Location are present", () => {
+    const product = prepareLiveAspectsForInventoryPut(
+      {
+        Country: ["United States"],
+        "Country of Origin": ["United States"],
+        Mint: ["San Francisco"],
+        "Mint Location": ["San Francisco"],
+        "Professional grader": ["NGC (Numismatic Guaranty Corporation)"],
+        "Letter grade": ["MS"],
+        "Numerical grade": ["67"],
+      },
+      "1952-S NGC MS 67 Jefferson Nickel",
+      [],
+      { categoryId: "41087", preserveLiveWireGrades: true }
+    );
+    expect(product.Country).toBeUndefined();
+    expect(product.Mint).toBeUndefined();
+    expect(product["Country of Origin"]).toEqual(["United States"]);
+    expect(product["Mint Location"]).toEqual(["San Francisco"]);
+  });
+
+  it("uses canonical grader casing when taxonomy lists ALL CAPS parenthetical", () => {
+    const taxonomy: EbayCategoryAspect[] = [
+      {
+        name: "Professional grader",
+        required: true,
+        mode: "SELECTION_ONLY",
+        cardinality: "SINGLE",
+        suggestedValues: ["NGC (NUMISMATIC GUARANTY CORPORATION)", "PCGS"],
+      },
+      {
+        name: "Letter grade",
+        required: true,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+      {
+        name: "Numerical grade",
+        required: true,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+    ];
+    const product = prepareLiveAspectsForInventoryPut(
+      { Certification: ["NGC (Numismatic Guaranty Corporation)"], Grade: ["MS 67"] },
+      "1952-S NGC MS 67 Jefferson Nickel",
+      taxonomy,
+      { categoryId: "41087" },
+      { Certification: ["NGC (Numismatic Guaranty Corporation)"], Grade: ["MS 67"] }
+    );
+    expect(product["Professional grader"]).toEqual(["NGC (Numismatic Guaranty Corporation)"]);
   });
 });

@@ -419,7 +419,7 @@ export function buildPassthroughPhotoInventoryBody(
     live,
     item,
     { photos: true, content: false, quantity: false, price: false, title: false },
-    options
+    { ...options, preserveLiveWireGrades: true }
   );
 }
 

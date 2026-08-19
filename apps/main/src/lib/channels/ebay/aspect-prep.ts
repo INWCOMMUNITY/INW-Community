@@ -339,10 +339,41 @@ const KNOWN_GRADER_LABELS: Record<string, string> = {
 
 function snapGraderValue(schema: CategoryAspectSchema | undefined, grader: string): string {
   const trimmed = grader.trim();
+  const prefixMatch = trimmed.match(/^(NGC|PCGS|ANACS|ICG|PMG|CACG)\b/i);
+  if (prefixMatch) {
+    const prefix = prefixMatch[1]!.toUpperCase();
+    const canonical = KNOWN_GRADER_LABELS[prefix];
+    if (canonical) return canonical;
+  }
   const snapped = snapToSuggestedValue(schema, trimmed);
   if (schema?.suggestedValues.length) return snapped;
   const upper = trimmed.toUpperCase();
   return KNOWN_GRADER_LABELS[upper] ?? snapped;
+}
+
+function snapAspectValueForInventoryPut(aspect: CategoryAspectSchema, value: string): string {
+  const nameLower = aspect.name.toLowerCase();
+  if (nameLower === "professional grader") {
+    return snapGraderValue(aspect, value);
+  }
+  return snapToSuggestedValue(aspect, value);
+}
+
+/** Duplicate synonym aspects on Inventory PUT trigger misleading #25064 errors. */
+const INVENTORY_PUT_ASPECT_DEDUPE: Array<{ keep: string; drop: string[] }> = [
+  { keep: "Country of Origin", drop: ["Country"] },
+  { keep: "Mint Location", drop: ["Mint"] },
+  { keep: "Professional grader", drop: ["Certification", "Certification Service", "Grader"] },
+];
+
+export function dedupeInventoryPutAspectAliases(product: Record<string, string[]>): void {
+  for (const { keep, drop } of INVENTORY_PUT_ASPECT_DEDUPE) {
+    if (!pickFirstAspectValue(product, keep)) continue;
+    for (const alias of drop) {
+      const dropKey = Object.keys(product).find((k) => k.toLowerCase() === alias.toLowerCase());
+      if (dropKey) delete product[dropKey];
+    }
+  }
 }
 
 function resolveLetterGradeWireValue(
@@ -684,11 +715,11 @@ export function prepareLiveAspectsForInventoryPut(
     if (!aspect.required) continue;
     if (!hasAspectValue(product, aspect.name)) {
       const raw = findSourceValueForAspect(merged, aspect.name);
-      if (raw) setAspectValue(product, aspect.name, snapToSuggestedValue(aspect, raw));
+      if (raw) setAspectValue(product, aspect.name, snapAspectValueForInventoryPut(aspect, raw));
       continue;
     }
     const current = pickFirstAspectValue(product, aspect.name);
-    if (current) setAspectValue(product, aspect.name, snapToSuggestedValue(aspect, current));
+    if (current) setAspectValue(product, aspect.name, snapAspectValueForInventoryPut(aspect, current));
   }
 
   stripWireAspectsNotInTaxonomy(product, categoryAspects, categoryId);
@@ -705,29 +736,7 @@ export function prepareLiveAspectsForInventoryPut(
     stripTradingGraderAliases(product);
   }
 
-  // #region agent log
-  fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "fb0ace" },
-    body: JSON.stringify({
-      sessionId: "fb0ace",
-      runId: "post-fix-verify",
-      hypothesisId: "H1-H2",
-      location: "aspect-prep.ts:prepareLiveAspectsForInventoryPut",
-      message: "final inventory PUT aspects",
-      data: {
-        categoryId: options.categoryId ?? null,
-        preserveLiveWireGrades: options.preserveLiveWireGrades ?? false,
-        professionalGrader: pickFirstAspectValue(product, "Professional grader"),
-        letterGrade: pickFirstAspectValue(product, "Letter grade"),
-        numericalGrade: pickFirstAspectValue(product, "Numerical grade"),
-        hasGradeKey: hasAspectValue(product, "Grade"),
-        aspectKeys: Object.keys(product),
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
+  dedupeInventoryPutAspectAliases(product);
 
   return product;
 }
