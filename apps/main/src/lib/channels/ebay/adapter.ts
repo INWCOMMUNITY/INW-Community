@@ -26,6 +26,7 @@ import {
   appendConditionDescriptorsToInventoryBody,
   fetchConditionDescriptorMetadata,
   isEbayConditionSyncError,
+  preserveOrBuildConditionDescriptorsOnBody,
 } from "./conditions";
 import { resolveRemappedEbayCategoryId } from "./expired-categories";
 import { getItemAspectsForCategory } from "./aspects";
@@ -173,6 +174,27 @@ async function finalizeInventoryBody(
     });
   }
   return body;
+}
+
+async function enrichPassthroughInventoryPutBody(
+  accessToken: string,
+  body: Record<string, unknown>,
+  live: Record<string, unknown>,
+  categoryId: string | null
+): Promise<Record<string, unknown>> {
+  if (!categoryId?.trim()) return body;
+  const product = body.product as Record<string, unknown> | undefined;
+  const productAspects = (product?.aspects ?? {}) as Record<string, string[]>;
+  try {
+    const metadata = await fetchConditionDescriptorMetadata(accessToken, categoryId);
+    return preserveOrBuildConditionDescriptorsOnBody(body, live, productAspects, metadata);
+  } catch (e) {
+    console.warn("[ebay] passthrough condition descriptor enrichment failed", {
+      categoryId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return body;
+  }
 }
 
 /**
@@ -472,6 +494,12 @@ async function upsertListing(
           usePreparedAspects,
           aspectBuildOptions
         );
+        inventoryBody = await enrichPassthroughInventoryPutBody(
+          conn.accessToken,
+          inventoryBody,
+          live,
+          offerCategoryId
+        );
         const putNote = formatPassthroughPutNote(inventoryBody);
         console.warn("[ebay] upsertListing passthrough PUT inventory content", {
           storeItemId: item.id,
@@ -480,6 +508,9 @@ async function upsertListing(
           changed,
           contentOverlays,
           aspectMode,
+          conditionDescriptorCount: Array.isArray(inventoryBody.conditionDescriptors)
+            ? inventoryBody.conditionDescriptors.length
+            : 0,
           aspectKeys: Object.keys(
             ((inventoryBody.product as Record<string, unknown> | undefined)?.aspects ?? {}) as Record<
               string,
@@ -518,6 +549,12 @@ async function upsertListing(
             );
             aspectMode = retry.aspectMode;
             inventoryBody = retry.body;
+            inventoryBody = await enrichPassthroughInventoryPutBody(
+              conn.accessToken,
+              inventoryBody,
+              live,
+              offerCategoryId
+            );
             console.warn("[ebay] passthrough PUT inventory content retry with prepared aspects", {
               storeItemId: item.id,
               sku,

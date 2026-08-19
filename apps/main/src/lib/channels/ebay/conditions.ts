@@ -256,6 +256,60 @@ export async function fetchConditionDescriptorMetadata(
   return parseConditionDescriptorMetadata(policy?.itemConditions ?? []);
 }
 
+function aspectValuesForDescriptorName(
+  descriptorName: string,
+  productAspects: Record<string, string[]>
+): string[] {
+  const key = normalizeDescriptorKey(descriptorName);
+  if (/professional grader|^grader$|certification service/.test(key)) {
+    return pickAspectValues(productAspects, DESCRIPTOR_ASPECT_ALIASES.grader);
+  }
+  if (/letter grade/.test(key)) {
+    return pickAspectValues(productAspects, ["letter grade"]);
+  }
+  if (/numerical grade|numeric grade/.test(key)) {
+    return pickAspectValues(productAspects, ["numerical grade", "numeric grade"]);
+  }
+  if (/^grade$/.test(key)) {
+    const letter = pickAspectValues(productAspects, ["letter grade"]);
+    const numeric = pickAspectValues(productAspects, ["numerical grade", "numeric grade"]);
+    const grade = pickAspectValues(productAspects, ["grade"]);
+    if (letter.length > 0 && numeric.length > 0) {
+      return [`${letter[0]} ${numeric[0]}`.trim()];
+    }
+    return numeric.length > 0 ? numeric : letter.length > 0 ? letter : grade;
+  }
+  if (/certification number|cert number|cert #/.test(key)) {
+    return pickAspectValues(productAspects, DESCRIPTOR_ASPECT_ALIASES.certification);
+  }
+  return pickAspectValues(productAspects, [descriptorName]);
+}
+
+export function readLiveConditionDescriptors(
+  live: Record<string, unknown> | null | undefined
+): EbayInventoryConditionDescriptor[] | undefined {
+  const rows = live?.conditionDescriptors;
+  if (!Array.isArray(rows) || rows.length === 0) return undefined;
+  const out: EbayInventoryConditionDescriptor[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const name = String((row as { name?: unknown }).name ?? "").trim();
+    const values = (row as { values?: unknown }).values;
+    if (!name || !Array.isArray(values)) continue;
+    const cleaned = values.map((v) => String(v).trim()).filter(Boolean);
+    if (cleaned.length === 0) continue;
+    const additionalInfo = (row as { additionalInfo?: unknown }).additionalInfo;
+    out.push({
+      name,
+      values: cleaned,
+      ...(typeof additionalInfo === "string" && additionalInfo.trim()
+        ? { additionalInfo: additionalInfo.trim() }
+        : {}),
+    });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 /** Build Inventory API conditionDescriptors from product aspects when category requires them. */
 export function buildConditionDescriptorsFromAspects(
   productAspects: Record<string, string[]>,
@@ -265,19 +319,11 @@ export function buildConditionDescriptorsFromAspects(
   const descriptors: EbayInventoryConditionDescriptor[] = [];
 
   for (const meta of metadata) {
-    const kind = descriptorKind(meta.name);
-    const aliases =
-      kind === "grader"
-        ? DESCRIPTOR_ASPECT_ALIASES.grader
-        : kind === "grade"
-          ? DESCRIPTOR_ASPECT_ALIASES.grade
-          : kind === "certification"
-            ? DESCRIPTOR_ASPECT_ALIASES.certification
-            : [meta.name];
-    const aspectValues = pickAspectValues(productAspects, aliases);
+    const aspectValues = aspectValuesForDescriptorName(meta.name, productAspects);
     if (aspectValues.length === 0) continue;
     const valueId = resolveDescriptorValueId(meta, aspectValues);
     if (!valueId) continue;
+    const kind = descriptorKind(meta.name);
     const row: EbayInventoryConditionDescriptor = {
       name: meta.descriptorId,
       values: [valueId],
@@ -289,6 +335,19 @@ export function buildConditionDescriptorsFromAspects(
   }
 
   return descriptors.length > 0 ? descriptors : undefined;
+}
+
+export function preserveOrBuildConditionDescriptorsOnBody(
+  body: Record<string, unknown>,
+  live: Record<string, unknown> | null | undefined,
+  productAspects: Record<string, string[]>,
+  metadata: EbayConditionDescriptorMeta[]
+): Record<string, unknown> {
+  const liveDescriptors = readLiveConditionDescriptors(live ?? undefined);
+  if (liveDescriptors) {
+    return { ...body, conditionDescriptors: liveDescriptors };
+  }
+  return appendConditionDescriptorsToInventoryBody(body, productAspects, metadata);
 }
 
 export function appendConditionDescriptorsToInventoryBody(

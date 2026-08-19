@@ -10,6 +10,7 @@ import { ebayGetInventoryItem } from "./client";
 import { extractEbayInventoryAspects } from "./listing-origin";
 import { enrichInventoryProductAspectsForPush, prepareLiveAspectsForInventoryPut, passthroughUsePreparedInventoryAspects, type CategoryAspectSchema } from "./aspect-prep";
 import { ebayPriceFromCents } from "./mapping";
+import { readLiveConditionDescriptors } from "./conditions";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 
 export type PassthroughChangedFields = {
@@ -49,6 +50,8 @@ export function buildPassthroughLiveOverlayBody(
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   if (typeof live.condition === "string") body.condition = live.condition;
+  const liveDescriptors = readLiveConditionDescriptors(live);
+  if (liveDescriptors) body.conditionDescriptors = structuredClone(liveDescriptors);
 
   if (patch.quantity != null) {
     body.availability = {
@@ -384,6 +387,8 @@ export function buildPassthroughInventoryBody(
     ...(typeof live.condition === "string" ? { condition: live.condition } : {}),
     product: liveProduct,
   };
+  const liveDescriptors = readLiveConditionDescriptors(live);
+  if (liveDescriptors) body.conditionDescriptors = structuredClone(liveDescriptors);
 
   if (changed.quantity || changed.content) {
     body.availability = {

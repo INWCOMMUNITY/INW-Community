@@ -7,6 +7,7 @@ import {
   inwConditionFromEbayEnum,
   isEbayConditionSyncError,
   parseConditionDescriptorMetadata,
+  preserveOrBuildConditionDescriptorsOnBody,
   presentEbayConditionChoices,
   resolveEbayInventoryCondition,
   resolveEbaySyncConditionFromChoices,
@@ -97,7 +98,7 @@ describe("inwConditionFromEbayEnum", () => {
 });
 
 describe("buildConditionDescriptorsFromAspects", () => {
-  const metadata: EbayConditionDescriptorMeta[] = parseConditionDescriptorMetadata([
+  const graderMeta: EbayConditionDescriptorMeta[] = parseConditionDescriptorMetadata([
     {
       conditionDescriptors: [
         {
@@ -105,15 +106,23 @@ describe("buildConditionDescriptorsFromAspects", () => {
           conditionDescriptorName: "Professional Grader",
           conditionDescriptorConstraint: { aspectRequired: true },
           conditionDescriptorValues: [
-            { conditionDescriptorValueId: "275010", conditionDescriptorValueName: "PCGS" },
+            { conditionDescriptorValueId: "275010", conditionDescriptorValueName: "NGC" },
           ],
         },
         {
-          conditionDescriptorId: "27502",
-          conditionDescriptorName: "Grade",
+          conditionDescriptorId: "27503",
+          conditionDescriptorName: "Letter grade",
           conditionDescriptorConstraint: { aspectRequired: true },
           conditionDescriptorValues: [
-            { conditionDescriptorValueId: "275020", conditionDescriptorValueName: "67" },
+            { conditionDescriptorValueId: "275030", conditionDescriptorValueName: "MS" },
+          ],
+        },
+        {
+          conditionDescriptorId: "27504",
+          conditionDescriptorName: "Numerical grade",
+          conditionDescriptorConstraint: { aspectRequired: true },
+          conditionDescriptorValues: [
+            { conditionDescriptorValueId: "275040", conditionDescriptorValueName: "67" },
           ],
         },
       ],
@@ -123,14 +132,29 @@ describe("buildConditionDescriptorsFromAspects", () => {
   it("maps grader and grade aspects to descriptor ids", () => {
     const descriptors = buildConditionDescriptorsFromAspects(
       {
-        "Professional grader": ["PCGS"],
+        Certification: ["NGC"],
+        "Professional grader": ["NGC"],
+        "Letter grade": ["MS"],
         "Numerical grade": ["67"],
       },
-      metadata
+      graderMeta
     );
     expect(descriptors).toEqual([
       { name: "27501", values: ["275010"] },
-      { name: "27502", values: ["275020"] },
+      { name: "27503", values: ["275030"] },
+      { name: "27504", values: ["275040"] },
     ]);
+  });
+});
+
+describe("preserveOrBuildConditionDescriptorsOnBody", () => {
+  it("preserves live conditionDescriptors when present", () => {
+    const body = preserveOrBuildConditionDescriptorsOnBody(
+      { product: { aspects: { "Professional grader": ["NGC"] } } },
+      { conditionDescriptors: [{ name: "27501", values: ["275010"] }] },
+      {},
+      []
+    );
+    expect(body.conditionDescriptors).toEqual([{ name: "27501", values: ["275010"] }]);
   });
 });
