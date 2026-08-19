@@ -9,6 +9,7 @@ import { syncContentHash, type StoreItemContentFieldFlags, type SyncContentInput
 import { ebayGetInventoryItem } from "./client";
 import { extractEbayInventoryAspects } from "./listing-origin";
 import { enrichInventoryProductAspectsForPush, prepareLiveAspectsForInventoryPut, passthroughUsePreparedInventoryAspects, type CategoryAspectSchema } from "./aspect-prep";
+import { EBAY_CURRENCY } from "./config";
 import { ebayPriceFromCents } from "./mapping";
 import { readLiveConditionDescriptors } from "./conditions";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
@@ -138,7 +139,8 @@ function liveQuantity(live: LiveInventoryItem): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function offerPriceCents(offer: Record<string, unknown> | null | undefined): number | null {
+/** Read offer pricingSummary.price as integer cents for drift checks. */
+export function readOfferPriceCents(offer: Record<string, unknown> | null | undefined): number | null {
   const summary = offer?.pricingSummary;
   if (!summary || typeof summary !== "object") return null;
   const price = (summary as { price?: { value?: unknown } }).price;
@@ -173,7 +175,7 @@ export function detectLivePassthroughChanges(
   const description = normalizeCompareText(liveDesc) !== normalizeCompareText(wantedDescription);
   const liveQty = liveQuantity(live);
   const quantity = liveQty != null && liveQty !== Math.max(0, item.quantity);
-  const livePrice = offerPriceCents(liveOffer);
+  const livePrice = readOfferPriceCents(liveOffer);
   const price = livePrice != null && livePrice !== item.priceCents;
   return {
     title,
@@ -509,7 +511,7 @@ export function overlayPassthroughOffer(
         : {};
     offer.pricingSummary = {
       ...existing,
-      price: { value: ebayPriceFromCents(item.priceCents), currency: "USD" },
+      price: { value: ebayPriceFromCents(item.priceCents), currency: EBAY_CURRENCY },
     };
   }
 
@@ -534,7 +536,7 @@ export function buildPassthroughOfferBody(
 
   if (changed.price) {
     offer.pricingSummary = {
-      price: { value: ebayPriceFromCents(item.priceCents), currency: "USD" },
+      price: { value: ebayPriceFromCents(item.priceCents), currency: EBAY_CURRENCY },
     };
   }
 

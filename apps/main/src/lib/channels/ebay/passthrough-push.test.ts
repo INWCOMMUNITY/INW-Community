@@ -321,6 +321,26 @@ describe("passthrough-push", () => {
     expect(needsInventoryPut(changed)).toBe(true);
   });
 
+  it("overlayPassthroughOffer updates pricingSummary without rewriting categoryId", () => {
+    const offer = overlayPassthroughOffer(
+      {
+        categoryId: "39458",
+        listingPolicies: { paymentPolicyId: "p1" },
+        listingDescription: "old",
+        pricingSummary: { price: { value: "125.00", currency: "USD" } },
+        offerId: "offer-1",
+        status: "PUBLISHED",
+      },
+      { ...coinItem, priceCents: 14500 },
+      { content: false, quantity: false, price: true, description: false }
+    );
+    expect(offer.categoryId).toBe("39458");
+    expect(offer.listingPolicies).toEqual({ paymentPolicyId: "p1" });
+    expect(offer.offerId).toBeUndefined();
+    expect(offer.pricingSummary).toEqual({ price: { value: "145.00", currency: "USD" } });
+    expect(offer.listingDescription).toBe("old");
+  });
+
   it("overlayPassthroughOffer does not rewrite categoryId", () => {
     const offer = overlayPassthroughOffer(
       {

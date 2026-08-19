@@ -100,6 +100,7 @@ import {
   overlayPassthroughOffer,
   passthroughAllAttemptedFailed,
   passthroughSyncHasFailures,
+  readOfferPriceCents,
   resolvePassthroughChanges,
   type PassthroughBuildOptions,
   type PassthroughFieldResult,
@@ -432,8 +433,8 @@ async function upsertListing(
         before: { passthrough: true, liveChanges, inwFields, changed },
         after: {
           overlays: [
-            changed.price || changed.quantity ? "bulk_price_qty" : null,
-            changed.description ? "offer_description" : null,
+            changed.quantity ? "bulk_quantity" : null,
+            changed.price || changed.description ? "offer_price_description" : null,
             changed.title && putInventory
               ? "inventory_title_and_photos"
               : changed.title
@@ -447,40 +448,91 @@ async function upsertListing(
         dropped: [],
       });
 
-      if (changed.price || changed.quantity) {
+      if (changed.quantity) {
         const quantity = Math.max(0, item.quantity);
         const request: Record<string, unknown> = {
           sku,
           shipToLocationAvailability: { quantity },
         };
         if (offerId) {
-          request.offers = [
-            {
-              offerId,
-              availableQuantity: quantity,
-              ...(changed.price
-                ? { price: { value: ebayPriceFromCents(item.priceCents), currency: "USD" } }
-                : {}),
-            },
-          ];
+          request.offers = [{ offerId, availableQuantity: quantity }];
         }
-        const bulkFields: PassthroughFieldResult[] = [];
-        if (changed.price) bulkFields.push({ field: "price", ok: false });
-        if (changed.quantity) bulkFields.push({ field: "quantity", ok: false });
+        const bulkFields: PassthroughFieldResult[] = [{ field: "quantity", ok: false }];
         try {
           await ebayJson(conn.accessToken, `/sell/inventory/v1/bulk_update_price_quantity`, "POST", {
             requests: [request],
           });
           await persistRevisionCount(conn.id, sku, conn.config);
-          for (const row of bulkFields) row.ok = true;
+          bulkFields[0]!.ok = true;
         } catch (e) {
           const msg = describeEbayThrownError(e);
-          for (const row of bulkFields) row.error = msg;
+          bulkFields[0]!.error = msg;
           if (e instanceof EbayApiError) {
             addResponse(trace, e.status, { error: e.message, body: e.body });
           }
         }
         fieldResults.push(...bulkFields);
+      }
+
+      if (changed.price || changed.description) {
+        if (!offerId) {
+          const recovered = await findOffer(conn.accessToken, sku);
+          offerId = recovered?.offerId ?? null;
+          if (offerId && !liveOffer) {
+            liveOffer = await getOfferDetails(conn.accessToken, offerId);
+          }
+        }
+        if (!offerId || !liveOffer) {
+          const missingOfferError =
+            "Could not update eBay offer — no published offer found for this imported listing.";
+          if (changed.price) {
+            fieldResults.push({ field: "price", ok: false, error: missingOfferError });
+          }
+          if (changed.description) {
+            fieldResults.push({ field: "description", ok: false, error: missingOfferError });
+          }
+        } else {
+          const offerBody = overlayPassthroughOffer(liveOffer, item, {
+            ...changed,
+            quantity: false,
+            title: false,
+            photos: false,
+          });
+          const offerFields: PassthroughFieldResult[] = [];
+          if (changed.price) offerFields.push({ field: "price", ok: false });
+          if (changed.description) offerFields.push({ field: "description", ok: false });
+          try {
+            await ebayJson(
+              conn.accessToken,
+              `/sell/inventory/v1/offer/${offerId}`,
+              "PUT",
+              offerBody
+            );
+            await persistRevisionCount(conn.id, sku, conn.config);
+            const refreshed = await getOfferDetails(conn.accessToken, offerId);
+            for (const row of offerFields) {
+              if (row.field === "price") {
+                const applied = readOfferPriceCents(refreshed);
+                if (applied != null && applied !== item.priceCents) {
+                  row.error = `Price didn't update on eBay (offer still $${(applied / 100).toFixed(2)}).`;
+                } else {
+                  row.ok = true;
+                }
+              } else {
+                row.ok = true;
+              }
+            }
+          } catch (e) {
+            const msg = describeEbayThrownError(e);
+            for (const row of offerFields) {
+              row.error = `eBay offer update failed: ${msg}`;
+            }
+            if (e instanceof EbayApiError) {
+              addResponse(trace, e.status, { error: e.message, body: e.body });
+            }
+          }
+          fieldResults.push(...offerFields);
+        }
       }
 
       const pushInventoryContent = changed.title === true || putInventory;
@@ -610,42 +662,6 @@ async function upsertListing(
         if (contentPutOk) {
           if (changed.title) fieldResults.push({ field: "title", ok: true });
           if (putInventory) fieldResults.push({ field: "photos", ok: true });
-        }
-      }
-
-      if (changed.description) {
-        if (!offerId) {
-          const recovered = await findOffer(conn.accessToken, sku);
-          offerId = recovered?.offerId ?? null;
-          if (offerId && !liveOffer) {
-            liveOffer = await getOfferDetails(conn.accessToken, offerId);
-          }
-        }
-        if (!offerId || !liveOffer) {
-          fieldResults.push({
-            field: "description",
-            ok: false,
-            error:
-              "Could not update eBay description — no published offer found for this imported listing.",
-          });
-        } else {
-          const offerBody = overlayPassthroughOffer(liveOffer, item, {
-            ...changed,
-            price: false,
-            quantity: false,
-          });
-          try {
-            await ebayJson(conn.accessToken, `/sell/inventory/v1/offer/${offerId}`, "PUT", offerBody);
-            await persistRevisionCount(conn.id, sku, conn.config);
-            fieldResults.push({ field: "description", ok: true });
-          } catch (e) {
-            const msg = describeEbayThrownError(e);
-            fieldResults.push({
-              field: "description",
-              ok: false,
-              error: `eBay offer update failed: ${msg}`,
-            });
-          }
         }
       }
 
