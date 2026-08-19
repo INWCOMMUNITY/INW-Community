@@ -57,11 +57,10 @@ import {
   type ValidationCheck,
 } from "../sync-trace";
 import { prisma } from "database";
-import { isImportedEbayLink, resolveEbayInventorySku } from "./listing-origin";
+import { isImportedEbayLink, extractEbayInventoryAspects, resolveEbayInventorySku } from "./listing-origin";
 import {
   buildPassthroughLiveOverlayBody,
-  buildPassthroughPhotoInventoryBody,
-  buildPassthroughTitleInventoryBody,
+  buildPassthroughTitleOnlyInventoryBody,
   detectLivePassthroughChanges,
   fetchLiveInventoryItem,
   formatPassthroughFieldSyncSummary,
@@ -71,7 +70,6 @@ import {
   passthroughAllAttemptedFailed,
   passthroughSyncHasFailures,
   resolvePassthroughChanges,
-  type PassthroughBuildOptions,
   type PassthroughFieldResult,
 } from "./passthrough-push";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
@@ -263,64 +261,6 @@ async function upsertListing(
         syncPrices: syncPrefsRow?.syncPrices ?? true,
       });
       const putInventory = needsInventoryPut(changed);
-      const needsAspectContext = changed.title || putInventory;
-
-      const cachedAspects =
-        ebayLink?.ebayInventoryAspects &&
-        typeof ebayLink.ebayInventoryAspects === "object" &&
-        !Array.isArray(ebayLink.ebayInventoryAspects)
-          ? (ebayLink.ebayInventoryAspects as Record<string, string[]>)
-          : null;
-      const storedAspects = aspectsToEbayProductAspects(parseStoredAspects(item.aspects));
-
-      let tradingAspects: Record<string, string[]> | null = null;
-      let categoryAspects: Awaited<ReturnType<typeof getItemAspectsForCategory>> = [];
-      if (needsAspectContext) {
-        const legacyListingId = await resolveSyncLegacyListingId(conn.accessToken, {
-          linkedSku: linkExternalId,
-          sku,
-          itemSku: item.sku,
-          offerId,
-        });
-        if (legacyListingId) {
-          try {
-            const details = await fetchEbayItemDetails(conn.accessToken, legacyListingId);
-            tradingAspects = aspectsToEbayProductAspects(parseStoredAspects(details.aspects));
-          } catch (e) {
-            console.warn("[ebay] passthrough GetItem trading aspects failed", {
-              storeItemId: item.id,
-              legacyListingId,
-              error: describeEbayThrownError(e),
-            });
-          }
-        } else {
-          console.warn("[ebay] passthrough could not resolve legacy listing id for GetItem aspects", {
-            storeItemId: item.id,
-            sku,
-            linkExternalId,
-            offerId,
-          });
-        }
-        if (offerCategoryId) {
-          try {
-            categoryAspects = await getItemAspectsForCategory(offerCategoryId);
-          } catch (e) {
-            console.warn("[ebay] passthrough category taxonomy failed", {
-              storeItemId: item.id,
-              offerCategoryId,
-              error: describeEbayThrownError(e),
-            });
-          }
-        }
-      }
-
-      const aspectBuildOptions: PassthroughBuildOptions = {
-        categoryId: offerCategoryId,
-        cachedAspects,
-        storedAspects,
-        tradingAspects,
-        categoryAspects,
-      };
 
       const fieldResults: PassthroughFieldResult[] = [];
 
@@ -375,20 +315,14 @@ async function upsertListing(
       }
 
       if (changed.title) {
-        const titleBody = buildPassthroughTitleInventoryBody(live, item, aspectBuildOptions);
-        const titleAspects = (
-          (titleBody.product as Record<string, unknown> | undefined)?.aspects ?? {}
-        ) as Record<string, string[]>;
+        const titleBody = buildPassthroughTitleOnlyInventoryBody(live, item);
+        const liveAspects = extractEbayInventoryAspects(live) ?? {};
         console.warn("[ebay] upsertListing passthrough PUT title only", {
           storeItemId: item.id,
           sku,
-          aspectMode: "prepared",
-          aspectKeys: Object.keys(titleAspects),
-          hasProfessionalGrader: "Professional grader" in titleAspects,
-          hasLetterGrade: "Letter grade" in titleAspects,
-          hasNumericalGrade: "Numerical grade" in titleAspects,
-          hasTradingAspects: !!tradingAspects,
-          legacyListingIdResolved: !!tradingAspects,
+          aspectMode: "live_overlay",
+          aspectKeys: Object.keys(liveAspects),
+          titleLength: item.title.length,
         });
         addRequest(trace, titleBody);
         try {
@@ -402,13 +336,16 @@ async function upsertListing(
           addResponse(trace, 200, { success: true, field: "title" });
           fieldResults.push({ field: "title", ok: true });
         } catch (e) {
+          const titleAspects = (
+            (titleBody.product as Record<string, unknown> | undefined)?.aspects ?? {}
+          ) as Record<string, string[]>;
           console.error("[ebay] passthrough PUT title failed — full eBay error", {
             storeItemId: item.id,
             sku,
             offerCategoryId,
             aspectKeys: Object.keys(titleAspects),
             aspectValues: titleAspects,
-            hasTradingAspects: !!tradingAspects,
+            aspectMode: "live_overlay",
             ...formatEbayErrorDiagnostics(e),
           });
           if (e instanceof EbayApiError) {
@@ -421,14 +358,16 @@ async function upsertListing(
       }
 
       if (putInventory) {
-        const inventoryBody = buildPassthroughPhotoInventoryBody(live, item, aspectBuildOptions);
+        const inventoryBody = buildPassthroughLiveOverlayBody(live, {
+          imageUrls: item.photos,
+        });
         const putNote = formatPassthroughPutNote(inventoryBody);
         console.warn("[ebay] upsertListing passthrough PUT inventory photos", {
           storeItemId: item.id,
           sku,
           linkExternalId,
           changed,
-          aspectMode: "prepared",
+          aspectMode: "live_overlay",
         });
         addRequest(trace, inventoryBody);
         try {

@@ -4,6 +4,7 @@ import {
   buildPassthroughLiveOverlayBody,
   buildPassthroughOfferBody,
   buildPassthroughTitleInventoryBody,
+  buildPassthroughTitleOnlyInventoryBody,
   detectLivePassthroughChanges,
   detectPassthroughChangedFields,
   formatPassthroughFieldSyncSummary,
@@ -366,6 +367,29 @@ describe("passthrough-push", () => {
     expect(changed.description).toBe(true);
     expect(changed.title).toBe(false);
     expect(needsInventoryPut(changed)).toBe(false);
+  });
+
+  it("buildPassthroughTitleOnlyInventoryBody changes only title and preserves live aspects", () => {
+    const live = {
+      condition: "LIKE_NEW",
+      availability: { shipToLocationAvailability: { quantity: 1 } },
+      product: {
+        title: "Old Vintage Clock Title",
+        aspects: { Brand: ["Seiko"], Color: ["Brown"] },
+        imageUrls: ["https://i.ebayimg.com/a.jpg"],
+      },
+    };
+    const body = buildPassthroughTitleOnlyInventoryBody(live, {
+      ...coinItem,
+      title: "Updated Vintage Clock Title From INW",
+      ebayCategoryId: 12345,
+    });
+    const product = body.product as Record<string, unknown>;
+    expect(product.title).toBe("Updated Vintage Clock Title From INW");
+    expect(product.aspects).toEqual({ Brand: ["Seiko"], Color: ["Brown"] });
+    expect(product.imageUrls).toEqual(["https://i.ebayimg.com/a.jpg"]);
+    expect(body.condition).toBe("LIKE_NEW");
+    expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 1 } });
   });
 
   it("buildPassthroughTitleInventoryBody changes title with prepared aspects", () => {
