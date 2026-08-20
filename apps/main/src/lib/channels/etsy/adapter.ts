@@ -8,10 +8,11 @@ import type {
   SyncStoreItem,
   TokenResponse,
 } from "../types";
-import { EtsyApiError, etsyDelete, etsyForm, etsyGet, etsyJson, etsyUploadImage } from "./client";
+import { EtsyApiError, etsyDelete, etsyForm, etsyGet, etsyUploadImage, setEtsyConnectionContext } from "./client";
 import { exchangeEtsyCode, fetchEtsyShopInfo, getEtsyAuthUrl, refreshEtsyToken } from "./oauth";
 import { resolveProviderCategoryId } from "../category-map";
 import { resolveEtsyShippingProfileId } from "../shipping-map";
+import { resolveEtsyReadinessStateId } from "./readiness";
 import {
   buildEtsyCreateFields,
   buildEtsyUpdateFields,
@@ -194,7 +195,8 @@ export const etsyAdapter: ChannelAdapter = {
 
   async createListing(conn, item): Promise<CreateListingResult> {
     const shopId = requireShop(conn);
-    
+    setEtsyConnectionContext(conn.id);
+
     // Start trace
     const trace = startTrace(conn.memberId, "etsy", item.id, "create", {
       sku: item.sku ?? item.id,
@@ -215,9 +217,11 @@ export const etsyAdapter: ChannelAdapter = {
     try {
       const validationChecks: ValidationCheck[] = [];
       
-      const cat = await resolveProviderCategoryId(conn, "etsy", item.category);
-      const taxonomyId = item.etsyTaxonomyId ?? cat.etsyTaxonomyId;
+      const taxonomyId =
+        item.etsyTaxonomyId ??
+        (await resolveProviderCategoryId(conn, "etsy", item.category)).etsyTaxonomyId;
       const shippingProfileId = await resolveEtsyShippingProfileId(conn, item.shippingCostCents);
+      const readinessStateId = await resolveEtsyReadinessStateId(conn, shopId);
 
       // Validate required Etsy fields
       validationChecks.push({
@@ -244,6 +248,12 @@ export const etsyAdapter: ChannelAdapter = {
         detail: shippingProfileId ? "Configured" : "Using default",
         severity: "warning",
       });
+      validationChecks.push({
+        name: "readiness_state",
+        passed: readinessStateId > 0,
+        detail: `ID: ${readinessStateId}`,
+        severity: "error",
+      });
 
       const allValid = validationChecks.every((c) => c.passed || c.severity === "warning");
       addValidation(trace, { valid: allValid, checks: validationChecks });
@@ -251,6 +261,7 @@ export const etsyAdapter: ChannelAdapter = {
       const createFields = buildEtsyCreateFields(item, conn, {
         taxonomyId: taxonomyId ?? undefined,
         shippingProfileId,
+        readinessStateId,
       });
       addRequest(trace, createFields as Record<string, unknown>);
 
@@ -282,29 +293,7 @@ export const etsyAdapter: ChannelAdapter = {
         throw error;
       }
 
-      let defaultReadinessStateId =
-        typeof conn.config?.defaultReadinessStateId === "number"
-          ? conn.config.defaultReadinessStateId
-          : null;
-
-      if (defaultReadinessStateId == null) {
-        try {
-          const profiles = await etsyGet<{ results?: { readiness_state_id: number }[] }>(
-            conn.accessToken,
-            `/shops/${shopId}/readiness-state-definitions`
-          );
-          defaultReadinessStateId = profiles.results?.[0]?.readiness_state_id ?? null;
-          console.log("[etsy] fetched processing profiles on-demand for createListing", {
-            shopId,
-            listingId,
-            defaultReadinessStateId,
-          });
-        } catch (e) {
-          console.warn("[etsy] failed to fetch processing profiles on-demand", { error: String(e) });
-        }
-      }
-
-      await pushEtsyVariants(conn.accessToken, listingId, resolvedTaxonomyId, item, defaultReadinessStateId).catch((e) =>
+      await pushEtsyVariants(conn.accessToken, listingId, resolvedTaxonomyId, item, readinessStateId).catch((e) =>
         console.error("[etsy] variant push failed", { listingId, error: String(e) })
       );
       await this.updateInventory(conn, listingId, item.quantity, item).catch((e) =>
@@ -358,6 +347,7 @@ export const etsyAdapter: ChannelAdapter = {
 
   async updateListing(conn, externalListingId, item): Promise<void> {
     const shopId = requireShop(conn);
+    setEtsyConnectionContext(conn.id);
 
     // Start trace
     const trace = startTrace(conn.memberId, "etsy", item.id, "update", {
@@ -379,7 +369,9 @@ export const etsyAdapter: ChannelAdapter = {
     try {
       const validationChecks: ValidationCheck[] = [];
 
-      const cat = await resolveProviderCategoryId(conn, "etsy", item.category);
+      const taxonomyId =
+        item.etsyTaxonomyId ??
+        (await resolveProviderCategoryId(conn, "etsy", item.category)).etsyTaxonomyId;
       const shippingProfileId = await resolveEtsyShippingProfileId(conn, item.shippingCostCents);
       
       // Validate required Etsy fields
@@ -399,7 +391,7 @@ export const etsyAdapter: ChannelAdapter = {
       addValidation(trace, { valid: true, checks: validationChecks });
       
       const updateFields = buildEtsyUpdateFields(item, {
-        taxonomyId: item.etsyTaxonomyId ?? cat.etsyTaxonomyId,
+        taxonomyId,
         shippingProfileId,
       });
       addRequest(trace, updateFields as Record<string, unknown>);
@@ -438,6 +430,7 @@ export const etsyAdapter: ChannelAdapter = {
 
   async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {
     const shopId = requireShop(conn);
+    setEtsyConnectionContext(conn.id);
     const inv = await etsyGet<EtsyInventory>(
       conn.accessToken,
       `/listings/${externalListingId}/inventory`
@@ -451,21 +444,11 @@ export const etsyAdapter: ChannelAdapter = {
       return;
     }
 
-    let defaultReadinessStateId =
-      typeof conn.config?.defaultReadinessStateId === "number"
-        ? conn.config.defaultReadinessStateId
-        : null;
-
-    if (defaultReadinessStateId == null) {
-      try {
-        const profiles = await etsyGet<{ results?: { readiness_state_id: number }[] }>(
-          conn.accessToken,
-          `/shops/${shopId}/readiness-state-definitions`
-        );
-        defaultReadinessStateId = profiles.results?.[0]?.readiness_state_id ?? null;
-      } catch (e) {
-        console.warn("[etsy] failed to fetch processing profiles on-demand", { error: String(e) });
-      }
+    let defaultReadinessStateId: number | null = null;
+    try {
+      defaultReadinessStateId = await resolveEtsyReadinessStateId(conn, shopId);
+    } catch (e) {
+      console.warn("[etsy] failed to fetch processing profiles on-demand", { error: String(e) });
     }
 
     await syncEtsyListingInventoryFromInw(

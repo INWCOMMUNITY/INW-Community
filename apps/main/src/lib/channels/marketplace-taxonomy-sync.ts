@@ -151,7 +151,7 @@ export async function syncEtsyTaxonomyMappings(
 ): Promise<{ entries: number; upserted: number }> {
   const res = await etsyGet<{ results?: EtsyTaxonomyNode[] }>(
     accessToken,
-    `/application/seller-taxonomy/nodes`
+    `/seller-taxonomy/nodes`
   );
 
   const flat: Array<{ id: number; path: string }> = [];

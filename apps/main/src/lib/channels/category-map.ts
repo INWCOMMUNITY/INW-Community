@@ -1,7 +1,7 @@
 import { prisma } from "database";
-import { etsyGet } from "./etsy/client";
 import { ebayGet } from "./ebay/client";
 import { EBAY_TAXONOMY_BASE, EBAY_TAXONOMY_MARKETPLACE_ID } from "./ebay/config";
+import { searchEtsyCategories } from "./etsy/taxonomy-search";
 import type { ChannelConnectionContext, ChannelProvider } from "./types";
 
 export type CategoryMapEntry = {
@@ -39,38 +39,17 @@ async function persistCategoryMapEntry(
   });
 }
 
-/** Walk Etsy seller taxonomy nodes and find best leaf match by name. */
+/** Best leaf match from Etsy seller taxonomy (GET /seller-taxonomy/nodes). */
 async function searchEtsyTaxonomy(
   accessToken: string,
-  keyword: string
+  keyword: string,
+  connectionId?: string
 ): Promise<number | null> {
-  const q = keyword.trim().toLowerCase();
+  const q = keyword.trim();
   if (!q) return null;
   try {
-    const res = await etsyGet<{ results?: { id: number; name?: string; children?: unknown[] }[] }>(
-      accessToken,
-      `/application/seller-taxonomy/nodes`
-    );
-    type Node = { id: number; name?: string; children?: Node[] };
-    const nodes = (res.results ?? []) as Node[];
-    let best: { id: number; score: number } | null = null;
-
-  function walk(list: Node[], depth: number): void {
-      for (const n of list) {
-        const name = (n.name ?? "").toLowerCase();
-        let score = 0;
-        if (name === q) score = 1;
-        else if (name.includes(q) || q.includes(name)) score = 0.85;
-        else if (name.split(/\s+/).some((w) => q.includes(w))) score = 0.6;
-        const isLeaf = !n.children || n.children.length === 0;
-        if (isLeaf && score > (best?.score ?? 0)) best = { id: n.id, score };
-        if (n.children?.length) walk(n.children, depth + 1);
-      }
-    }
-    walk(nodes, 0);
-    const picked = best as { id: number; score: number } | null;
-    if (picked !== null && picked.score >= 0.6) return picked.id;
-    return null;
+    const hits = await searchEtsyCategories(accessToken, q, connectionId);
+    return hits[0]?.taxonomyId ?? null;
   } catch {
     return null;
   }
@@ -138,7 +117,7 @@ export async function resolveProviderCategoryId(
 
   const entry: CategoryMapEntry = {};
   if (provider === "etsy") {
-    const id = await searchEtsyTaxonomy(conn.accessToken, label);
+    const id = await searchEtsyTaxonomy(conn.accessToken, label, conn.id);
     if (id) entry.etsyTaxonomyId = id;
   }
   if (provider === "ebay") {

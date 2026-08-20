@@ -119,12 +119,12 @@ export async function GET(req: NextRequest) {
   try {
     const me = await etsyGet<{ user_id: number; shop_id?: number }>(
       ctx.accessToken,
-      "/application/users/me"
+      "/users/me"
     );
     if (me.shop_id && ctx.externalShopId) {
       const shop = await etsyGet<{ shop_name?: string }>(
         ctx.accessToken,
-        `/application/shops/${ctx.externalShopId}`
+        `/shops/${ctx.externalShopId}`
       );
       shopName = shop.shop_name;
     }

@@ -217,7 +217,7 @@ async function fetchTaxonomyProperties(
 ): Promise<TaxonomyProperty[]> {
   const res = await etsyGet<{ results?: TaxonomyProperty[] }>(
     accessToken,
-    `/application/seller-taxonomy/nodes/${taxonomyId}/properties`,
+    `/seller-taxonomy/nodes/${taxonomyId}/properties`,
     { notFoundOk: true }
   );
   if (!res) return [];

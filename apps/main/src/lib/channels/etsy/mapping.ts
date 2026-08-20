@@ -5,7 +5,7 @@ import { isEtsyWhoMade, normalizeEtsyWhenMade } from "@/lib/etsy-listing-options
 /**
  * Map of Etsy taxonomy IDs to category names.
  * Expanded coverage of Etsy's seller taxonomy for better auto-categorization.
- * Source: Etsy Open API /application/seller-taxonomy/nodes
+ * Source: Etsy Open API GET /seller-taxonomy/nodes
  */
 const ETSY_TAXONOMY_NAMES: Record<number, string> = {
   // ═══════════════════════════════════════════════════════════════════════════
@@ -486,7 +486,7 @@ function etsyDescription(item: SyncStoreItem): string {
 export function buildEtsyCreateFields(
   item: SyncStoreItem,
   conn: ChannelConnectionContext,
-  overrides?: { taxonomyId?: number; shippingProfileId?: string | null }
+  overrides?: { taxonomyId?: number; shippingProfileId?: string | null; readinessStateId?: number }
 ): Record<string, string | number | boolean | undefined> {
   const whoMade = isEtsyWhoMade(item.etsyWhoMade) ? item.etsyWhoMade : null;
   const whenMade = normalizeEtsyWhenMade(item.etsyWhenMade);
@@ -501,6 +501,12 @@ export function buildEtsyCreateFields(
     throw new Error("Etsy requires a category before listing. Choose an Etsy category on the item.");
   }
   const shippingId = overrides?.shippingProfileId ?? conn.etsyShippingProfileId;
+  const readinessStateId = overrides?.readinessStateId;
+  if (readinessStateId == null) {
+    throw new Error(
+      "Etsy requires a processing profile (how long you take to ship) before listing. Add one in your Etsy Shop Manager, then refresh Etsy in Sync Stores."
+    );
+  }
   return {
     quantity: Math.max(1, item.quantity),
     title: etsyTitle(item.title),
@@ -512,6 +518,7 @@ export function buildEtsyCreateFields(
     is_supply: item.etsyIsSupply ?? false,
     type: "physical",
     ...(shippingId ? { shipping_profile_id: Number(shippingId) } : {}),
+    readiness_state_id: readinessStateId,
   };
 }
 

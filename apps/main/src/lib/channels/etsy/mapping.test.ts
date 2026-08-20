@@ -41,10 +41,15 @@ const conn: ChannelConnectionContext = {
 
 describe("buildEtsyCreateFields", () => {
   it("maps legacy when_made onto the current Etsy enum", () => {
-    const fields = buildEtsyCreateFields(makeItem(), conn);
+    const fields = buildEtsyCreateFields(makeItem(), conn, { readinessStateId: 42 });
     expect(fields.who_made).toBe("i_did");
     expect(fields.when_made).toBe("2020_2026");
     expect(fields.taxonomy_id).toBe(891);
+    expect(fields.readiness_state_id).toBe(42);
+  });
+
+  it("throws when readiness_state_id is missing", () => {
+    expect(() => buildEtsyCreateFields(makeItem(), conn)).toThrow(/processing profile/i);
   });
 
   it("throws when who_made is missing", () => {
