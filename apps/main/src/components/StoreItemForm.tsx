@@ -1,15 +1,18 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from "react";
+import { useState, useEffect, useCallback, useMemo, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { getErrorMessage } from "@/lib/api-error";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { sumOptionQuantities } from "@/lib/store-item-variants";
 import {
+  activeListOnConnections,
+  defaultSelectedProviders,
   fetchChannelConnections,
-  publishReadyConnections,
+  type ChannelConnectionSummary,
   type ChannelProviderId,
 } from "@/lib/channel-connections-client";
+import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
 import {
   buildSyncSuccessMessage,
   formatChannelSyncResults,
@@ -24,7 +27,7 @@ import {
   ItemChannelSyncPanel,
   type ChannelLinkSummary,
 } from "@/components/store-item/ItemChannelSyncPanel";
-import { ChannelPublishModal } from "@/components/store-item/ChannelPublishModal";
+import { ChannelListOnCheckboxes } from "@/components/store-item/ChannelListOnCheckboxes";
 import { ChannelSyncResultBanner } from "@/components/store-item/ChannelSyncResultBanner";
 import { ItemSyncActivityLog } from "@/components/store-item/ItemSyncActivityLog";
 import { LISTING_SYNC_HINTS, SyncFieldHint } from "@/components/store-item/listing-sync-hints";
@@ -139,10 +142,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     return !!c && !STORE_CATEGORIES.some((x) => x.label === c);
   });
   // eBay / Etsy integration: channel-specific listing requirements.
-  const [ebayConnected, setEbayConnected] = useState(false);
-  const [hasEbayConnection, setHasEbayConnection] = useState(false);
-  const [ebayConnectionError, setEbayConnectionError] = useState<string | null>(null);
-  const [etsyConnected, setEtsyConnected] = useState(false);
   const [etsyWhoMade, setEtsyWhoMade] = useState<EtsyWhoMade>(() =>
     isEtsyWhoMade(existing?.etsyWhoMade) ? existing!.etsyWhoMade! : "i_did"
   );
@@ -161,7 +160,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [ebayCategoryResults, setEbayCategoryResults] = useState<EbayCategorySuggestion[]>([]);
   const [ebaySearching, setEbaySearching] = useState(false);
   const [categoryAspects, setCategoryAspects] = useState<EbayCategoryAspect[]>([]);
-  const showEbayRequirements = hasEbayConnection || Boolean(ebayCategoryId);
   const [aspects, setAspects] = useState<ListingAspect[]>(() =>
     Array.isArray(existing?.aspects)
       ? existing!.aspects!.map((a) => ({ name: String(a.name ?? ""), value: String(a.value ?? "") }))
@@ -243,12 +241,12 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [successItemSlug, setSuccessItemSlug] = useState<string | null>(existing?.slug ?? null);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [hasChannelConnections, setHasChannelConnections] = useState(false);
+  const [channelConnections, setChannelConnections] = useState<ChannelConnectionSummary[]>([]);
+  const [listOnProviders, setListOnProviders] = useState<ChannelProviderId[]>([]);
   const [channelLinks, setChannelLinks] = useState<ChannelLinkSummary[]>(
     existing?.channelLinks ?? []
   );
   const [skipSyncOnSave, setSkipSyncOnSave] = useState(false);
-  const [showPublishModal, setShowPublishModal] = useState(false);
-  const pendingPayloadRef = useRef<Record<string, unknown> | null>(null);
   const [lastChannelSync, setLastChannelSync] = useState<ChannelSyncRow[] | undefined>();
   const [successDetail, setSuccessDetail] = useState("");
   const [syncLogRefreshKey, setSyncLogRefreshKey] = useState(0);
@@ -265,6 +263,20 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       linkOrigin: ebayLink.linkOrigin,
     });
   }, [channelLinks, existing?.id, existing?.ebayLinkOrigin, existing?.hasEbayImportLink]);
+
+  const etsyConnected = channelConnections.some((c) => c.provider === "etsy" && c.status === "active");
+  const ebayConnected = channelConnections.some((c) => c.provider === "ebay" && c.status === "active");
+  const ebayConn = channelConnections.find((c) => c.provider === "ebay");
+  const ebayConnectionError =
+    ebayConn?.status === "error"
+      ? ebayConn.lastError?.trim() || "Reconnect eBay in Sync Stores."
+      : null;
+  const listingOnEtsy = existing ? etsyConnected : listOnProviders.includes("etsy");
+  const listingOnEbay = existing
+    ? ebayConnected || channelLinks.some((l) => l.provider === "ebay")
+    : listOnProviders.includes("ebay");
+  const showEtsyRequirements = listingOnEtsy;
+  const showEbayRequirements = listingOnEbay;
 
   useEffect(() => {
     fetch("/api/me/policies")
@@ -341,53 +353,32 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     if (!offerLocalPickup) setInStorePickupAvailable(false);
   }, [offerFlagsLoaded, offerShipping, offerLocalDelivery, offerLocalPickup]);
 
-  // Detect whether the seller has an active eBay connection (enables the category + Details pickers).
   useEffect(() => {
-    fetch("/api/channels", { credentials: "include" })
-      .then((r) => r.json())
-      .then((data: { provider?: string; status?: string; lastError?: string | null }[]) => {
-        if (Array.isArray(data)) {
-          const ebayConn = data.find((c) => c.provider === "ebay");
-          setHasEbayConnection(
-            Boolean(ebayConn && ebayConn.status !== "disconnected")
-          );
-          setEbayConnected(ebayConn?.status === "active");
-          setEbayConnectionError(
-            ebayConn?.status === "error"
-              ? ebayConn.lastError?.trim() || "Reconnect eBay in Sync Stores."
-              : null
-          );
-          setEtsyConnected(
-            data.some((c) => c.provider === "etsy" && c.status === "active")
-          );
-          setHasChannelConnections(
-            data.some((c) => c.status === "active" || c.status === "error")
-          );
+    fetchChannelConnections()
+      .then((list) => {
+        setChannelConnections(list);
+        setHasChannelConnections(list.some((c) => c.status === "active" || c.status === "error"));
+        if (!existing) {
+          setListOnProviders(defaultSelectedProviders(list));
         }
       })
-      .catch(() => {});
-  }, []);
+      .catch(() => {
+        setChannelConnections([]);
+        setHasChannelConnections(false);
+      });
+  }, [existing]);
 
   // If eBay category search fails with reconnect guidance, refresh connection status in the UI.
   useEffect(() => {
     if (!ebayCategorySearchError) return;
     if (!/reconnect|sync stores|unavailable|decrypt|expired/i.test(ebayCategorySearchError)) return;
-    fetch("/api/channels", { credentials: "include" })
-      .then((r) => r.json())
-      .then((data: { provider?: string; status?: string }[]) => {
-        if (!Array.isArray(data)) return;
-        setEbayConnected(data.some((c) => c.provider === "ebay" && c.status === "active"));
-      })
-      .catch(() => {});
-  }, [ebayCategorySearchError]);
-
-  useEffect(() => {
     fetchChannelConnections()
       .then((list) => {
+        setChannelConnections(list);
         setHasChannelConnections(list.some((c) => c.status === "active" || c.status === "error"));
       })
       .catch(() => {});
-  }, []);
+  }, [ebayCategorySearchError]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -588,7 +579,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
       .filter((a) => a.name && a.value);
     let aspectsToSave = cleanedAspects;
-    if (ebayConnected && ebayCategoryId && !isEbayImportedListing) {
+    if (listingOnEbay && !isEbayImportedListing && !ebayCategoryId) {
+      setError("eBay requires a category — fill in eBay Listing Requirements.");
+      return null;
+    }
+    if (listingOnEbay && ebayCategoryId && !isEbayImportedListing) {
       const aspectValidation = prepareAspectsForEbayCategory(
         categoryAspects,
         cleanedAspects,
@@ -605,7 +600,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       }
       aspectsToSave = aspectValidation.remappedAspects.filter((a) => a.name && a.value);
     }
-    if (etsyConnected) {
+    if (listingOnEtsy) {
       if (!isEtsyWhoMade(etsyWhoMade)) {
         setError('Etsy requires "Who made it?" — fill in Etsy Listing Requirements.');
         return null;
@@ -622,9 +617,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       photos,
       category: category.trim() || null,
       subcategory: subcategory.trim() || null,
-      ebayCategoryId: ebayConnected && ebayCategoryId ? Number(ebayCategoryId) : null,
+      ebayCategoryId: listingOnEbay && ebayCategoryId ? Number(ebayCategoryId) : null,
       ...(isEbayImportedListing ? {} : { aspects: aspectsToSave }),
-      ...(etsyConnected
+      ...(listingOnEtsy
         ? { etsyWhoMade, etsyWhenMade, etsyIsSupply }
         : {}),
       priceCents,
@@ -766,28 +761,14 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     if (!payload) return;
 
     if (!existing) {
-      const connections = await fetchChannelConnections();
-      if (publishReadyConnections(connections).length > 0) {
-        pendingPayloadRef.current = payload;
-        setShowPublishModal(true);
-        return;
-      }
-      await performSubmit(payload, { syncToChannels: false, channelProviders: [] });
+      await performSubmit(payload, {
+        syncToChannels: listOnProviders.length > 0,
+        channelProviders: listOnProviders,
+      });
       return;
     }
 
     await performSubmit(payload);
-  }
-
-  function handlePublishConfirm(providers: ChannelProviderId[]) {
-    setShowPublishModal(false);
-    const base = pendingPayloadRef.current;
-    pendingPayloadRef.current = null;
-    if (!base) return;
-    void performSubmit(base, {
-      syncToChannels: providers.length > 0,
-      channelProviders: providers,
-    });
   }
 
   function handleSuccessModalClose() {
@@ -913,13 +894,19 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                   onChange={setCondition}
                   hint="Buyers can filter the storefront by New or Used. Used items can accept offers."
                 />
-                {ebayConnected ? <SyncFieldHint text={LISTING_SYNC_HINTS.condition} /> : null}
+                {listingOnEbay ? <SyncFieldHint text={LISTING_SYNC_HINTS.condition} /> : null}
               </ListingFormSection>
 
+              {existing || activeListOnConnections(channelConnections).length > 0 ? (
               <ListingFormSection
                 title="Connected stores"
-                description="Sync status and actions for linked marketplaces."
+                description={
+                  existing
+                    ? "Sync status and actions for linked marketplaces."
+                    : "Choose which connected stores to publish to. Uncheck any you want to skip."
+                }
               >
+                {existing ? (
                 <ItemChannelSyncPanel
                   storeItemId={existing?.id}
                   initialLinks={channelLinks}
@@ -962,7 +949,16 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                     }
                   }}
                 />
+                ) : (
+                  <ChannelListOnCheckboxes
+                    connections={channelConnections}
+                    selected={listOnProviders}
+                    onChange={setListOnProviders}
+                    disabled={submitting}
+                  />
+                )}
               </ListingFormSection>
+              ) : null}
             </>
           }
           main={
@@ -1113,7 +1109,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 </div>
               </ListingFormSection>
 
-      {etsyConnected && (
+      {showEtsyRequirements && (
         <EtsyListingRequirementsSection
           etsyWhoMade={etsyWhoMade}
           etsyWhenMade={etsyWhenMade}
@@ -1608,19 +1604,17 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
               submitting={submitting}
               error={error}
               backHref={successRedirect ?? "/seller-hub/store/items"}
+              createHint={
+                listOnProviders.length === 0
+                  ? "List on INW."
+                  : `List on INW and ${listOnProviders
+                      .map((p) => CHANNEL_PROVIDER_LABELS[p] ?? p)
+                      .join(", ")}.`
+              }
             />
           }
         />
       </form>
-
-      <ChannelPublishModal
-        open={showPublishModal}
-        onClose={() => {
-          setShowPublishModal(false);
-          pendingPayloadRef.current = null;
-        }}
-        onConfirm={handlePublishConfirm}
-      />
 
       {showSuccessModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 overflow-hidden">

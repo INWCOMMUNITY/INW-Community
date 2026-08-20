@@ -30,12 +30,12 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { apiGet, apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
 import { alertChannelSyncFailures } from "@/lib/channel-sync-alert";
 import {
+  defaultSelectedProviders,
   fetchChannelConnections,
-  publishReadyConnections,
   type ChannelConnectionSummary,
   type ChannelProviderId,
 } from "@/lib/channel-connections";
-import { ChannelPublishModal } from "@/components/channels/ChannelPublishModal";
+import { ChannelListOnCheckboxes } from "@/components/channels/ChannelListOnCheckboxes";
 import { getDraft, saveDraft, deleteDraft, type StoreItemDraft } from "@/lib/drafts";
 import {
   ListingOptionsEditor,
@@ -184,7 +184,6 @@ export default function ListItemScreen() {
   const [etsyIsSupply, setEtsyIsSupply] = useState(false);
   // Channel sync (eBay). Only shown when the seller has connected an eBay account.
   const [ebayConnected, setEbayConnected] = useState(false);
-  const [hasEbayConnection, setHasEbayConnection] = useState(false);
   const [ebayCategoryId, setEbayCategoryId] = useState("");
   const [ebayCategoryLabel, setEbayCategoryLabel] = useState("");
   const [ebayCategorySearch, setEbayCategorySearch] = useState("");
@@ -193,8 +192,7 @@ export default function ListItemScreen() {
   const [categoryAspects, setCategoryAspects] = useState<EbayCategoryAspect[]>([]);
   const [aspects, setAspects] = useState<ListingAspect[]>([]);
   const [channelConnections, setChannelConnections] = useState<ChannelConnectionSummary[]>([]);
-  const [showChannelPublishModal, setShowChannelPublishModal] = useState(false);
-  const pendingCreatePayloadRef = useRef<Record<string, unknown> | null>(null);
+  const [listOnProviders, setListOnProviders] = useState<ChannelProviderId[]>([]);
 
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -209,6 +207,9 @@ export default function ListItemScreen() {
   const [refreshingFromEbay, setRefreshingFromEbay] = useState(false);
   const isExitingRef = useRef(false);
   const submittedRef = useRef(false);
+
+  const listingOnEtsy = editId ? etsyConnected : listOnProviders.includes("etsy");
+  const listingOnEbay = editId ? ebayConnected || hasEbayLink : listOnProviders.includes("ebay");
 
   const filteredStoreCategories = useMemo(() => {
     const q = categorySearch.trim().toLowerCase();
@@ -521,13 +522,13 @@ export default function ListItemScreen() {
       .then((list) => {
         setChannelConnections(list);
         setEtsyConnected(list.some((c) => c.provider === "etsy" && c.status === "active"));
-        setHasEbayConnection(list.some((c) => c.provider === "ebay" && c.status !== "disconnected"));
         setEbayConnected(list.some((c) => c.provider === "ebay" && c.status === "active"));
+        setListOnProviders(defaultSelectedProviders(list));
       })
       .catch(() => {
         setChannelConnections([]);
+        setListOnProviders([]);
         setEtsyConnected(false);
-        setHasEbayConnection(false);
         setEbayConnected(false);
       });
     apiGet<PoliciesResponse>("/api/me/policies")
@@ -591,7 +592,7 @@ export default function ListItemScreen() {
 
   // Debounced live eBay category search.
   useEffect(() => {
-    if (!hasEbayConnection) return;
+    if (!listingOnEbay) return;
     const q = ebayCategorySearch.trim();
     if (q.length < 2) {
       setEbayCategoryResults([]);
@@ -617,7 +618,7 @@ export default function ListItemScreen() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [ebayCategorySearch, hasEbayConnection]);
+  }, [ebayCategorySearch, listingOnEbay]);
 
   // Load aspects for a previously-saved eBay category once the connection is known.
   useEffect(() => {
@@ -879,7 +880,11 @@ export default function ListItemScreen() {
       setError("You must offer at least one form of delivery (shipping, local delivery, or pickup).");
       return;
     }
-    if (ebayConnected && ebayCategoryId.trim() && !isEbayImportedListing) {
+    if (listingOnEbay && !isEbayImportedListing && !ebayCategoryId.trim()) {
+      setError("eBay requires a category — fill in eBay Listing Requirements.");
+      return;
+    }
+    if (listingOnEbay && ebayCategoryId.trim() && !isEbayImportedListing) {
       const filled = aspects
         .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
         .filter((a) => a.name && a.value);
@@ -898,7 +903,7 @@ export default function ListItemScreen() {
         return;
       }
     }
-    if (etsyConnected) {
+    if (listingOnEtsy) {
       if (!isEtsyWhoMade(etsyWhoMade)) {
         setError('Etsy requires "Who made it?" — fill in Etsy Listing Requirements.');
         return;
@@ -948,7 +953,7 @@ export default function ListItemScreen() {
       .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
       .filter((a) => a.name && a.value);
     let aspectsToSave = cleanedAspects;
-    if (ebayConnected && ebayCategoryId.trim() && !isEbayImportedListing) {
+    if (listingOnEbay && ebayCategoryId.trim() && !isEbayImportedListing) {
       const aspectValidation = prepareAspectsForEbayCategory(
         categoryAspects,
         cleanedAspects,
@@ -960,10 +965,10 @@ export default function ListItemScreen() {
       title: title.trim().slice(0, EBAY_TITLE_MAX),
       sku: sku.trim() || null,
       ...(isEbayImportedListing ? {} : { aspects: aspectsToSave }),
-      ...(ebayConnected && ebayCategoryId.trim()
+      ...(listingOnEbay && ebayCategoryId.trim()
         ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
         : {}),
-      ...(etsyConnected ? { etsyWhoMade, etsyWhenMade, etsyIsSupply } : {}),
+      ...(listingOnEtsy ? { etsyWhoMade, etsyWhenMade, etsyIsSupply } : {}),
       description: description.trim() || null,
       photos,
       category: catTrim || null,
@@ -1001,8 +1006,8 @@ export default function ListItemScreen() {
         ...(etsyConnected || ebayConnected
           ? {
               syncToChannels: etsyConnected ? syncToEtsy : true,
-              ...(etsyConnected ? { etsyWhoMade, etsyWhenMade, etsyIsSupply } : {}),
-              ...(ebayConnected && ebayCategoryId.trim()
+              ...(listingOnEtsy ? { etsyWhoMade, etsyWhenMade, etsyIsSupply } : {}),
+              ...(listingOnEbay && ebayCategoryId.trim()
                 ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
                 : {}),
             }
@@ -1012,14 +1017,12 @@ export default function ListItemScreen() {
       return;
     }
 
-    if (publishReadyConnections(channelConnections).length > 0) {
-      pendingCreatePayloadRef.current = basePayload;
-      setShowChannelPublishModal(true);
-      return;
-    }
-
     await performListingSubmit(
-      { ...basePayload, syncToChannels: false, channelProviders: [] },
+      {
+        ...basePayload,
+        syncToChannels: listOnProviders.length > 0,
+        channelProviders: listOnProviders,
+      },
       false
     );
   };
@@ -1056,25 +1059,6 @@ export default function ListItemScreen() {
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const handleChannelPublishConfirm = (providers: ChannelProviderId[]) => {
-    setShowChannelPublishModal(false);
-    const base = pendingCreatePayloadRef.current;
-    pendingCreatePayloadRef.current = null;
-    if (!base) return;
-    const payload: Record<string, unknown> = {
-      ...base,
-      syncToChannels: providers.length > 0,
-      channelProviders: providers,
-      ...(providers.includes("etsy")
-        ? { etsyWhoMade, etsyWhenMade, etsyIsSupply }
-        : {}),
-      ...(providers.includes("ebay") && ebayCategoryId.trim()
-        ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
-        : {}),
-    };
-    void performListingSubmit(payload, false);
   };
 
   const handleSelectTemplate = useCallback((template: ListingTemplate) => {
@@ -1131,14 +1115,6 @@ export default function ListItemScreen() {
 
   return (
     <View style={styles.screenWrapper}>
-    <ChannelPublishModal
-      visible={showChannelPublishModal}
-      onClose={() => {
-        setShowChannelPublishModal(false);
-        pendingCreatePayloadRef.current = null;
-      }}
-      onConfirm={handleChannelPublishConfirm}
-    />
     <Modal visible={showListingSuccessModal} transparent animationType="fade">
       <View style={styles.successModalOverlay}>
         <View style={styles.successModalCard}>
@@ -1329,7 +1305,16 @@ export default function ListItemScreen() {
         autoCorrect={true}
       />
 
-      {etsyConnected && (
+      {!editId ? (
+        <ChannelListOnCheckboxes
+          connections={channelConnections}
+          selected={listOnProviders}
+          onChange={setListOnProviders}
+          disabled={submitting}
+        />
+      ) : null}
+
+      {listingOnEtsy && (
         <EtsyListingRequirementsSection
           etsyWhoMade={etsyWhoMade}
           etsyWhenMade={etsyWhenMade}
@@ -1340,7 +1325,7 @@ export default function ListItemScreen() {
         />
       )}
 
-      {hasEbayConnection && (
+      {listingOnEbay && (
         <EbayItemDetailsSection
           ebayCategoryId={ebayCategoryId}
           ebayCategoryLabel={ebayCategoryLabel}
@@ -1396,7 +1381,7 @@ export default function ListItemScreen() {
             setEbayCategoryLabel(catPath);
             void loadCategoryAspects(catId);
           }}
-          ebayConnected={hasEbayConnection}
+          ebayConnected={listingOnEbay}
           showInwSuggestion={!category}
         />
       )}
@@ -1898,7 +1883,7 @@ export default function ListItemScreen() {
         </>
       )}
 
-      {etsyConnected && (
+      {editId && etsyConnected && (
         <CollapsibleSection
           title="Etsy sync"
           subtitle={
@@ -1927,7 +1912,7 @@ export default function ListItemScreen() {
         </CollapsibleSection>
       )}
 
-      {ebayConnected && (
+      {editId && ebayConnected && (
         <CollapsibleSection
           title="eBay sync"
           subtitle={

@@ -7,9 +7,24 @@ export type ChannelConnectionSummary = {
   provider: ChannelProviderId;
   shopName: string | null;
   status: string;
+  lastError?: string | null;
   readyToPublish: boolean | null;
   publishBlockReason?: string | null;
 };
+
+export const LIST_ON_PROVIDER_ORDER: ChannelProviderId[] = ["ebay", "etsy", "wix", "shopify"];
+
+/** Connected stores the seller can opt into on List Item (active Sync Stores only). */
+export function activeListOnConnections(
+  connections: ChannelConnectionSummary[]
+): ChannelConnectionSummary[] {
+  return connections
+    .filter((c) => c.status === "active")
+    .slice()
+    .sort(
+      (a, b) => LIST_ON_PROVIDER_ORDER.indexOf(a.provider) - LIST_ON_PROVIDER_ORDER.indexOf(b.provider)
+    );
+}
 
 export const CHANNEL_PROVIDER_LABEL: Record<ChannelProviderId, string> = {
   wix: "Wix",

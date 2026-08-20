@@ -7,6 +7,7 @@ type ListingSaveBarProps = {
   submitting: boolean;
   error?: string;
   backHref?: string;
+  createHint?: string;
 };
 
 export function ListingSaveBar({
@@ -14,6 +15,7 @@ export function ListingSaveBar({
   submitting,
   error,
   backHref = "/seller-hub/store/items",
+  createHint,
 }: ListingSaveBarProps) {
   return (
     <div className="fixed bottom-0 inset-x-0 z-40 border-t border-gray-200 bg-white/95 backdrop-blur-sm">
@@ -27,7 +29,7 @@ export function ListingSaveBar({
             <p className="text-xs text-gray-500 hidden sm:block">
               {isEdit
                 ? "Changes save to INW and sync to connected stores."
-                : "List on INW and optionally publish to connected stores."}
+                : createHint ?? "List on INW and optionally publish to connected stores."}
             </p>
           )}
         </div>
