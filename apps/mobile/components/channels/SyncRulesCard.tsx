@@ -207,7 +207,12 @@ export function SyncRulesCard() {
           {/* Safety Buffer */}
           <Text style={styles.fieldLabel}>Safety Buffer</Text>
           <Text style={styles.fieldHint}>
-            Hold back this many units from external channels (INW shows true quantity)
+            INW always shows your real quantity. This holds that many units back on eBay, Etsy, and
+            other connected stores so they advertise less than INW. Example: 2 in stock and a buffer
+            of 1 means those stores show 1. That extra unit is a cushion if the same item sells on
+            two stores at once before quantities catch up. A buffer of 0 advertises every unit
+            everywhere. NWC is not responsible if an item still sells on more than one store; using
+            channel sync means you accept that risk.
           </Text>
           <View style={styles.numberInputRow}>
             <Pressable

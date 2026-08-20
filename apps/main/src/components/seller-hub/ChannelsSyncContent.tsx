@@ -18,6 +18,7 @@ import {
   DisconnectChannelModal,
   type DisconnectChannelPrompt,
 } from "./DisconnectChannelModal";
+import { ChannelSafetyBufferCard } from "./ChannelSafetyBufferCard";
 
 type TabId = "connections" | "traces";
 
@@ -375,6 +376,7 @@ export function ChannelsSyncContent() {
               </div>
             );
           })}
+          <ChannelSafetyBufferCard />
         </div>
       )}
 
