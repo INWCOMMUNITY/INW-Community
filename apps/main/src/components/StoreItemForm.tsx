@@ -64,7 +64,10 @@ import {
   normalizeEtsyWhenMade,
 } from "@/lib/etsy-listing-options";
 import { EbayListingRequirementsSection } from "@/components/store-item/EbayListingRequirementsSection";
-import { EtsyListingRequirementsSection } from "@/components/store-item/EtsyListingRequirementsSection";
+import {
+  EtsyListingRequirementsSection,
+  type EtsyCategorySuggestion,
+} from "@/components/store-item/EtsyListingRequirementsSection";
 
 interface Business {
   id: string;
@@ -116,6 +119,7 @@ interface StoreItemFormProps {
     etsyWhoMade?: string | null;
     etsyWhenMade?: string | null;
     etsyIsSupply?: boolean | null;
+    etsyTaxonomyId?: number | null;
     channelLinks?: ChannelLinkSummary[];
     ebayLinkOrigin?: "import" | "inw_create" | null;
     hasEbayImportLink?: boolean;
@@ -150,6 +154,14 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [etsyIsSupply, setEtsyIsSupply] = useState(
     existing?.etsyIsSupply ?? false
   );
+  const [etsyTaxonomyId, setEtsyTaxonomyId] = useState<string>(
+    existing?.etsyTaxonomyId != null ? String(existing.etsyTaxonomyId) : ""
+  );
+  const [etsyCategoryLabel, setEtsyCategoryLabel] = useState<string>("");
+  const [etsyCategorySearch, setEtsyCategorySearch] = useState("");
+  const [etsyCategorySearchError, setEtsyCategorySearchError] = useState<string | null>(null);
+  const [etsyCategoryResults, setEtsyCategoryResults] = useState<EtsyCategorySuggestion[]>([]);
+  const [etsySearching, setEtsySearching] = useState(false);
   const [ebayCategoryId, setEbayCategoryId] = useState<string>(
     existing?.ebayCategoryId != null ? String(existing.ebayCategoryId) : ""
   );
@@ -265,7 +277,12 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
 
   const etsyConnected = channelConnections.some((c) => c.provider === "etsy" && c.status === "active");
   const ebayConnected = channelConnections.some((c) => c.provider === "ebay" && c.status === "active");
+  const etsyConn = channelConnections.find((c) => c.provider === "etsy");
   const ebayConn = channelConnections.find((c) => c.provider === "ebay");
+  const etsyConnectionError =
+    etsyConn?.status === "error"
+      ? etsyConn.lastError?.trim() || "Reconnect Etsy in Sync Stores."
+      : null;
   const ebayConnectionError =
     ebayConn?.status === "error"
       ? ebayConn.lastError?.trim() || "Reconnect eBay in Sync Stores."
@@ -367,17 +384,18 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       });
   }, [existing]);
 
-  // If eBay category search fails with reconnect guidance, refresh connection status in the UI.
+  // If category search fails with reconnect guidance, refresh connection status in the UI.
   useEffect(() => {
-    if (!ebayCategorySearchError) return;
-    if (!/reconnect|sync stores|unavailable|decrypt|expired/i.test(ebayCategorySearchError)) return;
+    const msg = ebayCategorySearchError || etsyCategorySearchError;
+    if (!msg) return;
+    if (!/reconnect|sync stores|unavailable|decrypt|expired/i.test(msg)) return;
     fetchChannelConnections()
       .then((list) => {
         setChannelConnections(list);
         setHasChannelConnections(list.some((c) => c.status === "active" || c.status === "error"));
       })
       .catch(() => {});
-  }, [ebayCategorySearchError]);
+  }, [ebayCategorySearchError, etsyCategorySearchError]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -440,6 +458,82 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       clearTimeout(t);
     };
   }, [ebayCategorySearch, showEbayRequirements]);
+
+  // Debounced live Etsy category search (seller taxonomy via connected shop token).
+  useEffect(() => {
+    const q = etsyCategorySearch.trim();
+    if (!showEtsyRequirements) return;
+    if (q.length < 2) {
+      setEtsyCategoryResults([]);
+      setEtsyCategorySearchError(null);
+      return;
+    }
+    let cancelled = false;
+    setEtsySearching(true);
+    setEtsyCategorySearchError(null);
+    const t = setTimeout(() => {
+      fetch(`/api/channels/etsy/categories?q=${encodeURIComponent(q)}`, {
+        credentials: "include",
+      })
+        .then(async (r) => {
+          const ct = r.headers.get("content-type") ?? "";
+          let data: { categories?: EtsyCategorySuggestion[]; error?: string } = {};
+          if (ct.includes("application/json")) {
+            data = await r.json();
+          }
+          if (cancelled) return;
+          if (!r.ok) {
+            setEtsyCategoryResults([]);
+            setEtsyCategorySearchError(
+              data.error ??
+                (r.status === 503
+                  ? "Connect Etsy in Sync Stores to search categories."
+                  : r.status >= 500
+                    ? "Category search is temporarily unavailable. Try again in a moment."
+                    : "Category search failed. Try again or contact support.")
+            );
+            return;
+          }
+          setEtsyCategorySearchError(null);
+          setEtsyCategoryResults(data.categories ?? []);
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setEtsyCategoryResults([]);
+            setEtsyCategorySearchError("Category search failed. Check your connection and try again.");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setEtsySearching(false);
+        });
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [etsyCategorySearch, showEtsyRequirements]);
+
+  // Resolve a saved Etsy taxonomy id to a readable path for the picker.
+  useEffect(() => {
+    if (!showEtsyRequirements || !etsyTaxonomyId || etsyCategoryLabel) return;
+    let cancelled = false;
+    fetch(`/api/channels/etsy/categories?id=${encodeURIComponent(etsyTaxonomyId)}`, {
+      credentials: "include",
+    })
+      .then(async (r) => {
+        if (!r.ok) return null;
+        const data: { categories?: EtsyCategorySuggestion[] } = await r.json();
+        return data.categories?.[0] ?? null;
+      })
+      .then((hit) => {
+        if (cancelled || !hit) return;
+        setEtsyCategoryLabel(hit.categoryPath || hit.categoryName);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [showEtsyRequirements, etsyTaxonomyId, etsyCategoryLabel]);
 
   // When an eBay category is chosen, load its required/recommended item specifics and pre-seed rows.
   const loadCategoryAspects = useCallback(
@@ -600,6 +694,10 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       aspectsToSave = aspectValidation.remappedAspects.filter((a) => a.name && a.value);
     }
     if (listingOnEtsy) {
+      if (!etsyTaxonomyId) {
+        setError("Etsy requires a category — fill in Etsy Listing Requirements.");
+        return null;
+      }
       if (!isEtsyWhoMade(etsyWhoMade)) {
         setError('Etsy requires "Who made it?" — fill in Etsy Listing Requirements.');
         return null;
@@ -619,7 +717,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       ebayCategoryId: listingOnEbay && ebayCategoryId ? Number(ebayCategoryId) : null,
       ...(isEbayImportedListing ? {} : { aspects: aspectsToSave }),
       ...(listingOnEtsy
-        ? { etsyWhoMade, etsyWhenMade, etsyIsSupply }
+        ? { etsyWhoMade, etsyWhenMade, etsyIsSupply, etsyTaxonomyId: Number(etsyTaxonomyId) }
         : {}),
       priceCents,
       status: "active",
@@ -857,6 +955,14 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     setCategoryAspects([]);
   }
 
+  function handleClearEtsyCategory() {
+    setEtsyTaxonomyId("");
+    setEtsyCategoryLabel("");
+    setEtsyCategorySearch("");
+    setEtsyCategorySearchError(null);
+    setEtsyCategoryResults([]);
+  }
+
   /** Suggested values for a Descriptor that matches a known eBay category aspect. */
   function suggestionsForAspect(name: string): string[] {
     const match = categoryAspects.find((a) => a.name.trim().toLowerCase() === name.trim().toLowerCase());
@@ -922,6 +1028,10 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                     if (item.ebayCategoryId != null) {
                       setEbayCategoryId(String(item.ebayCategoryId));
                     }
+                    if (item.etsyTaxonomyId != null) {
+                      setEtsyTaxonomyId(String(item.etsyTaxonomyId));
+                      setEtsyCategoryLabel("");
+                    }
                     if (item.condition === "new" || item.condition === "used") {
                       setCondition(item.condition);
                     }
@@ -951,7 +1061,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
             <>
               {!existing ? (
                 <ListingFormSection
-                  title="Also list on"
+                  title="Where Else to List?"
                   description="Choose other places to publish this item. Uncheck any store you want to skip."
                 >
                   <ChannelListOnCheckboxes
@@ -1117,6 +1227,22 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           onWhoMadeChange={setEtsyWhoMade}
           onWhenMadeChange={setEtsyWhenMade}
           onIsSupplyChange={setEtsyIsSupply}
+          etsyTaxonomyId={etsyTaxonomyId}
+          etsyCategoryLabel={etsyCategoryLabel}
+          etsyCategorySearch={etsyCategorySearch}
+          onEtsyCategorySearchChange={setEtsyCategorySearch}
+          etsyCategorySearchError={etsyCategorySearchError}
+          etsyCategoryResults={etsyCategoryResults}
+          etsySearching={etsySearching}
+          connectionError={etsyConnectionError}
+          onSelectCategory={(taxonomyId, label) => {
+            setEtsyTaxonomyId(taxonomyId);
+            setEtsyCategoryLabel(label);
+            setEtsyCategoryResults([]);
+            setEtsyCategorySearch("");
+            setEtsyCategorySearchError(null);
+          }}
+          onClearCategory={handleClearEtsyCategory}
         />
       )}
 

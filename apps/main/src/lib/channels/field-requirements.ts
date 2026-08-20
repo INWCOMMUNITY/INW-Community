@@ -226,9 +226,9 @@ const ETSY_REQUIREMENTS: ProviderRequirements = {
       field: "etsyTaxonomyId",
       label: "Etsy Category",
       type: "category",
-      required: false,
+      required: true,
       providerSpecific: true,
-      helpText: "Optional: Select an Etsy-specific category for better placement.",
+      helpText: "Choose the Etsy category that best matches this item.",
     },
     {
       field: "category",

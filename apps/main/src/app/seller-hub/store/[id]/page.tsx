@@ -93,6 +93,7 @@ export default async function EditStoreItemPage({
             etsyWhoMade: (item as { etsyWhoMade?: string | null }).etsyWhoMade ?? null,
             etsyWhenMade: (item as { etsyWhenMade?: string | null }).etsyWhenMade ?? null,
             etsyIsSupply: (item as { etsyIsSupply?: boolean | null }).etsyIsSupply ?? null,
+            etsyTaxonomyId: (item as { etsyTaxonomyId?: number | null }).etsyTaxonomyId ?? null,
             channelLinks: item.channelLinks.map((l) => ({
               provider: l.provider,
               syncStatus: l.syncStatus,

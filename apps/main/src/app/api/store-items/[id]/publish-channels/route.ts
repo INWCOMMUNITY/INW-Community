@@ -13,6 +13,11 @@ const bodySchema = z.object({
   providers: z
     .array(z.enum(["etsy", "ebay", "shopify", "wix"]))
     .min(1, "Select at least one store."),
+  etsyTaxonomyId: z.coerce.number().int().positive().optional(),
+  ebayCategoryId: z.coerce.number().int().positive().optional(),
+  etsyWhoMade: z.string().min(1).optional(),
+  etsyWhenMade: z.string().min(1).optional(),
+  etsyIsSupply: z.boolean().optional(),
 });
 
 /**
@@ -44,6 +49,25 @@ export async function POST(
   });
   if (!item) {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
+  }
+
+  const categoryPatch: {
+    etsyTaxonomyId?: number;
+    ebayCategoryId?: number;
+    etsyWhoMade?: string;
+    etsyWhenMade?: string;
+    etsyIsSupply?: boolean;
+  } = {};
+  if (body.etsyTaxonomyId != null) categoryPatch.etsyTaxonomyId = body.etsyTaxonomyId;
+  if (body.ebayCategoryId != null) categoryPatch.ebayCategoryId = body.ebayCategoryId;
+  if (body.etsyWhoMade) categoryPatch.etsyWhoMade = body.etsyWhoMade;
+  if (body.etsyWhenMade) categoryPatch.etsyWhenMade = body.etsyWhenMade;
+  if (body.etsyIsSupply != null) categoryPatch.etsyIsSupply = body.etsyIsSupply;
+  if (Object.keys(categoryPatch).length > 0) {
+    await prisma.storeItem.update({
+      where: { id: item.id },
+      data: categoryPatch,
+    });
   }
 
   const providers = body.providers as ChannelProvider[];

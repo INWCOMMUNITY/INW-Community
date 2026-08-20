@@ -271,7 +271,7 @@ function validateEtsy(
     });
   }
 
-  if (!item.etsyTaxonomyId && !item.category) {
+  if (!item.etsyTaxonomyId) {
     errors.push({
       field: "etsyTaxonomyId",
       message: "Etsy requires a category before listing. Choose an Etsy category on the item.",
@@ -478,7 +478,7 @@ export function validateForProviderQuick(
         severity: "error",
       });
     }
-    if (!item.etsyTaxonomyId && !item.category) {
+    if (!item.etsyTaxonomyId) {
       errors.push({
         field: "etsyTaxonomyId",
         message: "Etsy requires a category before listing.",

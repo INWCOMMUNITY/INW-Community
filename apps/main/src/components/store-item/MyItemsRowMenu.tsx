@@ -11,6 +11,13 @@ import {
 } from "@/lib/channel-connections-client";
 import { alertChannelPublishResult, alertChannelSyncFailures } from "@/lib/channel-sync-feedback";
 import { itemEditHref, itemListingHref, type ItemsTab, type MyStoreItem } from "@/components/store-item/my-items-types";
+import { ListOnChannelCategoryModal } from "@/components/store-item/ListOnChannelCategoryModal";
+import {
+  isListOnCategoryProvider,
+  itemNeedsListOnCategoryStep,
+  type ListOnCategoryAssignment,
+  type ListOnCategoryProvider,
+} from "@/lib/list-on-channel-category";
 
 const menuRowClass =
   "flex w-full items-center px-5 py-3 text-sm font-semibold text-left no-underline hover:bg-gray-50 disabled:opacity-50";
@@ -36,6 +43,7 @@ export function MyItemsRowMenu({
 }) {
   const [acting, setActing] = useState(false);
   const [soldPrompt, setSoldPrompt] = useState(false);
+  const [categoryProvider, setCategoryProvider] = useState<ListOnCategoryProvider | null>(null);
   useLockBodyScroll(true);
 
   const linked = (item.channelLinks ?? []).map((l) => l.provider as ChannelProviderId);
@@ -160,25 +168,41 @@ export function MyItemsRowMenu({
   }
 
   async function publishTo(provider: ChannelProviderId) {
+    if (isListOnCategoryProvider(provider) && itemNeedsListOnCategoryStep(item, provider)) {
+      setCategoryProvider(provider);
+      return;
+    }
     const label = CHANNEL_PROVIDER_LABELS[provider] ?? provider;
     if (!window.confirm(`List on ${label}? This creates a listing on your connected ${label} store and keeps inventory in sync.`)) {
       return;
     }
+    await runPublish(provider);
+  }
+
+  async function runPublish(provider: ChannelProviderId, assignment?: ListOnCategoryAssignment) {
+    const label = CHANNEL_PROVIDER_LABELS[provider] ?? provider;
     setActing(true);
     try {
+      const body: Record<string, unknown> = { providers: [provider] };
+      if (assignment?.etsyTaxonomyId != null) body.etsyTaxonomyId = assignment.etsyTaxonomyId;
+      if (assignment?.ebayCategoryId != null) body.ebayCategoryId = assignment.ebayCategoryId;
+      if (assignment?.etsyWhoMade) body.etsyWhoMade = assignment.etsyWhoMade;
+      if (assignment?.etsyWhenMade) body.etsyWhenMade = assignment.etsyWhenMade;
       const data = await jsonFetch<{ channelSync?: { provider: string; ok: boolean; error?: string }[] }>(
         `/api/store-items/${item.id}/publish-channels`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ providers: [provider] }),
+          body: JSON.stringify(body),
         }
       );
       alertChannelPublishResult(data.channelSync);
       onDone();
       onClose();
     } catch (e) {
-      alert(e instanceof Error ? e.message : `Could not list on ${label}.`);
+      const msg = e instanceof Error ? e.message : `Could not list on ${label}.`;
+      if (assignment) throw new Error(msg);
+      alert(msg);
     } finally {
       setActing(false);
     }
@@ -215,6 +239,18 @@ export function MyItemsRowMenu({
 
   const listingHref = itemListingHref(item);
   const storeList = linked.map((p) => CHANNEL_PROVIDER_LABELS[p] ?? p).join(", ");
+
+  if (categoryProvider) {
+    return (
+      <ListOnChannelCategoryModal
+        steps={[{ item, provider: categoryProvider }]}
+        onClose={() => setCategoryProvider(null)}
+        onComplete={async (assignments) => {
+          await runPublish(categoryProvider, assignments[0]);
+        }}
+      />
+    );
+  }
 
   return (
     <div

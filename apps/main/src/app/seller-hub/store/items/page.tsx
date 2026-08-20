@@ -391,6 +391,7 @@ export default function MyItemsPage() {
       <MyItemsBulkBar
         tab={tab}
         selectedIds={selectedIds}
+        selectedItems={items.filter((i) => selectedIds.includes(i.id))}
         connections={connections}
         onClear={() => setSelectedIds([])}
         onDone={() => void load({ silent: true })}

@@ -18,6 +18,13 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import { alertChannelPublishResult, alertChannelSyncFailures } from "@/lib/channel-sync-alert";
 import { EbayConditionFixModal } from "@/components/channels/EbayConditionFixModal";
+import { ListOnChannelCategoryModal } from "@/components/channels/ListOnChannelCategoryModal";
+import {
+  isListOnCategoryProvider,
+  itemNeedsListOnCategoryStep,
+  type ListOnCategoryAssignment,
+  type ListOnCategoryProvider,
+} from "@/lib/list-on-channel-category";
 import { isEbayConditionSyncError } from "@/lib/ebay-condition-sync";
 import { QualityScoreBadge } from "@/components/listing/QualityScoreBadge";
 import {
@@ -49,6 +56,10 @@ interface StoreItem {
   photos: string[];
   soldOrderId?: string;
   soldAt?: string;
+  etsyTaxonomyId?: number | null;
+  ebayCategoryId?: number | null;
+  etsyWhoMade?: string | null;
+  etsyWhenMade?: string | null;
   channelLinks?: ChannelLink[];
 }
 
@@ -83,6 +94,8 @@ export default function MyItemsScreen() {
   const [menuItemId, setMenuItemId] = useState<string | null>(null);
   const [conditionFixItemId, setConditionFixItemId] = useState<string | null>(null);
   const [channelConnections, setChannelConnections] = useState<ChannelConnectionSummary[]>([]);
+  const [categoryProvider, setCategoryProvider] = useState<ListOnCategoryProvider | null>(null);
+  const [categoryItemId, setCategoryItemId] = useState<string | null>(null);
 
   type ItemsTab = "active" | "ended" | "sold";
   const [itemsTab, setItemsTab] = useState<ItemsTab>(initialTab);
@@ -355,6 +368,13 @@ export default function MyItemsScreen() {
   };
 
   const publishToChannel = (storeItemId: string, provider: ChannelProviderId) => {
+    const item = items.find((i) => i.id === storeItemId);
+    if (item && isListOnCategoryProvider(provider) && itemNeedsListOnCategoryStep(item, provider)) {
+      setMenuItemId(null);
+      setCategoryItemId(storeItemId);
+      setCategoryProvider(provider);
+      return;
+    }
     const label = CHANNEL_PROVIDER_LABEL[provider] ?? provider;
     Alert.alert(
       `List on ${label}?`,
@@ -363,27 +383,42 @@ export default function MyItemsScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "List",
-          onPress: async () => {
-            setMenuItemId(null);
-            setActingId(storeItemId);
-            try {
-              const res = await apiPost<{
-                channelSync?: { provider: string; ok: boolean; error?: string }[];
-              }>(`/api/store-items/${storeItemId}/publish-channels`, {
-                providers: [provider],
-              });
-              alertChannelPublishResult(res.channelSync);
-              load();
-            } catch (e) {
-              const err = e as { error?: string };
-              Alert.alert("Error", err.error ?? `Could not list on ${label}.`);
-            } finally {
-              setActingId(null);
-            }
-          },
+          onPress: () => void runPublish(storeItemId, provider),
         },
       ]
     );
+  };
+
+  const runPublish = async (
+    storeItemId: string,
+    provider: ChannelProviderId,
+    assignment?: ListOnCategoryAssignment
+  ) => {
+    const label = CHANNEL_PROVIDER_LABEL[provider] ?? provider;
+    setMenuItemId(null);
+    setActingId(storeItemId);
+    try {
+      const res = await apiPost<{
+        channelSync?: { provider: string; ok: boolean; error?: string }[];
+      }>(`/api/store-items/${storeItemId}/publish-channels`, {
+        providers: [provider],
+        ...(assignment?.etsyTaxonomyId != null ? { etsyTaxonomyId: assignment.etsyTaxonomyId } : {}),
+        ...(assignment?.ebayCategoryId != null ? { ebayCategoryId: assignment.ebayCategoryId } : {}),
+        ...(assignment?.etsyWhoMade ? { etsyWhoMade: assignment.etsyWhoMade } : {}),
+        ...(assignment?.etsyWhenMade ? { etsyWhenMade: assignment.etsyWhenMade } : {}),
+      });
+      alertChannelPublishResult(res.channelSync);
+      setCategoryProvider(null);
+      setCategoryItemId(null);
+      load();
+    } catch (e) {
+      const err = e as { error?: string };
+      const msg = err.error ?? `Could not list on ${label}.`;
+      if (assignment) throw new Error(msg);
+      Alert.alert("Error", msg);
+    } finally {
+      setActingId(null);
+    }
   };
 
   const linkedProvidersForItem = (item: StoreItem): ChannelProviderId[] =>
@@ -727,6 +762,24 @@ export default function MyItemsScreen() {
         storeItemId={conditionFixItemId}
         onClose={() => setConditionFixItemId(null)}
         onFixed={() => load()}
+      />
+      <ListOnChannelCategoryModal
+        visible={!!categoryProvider && !!categoryItemId}
+        steps={
+          categoryProvider && categoryItemId
+            ? items
+                .filter((i) => i.id === categoryItemId)
+                .map((item) => ({ item, provider: categoryProvider }))
+            : []
+        }
+        onClose={() => {
+          setCategoryProvider(null);
+          setCategoryItemId(null);
+        }}
+        onComplete={async (assignments) => {
+          if (!categoryProvider || !categoryItemId) return;
+          await runPublish(categoryItemId, categoryProvider, assignments[0]);
+        }}
       />
     </View>
   );

@@ -32,7 +32,7 @@ export function ChannelListOnCheckboxes({ connections, selected, onChange, disab
   if (rows.length === 0) {
     return (
       <View style={styles.wrap}>
-        <Text style={styles.title}>Also list on</Text>
+        <Text style={styles.title}>Where Else to List?</Text>
         <Text style={styles.subtitle}>Only stores you have connected in Sync Stores.</Text>
         <Pressable onPress={() => router.push("/seller-hub/channels")}>
           <Text style={styles.link}>Connect stores in Sync Stores</Text>
@@ -43,7 +43,7 @@ export function ChannelListOnCheckboxes({ connections, selected, onChange, disab
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.title}>Also list on</Text>
+      <Text style={styles.title}>Where Else to List?</Text>
       <Text style={styles.subtitle}>Choose other places to publish. Uncheck any store to skip.</Text>
       {rows.map((c) => {
         const needsReconnect = c.status === "error";

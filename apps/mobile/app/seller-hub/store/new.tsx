@@ -49,7 +49,7 @@ import { TemplateSelector, type ListingTemplate } from "@/components/listing/Tem
 import { CategorySuggestions } from "@/components/listing/CategorySuggestions";
 import { CollapsibleSection } from "@/components/listing/CollapsibleSection";
 import { EbayItemDetailsSection } from "@/components/listing/EbayItemDetailsSection";
-import { EtsyListingRequirementsSection } from "@/components/listing/EtsyListingRequirementsSection";
+import { EtsyListingRequirementsSection, type EtsyCategorySuggestion } from "@/components/listing/EtsyListingRequirementsSection";
 import {
   type EtsyWhoMade,
   type EtsyWhenMade,
@@ -182,6 +182,12 @@ export default function ListItemScreen() {
   const [etsyWhoMade, setEtsyWhoMade] = useState<EtsyWhoMade>("i_did");
   const [etsyWhenMade, setEtsyWhenMade] = useState<EtsyWhenMade>("made_to_order");
   const [etsyIsSupply, setEtsyIsSupply] = useState(false);
+  const [etsyTaxonomyId, setEtsyTaxonomyId] = useState("");
+  const [etsyCategoryLabel, setEtsyCategoryLabel] = useState("");
+  const [etsyCategorySearch, setEtsyCategorySearch] = useState("");
+  const [etsyCategoryResults, setEtsyCategoryResults] = useState<EtsyCategorySuggestion[]>([]);
+  const [etsySearching, setEtsySearching] = useState(false);
+  const [etsyCategorySearchError, setEtsyCategorySearchError] = useState<string | null>(null);
   // Channel sync (eBay). Only shown when the seller has connected an eBay account.
   const [ebayConnected, setEbayConnected] = useState(false);
   const [ebayCategoryId, setEbayCategoryId] = useState("");
@@ -346,6 +352,7 @@ export default function ListItemScreen() {
         etsyWhoMade?: string | null;
         etsyWhenMade?: string | null;
         etsyIsSupply?: boolean | null;
+        etsyTaxonomyId?: number | null;
         sku?: string | null;
         ebayCategoryId?: number | null;
         aspects?: { name?: unknown; value?: unknown }[] | null;
@@ -394,6 +401,10 @@ export default function ListItemScreen() {
           const whenMade = normalizeEtsyWhenMade(item.etsyWhenMade);
           if (whenMade) setEtsyWhenMade(whenMade);
           if (typeof item.etsyIsSupply === "boolean") setEtsyIsSupply(item.etsyIsSupply);
+          if (item.etsyTaxonomyId != null) {
+            setEtsyTaxonomyId(String(item.etsyTaxonomyId));
+            setEtsyCategoryLabel("");
+          }
           if (item.ebayCategoryId != null) setEbayCategoryId(String(item.ebayCategoryId));
           if (Array.isArray(item.aspects)) {
             setAspects(
@@ -620,6 +631,62 @@ export default function ListItemScreen() {
     };
   }, [ebayCategorySearch, listingOnEbay]);
 
+  // Debounced live Etsy category search.
+  useEffect(() => {
+    if (!listingOnEtsy) return;
+    const q = etsyCategorySearch.trim();
+    if (q.length < 2) {
+      setEtsyCategoryResults([]);
+      setEtsyCategorySearchError(null);
+      return;
+    }
+    let cancelled = false;
+    setEtsySearching(true);
+    setEtsyCategorySearchError(null);
+    const t = setTimeout(() => {
+      apiGet<{ categories?: EtsyCategorySuggestion[] }>(
+        `/api/channels/etsy/categories?q=${encodeURIComponent(q)}`
+      )
+        .then((data) => {
+          if (!cancelled) {
+            setEtsyCategoryResults(data.categories ?? []);
+            setEtsyCategorySearchError(null);
+          }
+        })
+        .catch((e: { error?: string }) => {
+          if (!cancelled) {
+            setEtsyCategoryResults([]);
+            setEtsyCategorySearchError(e?.error ?? "Category search failed. Try again.");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setEtsySearching(false);
+        });
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [etsyCategorySearch, listingOnEtsy]);
+
+  useEffect(() => {
+    if (!listingOnEtsy || !etsyTaxonomyId || etsyCategoryLabel) return;
+    let cancelled = false;
+    apiGet<{ categories?: EtsyCategorySuggestion[] }>(
+      `/api/channels/etsy/categories?id=${encodeURIComponent(etsyTaxonomyId)}`
+    )
+      .then((data) => {
+        const hit = data.categories?.[0];
+        if (!cancelled && hit) {
+          setEtsyCategoryLabel(hit.categoryPath || hit.categoryName);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [listingOnEtsy, etsyTaxonomyId, etsyCategoryLabel]);
+
   // Load aspects for a previously-saved eBay category once the connection is known.
   useEffect(() => {
     if (ebayConnected && ebayCategoryId) void loadCategoryAspects(ebayCategoryId);
@@ -671,6 +738,22 @@ export default function ListItemScreen() {
     setEbayCategoryLabel("");
     setEbayCategorySearch("");
     setCategoryAspects([]);
+  };
+
+  const selectEtsyCategory = (taxonomyId: string, label: string) => {
+    setEtsyTaxonomyId(taxonomyId);
+    setEtsyCategoryLabel(label);
+    setEtsyCategoryResults([]);
+    setEtsyCategorySearch("");
+    setEtsyCategorySearchError(null);
+  };
+
+  const clearEtsyCategory = () => {
+    setEtsyTaxonomyId("");
+    setEtsyCategoryLabel("");
+    setEtsyCategorySearch("");
+    setEtsyCategorySearchError(null);
+    setEtsyCategoryResults([]);
   };
 
   const syncShippingPolicy = () => {
@@ -729,6 +812,7 @@ export default function ListItemScreen() {
           priceCents: number;
           quantity: number;
           ebayCategoryId?: number | null;
+          etsyTaxonomyId?: number | null;
           aspects?: { name?: unknown; value?: unknown }[] | null;
         }>(`/api/store-items/${editId}`);
 
@@ -741,6 +825,10 @@ export default function ListItemScreen() {
         setPriceCents(item.priceCents != null ? (item.priceCents / 100).toFixed(2) : "");
         setQuantity(String(item.quantity ?? 1));
         if (item.ebayCategoryId != null) setEbayCategoryId(String(item.ebayCategoryId));
+        if (item.etsyTaxonomyId != null) {
+          setEtsyTaxonomyId(String(item.etsyTaxonomyId));
+          setEtsyCategoryLabel("");
+        }
         if (Array.isArray(item.aspects)) {
           setAspects(
             item.aspects.map((a) => ({ name: String(a?.name ?? ""), value: String(a?.value ?? "") }))
@@ -904,6 +992,10 @@ export default function ListItemScreen() {
       }
     }
     if (listingOnEtsy) {
+      if (!etsyTaxonomyId.trim()) {
+        setError("Etsy requires a category — fill in Etsy Listing Requirements.");
+        return;
+      }
       if (!isEtsyWhoMade(etsyWhoMade)) {
         setError('Etsy requires "Who made it?" — fill in Etsy Listing Requirements.');
         return;
@@ -968,7 +1060,9 @@ export default function ListItemScreen() {
       ...(listingOnEbay && ebayCategoryId.trim()
         ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
         : {}),
-      ...(listingOnEtsy ? { etsyWhoMade, etsyWhenMade, etsyIsSupply } : {}),
+      ...(listingOnEtsy
+        ? { etsyWhoMade, etsyWhenMade, etsyIsSupply, etsyTaxonomyId: Number(etsyTaxonomyId.trim()) }
+        : {}),
       description: description.trim() || null,
       photos,
       category: catTrim || null,
@@ -1006,7 +1100,9 @@ export default function ListItemScreen() {
         ...(etsyConnected || ebayConnected
           ? {
               syncToChannels: etsyConnected ? syncToEtsy : true,
-              ...(listingOnEtsy ? { etsyWhoMade, etsyWhenMade, etsyIsSupply } : {}),
+              ...(listingOnEtsy
+                ? { etsyWhoMade, etsyWhenMade, etsyIsSupply, etsyTaxonomyId: Number(etsyTaxonomyId.trim()) }
+                : {}),
               ...(listingOnEbay && ebayCategoryId.trim()
                 ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
                 : {}),
@@ -1322,6 +1418,16 @@ export default function ListItemScreen() {
           onWhoMadeChange={setEtsyWhoMade}
           onWhenMadeChange={setEtsyWhenMade}
           onIsSupplyChange={setEtsyIsSupply}
+          etsyTaxonomyId={etsyTaxonomyId}
+          etsyCategoryLabel={etsyCategoryLabel}
+          etsyCategorySearch={etsyCategorySearch}
+          onEtsyCategorySearchChange={setEtsyCategorySearch}
+          etsyCategoryResults={etsyCategoryResults}
+          etsySearching={etsySearching}
+          etsyCategorySearchError={etsyCategorySearchError}
+          onSelectCategory={selectEtsyCategory}
+          onClearCategory={clearEtsyCategory}
+          placeholderColor={placeholderColor}
         />
       )}
 

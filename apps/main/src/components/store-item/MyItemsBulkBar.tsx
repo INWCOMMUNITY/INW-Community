@@ -5,17 +5,21 @@ import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
 import type { ChannelConnectionSummary } from "@/lib/channel-connections-client";
 import { publishReadyConnections } from "@/lib/channel-connections-client";
-import type { ItemsTab } from "@/components/store-item/my-items-types";
+import type { ItemsTab, MyStoreItem } from "@/components/store-item/my-items-types";
+import { ListOnChannelCategoryModal } from "@/components/store-item/ListOnChannelCategoryModal";
+import { buildListOnCategoryQueue, type ListOnCategoryAssignment } from "@/lib/list-on-channel-category";
 
 export function MyItemsBulkBar({
   tab,
   selectedIds,
+  selectedItems,
   connections,
   onClear,
   onDone,
 }: {
   tab: ItemsTab;
   selectedIds: string[];
+  selectedItems: MyStoreItem[];
   connections: ChannelConnectionSummary[];
   onClear: () => void;
   onDone: () => void;
@@ -26,6 +30,9 @@ export function MyItemsBulkBar({
   const [quantityAdjust, setQuantityAdjust] = useState("");
   const [syncAfterEdit, setSyncAfterEdit] = useState(true);
   const [publishProviders, setPublishProviders] = useState<string[]>([]);
+  const [categorySteps, setCategorySteps] = useState<ReturnType<typeof buildListOnCategoryQueue> | null>(
+    null
+  );
 
   const readyProviders = publishReadyConnections(connections);
   useLockBodyScroll(panel != null);
@@ -160,9 +167,15 @@ export function MyItemsBulkBar({
     }
   }
 
-  async function applyPublish() {
+  async function applyPublish(assignments?: ListOnCategoryAssignment[]) {
     if (publishProviders.length === 0) {
       alert("Select at least one channel.");
+      return;
+    }
+    const queue = buildListOnCategoryQueue(selectedItems, publishProviders);
+    if (!assignments && queue.length > 0) {
+      setPanel(null);
+      setCategorySteps(queue);
       return;
     }
     setLoading(true);
@@ -177,6 +190,7 @@ export function MyItemsBulkBar({
             providers: publishProviders,
             validateFirst: true,
             skipInvalid: true,
+            ...(assignments?.length ? { assignments } : {}),
           }),
         }
       );
@@ -190,11 +204,14 @@ export function MyItemsBulkBar({
           .join("\n")
       );
       setPanel(null);
+      setCategorySteps(null);
       setPublishProviders([]);
       onDone();
       onClear();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Bulk publish failed");
+      const msg = e instanceof Error ? e.message : "Bulk publish failed";
+      alert(msg);
+      if (assignments) throw new Error(msg);
     } finally {
       setLoading(false);
     }
@@ -327,6 +344,14 @@ export function MyItemsBulkBar({
           </div>
         </div>
       )}
+
+      {categorySteps && categorySteps.length > 0 ? (
+        <ListOnChannelCategoryModal
+          steps={categorySteps}
+          onClose={() => setCategorySteps(null)}
+          onComplete={(assignments) => applyPublish(assignments)}
+        />
+      ) : null}
     </>
   );
 }

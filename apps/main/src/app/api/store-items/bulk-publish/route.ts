@@ -13,6 +13,17 @@ const bulkPublishSchema = z.object({
   providers: z.array(z.string()).min(1),
   validateFirst: z.boolean().optional().default(true),
   skipInvalid: z.boolean().optional().default(true),
+  assignments: z
+    .array(
+      z.object({
+        storeItemId: z.string(),
+        etsyTaxonomyId: z.number().int().positive().optional(),
+        ebayCategoryId: z.number().int().positive().optional(),
+        etsyWhoMade: z.string().min(1).optional(),
+        etsyWhenMade: z.string().min(1).optional(),
+      })
+    )
+    .optional(),
 });
 
 type PublishResult = {
@@ -72,7 +83,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { storeItemIds, providers: providerStrings, validateFirst, skipInvalid } = parsed.data;
+    const { storeItemIds, providers: providerStrings, validateFirst, skipInvalid, assignments } =
+      parsed.data;
 
     // Validate provider strings
     const providers: ChannelProvider[] = [];
@@ -103,6 +115,26 @@ export async function POST(req: NextRequest) {
     });
 
     const itemsById = new Map(storeItems.map((item) => [item.id, item]));
+
+    if (assignments?.length) {
+      for (const assignment of assignments) {
+        const item = itemsById.get(assignment.storeItemId);
+        if (!item) continue;
+        const data: {
+          etsyTaxonomyId?: number;
+          ebayCategoryId?: number;
+          etsyWhoMade?: string;
+          etsyWhenMade?: string;
+        } = {};
+        if (assignment.etsyTaxonomyId != null) data.etsyTaxonomyId = assignment.etsyTaxonomyId;
+        if (assignment.ebayCategoryId != null) data.ebayCategoryId = assignment.ebayCategoryId;
+        if (assignment.etsyWhoMade) data.etsyWhoMade = assignment.etsyWhoMade;
+        if (assignment.etsyWhenMade) data.etsyWhenMade = assignment.etsyWhenMade;
+        if (Object.keys(data).length === 0) continue;
+        await prisma.storeItem.update({ where: { id: item.id }, data });
+        Object.assign(item, data);
+      }
+    }
 
     // Fetch connections
     const connections = await prisma.channelConnection.findMany({

@@ -50,7 +50,7 @@ export function ChannelListOnCheckboxes({
 
   return (
     <fieldset className="space-y-3">
-      <legend className="sr-only">Also list on connected stores</legend>
+      <legend className="sr-only">Where else to list</legend>
       {rows.map((c) => {
         const provider = c.provider;
         const needsReconnect = c.status === "error";

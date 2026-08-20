@@ -51,6 +51,7 @@ type ItemChannelSyncPanelProps = {
     priceCents: number;
     quantity: number;
     ebayCategoryId?: number | null;
+    etsyTaxonomyId?: number | null;
     aspects?: unknown;
     condition?: "new" | "used" | null;
     acceptOffers?: boolean;

@@ -13,6 +13,10 @@ export type MyStoreItem = {
   photos: string[];
   soldOrderId?: string;
   soldAt?: string;
+  etsyTaxonomyId?: number | null;
+  ebayCategoryId?: number | null;
+  etsyWhoMade?: string | null;
+  etsyWhenMade?: string | null;
   channelLinks?: ItemChannelLink[];
 };
 
