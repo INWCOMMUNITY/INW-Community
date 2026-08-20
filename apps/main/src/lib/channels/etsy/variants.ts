@@ -532,7 +532,8 @@ export async function syncEtsyListingInventoryFromInw(
   });
 
   // Try to get taxonomy properties for adding new options
-  const taxonomyProps = await fetchTaxonomyProperties(accessToken, taxonomyId);
+  const taxonomyProps =
+    taxonomyId == null ? [] : await fetchTaxonomyProperties(accessToken, taxonomyId);
   
   // Fallback: extract property metadata from existing products when taxonomy 404s
   const fallbackProperty =
@@ -610,16 +611,19 @@ export async function syncEtsyListingInventoryFromInw(
     });
     
     // First try taxonomy-based approach
-    let row = await buildProductRowForOption(
-      accessToken,
-      taxonomyId,
-      item,
-      quantityAxis,
-      opt,
-      defaultReadinessStateId,
-      taxonomyProps,
-      skuPattern
-    );
+    let row =
+      taxonomyId == null
+        ? null
+        : await buildProductRowForOption(
+            accessToken,
+            taxonomyId,
+            item,
+            quantityAxis,
+            opt,
+            defaultReadinessStateId,
+            taxonomyProps,
+            skuPattern
+          );
     
     // Fallback: use property metadata from existing products
     if (!row && fallbackProperty) {
