@@ -238,24 +238,11 @@ export async function fetchEbayItemDetails(
       minOfferCents: bestOffer.minOfferCents,
     };
   } catch (e) {
-    console.error("[ebay] fetchEbayItemDetails failed", { listingId, error: e instanceof Error ? e.message : String(e) });
-    return {
-      aspects: [],
-      remoteCategoryId: null,
-      categoryName: null,
-      description: null,
-      photos: [],
-      title: null,
-      condition: null,
-      conditionEnum: null,
-      remoteUpdatedAt: null,
-      quantity: null,
-      priceCents: null,
-      variants: null,
-      listingEnded: false,
-      acceptOffers: false,
-      minOfferCents: null,
-    };
+    console.error("[ebay] fetchEbayItemDetails failed", {
+      listingId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    throw e;
   }
 }
 

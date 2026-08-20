@@ -1,5 +1,5 @@
 import { prisma } from "database";
-import { getConnectionContext } from "../connection";
+import { withConnectionAuthRetry, isChannelAuthError } from "../connection";
 import { fetchEbayItemDetails } from "./trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
@@ -72,6 +72,15 @@ export function isEbayInboundContentChange(updateData: Record<string, unknown>):
   return Object.keys(updateData).some((key) => !EBAY_INBOUND_META_KEYS.has(key));
 }
 
+/** Failed GetItem (expired token, empty envelope) must not skip, apply, or stamp lastInboundAt. */
+export function ebayGetItemDetailsAreUsable(details: {
+  title: string | null;
+  priceCents: number | null;
+  quantity: number | null;
+}): boolean {
+  return details.title != null || details.priceCents != null || details.quantity != null;
+}
+
 export function ebayGetItemIsStaleVersusInw(args: {
   lastInboundAt: Date | null;
   inwUpdatedAt: Date | null;
@@ -140,6 +149,22 @@ export async function refreshEbayListingByItemId(
 
   const storeItem = link.storeItem;
   const details = await fetchEbayItemDetails(accessToken, legacyItemId);
+  if (!ebayGetItemDetailsAreUsable(details)) {
+    debugEbayCron("H-B", "pull-ebay-updates.ts:unusableGetItem", "GetItem returned no listing fields", {
+      legacyItemId,
+      listingEnded: details.listingEnded,
+    });
+    console.error("[ebay] refreshEbayListingByItemId: GetItem returned no listing fields", {
+      storeItemId: storeItem.id,
+      legacyItemId,
+    });
+    return {
+      storeItemId: storeItem.id,
+      title: storeItem.title,
+      updated: false,
+      changes: [],
+    };
+  }
   const staleVersusInw = ebayGetItemIsStaleVersusInw({
     lastInboundAt: link.lastInboundAt,
     inwUpdatedAt: storeItem.updatedAt,
@@ -428,16 +453,6 @@ export async function pullEbayUpdatesForConnection(
     return { updated: [], checked: 0 };
   }
 
-  const ctx = await getConnectionContext(connection);
-  if (!ctx) {
-    debugEbayCron("H-C", "pull-ebay-updates.ts:noCtx", "ebay pull skipped: no connection context", {
-      connectionId: connection.id,
-      status: connection.status,
-      hasAccessToken: Boolean(connection.accessTokenEncrypted),
-    });
-    return { updated: [], checked: 0 };
-  }
-
   const links = await prisma.channelListingLink.findMany({
     where: {
       connectionId: connection.id,
@@ -459,36 +474,39 @@ export async function pullEbayUpdatesForConnection(
     return { updated: [], checked: 0 };
   }
 
-  const results: PullResult[] = [];
+  return withConnectionAuthRetry(connection, async (ctx) => {
+    const results: PullResult[] = [];
 
-  for (const link of links) {
-    let legacyId = link.externalListingId;
-    const inwMatch = legacyId.match(/^inw(\d+)$/);
-    if (inwMatch) {
-      legacyId = inwMatch[1];
-    }
-
-    try {
-      // GetItem is the live listing (same as the public item page). Do not gate on
-      // GetMyeBaySelling ActiveList — that seller-list call can lag minutes behind a revise.
-      const result = await refreshEbayListingByItemId(ctx.accessToken, legacyId);
-      if (result && result.updated) {
-        results.push(result);
+    for (const link of links) {
+      let legacyId = link.externalListingId;
+      const inwMatch = legacyId.match(/^inw(\d+)$/);
+      if (inwMatch) {
+        legacyId = inwMatch[1];
       }
-    } catch (e) {
-      debugEbayCron("H-C", "pull-ebay-updates.ts:pullError", "GetItem refresh threw", {
-        legacyId,
-        error: e instanceof Error ? e.message : String(e),
-      });
-      console.error("[ebay] pullEbayUpdatesForConnection: failed to refresh", {
-        legacyId,
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
-  }
 
-  return {
-    updated: results,
-    checked: links.length,
-  };
+      try {
+        // GetItem is the live listing (same as the public item page). Do not gate on
+        // GetMyeBaySelling ActiveList — that seller-list call can lag minutes behind a revise.
+        const result = await refreshEbayListingByItemId(ctx.accessToken, legacyId);
+        if (result && result.updated) {
+          results.push(result);
+        }
+      } catch (e) {
+        debugEbayCron("H-C", "pull-ebay-updates.ts:pullError", "GetItem refresh threw", {
+          legacyId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        console.error("[ebay] pullEbayUpdatesForConnection: failed to refresh", {
+          legacyId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        if (isChannelAuthError("ebay", e)) throw e;
+      }
+    }
+
+    return {
+      updated: results,
+      checked: links.length,
+    };
+  });
 }

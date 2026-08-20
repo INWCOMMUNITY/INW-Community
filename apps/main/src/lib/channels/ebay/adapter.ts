@@ -1419,9 +1419,13 @@ export const ebayAdapter: ChannelAdapter = {
     }
 
     if (/^\d+$/.test(legacyId)) {
-      const details = await fetchEbayItemDetails(conn.accessToken, legacyId);
-      if (details.quantity != null) {
-        return { quantity: details.quantity, known: true };
+      try {
+        const details = await fetchEbayItemDetails(conn.accessToken, legacyId);
+        if (details.quantity != null) {
+          return { quantity: details.quantity, known: true };
+        }
+      } catch {
+        return { quantity: 0, known: false };
       }
     }
     return { quantity: 0, known: false };

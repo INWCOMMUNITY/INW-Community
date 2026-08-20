@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ebayGetItemIsStaleVersusInw, isEbayInboundContentChange } from "./pull-ebay-updates";
+import { ebayGetItemIsStaleVersusInw, isEbayInboundContentChange, ebayGetItemDetailsAreUsable } from "./pull-ebay-updates";
 
 describe("isEbayInboundContentChange", () => {
   it("treats ebayCategoryId-only writes as metadata, not inbound content", () => {
@@ -13,6 +13,23 @@ describe("isEbayInboundContentChange", () => {
     expect(isEbayInboundContentChange({ title: "EBAY CRON TEST 4" })).toBe(true);
     expect(isEbayInboundContentChange({ priceCents: 4400, ebayCategoryId: 36059 })).toBe(true);
     expect(isEbayInboundContentChange({ quantity: 4 })).toBe(true);
+  });
+});
+
+describe("ebayGetItemDetailsAreUsable", () => {
+  it("rejects an empty GetItem failure payload", () => {
+    expect(
+      ebayGetItemDetailsAreUsable({ title: null, priceCents: null, quantity: null })
+    ).toBe(false);
+  });
+
+  it("accepts a listing that has any of title, price, or qty", () => {
+    expect(
+      ebayGetItemDetailsAreUsable({ title: "EBAY CRON TEST 4", priceCents: null, quantity: null })
+    ).toBe(true);
+    expect(
+      ebayGetItemDetailsAreUsable({ title: null, priceCents: 4400, quantity: null })
+    ).toBe(true);
   });
 });
 

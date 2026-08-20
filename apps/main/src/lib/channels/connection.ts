@@ -6,7 +6,8 @@ import { logSyncEvent } from "./sync-log";
 import { EbayApiError, needsTokenRefresh } from "./ebay/errors";
 import { EtsyApiError } from "./etsy/client";
 
-const REFRESH_SKEW_MS = 60_000;
+/** Refresh before the token's last 5 minutes so the channel cron never starts on a dying token. */
+const REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 type ConnectionRow = {
   id: string;
@@ -47,7 +48,10 @@ export async function getConnectionContext(
   }
 
   const expiresAt = connection.tokenExpiresAt?.getTime();
-  const expired = expiresAt != null && expiresAt - REFRESH_SKEW_MS < Date.now();
+  const expired =
+    expiresAt == null
+      ? Boolean(connection.refreshTokenEncrypted)
+      : expiresAt - REFRESH_SKEW_MS < Date.now();
   if (expired && !connection.refreshTokenEncrypted) {
     const errMsg = "Channel access token expired with no refresh token. Reconnect in Sync Stores.";
     await prisma.channelConnection
@@ -235,6 +239,10 @@ export function isChannelAuthError(provider: ChannelProvider, e: unknown): boole
   }
   if (e instanceof EtsyApiError) {
     return e.status === 401;
+  }
+  if (provider === "ebay") {
+    const msg = e instanceof Error ? e.message : String(e);
+    return /IAF token|token supplied is expired|invalid access token/i.test(msg);
   }
   return false;
 }
