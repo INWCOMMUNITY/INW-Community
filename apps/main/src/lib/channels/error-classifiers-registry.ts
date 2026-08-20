@@ -209,6 +209,15 @@ const ETSY_CLASSIFIERS: TraceClassifier[] = [
     },
   },
   {
+    id: "etsy_calculated_shipping_package",
+    provider: "etsy",
+    pattern: /calculated shipping profile|item_weight|item_dimensions_unit/i,
+    category: "shipping_package_missing",
+    analyze: () => {
+      return "Etsy calculated shipping needs package weight and size. Edit the listing on Etsy if the default package size is wrong.";
+    },
+  },
+  {
     id: "etsy_shipping_profile_missing",
     provider: "etsy",
     pattern: /shipping.*profile|profile.*required|#1005/i,
@@ -395,6 +404,10 @@ export function getSuggestedFixes(errorCategory: string | null): string[] {
       "Create a shipping profile in your Etsy Shop Manager",
       "Reconnect your Etsy account in Sync Stores after setting up shipping",
     ],
+    shipping_package_missing: [
+      "Retry listing — INW now sends a default package size for calculated Etsy shipping",
+      "On Etsy, edit the listing's package weight and dimensions if the item is much larger or smaller",
+    ],
     auth_expired: [
       "Reconnect your account in Seller Hub > Sync Stores",
       "If the issue persists, try revoking and re-granting access",
@@ -432,6 +445,7 @@ export function getErrorCategoryLabel(category: string | null): string {
     price_invalid: "Invalid Price",
     taxonomy_invalid: "Invalid Etsy Category",
     shipping_missing: "Missing Shipping Profile",
+    shipping_package_missing: "Missing Package Size",
     field_missing: "Required Field Missing",
     listing_not_found: "Listing Not Found",
     description_invalid: "Description Too Long",

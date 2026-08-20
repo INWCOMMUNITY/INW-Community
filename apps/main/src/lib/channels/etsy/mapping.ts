@@ -482,6 +482,26 @@ function etsyDescription(item: SyncStoreItem): string {
   return plain.slice(0, 64000);
 }
 
+/**
+ * Etsy calculated shipping profiles require package size on create.
+ * Same parcel defaults as Shippo labels when the item has no stored dimensions.
+ */
+export const ETSY_DEFAULT_PACKAGE_FIELDS = {
+  item_weight: "16.0",
+  item_length: "12.0",
+  item_width: "12.0",
+  item_height: "12.0",
+  item_weight_unit: "oz",
+  item_dimensions_unit: "in",
+} as const;
+
+function etsyPackageFields(
+  shippingProfileId: string | number | null | undefined
+): Record<string, string | number> {
+  if (shippingProfileId == null || shippingProfileId === "") return {};
+  return { ...ETSY_DEFAULT_PACKAGE_FIELDS };
+}
+
 /** Fields for createDraftListing (POST /shops/{shop_id}/listings). */
 export function buildEtsyCreateFields(
   item: SyncStoreItem,
@@ -518,6 +538,7 @@ export function buildEtsyCreateFields(
     is_supply: item.etsyIsSupply ?? false,
     type: "physical",
     ...(shippingId ? { shipping_profile_id: Number(shippingId) } : {}),
+    ...etsyPackageFields(shippingId),
     readiness_state_id: readinessStateId,
   };
 }

@@ -175,9 +175,14 @@ export function etsyForm<T>(
   fields: Record<string, string | number | boolean | undefined | null>
 ): Promise<T> {
   const body = new URLSearchParams();
+  const fieldKeys: string[] = [];
   for (const [k, v] of Object.entries(fields)) {
     if (v === undefined || v === null) continue;
     body.append(k, String(v));
+    fieldKeys.push(k);
+  }
+  if (path.includes("/listings")) {
+    console.log("[etsy:form]", { method, path, fieldKeys });
   }
   return etsyRequest<T>(accessToken, path, {
     method,

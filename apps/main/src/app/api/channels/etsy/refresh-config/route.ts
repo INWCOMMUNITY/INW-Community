@@ -3,6 +3,10 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { decrypt } from "@/lib/encrypt";
 import { etsyGet, setEtsyConnectionContext } from "@/lib/channels/etsy/client";
+import {
+  fetchEtsyShippingProfiles,
+  pickPreferredEtsyShippingProfile,
+} from "@/lib/channels/shipping-map";
 
 export const dynamic = "force-dynamic";
 
@@ -71,14 +75,12 @@ export async function POST(req: NextRequest) {
   let etsyShippingProfileId: string | null = null;
   let defaultReadinessStateId: number | null = null;
 
-  // Fetch shipping profile
+  // Prefer a flat/manual profile. Calculated profiles need package weight and size.
   try {
-    const res = await etsyGet<{ results?: { shipping_profile_id: number }[] }>(
-      accessToken,
-      `/shops/${shopId}/shipping-profiles`
-    );
-    const id = res.results?.[0]?.shipping_profile_id;
-    etsyShippingProfileId = id != null ? String(id) : null;
+    const profiles = await fetchEtsyShippingProfiles(accessToken, shopId);
+    const picked = pickPreferredEtsyShippingProfile(profiles, conn.etsyShippingProfileId);
+    etsyShippingProfileId =
+      picked?.shipping_profile_id != null ? String(picked.shipping_profile_id) : null;
   } catch (e) {
     console.warn("[etsy] refresh-config: failed to fetch shipping profiles", { error: String(e) });
   }

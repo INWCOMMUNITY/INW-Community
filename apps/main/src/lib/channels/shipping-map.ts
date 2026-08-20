@@ -4,6 +4,12 @@ import type { ChannelConnectionContext, ChannelProvider } from "./types";
 
 export type ShippingProfileCache = Record<string, string>;
 
+export type EtsyShopShippingProfile = {
+  shipping_profile_id: number;
+  title?: string | null;
+  profile_type?: string | null;
+};
+
 function shippingMap(config: Record<string, unknown> | null): ShippingProfileCache {
   const raw = config?.shippingProfileMap;
   if (!raw || typeof raw !== "object") return {};
@@ -25,35 +31,46 @@ async function persistShippingProfile(
   });
 }
 
-/** Resolve or create an Etsy shipping profile for a flat rate (cents). */
-export async function resolveEtsyShippingProfileId(
+export function isEtsyCalculatedShippingProfile(
+  profile: Pick<EtsyShopShippingProfile, "profile_type"> | null | undefined
+): boolean {
+  return String(profile?.profile_type ?? "").toLowerCase() === "calculated";
+}
+
+/** Prefer a flat/manual shop profile. Calculated profiles need package weight and size. */
+export function pickPreferredEtsyShippingProfile(
+  profiles: EtsyShopShippingProfile[],
+  preferredId?: string | null
+): EtsyShopShippingProfile | null {
+  if (profiles.length === 0) return null;
+  const preferred =
+    preferredId != null && preferredId !== ""
+      ? profiles.find((p) => String(p.shipping_profile_id) === String(preferredId))
+      : undefined;
+  if (preferred && !isEtsyCalculatedShippingProfile(preferred)) return preferred;
+  const firstManual = profiles.find((p) => !isEtsyCalculatedShippingProfile(p));
+  if (firstManual) return firstManual;
+  return preferred ?? profiles[0] ?? null;
+}
+
+export async function fetchEtsyShippingProfiles(
+  accessToken: string,
+  shopId: string
+): Promise<EtsyShopShippingProfile[]> {
+  const res = await etsyGet<{ results?: EtsyShopShippingProfile[] }>(
+    accessToken,
+    `/shops/${shopId}/shipping-profiles`
+  );
+  return res.results ?? [];
+}
+
+async function tryCreateInwFlatProfile(
   conn: ChannelConnectionContext,
-  shippingCostCents: number | null
+  shopId: string,
+  rateCents: number,
+  profileName: string
 ): Promise<string | null> {
-  if (shippingCostCents == null || shippingCostCents < 0) {
-    return conn.etsyShippingProfileId;
-  }
-  const rate = Math.round(shippingCostCents);
-  const cached = shippingMap(conn.config)[String(rate)];
-  if (cached) return cached;
-
-  const shopId = conn.externalShopId;
-  if (!shopId) return conn.etsyShippingProfileId;
-
-  const profileName = `INW $${(rate / 100).toFixed(2)}`;
   try {
-    const existing = await etsyGet<{ results?: { shipping_profile_id: number; title?: string }[] }>(
-      conn.accessToken,
-      `/shops/${shopId}/shipping-profiles`
-    );
-    const match = existing.results?.find(
-      (p) => p.title === profileName || String(p.shipping_profile_id) === cached
-    );
-    if (match?.shipping_profile_id) {
-      await persistShippingProfile(conn.id, conn.config, rate, String(match.shipping_profile_id));
-      return String(match.shipping_profile_id);
-    }
-
     const created = await etsyForm<{ shipping_profile_id?: number }>(
       conn.accessToken,
       `/shops/${shopId}/shipping-profiles`,
@@ -61,21 +78,80 @@ export async function resolveEtsyShippingProfileId(
       {
         title: profileName,
         origin_country_iso: "US",
-        primary_cost: (rate / 100).toFixed(2),
-        secondary_cost: (rate / 100).toFixed(2),
+        primary_cost: (rateCents / 100).toFixed(2),
+        secondary_cost: (rateCents / 100).toFixed(2),
         min_processing_time: 1,
         max_processing_time: 3,
       }
     );
     const id = created.shipping_profile_id;
-    if (id) {
-      await persistShippingProfile(conn.id, conn.config, rate, String(id));
-      return String(id);
-    }
+    if (!id) return null;
+    const profileId = String(id);
+    await persistShippingProfile(conn.id, conn.config, rateCents, profileId);
+    return profileId;
   } catch (e) {
-    console.error("[channels] resolveEtsyShippingProfileId failed", { error: String(e) });
+    console.warn("[channels] could not create Etsy flat shipping profile", {
+      error: String(e),
+      profileName,
+    });
+    return null;
   }
-  return conn.etsyShippingProfileId;
+}
+
+/** Resolve an Etsy shipping profile, preferring flat/manual over calculated. */
+export async function resolveEtsyShippingProfileId(
+  conn: ChannelConnectionContext,
+  shippingCostCents: number | null
+): Promise<string | null> {
+  const shopId = conn.externalShopId;
+  let profiles: EtsyShopShippingProfile[] = [];
+  if (shopId) {
+    try {
+      profiles = await fetchEtsyShippingProfiles(conn.accessToken, shopId);
+    } catch (e) {
+      console.error("[channels] fetch Etsy shipping profiles failed", { error: String(e) });
+    }
+  }
+
+  if (shippingCostCents != null && shippingCostCents >= 0 && shopId) {
+    const rate = Math.round(shippingCostCents);
+    const profileName = `INW $${(rate / 100).toFixed(2)}`;
+    const cached = shippingMap(conn.config)[String(rate)];
+    const cachedProfile = cached
+      ? profiles.find((p) => String(p.shipping_profile_id) === cached)
+      : undefined;
+    if (cached && cachedProfile && !isEtsyCalculatedShippingProfile(cachedProfile)) {
+      return cached;
+    }
+    if (cached && !cachedProfile) {
+      return cached;
+    }
+    const match = profiles.find((p) => p.title === profileName);
+    if (match?.shipping_profile_id && !isEtsyCalculatedShippingProfile(match)) {
+      await persistShippingProfile(conn.id, conn.config, rate, String(match.shipping_profile_id));
+      return String(match.shipping_profile_id);
+    }
+    const createdId = await tryCreateInwFlatProfile(conn, shopId, rate, profileName);
+    if (createdId) return createdId;
+  }
+
+  const picked = pickPreferredEtsyShippingProfile(profiles, conn.etsyShippingProfileId);
+  if (!picked) return conn.etsyShippingProfileId;
+
+  const pickedId = String(picked.shipping_profile_id);
+  if (
+    !isEtsyCalculatedShippingProfile(picked) &&
+    pickedId !== conn.etsyShippingProfileId
+  ) {
+    await prisma.channelConnection
+      .update({
+        where: { id: conn.id },
+        data: { etsyShippingProfileId: pickedId },
+      })
+      .catch(() => {});
+    conn.etsyShippingProfileId = pickedId;
+  }
+  return pickedId;
 }
 
 /** Normalize remote shipping to cents when provider exposes a flat primary rate. */

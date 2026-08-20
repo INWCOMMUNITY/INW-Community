@@ -46,6 +46,12 @@ describe("buildEtsyCreateFields", () => {
     expect(fields.when_made).toBe("2020_2026");
     expect(fields.taxonomy_id).toBe(891);
     expect(fields.readiness_state_id).toBe(42);
+    expect(fields.item_weight).toBe("16.0");
+    expect(fields.item_length).toBe("12.0");
+    expect(fields.item_width).toBe("12.0");
+    expect(fields.item_height).toBe("12.0");
+    expect(fields.item_weight_unit).toBe("oz");
+    expect(fields.item_dimensions_unit).toBe("in");
   });
 
   it("throws when readiness_state_id is missing", () => {

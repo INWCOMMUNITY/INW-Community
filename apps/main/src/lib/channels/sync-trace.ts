@@ -331,6 +331,15 @@ const TRACE_CLASSIFIERS: TraceClassifier[] = [
     },
   },
   {
+    id: "etsy_calculated_shipping_package",
+    provider: "etsy",
+    pattern: /calculated shipping profile|item_weight|item_dimensions_unit/i,
+    category: "shipping_package_missing",
+    analyze: () => {
+      return "Etsy calculated shipping needs package weight and size. Edit the listing on Etsy if the default package size is wrong.";
+    },
+  },
+  {
     id: "etsy_shipping_profile",
     provider: "etsy",
     pattern: /shipping.*profile|profile.*required/i,

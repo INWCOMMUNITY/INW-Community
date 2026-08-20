@@ -11,7 +11,11 @@ import type {
 import { EtsyApiError, etsyDelete, etsyForm, etsyGet, etsyUploadImage, setEtsyConnectionContext } from "./client";
 import { exchangeEtsyCode, fetchEtsyShopInfo, getEtsyAuthUrl, refreshEtsyToken } from "./oauth";
 import { resolveProviderCategoryId } from "../category-map";
-import { resolveEtsyShippingProfileId } from "../shipping-map";
+import {
+  fetchEtsyShippingProfiles,
+  pickPreferredEtsyShippingProfile,
+  resolveEtsyShippingProfileId,
+} from "../shipping-map";
 import { resolveEtsyReadinessStateId } from "./readiness";
 import {
   buildEtsyCreateFields,
@@ -162,14 +166,12 @@ export const etsyAdapter: ChannelAdapter = {
     let etsyShippingProfileId: string | null = null;
     let defaultReadinessStateId: number | null = null;
 
-    // The seller's first shipping profile is required to publish physical Etsy listings.
+    // Prefer a flat/manual profile. Calculated profiles need package weight and size.
     try {
-      const res = await etsyGet<{ results?: { shipping_profile_id: number }[] }>(
-        accessToken,
-        `/shops/${shopId}/shipping-profiles`
-      );
-      const id = res.results?.[0]?.shipping_profile_id;
-      etsyShippingProfileId = id != null ? String(id) : null;
+      const profiles = await fetchEtsyShippingProfiles(accessToken, shopId);
+      const picked = pickPreferredEtsyShippingProfile(profiles);
+      etsyShippingProfileId =
+        picked?.shipping_profile_id != null ? String(picked.shipping_profile_id) : null;
     } catch {
       /* ignore - shipping profile is optional for initial config */
     }
