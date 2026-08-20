@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const result = await refreshEbayListingByItemId(ctx.accessToken, legacyItemId);
+  const result = await refreshEbayListingByItemId(ctx.accessToken, legacyItemId, { force: true });
   const item = await prisma.storeItem.findUnique({
     where: { id: storeItemId },
     select: {

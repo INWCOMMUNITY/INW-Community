@@ -40,18 +40,23 @@ function photosEqual(a: string[], b: string[]): boolean {
   return a.every((url, i) => url === b[i]);
 }
 
-/** Ignore a lagged GetItem for 15 minutes after a refresh or inbound pull. */
-export const EBAY_INBOUND_ECHO_MS = 15 * 60 * 1000;
+/** Ignore a lagged GetItem shortly after a refresh. A newer eBay LastModified still applies. */
+export const EBAY_INBOUND_ECHO_MS = 5 * 60 * 1000;
 
 export function ebayGetItemIsStaleVersusInw(args: {
   lastInboundAt: Date | null;
   inwUpdatedAt: Date | null;
+  ebayLastModified?: Date | null;
   now?: Date;
 }): boolean {
   const now = args.now?.getTime() ?? Date.now();
   const inwAt = (args.lastInboundAt ?? args.inwUpdatedAt)?.getTime();
   if (inwAt == null) return false;
-  return now - inwAt <= EBAY_INBOUND_ECHO_MS;
+  if (now - inwAt > EBAY_INBOUND_ECHO_MS) return false;
+  if (args.ebayLastModified != null && args.ebayLastModified.getTime() > inwAt + 2000) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -61,7 +66,7 @@ export function ebayGetItemIsStaleVersusInw(args: {
 export async function refreshEbayListingByItemId(
   accessToken: string,
   legacyItemId: string,
-  opts?: { activeListingIds?: Set<string>; skipQuantity?: boolean }
+  opts?: { activeListingIds?: Set<string>; skipQuantity?: boolean; force?: boolean }
 ): Promise<PullResult | null> {
   const link = await prisma.channelListingLink.findFirst({
     where: {
@@ -135,9 +140,11 @@ export async function refreshEbayListingByItemId(
   }
 
   if (
+    !opts?.force &&
     ebayGetItemIsStaleVersusInw({
       lastInboundAt: link.lastInboundAt,
       inwUpdatedAt: storeItem.updatedAt,
+      ebayLastModified: details.remoteUpdatedAt,
     })
   ) {
     console.log("[ebay] refreshEbayListingByItemId: skip GetItem after recent INW inbound", {
