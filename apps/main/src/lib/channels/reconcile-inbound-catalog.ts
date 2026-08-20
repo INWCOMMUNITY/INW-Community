@@ -5,6 +5,7 @@ import {
   applyRemoteQuantityToStoreItem,
   applyRemoteListingRemoved,
   remoteContentDiffersFromStoreItem,
+  remoteTitleOrPriceDiffersFromStoreItem,
 } from "./apply-remote-listing";
 import { getAdapter } from "./registry";
 import { updateStoreItemOnChannels } from "./outbound";
@@ -20,7 +21,8 @@ import { clampSaneInventoryQty } from "./inventory-sanity";
 import { variantsFingerprint } from "./variant-sync";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 import { getChannelCapabilities } from "./capabilities";
-import { indexEbayRemoteListings } from "./ebay/mapping";
+import { indexEbayRemoteListings, resolveEbayLegacyListingId } from "./ebay/mapping";
+import { refreshEbayListingByItemId } from "./ebay/pull-ebay-updates";
 import { logSyncEvent } from "./sync-log";
 
 /** Content fingerprint for a remote catalog row (same fields as syncContentHash on StoreItem). */
@@ -108,9 +110,10 @@ async function writeBaseline(
 }
 
 /**
- * Two-way catalog reconcile for linked products (manual / CHANNEL_CRON_SYNC_ENABLED).
+ * Two-way catalog reconcile for linked products.
  * Uses most-recent-wins baselines. Providers without honest remoteUpdatedAt still get
- * quantity push-on-divergence; content pull only when remote timestamp is known.
+ * quantity push-on-divergence. eBay title/price edits are detected from the list payload
+ * even when LastModifiedTime is missing, then applied via GetItem.
  */
 export async function reconcileConnectionInboundCatalog(
   connection: ConnectionRow
@@ -272,8 +275,12 @@ export async function reconcileConnectionInboundCatalog(
     // Remote edited on the channel since we last agreed a baseline (timestamp + content hash).
     const remoteTimestampNewer =
       remote.remoteUpdatedAt != null && remote.remoteUpdatedAt.getTime() > baseAt.getTime();
+    const ebayListEditVisible =
+      provider === "ebay" &&
+      !inwContentChanged &&
+      remoteTitleOrPriceDiffersFromStoreItem(item, remote);
     const remoteContentChanged =
-      remoteTimestampNewer && remoteHash !== baseHash;
+      (remoteTimestampNewer && remoteHash !== baseHash) || ebayListEditVisible;
 
     const remoteContentActuallyDiffers = remoteContentDiffersFromStoreItem(item, remote);
 
@@ -325,6 +332,7 @@ export async function reconcileConnectionInboundCatalog(
         remoteTimestampNewer,
         remoteContentActuallyDiffers,
         remoteContentChanged,
+        ebayListEditVisible,
         staleRemoteNeedsPush,
         contentDecision,
         qtyDiffers,
@@ -431,27 +439,67 @@ export async function reconcileConnectionInboundCatalog(
     }
     
     if (contentDecision === "pull" && allowPull) {
-      console.log("[channels] pulling content from remote", {
-        storeItemId: link.storeItemId,
-        remoteTitle: remote.title,
-        remotePriceCents: remote.priceCents,
-        remoteDescription: remote.description?.slice(0, 50),
-        remotePhotos: remote.photos?.length,
-      });
-      pulledContent = await applyRemoteContentToStoreItem(link.storeItemId, remote);
-      console.log("[channels] pull result", { storeItemId: link.storeItemId, pulledContent });
-      
-      // Also pull quantity when pulling content (Etsy edited = pull everything)
-      if (remoteQtyKnown && remote.quantity !== item.quantity) {
-        console.log("[channels] pulling quantity from remote", {
+      if (provider === "ebay") {
+        const legacyId =
+          resolveEbayLegacyListingId(link.externalListingId) ??
+          resolveEbayLegacyListingId(remote.externalListingId);
+        if (!legacyId) {
+          console.warn("[channels] eBay pull skipped: no legacy Item ID", {
+            storeItemId: link.storeItemId,
+            externalListingId: link.externalListingId,
+          });
+        } else {
+          try {
+            const result = await refreshEbayListingByItemId(ctx.accessToken, legacyId);
+            if (result?.updated) {
+              pulledContent = result.changes.some(
+                (c) => !c.startsWith("quantity") && c !== "ended → sold_out"
+              );
+              pulledQuantity = result.changes.some(
+                (c) => c.startsWith("quantity") || c.includes("sold_out")
+              );
+              if (pulledQuantity) currentQty = remote.quantity;
+              console.log("[channels] eBay GetItem pull applied", {
+                storeItemId: link.storeItemId,
+                legacyId,
+                changes: result.changes,
+              });
+            } else {
+              console.log("[channels] eBay GetItem found no field changes", {
+                storeItemId: link.storeItemId,
+                legacyId,
+              });
+            }
+          } catch (e) {
+            console.error("[channels] eBay GetItem refresh failed", {
+              storeItemId: link.storeItemId,
+              legacyId,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+        }
+      } else {
+        console.log("[channels] pulling content from remote", {
           storeItemId: link.storeItemId,
-          oldQty: item.quantity,
-          newQty: remote.quantity,
+          remoteTitle: remote.title,
+          remotePriceCents: remote.priceCents,
+          remoteDescription: remote.description?.slice(0, 50),
+          remotePhotos: remote.photos?.length,
         });
-        pulledQuantity = await applyRemoteQuantityToStoreItem(link.storeItemId, remote.quantity, {
-          provider,
-          memberId: connection.memberId,
-        });
+        pulledContent = await applyRemoteContentToStoreItem(link.storeItemId, remote);
+        console.log("[channels] pull result", { storeItemId: link.storeItemId, pulledContent });
+
+        if (remoteQtyKnown && remote.quantity !== item.quantity) {
+          console.log("[channels] pulling quantity from remote", {
+            storeItemId: link.storeItemId,
+            oldQty: item.quantity,
+            newQty: remote.quantity,
+          });
+          pulledQuantity = await applyRemoteQuantityToStoreItem(link.storeItemId, remote.quantity, {
+            provider,
+            memberId: connection.memberId,
+          });
+        }
       }
     } else if (contentDecision === "pull" && !allowPull) {
       console.log("[channels] skipping pull due to sync direction setting", {

@@ -1,5 +1,6 @@
 import { prisma } from "database";
 import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
+import { EBAY_TITLE_MAX } from "@/lib/listing-limits";
 import { clampSaneInventoryQty } from "./inventory-sanity";
 import { storeListingDescription } from "./import-listing";
 import { sanitizeListingDescription } from "./rich-description";
@@ -21,6 +22,22 @@ function normalizeTitleForCompare(title: string): string {
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
     .trim();
+}
+
+/**
+ * Title or price actually changed on the channel. Ignores photos/description so
+ * GetMyeBaySelling (no LastModifiedTime, no description, different photo hosts)
+ * can still detect an eBay-native edit.
+ */
+export function remoteTitleOrPriceDiffersFromStoreItem(
+  item: { title: string; priceCents: number },
+  remote: Pick<RemoteListingSummary, "title" | "priceCents">
+): boolean {
+  const localTitle = normalizeTitleForCompare(item.title).slice(0, EBAY_TITLE_MAX);
+  const remoteTitle = normalizeTitleForCompare(remote.title).slice(0, EBAY_TITLE_MAX);
+  const titleDiffers = localTitle !== remoteTitle;
+  const priceDiffers = remote.priceCents >= 1 && remote.priceCents !== item.priceCents;
+  return titleDiffers || priceDiffers;
 }
 
 export function remoteContentDiffersFromStoreItem(
