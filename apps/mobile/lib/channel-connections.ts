@@ -14,16 +14,23 @@ export type ChannelConnectionSummary = {
 
 export const LIST_ON_PROVIDER_ORDER: ChannelProviderId[] = ["ebay", "etsy", "wix", "shopify"];
 
-/** Connected stores the seller can opt into on List Item (active Sync Stores only). */
-export function activeListOnConnections(
+/** Connected stores shown on List Item: live connections and ones that need reconnect. */
+export function listOnConnections(
   connections: ChannelConnectionSummary[]
 ): ChannelConnectionSummary[] {
   return connections
-    .filter((c) => c.status === "active")
+    .filter((c) => c.status === "active" || c.status === "error")
     .slice()
     .sort(
       (a, b) => LIST_ON_PROVIDER_ORDER.indexOf(a.provider) - LIST_ON_PROVIDER_ORDER.indexOf(b.provider)
     );
+}
+
+/** Live Sync Stores connections only (ready or blocked by policies). */
+export function activeListOnConnections(
+  connections: ChannelConnectionSummary[]
+): ChannelConnectionSummary[] {
+  return listOnConnections(connections).filter((c) => c.status === "active");
 }
 
 export const CHANNEL_PROVIDER_LABEL: Record<ChannelProviderId, string> = {

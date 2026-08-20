@@ -1,9 +1,10 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 import {
-  activeListOnConnections,
   CHANNEL_PROVIDER_LABEL,
   channelNotReadyHint,
+  listOnConnections,
   type ChannelConnectionSummary,
   type ChannelProviderId,
 } from "@/lib/channel-connections";
@@ -16,8 +17,8 @@ type Props = {
 };
 
 export function ChannelListOnCheckboxes({ connections, selected, onChange, disabled }: Props) {
-  const active = activeListOnConnections(connections);
-  if (active.length === 0) return null;
+  const router = useRouter();
+  const rows = listOnConnections(connections);
 
   function toggle(provider: ChannelProviderId, blocked: boolean) {
     if (blocked || disabled) return;
@@ -28,12 +29,25 @@ export function ChannelListOnCheckboxes({ connections, selected, onChange, disab
     onChange([...selected, provider]);
   }
 
+  if (rows.length === 0) {
+    return (
+      <View style={styles.wrap}>
+        <Text style={styles.title}>Also list on</Text>
+        <Text style={styles.subtitle}>Only stores you have connected in Sync Stores.</Text>
+        <Pressable onPress={() => router.push("/seller-hub/channels")}>
+          <Text style={styles.link}>Connect stores in Sync Stores</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.wrap}>
       <Text style={styles.title}>Also list on</Text>
-      <Text style={styles.subtitle}>Only stores you have connected in Sync Stores.</Text>
-      {active.map((c) => {
-        const blocked = c.readyToPublish === false;
+      <Text style={styles.subtitle}>Choose other places to publish. Uncheck any store to skip.</Text>
+      {rows.map((c) => {
+        const needsReconnect = c.status === "error";
+        const blocked = needsReconnect || c.readyToPublish === false;
         const reason = blocked ? c.publishBlockReason || channelNotReadyHint(c.provider) : null;
         const checked = !blocked && selected.includes(c.provider);
         const label = CHANNEL_PROVIDER_LABEL[c.provider] ?? c.provider;
@@ -41,8 +55,14 @@ export function ChannelListOnCheckboxes({ connections, selected, onChange, disab
           <Pressable
             key={c.id}
             style={[styles.row, (blocked || disabled) && styles.rowDisabled]}
-            onPress={() => toggle(c.provider, blocked)}
-            disabled={disabled || blocked}
+            onPress={() => {
+              if (needsReconnect) {
+                router.push("/seller-hub/channels");
+                return;
+              }
+              toggle(c.provider, blocked);
+            }}
+            disabled={disabled || (blocked && !needsReconnect)}
           >
             <View style={[styles.box, checked && styles.boxChecked]}>
               {checked ? <Text style={styles.check}>✓</Text> : null}
@@ -53,6 +73,7 @@ export function ChannelListOnCheckboxes({ connections, selected, onChange, disab
               </Text>
               {c.shopName ? <Text style={styles.hint}>{c.shopName}</Text> : null}
               {reason ? <Text style={styles.hint}>{reason}</Text> : null}
+              {needsReconnect ? <Text style={styles.link}>Reconnect in Sync Stores</Text> : null}
             </View>
           </Pressable>
         );
@@ -87,4 +108,5 @@ const styles = StyleSheet.create({
   label: { fontSize: 15, fontWeight: "600", color: theme.colors.heading },
   labelDisabled: { color: theme.colors.labelMuted },
   hint: { fontSize: 12, color: theme.colors.labelMuted, marginTop: 2 },
+  link: { fontSize: 13, fontWeight: "600", color: theme.colors.primary, marginTop: 4 },
 });

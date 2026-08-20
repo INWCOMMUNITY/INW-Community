@@ -6,7 +6,6 @@ import { getErrorMessage } from "@/lib/api-error";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { sumOptionQuantities } from "@/lib/store-item-variants";
 import {
-  activeListOnConnections,
   defaultSelectedProviders,
   fetchChannelConnections,
   type ChannelConnectionSummary,
@@ -897,18 +896,13 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 {listingOnEbay ? <SyncFieldHint text={LISTING_SYNC_HINTS.condition} /> : null}
               </ListingFormSection>
 
-              {existing || activeListOnConnections(channelConnections).length > 0 ? (
+              {existing ? (
               <ListingFormSection
                 title="Connected stores"
-                description={
-                  existing
-                    ? "Sync status and actions for linked marketplaces."
-                    : "Choose which connected stores to publish to. Uncheck any you want to skip."
-                }
+                description="Sync status and actions for linked marketplaces."
               >
-                {existing ? (
                 <ItemChannelSyncPanel
-                  storeItemId={existing?.id}
+                  storeItemId={existing.id}
                   initialLinks={channelLinks}
                   hasConnections={hasChannelConnections}
                   skipSyncOnSave={skipSyncOnSave}
@@ -949,20 +943,26 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                     }
                   }}
                 />
-                ) : (
-                  <ChannelListOnCheckboxes
-                    connections={channelConnections}
-                    selected={listOnProviders}
-                    onChange={setListOnProviders}
-                    disabled={submitting}
-                  />
-                )}
               </ListingFormSection>
               ) : null}
             </>
           }
           main={
             <>
+              {!existing ? (
+                <ListingFormSection
+                  title="Also list on"
+                  description="Choose other places to publish this item. Uncheck any store you want to skip."
+                >
+                  <ChannelListOnCheckboxes
+                    connections={channelConnections}
+                    selected={listOnProviders}
+                    onChange={setListOnProviders}
+                    disabled={submitting}
+                  />
+                </ListingFormSection>
+              ) : null}
+
               {businesses.length > 1 ? (
                 <ListingFormSection title="Business">
                   <label className={listingLabelClass}>Business (optional)</label>
