@@ -306,6 +306,22 @@ export async function reconcileConnectionInboundCatalog(
         });
         continue;
       }
+      const otherChannelLinks = await prisma.channelListingLink.count({
+        where: {
+          storeItemId: link.storeItemId,
+          syncEnabled: true,
+          provider: { not: provider },
+        },
+      });
+      if (otherChannelLinks > 0) {
+        console.warn("[channels] skip sell-out; listing still linked on another channel", {
+          storeItemId: link.storeItemId,
+          provider,
+          externalListingId: link.externalListingId,
+          otherChannelLinks,
+        });
+        continue;
+      }
       await applyRemoteListingRemoved(link.storeItemId);
       await syncInventoryToChannels(link.storeItemId, { skipProviders: [provider] });
       await prisma.channelListingLink.update({

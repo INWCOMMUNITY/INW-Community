@@ -12,6 +12,7 @@ import { syncContentHash, syncMetaHash } from "../sync-baseline";
 import { variantsFingerprint } from "../variant-sync";
 import { applyRemoteListingRemoved } from "../apply-remote-listing";
 import { syncInventoryToChannels } from "../sync-inventory";
+import { ebayAspectsFingerprint } from "./ebay-compat";
 
 type ConnectionRow = {
   id: string;
@@ -151,7 +152,10 @@ export async function refreshEbayListingByItemId(
     changes.push(`ebay condition (${details.conditionEnum})`);
   }
 
-  if (aspectsForStorage.length > 0) {
+  if (
+    aspectsForStorage.length > 0 &&
+    ebayAspectsFingerprint(aspectsForStorage) !== ebayAspectsFingerprint(storeItem.aspects)
+  ) {
     updateData.aspects = aspectsForStorage as object;
     changes.push(`aspects (${aspectsForStorage.length} fields)`);
   }
@@ -267,6 +271,11 @@ export async function refreshEbayListingByItemId(
       storeItemId: storeItem.id,
       legacyItemId,
       changes,
+      fromEbay: {
+        title: remoteTitle,
+        priceCents: remotePrice,
+        quantity: remoteQty,
+      },
     });
 
     return {

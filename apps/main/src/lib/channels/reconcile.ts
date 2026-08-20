@@ -267,19 +267,22 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
     } catch (e) {
       console.error("[channels] eBay GetItem pull failed", { id: c.id, error: String(e) });
     }
-  }
-  try {
-    const catalog = await reconcileConnectionInboundCatalog(c);
-    catalogUpdated += catalog.updated;
-    catalogRemoved += catalog.removed;
-  } catch (e) {
-    console.error("[channels] reconcile catalog failed", { id: c.id, error: String(e) });
-  }
-  try {
-    const meta = await reconcileConnectionInboundMeta(c);
-    metaUpdated += meta.updated;
-  } catch (e) {
-    console.error("[channels] reconcile meta failed", { id: c.id, error: String(e) });
+    // Do not run GetMyeBaySelling catalog/meta after a live GetItem pull.
+    // That seller-list + Inventory overlay can rewrite the listing back to a lagged title/price.
+  } else {
+    try {
+      const catalog = await reconcileConnectionInboundCatalog(c);
+      catalogUpdated += catalog.updated;
+      catalogRemoved += catalog.removed;
+    } catch (e) {
+      console.error("[channels] reconcile catalog failed", { id: c.id, error: String(e) });
+    }
+    try {
+      const meta = await reconcileConnectionInboundMeta(c);
+      metaUpdated += meta.updated;
+    } catch (e) {
+      console.error("[channels] reconcile meta failed", { id: c.id, error: String(e) });
+    }
   }
   try {
     imported += (await reconcileConnectionInboundListings(c)).imported;
@@ -374,7 +377,11 @@ export async function reconcileMemberProvider(
   });
   if (!conn || conn.status === "disconnected") return { applied: 0 };
   const sales = await reconcileConnectionSales(conn);
-  await reconcileConnectionInboundCatalog(conn).catch(() => {});
-  await reconcileConnectionInboundMeta(conn).catch(() => {});
+  if (provider === "ebay") {
+    await pullEbayUpdatesForConnection(conn).catch(() => {});
+  } else {
+    await reconcileConnectionInboundCatalog(conn).catch(() => {});
+    await reconcileConnectionInboundMeta(conn).catch(() => {});
+  }
   return sales;
 }
