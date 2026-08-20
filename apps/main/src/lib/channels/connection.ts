@@ -1,4 +1,4 @@
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { encrypt, decrypt } from "@/lib/encrypt";
 import { getAdapter } from "./registry";
 import type { ChannelConnectionContext, ChannelProvider } from "./types";
@@ -93,7 +93,7 @@ export async function markChannelConnectionFailure(args: {
         data: {
           config: mergeConnectionConfig(connection.config, {
             disconnectNotifiedAt: new Date().toISOString(),
-          }),
+          }) as Prisma.InputJsonValue,
         },
       })
       .catch(() => {});
