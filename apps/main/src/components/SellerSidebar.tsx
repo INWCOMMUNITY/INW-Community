@@ -51,12 +51,11 @@ export function SellerSidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const actionItems: NavItem[] = [
     { href: "/seller-hub/store/new", label: "List Items", alert: false },
-    { href: "/seller-hub/ship", label: "Ship Items", alert: pendingShip > 0 },
+    { href: "/seller-hub/orders", label: "Ship Items", alert: pendingShip > 0 },
     { href: "/seller-hub/offers", label: "New Offers", alert: false },
     { href: "/seller-hub/messages", label: "My Messages", alert: false },
     { href: "/seller-hub/store/returns", label: "Return Requests", alert: pendingReturns > 0 },
     { href: "/seller-hub/store/cancellations", label: "Cancellations", alert: false },
-    { href: "/seller-hub/store/actions", label: "Other Actions", alert: false },
   ];
 
   function AlertIcon() {
@@ -113,8 +112,7 @@ export function SellerSidebar({ mobile }: { mobile?: boolean } = {}) {
   const sellerProfileItems: NavItem[] = [
     { href: "/seller-hub/store", label: "Storefront Info" },
     { href: "/seller-hub/shipping-setup", label: "Shipping" },
-    { href: "/seller-hub/sponsor-hub", label: "Business Hub" },
-    { href: "/seller-hub/sponsor-hub", label: "My Local Business Page" },
+    { href: "/business-hub?from=seller-hub", label: "Business Hub" },
     { href: "/seller-hub/time-away", label: "Time Away" },
   ];
 

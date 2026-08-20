@@ -1,23 +1,6 @@
-import Link from "next/link";
+import { redirect } from "next/navigation";
 
-export default function OtherActionsPage() {
-  return (
-    <div>
-      <h2 className="text-xl font-bold mb-4">Other Actions</h2>
-      <p className="text-gray-600 mb-4">
-        Access Business Hub features: business directory, coupons, and events.
-      </p>
-      <div className="space-y-2">
-        <Link href="/seller-hub/sponsor-hub" className="block text-primary-600 hover:underline">
-          Manage business profile
-        </Link>
-        <Link href="/seller-hub/sponsor-hub" className="block text-primary-600 hover:underline">
-          Offer a coupon
-        </Link>
-        <Link href="/seller-hub/sponsor-hub" className="block text-primary-600 hover:underline">
-          Post an event
-        </Link>
-      </div>
-    </div>
-  );
+/** Redirect leftover Other Actions URL to Business Hub. */
+export default function OtherActionsRedirect() {
+  redirect("/business-hub?from=seller-hub");
 }

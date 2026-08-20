@@ -36,8 +36,7 @@ export function SellerHubTopNav() {
 
   const [pending, setPending] = useState<{
     payoutSetupComplete?: boolean;
-    showDeliveries?: boolean;
-  }>({ payoutSetupComplete: false, showDeliveries: false });
+  }>({ payoutSetupComplete: false });
 
   const [createPostOpen, setCreatePostOpen] = useState(false);
   const [createPostBusiness, setCreatePostBusiness] = useState<{ id: string; name: string } | null>(null);
@@ -81,17 +80,11 @@ export function SellerHubTopNav() {
   }, []);
 
   useEffect(() => {
-    Promise.all([
-      fetch("/api/seller-hub/pending-actions", { credentials: "include" }).then((r) => r.json()),
-      fetch("/api/store-items?mine=1", { credentials: "include" })
-        .then((r) => r.json())
-        .then((d: { localDeliveryAvailable?: boolean }[]) => (Array.isArray(d) ? d : []))
-        .then((items) => items.some((i) => i.localDeliveryAvailable === true)),
-    ])
-      .then(([actions, showDeliveries]) => {
+    fetch("/api/seller-hub/pending-actions", { credentials: "include" })
+      .then((r) => r.json())
+      .then((actions: { payoutSetupComplete?: boolean }) => {
         setPending({
           payoutSetupComplete: !!actions?.payoutSetupComplete,
-          showDeliveries: !!showDeliveries,
         });
       })
       .catch(() => {});
@@ -107,17 +100,16 @@ export function SellerHubTopNav() {
 
   const actionsChildren: Child[] = [
     { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
-    { href: "/seller-hub/orders?tab=ship", label: "Fulfillment", icon: "boat-outline" },
     { href: "/business-hub?from=seller-hub&open=coupon", label: "Offer Coupon", icon: "pricetag-outline" },
     { href: "/my-community", label: "Create Post", icon: "megaphone-outline" },
   ];
 
   const profileChildren: Child[] = [
     { href: "/seller-hub/store", label: "Seller Storefront", icon: "storefront-outline" },
-    { href: "/business-hub?from=seller-hub", label: "Local Business", icon: "business-outline" },
+    { href: "/business-hub?from=seller-hub", label: "Business Hub", icon: "business-outline" },
     { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
     { href: "#stripe", label: "Stripe", icon: "card-outline" },
-    { href: "https://apps.goshippo.com/", label: "Shippo", icon: "boat-outline" },
+    { href: "/seller-hub/shipping-setup", label: "Shipping", icon: "boat-outline" },
     { href: "/seller-hub/channels", label: "Sync Stores", icon: "sync-outline" },
   ];
 
@@ -125,14 +117,9 @@ export function SellerHubTopNav() {
     ? []
     : [{ href: "/seller-hub/store/payouts", label: "Set Up / To Do", icon: "wallet-outline" }];
 
-  const sellerHubChildren: Child[] = [
-    { href: "/seller-hub", label: "Seller Hub", icon: "home-outline" },
-    { href: "/business-hub?from=seller-hub", label: "Business Hub", icon: "business-outline" },
-  ];
-
   const navItems: NavItem[] = [
     { href: "/", label: "NWC Home", icon: "home-outline" },
-    { label: "Seller Hub", icon: "globe-outline", children: sellerHubChildren },
+    { href: "/seller-hub", label: "Seller Hub", icon: "globe-outline" },
     { label: "Storefront", icon: "storefront-outline", children: storefrontChildren },
     { label: "Actions", icon: "flash-outline", children: actionsChildren },
     { label: "Profile", icon: "person-outline", children: profileChildren },
@@ -222,7 +209,7 @@ export function SellerHubTopNav() {
             }
             const hasChildren = (item.children?.length ?? 0) > 0;
             const active = index === activeSegmentIndex;
-            const firstChildHref = item.label === "Storefront" ? "/seller-hub/orders" : item.label === "Get Paid" ? "/seller-hub/store/payouts" : item.children?.[0]?.href ?? "#";
+            const firstChildHref = item.label === "Storefront" ? "/seller-hub/store/items" : item.label === "Get Paid" ? "/seller-hub/store/payouts" : item.children?.[0]?.href ?? "#";
             return (
               <div
                 key={item.label}

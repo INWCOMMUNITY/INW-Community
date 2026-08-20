@@ -169,7 +169,7 @@ export default function MyFundsPage() {
             >
               {disconnectLoading ? "Disconnecting…" : "Disconnect Stripe account"}
             </button>
-            <Link href="/seller-hub/ship" className="btn border border-gray-300 bg-white hover:bg-gray-50">
+            <Link href="/seller-hub/orders" className="btn border border-gray-300 bg-white hover:bg-gray-50">
               Ship items
             </Link>
             <Link href="/seller-hub/store/returns" className="btn border border-gray-300 bg-white hover:bg-gray-50">

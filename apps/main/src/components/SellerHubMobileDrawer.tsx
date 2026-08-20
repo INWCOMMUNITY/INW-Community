@@ -5,15 +5,11 @@ import Link from "next/link";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { IonIcon } from "@/components/IonIcon";
 
-const SOLD_ITEMS_VIEWED_KEY = "sellerHubSoldItemsViewedAt";
-const SHIPPO_URL = "https://apps.goshippo.com/";
-
 type NavItem = {
   href: string;
   label: string;
   icon: string;
   alert?: boolean;
-  external?: boolean;
   action?: "stripe" | "create-post" | "offer-coupon";
 };
 
@@ -78,19 +74,6 @@ function NavRow({
       </Link>
     );
   }
-  if (item.external) {
-    return (
-      <a
-        href={item.href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={rowClass}
-        onClick={onNavigate}
-      >
-        {inner}
-      </a>
-    );
-  }
   return (
     <Link href={item.href} prefetch={false} className={rowClass} onClick={onNavigate}>
       {inner}
@@ -147,53 +130,39 @@ export function SellerHubMobileDrawer({
   onCreatePost: () => void;
 }) {
   const [pendingShip, setPendingShip] = useState(0);
-  const [soldCount, setSoldCount] = useState(0);
-  const [soldViewedAt, setSoldViewedAt] = useState<string | null>(null);
 
   useLockBodyScroll(open);
 
   useEffect(() => {
     if (!open) return;
-    try {
-      setSoldViewedAt(localStorage.getItem(SOLD_ITEMS_VIEWED_KEY));
-    } catch {
-      setSoldViewedAt(null);
-    }
     fetch("/api/seller-hub/pending-actions", { credentials: "include" })
       .then((r) => r.json())
-      .then((d: { pendingShip?: number; soldCount?: number }) => {
+      .then((d: { pendingShip?: number }) => {
         setPendingShip(Number(d?.pendingShip) || 0);
-        setSoldCount(Number(d?.soldCount) || 0);
       })
       .catch(() => {});
   }, [open]);
 
-  const soldItemsAlert = soldCount > 0 && !soldViewedAt;
-
-  const sellerHubItems: NavItem[] = [
-    { href: "/business-hub?from=seller-hub", label: "Business Hub", icon: "business-outline" },
-  ];
-
   const storefrontItems: NavItem[] = [
     { href: "/seller-hub/store/items", label: "My Items", icon: "cube-outline" },
-    { href: "/seller-hub/store/manage", label: "Sold Items", icon: "pricetag-outline", alert: soldItemsAlert },
-    { href: "/seller-hub/store/items", label: "Drafts", icon: "document-text-outline" },
+    { href: "/seller-hub/orders", label: "Fulfillment", icon: "receipt-outline", alert: pendingShip > 0 },
     { href: "/seller-hub/offers", label: "Offers", icon: "pricetag-outline" },
     { href: "/seller-hub/store/cancellations", label: "Cancellations", icon: "close-circle-outline" },
     { href: "/seller-hub/policies", label: "Policies", icon: "book-outline" },
   ];
 
   const actionItems: NavItem[] = [
-    { href: "/seller-hub/ship", label: "Ship Item", icon: "boat-outline", alert: pendingShip > 0 },
+    { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
     { href: "/business-hub?from=seller-hub&open=coupon", label: "Offer Coupon", icon: "pricetag-outline", action: "offer-coupon" },
     { href: "/seller-hub", label: "Create Post", icon: "megaphone-outline", action: "create-post" },
   ];
 
   const profileItems: NavItem[] = [
-    { href: "/business-hub?from=seller-hub", label: "Local Business", icon: "business-outline" },
+    { href: "/seller-hub/store", label: "Seller Storefront", icon: "storefront-outline" },
+    { href: "/business-hub?from=seller-hub", label: "Business Hub", icon: "business-outline" },
     { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
     { href: "#stripe", label: "Stripe", icon: "card-outline", action: "stripe" },
-    { href: SHIPPO_URL, label: "Shippo", icon: "boat-outline", external: true },
+    { href: "/seller-hub/shipping-setup", label: "Shipping", icon: "boat-outline" },
     { href: "/seller-hub/channels", label: "Sync Stores", icon: "sync-outline" },
   ];
 
@@ -228,13 +197,6 @@ export function SellerHubMobileDrawer({
           </button>
         </div>
         <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 pb-8">
-          <Section
-            title="Seller Hub"
-            items={sellerHubItems}
-            onNavigate={onClose}
-            onStripe={onStripeDashboard}
-            onCreatePost={onCreatePost}
-          />
           <Section
             title="Storefront"
             items={storefrontItems}
