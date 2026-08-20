@@ -63,9 +63,9 @@ function debugEbayCron(
 }
 
 /**
- * Ignore a lagged GetItem after a refresh when LastModified is missing.
- * Cron is every 5 minutes, so this must span more than one job or the next
- * run will copy a stale replica over a good pull.
+ * GetItem with no LastModified used to apply after this window and that
+ * rewrote good cron pulls (TEST 2 ping-pong). Kept only for tests/callers
+ * that still import it; apply now requires a newer LastModified.
  */
 export const EBAY_INBOUND_ECHO_MS = 15 * 60 * 1000;
 
@@ -87,23 +87,21 @@ export function ebayGetItemDetailsAreUsable(details: {
 
 export function ebayGetItemIsStaleVersusInw(args: {
   lastInboundAt: Date | null;
+  lastPushedAt?: Date | null;
   inwUpdatedAt: Date | null;
   ebayLastModified?: Date | null;
   now?: Date;
 }): boolean {
-  const now = args.now?.getTime() ?? Date.now();
-  const inwAt = (args.lastInboundAt ?? args.inwUpdatedAt)?.getTime();
-  if (inwAt == null) return false;
+  const inboundAt = args.lastInboundAt?.getTime();
+  const pushedAt = args.lastPushedAt?.getTime();
   const modifiedAt = args.ebayLastModified?.getTime();
-  // Never apply a GetItem that is older than (or equal to) the last inbound pull,
-  // even after the echo window. That is the TEST 5 → original-title revert.
-  if (modifiedAt != null && modifiedAt <= inwAt + 2000) {
-    return true;
-  }
-  if (modifiedAt != null && modifiedAt > inwAt + 2000) {
-    return false;
-  }
-  return now - inwAt <= EBAY_INBOUND_ECHO_MS;
+  // First pull: nothing on INW to protect.
+  if (inboundAt == null && pushedAt == null) return false;
+  // Do not guess. A missing LastModified is how lagged replicas overwrote TEST titles
+  // on the next 5-minute cron after a good pull.
+  if (modifiedAt == null) return true;
+  const floor = Math.max(inboundAt ?? 0, pushedAt ?? 0);
+  return modifiedAt <= floor + 2000;
 }
 
 /**
@@ -113,7 +111,12 @@ export function ebayGetItemIsStaleVersusInw(args: {
 export async function refreshEbayListingByItemId(
   accessToken: string,
   legacyItemId: string,
-  opts?: { activeListingIds?: Set<string>; skipQuantity?: boolean; force?: boolean }
+  opts?: {
+    activeListingIds?: Set<string>;
+    skipQuantity?: boolean;
+    skipContent?: boolean;
+    force?: boolean;
+  }
 ): Promise<PullResult | null> {
   const link = await prisma.channelListingLink.findFirst({
     where: {
@@ -176,6 +179,7 @@ export async function refreshEbayListingByItemId(
   }
   const staleVersusInw = ebayGetItemIsStaleVersusInw({
     lastInboundAt: link.lastInboundAt,
+    lastPushedAt: link.lastPushedAt,
     inwUpdatedAt: storeItem.updatedAt,
     ebayLastModified: details.remoteUpdatedAt,
   });
@@ -226,6 +230,7 @@ export async function refreshEbayListingByItemId(
     !opts?.force &&
     ebayGetItemIsStaleVersusInw({
       lastInboundAt: link.lastInboundAt,
+      lastPushedAt: link.lastPushedAt,
       inwUpdatedAt: storeItem.updatedAt,
       ebayLastModified: details.remoteUpdatedAt,
     })
@@ -236,10 +241,11 @@ export async function refreshEbayListingByItemId(
       getItemTitle: details.title,
       getItemPriceCents: details.priceCents,
     });
-    console.log("[ebay] refreshEbayListingByItemId: skip GetItem after recent INW inbound", {
+    console.log("[ebay] refreshEbayListingByItemId: skip GetItem; LastModified not newer than last inbound/push", {
       storeItemId: storeItem.id,
       legacyItemId,
       lastInboundAt: link.lastInboundAt?.toISOString() ?? null,
+      lastPushedAt: link.lastPushedAt?.toISOString() ?? null,
       inwUpdatedAt: storeItem.updatedAt.toISOString(),
       ebayLastModified: details.remoteUpdatedAt?.toISOString() ?? null,
       getItemTitle: details.title,
@@ -271,23 +277,25 @@ export async function refreshEbayListingByItemId(
 
   const changes: string[] = [];
   const updateData: Record<string, unknown> = {};
+  const skipContent = opts?.skipContent === true;
 
-  if (remoteTitle && remoteTitle !== storeItem.title) {
+  if (!skipContent && remoteTitle && remoteTitle !== storeItem.title) {
     updateData.title = remoteTitle;
     changes.push("title");
   }
 
-  if (details.condition && details.condition !== storeItem.condition) {
+  if (!skipContent && details.condition && details.condition !== storeItem.condition) {
     updateData.condition = details.condition;
     changes.push(`condition (${details.condition})`);
   }
 
-  if (details.conditionEnum && details.conditionEnum !== storeItem.ebayConditionEnum) {
+  if (!skipContent && details.conditionEnum && details.conditionEnum !== storeItem.ebayConditionEnum) {
     updateData.ebayConditionEnum = details.conditionEnum;
     changes.push(`ebay condition (${details.conditionEnum})`);
   }
 
   if (
+    !skipContent &&
     aspectsForStorage.length > 0 &&
     ebayAspectsFingerprint(aspectsForStorage) !== ebayAspectsFingerprint(storeItem.aspects)
   ) {
@@ -296,27 +304,27 @@ export async function refreshEbayListingByItemId(
   }
 
   // Authoritative photo set from GetItem (may shrink when seller removes images).
-  if (photos.length > 0 && !photosEqual(photos, storeItem.photos)) {
+  if (!skipContent && photos.length > 0 && !photosEqual(photos, storeItem.photos)) {
     updateData.photos = photos;
     changes.push(`photos (${photos.length})`);
   }
 
-  if (description && description !== storeItem.description) {
+  if (!skipContent && description && description !== storeItem.description) {
     updateData.description = description;
     changes.push("description");
   }
 
-  if (remotePrice !== storeItem.priceCents) {
+  if (!skipContent && remotePrice !== storeItem.priceCents) {
     updateData.priceCents = remotePrice;
     changes.push(`price ($${(remotePrice / 100).toFixed(2)})`);
   }
 
-  if (details.acceptOffers !== storeItem.acceptOffers) {
+  if (!skipContent && details.acceptOffers !== storeItem.acceptOffers) {
     updateData.acceptOffers = details.acceptOffers;
     changes.push(details.acceptOffers ? "acceptOffers (on)" : "acceptOffers (off)");
   }
   const remoteMin = details.minOfferCents ?? null;
-  if (remoteMin !== storeItem.minOfferCents) {
+  if (!skipContent && remoteMin !== storeItem.minOfferCents) {
     updateData.minOfferCents = remoteMin;
     changes.push(
       remoteMin != null ? `minOffer ($${(remoteMin / 100).toFixed(2)})` : "minOffer (none)"
@@ -329,7 +337,7 @@ export async function refreshEbayListingByItemId(
     changes.push(`quantity (${remoteQty})`);
   }
 
-  if (details.variants && details.variants.length > 0) {
+  if (!skipContent && details.variants && details.variants.length > 0) {
     updateData.variants = details.variants as object;
     const sum = details.variants.reduce(
       (acc, axis) => acc + axis.options.reduce((s, o) => s + o.quantity, 0),
@@ -343,7 +351,7 @@ export async function refreshEbayListingByItemId(
     changes.push("variants");
   }
 
-  if (resolvedCat) {
+  if (!skipContent && resolvedCat) {
     const subMissing = !storeItem.subcategory?.trim();
     const subInvalid =
       Boolean(storeItem.subcategory?.trim()) &&
@@ -360,7 +368,7 @@ export async function refreshEbayListingByItemId(
     }
   }
 
-  if (details.remoteCategoryId) {
+  if (!skipContent && details.remoteCategoryId) {
     const catId = Number(details.remoteCategoryId);
     if (Number.isInteger(catId) && catId > 0 && catId !== storeItem.ebayCategoryId) {
       updateData.ebayCategoryId = catId;

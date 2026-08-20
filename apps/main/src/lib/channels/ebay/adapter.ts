@@ -1346,6 +1346,7 @@ export const ebayAdapter: ChannelAdapter = {
         }
         inventoryBody = buildPassthroughLiveOverlayBody(live, {
           quantity: Math.max(0, absoluteQuantity),
+          title: item.title,
         });
       } else {
         inventoryBody = buildEbayInventoryItem(qtyItem);

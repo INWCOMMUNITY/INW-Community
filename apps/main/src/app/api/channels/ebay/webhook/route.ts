@@ -192,17 +192,10 @@ export async function POST(req: NextRequest) {
       });
       if (sales.applied === 0) {
         await acknowledgeRecentSalesWithoutDecrement(connection!);
-        await refreshEbayListingByItemId(ctx.accessToken, itemId).catch((e) =>
-          console.warn("[ebay webhook] post-sale absolute refresh failed", {
-            itemId,
-            error: e instanceof Error ? e.message : String(e),
-          })
-        );
-      } else {
         await refreshEbayListingByItemId(ctx.accessToken, itemId, {
-          skipQuantity: true,
+          skipContent: true,
         }).catch((e) =>
-          console.warn("[ebay webhook] post-sale content refresh failed", {
+          console.warn("[ebay webhook] post-sale absolute refresh failed", {
             itemId,
             error: e instanceof Error ? e.message : String(e),
           })
@@ -212,18 +205,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, processed: true, itemId, eventType });
     }
 
-    const result = await refreshEbayListingByItemId(ctx.accessToken, itemId);
-    if (isClosedEvent(eventType) && result && !result.ended) {
-      await refreshEbayListingByItemId(ctx.accessToken, itemId, {
+    if (isClosedEvent(eventType)) {
+      const result = await refreshEbayListingByItemId(ctx.accessToken, itemId, {
         activeListingIds: new Set(),
       });
+      console.log("[ebay webhook] closed-event refresh completed", {
+        itemId,
+        eventType,
+        result,
+      });
+    } else {
+      // ItemRevised / ItemListed: do not GetItem here. Cron is the content source of
+      // truth. A lagged GetItem between :05 jobs was rewriting titles (TEST 2 ping-pong).
+      console.log("[ebay webhook] skipping content GetItem; cron owns listing content", {
+        itemId,
+        eventType,
+      });
     }
-
-    console.log("[ebay webhook] refresh completed", {
-      itemId,
-      eventType,
-      result,
-    });
 
     await markWebhookCompleted(webhookEventId);
     return NextResponse.json({

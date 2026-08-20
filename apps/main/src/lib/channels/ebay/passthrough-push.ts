@@ -366,13 +366,10 @@ export function buildPassthroughInventoryBody(
     delete liveProduct.aspects;
   }
 
-  const overlayTitle = changed.title === true;
   const overlayPhotos = changed.photos === true;
-  // Inventory GET title can lag minutes behind a revise. Any inventory PUT
-  // that omits title would write that stale title back onto the live listing.
-  if (overlayTitle || overlayPhotos) {
-    liveProduct.title = item.title.slice(0, EBAY_TITLE_MAX);
-  }
+  // Always pin INW title. Inventory GET lags a Trading revise; omitting title
+  // re-sends the old title and the next GetItem copies it back onto INW.
+  liveProduct.title = item.title.slice(0, EBAY_TITLE_MAX);
   if (overlayPhotos) {
     liveProduct.imageUrls = item.photos.slice(0, 12);
   }

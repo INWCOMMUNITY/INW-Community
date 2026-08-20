@@ -70,7 +70,7 @@ describe("ebayGetItemIsStaleVersusInw", () => {
     ).toBe(true);
   });
 
-  it("applies GetItem once the 15-minute echo window has passed and LastModified is unknown", () => {
+  it("never applies GetItem when LastModified is missing, even 15 minutes later", () => {
     expect(
       ebayGetItemIsStaleVersusInw({
         lastInboundAt: refreshedAt,
@@ -78,7 +78,7 @@ describe("ebayGetItemIsStaleVersusInw", () => {
         ebayLastModified: null,
         now: new Date("2026-08-20T05:20:00.000Z"),
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("never applies a GetItem whose LastModified is older than the last inbound pull", () => {
@@ -90,5 +90,42 @@ describe("ebayGetItemIsStaleVersusInw", () => {
         now: new Date("2026-08-20T05:25:00.000Z"),
       })
     ).toBe(true);
+  });
+
+  it("applies the first GetItem when INW has never pulled or pushed", () => {
+    expect(
+      ebayGetItemIsStaleVersusInw({
+        lastInboundAt: null,
+        lastPushedAt: null,
+        inwUpdatedAt: null,
+        ebayLastModified: null,
+        now,
+      })
+    ).toBe(false);
+  });
+
+  it("skips GetItem that is only an echo of our own inventory push", () => {
+    const pushedAt = new Date("2026-08-20T05:06:00.000Z");
+    expect(
+      ebayGetItemIsStaleVersusInw({
+        lastInboundAt: refreshedAt,
+        lastPushedAt: pushedAt,
+        inwUpdatedAt: refreshedAt,
+        ebayLastModified: new Date("2026-08-20T05:06:01.000Z"),
+        now: new Date("2026-08-20T05:06:10.000Z"),
+      })
+    ).toBe(true);
+  });
+
+  it("applies GetItem when LastModified is newer than both inbound and push", () => {
+    expect(
+      ebayGetItemIsStaleVersusInw({
+        lastInboundAt: refreshedAt,
+        lastPushedAt: new Date("2026-08-20T05:06:00.000Z"),
+        inwUpdatedAt: refreshedAt,
+        ebayLastModified: new Date("2026-08-20T05:07:00.000Z"),
+        now: new Date("2026-08-20T05:07:10.000Z"),
+      })
+    ).toBe(false);
   });
 });
