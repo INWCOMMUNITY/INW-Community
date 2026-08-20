@@ -435,21 +435,28 @@ export async function GET(req: NextRequest) {
     if (!sellerSub) {
       return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
     }
+    if (searchParams.get("counts") === "1") {
+      const [active, ended, sold] = await Promise.all([
+        prisma.storeItem.count({ where: { memberId: userId, status: "active" } }),
+        prisma.storeItem.count({ where: { memberId: userId, status: "inactive" } }),
+        prisma.storeItem.count({ where: { memberId: userId, status: "sold_out" } }),
+      ]);
+      return NextResponse.json({ active, ended, sold });
+    }
+
     const where: {
       memberId: string;
       condition?: string;
       status?: string;
-      quantity?: { gt: number };
     } = { memberId: userId };
     if (condition) where.condition = condition;
-    // My Items tabs: active (live), ended (inactive), sold (sold_out). No filter = all.
+    // My Items tabs: active (incl. out of stock), ended (inactive), sold (sold_out).
     const soldOnly = searchParams.get("sold") === "1";
     const filter = searchParams.get("filter");
     if (soldOnly || filter === "sold") {
       where.status = "sold_out";
     } else if (filter === "active") {
       where.status = "active";
-      where.quantity = { gt: 0 };
     } else if (filter === "ended") {
       where.status = "inactive";
     }

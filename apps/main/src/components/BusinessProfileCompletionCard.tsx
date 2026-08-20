@@ -62,6 +62,34 @@ function calculateCompletion(business: BusinessProfileInfo): {
   return { percentage, items };
 }
 
+export function useBusinessCompletion(businessId: string | null) {
+  const [percentage, setPercentage] = useState<number | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (!businessId) {
+      setPercentage(null);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/businesses/${businessId}`, { credentials: "include" });
+      if (!res.ok) {
+        setPercentage(null);
+        return;
+      }
+      const data = (await res.json()) as BusinessProfileInfo;
+      setPercentage(calculateCompletion(data).percentage);
+    } catch {
+      setPercentage(null);
+    }
+  }, [businessId]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  return { percentage, refresh };
+}
+
 export function BusinessProfileCompletionCard({
   businessIds,
   onOpenBusinessForm,
@@ -128,36 +156,36 @@ export function BusinessProfileCompletionCard({
 
   return (
     <div
-      className="relative mb-6 rounded-xl border-2 p-4 md:p-5"
+      className="relative mb-4 rounded-xl border p-3 md:p-4"
       style={{
-        borderColor: "var(--color-primary)",
+        borderColor: "var(--color-earth)",
         backgroundColor: "var(--color-section-alt)",
       }}
     >
       <button
         type="button"
         onClick={handleDismiss}
-        className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full hover:bg-black/10 transition-colors"
+        className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full hover:bg-black/10 transition-colors"
         aria-label="Dismiss profile completion card"
       >
         <IonIcon name="close" size={18} className="text-gray-500" />
       </button>
 
-      <div className="flex items-start gap-4">
+      <div className="flex items-start gap-3">
         <div
-          className="shrink-0 w-14 h-14 rounded-full flex items-center justify-center"
+          className="shrink-0 w-11 h-11 rounded-full flex items-center justify-center"
           style={{ backgroundColor: "var(--color-primary)" }}
         >
-          <span className="text-white font-bold text-lg">{percentage}%</span>
+          <span className="text-white font-bold text-sm">{percentage}%</span>
         </div>
         <div className="flex-1 min-w-0 pr-6">
           <h3
-            className="text-base font-semibold mb-1"
+            className="text-sm font-semibold mb-0.5"
             style={{ color: "var(--color-heading)" }}
           >
             Complete your business profile
           </h3>
-          <p className="text-sm text-gray-600 mb-3">
+          <p className="text-sm text-gray-600 mb-2">
             A complete profile helps customers find and trust your business.
           </p>
           {missingItems.length > 0 && (
@@ -196,7 +224,7 @@ export function BusinessProfileCompletionCard({
         </div>
       </div>
 
-      <div className="mt-4">
+      <div className="mt-3">
         <div
           className="h-2 rounded-full overflow-hidden"
           style={{ backgroundColor: "#e5e7eb" }}

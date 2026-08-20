@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import Link from "next/link";
@@ -10,7 +10,8 @@ import { BusinessForm } from "@/components/BusinessForm";
 import { DeleteBusinessButton } from "@/components/DeleteBusinessButton";
 import { CreatePostModal } from "@/components/CreatePostModal";
 import { IonIcon } from "@/components/IonIcon";
-import { BusinessProfileCompletionCard } from "@/components/BusinessProfileCompletionCard";
+import { useBusinessCompletion } from "@/components/BusinessProfileCompletionCard";
+import type { BusinessHubLiveCounts } from "@/lib/business-hub-live-counts";
 import type { Business } from "database";
 
 interface BusinessOption {
@@ -31,6 +32,7 @@ interface BusinessHubFormModalsProps {
   sellerHubReturnInForm?: boolean;
   /** Open a hub modal on mount (e.g. ?open=coupon from deep link). */
   initialOpenModal?: "coupon" | "event" | null;
+  liveCounts?: BusinessHubLiveCounts;
 }
 
 function possessiveBusinessLine1(name: string): string {
@@ -50,7 +52,7 @@ function businessLogoInitials(name: string): string {
 }
 
 const MAX_BUSINESSES = 2;
-type OpenModal = null | "coupon" | "event" | "business" | "qr-picker" | "create-post-picker";
+type OpenModal = null | "coupon" | "event" | "business" | "create-post-picker" | "flyer-picker";
 type BusinessView = "list" | "add" | "edit";
 
 interface BusinessForForm {
@@ -118,119 +120,15 @@ function Modal({
   );
 }
 
-/** Same QR as app: fetches /api/businesses/[id]/qr (encodes scan/[businessId] URL). */
-function QRCodePopup({
-  businessId,
-  businessName,
-  slug,
-  onClose,
-}: {
-  businessId: string;
-  businessName: string;
-  slug?: string;
-  onClose: () => void;
-}) {
-  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchQR = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    setImageDataUrl(null);
-    try {
-      const res = await fetch(`/api/businesses/${businessId}/qr`, { credentials: "include" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error((data as { error?: string }).error ?? `Request failed (${res.status})`);
-      }
-      const blob = await res.blob();
-      const reader = new FileReader();
-      reader.onloadend = () => setImageDataUrl(reader.result as string);
-      reader.readAsDataURL(blob);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load QR code.");
-    } finally {
-      setLoading(false);
-    }
-  }, [businessId]);
-
-  useEffect(() => {
-    fetchQR();
-  }, [fetchQR]);
-
-  return (
-    <div
-      className={modalBackdropClass}
-      aria-modal="true"
-      role="dialog"
-      aria-label="QR Code"
-      onClick={onClose}
-    >
-      <div
-        className="relative rounded-xl shadow-xl bg-white w-full max-w-sm overflow-hidden border-2 border-[var(--color-primary)] mx-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div
-          className="sticky top-0 px-4 py-3 flex items-center justify-between border-b bg-[var(--color-primary)] text-white"
-        >
-          <h2 className="text-lg font-bold truncate pr-2">{businessName}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/20"
-            aria-label="Close"
-          >
-            <span className="text-xl leading-none">×</span>
-          </button>
-        </div>
-        <div className="p-6 flex flex-col items-center">
-          {loading && (
-            <div className="py-12 text-gray-500">Loading QR code…</div>
-          )}
-          {error && (
-            <div className="py-8 text-center">
-              <p className="text-red-600 mb-4">{error}</p>
-              <button
-                type="button"
-                onClick={fetchQR}
-                className="px-4 py-2 rounded-lg font-semibold text-white"
-                style={{ backgroundColor: "var(--color-primary)" }}
-              >
-                Retry
-              </button>
-            </div>
-          )}
-          {imageDataUrl && !loading && (
-            <>
-              <div className="rounded-xl p-4 border-2 border-[var(--color-primary)] bg-white shadow-md">
-                <img
-                  src={imageDataUrl}
-                  alt={`QR code for ${businessName}`}
-                  className="w-64 h-64 object-contain"
-                  width={256}
-                  height={256}
-                />
-              </div>
-              <p className="text-sm text-gray-600 mt-4 text-center">
-                Have your customer scan this code to earn reward points.
-              </p>
-              <a
-                href={`/api/businesses/${businessId}/qr`}
-                download={`nwc-qr-${slug ?? businessId}.png`}
-                className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-white"
-                style={{ backgroundColor: "var(--color-primary)" }}
-              >
-                <IonIcon name="download-outline" size={20} />
-                Download QR Code
-              </a>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+const actionTileClass =
+  "flex flex-col items-start text-left gap-1 rounded-xl border p-3 md:p-4 transition hover:bg-[var(--color-section-alt)] w-full min-h-[5.25rem]";
+const actionTileStyle = { borderColor: "var(--color-earth)" } as const;
+const headerPillClass =
+  "inline-flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold no-underline hover:opacity-90 transition-opacity";
+const headerPillStyle = { backgroundColor: "var(--color-earth)", color: "#fff" } as const;
+const activePillClass =
+  "mt-2 flex w-full items-center justify-center rounded-full px-2 py-2 text-center text-xs sm:text-sm font-semibold no-underline hover:opacity-90";
+const activePillStyle = { backgroundColor: "var(--color-primary)", color: "#fff" } as const;
 
 export function BusinessHubFormModals({
   businesses,
@@ -238,6 +136,7 @@ export function BusinessHubFormModals({
   hasSellerHubAccess = false,
   sellerHubReturnInForm = false,
   initialOpenModal = null,
+  liveCounts = { posts: 0, events: 0, coupons: 0 },
 }: BusinessHubFormModalsProps) {
   const router = useRouter();
   const [openModal, setOpenModal] = useState<OpenModal>(null);
@@ -246,7 +145,6 @@ export function BusinessHubFormModals({
   const [editingBusinessId, setEditingBusinessId] = useState<string | null>(null);
   const [editingBusiness, setEditingBusiness] = useState<BusinessForForm | null>(null);
   const [businessLoading, setBusinessLoading] = useState(false);
-  const [qrPopupBusiness, setQrPopupBusiness] = useState<{ id: string; name: string; slug?: string } | null>(null);
   const [createPostOpen, setCreatePostOpen] = useState(false);
   const [createPostBusiness, setCreatePostBusiness] = useState<{ id: string; name: string } | null>(null);
   const [activeBusinessId, setActiveBusinessId] = useState<string | null>(null);
@@ -255,6 +153,10 @@ export function BusinessHubFormModals({
 
   const activeBusiness =
     businesses.find((b) => b.id === activeBusinessId) ?? businesses[0] ?? null;
+  const hasBusiness = businesses.length > 0;
+  const { percentage: completionPct, refresh: refreshCompletion } = useBusinessCompletion(
+    activeBusiness?.id ?? null
+  );
 
   useEffect(() => {
     setActiveBusinessId((prev) => {
@@ -316,6 +218,7 @@ export function BusinessHubFormModals({
   };
 
   const handleBusinessSuccess = () => {
+    void refreshCompletion();
     closeModal();
   };
 
@@ -340,299 +243,291 @@ export function BusinessHubFormModals({
     }
   }
 
-  useLockBodyScroll(!!openModal || !!qrPopupBusiness || createPostOpen || hubSwitcherOpen);
+  function openCreatePost() {
+    if (businesses.length === 1) {
+      const biz = businesses[0]!;
+      setCreatePostBusiness({ id: biz.id, name: biz.name });
+      setCreatePostOpen(true);
+      return;
+    }
+    setOpenModal("create-post-picker");
+  }
 
-  const hubCardClass =
-    "hub-card w-full min-w-0 border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center";
-  const businessCardClass =
-    "hub-card w-full min-w-0 border-2 rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] border-[var(--color-secondary)] bg-[var(--color-secondary)]/5 flex flex-col items-center";
+  function startFlyerDownload() {
+    if (!activeBusiness) return;
+    if (businesses.length === 1) {
+      void handleDownloadFlyer(activeBusiness.id, activeBusiness.slug ?? activeBusiness.id);
+      return;
+    }
+    setOpenModal("flyer-picker");
+  }
 
-  const mobileGridTile =
-    "flex flex-col items-center justify-center gap-2 min-h-[100px] p-4 rounded-[10px] border-2 bg-white text-center active:bg-gray-50 transition-colors w-full";
-  const mobileGridTileStyle = { borderColor: "var(--color-primary)" } as const;
+  useLockBodyScroll(!!openModal || createPostOpen || hubSwitcherOpen);
 
-  const sellerHubReturnButton =
-    hasSellerHubAccess && sellerHubReturnInForm ? (
-    <Link
-      href="/seller-hub"
-      prefetch={false}
-      className="mb-4 flex w-full items-center justify-center gap-2 rounded-[10px] px-4 py-3 text-center text-sm font-semibold text-white no-underline shadow-sm transition hover:opacity-95 active:opacity-90"
-      style={{ backgroundColor: "var(--color-primary)" }}
-    >
-      <IonIcon name="arrow-back-outline" size={20} className="text-white shrink-0" />
-      Return to Seller Hub
-    </Link>
-  ) : null;
+  const listingHref = activeBusiness?.slug
+    ? `/support-local/${activeBusiness.slug}`
+    : activeBusiness
+      ? `/support-local/${activeBusiness.id}`
+      : null;
+
+  const hubTitleName =
+    businesses.length === 0 ? "Your" : possessiveBusinessLine1(activeBusiness?.name ?? "");
+
+  const rawLogo =
+    hasBusiness && activeBusiness?.logoUrl?.trim() && !hubLogoLoadFailed
+      ? activeBusiness.logoUrl.trim()
+      : null;
 
   return (
     <>
       <div
-        className="lg:hidden px-4 pt-4 pb-10"
+        className="px-0 pt-0 pb-10"
         style={{ paddingBottom: "max(2.5rem, env(safe-area-inset-bottom))" }}
       >
-        {businesses.length > 0 && (
-          <BusinessProfileCompletionCard
-            businessIds={businesses.map((b) => b.id)}
-            onOpenBusinessForm={openBusinessModal}
-          />
+        {sellerHubReturnInForm && (
+          <Link
+            href="/seller-hub"
+            prefetch={false}
+            className="mb-4 inline-flex items-center gap-2 text-sm font-semibold no-underline hover:underline"
+            style={{ color: "var(--color-primary)" }}
+          >
+            <IonIcon name="arrow-back-outline" size={18} className="shrink-0" />
+            Return to Seller Hub
+          </Link>
         )}
+
         <div
-          className="flex flex-row items-center gap-4 mb-6 py-4 px-4 rounded-xl border-2"
-          style={{
-            backgroundColor: "var(--color-section-alt)",
-            borderColor: "var(--color-primary)",
-          }}
+          className="flex flex-row items-center gap-4 mb-4 py-4 px-4 rounded-xl border bg-white"
+          style={{ borderColor: "var(--color-earth)" }}
         >
+          <div className="shrink-0 flex justify-center items-center">
+            <div
+              className="flex items-center justify-center overflow-hidden border-2 rounded-full bg-white w-[7.5rem] h-[7.5rem] md:w-32 md:h-32"
+              style={{ borderColor: "var(--color-primary)" }}
+            >
+              {rawLogo ? (
+                <img
+                  src={rawLogo}
+                  alt={activeBusiness ? `${activeBusiness.name} logo` : "Business logo"}
+                  className="w-full h-full object-contain"
+                  onError={() => setHubLogoLoadFailed(true)}
+                />
+              ) : (
+                <span
+                  className="text-[28px] md:text-[34px] font-bold leading-none"
+                  style={{ color: "var(--color-primary)", fontFamily: "var(--font-heading)" }}
+                >
+                  {activeBusiness != null ? businessLogoInitials(activeBusiness.name) : "?"}
+                </span>
+              )}
+            </div>
+          </div>
           <div className="flex-1 min-w-0">
-            {businesses.length === 0 ? (
-              <>
-                <p
-                  className="text-[17px] font-bold mb-0.5"
-                  style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
-                >
-                  Your
-                </p>
-                <h1
-                  className="text-xl font-bold mb-1.5"
-                  style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
-                >
-                  Business Hub
-                </h1>
-              </>
-            ) : businesses.length === 1 ? (
-              <>
-                <p
-                  className="text-[17px] font-bold mb-0.5"
-                  style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
-                >
-                  {possessiveBusinessLine1(activeBusiness?.name ?? "")}
-                </p>
-                <h1
-                  className="text-xl font-bold mb-1.5"
-                  style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
-                >
-                  Business Hub
-                </h1>
-              </>
-            ) : (
-              <>
+            <h1
+              className="text-xl md:text-2xl font-bold mb-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5"
+              style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
+            >
+              {businesses.length > 1 ? (
                 <button
                   type="button"
                   onClick={() => setHubSwitcherOpen(true)}
-                  className="flex flex-row items-center gap-1.5 mb-0.5 self-start"
+                  className="inline-flex items-center gap-1"
                 >
-                  <span
-                    className="text-[17px] font-bold"
-                    style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
-                  >
-                    {possessiveBusinessLine1(activeBusiness?.name ?? "")}
-                  </span>
+                  <span>{hubTitleName}</span>
                   <IonIcon name="chevron-down" size={20} className="text-[var(--color-primary)] shrink-0" />
                 </button>
-                <h1
-                  className="text-xl font-bold mb-1.5"
-                  style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
-                >
-                  Business Hub
-                </h1>
-              </>
-            )}
-            <p className="text-sm leading-5" style={{ color: "var(--color-text)" }}>
-              Give residents a reason to support local. Offer Coupons, Rewards, & Post Events
+              ) : (
+                <span>{hubTitleName}</span>
+              )}
+              <span>Business Hub</span>
+            </h1>
+            <p className="text-sm leading-5 mb-3" style={{ color: "var(--color-text)" }}>
+              Give residents a reason to support local.
             </p>
-          </div>
-          <div className="shrink-0 flex justify-center items-center min-w-[94px]">
-            <div
-              className="flex items-center justify-center overflow-hidden border-2 rounded-full bg-white w-[94px] h-[94px]"
-              style={{ borderColor: "var(--color-primary)" }}
-            >
-              {(() => {
-                const rawLogo =
-                  businesses.length > 0 && activeBusiness?.logoUrl?.trim() && !hubLogoLoadFailed
-                    ? activeBusiness.logoUrl.trim()
-                    : null;
-                if (rawLogo) {
-                  return (
-                    <img
-                      src={rawLogo}
-                      alt={activeBusiness ? `${activeBusiness.name} logo` : "Business logo"}
-                      className="w-full h-full object-contain"
-                      onError={() => setHubLogoLoadFailed(true)}
-                    />
-                  );
-                }
-                return (
-                  <span
-                    className="text-[28px] font-bold leading-none"
-                    style={{ color: "var(--color-primary)", fontFamily: "var(--font-heading)" }}
+            {hasBusiness && (
+              <div className="flex flex-col gap-2">
+                {completionPct != null && completionPct < 100 && (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="h-2 flex-1 rounded-full overflow-hidden min-w-0"
+                        style={{ backgroundColor: "#e5e7eb" }}
+                        role="progressbar"
+                        aria-valuenow={completionPct}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-label="Business profile completeness"
+                      >
+                        <div
+                          className="h-full rounded-full transition-all duration-300"
+                          style={{
+                            width: `${completionPct}%`,
+                            backgroundColor: "var(--color-primary)",
+                          }}
+                        />
+                      </div>
+                      <span className="text-xs font-semibold shrink-0 tabular-nums" style={{ color: "var(--color-heading)" }}>
+                        {completionPct}%
+                      </span>
+                    </div>
+                    <p className="text-xs leading-4 text-gray-600">
+                      Business profile completeness — add details so customers can get in touch.
+                    </p>
+                  </>
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={openBusinessModal}
+                    className={headerPillClass}
+                    style={headerPillStyle}
                   >
-                    {activeBusiness != null ? businessLogoInitials(activeBusiness.name) : "?"}
-                  </span>
-                );
-              })()}
-            </div>
+                    <IonIcon name="create-outline" size={16} className="text-white shrink-0" />
+                    Edit Business Profile
+                  </button>
+                  {listingHref && (
+                    <Link
+                      href={listingHref}
+                      prefetch={false}
+                      className={headerPillClass}
+                      style={headerPillStyle}
+                    >
+                      <IonIcon name="storefront-outline" size={16} className="text-white shrink-0" />
+                      View Business Page
+                    </Link>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        {hasBusiness ? (
+          <div className="grid grid-cols-3 gap-2 md:gap-3">
+            <div className="min-w-0">
+              <button
+                type="button"
+                onClick={openCreatePost}
+                className={actionTileClass}
+                style={actionTileStyle}
+              >
+                <IonIcon name="megaphone-outline" size={22} className="text-[var(--color-primary)]" />
+                <span className="text-sm md:text-base font-semibold" style={{ color: "var(--color-heading)" }}>
+                  Create Post
+                </span>
+                <span className="text-xs text-gray-600 hidden md:block">
+                  Share an update on the community feed.
+                </span>
+              </button>
+              <Link
+                href="/business-hub/my-business-posts"
+                prefetch={false}
+                className={activePillClass}
+                style={activePillStyle}
+              >
+                Active Posts
+              </Link>
+            </div>
+            <div className="min-w-0">
+              <button
+                type="button"
+                onClick={() => setOpenModal("coupon")}
+                className={actionTileClass}
+                style={actionTileStyle}
+              >
+                <IonIcon name="pricetag-outline" size={22} className="text-[var(--color-primary)]" />
+                <span className="text-sm md:text-base font-semibold" style={{ color: "var(--color-heading)" }}>
+                  Offer a Coupon
+                </span>
+                <span className="text-xs text-gray-600 hidden md:block">
+                  Add a discount to the coupon book.
+                </span>
+              </button>
+              <Link
+                href="/business-hub/offered-coupons"
+                prefetch={false}
+                className={activePillClass}
+                style={activePillStyle}
+              >
+                Active Coupons
+              </Link>
+            </div>
+            <div className="min-w-0">
+              <button
+                type="button"
+                onClick={() => setOpenModal("event")}
+                className={actionTileClass}
+                style={actionTileStyle}
+              >
+                <IonIcon name="calendar-outline" size={22} className="text-[var(--color-primary)]" />
+                <span className="text-sm md:text-base font-semibold" style={{ color: "var(--color-heading)" }}>
+                  Post Event
+                </span>
+                <span className="text-xs text-gray-600 hidden md:block">
+                  Add an event to a community calendar.
+                </span>
+              </button>
+              <Link
+                href="/business-hub/my-business-events"
+                prefetch={false}
+                className={activePillClass}
+                style={activePillStyle}
+              >
+                Active Events
+              </Link>
+            </div>
+          </div>
+        ) : (
           <button
             type="button"
             onClick={openBusinessModal}
-            className={mobileGridTile}
-            style={mobileGridTileStyle}
+            className={`${actionTileClass} max-w-xl`}
+            style={actionTileStyle}
           >
-            <IonIcon name="business" size={28} className="text-[var(--color-primary)]" />
-            <span
-              className="text-sm font-semibold text-center leading-tight"
-              style={{ color: "var(--color-heading)" }}
-            >
-              Set up / Edit Business Page
+            <IonIcon name="business-outline" size={24} className="text-[var(--color-primary)]" />
+            <span className="text-base font-semibold" style={{ color: "var(--color-heading)" }}>
+              Set up your listing
+            </span>
+            <span className="text-sm text-gray-600">
+              Add your business to the Support Local directory to post, offer coupons, and list events.
             </span>
           </button>
-          {businesses.length > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                if (businesses.length === 1) {
-                  const biz = businesses[0]!;
-                  setCreatePostBusiness({ id: biz.id, name: biz.name });
-                  setCreatePostOpen(true);
-                } else {
-                  setOpenModal("create-post-picker");
-                }
-              }}
-              className={mobileGridTile}
-              style={mobileGridTileStyle}
-            >
-              <IonIcon name="megaphone" size={28} className="text-[var(--color-primary)]" />
-              <span
-                className="text-sm font-semibold text-center leading-tight"
-                style={{ color: "var(--color-heading)" }}
-              >
-                Create Post
-              </span>
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setOpenModal("event")}
-            className={mobileGridTile}
-            style={mobileGridTileStyle}
-          >
-            <IonIcon name="calendar" size={28} className="text-[var(--color-primary)]" />
-            <span
-              className="text-sm font-semibold text-center leading-tight"
-              style={{ color: "var(--color-heading)" }}
-            >
-              Post Event
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setOpenModal("coupon")}
-            className={mobileGridTile}
-            style={mobileGridTileStyle}
-          >
-            <IonIcon name="pricetag" size={28} className="text-[var(--color-primary)]" />
-            <span
-              className="text-sm font-semibold text-center leading-tight"
-              style={{ color: "var(--color-heading)" }}
-            >
-              Create Coupon
-            </span>
-          </button>
-        </div>
+        )}
 
-        <div className="mt-6 flex flex-col items-stretch text-center">
-          <h2 className="text-base font-semibold mb-3" style={{ color: "var(--color-heading)" }}>
-            Manage
-          </h2>
-          <Link
-            href="/business-hub/manage"
-            prefetch={false}
-            className="inline-flex items-center justify-center gap-2 rounded-[10px] px-6 py-3 text-white font-semibold transition opacity-90 hover:opacity-100 w-full no-underline"
-            style={{ backgroundColor: "var(--color-primary)" }}
-          >
-            <IonIcon name="folder-outline" size={28} className="text-white shrink-0" />
-            Business Offers & Publicity
-          </Link>
-        </div>
-
-        {businesses.length > 0 && activeBusiness && (
-          <div className="mt-6 flex flex-col items-center text-center">
+        {hasBusiness && activeBusiness && (
+          <div className="mt-8">
             <h2 className="text-base font-semibold mb-3" style={{ color: "var(--color-heading)" }}>
-              QR Code
+              Print
             </h2>
             <button
               type="button"
-              onClick={() =>
-                setQrPopupBusiness({
-                  id: activeBusiness.id,
-                  name: activeBusiness.name,
-                  slug: activeBusiness.slug,
-                })
-              }
-              className="inline-flex items-center justify-center gap-2 rounded-[10px] px-6 py-3 text-white font-semibold transition opacity-90 hover:opacity-100 mb-2 w-full max-w-md"
-              style={{ backgroundColor: "var(--color-primary)" }}
+              onClick={startFlyerDownload}
+              disabled={flyerDownloading}
+              className={`${actionTileClass} max-w-md`}
+              style={actionTileStyle}
+              aria-busy={flyerDownloading}
             >
-              <IonIcon name="qr-code" size={28} className="text-white" />
-              Show My QR Code
+              {flyerDownloading ? (
+                <span className="text-sm text-gray-600">Preparing…</span>
+              ) : (
+                <>
+                  <IonIcon name="document-text-outline" size={24} className="text-[var(--color-primary)]" />
+                  <span className="text-sm md:text-base font-semibold" style={{ color: "var(--color-heading)" }}>
+                    Download flyer
+                  </span>
+                  <span className="text-sm text-gray-600">
+                    A printable page for your storefront.
+                  </span>
+                </>
+              )}
             </button>
-            <p className="text-sm text-gray-600 mb-4 max-w-md">
-              Show this QR code to customers so they can scan it and earn reward points for supporting your
-              business.
-            </p>
-            <h2 className="text-base font-semibold mb-3 mt-2" style={{ color: "var(--color-heading)" }}>
-              Download
-            </h2>
-            <div className="grid grid-cols-2 gap-3 w-full max-w-md mx-auto">
-              <a
-                href={`/api/businesses/${activeBusiness.id}/qr`}
-                download={`nwc-qr-${activeBusiness.slug ?? activeBusiness.id}.png`}
-                className={mobileGridTile + " no-underline"}
-                style={mobileGridTileStyle}
-              >
-                <IonIcon name="qr-code" size={28} className="text-[var(--color-primary)]" />
-                <span
-                  className="text-sm font-semibold text-center leading-tight"
-                  style={{ color: "var(--color-heading)" }}
-                >
-                  QR Code
-                </span>
-              </a>
-              <button
-                type="button"
-                onClick={() => handleDownloadFlyer(activeBusiness.id, activeBusiness.slug ?? activeBusiness.id)}
-                disabled={flyerDownloading}
-                className={mobileGridTile}
-                style={mobileGridTileStyle}
-                aria-busy={flyerDownloading}
-              >
-                {flyerDownloading ? (
-                  <span className="text-sm text-gray-600">Preparing…</span>
-                ) : (
-                  <>
-                    <IonIcon name="document-text" size={28} className="text-[var(--color-primary)]" />
-                    <span
-                      className="text-sm font-semibold text-center leading-tight"
-                      style={{ color: "var(--color-heading)" }}
-                    >
-                      Download Flyer
-                    </span>
-                  </>
-                )}
-              </button>
-            </div>
-            <p className="text-sm text-gray-600 mt-3 max-w-md">
-              Download the QR or print the Flyer and hang it up in your storefront.
-            </p>
           </div>
         )}
       </div>
 
       {hubSwitcherOpen && businesses.length > 1 ? (
         <div
-          className="fixed inset-0 z-[250] lg:hidden flex justify-center items-start pt-24 px-6 bg-black/40"
+          className="fixed inset-0 z-[250] flex justify-center items-start pt-24 px-6 bg-black/40"
           role="dialog"
           aria-label="Choose business"
         >
@@ -668,196 +563,6 @@ export function BusinessHubFormModals({
         </div>
       ) : null}
 
-      <div className="hidden lg:block">
-        {sellerHubReturnButton}
-        {businesses.length > 0 && (
-          <BusinessProfileCompletionCard
-            businessIds={businesses.map((b) => b.id)}
-            onOpenBusinessForm={openBusinessModal}
-          />
-        )}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <button
-          type="button"
-          onClick={openBusinessModal}
-          title="Set up or edit up to 2 businesses"
-          className={businessCardClass + " cursor-pointer text-left max-md:text-center border-0"}
-        >
-          <IonIcon name="business" size={28} className="text-[var(--color-primary)] mb-2" />
-          <h2 className="text-xl font-bold mb-2">Set up / Edit Local Business Page</h2>
-          <p className="text-sm text-gray-600">
-            Submit or edit your business information for the Support Local directory.
-          </p>
-        </button>
-        <button
-          type="button"
-          onClick={() => setOpenModal("coupon")}
-          className={hubCardClass + " cursor-pointer text-left max-md:text-center"}
-        >
-          <IonIcon name="pricetag" size={28} className="text-[var(--color-primary)] mb-2" />
-          <h2 className="text-xl font-bold mb-2">Offer a Coupon</h2>
-          <p className="text-sm text-gray-600">
-            Add a coupon to the coupon book. Include business name, discount, code, and optional QR/barcode.
-          </p>
-        </button>
-        <button
-          type="button"
-          onClick={() => setOpenModal("event")}
-          className={hubCardClass + " cursor-pointer text-left max-md:text-center"}
-        >
-          <IonIcon name="calendar" size={28} className="text-[var(--color-primary)] mb-2" />
-          <h2 className="text-xl font-bold mb-2">Post Event</h2>
-          <p className="text-sm text-gray-600">
-            Add an event to one of the six community calendars.
-          </p>
-        </button>
-        {businesses.length > 0 && (
-          <button
-            type="button"
-            onClick={() => {
-              if (businesses.length === 1) {
-                const biz = businesses[0];
-                setCreatePostBusiness({ id: biz.id, name: biz.name });
-                setCreatePostOpen(true);
-              } else {
-                setOpenModal("create-post-picker");
-              }
-            }}
-            className={hubCardClass + " cursor-pointer text-left max-md:text-center"}
-          >
-            <IonIcon name="megaphone" size={28} className="text-[var(--color-primary)] mb-2" />
-            <h2 className="text-xl font-bold mb-2">Create Post</h2>
-            <p className="text-sm text-gray-600">
-              Share an update from your business on the community feed (Business Post).
-            </p>
-          </button>
-        )}
-      </div>
-
-      <div className="mb-8 flex flex-col items-stretch max-w-2xl mx-auto w-full text-center">
-        <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--color-heading)" }}>
-          Manage
-        </h2>
-        <Link
-          href="/business-hub/manage"
-          className="inline-flex items-center justify-center gap-2 rounded-[10px] px-6 py-3 text-white font-semibold transition opacity-90 hover:opacity-100 mb-2 w-full no-underline"
-          style={{ backgroundColor: "var(--color-primary)" }}
-        >
-          <IonIcon name="folder-outline" size={28} className="text-white shrink-0" />
-          My Posts, Coupons, and Rewards
-        </Link>
-      </div>
-
-      {businesses.length > 0 && (
-        <div className="mb-8 flex flex-col items-center text-center">
-          <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--color-heading)" }}>
-            QR Code
-          </h2>
-          {businesses.length === 1 ? (
-            <button
-              type="button"
-              onClick={() => setQrPopupBusiness({ id: businesses[0].id, name: businesses[0].name, slug: businesses[0].slug })}
-              className="inline-flex items-center justify-center gap-2 rounded-[10px] px-6 py-3 text-white font-semibold transition opacity-90 hover:opacity-100 mb-2"
-              style={{ backgroundColor: "var(--color-primary)" }}
-            >
-              <IonIcon name="qr-code" size={28} className="text-white" />
-              Show My QR Code
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setOpenModal("qr-picker")}
-              className="inline-flex items-center justify-center gap-2 rounded-[10px] px-6 py-3 text-white font-semibold transition opacity-90 hover:opacity-100 mb-2"
-              style={{ backgroundColor: "var(--color-primary)" }}
-            >
-              <IonIcon name="qr-code" size={28} className="text-white" />
-              Show My QR Code
-            </button>
-          )}
-          {businesses.length === 1 && (
-            <p className="text-sm text-gray-600 mb-4 max-w-md">
-              Show this QR code to customers so they can scan it and earn reward points for supporting your business.
-            </p>
-          )}
-          <h2 className="text-lg font-semibold mb-3 mt-6" style={{ color: "var(--color-heading)" }}>
-            Download
-          </h2>
-          <div className="flex flex-wrap justify-center gap-8 w-full max-w-2xl mx-auto">
-            {businesses.length === 1 ? (
-              <>
-                <a
-                  href={`/api/businesses/${businesses[0].id}/qr`}
-                  download={`nwc-qr-${businesses[0].slug ?? businesses[0].id}.png`}
-                  className={hubCardClass + " cursor-pointer no-underline shrink-0 basis-[min(100%,280px)]"}
-                >
-                  <IonIcon name="qr-code" size={28} className="text-[var(--color-primary)] mb-2" />
-                  <h2 className="text-xl font-bold mb-2">QR Code</h2>
-                  <p className="text-sm text-gray-600">Download your business QR code image.</p>
-                </a>
-                <button
-                  type="button"
-                  onClick={() => handleDownloadFlyer(businesses[0].id, businesses[0].slug ?? businesses[0].id)}
-                  disabled={flyerDownloading}
-                  className={hubCardClass + " cursor-pointer border-0 text-left max-md:text-center shrink-0 basis-[min(100%,280px)]"}
-                  aria-busy={flyerDownloading}
-                >
-                  {flyerDownloading ? (
-                    <span className="text-sm text-gray-600">Preparing…</span>
-                  ) : (
-                    <>
-                      <IonIcon name="document-text" size={28} className="text-[var(--color-primary)] mb-2" />
-                      <h2 className="text-xl font-bold mb-2">Download Flyer</h2>
-                      <p className="text-sm text-gray-600">Download a printable flyer for your storefront.</p>
-                    </>
-                  )}
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={openBusinessModal}
-                  className={hubCardClass + " cursor-pointer border-0 text-left max-md:text-center shrink-0 basis-[min(100%,280px)]"}
-                >
-                  <IonIcon name="qr-code" size={28} className="text-[var(--color-primary)] mb-2" />
-                  <h2 className="text-xl font-bold mb-2">QR Code</h2>
-                  <p className="text-sm text-gray-600">Manage businesses to access QR and flyer downloads.</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={openBusinessModal}
-                  className={hubCardClass + " cursor-pointer border-0 text-left max-md:text-center shrink-0 basis-[min(100%,280px)]"}
-                >
-                  <IonIcon name="document-text" size={28} className="text-[var(--color-primary)] mb-2" />
-                  <h2 className="text-xl font-bold mb-2">Download Flyer</h2>
-                  <p className="text-sm text-gray-600">Manage businesses to access flyer download.</p>
-                </button>
-              </>
-            )}
-          </div>
-          {businesses.length === 1 && (
-            <p className="text-sm text-gray-600 mt-3 max-w-md">
-              Download the QR or print the Flyer and hang it up in your storefront.
-            </p>
-          )}
-        </div>
-      )}
-
-      {isSeller && (
-        <div
-          className="p-4 rounded-lg border-2 mt-4"
-          style={{ backgroundColor: "var(--color-section-alt)", borderColor: "var(--color-primary)" }}
-        >
-          <p className="text-sm mb-2" style={{ color: "var(--color-primary)" }}>
-            You&apos;re on the Seller plan. Access storefront and orders in Seller Hub.
-          </p>
-          <Link href="/seller-hub" className="btn text-sm">
-            Go to Seller Hub
-          </Link>
-        </div>
-      )}
-      </div>
-
       <CreatePostModal
         open={createPostOpen}
         onClose={() => { setCreatePostOpen(false); setCreatePostBusiness(null); }}
@@ -878,26 +583,6 @@ export function BusinessHubFormModals({
       {openModal === "event" && (
         <Modal title="Post Event" onClose={closeModal}>
           <EventForm onSuccess={closeModal} businesses={businesses} />
-        </Modal>
-      )}
-      {openModal === "qr-picker" && (
-        <Modal title="Show QR Code for" onClose={closeModal}>
-          <div className="flex flex-col gap-3">
-            {businesses.map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                onClick={() => {
-                  setQrPopupBusiness({ id: b.id, name: b.name, slug: b.slug });
-                  setOpenModal(null);
-                }}
-                className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-[var(--color-primary)] text-left hover:bg-[var(--color-section-alt)]"
-              >
-                <IonIcon name="qr-code" size={28} className="text-[var(--color-primary)] shrink-0" />
-                <span className="font-semibold">{b.name}</span>
-              </button>
-            ))}
-          </div>
         </Modal>
       )}
 
@@ -923,13 +608,25 @@ export function BusinessHubFormModals({
         </Modal>
       )}
 
-      {qrPopupBusiness && (
-        <QRCodePopup
-          businessId={qrPopupBusiness.id}
-          businessName={qrPopupBusiness.name}
-          slug={qrPopupBusiness.slug}
-          onClose={() => setQrPopupBusiness(null)}
-        />
+      {openModal === "flyer-picker" && (
+        <Modal title="Download flyer for" onClose={closeModal}>
+          <div className="flex flex-col gap-3">
+            {businesses.map((b) => (
+              <button
+                key={b.id}
+                type="button"
+                onClick={() => {
+                  setOpenModal(null);
+                  void handleDownloadFlyer(b.id, b.slug ?? b.id);
+                }}
+                className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-[var(--color-primary)] text-left hover:bg-[var(--color-section-alt)]"
+              >
+                <IonIcon name="document-text-outline" size={28} className="text-[var(--color-primary)] shrink-0" />
+                <span className="font-semibold">{b.name}</span>
+              </button>
+            ))}
+          </div>
+        </Modal>
       )}
 
       {openModal === "business" && (

@@ -14,7 +14,7 @@ type NavItem = {
   icon: string;
   alert?: boolean;
   external?: boolean;
-  action?: "stripe" | "create-post" | "offer-reward" | "offer-coupon";
+  action?: "stripe" | "create-post" | "offer-coupon";
 };
 
 function AlertBadge() {
@@ -69,13 +69,6 @@ function NavRow({
       <button type="button" className={rowClass} onClick={() => { onNavigate(); onCreatePost(); }}>
         {inner}
       </button>
-    );
-  }
-  if (item.action === "offer-reward") {
-    return (
-      <Link href="/business-hub?from=seller-hub&open=reward" className={rowClass} onClick={onNavigate}>
-        {inner}
-      </Link>
     );
   }
   if (item.action === "offer-coupon") {
@@ -192,7 +185,6 @@ export function SellerHubMobileDrawer({
 
   const actionItems: NavItem[] = [
     { href: "/seller-hub/ship", label: "Ship Item", icon: "boat-outline", alert: pendingShip > 0 },
-    { href: "/business-hub?from=seller-hub&open=reward", label: "Offer Reward", icon: "gift-outline", action: "offer-reward" },
     { href: "/business-hub?from=seller-hub&open=coupon", label: "Offer Coupon", icon: "pricetag-outline", action: "offer-coupon" },
     { href: "/seller-hub", label: "Create Post", icon: "megaphone-outline", action: "create-post" },
   ];

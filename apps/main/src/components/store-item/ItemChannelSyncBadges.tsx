@@ -14,14 +14,16 @@ export type ItemChannelLink = {
 export function ItemChannelSyncBadges({
   links,
   storeItemId,
+  compact = false,
 }: {
   links: ItemChannelLink[];
   storeItemId: string;
+  compact?: boolean;
 }) {
   if (!links?.length) return null;
 
   return (
-    <div className="flex flex-col gap-1 mt-1.5">
+    <div className={compact ? "flex flex-wrap gap-1 mt-1" : "flex flex-col gap-1 mt-1.5"}>
       {links.map((link) => {
         const label = CHANNEL_PROVIDER_LABELS[link.provider] ?? link.provider;
         const isError = link.syncStatus === "error";
@@ -29,17 +31,33 @@ export function ItemChannelSyncBadges({
         const needsConditionFix =
           link.provider === "ebay" && isError && isEbayConditionSyncError(link.syncError);
 
-        const text = isError
-          ? `${label}: ${link.syncError?.trim() ? link.syncError.trim().slice(0, 120) : "sync error"}`
-          : isPaused
-            ? `${label}: paused`
-            : `Synced to ${label}`;
+        const errorDetail = link.syncError?.trim()
+          ? link.syncError.trim().slice(0, 120)
+          : "sync error";
+
+        const text = compact
+          ? isError
+            ? `${label}: ${errorDetail}`
+            : isPaused
+              ? `${label}: paused`
+              : label
+          : isError
+            ? `${label}: ${errorDetail}`
+            : isPaused
+              ? `${label}: paused`
+              : `Synced to ${label}`;
 
         const className = isError
-          ? "text-xs text-red-700 bg-red-50 border border-red-100 rounded px-2 py-0.5"
+          ? compact
+            ? "text-[11px] text-red-700 bg-red-50 border border-red-100 rounded-full px-2 py-0.5"
+            : "text-xs text-red-700 bg-red-50 border border-red-100 rounded px-2 py-0.5"
           : isPaused
-            ? "text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded px-2 py-0.5"
-            : "text-xs text-green-800 bg-green-50 border border-green-100 rounded px-2 py-0.5";
+            ? compact
+              ? "text-[11px] text-gray-600 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5"
+              : "text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded px-2 py-0.5"
+            : compact
+              ? "text-[11px] text-green-800 bg-green-50 border border-green-100 rounded-full px-2 py-0.5"
+              : "text-xs text-green-800 bg-green-50 border border-green-100 rounded px-2 py-0.5";
 
         if (needsConditionFix) {
           return (
@@ -47,14 +65,15 @@ export function ItemChannelSyncBadges({
               key={link.provider}
               href={`/seller-hub/store/${storeItemId}?fixEbayCondition=1`}
               className={`${className} hover:underline`}
+              title={errorDetail}
             >
-              {text} · Tap to fix condition
+              {compact ? `${label}: fix condition` : `${text} · Tap to fix condition`}
             </Link>
           );
         }
 
         return (
-          <span key={link.provider} className={className}>
+          <span key={link.provider} className={className} title={isError ? errorDetail : undefined}>
             {text}
           </span>
         );

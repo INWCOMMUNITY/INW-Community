@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCart } from "@/contexts/CartContext";
 import { isImmersiveMobileChromeRoute } from "@/lib/immersive-mobile-chrome";
+import { SITE_HEADER_SIDE } from "@/components/SiteNavAlignedColumn";
 
 const SEGMENT_COLOR = "var(--color-earth)";
 
@@ -79,8 +80,6 @@ function isPathActive(
   return pathname.startsWith(href);
 }
 
-const HEADER_SIDE = "w-[12rem]";
-
 function HeaderCartButton({
   count,
   onOpen,
@@ -90,26 +89,107 @@ function HeaderCartButton({
   onOpen: () => void;
   size?: "sm" | "md";
 }) {
-  const iconClass = size === "sm" ? "w-4 h-4" : "w-5 h-5";
-  const padClass = size === "sm" ? "p-1.5" : "p-2";
+  const iconClass = size === "sm" ? "w-3.5 h-3.5" : "w-4 h-4";
+  const circleClass = size === "sm" ? "h-8 w-8" : "h-9 w-9";
   const badgeClass =
     size === "sm"
-      ? "absolute top-0 right-0 bg-red-500 text-white text-[8px] font-bold rounded-full h-3 min-w-[0.75rem] px-0.5 flex items-center justify-center leading-none"
-      : "absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold rounded-full h-4 min-w-[1rem] px-1 flex items-center justify-center leading-none";
+      ? "absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[8px] font-bold rounded-full h-3 min-w-[0.75rem] px-0.5 flex items-center justify-center leading-none"
+      : "absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full h-4 min-w-[1rem] px-1 flex items-center justify-center leading-none";
   return (
     <button
       type="button"
-      onClick={onOpen}
-      className={`relative ${padClass} rounded-full hover:bg-gray-100 shrink-0 text-gray-600`}
-      aria-label={`Cart (${count} items)`}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onOpen();
+      }}
+      className={`relative ${circleClass} rounded-full shrink-0 inline-flex items-center justify-center bg-[var(--color-section-alt)] text-[var(--color-earth)] hover:text-[var(--color-primary)] transition-colors`}
+      aria-label={count > 0 ? `Cart (${count} items)` : "Cart"}
     >
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={iconClass}>
         <circle cx="9" cy="21" r="1" />
         <circle cx="20" cy="21" r="1" />
         <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
       </svg>
-      <span className={badgeClass}>{count > 99 ? "99+" : count}</span>
+      {count > 0 && <span className={badgeClass}>{count > 99 ? "99+" : count}</span>}
     </button>
+  );
+}
+
+function DesktopNavItem({
+  item,
+  pathname,
+  showAdmin,
+}: {
+  item: NavItem;
+  pathname: string;
+  showAdmin?: boolean;
+}) {
+  const active = isPathActive(pathname, item);
+  const hasChildren = "children" in item && (item.children?.length ?? 0) > 0;
+  const linkClass = `py-2.5 px-5 font-bold text-sm lg:text-base whitespace-nowrap rounded-full inline-flex items-center justify-center text-center transition-colors ${active ? "text-white" : "hover:bg-[var(--color-section-alt)]"}`;
+  const linkStyle = active
+    ? { backgroundColor: SEGMENT_COLOR }
+    : { color: "var(--color-primary)" };
+
+  if (hasChildren) {
+    return (
+      <div className="relative group flex-1 min-w-0 flex items-center justify-center">
+        <Link
+          href={"href" in item ? item.href : "#"}
+          prefetch={false}
+          className={linkClass}
+          style={{ ...linkStyle, display: "inline-flex", alignItems: "center" }}
+        >
+          <span className="text-center">{item.label}</span>
+        </Link>
+        <div className="absolute top-full left-0 right-0 pt-2 pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 transition-opacity duration-150 z-[100]">
+          <div className="w-full bg-white border rounded-md shadow-lg" style={{ borderColor: "var(--color-primary)", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+            {navDropdownChildren(item).map((c) => {
+              const isChildActive = pathname === c.href || (c.href !== "/" && pathname.startsWith(c.href));
+              return (
+                <Link
+                  key={c.href}
+                  href={c.href}
+                  prefetch={false}
+                  className={`block py-2.5 px-5 first:rounded-t-md last:rounded-b-md text-base font-bold text-center whitespace-nowrap flex justify-center items-center ${isChildActive ? "text-white hover:opacity-90" : "hover:bg-[var(--color-section-alt)]"}`}
+                  style={isChildActive ? { backgroundColor: SEGMENT_COLOR } : { color: "var(--color-primary)" }}
+                >
+                  {c.label}
+                </Link>
+              );
+            })}
+            {item.label === "Community" && showAdmin && (
+              <Link
+                href="/admin"
+                prefetch={false}
+                className="block py-2.5 px-5 rounded-b-md text-base font-bold text-center hover:bg-[var(--color-section-alt)] border-t flex justify-center items-center"
+                style={{
+                  borderTopColor: "var(--color-primary)",
+                  color: pathname.startsWith("/admin") ? "white" : "var(--color-primary)",
+                  ...(pathname.startsWith("/admin") ? { backgroundColor: SEGMENT_COLOR } : {}),
+                }}
+              >
+                Admin
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 min-w-0 flex items-center justify-center">
+      <Link
+        href={item.href}
+        prefetch={false}
+        className={linkClass}
+        style={linkStyle}
+      >
+        <span className="text-center">{item.label}</span>
+      </Link>
+    </div>
   );
 }
 
@@ -141,12 +221,13 @@ export function Header() {
   }
 
   const hideOnMobile = isImmersiveMobileChromeRoute(pathname);
+  const isAdmin = Boolean((session?.user as { isAdmin?: boolean })?.isAdmin);
 
   return (
     <div className={hideOnMobile ? "max-md:hidden" : undefined}>
     <header className="sticky top-0 z-50 bg-white border-b no-print py-3 sm:py-4" style={{ backgroundColor: "white", borderBottomColor: "var(--color-primary)" }}>
       <div className="max-w-[var(--max-width)] mx-auto px-3 sm:px-4 flex items-center">
-        {/* Mobile: three-part layout — NWC left, hamburger center, My Community + cart right */}
+        {/* Mobile: three-part layout — NWC left, hamburger center, Profile + cart right */}
         <div className="flex md:hidden flex-1 items-center justify-between min-w-0 w-full">
           <div className="flex flex-1 items-center justify-start min-w-0">
             <Link href="/" className="text-[0.94rem] font-bold leading-tight text-center inline-block" style={{ fontFamily: "var(--font-heading)", color: "#333" }}>
@@ -163,27 +244,29 @@ export function Header() {
           >
             <span className="text-2xl">{mobileOpen ? "✕" : "☰"}</span>
           </button>
-          <div className="flex flex-1 items-center justify-end gap-1.5 shrink-0 min-w-0">
+          <div className="flex flex-1 items-center justify-end gap-2 min-w-0">
             {status === "loading" ? (
               <span className="text-xs text-gray-500">...</span>
             ) : (
-              <div className="flex flex-col items-end gap-1 shrink-0">
+              <>
                 <Link
                   href={session ? "/my-community" : "/login"}
-                  className="rounded-full px-2.5 py-2 font-medium text-[0.86rem] text-white hover:opacity-95 transition-opacity shrink-0"
+                  className="rounded-full px-4 py-2 font-medium text-[0.86rem] !text-white hover:opacity-95 transition-opacity whitespace-nowrap min-w-[6.5rem] text-center"
                   style={{ backgroundColor: SEGMENT_COLOR }}
                 >
-                  {session ? "My Community" : "Sign in"}
+                  {session ? "Profile" : "Sign in"}
                 </Link>
-              </div>
-            )}
-            {cartCount > 0 && (
-              <HeaderCartButton count={cartCount} onOpen={() => setCartOpen(true)} size="sm" />
+                <HeaderCartButton
+                  count={cartCount}
+                  onOpen={() => setCartOpen(true)}
+                  size="sm"
+                />
+              </>
             )}
           </div>
         </div>
-        {/* Desktop: original layout */}
-        <div className={`hidden md:flex items-center shrink-0 ${HEADER_SIDE}`} style={{ minHeight: 0 }}>
+        {/* Desktop: live layout — equal side columns, compact menu pills, Profile + cart */}
+        <div className={`hidden md:flex items-center justify-center ${SITE_HEADER_SIDE}`}>
           <Link href="/" className="text-[1rem] sm:text-[1.2rem] md:text-[1.35rem] font-bold leading-tight text-center" style={{ fontFamily: "var(--font-heading)", color: "#333" }}>
             <span className="block">Northwest</span>
             <span className="block">Community</span>
@@ -191,128 +274,70 @@ export function Header() {
         </div>
         <nav className="hidden md:flex flex-1 items-stretch min-w-0 px-[0.5in]">
           <div className="flex w-full max-w-full items-stretch justify-evenly gap-1">
-            {navItems.map((item) => {
-              const active = isPathActive(pathname, item);
-              const hasChildren = "children" in item && (item.children?.length ?? 0) > 0;
-              const linkClass = `flex-1 min-w-0 py-5 px-2 font-bold text-sm lg:text-base whitespace-nowrap rounded-full gap-2 flex items-center justify-center text-center transition-colors ${active ? "text-white" : "hover:bg-[var(--color-section-alt)]"}`;
-              const linkStyle = active
-                ? { backgroundColor: SEGMENT_COLOR }
-                : { color: "var(--color-primary)" };
-
-              if (hasChildren) {
-                return (
-                  <div key={item.label} className="relative group flex-1 min-w-0 flex">
-                    <Link
-                      href={"href" in item ? item.href : "#"}
-                      prefetch={false}
-                      className={linkClass}
-                      style={{ ...linkStyle, display: "inline-flex", alignItems: "center" }}
-                    >
-                      <span className="text-center">{item.label}</span>
-                    </Link>
-                    <div className="absolute top-full left-0 right-0 pt-2 pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 transition-opacity duration-150 z-[100]">
-                      <div className="w-full bg-white border rounded-md shadow-lg" style={{ borderColor: "var(--color-primary)", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
-                        {navDropdownChildren(item).map((c) => {
-                          const isChildActive = pathname === c.href || (c.href !== "/" && pathname.startsWith(c.href));
-                          return (
-                            <Link
-                              key={c.href}
-                              href={c.href}
-                              prefetch={false}
-                              className={`block py-2.5 px-5 first:rounded-t-md last:rounded-b-md text-base font-bold text-center whitespace-nowrap flex justify-center items-center ${isChildActive ? "text-white hover:opacity-90" : "hover:bg-[var(--color-section-alt)]"}`}
-                              style={isChildActive ? { backgroundColor: SEGMENT_COLOR } : { color: "var(--color-primary)" }}
-                            >
-                              {c.label}
-                            </Link>
-                          );
-                        })}
-                        {item.label === "Community" && (session?.user as { isAdmin?: boolean })?.isAdmin && (
-                          <Link
-                            href="/admin"
-                            prefetch={false}
-                            className="block py-2.5 px-5 rounded-b-md text-base font-bold text-center hover:bg-[var(--color-section-alt)] border-t flex justify-center items-center"
-                            style={{
-                              borderTopColor: "var(--color-primary)",
-                              color: pathname.startsWith("/admin") ? "white" : "var(--color-primary)",
-                              ...(pathname.startsWith("/admin") ? { backgroundColor: SEGMENT_COLOR } : {}),
-                            }}
-                          >
-                            Admin
-                          </Link>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-              return (
-                <div key={item.href} className="relative flex-1 min-w-0 flex">
-                  <Link
-                    href={item.href}
-                    prefetch={false}
-                    className={linkClass}
-                    style={linkStyle}
-                  >
-                    <span className="text-center">{item.label}</span>
-                  </Link>
-                  {item.label === "Store" && cartCount > 0 && (
-                    <div className="absolute left-1/2 top-full z-[60] -translate-x-1/2 pt-0.5">
-                      <HeaderCartButton count={cartCount} onOpen={() => setCartOpen(true)} />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {navItems.map((item) => (
+              <DesktopNavItem
+                key={item.label}
+                item={item}
+                pathname={pathname}
+                showAdmin={isAdmin}
+              />
+            ))}
           </div>
         </nav>
-        <div className={`hidden md:flex items-center justify-end gap-3 shrink-0 ${HEADER_SIDE}`}>
-          {(session?.user as { isAdmin?: boolean })?.isAdmin && (
-            <Link
-              href="/admin/dashboard"
-              prefetch={false}
-              className="rounded-full px-3 py-2 sm:px-5 sm:py-2.5 font-medium text-sm sm:text-[1.1375rem] text-gray-700 hover:bg-[var(--color-section-alt)] transition-opacity shrink-0 border border-gray-300"
-            >
-              Admin
-            </Link>
-          )}
+        <div className={`hidden md:flex items-center justify-end gap-2 ${SITE_HEADER_SIDE}`}>
           {status === "loading" ? (
-            <span className="text-sm text-gray-500 w-24">...</span>
+            <span className="text-sm text-gray-500">...</span>
           ) : (
-            <div className="relative group shrink-0">
-              <Link
-                href={session ? "/my-community" : "/login"}
-                className="rounded-full px-3 py-2 sm:px-5 sm:py-2.5 font-medium text-sm sm:text-[1.1375rem] text-white hover:opacity-95 transition-opacity inline-flex items-center justify-center"
-                style={{ backgroundColor: SEGMENT_COLOR }}
-              >
-                {session ? "My Community" : "Sign in"}
-              </Link>
-              {session && (
-                <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 transition-opacity duration-150 z-[100]">
-                  <div className="bg-white border rounded-md shadow-lg min-w-[10rem]" style={{ borderColor: "var(--color-primary)", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
-                    <Link
-                      href="/my-community/messages"
-                      prefetch={false}
-                      className="block py-2.5 px-5 hover:bg-[var(--color-section-alt)] rounded-t-md text-sm sm:text-base text-gray-700 text-center"
-                    >
-                      Messages ({unreadMessages})
-                    </Link>
-                    <Link
-                      href="/my-community/profile"
-                      prefetch={false}
-                      className="block py-2.5 px-5 hover:bg-[var(--color-section-alt)] text-sm sm:text-base text-gray-700 text-center"
-                    >
-                      Edit profile
-                    </Link>
-                    <Link
-                      href="/api/auth/signout?callbackUrl=%2F"
-                      className="block py-2.5 px-5 hover:bg-[var(--color-section-alt)] rounded-b-md text-sm sm:text-base text-gray-700 text-center"
-                    >
-                      Log out
-                    </Link>
+            <>
+              <div className="relative group shrink-0">
+                <Link
+                  href={session ? "/my-community" : "/login"}
+                  className="rounded-full px-5 py-2.5 sm:px-8 sm:py-2.5 font-medium text-sm sm:text-[1.1375rem] !text-white hover:opacity-95 transition-opacity inline-flex items-center justify-center min-w-[9rem]"
+                  style={{ backgroundColor: SEGMENT_COLOR }}
+                >
+                  {session ? "Profile" : "Sign in"}
+                </Link>
+                {session && (
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 transition-opacity duration-150 z-[100]">
+                    <div className="bg-white border rounded-md shadow-lg min-w-[10rem]" style={{ borderColor: "var(--color-primary)", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+                      {isAdmin && (
+                        <Link
+                          href="/admin/dashboard"
+                          prefetch={false}
+                          className="block py-2.5 px-5 hover:bg-[var(--color-section-alt)] rounded-t-md text-sm sm:text-base text-gray-700 text-center"
+                        >
+                          Admin
+                        </Link>
+                      )}
+                      <Link
+                        href="/my-community/messages"
+                        prefetch={false}
+                        className={`block py-2.5 px-5 hover:bg-[var(--color-section-alt)] text-sm sm:text-base text-gray-700 text-center ${isAdmin ? "" : "rounded-t-md"}`}
+                      >
+                        Messages ({unreadMessages})
+                      </Link>
+                      <Link
+                        href="/my-community/profile"
+                        prefetch={false}
+                        className="block py-2.5 px-5 hover:bg-[var(--color-section-alt)] text-sm sm:text-base text-gray-700 text-center"
+                      >
+                        Edit profile
+                      </Link>
+                      <Link
+                        href="/api/auth/signout?callbackUrl=%2F"
+                        className="block py-2.5 px-5 hover:bg-[var(--color-section-alt)] rounded-b-md text-sm sm:text-base text-gray-700 text-center"
+                      >
+                        Log out
+                      </Link>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+              <HeaderCartButton
+                count={cartCount}
+                onOpen={() => setCartOpen(true)}
+              />
+            </>
           )}
         </div>
       </div>
@@ -436,29 +461,16 @@ export function Header() {
               }
               const active = isPathActive(pathname, item);
               return (
-                <div key={item.href} className="w-full">
-                  <Link
-                    href={item.href}
-                    prefetch={false}
-                    onClick={() => setMobileOpen(false)}
-                    className={`${rowClass} block py-3 px-4 font-bold text-sm ${active ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
-                    style={active ? { backgroundColor: "var(--color-primary)" } : undefined}
-                  >
-                    {item.label}
-                  </Link>
-                  {item.label === "Store" && cartCount > 0 && (
-                    <div className="flex justify-center py-1">
-                      <HeaderCartButton
-                        count={cartCount}
-                        onOpen={() => {
-                          setMobileOpen(false);
-                          setCartOpen(true);
-                        }}
-                        size="sm"
-                      />
-                    </div>
-                  )}
-                </div>
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  prefetch={false}
+                  onClick={() => setMobileOpen(false)}
+                  className={`${rowClass} block py-3 px-4 font-bold text-sm ${active ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
+                  style={active ? { backgroundColor: "var(--color-primary)" } : undefined}
+                >
+                  {item.label}
+                </Link>
               );
             })}
             {session?.user && (

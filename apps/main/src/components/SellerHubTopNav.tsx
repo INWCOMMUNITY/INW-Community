@@ -108,7 +108,6 @@ export function SellerHubTopNav() {
   const actionsChildren: Child[] = [
     { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
     { href: "/seller-hub/orders?tab=ship", label: "Fulfillment", icon: "boat-outline" },
-    { href: "/business-hub?from=seller-hub&open=reward", label: "Offer Reward", icon: "gift-outline" },
     { href: "/business-hub?from=seller-hub&open=coupon", label: "Offer Coupon", icon: "pricetag-outline" },
     { href: "/my-community", label: "Create Post", icon: "megaphone-outline" },
   ];

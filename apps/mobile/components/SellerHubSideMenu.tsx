@@ -35,7 +35,7 @@ type NavItem = {
   icon: keyof typeof Ionicons.glyphMap;
   alert?: boolean;
   external?: boolean;
-  action?: "stripe" | "create-post" | "business-hub" | "offer-coupon" | "offer-reward";
+  action?: "stripe" | "create-post" | "business-hub" | "offer-coupon";
 };
 
 interface SellerHubSideMenuProps {
@@ -147,10 +147,9 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
     { href: "/policies", label: "Policies", icon: "book-outline" },
   ];
 
-  // Website dropdown: Actions (exclude List Item - on hub). Offer Reward/Coupon go to actual Business Hub (my-community) and open the modal there.
+  // Website dropdown: Actions (exclude List Item - on hub). Offer Coupon goes to Business Hub and opens the modal there.
   const actionItems: NavItem[] = [
     { href: "/seller-hub/orders", label: "Fulfillment", icon: "boat-outline", alert: pendingShip > 0 },
-    { href: "/(tabs)/my-community", label: "Offer Reward", icon: "gift-outline", action: "offer-reward" },
     { href: "/(tabs)/my-community", label: "Offer Coupon", icon: "pricetag-outline", action: "offer-coupon" },
     { href: "/(tabs)/my-community", label: "Create Post", icon: "megaphone-outline", action: "create-post" },
   ];
@@ -192,11 +191,6 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
     if (item.action === "business-hub") {
       setProfileView("business_hub");
       router.push("/(tabs)/my-community" as never);
-      return;
-    }
-    if (item.action === "offer-reward") {
-      setProfileView("business_hub");
-      router.push("/(tabs)/my-community?open=reward" as never);
       return;
     }
     if (item.action === "offer-coupon") {

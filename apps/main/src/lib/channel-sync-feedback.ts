@@ -81,3 +81,13 @@ export function buildSyncFailureMessage(
     failureLines.length === 1 ? "a connected store" : "some connected stores"
   }:\n\n${failureLines.join("\n\n")}`;
 }
+
+export function alertChannelSyncFailures(
+  channelSync: ChannelSyncRow[] | undefined,
+  action: "saved" | "deleted" | "removed" = "saved"
+) {
+  const result = formatChannelSyncResults(channelSync, action);
+  if (!channelSync?.length || result.allOk) return;
+  if (typeof window === "undefined") return;
+  window.alert(buildSyncFailureMessage(result.intro, result.failureLines));
+}

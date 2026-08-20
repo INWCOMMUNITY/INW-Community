@@ -6,11 +6,14 @@ export const SITE_PAGE_SHELL = "max-w-[var(--max-width)] mx-auto px-3 sm:px-4";
 /** Desktop center column — same flex band as Home–Members nav (`px-[0.5in]`). */
 export const SITE_NAV_BAND = "min-w-0 px-[0.5in]";
 
+/** Fixed left/right header columns so Store stays centered on the hero seal. */
+export const SITE_HEADER_SIDE = "w-[12rem] min-w-[12rem] max-w-[12rem] shrink-0";
+
 /** Matches `Header` desktop row: logo | flex-1 nav band | actions */
 export const SITE_HEADER_ROW = "hidden md:flex md:items-start w-full";
 export const SITE_HEADER_LOGO_SLOT = "hidden md:flex md:items-center shrink-0 relative";
 export const SITE_HEADER_ACTIONS_SLOT =
-  "hidden md:flex md:items-center md:justify-end md:gap-3 shrink-0 relative";
+  "hidden md:flex md:items-center md:justify-end md:gap-2 relative";
 
 /** Below sticky site header — keep in sync with `globals.css` `--site-header-height`. */
 export const SITE_STICKY_BELOW_HEADER = {
@@ -19,7 +22,7 @@ export const SITE_STICKY_BELOW_HEADER = {
 
 export function SiteHeaderLogoSpacer() {
   return (
-    <div aria-hidden className="invisible pointer-events-none shrink-0 w-[12rem]">
+    <div aria-hidden className={`invisible pointer-events-none ${SITE_HEADER_SIDE}`}>
       <div
         className="text-[1rem] sm:text-[1.2rem] md:text-[1.35rem] font-bold leading-tight text-center"
         style={{ fontFamily: "var(--font-heading)" }}
@@ -33,10 +36,11 @@ export function SiteHeaderLogoSpacer() {
 
 export function SiteHeaderActionsSpacer() {
   return (
-    <div aria-hidden className="invisible pointer-events-none shrink-0 flex items-center justify-end gap-3 w-[12rem]">
-      <span className="rounded-full px-3 py-2 sm:px-5 sm:py-2.5 font-medium text-sm sm:text-[1.1375rem] whitespace-nowrap">
-        My Community
+    <div aria-hidden className={`invisible pointer-events-none flex items-center justify-end gap-2 ${SITE_HEADER_SIDE}`}>
+      <span className="rounded-full px-5 py-2.5 sm:px-8 sm:py-2.5 font-medium text-sm sm:text-[1.1375rem] min-w-[9rem] text-center">
+        Profile
       </span>
+      <span className="inline-block h-9 w-9 rounded-full" />
     </div>
   );
 }
@@ -63,7 +67,7 @@ export function MyCommunityNavGrid({
       >
         <div className="relative shrink-0 self-stretch min-h-0 overflow-visible">
           <SiteHeaderLogoSpacer />
-          <div className="absolute inset-y-0 left-0 -translate-x-6 w-[12rem] z-20 pointer-events-auto">
+          <div className={`absolute inset-y-0 left-0 -translate-x-6 ${SITE_HEADER_SIDE} z-20 pointer-events-auto`}>
             <div className="sticky w-full" style={SITE_STICKY_BELOW_HEADER}>
               {sidebar}
             </div>

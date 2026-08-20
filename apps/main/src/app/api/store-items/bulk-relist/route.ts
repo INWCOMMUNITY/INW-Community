@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     where: {
       id: { in: storeItemIds },
       memberId: userId,
-      status: { in: ["sold_out", "ended", "draft"] },
+      status: { in: ["sold_out", "inactive", "ended", "draft"] },
     },
     select: {
       id: true,
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
 
   if (items.length === 0) {
     return NextResponse.json({
-      error: "No eligible items found. Items must be sold out, ended, or draft.",
+      error: "No eligible items found. Items must be sold out, ended (inactive), or draft.",
     }, { status: 400 });
   }
 

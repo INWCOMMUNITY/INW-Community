@@ -5,7 +5,7 @@ export default function OtherActionsPage() {
     <div>
       <h2 className="text-xl font-bold mb-4">Other Actions</h2>
       <p className="text-gray-600 mb-4">
-        Access Business Hub features: business directory, coupons, events, and rewards.
+        Access Business Hub features: business directory, coupons, and events.
       </p>
       <div className="space-y-2">
         <Link href="/seller-hub/sponsor-hub" className="block text-primary-600 hover:underline">
@@ -16,9 +16,6 @@ export default function OtherActionsPage() {
         </Link>
         <Link href="/seller-hub/sponsor-hub" className="block text-primary-600 hover:underline">
           Post an event
-        </Link>
-        <Link href="/seller-hub/sponsor-hub" className="block text-primary-600 hover:underline">
-          Offer a reward
         </Link>
       </div>
     </div>

@@ -34,7 +34,7 @@ export default async function BusinessHubManagePage() {
           Manage NWC Business
         </h1>
         <p className="text-gray-600 mb-8">
-          Your business posts, rewards, coupons, and calendar events—same destinations as in the app.
+          Your business posts, coupons, and calendar events.
         </p>
 
         <BusinessHubManageDirectoryLinks />

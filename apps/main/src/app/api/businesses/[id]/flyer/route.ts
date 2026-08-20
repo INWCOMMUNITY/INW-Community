@@ -1,24 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import QRCode from "qrcode";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import path from "path";
 import fs from "fs/promises";
 import sharp from "sharp";
-
-const BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
 /** 72 PDF points per inch */
 const PT_PER_IN = 72;
 
 /** Page background – matches NWC logo (light beige) */
 const PAGE_BG = rgb(248 / 255, 231 / 255, 201 / 255); // #F8E7C9
-const WHITE = rgb(1, 1, 1);
 const BLACK = rgb(0, 0, 0);
 
 const FLYER_TEXT =
-  "Is in Partnership with Northwest Community to make Locally Owned Businesses thrive in our area. Scan the QR CODE to earn points to spend on local goods. Thank you for supporting our locally owned companies.";
+  "Is in Partnership with Northwest Community to make locally owned businesses thrive in our area. Thank you for supporting our locally owned companies.";
 
 function wrapText(
   text: string,
@@ -141,8 +137,6 @@ export async function GET(
 
   try {
     const nwcLogoBytes = await readNwcLogo();
-    const url = `${BASE_URL}/scan/${business.id}`;
-    const qrPng = await QRCode.toBuffer(url, { width: 400, margin: 2 });
 
     const doc = await PDFDocument.create();
     const page = doc.addPage([612, 792]); // US Letter
@@ -163,24 +157,16 @@ export async function GET(
     const marginTop = 36;
     const marginBottom = 36;
     const contentWidth = pageWidth - marginSide * 2;
-    const availableHeight = 792 - marginTop - marginBottom;
 
-    // Sizes: logo, title, paragraph (22pt), QR (20% smaller), footer
     const logoSizePt = 3.5 * PT_PER_IN;
     const titleSize = 31;
-    const bodySize = 22; // decreased by 2 from 24
-    const qrSizePt = 3.35 * PT_PER_IN * 0.8; // 20% smaller
+    const bodySize = 22;
     const pnwSize = 21;
     const appSize = 14;
 
-    // Paragraph starts with "Is in Partnership..." (no business name)
     const bodyText = FLYER_TEXT;
     const bodyLines = wrapText(bodyText, contentWidth, font, bodySize);
     const lineHeight = bodySize * 1.15;
-    const paragraphHeight = bodyLines.length * lineHeight;
-    const headerHeight = titleSize * 1.1;
-    const footerHeight = pnwSize * 1.2 + 8 + appSize;
-    const footerTopY = marginBottom + appSize + (appSize * 1.2 + 8) + pnwSize; // top of PNW text
 
     let y = 792 - marginTop;
 
@@ -224,21 +210,8 @@ export async function GET(
       });
       y -= lineHeight;
     }
-    const paragraphEndY = y;
-    const paragraphTopOfLastLineY = paragraphEndY + bodySize; // top of last line for even visual spacing
 
-    // 4. QR code – centered so gap(paragraph top-of-last-line → QR top) = gap(QR bottom → website top)
-    const spaceForQr = paragraphTopOfLastLineY - footerTopY;
-    const qrY = footerTopY + Math.max(0, (spaceForQr - qrSizePt) / 2);
-    const qrImage = await doc.embedPng(qrPng);
-    page.drawImage(qrImage, {
-      x: (pageWidth - qrSizePt) / 2,
-      y: qrY,
-      width: qrSizePt,
-      height: qrSizePt,
-    });
-
-    // 5. Website + App store – fixed at bottom, original spacing between the two lines
+    // Website + App store – fixed at bottom
     const appBaselineY = marginBottom + appSize;
     const pnwBaselineY = appBaselineY + appSize * 1.2 + 8;
     const pnw = "PNWCOMMUNITY.COM";
