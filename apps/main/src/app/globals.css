@@ -213,6 +213,28 @@ a {
   border-color: #3E432F;
 }
 
+.btn-pill-earth {
+  background-color: var(--color-earth);
+  color: white;
+  border-color: var(--color-earth);
+}
+
+.btn-pill-earth:hover:not(:disabled) {
+  background-color: #4a3f33;
+  border-color: #4a3f33;
+}
+
+.btn-pill-tan {
+  background-color: var(--color-section-alt);
+  color: var(--color-earth);
+  border-color: var(--color-section-alt);
+}
+
+.btn-pill-tan:hover:not(:disabled) {
+  background-color: #f5d9a8;
+  border-color: #f5d9a8;
+}
+
 .btn-pill-outline {
   background-color: white;
   color: var(--color-primary);

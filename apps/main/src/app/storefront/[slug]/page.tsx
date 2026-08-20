@@ -741,6 +741,7 @@ export default function ProductDetailPage() {
                   slug={item.slug}
                   title={item.title}
                   variant="full"
+                  tone="earth"
                   label="Share Item"
                 />
                 <HeartSaveButton
@@ -748,6 +749,7 @@ export default function ProductDetailPage() {
                   referenceId={item.id}
                   initialSaved={savedIds.has(item.id)}
                   variant="full"
+                  tone="tan"
                   saveLabel="Add to Wishlist"
                   savedLabel="In Wishlist"
                   onSavedChange={(saved) => {

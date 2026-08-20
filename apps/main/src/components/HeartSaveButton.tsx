@@ -13,6 +13,8 @@ interface HeartSaveButtonProps {
   iconSize?: number;
   /** Icon-only (default) or full-width labeled button (business page). */
   variant?: "icon" | "full";
+  /** Full-width pill color. Default matches primary action pills. */
+  tone?: "primary" | "earth" | "tan";
   saveLabel?: string;
   savedLabel?: string;
   onSavedChange?: (saved: boolean) => void;
@@ -29,6 +31,7 @@ export function HeartSaveButton({
   className = "",
   iconSize = 22,
   variant = "icon",
+  tone = "primary",
   saveLabel = "Save",
   savedLabel = "Saved",
   onSavedChange,
@@ -92,8 +95,10 @@ export function HeartSaveButton({
   }
 
   const isFull = variant === "full";
-  // Use iconClassName override if provided, otherwise use default colors
-  const defaultIconClass = saved ? (isFull ? "text-white" : "text-red-500") : isFull ? "text-white" : "text-gray-500";
+  const toneClass =
+    tone === "tan" ? "btn-pill-tan" : tone === "earth" ? "btn-pill-earth" : "btn-pill-primary";
+  const fullIconClass = tone === "tan" ? "text-[var(--color-earth)]" : "text-white";
+  const defaultIconClass = saved ? (isFull ? fullIconClass : "text-red-500") : isFull ? fullIconClass : "text-gray-500";
   const iconClass = iconClassName || defaultIconClass;
   const icon = (
     <span className={`inline-flex items-center justify-center ${pulseAnimation ? "animate-heart-pulse" : ""}`}>
@@ -105,7 +110,7 @@ export function HeartSaveButton({
     </span>
   );
   const label = saved ? savedLabel : saveLabel;
-  const fullBtnClass = `flex w-full min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border-2 border-[var(--color-primary)] bg-[var(--color-primary)] py-3 text-[15px] font-bold text-white shadow-sm transition hover:bg-[var(--color-button-hover)] disabled:opacity-50 ${className}`;
+  const fullBtnClass = `action-pill ${toneClass} action-pill-lg w-full min-w-0 flex-1 py-3 text-[15px] font-bold shadow-sm disabled:opacity-50 ${className}`;
   const iconBtnClass = `inline-flex items-center justify-center w-9 h-9 rounded-full hover:bg-gray-100 transition disabled:opacity-50 ${className}`;
 
   if (status !== "authenticated") {
@@ -117,7 +122,7 @@ export function HeartSaveButton({
           className={fullBtnClass}
           title="Log in to save"
         >
-          <IonIcon name="heart-outline" size={iconSize} className={iconClassName || "text-white"} />
+          <IonIcon name="heart-outline" size={iconSize} className={iconClassName || fullIconClass} />
           <span>{saveLabel}</span>
         </Link>
       );

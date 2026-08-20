@@ -15,6 +15,8 @@ interface ShareButtonBaseProps {
   iconSize?: number;
   variant?: "icon" | "full";
   label?: string;
+  /** Full-width pill color. Default matches primary action pills. */
+  tone?: "primary" | "earth" | "tan";
   /** Custom icon color class (overrides default) */
   iconClassName?: string;
 }
@@ -106,11 +108,14 @@ export function ShareButton(props: ShareButtonProps) {
     className = "",
     iconSize = 22,
     variant = "icon",
+    tone = "primary",
     label = "Share",
     iconClassName,
   } = props;
   const isFull = variant === "full";
-  const fullBtnClass = `action-pill btn-pill-primary action-pill-lg w-full min-w-0 flex-1 py-3 text-[15px] font-bold shadow-sm disabled:opacity-50 ${className}`;
+  const toneClass =
+    tone === "tan" ? "btn-pill-tan" : tone === "earth" ? "btn-pill-earth" : "btn-pill-primary";
+  const fullBtnClass = `action-pill ${toneClass} action-pill-lg w-full min-w-0 flex-1 py-3 text-[15px] font-bold shadow-sm disabled:opacity-50 ${className}`;
   const iconBtnClass = `action-pill btn-pill-ghost w-9 h-9 p-0 ${className}`;
   const { data: session, status } = useSession();
   const [open, setOpen] = useState(false);
@@ -287,7 +292,7 @@ export function ShareButton(props: ShareButtonProps) {
       <IonIcon
         name="share-outline"
         size={iconSize}
-        className={iconClassName ?? (isFull ? "text-white" : "text-gray-500")}
+        className={iconClassName ?? (isFull ? (tone === "tan" ? "text-[var(--color-earth)]" : "text-white") : "text-gray-500")}
         aria-hidden
       />
       {isFull ? <span>{label}</span> : null}
