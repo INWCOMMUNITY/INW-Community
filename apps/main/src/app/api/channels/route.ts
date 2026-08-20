@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { connectionReadyToPublish, publishBlockReason } from "@/lib/channels/connection-publish";
 
 export const dynamic = "force-dynamic";
 
@@ -32,29 +33,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json(
     connections.map((c) => {
-      const config = (c.config ?? {}) as Record<string, unknown>;
-      // eBay can only publish once business policies + a merchant location are present.
-      const ebayCanPublish =
-        c.provider === "ebay"
-          ? Boolean(
-              config.fulfillmentPolicyId &&
-                config.paymentPolicyId &&
-                config.returnPolicyId &&
-                config.merchantLocationKey
-            )
-          : null;
-      const shopifyReady =
-        c.provider === "shopify"
-          ? Boolean(config.locationId && config.shop)
-          : null;
-      const readyToPublish =
-        c.provider === "etsy"
-          ? Boolean(c.etsyShippingProfileId)
-          : c.provider === "ebay"
-            ? ebayCanPublish
-            : c.provider === "shopify"
-              ? shopifyReady
-              : true;
+      const readyToPublish = c.status === "active" && connectionReadyToPublish(c);
       return {
         id: c.id,
         provider: c.provider,
@@ -64,6 +43,7 @@ export async function GET(req: NextRequest) {
         lastError: c.lastError,
         hasShippingProfile: Boolean(c.etsyShippingProfileId),
         readyToPublish,
+        publishBlockReason: publishBlockReason(c),
         lastReconciledAt: c.lastReconciledAt,
         linkedListings: c._count.listingLinks,
         connectedAt: c.createdAt,

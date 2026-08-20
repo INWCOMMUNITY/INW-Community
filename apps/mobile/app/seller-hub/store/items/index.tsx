@@ -16,12 +16,13 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
-import { alertChannelSyncFailures } from "@/lib/channel-sync-alert";
+import { alertChannelPublishResult, alertChannelSyncFailures } from "@/lib/channel-sync-alert";
 import { EbayConditionFixModal } from "@/components/channels/EbayConditionFixModal";
 import { isEbayConditionSyncError } from "@/lib/ebay-condition-sync";
 import { QualityScoreBadge } from "@/components/listing/QualityScoreBadge";
 import {
   CHANNEL_PROVIDER_LABEL,
+  channelNotReadyHint,
   fetchChannelConnections,
   type ChannelConnectionSummary,
   type ChannelProviderId,
@@ -342,6 +343,17 @@ export default function MyItemsScreen() {
       .map((c) => c.provider);
   };
 
+  const blockedListConnectionsForItem = (item: StoreItem): ChannelConnectionSummary[] => {
+    if (itemsTab === "sold") return [];
+    const linked = new Set((item.channelLinks ?? []).map((l) => l.provider));
+    return channelConnections.filter(
+      (c) =>
+        (c.status === "active" || c.status === "error") &&
+        !linked.has(c.provider) &&
+        (c.status !== "active" || c.readyToPublish === false)
+    );
+  };
+
   const publishToChannel = (storeItemId: string, provider: ChannelProviderId) => {
     const label = CHANNEL_PROVIDER_LABEL[provider] ?? provider;
     Alert.alert(
@@ -360,7 +372,7 @@ export default function MyItemsScreen() {
               }>(`/api/store-items/${storeItemId}/publish-channels`, {
                 providers: [provider],
               });
-              alertChannelSyncFailures(res.channelSync, "saved");
+              alertChannelPublishResult(res.channelSync);
               load();
             } catch (e) {
               const err = e as { error?: string };
@@ -634,6 +646,24 @@ export default function MyItemsScreen() {
                         </Text>
                       </Pressable>
                     ))}
+                    {blockedListConnectionsForItem(menuItem).map((c) => {
+                      const reason =
+                        c.status !== "active"
+                          ? "Reconnect in Sync Stores."
+                          : c.publishBlockReason || channelNotReadyHint(c.provider);
+                      return (
+                        <Pressable
+                          key={`list-blocked-${c.provider}`}
+                          style={styles.menuOption}
+                          onPress={() => Alert.alert(`List on ${CHANNEL_PROVIDER_LABEL[c.provider]}`, reason)}
+                        >
+                          <Text style={styles.menuOptionTextDisabled}>
+                            List on {CHANNEL_PROVIDER_LABEL[c.provider]}
+                          </Text>
+                          <Text style={styles.menuOptionHint}>{reason}</Text>
+                        </Pressable>
+                      );
+                    })}
                     {linkedProvidersForItem(menuItem).map((provider) => (
                       <Pressable
                         key={`unlink-${provider}`}
@@ -838,6 +868,16 @@ const styles = StyleSheet.create({
   menuOptionText: {
     fontSize: 16,
     color: "#333",
+  },
+  menuOptionTextDisabled: {
+    fontSize: 16,
+    color: "#9ca3af",
+    fontWeight: "600",
+  },
+  menuOptionHint: {
+    fontSize: 12,
+    color: "#6b7280",
+    marginTop: 4,
   },
   menuOptionTextGreen: {
     fontSize: 16,

@@ -273,12 +273,20 @@ export const etsyAdapter: ChannelAdapter = {
         }
       }
 
-      const tid = taxonomyId ?? 1;
+      const resolvedTaxonomyId = taxonomyId ?? item.etsyTaxonomyId;
+      if (!resolvedTaxonomyId) {
+        const error = new Error(
+          "Etsy requires a category before listing. Choose an Etsy category on the item."
+        );
+        await completeTrace(trace, "validation_failed", error);
+        throw error;
+      }
+
       let defaultReadinessStateId =
         typeof conn.config?.defaultReadinessStateId === "number"
           ? conn.config.defaultReadinessStateId
           : null;
-      
+
       if (defaultReadinessStateId == null) {
         try {
           const profiles = await etsyGet<{ results?: { readiness_state_id: number }[] }>(
@@ -296,7 +304,7 @@ export const etsyAdapter: ChannelAdapter = {
         }
       }
 
-      await pushEtsyVariants(conn.accessToken, listingId, tid, item, defaultReadinessStateId).catch((e) =>
+      await pushEtsyVariants(conn.accessToken, listingId, resolvedTaxonomyId, item, defaultReadinessStateId).catch((e) =>
         console.error("[etsy] variant push failed", { listingId, error: String(e) })
       );
       await this.updateInventory(conn, listingId, item.quantity, item).catch((e) =>
@@ -304,14 +312,44 @@ export const etsyAdapter: ChannelAdapter = {
       );
 
       const profileForPublish = shippingProfileId ?? conn.etsyShippingProfileId;
-      if (item.status === "active" && item.quantity > 0 && profileForPublish) {
-        await etsyForm(conn.accessToken, `/shops/${shopId}/listings/${listingId}`, "PATCH", {
-          state: "active",
-        }).catch((e) => console.error("[etsy] publish failed", { listingId, error: String(e) }));
+      if (!profileForPublish) {
+        await completeTrace(trace, "success");
+        return {
+          externalListingId: listingId,
+          externalShopId: shopId,
+          live: false,
+          warning:
+            "Created as an Etsy draft — add a shipping profile in Sync Stores to go live.",
+        };
+      }
+      if (item.status === "active" && item.quantity > 0) {
+        try {
+          await etsyForm(conn.accessToken, `/shops/${shopId}/listings/${listingId}`, "PATCH", {
+            state: "active",
+          });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error("[etsy] publish failed", { listingId, error: msg });
+          await completeTrace(trace, "success");
+          return {
+            externalListingId: listingId,
+            externalShopId: shopId,
+            live: false,
+            warning: `Created as an Etsy draft — it could not go live. ${msg.slice(0, 180)}`,
+          };
+        }
+      } else {
+        await completeTrace(trace, "success");
+        return {
+          externalListingId: listingId,
+          externalShopId: shopId,
+          live: false,
+          warning: "Created as an Etsy draft — it is not live yet.",
+        };
       }
 
       await completeTrace(trace, "success");
-      return { externalListingId: listingId, externalShopId: shopId };
+      return { externalListingId: listingId, externalShopId: shopId, live: true };
     } catch (e) {
       await completeTrace(trace, "failed", e);
       throw e;

@@ -4,8 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
-import type { ChannelConnectionSummary, ChannelProviderId } from "@/lib/channel-connections-client";
-import { alertChannelSyncFailures } from "@/lib/channel-sync-feedback";
+import {
+  channelNotReadyHint,
+  type ChannelConnectionSummary,
+  type ChannelProviderId,
+} from "@/lib/channel-connections-client";
+import { alertChannelPublishResult, alertChannelSyncFailures } from "@/lib/channel-sync-feedback";
 import { itemEditHref, itemListingHref, type ItemsTab, type MyStoreItem } from "@/components/store-item/my-items-types";
 
 const menuRowClass =
@@ -36,16 +40,18 @@ export function MyItemsRowMenu({
 
   const linked = (item.channelLinks ?? []).map((l) => l.provider as ChannelProviderId);
   const linkedSet = new Set(linked);
-  const listable = tab === "sold"
-    ? []
-    : connections
-        .filter(
-          (c) =>
-            c.status === "active" &&
-            c.readyToPublish !== false &&
-            !linkedSet.has(c.provider)
-        )
-        .map((c) => c.provider);
+  const listCandidates =
+    tab === "sold"
+      ? []
+      : connections.filter(
+          (c) => (c.status === "active" || c.status === "error") && !linkedSet.has(c.provider)
+        );
+  const listable = listCandidates
+    .filter((c) => c.status === "active" && c.readyToPublish !== false)
+    .map((c) => c.provider);
+  const listBlocked = listCandidates.filter(
+    (c) => c.status !== "active" || c.readyToPublish === false
+  );
 
   async function jsonFetch<T>(url: string, init: RequestInit): Promise<T> {
     const res = await fetch(url, { credentials: "include", ...init });
@@ -168,7 +174,7 @@ export function MyItemsRowMenu({
           body: JSON.stringify({ providers: [provider] }),
         }
       );
-      alertChannelSyncFailures(data.channelSync);
+      alertChannelPublishResult(data.channelSync);
       onDone();
       onClose();
     } catch (e) {
@@ -318,6 +324,27 @@ export function MyItemsRowMenu({
                 List on {CHANNEL_PROVIDER_LABELS[provider] ?? provider}
               </button>
             ))}
+            {listBlocked.map((c) => {
+              const provider = c.provider as ChannelProviderId;
+              const reason =
+                c.status !== "active"
+                  ? "Reconnect in Sync Stores."
+                  : c.publishBlockReason || channelNotReadyHint(provider);
+              return (
+                <button
+                  key={`list-blocked-${provider}`}
+                  type="button"
+                  disabled
+                  className={`${menuRowClass} cursor-not-allowed`}
+                  title={reason}
+                >
+                  <span>
+                    List on {CHANNEL_PROVIDER_LABELS[provider] ?? provider}
+                    <span className="block text-xs font-normal text-gray-500">{reason}</span>
+                  </span>
+                </button>
+              );
+            })}
             {linked.map((provider) => (
               <button
                 key={`unlink-${provider}`}

@@ -1,5 +1,6 @@
 import type { ChannelConnectionContext, RemoteListingSummary, SyncStoreItem } from "../types";
 import { listingDescriptionToPlainText } from "../rich-description";
+import { isEtsyWhoMade, normalizeEtsyWhenMade } from "@/lib/etsy-listing-options";
 
 /**
  * Map of Etsy taxonomy IDs to category names.
@@ -462,36 +463,6 @@ export function listEtsyTaxonomyEntries(): Array<{ id: number; name: string }> {
   }));
 }
 
-/** Etsy taxonomy id used when a listing has no explicit mapping. Override with ETSY_DEFAULT_TAXONOMY_ID. */
-function defaultTaxonomyId(): number {
-  const raw = process.env.ETSY_DEFAULT_TAXONOMY_ID?.trim();
-  const n = raw ? Number(raw) : NaN;
-  return Number.isInteger(n) && n > 0 ? n : 1;
-}
-
-const VALID_WHO_MADE = new Set(["i_did", "someone_else", "collective"]);
-const VALID_WHEN_MADE = new Set([
-  "made_to_order",
-  "2020_2025",
-  "2010_2019",
-  "2006_2009",
-  "before_2006",
-  "2000_2005",
-  "1990s",
-  "1980s",
-  "1970s",
-  "1960s",
-  "1950s",
-  "1940s",
-  "1930s",
-  "1920s",
-  "1910s",
-  "1900s",
-  "1800s",
-  "1700s",
-  "before_1700",
-]);
-
 export function etsyPriceFromCents(cents: number): string {
   return (Math.max(1, Math.round(cents)) / 100).toFixed(2);
 }
@@ -517,9 +488,18 @@ export function buildEtsyCreateFields(
   conn: ChannelConnectionContext,
   overrides?: { taxonomyId?: number; shippingProfileId?: string | null }
 ): Record<string, string | number | boolean | undefined> {
-  const whoMade = item.etsyWhoMade && VALID_WHO_MADE.has(item.etsyWhoMade) ? item.etsyWhoMade : "i_did";
-  const whenMade =
-    item.etsyWhenMade && VALID_WHEN_MADE.has(item.etsyWhenMade) ? item.etsyWhenMade : "made_to_order";
+  const whoMade = isEtsyWhoMade(item.etsyWhoMade) ? item.etsyWhoMade : null;
+  const whenMade = normalizeEtsyWhenMade(item.etsyWhenMade);
+  const taxonomyId = overrides?.taxonomyId ?? item.etsyTaxonomyId ?? null;
+  if (!whoMade) {
+    throw new Error('Etsy requires you to specify who made the item (select "Who made it?").');
+  }
+  if (!whenMade) {
+    throw new Error('Etsy requires you to specify when it was made (select "When was it made?").');
+  }
+  if (!taxonomyId) {
+    throw new Error("Etsy requires a category before listing. Choose an Etsy category on the item.");
+  }
   const shippingId = overrides?.shippingProfileId ?? conn.etsyShippingProfileId;
   return {
     quantity: Math.max(1, item.quantity),
@@ -528,7 +508,7 @@ export function buildEtsyCreateFields(
     price: etsyPriceFromCents(item.priceCents),
     who_made: whoMade,
     when_made: whenMade,
-    taxonomy_id: overrides?.taxonomyId ?? item.etsyTaxonomyId ?? defaultTaxonomyId(),
+    taxonomy_id: taxonomyId,
     is_supply: item.etsyIsSupply ?? false,
     type: "physical",
     ...(shippingId ? { shipping_profile_id: Number(shippingId) } : {}),
@@ -541,8 +521,8 @@ export function buildEtsyUpdateFields(
   overrides?: { taxonomyId?: number; shippingProfileId?: string | null }
 ): Record<string, string | number | boolean | undefined> {
   const shippingId = overrides?.shippingProfileId;
-  const whoMade = item.etsyWhoMade && VALID_WHO_MADE.has(item.etsyWhoMade) ? item.etsyWhoMade : undefined;
-  const whenMade = item.etsyWhenMade && VALID_WHEN_MADE.has(item.etsyWhenMade) ? item.etsyWhenMade : undefined;
+  const whoMade = isEtsyWhoMade(item.etsyWhoMade) ? item.etsyWhoMade : undefined;
+  const whenMade = normalizeEtsyWhenMade(item.etsyWhenMade) ?? undefined;
   return {
     title: etsyTitle(item.title),
     description: etsyDescription(item),

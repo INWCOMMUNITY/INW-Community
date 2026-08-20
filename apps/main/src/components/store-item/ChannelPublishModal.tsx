@@ -111,7 +111,7 @@ export function ChannelPublishModal({ open, onClose, onConfirm }: ChannelPublish
                         <span className="block text-xs text-gray-500 mt-0.5">
                           {c.status !== "active"
                             ? "Reconnect in Sync Stores."
-                            : channelNotReadyHint(provider)}
+                            : c.publishBlockReason || channelNotReadyHint(provider)}
                         </span>
                       ) : null}
                     </span>

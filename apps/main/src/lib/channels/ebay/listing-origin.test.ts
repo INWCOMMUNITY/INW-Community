@@ -5,6 +5,7 @@ import {
   isImportedEbayLink,
   isInwCreatedEbayLink,
   resolveEbayInventorySku,
+  resolveEbayPushSku,
 } from "./listing-origin";
 
 describe("listing-origin", () => {
@@ -43,6 +44,36 @@ describe("listing-origin", () => {
         linkOrigin: "inw_create",
       })
     ).toBe(true);
+  });
+
+  it("treats numeric listing id as INW-created when linkOrigin is inw_create", () => {
+    expect(
+      isImportedEbayLink({
+        provider: "ebay",
+        externalListingId: "403004607151",
+        storeItemId: "cmsz85hpj0001ahwfa2pmvtun",
+        linkOrigin: "inw_create",
+      })
+    ).toBe(false);
+    expect(
+      isInwCreatedEbayLink({
+        provider: "ebay",
+        externalListingId: "403004607151",
+        storeItemId: "cmsz85hpj0001ahwfa2pmvtun",
+        linkOrigin: "inw_create",
+      })
+    ).toBe(true);
+  });
+
+  it("keeps StoreItem id as the Inventory SKU for INW-created listing ids", () => {
+    expect(
+      resolveEbayPushSku({
+        itemId: "cmsz85hpj0001ahwfa2pmvtun",
+        itemSku: null,
+        externalListingId: "403004607151",
+        linkOrigin: "inw_create",
+      })
+    ).toBe("cmsz85hpj0001ahwfa2pmvtun");
   });
 
   it("treats numeric legacy Item ID as import", () => {

@@ -8,11 +8,12 @@ export type ChannelConnectionSummary = {
   shopName: string | null;
   status: string;
   readyToPublish: boolean | null;
+  publishBlockReason?: string | null;
 };
 
 const NOT_READY_HINT: Record<ChannelProviderId, string> = {
   ebay: "Complete business policies and a merchant location in Sync Stores.",
-  etsy: "Add a shipping profile in Sync Stores.",
+  etsy: "Reconnect in Sync Stores.",
   shopify: "Finish location setup in Sync Stores.",
   wix: "Reconnect in Sync Stores.",
 };

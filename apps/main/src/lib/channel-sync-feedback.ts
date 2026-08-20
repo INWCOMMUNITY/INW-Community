@@ -82,6 +82,39 @@ export function buildSyncFailureMessage(
   }:\n\n${failureLines.join("\n\n")}`;
 }
 
+export function buildPublishResultAlert(
+  channelSync: ChannelSyncRow[] | undefined
+): { title: string; message: string } {
+  const rows = channelSync ?? [];
+  const result = formatChannelSyncResults(rows, "saved");
+  if (rows.length === 0) {
+    return {
+      title: "Could not list",
+      message: "Could not list on the selected store. Check Sync Stores and try again.",
+    };
+  }
+  if (result.allOk) {
+    const listed =
+      result.successLines.length === 1
+        ? result.successLines[0]
+        : result.successLines.join(", ");
+    return {
+      title: "Listed",
+      message: `Listed on ${listed}.`,
+    };
+  }
+  if (result.succeeded.length > 0) {
+    return {
+      title: "Partially listed",
+      message: `Listed on ${result.successLines.join(", ")}.\n\nCould not list on others:\n\n${result.failureLines.join("\n\n")}`,
+    };
+  }
+  return {
+    title: "Could not list",
+    message: result.failureLines.join("\n\n"),
+  };
+}
+
 export function alertChannelSyncFailures(
   channelSync: ChannelSyncRow[] | undefined,
   action: "saved" | "deleted" | "removed" = "saved"
@@ -90,4 +123,11 @@ export function alertChannelSyncFailures(
   if (!channelSync?.length || result.allOk) return;
   if (typeof window === "undefined") return;
   window.alert(buildSyncFailureMessage(result.intro, result.failureLines));
+}
+
+/** Always show a result after List on {store} — success, failure, or empty. */
+export function alertChannelPublishResult(channelSync: ChannelSyncRow[] | undefined) {
+  if (typeof window === "undefined") return;
+  const alert = buildPublishResultAlert(channelSync);
+  window.alert(`${alert.title}\n\n${alert.message}`);
 }

@@ -464,9 +464,12 @@ export async function syncEtsyListingInventoryFromInw(
 
   const axes = normalizeVariantsFromProvider("etsy", item.variants) as InwVariantAxis[];
   const quantityAxis = pickQuantityAxis(axes, inv);
-  const taxonomyId = item.etsyTaxonomyId ?? 1;
+  const taxonomyId = item.etsyTaxonomyId;
 
   if (products.length === 0) {
+    if (taxonomyId == null) {
+      throw new Error("Etsy requires a category before listing. Choose an Etsy category on the item.");
+    }
     const body = await buildEtsyInventoryProducts(
       accessToken,
       taxonomyId,
@@ -489,6 +492,9 @@ export async function syncEtsyListingInventoryFromInw(
 
   // Single Etsy SKU but multiple INW options — replace inventory with full variant matrix.
   if (products.length <= 1 && quantityAxis.options.length > 1) {
+    if (taxonomyId == null) {
+      throw new Error("Etsy requires a category before listing. Choose an Etsy category on the item.");
+    }
     const body = await buildEtsyInventoryProducts(
       accessToken,
       taxonomyId,

@@ -49,6 +49,9 @@ const mockPrisma = {
     updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     delete: vi.fn().mockResolvedValue({}),
   },
+  memberSyncPreferences: {
+    findUnique: vi.fn().mockResolvedValue(null),
+  },
 };
 
 class MockPrismaError extends Error {
@@ -136,6 +139,11 @@ const makeStoreItem = (overrides: Record<string, unknown> = {}) => ({
   etsyIsSupply: null,
   etsyTaxonomyId: null,
   ebayCategoryId: null,
+  ebayConditionEnum: null,
+  aspects: null,
+  sku: null,
+  acceptOffers: true,
+  minOfferCents: null,
   ebayItemSpecifics: null,
   ...overrides,
 });
@@ -382,7 +390,7 @@ describe("outbound publish photo validation", () => {
 
     const ebayResult = results.find((r) => r.provider === "ebay");
     expect(ebayResult?.ok).toBe(false);
-    expect(ebayResult?.error).toContain("requires at least one photo");
+    expect(ebayResult?.error).toMatch(/photo/i);
     expect(mockAdapter.createListing).not.toHaveBeenCalled();
   });
 });

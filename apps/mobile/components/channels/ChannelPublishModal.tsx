@@ -97,7 +97,7 @@ export function ChannelPublishModal({ visible, onClose, onConfirm }: Props) {
                       <Text style={styles.rowHint}>
                         {c.status !== "active"
                           ? "Reconnect in Sync Stores."
-                          : channelNotReadyHint(c.provider)}
+                          : c.publishBlockReason || channelNotReadyHint(c.provider)}
                       </Text>
                     )}
                   </View>

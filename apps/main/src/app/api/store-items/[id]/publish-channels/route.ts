@@ -3,7 +3,6 @@ import { prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { publishStoreItemToChannels } from "@/lib/channels/outbound";
-import { validateProvidersForPublish } from "@/lib/channels/connection-publish";
 import type { ChannelProvider } from "@/lib/channels/types";
 
 export const dynamic = "force-dynamic";
@@ -48,22 +47,6 @@ export async function POST(
   }
 
   const providers = body.providers as ChannelProvider[];
-
-  const connections = await prisma.channelConnection.findMany({
-    where: { memberId: userId, provider: { in: providers } },
-    select: {
-      provider: true,
-      status: true,
-      etsyShippingProfileId: true,
-      config: true,
-    },
-  });
-
-  const validation = validateProvidersForPublish(connections, providers);
-  if (!validation.ok) {
-    return NextResponse.json({ error: validation.error }, { status: 400 });
-  }
-
   const channelSync = await publishStoreItemToChannels(item.id, item.memberId, { providers });
 
   return NextResponse.json({ ok: true, channelSync });

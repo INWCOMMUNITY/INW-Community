@@ -271,6 +271,14 @@ function validateEtsy(
     });
   }
 
+  if (!item.etsyTaxonomyId && !item.category) {
+    errors.push({
+      field: "etsyTaxonomyId",
+      message: "Etsy requires a category before listing. Choose an Etsy category on the item.",
+      severity: "error",
+    });
+  }
+
   if (item.etsyIsSupply === null || item.etsyIsSupply === undefined) {
     warnings.push({
       field: "etsyIsSupply",
@@ -279,16 +287,13 @@ function validateEtsy(
     });
   }
 
-  // Shipping profile check
   if (connection && !connection.etsyShippingProfileId) {
-    if (!item.shippingCostCents && item.shippingCostCents !== 0) {
-      errors.push({
-        field: "shippingCostCents",
-        message:
-          "Set a shipping cost or configure an Etsy shipping profile. Listings without shipping stay as drafts.",
-        severity: "error",
-      });
-    }
+    warnings.push({
+      field: "shippingCostCents",
+      message:
+        "No Etsy shipping profile yet. The listing will be created as a draft until you add one in Sync Stores.",
+      severity: "warning",
+    });
   }
 }
 
@@ -473,6 +478,13 @@ export function validateForProviderQuick(
         severity: "error",
       });
     }
+    if (!item.etsyTaxonomyId && !item.category) {
+      errors.push({
+        field: "etsyTaxonomyId",
+        message: "Etsy requires a category before listing.",
+        severity: "error",
+      });
+    }
   }
 
   return {
@@ -521,4 +533,10 @@ export function summarizeValidation(result: ValidationResult): {
     warningCount,
     summary,
   };
+}
+
+/** Single seller-facing string for a provider's publish validation errors. */
+export function formatProviderPublishError(result: ProviderValidationResult): string {
+  if (result.errors.length === 0) return "This listing is not ready to publish.";
+  return result.errors.map((e) => e.message).join(" ");
 }

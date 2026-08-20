@@ -137,6 +137,9 @@ export type NormalizedInboundEvent =
 export type CreateListingResult = {
   externalListingId: string;
   externalShopId: string | null;
+  /** False when a remote draft exists but is not live on the marketplace. */
+  live?: boolean;
+  warning?: string;
 };
 
 /**

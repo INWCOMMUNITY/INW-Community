@@ -7,6 +7,7 @@
  */
 
 import type { ChannelProvider, SyncStoreItem } from "./types";
+import { ETSY_WHEN_MADE_OPTIONS, ETSY_WHO_MADE_OPTIONS } from "@/lib/etsy-listing-options";
 
 export type FieldType = "text" | "select" | "boolean" | "number" | "category" | "aspects";
 
@@ -65,26 +66,6 @@ export interface MergedRequirements {
   titleMax: number;
   descriptionMax: number | null;
 }
-
-const ETSY_WHO_MADE_OPTIONS = [
-  { value: "i_did", label: "I did" },
-  { value: "someone_else", label: "Another company or person" },
-  { value: "collective", label: "A member of my shop" },
-];
-
-const ETSY_WHEN_MADE_OPTIONS = [
-  { value: "made_to_order", label: "Made to order" },
-  { value: "2020_2025", label: "2020-2025" },
-  { value: "2010_2019", label: "2010-2019" },
-  { value: "2004_2009", label: "2004-2009" },
-  { value: "before_2004", label: "Before 2004" },
-  { value: "2000_2003", label: "2000-2003" },
-  { value: "1990s", label: "1990s" },
-  { value: "1980s", label: "1980s" },
-  { value: "1970s", label: "1970s" },
-  { value: "1960s", label: "1960s" },
-  { value: "before_1960", label: "Before 1960 (vintage)" },
-];
 
 const CONDITION_OPTIONS = [
   { value: "new", label: "New" },
@@ -220,7 +201,7 @@ const ETSY_REQUIREMENTS: ProviderRequirements = {
       label: "Who made it?",
       type: "select",
       required: true,
-      options: ETSY_WHO_MADE_OPTIONS,
+      options: [...ETSY_WHO_MADE_OPTIONS],
       providerSpecific: true,
       helpText: "Etsy requires you to specify who made this item.",
     },
@@ -229,7 +210,7 @@ const ETSY_REQUIREMENTS: ProviderRequirements = {
       label: "When was it made?",
       type: "select",
       required: true,
-      options: ETSY_WHEN_MADE_OPTIONS,
+      options: [...ETSY_WHEN_MADE_OPTIONS],
       providerSpecific: true,
       helpText: "Items made before 20 years ago qualify as vintage.",
     },
@@ -237,7 +218,7 @@ const ETSY_REQUIREMENTS: ProviderRequirements = {
       field: "etsyIsSupply",
       label: "Is this a supply or tool?",
       type: "boolean",
-      required: true,
+      required: false,
       providerSpecific: true,
       helpText: "Check if this is a craft supply or tool for making things.",
     },

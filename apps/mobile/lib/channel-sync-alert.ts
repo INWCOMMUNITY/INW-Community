@@ -46,3 +46,33 @@ export function alertChannelSyncFailures(
     [{ text: "OK" }]
   );
 }
+
+/** Always show a result after List on {store} — success, failure, or empty. */
+export function alertChannelPublishResult(channelSync: ChannelSyncRow[] | undefined): void {
+  const rows = channelSync ?? [];
+  const failed = rows.filter((r) => !r.ok);
+  const succeeded = rows.filter((r) => r.ok);
+  const successLines = succeeded.map((r) => PROVIDER_LABEL[r.provider] ?? r.provider);
+  const failureLines = failed.map((r) => {
+    const label = PROVIDER_LABEL[r.provider] ?? r.provider;
+    const detail = r.error?.trim();
+    return detail ? `${label}: ${detail.slice(0, 200)}` : `${label}: sync failed`;
+  });
+
+  if (rows.length === 0) {
+    Alert.alert("Could not list", "Could not list on the selected store. Check Sync Stores and try again.");
+    return;
+  }
+  if (failed.length === 0) {
+    Alert.alert("Listed", `Listed on ${successLines.join(", ")}.`);
+    return;
+  }
+  if (succeeded.length > 0) {
+    Alert.alert(
+      "Partially listed",
+      `Listed on ${successLines.join(", ")}.\n\nCould not list on others:\n\n${failureLines.join("\n\n")}`
+    );
+    return;
+  }
+  Alert.alert("Could not list", failureLines.join("\n\n"));
+}

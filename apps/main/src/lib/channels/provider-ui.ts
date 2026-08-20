@@ -9,6 +9,7 @@ export type ChannelConnectionSummary = {
   lastError: string | null;
   hasShippingProfile: boolean;
   readyToPublish: boolean | null;
+  publishBlockReason?: string | null;
   linkedListings: number;
 };
 

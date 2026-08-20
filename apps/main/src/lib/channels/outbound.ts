@@ -26,6 +26,7 @@ import {
   hydrateCircuitFromConfig,
 } from "./circuit-breaker";
 import { logSyncEvent } from "./sync-log";
+import { formatProviderPublishError, validateForProvider } from "./validate-publish";
 /** Content fingerprint so we can skip no-op pushes on update. */
 function contentHash(item: SyncStoreItem): string {
   return storeItemContentHash(item);
@@ -110,6 +111,27 @@ function hasEnabledContentChanges(
   return true;
 }
 
+const SYNC_DISABLED_ERROR =
+  "Sync is turned off in your store settings. Turn sync on in Sync Stores to list on connected stores.";
+
+function providerDisplayName(provider: ChannelProvider): string {
+  return provider.charAt(0).toUpperCase() + provider.slice(1);
+}
+
+function syncDirectionBlockReason(direction: string): string {
+  if (direction === "paused") {
+    return "Sync with this store is paused. Resume sync in Sync Stores to list from INW.";
+  }
+  return "This store is set to pull-only. Turn on two-way or push sync in Sync Stores to list from INW.";
+}
+
+function failedRowsForProviders(
+  providers: ChannelProvider[],
+  error: string
+): ChannelSyncResult[] {
+  return providers.map((provider) => ({ provider, ok: false, error }));
+}
+
 export type PublishToChannelsOptions = {
   /** When set, only these providers are published (must still be active connections). */
   providers?: ChannelProvider[];
@@ -118,6 +140,7 @@ export type PublishToChannelsOptions = {
 /**
  * Publish a StoreItem to connected channels that do not yet have a link.
  * Best-effort: failures are returned in the result array and never thrown to the caller.
+ * When `providers` is set, every requested provider gets a result row (never a silent empty array).
  */
 export async function publishStoreItemToChannels(
   storeItemId: string,
@@ -125,13 +148,10 @@ export async function publishStoreItemToChannels(
   options: PublishToChannelsOptions = {}
 ): Promise<ChannelSyncResult[]> {
   const results: ChannelSyncResult[] = [];
-  
-  // Check if sync is globally enabled
+  const requested = options.providers;
+
   const syncPrefs = await loadSyncPreferences(memberId);
-  if (!syncPrefs.syncEnabled) {
-    return results;
-  }
-  
+
   let item: SyncStoreItem | null;
   let connections: ChannelConnectionContext[];
   try {
@@ -141,19 +161,38 @@ export async function publishStoreItemToChannels(
     ]);
   } catch (e) {
     console.error("[channels] publish load failed", { storeItemId, error: String(e) });
+    if (requested?.length) {
+      return failedRowsForProviders(requested, "Could not load this listing or your store connections.");
+    }
     return results;
   }
-  if (!item) return results;
+  if (!item) {
+    if (requested?.length) {
+      return failedRowsForProviders(requested, "Item not found.");
+    }
+    return results;
+  }
 
-  const providerFilter =
-    options.providers !== undefined ? new Set(options.providers) : null;
-  const targets = providerFilter
-    ? connections.filter((c) => providerFilter.has(c.provider))
-    : connections;
+  const targets = requested ?? connections.map((c) => c.provider);
   if (targets.length === 0) return results;
 
-  for (const conn of targets) {
-    const provider = conn.provider;
+  if (!syncPrefs.syncEnabled) {
+    return failedRowsForProviders(targets, SYNC_DISABLED_ERROR);
+  }
+
+  const connByProvider = new Map(connections.map((c) => [c.provider, c]));
+
+  for (const provider of targets) {
+    const conn = connByProvider.get(provider);
+    if (!conn) {
+      results.push({
+        provider,
+        ok: false,
+        error: `${providerDisplayName(provider)} is not connected. Connect it in Sync Stores first.`,
+      });
+      continue;
+    }
+
     const existing = await prisma.channelListingLink.findUnique({
       where: { storeItemId_provider: { storeItemId, provider } },
     });
@@ -177,33 +216,39 @@ export async function publishStoreItemToChannels(
       continue;
     }
 
-    const photosRequired = provider === "ebay" || provider === "etsy";
-    if (photosRequired && (!item.photos || item.photos.length === 0)) {
+    const connConfig = (conn.config ?? {}) as Record<string, unknown>;
+    const syncDirection = (connConfig.syncDirection as string) ?? "two_way";
+    if (syncDirection === "pull_only" || syncDirection === "paused") {
       results.push({
         provider,
         ok: false,
-        error: `${provider} requires at least one photo. Add a photo before publishing.`,
+        error: syncDirectionBlockReason(syncDirection),
       });
       continue;
     }
 
-    // Check per-channel sync direction from config
-    const connConfig = (conn.config ?? {}) as Record<string, unknown>;
-    const syncDirection = (connConfig.syncDirection as string) ?? "two_way";
-    
-    // Skip publish if channel is set to pull_only or paused
-    if (syncDirection === "pull_only" || syncDirection === "paused") {
-      continue;
-    }
-
     try {
+      const validation = await validateForProvider(item, provider, {
+        provider,
+        status: "active",
+        etsyShippingProfileId: conn.etsyShippingProfileId,
+        config: conn.config,
+      });
+      if (!validation.valid) {
+        results.push({
+          provider,
+          ok: false,
+          error: formatProviderPublishError(validation),
+        });
+        continue;
+      }
+
       const adapter = getAdapter(provider);
-      
-      // Apply per-channel price adjustment
       const priceAdjustmentPercent = (connConfig.priceAdjustmentPercent as number) ?? 0;
       const adjustedItem = applyPriceAdjustment(item, priceAdjustmentPercent);
-      
+
       const result = await adapter.createListing(conn, adjustedItem);
+      const live = result.live !== false;
       await prisma.channelListingLink.create({
         data: {
           storeItemId,
@@ -213,8 +258,8 @@ export async function publishStoreItemToChannels(
           externalShopId: result.externalShopId,
           ...(provider === "ebay" ? { linkOrigin: "inw_create" as const } : {}),
           syncEnabled: true,
-          syncStatus: "synced",
-          syncError: null,
+          syncStatus: live ? "synced" : "error",
+          syncError: live ? null : (result.warning ?? "Created as a draft — it is not live yet."),
           lastPushedHash: contentHash(item),
           lastPushedAt: new Date(),
           syncBaselineHash: syncContentHash(item),
@@ -224,6 +269,14 @@ export async function publishStoreItemToChannels(
           syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
         },
       });
+      if (!live) {
+        results.push({
+          provider,
+          ok: false,
+          error: result.warning ?? "Created as a draft — it is not live yet.",
+        });
+        continue;
+      }
       results.push({ provider, ok: true });
     } catch (e) {
       const msg = describeChannelSyncError(provider, e);

@@ -10,7 +10,8 @@ type ConnectionRow = {
 /** Same rules as GET /api/channels readyToPublish. */
 export function connectionReadyToPublish(c: ConnectionRow): boolean {
   const config = (c.config ?? {}) as Record<string, unknown>;
-  if (c.provider === "etsy") return Boolean(c.etsyShippingProfileId);
+  // Etsy drafts can be created without a shipping profile; going live still needs one.
+  if (c.provider === "etsy") return true;
   if (c.provider === "ebay") {
     // Use the stored canPublish flag if available (includes opt-in + location enabled checks)
     if (typeof config.canPublish === "boolean") return config.canPublish;

@@ -87,7 +87,7 @@ import {
   type ValidationCheck,
 } from "../sync-trace";
 import { prisma } from "database";
-import { isImportedEbayLink, extractEbayInventoryAspects, resolveEbayInventorySku } from "./listing-origin";
+import { isImportedEbayLink, extractEbayInventoryAspects, resolveEbayPushSku } from "./listing-origin";
 import { passthroughUsePreparedInventoryAspects } from "./aspect-prep";
 import {
   buildPassthroughInventoryContentPutBody,
@@ -142,8 +142,14 @@ async function getOfferDetails(
   }
 }
 
-async function publishOffer(accessToken: string, offerId: string): Promise<void> {
-  await ebayAction(accessToken, `/sell/inventory/v1/offer/${offerId}/publish`, "POST");
+async function publishOffer(accessToken: string, offerId: string): Promise<string | undefined> {
+  const res = await ebayAction<{ listingId?: string }>(
+    accessToken,
+    `/sell/inventory/v1/offer/${offerId}/publish`,
+    "POST"
+  );
+  const listingId = res && typeof res === "object" ? res.listingId : undefined;
+  return listingId && /^\d+$/.test(String(listingId).trim()) ? String(listingId).trim() : undefined;
 }
 
 async function finalizeInventoryBody(
@@ -250,7 +256,7 @@ async function enrichPassthroughInventoryPutBody(
  * migrated SKU differs from item.id; callers pass it via `linkedSku` so we target the
  * correct inventory item + offer on eBay rather than creating an orphan.
  */
-type UpsertResult = { sku: string; publishError?: string };
+type UpsertResult = { sku: string; listingId?: string; publishError?: string };
 
 async function upsertListing(
   conn: ChannelConnectionContext,
@@ -269,7 +275,12 @@ async function upsertListing(
     },
   });
   const linkExternalId = linkedSku ?? ebayLink?.externalListingId ?? item.id;
-  const sku = resolveEbayInventorySku(linkExternalId);
+  const sku = resolveEbayPushSku({
+    itemId: item.id,
+    itemSku: item.sku,
+    externalListingId: linkExternalId,
+    linkOrigin: ebayLink?.linkOrigin,
+  });
   const operation = linkedSku || ebayLink ? "update" : "create";
   
   // Start trace for this sync operation
@@ -1087,10 +1098,12 @@ async function upsertListing(
           }
         }
         try {
-          await publishOfferByInventoryItemGroup(
+          const published = await publishOfferByInventoryItemGroup(
             conn.accessToken,
             buildInventoryItemGroupBody(syncItem, variantSkus).inventoryItemGroupKey as string
           );
+          await completeTrace(trace, "success");
+          return { sku: variantSkus[0] ?? sku, listingId: published?.listingId };
         } catch (e) {
           const msg = describeEbayThrownError(e);
           await completeTrace(trace, "failed", e);
@@ -1141,6 +1154,7 @@ async function upsertListing(
     }
 
     const shouldPublish = cfg.canPublish && item.status === "active" && item.quantity > 0 && !!offerId;
+    let publishedListingId: string | undefined;
     if (shouldPublish && offerId) {
       if (!hadOfferAtStart) {
         try {
@@ -1162,7 +1176,7 @@ async function upsertListing(
         }
       }
       try {
-        await publishOffer(conn.accessToken, offerId);
+        publishedListingId = await publishOffer(conn.accessToken, offerId);
         await persistRevisionCount(conn.id, sku, conn.config);
       } catch (e) {
         const msg = describeEbayThrownError(e);
@@ -1192,7 +1206,7 @@ async function upsertListing(
             ),
             trace
           );
-          await publishOffer(conn.accessToken, offerId);
+          publishedListingId = await publishOffer(conn.accessToken, offerId);
           await persistRevisionCount(conn.id, sku, conn.config);
         } else {
           console.error("[ebay] publish failed; left as draft", { offerId, error: msg });
@@ -1203,7 +1217,7 @@ async function upsertListing(
     }
 
     await completeTrace(trace, "success");
-    return { sku };
+    return { sku, listingId: publishedListingId };
   } catch (e) {
     await completeTrace(trace, "failed", e);
     throw e;
@@ -1276,14 +1290,25 @@ export const ebayAdapter: ChannelAdapter = {
   },
 
   async createListing(conn, item): Promise<CreateListingResult> {
-    const { sku, publishError } = await upsertListing(conn, item);
-    if (publishError) {
-      console.warn("[ebay] createListing: inventory item + offer saved, but publish failed", {
-        sku,
-        publishError,
-      });
+    const cfg = readEbayConfig(conn.config);
+    if (!cfg.canPublish) {
+      throw new Error(
+        cfg.publishBlockReason ||
+          "Complete eBay business policies and a merchant location in Sync Stores first."
+      );
     }
-    return { externalListingId: sku, externalShopId: conn.externalShopId };
+    if (item.status !== "active" || item.quantity <= 0) {
+      throw new Error("Item must be active with a quantity of at least 1 to list on eBay.");
+    }
+    const { sku, listingId, publishError } = await upsertListing(conn, item);
+    if (publishError) {
+      throw new Error(publishError);
+    }
+    return {
+      externalListingId: listingId || sku,
+      externalShopId: conn.externalShopId,
+      live: true,
+    };
   },
 
   async updateListing(conn, externalListingId, item): Promise<void> {
@@ -1297,7 +1322,16 @@ export const ebayAdapter: ChannelAdapter = {
   },
 
   async deleteListing(conn, externalListingId): Promise<void> {
-    const sku = externalListingId;
+    const link = await prisma.channelListingLink.findFirst({
+      where: { connectionId: conn.id, provider: "ebay", externalListingId },
+      select: { linkOrigin: true, storeItemId: true, storeItem: { select: { sku: true } } },
+    });
+    const sku = resolveEbayPushSku({
+      itemId: link?.storeItemId ?? externalListingId,
+      itemSku: link?.storeItem?.sku,
+      externalListingId,
+      linkOrigin: link?.linkOrigin,
+    });
     const offer = await findOffer(conn.accessToken, sku).catch(() => null);
     if (offer?.offerId) {
       try {
@@ -1313,7 +1347,12 @@ export const ebayAdapter: ChannelAdapter = {
       where: { storeItemId: item.id, provider: "ebay" },
       select: { linkOrigin: true, externalListingId: true, ebayInventoryAspects: true },
     });
-    const inventorySku = resolveEbayInventorySku(externalListingId);
+    const inventorySku = resolveEbayPushSku({
+      itemId: item.id,
+      itemSku: item.sku,
+      externalListingId,
+      linkOrigin: ebayLink?.linkOrigin,
+    });
     hydrateRevisionCountsFromConfig(conn.config);
 
     // Check rate limit before making any changes
