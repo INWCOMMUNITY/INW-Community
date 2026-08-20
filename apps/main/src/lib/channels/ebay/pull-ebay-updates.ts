@@ -1,6 +1,6 @@
 import { prisma } from "database";
 import { getConnectionContext } from "../connection";
-import { fetchEbayItemDetails, enumerateEbayListings } from "./trading";
+import { fetchEbayItemDetails } from "./trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
 import { isImportedEbayLink } from "./listing-origin";
@@ -329,8 +329,6 @@ export async function pullEbayUpdatesForConnection(
     return { updated: [], checked: 0 };
   }
 
-  const ebayListings = await enumerateEbayListings(ctx.accessToken);
-  const activeIds = new Set(ebayListings.map((l) => l.listingId));
   const results: PullResult[] = [];
 
   for (const link of links) {
@@ -341,9 +339,9 @@ export async function pullEbayUpdatesForConnection(
     }
 
     try {
-      const result = await refreshEbayListingByItemId(ctx.accessToken, legacyId, {
-        activeListingIds: activeIds,
-      });
+      // GetItem is the live listing (same as the public item page). Do not gate on
+      // GetMyeBaySelling ActiveList — that seller-list call can lag minutes behind a revise.
+      const result = await refreshEbayListingByItemId(ctx.accessToken, legacyId);
       if (result && result.updated) {
         results.push(result);
       }

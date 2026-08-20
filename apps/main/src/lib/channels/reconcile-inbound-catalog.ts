@@ -23,6 +23,7 @@ import type { ChannelProvider, RemoteListingSummary } from "./types";
 import { getChannelCapabilities } from "./capabilities";
 import { indexEbayRemoteListings, resolveEbayLegacyListingId } from "./ebay/mapping";
 import { refreshEbayListingByItemId } from "./ebay/pull-ebay-updates";
+import { fetchEbayItemDetails } from "./ebay/trading";
 import { logSyncEvent } from "./sync-log";
 
 /** Content fingerprint for a remote catalog row (same fields as syncContentHash on StoreItem). */
@@ -237,6 +238,51 @@ export async function reconcileConnectionInboundCatalog(
       ? indexEbayRemoteListings(remoteList)
       : new Map(remoteList.map((r) => [r.externalListingId, r]));
 
+  // GetMyeBaySelling / Inventory GET can lag minutes behind a revise. Overlay
+  // live GetItem title/price/qty for linked listings before we decide pull vs push.
+  if (provider === "ebay") {
+    for (const link of links) {
+      const legacyId =
+        resolveEbayLegacyListingId(link.externalListingId) ??
+        resolveEbayLegacyListingId(remoteById.get(link.externalListingId)?.externalListingId ?? "");
+      if (!legacyId) continue;
+      try {
+        const details = await fetchEbayItemDetails(ctx.accessToken, legacyId);
+        if (details.listingEnded || !details.title) continue;
+        const existing = remoteById.get(link.externalListingId);
+        const overlaid: RemoteListingSummary = {
+          externalListingId: existing?.externalListingId ?? legacyId,
+          sku: existing?.sku ?? `inw${legacyId}`,
+          title: details.title,
+          description: details.description ?? existing?.description ?? null,
+          priceCents:
+            details.priceCents != null && details.priceCents > 0
+              ? details.priceCents
+              : existing?.priceCents ?? 0,
+          quantity: details.quantity ?? existing?.quantity ?? 0,
+          quantityKnown: details.quantity != null ? true : existing?.quantityKnown,
+          photos: details.photos.length > 0 ? details.photos : existing?.photos ?? [],
+          remoteUpdatedAt: details.remoteUpdatedAt ?? existing?.remoteUpdatedAt ?? null,
+          category: existing?.category ?? null,
+          remoteCategoryId: details.remoteCategoryId ?? existing?.remoteCategoryId ?? null,
+          aspects: details.aspects.length > 0 ? details.aspects : existing?.aspects,
+          acceptOffers: details.acceptOffers ?? existing?.acceptOffers,
+          minOfferCents: details.minOfferCents ?? existing?.minOfferCents,
+          acceptOffersKnown: details.acceptOffers != null || existing?.acceptOffersKnown,
+        };
+        remoteById.set(link.externalListingId, overlaid);
+        remoteById.set(legacyId, overlaid);
+        remoteById.set(`inw${legacyId}`, overlaid);
+      } catch (e) {
+        console.warn("[channels] eBay GetItem hydrate failed", {
+          storeItemId: link.storeItemId,
+          legacyId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+  }
+
   console.log("[channels] found linked listings", {
     connectionId: connection.id,
     provider,
@@ -251,7 +297,15 @@ export async function reconcileConnectionInboundCatalog(
     const remote = remoteById.get(link.externalListingId);
 
     // Product no longer visible on the channel -> sell out on INW + push 0 to others.
+    // eBay ActiveList can omit a live item while GetItem still succeeds — do not sell out.
     if (!remote) {
+      if (provider === "ebay") {
+        console.warn("[channels] eBay link missing from seller list after GetItem hydrate; skip sell-out", {
+          storeItemId: link.storeItemId,
+          externalListingId: link.externalListingId,
+        });
+        continue;
+      }
       await applyRemoteListingRemoved(link.storeItemId);
       await syncInventoryToChannels(link.storeItemId, { skipProviders: [provider] });
       await prisma.channelListingLink.update({

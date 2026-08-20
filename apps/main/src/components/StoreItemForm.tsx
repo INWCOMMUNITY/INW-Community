@@ -901,6 +901,39 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                   onSkipSyncChange={setSkipSyncOnSave}
                   disabled={submitting}
                   onLinksUpdated={setChannelLinks}
+                  onItemRefreshed={(item) => {
+                    setTitle(item.title ?? "");
+                    setDescription(listingDescriptionForEditForm(item.description));
+                    setPhotos(Array.isArray(item.photos) ? item.photos : []);
+                    setCategory(item.category ?? "");
+                    setSubcategory(item.subcategory ?? "");
+                    setPriceDollars(
+                      item.priceCents != null ? (item.priceCents / 100).toFixed(2) : ""
+                    );
+                    setQuantity(item.quantity ?? 1);
+                    if (item.ebayCategoryId != null) {
+                      setEbayCategoryId(String(item.ebayCategoryId));
+                    }
+                    if (item.condition === "new" || item.condition === "used") {
+                      setCondition(item.condition);
+                    }
+                    if (typeof item.acceptOffers === "boolean") {
+                      setAcceptOffers(item.acceptOffers);
+                    }
+                    if (item.minOfferCents != null && item.minOfferCents > 0) {
+                      setMinOfferSliderDollars(Math.round(item.minOfferCents / 100));
+                    } else if (item.minOfferCents === null) {
+                      setMinOfferSliderDollars(0);
+                    }
+                    if (Array.isArray(item.aspects)) {
+                      setAspects(
+                        item.aspects.map((a: { name?: unknown; value?: unknown }) => ({
+                          name: String(a?.name ?? ""),
+                          value: String(a?.value ?? ""),
+                        }))
+                      );
+                    }
+                  }}
                 />
               </ListingFormSection>
             </>

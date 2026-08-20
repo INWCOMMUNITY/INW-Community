@@ -368,7 +368,9 @@ export function buildPassthroughInventoryBody(
 
   const overlayTitle = changed.title === true;
   const overlayPhotos = changed.photos === true;
-  if (overlayTitle) {
+  // Inventory GET title can lag minutes behind a revise. Any inventory PUT
+  // that omits title would write that stale title back onto the live listing.
+  if (overlayTitle || overlayPhotos) {
     liveProduct.title = item.title.slice(0, EBAY_TITLE_MAX);
   }
   if (overlayPhotos) {
@@ -435,14 +437,14 @@ export function buildPassthroughInventoryContentPutBody(
       body: buildPassthroughInventoryBody(
         live,
         item,
-        { title: pushTitle, photos: pushPhotos, content: false, quantity: false, price: false },
+        { title: pushTitle || pushPhotos, photos: pushPhotos, content: false, quantity: false, price: false },
         { ...options, preserveLiveWireGrades: false }
       ),
       aspectMode: "prepared",
     };
   }
   const patch: { title?: string; imageUrls?: string[] } = {};
-  if (pushTitle) patch.title = item.title;
+  if (pushTitle || pushPhotos) patch.title = item.title;
   if (pushPhotos) patch.imageUrls = item.photos;
   return {
     body: buildPassthroughLiveOverlayBody(live, patch),

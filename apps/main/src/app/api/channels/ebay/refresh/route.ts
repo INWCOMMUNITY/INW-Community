@@ -3,14 +3,9 @@ import { prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
-import { fetchEbayItemDetails, enumerateEbayListings } from "@/lib/channels/ebay/trading";
-import { normalizeListingAspects } from "@/lib/listing-limits";
-import { fetchAndCacheEbayInventoryAspects } from "@/lib/channels/ebay/inventory-aspects-cache";
-import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
-import { plainListingDescription } from "@/lib/channels/import-listing";
-import { resolveInwCategoryFromEbayPath } from "@/lib/channels/category-resolver";
-import { syncContentHash, syncMetaHash } from "@/lib/channels/sync-baseline";
-import { variantsFingerprint } from "@/lib/channels/variant-sync";
+import { enumerateEbayListings } from "@/lib/channels/ebay/trading";
+import { resolveEbayLegacyListingId } from "@/lib/channels/ebay/mapping";
+import { refreshEbayListingByItemId } from "@/lib/channels/ebay/pull-ebay-updates";
 
 export const dynamic = "force-dynamic";
 
@@ -19,9 +14,7 @@ const RefreshBodySchema = z.object({
 });
 
 /**
- * POST: Refresh a StoreItem from its linked eBay listing.
- * Pulls latest data from eBay's GetItem API and updates the StoreItem.
- *
+ * POST: Refresh a StoreItem from its linked eBay listing via GetItem.
  * Body: { storeItemId: string }
  */
 export async function POST(req: NextRequest) {
@@ -40,25 +33,9 @@ export async function POST(req: NextRequest) {
 
   const { storeItemId } = body;
 
-  // Find the store item and verify ownership
   const storeItem = await prisma.storeItem.findUnique({
     where: { id: storeItemId },
-    select: {
-      id: true,
-      memberId: true,
-      title: true,
-      description: true,
-      photos: true,
-      priceCents: true,
-      quantity: true,
-      category: true,
-      subcategory: true,
-      aspects: true,
-      ebayCategoryId: true,
-      variants: true,
-      shippingCostCents: true,
-      secondaryCategory: true,
-    },
+    select: { id: true, memberId: true, title: true },
   });
 
   if (!storeItem) {
@@ -69,55 +46,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "You don't own this item" }, { status: 403 });
   }
 
-  // Find the eBay link for this item
   const link = await prisma.channelListingLink.findFirst({
-    where: {
-      storeItemId,
-      provider: "ebay",
-    },
-    select: {
-      id: true,
-      storeItemId: true,
-      externalListingId: true,
-      connectionId: true,
-      linkOrigin: true,
-    },
+    where: { storeItemId, provider: "ebay" },
+    select: { externalListingId: true },
   });
 
   if (!link) {
     return NextResponse.json({ error: "This item is not linked to eBay" }, { status: 404 });
   }
 
-  // Get the eBay connection context
   const ctx = await getMemberConnectionContext(userId, "ebay");
   if (!ctx) {
     return NextResponse.json({ error: "eBay is not connected" }, { status: 400 });
   }
 
-  // Extract the legacy eBay listing ID from the link's externalListingId
-  // The externalListingId is typically the SKU (e.g. "inw123456789" or the storeItemId)
-  // We need to find the actual eBay ItemID. The legacy ID may be in the SKU as "inw{legacyId}"
-  let legacyItemId: string | null = null;
+  let legacyItemId = resolveEbayLegacyListingId(link.externalListingId);
 
-  // Try to extract from inw{legacyId} pattern
-  const inwMatch = link.externalListingId.match(/^inw(\d+)$/);
-  if (inwMatch) {
-    legacyItemId = inwMatch[1];
-  } else if (/^\d+$/.test(link.externalListingId)) {
-    // It's already a numeric ID
-    legacyItemId = link.externalListingId;
-  }
-
-  // If we couldn't extract the ID, try to find it by enumerating listings
   if (!legacyItemId) {
-    // Search eBay listings to find a match by title or SKU
     const listings = await enumerateEbayListings(ctx.accessToken);
-    const match = listings.find(
-      (l) => l.title.toLowerCase() === storeItem.title.toLowerCase()
-    );
-    if (match) {
-      legacyItemId = match.listingId;
-    }
+    const match = listings.find((l) => l.title.toLowerCase() === storeItem.title.toLowerCase());
+    if (match) legacyItemId = match.listingId;
   }
 
   if (!legacyItemId) {
@@ -127,145 +75,35 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Fetch full details from eBay
-  const details = await fetchEbayItemDetails(ctx.accessToken, legacyItemId);
-
-  // Also get the listing info for price/quantity
-  const listings = await enumerateEbayListings(ctx.accessToken);
-  const listing = listings.find((l) => l.listingId === legacyItemId);
-
-  if (!listing) {
-    return NextResponse.json(
-      { error: "eBay listing not found. It may have ended or been removed." },
-      { status: 404 }
-    );
-  }
-
-  // Process the data
-  const normalizedAspects = normalizeListingAspects(details.aspects);
-  const aspectsForStorage = normalizedAspects;
-  const photos = details.photos
-    .map((u) => normalizeEbayPhotoUrl(u))
-    .filter((u): u is string => Boolean(u));
-  const description = plainListingDescription(details.description) ?? storeItem.description;
-  const resolvedCat = await resolveInwCategoryFromEbayPath(details.categoryName ?? null);
-
-  // Track what changed
-  const changes: string[] = [];
-
-  // Build update data
-  const updateData: Record<string, unknown> = {};
-
-  // Always update aspects (item specifics)
-  if (aspectsForStorage.length > 0) {
-    updateData.aspects = aspectsForStorage as object;
-    changes.push(`aspects (${aspectsForStorage.length} fields)`);
-  }
-
-  // Update photos if eBay has more or different photos
-  if (photos.length > 0 && photos.length >= storeItem.photos.length) {
-    updateData.photos = photos;
-    changes.push(`photos (${photos.length})`);
-  }
-
-  // Update description if different
-  if (description && description !== storeItem.description) {
-    updateData.description = description;
-    changes.push("description");
-  }
-
-  // Update price if different
-  if (listing.priceCents !== storeItem.priceCents) {
-    updateData.priceCents = listing.priceCents;
-    changes.push(`price ($${(listing.priceCents / 100).toFixed(2)})`);
-  }
-
-  // Update quantity if different
-  if (listing.quantity !== storeItem.quantity) {
-    updateData.quantity = listing.quantity;
-    updateData.status = listing.quantity > 0 ? "active" : "sold_out";
-    changes.push(`quantity (${listing.quantity})`);
-  }
-
-  // Update category if resolved and different
-  if (resolvedCat && resolvedCat.category !== storeItem.category) {
-    updateData.category = resolvedCat.category;
-    updateData.subcategory = resolvedCat.subcategory;
-    changes.push(`category (${resolvedCat.category})`);
-  }
-
-  // Update eBay category ID
-  if (details.remoteCategoryId) {
-    const catId = Number(details.remoteCategoryId);
-    if (Number.isInteger(catId) && catId > 0) {
-      updateData.ebayCategoryId = catId;
-    }
-  }
-
-  // Apply updates if there are any
-  if (Object.keys(updateData).length > 0) {
-    const updatedItem = await prisma.storeItem.update({
-      where: { id: storeItemId },
-      data: updateData,
-    });
-
-    // Update sync baselines
-    const contentHash = syncContentHash(updatedItem);
-    const metaHash = syncMetaHash({
-      category: updatedItem.category,
-      subcategory: updatedItem.subcategory,
-      secondaryCategory: updatedItem.secondaryCategory,
-      shippingCostCents: updatedItem.shippingCostCents,
-      variants: updatedItem.variants,
-    });
-
-    await prisma.channelListingLink.update({
-      where: { id: link.id },
-      data: {
-        syncBaselineHash: contentHash,
-        syncBaselineMetaHash: metaHash,
-        syncBaselineVariantsHash: variantsFingerprint(updatedItem.variants),
-        syncBaselineQty: updatedItem.quantity,
-        syncBaselineAt: new Date(),
-        lastInboundAt: new Date(),
-        syncStatus: "synced",
-        syncError: null,
-        linkOrigin: link.linkOrigin ?? "import",
-      },
-    });
-
-    void fetchAndCacheEbayInventoryAspects(
-      ctx.accessToken,
-      link.id,
-      link.externalListingId
-    ).catch(() => {});
-
-    console.log("[ebay] refresh completed", {
-      userId,
-      storeItemId,
-      legacyItemId,
-      changes,
-    });
-
-    return NextResponse.json({
-      ok: true,
-      updated: true,
-      changes,
-      message: `Refreshed from eBay: ${changes.join(", ")}`,
-    });
-  }
-
-  // Nothing changed
-  console.log("[ebay] refresh - no changes", {
-    userId,
-    storeItemId,
-    legacyItemId,
+  const result = await refreshEbayListingByItemId(ctx.accessToken, legacyItemId);
+  const item = await prisma.storeItem.findUnique({
+    where: { id: storeItemId },
+    select: {
+      title: true,
+      description: true,
+      photos: true,
+      category: true,
+      subcategory: true,
+      priceCents: true,
+      quantity: true,
+      ebayCategoryId: true,
+      aspects: true,
+      condition: true,
+      acceptOffers: true,
+      minOfferCents: true,
+    },
   });
+
+  const changes = result?.changes ?? [];
+  const updated = Boolean(result?.updated);
 
   return NextResponse.json({
     ok: true,
-    updated: false,
-    changes: [],
-    message: "Already up to date with eBay",
+    updated,
+    changes,
+    item,
+    message: updated && changes.length > 0
+      ? `Refreshed from eBay: ${changes.join(", ")}`
+      : "Already up to date with eBay",
   });
 }

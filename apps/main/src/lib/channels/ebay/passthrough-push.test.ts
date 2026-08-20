@@ -688,6 +688,32 @@ describe("passthrough-push", () => {
     expect(product.aspects).toEqual({ Grade: ["MS 67"], "Numerical grade": ["67"] });
   });
 
+  it("photo-only inventory PUT still pins the INW title so a lagged Inventory GET cannot revert it", () => {
+    const live = {
+      condition: "LIKE_NEW",
+      availability: { shipToLocationAvailability: { quantity: 1 } },
+      product: {
+        title: "EBAY CRON TEST 2",
+        aspects: { Type: ["Pin"] },
+        imageUrls: ["https://i.ebayimg.com/old.jpg"],
+      },
+    };
+    const { body } = buildPassthroughInventoryContentPutBody(
+      live,
+      {
+        ...coinItem,
+        title: "EBAY CRON TEST 3",
+        photos: ["https://i.ebayimg.com/new.jpg"],
+        ebayCategoryId: 36059,
+      },
+      { title: false, photos: true },
+      false
+    );
+    const product = body.product as Record<string, unknown>;
+    expect(product.title).toBe("EBAY CRON TEST 3");
+    expect(product.imageUrls).toEqual(["https://i.ebayimg.com/new.jpg"]);
+  });
+
   it("buildPassthroughInventoryContentPutBody applies title and photos in one PUT", () => {
     const live = {
       condition: "LIKE_NEW",

@@ -42,6 +42,20 @@ type ItemChannelSyncPanelProps = {
   disabled?: boolean;
   onLinksUpdated?: (links: ChannelLinkSummary[]) => void;
   onFixEbayCondition?: () => void;
+  onItemRefreshed?: (item: {
+    title: string;
+    description: string | null;
+    photos: string[];
+    category: string | null;
+    subcategory: string | null;
+    priceCents: number;
+    quantity: number;
+    ebayCategoryId?: number | null;
+    aspects?: unknown;
+    condition?: "new" | "used" | null;
+    acceptOffers?: boolean;
+    minOfferCents?: number | null;
+  }) => void;
 };
 
 function formatRelativeTime(iso: string | null): string | null {
@@ -92,6 +106,7 @@ export function ItemChannelSyncPanel({
   disabled,
   onLinksUpdated,
   onFixEbayCondition,
+  onItemRefreshed,
 }: ItemChannelSyncPanelProps) {
   const [links, setLinks] = useState<ChannelLinkSummary[]>(initialLinks);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
@@ -181,11 +196,29 @@ export function ItemChannelSyncPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ storeItemId }),
       });
-      const data = await res.json();
+      const data = await res.json() as {
+        error?: string;
+        message?: string;
+        item?: {
+          title: string;
+          description: string | null;
+          photos: string[];
+          category: string | null;
+          subcategory: string | null;
+          priceCents: number;
+          quantity: number;
+          ebayCategoryId?: number | null;
+          aspects?: unknown;
+          condition?: "new" | "used" | null;
+          acceptOffers?: boolean;
+          minOfferCents?: number | null;
+        };
+      };
       if (!res.ok) {
-        setActionMessage((data as { error?: string }).error ?? "eBay refresh failed");
+        setActionMessage(data.error ?? "eBay refresh failed");
       } else {
-        setActionMessage("Refreshed from eBay.");
+        setActionMessage(data.message ?? "Refreshed from eBay.");
+        if (data.item) onItemRefreshed?.(data.item);
         await refreshLinks();
       }
     } catch {

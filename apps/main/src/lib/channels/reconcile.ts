@@ -11,6 +11,7 @@ import { reconcileConnectionInboundMeta } from "./reconcile-inbound-meta";
 import type { ChannelProvider } from "./types";
 import { describeChannelSyncError } from "./ebay/errors";
 import { ensureEbayPlatformNotifications } from "./ebay/notifications-setup";
+import { pullEbayUpdatesForConnection } from "./ebay/pull-ebay-updates";
 import { matchSaleToVariantOption } from "./variant-sync";
 import { logSyncEvent } from "./sync-log";
 import { logSaleQuantityChange } from "./quantity-audit";
@@ -253,6 +254,19 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
     applied += (await reconcileConnectionSales(c)).applied;
   } catch (e) {
     console.error("[channels] reconcile sales failed", { id: c.id, error: String(e) });
+  }
+  if (c.provider === "ebay") {
+    try {
+      const ebayPull = await pullEbayUpdatesForConnection(c);
+      catalogUpdated += ebayPull.updated.length;
+      console.log("[channels] eBay GetItem pull", {
+        id: c.id,
+        checked: ebayPull.checked,
+        updated: ebayPull.updated.map((u) => ({ storeItemId: u.storeItemId, changes: u.changes })),
+      });
+    } catch (e) {
+      console.error("[channels] eBay GetItem pull failed", { id: c.id, error: String(e) });
+    }
   }
   try {
     const catalog = await reconcileConnectionInboundCatalog(c);
