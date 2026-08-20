@@ -113,13 +113,9 @@ function firstNamedTag(xml: string, name: string): string | null {
   return m ? m[1].trim() : null;
 }
 
-/** Parse LastModifiedTime / RevisionTime from Trading XML (full response or Item slice). */
+/** Parse listing LastModifiedTime only — envelope UpdateTime is the API response clock. */
 export function parseEbayLastModified(itemXml: string): Date | null {
-  const raw =
-    firstNamedTag(itemXml, "LastModifiedTime") ||
-    firstNamedTag(itemXml, "ModTime") ||
-    firstNamedTag(itemXml, "RevisionTime") ||
-    firstNamedTag(itemXml, "UpdateTime");
+  const raw = firstNamedTag(itemXml, "LastModifiedTime");
   if (!raw?.trim()) return null;
   const decoded = decodeXmlEntities(raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")).trim();
   const d = new Date(decoded);

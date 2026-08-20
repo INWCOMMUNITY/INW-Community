@@ -117,12 +117,37 @@ describe("ebayGetItemIsStaleVersusInw", () => {
     ).toBe(true);
   });
 
-  it("applies GetItem when LastModified is newer than both inbound and push", () => {
+  it("skips an older eBay snapshot after the seller saves on INW", () => {
+    expect(
+      ebayGetItemIsStaleVersusInw({
+        lastInboundAt: new Date("2026-08-20T05:04:20.000Z"),
+        lastPushedAt: new Date("2026-08-20T05:06:00.000Z"),
+        inwUpdatedAt: new Date("2026-08-20T05:05:59.000Z"),
+        ebayLastModified: new Date("2026-08-20T05:04:00.000Z"),
+        now: new Date("2026-08-20T05:10:00.000Z"),
+      })
+    ).toBe(true);
+  });
+
+  it("skips a lagged TEST 5 replica after a successful inbound of the live listing", () => {
+    const pulledAt = new Date("2026-08-20T05:04:20.000Z");
+    expect(
+      ebayGetItemIsStaleVersusInw({
+        lastInboundAt: pulledAt,
+        lastAppliedRemoteAt: new Date("2026-08-20T05:04:00.000Z"),
+        inwUpdatedAt: pulledAt,
+        ebayLastModified: new Date("2026-08-20T04:50:00.000Z"),
+        now: new Date("2026-08-20T05:20:00.000Z"),
+      })
+    ).toBe(true);
+  });
+
+  it("applies GetItem when LastModified is newer than inbound, push, and INW save", () => {
     expect(
       ebayGetItemIsStaleVersusInw({
         lastInboundAt: refreshedAt,
         lastPushedAt: new Date("2026-08-20T05:06:00.000Z"),
-        inwUpdatedAt: refreshedAt,
+        inwUpdatedAt: new Date("2026-08-20T05:05:59.000Z"),
         ebayLastModified: new Date("2026-08-20T05:07:00.000Z"),
         now: new Date("2026-08-20T05:07:10.000Z"),
       })

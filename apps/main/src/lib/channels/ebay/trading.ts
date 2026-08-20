@@ -229,7 +229,7 @@ export async function fetchEbayItemDetails(
       title: titleRaw ? decodeXmlTitle(titleRaw) : null,
       condition: parseEbayCondition(item),
       conditionEnum: parseEbayConditionEnum(item),
-      remoteUpdatedAt: parseEbayLastModified(xml) ?? parseEbayLastModified(item),
+      remoteUpdatedAt: parseEbayLastModified(item) ?? parseEbayLastModified(xml),
       quantity,
       priceCents,
       variants: parseEbayVariations(item),

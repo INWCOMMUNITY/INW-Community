@@ -93,7 +93,15 @@ describe("parseEbayLastModified", () => {
     expect(parseEbayLastModified(xml)?.toISOString()).toBe("2026-08-20T05:32:11.000Z");
   });
 
-  it("returns null when no modify timestamp is present", () => {
-    expect(parseEbayLastModified("<Item><Title>TEST 2</Title></Item>")).toBeNull();
+  it("does not treat envelope UpdateTime as the listing LastModifiedTime", () => {
+    const xml = `<?xml version="1.0"?>
+<GetItemResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Timestamp>2026-08-20T06:50:03.000Z</Timestamp>
+  <UpdateTime>2026-08-20T06:50:03.000Z</UpdateTime>
+  <Item>
+    <Title>EBAY CRON TEST 5</Title>
+  </Item>
+</GetItemResponse>`;
+    expect(parseEbayLastModified(xml)).toBeNull();
   });
 });

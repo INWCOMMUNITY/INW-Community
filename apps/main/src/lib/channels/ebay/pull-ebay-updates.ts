@@ -88,19 +88,22 @@ export function ebayGetItemDetailsAreUsable(details: {
 export function ebayGetItemIsStaleVersusInw(args: {
   lastInboundAt: Date | null;
   lastPushedAt?: Date | null;
+  lastAppliedRemoteAt?: Date | null;
   inwUpdatedAt: Date | null;
   ebayLastModified?: Date | null;
   now?: Date;
 }): boolean {
   const inboundAt = args.lastInboundAt?.getTime();
   const pushedAt = args.lastPushedAt?.getTime();
+  const appliedRemoteAt = args.lastAppliedRemoteAt?.getTime();
+  const inwAt = args.inwUpdatedAt?.getTime();
   const modifiedAt = args.ebayLastModified?.getTime();
-  // First pull: nothing on INW to protect.
+  // First eBay pull for this link.
   if (inboundAt == null && pushedAt == null) return false;
-  // Do not guess. A missing LastModified is how lagged replicas overwrote TEST titles
-  // on the next 5-minute cron after a good pull.
+  // After a successful pull or push, a replica with no LastModified is old news.
   if (modifiedAt == null) return true;
-  const floor = Math.max(inboundAt ?? 0, pushedAt ?? 0);
+  // Anything we already applied (or the seller saved) wins against older eBay snapshots.
+  const floor = Math.max(inboundAt ?? 0, pushedAt ?? 0, inwAt ?? 0, appliedRemoteAt ?? 0);
   return modifiedAt <= floor + 2000;
 }
 
@@ -180,6 +183,7 @@ export async function refreshEbayListingByItemId(
   const staleVersusInw = ebayGetItemIsStaleVersusInw({
     lastInboundAt: link.lastInboundAt,
     lastPushedAt: link.lastPushedAt,
+    lastAppliedRemoteAt: link.syncBaselineAt,
     inwUpdatedAt: storeItem.updatedAt,
     ebayLastModified: details.remoteUpdatedAt,
   });
@@ -231,6 +235,7 @@ export async function refreshEbayListingByItemId(
     ebayGetItemIsStaleVersusInw({
       lastInboundAt: link.lastInboundAt,
       lastPushedAt: link.lastPushedAt,
+      lastAppliedRemoteAt: link.syncBaselineAt,
       inwUpdatedAt: storeItem.updatedAt,
       ebayLastModified: details.remoteUpdatedAt,
     })
