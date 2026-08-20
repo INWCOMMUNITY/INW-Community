@@ -1,4 +1,4 @@
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { withConnectionAuthRetry, isChannelAuthError, refreshConnectionToken } from "../connection";
 import { fetchEbayItemDetails } from "./trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
@@ -128,7 +128,7 @@ export function readEbayPendingInboundHash(conflictDetails: unknown): string | n
 export function withEbayPendingInbound(
   conflictDetails: unknown,
   pending: EbayPendingInbound | null
-): Record<string, unknown> {
+): Prisma.InputJsonValue {
   const base =
     conflictDetails && typeof conflictDetails === "object" && !Array.isArray(conflictDetails)
       ? { ...(conflictDetails as Record<string, unknown>) }
@@ -138,7 +138,7 @@ export function withEbayPendingInbound(
   } else {
     delete base.ebayPendingInbound;
   }
-  return base;
+  return base as Prisma.InputJsonValue;
 }
 
 export type EbayGetItemApplyDecision = {
