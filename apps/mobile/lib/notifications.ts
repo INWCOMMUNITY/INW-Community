@@ -25,6 +25,7 @@ export type NotificationData = {
   businessSlug?: string;
   webUrl?: string;
   webTitle?: string;
+  reconnectProvider?: string;
 };
 
 // EAS projectId from app.json extra.eas.projectId (for getExpoPushTokenAsync)
@@ -156,6 +157,19 @@ export function getRouteFromNotificationData(data: NotificationData | null): str
     case "web_link":
       if (!data.webUrl) return null;
       return `/web?url=${encodeURIComponent(String(data.webUrl))}&title=${encodeURIComponent(String(data.webTitle ?? "Open"))}`;
+    case "seller-hub/channels":
+    case "seller-hub/channels/sync-activity": {
+      const provider =
+        typeof data.reconnectProvider === "string" && data.reconnectProvider.length > 0
+          ? data.reconnectProvider
+          : null;
+      if (provider) {
+        return `/seller-hub/channels?reconnect=${encodeURIComponent(provider)}`;
+      }
+      return data.screen === "seller-hub/channels/sync-activity"
+        ? "/seller-hub/channels/sync-activity"
+        : "/seller-hub/channels";
+    }
     default:
       return null;
   }

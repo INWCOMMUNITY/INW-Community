@@ -20,6 +20,7 @@ import { SyncHealthWidget } from "@/components/channels/SyncHealthWidget";
 import { SyncRulesCard } from "@/components/channels/SyncRulesCard";
 import { SyncPausedBanner } from "@/components/channels/SyncPausedBanner";
 import { ReconnectChecklistModal } from "@/components/channels/ReconnectChecklistModal";
+import { ChannelReconnectGuideModal } from "@/components/channels/ChannelReconnectGuideModal";
 import { ChannelSettingsModal } from "@/components/channels/ChannelSettingsModal";
 import { SyncOnboarding } from "@/components/channels/SyncOnboarding";
 
@@ -95,7 +96,11 @@ function parseReturnUrl(url: string): { connected: string | null; error: string 
 
 export default function ChannelsScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ connected?: string; channel_error?: string }>();
+  const params = useLocalSearchParams<{
+    connected?: string;
+    channel_error?: string;
+    reconnect?: string;
+  }>();
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState<string | null>(null);
@@ -119,6 +124,8 @@ export default function ChannelsScreen() {
     linkedListings: number;
   } | null>(null);
   const [checklistSyncing, setChecklistSyncing] = useState(false);
+  const [reconnectGuideProvider, setReconnectGuideProvider] = useState<string | null>(null);
+  const dismissedReconnectGuides = React.useRef(new Set<string>());
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -172,7 +179,18 @@ export default function ChannelsScreen() {
     if (typeof params.channel_error === "string" && params.channel_error.length > 0) {
       setError(decodeURIComponent(params.channel_error.replace(/\+/g, " ")));
     }
-  }, [params.connected, params.channel_error, refresh, openReconnectChecklist]);
+    if (typeof params.reconnect === "string" && params.reconnect.length > 0) {
+      setReconnectGuideProvider(params.reconnect);
+    }
+  }, [params.connected, params.channel_error, params.reconnect, refresh, openReconnectChecklist]);
+
+  React.useEffect(() => {
+    if (loading || reconnectGuideProvider) return;
+    if (typeof params.reconnect === "string" && params.reconnect.length > 0) return;
+    const errored = connections.find((c) => c.status === "error");
+    if (!errored || dismissedReconnectGuides.current.has(errored.provider)) return;
+    setReconnectGuideProvider(errored.provider);
+  }, [loading, connections, reconnectGuideProvider, params.reconnect]);
 
   const connectionFor = (provider: string) =>
     connections.find((c) => c.provider === provider && c.status !== "disconnected");
@@ -437,6 +455,7 @@ export default function ChannelsScreen() {
         <SyncPausedBanner
           connections={connections}
           onReconnect={(provider) => void connect(provider)}
+          onShowGuide={(provider) => setReconnectGuideProvider(provider)}
           reconnecting={connecting}
         />
       )}
@@ -694,6 +713,26 @@ export default function ChannelsScreen() {
           }}
         />
       ) : null}
+      <ChannelReconnectGuideModal
+        visible={Boolean(reconnectGuideProvider)}
+        providerName={
+          PROVIDERS.find((p) => p.provider === reconnectGuideProvider)?.name ?? "store"
+        }
+        reconnecting={connecting === reconnectGuideProvider}
+        onReconnect={() => {
+          const provider = reconnectGuideProvider;
+          if (!provider) return;
+          dismissedReconnectGuides.current.add(provider);
+          setReconnectGuideProvider(null);
+          void connect(provider);
+        }}
+        onDismiss={() => {
+          if (reconnectGuideProvider) {
+            dismissedReconnectGuides.current.add(reconnectGuideProvider);
+          }
+          setReconnectGuideProvider(null);
+        }}
+      />
     </ScrollView>
   );
 }

@@ -15,6 +15,7 @@ import { pullEbayUpdatesForConnection } from "./ebay/pull-ebay-updates";
 import { matchSaleToVariantOption } from "./variant-sync";
 import { logSyncEvent } from "./sync-log";
 import { logSaleQuantityChange } from "./quantity-audit";
+import { notifyChannelDisconnectIfNew } from "./channel-disconnect-notify";
 
 const DEFAULT_LOOKBACK_MS = 1000 * 60 * 60 * 24 * 2; // 2 days
 
@@ -60,6 +61,11 @@ export async function reconcileConnectionSales(
     await prisma.channelConnection
       .update({ where: { id: connection.id }, data: { status: "error", lastError: msg } })
       .catch(() => {});
+    void notifyChannelDisconnectIfNew({
+      memberId: connection.memberId,
+      provider,
+      previousStatus: connection.status,
+    }).catch(() => {});
     return { applied: 0 };
   }
 

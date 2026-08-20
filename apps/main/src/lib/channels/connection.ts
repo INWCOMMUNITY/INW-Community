@@ -5,6 +5,7 @@ import type { ChannelConnectionContext, ChannelProvider } from "./types";
 import { logSyncEvent } from "./sync-log";
 import { EbayApiError, needsTokenRefresh } from "./ebay/errors";
 import { EtsyApiError } from "./etsy/client";
+import { notifyChannelDisconnectIfNew } from "./channel-disconnect-notify";
 
 /** Refresh before the token's last 5 minutes so the channel cron never starts on a dying token. */
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
@@ -44,6 +45,11 @@ export async function getConnectionContext(
       })
       .catch(() => {});
     logSyncEvent(connection.memberId, connection.provider, "token_expired", errMsg);
+    void notifyChannelDisconnectIfNew({
+      memberId: connection.memberId,
+      provider: connection.provider,
+      previousStatus: connection.status,
+    }).catch(() => {});
     return null;
   }
 
@@ -61,6 +67,11 @@ export async function getConnectionContext(
       })
       .catch(() => {});
     logSyncEvent(connection.memberId, connection.provider, "token_expired", errMsg);
+    void notifyChannelDisconnectIfNew({
+      memberId: connection.memberId,
+      provider: connection.provider,
+      previousStatus: connection.status,
+    }).catch(() => {});
     return null;
   }
   if (expired && connection.refreshTokenEncrypted) {
@@ -98,18 +109,11 @@ export async function getConnectionContext(
         "token_expired",
         `Token refresh failed: ${errMsg}`
       );
-      import("@/lib/send-push-notification")
-        .then(({ sendPushNotification }) => {
-          const label =
-            connection.provider.charAt(0).toUpperCase() + connection.provider.slice(1);
-          sendPushNotification(connection.memberId, {
-            title: `${label} connection needs attention`,
-            body: "Your sync connection expired. Open Sync Stores to reconnect.",
-            data: { screen: "seller-hub/channels" },
-            category: "commerce",
-          }).catch(() => {});
-        })
-        .catch(() => {});
+      void notifyChannelDisconnectIfNew({
+        memberId: connection.memberId,
+        provider: connection.provider,
+        previousStatus: connection.status,
+      }).catch(() => {});
       return null;
     }
   }

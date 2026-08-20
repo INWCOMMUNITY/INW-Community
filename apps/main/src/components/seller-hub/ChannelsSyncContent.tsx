@@ -19,6 +19,7 @@ import {
   type DisconnectChannelPrompt,
 } from "./DisconnectChannelModal";
 import { ChannelSafetyBufferCard } from "./ChannelSafetyBufferCard";
+import { ChannelReconnectGuideModal } from "./ChannelReconnectGuideModal";
 
 type TabId = "connections" | "traces";
 
@@ -33,6 +34,9 @@ export function ChannelsSyncContent() {
   const [disconnectPrompt, setDisconnectPrompt] = useState<DisconnectChannelPrompt | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("connections");
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
+  const [reconnectGuide, setReconnectGuide] = useState<{ provider: string; name: string } | null>(
+    null
+  );
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -54,6 +58,7 @@ export function ChannelsSyncContent() {
   useEffect(() => {
     const connected = searchParams.get("connected");
     const channelError = searchParams.get("channel_error");
+    const reconnect = searchParams.get("reconnect")?.toLowerCase();
     if (connected) {
       setSuccess(`${connected.charAt(0).toUpperCase()}${connected.slice(1)} connected.`);
       setError(null);
@@ -62,7 +67,46 @@ export function ChannelsSyncContent() {
     if (channelError) {
       setError(formatChannelQueryError(channelError));
     }
+    if (reconnect) {
+      const p = CHANNEL_PROVIDERS_UI.find((x) => x.provider === reconnect);
+      if (p) setReconnectGuide({ provider: p.provider, name: p.name });
+    }
   }, [searchParams, refresh]);
+
+  useEffect(() => {
+    if (loading || reconnectGuide) return;
+    if (searchParams.get("reconnect")) return;
+    const errored = connections.find((c) => c.status === "error");
+    if (!errored) return;
+    try {
+      if (sessionStorage.getItem(`inw-reconnect-guide:${errored.provider}`)) return;
+    } catch {
+      /* ignore */
+    }
+    const p = CHANNEL_PROVIDERS_UI.find((x) => x.provider === errored.provider);
+    if (p) setReconnectGuide({ provider: p.provider, name: p.name });
+  }, [loading, connections, reconnectGuide, searchParams]);
+
+  const dismissReconnectGuide = () => {
+    if (reconnectGuide) {
+      try {
+        sessionStorage.setItem(`inw-reconnect-guide:${reconnectGuide.provider}`, "1");
+      } catch {
+        /* ignore */
+      }
+    }
+    setReconnectGuide(null);
+  };
+
+  const reconnectHrefFor = (provider: string) => {
+    if (provider === "shopify") {
+      const shop = shopifyShop.trim() || connectionFor("shopify")?.shopId || "";
+      return shop
+        ? `/api/channels/shopify/connect?shop=${encodeURIComponent(shop)}`
+        : "#";
+    }
+    return `/api/channels/${provider}/connect`;
+  };
 
   const connectionFor = (provider: string) =>
     connections.find((c) => c.provider === provider && c.status !== "disconnected");
@@ -231,9 +275,21 @@ export function ChannelsSyncContent() {
 
                 {conn ? (
                   <>
-                    <div className="rounded-lg bg-green-50 border border-green-200 p-3 mb-4 text-sm">
-                      <p className="font-semibold text-green-800">
-                        Connected{conn.shopName ? ` to ${conn.shopName}` : ""}.
+                    <div
+                      className={`rounded-lg border p-3 mb-4 text-sm ${
+                        conn.status === "error"
+                          ? "bg-amber-50 border-amber-200"
+                          : "bg-green-50 border-green-200"
+                      }`}
+                    >
+                      <p
+                        className={`font-semibold ${
+                          conn.status === "error" ? "text-amber-900" : "text-green-800"
+                        }`}
+                      >
+                        {conn.status === "error"
+                          ? `${p.name} sync paused${conn.shopName ? ` (${conn.shopName})` : ""}.`
+                          : `Connected${conn.shopName ? ` to ${conn.shopName}` : ""}.`}
                       </p>
                       <p className="text-gray-600 mt-1">
                         {conn.linkedListings} listing{conn.linkedListings === 1 ? "" : "s"} linked.
@@ -273,12 +329,40 @@ export function ChannelsSyncContent() {
                           for products to sync.
                         </p>
                       )}
-                      {conn.status === "error" && conn.lastError && (
-                        <p className="text-amber-800 mt-2">Sync issue: {conn.lastError}</p>
+                      {conn.status === "error" && (
+                        <p className="text-amber-900 mt-2">
+                          {conn.lastError
+                            ? `INW could not reach ${p.name}: ${conn.lastError}`
+                            : `INW could not reach ${p.name}. Reconnect to resume inventory sync.`}
+                        </p>
                       )}
                     </div>
 
                     <div className="flex flex-col gap-2">
+                      {conn.status === "error" && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setReconnectGuide({ provider: p.provider, name: p.name })}
+                            className={btnOutline}
+                          >
+                            How to reconnect
+                          </button>
+                          <a
+                            href={reconnectHrefFor(p.provider)}
+                            className={`${btnPrimary} ${
+                              p.provider === "shopify" &&
+                              !shopifyShop.trim() &&
+                              !conn.shopId
+                                ? "pointer-events-none opacity-50"
+                                : ""
+                            }`}
+                            style={{ backgroundColor: "var(--color-primary)" }}
+                          >
+                            Reconnect {p.name}
+                          </a>
+                        </>
+                      )}
                       <Link
                         href={`/seller-hub/channels/import?provider=${p.provider}`}
                         className={btnOutline}
@@ -414,6 +498,18 @@ export function ChannelsSyncContent() {
           <SyncActivityLog />
         </>
       )}
+
+      {reconnectGuide ? (
+        <ChannelReconnectGuideModal
+          providerName={reconnectGuide.name}
+          reconnectHref={reconnectHrefFor(reconnectGuide.provider)}
+          reconnectDisabled={
+            reconnectGuide.provider === "shopify" &&
+            reconnectHrefFor("shopify") === "#"
+          }
+          onDismiss={dismissReconnectGuide}
+        />
+      ) : null}
     </div>
   );
 }

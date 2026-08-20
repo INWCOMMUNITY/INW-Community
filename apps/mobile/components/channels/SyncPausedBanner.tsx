@@ -20,6 +20,7 @@ const PROVIDER_NAMES: Record<string, string> = {
 type Props = {
   connections: SyncPausedConnection[];
   onReconnect: (provider: string) => void;
+  onShowGuide?: (provider: string) => void;
   reconnecting: string | null;
 };
 
@@ -27,7 +28,7 @@ type Props = {
  * Shown when one or more channel connections are in error state (e.g. expired token).
  * Reassures sellers that INW inventory was not corrupted — only cross-store sync is paused.
  */
-export function SyncPausedBanner({ connections, onReconnect, reconnecting }: Props) {
+export function SyncPausedBanner({ connections, onReconnect, onShowGuide, reconnecting }: Props) {
   const errored = connections.filter((c) => c.status === "error");
   if (errored.length === 0) return null;
 
@@ -68,6 +69,14 @@ export function SyncPausedBanner({ connections, onReconnect, reconnecting }: Pro
                 {reconnecting === conn.provider ? "Connecting…" : `Reconnect ${label}`}
               </Text>
             </Pressable>
+            {onShowGuide ? (
+              <Pressable
+                style={({ pressed }) => [styles.guideBtn, pressed && { opacity: 0.85 }]}
+                onPress={() => onShowGuide(conn.provider)}
+              >
+                <Text style={styles.guideBtnText}>Show reconnect steps</Text>
+              </Pressable>
+            ) : null}
           </View>
         );
       })}
@@ -128,6 +137,16 @@ const styles = StyleSheet.create({
   },
   reconnectBtnText: {
     color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  guideBtn: {
+    alignItems: "center",
+    paddingVertical: 8,
+    marginTop: 6,
+  },
+  guideBtnText: {
+    color: theme.colors.primary,
     fontSize: 14,
     fontWeight: "600",
   },
