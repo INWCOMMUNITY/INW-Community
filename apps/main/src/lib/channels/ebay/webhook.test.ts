@@ -1,0 +1,81 @@
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  buildEbayWebhookUrl,
+  ebayWebhookUrlIsSecured,
+  redactEbayWebhookUrl,
+  verifyEbayWebhook,
+} from "./webhook";
+
+const ORIGINAL_SECRET = process.env.EBAY_WEBHOOK_SECRET;
+
+afterEach(() => {
+  if (ORIGINAL_SECRET === undefined) delete process.env.EBAY_WEBHOOK_SECRET;
+  else process.env.EBAY_WEBHOOK_SECRET = ORIGINAL_SECRET;
+});
+
+describe("buildEbayWebhookUrl", () => {
+  it("appends the current secret as a query param", () => {
+    process.env.EBAY_WEBHOOK_SECRET = "correct-secret";
+    expect(buildEbayWebhookUrl("https://www.inwcommunity.com")).toBe(
+      "https://www.inwcommunity.com/api/channels/ebay/webhook?secret=correct-secret"
+    );
+  });
+
+  it("omits secret when it is not configured", () => {
+    delete process.env.EBAY_WEBHOOK_SECRET;
+    expect(buildEbayWebhookUrl("https://www.inwcommunity.com/")).toBe(
+      "https://www.inwcommunity.com/api/channels/ebay/webhook"
+    );
+  });
+});
+
+describe("ebayWebhookUrlIsSecured", () => {
+  it("is true only when the stored URL carries the current secret", () => {
+    process.env.EBAY_WEBHOOK_SECRET = "correct-secret";
+    expect(
+      ebayWebhookUrlIsSecured(
+        "https://www.inwcommunity.com/api/channels/ebay/webhook?secret=correct-secret"
+      )
+    ).toBe(true);
+    expect(
+      ebayWebhookUrlIsSecured("https://www.inwcommunity.com/api/channels/ebay/webhook")
+    ).toBe(false);
+    expect(
+      ebayWebhookUrlIsSecured(
+        "https://www.inwcommunity.com/api/channels/ebay/webhook?secret=wrong"
+      )
+    ).toBe(false);
+  });
+});
+
+describe("redactEbayWebhookUrl", () => {
+  it("masks the secret query value", () => {
+    expect(
+      redactEbayWebhookUrl(
+        "https://www.inwcommunity.com/api/channels/ebay/webhook?secret=correct-secret"
+      )
+    ).toBe("https://www.inwcommunity.com/api/channels/ebay/webhook?secret=***");
+  });
+});
+
+describe("verifyEbayWebhook", () => {
+  it("rejects when no secret configured", () => {
+    delete process.env.EBAY_WEBHOOK_SECRET;
+    const req = { nextUrl: { searchParams: { get: () => "some-secret" } } };
+    expect(verifyEbayWebhook(req)).toBe(false);
+  });
+
+  it("rejects when secret does not match", () => {
+    process.env.EBAY_WEBHOOK_SECRET = "correct-secret";
+    const req = { nextUrl: { searchParams: { get: () => "wrong-secret" } } };
+    expect(verifyEbayWebhook(req)).toBe(false);
+  });
+
+  it("accepts when secret matches", () => {
+    process.env.EBAY_WEBHOOK_SECRET = "correct-secret";
+    const req = {
+      nextUrl: { searchParams: { get: (k: string) => (k === "secret" ? "correct-secret" : null) } },
+    };
+    expect(verifyEbayWebhook(req)).toBe(true);
+  });
+});

@@ -1,5 +1,45 @@
 import { timingSafeEqual } from "crypto";
 
+const WEBHOOK_PATH = "/api/channels/ebay/webhook";
+
+function ebayWebhookSecret(): string | null {
+  const secret = process.env.EBAY_WEBHOOK_SECRET?.trim();
+  return secret || null;
+}
+
+/**
+ * Delivery URL registered with eBay Platform Notifications / Commerce Notifications.
+ * Includes `?secret=` when `EBAY_WEBHOOK_SECRET` is set so POSTs pass `verifyEbayWebhook`.
+ */
+export function buildEbayWebhookUrl(baseUrl: string): string {
+  const origin = baseUrl.replace(/\/+$/, "");
+  const url = new URL(WEBHOOK_PATH, `${origin}/`);
+  const secret = ebayWebhookSecret();
+  if (secret) url.searchParams.set("secret", secret);
+  return url.toString();
+}
+
+/** True when the stored ApplicationURL already carries the current webhook secret. */
+export function ebayWebhookUrlIsSecured(url: string | null | undefined): boolean {
+  const secret = ebayWebhookSecret();
+  if (!secret || !url) return false;
+  try {
+    return new URL(url).searchParams.get("secret") === secret;
+  } catch {
+    return false;
+  }
+}
+
+export function redactEbayWebhookUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.searchParams.has("secret")) parsed.searchParams.set("secret", "***");
+    return parsed.toString();
+  } catch {
+    return url.replace(/([?&]secret=)[^&]*/gi, "$1***");
+  }
+}
+
 /**
  * Verify an eBay Platform Notification webhook using a shared secret passed as a
  * query parameter on the registered webhook URL.
@@ -12,7 +52,7 @@ import { timingSafeEqual } from "crypto";
  * explicit opt-in, same pattern as Etsy/Shopify/Wix.
  */
 export function verifyEbayWebhook(req: { nextUrl: { searchParams: { get(k: string): string | null } } }): boolean {
-  const secret = process.env.EBAY_WEBHOOK_SECRET?.trim();
+  const secret = ebayWebhookSecret();
   if (!secret) return false;
 
   const provided = req.nextUrl.searchParams.get("secret") ?? "";

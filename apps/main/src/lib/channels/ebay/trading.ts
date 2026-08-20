@@ -21,6 +21,7 @@ import {
 import type { ListingAspect } from "@/lib/listing-limits";
 import { getEbayCategoryPathFromId } from "./category-path";
 import { resolveEbayLegacyListingId } from "./mapping";
+import { redactEbayWebhookUrl } from "./webhook";
 
 /** A classic (Trading API) eBay listing enumerated for import preview. */
 export type EbayTradingListing = {
@@ -669,7 +670,9 @@ export async function subscribeToEbayNotifications(
     // Check for success
     const ack = tag(response, "Ack");
     if (ack === "Success" || ack === "Warning") {
-      console.log("[ebay] subscribeToEbayNotifications: success", { webhookUrl });
+      console.log("[ebay] subscribeToEbayNotifications: success", {
+        webhookUrl: redactEbayWebhookUrl(webhookUrl),
+      });
       return { success: true };
     }
 

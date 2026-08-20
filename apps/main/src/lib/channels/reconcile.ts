@@ -10,6 +10,7 @@ import { reconcileConnectionInboundCatalog } from "./reconcile-inbound-catalog";
 import { reconcileConnectionInboundMeta } from "./reconcile-inbound-meta";
 import type { ChannelProvider } from "./types";
 import { describeChannelSyncError } from "./ebay/errors";
+import { ensureEbayPlatformNotifications } from "./ebay/notifications-setup";
 import { matchSaleToVariantOption } from "./variant-sync";
 import { logSyncEvent } from "./sync-log";
 import { logSaleQuantityChange } from "./quantity-audit";
@@ -27,6 +28,7 @@ type ConnectionRow = {
   status: string;
   etsyShippingProfileId: string | null;
   lastReconciledAt: Date | null;
+  config?: unknown;
 };
 
 /**
@@ -228,6 +230,24 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
   let catalogUpdated = 0;
   let catalogRemoved = 0;
   let metaUpdated = 0;
+
+  if (c.provider === "ebay") {
+    try {
+      const ctx = await getConnectionContext(c);
+      if (ctx) {
+        await ensureEbayPlatformNotifications({
+          connectionId: c.id,
+          accessToken: ctx.accessToken,
+          config: c.config,
+        });
+      }
+    } catch (e) {
+      console.warn("[channels] eBay notification repair failed", {
+        id: c.id,
+        error: String(e),
+      });
+    }
+  }
 
   try {
     applied += (await reconcileConnectionSales(c)).applied;

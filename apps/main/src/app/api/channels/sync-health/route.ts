@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { ebayWebhookUrlIsSecured } from "@/lib/channels/ebay/webhook";
 
 export const dynamic = "force-dynamic";
 
@@ -71,14 +72,6 @@ export async function GET(req: NextRequest) {
   // Build recommendations
   const recommendations: string[] = [];
 
-  if (!cronEnabled) {
-    recommendations.push(
-      "CHANNEL_CRON_SYNC_ENABLED is not set to 'true'. " +
-      "The automatic sync from Etsy to INW will not run. " +
-      "Use POST /api/channels/sync-now to manually trigger sync."
-    );
-  }
-
   for (const conn of connections) {
     if (conn.status === "error") {
       recommendations.push(
@@ -93,6 +86,20 @@ export async function GET(req: NextRequest) {
         "Etsy connection is missing defaultReadinessStateId. " +
         "Call POST /api/channels/etsy/refresh-config to fix this."
       );
+    }
+
+    if (conn.provider === "ebay") {
+      const storedUrl =
+        typeof config?.notificationsWebhookUrl === "string"
+          ? config.notificationsWebhookUrl
+          : null;
+      if (!ebayWebhookUrlIsSecured(storedUrl)) {
+        recommendations.push(
+          "eBay Platform Notifications were registered without the webhook secret, so live " +
+          "sale/edit POSTs are rejected. The next sync-channels cron will re-subscribe, or " +
+          "reconnect eBay in Seller Hub → Sync Stores."
+        );
+      }
     }
 
     if (conn.lastReconciledAt) {

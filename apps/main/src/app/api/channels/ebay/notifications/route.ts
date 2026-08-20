@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { prisma } from "database";
 import { getConnectionContext } from "@/lib/channels/connection";
-import {
-  subscribeToEbayNotifications,
-  getEbayNotificationPreferences,
-} from "@/lib/channels/ebay/trading";
+import { getEbayNotificationPreferences } from "@/lib/channels/ebay/trading";
+import { subscribeEbayInboundNotifications } from "@/lib/channels/ebay/notifications-setup";
+import { redactEbayWebhookUrl } from "@/lib/channels/ebay/webhook";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +35,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     subscribed: status.subscribed,
-    webhookUrl: status.webhookUrl,
+    webhookUrl: status.webhookUrl ? redactEbayWebhookUrl(status.webhookUrl) : undefined,
     events: status.events,
   });
 }
@@ -64,12 +63,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unable to get connection context" }, { status: 500 });
   }
 
-  // Build the webhook URL
-  const host = req.headers.get("host") || "localhost:3000";
-  const protocol = host.includes("localhost") ? "http" : "https";
-  const webhookUrl = `${protocol}://${host}/api/channels/ebay/webhook`;
-
-  const result = await subscribeToEbayNotifications(ctx.accessToken, webhookUrl);
+  const result = await subscribeEbayInboundNotifications(ctx.accessToken);
 
   if (!result.success) {
     return NextResponse.json(
@@ -78,23 +72,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Store subscription status in connection config
   const config = (connection.config as Record<string, unknown>) || {};
   await prisma.channelConnection.update({
     where: { id: connection.id },
     data: {
       config: {
         ...config,
-        notificationsEnabled: true,
-        notificationsWebhookUrl: webhookUrl,
-        notificationsEnabledAt: new Date().toISOString(),
+        ...result.configPatch,
       } as object,
     },
   });
 
   return NextResponse.json({
     success: true,
-    webhookUrl,
+    webhookUrl: redactEbayWebhookUrl(result.webhookUrl),
     message: "eBay notifications enabled. Your listings will now sync automatically when edited on eBay.",
   });
 }

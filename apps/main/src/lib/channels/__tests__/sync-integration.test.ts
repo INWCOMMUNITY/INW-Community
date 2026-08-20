@@ -448,34 +448,6 @@ describe("import validation", () => {
   });
 });
 
-describe("eBay webhook verification", () => {
-  it("rejects when no secret configured", async () => {
-    const { verifyEbayWebhook } = await import("../ebay/webhook");
-    delete process.env.EBAY_WEBHOOK_SECRET;
-
-    const req = { nextUrl: { searchParams: { get: () => "some-secret" } } };
-    expect(verifyEbayWebhook(req)).toBe(false);
-  });
-
-  it("rejects when secret does not match", async () => {
-    const { verifyEbayWebhook } = await import("../ebay/webhook");
-    process.env.EBAY_WEBHOOK_SECRET = "correct-secret";
-
-    const req = { nextUrl: { searchParams: { get: () => "wrong-secret" } } };
-    expect(verifyEbayWebhook(req)).toBe(false);
-  });
-
-  it("accepts when secret matches", async () => {
-    const { verifyEbayWebhook } = await import("../ebay/webhook");
-    process.env.EBAY_WEBHOOK_SECRET = "correct-secret";
-
-    const req = {
-      nextUrl: { searchParams: { get: (k: string) => (k === "secret" ? "correct-secret" : null) } },
-    };
-    expect(verifyEbayWebhook(req)).toBe(true);
-  });
-});
-
 describe("error classification", () => {
   it("classifies 429 as transient", async () => {
     const { classifyError } = await import("../error-classifier");

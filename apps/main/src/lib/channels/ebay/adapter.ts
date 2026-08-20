@@ -21,7 +21,7 @@ import {
 } from "./oauth";
 import { fetchEbayConnectionConfig, readEbayConfig } from "./account";
 import { enrichInventoryBodyWithCatalogProduct } from "./catalog";
-import { enableCommerceNotifications } from "./commerce-notifications";
+import { subscribeEbayInboundNotifications } from "./notifications-setup";
 import {
   appendConditionDescriptorsToInventoryBody,
   fetchConditionDescriptorMetadata,
@@ -73,10 +73,8 @@ import { hasOptionQuantities } from "../../store-item-variants";
 import {
   enumerateEbayListings,
   fetchEbayItemDetails,
-  subscribeToEbayNotifications,
 } from "./trading";
 import { EBAY_MARKETPLACE_ID } from "./config";
-import { getBaseUrl } from "@/lib/get-base-url";
 import {
   startTrace,
   addInputSnapshot,
@@ -1269,23 +1267,11 @@ export const ebayAdapter: ChannelAdapter = {
   async getInitialConfig(accessToken): Promise<Record<string, unknown>> {
     const cfg = await fetchEbayConnectionConfig(accessToken);
 
-    const webhookUrl = `${getBaseUrl()}/api/channels/ebay/webhook`;
-    const notifResult = await subscribeToEbayNotifications(accessToken, webhookUrl);
-    const commerceNotif = await enableCommerceNotifications(accessToken, webhookUrl).catch((e) => {
-      console.warn("[ebay] Commerce Notification API setup failed", {
-        error: e instanceof Error ? e.message : String(e),
-      });
-      return { destinationId: null, subscriptionIds: [] as string[] };
-    });
+    const notif = await subscribeEbayInboundNotifications(accessToken);
 
     return {
       ...cfg,
-      notificationsEnabled: notifResult.success,
-      notificationsWebhookUrl: notifResult.success ? webhookUrl : undefined,
-      notificationsEnabledAt: notifResult.success ? new Date().toISOString() : undefined,
-      notificationsError: notifResult.error,
-      commerceNotificationsDestinationId: commerceNotif.destinationId,
-      commerceNotificationSubscriptionIds: commerceNotif.subscriptionIds,
+      ...notif.configPatch,
     };
   },
 
