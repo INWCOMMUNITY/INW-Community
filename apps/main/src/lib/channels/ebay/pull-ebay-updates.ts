@@ -40,6 +40,20 @@ function photosEqual(a: string[], b: string[]): boolean {
   return a.every((url, i) => url === b[i]);
 }
 
+/** Ignore a lagged GetItem for 15 minutes after a refresh or inbound pull. */
+export const EBAY_INBOUND_ECHO_MS = 15 * 60 * 1000;
+
+export function ebayGetItemIsStaleVersusInw(args: {
+  lastInboundAt: Date | null;
+  inwUpdatedAt: Date | null;
+  now?: Date;
+}): boolean {
+  const now = args.now?.getTime() ?? Date.now();
+  const inwAt = (args.lastInboundAt ?? args.inwUpdatedAt)?.getTime();
+  if (inwAt == null) return false;
+  return now - inwAt <= EBAY_INBOUND_ECHO_MS;
+}
+
 /**
  * Pull latest data from eBay for a single listing by legacy item ID.
  * Used by webhook handler and manual refresh.
@@ -79,6 +93,7 @@ export async function refreshEbayListingByItemId(
           status: true,
           acceptOffers: true,
           minOfferCents: true,
+          updatedAt: true,
         },
       },
     },
@@ -116,6 +131,30 @@ export async function refreshEbayListingByItemId(
       updated: true,
       changes: ["ended → sold_out"],
       ended: true,
+    };
+  }
+
+  if (
+    ebayGetItemIsStaleVersusInw({
+      lastInboundAt: link.lastInboundAt,
+      inwUpdatedAt: storeItem.updatedAt,
+    })
+  ) {
+    console.log("[ebay] refreshEbayListingByItemId: skip GetItem after recent INW inbound", {
+      storeItemId: storeItem.id,
+      legacyItemId,
+      lastInboundAt: link.lastInboundAt?.toISOString() ?? null,
+      inwUpdatedAt: storeItem.updatedAt.toISOString(),
+      ebayLastModified: details.remoteUpdatedAt?.toISOString() ?? null,
+      getItemTitle: details.title,
+      getItemPriceCents: details.priceCents,
+      getItemQuantity: details.quantity,
+    });
+    return {
+      storeItemId: storeItem.id,
+      title: storeItem.title,
+      updated: false,
+      changes: [],
     };
   }
 

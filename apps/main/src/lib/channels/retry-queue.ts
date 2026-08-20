@@ -150,6 +150,15 @@ export async function processRetryQueue(): Promise<{
     const memberId = retry.link?.connection?.memberId;
     const connectionId = retry.link?.connection?.id;
 
+    if (
+      retry.retryType === "content" &&
+      retry.link?.lastInboundAt != null &&
+      retry.link.lastInboundAt.getTime() > retry.createdAt.getTime()
+    ) {
+      await prisma.channelSyncRetry.delete({ where: { id: retry.id } });
+      continue;
+    }
+
     try {
       if (retry.retryType === "inventory") {
         const results = await syncInventoryToChannels(retry.storeItemId);

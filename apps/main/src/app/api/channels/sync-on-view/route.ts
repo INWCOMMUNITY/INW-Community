@@ -80,6 +80,19 @@ export async function POST(req: NextRequest) {
     }
 
     try {
+      if (conn.provider === "ebay") {
+        const { pullEbayUpdatesForConnection } = await import(
+          "@/lib/channels/ebay/pull-ebay-updates"
+        );
+        const pull = await pullEbayUpdatesForConnection(conn);
+        results.push({
+          provider: conn.provider,
+          catalogUpdated: pull.updated.length,
+          metaUpdated: 0,
+          removed: 0,
+        });
+        continue;
+      }
       const catalog = await reconcileConnectionInboundCatalog(conn);
       const meta = await reconcileConnectionInboundMeta(conn);
       results.push({
