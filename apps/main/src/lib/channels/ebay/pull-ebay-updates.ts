@@ -62,8 +62,12 @@ function debugEbayCron(
   // #endregion
 }
 
-/** Ignore a lagged GetItem shortly after a refresh. A newer eBay LastModified still applies. */
-export const EBAY_INBOUND_ECHO_MS = 5 * 60 * 1000;
+/**
+ * Ignore a lagged GetItem after a refresh when LastModified is missing.
+ * Cron is every 5 minutes, so this must span more than one job or the next
+ * run will copy a stale replica over a good pull.
+ */
+export const EBAY_INBOUND_ECHO_MS = 15 * 60 * 1000;
 
 /** Metadata-only GetItem writes must not start the echo window. */
 const EBAY_INBOUND_META_KEYS = new Set(["ebayCategoryId", "category", "subcategory"]);
@@ -90,11 +94,16 @@ export function ebayGetItemIsStaleVersusInw(args: {
   const now = args.now?.getTime() ?? Date.now();
   const inwAt = (args.lastInboundAt ?? args.inwUpdatedAt)?.getTime();
   if (inwAt == null) return false;
-  if (now - inwAt > EBAY_INBOUND_ECHO_MS) return false;
-  if (args.ebayLastModified != null && args.ebayLastModified.getTime() > inwAt + 2000) {
+  const modifiedAt = args.ebayLastModified?.getTime();
+  // Never apply a GetItem that is older than (or equal to) the last inbound pull,
+  // even after the echo window. That is the TEST 5 → original-title revert.
+  if (modifiedAt != null && modifiedAt <= inwAt + 2000) {
+    return true;
+  }
+  if (modifiedAt != null && modifiedAt > inwAt + 2000) {
     return false;
   }
-  return true;
+  return now - inwAt <= EBAY_INBOUND_ECHO_MS;
 }
 
 /**

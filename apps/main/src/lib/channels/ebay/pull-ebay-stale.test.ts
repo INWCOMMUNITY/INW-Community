@@ -59,7 +59,7 @@ describe("ebayGetItemIsStaleVersusInw", () => {
     ).toBe(false);
   });
 
-  it("applies GetItem once the 5-minute echo window has passed", () => {
+  it("still skips a lagged GetItem 5 minutes later when LastModified is missing", () => {
     expect(
       ebayGetItemIsStaleVersusInw({
         lastInboundAt: refreshedAt,
@@ -67,6 +67,28 @@ describe("ebayGetItemIsStaleVersusInw", () => {
         ebayLastModified: null,
         now: new Date("2026-08-20T05:10:00.000Z"),
       })
+    ).toBe(true);
+  });
+
+  it("applies GetItem once the 15-minute echo window has passed and LastModified is unknown", () => {
+    expect(
+      ebayGetItemIsStaleVersusInw({
+        lastInboundAt: refreshedAt,
+        inwUpdatedAt: refreshedAt,
+        ebayLastModified: null,
+        now: new Date("2026-08-20T05:20:00.000Z"),
+      })
     ).toBe(false);
+  });
+
+  it("never applies a GetItem whose LastModified is older than the last inbound pull", () => {
+    expect(
+      ebayGetItemIsStaleVersusInw({
+        lastInboundAt: refreshedAt,
+        inwUpdatedAt: refreshedAt,
+        ebayLastModified: new Date("2026-08-20T05:03:00.000Z"),
+        now: new Date("2026-08-20T05:25:00.000Z"),
+      })
+    ).toBe(true);
   });
 });

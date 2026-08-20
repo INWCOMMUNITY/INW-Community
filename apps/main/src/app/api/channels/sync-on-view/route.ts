@@ -50,12 +50,14 @@ export async function POST(req: NextRequest) {
   // Update cooldown immediately to prevent concurrent requests
   lastSyncByUser.set(userId, now);
 
-  // Get user's active Etsy connection (most common case)
+  // Etsy has no reliable listing webhooks; pull catalog when inventory is opened.
+  // eBay is handled by the 5-minute GetItem cron — a page-load pull was overwriting
+  // a good cron with a lagged Trading replica (TEST suffixes disappearing on refresh).
   const connections = await prisma.channelConnection.findMany({
     where: {
       memberId: userId,
       status: "active",
-      provider: { in: ["etsy", "ebay"] }, // Only platforms without real-time webhooks
+      provider: "etsy",
     },
   });
 
@@ -80,19 +82,6 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      if (conn.provider === "ebay") {
-        const { pullEbayUpdatesForConnection } = await import(
-          "@/lib/channels/ebay/pull-ebay-updates"
-        );
-        const pull = await pullEbayUpdatesForConnection(conn);
-        results.push({
-          provider: conn.provider,
-          catalogUpdated: pull.updated.length,
-          metaUpdated: 0,
-          removed: 0,
-        });
-        continue;
-      }
       const catalog = await reconcileConnectionInboundCatalog(conn);
       const meta = await reconcileConnectionInboundMeta(conn);
       results.push({
