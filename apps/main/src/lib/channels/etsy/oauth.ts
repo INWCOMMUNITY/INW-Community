@@ -49,6 +49,7 @@ type EtsyTokenPayload = {
 async function postToken(body: URLSearchParams): Promise<TokenResponse> {
   const res = await fetch(ETSY_TOKEN_URL, {
     method: "POST",
+    cache: "no-store",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
   });

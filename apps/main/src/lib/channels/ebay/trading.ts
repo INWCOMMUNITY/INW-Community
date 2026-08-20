@@ -1,5 +1,6 @@
 import {
   EBAY_API_BASE,
+  EBAY_NO_STORE_FETCH,
   EBAY_TRADING_COMPAT_LEVEL,
   EBAY_TRADING_SITE_ID,
 } from "./config";
@@ -86,6 +87,7 @@ function buildGetItemXml(listingId: string): string {
 
 async function callTrading(accessToken: string, callName: string, xml: string): Promise<string> {
   const res = await fetch(TRADING_ENDPOINT, {
+    ...EBAY_NO_STORE_FETCH,
     method: "POST",
     headers: {
       "X-EBAY-API-CALL-NAME": callName,

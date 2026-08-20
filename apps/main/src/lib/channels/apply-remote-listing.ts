@@ -198,17 +198,18 @@ export async function applyRemoteListingToStoreItem(
 }
 
 /** Wix product removed — mark INW listing sold out and zero pooled inventory. */
-export async function applyRemoteListingRemoved(storeItemId: string): Promise<void> {
+export async function applyRemoteListingRemoved(storeItemId: string): Promise<boolean> {
   const item = await prisma.storeItem.findUnique({
     where: { id: storeItemId },
     select: { quantity: true, status: true },
   });
-  if (!item) return;
-  if (item.quantity === 0 && item.status === "sold_out") return;
+  if (!item) return false;
+  if (item.quantity === 0 && item.status === "sold_out") return false;
 
   await prisma.storeItem.update({
     where: { id: storeItemId },
     data: { quantity: 0, status: "sold_out" },
   });
   deleteFeedPostsForSoldItem(storeItemId).catch(() => {});
+  return true;
 }

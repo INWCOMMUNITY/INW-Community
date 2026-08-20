@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { ebayGetItemIsStaleVersusInw, isEbayInboundContentChange, ebayGetItemDetailsAreUsable } from "./pull-ebay-updates";
+import {
+  ebayGetItemIsStaleVersusInw,
+  ebayGetItemApplyDecision,
+  isEbayInboundContentChange,
+  ebayGetItemDetailsAreUsable,
+  readEbayPendingInboundHash,
+  withEbayPendingInbound,
+} from "./pull-ebay-updates";
 
 describe("isEbayInboundContentChange", () => {
   it("treats ebayCategoryId-only writes as metadata, not inbound content", () => {
@@ -152,5 +159,85 @@ describe("ebayGetItemIsStaleVersusInw", () => {
         now: new Date("2026-08-20T05:07:10.000Z"),
       })
     ).toBe(false);
+  });
+});
+
+describe("ebayGetItemApplyDecision", () => {
+  const inbound = new Date("2026-08-20T06:50:03.000Z");
+  const base = {
+    lastInboundAt: inbound,
+    lastPushedAt: new Date("2026-08-20T06:29:13.000Z"),
+    inwUpdatedAt: inbound,
+    ebayLastModified: null as Date | null,
+    inwTitle: "Tachometer EBAY CRON TEST 5",
+    inwPriceCents: 4000,
+    inwQuantity: 4,
+    remoteTitle: "Tachometer EBAY CRON TEST 5",
+    remotePriceCents: 4000,
+    remoteQuantity: 4,
+    pendingRemoteHash: null as string | null,
+  };
+
+  it("applies the first pull when LastModified is missing", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastInboundAt: null,
+        lastPushedAt: null,
+        inwUpdatedAt: null,
+      }).action
+    ).toBe("apply");
+  });
+
+  it("skips when GetItem title/price/qty already match INW", () => {
+    expect(ebayGetItemApplyDecision(base)).toEqual({ action: "skip", reason: "matches-inw" });
+  });
+
+  it("skips a lagged GetItem after the seller saved or we pushed", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastPushedAt: new Date("2026-08-20T06:56:21.000Z"),
+        inwUpdatedAt: new Date("2026-08-20T06:56:19.000Z"),
+        lastInboundAt: new Date("2026-08-20T06:56:18.000Z"),
+        remoteTitle: "Tachometer EBAY CRON TEST 5",
+        inwTitle: "Tachometer",
+      })
+    ).toEqual({ action: "skip", reason: "inw-newer-than-inbound" });
+  });
+
+  it("waits for a second identical snapshot before applying a real eBay edit", () => {
+    const first = ebayGetItemApplyDecision({
+      ...base,
+      remoteTitle: "Tachometer EBAY CRON TEST 6",
+    });
+    expect(first).toMatchObject({ action: "pending", reason: "await-confirm" });
+    expect(first.pendingHash).toBeTruthy();
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        remoteTitle: "Tachometer EBAY CRON TEST 6",
+        pendingRemoteHash: first.pendingHash,
+      })
+    ).toMatchObject({ action: "apply", reason: "confirmed-snapshot" });
+  });
+
+  it("does not apply a different snapshot than the one pending", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        remoteTitle: "Tachometer LIVE",
+        pendingRemoteHash: "Tachometer LAGGED|4000|4",
+      }).action
+    ).toBe("pending");
+  });
+});
+
+describe("ebay pending inbound hash", () => {
+  it("stores and clears the pending snapshot on conflictDetails", () => {
+    const withPending = withEbayPendingInbound({ other: 1 }, { hash: "a|1|1", seenAt: "t" });
+    expect(readEbayPendingInboundHash(withPending)).toBe("a|1|1");
+    expect((withPending as { other: number }).other).toBe(1);
+    expect(readEbayPendingInboundHash(withEbayPendingInbound(withPending, null))).toBeNull();
   });
 });

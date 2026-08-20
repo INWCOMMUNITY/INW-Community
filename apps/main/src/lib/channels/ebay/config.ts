@@ -15,6 +15,10 @@ export const EBAY_SIGN_OUT_URL = "https://signin.ebay.com/logout/confirm";
 export const EBAY_MARKETPLACE_ID = "EBAY_US";
 /** Taxonomy API marketplace_id query parameter (underscore form per eBay spec). */
 export const EBAY_TAXONOMY_MARKETPLACE_ID = "EBAY_US";
+/** US category tree id (EBAY_US). Avoids a failing get_default_category_tree_id round-trip. */
+export const EBAY_US_CATEGORY_TREE_ID = "0";
+/** Next.js App Router caches GET fetch by default; eBay tokens and taxonomy must not be cached. */
+export const EBAY_NO_STORE_FETCH: Pick<RequestInit, "cache"> = { cache: "no-store" };
 export const EBAY_ACCEPT_LANGUAGE = "en-US";
 export const EBAY_CONTENT_LANGUAGE = "en-US";
 export const EBAY_CURRENCY = "USD";

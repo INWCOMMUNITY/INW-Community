@@ -1,5 +1,5 @@
 import { prisma } from "database";
-import { withConnectionAuthRetry, isChannelAuthError } from "../connection";
+import { withConnectionAuthRetry, isChannelAuthError, refreshConnectionToken } from "../connection";
 import { fetchEbayItemDetails } from "./trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
@@ -107,6 +107,106 @@ export function ebayGetItemIsStaleVersusInw(args: {
   return modifiedAt <= floor + 2000;
 }
 
+export function ebayRemoteSnapshotHash(args: {
+  title: string | null;
+  priceCents: number | null;
+  quantity: number | null;
+}): string {
+  return `${args.title ?? ""}|${args.priceCents ?? ""}|${args.quantity ?? ""}`;
+}
+
+export type EbayPendingInbound = { hash: string; seenAt: string };
+
+export function readEbayPendingInboundHash(conflictDetails: unknown): string | null {
+  if (!conflictDetails || typeof conflictDetails !== "object" || Array.isArray(conflictDetails)) {
+    return null;
+  }
+  const pending = (conflictDetails as { ebayPendingInbound?: { hash?: unknown } }).ebayPendingInbound;
+  return typeof pending?.hash === "string" && pending.hash ? pending.hash : null;
+}
+
+export function withEbayPendingInbound(
+  conflictDetails: unknown,
+  pending: EbayPendingInbound | null
+): Record<string, unknown> {
+  const base =
+    conflictDetails && typeof conflictDetails === "object" && !Array.isArray(conflictDetails)
+      ? { ...(conflictDetails as Record<string, unknown>) }
+      : {};
+  if (pending) {
+    base.ebayPendingInbound = pending;
+  } else {
+    delete base.ebayPendingInbound;
+  }
+  return base;
+}
+
+export type EbayGetItemApplyDecision = {
+  action: "apply" | "skip" | "pending";
+  reason: string;
+  pendingHash?: string;
+};
+
+/**
+ * GetItem often omits LastModifiedTime (only StartTime/EndTime). Do not apply a
+ * lagged replica after 15 minutes. Confirm a new snapshot on two consecutive crons
+ * when LastModified is missing and INW has not been saved since the last inbound.
+ */
+export function ebayGetItemApplyDecision(args: {
+  lastInboundAt: Date | null;
+  lastPushedAt?: Date | null;
+  lastAppliedRemoteAt?: Date | null;
+  inwUpdatedAt: Date | null;
+  ebayLastModified?: Date | null;
+  inwTitle: string;
+  inwPriceCents: number;
+  inwQuantity: number;
+  remoteTitle: string | null;
+  remotePriceCents: number | null;
+  remoteQuantity: number | null;
+  pendingRemoteHash?: string | null;
+}): EbayGetItemApplyDecision {
+  const inboundAt = args.lastInboundAt?.getTime() ?? null;
+  const pushedAt = args.lastPushedAt?.getTime() ?? null;
+
+  if (args.ebayLastModified != null) {
+    return ebayGetItemIsStaleVersusInw(args)
+      ? { action: "skip", reason: "lastModified-not-newer" }
+      : { action: "apply", reason: "lastModified-newer" };
+  }
+
+  if (inboundAt == null && pushedAt == null) {
+    return { action: "apply", reason: "first-pull" };
+  }
+
+  const remoteHash = ebayRemoteSnapshotHash({
+    title: args.remoteTitle,
+    priceCents: args.remotePriceCents,
+    quantity: args.remoteQuantity,
+  });
+  const inwHash = ebayRemoteSnapshotHash({
+    title: args.inwTitle,
+    priceCents: args.inwPriceCents,
+    quantity: args.inwQuantity,
+  });
+  if (remoteHash === inwHash) {
+    return { action: "skip", reason: "matches-inw" };
+  }
+
+  const inwAt = args.inwUpdatedAt?.getTime() ?? 0;
+  const inwOrPushNewerThanInbound =
+    (pushedAt != null && (inboundAt == null || pushedAt > inboundAt + 2000)) ||
+    (inwAt > 0 && inboundAt != null && inwAt > inboundAt + 2000);
+  if (inwOrPushNewerThanInbound) {
+    return { action: "skip", reason: "inw-newer-than-inbound" };
+  }
+
+  if (args.pendingRemoteHash === remoteHash) {
+    return { action: "apply", reason: "confirmed-snapshot", pendingHash: remoteHash };
+  }
+  return { action: "pending", reason: "await-confirm", pendingHash: remoteHash };
+}
+
 /**
  * Pull latest data from eBay for a single listing by legacy item ID.
  * Used by webhook handler and manual refresh.
@@ -180,17 +280,24 @@ export async function refreshEbayListingByItemId(
       changes: [],
     };
   }
-  const staleVersusInw = ebayGetItemIsStaleVersusInw({
+  const applyDecision = ebayGetItemApplyDecision({
     lastInboundAt: link.lastInboundAt,
     lastPushedAt: link.lastPushedAt,
     lastAppliedRemoteAt: link.syncBaselineAt,
     inwUpdatedAt: storeItem.updatedAt,
     ebayLastModified: details.remoteUpdatedAt,
+    inwTitle: storeItem.title,
+    inwPriceCents: storeItem.priceCents,
+    inwQuantity: storeItem.quantity,
+    remoteTitle: details.title,
+    remotePriceCents: details.priceCents,
+    remoteQuantity: details.quantity,
+    pendingRemoteHash: readEbayPendingInboundHash(link.conflictDetails),
   });
   debugEbayCron("H-A", "pull-ebay-updates.ts:refreshEbayListingByItemId", "GetItem vs INW snapshot", {
     legacyItemId,
     force: Boolean(opts?.force),
-    staleVersusInw,
+    applyDecision,
     lastInboundAt: link.lastInboundAt?.toISOString() ?? null,
     inwUpdatedAt: storeItem.updatedAt.toISOString(),
     inwTitle: storeItem.title,
@@ -230,25 +337,36 @@ export async function refreshEbayListingByItemId(
     };
   }
 
-  if (
-    !opts?.force &&
-    ebayGetItemIsStaleVersusInw({
-      lastInboundAt: link.lastInboundAt,
-      lastPushedAt: link.lastPushedAt,
-      lastAppliedRemoteAt: link.syncBaselineAt,
-      inwUpdatedAt: storeItem.updatedAt,
-      ebayLastModified: details.remoteUpdatedAt,
-    })
-  ) {
-    debugEbayCron("H-A", "pull-ebay-updates.ts:staleSkip", "skipped GetItem apply due to echo window", {
+  if (!opts?.force && applyDecision.action !== "apply") {
+    if (applyDecision.action === "pending" && applyDecision.pendingHash) {
+      await prisma.channelListingLink.update({
+        where: { id: link.id },
+        data: {
+          conflictDetails: withEbayPendingInbound(link.conflictDetails, {
+            hash: applyDecision.pendingHash,
+            seenAt: new Date().toISOString(),
+          }),
+        },
+      });
+    } else if (readEbayPendingInboundHash(link.conflictDetails)) {
+      await prisma.channelListingLink
+        .update({
+          where: { id: link.id },
+          data: { conflictDetails: withEbayPendingInbound(link.conflictDetails, null) },
+        })
+        .catch(() => {});
+    }
+    debugEbayCron("H-A", "pull-ebay-updates.ts:staleSkip", "skipped GetItem apply", {
       storeItemId: storeItem.id,
       legacyItemId,
+      reason: applyDecision.reason,
       getItemTitle: details.title,
       getItemPriceCents: details.priceCents,
     });
-    console.log("[ebay] refreshEbayListingByItemId: skip GetItem; LastModified not newer than last inbound/push", {
+    console.log("[ebay] refreshEbayListingByItemId: skip GetItem", {
       storeItemId: storeItem.id,
       legacyItemId,
+      reason: applyDecision.reason,
       lastInboundAt: link.lastInboundAt?.toISOString() ?? null,
       lastPushedAt: link.lastPushedAt?.toISOString() ?? null,
       inwUpdatedAt: storeItem.updatedAt.toISOString(),
@@ -420,6 +538,7 @@ export async function refreshEbayListingByItemId(
           lastInboundAt: new Date(),
           syncStatus: "synced",
           syncError: null,
+          conflictDetails: withEbayPendingInbound(link.conflictDetails, null),
         },
       });
     }
@@ -497,7 +616,9 @@ export async function pullEbayUpdatesForConnection(
   }
 
   return withConnectionAuthRetry(connection, async (ctx) => {
+    let accessToken = ctx.accessToken;
     const results: PullResult[] = [];
+    let refreshedThisPass = false;
 
     for (const link of links) {
       let legacyId = link.externalListingId;
@@ -509,7 +630,7 @@ export async function pullEbayUpdatesForConnection(
       try {
         // GetItem is the live listing (same as the public item page). Do not gate on
         // GetMyeBaySelling ActiveList — that seller-list call can lag minutes behind a revise.
-        const result = await refreshEbayListingByItemId(ctx.accessToken, legacyId);
+        const result = await refreshEbayListingByItemId(accessToken, legacyId);
         if (result && result.updated) {
           results.push(result);
         }
@@ -522,7 +643,21 @@ export async function pullEbayUpdatesForConnection(
           legacyId,
           error: e instanceof Error ? e.message : String(e),
         });
-        if (isChannelAuthError("ebay", e)) throw e;
+        if (isChannelAuthError("ebay", e) && connection.refreshTokenEncrypted && !refreshedThisPass) {
+          try {
+            accessToken = await refreshConnectionToken(connection.id, "ebay");
+            refreshedThisPass = true;
+            const result = await refreshEbayListingByItemId(accessToken, legacyId);
+            if (result && result.updated) {
+              results.push(result);
+            }
+          } catch (retryErr) {
+            console.error("[ebay] pullEbayUpdatesForConnection: retry after token refresh failed", {
+              legacyId,
+              error: retryErr instanceof Error ? retryErr.message : String(retryErr),
+            });
+          }
+        }
       }
     }
 

@@ -7,7 +7,12 @@
  */
 
 import { ebayGet } from "./client";
-import { EBAY_TAXONOMY_BASE, EBAY_TAXONOMY_MARKETPLACE_ID, isEbayConfigured } from "./config";
+import {
+  EBAY_TAXONOMY_BASE,
+  EBAY_TAXONOMY_MARKETPLACE_ID,
+  EBAY_US_CATEGORY_TREE_ID,
+  isEbayConfigured,
+} from "./config";
 import { EbayApiError } from "./errors";
 import { withEbayApplicationTokenRetry } from "./oauth";
 
@@ -41,21 +46,36 @@ export type EbayCategoryAspect = {
 /** Resolve (and lightly cache per process) the default US category tree id. */
 let cachedTreeId: { id: string; at: number } | null = null;
 
+export function clearEbayCategoryTreeIdCache(): void {
+  cachedTreeId = null;
+}
+
+/**
+ * US tree id is always "0". Live lookup is best-effort — a 404/401 on
+ * get_default_category_tree_id must not 502 the listing edit page.
+ */
 export async function getDefaultCategoryTreeId(): Promise<string> {
   const now = Date.now();
   if (cachedTreeId && now - cachedTreeId.at < 6 * 60 * 60 * 1000) {
     return cachedTreeId.id;
   }
   const treeUrl = `${EBAY_TAXONOMY_BASE}/get_default_category_tree_id?marketplace_id=${EBAY_TAXONOMY_MARKETPLACE_ID}`;
-  const res = await withEbayApplicationTokenRetry((accessToken) =>
-    ebayGet<{ categoryTreeId?: string }>(accessToken, treeUrl)
-  );
-  const id = res.categoryTreeId?.trim();
-  if (!id) {
-    throw new Error("eBay Taxonomy API returned no category tree id.");
+  try {
+    const res = await withEbayApplicationTokenRetry((accessToken) =>
+      ebayGet<{ categoryTreeId?: string }>(accessToken, treeUrl)
+    );
+    const id = res.categoryTreeId?.trim();
+    if (id) {
+      cachedTreeId = { id, at: now };
+      return id;
+    }
+  } catch (e) {
+    console.warn("[ebay] getDefaultCategoryTreeId failed; using US tree id 0", {
+      error: e instanceof Error ? e.message : String(e),
+    });
   }
-  cachedTreeId = { id, at: now };
-  return id;
+  cachedTreeId = { id: EBAY_US_CATEGORY_TREE_ID, at: now };
+  return EBAY_US_CATEGORY_TREE_ID;
 }
 
 /** Live leaf-category suggestions for a free-text query (the category picker). */

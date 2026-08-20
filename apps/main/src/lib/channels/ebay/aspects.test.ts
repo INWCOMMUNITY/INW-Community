@@ -3,7 +3,9 @@ import { EbayApiError } from "./errors";
 import {
   cacheCategoryAspects,
   clearCategoryAspectCache,
+  clearEbayCategoryTreeIdCache,
   getCachedCategoryAspects,
+  getDefaultCategoryTreeId,
   getItemAspectsForCategory,
   parseAspectApiResponse,
 } from "./aspects";
@@ -34,6 +36,7 @@ describe("parseAspectApiResponse", () => {
 describe("aspect cache fallback", () => {
   afterEach(() => {
     clearCategoryAspectCache();
+    clearEbayCategoryTreeIdCache();
     vi.restoreAllMocks();
   });
 
@@ -63,5 +66,20 @@ describe("aspect cache fallback", () => {
 
   it("returns null from getCachedCategoryAspects when empty", () => {
     expect(getCachedCategoryAspects("41087", "0")).toBeNull();
+  });
+});
+
+describe("getDefaultCategoryTreeId", () => {
+  afterEach(() => {
+    clearEbayCategoryTreeIdCache();
+    vi.restoreAllMocks();
+  });
+
+  it("falls back to US tree id 0 when get_default_category_tree_id 404s", async () => {
+    vi.spyOn(oauth, "withEbayApplicationTokenRetry").mockImplementation(async (fn) => fn("token"));
+    vi.spyOn(client, "ebayGet").mockRejectedValueOnce(
+      new EbayApiError("not found", 404, null, "/get_default_category_tree_id")
+    );
+    await expect(getDefaultCategoryTreeId()).resolves.toBe("0");
   });
 });

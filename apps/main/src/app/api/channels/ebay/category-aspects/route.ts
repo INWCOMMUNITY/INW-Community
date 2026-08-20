@@ -67,6 +67,11 @@ export async function GET(req: NextRequest) {
     const error = authRejected
       ? "eBay category lookup failed — application credentials were rejected. Check EBAY_CLIENT_ID and EBAY_CLIENT_SECRET (Production keyset)."
       : describeEbayThrownError(e);
-    return NextResponse.json({ error }, { status: 502 });
+    console.warn("[ebay] category-aspects falling back to empty list", {
+      categoryId,
+      error,
+    });
+    // Keep the listing edit form usable when Taxonomy is down (cached 404/401).
+    return NextResponse.json({ aspects: [], readOnly, warning: error });
   }
 }

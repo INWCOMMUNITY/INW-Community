@@ -91,6 +91,7 @@ async function etsyRequest<T>(
 
   const res = await fetch(`${ETSY_API_BASE}${path}`, {
     ...init,
+    cache: "no-store",
     headers: { ...baseHeaders(accessToken, overrideApiKey), ...(init.headers ?? {}) },
   });
   const elapsed = Date.now() - startTime;

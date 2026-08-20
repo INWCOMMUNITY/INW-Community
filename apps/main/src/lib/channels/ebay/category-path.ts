@@ -5,6 +5,7 @@
 
 import { prisma } from "database";
 import { ebayGet } from "./client";
+import { EbayApiError } from "./errors";
 import { EBAY_API_BASE, EBAY_TAXONOMY_BASE } from "./config";
 import { getDefaultCategoryTreeId } from "./aspects";
 import { withEbayApplicationTokenRetry } from "./oauth";
@@ -18,6 +19,12 @@ function normalizeTaxonomyHref(href: string): string {
   const trimmed = href.trim();
   if (trimmed.startsWith("http")) return trimmed;
   return `${EBAY_API_BASE}${trimmed.startsWith("/") ? "" : "/"}${trimmed}`;
+}
+
+/** Walking parent hrefs eventually hits the tree root; eBay 400s that subtree call. */
+export function isEbayTaxonomyRootCategoryError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /62008|root for the category tree/i.test(msg);
 }
 
 /** Look up a cached full path from seeded taxonomy mappings. */
@@ -64,10 +71,18 @@ export async function getEbayCategoryPathFromId(
       )}/get_category_subtree?category_id=${encodeURIComponent(id)}`;
 
       for (let depth = 0; depth < 12 && href; depth++) {
-        const res = await ebayGet<{ categorySubtreeNode?: TaxonomySubtreeNode }>(
-          accessToken,
-          href
-        );
+        let res: { categorySubtreeNode?: TaxonomySubtreeNode };
+        try {
+          res = await ebayGet<{ categorySubtreeNode?: TaxonomySubtreeNode }>(
+            accessToken,
+            href
+          );
+        } catch (e) {
+          if (isEbayTaxonomyRootCategoryError(e) || (e instanceof EbayApiError && e.status === 400)) {
+            break;
+          }
+          throw e;
+        }
         const node = res.categorySubtreeNode;
         const name = node?.category?.categoryName?.trim();
         if (name) segments.unshift(name);

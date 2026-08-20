@@ -3,6 +3,7 @@ import {
   EBAY_API_BASE,
   EBAY_CONTENT_LANGUAGE,
   EBAY_MARKETPLACE_ID,
+  EBAY_NO_STORE_FETCH,
 } from "./config";
 import {
   EbayApiError,
@@ -91,7 +92,12 @@ const EBAY_FETCH_TIMEOUT_MS = 20_000;
 function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), EBAY_FETCH_TIMEOUT_MS);
-  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timeout));
+  return fetch(url, {
+    ...EBAY_NO_STORE_FETCH,
+    ...init,
+    cache: "no-store",
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timeout));
 }
 
 /** Core eBay Sell request. Retries transient 429/5xx once after a short backoff. */

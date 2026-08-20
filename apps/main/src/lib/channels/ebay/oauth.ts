@@ -4,6 +4,7 @@ import {
   EBAY_SCOPES,
   EBAY_TOKEN_URL,
   EBAY_APIZ_BASE,
+  EBAY_NO_STORE_FETCH,
   getEbayConfig,
 } from "./config";
 import { EbayApiError } from "./errors";
@@ -74,6 +75,7 @@ function validateScopes(grantedScopes: string | undefined): { valid: boolean; mi
 
 async function postToken(body: URLSearchParams): Promise<TokenResponse> {
   const res = await fetch(EBAY_TOKEN_URL, {
+    ...EBAY_NO_STORE_FETCH,
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -166,6 +168,7 @@ export async function getEbayApplicationAccessToken(): Promise<string> {
     scope: EBAY_APPLICATION_SCOPE,
   });
   const res = await fetch(EBAY_TOKEN_URL, {
+    ...EBAY_NO_STORE_FETCH,
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -193,6 +196,7 @@ export async function fetchEbayShopInfo(
   accessToken: string
 ): Promise<{ shopId: string; shopName: string | null }> {
   const res = await fetch(`${EBAY_APIZ_BASE}/commerce/identity/v1/user/`, {
+    ...EBAY_NO_STORE_FETCH,
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
   });
   const data = (await res.json().catch(() => null)) as

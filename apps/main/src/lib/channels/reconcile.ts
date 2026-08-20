@@ -3,7 +3,7 @@ import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sal
 import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
 import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
 import { getAdapter } from "./registry";
-import { getConnectionContext, withConnectionAuthRetry } from "./connection";
+import { getConnectionContext, withConnectionAuthRetry, markChannelConnectionFailure } from "./connection";
 import { syncInventoryToChannels } from "./sync-inventory";
 import { reconcileConnectionInboundListings } from "./reconcile-inbound";
 import { reconcileConnectionInboundCatalog } from "./reconcile-inbound-catalog";
@@ -15,7 +15,6 @@ import { pullEbayUpdatesForConnection } from "./ebay/pull-ebay-updates";
 import { matchSaleToVariantOption } from "./variant-sync";
 import { logSyncEvent } from "./sync-log";
 import { logSaleQuantityChange } from "./quantity-audit";
-import { notifyChannelDisconnectIfNew } from "./channel-disconnect-notify";
 
 const DEFAULT_LOOKBACK_MS = 1000 * 60 * 60 * 24 * 2; // 2 days
 
@@ -40,7 +39,7 @@ type ConnectionRow = {
  */
 export async function reconcileConnectionSales(
   connection: ConnectionRow
-): Promise<{ applied: number }> {
+): Promise<{ applied: number; paused: boolean }> {
   const provider = connection.provider as ChannelProvider;
   const adapter = getAdapter(provider);
 
@@ -58,15 +57,16 @@ export async function reconcileConnectionSales(
   } catch (e) {
     const msg = describeChannelSyncError(provider, e);
     console.error("[channels] fetchRecentSales failed", { provider, error: msg });
-    await prisma.channelConnection
-      .update({ where: { id: connection.id }, data: { status: "error", lastError: msg } })
-      .catch(() => {});
-    void notifyChannelDisconnectIfNew({
-      memberId: connection.memberId,
-      provider,
-      previousStatus: connection.status,
-    }).catch(() => {});
-    return { applied: 0 };
+    const { paused } = await markChannelConnectionFailure({
+      connection,
+      error: e,
+      lastError: msg,
+    });
+    if (paused) return { applied: 0, paused: true };
+    const latest = await prisma.channelConnection
+      .findUnique({ where: { id: connection.id }, select: { status: true } })
+      .catch(() => null);
+    return { applied: 0, paused: latest?.status === "error" };
   }
 
   let applied = 0;
@@ -173,7 +173,7 @@ export async function reconcileConnectionSales(
   await prisma.channelConnection
     .update({ where: { id: connection.id }, data: { lastReconciledAt: new Date(), status: "active", lastError: null } })
     .catch(() => {});
-  return { applied };
+  return { applied, paused: false };
 }
 
 /**
@@ -237,6 +237,7 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
   let catalogUpdated = 0;
   let catalogRemoved = 0;
   let metaUpdated = 0;
+  let keepPaused = false;
 
   if (c.provider === "ebay") {
     try {
@@ -257,7 +258,9 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
   }
 
   try {
-    applied += (await reconcileConnectionSales(c)).applied;
+    const sales = await reconcileConnectionSales(c);
+    applied += sales.applied;
+    keepPaused = sales.paused;
   } catch (e) {
     console.error("[channels] reconcile sales failed", { id: c.id, error: String(e) });
   }
@@ -318,7 +321,9 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
   await prisma.channelConnection
     .update({
       where: { id: c.id },
-      data: { lastReconciledAt: new Date(), status: "active", lastError: null },
+      data: keepPaused
+        ? { lastReconciledAt: new Date() }
+        : { lastReconciledAt: new Date(), status: "active", lastError: null },
     })
     .catch(() => {});
 

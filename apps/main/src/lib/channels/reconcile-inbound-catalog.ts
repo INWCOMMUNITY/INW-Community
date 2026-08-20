@@ -322,7 +322,23 @@ export async function reconcileConnectionInboundCatalog(
         });
         continue;
       }
-      await applyRemoteListingRemoved(link.storeItemId);
+      if (provider === "etsy") {
+        const { etsyListingIsGone } = await import("./etsy/listing-exists");
+        const gone = await etsyListingIsGone(ctx.accessToken, link.externalListingId).catch(
+          () => false
+        );
+        if (!gone) {
+          console.warn("[channels] skip sell-out; Etsy listing still exists outside active catalog", {
+            storeItemId: link.storeItemId,
+            externalListingId: link.externalListingId,
+          });
+          continue;
+        }
+      }
+      const changed = await applyRemoteListingRemoved(link.storeItemId);
+      if (!changed) {
+        continue;
+      }
       await syncInventoryToChannels(link.storeItemId, { skipProviders: [provider] });
       await prisma.channelListingLink.update({
         where: { id: link.id },
