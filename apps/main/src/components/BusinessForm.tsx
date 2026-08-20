@@ -343,7 +343,7 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
   return (
     <form onSubmit={handleSubmit} className="space-y-4 max-w-xl">
       <div>
-        <label className="block text-sm font-medium mb-1">Company name *</label>
+        <label className="block text-sm font-medium mb-1">Company Name *</label>
         <input
           type="text"
           value={name}
@@ -353,7 +353,7 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
         />
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1">Brief description *</label>
+        <label className="block text-sm font-medium mb-1">Brief Description *</label>
         <textarea
           value={shortDescription}
           onChange={(e) => setShortDescription(e.target.value)}
@@ -363,7 +363,7 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
         />
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1">Full description *</label>
+        <label className="block text-sm font-medium mb-1">Full Description *</label>
         <textarea
           value={fullDescription}
           onChange={(e) => setFullDescription(e.target.value)}
@@ -604,7 +604,7 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
         })}
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1">Hours of operation</label>
+        <label className="block text-sm font-medium mb-1">Hours of Operation</label>
         <p className="text-xs text-gray-500 mb-2">Enter hours for each day, e.g. 9:00 AM - 5:00 PM or CLOSED</p>
         <div className="grid gap-y-2 gap-x-1 sm:grid-cols-2">
           {DAYS.map((day) => (
@@ -622,7 +622,7 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
         </div>
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1">Photos of your business (optional)</label>
+        <label className="block text-sm font-medium mb-1">Photos of your Business (optional)</label>
         <label className="cursor-pointer inline-block">
           <span className="inline-block px-4 py-2 border rounded hover:bg-gray-100">
             {uploadingPhotos ? "Uploading…" : "Upload photos"}
@@ -698,7 +698,7 @@ export function BusinessForm({ existing, mode = "edit", onDataReady, onSuccess }
       </div>
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <button type="submit" className="btn" disabled={submitting}>
-        {mode === "signup" ? "Continue" : submitting ? "Saving…" : existing ? "Update business" : "Add business"}
+        {mode === "signup" ? "Continue" : submitting ? "Saving…" : existing ? "Update Business" : "Add Business"}
       </button>
     </form>
   );

@@ -38,7 +38,7 @@ export default async function BlogPage({
           <h1 className="text-3xl font-bold">Blog</h1>
           {session?.user?.id && (
             <Link href="/blog/new" className="btn">
-              Post a blog
+              Post a Blog
             </Link>
           )}
         </div>

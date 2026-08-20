@@ -9,14 +9,22 @@ import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { EventForm } from "@/components/EventForm";
 
 interface PostEventModalProps {
-  calendarType: string;
-  calendarLabel: string;
+  calendarType?: string;
+  calendarLabel?: string;
+  /** Extra class on the trigger wrapper (e.g. shrink-0 in a header row). */
+  className?: string;
 }
 
-export function PostEventModal({ calendarType, calendarLabel }: PostEventModalProps) {
+export function PostEventModal({
+  calendarType,
+  calendarLabel,
+  className,
+}: PostEventModalProps) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const { data: session, status } = useSession();
+  const scoped = Boolean(calendarType);
+  const loginPath = calendarType ? `/calendars/${calendarType}` : "/calendars";
 
   useLockBodyScroll(open);
 
@@ -25,24 +33,20 @@ export function PostEventModal({ calendarType, calendarLabel }: PostEventModalPr
     router.refresh();
   };
 
+  const triggerClass = "btn inline-block text-sm px-4 py-2";
+
   const triggerButton =
     status === "loading" ? (
-      <span className="btn inline-block opacity-70 cursor-wait">
-        Post Event
-      </span>
+      <span className={`${triggerClass} opacity-70 cursor-wait`}>Post Event</span>
     ) : !session?.user ? (
       <Link
-        href={`/login?callbackUrl=${encodeURIComponent(`/calendars/${calendarType}`)}`}
-        className="btn inline-block"
+        href={`/login?callbackUrl=${encodeURIComponent(loginPath)}`}
+        className={triggerClass}
       >
         Post Event
       </Link>
     ) : (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="btn inline-block"
-      >
+      <button type="button" onClick={() => setOpen(true)} className={triggerClass}>
         Post Event
       </button>
     );
@@ -62,7 +66,7 @@ export function PostEventModal({ calendarType, calendarLabel }: PostEventModalPr
       >
         <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between gap-4 z-10 shrink-0">
           <h2 id="post-event-modal-title" className="text-xl font-bold">
-            Post Event On {calendarLabel}
+            {calendarLabel ? `Post Event On ${calendarLabel}` : "Post Event"}
           </h2>
           <button
             type="button"
@@ -76,7 +80,7 @@ export function PostEventModal({ calendarType, calendarLabel }: PostEventModalPr
         <div className="p-6 overflow-y-auto flex-1 min-h-0">
           <EventForm
             initialCalendarType={calendarType}
-            hideCalendarSelect
+            hideCalendarSelect={scoped}
             onSuccess={handleSuccess}
           />
         </div>
@@ -86,7 +90,7 @@ export function PostEventModal({ calendarType, calendarLabel }: PostEventModalPr
 
   return (
     <>
-      <div className="max-md:w-full max-md:flex max-md:justify-center max-md:items-center">
+      <div className={className ?? "max-md:w-full max-md:flex max-md:justify-center max-md:items-center"}>
         {triggerButton}
       </div>
       {open && typeof document !== "undefined"

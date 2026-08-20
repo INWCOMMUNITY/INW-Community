@@ -14,7 +14,7 @@ export default async function NewBlogPage() {
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
       <div className="max-w-[var(--max-width)] mx-auto">
-        <h1 className="text-3xl font-bold mb-8">Post a blog</h1>
+        <h1 className="text-3xl font-bold mb-8">Post a Blog</h1>
         <BlogForm successRedirect="/blog" />
       </div>
     </section>

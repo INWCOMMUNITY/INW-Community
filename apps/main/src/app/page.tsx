@@ -31,7 +31,7 @@ export default async function HomePage() {
   const androidPlayStoreUrl = getAndroidPlayStoreUrl();
   return (
     <>
-      <section className="relative flex flex-col overflow-hidden bg-[#F5E9D3] md:min-h-[85vh] md:bg-transparent">
+      <section className="relative flex flex-col overflow-hidden bg-[#F5E9D3] md:min-h-[calc(85vh-12rem)] md:bg-transparent">
         <div
           className="absolute inset-0 hidden bg-cover bg-center md:block"
           style={{ backgroundImage: `url(${heroBackgroundUrl})` }}
@@ -41,7 +41,7 @@ export default async function HomePage() {
           className="absolute inset-0 hidden md:block bg-gradient-to-t from-black/70 via-black/20 to-transparent"
           aria-hidden
         />
-        <div className="relative z-10 flex flex-1 flex-col items-center w-full max-w-[var(--max-width)] mx-auto px-4 py-12 md:min-h-[85vh] md:pt-24 md:pb-20">
+        <div className="relative z-10 flex flex-1 flex-col items-center w-full max-w-[var(--max-width)] mx-auto px-4 py-12 md:min-h-[calc(85vh-12rem)] md:pt-24 md:pb-20">
           <div className="h-48 w-48 md:h-72 md:w-72 lg:h-80 lg:w-80 overflow-hidden rounded-full shrink-0 md:mt-6">
             <Image
               src={appLogoUrl}
@@ -217,6 +217,8 @@ export default async function HomePage() {
         </div>
       </section>
 
+      <div className="h-[3px] bg-white" aria-hidden />
+
       <section className="relative w-full py-16 px-6 md:px-8 overflow-hidden flex flex-col justify-center">
         <div
           className="absolute inset-0 bg-cover bg-center"
@@ -241,6 +243,8 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+
+      <div className="h-[3px] bg-white" aria-hidden />
 
       <section className="w-full py-12 px-6 md:px-8" style={{ backgroundColor: "var(--color-section-alt)" }}>
         <div className="max-w-[var(--max-width)] mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 items-center">

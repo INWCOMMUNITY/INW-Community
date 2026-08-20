@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { getErrorMessage } from "@/lib/api-error";
 import { CityPicker } from "@/components/CityPicker";
+import { ThemeSelect } from "@/components/ThemeSelect";
+import { ThemeDateField, ThemeTimeField } from "@/components/ThemeDateTimeFields";
 import { CALENDAR_TYPES, type CalendarType } from "types";
 
 const VALID_CALENDAR_VALUES = new Set<string>(CALENDAR_TYPES.map((c) => c.value));
@@ -192,46 +194,34 @@ export function EventForm({
       {!hideCalendarSelect && (
         <div>
           <label className="block text-sm font-medium mb-1">Calendar *</label>
-          <select
+          <ThemeSelect
             value={calendarType}
-            onChange={(e) => setCalendarType(e.target.value as CalendarType)}
-            required
-            className="w-full border rounded px-3 py-2"
-          >
-            {CALENDAR_TYPES.map((c) => (
-              <option key={c.value} value={c.value}>{c.label}</option>
-            ))}
-          </select>
+            onChange={(v) => setCalendarType(v as CalendarType)}
+            options={CALENDAR_TYPES.map((c) => ({ value: c.value, label: c.label }))}
+            allowEmpty={false}
+            tone="earth"
+            aria-label="Calendar"
+          />
         </div>
       )}
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium mb-1">Date *</label>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            required
-            className="w-full border rounded px-3 py-2"
-          />
+          <ThemeDateField value={date} onChange={setDate} required aria-label="Date" />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">Start time</label>
-          <input
-            type="time"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-            className="w-full border rounded px-3 py-2"
-          />
+          <label className="block text-sm font-medium mb-1">Start Time</label>
+          <ThemeTimeField value={time} onChange={setTime} placeholder="Start Time" aria-label="Start Time" />
         </div>
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1">End time (optional)</label>
-        <input
-          type="time"
+        <label className="block text-sm font-medium mb-1">End Time (optional)</label>
+        <ThemeTimeField
           value={endTime}
-          onChange={(e) => setEndTime(e.target.value)}
-          className="w-full border rounded px-3 py-2 max-w-[200px]"
+          onChange={setEndTime}
+          placeholder="End Time"
+          aria-label="End Time"
+          className="max-w-[200px]"
         />
       </div>
       <div>
@@ -265,7 +255,7 @@ export function EventForm({
         <label className="block text-sm font-medium mb-1">Photos (optional)</label>
         <label className="cursor-pointer inline-block">
           <span className="inline-block px-4 py-2 border rounded hover:bg-gray-100">
-            {uploadingPhotos ? "Uploading…" : "Upload photos"}
+            {uploadingPhotos ? "Uploading…" : "Upload Photos"}
           </span>
           <input
             type="file"
@@ -294,7 +284,7 @@ export function EventForm({
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <div className="max-md:flex max-md:justify-center max-md:w-full">
         <button type="submit" className="btn" disabled={submitting}>
-          {submitting ? "Posting…" : "Post event"}
+          {submitting ? "Posting…" : "Post Event"}
         </button>
       </div>
     </form>

@@ -15,6 +15,10 @@ interface ThemeSelectProps {
   id?: string;
   "aria-label"?: string;
   className?: string;
+  /** When false, no empty/placeholder row (required fields). */
+  allowEmpty?: boolean;
+  /** Hover/selected highlight. Earth brown matches event forms. */
+  tone?: "secondary" | "earth";
 }
 
 export function ThemeSelect({
@@ -25,6 +29,8 @@ export function ThemeSelect({
   id,
   "aria-label": ariaLabel,
   className = "",
+  allowEmpty = true,
+  tone = "secondary",
 }: ThemeSelectProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -36,6 +42,17 @@ export function ThemeSelect({
   const selectedLabel = value
     ? normalizedOptions.find((o) => o.value === value)?.label ?? value
     : placeholder;
+
+  const highlight =
+    tone === "earth"
+      ? "bg-[var(--color-earth)] text-white"
+      : "bg-[var(--color-secondary)] text-white";
+  const optionClass = (selected: boolean) =>
+    selected
+      ? highlight
+      : tone === "earth"
+        ? "text-gray-800 hover:bg-[var(--color-earth)] hover:text-white"
+        : "text-gray-800 hover:bg-[var(--color-secondary)] hover:text-white";
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -54,7 +71,11 @@ export function ThemeSelect({
         aria-expanded={open}
         aria-haspopup="listbox"
         onClick={() => setOpen((o) => !o)}
-        className="w-full min-w-[120px] border border-gray-300 rounded px-3 py-2 text-left bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-secondary)] focus:border-[var(--color-secondary)] hover:border-[var(--color-secondary)] flex items-center justify-between gap-2"
+        className={`w-full min-w-[120px] border border-gray-300 rounded px-3 py-2 text-left bg-white focus:outline-none focus:ring-2 flex items-center justify-between gap-2 ${
+          tone === "earth"
+            ? "focus:ring-[var(--color-earth)] focus:border-[var(--color-earth)] hover:border-[var(--color-earth)]"
+            : "focus:ring-[var(--color-secondary)] focus:border-[var(--color-secondary)] hover:border-[var(--color-secondary)]"
+        }`}
       >
         <span>{selectedLabel}</span>
         <svg className="w-4 h-4 shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
@@ -67,18 +88,20 @@ export function ThemeSelect({
           className="absolute z-50 mt-1 w-full max-h-60 overflow-auto rounded border border-gray-200 bg-white py-1 shadow-lg"
           aria-label={ariaLabel}
         >
-          <li role="option">
-            <button
-              type="button"
-              onClick={() => {
-                onChange("");
-                setOpen(false);
-              }}
-              className={`w-full text-left px-3 py-2 text-sm ${value === "" ? "bg-[var(--color-secondary)] text-white" : "text-gray-800 hover:bg-[var(--color-secondary)] hover:text-white"}`}
-            >
-              {placeholder}
-            </button>
-          </li>
+          {allowEmpty && (
+            <li role="option">
+              <button
+                type="button"
+                onClick={() => {
+                  onChange("");
+                  setOpen(false);
+                }}
+                className={`w-full text-left px-3 py-2 text-sm ${optionClass(value === "")}`}
+              >
+                {placeholder}
+              </button>
+            </li>
+          )}
           {normalizedOptions.map((opt) => (
             <li key={opt.value} role="option" aria-selected={value === opt.value}>
               <button
@@ -87,7 +110,7 @@ export function ThemeSelect({
                   onChange(opt.value);
                   setOpen(false);
                 }}
-                className={`w-full text-left px-3 py-2 text-sm ${value === opt.value ? "bg-[var(--color-secondary)] text-white" : "text-gray-800 hover:bg-[var(--color-secondary)] hover:text-white"}`}
+                className={`w-full text-left px-3 py-2 text-sm ${optionClass(value === opt.value)}`}
               >
                 {opt.label}
               </button>

@@ -513,7 +513,7 @@ export function BusinessHubFormModals({
                 <>
                   <IonIcon name="document-text-outline" size={24} className="text-[var(--color-primary)]" />
                   <span className="text-sm md:text-base font-semibold" style={{ color: "var(--color-heading)" }}>
-                    Download flyer
+                    Download Flyer
                   </span>
                   <span className="text-sm text-gray-600">
                     A printable page for your storefront.
@@ -609,7 +609,7 @@ export function BusinessHubFormModals({
       )}
 
       {openModal === "flyer-picker" && (
-        <Modal title="Download flyer for" onClose={closeModal}>
+        <Modal title="Download Flyer for" onClose={closeModal}>
           <div className="flex flex-col gap-3">
             {businesses.map((b) => (
               <button
@@ -635,8 +635,8 @@ export function BusinessHubFormModals({
             businessView === "list"
               ? "Set up / Edit Local Business Page"
               : businessView === "add"
-              ? "Add business"
-              : "Edit business"
+              ? "Add Business"
+              : "Edit Business"
           }
           onClose={closeModal}
         >
@@ -671,7 +671,7 @@ export function BusinessHubFormModals({
                   onClick={() => setBusinessView("add")}
                   className="btn w-full sm:w-auto"
                 >
-                  Add business
+                  Add Business
                 </button>
               ) : (
                 <p className="text-gray-500 text-sm">Maximum {MAX_BUSINESSES} businesses. Edit an existing one above.</p>
