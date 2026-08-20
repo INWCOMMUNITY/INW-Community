@@ -31,3 +31,7 @@ export function itemEditHref(item: MyStoreItem): string {
     ? `/seller-hub/store/${item.id}?fixEbayCondition=1`
     : `/seller-hub/store/${item.id}`;
 }
+
+export function itemListingHref(item: Pick<MyStoreItem, "slug">): string {
+  return `/storefront/${item.slug}`;
+}

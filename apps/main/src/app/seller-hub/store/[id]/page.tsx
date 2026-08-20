@@ -65,6 +65,7 @@ export default async function EditStoreItemPage({
         <StoreItemForm
           existing={{
             id: item.id,
+            slug: item.slug,
             businessId: item.businessId,
             title: item.title,
             description: item.description,

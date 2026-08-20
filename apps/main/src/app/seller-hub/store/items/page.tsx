@@ -8,6 +8,7 @@ import { MyItemsBulkBar } from "@/components/store-item/MyItemsBulkBar";
 import { MyItemsQuantityHistoryModal } from "@/components/store-item/MyItemsQuantityHistoryModal";
 import {
   itemEditHref,
+  itemListingHref,
   itemStatusLabel,
   type ItemsTab,
   type MyStoreItem,
@@ -305,7 +306,7 @@ export default function MyItemsPage() {
             const rowHref =
               tab === "sold" && item.soldOrderId
                 ? `/seller-hub/orders/${item.soldOrderId}`
-                : `/product/${item.slug}`;
+                : itemListingHref(item);
             return (
               <div
                 key={item.id}

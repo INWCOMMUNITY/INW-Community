@@ -87,6 +87,7 @@ type EbayCategoryAspect = {
 interface StoreItemFormProps {
   existing?: {
     id: string;
+    slug?: string;
     businessId: string | null;
     title: string;
     description: string | null;
@@ -238,6 +239,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [submitting, setSubmitting] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
+  const [successItemId, setSuccessItemId] = useState<string | null>(existing?.id ?? null);
+  const [successItemSlug, setSuccessItemSlug] = useState<string | null>(existing?.slug ?? null);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [hasChannelConnections, setHasChannelConnections] = useState(false);
   const [channelLinks, setChannelLinks] = useState<ChannelLinkSummary[]>(
@@ -690,6 +693,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         message?: string;
         channelSync?: ChannelSyncRow[];
         channelLinks?: ChannelLinkSummary[];
+        id?: string;
+        slug?: string;
+        photos?: string[];
       } = {};
       try {
         const text = await res.text();
@@ -733,6 +739,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       }
 
       setEditSuccess(!!existing);
+      setSuccessItemId(data.id ?? existing?.id ?? null);
+      setSuccessItemSlug(data.slug ?? existing?.slug ?? null);
+      if (Array.isArray(data.photos) && data.photos.length > 0) {
+        setPhotos(data.photos);
+      }
       setSuccessDetail(
         syncResult.successLines.length > 0
           ? buildSyncSuccessMessage(syncResult.successLines)
@@ -783,6 +794,22 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     setShowSuccessModal(false);
     const redirectTo = successRedirect ?? "/seller-hub/store/items";
     router.push(redirectTo);
+    router.refresh();
+  }
+  function handleSeeListing() {
+    if (!successItemSlug) {
+      handleSuccessModalClose();
+      return;
+    }
+    setShowSuccessModal(false);
+    router.push(`/storefront/${successItemSlug}`);
+  }
+  function handleEditListing() {
+    setShowSuccessModal(false);
+    if (successItemId && existing?.id !== successItemId) {
+      router.push(`/seller-hub/store/${successItemId}`);
+      return;
+    }
     router.refresh();
   }
   function handleListAnother() {
@@ -1598,31 +1625,84 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       {showSuccessModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 overflow-hidden">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 text-center">
+            <SuccessPhotoCollage urls={photos} />
             <p className="text-lg font-bold text-gray-900 mb-2">
-              {editSuccess ? "Item updated" : "Item listed successfully"}
+              {editSuccess ? "Item Updated" : "Item listed successfully"}
             </p>
             <p className="text-gray-700 mb-6">{successDetail}</p>
             <button
               type="button"
-              onClick={handleSuccessModalClose}
+              onClick={handleSeeListing}
               className="btn w-full mb-3"
             >
-              {editSuccess ? "Back to My Items" : "See Listing"}
+              See Listing
+            </button>
+            <button
+              type="button"
+              onClick={handleEditListing}
+              className="w-full py-3 px-4 rounded-lg border-2 font-semibold text-gray-700 hover:bg-gray-50 transition-colors mb-3"
+              style={{ borderColor: "var(--color-primary)" }}
+            >
+              Edit Listing
             </button>
             {!editSuccess && (
               <button
                 type="button"
                 onClick={handleListAnother}
-                className="w-full py-3 px-4 rounded-lg border-2 font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                className="w-full py-3 px-4 rounded-lg border-2 font-semibold text-gray-700 hover:bg-gray-50 transition-colors mb-3"
                 style={{ borderColor: "var(--color-primary)" }}
               >
                 List Another Item
               </button>
             )}
+            <button
+              type="button"
+              onClick={handleSuccessModalClose}
+              className="text-sm text-gray-600 hover:underline"
+            >
+              Back to My Items
+            </button>
           </div>
         </div>
       )}
     </>
+  );
+}
+
+function SuccessPhotoCollage({ urls }: { urls: string[] }) {
+  const shown = urls.filter(Boolean).slice(0, 4);
+  if (shown.length === 0) return null;
+  if (shown.length === 1) {
+    return (
+      <div className="mb-4 overflow-hidden rounded-lg">
+        <img src={shown[0]} alt="" className="w-full h-40 object-cover" />
+      </div>
+    );
+  }
+  if (shown.length === 2) {
+    return (
+      <div className="mb-4 grid grid-cols-2 gap-1 overflow-hidden rounded-lg h-36">
+        {shown.map((src, i) => (
+          <img key={`${src}-${i}`} src={src} alt="" className="w-full h-full object-cover" />
+        ))}
+      </div>
+    );
+  }
+  if (shown.length === 3) {
+    return (
+      <div className="mb-4 grid grid-cols-2 grid-rows-2 gap-1 overflow-hidden rounded-lg h-40">
+        <img src={shown[0]} alt="" className="row-span-2 w-full h-full object-cover" />
+        <img src={shown[1]} alt="" className="w-full h-full object-cover" />
+        <img src={shown[2]} alt="" className="w-full h-full object-cover" />
+      </div>
+    );
+  }
+  return (
+    <div className="mb-4 grid grid-cols-2 grid-rows-2 gap-1 overflow-hidden rounded-lg h-44">
+      {shown.map((src, i) => (
+        <img key={`${src}-${i}`} src={src} alt="" className="w-full h-full object-cover" />
+      ))}
+    </div>
   );
 }
 

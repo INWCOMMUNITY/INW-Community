@@ -6,7 +6,7 @@ import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
 import type { ChannelConnectionSummary, ChannelProviderId } from "@/lib/channel-connections-client";
 import { alertChannelSyncFailures } from "@/lib/channel-sync-feedback";
-import { itemEditHref, type ItemsTab, type MyStoreItem } from "@/components/store-item/my-items-types";
+import { itemEditHref, itemListingHref, type ItemsTab, type MyStoreItem } from "@/components/store-item/my-items-types";
 
 const menuRowClass =
   "flex w-full items-center px-5 py-3 text-sm font-semibold text-left no-underline hover:bg-gray-50 disabled:opacity-50";
@@ -207,7 +207,7 @@ export function MyItemsRowMenu({
     }
   }
 
-  const listingHref = `/product/${item.slug}`;
+  const listingHref = itemListingHref(item);
   const storeList = linked.map((p) => CHANNEL_PROVIDER_LABELS[p] ?? p).join(", ");
 
   return (
