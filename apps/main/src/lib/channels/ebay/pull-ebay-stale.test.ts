@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { ebayGetItemIsStaleVersusInw } from "./pull-ebay-updates";
+import { ebayGetItemIsStaleVersusInw, isEbayInboundContentChange } from "./pull-ebay-updates";
+
+describe("isEbayInboundContentChange", () => {
+  it("treats ebayCategoryId-only writes as metadata, not inbound content", () => {
+    expect(isEbayInboundContentChange({ ebayCategoryId: 36059 })).toBe(false);
+    expect(isEbayInboundContentChange({ ebayCategoryId: 36059, category: "Collectibles" })).toBe(
+      false
+    );
+  });
+
+  it("treats title/price/qty writes as inbound content", () => {
+    expect(isEbayInboundContentChange({ title: "EBAY CRON TEST 4" })).toBe(true);
+    expect(isEbayInboundContentChange({ priceCents: 4400, ebayCategoryId: 36059 })).toBe(true);
+    expect(isEbayInboundContentChange({ quantity: 4 })).toBe(true);
+  });
+});
 
 describe("ebayGetItemIsStaleVersusInw", () => {
   const now = new Date("2026-08-20T05:05:50.000Z");

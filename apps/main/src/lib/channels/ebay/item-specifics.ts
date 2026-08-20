@@ -107,14 +107,22 @@ export function parseEbayBestOffer(itemXml: string): EbayTradingBestOffer {
   return { acceptOffers, minOfferCents };
 }
 
-/** Parse LastModifiedTime / RevisionTime from Trading XML. */
+function firstNamedTag(xml: string, name: string): string | null {
+  const re = new RegExp(`<(?:[\\w]+:)?${name}(?:\\s[^>]*)?>([\\s\\S]*?)</(?:[\\w]+:)?${name}>`, "i");
+  const m = xml.match(re);
+  return m ? m[1].trim() : null;
+}
+
+/** Parse LastModifiedTime / RevisionTime from Trading XML (full response or Item slice). */
 export function parseEbayLastModified(itemXml: string): Date | null {
   const raw =
-    tag(itemXml, "LastModifiedTime") ||
-    tag(itemXml, "ModTime") ||
-    tag(itemXml, "RevisionTime");
+    firstNamedTag(itemXml, "LastModifiedTime") ||
+    firstNamedTag(itemXml, "ModTime") ||
+    firstNamedTag(itemXml, "RevisionTime") ||
+    firstNamedTag(itemXml, "UpdateTime");
   if (!raw?.trim()) return null;
-  const d = new Date(raw.trim());
+  const decoded = decodeXmlEntities(raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")).trim();
+  const d = new Date(decoded);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 

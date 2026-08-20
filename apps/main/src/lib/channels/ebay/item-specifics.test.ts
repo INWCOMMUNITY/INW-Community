@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseEbayDescription,
   parseEbayItemSpecifics,
+  parseEbayLastModified,
   parseEbayPrimaryCategory,
 } from "./item-specifics";
 
@@ -71,5 +72,28 @@ describe("parseEbayDescription", () => {
 
   it("returns null for a missing description", () => {
     expect(parseEbayDescription("<Item></Item>")).toBeNull();
+  });
+});
+
+describe("parseEbayLastModified", () => {
+  it("reads LastModifiedTime from an Item slice", () => {
+    const xml = `<Item><LastModifiedTime>2026-08-20T05:32:00.000Z</LastModifiedTime></Item>`;
+    expect(parseEbayLastModified(xml)?.toISOString()).toBe("2026-08-20T05:32:00.000Z");
+  });
+
+  it("reads a namespaced LastModifiedTime from the full GetItem envelope", () => {
+    const xml = `<?xml version="1.0"?>
+<GetItemResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Ack>Success</Ack>
+  <Item>
+    <Title>TEST 4</Title>
+    <ns:LastModifiedTime>2026-08-20T05:32:11.000Z</ns:LastModifiedTime>
+  </Item>
+</GetItemResponse>`;
+    expect(parseEbayLastModified(xml)?.toISOString()).toBe("2026-08-20T05:32:11.000Z");
+  });
+
+  it("returns null when no modify timestamp is present", () => {
+    expect(parseEbayLastModified("<Item><Title>TEST 2</Title></Item>")).toBeNull();
   });
 });

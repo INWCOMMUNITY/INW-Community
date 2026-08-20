@@ -40,8 +40,37 @@ function photosEqual(a: string[], b: string[]): boolean {
   return a.every((url, i) => url === b[i]);
 }
 
+function debugEbayCron(
+  hypothesisId: string,
+  location: string,
+  message: string,
+  data: Record<string, unknown>
+): void {
+  // #region agent log
+  fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "4f2763" },
+    body: JSON.stringify({
+      sessionId: "4f2763",
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+}
+
 /** Ignore a lagged GetItem shortly after a refresh. A newer eBay LastModified still applies. */
 export const EBAY_INBOUND_ECHO_MS = 5 * 60 * 1000;
+
+/** Metadata-only GetItem writes must not start the echo window. */
+const EBAY_INBOUND_META_KEYS = new Set(["ebayCategoryId", "category", "subcategory"]);
+
+export function isEbayInboundContentChange(updateData: Record<string, unknown>): boolean {
+  return Object.keys(updateData).some((key) => !EBAY_INBOUND_META_KEYS.has(key));
+}
 
 export function ebayGetItemIsStaleVersusInw(args: {
   lastInboundAt: Date | null;
@@ -111,6 +140,26 @@ export async function refreshEbayListingByItemId(
 
   const storeItem = link.storeItem;
   const details = await fetchEbayItemDetails(accessToken, legacyItemId);
+  const staleVersusInw = ebayGetItemIsStaleVersusInw({
+    lastInboundAt: link.lastInboundAt,
+    inwUpdatedAt: storeItem.updatedAt,
+    ebayLastModified: details.remoteUpdatedAt,
+  });
+  debugEbayCron("H-A", "pull-ebay-updates.ts:refreshEbayListingByItemId", "GetItem vs INW snapshot", {
+    legacyItemId,
+    force: Boolean(opts?.force),
+    staleVersusInw,
+    lastInboundAt: link.lastInboundAt?.toISOString() ?? null,
+    inwUpdatedAt: storeItem.updatedAt.toISOString(),
+    inwTitle: storeItem.title,
+    inwPriceCents: storeItem.priceCents,
+    inwQty: storeItem.quantity,
+    getItemTitle: details.title,
+    getItemPriceCents: details.priceCents,
+    getItemQty: details.quantity,
+    ebayLastModified: details.remoteUpdatedAt?.toISOString() ?? null,
+    listingEnded: details.listingEnded,
+  });
 
   const stillActive =
     opts?.activeListingIds != null
@@ -147,6 +196,12 @@ export async function refreshEbayListingByItemId(
       ebayLastModified: details.remoteUpdatedAt,
     })
   ) {
+    debugEbayCron("H-A", "pull-ebay-updates.ts:staleSkip", "skipped GetItem apply due to echo window", {
+      storeItemId: storeItem.id,
+      legacyItemId,
+      getItemTitle: details.title,
+      getItemPriceCents: details.priceCents,
+    });
     console.log("[ebay] refreshEbayListingByItemId: skip GetItem after recent INW inbound", {
       storeItemId: storeItem.id,
       legacyItemId,
@@ -273,10 +328,22 @@ export async function refreshEbayListingByItemId(
 
   if (details.remoteCategoryId) {
     const catId = Number(details.remoteCategoryId);
-    if (Number.isInteger(catId) && catId > 0) {
+    if (Number.isInteger(catId) && catId > 0 && catId !== storeItem.ebayCategoryId) {
       updateData.ebayCategoryId = catId;
     }
   }
+
+  debugEbayCron("H-B", "pull-ebay-updates.ts:applyDecision", "field diff after GetItem parse", {
+    storeItemId: storeItem.id,
+    legacyItemId,
+    changes,
+    willWrite: Object.keys(updateData).length > 0,
+    contentChange: isEbayInboundContentChange(updateData),
+    updateKeys: Object.keys(updateData),
+    remoteTitle,
+    remotePrice,
+    remoteQty,
+  });
 
   if (Object.keys(updateData).length > 0) {
     const updatedItem = await prisma.storeItem.update({
@@ -284,28 +351,31 @@ export async function refreshEbayListingByItemId(
       data: updateData,
     });
 
-    const contentHash = syncContentHash(updatedItem);
-    const metaHash = syncMetaHash({
-      category: updatedItem.category,
-      subcategory: updatedItem.subcategory,
-      secondaryCategory: updatedItem.secondaryCategory,
-      shippingCostCents: updatedItem.shippingCostCents,
-      variants: updatedItem.variants,
-    });
+    const contentChange = isEbayInboundContentChange(updateData);
+    if (contentChange) {
+      const contentHash = syncContentHash(updatedItem);
+      const metaHash = syncMetaHash({
+        category: updatedItem.category,
+        subcategory: updatedItem.subcategory,
+        secondaryCategory: updatedItem.secondaryCategory,
+        shippingCostCents: updatedItem.shippingCostCents,
+        variants: updatedItem.variants,
+      });
 
-    await prisma.channelListingLink.update({
-      where: { id: link.id },
-      data: {
-        syncBaselineHash: contentHash,
-        syncBaselineMetaHash: metaHash,
-        syncBaselineVariantsHash: variantsFingerprint(updatedItem.variants),
-        syncBaselineQty: updatedItem.quantity,
-        syncBaselineAt: details.remoteUpdatedAt ?? new Date(),
-        lastInboundAt: new Date(),
-        syncStatus: "synced",
-        syncError: null,
-      },
-    });
+      await prisma.channelListingLink.update({
+        where: { id: link.id },
+        data: {
+          syncBaselineHash: contentHash,
+          syncBaselineMetaHash: metaHash,
+          syncBaselineVariantsHash: variantsFingerprint(updatedItem.variants),
+          syncBaselineQty: updatedItem.quantity,
+          syncBaselineAt: details.remoteUpdatedAt ?? new Date(),
+          lastInboundAt: new Date(),
+          syncStatus: "synced",
+          syncError: null,
+        },
+      });
+    }
 
     void fetchAndCacheEbayInventoryAspects(
       accessToken,
@@ -317,6 +387,7 @@ export async function refreshEbayListingByItemId(
       storeItemId: storeItem.id,
       legacyItemId,
       changes,
+      contentChange,
       fromEbay: {
         title: remoteTitle,
         priceCents: remotePrice,
@@ -327,17 +398,10 @@ export async function refreshEbayListingByItemId(
     return {
       storeItemId: storeItem.id,
       title: updatedItem.title,
-      updated: true,
+      updated: contentChange,
       changes,
     };
   }
-
-  await prisma.channelListingLink
-    .update({
-      where: { id: link.id },
-      data: { lastInboundAt: new Date() },
-    })
-    .catch(() => {});
 
   void fetchAndCacheEbayInventoryAspects(
     accessToken,
@@ -366,6 +430,11 @@ export async function pullEbayUpdatesForConnection(
 
   const ctx = await getConnectionContext(connection);
   if (!ctx) {
+    debugEbayCron("H-C", "pull-ebay-updates.ts:noCtx", "ebay pull skipped: no connection context", {
+      connectionId: connection.id,
+      status: connection.status,
+      hasAccessToken: Boolean(connection.accessTokenEncrypted),
+    });
     return { updated: [], checked: 0 };
   }
 
@@ -378,6 +447,12 @@ export async function pullEbayUpdatesForConnection(
     select: {
       externalListingId: true,
     },
+  });
+
+  debugEbayCron("H-C", "pull-ebay-updates.ts:pullStart", "ebay GetItem pull starting", {
+    connectionId: connection.id,
+    linkCount: links.length,
+    cronPassesForce: false,
   });
 
   if (links.length === 0) {
@@ -401,6 +476,10 @@ export async function pullEbayUpdatesForConnection(
         results.push(result);
       }
     } catch (e) {
+      debugEbayCron("H-C", "pull-ebay-updates.ts:pullError", "GetItem refresh threw", {
+        legacyId,
+        error: e instanceof Error ? e.message : String(e),
+      });
       console.error("[ebay] pullEbayUpdatesForConnection: failed to refresh", {
         legacyId,
         error: e instanceof Error ? e.message : String(e),

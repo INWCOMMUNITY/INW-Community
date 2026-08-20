@@ -259,6 +259,25 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
     try {
       const ebayPull = await pullEbayUpdatesForConnection(c);
       catalogUpdated += ebayPull.updated.length;
+      // #region agent log
+      fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "4f2763" },
+        body: JSON.stringify({
+          sessionId: "4f2763",
+          hypothesisId: "H-D",
+          location: "reconcile.ts:ebayPull",
+          message: "cron ebay pull finished (no force flag)",
+          data: {
+            connectionId: c.id,
+            checked: ebayPull.checked,
+            updatedCount: ebayPull.updated.length,
+            force: false,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       console.log("[channels] eBay GetItem pull", {
         id: c.id,
         checked: ebayPull.checked,

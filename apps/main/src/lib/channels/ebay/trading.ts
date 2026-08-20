@@ -153,11 +153,19 @@ export async function fetchEbayItemDetails(
     console.log("[ebay] GetItem Item section", {
       listingId,
       itemLength: item.length,
+      xmlLength: xml.length,
       hasPictureDetails: item.includes("<PictureDetails>"),
       hasPictureURL: item.includes("<PictureURL>"),
       hasItemSpecifics: item.includes("<ItemSpecifics>"),
       hasNameValueList: item.includes("<NameValueList>"),
       hasPrimaryCategory: item.includes("<PrimaryCategory>"),
+      hasLastModifiedTimeXml: /LastModifiedTime/i.test(xml),
+      hasLastModifiedTimeItem: /LastModifiedTime/i.test(item),
+      timeTagNames: [
+        ...new Set(
+          [...xml.matchAll(/<([A-Za-z0-9_:]*Time)\b/g)].map((m) => m[1])
+        ),
+      ],
     });
     
     const { categoryId, categoryName } = parseEbayPrimaryCategory(item);
@@ -221,7 +229,7 @@ export async function fetchEbayItemDetails(
       title: titleRaw ? decodeXmlTitle(titleRaw) : null,
       condition: parseEbayCondition(item),
       conditionEnum: parseEbayConditionEnum(item),
-      remoteUpdatedAt: parseEbayLastModified(item),
+      remoteUpdatedAt: parseEbayLastModified(xml) ?? parseEbayLastModified(item),
       quantity,
       priceCents,
       variants: parseEbayVariations(item),
