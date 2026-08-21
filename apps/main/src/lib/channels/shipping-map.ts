@@ -34,7 +34,9 @@ async function persistShippingProfile(
 export function isEtsyCalculatedShippingProfile(
   profile: Pick<EtsyShopShippingProfile, "profile_type"> | null | undefined
 ): boolean {
-  return String(profile?.profile_type ?? "").toLowerCase() === "calculated";
+  const type = String(profile?.profile_type ?? "").toLowerCase();
+  if (!type) return true;
+  return type === "calculated";
 }
 
 /** Prefer a flat/manual shop profile. Calculated profiles need package weight and size. */
@@ -98,11 +100,23 @@ async function tryCreateInwFlatProfile(
   }
 }
 
+export type ResolvedEtsyShippingProfile = {
+  shippingProfileId: string | null;
+  isCalculated: boolean;
+};
+
+function resolvedProfile(
+  shippingProfileId: string | null,
+  isCalculated: boolean
+): ResolvedEtsyShippingProfile {
+  return { shippingProfileId, isCalculated };
+}
+
 /** Resolve an Etsy shipping profile, preferring flat/manual over calculated. */
-export async function resolveEtsyShippingProfileId(
+export async function resolveEtsyShippingProfile(
   conn: ChannelConnectionContext,
   shippingCostCents: number | null
-): Promise<string | null> {
+): Promise<ResolvedEtsyShippingProfile> {
   const shopId = conn.externalShopId;
   let profiles: EtsyShopShippingProfile[] = [];
   if (shopId) {
@@ -121,28 +135,28 @@ export async function resolveEtsyShippingProfileId(
       ? profiles.find((p) => String(p.shipping_profile_id) === cached)
       : undefined;
     if (cached && cachedProfile && !isEtsyCalculatedShippingProfile(cachedProfile)) {
-      return cached;
+      return resolvedProfile(cached, false);
     }
     if (cached && !cachedProfile) {
-      return cached;
+      return resolvedProfile(cached, false);
     }
     const match = profiles.find((p) => p.title === profileName);
     if (match?.shipping_profile_id && !isEtsyCalculatedShippingProfile(match)) {
       await persistShippingProfile(conn.id, conn.config, rate, String(match.shipping_profile_id));
-      return String(match.shipping_profile_id);
+      return resolvedProfile(String(match.shipping_profile_id), false);
     }
     const createdId = await tryCreateInwFlatProfile(conn, shopId, rate, profileName);
-    if (createdId) return createdId;
+    if (createdId) return resolvedProfile(createdId, false);
   }
 
   const picked = pickPreferredEtsyShippingProfile(profiles, conn.etsyShippingProfileId);
-  if (!picked) return conn.etsyShippingProfileId;
+  if (!picked) {
+    return resolvedProfile(conn.etsyShippingProfileId, true);
+  }
 
   const pickedId = String(picked.shipping_profile_id);
-  if (
-    !isEtsyCalculatedShippingProfile(picked) &&
-    pickedId !== conn.etsyShippingProfileId
-  ) {
+  const isCalculated = isEtsyCalculatedShippingProfile(picked);
+  if (!isCalculated && pickedId !== conn.etsyShippingProfileId) {
     await prisma.channelConnection
       .update({
         where: { id: conn.id },
@@ -151,7 +165,22 @@ export async function resolveEtsyShippingProfileId(
       .catch(() => {});
     conn.etsyShippingProfileId = pickedId;
   }
-  return pickedId;
+  return resolvedProfile(pickedId, isCalculated);
+}
+
+export async function resolveEtsyShippingProfileId(
+  conn: ChannelConnectionContext,
+  shippingCostCents: number | null
+): Promise<string | null> {
+  return (await resolveEtsyShippingProfile(conn, shippingCostCents)).shippingProfileId;
+}
+
+/** Calculated profiles need package size; do not re-attach them on listing PATCH. */
+export function shippingProfileIdForEtsyUpdate(
+  resolved: ResolvedEtsyShippingProfile
+): string | null {
+  if (!resolved.shippingProfileId || resolved.isCalculated) return null;
+  return resolved.shippingProfileId;
 }
 
 /** Normalize remote shipping to cents when provider exposes a flat primary rate. */

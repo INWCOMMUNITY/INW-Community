@@ -14,7 +14,9 @@ import { resolveProviderCategoryId } from "../category-map";
 import {
   fetchEtsyShippingProfiles,
   pickPreferredEtsyShippingProfile,
+  resolveEtsyShippingProfile,
   resolveEtsyShippingProfileId,
+  shippingProfileIdForEtsyUpdate,
 } from "../shipping-map";
 import { resolveEtsyReadinessStateId } from "./readiness";
 import {
@@ -374,7 +376,14 @@ export const etsyAdapter: ChannelAdapter = {
       const taxonomyId =
         item.etsyTaxonomyId ??
         (await resolveProviderCategoryId(conn, "etsy", item.category)).etsyTaxonomyId;
-      const shippingProfileId = await resolveEtsyShippingProfileId(conn, item.shippingCostCents);
+      const shipping = await resolveEtsyShippingProfile(conn, item.shippingCostCents);
+      const shippingProfileId = shippingProfileIdForEtsyUpdate(shipping);
+      if (shipping.isCalculated && shipping.shippingProfileId) {
+        console.log("[etsy] skip calculated shipping_profile_id on update", {
+          listingId: externalListingId,
+          shippingProfileId: shipping.shippingProfileId,
+        });
+      }
       
       // Validate required Etsy fields
       validationChecks.push({

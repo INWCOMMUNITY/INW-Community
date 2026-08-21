@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isEtsyCalculatedShippingProfile,
   pickPreferredEtsyShippingProfile,
+  shippingProfileIdForEtsyUpdate,
   type EtsyShopShippingProfile,
 } from "./shipping-map";
 
@@ -27,9 +28,28 @@ describe("pickPreferredEtsyShippingProfile", () => {
     expect(picked?.shipping_profile_id).toBe(2);
   });
 
+  it("treats a missing profile_type as calculated", () => {
+    expect(isEtsyCalculatedShippingProfile({ profile_type: null })).toBe(true);
+    expect(isEtsyCalculatedShippingProfile({ profile_type: "manual" })).toBe(false);
+  });
+
   it("falls back to the calculated profile when it is the only option", () => {
     const picked = pickPreferredEtsyShippingProfile([calculated], "1");
     expect(picked?.shipping_profile_id).toBe(1);
     expect(isEtsyCalculatedShippingProfile(picked)).toBe(true);
+  });
+});
+
+describe("shippingProfileIdForEtsyUpdate", () => {
+  it("omits calculated profiles so PATCH does not require package size", () => {
+    expect(
+      shippingProfileIdForEtsyUpdate({ shippingProfileId: "1", isCalculated: true })
+    ).toBeNull();
+  });
+
+  it("keeps manual profiles", () => {
+    expect(
+      shippingProfileIdForEtsyUpdate({ shippingProfileId: "2", isCalculated: false })
+    ).toBe("2");
   });
 });

@@ -79,4 +79,11 @@ describe("buildEtsyUpdateFields", () => {
     expect(fields.when_made).toBe("1950s");
     expect(fields.who_made).toBe("i_did");
   });
+
+  it("includes shipping_profile_id only when provided", () => {
+    expect(buildEtsyUpdateFields(makeItem()).shipping_profile_id).toBeUndefined();
+    expect(buildEtsyUpdateFields(makeItem(), { shippingProfileId: "99" }).shipping_profile_id).toBe(
+      99
+    );
+  });
 });
