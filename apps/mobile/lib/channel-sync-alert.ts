@@ -31,20 +31,16 @@ export function alertChannelSyncFailures(
     action === "deleted"
       ? "Removed from INW"
       : action === "removed"
-        ? "Removed from store"
+        ? "Could not remove from store"
         : "Saved on INW";
-  const intro =
-    action === "deleted"
-      ? "removed from INW Community"
-      : action === "removed"
-        ? "removed from the selected marketplace"
-        : "saved";
+  const message =
+    action === "removed"
+      ? `Could not remove this listing from ${failed.length === 1 ? "the connected store" : "some connected stores"}. It is still linked in INW so you will not create a duplicate:\n\n${lines.join("\n\n")}`
+      : `Your listing was ${
+          action === "deleted" ? "removed from INW Community" : "saved"
+        }, but could not update ${failed.length === 1 ? "a connected store" : "some connected stores"}:\n\n${lines.join("\n\n")}`;
 
-  Alert.alert(
-    title,
-    `Your listing was ${intro}, but could not update ${failed.length === 1 ? "a connected store" : "some connected stores"}:\n\n${lines.join("\n\n")}`,
-    [{ text: "OK" }]
-  );
+  Alert.alert(title, message, [{ text: "OK" }]);
 }
 
 /** Always show a result after List on {store} — success, failure, or empty. */

@@ -160,6 +160,18 @@ describe("ebayGetItemIsStaleVersusInw", () => {
       })
     ).toBe(false);
   });
+
+  it("applies an eBay revise whose LastModified is older than a later qty push stamp", () => {
+    expect(
+      ebayGetItemIsStaleVersusInw({
+        lastInboundAt: refreshedAt,
+        lastPushedAt: new Date("2026-08-20T05:20:00.000Z"),
+        inwUpdatedAt: refreshedAt,
+        ebayLastModified: new Date("2026-08-20T05:10:00.000Z"),
+        now: new Date("2026-08-20T05:21:00.000Z"),
+      })
+    ).toBe(false);
+  });
 });
 
 describe("ebayGetItemApplyDecision", () => {
@@ -193,7 +205,7 @@ describe("ebayGetItemApplyDecision", () => {
     expect(ebayGetItemApplyDecision(base)).toEqual({ action: "skip", reason: "matches-inw" });
   });
 
-  it("skips a lagged GetItem after the seller saved or we pushed", () => {
+  it("skips a lagged GetItem after the seller saved or we pushed until two matching snapshots", () => {
     expect(
       ebayGetItemApplyDecision({
         ...base,
@@ -202,14 +214,27 @@ describe("ebayGetItemApplyDecision", () => {
         lastInboundAt: new Date("2026-08-20T06:56:18.000Z"),
         remoteTitle: "Tachometer EBAY CRON TEST 5",
         inwTitle: "Tachometer",
+        now: new Date("2026-08-20T07:10:00.000Z"),
       })
-    ).toEqual({ action: "skip", reason: "inw-newer-than-inbound" });
+    ).toMatchObject({ action: "pending", reason: "await-confirm" });
+  });
+
+  it("skips GetItem without LastModified during the push echo window", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastPushedAt: new Date("2026-08-20T06:56:21.000Z"),
+        remoteTitle: "Tachometer EBAY CRON TEST 6",
+        now: new Date("2026-08-20T06:56:30.000Z"),
+      })
+    ).toEqual({ action: "skip", reason: "echo-of-push" });
   });
 
   it("waits for a second identical snapshot before applying a real eBay edit", () => {
     const first = ebayGetItemApplyDecision({
       ...base,
       remoteTitle: "Tachometer EBAY CRON TEST 6",
+      now: new Date("2026-08-20T07:00:00.000Z"),
     });
     expect(first).toMatchObject({ action: "pending", reason: "await-confirm" });
     expect(first.pendingHash).toBeTruthy();
@@ -218,6 +243,7 @@ describe("ebayGetItemApplyDecision", () => {
         ...base,
         remoteTitle: "Tachometer EBAY CRON TEST 6",
         pendingRemoteHash: first.pendingHash,
+        now: new Date("2026-08-20T07:05:00.000Z"),
       })
     ).toMatchObject({ action: "apply", reason: "confirmed-snapshot" });
   });

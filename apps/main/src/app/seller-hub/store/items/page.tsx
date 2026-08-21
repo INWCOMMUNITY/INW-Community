@@ -6,6 +6,7 @@ import { ItemChannelSyncBadges } from "@/components/store-item/ItemChannelSyncBa
 import { MyItemsRowMenu } from "@/components/store-item/MyItemsRowMenu";
 import { MyItemsBulkBar } from "@/components/store-item/MyItemsBulkBar";
 import { MyItemsQuantityHistoryModal } from "@/components/store-item/MyItemsQuantityHistoryModal";
+import { ChannelActionResultModal, type ChannelActionResult } from "@/components/store-item/ChannelActionResultModal";
 import {
   itemEditHref,
   itemListingHref,
@@ -44,6 +45,7 @@ export default function MyItemsPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [menuItemId, setMenuItemId] = useState<string | null>(null);
   const [historyItemId, setHistoryItemId] = useState<string | null>(null);
+  const [actionResult, setActionResult] = useState<ChannelActionResult | null>(null);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -379,8 +381,12 @@ export default function MyItemsPage() {
           onClose={() => setMenuItemId(null)}
           onDone={() => void load({ silent: true })}
           onViewHistory={() => setHistoryItemId(menuItem.id)}
+          onActionResult={setActionResult}
         />
       )}
+      {actionResult ? (
+        <ChannelActionResultModal result={actionResult} onClose={() => setActionResult(null)} />
+      ) : null}
       {historyItem && (
         <MyItemsQuantityHistoryModal
           storeItemId={historyItem.id}

@@ -57,6 +57,7 @@ import {
   ebayPriceFromCents,
   resolveCategoryId,
   resolveSyncLegacyListingId,
+  resolveEbayLegacyListingId,
 } from "./mapping";
 import {
   enrichSyncItemConditionFromEbay,
@@ -73,6 +74,7 @@ import { hasOptionQuantities } from "../../store-item-variants";
 import {
   enumerateEbayListings,
   fetchEbayItemDetails,
+  endEbayTradingItem,
 } from "./trading";
 import { EBAY_MARKETPLACE_ID } from "./config";
 import {
@@ -1333,13 +1335,47 @@ export const ebayAdapter: ChannelAdapter = {
       linkOrigin: link?.linkOrigin,
     });
     const offer = await findOffer(conn.accessToken, sku).catch(() => null);
+    let withdrewOffer = false;
     if (offer?.offerId) {
       try {
         await ebayAction(conn.accessToken, `/sell/inventory/v1/offer/${offer.offerId}/withdraw`, "POST");
+        withdrewOffer = true;
       } catch (e) {
-        if (!(e instanceof EbayApiError && e.status === 404)) throw e;
+        if (!(e instanceof EbayApiError && e.status === 404)) {
+          console.warn("[ebay] offer withdraw failed; trying EndItem", {
+            sku,
+            offerId: offer.offerId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
       }
     }
+
+    const fromOffer =
+      offer?.listing?.listingId != null ? String(offer.listing.listingId).trim() : "";
+    const listingId =
+      (fromOffer && /^\d+$/.test(fromOffer) ? fromOffer : null) ??
+      resolveEbayLegacyListingId(externalListingId);
+    if (listingId) {
+      try {
+        await endEbayTradingItem(conn.accessToken, listingId);
+        return;
+      } catch (e) {
+        if (withdrewOffer) {
+          console.warn("[ebay] EndItem after withdraw failed", {
+            listingId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+          return;
+        }
+        throw e;
+      }
+    }
+
+    if (withdrewOffer) return;
+    throw new Error(
+      "Could not find the eBay listing to end. Reconnect eBay in Sync Stores and try Remove again."
+    );
   },
 
   async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {

@@ -8,7 +8,8 @@ import type {
   SyncStoreItem,
   TokenResponse,
 } from "../types";
-import { EtsyApiError, etsyDelete, etsyForm, etsyGet, etsyUploadImage, setEtsyConnectionContext } from "./client";
+import { etsyForm, etsyGet, etsyUploadImage, setEtsyConnectionContext } from "./client";
+import { endEtsyListing } from "./end-listing";
 import { exchangeEtsyCode, fetchEtsyShopInfo, getEtsyAuthUrl, refreshEtsyToken } from "./oauth";
 import { resolveProviderCategoryId } from "../category-map";
 import {
@@ -430,13 +431,13 @@ export const etsyAdapter: ChannelAdapter = {
   },
 
   async deleteListing(conn, externalListingId): Promise<void> {
-    try {
-      await etsyDelete(conn.accessToken, `/listings/${externalListingId}`);
-    } catch (e) {
-      // Already gone on Etsy is a success for our purposes.
-      if (e instanceof EtsyApiError && e.status === 404) return;
-      throw e;
-    }
+    const shopId = requireShop(conn);
+    await endEtsyListing({
+      accessToken: conn.accessToken,
+      shopId,
+      listingId: externalListingId,
+      connectionId: conn.id,
+    });
   },
 
   async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {

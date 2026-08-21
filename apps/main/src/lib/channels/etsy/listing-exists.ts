@@ -6,6 +6,13 @@ export function etsyListingStateMeansGone(state: string | null | undefined): boo
   return s === "removed" || s === "expired" || s === "sold_out";
 }
 
+/** True when the listing is not live in the shop (hidden, ended, or deleted). */
+export function etsyListingIsNotActive(state: string | null | undefined): boolean {
+  const s = (state ?? "").trim().toLowerCase();
+  if (!s) return false;
+  return s !== "active";
+}
+
 /**
  * True when the listing is gone (404 or Etsy reports removed/expired/sold_out).
  * Active/draft/inactive still exist — do not sold-out INW from a partial active-only catalog.

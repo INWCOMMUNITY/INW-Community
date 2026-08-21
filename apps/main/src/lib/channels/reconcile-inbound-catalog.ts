@@ -361,12 +361,10 @@ export async function reconcileConnectionInboundCatalog(
     // Remote edited on the channel since we last agreed a baseline (timestamp + content hash).
     const remoteTimestampNewer =
       remote.remoteUpdatedAt != null && remote.remoteUpdatedAt.getTime() > baseAt.getTime();
-    const ebayListEditVisible =
-      provider === "ebay" &&
-      !inwContentChanged &&
-      remoteTitleOrPriceDiffersFromStoreItem(item, remote);
+    const remoteListEditVisible =
+      !inwContentChanged && remoteTitleOrPriceDiffersFromStoreItem(item, remote);
     const remoteContentChanged =
-      (remoteTimestampNewer && remoteHash !== baseHash) || ebayListEditVisible;
+      (remoteTimestampNewer && remoteHash !== baseHash) || remoteListEditVisible;
 
     const remoteContentActuallyDiffers = remoteContentDiffersFromStoreItem(item, remote);
 
@@ -418,7 +416,7 @@ export async function reconcileConnectionInboundCatalog(
         remoteTimestampNewer,
         remoteContentActuallyDiffers,
         remoteContentChanged,
-        ebayListEditVisible,
+        remoteListEditVisible,
         staleRemoteNeedsPush,
         contentDecision,
         qtyDiffers,

@@ -116,6 +116,32 @@ async function callTrading(accessToken: string, callName: string, xml: string): 
   return text;
 }
 
+function buildEndItemXml(listingId: string): string {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<EndItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ItemID>${listingId}</ItemID>
+  <EndingReason>NotAvailable</EndingReason>
+</EndItemRequest>`;
+}
+
+/** True when EndItem failed because the listing is already off the site. */
+export function isEbayTradingListingAlreadyEnded(message: string): boolean {
+  return /1047|17\b|already been closed|already ended|has ended|listing has been deleted|item cannot be accessed|does not exist|this item cannot be accessed/i.test(
+    message
+  );
+}
+
+/** End a live eBay listing via Trading API. Already-ended listings count as success. */
+export async function endEbayTradingItem(accessToken: string, listingId: string): Promise<void> {
+  try {
+    await callTrading(accessToken, "EndItem", buildEndItemXml(listingId));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (isEbayTradingListingAlreadyEnded(msg)) return;
+    throw e;
+  }
+}
+
 /** Fallback when GetMyeBaySelling omits picture URLs (common for gallery-only rows). */
 async function fetchEbayItemPhotos(accessToken: string, listingId: string): Promise<string[]> {
   try {
@@ -378,12 +404,13 @@ function buildReviseSkuXml(listingId: string, sku: string): string {
 }
 
 /** Trading API returns HTTP 200 with <Ack>Failure</Ack> + <Errors> for logical failures. */
-function parseTradingAck(xml: string): { ok: boolean; error?: string } {
+function parseTradingAck(xml: string): { ok: boolean; error?: string; errorCode?: string } {
   const ack = (tag(xml, "Ack") ?? "").trim();
   if (/success|warning/i.test(ack)) return { ok: true };
   const errors = tag(xml, "Errors") ?? "";
   const msg = (tag(errors, "LongMessage") ?? tag(errors, "ShortMessage") ?? "ReviseFixedPriceItem failed").trim();
-  return { ok: false, error: msg };
+  const errorCode = (tag(errors, "ErrorCode") ?? "").trim() || undefined;
+  return { ok: false, error: errorCode ? `${msg} (${errorCode})` : msg, errorCode };
 }
 
 /** Add a seller-defined SKU (Custom Label) to a live fixed-price listing. */

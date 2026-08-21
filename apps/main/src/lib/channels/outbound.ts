@@ -197,6 +197,27 @@ export async function publishStoreItemToChannels(
       where: { storeItemId_provider: { storeItemId, provider } },
     });
     if (existing) {
+      if (existing.syncStatus === "error") {
+        try {
+          const connConfig = (conn.config ?? {}) as Record<string, unknown>;
+          const priceAdjustmentPercent = (connConfig.priceAdjustmentPercent as number) ?? 0;
+          const adjustedItem = applyPriceAdjustment(item, priceAdjustmentPercent);
+          await getAdapter(provider).updateListing(conn, existing.externalListingId, adjustedItem);
+          await prisma.channelListingLink.update({
+            where: { id: existing.id },
+            data: {
+              syncStatus: "synced",
+              syncError: null,
+              lastPushedAt: new Date(),
+            },
+          });
+          results.push({ provider, ok: true });
+        } catch (e) {
+          const msg = describeChannelSyncError(provider, e);
+          results.push({ provider, ok: false, error: msg });
+        }
+        continue;
+      }
       if (provider === "wix" && item.photos.length > 0) {
         try {
           const { syncWixProductMedia } = await import("./wix/media");
@@ -500,6 +521,13 @@ async function removeStoreItemFromChannelLinks(
     },
     include: { connection: true },
   });
+  if (links.length === 0 && providers?.length) {
+    return providers.map((provider) => ({
+      provider,
+      ok: false,
+      error: "This item is not listed on that store.",
+    }));
+  }
   const results: ChannelSyncResult[] = [];
   for (const link of links) {
     const provider = link.provider as ChannelProvider;
@@ -508,17 +536,18 @@ async function removeStoreItemFromChannelLinks(
         const adapter = getAdapter(provider);
         return adapter.deleteListing(ctx, link.externalListingId);
       });
+      await prisma.channelListingLink.delete({ where: { id: link.id } }).catch(() => {});
       results.push({ provider, ok: true });
     } catch (e) {
       const msg = describeChannelSyncError(provider, e);
       console.error("[channels] deleteListing failed", {
         storeItemId,
         provider: link.provider,
+        externalListingId: link.externalListingId,
         error: msg,
       });
       results.push({ provider, ok: false, error: msg });
     }
-    await prisma.channelListingLink.delete({ where: { id: link.id } }).catch(() => {});
   }
   return results;
 }

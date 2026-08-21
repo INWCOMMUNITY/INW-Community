@@ -504,6 +504,24 @@ export async function DELETE(
     channelSync = await deleteStoreItemFromChannels(id);
   } catch (err) {
     console.error("[store-items] Channel delete failed:", err);
+    return NextResponse.json(
+      {
+        error:
+          "Could not remove this listing from connected stores. It was not deleted from INW.",
+        channelSync,
+      },
+      { status: 409 }
+    );
+  }
+  if (channelSync.some((r) => !r.ok)) {
+    return NextResponse.json(
+      {
+        error:
+          "Could not remove this listing from connected stores. It was not deleted from INW.",
+        channelSync,
+      },
+      { status: 409 }
+    );
   }
 
   // Delete associated feed posts so "Recently Added" doesn't show stale previews

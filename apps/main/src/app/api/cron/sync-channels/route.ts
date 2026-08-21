@@ -91,20 +91,6 @@ export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
   
   if (!secret) {
-    // #region agent log
-    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "4f2763" },
-      body: JSON.stringify({
-        sessionId: "4f2763",
-        hypothesisId: "H-E",
-        location: "sync-channels/route.ts:noSecret",
-        message: "cron aborted: CRON_SECRET missing",
-        data: { hasCronSecret: false },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
   }
   if (req.headers.get("authorization") !== `Bearer ${secret}`) {
@@ -112,23 +98,6 @@ export async function GET(req: NextRequest) {
   }
 
   console.log("[cron] sync-channels starting", { timestamp: new Date().toISOString() });
-  // #region agent log
-  fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "4f2763" },
-    body: JSON.stringify({
-      sessionId: "4f2763",
-      hypothesisId: "H-E",
-      location: "sync-channels/route.ts:GET",
-      message: "cron handler entered",
-      data: {
-        hasCronSecret: true,
-        channelCronSyncEnabled: process.env.CHANNEL_CRON_SYNC_ENABLED === "true",
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 
   // Check quota alerts FIRST - log warnings before doing any work
   const quotaAlerts = await checkAllQuotaAlerts().catch(() => []);

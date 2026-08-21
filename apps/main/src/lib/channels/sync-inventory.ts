@@ -4,8 +4,6 @@ import { getAdapter } from "./registry";
 import { withConnectionAuthRetry } from "./connection";
 import { assertSaneInventoryQty, clampSaneInventoryQty } from "./inventory-sanity";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
-import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
-import { variantsFingerprint } from "./variant-sync";
 import type { ChannelProvider, ChannelSyncResult } from "./types";
 import { describeChannelSyncError } from "./ebay/errors";
 import { enqueueRetry } from "./retry-queue";
@@ -129,12 +127,9 @@ export async function syncInventoryToChannels(
         data: {
           syncStatus: "synced",
           syncError: null,
-          lastPushedAt: new Date(),
-          syncBaselineHash: syncContentHash(item),
-          syncBaselineMetaHash: syncMetaHash(item),
-          syncBaselineVariantsHash: variantsFingerprint(item.variants),
+          // Qty-only writes must not stamp lastPushedAt / syncBaselineAt — those
+          // timestamps are content-inbound floors and were hiding eBay/Etsy edits.
           ...(baselineQty != null ? { syncBaselineQty: baselineQty } : {}),
-          syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
         },
       });
       await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);

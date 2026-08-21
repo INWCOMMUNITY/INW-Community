@@ -327,7 +327,9 @@ export const shopifyAdapter: ChannelAdapter = {
 
   async deleteListing(conn, externalListingId): Promise<void> {
     const cfg = connCfg(conn);
-    if (!cfg.shop) return;
+    if (!cfg.shop) {
+      throw new Error("Shopify is missing a shop domain. Reconnect Shopify in Sync Stores.");
+    }
     try {
       await shopifyDelete(
         conn.accessToken,

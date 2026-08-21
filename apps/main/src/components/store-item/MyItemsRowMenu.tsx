@@ -9,7 +9,13 @@ import {
   type ChannelConnectionSummary,
   type ChannelProviderId,
 } from "@/lib/channel-connections-client";
-import { alertChannelPublishResult, alertChannelSyncFailures } from "@/lib/channel-sync-feedback";
+import {
+  alertChannelPublishResult,
+  alertChannelSyncFailures,
+  buildPublishResultAlert,
+  isChannelPublishOk,
+} from "@/lib/channel-sync-feedback";
+import type { ChannelActionResult } from "@/components/store-item/ChannelActionResultModal";
 import { itemEditHref, itemListingHref, type ItemsTab, type MyStoreItem } from "@/components/store-item/my-items-types";
 import { ListOnChannelCategoryModal } from "@/components/store-item/ListOnChannelCategoryModal";
 import {
@@ -33,6 +39,7 @@ export function MyItemsRowMenu({
   onClose,
   onDone,
   onViewHistory,
+  onActionResult,
 }: {
   item: MyStoreItem;
   tab: ItemsTab;
@@ -40,8 +47,10 @@ export function MyItemsRowMenu({
   onClose: () => void;
   onDone: () => void;
   onViewHistory: () => void;
+  onActionResult?: (result: ChannelActionResult) => void;
 }) {
   const [acting, setActing] = useState(false);
+  const [actingLabel, setActingLabel] = useState<string | null>(null);
   const [soldPrompt, setSoldPrompt] = useState(false);
   const [categoryProvider, setCategoryProvider] = useState<ListOnCategoryProvider | null>(null);
   useLockBodyScroll(true);
@@ -179,9 +188,22 @@ export function MyItemsRowMenu({
     await runPublish(provider);
   }
 
+  function showPublishResult(
+    channelSync: { provider: string; ok: boolean; error?: string }[] | undefined
+  ) {
+    const alert = buildPublishResultAlert(channelSync);
+    const result = { ...alert, ok: isChannelPublishOk(channelSync) };
+    if (onActionResult) {
+      onActionResult(result);
+      return;
+    }
+    alertChannelPublishResult(channelSync);
+  }
+
   async function runPublish(provider: ChannelProviderId, assignment?: ListOnCategoryAssignment) {
     const label = CHANNEL_PROVIDER_LABELS[provider] ?? provider;
     setActing(true);
+    setActingLabel(`Listing on ${label}…`);
     try {
       const body: Record<string, unknown> = { providers: [provider] };
       if (assignment?.etsyTaxonomyId != null) body.etsyTaxonomyId = assignment.etsyTaxonomyId;
@@ -196,15 +218,22 @@ export function MyItemsRowMenu({
           body: JSON.stringify(body),
         }
       );
-      alertChannelPublishResult(data.channelSync);
+      showPublishResult(data.channelSync);
       onDone();
       onClose();
     } catch (e) {
       const msg = e instanceof Error ? e.message : `Could not list on ${label}.`;
+      if (onActionResult) {
+        onActionResult({ title: "Could not list", message: msg, ok: false });
+        onDone();
+        onClose();
+        return;
+      }
       if (assignment) throw new Error(msg);
       alert(msg);
     } finally {
       setActing(false);
+      setActingLabel(null);
     }
   }
 
@@ -229,7 +258,8 @@ export function MyItemsRowMenu({
       );
       alertChannelSyncFailures(data.channelSync, "removed");
       onDone();
-      onClose();
+      const failed = (data.channelSync ?? []).some((r) => !r.ok);
+      if (!failed) onClose();
     } catch (e) {
       alert(e instanceof Error ? e.message : `Could not remove from ${label}.`);
     } finally {
@@ -301,7 +331,9 @@ export function MyItemsRowMenu({
             <p className="text-sm font-semibold truncate" style={{ color: "var(--color-heading)" }}>
               {item.title}
             </p>
-            {acting && <p className="text-xs text-gray-500 mt-0.5">Working…</p>}
+            {acting && (
+              <p className="text-xs text-gray-500 mt-0.5">{actingLabel ?? "Working…"}</p>
+            )}
           </div>
           <div className="flex flex-col">
             {tab === "sold" && item.soldOrderId && (

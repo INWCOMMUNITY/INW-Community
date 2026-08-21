@@ -39,9 +39,13 @@ export function formatChannelSyncResults(
 
   const title =
     action === "deleted"
-      ? "Removed from INW"
+      ? failed.length > 0 && succeeded.length === 0
+        ? "Could not delete from connected stores"
+        : "Removed from INW"
       : action === "removed"
-        ? "Removed from store"
+        ? failed.length > 0 && succeeded.length === 0
+          ? "Could not remove from store"
+          : "Removed from store"
         : failed.length === 0
           ? "Saved successfully"
           : "Saved on INW";
@@ -50,7 +54,7 @@ export function formatChannelSyncResults(
     action === "deleted"
       ? "removed from INW Community"
       : action === "removed"
-        ? "removed from the selected marketplace"
+        ? "not removed from the selected marketplace"
         : "saved";
 
   return {
@@ -74,9 +78,15 @@ export function buildSyncSuccessMessage(successLines: string[]): string {
 
 export function buildSyncFailureMessage(
   intro: string,
-  failureLines: string[]
+  failureLines: string[],
+  action: "saved" | "deleted" | "removed" = "saved"
 ): string {
   if (failureLines.length === 0) return "";
+  if (action === "removed") {
+    return `Could not remove this listing from ${
+      failureLines.length === 1 ? "the connected store" : "some connected stores"
+    }. It is still linked in INW so you will not create a duplicate:\n\n${failureLines.join("\n\n")}`;
+  }
   return `Your listing was ${intro}, but could not update ${
     failureLines.length === 1 ? "a connected store" : "some connected stores"
   }:\n\n${failureLines.join("\n\n")}`;
@@ -115,6 +125,11 @@ export function buildPublishResultAlert(
   };
 }
 
+export function isChannelPublishOk(channelSync: ChannelSyncRow[] | undefined): boolean {
+  const rows = channelSync ?? [];
+  return rows.length > 0 && rows.every((r) => r.ok);
+}
+
 export function alertChannelSyncFailures(
   channelSync: ChannelSyncRow[] | undefined,
   action: "saved" | "deleted" | "removed" = "saved"
@@ -122,7 +137,7 @@ export function alertChannelSyncFailures(
   const result = formatChannelSyncResults(channelSync, action);
   if (!channelSync?.length || result.allOk) return;
   if (typeof window === "undefined") return;
-  window.alert(buildSyncFailureMessage(result.intro, result.failureLines));
+  window.alert(buildSyncFailureMessage(result.intro, result.failureLines, action));
 }
 
 /** Always show a result after List on {store} — success, failure, or empty. */

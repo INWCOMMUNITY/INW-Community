@@ -425,24 +425,28 @@ export async function DELETE(req: NextRequest) {
       console.warn("[bulk-delete] snapshot creation failed:", e);
     }
 
-    // Remove from remote channels first
+    // Remove from remote channels first. Keep items whose marketplace delete failed
+    // so we do not drop the INW link while the listing is still live.
     const { deleteStoreItemFromChannels } = await import("@/lib/channels/outbound");
     const channelResults: { itemId: string; provider: string; ok: boolean; error?: string }[] = [];
-    
+    const deletableIds: string[] = [];
+
     for (const itemId of ownedIds) {
       try {
         const results = await deleteStoreItemFromChannels(itemId);
+        let failed = false;
         for (const r of results) {
           channelResults.push({ itemId, provider: r.provider, ok: r.ok, error: r.error });
+          if (!r.ok) failed = true;
         }
+        if (!failed) deletableIds.push(itemId);
       } catch (e) {
         console.warn(`[bulk-delete] channel unpublish failed for ${itemId}:`, e);
       }
     }
 
-    // Delete the items locally
     const deleteResult = await prisma.storeItem.deleteMany({
-      where: { id: { in: ownedIds } },
+      where: { id: { in: deletableIds } },
     });
 
     return NextResponse.json({

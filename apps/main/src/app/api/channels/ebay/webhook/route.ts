@@ -215,11 +215,12 @@ export async function POST(req: NextRequest) {
         result,
       });
     } else {
-      // ItemRevised / ItemListed: do not GetItem here. Cron is the content source of
-      // truth. A lagged GetItem between :05 jobs was rewriting titles (TEST 2 ping-pong).
-      console.log("[ebay webhook] skipping content GetItem; cron owns listing content", {
+      const result = await refreshEbayListingByItemId(ctx.accessToken, itemId);
+      console.log("[ebay webhook] ItemRevised GetItem", {
         itemId,
         eventType,
+        updated: result?.updated ?? false,
+        changes: result?.changes ?? [],
       });
     }
 
