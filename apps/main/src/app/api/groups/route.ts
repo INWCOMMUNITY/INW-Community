@@ -66,6 +66,18 @@ export async function GET(req: NextRequest) {
     membershipMap = Object.fromEntries(memberships.map((m) => [m.groupId, { role: m.role }]));
   }
 
+  const categoryRows = await prisma.group.groupBy({
+    by: ["category"],
+    where: {
+      category: { not: null },
+      ...(bannedGroupIds.length ? { id: { notIn: bannedGroupIds } } : {}),
+    },
+  });
+  const categories = categoryRows
+    .map((row) => row.category)
+    .filter((c): c is string => Boolean(c && c.trim()))
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+
   const groupsWithMembership = groups.map((g) => {
     const membership = membershipMap[g.id];
     return {
@@ -80,7 +92,7 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ groups: groupsWithMembership });
+  return NextResponse.json({ groups: groupsWithMembership, categories });
 }
 
 /**

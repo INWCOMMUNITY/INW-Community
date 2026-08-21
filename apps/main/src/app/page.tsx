@@ -7,10 +7,34 @@ import { IonIcon } from "@/components/IonIcon";
 import { getAndroidPlayStoreUrl, getIosAppStoreUrl } from "@/lib/app-store-urls";
 
 const EXPLORE_CARDS = [
-  { href: "/storefront", title: "Shop", description: "Browse goods from local sellers.", icon: "bag-outline" },
-  { href: "/calendars", title: "Events", description: "See what is happening around the Inland Northwest.", icon: "calendar-outline" },
-  { href: "/my-community/feed", title: "Community Feed", description: "Posts, groups, and neighbors nearby.", icon: "people-outline" },
-  { href: "/support-local", title: "Local Businesses", description: "Find shops and services in your area.", icon: "storefront-outline" },
+  {
+    href: "/storefront",
+    title: "Online Local Shopping",
+    description:
+      "Browse and purchase goods from local sellers. When you purchase goods from NWC, our sellers make a higher commission than other 3rd party selling platforms.",
+    icon: "bag-outline",
+  },
+  {
+    href: "/calendars",
+    title: "Events",
+    description:
+      "See what's happening in the Inland Northwest. Have an upcoming event to share? Post it on our community calendar!",
+    icon: "calendar-outline",
+  },
+  {
+    href: "/my-community/feed",
+    title: "Community Feed",
+    description:
+      "Create posts, add friends, join community groups. Engage with the community over common interests without a mind-numbing algorithm or constant advertisement in your face.",
+    icon: "people-outline",
+  },
+  {
+    href: "/support-local",
+    title: "Local Businesses",
+    description:
+      "Find reputable local businesses and services in your area. Save your favorite local businesses to come back to!",
+    icon: "storefront-outline",
+  },
 ] as const;
 
 const CALENDARS = [
@@ -84,7 +108,7 @@ export default async function HomePage() {
             className="text-2xl md:text-3xl font-bold mb-8 text-center"
             style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
           >
-            What you can do here
+            Navigate Northwest Community
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {EXPLORE_CARDS.map((card) => (
@@ -172,7 +196,7 @@ export default async function HomePage() {
       </section>
 
       <section className="w-full py-12 px-6 md:px-8" style={{ backgroundColor: "var(--color-primary)", color: "#fff" }}>
-        <div className="max-w-[var(--max-width)] mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10 items-start">
+        <div className="max-w-[var(--max-width)] mx-auto grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,420px)] gap-4 md:gap-6 items-center">
           <div className="text-center md:text-left min-w-0">
             <h2
               className="text-2xl md:text-3xl font-bold mb-3 !text-white"
@@ -186,24 +210,30 @@ export default async function HomePage() {
             <div className="flex gap-3 flex-wrap justify-center md:justify-start">
               <Link
                 href="/support-local"
-                className="btn inline-block whitespace-nowrap !bg-white !text-[var(--color-primary)]"
+                className="btn inline-block whitespace-nowrap !bg-[var(--color-section-alt)] !text-[var(--color-earth)] hover:!bg-[#f5d9a8] hover:!text-[var(--color-earth)]"
               >
                 Support Local
               </Link>
-              <Link href="/about" className="btn-outline inline-block whitespace-nowrap !border-white !text-white hover:!bg-white/15 hover:!text-white">
+              <Link
+                href="/about"
+                className="btn inline-block whitespace-nowrap !bg-[var(--color-section-alt)] !text-[var(--color-earth)] hover:!bg-[#f5d9a8] hover:!text-[var(--color-earth)]"
+              >
                 About NWC
               </Link>
-              <Link href="/storefront" className="btn-outline inline-block whitespace-nowrap !border-white !text-white hover:!bg-white/15 hover:!text-white">
+              <Link
+                href="/storefront"
+                className="btn inline-block whitespace-nowrap !bg-[var(--color-section-alt)] !text-[var(--color-earth)] hover:!bg-[#f5d9a8] hover:!text-[var(--color-earth)]"
+              >
                 NWC Storefront
               </Link>
             </div>
             <p className="mt-4">
-              <Link href="/business-hub" className="underline-offset-2 hover:underline text-white/90">
-                Own a local business? Join the directory
+              <Link href="/support-nwc" className="underline-offset-2 hover:underline text-white/90">
+                Are you a local business owner, seller, or artisan? Team up with NWC!
               </Link>
             </p>
           </div>
-          <div className="flex justify-center md:justify-end w-full min-w-0">
+          <div className="flex justify-center md:justify-start w-full min-w-0">
             <Image
               src={communityGoalsUrl}
               alt="Northwest Community"
@@ -234,7 +264,7 @@ export default async function HomePage() {
               Subscribe to Northwest Community
             </h2>
             <p className="mb-8 leading-relaxed" style={{ color: "var(--color-heading)" }}>
-              The site stays free. Subscribers get local coupons, giveaways, and other benefits that support shopping local. If you want to tag along, we appreciate it.
+              This site stays free. Subscribers get local coupons, giveaways, and other benefits that support shopping local. Subscribing also supports this business, which we always appreciate. Subscribing at this moment in time does not come with a lot of benefits, but stay tuned for what it will be!
             </p>
             <div className="flex flex-wrap justify-center gap-4">
               <Link href="/support-nwc" className="btn whitespace-nowrap">Subscribe</Link>

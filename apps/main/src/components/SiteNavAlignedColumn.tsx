@@ -61,11 +61,11 @@ export function MyCommunityNavGrid({
 }) {
   return (
     <div className={`${SITE_PAGE_SHELL} overflow-visible`}>
-      {/* Desktop — grid matches header columns; sidebar absolute so it does not steal feed width */}
+      {/* Layout `children` must mount once — duplicating the App Router slot crashes with parallelRouterKey null. */}
       <div
-        className={`hidden md:grid md:grid-cols-[auto_1fr_auto] md:items-stretch w-full overflow-visible ${className}`}
+        className={`flex flex-col gap-8 md:grid md:grid-cols-[auto_1fr_auto] md:items-stretch md:gap-0 w-full overflow-visible ${className}`}
       >
-        <div className="relative shrink-0 self-stretch min-h-0 overflow-visible">
+        <div className="relative hidden md:block shrink-0 self-stretch min-h-0 overflow-visible">
           <SiteHeaderLogoSpacer />
           <div className={`absolute inset-y-0 left-0 -translate-x-6 ${SITE_HEADER_SIDE} z-20 pointer-events-auto`}>
             <div className="sticky w-full" style={SITE_STICKY_BELOW_HEADER}>
@@ -73,8 +73,8 @@ export function MyCommunityNavGrid({
             </div>
           </div>
         </div>
-        <div className={`${SITE_NAV_BAND} min-w-0 self-stretch w-full`}>{children}</div>
-        <div className="relative shrink-0 self-stretch min-h-0">
+        <div className="min-w-0 w-full self-stretch md:px-[0.5in]">{children}</div>
+        <div className="relative hidden md:block shrink-0 self-stretch min-h-0">
           <SiteHeaderActionsSpacer />
           {asideRight ? (
             <div className="absolute inset-y-0 right-0 w-[11.5rem] max-w-[calc(100vw-2rem)] pointer-events-auto">
@@ -87,12 +87,8 @@ export function MyCommunityNavGrid({
             </div>
           ) : null}
         </div>
-      </div>
-      {/* Mobile */}
-      <div className={`flex flex-col gap-8 w-full md:hidden ${className}`}>
-        <div className="order-1 min-w-0 w-full">{children}</div>
-        <div className="order-2 w-full max-w-sm">{sidebar}</div>
-        {asideRight ? <div className="order-3 w-full">{asideRight}</div> : null}
+        <div className="w-full max-w-sm md:hidden">{sidebar}</div>
+        {asideRight ? <div className="w-full md:hidden">{asideRight}</div> : null}
       </div>
     </div>
   );

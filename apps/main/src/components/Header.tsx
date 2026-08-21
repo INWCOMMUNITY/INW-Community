@@ -310,9 +310,16 @@ export function Header() {
                         </Link>
                       )}
                       <Link
-                        href="/my-community/messages"
+                        href="/my-community/notifications"
                         prefetch={false}
                         className={`block py-2.5 px-5 hover:bg-[var(--color-section-alt)] text-sm sm:text-base text-gray-700 text-center ${isAdmin ? "" : "rounded-t-md"}`}
+                      >
+                        Notifications
+                      </Link>
+                      <Link
+                        href="/my-community/messages"
+                        prefetch={false}
+                        className="block py-2.5 px-5 hover:bg-[var(--color-section-alt)] text-sm sm:text-base text-gray-700 text-center"
                       >
                         Messages ({unreadMessages})
                       </Link>
@@ -473,6 +480,17 @@ export function Header() {
                 </Link>
               );
             })}
+            {session?.user && (
+              <Link
+                href="/my-community/notifications"
+                prefetch={false}
+                onClick={() => setMobileOpen(false)}
+                className={`w-full rounded-lg overflow-hidden text-left block py-3 px-4 font-medium ${pathname?.startsWith("/my-community/notifications") ? "text-white hover:bg-opacity-90" : "text-gray-800 hover:bg-[var(--color-section-alt)]"}`}
+                style={pathname?.startsWith("/my-community/notifications") ? { backgroundColor: "var(--color-primary)" } : undefined}
+              >
+                Notifications
+              </Link>
+            )}
             {session?.user && (
               <Link
                 href="/my-community/messages"

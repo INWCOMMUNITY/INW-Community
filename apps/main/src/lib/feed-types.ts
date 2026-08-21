@@ -120,6 +120,25 @@ export async function fetchFeedPage(
   };
 }
 
+export async function fetchGroupFeedPage(
+  slug: string,
+  cursor?: string
+): Promise<{ posts: CommunityFeedPost[]; nextCursor: string | null }> {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  const res = await fetch(`/api/groups/${encodeURIComponent(slug)}/feed?${params}`, {
+    credentials: "include",
+  });
+  if (!res.ok) {
+    throw new Error("Could not load posts");
+  }
+  const data = await res.json().catch(() => ({}));
+  return {
+    posts: Array.isArray(data.posts) ? data.posts : [],
+    nextCursor: typeof data.nextCursor === "string" ? data.nextCursor : null,
+  };
+}
+
 export async function fetchNewPostCountSince(since: string): Promise<number> {
   const res = await fetch(`/api/feed/count-since?since=${encodeURIComponent(since)}`, {
     credentials: "include",

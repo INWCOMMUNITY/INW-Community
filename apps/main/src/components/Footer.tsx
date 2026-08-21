@@ -23,17 +23,17 @@ export function Footer() {
             <ul className="space-y-2">
               <li><Link href="/about" className="hover:underline" style={{ color: FOOTER_INK }}>About</Link></li>
               <li><Link href="/calendars" className="hover:underline" style={{ color: FOOTER_INK }}>Calendars</Link></li>
-              <li><Link href="/support-local" className="hover:underline" style={{ color: FOOTER_INK }}>Local businesses</Link></li>
+              <li><Link href="/support-local" className="hover:underline" style={{ color: FOOTER_INK }}>Local Businesses</Link></li>
               <li><Link href="/storefront" className="hover:underline" style={{ color: FOOTER_INK }}>Storefront</Link></li>
               <li><Link href="/coupons" className="hover:underline" style={{ color: FOOTER_INK }}>Coupons</Link></li>
             </ul>
           </div>
           <div>
             <h2 className="text-base font-semibold mb-3" style={{ fontFamily: "var(--font-heading)", color: FOOTER_INK }}>
-              Get involved
+              Get Involved
             </h2>
             <ul className="space-y-2">
-              <li><Link href="/download-app" className="hover:underline" style={{ color: FOOTER_INK }}>Download app</Link></li>
+              <li><Link href="/download-app" className="hover:underline" style={{ color: FOOTER_INK }}>Download App</Link></li>
               <li><Link href="/support-nwc" className="hover:underline" style={{ color: FOOTER_INK }}>Subscribe</Link></li>
               <li><NWCRequestsTrigger variant="link" /></li>
             </ul>

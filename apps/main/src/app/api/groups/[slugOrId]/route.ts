@@ -41,7 +41,19 @@ export async function GET(
     return NextResponse.json({ error: "Group not found" }, { status: 404 });
   }
 
-  const feedPostCount = await prisma.post.count({ where: { groupId: group.id } });
+  const [feedPostCount, memberPreviewRows] = await Promise.all([
+    prisma.post.count({ where: { groupId: group.id } }),
+    prisma.groupMember.findMany({
+      where: { groupId: group.id },
+      take: 5,
+      orderBy: { joinedAt: "asc" },
+      select: {
+        member: {
+          select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true },
+        },
+      },
+    }),
+  ]);
 
   const session = await getSessionForApi(req);
   let isMember = false;
@@ -72,6 +84,7 @@ export async function GET(
     },
     isMember,
     memberRole,
+    membersPreview: memberPreviewRows.map((row) => row.member),
   });
 }
 

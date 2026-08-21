@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { BackToProfileLink } from "@/components/BackToProfileLink";
+import { IonIcon } from "@/components/IonIcon";
 
 type ActivityNav =
   | { kind: "friend_request"; requestId: string }
@@ -99,49 +99,47 @@ function formatWhen(iso: string): string {
   });
 }
 
-const CATEGORY_LABEL: Record<string, string> = {
-  social: "Social",
-  content: "Feed & blog",
-  events: "Events",
-  groups: "Groups",
-  commerce: "Orders & offers",
-};
-
-/** Visual cue aligned with mobile: heart = like, speech = comment, etc. */
-function activityGlyph(type: string): string {
+function activityIcon(type: string): string {
   switch (type) {
     case "post_like":
     case "comment_like":
     case "post_likes_group":
     case "comment_likes_group":
-      return "♥";
+      return "heart";
     case "post_comment":
     case "blog_comment":
-      return "💬";
+      return "chatbubbles-outline";
     case "direct_message":
-      return "✉";
+      return "mail-outline";
     case "friend_request":
-      return "＋";
+      return "person-add-outline";
     default:
-      return "·";
+      break;
   }
+  return "notifications-outline";
 }
 
 function displayMemberName(m: { firstName: string; lastName: string }): string {
   return [m.firstName, m.lastName].filter(Boolean).join(" ").trim() || "Someone";
 }
 
+const nameLinkClass = "font-semibold hover:underline relative z-10 pointer-events-auto";
+const nameLinkStyle = { color: "var(--color-heading)" } as const;
+const bodyTextStyle = { color: "var(--color-text)" } as const;
+
 function MemberNameLink({
   id,
-  className,
   children,
 }: {
   id: string;
-  className?: string;
   children: ReactNode;
 }) {
   return (
-    <Link href={`/members/${id}`} className={className ?? "font-semibold text-emerald-800 hover:underline"}>
+    <Link
+      href={`/members/${id}`}
+      className={nameLinkClass}
+      style={nameLinkStyle}
+    >
       {children}
     </Link>
   );
@@ -156,6 +154,22 @@ function resolveMemberPhotoUrl(path: string | null | undefined): string | undefi
   return path.startsWith("/") ? path : `/${path}`;
 }
 
+function memberInitials(m: { firstName: string; lastName: string }): string {
+  return `${m.firstName?.[0] ?? ""}${m.lastName?.[0] ?? ""}`.toUpperCase() || "?";
+}
+
+function TypeIcon({ name }: { name: string }) {
+  return (
+    <span
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+      style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
+      aria-hidden
+    >
+      <IonIcon name={name} size={20} />
+    </span>
+  );
+}
+
 function ListingThumb({ url }: { url: string | null | undefined }) {
   const src = url ? resolveMemberPhotoUrl(url) : undefined;
   if (!src) return null;
@@ -163,133 +177,85 @@ function ListingThumb({ url }: { url: string | null | undefined }) {
     <img
       src={src}
       alt=""
-      className="h-12 w-12 shrink-0 rounded-lg object-cover ring-1 ring-gray-200 bg-gray-100"
-      width={48}
-      height={48}
+      className="h-10 w-10 shrink-0 rounded-lg object-cover"
+      style={{ border: "1px solid var(--color-primary)" }}
+      width={40}
+      height={40}
     />
   );
 }
 
-function memberInitials(m: { firstName: string; lastName: string }): string {
-  return `${m.firstName?.[0] ?? ""}${m.lastName?.[0] ?? ""}`.toUpperCase() || "?";
-}
-
-function PyramidFace({
-  m,
-  z,
-  className,
-}: {
-  m: ActivityLikeGroupMember;
-  z: number;
-  className?: string;
-}) {
-  const src = resolveMemberPhotoUrl(m.profilePhotoUrl);
+function OverlapAvatars({ members }: { members: ActivityLikeGroupMember[] }) {
+  const shown = members.slice(0, 3);
   return (
-    <Link
-      href={`/members/${m.id}`}
-      className={`relative shrink-0 rounded-full ring-2 ring-white bg-gray-200 shadow-sm ${className ?? ""}`}
-      style={{ zIndex: z }}
-      aria-label={`${displayMemberName(m)} profile`}
-    >
-      {src ? (
-        <img src={src} alt="" className="h-[34px] w-[34px] rounded-full object-cover" width={34} height={34} />
-      ) : (
-        <div className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-gray-200 text-[11px] font-bold text-gray-600">
-          {memberInitials(m)}
-        </div>
-      )}
-    </Link>
+    <div className="flex h-10 shrink-0 items-center" aria-label="People who liked this">
+      {shown.map((m, i) => {
+        const src = resolveMemberPhotoUrl(m.profilePhotoUrl);
+        return (
+          <Link
+            key={m.id}
+            href={`/members/${m.id}`}
+            className="relative z-10 pointer-events-auto h-10 w-10 shrink-0 overflow-hidden rounded-full ring-2 ring-white"
+            style={{ marginLeft: i === 0 ? 0 : -12, zIndex: shown.length - i }}
+            aria-label={`${displayMemberName(m)} profile`}
+          >
+            {src ? (
+              <img src={src} alt="" className="h-full w-full object-cover" width={40} height={40} />
+            ) : (
+              <span
+                className="flex h-full w-full items-center justify-center text-[11px] font-bold"
+                style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-heading)" }}
+              >
+                {memberInitials(m)}
+              </span>
+            )}
+          </Link>
+        );
+      })}
+    </div>
   );
 }
 
-/** Apex = most recent liker; base row = older likers (2-wide pyramid). */
-function PyramidLikeAvatars({ members }: { members: ActivityLikeGroupMember[] }) {
-  if (members.length === 1) {
-    return (
-      <div
-        className="flex w-[76px] shrink-0 items-center justify-center"
-        aria-label="People who liked this"
-      >
-        <PyramidFace m={members[0]} z={1} />
-      </div>
-    );
+function RowLead({ item }: { item: ActivityItem }) {
+  if (resolveMemberPhotoUrl(item.storeItemPhotoUrl ?? undefined)) {
+    return <ListingThumb url={item.storeItemPhotoUrl} />;
   }
-  if (members.length >= 3) {
-    const [top, leftBase, rightBase] = [members[0], members[1], members[2]];
-    return (
-      <div
-        className="flex w-[76px] shrink-0 flex-col items-center justify-end pb-0.5"
-        aria-label="People who liked this"
-      >
-        <div className="relative z-[5] -mb-3 flex justify-center">
-          <PyramidFace m={top} z={50} />
-        </div>
-        <div className="relative z-[1] flex flex-row justify-center">
-          <PyramidFace m={leftBase} z={30} className="-mr-[11px]" />
-          <PyramidFace m={rightBase} z={40} />
-        </div>
-      </div>
-    );
+  if (item.likeGroup && item.likeGroup.members.length > 0) {
+    return <OverlapAvatars members={item.likeGroup.members} />;
   }
-  if (members.length === 2) {
-    return (
-      <div
-        className="flex w-[76px] shrink-0 flex-col items-center justify-end pb-0.5"
-        aria-label="People who liked this"
-      >
-        <div className="relative z-[4] -mb-3 flex justify-center">
-          <PyramidFace m={members[0]} z={40} />
-        </div>
-        <div className="relative z-[1] flex justify-center">
-          <PyramidFace m={members[1]} z={20} />
-        </div>
-      </div>
-    );
-  }
-  return null;
+  return <TypeIcon name={activityIcon(item.type)} />;
 }
 
 function renderAggregatedLikeTitleWeb(item: ActivityItem): ReactNode {
   const g = item.likeGroup!;
-  const suffix =
-    g.target === "post" ? " liked your post" : " liked your comment";
+  const suffix = g.target === "post" ? " liked your post" : " liked your comment";
   const { members, othersCount } = g;
 
-  if (othersCount > 0) {
+  const nameNodes = members.map((m, i) => {
+    const last = i === members.length - 1 && othersCount === 0;
+    let sep: ReactNode = null;
+    if (i > 0) {
+      if (last && members.length === 2) sep = <span style={bodyTextStyle}> and </span>;
+      else if (last) sep = <span style={bodyTextStyle}>, and </span>;
+      else sep = <span style={bodyTextStyle}>, </span>;
+    }
     return (
-      <span className="inline-flex flex-wrap items-baseline gap-x-0">
-        {members.map((m, i) => (
-          <Fragment key={m.id}>
-            {i > 0 ? <span className="text-gray-900">, </span> : null}
-            <MemberNameLink id={m.id}>{displayMemberName(m)}</MemberNameLink>
-          </Fragment>
-        ))}
-        <span className="text-gray-900">
-          {`, and ${othersCount} ${othersCount === 1 ? "other" : "others"}${suffix}`}
-        </span>
-      </span>
+      <Fragment key={m.id}>
+        {sep}
+        <MemberNameLink id={m.id}>{displayMemberName(m)}</MemberNameLink>
+      </Fragment>
     );
-  }
-
-  if (members.length === 2) {
-    return (
-      <span className="inline-flex flex-wrap items-baseline gap-x-1">
-        <MemberNameLink id={members[0].id}>{displayMemberName(members[0])}</MemberNameLink>
-        <span className="text-gray-900"> and </span>
-        <MemberNameLink id={members[1].id}>{displayMemberName(members[1])}</MemberNameLink>
-        <span className="text-gray-900">{suffix}</span>
-      </span>
-    );
-  }
+  });
 
   return (
-    <span className="inline-flex flex-wrap items-baseline gap-x-0">
-      <MemberNameLink id={members[0].id}>{displayMemberName(members[0])}</MemberNameLink>
-      <span className="text-gray-900">, </span>
-      <MemberNameLink id={members[1].id}>{displayMemberName(members[1])}</MemberNameLink>
-      <span className="text-gray-900">, and </span>
-      <MemberNameLink id={members[2].id}>{displayMemberName(members[2])}</MemberNameLink>
-      <span className="text-gray-900">{suffix}</span>
+    <span className="inline">
+      {nameNodes}
+      {othersCount > 0 ? (
+        <span style={bodyTextStyle}>
+          {`, and ${othersCount} ${othersCount === 1 ? "other" : "others"}`}
+        </span>
+      ) : null}
+      <span style={bodyTextStyle}>{suffix}</span>
     </span>
   );
 }
@@ -311,7 +277,7 @@ function renderTitleWithLeadingMemberWeb(
       return (
         <>
           <MemberNameLink id={actor.id}>{name}</MemberNameLink>
-          <span className="text-gray-900">{rest}</span>
+          <span style={bodyTextStyle}>{rest}</span>
         </>
       );
     }
@@ -331,7 +297,7 @@ function renderSubtitleWithLeadingMemberWeb(
     return (
       <>
         <MemberNameLink id={actor.id}>{name}</MemberNameLink>
-        <span className="text-gray-600">: {rest}</span>
+        <span>: {rest}</span>
       </>
     );
   }
@@ -339,7 +305,7 @@ function renderSubtitleWithLeadingMemberWeb(
     return (
       <>
         <MemberNameLink id={actor.id}>{name}</MemberNameLink>
-        <span className="text-gray-600"> wants to connect</span>
+        <span> wants to connect</span>
       </>
     );
   }
@@ -349,7 +315,7 @@ function renderSubtitleWithLeadingMemberWeb(
     return (
       <>
         <MemberNameLink id={actor.id}>{name}</MemberNameLink>
-        <span className="text-gray-600"> invited you to {rest}</span>
+        <span> invited you to {rest}</span>
       </>
     );
   }
@@ -359,7 +325,7 @@ function renderSubtitleWithLeadingMemberWeb(
     return (
       <>
         <MemberNameLink id={actor.id}>{name}</MemberNameLink>
-        <span className="text-gray-600"> invited you to help admin {rest}</span>
+        <span> invited you to help admin {rest}</span>
       </>
     );
   }
@@ -369,18 +335,42 @@ function renderSubtitleWithLeadingMemberWeb(
     return (
       <>
         <MemberNameLink id={actor.id}>{name}</MemberNameLink>
-        <span className="text-gray-600"> · {rest}</span>
+        <span> · {rest}</span>
       </>
     );
   }
   return subtitle;
 }
 
+type ActivityTab = "community" | "shopping";
+
+function RowTime({ iso }: { iso: string }) {
+  return (
+    <time className="text-xs shrink-0 whitespace-nowrap opacity-70" style={bodyTextStyle} dateTime={iso}>
+      {formatWhen(iso)}
+    </time>
+  );
+}
+
 export default function NotificationsPage() {
   const [items, setItems] = useState<ActivityItem[]>([]);
+  const [tab, setTab] = useState<ActivityTab>("community");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [friendBusyId, setFriendBusyId] = useState<string | null>(null);
+
+  const filteredItems = useMemo(
+    () =>
+      tab === "shopping"
+        ? items.filter((i) => i.category === "commerce")
+        : items.filter((i) => i.category !== "commerce"),
+    [items, tab]
+  );
+
+  const emptyMessage =
+    tab === "shopping"
+      ? "No shopping activity yet. Orders, sales, and resale updates show up here."
+      : "No community activity yet. Likes, comments, invites, and messages show up here.";
 
   const load = useCallback(() => {
     setError(null);
@@ -431,32 +421,70 @@ export default function NotificationsPage() {
 
   return (
     <div className="w-full max-w-2xl">
-      <BackToProfileLink />
-      <div className="mt-4 mb-2 flex flex-row items-start justify-between gap-4">
-        <h1 className="text-2xl font-bold text-gray-900">Activity</h1>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h1
+          className="text-2xl font-bold"
+          style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
+        >
+          Notifications
+        </h1>
         <Link
           href="/my-community/messages"
-          className="shrink-0 rounded-lg border border-emerald-800/20 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 flex items-center gap-2"
+          className="inline-flex shrink-0 items-center gap-2 rounded-full border-2 px-3 py-1.5 text-sm font-semibold hover:opacity-90"
+          style={{
+            borderColor: "var(--color-primary)",
+            color: "var(--color-heading)",
+            backgroundColor: "var(--color-section-alt)",
+          }}
           aria-label="Inbox"
         >
-          <span className="text-lg leading-none" aria-hidden>
-            ✉
-          </span>
+          <IonIcon name="mail-outline" size={18} />
           Inbox
         </Link>
       </div>
-      <p className="text-gray-600 text-sm mb-6">
-        Friend requests, messages, comments, likes, invites, orders, and resale offers — in one place.
-      </p>
+      <div className="mb-6 flex flex-wrap gap-2" role="tablist" aria-label="Notification categories">
+        {(
+          [
+            { id: "community" as const, label: "Community" },
+            { id: "shopping" as const, label: "Shopping" },
+          ] as const
+        ).map((t) => {
+          const active = tab === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setTab(t.id)}
+              className={`rounded-full px-3 py-1.5 text-sm font-semibold border ${
+                active ? "text-white border-transparent" : "hover:bg-[var(--color-section-alt)]"
+              }`}
+              style={
+                active
+                  ? { backgroundColor: "var(--color-primary)" }
+                  : { color: "var(--color-heading)", borderColor: "var(--color-earth)" }
+              }
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
 
       {loading ? (
-        <p className="text-gray-500">Loading…</p>
+        <p className="text-sm" style={bodyTextStyle}>
+          Loading…
+        </p>
       ) : error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 text-red-800 px-4 py-3 text-sm">
+        <div
+          className="rounded-xl border px-4 py-3 text-sm"
+          style={{ borderColor: "var(--color-primary)", color: "var(--color-heading)" }}
+        >
           {error}
           <button
             type="button"
-            className="block mt-2 text-red-900 underline font-medium"
+            className="block mt-2 font-semibold underline"
             onClick={() => {
               setLoading(true);
               load();
@@ -465,42 +493,53 @@ export default function NotificationsPage() {
             Retry
           </button>
         </div>
-      ) : items.length === 0 ? (
-        <p className="text-gray-600 text-sm leading-relaxed">
-          No recent activity yet. When people interact with your posts, orders, or invites, it will show up here.
+      ) : filteredItems.length === 0 ? (
+        <p className="text-sm leading-relaxed" style={bodyTextStyle}>
+          {emptyMessage}
         </p>
       ) : (
-        <ul className="divide-y divide-gray-200 border border-gray-200 rounded-lg overflow-hidden bg-white">
-          {items.map((item) => {
+        <ul
+          className="overflow-hidden rounded-xl border-2 bg-white [&>li+li]:border-t [&>li+li]:border-[var(--color-section-alt)]"
+          style={{ borderColor: "var(--color-primary)" }}
+        >
+          {filteredItems.map((item) => {
             const href = webHrefFromNav(item.nav);
-            const cat = CATEGORY_LABEL[item.category] ?? item.category;
-            const glyph = activityGlyph(item.type);
             const friendRequestId =
               item.nav.kind === "friend_request" ? item.nav.requestId : null;
             const busy = friendRequestId != null && friendBusyId === friendRequestId;
+            const title = item.likeGroup
+              ? renderAggregatedLikeTitleWeb(item)
+              : renderTitleWithLeadingMemberWeb(item.title, item.actor);
+            const subtitle = item.subtitle
+              ? renderSubtitleWithLeadingMemberWeb(item.subtitle, item.actor)
+              : null;
 
             if (friendRequestId != null) {
               return (
-                <li key={item.id} className="px-4 py-3 hover:bg-gray-50 transition-colors">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <span className="text-xs font-semibold uppercase tracking-wide text-emerald-800/80 inline-flex items-center gap-1">
-                        <span className="text-base leading-none" aria-hidden>
-                          {glyph}
-                        </span>
-                        {cat}
-                      </span>
-                      <p className="font-semibold text-gray-900 mt-0.5">{item.title}</p>
-                      {item.subtitle ? (
-                        <p className="text-sm text-gray-600 mt-1 line-clamp-2">
-                          {renderSubtitleWithLeadingMemberWeb(item.subtitle, item.actor)}
+                <li
+                  key={item.id}
+                  className="relative px-4 py-3 transition-colors hover:bg-[var(--color-section-alt)]"
+                >
+                  <div className="flex items-start gap-3">
+                    <RowLead item={item} />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold leading-snug" style={nameLinkStyle}>
+                        {item.title}
+                      </p>
+                      {subtitle ? (
+                        <p className="text-sm mt-0.5 line-clamp-2" style={bodyTextStyle}>
+                          {subtitle}
                         </p>
                       ) : null}
+                      <p className="mt-0.5">
+                        <RowTime iso={item.occurredAt} />
+                      </p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           type="button"
                           disabled={busy}
-                          className="rounded-lg bg-emerald-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+                          className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+                          style={{ backgroundColor: "var(--color-primary)" }}
                           onClick={() => respondFriendRequest(friendRequestId, "accepted")}
                         >
                           {busy ? "…" : "Approve"}
@@ -508,69 +547,50 @@ export default function NotificationsPage() {
                         <button
                           type="button"
                           disabled={busy}
-                          className="rounded-lg border border-emerald-800 px-3 py-1.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-50 disabled:opacity-50"
+                          className="rounded-lg border-2 px-3 py-1.5 text-sm font-semibold disabled:opacity-50"
+                          style={{
+                            borderColor: "var(--color-earth)",
+                            color: "var(--color-earth)",
+                          }}
                           onClick={() => respondFriendRequest(friendRequestId, "declined")}
                         >
                           {busy ? "…" : "Decline"}
                         </button>
                       </div>
                     </div>
-                    <time
-                      className="text-xs text-gray-500 shrink-0 whitespace-nowrap"
-                      dateTime={item.occurredAt}
-                    >
-                      {formatWhen(item.occurredAt)}
-                    </time>
                   </div>
                 </li>
               );
             }
 
-            const inner = (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 flex-1 gap-3">
-                    {resolveMemberPhotoUrl(item.storeItemPhotoUrl ?? undefined) ? (
-                      <ListingThumb url={item.storeItemPhotoUrl} />
-                    ) : item.likeGroup && item.likeGroup.members.length > 0 ? (
-                      <PyramidLikeAvatars members={item.likeGroup.members} />
-                    ) : null}
-                    <div className="min-w-0 flex-1">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-emerald-800/80 inline-flex items-center gap-1">
-                        <span className="text-base leading-none" aria-hidden>
-                          {glyph}
-                        </span>
-                        {cat}
-                      </span>
-                      <p className="font-semibold text-gray-900 mt-0.5">
-                        {item.likeGroup
-                          ? renderAggregatedLikeTitleWeb(item)
-                          : renderTitleWithLeadingMemberWeb(item.title, item.actor)}
-                      </p>
-                      {item.subtitle ? (
-                        <p className="text-sm text-gray-600 mt-1 line-clamp-2">
-                          {renderSubtitleWithLeadingMemberWeb(item.subtitle, item.actor)}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                  <time className="text-xs text-gray-500 shrink-0 whitespace-nowrap" dateTime={item.occurredAt}>
-                    {formatWhen(item.occurredAt)}
-                  </time>
-                </div>
+            return (
+              <li
+                key={item.id}
+                className="relative transition-colors hover:bg-[var(--color-section-alt)]"
+              >
                 {href ? (
                   <Link
                     href={href}
-                    className="text-sm text-emerald-700 font-medium mt-2 inline-block hover:underline"
-                  >
-                    View →
-                  </Link>
+                    className="absolute inset-0 z-0"
+                    aria-label={typeof item.title === "string" ? item.title : "Open notification"}
+                  />
                 ) : null}
-              </>
-            );
-            return (
-              <li key={item.id} className="px-4 py-3 hover:bg-gray-50 transition-colors">
-                <div className="px-1">{inner}</div>
+                <div className="relative z-[1] flex items-start gap-3 px-4 py-3 pointer-events-none">
+                  <RowLead item={item} />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold leading-snug" style={{ color: "var(--color-heading)" }}>
+                      {title}
+                    </p>
+                    {subtitle ? (
+                      <p className="text-sm mt-0.5 line-clamp-2" style={bodyTextStyle}>
+                        {subtitle}
+                      </p>
+                    ) : null}
+                    <p className="mt-0.5">
+                      <RowTime iso={item.occurredAt} />
+                    </p>
+                  </div>
+                </div>
               </li>
             );
           })}

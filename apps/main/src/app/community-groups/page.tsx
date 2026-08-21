@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { CreateGroupCallout } from "@/components/CreateGroupCallout";
+import { titleCaseCategory } from "@/lib/group-labels";
 
 interface Group {
   id: string;
@@ -19,6 +20,7 @@ interface Group {
 export default function CommunityGroupsPage() {
   const { data: session } = useSession();
   const [groups, setGroups] = useState<Group[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
@@ -44,7 +46,10 @@ export default function CommunityGroupsPage() {
     if (category) params.set("category", category);
     fetch(`/api/groups?${params}`)
       .then((r) => r.json())
-      .then((data) => setGroups(data.groups ?? []))
+      .then((data) => {
+        setGroups(data.groups ?? []);
+        if (Array.isArray(data.categories)) setCategories(data.categories);
+      })
       .catch(() => setGroups([]))
       .finally(() => setLoading(false));
   }, [q, category]);
@@ -75,7 +80,7 @@ export default function CommunityGroupsPage() {
         <p className="text-gray-600 mb-6 max-w-xl mx-auto">
           Join or create groups to connect with others in your community. Share updates, photos, and more.
         </p>
-        <div className="flex flex-wrap gap-4 mb-6 justify-center">
+        <div className="mb-6 flex flex-col items-center gap-3">
           <input
             type="search"
             placeholder="Search groups…"
@@ -84,13 +89,40 @@ export default function CommunityGroupsPage() {
             className="border rounded px-3 py-2 w-64 max-w-full"
             style={{ letterSpacing: "normal" }}
           />
-          <input
-            type="text"
-            placeholder="Category filter"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="border rounded px-3 py-2 w-64 max-w-full"
-          />
+          {categories.length > 0 ? (
+            <div className="flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCategory("")}
+                className={`rounded-full px-3 py-1.5 text-sm font-semibold border ${
+                  category === ""
+                    ? "text-white border-transparent"
+                    : "text-gray-700 border-gray-200 hover:bg-gray-50"
+                }`}
+                style={category === "" ? { backgroundColor: "var(--color-primary)" } : undefined}
+              >
+                All
+              </button>
+              {categories.map((c) => {
+                const active = category === c;
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setCategory(active ? "" : c)}
+                    className={`rounded-full px-3 py-1.5 text-sm font-semibold border ${
+                      active
+                        ? "text-white border-transparent"
+                        : "text-gray-700 border-gray-200 hover:bg-gray-50"
+                    }`}
+                    style={active ? { backgroundColor: "var(--color-primary)" } : undefined}
+                  >
+                    {titleCaseCategory(c)}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
         {loading ? (
           <p className="text-gray-500">Loading…</p>
@@ -102,29 +134,35 @@ export default function CommunityGroupsPage() {
               <Link
                 key={g.id}
                 href={`/community-groups/${g.slug}`}
-                className="block border rounded-lg overflow-hidden hover:shadow-md transition w-full"
+                className="block border rounded-lg overflow-hidden hover:shadow-md transition w-full no-underline text-left"
+                style={{ borderColor: "var(--color-earth)", color: "var(--color-heading)" }}
               >
                 {g.coverImageUrl ? (
                   <img
                     src={g.coverImageUrl}
                     alt=""
-                    className="w-full h-32 object-cover"
+                    className="w-full aspect-[5/2] object-cover object-center"
                   />
                 ) : (
-                  <div className="w-full h-32 bg-gray-200 flex items-center justify-center text-4xl text-gray-400">
-                    #
-                  </div>
+                  <div
+                    className="w-full aspect-[5/2]"
+                    style={{ backgroundColor: "var(--color-section-alt)" }}
+                    aria-hidden
+                  />
                 )}
                 <div className="p-4">
-                  <h2 className="font-bold text-lg">{g.name}</h2>
-                  {g.category && (
-                    <span className="text-xs text-gray-500 uppercase">{g.category}</span>
-                  )}
-                  {g.description && (
+                  <h2 className="font-bold text-lg" style={{ fontFamily: "var(--font-heading)" }}>
+                    {g.name}
+                  </h2>
+                  {g.category ? (
+                    <span className="text-xs text-gray-500">{titleCaseCategory(g.category)}</span>
+                  ) : null}
+                  {g.description ? (
                     <p className="text-gray-600 text-sm mt-1 line-clamp-2">{g.description}</p>
-                  )}
+                  ) : null}
                   <p className="text-gray-500 text-sm mt-2">
-                    {g._count.members} member{g._count.members !== 1 ? "s" : ""} · {g._count.groupPosts} post{g._count.groupPosts !== 1 ? "s" : ""}
+                    {g._count.members} member{g._count.members !== 1 ? "s" : ""} · {g._count.groupPosts}{" "}
+                    post{g._count.groupPosts !== 1 ? "s" : ""}
                   </p>
                 </div>
               </Link>
