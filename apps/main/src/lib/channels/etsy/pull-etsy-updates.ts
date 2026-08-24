@@ -14,6 +14,7 @@ import { syncContentHash, syncMetaHash } from "../sync-baseline";
 import { variantsFingerprint } from "../variant-sync";
 import { updateStoreItemOnChannels } from "../outbound";
 import { channelSyncSucceeded, syncInventoryToChannels } from "../sync-inventory";
+import { inboundContentFanoutKind } from "../listing-link-flags";
 import { setEtsyConnectionContext } from "./client";
 
 type ConnectionRow = {
@@ -178,8 +179,16 @@ export async function refreshEtsyListingByStoreItemId(
     });
 
     console.log("[etsy] refresh completed", { storeItemId, changes });
-    if (refreshedItem.quantity === 0 || refreshedItem.status === "sold_out") {
+    const soldOut =
+      refreshedItem.quantity === 0 || refreshedItem.status === "sold_out";
+    const fanout = inboundContentFanoutKind({
+      contentChange: pulledContent,
+      soldOut,
+    });
+    if (fanout === "inventory") {
       await syncInventoryToChannels(storeItemId, { skipProviders: ["etsy"] });
+    } else if (fanout === "content") {
+      await updateStoreItemOnChannels(storeItemId, { skipProviders: ["etsy"] });
     }
     return {
       storeItemId,

@@ -28,6 +28,14 @@ vi.mock("./client", () => ({
   setEtsyConnectionContext,
 }));
 
+const { markEtsyLinkInactiveAfterSellOut } = vi.hoisted(() => ({
+  markEtsyLinkInactiveAfterSellOut: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../listing-link-flags", () => ({
+  markEtsyLinkInactiveAfterSellOut,
+}));
+
 import { applyEtsySellOutInventory, deactivateEtsyListingForSellOut, endEtsyListing } from "./end-listing";
 
 describe("endEtsyListing", () => {
@@ -161,5 +169,19 @@ describe("applyEtsySellOutInventory", () => {
     });
     expect(etsyForm).toHaveBeenCalledTimes(2);
     expect(etsyDelete).not.toHaveBeenCalled();
+  });
+
+  it("persists inactive baseline after a successful deactivate", async () => {
+    etsyGet.mockResolvedValueOnce({ state: "inactive", quantity: 1 });
+    await applyEtsySellOutInventory({
+      accessToken: "t",
+      shopId: "1",
+      listingId: "9",
+      connectionId: "conn-1",
+    });
+    expect(markEtsyLinkInactiveAfterSellOut).toHaveBeenCalledWith({
+      connectionId: "conn-1",
+      listingId: "9",
+    });
   });
 });

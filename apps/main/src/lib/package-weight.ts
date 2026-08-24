@@ -27,6 +27,28 @@ export function totalOzToLbsOz(totalOz: number): { lbs: number; oz: number } {
   return { lbs, oz };
 }
 
+/** When oz is 16 or more, carry whole pounds into the lbs field (e.g. 100 oz → 6 lb 4 oz). */
+export function carryOuncesIntoPounds(lbs: number, oz: number): { lbs: number; oz: number } {
+  return totalOzToLbsOz(lbsOzToTotalOz(lbs, oz));
+}
+
+/** Form-string version. Leaves the fields alone while oz is still below 16. */
+export function carryOuncesIntoPoundsFields(
+  weightLbs: string,
+  weightOz: string
+): { weightLbs: string; weightOz: string } {
+  const lbs = Number(weightLbs.trim() === "" ? 0 : weightLbs);
+  const oz = Number(weightOz);
+  if (!Number.isFinite(lbs) || !Number.isFinite(oz) || oz < 16) {
+    return { weightLbs, weightOz };
+  }
+  const next = carryOuncesIntoPounds(lbs, oz);
+  return {
+    weightLbs: String(next.lbs),
+    weightOz: String(next.oz),
+  };
+}
+
 export function convertWeightToOz(value: number, unit?: string | null): number {
   if (!Number.isFinite(value)) return 0;
   const u = String(unit ?? "oz").trim().toLowerCase();

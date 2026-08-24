@@ -6,6 +6,7 @@ import { EBAY_TITLE_MAX } from "@/lib/listing-limits";
 import { listingDescriptionForHtmlChannel } from "../rich-description";
 import type { SyncStoreItem } from "../types";
 import { syncContentHash, type StoreItemContentFieldFlags, type SyncContentInput } from "../sync-baseline";
+import { isEbayEndedListingError } from "../error-classifier";
 import { ebayGetInventoryItem } from "./client";
 import { extractEbayInventoryAspects } from "./listing-origin";
 import { enrichInventoryProductAspectsForPush, prepareLiveAspectsForInventoryPut, passthroughUsePreparedInventoryAspects, type CategoryAspectSchema } from "./aspect-prep";
@@ -284,6 +285,14 @@ export function formatPassthroughFieldSyncSummary(results: PassthroughFieldResul
 
 export function passthroughSyncHasFailures(results: PassthroughFieldResult[]): boolean {
   return results.some((r) => !r.ok);
+}
+
+export function passthroughEndedQuantityOnly(results: PassthroughFieldResult[]): boolean {
+  const failures = results.filter((r) => !r.ok);
+  if (failures.length === 0) return false;
+  return failures.every(
+    (r) => r.field === "quantity" && isEbayEndedListingError(r.error ?? "")
+  );
 }
 
 export function passthroughAllAttemptedFailed(results: PassthroughFieldResult[]): boolean {

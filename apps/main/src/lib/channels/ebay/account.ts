@@ -26,7 +26,42 @@ export type EbayConnectionConfig = {
   merchantLocationEnabled: boolean;
 };
 
-type FulfillmentPolicy = { fulfillmentPolicyId?: string; name?: string };
+type EbayAmount = { value?: string | number; currency?: string };
+type EbayShippingService = {
+  freeShipping?: boolean;
+  shippingCost?: EbayAmount;
+};
+type EbayFulfillmentShippingOption = {
+  costType?: string;
+  optionType?: string;
+  shippingServices?: EbayShippingService[];
+};
+type FulfillmentPolicy = {
+  fulfillmentPolicyId?: string;
+  name?: string;
+  shippingOptions?: EbayFulfillmentShippingOption[];
+};
+
+/** Domestic flat-rate service cost. Calculated/freight policies return null. 0 = free. */
+export function ebayPolicyDomesticShippingCostCents(
+  policy: Pick<FulfillmentPolicy, "shippingOptions">
+): number | null {
+  const options = policy.shippingOptions ?? [];
+  if (options.length === 0) return null;
+  const domestic =
+    options.find((o) => String(o.optionType ?? "").toUpperCase() === "DOMESTIC") ?? options[0];
+  const costType = String(domestic?.costType ?? "").toUpperCase();
+  if (costType === "CALCULATED" || costType === "FREIGHT") return null;
+  const svc = domestic?.shippingServices?.[0];
+  if (!svc) return null;
+  if (svc.freeShipping) return 0;
+  const raw = svc.shippingCost?.value;
+  if (raw == null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : Number(String(raw).replace(/[^0-9.]/g, ""));
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.round(n * 100));
+}
+
 type PaymentPolicy = { paymentPolicyId?: string; name?: string };
 type ReturnPolicy = { returnPolicyId?: string; name?: string };
 type MerchantLocation = {
@@ -252,7 +287,12 @@ export function readEbayConfig(config: Record<string, unknown> | null): EbayConn
   };
 }
 
-export type EbayPolicyOption = { id: string; name: string; enabled?: boolean };
+export type EbayPolicyOption = {
+  id: string;
+  name: string;
+  enabled?: boolean;
+  shippingCostCents?: number | null;
+};
 
 export type EbayPolicyOptions = {
   fulfillmentPolicies: EbayPolicyOption[];
@@ -274,7 +314,11 @@ export async function fetchEbayPolicyOptions(accessToken: string): Promise<EbayP
   return {
     fulfillmentPolicies: (fulfillment?.fulfillmentPolicies ?? [])
       .filter((p) => p.fulfillmentPolicyId)
-      .map((p) => ({ id: p.fulfillmentPolicyId!, name: p.name ?? p.fulfillmentPolicyId! })),
+      .map((p) => ({
+        id: p.fulfillmentPolicyId!,
+        name: p.name ?? p.fulfillmentPolicyId!,
+        shippingCostCents: ebayPolicyDomesticShippingCostCents(p),
+      })),
     paymentPolicies: (payment?.paymentPolicies ?? [])
       .filter((p) => p.paymentPolicyId)
       .map((p) => ({ id: p.paymentPolicyId!, name: p.name ?? p.paymentPolicyId! })),

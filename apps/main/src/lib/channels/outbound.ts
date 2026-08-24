@@ -28,6 +28,8 @@ import {
 import { logSyncEvent } from "./sync-log";
 import { formatProviderPublishError, validateForProvider } from "./validate-publish";
 import { shouldPushSoldOutInventoryOnly } from "./sold-out-guard";
+import { isEbayEndedListingError } from "./error-classifier";
+import { persistEbayListingEnded, shouldSkipEndedEbayOutbound } from "./listing-link-flags";
 /** Content fingerprint so we can skip no-op pushes on update. */
 function contentHash(item: SyncStoreItem): string {
   return storeItemContentHash(item);
@@ -377,6 +379,10 @@ export async function updateStoreItemOnChannels(
   for (const link of links) {
     const provider = link.provider as ChannelProvider;
     if (skip.has(provider)) continue;
+    if (shouldSkipEndedEbayOutbound(provider, link.conflictDetails)) {
+      results.push({ provider, ok: true });
+      continue;
+    }
 
     const varFp = variantsFingerprint(item.variants);
     const inventoryDrift =
@@ -439,6 +445,11 @@ export async function updateStoreItemOnChannels(
         results.push({ provider, ok: true });
       } catch (e) {
         const msg = describeChannelSyncError(provider, e);
+        if (provider === "ebay" && isEbayEndedListingError(e)) {
+          await persistEbayListingEnded(link.id, link.conflictDetails);
+          results.push({ provider, ok: true });
+          continue;
+        }
         await prisma.channelListingLink
           .update({
             where: { id: link.id },
@@ -506,6 +517,11 @@ export async function updateStoreItemOnChannels(
       await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);
       results.push({ provider, ok: true });
     } catch (e) {
+      if (provider === "ebay" && isEbayEndedListingError(e)) {
+        await persistEbayListingEnded(link.id, link.conflictDetails);
+        results.push({ provider, ok: true });
+        continue;
+      }
       const msg = describeChannelSyncError(provider, e);
       console.error("[channels] updateListing failed", {
         storeItemId,

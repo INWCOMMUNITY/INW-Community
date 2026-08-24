@@ -13,8 +13,8 @@ interface HeartSaveButtonProps {
   iconSize?: number;
   /** Icon-only (default) or full-width labeled button (business page). */
   variant?: "icon" | "full";
-  /** Full-width pill color. Default matches primary action pills. */
-  tone?: "primary" | "earth" | "tan";
+  /** Full-width pill color. Ghost is a quieter rectangular control for buy boxes. */
+  tone?: "primary" | "earth" | "tan" | "ghost";
   saveLabel?: string;
   savedLabel?: string;
   onSavedChange?: (saved: boolean) => void;
@@ -95,9 +95,22 @@ export function HeartSaveButton({
   }
 
   const isFull = variant === "full";
+  const isGhost = isFull && tone === "ghost";
   const toneClass =
-    tone === "tan" ? "btn-pill-tan" : tone === "earth" ? "btn-pill-earth" : "btn-pill-primary";
-  const fullIconClass = tone === "tan" ? "text-[var(--color-earth)]" : "text-white";
+    tone === "tan"
+      ? "btn-pill-tan"
+      : tone === "earth"
+        ? "btn-pill-earth"
+        : tone === "ghost"
+          ? "btn-pill-ghost"
+          : "btn-pill-primary";
+  const fullIconClass = isGhost
+    ? saved
+      ? "text-red-500"
+      : "text-[var(--color-primary)]"
+    : tone === "tan"
+      ? "text-[var(--color-earth)]"
+      : "text-white";
   const defaultIconClass = saved ? (isFull ? fullIconClass : "text-red-500") : isFull ? fullIconClass : "text-gray-500";
   const iconClass = iconClassName || defaultIconClass;
   const icon = (
@@ -110,7 +123,12 @@ export function HeartSaveButton({
     </span>
   );
   const label = saved ? savedLabel : saveLabel;
-  const fullBtnClass = `action-pill ${toneClass} action-pill-lg w-full min-w-0 flex-1 py-3 text-[15px] font-bold shadow-sm disabled:opacity-50 ${className}`;
+  const fullBtnClass =
+    tone === "tan"
+      ? `inline-flex w-full items-center justify-center gap-2.5 rounded bg-[var(--color-section-alt)] px-4 py-2.5 font-medium text-[var(--color-earth)] transition-colors hover:bg-[#f5d9a8] disabled:opacity-50 ${className}`
+      : isGhost
+        ? `inline-flex w-full items-center justify-center gap-2.5 rounded border border-[#E6D8B7] bg-transparent px-4 py-2.5 font-medium text-[var(--color-heading)] transition-colors hover:bg-white disabled:opacity-50 ${className}`
+        : `action-pill ${toneClass} action-pill-lg w-full min-w-0 flex-1 py-3 text-[15px] font-bold shadow-sm disabled:opacity-50 ${className}`;
   const iconBtnClass = `inline-flex items-center justify-center w-9 h-9 rounded-full hover:bg-gray-100 transition disabled:opacity-50 ${className}`;
 
   if (status !== "authenticated") {

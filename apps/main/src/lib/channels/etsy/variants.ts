@@ -436,6 +436,11 @@ export async function syncEtsyListingInventoryFromInw(
   absoluteQuantity: number,
   defaultReadinessStateId: number | null
 ): Promise<void> {
+  if (absoluteQuantity <= 0) {
+    throw new Error(
+      `Cannot PUT Etsy inventory with quantity 0 for listing ${listingId}; deactivate instead`
+    );
+  }
   const inv = await etsyGet<EtsyInventory>(
     accessToken,
     `/listings/${listingId}/inventory`
@@ -446,10 +451,6 @@ export async function syncEtsyListingInventoryFromInw(
 
   if (!perOption) {
     if (products.length === 0) return;
-    if (absoluteQuantity <= 0) {
-      console.warn("[etsy] skipping inventory PUT — absolute quantity is 0", { listingId });
-      return;
-    }
     const rebuilt = products.map((p) =>
       rebuildExistingProduct(
         p,

@@ -9,6 +9,8 @@ import { describeChannelSyncError } from "./ebay/errors";
 import { enqueueRetry } from "./retry-queue";
 import { logSyncEvent } from "./sync-log";
 import { captureChannelSyncError } from "./sentry";
+import { isEbayEndedListingError } from "./error-classifier";
+import { persistEbayListingEnded, shouldSkipEndedEbayOutbound } from "./listing-link-flags";
 import {
   isCircuitOpen,
   recordCircuitSuccess,
@@ -63,6 +65,10 @@ export async function syncInventoryToChannels(
   for (const link of links) {
     const provider = link.provider as ChannelProvider;
     if (skip.has(provider)) continue;
+    if (shouldSkipEndedEbayOutbound(provider, link.conflictDetails)) {
+      results.push({ provider, ok: true });
+      continue;
+    }
 
     hydrateCircuitFromConfig(link.connectionId, link.connection.config);
     if (isCircuitOpen(link.connectionId)) {
@@ -155,6 +161,11 @@ export async function syncInventoryToChannels(
       
       results.push({ provider, ok: true });
     } catch (e) {
+      if (link.provider === "ebay" && isEbayEndedListingError(e)) {
+        await persistEbayListingEnded(link.id, link.conflictDetails);
+        results.push({ provider, ok: true });
+        continue;
+      }
       const msg = describeChannelSyncError(provider, e);
       console.error("[channels] inventory sync failed", {
         storeItemId,

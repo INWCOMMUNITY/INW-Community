@@ -56,9 +56,65 @@ export type EbayItemDetails = {
   priceCents: number | null;
   variants: EbayVariationAxis[] | null;
   listingEnded: boolean;
+  /** Units sold on this listing (SellingStatus.QuantitySold). */
+  quantitySold: number;
   acceptOffers: boolean;
   minOfferCents: number | null;
 };
+
+/**
+ * Listing-level stock from GetItem. Strips Variations so a size with qty 0 cannot
+ * be read as the whole listing being sold out.
+ */
+export function parseEbayGetItemAvailability(itemXml: string): {
+  quantity: number | null;
+  quantitySold: number;
+  listingEnded: boolean;
+} {
+  const listingXml = itemXml.replace(/<Variations[\s\S]*?<\/Variations>/gi, "");
+  const sellingStatus = tag(listingXml, "SellingStatus") ?? "";
+  const listingStatus = (
+    tag(sellingStatus, "ListingStatus") ??
+    tag(listingXml, "ListingStatus") ??
+    ""
+  ).toLowerCase();
+  const quantitySold = Math.max(0, Number(tag(sellingStatus, "QuantitySold") ?? "0") || 0);
+  const availableStr = tag(listingXml, "QuantityAvailable");
+  const listedStr = tag(listingXml, "Quantity") ?? "";
+  let quantity: number | null = null;
+  if (availableStr != null && availableStr !== "") {
+    quantity = Math.max(0, Number(availableStr) || 0);
+  } else if (listedStr !== "") {
+    const listed = Number(listedStr);
+    if (Number.isFinite(listed)) quantity = Math.max(0, listed - quantitySold);
+  }
+  return {
+    quantity,
+    quantitySold,
+    listingEnded: listingStatus === "completed" || listingStatus === "ended",
+  };
+}
+
+/** Seller ended / expired with no units sold — do not move INW to the Sold tab. */
+export function ebayGetItemMarksInwSoldOut(details: {
+  listingEnded: boolean;
+  quantitySold: number;
+  quantity: number | null;
+}): boolean {
+  if (!details.listingEnded) return false;
+  if (details.quantitySold <= 0) return false;
+  if (details.quantity != null && details.quantity > 0) return false;
+  return true;
+}
+
+/** Active listing reporting 0 available with no QuantitySold — likely a bad parse, not a sale. */
+export function ebayGetItemQtyIsUnsoldZero(details: {
+  listingEnded: boolean;
+  quantitySold: number;
+  quantity: number | null;
+}): boolean {
+  return details.quantity === 0 && details.quantitySold <= 0 && !details.listingEnded;
+}
 
 const TRADING_ENDPOINT = `${EBAY_API_BASE}/ws/api.dll`;
 
@@ -239,9 +295,7 @@ export async function fetchEbayItemDetails(
     }
 
     const sellingStatus = tag(item, "SellingStatus") ?? "";
-    const listingStatus = (tag(sellingStatus, "ListingStatus") ?? tag(item, "ListingStatus") ?? "").toLowerCase();
-    const qtyStr = tag(item, "QuantityAvailable") ?? tag(item, "Quantity") ?? "";
-    const quantity = qtyStr !== "" ? Math.max(0, Number(qtyStr) || 0) : null;
+    const availability = parseEbayGetItemAvailability(item);
     const priceStr =
       tag(sellingStatus, "CurrentPrice") ?? tag(item, "StartPrice") ?? tag(item, "CurrentPrice") ?? "";
     const priceCents = priceStr !== "" ? Math.round((Number(priceStr) || 0) * 100) : null;
@@ -258,10 +312,11 @@ export async function fetchEbayItemDetails(
       condition: parseEbayCondition(item),
       conditionEnum: parseEbayConditionEnum(item),
       remoteUpdatedAt: parseEbayLastModified(item) ?? parseEbayLastModified(xml),
-      quantity,
+      quantity: availability.quantity,
+      quantitySold: availability.quantitySold,
       priceCents,
       variants: parseEbayVariations(item),
-      listingEnded: listingStatus === "completed" || listingStatus === "ended",
+      listingEnded: availability.listingEnded,
       acceptOffers: bestOffer.acceptOffers,
       minOfferCents: bestOffer.minOfferCents,
     };

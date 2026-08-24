@@ -4,10 +4,23 @@ import type { ChannelConnectionContext, ChannelProvider } from "./types";
 
 export type ShippingProfileCache = Record<string, string>;
 
+export type EtsyMoney = {
+  amount?: number;
+  divisor?: number;
+  currency_code?: string;
+};
+
+export type EtsyShippingProfileDestination = {
+  destination_country_iso?: string | null;
+  destination_region?: string | null;
+  primary_cost?: EtsyMoney | number | string | null;
+};
+
 export type EtsyShopShippingProfile = {
   shipping_profile_id: number;
   title?: string | null;
   profile_type?: string | null;
+  shipping_profile_destinations?: EtsyShippingProfileDestination[] | null;
 };
 
 function shippingMap(config: Record<string, unknown> | null): ShippingProfileCache {
@@ -64,6 +77,55 @@ export async function fetchEtsyShippingProfiles(
     `/shops/${shopId}/shipping-profiles`
   );
   return res.results ?? [];
+}
+
+export async function fetchEtsyShippingProfileDestinations(
+  accessToken: string,
+  shopId: string,
+  shippingProfileId: number | string
+): Promise<EtsyShippingProfileDestination[]> {
+  try {
+    const res = await etsyGet<{ results?: EtsyShippingProfileDestination[] }>(
+      accessToken,
+      `/shops/${shopId}/shipping-profiles/${shippingProfileId}/destinations`
+    );
+    return res.results ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Convert an Etsy money object (or dollar string) to integer cents. */
+export function etsyMoneyToCents(money: unknown): number | null {
+  if (money == null) return null;
+  if (typeof money === "number" || typeof money === "string") {
+    return parseFlatShippingCents(money);
+  }
+  if (typeof money === "object") {
+    const amount = Number((money as { amount?: unknown }).amount);
+    if (!Number.isFinite(amount)) return null;
+    const divisor = Number((money as { divisor?: unknown }).divisor);
+    const d = Number.isFinite(divisor) && divisor > 0 ? divisor : 100;
+    return Math.max(0, Math.round((amount / d) * 100));
+  }
+  return null;
+}
+
+function isUsDestination(dest: EtsyShippingProfileDestination): boolean {
+  const country = String(dest.destination_country_iso ?? "").toUpperCase();
+  const region = String(dest.destination_region ?? "").toUpperCase();
+  return country === "US" || region === "US" || region === "UNITED_STATES";
+}
+
+/** First US (or otherwise first) destination primary cost. Calculated profiles have no flat rate. */
+export function etsyProfileDomesticShippingCostCents(
+  profile: EtsyShopShippingProfile
+): number | null {
+  if (isEtsyCalculatedShippingProfile(profile)) return null;
+  const dests = profile.shipping_profile_destinations ?? [];
+  if (dests.length === 0) return null;
+  const picked = dests.find(isUsDestination) ?? dests[0];
+  return etsyMoneyToCents(picked?.primary_cost);
 }
 
 async function tryCreateInwFlatProfile(

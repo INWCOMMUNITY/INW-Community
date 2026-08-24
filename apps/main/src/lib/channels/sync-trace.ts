@@ -66,6 +66,7 @@ export type SyncTraceContext = {
   errorCategory: string | null;
   errorMessage: string | null;
   rootCause: string | null;
+  completed?: boolean;
 };
 
 // ============================================================================
@@ -183,6 +184,8 @@ export async function completeTrace(
   status: "success" | "failed" | "validation_failed",
   error?: unknown
 ): Promise<void> {
+  if (ctx.completed) return;
+  ctx.completed = true;
   ctx.status = status;
 
   if (status !== "success" && error) {
@@ -442,8 +445,13 @@ function persistTrace(ctx: SyncTraceContext, durationMs: number): void {
     durationMs,
   };
 
+  const { id, ...update } = data;
   prisma.syncTrace
-    .create({ data })
+    .upsert({
+      where: { id },
+      create: data,
+      update,
+    })
     .catch((e) => {
       const msg = String(e);
       console.error("[sync-trace] failed to write", {

@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
           },
           items: {
             include: {
-              storeItem: { select: { id: true, title: true, slug: true, photos: true, listingType: true } },
+              storeItem: { select: { id: true, title: true, slug: true, photos: true, listingType: true, shippingOption: { select: { weightOz: true, lengthIn: true, widthIn: true, heightIn: true } } } },
             },
           },
           shipment: true,
@@ -146,7 +146,7 @@ export async function GET(req: NextRequest) {
           buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
           items: {
             include: {
-              storeItem: { select: { id: true, title: true, slug: true, photos: true, description: true, listingType: true } },
+              storeItem: { select: { id: true, title: true, slug: true, photos: true, description: true, listingType: true, shippingOption: { select: { weightOz: true, lengthIn: true, widthIn: true, heightIn: true } } } },
             },
           },
           shipment: true,

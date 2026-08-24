@@ -4,6 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { reconcileConnectionInboundCatalog } from "@/lib/channels/reconcile-inbound-catalog";
 import { reconcileConnectionInboundMeta } from "@/lib/channels/reconcile-inbound-meta";
 import { setEtsyConnectionContext } from "@/lib/channels/etsy/client";
+import { maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -79,6 +80,7 @@ export async function POST(req: NextRequest) {
   for (const conn of connections) {
     if (conn.provider === "etsy") {
       setEtsyConnectionContext(conn.id);
+      await maybeImportShippingOptionsOnSync(userId, "etsy").catch(() => {});
     }
 
     try {

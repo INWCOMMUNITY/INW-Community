@@ -5,6 +5,10 @@ export type EbayInventoryListRow = {
   sku?: string;
   product?: { title?: string; imageUrls?: string[] };
   availability?: { shipToLocationAvailability?: { quantity?: number } };
+  packageWeightAndSize?: {
+    dimensions?: { height?: number; length?: number; width?: number; unit?: string };
+    weight?: { value?: number; unit?: string };
+  };
 };
 
 type InventoryListResponse = {

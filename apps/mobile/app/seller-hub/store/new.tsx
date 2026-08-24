@@ -111,6 +111,19 @@ interface PoliciesResponse {
   acceptCashForPickupDelivery?: boolean;
 }
 
+type ShippingOptionChoice = {
+  id: string;
+  name: string;
+  source: string;
+  complete: boolean;
+  lengthIn: number | null;
+  widthIn: number | null;
+  heightIn: number | null;
+  weightLbs: number;
+  weightOzRemainder: number;
+  shippingCostCents?: number | null;
+};
+
 const PLACEHOLDER_COLOR = "#888888";
 /** Must stay in sync with server [/api/upload] max size for listing photos. */
 const MAX_LISTING_PHOTO_BYTES = 160 * 1024 * 1024;
@@ -164,6 +177,9 @@ export default function ListItemScreen() {
   const [shippingDisabled, setShippingDisabled] = useState(false);
   const [shippingCostDollars, setShippingCostDollars] = useState("");
   const [shippingFree, setShippingFree] = useState(false);
+  const [shippingOptionId, setShippingOptionId] = useState("");
+  const [shippingOptions, setShippingOptions] = useState<ShippingOptionChoice[]>([]);
+  const [offerFreeShippingOnInw, setOfferFreeShippingOnInw] = useState(false);
   const [shippingPolicy, setShippingPolicy] = useState("");
   const [useSellerProfileShipping, setUseSellerProfileShipping] = useState(true);
   const [localDeliveryAvailable, setLocalDeliveryAvailable] = useState(false);
@@ -276,6 +292,7 @@ export default function ListItemScreen() {
       shippingDisabled,
       shippingCostDollars,
       shippingFree,
+      shippingOptionId,
       shippingPolicy,
       useSellerProfileShipping,
       localDeliveryAvailable,
@@ -304,6 +321,7 @@ export default function ListItemScreen() {
     shippingDisabled,
     shippingCostDollars,
     shippingFree,
+    shippingOptionId,
     shippingPolicy,
     useSellerProfileShipping,
     localDeliveryAvailable,
@@ -336,6 +354,7 @@ export default function ListItemScreen() {
         quantity: number;
         shippingDisabled: boolean;
         shippingCostCents: number | null;
+        shippingOptionId?: string | null;
         shippingPolicy: string | null;
         localDeliveryAvailable: boolean;
         localDeliveryFeeCents: number | null;
@@ -377,6 +396,7 @@ export default function ListItemScreen() {
               : ""
           );
           setShippingFree(item.shippingCostCents === 0);
+          setShippingOptionId(item.shippingOptionId ?? "");
           setShippingPolicy(item.shippingPolicy ?? "");
           setLocalDeliveryAvailable(item.localDeliveryAvailable ?? false);
           setLocalDeliveryFeeDollars(
@@ -440,6 +460,7 @@ export default function ListItemScreen() {
           setShippingDisabled(draft.shippingDisabled);
           setShippingCostDollars(draft.shippingCostDollars);
           setShippingFree(draft.shippingFree);
+          setShippingOptionId(draft.shippingOptionId ?? "");
           setShippingPolicy(draft.shippingPolicy);
           setUseSellerProfileShipping(draft.useSellerProfileShipping);
           setLocalDeliveryAvailable(draft.localDeliveryAvailable);
@@ -565,6 +586,27 @@ export default function ListItemScreen() {
       })
       .catch(() => {})
       .finally(() => setPoliciesLoaded(true));
+    apiGet<{
+      options?: ShippingOptionChoice[];
+      offerFreeShippingOnInw?: boolean;
+    }>("/api/shipping-options")
+      .then((data) => {
+        const options = Array.isArray(data.options) ? data.options : [];
+        setShippingOptions(options);
+        const offerFree = Boolean(data.offerFreeShippingOnInw);
+        setOfferFreeShippingOnInw(offerFree);
+        if (!editId && !draftId) {
+          if (offerFree) setShippingFree(true);
+          if (options.length === 1 && options[0]) {
+            setShippingOptionId(options[0].id);
+            if (!offerFree && options[0].shippingCostCents != null) {
+              setShippingCostDollars((options[0].shippingCostCents / 100).toFixed(2));
+              setShippingFree(options[0].shippingCostCents === 0);
+            }
+          }
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -968,6 +1010,10 @@ export default function ListItemScreen() {
       setError("You must offer at least one form of delivery (shipping, local delivery, or pickup).");
       return;
     }
+    if (!editId && !shippingDisabled && !shippingOptionId) {
+      setError("Choose a shipping option (package size and weight), or create one in Shipping options.");
+      return;
+    }
     if (listingOnEbay && !isEbayImportedListing && !ebayCategoryId.trim()) {
       setError("eBay requires a category — fill in eBay Listing Requirements.");
       return;
@@ -1077,6 +1123,7 @@ export default function ListItemScreen() {
       businessId: businessId || null,
       shippingCostCents:
         !shippingDisabled ? (shippingFree ? 0 : shipCost > 0 ? shipCost : null) : null,
+      shippingOptionId: shippingOptionId || null,
       shippingPolicy:
         shippingDisabled || useSellerProfileShipping
           ? null
@@ -1170,6 +1217,14 @@ export default function ListItemScreen() {
       setShippingCostDollars((template.shippingCostCents / 100).toFixed(2));
       setShippingFree(template.shippingCostCents === 0);
     }
+    if (template.shippingOptionId) setShippingOptionId(template.shippingOptionId);
+    if (template.shippingCostCents == null && template.shippingOptionId) {
+      const fromOption = shippingOptions.find((o) => o.id === template.shippingOptionId);
+      if (fromOption?.shippingCostCents != null) {
+        setShippingCostDollars((fromOption.shippingCostCents / 100).toFixed(2));
+        setShippingFree(fromOption.shippingCostCents === 0);
+      }
+    }
     if (template.localDeliveryFeeCents != null) {
       setLocalDeliveryFeeDollars((template.localDeliveryFeeCents / 100).toFixed(2));
     }
@@ -1207,7 +1262,7 @@ export default function ListItemScreen() {
       setOptionRows(firstAxis.options.map((opt) => ({ value: opt, qty: "0", priceCentsOverride: "" })));
     }
     Alert.alert("Template Applied", `Settings from "${template.name}" have been applied.`);
-  }, [loadCategoryAspects]);
+  }, [loadCategoryAspects, shippingOptions]);
 
   return (
     <View style={styles.screenWrapper}>
@@ -1707,6 +1762,67 @@ export default function ListItemScreen() {
                     Free
                   </Text>
                 </View>
+                <Text style={styles.label}>Shipping option (package)</Text>
+                <View style={styles.bizRow}>
+                  {shippingOptions.map((opt) => (
+                    <Pressable
+                      key={opt.id}
+                      style={[styles.bizBtn, shippingOptionId === opt.id && styles.bizBtnActive]}
+                      onPress={() => {
+                        setShippingOptionId(opt.id);
+                        if (offerFreeShippingOnInw) {
+                          setShippingFree(true);
+                          return;
+                        }
+                        if (opt.shippingCostCents != null) {
+                          setShippingCostDollars((opt.shippingCostCents / 100).toFixed(2));
+                          setShippingFree(opt.shippingCostCents === 0);
+                        }
+                      }}
+                    >
+                      <Text
+                        style={
+                          shippingOptionId === opt.id ? styles.bizBtnTextActive : styles.bizBtnText
+                        }
+                      >
+                      {opt.name}
+                      {opt.shippingCostCents != null
+                        ? opt.shippingCostCents === 0
+                          ? " · Free"
+                          : ` · $${(opt.shippingCostCents / 100).toFixed(2)}`
+                        : ""}
+                      {opt.complete ? "" : " *"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                {(() => {
+                  const selected = shippingOptions.find((o) => o.id === shippingOptionId);
+                  if (!selected) {
+                    return (
+                      <Text style={styles.hint}>
+                        Required for new listings. Used for Shippo labels and eBay/Etsy package size.
+                      </Text>
+                    );
+                  }
+                  return (
+                    <Text style={styles.hint}>
+                      {selected.complete
+                        ? `${selected.lengthIn}×${selected.widthIn}×${selected.heightIn} in · ${selected.weightLbs} lb ${selected.weightOzRemainder} oz`
+                        : "Needs weight and size — labels will use defaults until complete."}
+                      {selected.shippingCostCents != null
+                        ? ` · ${
+                            selected.shippingCostCents === 0
+                              ? "Free"
+                              : `$${(selected.shippingCostCents / 100).toFixed(2)}`
+                          }`
+                        : ""}
+                    </Text>
+                  );
+                })()}
+                <Pressable onPress={() => router.push("/seller-hub/shipping-options" as never)}>
+                  <Text style={styles.link}>Manage shipping options</Text>
+                </Pressable>
                 <Text style={styles.label}>Shipping Policy</Text>
                 <View style={styles.policyRow}>
                   <TextInput
@@ -2135,6 +2251,13 @@ const styles = StyleSheet.create({
   err: { color: "#c62828", marginBottom: 0, fontSize: 14 },
   label: { fontSize: 14, fontWeight: "600", marginBottom: 8, color: "#000" },
   hint: { fontSize: 12, color: defaultTheme.colors.labelMuted, marginBottom: 12 },
+  link: {
+    color: defaultTheme.colors.primary,
+    fontSize: 13,
+    fontWeight: "600",
+    textDecorationLine: "underline",
+    marginBottom: 12,
+  },
   input: {
     borderWidth: 1,
     borderColor: "#ccc",

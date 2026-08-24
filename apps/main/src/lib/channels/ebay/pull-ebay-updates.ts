@@ -1,6 +1,10 @@
 import { prisma, Prisma } from "database";
 import { withConnectionAuthRetry, isChannelAuthError, refreshConnectionToken } from "../connection";
-import { fetchEbayItemDetails } from "./trading";
+import {
+  ebayGetItemMarksInwSoldOut,
+  ebayGetItemQtyIsUnsoldZero,
+  fetchEbayItemDetails,
+} from "./trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
 import { normalizeEbayPhotoUrl } from "./photos";
@@ -11,6 +15,12 @@ import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "../sync-baseli
 import { variantsFingerprint } from "../variant-sync";
 import { applyRemoteListingRemoved } from "../apply-remote-listing";
 import { syncInventoryToChannels } from "../sync-inventory";
+import { updateStoreItemOnChannels } from "../outbound";
+import {
+  inboundContentFanoutKind,
+  persistEbayListingActive,
+  persistEbayListingEnded,
+} from "../listing-link-flags";
 import { ebayAspectsFingerprint } from "./ebay-compat";
 
 type ConnectionRow = {
@@ -286,14 +296,31 @@ export async function refreshEbayListingByItemId(
       : !details.listingEnded;
 
   if (!stillActive || details.listingEnded) {
+    if (!ebayGetItemMarksInwSoldOut(details)) {
+      console.log("[ebay] refreshEbayListingByItemId: listing ended without a sale; keep INW listed", {
+        storeItemId: storeItem.id,
+        legacyItemId,
+        listingEnded: details.listingEnded,
+        quantitySold: details.quantitySold,
+        quantity: details.quantity,
+        forcedInactive: opts?.activeListingIds != null && !stillActive,
+      });
+      await persistEbayListingEnded(link.id, link.conflictDetails);
+      return {
+        storeItemId: storeItem.id,
+        title: storeItem.title,
+        updated: false,
+        changes: [],
+      };
+    }
     await applyRemoteListingRemoved(storeItem.id);
+    await persistEbayListingEnded(link.id, link.conflictDetails);
     await syncInventoryToChannels(storeItem.id, { skipProviders: ["ebay"] });
     await prisma.channelListingLink.update({
       where: { id: link.id },
       data: {
         lastInboundAt: new Date(),
         syncStatus: "synced",
-        syncError: null,
         syncBaselineQty: 0,
         syncBaselineAt: new Date(),
       },
@@ -307,12 +334,14 @@ export async function refreshEbayListingByItemId(
     };
   }
 
+  let conflictDetails: unknown = await persistEbayListingActive(link.id, link.conflictDetails);
+
   if (!opts?.force && applyDecision.action !== "apply") {
     if (applyDecision.action === "pending" && applyDecision.pendingHash) {
       await prisma.channelListingLink.update({
         where: { id: link.id },
         data: {
-          conflictDetails: withEbayPendingInbound(link.conflictDetails, {
+          conflictDetails: withEbayPendingInbound(conflictDetails, {
             hash: applyDecision.pendingHash,
             seenAt: new Date().toISOString(),
           }),
@@ -320,12 +349,12 @@ export async function refreshEbayListingByItemId(
       });
     } else if (
       applyDecision.reason === "matches-inw" &&
-      readEbayPendingInboundHash(link.conflictDetails)
+      readEbayPendingInboundHash(conflictDetails)
     ) {
       await prisma.channelListingLink
         .update({
           where: { id: link.id },
-          data: { conflictDetails: withEbayPendingInbound(link.conflictDetails, null) },
+          data: { conflictDetails: withEbayPendingInbound(conflictDetails, null) },
         })
         .catch(() => {});
     }
@@ -421,9 +450,23 @@ export async function refreshEbayListingByItemId(
   }
 
   if (!opts?.skipQuantity && remoteQty !== storeItem.quantity) {
-    updateData.quantity = remoteQty;
-    updateData.status = remoteQty > 0 ? "active" : "sold_out";
-    changes.push(`quantity (${remoteQty})`);
+    const unsoldZero = ebayGetItemQtyIsUnsoldZero({
+      listingEnded: details.listingEnded,
+      quantitySold: details.quantitySold,
+      quantity: remoteQty,
+    });
+    if (unsoldZero) {
+      console.warn("[ebay] skip GetItem qty 0 on an active listing with no QuantitySold", {
+        storeItemId: storeItem.id,
+        legacyItemId,
+        remoteQty,
+        quantitySold: details.quantitySold,
+      });
+    } else {
+      updateData.quantity = remoteQty;
+      updateData.status = remoteQty > 0 ? "active" : "sold_out";
+      changes.push(`quantity (${remoteQty})`);
+    }
   }
 
   if (!skipContent && details.variants && details.variants.length > 0) {
@@ -434,8 +477,15 @@ export async function refreshEbayListingByItemId(
     );
     // Prefer summed variant qty when variations are present (unless sale path skipped qty).
     if (!opts?.skipQuantity && sum !== storeItem.quantity) {
-      updateData.quantity = sum;
-      updateData.status = sum > 0 ? "active" : "sold_out";
+      const unsoldZero = ebayGetItemQtyIsUnsoldZero({
+        listingEnded: details.listingEnded,
+        quantitySold: details.quantitySold,
+        quantity: sum,
+      });
+      if (!unsoldZero) {
+        updateData.quantity = sum;
+        updateData.status = sum > 0 ? "active" : "sold_out";
+      }
     }
     changes.push("variants");
   }
@@ -492,7 +542,7 @@ export async function refreshEbayListingByItemId(
           lastInboundAt: new Date(),
           syncStatus: "synced",
           syncError: null,
-          conflictDetails: withEbayPendingInbound(link.conflictDetails, null),
+          conflictDetails: withEbayPendingInbound(conflictDetails, null),
         },
       });
     }
@@ -518,8 +568,14 @@ export async function refreshEbayListingByItemId(
     const soldOutOnThisApply =
       (typeof updateData.quantity === "number" && updateData.quantity === 0) ||
       updateData.status === "sold_out";
-    if (soldOutOnThisApply) {
+    const fanout = inboundContentFanoutKind({
+      contentChange,
+      soldOut: soldOutOnThisApply,
+    });
+    if (fanout === "inventory") {
       await syncInventoryToChannels(storeItem.id, { skipProviders: ["ebay"] });
+    } else if (fanout === "content") {
+      await updateStoreItemOnChannels(storeItem.id, { skipProviders: ["ebay"] });
     }
 
     return {

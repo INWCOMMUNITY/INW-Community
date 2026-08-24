@@ -163,6 +163,7 @@ export function SellerHubMobileDrawer({
     { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
     { href: "#stripe", label: "Stripe", icon: "card-outline", action: "stripe" },
     { href: "/seller-hub/shipping-setup", label: "Shipping", icon: "boat-outline" },
+    { href: "/seller-hub/shipping-options", label: "Shipping options", icon: "cube-outline" },
     { href: "/seller-hub/channels", label: "Sync Stores", icon: "sync-outline" },
   ];
 

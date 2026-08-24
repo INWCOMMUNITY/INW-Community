@@ -112,6 +112,7 @@ export function SellerSidebar({ mobile }: { mobile?: boolean } = {}) {
   const sellerProfileItems: NavItem[] = [
     { href: "/seller-hub/store", label: "Storefront Info" },
     { href: "/seller-hub/shipping-setup", label: "Shipping" },
+    { href: "/seller-hub/shipping-options", label: "Shipping options" },
     { href: "/business-hub?from=seller-hub", label: "Business Hub" },
     { href: "/seller-hub/time-away", label: "Time Away" },
   ];

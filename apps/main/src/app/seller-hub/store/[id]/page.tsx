@@ -78,6 +78,7 @@ export default async function EditStoreItemPage({
             status: item.status,
             condition: (item as { condition?: "new" | "used" }).condition ?? "new",
             shippingCostCents: item.shippingCostCents,
+            shippingOptionId: item.shippingOptionId,
             shippingPolicy: item.shippingPolicy,
             localDeliveryAvailable: item.localDeliveryAvailable,
             localDeliveryTerms: (item as { localDeliveryTerms?: string | null }).localDeliveryTerms ?? null,

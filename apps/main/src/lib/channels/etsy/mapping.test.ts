@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildEtsyCreateFields, buildEtsyUpdateFields } from "./mapping";
+import { buildEtsyCreateFields, buildEtsyUpdateFields, etsyListingToSummary } from "./mapping";
 import type { ChannelConnectionContext, SyncStoreItem } from "../types";
 
 function makeItem(overrides: Partial<SyncStoreItem> = {}): SyncStoreItem {
@@ -71,6 +71,45 @@ describe("buildEtsyCreateFields", () => {
       buildEtsyCreateFields(makeItem({ etsyTaxonomyId: null }), conn, { taxonomyId: undefined })
     ).toThrow(/category/i);
   });
+
+  it("sends real package measurements when the listing has a complete shipping option", () => {
+    const fields = buildEtsyCreateFields(
+      makeItem({
+        package: {
+          source: "inw",
+          remoteProfileId: null,
+          weightOz: 24,
+          lengthIn: 10,
+          widthIn: 8,
+          heightIn: 6,
+        },
+      }),
+      conn,
+      { readinessStateId: 42 }
+    );
+    expect(fields.item_weight).toBe("24.0");
+    expect(fields.item_length).toBe("10.0");
+    expect(fields.item_width).toBe("8.0");
+    expect(fields.item_height).toBe("6.0");
+  });
+
+  it("uses the imported Etsy profile id from the shipping option", () => {
+    const fields = buildEtsyCreateFields(
+      makeItem({
+        package: {
+          source: "etsy",
+          remoteProfileId: "555",
+          weightOz: 8,
+          lengthIn: 10,
+          widthIn: 8,
+          heightIn: 6,
+        },
+      }),
+      conn,
+      { readinessStateId: 42 }
+    );
+    expect(fields.shipping_profile_id).toBe(555);
+  });
 });
 
 describe("buildEtsyUpdateFields", () => {
@@ -85,5 +124,44 @@ describe("buildEtsyUpdateFields", () => {
     expect(buildEtsyUpdateFields(makeItem(), { shippingProfileId: "99" }).shipping_profile_id).toBe(
       99
     );
+  });
+
+  it("sends real package measurements on update when the option is complete", () => {
+    const fields = buildEtsyUpdateFields(
+      makeItem({
+        package: {
+          source: "etsy",
+          remoteProfileId: "77",
+          weightOz: 8,
+          lengthIn: 10,
+          widthIn: 8,
+          heightIn: 6,
+        },
+      })
+    );
+    expect(fields.shipping_profile_id).toBe(77);
+    expect(fields.item_weight).toBe("8.0");
+    expect(fields.item_length).toBe("10.0");
+  });
+});
+
+describe("etsyListingToSummary", () => {
+  it("copies shipping profile and package fields from the Etsy listing", () => {
+    const summary = etsyListingToSummary({
+      listing_id: 1,
+      title: "Mug",
+      shipping_profile_id: 77,
+      item_weight: 8,
+      item_weight_unit: "oz",
+      item_length: 10,
+      item_width: 8,
+      item_height: 6,
+      item_dimensions_unit: "in",
+    });
+    expect(summary.remoteShippingProfileId).toBe("77");
+    expect(summary.packageWeightOz).toBe(8);
+    expect(summary.packageLengthIn).toBe(10);
+    expect(summary.packageWidthIn).toBe(8);
+    expect(summary.packageHeightIn).toBe(6);
   });
 });

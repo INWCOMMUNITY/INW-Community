@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  etsyProfileDomesticShippingCostCents,
   isEtsyCalculatedShippingProfile,
   pickPreferredEtsyShippingProfile,
   shippingProfileIdForEtsyUpdate,
@@ -51,5 +52,38 @@ describe("shippingProfileIdForEtsyUpdate", () => {
     expect(
       shippingProfileIdForEtsyUpdate({ shippingProfileId: "2", isCalculated: false })
     ).toBe("2");
+  });
+});
+
+describe("etsyProfileDomesticShippingCostCents", () => {
+  it("reads the US destination primary cost", () => {
+    expect(
+      etsyProfileDomesticShippingCostCents({
+        shipping_profile_id: 3,
+        profile_type: "manual",
+        shipping_profile_destinations: [
+          {
+            destination_country_iso: "CA",
+            primary_cost: { amount: 1200, divisor: 100 },
+          },
+          {
+            destination_country_iso: "US",
+            primary_cost: { amount: 499, divisor: 100 },
+          },
+        ],
+      })
+    ).toBe(499);
+  });
+
+  it("returns null for calculated profiles", () => {
+    expect(
+      etsyProfileDomesticShippingCostCents({
+        shipping_profile_id: 1,
+        profile_type: "calculated",
+        shipping_profile_destinations: [
+          { destination_country_iso: "US", primary_cost: { amount: 0, divisor: 100 } },
+        ],
+      })
+    ).toBeNull();
   });
 });

@@ -10,6 +10,7 @@ import { normalizeAspectsForEbayStorage } from "@/lib/channels/ebay/sync-aspects
 import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { recordSellerListingView } from "@/lib/record-seller-listing-view";
+import { assertMemberShippingOption, getShippingOptionCostCents } from "@/lib/shipping-options";
 
 /** Ensure storefront listing is always fresh so newly listed items appear immediately. */
 export const dynamic = "force-dynamic";
@@ -614,6 +615,7 @@ const bodySchema = z.object({
   status: z.enum(["active", "sold_out", "inactive"]).default("active"),
   condition: z.enum(["new", "used"]).default("new"),
   shippingCostCents: z.coerce.number().int().min(0).nullable().optional(),
+  shippingOptionId: z.string().nullable().optional(),
   shippingPolicy: z.string().nullable().optional(),
   localDeliveryAvailable: z.boolean().default(false),
   localDeliveryFeeCents: z.coerce.number().int().min(0).nullable().optional(),
@@ -674,6 +676,7 @@ export async function POST(req: NextRequest) {
       shippoOAuthTokenEncrypted: true,
       sellerShippingPolicy: true,
       acceptOffersOnResale: true,
+      offerFreeShippingOnInw: true,
     },
   });
 
@@ -824,6 +827,21 @@ export async function POST(req: NextRequest) {
             data.title.trim()
           )
         : normalizedAspects;
+    let shippingOptionId: string | null = null;
+    try {
+      shippingOptionId = await assertMemberShippingOption(userId, data.shippingOptionId);
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Invalid shipping option" }, { status: 400 });
+    }
+    let shippingCostCents: number | null =
+      data.shippingCostCents !== undefined ? data.shippingCostCents : null;
+    if (shippingCostCents == null && !data.shippingDisabled) {
+      if (member?.offerFreeShippingOnInw) {
+        shippingCostCents = 0;
+      } else {
+        shippingCostCents = await getShippingOptionCostCents(userId, shippingOptionId);
+      }
+    }
     const item = await prisma.storeItem.create({
       data: {
         memberId: userId,
@@ -840,7 +858,8 @@ export async function POST(req: NextRequest) {
         aspects: aspectsForStorage.length > 0 ? (aspectsForStorage as object) : Prisma.JsonNull,
         quantity,
         status: data.status,
-        shippingCostCents: data.shippingCostCents ?? null,
+        shippingCostCents,
+        shippingOptionId,
         shippingPolicy: data.shippingPolicy?.trim() || null,
         localDeliveryAvailable: data.localDeliveryAvailable,
         localDeliveryFeeCents: data.localDeliveryFeeCents ?? null,

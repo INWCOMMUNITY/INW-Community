@@ -3,6 +3,12 @@
  * and normalize LABEL_PURCHASED_SUCCESS transaction for our API.
  */
 
+import {
+  combinePackages,
+  isPackageComplete,
+  type PackageMeasurements,
+} from "@/lib/package-weight";
+
 export interface ShippoElementsAddress {
   name: string;
   company?: string;
@@ -57,11 +63,30 @@ export interface OrderForElements {
   localDeliveryDetails?: unknown;
   buyer: { firstName: string; lastName: string; email?: string };
   items: Array<{
-    storeItem: { title: string };
+    storeItem: {
+      title: string;
+      shippingOption?: {
+        weightOz: number | null;
+        lengthIn: number | null;
+        widthIn: number | null;
+        heightIn: number | null;
+      } | null;
+    };
     quantity: number;
     priceCentsAtPurchase: number;
     fulfillmentType?: string | null;
   }>;
+}
+
+export function parcelFromOrderItems(order: OrderForElements): PackageMeasurements | null {
+  const packages = order.items
+    .map((item) => {
+      const pkg = item.storeItem?.shippingOption;
+      if (!pkg || !isPackageComplete(pkg)) return null;
+      return { ...pkg, quantity: item.quantity };
+    })
+    .filter((p): p is PackageMeasurements & { quantity: number } => p != null);
+  return combinePackages(packages);
 }
 
 /** Normalized ship-to line used for Shippo Elements (US). */
@@ -192,15 +217,20 @@ export function buildOrderDetailsFromOrder(
   if (!addr) return null;
   const { street1, street2 } = splitStreet1Street2(addr.street, addr.aptOrSuite);
   const name = `${order.buyer.firstName} ${order.buyer.lastName}`.trim() || "Recipient";
-  let line_items: ShippoElementsLineItem[] = order.items.map((item) => ({
-    title: item.storeItem?.title ?? "Item",
-    quantity: item.quantity,
-    currency: "USD",
-    unit_amount: (item.priceCentsAtPurchase / 100).toFixed(2),
-    unit_weight: "1",
-    weight_unit: "lb",
-    country_of_origin: "US",
-  }));
+  let line_items: ShippoElementsLineItem[] = order.items.map((item) => {
+    const pkg = item.storeItem?.shippingOption;
+    const unitOz =
+      pkg && isPackageComplete(pkg) ? String(pkg.weightOz) : "16";
+    return {
+      title: item.storeItem?.title ?? "Item",
+      quantity: item.quantity,
+      currency: "USD",
+      unit_amount: (item.priceCentsAtPurchase / 100).toFixed(2),
+      unit_weight: unitOz,
+      weight_unit: "oz",
+      country_of_origin: "US",
+    };
+  });
   if (line_items.length === 0) {
     line_items = [
       {
@@ -208,8 +238,8 @@ export function buildOrderDetailsFromOrder(
         quantity: 1,
         currency: "USD",
         unit_amount: "0.00",
-        unit_weight: "1",
-        weight_unit: "lb",
+        unit_weight: "16",
+        weight_unit: "oz",
         country_of_origin: "US",
       },
     ];

@@ -5,6 +5,7 @@ import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access
 import { sendTrackingEmail } from "@/lib/send-tracking-email";
 import {
   normalizeLooseAddressSnapshot,
+  parcelFromOrderItems,
   resolvedShipToToOrderShippingJson,
 } from "@/lib/shippo-elements";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
@@ -81,10 +82,10 @@ export async function POST(req: NextRequest) {
     rateCents,
     shippoTransactionId,
     shippoOrderId,
-    weightOz = DEFAULT_WEIGHT_OZ,
-    lengthIn = DEFAULT_LENGTH_IN,
-    widthIn = DEFAULT_WIDTH_IN,
-    heightIn = DEFAULT_HEIGHT_IN,
+    weightOz: weightOzRaw,
+    lengthIn: lengthInRaw,
+    widthIn: widthInRaw,
+    heightIn: heightInRaw,
     shipToSnapshot: shipToSnapshotRaw,
   } = body;
 
@@ -138,7 +139,20 @@ export async function POST(req: NextRequest) {
     },
     include: {
       shipment: true,
-      items: { select: { fulfillmentType: true } },
+      items: {
+        select: {
+          fulfillmentType: true,
+          quantity: true,
+          storeItem: {
+            select: {
+              title: true,
+              shippingOption: {
+                select: { weightOz: true, lengthIn: true, widthIn: true, heightIn: true },
+              },
+            },
+          },
+        },
+      },
       buyer: { select: { email: true } },
       seller: {
         select: {
@@ -176,6 +190,23 @@ export async function POST(req: NextRequest) {
       );
     }
   }
+
+  const combinedParcel = parcelFromOrderItems({
+    id: primaryOrder.id,
+    shippingAddress: null,
+    buyer: { firstName: "", lastName: "" },
+    items: orders.flatMap((o) =>
+      o.items.map((item) => ({
+        storeItem: { title: item.storeItem?.title ?? "Item", shippingOption: item.storeItem?.shippingOption },
+        quantity: item.quantity,
+        priceCentsAtPurchase: 0,
+      }))
+    ),
+  });
+  const weightOz = weightOzRaw ?? combinedParcel?.weightOz ?? DEFAULT_WEIGHT_OZ;
+  const lengthIn = lengthInRaw ?? combinedParcel?.lengthIn ?? DEFAULT_LENGTH_IN;
+  const widthIn = widthInRaw ?? combinedParcel?.widthIn ?? DEFAULT_WIDTH_IN;
+  const heightIn = heightInRaw ?? combinedParcel?.heightIn ?? DEFAULT_HEIGHT_IN;
 
   const shipData = {
     carrier: carrier.trim(),

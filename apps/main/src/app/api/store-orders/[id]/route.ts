@@ -35,7 +35,19 @@ export async function GET(
         },
         items: {
           include: {
-            storeItem: { select: { id: true, title: true, slug: true, photos: true, description: true, listingType: true } },
+            storeItem: {
+              select: {
+                id: true,
+                title: true,
+                slug: true,
+                photos: true,
+                description: true,
+                listingType: true,
+                shippingOption: {
+                  select: { weightOz: true, lengthIn: true, widthIn: true, heightIn: true },
+                },
+              },
+            },
           },
         },
         shipment: true,

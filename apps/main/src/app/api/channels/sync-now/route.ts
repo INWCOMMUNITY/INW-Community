@@ -11,6 +11,7 @@ import {
   hydrateCircuitFromConfig,
   resetCircuit,
 } from "@/lib/channels/circuit-breaker";
+import { maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -116,6 +117,9 @@ export async function POST(req: NextRequest) {
       // INBOUND: Pull changes from channel to INW
       if (direction === "inbound" || direction === "both") {
         console.log("[sync-now] starting inbound sync", { provider, connectionId: conn.id });
+        if (provider === "ebay" || provider === "etsy") {
+          await maybeImportShippingOptionsOnSync(userId, provider).catch(() => {});
+        }
         const inboundResult = await reconcileConnectionInboundCatalog(conn);
         result.inbound = {
           updated: inboundResult.updated,

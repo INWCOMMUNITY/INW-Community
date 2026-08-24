@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { listingPackageFromRemote, mergeImportedShippingOption } from "./shipping-options";
+import { listingPackageFromRemote, mergeImportedShippingOption, parseShippingCostCentsInput } from "./shipping-options";
 
 describe("mergeImportedShippingOption", () => {
   it("fills empty package fields from the remote and keeps existing measurements", () => {
@@ -13,6 +13,7 @@ describe("mergeImportedShippingOption", () => {
         widthIn: 8,
         heightIn: 6,
         weightOz: 14,
+        shippingCostCents: 599,
       }
     );
     expect(merged.name).toBe("Ground < 1 lb");
@@ -20,6 +21,21 @@ describe("mergeImportedShippingOption", () => {
     expect(merged.widthIn).toBe(8);
     expect(merged.heightIn).toBe(4);
     expect(merged.weightOz).toBe(14);
+    expect(merged.shippingCostCents).toBe(599);
+  });
+
+  it("keeps an existing shipping price including free (0) and ignores empty remote", () => {
+    const keepFree = mergeImportedShippingOption(
+      { name: "Keep", shippingCostCents: 0 },
+      { source: "ebay", remoteProfileId: "p", name: "Ground", shippingCostCents: 799 }
+    );
+    expect(keepFree.shippingCostCents).toBe(0);
+
+    const ignoreEmpty = mergeImportedShippingOption(
+      { name: "Keep", shippingCostCents: 499 },
+      { source: "ebay", remoteProfileId: "p", name: "Ground", shippingCostCents: null }
+    );
+    expect(ignoreEmpty.shippingCostCents).toBe(499);
   });
 });
 
@@ -38,5 +54,27 @@ describe("listingPackageFromRemote", () => {
     expect(hint.weightOz).toBe(16);
     expect(hint.lengthIn).toBe(10);
     expect(hint.widthIn).toBeCloseTo(3.937, 2);
+  });
+
+  it("treats eBay OUNCE/INCH units as ounces and inches", () => {
+    const hint = listingPackageFromRemote({
+      remoteProfileId: "pol-1",
+      weight: 24,
+      weightUnit: "OUNCE",
+      length: 10,
+      width: 8,
+      height: 6,
+      dimensionUnit: "INCH",
+    });
+    expect(hint.weightOz).toBe(24);
+    expect(hint.lengthIn).toBe(10);
+  });
+});
+
+describe("parseShippingCostCentsInput", () => {
+  it("parses dollars and requires a price when asked", () => {
+    expect(parseShippingCostCentsInput({ shippingCostDollars: "5.99" })).toBe(599);
+    expect(parseShippingCostCentsInput({ shippingCostCents: 0 })).toBe(0);
+    expect(() => parseShippingCostCentsInput({ required: true })).toThrow(/required/i);
   });
 });

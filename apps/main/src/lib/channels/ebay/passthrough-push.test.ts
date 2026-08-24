@@ -13,6 +13,7 @@ import {
   formatPushedAspectsSummary,
   needsInventoryPut,
   overlayPassthroughOffer,
+  passthroughEndedQuantityOnly,
   passthroughSyncHasFailures,
   resolvePassthroughChanges,
 } from "./passthrough-push";
@@ -871,5 +872,33 @@ describe("passthrough-push", () => {
     );
     expect(qtyChanged.quantity).toBe(true);
     expect(qtyChanged.content).toBe(false);
+  });
+
+  it("treats ended-item quantity-only failures as recoverable", () => {
+    expect(
+      passthroughEndedQuantityOnly([
+        { field: "title", ok: true },
+        {
+          field: "quantity",
+          ok: false,
+          error: "Not allowed to revise an ended item (#25002)",
+        },
+      ])
+    ).toBe(true);
+    expect(
+      passthroughEndedQuantityOnly([
+        {
+          field: "quantity",
+          ok: false,
+          error: "Availability not found for this SKU (#25604)",
+        },
+      ])
+    ).toBe(true);
+    expect(
+      passthroughEndedQuantityOnly([
+        { field: "quantity", ok: false, error: "Not allowed to revise an ended item" },
+        { field: "title", ok: false, error: "title failed" },
+      ])
+    ).toBe(false);
   });
 });

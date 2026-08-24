@@ -26,6 +26,10 @@ import { refreshEbayListingByItemId } from "./ebay/pull-ebay-updates";
 import { fetchEbayItemDetails } from "./ebay/trading";
 import { logSyncEvent } from "./sync-log";
 import { shouldBlockSoldOutQtyRecovery } from "./sold-out-guard";
+import {
+  persistRemoteCatalogState,
+  clearRemoteCatalogStateIfSet,
+} from "./listing-link-flags";
 
 /** Content fingerprint for a remote catalog row (same fields as syncContentHash on StoreItem). */
 function remoteListingContentHash(remote: RemoteListingSummary): string {
@@ -57,6 +61,7 @@ type LinkRow = {
   syncBaselineHash: string | null;
   syncBaselineQty: number | null;
   syncBaselineAt: Date | null;
+  conflictDetails: unknown;
   storeItem: {
     title: string;
     description: string | null;
@@ -178,6 +183,7 @@ export async function reconcileConnectionInboundCatalog(
       syncBaselineHash: true,
       syncBaselineQty: true,
       syncBaselineAt: true,
+      conflictDetails: true,
       storeItem: {
         select: {
           title: true,
@@ -301,10 +307,17 @@ export async function reconcileConnectionInboundCatalog(
     // eBay ActiveList can omit a live item while GetItem still succeeds — do not sell out.
     if (!remote) {
       if (provider === "ebay") {
-        console.warn("[channels] eBay link missing from seller list after GetItem hydrate; skip sell-out", {
-          storeItemId: link.storeItemId,
-          externalListingId: link.externalListingId,
+        const changed = await persistRemoteCatalogState({
+          linkId: link.id,
+          conflictDetails: link.conflictDetails,
+          state: "inactive_outside_catalog",
         });
+        if (changed) {
+          console.warn("[channels] eBay link missing from seller list after GetItem hydrate; skip sell-out", {
+            storeItemId: link.storeItemId,
+            externalListingId: link.externalListingId,
+          });
+        }
         continue;
       }
       const otherChannelLinks = await prisma.channelListingLink.count({
@@ -315,12 +328,19 @@ export async function reconcileConnectionInboundCatalog(
         },
       });
       if (otherChannelLinks > 0) {
-        console.warn("[channels] skip sell-out; listing still linked on another channel", {
-          storeItemId: link.storeItemId,
-          provider,
-          externalListingId: link.externalListingId,
-          otherChannelLinks,
+        const changed = await persistRemoteCatalogState({
+          linkId: link.id,
+          conflictDetails: link.conflictDetails,
+          state: "linked_other_channel",
         });
+        if (changed) {
+          console.warn("[channels] skip sell-out; listing still linked on another channel", {
+            storeItemId: link.storeItemId,
+            provider,
+            externalListingId: link.externalListingId,
+            otherChannelLinks,
+          });
+        }
         continue;
       }
       if (provider === "etsy") {
@@ -329,10 +349,17 @@ export async function reconcileConnectionInboundCatalog(
           () => false
         );
         if (!gone) {
-          console.warn("[channels] skip sell-out; Etsy listing still exists outside active catalog", {
-            storeItemId: link.storeItemId,
-            externalListingId: link.externalListingId,
+          const changed = await persistRemoteCatalogState({
+            linkId: link.id,
+            conflictDetails: link.conflictDetails,
+            state: "inactive_outside_catalog",
           });
+          if (changed) {
+            console.warn("[channels] skip sell-out; Etsy listing still exists outside active catalog", {
+              storeItemId: link.storeItemId,
+              externalListingId: link.externalListingId,
+            });
+          }
           continue;
         }
       }
@@ -349,6 +376,8 @@ export async function reconcileConnectionInboundCatalog(
       removed += 1;
       continue;
     }
+
+    await clearRemoteCatalogStateIfSet(link.id, link.conflictDetails);
 
     const item = link.storeItem;
     const remoteQtyKnown = remote.quantityKnown !== false;

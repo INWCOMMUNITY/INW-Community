@@ -1,7 +1,12 @@
 import { prisma } from "database";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { fetchEbayPolicyOptions } from "@/lib/channels/ebay/account";
-import { fetchEtsyShippingProfiles } from "@/lib/channels/shipping-map";
+import {
+  etsyProfileDomesticShippingCostCents,
+  fetchEtsyShippingProfileDestinations,
+  fetchEtsyShippingProfiles,
+  isEtsyCalculatedShippingProfile,
+} from "@/lib/channels/shipping-map";
 import {
   convertLengthToIn,
   convertWeightToOz,
@@ -10,6 +15,16 @@ import {
   totalOzToLbsOz,
   type PackageFields,
 } from "@/lib/package-weight";
+
+function shippingOptions() {
+  const delegate = prisma.shippingOption;
+  if (!delegate) {
+    throw new Error(
+      "Database client is out of date. Stop and restart the Next.js server, then try again."
+    );
+  }
+  return delegate;
+}
 
 export type ShippingOptionSource = "inw" | "ebay" | "etsy";
 
@@ -22,6 +37,7 @@ export type ShippingOptionDto = {
   weightOz: number | null;
   weightLbs: number;
   weightOzRemainder: number;
+  shippingCostCents: number | null;
   source: ShippingOptionSource;
   remoteProfileId: string | null;
   complete: boolean;
@@ -38,6 +54,7 @@ export type RemoteShippingProfile = {
   widthIn?: number | null;
   heightIn?: number | null;
   weightOz?: number | null;
+  shippingCostCents?: number | null;
 };
 
 export type ListingPackageHint = {
@@ -46,7 +63,32 @@ export type ListingPackageHint = {
   widthIn?: number | null;
   heightIn?: number | null;
   weightOz?: number | null;
+  shippingCostCents?: number | null;
 };
+
+export type ShippingOptionMergeFields = PackageFields & {
+  name: string;
+  shippingCostCents?: number | null;
+};
+
+export function parseShippingCostCentsInput(args: {
+  shippingCostCents?: number | null;
+  shippingCostDollars?: string | number | null;
+  required?: boolean;
+}): number | undefined {
+  if (args.shippingCostCents != null && Number.isFinite(args.shippingCostCents)) {
+    const n = Math.round(Number(args.shippingCostCents));
+    if (n < 0) throw new Error("Shipping price cannot be negative");
+    return n;
+  }
+  if (args.shippingCostDollars != null && String(args.shippingCostDollars).trim() !== "") {
+    const n = Number(String(args.shippingCostDollars).replace(/[^0-9.]/g, ""));
+    if (!Number.isFinite(n) || n < 0) throw new Error("Enter a valid shipping price");
+    return Math.round(n * 100);
+  }
+  if (args.required) throw new Error("Shipping price is required");
+  return undefined;
+}
 
 export function serializeShippingOption(
   row: {
@@ -56,6 +98,7 @@ export function serializeShippingOption(
     widthIn: number | null;
     heightIn: number | null;
     weightOz: number | null;
+    shippingCostCents?: number | null;
     source: string;
     remoteProfileId: string | null;
     archivedAt: Date | null;
@@ -73,6 +116,7 @@ export function serializeShippingOption(
     weightOz: row.weightOz,
     weightLbs: lbs,
     weightOzRemainder: oz,
+    shippingCostCents: row.shippingCostCents ?? null,
     source: (row.source as ShippingOptionSource) || "inw",
     remoteProfileId: row.remoteProfileId,
     complete: isPackageComplete(row),
@@ -83,15 +127,26 @@ export function serializeShippingOption(
 }
 
 export function mergeImportedShippingOption(
-  existing: PackageFields & { name: string } | null,
+  existing: ShippingOptionMergeFields | null,
   incoming: RemoteShippingProfile
-): { name: string; lengthIn: number | null; widthIn: number | null; heightIn: number | null; weightOz: number | null } {
+): {
+  name: string;
+  lengthIn: number | null;
+  widthIn: number | null;
+  heightIn: number | null;
+  weightOz: number | null;
+  shippingCostCents: number | null;
+} {
   return {
     name: incoming.name.trim() || existing?.name || "Imported shipping",
     lengthIn: existing?.lengthIn && existing.lengthIn > 0 ? existing.lengthIn : incoming.lengthIn ?? null,
     widthIn: existing?.widthIn && existing.widthIn > 0 ? existing.widthIn : incoming.widthIn ?? null,
     heightIn: existing?.heightIn && existing.heightIn > 0 ? existing.heightIn : incoming.heightIn ?? null,
     weightOz: existing?.weightOz && existing.weightOz > 0 ? existing.weightOz : incoming.weightOz ?? null,
+    shippingCostCents:
+      existing?.shippingCostCents != null
+        ? existing.shippingCostCents
+        : incoming.shippingCostCents ?? null,
   };
 }
 
@@ -103,6 +158,7 @@ export function listingPackageFromRemote(args: {
   width?: number | string | null;
   height?: number | string | null;
   dimensionUnit?: string | null;
+  shippingCostCents?: number | null;
 }): ListingPackageHint {
   const num = (v: number | string | null | undefined) => {
     if (v == null || v === "") return null;
@@ -113,17 +169,22 @@ export function listingPackageFromRemote(args: {
   const lengthVal = num(args.length);
   const widthVal = num(args.width);
   const heightVal = num(args.height);
+  const cost =
+    args.shippingCostCents != null && Number.isFinite(args.shippingCostCents)
+      ? Math.max(0, Math.round(args.shippingCostCents))
+      : null;
   return {
     remoteProfileId: args.remoteProfileId != null && String(args.remoteProfileId) !== "" ? String(args.remoteProfileId) : null,
     weightOz: weightVal != null ? convertWeightToOz(weightVal, args.weightUnit) : null,
     lengthIn: lengthVal != null ? convertLengthToIn(lengthVal, args.dimensionUnit) : null,
     widthIn: widthVal != null ? convertLengthToIn(widthVal, args.dimensionUnit) : null,
     heightIn: heightVal != null ? convertLengthToIn(heightVal, args.dimensionUnit) : null,
+    shippingCostCents: cost,
   };
 }
 
 export async function listShippingOptions(memberId: string): Promise<ShippingOptionDto[]> {
-  const rows = await prisma.shippingOption.findMany({
+  const rows = await shippingOptions().findMany({
     where: { memberId, archivedAt: null },
     orderBy: [{ source: "asc" }, { name: "asc" }],
     include: { _count: { select: { storeItems: true } } },
@@ -133,7 +194,15 @@ export async function listShippingOptions(memberId: string): Promise<ShippingOpt
 
 export async function createInwShippingOption(
   memberId: string,
-  input: { name: string; lengthIn: number; widthIn: number; heightIn: number; weightLbs: number; weightOz: number }
+  input: {
+    name: string;
+    lengthIn: number;
+    widthIn: number;
+    heightIn: number;
+    weightLbs: number;
+    weightOz: number;
+    shippingCostCents: number;
+  }
 ) {
   const name = input.name.trim();
   if (!name) throw new Error("Name is required");
@@ -142,7 +211,10 @@ export async function createInwShippingOption(
   if (input.lengthIn <= 0 || input.widthIn <= 0 || input.heightIn <= 0) {
     throw new Error("Height, width, and length must be greater than 0");
   }
-  const row = await prisma.shippingOption.create({
+  if (!Number.isFinite(input.shippingCostCents) || input.shippingCostCents < 0) {
+    throw new Error("Shipping price is required");
+  }
+  const row = await shippingOptions().create({
     data: {
       memberId,
       name,
@@ -150,6 +222,7 @@ export async function createInwShippingOption(
       widthIn: input.widthIn,
       heightIn: input.heightIn,
       weightOz,
+      shippingCostCents: Math.round(input.shippingCostCents),
       source: "inw",
     },
     include: { _count: { select: { storeItems: true } } },
@@ -160,9 +233,17 @@ export async function createInwShippingOption(
 export async function updateInwShippingOption(
   memberId: string,
   id: string,
-  input: Partial<{ name: string; lengthIn: number; widthIn: number; heightIn: number; weightLbs: number; weightOz: number }>
+  input: Partial<{
+    name: string;
+    lengthIn: number;
+    widthIn: number;
+    heightIn: number;
+    weightLbs: number;
+    weightOz: number;
+    shippingCostCents: number;
+  }>
 ) {
-  const existing = await prisma.shippingOption.findFirst({ where: { id, memberId } });
+  const existing = await shippingOptions().findFirst({ where: { id, memberId } });
   if (!existing) return null;
   if (existing.source !== "inw") {
     throw new Error("Imported shipping options can only be edited on the original marketplace.");
@@ -173,6 +254,7 @@ export async function updateInwShippingOption(
     widthIn?: number;
     heightIn?: number;
     weightOz?: number;
+    shippingCostCents?: number;
   } = {};
   if (input.name !== undefined) {
     const name = input.name.trim();
@@ -185,7 +267,13 @@ export async function updateInwShippingOption(
   if (input.weightLbs !== undefined || input.weightOz !== undefined) {
     data.weightOz = lbsOzToTotalOz(input.weightLbs ?? 0, input.weightOz ?? 0);
   }
-  const row = await prisma.shippingOption.update({
+  if (input.shippingCostCents !== undefined) {
+    if (!Number.isFinite(input.shippingCostCents) || input.shippingCostCents < 0) {
+      throw new Error("Enter a valid shipping price");
+    }
+    data.shippingCostCents = Math.round(input.shippingCostCents);
+  }
+  const row = await shippingOptions().update({
     where: { id },
     data,
     include: { _count: { select: { storeItems: true } } },
@@ -194,9 +282,9 @@ export async function updateInwShippingOption(
 }
 
 export async function archiveShippingOption(memberId: string, id: string): Promise<boolean> {
-  const existing = await prisma.shippingOption.findFirst({ where: { id, memberId } });
+  const existing = await shippingOptions().findFirst({ where: { id, memberId } });
   if (!existing) return false;
-  await prisma.shippingOption.update({
+  await shippingOptions().update({
     where: { id },
     data: { archivedAt: new Date() },
   });
@@ -204,29 +292,35 @@ export async function archiveShippingOption(memberId: string, id: string): Promi
 }
 
 export async function upsertImportedShippingOption(memberId: string, incoming: RemoteShippingProfile) {
-  const existing = await prisma.shippingOption.findFirst({
+  const existing = await shippingOptions().findFirst({
     where: { memberId, source: incoming.source, remoteProfileId: incoming.remoteProfileId },
   });
   const merged = mergeImportedShippingOption(existing, incoming);
-  if (existing) {
-    return prisma.shippingOption.update({
-      where: { id: existing.id },
-      data: {
-        ...merged,
-        archivedAt: null,
-        lastImportedAt: new Date(),
-      },
+  const row = existing
+    ? await shippingOptions().update({
+        where: { id: existing.id },
+        data: {
+          ...merged,
+          archivedAt: null,
+          lastImportedAt: new Date(),
+        },
+      })
+    : await shippingOptions().create({
+        data: {
+          memberId,
+          source: incoming.source,
+          remoteProfileId: incoming.remoteProfileId,
+          ...merged,
+          lastImportedAt: new Date(),
+        },
+      });
+  if (row.shippingCostCents != null) {
+    await prisma.storeItem.updateMany({
+      where: { memberId, shippingOptionId: row.id, shippingCostCents: null },
+      data: { shippingCostCents: row.shippingCostCents },
     });
   }
-  return prisma.shippingOption.create({
-    data: {
-      memberId,
-      source: incoming.source,
-      remoteProfileId: incoming.remoteProfileId,
-      ...merged,
-      lastImportedAt: new Date(),
-    },
-  });
+  return row;
 }
 
 export async function attachShippingOptionOnImport(args: {
@@ -235,13 +329,18 @@ export async function attachShippingOptionOnImport(args: {
   source: "ebay" | "etsy";
   hint: ListingPackageHint;
 }): Promise<void> {
+  const prefs = await prisma.memberSyncPreferences.findUnique({
+    where: { memberId: args.memberId },
+    select: { syncShipping: true },
+  });
+  if (prefs && prefs.syncShipping === false) return;
   const remoteId = args.hint.remoteProfileId?.trim();
   if (!remoteId) return;
-  let option = await prisma.shippingOption.findFirst({
+  let option = await shippingOptions().findFirst({
     where: { memberId: args.memberId, source: args.source, remoteProfileId: remoteId },
   });
   if (!option) {
-    option = await prisma.shippingOption.create({
+    option = await shippingOptions().create({
       data: {
         memberId: args.memberId,
         source: args.source,
@@ -251,6 +350,7 @@ export async function attachShippingOptionOnImport(args: {
         widthIn: args.hint.widthIn ?? null,
         heightIn: args.hint.heightIn ?? null,
         weightOz: args.hint.weightOz ?? null,
+        shippingCostCents: args.hint.shippingCostCents ?? null,
         lastImportedAt: new Date(),
       },
     });
@@ -263,15 +363,25 @@ export async function attachShippingOptionOnImport(args: {
       widthIn: args.hint.widthIn,
       heightIn: args.hint.heightIn,
       weightOz: args.hint.weightOz,
+      shippingCostCents: args.hint.shippingCostCents,
     });
-    option = await prisma.shippingOption.update({
+    option = await shippingOptions().update({
       where: { id: option.id },
       data: merged,
     });
   }
+  const listing = await prisma.storeItem.findUnique({
+    where: { id: args.storeItemId },
+    select: { shippingCostCents: true },
+  });
   await prisma.storeItem.update({
     where: { id: args.storeItemId },
-    data: { shippingOptionId: option.id },
+    data: {
+      shippingOptionId: option.id,
+      ...(listing?.shippingCostCents == null && option.shippingCostCents != null
+        ? { shippingCostCents: option.shippingCostCents }
+        : {}),
+    },
   });
 }
 
@@ -366,10 +476,26 @@ export async function importRemoteShippingOptions(
     const remote = await fetchEtsyShippingProfiles(ctx.accessToken, shopId);
     for (const p of remote) {
       if (p.shipping_profile_id == null) continue;
+      let shippingCostCents = etsyProfileDomesticShippingCostCents(p);
+      if (
+        shippingCostCents == null &&
+        !isEtsyCalculatedShippingProfile(p)
+      ) {
+        const dests = await fetchEtsyShippingProfileDestinations(
+          ctx.accessToken,
+          shopId,
+          p.shipping_profile_id
+        );
+        shippingCostCents = etsyProfileDomesticShippingCostCents({
+          ...p,
+          shipping_profile_destinations: dests,
+        });
+      }
       profiles.push({
         source: "etsy",
         remoteProfileId: String(p.shipping_profile_id),
         name: p.title?.trim() || `Etsy profile ${p.shipping_profile_id}`,
+        shippingCostCents,
       });
     }
   } else {
@@ -379,6 +505,7 @@ export async function importRemoteShippingOptions(
         source: "ebay",
         remoteProfileId: p.id,
         name: p.name?.trim() || `eBay policy ${p.id}`,
+        shippingCostCents: p.shippingCostCents ?? null,
       });
     }
   }
@@ -419,6 +546,32 @@ export const shippingOptionPackageSelect = {
   widthIn: true,
   heightIn: true,
   weightOz: true,
+  shippingCostCents: true,
   source: true,
   remoteProfileId: true,
 } as const;
+
+export async function getShippingOptionCostCents(
+  memberId: string,
+  id: string | null | undefined
+): Promise<number | null> {
+  if (id == null || id === "") return null;
+  const row = await shippingOptions().findFirst({
+    where: { id, memberId, archivedAt: null },
+    select: { shippingCostCents: true },
+  });
+  return row?.shippingCostCents ?? null;
+}
+
+export async function assertMemberShippingOption(
+  memberId: string,
+  id: string | null | undefined
+): Promise<string | null> {
+  if (id == null || id === "") return null;
+  const row = await shippingOptions().findFirst({
+    where: { id, memberId, archivedAt: null },
+    select: { id: true },
+  });
+  if (!row) throw new Error("Shipping option not found");
+  return row.id;
+}

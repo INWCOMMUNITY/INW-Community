@@ -5,8 +5,8 @@ export const SALE_QTY_RECOVERY_LOOKBACK_MS = 1000 * 60 * 60 * 24 * 2;
 
 /**
  * True when INW should not pull a positive remote quantity onto a sold-out item:
- * a sale (or GetItem sale ack) landed recently, or a channel push is already in error
- * (typically a failed zero-qty write). Prefer retrying the zero push.
+ * a sale (or GetItem sale ack) landed recently. Failed zero-pushes must not block
+ * restock — that made false sold-outs stick when eBay/Etsy still had the item.
  */
 export async function shouldBlockSoldOutQtyRecovery(storeItemId: string): Promise<boolean> {
   const since = new Date(Date.now() - SALE_QTY_RECOVERY_LOOKBACK_MS);
@@ -18,13 +18,7 @@ export async function shouldBlockSoldOutQtyRecovery(storeItemId: string): Promis
     },
     select: { id: true },
   });
-  if (sale) return true;
-
-  const failedPush = await prisma.channelListingLink.findFirst({
-    where: { storeItemId, syncStatus: "error" },
-    select: { id: true },
-  });
-  return Boolean(failedPush);
+  return Boolean(sale);
 }
 
 /** Recovery = remote still has stock while INW is at 0 / sold_out. */

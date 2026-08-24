@@ -31,8 +31,9 @@ export const syncStoreItemSelect = {
       id: true,
       source: true,
       remoteProfileId: true,
-      weightOz: true,
-      lengthIn: true,
+          weightOz: true,
+          shippingCostCents: true,
+          lengthIn: true,
       widthIn: true,
       heightIn: true,
     },
@@ -68,6 +69,7 @@ type StoreItemLike = {
     source: string;
     remoteProfileId: string | null;
     weightOz: number | null;
+    shippingCostCents?: number | null;
     lengthIn: number | null;
     widthIn: number | null;
     heightIn: number | null;
@@ -86,7 +88,7 @@ export function toSyncStoreItem(item: StoreItemLike): SyncStoreItem {
     variants: item.variants,
     status: item.status,
     condition: item.condition,
-    shippingCostCents: item.shippingCostCents,
+    shippingCostCents: item.shippingCostCents ?? item.shippingOption?.shippingCostCents ?? null,
     category: item.category,
     subcategory: item.subcategory,
     secondaryCategory: item.secondaryCategory,
@@ -104,6 +106,7 @@ export function toSyncStoreItem(item: StoreItemLike): SyncStoreItem {
           source: item.shippingOption.source,
           remoteProfileId: item.shippingOption.remoteProfileId,
           weightOz: item.shippingOption.weightOz,
+          shippingCostCents: item.shippingOption.shippingCostCents ?? null,
           lengthIn: item.shippingOption.lengthIn,
           widthIn: item.shippingOption.widthIn,
           heightIn: item.shippingOption.heightIn,

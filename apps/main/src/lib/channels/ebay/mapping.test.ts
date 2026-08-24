@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildEbayInventoryItem,
   ebayListingToSummary,
   findEbayRemoteListing,
   indexEbayRemoteListings,
@@ -46,6 +47,23 @@ describe("ebayListingToSummary", () => {
     expect(summary.externalListingId).toBe("393315434144");
     expect(summary.sku).toBe("inw393315434144");
   });
+
+  it("copies packageWeightAndSize onto the import summary", () => {
+    const summary = ebayListingToSummary({
+      listingId: "1",
+      title: "Test item",
+      remoteShippingProfileId: "pol-1",
+      packageWeightAndSize: {
+        weight: { value: 24, unit: "OUNCE" },
+        dimensions: { length: 10, width: 8, height: 6, unit: "INCH" },
+      },
+    });
+    expect(summary.remoteShippingProfileId).toBe("pol-1");
+    expect(summary.packageWeightOz).toBe(24);
+    expect(summary.packageLengthIn).toBe(10);
+    expect(summary.packageWidthIn).toBe(8);
+    expect(summary.packageHeightIn).toBe(6);
+  });
 });
 
 describe("indexEbayRemoteListings", () => {
@@ -67,5 +85,69 @@ describe("indexEbayRemoteListings", () => {
 
   it("finds listings by legacy Item ID", () => {
     expect(findEbayRemoteListing(listings, "393315434144")).toBe(listings[0]);
+  });
+});
+
+function makeInventoryItem(overrides: Partial<SyncStoreItem> = {}): SyncStoreItem {
+  return {
+    id: "item-1",
+    sku: null,
+    title: "Test item",
+    description: "A thing",
+    photos: [],
+    priceCents: 1000,
+    quantity: 1,
+    variants: null,
+    status: "active",
+    condition: "new",
+    category: null,
+    subcategory: null,
+    secondaryCategory: null,
+    shippingCostCents: 0,
+    etsyWhoMade: null,
+    etsyWhenMade: null,
+    etsyIsSupply: null,
+    etsyTaxonomyId: null,
+    ebayCategoryId: null,
+    ebayConditionEnum: null,
+    aspects: null,
+    ...overrides,
+  };
+}
+
+describe("buildEbayInventoryItem", () => {
+  it("includes packageWeightAndSize when the listing option is complete", () => {
+    const body = buildEbayInventoryItem(
+      makeInventoryItem({
+        package: {
+          source: "inw",
+          remoteProfileId: null,
+          weightOz: 24,
+          lengthIn: 10,
+          widthIn: 8,
+          heightIn: 6,
+        },
+      })
+    );
+    expect(body.packageWeightAndSize).toEqual({
+      dimensions: { height: 6, length: 10, width: 8, unit: "INCH" },
+      weight: { value: 24, unit: "OUNCE" },
+    });
+  });
+
+  it("omits packageWeightAndSize when the option is incomplete", () => {
+    const body = buildEbayInventoryItem(
+      makeInventoryItem({
+        package: {
+          source: "ebay",
+          remoteProfileId: "pol-1",
+          weightOz: 24,
+          lengthIn: 10,
+          widthIn: 8,
+          heightIn: null,
+        },
+      })
+    );
+    expect(body.packageWeightAndSize).toBeUndefined();
   });
 });

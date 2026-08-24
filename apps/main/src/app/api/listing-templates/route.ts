@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { assertMemberShippingOption, getShippingOptionCostCents } from "@/lib/shipping-options";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ const createTemplateSchema = z.object({
   localDeliveryAvailable: z.boolean().optional(),
   inStorePickupAvailable: z.boolean().optional(),
   shippingCostCents: z.number().nullable().optional(),
+  shippingOptionId: z.string().nullable().optional(),
   localDeliveryFeeCents: z.number().nullable().optional(),
   etsyWhoMade: z.string().nullable().optional(),
   etsyWhenMade: z.string().nullable().optional(),
@@ -53,6 +55,7 @@ export async function GET(req: NextRequest) {
         localDeliveryAvailable: true,
         inStorePickupAvailable: true,
         shippingCostCents: true,
+        shippingOptionId: true,
         etsyWhoMade: true,
         etsyWhenMade: true,
         etsyIsSupply: true,
@@ -97,6 +100,15 @@ export async function POST(req: NextRequest) {
     }
 
     const data = parsed.data;
+    let shippingOptionId: string | null = null;
+    try {
+      shippingOptionId = await assertMemberShippingOption(userId, data.shippingOptionId);
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "Invalid shipping option" },
+        { status: 400 }
+      );
+    }
 
     // Limit templates per user (prevent abuse)
     const existingCount = await prisma.listingTemplate.count({
@@ -123,7 +135,9 @@ export async function POST(req: NextRequest) {
         shippingDisabled: data.shippingDisabled ?? false,
         localDeliveryAvailable: data.localDeliveryAvailable ?? false,
         inStorePickupAvailable: data.inStorePickupAvailable ?? false,
-        shippingCostCents: data.shippingCostCents ?? null,
+        shippingCostCents:
+          data.shippingCostCents ?? (await getShippingOptionCostCents(userId, shippingOptionId)),
+        shippingOptionId,
         localDeliveryFeeCents: data.localDeliveryFeeCents ?? null,
         etsyWhoMade: data.etsyWhoMade ?? null,
         etsyWhenMade: data.etsyWhenMade ?? null,

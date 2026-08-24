@@ -254,16 +254,8 @@ export async function fetchConditionDescriptorMetadata(
   accessToken: string,
   categoryId: string
 ): Promise<EbayConditionDescriptorMeta[]> {
-  const id = categoryId.trim();
-  if (!id) return [];
-
-  const url =
-    `https://api.ebay.com/sell/metadata/v1/marketplace/${encodeURIComponent(EBAY_MARKETPLACE_ID)}` +
-    `/get_item_condition_policies?filter=${encodeURIComponent(`categoryIds:{${id}}`)}`;
-
-  const res = await ebayGet<MetadataPolicyResponse>(accessToken, url);
-  const policy = res.itemConditionPolicies?.find((p) => p.categoryId === id) ?? res.itemConditionPolicies?.[0];
-  return parseConditionDescriptorMetadata(policy?.itemConditions ?? []);
+  const { descriptors } = await fetchItemConditionPolicy(accessToken, categoryId);
+  return descriptors;
 }
 
 function parseGradePrefixFromAspects(productAspects: Record<string, string[]>): string | null {
@@ -484,11 +476,10 @@ type MetadataPolicyResponse = {
   }[];
 };
 
-/** Fetch allowed item conditions for an eBay leaf category (Metadata API). */
-export async function fetchEbayCategoryConditions(
+async function fetchConditionPolicyRows(
   accessToken: string,
   categoryId: string
-): Promise<EbayConditionChoice[]> {
+): Promise<MetadataConditionRow[]> {
   const id = categoryId.trim();
   if (!id) return [];
 
@@ -497,8 +488,28 @@ export async function fetchEbayCategoryConditions(
     `/get_item_condition_policies?filter=${encodeURIComponent(`categoryIds:{${id}}`)}`;
 
   const res = await ebayGet<MetadataPolicyResponse>(accessToken, url);
-  const policy = res.itemConditionPolicies?.find((p) => p.categoryId === id) ?? res.itemConditionPolicies?.[0];
-  const rows = policy?.itemConditions ?? [];
+  const policy =
+    res.itemConditionPolicies?.find((p) => p.categoryId === id) ?? res.itemConditionPolicies?.[0];
+  return policy?.itemConditions ?? [];
+}
+
+export async function fetchItemConditionPolicy(
+  accessToken: string,
+  categoryId: string
+): Promise<{ descriptors: EbayConditionDescriptorMeta[]; hasConditions: boolean }> {
+  const rows = await fetchConditionPolicyRows(accessToken, categoryId);
+  return {
+    descriptors: parseConditionDescriptorMetadata(rows),
+    hasConditions: rows.length > 0,
+  };
+}
+
+/** Fetch allowed item conditions for an eBay leaf category (Metadata API). */
+export async function fetchEbayCategoryConditions(
+  accessToken: string,
+  categoryId: string
+): Promise<EbayConditionChoice[]> {
+  const rows = await fetchConditionPolicyRows(accessToken, categoryId);
 
   const out: EbayConditionChoice[] = [];
   const seen = new Set<string>();

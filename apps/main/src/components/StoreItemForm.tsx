@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { getErrorMessage } from "@/lib/api-error";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { sumOptionQuantities } from "@/lib/store-item-variants";
@@ -105,6 +106,7 @@ interface StoreItemFormProps {
     status: string;
     condition?: "new" | "used";
     shippingCostCents: number | null;
+    shippingOptionId?: string | null;
     shippingPolicy: string | null;
     localDeliveryAvailable: boolean;
     localDeliveryFeeCents?: number | null;
@@ -183,6 +185,21 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [shippingCostDollars, setShippingCostDollars] = useState(
     existing?.shippingCostCents ? (existing.shippingCostCents / 100).toFixed(2) : ""
   );
+  const [shippingOptionId, setShippingOptionId] = useState(existing?.shippingOptionId ?? "");
+  type ShippingOptionChoice = {
+    id: string;
+    name: string;
+    source: string;
+    complete: boolean;
+    lengthIn: number | null;
+    widthIn: number | null;
+    heightIn: number | null;
+    weightLbs: number;
+    weightOzRemainder: number;
+    shippingCostCents?: number | null;
+  };
+  const [shippingOptions, setShippingOptions] = useState<ShippingOptionChoice[]>([]);
+  const [offerFreeShippingOnInw, setOfferFreeShippingOnInw] = useState(false);
   const [shippingPolicy, setShippingPolicy] = useState(existing?.shippingPolicy ?? "");
   const [useSellerProfileShipping, setUseSellerProfileShipping] = useState(
     !existing?.shippingPolicy || existing.shippingPolicy === ""
@@ -323,6 +340,29 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       })
       .catch(() => setOfferFlagsLoaded(true));
   }, [existing?.shippingPolicy, existing?.localDeliveryTerms, existing?.pickupTerms]);
+
+  useEffect(() => {
+    fetch("/api/shipping-options", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data: { options?: ShippingOptionChoice[]; offerFreeShippingOnInw?: boolean }) => {
+        const options = Array.isArray(data?.options) ? data.options : [];
+        setShippingOptions(options);
+        const offerFree = Boolean(data?.offerFreeShippingOnInw);
+        setOfferFreeShippingOnInw(offerFree);
+        if (!existing) {
+          if (offerFree) {
+            setShippingCostDollars((prev) => prev || "0.00");
+          }
+          if (options.length === 1 && options[0]) {
+            setShippingOptionId(options[0].id);
+            if (!offerFree && options[0].shippingCostCents != null) {
+              setShippingCostDollars((options[0].shippingCostCents / 100).toFixed(2));
+            }
+          }
+        }
+      })
+      .catch(() => {});
+  }, [existing]);
 
   useLockBodyScroll(showSuccessModal);
 
@@ -663,6 +703,10 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       setError("Shipping policy is required when you offer shipping. Set it in Policies.");
       return null;
     }
+    if (!existing && !effectiveShippingDisabled && !shippingOptionId) {
+      setError("Choose a shipping option (package size and weight), or create one in Shipping options.");
+      return null;
+    }
     const effectivePickupPolicy = useSellerProfilePickup ? sellerProfilePickupPolicy : pickupTerms;
     if (effectivePickup && !effectivePickupPolicy.trim()) {
       setError("Pickup terms are required when you offer local pickup. Set them in Policies or use Sync here.");
@@ -731,6 +775,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           ? variants.filter((v) => v.name.trim() && v.options.length > 0)
           : null,
       shippingCostCents: !effectiveShippingDisabled && shippingCostCents > 0 ? shippingCostCents : null,
+      shippingOptionId: shippingOptionId || null,
       shippingPolicy:
         effectiveShippingDisabled || useSellerProfileShipping ? null : shippingPolicy.trim() || null,
       localDeliveryAvailable: effectiveLocalDelivery,
@@ -1563,6 +1608,64 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 placeholder="e.g. 5.99"
               />
               <p className="text-xs text-gray-500 mt-0.5">Price charged for shipping this item</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Shipping option (package)</label>
+              <select
+                className={listingSelectClass}
+                value={shippingOptionId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setShippingOptionId(id);
+                  if (offerFreeShippingOnInw) {
+                    setShippingCostDollars((prev) => prev || "0.00");
+                    return;
+                  }
+                  const selected = shippingOptions.find((o) => o.id === id);
+                  if (selected?.shippingCostCents != null) {
+                    setShippingCostDollars((selected.shippingCostCents / 100).toFixed(2));
+                  }
+                }}
+                required={!existing}
+              >
+                <option value="">{existing ? "None (INW defaults)" : "Select a package"}</option>
+                {shippingOptions.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.name}
+                    {opt.source !== "inw" ? ` (${opt.source === "etsy" ? "Etsy" : "eBay"})` : ""}
+                    {opt.shippingCostCents != null
+                      ? opt.shippingCostCents === 0
+                        ? " · Free"
+                        : ` · $${(opt.shippingCostCents / 100).toFixed(2)}`
+                      : ""}
+                    {opt.complete ? "" : " — needs weight and size"}
+                  </option>
+                ))}
+              </select>
+              {(() => {
+                const selected = shippingOptions.find((o) => o.id === shippingOptionId);
+                if (!selected) return null;
+                return (
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {selected.complete
+                      ? `${selected.lengthIn}×${selected.widthIn}×${selected.heightIn} in · ${selected.weightLbs} lb ${selected.weightOzRemainder} oz`
+                      : "Needs weight and size — Shippo and calculated Etsy will use defaults until you add measurements."}
+                    {selected.shippingCostCents != null
+                      ? ` · ${
+                          selected.shippingCostCents === 0
+                            ? "Free"
+                            : `$${(selected.shippingCostCents / 100).toFixed(2)}`
+                        }`
+                      : ""}
+                  </p>
+                );
+              })()}
+              <p className="text-xs text-gray-500 mt-0.5">
+                Used for Shippo labels and eBay/Etsy package size.{" "}
+                <Link href="/seller-hub/shipping-options" className="underline">
+                  Manage shipping options
+                </Link>
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Shipping Policy</label>

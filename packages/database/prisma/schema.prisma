@@ -1199,6 +1199,8 @@ model ShippingOption {
   widthIn         Float?    @map("width_in")
   heightIn        Float?    @map("height_in")
   weightOz        Float?    @map("weight_oz")
+  /// INW checkout / domestic flat rate. Null when calculated or unknown. 0 = free.
+  shippingCostCents Int?    @map("shipping_cost_cents")
   /// inw | ebay | etsy
   source          String    @default("inw")
   remoteProfileId String?   @map("remote_profile_id")

@@ -150,7 +150,10 @@ export const etsyAdapter: ChannelAdapter = {
       const taxonomyId =
         item.etsyTaxonomyId ??
         (await resolveProviderCategoryId(conn, "etsy", item.category)).etsyTaxonomyId;
-      const shippingProfileId = await resolveEtsyShippingProfileId(conn, item.shippingCostCents);
+      const shippingProfileId =
+        item.package?.source === "etsy" && item.package.remoteProfileId
+          ? item.package.remoteProfileId
+          : await resolveEtsyShippingProfileId(conn, item.shippingCostCents);
       const readinessStateId = await resolveEtsyReadinessStateId(conn, shopId);
 
       // Validate required Etsy fields
@@ -303,8 +306,23 @@ export const etsyAdapter: ChannelAdapter = {
         item.etsyTaxonomyId ??
         (await resolveProviderCategoryId(conn, "etsy", item.category)).etsyTaxonomyId;
       const shipping = await resolveEtsyShippingProfile(conn, item.shippingCostCents);
-      const shippingProfileId = shippingProfileIdForEtsyUpdate(shipping);
-      if (shipping.isCalculated && shipping.shippingProfileId) {
+      const packageComplete = Boolean(
+        item.package &&
+          item.package.weightOz &&
+          item.package.lengthIn &&
+          item.package.widthIn &&
+          item.package.heightIn
+      );
+      const fromOption =
+        item.package?.source === "etsy" && item.package.remoteProfileId
+          ? item.package.remoteProfileId
+          : null;
+      const shippingProfileId = fromOption
+        ? fromOption
+        : packageComplete
+          ? shipping.shippingProfileId
+          : shippingProfileIdForEtsyUpdate(shipping);
+      if (shipping.isCalculated && shipping.shippingProfileId && !packageComplete && !fromOption) {
         console.log("[etsy] skip calculated shipping_profile_id on update", {
           listingId: externalListingId,
           shippingProfileId: shipping.shippingProfileId,

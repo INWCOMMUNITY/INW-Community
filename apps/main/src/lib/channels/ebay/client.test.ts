@@ -46,6 +46,36 @@ describe("ebayGet warnings and retries", () => {
     expect(warnings[0]?.longMessage).toBe("Title truncated.");
   });
 
+  it("logs known 200 warning codes at info instead of warn", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            sku: "abc",
+            warnings: [
+              { errorId: 25401, longMessage: "Condition dropped because the category does not support it." },
+              { errorId: 25402, longMessage: "Offer already published; business policies unchanged." },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+    );
+    await ebayGet("token", "/sell/inventory/v1/inventory_item/abc");
+    expect(warn).not.toHaveBeenCalled();
+    expect(info.mock.calls.some((call) => String(call[0]).includes("REST 200 known warnings"))).toBe(
+      true
+    );
+    } finally {
+      warn.mockRestore();
+      info.mockRestore();
+    }
+  });
+
   it("honors Retry-After on 429 then succeeds", async () => {
     const fetchMock = vi
       .fn()

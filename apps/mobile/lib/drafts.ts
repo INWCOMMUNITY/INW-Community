@@ -22,6 +22,7 @@ export interface StoreItemDraft {
   shippingDisabled: boolean;
   shippingCostDollars: string;
   shippingFree: boolean;
+  shippingOptionId?: string;
   shippingPolicy: string;
   useSellerProfileShipping: boolean;
   localDeliveryAvailable: boolean;

@@ -168,9 +168,6 @@ export const StoreItemQuantityStepper = memo(function StoreItemQuantityStepper({
           <IonIcon name="add" size={20} className="text-[var(--color-primary)]" />
         </button>
       </div>
-      <p className="text-sm text-gray-500 mt-1">
-        {maxQuantity < 10 ? `Only ${maxQuantity} left` : `${maxQuantity} in stock`}
-      </p>
     </div>
   );
 });

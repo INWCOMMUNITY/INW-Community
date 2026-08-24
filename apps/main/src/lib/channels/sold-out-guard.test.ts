@@ -35,12 +35,11 @@ describe("shouldBlockSoldOutQtyRecovery", () => {
   it("blocks when a sale event exists in the lookback window", async () => {
     mockPrisma.channelSyncEvent.findFirst.mockResolvedValueOnce({ id: "evt-1" });
     await expect(shouldBlockSoldOutQtyRecovery("item-1")).resolves.toBe(true);
-    expect(mockPrisma.channelListingLink.findFirst).not.toHaveBeenCalled();
   });
 
-  it("blocks when a channel link is in error (failed zero push)", async () => {
+  it("does not treat a failed channel push as a sale", async () => {
     mockPrisma.channelListingLink.findFirst.mockResolvedValueOnce({ id: "link-1" });
-    await expect(shouldBlockSoldOutQtyRecovery("item-1")).resolves.toBe(true);
+    await expect(shouldBlockSoldOutQtyRecovery("item-1")).resolves.toBe(false);
   });
 
   it("allows recovery when there is no sale and no failed push", async () => {

@@ -39,7 +39,11 @@ export default function SetUpShippoPage() {
         <p className="text-gray-600 mb-8 max-md:text-center">
           Connect your Shippo account once. Then you’ll purchase and print shipping labels right here on Northwest
           Community. Labels are charged to your Shippo account. Add at least one address to your Shippo{" "}
-          <strong>Address Book</strong> (Settings → Addresses) so rates and labels work; you can use your own address.
+          <strong>Address Book</strong> (Settings → Addresses) so rates and labels work; you can use your own address.{" "}
+          <Link href="/seller-hub/shipping-options" className="underline">
+            Manage shipping options
+          </Link>
+          {" "}for package size and weight.
         </p>
 
         <div className="border-2 rounded-lg p-6 mb-8 border-[var(--color-primary)] bg-white w-full max-md:flex max-md:flex-col max-md:items-center max-md:text-center">

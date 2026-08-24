@@ -16,6 +16,7 @@ import { matchSaleToVariantOption } from "./variant-sync";
 import { logSyncEvent } from "./sync-log";
 import { logSaleQuantityChange } from "./quantity-audit";
 import { findChannelLinkForSale } from "./sale-link";
+import { maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
 
 const DEFAULT_LOOKBACK_MS = 1000 * 60 * 60 * 24 * 2; // 2 days
 
@@ -261,6 +262,10 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
   let metaUpdated = 0;
   let keepPaused = false;
 
+  if (c.provider === "ebay" || c.provider === "etsy") {
+    await maybeImportShippingOptionsOnSync(c.memberId, c.provider).catch(() => {});
+  }
+
   if (c.provider === "ebay") {
     try {
       const ctx = await getConnectionContext(c);
@@ -409,6 +414,9 @@ export async function reconcileMemberProvider(
     where: { memberId_provider: { memberId, provider } },
   });
   if (!conn || conn.status === "disconnected") return { applied: 0 };
+  if (provider === "ebay" || provider === "etsy") {
+    await maybeImportShippingOptionsOnSync(memberId, provider).catch(() => {});
+  }
   const sales = await reconcileConnectionSales(conn);
   if (provider === "ebay") {
     await pullEbayUpdatesForConnection(conn).catch(() => {});

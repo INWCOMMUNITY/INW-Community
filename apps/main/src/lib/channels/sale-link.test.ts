@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ebayFulfillmentLineToSale, saleLinkCandidateIds } from "./sale-link";
+import { ebayFulfillmentLineToSale, saleLinkCandidateIds, saleStoreItemLookupIds } from "./sale-link";
 
 describe("saleLinkCandidateIds", () => {
   it("expands inw{legacyId} and numeric Item IDs in both directions", () => {
@@ -31,6 +31,15 @@ describe("saleLinkCandidateIds", () => {
     });
     expect(ids).toContain("394295737513");
     expect(ids).toContain("inw394295737513");
+  });
+
+  it("does not treat eBay Item IDs as StoreItem ids", () => {
+    const ids = saleLinkCandidateIds({
+      externalListingId: "394295737513",
+      sku: null,
+      legacyItemId: "394295737513",
+    });
+    expect(saleStoreItemLookupIds(ids)).toEqual([]);
   });
 });
 

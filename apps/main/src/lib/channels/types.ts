@@ -36,6 +36,7 @@ export type SyncStoreItem = {
   package?: {
     source?: string | null;
     remoteProfileId?: string | null;
+    shippingCostCents?: number | null;
     weightOz: number | null;
     lengthIn: number | null;
     widthIn: number | null;

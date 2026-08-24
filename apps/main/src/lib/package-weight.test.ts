@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  carryOuncesIntoPounds,
+  carryOuncesIntoPoundsFields,
   combinePackages,
   convertLengthToIn,
   convertWeightToOz,
@@ -19,6 +21,14 @@ describe("lbs/oz conversion", () => {
     expect(totalOzToLbsOz(24)).toEqual({ lbs: 1, oz: 8 });
     expect(totalOzToLbsOz(4.5)).toEqual({ lbs: 0, oz: 4.5 });
     expect(totalOzToLbsOz(16)).toEqual({ lbs: 1, oz: 0 });
+  });
+
+  it("carries 16+ ounces into pounds", () => {
+    expect(carryOuncesIntoPounds(0, 100)).toEqual({ lbs: 6, oz: 4 });
+    expect(carryOuncesIntoPounds(2, 100)).toEqual({ lbs: 8, oz: 4 });
+    expect(carryOuncesIntoPounds(1, 8)).toEqual({ lbs: 1, oz: 8 });
+    expect(carryOuncesIntoPoundsFields("", "100")).toEqual({ weightLbs: "6", weightOz: "4" });
+    expect(carryOuncesIntoPoundsFields("1", "8")).toEqual({ weightLbs: "1", weightOz: "8" });
   });
 });
 

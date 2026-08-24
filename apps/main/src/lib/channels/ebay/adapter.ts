@@ -26,6 +26,7 @@ import { subscribeEbayInboundNotifications } from "./notifications-setup";
 import {
   appendConditionDescriptorsToInventoryBody,
   fetchConditionDescriptorMetadata,
+  fetchItemConditionPolicy,
   isEbayConditionSyncError,
   preserveOrBuildConditionDescriptorsOnBody,
   summarizeConditionDescriptors,
@@ -90,6 +91,8 @@ import {
   type ValidationCheck,
 } from "../sync-trace";
 import { prisma } from "database";
+import { isEbayEndedListingError } from "../error-classifier";
+import { isEbayListingEnded, persistEbayListingEnded } from "../listing-link-flags";
 import { isImportedEbayLink, extractEbayInventoryAspects, resolveEbayPushSku } from "./listing-origin";
 import {
   pickEbayOffer,
@@ -107,6 +110,7 @@ import {
   needsInventoryPut,
   overlayPassthroughOffer,
   passthroughAllAttemptedFailed,
+  passthroughEndedQuantityOnly,
   passthroughSyncHasFailures,
   readOfferPriceCents,
   resolvePassthroughChanges,
@@ -174,11 +178,14 @@ async function finalizeInventoryBody(
   const productAspects = aspectsToEbayProductAspects(args.pushAspects);
   if (args.categoryId) {
     try {
-      const descriptorMeta = await fetchConditionDescriptorMetadata(accessToken, args.categoryId);
+      const policy = await fetchItemConditionPolicy(accessToken, args.categoryId);
+      if (!policy.hasConditions) {
+        delete body.condition;
+      }
       body = appendConditionDescriptorsToInventoryBody(
         body,
         productAspects,
-        descriptorMeta,
+        policy.descriptors,
         args.item.title,
         args.categoryId
       );
@@ -280,6 +287,7 @@ async function upsertListing(
       linkOrigin: true,
       ebayInventoryAspects: true,
       lastPushedHash: true,
+      conflictDetails: true,
       connection: { select: { memberId: true } },
     },
   });
@@ -516,25 +524,36 @@ async function upsertListing(
       });
 
       if (changed.quantity) {
-        const quantity = Math.max(0, item.quantity);
-        const bulkFields: PassthroughFieldResult[] = [{ field: "quantity", ok: false }];
-        try {
-          await pushEbayAbsoluteQuantity({
-            accessToken: conn.accessToken,
-            sku,
-            quantity,
-            offerId,
-          });
-          await persistRevisionCount(conn.id, sku, conn.config);
-          bulkFields[0]!.ok = true;
-        } catch (e) {
-          const msg = describeEbayThrownError(e);
-          bulkFields[0]!.error = msg;
-          if (e instanceof EbayApiError) {
-            addResponse(trace, e.status, { error: e.message, body: e.body });
+        if (isEbayListingEnded(ebayLink?.conflictDetails)) {
+          fieldResults.push({ field: "quantity", ok: true });
+        } else {
+          const quantity = Math.max(0, item.quantity);
+          const bulkFields: PassthroughFieldResult[] = [{ field: "quantity", ok: false }];
+          try {
+            await pushEbayAbsoluteQuantity({
+              accessToken: conn.accessToken,
+              sku,
+              quantity,
+              offerId,
+            });
+            await persistRevisionCount(conn.id, sku, conn.config);
+            bulkFields[0]!.ok = true;
+          } catch (e) {
+            const msg = describeEbayThrownError(e);
+            if (isEbayEndedListingError(e) || isEbayEndedListingError(msg)) {
+              bulkFields[0]!.ok = true;
+              if (ebayLink) {
+                await persistEbayListingEnded(ebayLink.id, ebayLink.conflictDetails);
+              }
+            } else {
+              bulkFields[0]!.error = msg;
+              if (e instanceof EbayApiError) {
+                addResponse(trace, e.status, { error: e.message, body: e.body });
+              }
+            }
           }
+          fieldResults.push(...bulkFields);
         }
-        fieldResults.push(...bulkFields);
       }
 
       const pushInventoryContent = changed.title === true || putInventory;
@@ -784,6 +803,11 @@ async function upsertListing(
       });
 
       if (passthroughSyncHasFailures(fieldResults)) {
+        if (passthroughEndedQuantityOnly(fieldResults) && ebayLink) {
+          await persistEbayListingEnded(ebayLink.id, ebayLink.conflictDetails);
+          await completeTrace(trace, "success");
+          return { sku };
+        }
         const summary = formatPassthroughFieldSyncSummary(fieldResults);
         const error = new Error(
           passthroughAllAttemptedFailed(fieldResults)
@@ -957,7 +981,7 @@ async function upsertListing(
     const allValid = validationChecks.every((c) => c.passed || c.severity === "warning");
     addValidation(trace, { valid: allValid, checks: validationChecks });
 
-    console.warn("[ebay] upsertListing condition", {
+    (prepared.autoCorrected ? console.warn : console.info)("[ebay] upsertListing condition", {
       storeItemId: item.id,
       sku,
       targetCategoryId,
@@ -1239,7 +1263,7 @@ async function upsertListing(
             readEbayOfferListingId(liveOffer) ??
             readEbayOfferListingId(existingOffer) ??
             undefined;
-          console.warn("[ebay] publish skipped; offer already live", { offerId, listingId: publishedListingId });
+          console.info("[ebay] publish skipped; offer already live", { offerId, listingId: publishedListingId });
         } else {
           console.error("[ebay] publish failed; left as draft", { offerId, error: msg });
           await completeTrace(trace, "failed", e);
@@ -1430,8 +1454,21 @@ export const ebayAdapter: ChannelAdapter = {
   async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {
     const ebayLink = await prisma.channelListingLink.findFirst({
       where: { storeItemId: item.id, provider: "ebay" },
-      select: { linkOrigin: true, externalListingId: true, ebayInventoryAspects: true },
+      select: {
+        id: true,
+        linkOrigin: true,
+        externalListingId: true,
+        ebayInventoryAspects: true,
+        conflictDetails: true,
+      },
     });
+    if (isEbayListingEnded(ebayLink?.conflictDetails)) {
+      console.info("[ebay] skip inventory update; listing ended", {
+        storeItemId: item.id,
+        sku: ebayLink?.externalListingId,
+      });
+      return;
+    }
     const inventorySku = resolveEbayPushSku({
       itemId: item.id,
       itemSku: item.sku,
@@ -1440,63 +1477,72 @@ export const ebayAdapter: ChannelAdapter = {
     });
     hydrateRevisionCountsFromConfig(conn.config);
 
-    // Check rate limit before making any changes
-    const limitCheck = checkRevisionLimit(inventorySku);
-    if (limitCheck.atLimit) {
-      const warning = getRevisionLimitWarning(inventorySku);
-      throw new Error(warning || "eBay daily revision limit reached");
-    }
-    if (limitCheck.nearLimit) {
-      console.warn("[ebay] updateInventory: approaching rate limit", {
-        sku: inventorySku,
-        count: limitCheck.count,
-      });
-    }
-
-    const isImported = isImportedEbayLink({
-      provider: "ebay",
-      externalListingId,
-      storeItemId: item.id,
-      linkOrigin: ebayLink?.linkOrigin,
-    });
-
-    if (hasOptionQuantities(item.variants)) {
-      const qtyItem = { ...item, quantity: Math.max(0, absoluteQuantity) };
-      let inventoryBody: Record<string, unknown>;
-      if (isImported) {
-        const live = await fetchLiveInventoryItem(conn.accessToken, inventorySku);
-        if (!live) {
-          throw new Error("Could not fetch live eBay inventory for passthrough qty update");
-        }
-        inventoryBody = buildPassthroughLiveOverlayBody(live, {
-          quantity: Math.max(0, absoluteQuantity),
-          title: item.title,
-        });
-      } else {
-        inventoryBody = buildEbayInventoryItem(qtyItem);
+    try {
+      // Check rate limit before making any changes
+      const limitCheck = checkRevisionLimit(inventorySku);
+      if (limitCheck.atLimit) {
+        const warning = getRevisionLimitWarning(inventorySku);
+        throw new Error(warning || "eBay daily revision limit reached");
       }
-      await ebayJson(
-        conn.accessToken,
-        `/sell/inventory/v1/inventory_item/${encodeURIComponent(inventorySku)}`,
-        "PUT",
-        inventoryBody
-      );
-      await persistRevisionCount(conn.id, inventorySku, conn.config);
-      await verifyInventoryWrite(conn.accessToken, inventorySku, null);
-      return;
-    }
-    const quantity = Math.max(0, absoluteQuantity);
-    const offer = await findOffer(conn.accessToken, inventorySku).catch(() => null);
-    await pushEbayAbsoluteQuantity({
-      accessToken: conn.accessToken,
-      sku: inventorySku,
-      quantity,
-      offerId: offer?.offerId,
-    });
-    await persistRevisionCount(conn.id, inventorySku, conn.config);
+      if (limitCheck.nearLimit) {
+        console.warn("[ebay] updateInventory: approaching rate limit", {
+          sku: inventorySku,
+          count: limitCheck.count,
+        });
+      }
 
-    if (quantity > 0) {
-      await verifyInventoryWrite(conn.accessToken, inventorySku, quantity);
+      const isImported = isImportedEbayLink({
+        provider: "ebay",
+        externalListingId,
+        storeItemId: item.id,
+        linkOrigin: ebayLink?.linkOrigin,
+      });
+
+      if (hasOptionQuantities(item.variants)) {
+        const qtyItem = { ...item, quantity: Math.max(0, absoluteQuantity) };
+        let inventoryBody: Record<string, unknown>;
+        if (isImported) {
+          const live = await fetchLiveInventoryItem(conn.accessToken, inventorySku);
+          if (!live) {
+            throw new Error("Could not fetch live eBay inventory for passthrough qty update");
+          }
+          inventoryBody = buildPassthroughLiveOverlayBody(live, {
+            quantity: Math.max(0, absoluteQuantity),
+            title: item.title,
+          });
+        } else {
+          inventoryBody = buildEbayInventoryItem(qtyItem);
+        }
+        await ebayJson(
+          conn.accessToken,
+          `/sell/inventory/v1/inventory_item/${encodeURIComponent(inventorySku)}`,
+          "PUT",
+          inventoryBody
+        );
+        await persistRevisionCount(conn.id, inventorySku, conn.config);
+        await verifyInventoryWrite(conn.accessToken, inventorySku, null);
+        return;
+      }
+      const quantity = Math.max(0, absoluteQuantity);
+      const offer = await findOffer(conn.accessToken, inventorySku).catch(() => null);
+      await pushEbayAbsoluteQuantity({
+        accessToken: conn.accessToken,
+        sku: inventorySku,
+        quantity,
+        offerId: offer?.offerId,
+      });
+      await persistRevisionCount(conn.id, inventorySku, conn.config);
+
+      if (quantity > 0) {
+        await verifyInventoryWrite(conn.accessToken, inventorySku, quantity);
+      }
+    } catch (e) {
+      const msg = describeEbayThrownError(e);
+      if (ebayLink && (isEbayEndedListingError(e) || isEbayEndedListingError(msg))) {
+        await persistEbayListingEnded(ebayLink.id, ebayLink.conflictDetails);
+        return;
+      }
+      throw e;
     }
   },
 
@@ -1511,8 +1557,18 @@ export const ebayAdapter: ChannelAdapter = {
       return [];
     });
     const listings = mergeInventoryRowsWithTrading(tradingListings, inventoryRows);
-    return listings.map((l) =>
-      ebayListingToSummary({
+    const invBySku = new Map(
+      inventoryRows
+        .filter((row) => row.sku?.trim())
+        .map((row) => [row.sku!.trim(), row] as const)
+    );
+    const fulfillmentPolicyId =
+      conn.config && typeof conn.config.fulfillmentPolicyId === "string"
+        ? conn.config.fulfillmentPolicyId
+        : null;
+    return listings.map((l) => {
+      const inv = l.sku?.trim() ? invBySku.get(l.sku.trim()) : undefined;
+      return ebayListingToSummary({
         listingId: l.listingId,
         title: l.title,
         price: { value: (l.priceCents / 100).toFixed(2), currency: "USD" },
@@ -1522,8 +1578,10 @@ export const ebayAdapter: ChannelAdapter = {
         categoryName: l.categoryName ?? null,
         remoteUpdatedAt: l.remoteUpdatedAt ?? null,
         sku: l.sku ?? undefined,
-      })
-    );
+        packageWeightAndSize: inv?.packageWeightAndSize,
+        remoteShippingProfileId: fulfillmentPolicyId,
+      });
+    });
   },
 
   async fetchProductQuantity(

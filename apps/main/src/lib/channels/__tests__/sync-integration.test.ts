@@ -563,6 +563,14 @@ describe("error classification", () => {
     const error = new Error("Some unusual error");
     expect(classifyError(error)).toBe("transient");
   });
+
+  it("classifies ended eBay item and #25604 as permanent", async () => {
+    const { classifyError, isEbayEndedListingError } = await import("../error-classifier");
+    expect(classifyError(new Error("Not allowed to revise an ended item"))).toBe("permanent");
+    expect(classifyError(new Error("Availability not found (#25604)"))).toBe("permanent");
+    expect(isEbayEndedListingError("listing ended")).toBe(true);
+    expect(isEbayEndedListingError("revise an ended listing")).toBe(true);
+  });
 });
 
 describe("circuit breaker", () => {

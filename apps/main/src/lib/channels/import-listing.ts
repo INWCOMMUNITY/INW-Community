@@ -23,6 +23,7 @@ import {
   listingDescriptionToPlainText,
   sanitizeListingDescription,
 } from "./rich-description";
+import { attachShippingOptionOnImport } from "@/lib/shipping-options";
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -424,6 +425,28 @@ export async function importRemoteListing(args: {
       },
     });
     createdStoreItemId = storeItem.id;
+
+    if ((provider === "etsy" || provider === "ebay") && listing.remoteShippingProfileId) {
+      await attachShippingOptionOnImport({
+        memberId,
+        storeItemId: storeItem.id,
+        source: provider,
+        hint: {
+          remoteProfileId: listing.remoteShippingProfileId,
+          weightOz: listing.packageWeightOz ?? null,
+          lengthIn: listing.packageLengthIn ?? null,
+          widthIn: listing.packageWidthIn ?? null,
+          heightIn: listing.packageHeightIn ?? null,
+          shippingCostCents: shippingCents,
+        },
+      }).catch((e) =>
+        console.warn("[channels] attach shipping option on import failed", {
+          provider,
+          storeItemId: storeItem.id,
+          error: String(e),
+        })
+      );
+    }
 
     const metaHash = syncMetaHash({
       category: storeItem.category,

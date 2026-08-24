@@ -15,8 +15,34 @@ const logOpt: ("query" | "error" | "warn")[] = isDev
   ? ["query", "error", "warn"]
   : ["error"];
 
+function prismaHasShippingOptionCost(client: PrismaClient): boolean {
+  const rdm = (
+    client as {
+      _runtimeDataModel?: { models?: Record<string, { fields?: Record<string, unknown> | unknown[] }> };
+    }
+  )._runtimeDataModel;
+  const fields = rdm?.models?.ShippingOption?.fields;
+  if (!fields) return false;
+  if (Array.isArray(fields)) {
+    return fields.some((f) => f && typeof f === "object" && (f as { name?: string }).name === "shippingCostCents");
+  }
+  return "shippingCostCents" in fields;
+}
+
 const prismaClient = (() => {
-  if (globalThis.prisma) return globalThis.prisma;
+  const existing = globalThis.prisma;
+  // After adding models/fields, a cached PrismaClient from before `prisma generate`
+  // is missing delegates or columns — recreate it.
+  if (
+    existing &&
+    typeof (existing as { shippingOption?: unknown }).shippingOption !== "undefined" &&
+    prismaHasShippingOptionCost(existing)
+  ) {
+    return existing;
+  }
+  if (existing) {
+    void existing.$disconnect().catch(() => {});
+  }
 
   const baseLog =
     isDev

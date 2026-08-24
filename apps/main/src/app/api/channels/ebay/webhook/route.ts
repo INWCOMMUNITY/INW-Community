@@ -206,9 +206,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (isClosedEvent(eventType)) {
-      const result = await refreshEbayListingByItemId(ctx.accessToken, itemId, {
-        activeListingIds: new Set(),
-      });
+      const result = await refreshEbayListingByItemId(ctx.accessToken, itemId);
       console.log("[ebay webhook] closed-event refresh completed", {
         itemId,
         eventType,

@@ -5,6 +5,7 @@ import {
   getShippingOptionPrefs,
   importRemoteShippingOptions,
   listShippingOptions,
+  parseShippingCostCentsInput,
   updateShippingOptionPrefs,
 } from "@/lib/shipping-options";
 import { z } from "zod";
@@ -17,7 +18,9 @@ const createSchema = z.object({
   widthIn: z.coerce.number().positive(),
   heightIn: z.coerce.number().positive(),
   weightLbs: z.coerce.number().min(0).default(0),
-  weightOz: z.coerce.number().min(0).max(15.99).default(0),
+  weightOz: z.coerce.number().min(0).default(0),
+  shippingCostCents: z.coerce.number().int().min(0).optional(),
+  shippingCostDollars: z.union([z.string(), z.number()]).optional(),
 });
 
 const prefsSchema = z.object({
@@ -54,7 +57,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid shipping option", details: parsed.error.flatten() }, { status: 400 });
   }
   try {
-    const option = await createInwShippingOption(userId, parsed.data);
+    const shippingCostCents = parseShippingCostCentsInput({
+      shippingCostCents: parsed.data.shippingCostCents,
+      shippingCostDollars: parsed.data.shippingCostDollars,
+      required: true,
+    });
+    const option = await createInwShippingOption(userId, {
+      name: parsed.data.name,
+      lengthIn: parsed.data.lengthIn,
+      widthIn: parsed.data.widthIn,
+      heightIn: parsed.data.heightIn,
+      weightLbs: parsed.data.weightLbs,
+      weightOz: parsed.data.weightOz,
+      shippingCostCents: shippingCostCents ?? 0,
+    });
     return NextResponse.json({ option }, { status: 201 });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Could not create option" }, { status: 400 });
@@ -76,14 +92,21 @@ export async function PATCH(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid preferences" }, { status: 400 });
   }
-  const prefs = await updateShippingOptionPrefs(userId, parsed.data);
-  const imports: { provider: string; imported: number; error?: string }[] = [];
-  if (parsed.data.importEbayShippingOptions === true) {
-    imports.push({ provider: "ebay", ...(await importRemoteShippingOptions(userId, "ebay")) });
+  try {
+    const prefs = await updateShippingOptionPrefs(userId, parsed.data);
+    const imports: { provider: string; imported: number; error?: string }[] = [];
+    if (parsed.data.importEbayShippingOptions === true) {
+      imports.push({ provider: "ebay", ...(await importRemoteShippingOptions(userId, "ebay")) });
+    }
+    if (parsed.data.importEtsyShippingOptions === true) {
+      imports.push({ provider: "etsy", ...(await importRemoteShippingOptions(userId, "etsy")) });
+    }
+    const options = await listShippingOptions(userId);
+    return NextResponse.json({ options, ...prefs, imports });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Could not save" },
+      { status: 500 }
+    );
   }
-  if (parsed.data.importEtsyShippingOptions === true) {
-    imports.push({ provider: "etsy", ...(await importRemoteShippingOptions(userId, "etsy")) });
-  }
-  const options = await listShippingOptions(userId);
-  return NextResponse.json({ options, ...prefs, imports });
 }

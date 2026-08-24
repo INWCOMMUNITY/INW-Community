@@ -53,6 +53,10 @@ const PERMANENT_PATTERNS = [
   /shop is closed/i,
   /shop is inactive/i,
   /listing ended/i,
+  /ended item/i,
+  /revise an ended/i,
+  /#25604\b/,
+  /availability not found/i,
   /listing removed/i,
   /invalid sku/i,
   /sku not found/i,
@@ -203,6 +207,12 @@ export function isTransientError(error: unknown): boolean {
  */
 export function isPermanentError(error: unknown): boolean {
   return classifyError(error) === "permanent";
+}
+
+export function isEbayEndedListingError(error: unknown): boolean {
+  return /ended item|listing ended|revise an ended|#25604\b|availability not found/i.test(
+    errorToString(error)
+  );
 }
 
 /**

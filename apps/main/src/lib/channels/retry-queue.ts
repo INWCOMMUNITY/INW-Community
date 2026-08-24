@@ -4,6 +4,8 @@ import { updateStoreItemOnChannels } from "./outbound";
 import { classifyError, type ErrorClassification } from "./error-classifier";
 import { logSyncEvent } from "./sync-log";
 import type { ChannelProvider } from "./types";
+import { shouldBlockSoldOutQtyRecovery } from "./sold-out-guard";
+import { readRemoteCatalogState, shouldDropStaleChannelRetry } from "./listing-link-flags";
 
 const BACKOFF_SCHEDULE_MS = [
   30_000,        // 30s
@@ -135,6 +137,7 @@ export async function processRetryQueue(): Promise<{
       link: {
         include: {
           connection: { select: { id: true, memberId: true } },
+          storeItem: { select: { quantity: true } },
         },
       },
     },
@@ -156,6 +159,29 @@ export async function processRetryQueue(): Promise<{
       retry.link.lastInboundAt.getTime() > retry.createdAt.getTime()
     ) {
       await prisma.channelSyncRetry.delete({ where: { id: retry.id } });
+      continue;
+    }
+
+    let hasRecentSale = false;
+    if (retry.provider === "etsy" && retry.retryType === "inventory") {
+      const state = readRemoteCatalogState(retry.link?.conflictDetails);
+      const qty = retry.link?.storeItem?.quantity ?? 0;
+      if (state !== "inactive" && state !== "inactive_outside_catalog" && qty <= 0) {
+        hasRecentSale = await shouldBlockSoldOutQtyRecovery(retry.storeItemId);
+      }
+    }
+    if (
+      shouldDropStaleChannelRetry({
+        provider: retry.provider,
+        retryType: retry.retryType,
+        conflictDetails: retry.link?.conflictDetails,
+        storeItemQuantity: retry.link?.storeItem?.quantity,
+        hasRecentSale,
+        lastError: retry.lastError,
+      })
+    ) {
+      await prisma.channelSyncRetry.delete({ where: { id: retry.id } });
+      succeeded++;
       continue;
     }
 

@@ -38,6 +38,11 @@ export function saleLinkCandidateIds(sale: SaleLinkLookup): string[] {
   return out;
 }
 
+/** StoreItem.id lookup — never treat an eBay Item ID / inw{id} SKU as an INW row id. */
+export function saleStoreItemLookupIds(candidateIds: string[]): string[] {
+  return candidateIds.filter((id) => !/^\d+$/.test(id) && !/^inw\d+$/i.test(id));
+}
+
 export function ebayFulfillmentLineToSale(
   orderId: string | undefined,
   li: {
@@ -65,10 +70,15 @@ export async function findChannelLinkForSale(
 ) {
   const ids = saleLinkCandidateIds(sale);
   if (ids.length === 0) return null;
+
+  const byListingId = await prisma.channelListingLink.findFirst({
+    where: { provider, externalListingId: { in: ids } },
+  });
+  if (byListingId) return byListingId;
+
+  const storeItemIds = saleStoreItemLookupIds(ids);
+  if (storeItemIds.length === 0) return null;
   return prisma.channelListingLink.findFirst({
-    where: {
-      provider,
-      OR: [{ externalListingId: { in: ids } }, { storeItemId: { in: ids } }],
-    },
+    where: { provider, storeItemId: { in: storeItemIds } },
   });
 }

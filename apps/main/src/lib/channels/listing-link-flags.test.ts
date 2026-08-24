@@ -1,0 +1,124 @@
+import { describe, expect, it } from "vitest";
+import {
+  inboundContentFanoutKind,
+  isEbayListingEnded,
+  mergeConflictDetails,
+  readRemoteCatalogState,
+  shouldDropStaleChannelRetry,
+  shouldSkipEndedEbayOutbound,
+  withEbayListingEnded,
+  withRemoteCatalogState,
+} from "./listing-link-flags";
+
+describe("inboundContentFanoutKind", () => {
+  it("fans out inventory only when the apply sold the item out", () => {
+    expect(inboundContentFanoutKind({ contentChange: true, soldOut: true })).toBe("inventory");
+    expect(inboundContentFanoutKind({ contentChange: false, soldOut: true })).toBe("inventory");
+  });
+
+  it("fans out sibling content after a non-sale content pull", () => {
+    expect(inboundContentFanoutKind({ contentChange: true, soldOut: false })).toBe("content");
+  });
+
+  it("does not fan out when nothing changed", () => {
+    expect(inboundContentFanoutKind({ contentChange: false, soldOut: false })).toBeNull();
+  });
+});
+
+describe("ended eBay outbound skip", () => {
+  it("skips eBay when the link is marked ended", () => {
+    const details = withEbayListingEnded({}, true);
+    expect(shouldSkipEndedEbayOutbound("ebay", details)).toBe(true);
+    expect(shouldSkipEndedEbayOutbound("etsy", details)).toBe(false);
+    expect(shouldSkipEndedEbayOutbound("ebay", {})).toBe(false);
+  });
+});
+
+describe("stale retry drop", () => {
+  it("drops eBay retries once the listing is ended", () => {
+    expect(
+      shouldDropStaleChannelRetry({
+        provider: "ebay",
+        retryType: "inventory",
+        conflictDetails: withEbayListingEnded({}, true),
+        storeItemQuantity: 0,
+        hasRecentSale: true,
+      })
+    ).toBe(true);
+  });
+
+  it("drops Etsy qty-0 retries after deactivate or recovery, but keeps them after a sale", () => {
+    expect(
+      shouldDropStaleChannelRetry({
+        provider: "etsy",
+        retryType: "inventory",
+        conflictDetails: withRemoteCatalogState({}, "inactive"),
+        storeItemQuantity: 0,
+        hasRecentSale: true,
+      })
+    ).toBe(true);
+    expect(
+      shouldDropStaleChannelRetry({
+        provider: "etsy",
+        retryType: "inventory",
+        conflictDetails: {},
+        storeItemQuantity: 1,
+        hasRecentSale: false,
+        lastError: "Etsy inventory verify failed: expected 0, got 1",
+      })
+    ).toBe(true);
+    expect(
+      shouldDropStaleChannelRetry({
+        provider: "etsy",
+        retryType: "inventory",
+        conflictDetails: {},
+        storeItemQuantity: 1,
+        hasRecentSale: false,
+        lastError: "Etsy inventory verify failed: expected 3, got 2",
+      })
+    ).toBe(false);
+    expect(
+      shouldDropStaleChannelRetry({
+        provider: "etsy",
+        retryType: "inventory",
+        conflictDetails: {},
+        storeItemQuantity: 0,
+        hasRecentSale: false,
+      })
+    ).toBe(true);
+    expect(
+      shouldDropStaleChannelRetry({
+        provider: "etsy",
+        retryType: "inventory",
+        conflictDetails: {},
+        storeItemQuantity: 0,
+        hasRecentSale: true,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("ebayListingEnded flag", () => {
+  it("stores and clears ebayListingEnded without dropping other keys", () => {
+    const withEnded = withEbayListingEnded({ other: 1 }, true);
+    expect(isEbayListingEnded(withEnded)).toBe(true);
+    expect((withEnded as { other: number }).other).toBe(1);
+    expect(isEbayListingEnded(withEbayListingEnded(withEnded, false))).toBe(false);
+  });
+});
+
+describe("remoteCatalogState", () => {
+  it("round-trips skip-sell-out states", () => {
+    const stored = withRemoteCatalogState({ ebayPendingInbound: { hash: "a" } }, "inactive_outside_catalog");
+    expect(readRemoteCatalogState(stored)).toBe("inactive_outside_catalog");
+    expect(
+      (stored as { ebayPendingInbound: { hash: string } }).ebayPendingInbound.hash
+    ).toBe("a");
+    expect(readRemoteCatalogState(withRemoteCatalogState(stored, null))).toBeNull();
+  });
+
+  it("merges patches and deletes null keys", () => {
+    const merged = mergeConflictDetails({ keep: true, drop: 1 }, { drop: null, add: "x" });
+    expect(merged).toEqual({ keep: true, add: "x" });
+  });
+});

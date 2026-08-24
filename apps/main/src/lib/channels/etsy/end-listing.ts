@@ -1,5 +1,6 @@
 import { EtsyApiError, etsyDelete, etsyForm, etsyGet, setEtsyConnectionContext } from "./client";
 import { etsyListingIsNotActive } from "./listing-exists";
+import { markEtsyLinkInactiveAfterSellOut } from "../listing-link-flags";
 
 type EtsyListingSnapshot = { state?: string; quantity?: number };
 
@@ -137,4 +138,8 @@ export async function applyEtsySellOutInventory(args: {
     listingId,
     connectionId,
   });
+
+  if (connectionId) {
+    await markEtsyLinkInactiveAfterSellOut({ connectionId, listingId });
+  }
 }

@@ -23,6 +23,7 @@ export interface ListingTemplate {
   localDeliveryAvailable?: boolean;
   inStorePickupAvailable?: boolean;
   shippingCostCents?: number | null;
+  shippingOptionId?: string | null;
   localDeliveryFeeCents?: number | null;
   shippingPolicy?: string | null;
   localDeliveryTerms?: string | null;

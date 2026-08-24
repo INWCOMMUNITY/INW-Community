@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { archiveShippingOption, updateInwShippingOption } from "@/lib/shipping-options";
+import { archiveShippingOption, parseShippingCostCentsInput, updateInwShippingOption } from "@/lib/shipping-options";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +11,9 @@ const patchSchema = z.object({
   widthIn: z.coerce.number().positive().optional(),
   heightIn: z.coerce.number().positive().optional(),
   weightLbs: z.coerce.number().min(0).optional(),
-  weightOz: z.coerce.number().min(0).max(15.99).optional(),
+  weightOz: z.coerce.number().min(0).optional(),
+  shippingCostCents: z.coerce.number().int().min(0).optional(),
+  shippingCostDollars: z.union([z.string(), z.number()]).optional(),
 });
 
 export async function PATCH(
@@ -34,7 +36,19 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid shipping option" }, { status: 400 });
   }
   try {
-    const option = await updateInwShippingOption(userId, id, parsed.data);
+    const shippingCostCents = parseShippingCostCentsInput({
+      shippingCostCents: parsed.data.shippingCostCents,
+      shippingCostDollars: parsed.data.shippingCostDollars,
+    });
+    const option = await updateInwShippingOption(userId, id, {
+      name: parsed.data.name,
+      lengthIn: parsed.data.lengthIn,
+      widthIn: parsed.data.widthIn,
+      heightIn: parsed.data.heightIn,
+      weightLbs: parsed.data.weightLbs,
+      weightOz: parsed.data.weightOz,
+      ...(shippingCostCents !== undefined ? { shippingCostCents } : {}),
+    });
     if (!option) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ option });
   } catch (e) {

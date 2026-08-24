@@ -80,6 +80,22 @@ interface StoreItem {
   soldAt?: string;
 }
 
+function buyBoxFulfillmentSummary(
+  fulfillmentType: FulfillmentType,
+  listing: StoreItem
+): string | null {
+  if (fulfillmentType === "pickup") return "Local pickup";
+  if (fulfillmentType === "local_delivery") {
+    const fee = listing.localDeliveryFeeCents ?? 0;
+    return fee > 0
+      ? `+ $${(fee / 100).toFixed(2)} local delivery`
+      : "Free local delivery";
+  }
+  if (listing.shippingDisabled) return null;
+  const ship = listing.shippingCostCents ?? 0;
+  return ship > 0 ? `+ $${(ship / 100).toFixed(2)} shipping` : "Free shipping";
+}
+
 export default function ProductDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -264,6 +280,9 @@ export default function ProductDetailPage() {
     if (!item || itemUnavailable) return 0;
     return getMaxPurchasableQuantity(item, selectedVariant, allVariantsSelected);
   }, [item, itemUnavailable, selectedVariant, allVariantsSelected]);
+  const fulfillmentSummary = item ? buyBoxFulfillmentSummary(fulfillmentType, item) : null;
+  const showLowStockChip =
+    !itemUnavailable && maxPurchasableQty > 0 && maxPurchasableQty < 10 && allVariantsSelected;
 
   const itemDetails = useMemo(
     () => (item ? parseStoredAspects(item.aspects) : []),
@@ -734,7 +753,7 @@ export default function ProductDetailPage() {
                 </p>
                 <h1 className="text-3xl font-bold leading-tight text-[var(--color-heading)]">{item.title}</h1>
               </div>
-              <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[12rem]">
+              <div className="flex w-full sm:w-auto sm:min-w-[12rem]">
                 <ShareButton
                   type="store_item"
                   id={item.id}
@@ -743,23 +762,6 @@ export default function ProductDetailPage() {
                   variant="full"
                   tone="earth"
                   label="Share Item"
-                />
-                <HeartSaveButton
-                  type="store_item"
-                  referenceId={item.id}
-                  initialSaved={savedIds.has(item.id)}
-                  variant="full"
-                  tone="tan"
-                  saveLabel="Add to Wishlist"
-                  savedLabel="In Wishlist"
-                  onSavedChange={(saved) => {
-                    setSavedIds((prev) => {
-                      const next = new Set(prev);
-                      if (saved) next.add(item.id);
-                      else next.delete(item.id);
-                      return next;
-                    });
-                  }}
                 />
               </div>
             </div>
@@ -812,21 +814,48 @@ export default function ProductDetailPage() {
             )}
           </div>
           <div className="rounded-2xl border border-[#E6D8B7] bg-[#FBFAF6] p-5 shadow-sm">
-            {item.business && (
+            {item.business ? (
               <Link
                 href={`/support-local/${item.business.slug}`}
-                className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-link)] hover:underline"
+                className="inline-flex max-w-full items-center gap-1.5 text-sm text-gray-600 hover:text-[var(--color-heading)]"
               >
-                <IonIcon name="storefront-outline" size={18} className="text-[var(--color-primary)]" />
-                {item.business.name}
+                <IonIcon name="storefront-outline" size={16} className="shrink-0 text-[var(--color-primary)]" />
+                <span className="min-w-0">
+                  Sold by{" "}
+                  <span className="font-semibold text-[var(--color-link)]">{item.business.name}</span>
+                </span>
+                <IonIcon name="chevron-forward" size={14} className="shrink-0 text-gray-400" />
               </Link>
-            )}
-            <div className="mt-3">
-              <span className="inline-block rounded px-2.5 py-1 text-xs font-semibold" style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-heading)" }}>
+            ) : item.member ? (
+              <p className="inline-flex items-center gap-1.5 text-sm text-gray-600">
+                <IonIcon name="person-outline" size={16} className="text-[var(--color-primary)]" />
+                <span>
+                  Sold by{" "}
+                  <span className="font-semibold text-[var(--color-heading)]">
+                    {item.member.firstName} {item.member.lastName}
+                  </span>
+                </span>
+              </p>
+            ) : null}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span
+                className="inline-block rounded px-2.5 py-1 text-xs font-semibold"
+                style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-heading)" }}
+              >
                 {item.condition === "used" ? "Used" : "New"}
               </span>
+              {showLowStockChip && (
+                <span className="inline-block rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                  Only {maxPurchasableQty} left
+                </span>
+              )}
             </div>
-            <p className="text-3xl font-bold mt-4 text-[var(--color-heading)]">${(item.priceCents / 100).toFixed(2)}</p>
+            <p className="mt-3 text-3xl font-bold tracking-tight text-[var(--color-heading)]">
+              ${(item.priceCents / 100).toFixed(2)}
+            </p>
+            {fulfillmentSummary && (
+              <p className="mt-1 text-sm text-gray-500">{fulfillmentSummary}</p>
+            )}
 
             <StoreItemFulfillmentPicker
               fulfillmentType={fulfillmentType}
@@ -839,23 +868,6 @@ export default function ProductDetailPage() {
               localDeliveryDetailsSaved={localDeliveryDetailsSaved}
               pickupDetailsSaved={pickupDetailsSaved}
             />
-            {(!item.shippingDisabled && !item.localDeliveryAvailable && !item.inStorePickupAvailable) && (
-              <>
-                {item.shippingCostCents != null && item.shippingCostCents > 0 ? (
-                  <p className="text-sm text-gray-500 mt-1">
-                    Shipping: ${(item.shippingCostCents / 100).toFixed(2)}
-                  </p>
-                ) : (
-                  <p className="text-sm text-gray-500 mt-1">Free Shipping</p>
-                )}
-              </>
-            )}
-            {fulfillmentType === "ship" && item.shippingCostCents != null && item.shippingCostCents > 0 && (
-              <p className="text-sm text-gray-500 mt-1">Shipping: ${(item.shippingCostCents / 100).toFixed(2)}</p>
-            )}
-            {fulfillmentType === "local_delivery" && item.localDeliveryFeeCents != null && item.localDeliveryFeeCents > 0 && (
-              <p className="text-sm text-gray-500 mt-1">Local Delivery: ${(item.localDeliveryFeeCents / 100).toFixed(2)}</p>
-            )}
             {fulfillmentType === "pickup" && (item.pickupTerms ?? item.member?.sellerPickupPolicy) && (
               <div className="mt-2 p-3 bg-gray-50 rounded border border-gray-200 text-sm">
                 <strong>Seller&apos;s pickup policy:</strong>
@@ -917,42 +929,58 @@ export default function ProductDetailPage() {
                 ) : allVariantsSelected ? (
                   <p className="text-sm text-red-600 mt-6">This option is sold out.</p>
                 ) : null}
-                {maxPurchasableQty > 0 && maxPurchasableQty < 10 && allVariantsSelected && (
-                  <p className="text-sm text-amber-700 mt-2">Only {maxPurchasableQty} left in stock.</p>
-                )}
                 {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mt-6">
-                  {status === "loading" ? (
-                    <p className="text-gray-500">Loading…</p>
-                  ) : session?.user ? (
-                    <>
-                      <StoreItemAddToCartButton
-                        onClick={handleAddToCart}
-                        disabled={!canPurchase}
-                        loading={addingToCart}
-                        needsFulfillmentForm={needsFulfillmentForm}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleCheckout}
-                        disabled={checkingOut || !canPurchase}
-                        className="w-full inline-flex items-center justify-center gap-2.5 border-2 border-[var(--color-primary)] bg-white hover:bg-gray-50 disabled:opacity-50 py-2.5 px-4 rounded font-medium text-[var(--color-primary)] transition-colors"
-                      >
-                        <IonIcon name="flash-outline" size={18} className="text-[var(--color-primary)] shrink-0" />
-                        {checkingOut ? "Redirecting…" : "Buy It Now"}
-                      </button>
-                    </>
-                  ) : (
-                    <Link
-                      href={`/login?callbackUrl=${encodeURIComponent(`/storefront/${item.slug}`)}`}
-                      className="btn inline-block text-center"
-                    >
-                      Sign in to Buy
-                    </Link>
-                  )}
-                </div>
               </>
             )}
+            <div className="mt-6 flex flex-col gap-3">
+              {!itemUnavailable && (
+                status === "loading" ? (
+                  <p className="text-gray-500">Loading…</p>
+                ) : session?.user ? (
+                  <>
+                    <StoreItemAddToCartButton
+                      onClick={handleAddToCart}
+                      disabled={!canPurchase}
+                      loading={addingToCart}
+                      needsFulfillmentForm={needsFulfillmentForm}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCheckout}
+                      disabled={checkingOut || !canPurchase}
+                      className="w-full inline-flex items-center justify-center gap-2.5 border-2 border-[var(--color-primary)] bg-white hover:bg-gray-50 disabled:opacity-50 py-2.5 px-4 rounded font-medium text-[var(--color-primary)] transition-colors"
+                    >
+                      <IonIcon name="flash-outline" size={18} className="text-[var(--color-primary)] shrink-0" />
+                      {checkingOut ? "Redirecting…" : "Buy It Now"}
+                    </button>
+                  </>
+                ) : (
+                  <Link
+                    href={`/login?callbackUrl=${encodeURIComponent(`/storefront/${item.slug}`)}`}
+                    className="btn inline-block text-center"
+                  >
+                    Sign in to Buy
+                  </Link>
+                )
+              )}
+              <HeartSaveButton
+                type="store_item"
+                referenceId={item.id}
+                initialSaved={savedIds.has(item.id)}
+                variant="full"
+                tone="tan"
+                saveLabel="Add to Wishlist"
+                savedLabel="In Wishlist"
+                onSavedChange={(saved) => {
+                  setSavedIds((prev) => {
+                    const next = new Set(prev);
+                    if (saved) next.add(item.id);
+                    else next.delete(item.id);
+                    return next;
+                  });
+                }}
+              />
+            </div>
           </div>
           </div>
           {itemDetails.length > 0 && (

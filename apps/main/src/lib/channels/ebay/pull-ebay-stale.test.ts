@@ -21,6 +21,19 @@ describe("isEbayInboundContentChange", () => {
     expect(isEbayInboundContentChange({ priceCents: 4400, ebayCategoryId: 36059 })).toBe(true);
     expect(isEbayInboundContentChange({ quantity: 4 })).toBe(true);
   });
+
+  it("maps a GetItem title/photos/description apply to sibling content fan-out", async () => {
+    const { inboundContentFanoutKind } = await import("../listing-link-flags");
+    expect(
+      isEbayInboundContentChange({
+        title: "Bear Clock",
+        photos: ["https://i.ebayimg.com/a.jpg"],
+        description: "<p>clock</p>",
+      })
+    ).toBe(true);
+    expect(inboundContentFanoutKind({ contentChange: true, soldOut: false })).toBe("content");
+    expect(inboundContentFanoutKind({ contentChange: true, soldOut: true })).toBe("inventory");
+  });
 });
 
 describe("ebayGetItemDetailsAreUsable", () => {

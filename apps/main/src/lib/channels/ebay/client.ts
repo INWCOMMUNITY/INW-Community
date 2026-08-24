@@ -49,14 +49,30 @@ export function takeEbayCallWarnings(): EbayErrorRow[] {
   return rows;
 }
 
+const KNOWN_HTTP_200_WARNING_IDS = new Set([25401, 25402]);
+
+export function isKnownEbayHttp200Warning(errorId: number | undefined): boolean {
+  return errorId != null && KNOWN_HTTP_200_WARNING_IDS.has(errorId);
+}
+
 function noteSuccessWarnings(path: string, body: unknown): void {
   const warnings = extractEbayWarnings(body);
   lastEbayWarnings = warnings;
   if (warnings.length === 0) return;
-  console.warn("[ebay] REST 200 with warnings", {
-    path,
-    warnings: warnings.map((row) => formatEbayErrorRow(row)),
-  });
+  const known = warnings.filter((row) => isKnownEbayHttp200Warning(row.errorId));
+  const unknown = warnings.filter((row) => !isKnownEbayHttp200Warning(row.errorId));
+  if (unknown.length > 0) {
+    console.warn("[ebay] REST 200 with warnings", {
+      path,
+      warnings: unknown.map((row) => formatEbayErrorRow(row)),
+    });
+  }
+  if (known.length > 0) {
+    console.info("[ebay] REST 200 known warnings", {
+      path,
+      warnings: known.map((row) => formatEbayErrorRow(row)),
+    });
+  }
 }
 
 function baseHeaders(accessToken: string, opts?: { contentLanguage?: boolean }): Record<string, string> {

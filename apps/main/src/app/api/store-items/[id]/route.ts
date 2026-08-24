@@ -17,6 +17,7 @@ import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-
 import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
 import { isImportedEbayLink } from "@/lib/channels/ebay/listing-origin";
 import { Prisma } from "database";
+import { assertMemberShippingOption } from "@/lib/shipping-options";
 
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
@@ -33,6 +34,7 @@ const bodySchema = z.object({
   status: z.enum(["active", "sold_out", "inactive"]).optional(),
   condition: z.enum(["new", "used"]).optional(),
   shippingCostCents: z.number().int().min(0).nullable().optional(),
+  shippingOptionId: z.string().nullable().optional(),
   shippingPolicy: z.string().nullable().optional(),
   localDeliveryAvailable: z.boolean().optional(),
   localDeliveryFeeCents: z.number().int().min(0).nullable().optional(),
@@ -289,6 +291,13 @@ export async function PATCH(
   }
   if (data.status !== undefined) update.status = data.status;
   if (data.shippingCostCents !== undefined) update.shippingCostCents = data.shippingCostCents;
+  if (data.shippingOptionId !== undefined) {
+    try {
+      update.shippingOptionId = await assertMemberShippingOption(existing.memberId, data.shippingOptionId);
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Invalid shipping option" }, { status: 400 });
+    }
+  }
   if (data.shippingPolicy !== undefined) update.shippingPolicy = data.shippingPolicy?.trim() || null;
   if (data.localDeliveryAvailable !== undefined) update.localDeliveryAvailable = data.localDeliveryAvailable;
   if (data.localDeliveryFeeCents !== undefined) update.localDeliveryFeeCents = data.localDeliveryFeeCents;
