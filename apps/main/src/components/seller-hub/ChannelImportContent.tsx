@@ -41,17 +41,30 @@ export function ChannelImportContent() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   const importable = useMemo(
     () => listings.filter((l) => !l.alreadyLinked),
     [listings]
   );
-  const importableIds = useMemo(
-    () => importable.map((l) => l.externalListingId),
-    [importable]
+  const filteredListings = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return listings;
+    return listings.filter(
+      (l) =>
+        l.title.toLowerCase().includes(q) || l.externalListingId.toLowerCase().includes(q)
+    );
+  }, [listings, search]);
+  const visibleImportable = useMemo(
+    () => filteredListings.filter((l) => !l.alreadyLinked),
+    [filteredListings]
+  );
+  const visibleImportableIds = useMemo(
+    () => visibleImportable.map((l) => l.externalListingId),
+    [visibleImportable]
   );
   const allImportableSelected =
-    importableIds.length > 0 && importableIds.every((id) => selected.has(id));
+    visibleImportableIds.length > 0 && visibleImportableIds.every((id) => selected.has(id));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,9 +101,17 @@ export function ChannelImportContent() {
 
   const toggleSelectAll = () => {
     if (allImportableSelected) {
-      setSelected(new Set());
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const id of visibleImportableIds) next.delete(id);
+        return next;
+      });
     } else {
-      setSelected(new Set(importableIds));
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const id of visibleImportableIds) next.add(id);
+        return next;
+      });
     }
   };
 
@@ -182,8 +203,17 @@ export function ChannelImportContent() {
       ) : listings.length === 0 ? (
         <p className="text-gray-500 py-8 text-center">No {label} listings found.</p>
       ) : (
-        <ul className="divide-y divide-gray-200 border-2 border-[var(--color-primary)] rounded-lg overflow-hidden bg-white">
-          {importable.length > 0 ? (
+        <>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={`Search ${label} listings`}
+            className="w-full border rounded-lg px-3 py-2 text-sm mb-3"
+            aria-label={`Search ${label} listings`}
+          />
+          <ul className="divide-y divide-gray-200 border-2 border-[var(--color-primary)] rounded-lg overflow-hidden bg-white">
+          {visibleImportable.length > 0 ? (
             <li className="bg-gray-50">
               <button
                 type="button"
@@ -197,7 +227,9 @@ export function ChannelImportContent() {
                     {allImportableSelected ? "Deselect all" : "Select all"}
                   </p>
                   <p className="text-sm text-gray-600 mt-0.5">
-                    {selected.size} of {importable.length} importable selected
+                    {visibleImportable.filter((l) => selected.has(l.externalListingId)).length} of{" "}
+                    {visibleImportable.length} importable selected
+                    {search.trim() ? " (matching search)" : ""}
                   </p>
                 </div>
                 <span
@@ -211,7 +243,12 @@ export function ChannelImportContent() {
               </button>
             </li>
           ) : null}
-          {listings.map((l) => {
+          {filteredListings.length === 0 ? (
+            <li className="p-4 text-sm text-gray-500 text-center">
+              No listings match “{search.trim()}”.
+            </li>
+          ) : (
+            filteredListings.map((l) => {
             const isSelected = selected.has(l.externalListingId);
             return (
               <li key={l.externalListingId}>
@@ -251,8 +288,10 @@ export function ChannelImportContent() {
                 </button>
               </li>
             );
-          })}
+          })
+          )}
         </ul>
+        </>
       )}
 
       {done && !error ? (

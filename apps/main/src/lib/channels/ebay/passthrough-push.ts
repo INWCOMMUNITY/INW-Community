@@ -14,7 +14,11 @@ import { applyBestOfferTermsToOfferBody, bestOfferStatesMatch, inwBestOfferState
 import { EBAY_CURRENCY } from "./config";
 import { ebayPriceFromCents } from "./mapping";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
-import { normalizeInventoryImageUrls } from "./media";
+import {
+  ebayPhotosAreHostFamilyMismatchOnly,
+  normalizeInventoryImageUrls,
+  selectPassthroughInventoryImageUrls,
+} from "./media";
 
 export type PassthroughChangedFields = {
   content: boolean;
@@ -139,6 +143,23 @@ function photosMatch(live: string[], inw: string[]): boolean {
   return b.every((url) => setA.has(url));
 }
 
+/** INW blob URLs vs last successful push — not live eBay CDN URLs. */
+export function inwPhotosChangedSinceLastEbayPush(
+  inwPhotos: string[],
+  lastPushedPhotos: string[] | null | undefined
+): boolean {
+  if (lastPushedPhotos == null) return false;
+  return !photosMatch(lastPushedPhotos, inwPhotos);
+}
+
+function liveProductImageUrls(live: LiveInventoryItem): string[] {
+  const product =
+    live.product && typeof live.product === "object"
+      ? (live.product as Record<string, unknown>)
+      : {};
+  return Array.isArray(product.imageUrls) ? product.imageUrls.map((u) => String(u)) : [];
+}
+
 function liveQuantity(live: LiveInventoryItem): number | null {
   const availability = live.availability;
   if (!availability || typeof availability !== "object") return null;
@@ -179,7 +200,11 @@ export function detectLivePassthroughChanges(
     ? product.imageUrls.map((u) => String(u))
     : [];
   const title = normalizeCompareText(liveTitle) !== normalizeCompareText(item.title.slice(0, EBAY_TITLE_MAX));
-  const photos = !photosMatch(livePhotos.slice(0, 12), item.photos.slice(0, 12));
+  const livePhotoSlice = livePhotos.slice(0, 12);
+  const inwPhotoSlice = item.photos.slice(0, 12);
+  const photos =
+    !photosMatch(livePhotoSlice, inwPhotoSlice) &&
+    !ebayPhotosAreHostFamilyMismatchOnly(livePhotoSlice, inwPhotoSlice);
   const wantedDescription = listingDescriptionForHtmlChannel(item.description, item.title);
   const liveDesc = offerDescription(liveOffer) || (typeof product.description === "string" ? product.description : "");
   const description = normalizeCompareText(liveDesc) !== normalizeCompareText(wantedDescription);
@@ -390,7 +415,10 @@ export function buildPassthroughInventoryBody(
   // re-sends the old title and the next GetItem copies it back onto INW.
   liveProduct.title = item.title.slice(0, EBAY_TITLE_MAX);
   if (overlayPhotos) {
-    liveProduct.imageUrls = normalizeInventoryImageUrls(item.photos);
+    liveProduct.imageUrls = selectPassthroughInventoryImageUrls(
+      liveProductImageUrls(live),
+      item.photos
+    );
   } else {
     pinSanitizedLiveImageUrls(liveProduct);
   }
@@ -463,7 +491,9 @@ export function buildPassthroughInventoryContentPutBody(
   }
   const patch: { title?: string; imageUrls?: string[] } = {};
   if (pushTitle || pushPhotos) patch.title = item.title;
-  if (pushPhotos) patch.imageUrls = item.photos;
+  if (pushPhotos) {
+    patch.imageUrls = selectPassthroughInventoryImageUrls(liveProductImageUrls(live), item.photos);
+  }
   return {
     body: buildPassthroughLiveOverlayBody(live, patch),
     aspectMode: "live_overlay",

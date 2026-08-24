@@ -121,11 +121,20 @@ describe("formatMigrateListingError", () => {
 });
 
 describe("ebay picture errors", () => {
-  it("hints to re-upload photos for #25014 instead of a migrate-listing message", () => {
+  it("hints about mixed eBay-hosted and INW URLs for #25014 instead of asking to re-upload", () => {
+    const mix =
+      "title: failed ([#25014 · API_INVENTORY · Request · HTTP 400] The eBay listing associated with the inventory item, or the unpublished offer has invalid pictures. A mixture of Self Hosted and EPS pictures are not allowed.)";
+    expect(ebayErrorActionHint(mix)).toMatch(/eBay-hosted/i);
+    expect(ebayErrorActionHint(mix)).toMatch(/do not need to re-upload/i);
+    expect(ebayErrorActionHint(mix)).not.toMatch(/Re-upload at least one/i);
+    expect(describeChannelSyncError("ebay", new Error(mix))).toMatch(/do not need to re-upload/i);
+  });
+
+  it("hints to fix photos for generic #25014 instead of a migrate-listing message", () => {
     const msg =
       "title: failed ([#25014 · API_INVENTORY · Request · HTTP 400] The eBay listing associated with the inventory item, or the unpublished offer has invalid pictures.)";
     expect(ebayErrorActionHint(msg)).toMatch(/rejected the listing photos/i);
     expect(ebayErrorActionHint(msg)).not.toMatch(/migrate this listing/i);
-    expect(describeChannelSyncError("ebay", new Error(msg))).toMatch(/Re-upload/i);
+    expect(describeChannelSyncError("ebay", new Error(msg))).toMatch(/mixed eBay-hosted/i);
   });
 });

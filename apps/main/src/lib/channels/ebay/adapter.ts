@@ -43,7 +43,12 @@ import {
   shouldUseInventoryItemGroup,
 } from "./inventory-groups";
 import { listInventoryItems, mergeInventoryRowsWithTrading } from "./inventory-import";
-import { putInventoryWithPhotoRecovery } from "./media";
+import {
+  putInventoryWithPhotoRecovery,
+  readInventoryProductImageUrls,
+  readStoredPhotoUrls,
+  ebayPhotosAreHostFamilyMismatchOnly,
+} from "./media";
 import {
   checkRevisionLimit,
   getRevisionLimitWarning,
@@ -104,6 +109,7 @@ import {
   buildPassthroughInventoryContentPutBody,
   buildPassthroughLiveOverlayBody,
   detectLivePassthroughChanges,
+  inwPhotosChangedSinceLastEbayPush,
   fetchLiveInventoryItem,
   formatPassthroughFieldSyncSummary,
   formatPassthroughPutNote,
@@ -287,6 +293,7 @@ async function upsertListing(
       linkOrigin: true,
       ebayInventoryAspects: true,
       lastPushedHash: true,
+      lastPushedPhotos: true,
       conflictDetails: true,
       connection: { select: { memberId: true } },
     },
@@ -420,8 +427,15 @@ async function upsertListing(
         throw error;
       }
 
+      const lastPushedPhotos = readStoredPhotoUrls(ebayLink?.lastPushedPhotos);
       const liveChanges = detectLivePassthroughChanges(live, item, liveOffer);
       const inwFields = detectStoreItemFieldChanges(item, ebayLink?.lastPushedHash);
+      inwFields.photos =
+        inwPhotosChangedSinceLastEbayPush(item.photos, lastPushedPhotos) &&
+        !ebayPhotosAreHostFamilyMismatchOnly(
+          readInventoryProductImageUrls(live),
+          item.photos
+        );
       const syncPrefsRow = ebayLink?.connection?.memberId
         ? await prisma.memberSyncPreferences.findUnique({
             where: { memberId: ebayLink.connection.memberId },
@@ -603,6 +617,7 @@ async function upsertListing(
           await putInventoryWithPhotoRecovery({
             accessToken: conn.accessToken,
             body: payload,
+            liveImageUrls: readInventoryProductImageUrls(live),
             fallbackImageUrls: item.photos,
             describeError: describeEbayThrownError,
             put: async (next) => {

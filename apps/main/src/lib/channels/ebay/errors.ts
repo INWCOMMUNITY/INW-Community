@@ -350,8 +350,11 @@ export function ebayErrorActionHint(reason: string): string | undefined {
   if (/\b1100\b|Insufficient permissions/i.test(reason)) {
     return "Your eBay connection lacks required permissions. Disconnect and reconnect eBay to grant all needed scopes.";
   }
+  if (/mixture of self hosted and eps|self hosted and eps pictures/i.test(reason)) {
+    return "eBay already has these photos as eBay-hosted images and does not allow mixing those with INW photo URLs. Other fields can still update; you do not need to re-upload the same pictures.";
+  }
   if (/\b25014\b|\b25015\b|invalid pictures|invalid picture url/i.test(reason)) {
-    return "eBay rejected the listing photos. Re-upload at least one HTTPS JPG or PNG on this item, then try again.";
+    return "eBay rejected the listing photos. This is usually mixed eBay-hosted and INW-hosted URLs, not a missing JPG. If you did not change photos, try again. If you did, use HTTPS JPG or PNG.";
   }
   if (/\b25017\b|Missing.*field|required field/i.test(reason)) {
     return "This listing is missing required information. Check that title, description, price, category, and item specifics are filled in.";

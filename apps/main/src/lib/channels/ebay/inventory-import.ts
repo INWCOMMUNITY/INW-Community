@@ -1,4 +1,5 @@
 import { ebayGet } from "./client";
+import { normalizeEbayPhotoUrl } from "./photos";
 import type { EbayTradingListing } from "./trading";
 
 export type EbayInventoryListRow = {
@@ -44,7 +45,9 @@ export function inventoryRowToTradingListing(row: EbayInventoryListRow): EbayTra
     title: row.product?.title?.trim() || sku,
     priceCents: 0,
     quantity: Math.max(0, row.availability?.shipToLocationAvailability?.quantity ?? 0),
-    photos: row.product?.imageUrls ?? [],
+    photos: (row.product?.imageUrls ?? [])
+      .map((url) => normalizeEbayPhotoUrl(url))
+      .filter((url): url is string => Boolean(url)),
     sku,
   };
 }

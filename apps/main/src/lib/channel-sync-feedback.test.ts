@@ -29,11 +29,12 @@ describe("buildPublishResultAlert", () => {
         provider: "ebay",
         ok: false,
         error:
-          "title: failed ([#25014 · API_INVENTORY · Request · HTTP 400] The eBay listing associated with the inventory item, or the unpublished offer has invalid pictures.) — eBay rejected the listing photos. Re-upload at least one HTTPS JPG or PNG on this item, then try again.",
+          "title: failed ([#25014 · API_INVENTORY · Request · HTTP 400] The eBay listing associated with the inventory item, or the unpublished offer has invalid pictures. A mixture of Self Hosted and EPS pictures are not allowed.) — eBay already has these photos as eBay-hosted images and does not allow mixing those with INW photo URLs. Other fields can still update; you do not need to re-upload the same pictures.",
       },
     ]);
     expect(alert.message).toContain("unpublished offer has invalid pictures");
-    expect(alert.message).toContain("Re-upload");
+    expect(alert.message).toContain("mixture of Self Hosted and EPS");
+    expect(alert.message).toContain("do not need to re-upload");
   });
 
   it("treats an empty or failed channelSync as not listed", () => {

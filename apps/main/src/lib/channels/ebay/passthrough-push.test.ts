@@ -11,6 +11,7 @@ import {
   formatPassthroughFieldSyncSummary,
   formatPassthroughPutNote,
   formatPushedAspectsSummary,
+  inwPhotosChangedSinceLastEbayPush,
   needsInventoryPut,
   overlayPassthroughOffer,
   passthroughEndedQuantityOnly,
@@ -320,6 +321,38 @@ describe("passthrough-push", () => {
     expect(changed.title).toBe(false);
     expect(changed.photos).toBe(true);
     expect(needsInventoryPut(changed)).toBe(true);
+  });
+
+  it("detectLivePassthroughChanges ignores INW blob URLs vs live EPS as a photo change", () => {
+    const changed = detectLivePassthroughChanges(
+      liveJeffersonNickel,
+      coinItem,
+      {
+        listingDescription: "Original eBay description",
+        pricingSummary: { price: { value: "125.00" } },
+      }
+    );
+    expect(changed.photos).toBe(false);
+    expect(needsInventoryPut(changed)).toBe(false);
+  });
+
+  it("inwPhotosChangedSinceLastEbayPush only flags the INW list, not eBay CDN drift", () => {
+    const inw = ["https://blob.example.com/coin.jpg"];
+    expect(inwPhotosChangedSinceLastEbayPush(inw, inw)).toBe(false);
+    expect(inwPhotosChangedSinceLastEbayPush(inw, null)).toBe(false);
+    expect(
+      inwPhotosChangedSinceLastEbayPush(inw, ["https://blob.example.com/old.jpg"])
+    ).toBe(true);
+  });
+
+  it("buildPassthroughInventoryBody pins live EPS instead of overlaying INW blobs", () => {
+    const body = buildPassthroughInventoryBody(
+      liveJeffersonNickel,
+      coinItem,
+      { content: true, quantity: false, price: false, title: true, photos: true }
+    );
+    const product = body.product as Record<string, unknown>;
+    expect(product.imageUrls).toEqual(["https://i.ebayimg.com/original.jpg"]);
   });
 
   it("overlayPassthroughOffer updates pricingSummary without rewriting categoryId", () => {
@@ -740,6 +773,24 @@ describe("passthrough-push", () => {
     const product = body.product as Record<string, unknown>;
     expect(product.title).toBe("EBAY CRON TEST 3");
     expect(product.imageUrls).toEqual(["https://i.ebayimg.com/new.jpg"]);
+  });
+
+  it("photo overlay keeps live EPS when INW still has original blob URLs", () => {
+    const live = {
+      condition: "LIKE_NEW",
+      product: {
+        title: "Keep Title",
+        imageUrls: ["https://i.ebayimg.com/old.jpg"],
+      },
+    };
+    const { body } = buildPassthroughInventoryContentPutBody(
+      live,
+      { ...coinItem, photos: ["https://blob.vercel-storage.com/clock.jpg"] },
+      { title: false, photos: true },
+      false
+    );
+    const product = body.product as Record<string, unknown>;
+    expect(product.imageUrls).toEqual(["https://i.ebayimg.com/old.jpg"]);
   });
 
   it("buildPassthroughInventoryContentPutBody applies title and photos in one PUT", () => {

@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Image,
   Modal,
+  TextInput,
 } from "react-native";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { theme } from "@/lib/theme";
@@ -67,6 +68,7 @@ export default function ChannelImportScreen() {
   const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean | null>(null);
   const [autoSyncLoading, setAutoSyncLoading] = useState(false);
   const [repairingCategories, setRepairingCategories] = useState(false);
+  const [search, setSearch] = useState("");
 
   const importPath = useMemo(() => `/api/channels/${provider}/import`, [provider]);
   const refreshPath = useMemo(() => `/api/channels/${provider}/refresh`, [provider]);
@@ -174,17 +176,44 @@ export default function ChannelImportScreen() {
     });
   };
 
+  const filteredListings = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return listings;
+    return listings.filter(
+      (l) =>
+        l.title.toLowerCase().includes(q) || l.externalListingId.toLowerCase().includes(q)
+    );
+  }, [listings, search]);
+
+  const visibleImportable = useMemo(
+    () => filteredListings.filter((l) => !l.alreadyLinked),
+    [filteredListings]
+  );
+
+  const allVisibleImportableSelected =
+    visibleImportable.length > 0 &&
+    visibleImportable.every((l) => selected.has(l.externalListingId));
+
   const selectAll = useCallback(() => {
-    const importableIds = listings.filter((l) => !l.alreadyLinked).map((l) => l.externalListingId);
-    if (selected.size === importableIds.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(importableIds));
-    }
-  }, [listings, selected.size]);
+    const visibleImportableIds = filteredListings
+      .filter((l) => !l.alreadyLinked)
+      .map((l) => l.externalListingId);
+    const allVisibleSelected =
+      visibleImportableIds.length > 0 && visibleImportableIds.every((id) => selected.has(id));
+    setSelected((prev) => {
+      if (allVisibleSelected) {
+        const next = new Set(prev);
+        for (const id of visibleImportableIds) next.delete(id);
+        return next;
+      }
+      const next = new Set(prev);
+      for (const id of visibleImportableIds) next.add(id);
+      return next;
+    });
+  }, [filteredListings, selected]);
 
   const runImportAll = useCallback(async () => {
-    const importableIds = listings.filter((l) => !l.alreadyLinked).map((l) => l.externalListingId);
+    const importableIds = visibleImportable.map((l) => l.externalListingId);
     if (importableIds.length === 0) return;
 
     setImporting(true);
@@ -249,7 +278,7 @@ export default function ChannelImportScreen() {
     } finally {
       setImporting(false);
     }
-  }, [listings, importPath, load]);
+  }, [visibleImportable, importPath, load]);
 
   const unsyncPath = useMemo(() => `/api/channels/${provider}/unsync`, [provider]);
 
@@ -436,25 +465,40 @@ export default function ChannelImportScreen() {
           <Text style={styles.empty}>No {label} listings found.</Text>
         ) : (
           <>
-            {importable.length > 0 && (
+            <TextInput
+              style={styles.searchInput}
+              placeholder={`Search ${label} listings...`}
+              placeholderTextColor={theme.colors.placeholder}
+              value={search}
+              onChangeText={setSearch}
+              autoCorrect={false}
+              autoCapitalize="none"
+              clearButtonMode="while-editing"
+            />
+            {visibleImportable.length > 0 && (
               <View style={styles.selectAllRow}>
                 <Pressable onPress={selectAll} style={styles.selectAllButton}>
                   <Text style={styles.selectAllText}>
-                    {selected.size === importable.length ? "Deselect All" : "Select All"}
+                    {allVisibleImportableSelected ? "Deselect All" : "Select All"}
                   </Text>
                 </Pressable>
-                {importable.length > 1 && (
+                {visibleImportable.length > 1 && (
                   <Pressable
                     onPress={runImportAll}
                     style={styles.importAllButton}
                     disabled={importing}
                   >
-                    <Text style={styles.importAllText}>Import All ({importable.length})</Text>
+                    <Text style={styles.importAllText}>
+                      Import All ({visibleImportable.length})
+                    </Text>
                   </Pressable>
                 )}
               </View>
             )}
-            {listings.map((l) => {
+            {filteredListings.length === 0 ? (
+              <Text style={styles.empty}>No listings match “{search.trim()}”.</Text>
+            ) : (
+              filteredListings.map((l) => {
             const isSelected = selected.has(l.externalListingId);
             const isUnsyncing = unsyncingId === l.externalListingId;
             return (
@@ -514,7 +558,8 @@ export default function ChannelImportScreen() {
                 )}
               </View>
             );
-          })}
+          })
+            )}
           </>
         )}
 
@@ -743,6 +788,18 @@ const styles = StyleSheet.create({
   },
   spinner: { marginVertical: 16 },
   empty: { fontSize: 14, color: "#666", marginTop: 16 },
+  searchInput: {
+    width: "100%",
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: "#000",
+    marginBottom: 8,
+  },
   selectAllRow: {
     flexDirection: "row",
     justifyContent: "space-between",

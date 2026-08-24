@@ -7,8 +7,73 @@ export function isEbayImageRelatedInventoryError(message: string | null | undefi
   return IMAGE_RELATED_ERROR.test(message ?? "");
 }
 
+export function isEbayMixedHostPictureError(message: string | null | undefined): boolean {
+  return /mixture of self hosted and eps|self hosted and eps pictures/i.test(message ?? "");
+}
+
+/** eBay Picture Services (EPS) CDN — cannot be mixed with self-hosted URLs on one listing. */
+export function isEbayEpsImageUrl(url: string): boolean {
+  const raw = url.trim();
+  if (!raw) return false;
+  const href = raw.startsWith("//") ? `https:${raw}` : raw.replace(/^http:\/\//i, "https://");
+  try {
+    const host = new URL(href).hostname.toLowerCase();
+    return (
+      host === "i.ebayimg.com" ||
+      host.endsWith(".ebayimg.com") ||
+      host === "ebaystatic.com" ||
+      host.endsWith(".ebaystatic.com")
+    );
+  } catch {
+    return /ebayimg\.com|ebaystatic\.com/i.test(raw);
+  }
+}
+
 export function isEbayHostedImageUrl(url: string): boolean {
-  return /^https:\/\/i\.ebayimg\.com\//i.test(url.trim());
+  return isEbayEpsImageUrl(url);
+}
+
+export function inventoryImageUrlsAreMixedHostFamily(urls: string[]): boolean {
+  let hasEps = false;
+  let hasSelf = false;
+  for (const url of urls) {
+    if (isEbayEpsImageUrl(url)) hasEps = true;
+    else hasSelf = true;
+    if (hasEps && hasSelf) return true;
+  }
+  return false;
+}
+
+export function ebayPhotosAreHostFamilyMismatchOnly(live: string[], inw: string[]): boolean {
+  if (live.length === 0 || inw.length === 0) return false;
+  const liveAllEps = live.every(isEbayEpsImageUrl);
+  const inwAllSelf = inw.every((url) => !isEbayEpsImageUrl(url));
+  const liveAllSelf = live.every((url) => !isEbayEpsImageUrl(url));
+  const inwAllEps = inw.every(isEbayEpsImageUrl);
+  return (liveAllEps && inwAllSelf) || (liveAllSelf && inwAllEps);
+}
+
+export function readStoredPhotoUrls(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.filter((url): url is string => typeof url === "string" && url.trim().length > 0);
+}
+
+/**
+ * Imported listings keep EPS pictures on the published eBay item.
+ * Overlaying INW blob/Media URLs mixes host families and eBay returns #25014.
+ */
+export function selectPassthroughInventoryImageUrls(liveUrls: string[], inwUrls: string[]): string[] {
+  const live = normalizeInventoryImageUrls(liveUrls);
+  const inw = normalizeInventoryImageUrls(inwUrls);
+  if (inw.length === 0) return live;
+  if (live.length === 0) return inw;
+  if (inventoryImageUrlsAreMixedHostFamily(inw)) {
+    return live.every(isEbayEpsImageUrl) ? live : inw.filter(isEbayEpsImageUrl);
+  }
+  const liveAllEps = live.every(isEbayEpsImageUrl);
+  const inwHasSelf = inw.some((url) => !isEbayEpsImageUrl(url));
+  if (liveAllEps && inwHasSelf) return live;
+  return inw;
 }
 
 /** HTTPS image URL for Inventory PUT — do not upscale eBay CDN sizes (that can 25014). */
@@ -110,51 +175,87 @@ export async function ensureEbayHostedPhotoUrls(
   return out.slice(0, 12);
 }
 
+function epsOnlyImageUrls(urls: string[]): string[] {
+  return normalizeInventoryImageUrls(urls.filter(isEbayEpsImageUrl));
+}
+
+function uniformHostFamilyImageUrls(urls: string[]): string[] {
+  const normalized = normalizeInventoryImageUrls(urls);
+  if (!inventoryImageUrlsAreMixedHostFamily(normalized)) return normalized;
+  const eps = epsOnlyImageUrls(normalized);
+  return eps.length > 0 ? eps : normalized.filter((url) => !isEbayEpsImageUrl(url));
+}
+
 /**
  * PUT inventory with photo recovery for #25014/#25015.
- * Hosts non-eBay URLs first; on picture errors re-hosts every URL, then falls back to INW photos.
+ * Never send mixed EPS + self-hosted URLs. On mix errors, pin live EPS instead of INW blobs.
  */
 export async function putInventoryWithPhotoRecovery<T>(args: {
   accessToken: string;
   body: Record<string, unknown>;
   put: (payload: Record<string, unknown>) => Promise<T>;
   fallbackImageUrls?: string[];
+  liveImageUrls?: string[];
   describeError?: (e: unknown) => string;
 }): Promise<T> {
   const describe = args.describeError ?? ((e: unknown) => (e instanceof Error ? e.message : String(e)));
-  const initialUrls = normalizeInventoryImageUrls(readInventoryProductImageUrls(args.body));
-  let payload =
-    initialUrls.length > 0 ? withInventoryProductImageUrls(args.body, initialUrls) : args.body;
+  const liveEps = epsOnlyImageUrls(args.liveImageUrls ?? []);
+  let urls = uniformHostFamilyImageUrls(readInventoryProductImageUrls(args.body));
+  if (liveEps.length > 0 && urls.some((url) => !isEbayEpsImageUrl(url))) {
+    urls = liveEps;
+  }
+  let payload = urls.length > 0 ? withInventoryProductImageUrls(args.body, urls) : args.body;
 
-  if (initialUrls.some((url) => !isEbayHostedImageUrl(url))) {
-    const hosted = await ensureEbayHostedPhotoUrls(args.accessToken, initialUrls);
+  if (urls.some((url) => !isEbayHostedImageUrl(url)) && liveEps.length === 0) {
+    const hosted = await ensureEbayHostedPhotoUrls(args.accessToken, urls);
     if (hosted.length > 0) {
-      payload = withInventoryProductImageUrls(payload, hosted);
+      const uniform = uniformHostFamilyImageUrls(hosted);
+      payload = withInventoryProductImageUrls(payload, uniform.length > 0 ? uniform : hosted);
     }
   }
 
   try {
     return await args.put(payload);
   } catch (e) {
-    if (!isEbayImageRelatedInventoryError(describe(e))) throw e;
+    const message = describe(e);
+    if (!isEbayImageRelatedInventoryError(message)) throw e;
 
     const current = normalizeInventoryImageUrls(readInventoryProductImageUrls(payload));
-    const hosted = await ensureEbayHostedPhotoUrls(args.accessToken, current, { forceHost: true });
-    if (hosted.length > 0 && !urlsMatch(hosted, current)) {
+    if (liveEps.length > 0 && !urlsMatch(liveEps, current)) {
       try {
-        return await args.put(withInventoryProductImageUrls(payload, hosted));
-      } catch (hostedErr) {
-        e = hostedErr;
+        return await args.put(withInventoryProductImageUrls(payload, liveEps));
+      } catch (liveErr) {
+        e = liveErr;
       }
     }
 
-    const fallback = normalizeInventoryImageUrls(args.fallbackImageUrls ?? []);
+    if (isEbayMixedHostPictureError(describe(e)) && liveEps.length > 0) {
+      throw e;
+    }
+
+    if (liveEps.length === 0) {
+      const hosted = await ensureEbayHostedPhotoUrls(args.accessToken, current, { forceHost: true });
+      const uniformHosted = uniformHostFamilyImageUrls(hosted);
+      if (uniformHosted.length > 0 && !urlsMatch(uniformHosted, current)) {
+        try {
+          return await args.put(withInventoryProductImageUrls(payload, uniformHosted));
+        } catch (hostedErr) {
+          e = hostedErr;
+        }
+      }
+    }
+
+    const fallback = uniformHostFamilyImageUrls(args.fallbackImageUrls ?? []);
     if (fallback.length === 0) throw e;
+    if (liveEps.length > 0 && fallback.some((url) => !isEbayEpsImageUrl(url))) throw e;
+
     const hostedFallback = await ensureEbayHostedPhotoUrls(args.accessToken, fallback, {
       forceHost: true,
     });
-    const retryUrls = hostedFallback.length > 0 ? hostedFallback : fallback;
-    if (urlsMatch(retryUrls, hosted.length > 0 ? hosted : current)) throw e;
+    const retryUrls = uniformHostFamilyImageUrls(
+      hostedFallback.length > 0 ? hostedFallback : fallback
+    );
+    if (retryUrls.length === 0 || urlsMatch(retryUrls, current)) throw e;
     return await args.put(withInventoryProductImageUrls(payload, retryUrls));
   }
 }

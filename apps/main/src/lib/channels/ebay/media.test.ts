@@ -8,9 +8,11 @@ vi.mock("./client", () => ({
 import { ebayGet, ebayJson } from "./client";
 import {
   isEbayImageRelatedInventoryError,
+  isEbayMixedHostPictureError,
   normalizeInventoryImageUrls,
   putInventoryWithPhotoRecovery,
   sanitizeInventoryImageUrl,
+  selectPassthroughInventoryImageUrls,
 } from "./media";
 
 const mockedJson = vi.mocked(ebayJson);
@@ -71,6 +73,39 @@ describe("putInventoryWithPhotoRecovery", () => {
     ).toEqual(["https://i.ebayimg.com/hosted.jpg"]);
   });
 
+  it("drops self-hosted URLs from a mixed payload before PUT", async () => {
+    const put = vi.fn().mockResolvedValue(undefined);
+    await putInventoryWithPhotoRecovery({
+      accessToken: "t",
+      body: {
+        product: {
+          title: "X",
+          imageUrls: ["https://i.ebayimg.com/eps.jpg", "https://blob.example.com/a.jpg"],
+        },
+      },
+      put,
+    });
+    expect(mockedJson).not.toHaveBeenCalled();
+    expect(
+      (put.mock.calls[0]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
+    ).toEqual(["https://i.ebayimg.com/eps.jpg"]);
+  });
+
+  it("pins live EPS instead of overlaying INW blobs", async () => {
+    const put = vi.fn().mockResolvedValue(undefined);
+    await putInventoryWithPhotoRecovery({
+      accessToken: "t",
+      body: { product: { title: "X", imageUrls: ["https://blob.example.com/a.jpg"] } },
+      liveImageUrls: ["https://i.ebayimg.com/live.jpg"],
+      fallbackImageUrls: ["https://blob.example.com/a.jpg"],
+      put,
+    });
+    expect(mockedJson).not.toHaveBeenCalled();
+    expect(
+      (put.mock.calls[0]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
+    ).toEqual(["https://i.ebayimg.com/live.jpg"]);
+  });
+
   it("re-hosts eBay CDN photos after #25014", async () => {
     mockedJson.mockResolvedValue({ imageId: "img-1" });
     mockedGet.mockResolvedValue({ imageUrl: "https://i.ebayimg.com/hosted.jpg" });
@@ -112,5 +147,27 @@ describe("putInventoryWithPhotoRecovery", () => {
     expect(
       (put.mock.calls[1]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
     ).toEqual(["https://i.ebayimg.com/inw.jpg"]);
+  });
+});
+
+describe("selectPassthroughInventoryImageUrls", () => {
+  it("keeps live EPS when INW photos are self-hosted", () => {
+    expect(
+      selectPassthroughInventoryImageUrls(
+        ["https://i.ebayimg.com/live.jpg"],
+        ["https://blob.example.com/a.jpg"]
+      )
+    ).toEqual(["https://i.ebayimg.com/live.jpg"]);
+  });
+});
+
+describe("isEbayMixedHostPictureError", () => {
+  it("detects the EPS mix message", () => {
+    expect(
+      isEbayMixedHostPictureError(
+        "A mixture of Self Hosted and EPS pictures are not allowed."
+      )
+    ).toBe(true);
+    expect(isEbayMixedHostPictureError("Invalid image URL supplied.")).toBe(false);
   });
 });

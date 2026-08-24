@@ -1,5 +1,8 @@
 /** Normalize eBay image URLs from Trading/GetItem XML for import preview and storage. */
 
+/** Longest edge eBay's CDN will serve for listing photos (PictureURLSuperSize). */
+export const EBAY_IMPORT_PHOTO_LONG_EDGE = 2000;
+
 function decodeXmlEntities(value: string): string {
   return value
     .replace(/&amp;/g, "&")
@@ -22,22 +25,53 @@ function allTags(block: string, name: string): string[] {
   return out;
 }
 
+function stripCdata(value: string): string {
+  return value.replace(/^<!\[CDATA\[/i, "").replace(/\]\]>$/i, "").trim();
+}
+
+function isEbayImageHost(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return (
+      host === "i.ebayimg.com" ||
+      host.endsWith(".ebayimg.com") ||
+      host === "ebaystatic.com" ||
+      host.endsWith(".ebaystatic.com")
+    );
+  } catch {
+    return /ebayimg\.com|ebaystatic\.com/i.test(url);
+  }
+}
+
+/**
+ * Rewrite eBay CDN URLs to the full-size derivative.
+ * GetItem / GetMyeBaySelling often return gallery thumbs (`/thumbs/`, s-l64/140/500)
+ * or EPS `$_12.JPG` crops — those look fine as a 64px preview and muddy on the listing.
+ */
+export function upgradeEbayCdnPhotoUrl(url: string): string {
+  if (!isEbayImageHost(url)) return url;
+
+  let next = url.replace(/\/thumbs\/images\//i, "/images/");
+
+  const epsHash = next.match(/\/z\/([^/?#]+)\/_?\$?\d+\./i) ?? next.match(/\/z\/([^/?#]+)\//i);
+  if (epsHash) {
+    return `https://i.ebayimg.com/images/g/${epsHash[1]}/s-l${EBAY_IMPORT_PHOTO_LONG_EDGE}.jpg`;
+  }
+
+  next = next.replace(/\/s-l\d+/gi, `/s-l${EBAY_IMPORT_PHOTO_LONG_EDGE}`);
+  // leftover EPS crops without a /z/{id}/ hash — $_57 is SuperSize, $_1 is often smaller
+  next = next.replace(/\/\$_\d+\.(jpe?g|png|webp|gif)/gi, "/$_57.$1");
+  return next.replace(/\?.*$/, "");
+}
+
 /** Public https URL suitable for mobile/web Image components and StoreItem.photos. */
 export function normalizeEbayPhotoUrl(raw: string): string | null {
-  let url = decodeXmlEntities(raw.trim());
+  let url = stripCdata(decodeXmlEntities(raw.trim()));
   if (!url) return null;
   if (url.startsWith("//")) url = `https:${url}`;
   if (url.startsWith("http://")) url = `https://${url.slice("http://".length)}`;
   if (!url.startsWith("https://")) return null;
-
-  // eBay CDN uses /s-lNNN/ for resized versions.
-  // s-l2000 is the highest resolution eBay serves (original quality).
-  // Upgrade any resize suffix to s-l2000 to get the full original resolution.
-  if (/\/s-l\d+\./i.test(url)) {
-    url = url.replace(/\/s-l\d+\./i, "/s-l2000.");
-  }
-
-  return url;
+  return upgradeEbayCdnPhotoUrl(url);
 }
 
 /** Extract photo URLs from a Trading API Item XML fragment. */
@@ -48,18 +82,20 @@ export function extractEbayItemPhotos(itemXml: string): string[] {
     if (normalized && !urls.includes(normalized)) urls.push(normalized);
   };
 
-  // First, look for PictureDetails section which contains the full photo list
   const pictureDetails = tag(itemXml, "PictureDetails");
   if (pictureDetails) {
     for (const url of allTags(pictureDetails, "PictureURL")) push(url);
     for (const url of allTags(pictureDetails, "ExternalPictureURL")) push(url);
   }
 
-  // Also check for PictureURL tags at the top level (some XML structures)
+  const extended = tag(itemXml, "ExtendedPictureDetails");
+  if (extended) {
+    for (const url of allTags(extended, "PictureURL")) push(url);
+  }
+
   for (const url of allTags(itemXml, "PictureURL")) push(url);
   for (const url of allTags(itemXml, "ExternalPictureURL")) push(url);
 
-  // Fallback to gallery URL if no photos found
   if (urls.length === 0) {
     const gallery = tag(pictureDetails ?? itemXml, "GalleryURL");
     if (gallery) push(gallery);
