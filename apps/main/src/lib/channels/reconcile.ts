@@ -15,6 +15,7 @@ import { pullEbayUpdatesForConnection } from "./ebay/pull-ebay-updates";
 import { matchSaleToVariantOption } from "./variant-sync";
 import { logSyncEvent } from "./sync-log";
 import { logSaleQuantityChange } from "./quantity-audit";
+import { findChannelLinkForSale } from "./sale-link";
 
 const DEFAULT_LOOKBACK_MS = 1000 * 60 * 60 * 24 * 2; // 2 days
 
@@ -71,6 +72,41 @@ export async function reconcileConnectionSales(
 
   let applied = 0;
   for (const sale of sales) {
+    const link = await findChannelLinkForSale(provider, sale);
+    if (!link) {
+      console.warn("[channels] sale unmatched; will retry next cron", {
+        provider,
+        externalEventId: sale.externalEventId,
+        externalListingId: sale.externalListingId,
+        sku: sale.sku ?? null,
+        legacyItemId: sale.legacyItemId ?? null,
+      });
+      logSyncEvent(
+        connection.memberId,
+        provider,
+        "sale_unmatched",
+        `Sale ${sale.externalEventId} listing=${sale.externalListingId} sku=${sale.sku ?? ""} legacy=${sale.legacyItemId ?? ""}`
+      );
+      continue;
+    }
+
+    const storeItem = await prisma.storeItem.findUnique({ where: { id: link.storeItemId } });
+    if (!storeItem) {
+      // Burn the event: the listing link is orphaned and retrying will not help.
+      await prisma.channelSyncEvent
+        .create({
+          data: {
+            provider,
+            externalEventId: sale.externalEventId,
+            type: "sale",
+            storeItemId: link.storeItemId,
+            payload: { quantitySold: sale.quantitySold, skipped: "missing_store_item" },
+          },
+        })
+        .catch(() => {});
+      continue;
+    }
+
     // Dedupe: the unique (provider, externalEventId) row means this sale runs at most once.
     try {
       await prisma.channelSyncEvent.create({
@@ -78,27 +114,13 @@ export async function reconcileConnectionSales(
           provider,
           externalEventId: sale.externalEventId,
           type: "sale",
+          storeItemId: link.storeItemId,
           payload: { quantitySold: sale.quantitySold },
         },
       });
     } catch {
       continue;
     }
-
-    let link = await prisma.channelListingLink.findUnique({
-      where: {
-        provider_externalListingId: { provider, externalListingId: sale.externalListingId },
-      },
-    });
-    if (!link && sale.sku) {
-      link = await prisma.channelListingLink.findFirst({
-        where: { storeItemId: sale.sku, provider },
-      });
-    }
-    if (!link) continue;
-
-    const storeItem = await prisma.storeItem.findUnique({ where: { id: link.storeItemId } });
-    if (!storeItem) continue;
 
     const saleVariant = sale.variant
       ? matchSaleToVariantOption(sale.variant, storeItem.variants) ?? sale.variant

@@ -6,6 +6,7 @@ import { ensureChannelCategoryMappingsSeeded } from "./channel-category-mapping"
 import { getMemberConnectionContext } from "./connection";
 import { findEbayRemoteListing } from "./ebay/mapping";
 import { getAdapter } from "./registry";
+import { shouldBlockSoldOutQtyRecovery } from "./sold-out-guard";
 import { fetchEbayItemDetails } from "./ebay/trading";
 import { splitEbayCategoryPath } from "./ebay-category-aliases";
 import type { ChannelProvider } from "./types";
@@ -164,27 +165,30 @@ export async function repairMemberImportedCategories(
 
     let qtyRecovered = false;
     if (item.quantity === 0 && item.status === "sold_out") {
-      try {
-        let remoteList = remoteCache.get(provider);
-        if (!remoteList) {
-          const ctx = await getMemberConnectionContext(memberId, provider);
-          if (ctx) {
-            remoteList = await getAdapter(provider).listRemoteListings(ctx);
-            remoteCache.set(provider, remoteList);
+      const blockRecovery = await shouldBlockSoldOutQtyRecovery(item.id);
+      if (!blockRecovery) {
+        try {
+          let remoteList = remoteCache.get(provider);
+          if (!remoteList) {
+            const ctx = await getMemberConnectionContext(memberId, provider);
+            if (ctx) {
+              remoteList = await getAdapter(provider).listRemoteListings(ctx);
+              remoteCache.set(provider, remoteList);
+            }
           }
+          const remote =
+            provider === "ebay"
+              ? findEbayRemoteListing(remoteList ?? [], link.externalListingId)
+              : remoteList?.find((r) => r.externalListingId === link.externalListingId);
+          if (remote && remote.quantityKnown !== false && remote.quantity > 0) {
+            qtyRecovered = await applyRemoteQuantityToStoreItem(item.id, remote.quantity, {
+              provider,
+              memberId,
+            });
+          }
+        } catch (e) {
+          console.warn("[repair-categories] qty recovery failed", { storeItemId: item.id, error: e });
         }
-        const remote =
-          provider === "ebay"
-            ? findEbayRemoteListing(remoteList ?? [], link.externalListingId)
-            : remoteList?.find((r) => r.externalListingId === link.externalListingId);
-        if (remote && remote.quantityKnown !== false && remote.quantity > 0) {
-          qtyRecovered = await applyRemoteQuantityToStoreItem(item.id, remote.quantity, {
-            provider,
-            memberId,
-          });
-        }
-      } catch (e) {
-        console.warn("[repair-categories] qty recovery failed", { storeItemId: item.id, error: e });
       }
     }
 

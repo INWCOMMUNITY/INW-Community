@@ -23,6 +23,19 @@ describe("buildPublishResultAlert", () => {
     expect(alert.message).toContain("Brand");
   });
 
+  it("keeps the full eBay #25014 pictures message", () => {
+    const alert = buildPublishResultAlert([
+      {
+        provider: "ebay",
+        ok: false,
+        error:
+          "title: failed ([#25014 · API_INVENTORY · Request · HTTP 400] The eBay listing associated with the inventory item, or the unpublished offer has invalid pictures.) — eBay rejected the listing photos. Re-upload at least one HTTPS JPG or PNG on this item, then try again.",
+      },
+    ]);
+    expect(alert.message).toContain("unpublished offer has invalid pictures");
+    expect(alert.message).toContain("Re-upload");
+  });
+
   it("treats an empty or failed channelSync as not listed", () => {
     expect(isChannelPublishOk([])).toBe(false);
     expect(isChannelPublishOk(undefined)).toBe(false);

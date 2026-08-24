@@ -432,6 +432,21 @@ describe("passthrough-push", () => {
     expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 1 } });
   });
 
+  it("buildPassthroughTitleOnlyInventoryBody upgrades http live photo URLs", () => {
+    const body = buildPassthroughTitleOnlyInventoryBody(
+      {
+        condition: "LIKE_NEW",
+        product: {
+          title: "Old",
+          imageUrls: ["http://i.ebayimg.com/a.jpg"],
+        },
+      },
+      { ...coinItem, title: "New" }
+    );
+    const product = body.product as Record<string, unknown>;
+    expect(product.imageUrls).toEqual(["https://i.ebayimg.com/a.jpg"]);
+  });
+
   it("buildPassthroughTitleInventoryBody changes title with prepared aspects", () => {
     const live = {
       condition: "LIKE_NEW",
@@ -637,6 +652,18 @@ describe("passthrough-push", () => {
       { field: "price", ok: true },
       { field: "title", ok: false, error: "x" },
     ])).toBe(true);
+  });
+
+  it("formatPassthroughFieldSyncSummary keeps the full #25014 pictures message", () => {
+    const summary = formatPassthroughFieldSyncSummary([
+      {
+        field: "title",
+        ok: false,
+        error:
+          "[#25014 · API_INVENTORY · Request · HTTP 400] The eBay listing associated with the inventory item, or the unpublished offer has invalid pictures.",
+      },
+    ]);
+    expect(summary).toContain("unpublished offer has invalid pictures");
   });
 
   it("resolvePassthroughChanges pushes title without requiring photo inventory PUT", () => {

@@ -13,6 +13,7 @@ import { applyBestOfferTermsToOfferBody, bestOfferStatesMatch, inwBestOfferState
 import { EBAY_CURRENCY } from "./config";
 import { ebayPriceFromCents } from "./mapping";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
+import { normalizeInventoryImageUrls } from "./media";
 
 export type PassthroughChangedFields = {
   content: boolean;
@@ -69,11 +70,20 @@ export function buildPassthroughLiveOverlayBody(
   if (patch.title != null) {
     liveProduct.title = patch.title.slice(0, EBAY_TITLE_MAX);
   }
-  if (patch.imageUrls != null) {
-    liveProduct.imageUrls = patch.imageUrls.slice(0, 12);
-  }
+    if (patch.imageUrls != null) {
+      const urls = normalizeInventoryImageUrls(patch.imageUrls);
+      if (urls.length > 0) liveProduct.imageUrls = urls;
+    } else {
+      pinSanitizedLiveImageUrls(liveProduct);
+    }
   body.product = liveProduct;
   return body;
+}
+
+function pinSanitizedLiveImageUrls(product: Record<string, unknown>): void {
+  if (!Array.isArray(product.imageUrls)) return;
+  const urls = normalizeInventoryImageUrls(product.imageUrls.map((u) => String(u)));
+  if (urls.length > 0) product.imageUrls = urls;
 }
 
 /** PUT live inventory with only product.title changed — live aspects preserved. */
@@ -267,7 +277,7 @@ export function formatPassthroughFieldSyncSummary(results: PassthroughFieldResul
     .map((r) =>
       r.ok
         ? `${r.field}: updated`
-        : `${r.field}: failed (${(r.error ?? "unknown").slice(0, 160)})`
+        : `${r.field}: failed (${(r.error ?? "unknown").slice(0, 400)})`
     )
     .join(". ");
 }
@@ -371,7 +381,9 @@ export function buildPassthroughInventoryBody(
   // re-sends the old title and the next GetItem copies it back onto INW.
   liveProduct.title = item.title.slice(0, EBAY_TITLE_MAX);
   if (overlayPhotos) {
-    liveProduct.imageUrls = item.photos.slice(0, 12);
+    liveProduct.imageUrls = normalizeInventoryImageUrls(item.photos);
+  } else {
+    pinSanitizedLiveImageUrls(liveProduct);
   }
 
   const axes = normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[] | null;

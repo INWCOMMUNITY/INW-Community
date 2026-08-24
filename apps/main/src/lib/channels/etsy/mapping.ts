@@ -1,6 +1,7 @@
 import type { ChannelConnectionContext, RemoteListingSummary, SyncStoreItem } from "../types";
 import { listingDescriptionToPlainText } from "../rich-description";
 import { isEtsyWhoMade, normalizeEtsyWhenMade } from "@/lib/etsy-listing-options";
+import { listingPackageFromRemote } from "@/lib/shipping-options";
 
 /**
  * Map of Etsy taxonomy IDs to category names.
@@ -496,9 +497,30 @@ export const ETSY_DEFAULT_PACKAGE_FIELDS = {
 } as const;
 
 function etsyPackageFields(
-  shippingProfileId: string | number | null | undefined
+  shippingProfileId: string | number | null | undefined,
+  pkg?: SyncStoreItem["package"]
 ): Record<string, string | number> {
   if (shippingProfileId == null || shippingProfileId === "") return {};
+  if (
+    pkg &&
+    pkg.weightOz != null &&
+    pkg.weightOz > 0 &&
+    pkg.lengthIn != null &&
+    pkg.lengthIn > 0 &&
+    pkg.widthIn != null &&
+    pkg.widthIn > 0 &&
+    pkg.heightIn != null &&
+    pkg.heightIn > 0
+  ) {
+    return {
+      item_weight: pkg.weightOz.toFixed(1),
+      item_length: pkg.lengthIn.toFixed(1),
+      item_width: pkg.widthIn.toFixed(1),
+      item_height: pkg.heightIn.toFixed(1),
+      item_weight_unit: "oz",
+      item_dimensions_unit: "in",
+    };
+  }
   return { ...ETSY_DEFAULT_PACKAGE_FIELDS };
 }
 
@@ -520,7 +542,12 @@ export function buildEtsyCreateFields(
   if (!taxonomyId) {
     throw new Error("Etsy requires a category before listing. Choose an Etsy category on the item.");
   }
-  const shippingId = overrides?.shippingProfileId ?? conn.etsyShippingProfileId;
+  const shippingId =
+    overrides?.shippingProfileId ??
+    (item.package?.source === "etsy" && item.package.remoteProfileId
+      ? item.package.remoteProfileId
+      : null) ??
+    conn.etsyShippingProfileId;
   const readinessStateId = overrides?.readinessStateId;
   if (readinessStateId == null) {
     throw new Error(
@@ -538,7 +565,7 @@ export function buildEtsyCreateFields(
     is_supply: item.etsyIsSupply ?? false,
     type: "physical",
     ...(shippingId ? { shipping_profile_id: Number(shippingId) } : {}),
-    ...etsyPackageFields(shippingId),
+    ...etsyPackageFields(shippingId, item.package),
     readiness_state_id: readinessStateId,
   };
 }
@@ -548,7 +575,11 @@ export function buildEtsyUpdateFields(
   item: SyncStoreItem,
   overrides?: { taxonomyId?: number; shippingProfileId?: string | null }
 ): Record<string, string | number | boolean | undefined> {
-  const shippingId = overrides?.shippingProfileId;
+  const shippingId =
+    overrides?.shippingProfileId ??
+    (item.package?.source === "etsy" && item.package.remoteProfileId
+      ? item.package.remoteProfileId
+      : undefined);
   const whoMade = isEtsyWhoMade(item.etsyWhoMade) ? item.etsyWhoMade : undefined;
   const whenMade = normalizeEtsyWhenMade(item.etsyWhenMade) ?? undefined;
   return {
@@ -560,6 +591,7 @@ export function buildEtsyUpdateFields(
       ? { taxonomy_id: (overrides?.taxonomyId ?? item.etsyTaxonomyId) as number }
       : {}),
     ...(shippingId ? { shipping_profile_id: Number(shippingId) } : {}),
+    ...etsyPackageFields(shippingId, item.package),
     // Include who_made and when_made if set (so edits sync these fields)
     ...(whoMade ? { who_made: whoMade } : {}),
     ...(whenMade ? { when_made: whenMade } : {}),
@@ -579,6 +611,13 @@ type EtsyListing = {
   price?: { amount?: number; divisor?: number } | null;
   images?: { url_fullxfull?: string; url_570xN?: string; rank?: number }[];
   skus?: string[];
+  shipping_profile_id?: number | null;
+  item_weight?: number | string | null;
+  item_length?: number | string | null;
+  item_width?: number | string | null;
+  item_height?: number | string | null;
+  item_weight_unit?: string | null;
+  item_dimensions_unit?: string | null;
 };
 
 export function etsyListingToSummary(listing: EtsyListing): RemoteListingSummary {
@@ -595,6 +634,16 @@ export function etsyListingToSummary(listing: EtsyListing): RemoteListingSummary
   
   // Take the first SKU if the listing has any
   const firstSku = listing.skus?.[0]?.trim() || null;
+
+  const pkg = listingPackageFromRemote({
+    remoteProfileId: listing.shipping_profile_id,
+    weight: listing.item_weight,
+    weightUnit: listing.item_weight_unit,
+    length: listing.item_length,
+    width: listing.item_width,
+    height: listing.item_height,
+    dimensionUnit: listing.item_dimensions_unit,
+  });
 
   return {
     externalListingId: String(listing.listing_id),
@@ -614,5 +663,10 @@ export function etsyListingToSummary(listing: EtsyListing): RemoteListingSummary
         : null,
     variantsKnown: false,
     shippingKnown: false,
+    remoteShippingProfileId: pkg.remoteProfileId,
+    packageWeightOz: pkg.weightOz,
+    packageLengthIn: pkg.lengthIn,
+    packageWidthIn: pkg.widthIn,
+    packageHeightIn: pkg.heightIn,
   };
 }

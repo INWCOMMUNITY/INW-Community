@@ -5,6 +5,7 @@ export type SyncLogAction =
   | "push_content"
   | "pull_catalog"
   | "sale_applied"
+  | "sale_unmatched"
   | "conflict_resolved"
   | "conflict_pending"
   | "token_refreshed"

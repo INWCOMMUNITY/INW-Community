@@ -33,6 +33,8 @@ model Member {
   sellerReturnPolicy String? @map("seller_return_policy") @db.Text
   acceptCashForPickupDelivery Boolean @default(true) @map("accept_cash_for_pickup_delivery")
   offerShipping              Boolean @default(true) @map("offer_shipping")
+  /// Default new INW listings to free shipping (shippingCostCents = 0). Does not change eBay/Etsy rates.
+  offerFreeShippingOnInw     Boolean @default(false) @map("offer_free_shipping_on_inw")
   offerLocalDelivery         Boolean @default(true) @map("offer_local_delivery")
   offerLocalPickup           Boolean @default(true) @map("offer_local_pickup")
   // Default for new resale listings; per-listing StoreItem.acceptOffers can override.
@@ -126,6 +128,7 @@ model Member {
   channelConnections       ChannelConnection[]
   syncPreferences          MemberSyncPreferences?
   listingTemplates         ListingTemplate[]
+  shippingOptions          ShippingOption[]
   sellerAnalyticsEvents    SellerAnalyticsEvent[]
   sellerActivityLogs       SellerActivityLog[]
   bulkEditSnapshots        BulkEditSnapshot[]
@@ -908,6 +911,7 @@ model StoreItem {
   quantity            Int      @default(0)
   status              String   @default("active") // active | sold_out | inactive
   shippingCostCents   Int?     @map("shipping_cost_cents")
+  shippingOptionId    String?  @map("shipping_option_id")
   shippingPolicy      String?  @map("shipping_policy") @db.Text
   localDeliveryAvailable Boolean @default(false) @map("local_delivery_available")
   localDeliveryFeeCents Int?     @map("local_delivery_fee_cents")
@@ -936,6 +940,7 @@ model StoreItem {
 
   member    Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
   business  Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  shippingOption ShippingOption? @relation(fields: [shippingOptionId], references: [id], onDelete: SetNull)
   orderItems OrderItem[]
   cartItems CartItem[]
   resaleOffers ResaleOffer[]
@@ -1004,6 +1009,8 @@ model ChannelListingLink {
   syncError         String?   @map("sync_error") @db.Text
   lastPushedHash    String?   @map("last_pushed_hash")
   lastPushedAt      DateTime? @map("last_pushed_at")
+  /// INW photo URLs from the last successful content push (Etsy must not re-upload on title/price sync).
+  lastPushedPhotos  Json?     @map("last_pushed_photos")
   lastInboundAt     DateTime? @map("last_inbound_at")
   // Differential reconcile baseline: last agreed state across INW <-> channel.
   syncBaselineHash  String?   @map("sync_baseline_hash")
@@ -1158,6 +1165,7 @@ model ListingTemplate {
   localDeliveryAvailable Boolean  @default(false) @map("local_delivery_available")
   inStorePickupAvailable Boolean  @default(false) @map("in_store_pickup_available")
   shippingCostCents      Int?     @map("shipping_cost_cents")
+  shippingOptionId       String?  @map("shipping_option_id")
   localDeliveryFeeCents  Int?     @map("local_delivery_fee_cents")
 
   // Channel-specific defaults (Etsy)
@@ -1176,9 +1184,36 @@ model ListingTemplate {
   updatedAt              DateTime @updatedAt @map("updated_at")
 
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  shippingOption ShippingOption? @relation(fields: [shippingOptionId], references: [id], onDelete: SetNull)
 
   @@index([memberId])
   @@map("listing_template")
+}
+
+/// Reusable package template (name + inches + weight). Imported eBay/Etsy rows are one-way.
+model ShippingOption {
+  id              String    @id @default(cuid())
+  memberId        String    @map("member_id")
+  name            String
+  lengthIn        Float?    @map("length_in")
+  widthIn         Float?    @map("width_in")
+  heightIn        Float?    @map("height_in")
+  weightOz        Float?    @map("weight_oz")
+  /// inw | ebay | etsy
+  source          String    @default("inw")
+  remoteProfileId String?   @map("remote_profile_id")
+  archivedAt      DateTime? @map("archived_at")
+  lastImportedAt  DateTime? @map("last_imported_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  member           Member            @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  storeItems       StoreItem[]
+  listingTemplates ListingTemplate[]
+
+  @@unique([memberId, source, remoteProfileId])
+  @@index([memberId, archivedAt])
+  @@map("shipping_option")
 }
 
 // Storefront orders
@@ -1843,6 +1878,8 @@ model MemberSyncPreferences {
   syncPhotos            Boolean  @default(true) @map("sync_photos")
   syncPrices            Boolean  @default(true) @map("sync_prices")
   syncShipping          Boolean  @default(true) @map("sync_shipping")           // When off, shipping costs not imported/synced
+  importEbayShippingOptions Boolean @default(false) @map("import_ebay_shipping_options")
+  importEtsyShippingOptions Boolean @default(false) @map("import_etsy_shipping_options")
   
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")

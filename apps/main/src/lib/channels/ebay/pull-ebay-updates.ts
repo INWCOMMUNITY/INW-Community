@@ -515,6 +515,13 @@ export async function refreshEbayListingByItemId(
       },
     });
 
+    const soldOutOnThisApply =
+      (typeof updateData.quantity === "number" && updateData.quantity === 0) ||
+      updateData.status === "sold_out";
+    if (soldOutOnThisApply) {
+      await syncInventoryToChannels(storeItem.id, { skipProviders: ["ebay"] });
+    }
+
     return {
       storeItemId: storeItem.id,
       title: updatedItem.title,

@@ -32,6 +32,15 @@ export type SyncStoreItem = {
   subcategory: string | null;
   secondaryCategory: string | null;
   shippingCostCents: number | null;
+  /** Assigned package template used for Shippo and channel package fields. */
+  package?: {
+    source?: string | null;
+    remoteProfileId?: string | null;
+    weightOz: number | null;
+    lengthIn: number | null;
+    widthIn: number | null;
+    heightIn: number | null;
+  } | null;
   etsyWhoMade: string | null;
   etsyWhenMade: string | null;
   etsyIsSupply: boolean | null;
@@ -98,6 +107,11 @@ export type RemoteListingSummary = {
   /** Flat per-item shipping in cents when the remote API exposes it. */
   shippingCostCents?: number | null;
   shippingKnown?: boolean;
+  remoteShippingProfileId?: string | null;
+  packageWeightOz?: number | null;
+  packageLengthIn?: number | null;
+  packageWidthIn?: number | null;
+  packageHeightIn?: number | null;
   /** Normalized INW-shaped variant axes from the remote listing. */
   variants?: unknown;
   variantsKnown?: boolean;
@@ -125,6 +139,8 @@ export type RemoteSale = {
   quantitySold: number;
   /** SKU set to the StoreItem id on publish; used for reverse lookup. */
   sku?: string | null;
+  /** eBay Fulfillment `legacyItemId` (live Item ID) when the line has no inventory SKU. */
+  legacyItemId?: string | null;
   /** Buyer-selected options when the channel exposes them (e.g. Size: M). */
   variant?: Record<string, string> | null;
 };

@@ -26,6 +26,17 @@ export const syncStoreItemSelect = {
   acceptOffers: true,
   minOfferCents: true,
   aspects: true,
+  shippingOption: {
+    select: {
+      id: true,
+      source: true,
+      remoteProfileId: true,
+      weightOz: true,
+      lengthIn: true,
+      widthIn: true,
+      heightIn: true,
+    },
+  },
 } as const;
 
 type StoreItemLike = {
@@ -52,6 +63,15 @@ type StoreItemLike = {
   acceptOffers: boolean;
   minOfferCents: number | null;
   aspects: unknown;
+  shippingOption?: {
+    id: string;
+    source: string;
+    remoteProfileId: string | null;
+    weightOz: number | null;
+    lengthIn: number | null;
+    widthIn: number | null;
+    heightIn: number | null;
+  } | null;
 };
 
 export function toSyncStoreItem(item: StoreItemLike): SyncStoreItem {
@@ -79,5 +99,15 @@ export function toSyncStoreItem(item: StoreItemLike): SyncStoreItem {
     acceptOffers: item.acceptOffers ?? true,
     minOfferCents: item.minOfferCents ?? null,
     aspects: item.aspects,
+    package: item.shippingOption
+      ? {
+          source: item.shippingOption.source,
+          remoteProfileId: item.shippingOption.remoteProfileId,
+          weightOz: item.shippingOption.weightOz,
+          lengthIn: item.shippingOption.lengthIn,
+          widthIn: item.shippingOption.widthIn,
+          heightIn: item.shippingOption.heightIn,
+        }
+      : null,
   };
 }

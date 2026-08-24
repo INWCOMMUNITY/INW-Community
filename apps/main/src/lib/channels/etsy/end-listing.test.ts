@@ -28,7 +28,7 @@ vi.mock("./client", () => ({
   setEtsyConnectionContext,
 }));
 
-import { endEtsyListing } from "./end-listing";
+import { applyEtsySellOutInventory, deactivateEtsyListingForSellOut, endEtsyListing } from "./end-listing";
 
 describe("endEtsyListing", () => {
   beforeEach(() => {
@@ -73,5 +73,93 @@ describe("endEtsyListing", () => {
     await expect(
       endEtsyListing({ accessToken: "t", shopId: "1", listingId: "9" })
     ).rejects.toThrow(/still active/i);
+  });
+});
+
+describe("deactivateEtsyListingForSellOut", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("no-ops when the listing is already inactive", async () => {
+    etsyGet.mockResolvedValueOnce({ state: "inactive", quantity: 1 });
+    await deactivateEtsyListingForSellOut({ accessToken: "t", shopId: "1", listingId: "9" });
+    expect(etsyForm).not.toHaveBeenCalled();
+  });
+
+  it("PATCHes inactive and does not delete", async () => {
+    etsyGet.mockResolvedValueOnce({ state: "active", quantity: 3 });
+    etsyForm.mockResolvedValueOnce({});
+    etsyGet.mockResolvedValueOnce({ state: "inactive", quantity: 3 });
+    await deactivateEtsyListingForSellOut({ accessToken: "t", shopId: "1", listingId: "9" });
+    expect(etsyForm).toHaveBeenCalledWith(
+      "t",
+      "/shops/1/listings/9",
+      "PATCH",
+      { state: "inactive", quantity: 3 }
+    );
+    expect(etsyDelete).not.toHaveBeenCalled();
+  });
+
+  it("uses quantity 1 when Etsy would reject quantity 0 on deactivate", async () => {
+    etsyGet.mockResolvedValueOnce({ state: "active", quantity: 0 });
+    etsyForm.mockResolvedValueOnce({});
+    etsyGet.mockResolvedValueOnce({ state: "inactive", quantity: 1 });
+    await deactivateEtsyListingForSellOut({ accessToken: "t", shopId: "1", listingId: "9" });
+    expect(etsyForm).toHaveBeenCalledWith(
+      "t",
+      "/shops/1/listings/9",
+      "PATCH",
+      { state: "inactive", quantity: 1 }
+    );
+  });
+});
+
+describe("applyEtsySellOutInventory", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("tries listing quantity 0 then deactivates", async () => {
+    etsyForm.mockResolvedValueOnce({});
+    etsyGet.mockResolvedValueOnce({ state: "active", quantity: 2 });
+    etsyForm.mockResolvedValueOnce({});
+    etsyGet.mockResolvedValueOnce({ state: "inactive", quantity: 2 });
+    await applyEtsySellOutInventory({
+      accessToken: "t",
+      shopId: "1",
+      listingId: "9",
+      tryListingQuantityZero: true,
+    });
+    expect(etsyForm).toHaveBeenNthCalledWith(
+      1,
+      "t",
+      "/shops/1/listings/9",
+      "PATCH",
+      { quantity: 0 }
+    );
+    expect(etsyForm).toHaveBeenNthCalledWith(
+      2,
+      "t",
+      "/shops/1/listings/9",
+      "PATCH",
+      { state: "inactive", quantity: 2 }
+    );
+    expect(etsyDelete).not.toHaveBeenCalled();
+  });
+
+  it("still deactivates when quantity 0 patch fails", async () => {
+    etsyForm.mockRejectedValueOnce(new Error("qty 0 not allowed"));
+    etsyGet.mockResolvedValueOnce({ state: "active", quantity: 4 });
+    etsyForm.mockResolvedValueOnce({});
+    etsyGet.mockResolvedValueOnce({ state: "inactive", quantity: 4 });
+    await applyEtsySellOutInventory({
+      accessToken: "t",
+      shopId: "1",
+      listingId: "9",
+      tryListingQuantityZero: true,
+    });
+    expect(etsyForm).toHaveBeenCalledTimes(2);
+    expect(etsyDelete).not.toHaveBeenCalled();
   });
 });

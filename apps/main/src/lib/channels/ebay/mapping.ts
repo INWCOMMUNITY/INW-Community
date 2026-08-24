@@ -13,6 +13,8 @@ import {
   type ListingAspect,
 } from "@/lib/listing-limits";
 import { listingDescriptionForHtmlChannel } from "../rich-description";
+import { isPackageComplete } from "@/lib/package-weight";
+import { listingPackageFromRemote } from "@/lib/shipping-options";
 
 /** cents -> "12.34" (eBay expects a string decimal price). */
 export function ebayPriceFromCents(cents: number): string {
@@ -50,13 +52,25 @@ export function buildEbayInventoryItem(
     product.aspects = storedAspects;
   }
 
-  return {
+  const body: Record<string, unknown> = {
     availability: {
       shipToLocationAvailability: { quantity: Math.max(0, item.quantity) },
     },
     condition: ebayCondition(item),
     product,
   };
+  if (isPackageComplete(item.package)) {
+    body.packageWeightAndSize = {
+      dimensions: {
+        height: item.package.heightIn,
+        length: item.package.lengthIn,
+        width: item.package.widthIn,
+        unit: "INCH",
+      },
+      weight: { value: item.package.weightOz, unit: "OUNCE" },
+    };
+  }
+  return body;
 }
 
 /** Resolve the eBay leaf category for an item (per-item eBay category wins over INW category map). */
@@ -97,7 +111,11 @@ export function buildEbayOffer(
   if (categoryId) offer.categoryId = categoryId;
   if (cfg.merchantLocationKey) offer.merchantLocationKey = cfg.merchantLocationKey;
   const listingPolicies: Record<string, string> = {};
-  if (cfg.fulfillmentPolicyId) listingPolicies.fulfillmentPolicyId = cfg.fulfillmentPolicyId;
+  const fulfillmentPolicyId =
+    item.package?.source === "ebay" && item.package.remoteProfileId
+      ? item.package.remoteProfileId
+      : cfg.fulfillmentPolicyId;
+  if (fulfillmentPolicyId) listingPolicies.fulfillmentPolicyId = fulfillmentPolicyId;
   if (cfg.paymentPolicyId) listingPolicies.paymentPolicyId = cfg.paymentPolicyId;
   if (cfg.returnPolicyId) listingPolicies.returnPolicyId = cfg.returnPolicyId;
   if (Object.keys(listingPolicies).length > 0) offer.listingPolicies = listingPolicies;
@@ -121,6 +139,11 @@ type EbayInventorySummaryRow = {
   description?: string | null;
   variants?: unknown;
   variantsKnown?: boolean;
+  packageWeightAndSize?: {
+    dimensions?: { height?: number; length?: number; width?: number; unit?: string };
+    weight?: { value?: number; unit?: string };
+  };
+  remoteShippingProfileId?: string | null;
 };
 
 function priceStringToCents(value?: string): number {
@@ -225,5 +248,23 @@ export function ebayListingToSummary(row: EbayInventorySummaryRow): RemoteListin
     variants: row.variants,
     variantsKnown: row.variantsKnown === true,
     shippingKnown: false,
+    remoteShippingProfileId: row.remoteShippingProfileId ?? null,
+    ...(() => {
+      const pkg = listingPackageFromRemote({
+        remoteProfileId: row.remoteShippingProfileId,
+        weight: row.packageWeightAndSize?.weight?.value,
+        weightUnit: row.packageWeightAndSize?.weight?.unit,
+        length: row.packageWeightAndSize?.dimensions?.length,
+        width: row.packageWeightAndSize?.dimensions?.width,
+        height: row.packageWeightAndSize?.dimensions?.height,
+        dimensionUnit: row.packageWeightAndSize?.dimensions?.unit,
+      });
+      return {
+        packageWeightOz: pkg.weightOz,
+        packageLengthIn: pkg.lengthIn,
+        packageWidthIn: pkg.widthIn,
+        packageHeightIn: pkg.heightIn,
+      };
+    })(),
   };
 }

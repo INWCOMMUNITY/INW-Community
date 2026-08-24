@@ -103,17 +103,24 @@ export async function syncInventoryToChannels(
       const channelInventoryOffset = (connConfig.inventoryOffset as number) ?? 0;
       const totalBuffer = globalSafetyBuffer + channelInventoryOffset;
       const adjustedQty = Math.max(0, item.quantity - totalBuffer);
-      
+      const forceZeroForSoldOut = item.status === "sold_out" && adjustedQty === 0;
+
       // If syncZeroQuantity is disabled and qty is 0, skip pushing to channels
-      // (item stays as-is on channel rather than showing "out of stock")
-      if (!syncZeroQuantity && adjustedQty === 0) {
+      // unless the listing is sold_out — sell-out must still take sibling listings down.
+      if (!syncZeroQuantity && adjustedQty === 0 && !forceZeroForSoldOut) {
         logSyncEvent(
           link.connection.memberId,
           provider,
           "skip_zero_qty",
-          `Skipping zero-quantity push (syncZeroQuantity disabled)`,
+          "Zero push skipped (syncZeroQuantity disabled)",
           storeItemId
         );
+        await prisma.channelListingLink
+          .update({
+            where: { id: link.id },
+            data: { syncError: "Zero push skipped (syncZeroQuantity disabled)" },
+          })
+          .catch(() => {});
         continue;
       }
       

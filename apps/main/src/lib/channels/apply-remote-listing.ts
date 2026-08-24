@@ -6,6 +6,7 @@ import { storeListingDescription } from "./import-listing";
 import { sanitizeListingDescription } from "./rich-description";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 import { logSyncPullQuantityChange } from "./quantity-audit";
+import { isSoldOutQtyRecovery, shouldBlockSoldOutQtyRecovery } from "./sold-out-guard";
 
 function photosEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -152,6 +153,18 @@ export async function applyRemoteQuantityToStoreItem(
     return false;
   }
   if (item.quantity === remoteQty) return false;
+
+  if (isSoldOutQtyRecovery(item.quantity, item.status, remoteQty)) {
+    if (await shouldBlockSoldOutQtyRecovery(storeItemId)) {
+      console.log("[channels] skipping qty recovery on sold-out item", {
+        storeItemId,
+        remoteQty,
+        inwQty: item.quantity,
+        status: item.status,
+      });
+      return false;
+    }
+  }
 
   const previousQty = item.quantity;
   const nextStatus =

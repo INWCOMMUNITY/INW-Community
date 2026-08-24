@@ -13,7 +13,7 @@ import {
 import { syncContentHash, syncMetaHash } from "../sync-baseline";
 import { variantsFingerprint } from "../variant-sync";
 import { updateStoreItemOnChannels } from "../outbound";
-import { channelSyncSucceeded } from "../sync-inventory";
+import { channelSyncSucceeded, syncInventoryToChannels } from "../sync-inventory";
 import { setEtsyConnectionContext } from "./client";
 
 type ConnectionRow = {
@@ -151,6 +151,7 @@ export async function refreshEtsyListingByStoreItemId(
       photos: true,
       priceCents: true,
       quantity: true,
+      status: true,
       category: true,
       subcategory: true,
       secondaryCategory: true,
@@ -177,6 +178,9 @@ export async function refreshEtsyListingByStoreItemId(
     });
 
     console.log("[etsy] refresh completed", { storeItemId, changes });
+    if (refreshedItem.quantity === 0 || refreshedItem.status === "sold_out") {
+      await syncInventoryToChannels(storeItemId, { skipProviders: ["etsy"] });
+    }
     return {
       storeItemId,
       title: refreshedItem.title,

@@ -27,6 +27,7 @@ import {
 } from "./circuit-breaker";
 import { logSyncEvent } from "./sync-log";
 import { formatProviderPublishError, validateForProvider } from "./validate-publish";
+import { shouldPushSoldOutInventoryOnly } from "./sold-out-guard";
 /** Content fingerprint so we can skip no-op pushes on update. */
 function contentHash(item: SyncStoreItem): string {
   return storeItemContentHash(item);
@@ -209,6 +210,8 @@ export async function publishStoreItemToChannels(
               syncStatus: "synced",
               syncError: null,
               lastPushedAt: new Date(),
+              lastPushedHash: contentHash(item),
+              lastPushedPhotos: item.photos,
             },
           });
           results.push({ provider, ok: true });
@@ -283,6 +286,7 @@ export async function publishStoreItemToChannels(
           syncError: live ? null : (result.warning ?? "Created as a draft — it is not live yet."),
           lastPushedHash: contentHash(item),
           lastPushedAt: new Date(),
+          lastPushedPhotos: item.photos,
           syncBaselineHash: syncContentHash(item),
           syncBaselineMetaHash: syncMetaHash(item),
           syncBaselineVariantsHash: variantsFingerprint(item.variants),
@@ -383,7 +387,18 @@ export async function updateStoreItemOnChannels(
     if (contentUnchanged && !inventoryDrift) continue;
 
     // Quantity / variant stock changed but title/price/etc. unchanged — push inventory only.
-    if (contentUnchanged && inventoryDrift) {
+    // After a sale, lastPushedHash also changes (it includes qty/status). Still stay on
+    // updateInventory so we do not run eBay passthrough / Etsy content verify for qty 0.
+    const inventoryOnly = shouldPushSoldOutInventoryOnly({
+      quantity: item.quantity,
+      status: item.status,
+      contentUnchanged,
+      inventoryDrift,
+      syncBaselineHash: link.syncBaselineHash,
+      contentHashNow: syncContentHash(item),
+    });
+
+    if (inventoryOnly) {
       const connConfig = (link.connection.config ?? {}) as Record<string, unknown>;
       const syncDirection = (connConfig.syncDirection as string) ?? "two_way";
       if (syncDirection === "pull_only" || syncDirection === "paused") continue;
@@ -413,6 +428,7 @@ export async function updateStoreItemOnChannels(
           data: {
             syncStatus: "synced",
             syncError: null,
+            lastPushedHash: contentHash(freshItem),
             lastPushedAt: new Date(),
             syncBaselineVariantsHash: varFp,
             syncBaselineQty: freshItem.quantity,
@@ -479,6 +495,7 @@ export async function updateStoreItemOnChannels(
           syncError: null,
           lastPushedHash: hash,
           lastPushedAt: new Date(),
+          lastPushedPhotos: item.photos,
           syncBaselineHash: syncContentHash(item),
           syncBaselineMetaHash: syncMetaHash(item),
           syncBaselineVariantsHash: variantsFingerprint(item.variants),

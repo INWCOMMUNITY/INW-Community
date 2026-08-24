@@ -9,7 +9,7 @@ import type {
   TokenResponse,
 } from "../types";
 import { etsyForm, etsyGet, etsyUploadImage, setEtsyConnectionContext } from "./client";
-import { endEtsyListing } from "./end-listing";
+import { applyEtsySellOutInventory, endEtsyListing } from "./end-listing";
 import { exchangeEtsyCode, fetchEtsyShopInfo, getEtsyAuthUrl, refreshEtsyToken } from "./oauth";
 import { resolveProviderCategoryId } from "../category-map";
 import {
@@ -26,8 +26,10 @@ import {
   etsyListingToSummary,
 } from "./mapping";
 import { pushEtsyVariants, syncEtsyListingInventoryFromInw } from "./variants";
+import { prisma } from "database";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
 import { parseEtsyInboundEvent, verifyEtsyWebhook } from "./webhook";
+import { readLastPushedPhotos, syncEtsyListingPhotos } from "./photos";
 import {
   startTrace,
   addInputSnapshot,
@@ -69,83 +71,6 @@ type EtsyInventory = {
 function requireShop(conn: ChannelConnectionContext): string {
   if (!conn.externalShopId) throw new Error("Etsy connection is missing a shop id.");
   return conn.externalShopId;
-}
-
-type EtsyImage = {
-  listing_image_id: number;
-  url_fullxfull?: string;
-  url_570xN?: string;
-  rank: number;
-};
-
-/**
- * Sync photos from INW to Etsy listing.
- * Compares current Etsy images with INW photos and:
- * - Uploads new photos that don't exist on Etsy
- * - Deletes Etsy images that are no longer in INW
- * 
- * Note: This uses URL comparison which may not be perfect for all cases,
- * but handles the common case of photo additions/removals.
- */
-async function syncEtsyPhotos(
-  accessToken: string,
-  shopId: string,
-  listingId: string,
-  inwPhotos: string[]
-): Promise<void> {
-  if (inwPhotos.length === 0) {
-    // Don't delete all photos - Etsy requires at least one
-    return;
-  }
-
-  // Get current Etsy images
-  let etsyImages: EtsyImage[] = [];
-  try {
-    const listing = await etsyGet<{ images?: EtsyImage[] }>(
-      accessToken,
-      `/listings/${listingId}?includes=Images`
-    );
-    etsyImages = listing.images ?? [];
-  } catch {
-    // Can't get current images, skip sync
-    return;
-  }
-
-  // Extract Etsy image URLs for comparison
-  const etsyUrls = new Set(
-    etsyImages.map((img) => img.url_fullxfull || img.url_570xN || "").filter(Boolean)
-  );
-
-  // Find photos that need to be uploaded (in INW but not on Etsy)
-  const toUpload = inwPhotos.filter((url) => {
-    // Check if any Etsy URL contains similar path (URLs may differ in domain/size)
-    const urlPath = new URL(url).pathname;
-    return ![...etsyUrls].some((etsyUrl) => {
-      try {
-        return new URL(etsyUrl).pathname.includes(urlPath.split("/").pop() || "___nomatch___");
-      } catch {
-        return false;
-      }
-    });
-  });
-
-  // Upload new photos
-  if (toUpload.length > 0) {
-    console.log("[etsy] uploading new photos", { listingId, count: toUpload.length });
-    let rank = etsyImages.length + 1;
-    for (const url of toUpload.slice(0, 10 - etsyImages.length)) {
-      try {
-        await etsyUploadImage(accessToken, shopId, listingId, url, rank);
-        rank++;
-      } catch (e) {
-        console.error("[etsy] photo upload failed", { listingId, url, error: String(e) });
-      }
-    }
-  }
-
-  // Note: We don't delete photos automatically to avoid accidentally removing
-  // images that the seller added directly on Etsy. If needed, this can be added
-  // with a flag to enable destructive photo sync.
 }
 
 export const etsyAdapter: ChannelAdapter = {
@@ -416,12 +341,40 @@ export const etsyAdapter: ChannelAdapter = {
       );
       addResponse(trace, 200, { success: true });
 
-      // Sync photos if they've changed
-      await syncEtsyPhotos(conn.accessToken, shopId, externalListingId, item.photos).catch((e) => {
-        console.error("[etsy] photo sync failed", { listingId: externalListingId, error: String(e) });
+      const syncPhotosPref = await prisma.memberSyncPreferences.findUnique({
+        where: { memberId: conn.memberId },
+        select: { syncPhotos: true },
       });
+      if (syncPhotosPref?.syncPhotos !== false) {
+        const etsyLink = await prisma.channelListingLink.findFirst({
+          where: { storeItemId: item.id, provider: "etsy" },
+          select: { lastPushedPhotos: true },
+        });
+        await syncEtsyListingPhotos({
+          accessToken: conn.accessToken,
+          shopId,
+          listingId: externalListingId,
+          inwPhotos: item.photos,
+          lastPushedInwPhotos: readLastPushedPhotos(etsyLink?.lastPushedPhotos),
+        }).catch((e) => {
+          console.error("[etsy] photo sync failed", {
+            listingId: externalListingId,
+            error: String(e),
+          });
+        });
+      }
 
-      await this.updateInventory(conn, externalListingId, item.quantity, item);
+      if (item.quantity <= 0 || item.status === "sold_out") {
+        await applyEtsySellOutInventory({
+          accessToken: conn.accessToken,
+          shopId,
+          listingId: externalListingId,
+          connectionId: conn.id,
+          tryListingQuantityZero: !hasOptionQuantities(item.variants),
+        });
+      } else {
+        await this.updateInventory(conn, externalListingId, item.quantity, item);
+      }
 
       await completeTrace(trace, "success");
     } catch (e) {
@@ -448,6 +401,17 @@ export const etsyAdapter: ChannelAdapter = {
       `/listings/${externalListingId}/inventory`
     ).catch(() => ({ products: [] as EtsyInventoryProduct[] }));
     const products = inv.products ?? [];
+
+    if (absoluteQuantity <= 0) {
+      await applyEtsySellOutInventory({
+        accessToken: conn.accessToken,
+        shopId,
+        listingId: externalListingId,
+        connectionId: conn.id,
+        tryListingQuantityZero: products.length === 0 && !hasOptionQuantities(item.variants),
+      });
+      return;
+    }
 
     if (products.length === 0 && !hasOptionQuantities(item.variants)) {
       await etsyForm(conn.accessToken, `/shops/${shopId}/listings/${externalListingId}`, "PATCH", {
@@ -478,7 +442,7 @@ export const etsyAdapter: ChannelAdapter = {
       ).catch(() => null);
       const actual = after?.products?.[0]?.offerings?.[0]?.quantity;
       const want = Math.max(0, absoluteQuantity);
-      if (typeof actual === "number" && actual !== want) {
+      if (want > 0 && typeof actual === "number" && actual !== want) {
         throw new Error(
           `Etsy inventory verify failed for listing ${externalListingId}: expected ${want}, got ${actual}`
         );

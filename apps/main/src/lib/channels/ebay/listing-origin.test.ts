@@ -76,6 +76,17 @@ describe("listing-origin", () => {
     ).toBe("cmsz85hpj0001ahwfa2pmvtun");
   });
 
+  it("does not switch an INW-created listing onto an inw{listingId} SKU", () => {
+    expect(
+      resolveEbayPushSku({
+        itemId: "cmsz85hpj0001ahwfa2pmvtun",
+        itemSku: "inw394295737513",
+        externalListingId: "394295737513",
+        linkOrigin: "inw_create",
+      })
+    ).toBe("cmsz85hpj0001ahwfa2pmvtun");
+  });
+
   it("treats numeric legacy Item ID as import", () => {
     expect(
       isImportedEbayLink({

@@ -232,6 +232,57 @@ describe("sync-inventory", () => {
     );
   });
 
+  it("skips zero-quantity push when syncZeroQuantity is off and item is not sold out", async () => {
+    const { syncInventoryToChannels } = await import("../sync-inventory");
+
+    const link = makeLink();
+    mockPrisma.channelListingLink.findMany.mockResolvedValueOnce([link]);
+    mockPrisma.memberSyncPreferences.findUnique.mockResolvedValueOnce({
+      safetyBuffer: 0,
+      syncEnabled: true,
+      syncZeroQuantity: false,
+      lowStockAlertThreshold: 0,
+    });
+    mockPrisma.storeItem.findUnique.mockResolvedValueOnce(
+      makeStoreItem({ quantity: 0, status: "active" })
+    );
+
+    const results = await syncInventoryToChannels("item-1");
+
+    expect(results).toHaveLength(0);
+    expect(mockAdapter.updateInventory).not.toHaveBeenCalled();
+    expect(mockPrisma.channelListingLink.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "link-1" },
+        data: expect.objectContaining({
+          syncError: "Zero push skipped (syncZeroQuantity disabled)",
+        }),
+      })
+    );
+  });
+
+  it("still pushes quantity 0 when the item is sold_out even if syncZeroQuantity is off", async () => {
+    const { syncInventoryToChannels } = await import("../sync-inventory");
+
+    const link = makeLink();
+    mockPrisma.channelListingLink.findMany.mockResolvedValueOnce([link]);
+    mockPrisma.memberSyncPreferences.findUnique.mockResolvedValueOnce({
+      safetyBuffer: 0,
+      syncEnabled: true,
+      syncZeroQuantity: false,
+      lowStockAlertThreshold: 0,
+    });
+    mockPrisma.storeItem.findUnique.mockResolvedValueOnce(
+      makeStoreItem({ quantity: 0, status: "sold_out" })
+    );
+
+    const results = await syncInventoryToChannels("item-1");
+
+    expect(results).toHaveLength(1);
+    expect(results[0].ok).toBe(true);
+    expect(mockAdapter.updateInventory).toHaveBeenCalledOnce();
+  });
+
   it("skips providers in skipProviders", async () => {
     const { syncInventoryToChannels } = await import("../sync-inventory");
 

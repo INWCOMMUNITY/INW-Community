@@ -25,6 +25,7 @@ import { indexEbayRemoteListings, resolveEbayLegacyListingId } from "./ebay/mapp
 import { refreshEbayListingByItemId } from "./ebay/pull-ebay-updates";
 import { fetchEbayItemDetails } from "./ebay/trading";
 import { logSyncEvent } from "./sync-log";
+import { shouldBlockSoldOutQtyRecovery } from "./sold-out-guard";
 
 /** Content fingerprint for a remote catalog row (same fields as syncContentHash on StoreItem). */
 function remoteListingContentHash(remote: RemoteListingSummary): string {
@@ -499,12 +500,22 @@ export async function reconcileConnectionInboundCatalog(
     const allowPush = syncDirection === "two_way" || syncDirection === "push_only";
 
     // Recovery: INW was wrongly zeroed/sold out while the channel still has stock.
-    // Prefer pulling quantity over pushing zero back to the marketplace.
-    const needsQtyRecovery =
-      qtyDiffers &&
-      remoteQtyKnown &&
-      remote.quantity > 0 &&
-      currentQty === 0;
+    // Prefer pulling quantity over pushing zero — unless a sale or failed zero-push
+    // is in play, in which case retry the zero write instead of resurrecting stock.
+    const staleZeroVsRemoteStock =
+      qtyDiffers && remoteQtyKnown && remote.quantity > 0 && currentQty === 0;
+    const blockRecovery =
+      staleZeroVsRemoteStock && (await shouldBlockSoldOutQtyRecovery(link.storeItemId));
+    const needsQtyRecovery = staleZeroVsRemoteStock && !blockRecovery;
+
+    if (blockRecovery) {
+      console.log("[channels] skipping qty recovery after sale or failed zero push", {
+        storeItemId: link.storeItemId,
+        externalListingId: link.externalListingId,
+        remoteQty: remote.quantity,
+        inwQty: currentQty,
+      });
+    }
 
     if (needsQtyRecovery && allowPull) {
       console.log("[channels] recovering quantity from remote (INW sold out, channel in stock)", {
@@ -620,7 +631,7 @@ export async function reconcileConnectionInboundCatalog(
         link.syncBaselineQty != null && 
         remote.quantity !== link.syncBaselineQty;
       
-      if (remoteQtyChanged && !inwQtyChangedSinceBaseline && allowPull) {
+      if (remoteQtyChanged && !inwQtyChangedSinceBaseline && allowPull && !blockRecovery) {
         // Remote changed, INW didn't - pull from remote
         console.log("[channels] pulling quantity from remote (qty-only change)", {
           storeItemId: link.storeItemId,
@@ -632,8 +643,8 @@ export async function reconcileConnectionInboundCatalog(
           provider,
           memberId: connection.memberId,
         });
-      } else if (allowPush && !(remoteQtyKnown && remote.quantity > 0 && currentQty === 0)) {
-        // INW changed or both changed - push to channels (never push zero when channel has stock)
+      } else if (allowPush && !needsQtyRecovery) {
+        // INW changed or both changed — push, including zero when recovery is blocked.
         attemptedPush = true;
         pushOk = channelSyncSucceeded(
           await syncInventoryToChannels(link.storeItemId),

@@ -259,6 +259,16 @@ const ERROR_CODE_ACTIONS: Record<number, EbayErrorAction> = {
     action: "none",
     retryable: false,
   },
+  25014: {
+    message: "Invalid listing pictures",
+    action: "seller_action",
+    retryable: true,
+  },
+  25015: {
+    message: "Invalid listing picture URL",
+    action: "seller_action",
+    retryable: true,
+  },
   25021: {
     message: "Invalid condition for category",
     action: "seller_action",
@@ -340,6 +350,9 @@ export function ebayErrorActionHint(reason: string): string | undefined {
   if (/\b1100\b|Insufficient permissions/i.test(reason)) {
     return "Your eBay connection lacks required permissions. Disconnect and reconnect eBay to grant all needed scopes.";
   }
+  if (/\b25014\b|\b25015\b|invalid pictures|invalid picture url/i.test(reason)) {
+    return "eBay rejected the listing photos. Re-upload at least one HTTPS JPG or PNG on this item, then try again.";
+  }
   if (/\b25017\b|Missing.*field|required field/i.test(reason)) {
     return "This listing is missing required information. Check that title, description, price, category, and item specifics are filled in.";
   }
@@ -397,7 +410,8 @@ export function describeChannelSyncError(provider: string, e: unknown): string {
       return hint ? `${base} — ${hint}` : base;
     }
     if (/passthrough partial sync|:\s*updated|:\s*failed/i.test(msg)) {
-      return msg;
+      const hint = ebayErrorActionHint(msg);
+      return hint && !msg.includes(hint) ? `${msg} — ${hint}` : msg;
     }
     if (/#25064|#25002|item specific|required field.*aspect|aspect.*required|Letter grade/i.test(msg)) {
       const hint = ebayErrorActionHint(msg);

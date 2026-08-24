@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   EbayApiError,
+  describeChannelSyncError,
   describeEbayThrownError,
+  ebayErrorActionHint,
   extractEbayWarnings,
   formatEbayApiBody,
   formatEbayErrorDiagnostics,
@@ -115,5 +117,15 @@ describe("formatMigrateListingError", () => {
         errors: [{ errorId: 25718, longMessage: "Cannot migrate listing." }],
       })
     ).toContain("#25718");
+  });
+});
+
+describe("ebay picture errors", () => {
+  it("hints to re-upload photos for #25014 instead of a migrate-listing message", () => {
+    const msg =
+      "title: failed ([#25014 · API_INVENTORY · Request · HTTP 400] The eBay listing associated with the inventory item, or the unpublished offer has invalid pictures.)";
+    expect(ebayErrorActionHint(msg)).toMatch(/rejected the listing photos/i);
+    expect(ebayErrorActionHint(msg)).not.toMatch(/migrate this listing/i);
+    expect(describeChannelSyncError("ebay", new Error(msg))).toMatch(/Re-upload/i);
   });
 });

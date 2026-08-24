@@ -36,7 +36,11 @@ export function resolveEbayPushSku(args: {
   linkOrigin?: string | null;
 }): string {
   if (args.linkOrigin === "inw_create") {
-    return args.itemSku?.trim() || args.itemId;
+    const sku = args.itemSku?.trim();
+    // Migrated inw{listingId} SKUs must not replace the original StoreItem id SKU —
+    // that publishes a second live listing on the next cron push.
+    if (sku && !IMPORTED_EBAY_SKU.test(sku)) return sku;
+    return args.itemId;
   }
   if (args.linkOrigin === "import") {
     return resolveEbayInventorySku(args.externalListingId);

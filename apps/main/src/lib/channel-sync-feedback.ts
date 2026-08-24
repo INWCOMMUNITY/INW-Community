@@ -34,7 +34,7 @@ export function formatChannelSyncResults(
   const failureLines = failed.map((r) => {
     const label = providerLabel(r.provider);
     const detail = r.error?.trim();
-    return detail ? `${label}: ${detail.slice(0, 200)}` : `${label}: sync failed`;
+    return detail ? `${label}: ${detail.slice(0, 800)}` : `${label}: sync failed`;
   });
 
   const title =

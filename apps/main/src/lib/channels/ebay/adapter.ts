@@ -7,6 +7,7 @@ import type {
   SyncStoreItem,
   TokenResponse,
 } from "../types";
+import { ebayFulfillmentLineToSale } from "../sale-link";
 import { EbayApiError, ebayAction, ebayGet, ebayGetInventoryItem, ebayJson, takeEbayCallWarnings } from "./client";
 import {
   describeEbayThrownError,
@@ -41,7 +42,7 @@ import {
   shouldUseInventoryItemGroup,
 } from "./inventory-groups";
 import { listInventoryItems, mergeInventoryRowsWithTrading } from "./inventory-import";
-import { ensureEbayHostedPhotoUrls, isEbayImageRelatedInventoryError } from "./media";
+import { putInventoryWithPhotoRecovery } from "./media";
 import {
   checkRevisionLimit,
   getRevisionLimitWarning,
@@ -90,6 +91,11 @@ import {
 } from "../sync-trace";
 import { prisma } from "database";
 import { isImportedEbayLink, extractEbayInventoryAspects, resolveEbayPushSku } from "./listing-origin";
+import {
+  pickEbayOffer,
+  readEbayOfferListingId,
+  shouldPublishEbayOffer,
+} from "./publish-policy";
 import { passthroughUsePreparedInventoryAspects } from "./aspect-prep";
 import {
   buildPassthroughInventoryContentPutBody,
@@ -110,6 +116,7 @@ import {
 import { bestOfferStatesMatch, inwBestOfferState, readOfferBestOfferTerms } from "./best-offer";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
 import { detectStoreItemFieldChanges } from "../sync-baseline";
+import { pushEbayAbsoluteQuantity } from "./quantity";
 import type { ListingAspect } from "@/lib/listing-limits";
 
 type EbayOffer = { offerId?: string; status?: string; listing?: { listingId?: string } };
@@ -122,7 +129,7 @@ async function findOffer(accessToken: string, sku: string): Promise<EbayOffer | 
       accessToken,
       `/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}&marketplace_id=${EBAY_MARKETPLACE_ID}`
     );
-    return res.offers?.[0] ?? null;
+    return pickEbayOffer(res.offers);
   } catch (e) {
     if (e instanceof EbayApiError && e.status === 404) return null;
     throw e;
@@ -510,17 +517,13 @@ async function upsertListing(
 
       if (changed.quantity) {
         const quantity = Math.max(0, item.quantity);
-        const request: Record<string, unknown> = {
-          sku,
-          shipToLocationAvailability: { quantity },
-        };
-        if (offerId) {
-          request.offers = [{ offerId, availableQuantity: quantity }];
-        }
         const bulkFields: PassthroughFieldResult[] = [{ field: "quantity", ok: false }];
         try {
-          await ebayJson(conn.accessToken, `/sell/inventory/v1/bulk_update_price_quantity`, "POST", {
-            requests: [request],
+          await pushEbayAbsoluteQuantity({
+            accessToken: conn.accessToken,
+            sku,
+            quantity,
+            offerId,
           });
           await persistRevisionCount(conn.id, sku, conn.config);
           bulkFields[0]!.ok = true;
@@ -577,15 +580,26 @@ async function upsertListing(
           legacyListingId: legacyListingId ?? null,
         });
         addRequest(trace, inventoryBody);
+        const putPassthroughInventory = async (payload: Record<string, unknown>) => {
+          await putInventoryWithPhotoRecovery({
+            accessToken: conn.accessToken,
+            body: payload,
+            fallbackImageUrls: item.photos,
+            describeError: describeEbayThrownError,
+            put: async (next) => {
+              await ebayJson(
+                conn.accessToken,
+                `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+                "PUT",
+                next
+              );
+              await persistRevisionCount(conn.id, sku, conn.config);
+            },
+          });
+        };
         let contentPutOk = false;
         try {
-          await ebayJson(
-            conn.accessToken,
-            `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
-            "PUT",
-            inventoryBody
-          );
-          await persistRevisionCount(conn.id, sku, conn.config);
+          await putPassthroughInventory(inventoryBody);
           addResponse(trace, 200, {
             success: true,
             contentOverlays,
@@ -619,19 +633,13 @@ async function upsertListing(
               aspectMode,
             });
             try {
-              await ebayJson(
-                conn.accessToken,
-                `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
-                "PUT",
-                inventoryBody
-              );
-              await persistRevisionCount(conn.id, sku, conn.config);
+              await putPassthroughInventory(inventoryBody);
               addResponse(trace, 200, {
-            success: true,
-            contentOverlays,
-            aspectMode,
-            warnings: takeEbayCallWarnings().map((w) => w.longMessage || w.message),
-          });
+                success: true,
+                contentOverlays,
+                aspectMode,
+                warnings: takeEbayCallWarnings().map((w) => w.longMessage || w.message),
+              });
               contentPutOk = true;
             } catch (retryErr) {
               e = retryErr;
@@ -982,38 +990,26 @@ async function upsertListing(
       if (traceCtx) {
         addRequest(traceCtx, body);
       }
-      const putInventory = async (payload: Record<string, unknown>) => {
-        await ebayJson(
-          conn.accessToken,
-          `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
-          "PUT",
-          payload
-        );
-        if (traceCtx) {
-          addResponse(traceCtx, 200, { success: true, warnings: takeEbayCallWarnings() });
-        }
-        await persistRevisionCount(conn.id, sku, conn.config);
-      };
       try {
-        await putInventory(body);
+        await putInventoryWithPhotoRecovery({
+          accessToken: conn.accessToken,
+          body,
+          fallbackImageUrls: item.photos,
+          describeError: describeEbayThrownError,
+          put: async (payload) => {
+            await ebayJson(
+              conn.accessToken,
+              `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+              "PUT",
+              payload
+            );
+            if (traceCtx) {
+              addResponse(traceCtx, 200, { success: true, warnings: takeEbayCallWarnings() });
+            }
+            await persistRevisionCount(conn.id, sku, conn.config);
+          },
+        });
       } catch (e) {
-        const msg = describeEbayThrownError(e);
-        const product =
-          body.product && typeof body.product === "object"
-            ? (body.product as Record<string, unknown>)
-            : null;
-        const imageUrls = Array.isArray(product?.imageUrls)
-          ? product.imageUrls.filter((url): url is string => typeof url === "string")
-          : [];
-        if (isEbayImageRelatedInventoryError(msg) && imageUrls.length > 0) {
-          const hosted = await ensureEbayHostedPhotoUrls(conn.accessToken, imageUrls);
-          const retryBody = {
-            ...body,
-            product: { ...(product ?? {}), imageUrls: hosted },
-          };
-          await putInventory(retryBody);
-          return;
-        }
         if (traceCtx && e instanceof EbayApiError) {
           addResponse(traceCtx, e.status, { error: e.message, body: e.body });
         }
@@ -1155,9 +1151,36 @@ async function upsertListing(
       await pushOfferBody(offerBody);
     }
 
-    const shouldPublish = cfg.canPublish && item.status === "active" && item.quantity > 0 && !!offerId;
-    let publishedListingId: string | undefined;
+    const shouldPublish = shouldPublishEbayOffer({
+      canPublish: cfg.canPublish,
+      itemIsActive: item.status === "active",
+      quantity: item.quantity,
+      offerId,
+      offerStatus:
+        (typeof liveOffer?.status === "string" ? liveOffer.status : null) ??
+        existingOffer?.status ??
+        null,
+    });
+    let publishedListingId: string | undefined =
+      readEbayOfferListingId(liveOffer) ?? readEbayOfferListingId(existingOffer) ?? undefined;
     if (shouldPublish && offerId) {
+      const leftoverListingId =
+        publishedListingId ?? resolveEbayLegacyListingId(linkExternalId);
+      if (leftoverListingId) {
+        try {
+          await endEbayTradingItem(conn.accessToken, leftoverListingId);
+          console.warn("[ebay] ended leftover live listing before republish", {
+            storeItemId: item.id,
+            leftoverListingId,
+            offerId,
+          });
+        } catch (e) {
+          console.warn("[ebay] leftover EndItem before republish", {
+            leftoverListingId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
       if (!hadOfferAtStart) {
         try {
           const fees = await getListingFees(conn.accessToken, [offerId]);
@@ -1210,12 +1233,38 @@ async function upsertListing(
           );
           publishedListingId = await publishOffer(conn.accessToken, offerId);
           await persistRevisionCount(conn.id, sku, conn.config);
+        } else if (/already been published|already published/i.test(msg)) {
+          publishedListingId =
+            publishedListingId ??
+            readEbayOfferListingId(liveOffer) ??
+            readEbayOfferListingId(existingOffer) ??
+            undefined;
+          console.warn("[ebay] publish skipped; offer already live", { offerId, listingId: publishedListingId });
         } else {
           console.error("[ebay] publish failed; left as draft", { offerId, error: msg });
           await completeTrace(trace, "failed", e);
           return { sku, publishError: msg };
         }
       }
+    }
+
+    if (
+      publishedListingId &&
+      ebayLink &&
+      ebayLink.externalListingId !== publishedListingId
+    ) {
+      await prisma.channelListingLink
+        .update({
+          where: { id: ebayLink.id },
+          data: { externalListingId: publishedListingId },
+        })
+        .catch((e) => {
+          console.warn("[ebay] could not persist live listing id", {
+            storeItemId: item.id,
+            listingId: publishedListingId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        });
     }
 
     await completeTrace(trace, "success");
@@ -1438,19 +1487,17 @@ export const ebayAdapter: ChannelAdapter = {
     }
     const quantity = Math.max(0, absoluteQuantity);
     const offer = await findOffer(conn.accessToken, inventorySku).catch(() => null);
-    const request: Record<string, unknown> = {
+    await pushEbayAbsoluteQuantity({
+      accessToken: conn.accessToken,
       sku: inventorySku,
-      shipToLocationAvailability: { quantity },
-    };
-    if (offer?.offerId) {
-      request.offers = [{ offerId: offer.offerId, availableQuantity: quantity }];
-    }
-    await ebayJson(conn.accessToken, `/sell/inventory/v1/bulk_update_price_quantity`, "POST", {
-      requests: [request],
+      quantity,
+      offerId: offer?.offerId,
     });
     await persistRevisionCount(conn.id, inventorySku, conn.config);
 
-    await verifyInventoryWrite(conn.accessToken, inventorySku, quantity);
+    if (quantity > 0) {
+      await verifyInventoryWrite(conn.accessToken, inventorySku, quantity);
+    }
   },
 
   async listRemoteListings(conn, opts?: { skipPhotoEnrichment?: boolean }): Promise<RemoteListingSummary[]> {
@@ -1530,21 +1577,15 @@ export const ebayAdapter: ChannelAdapter = {
       const orders = res?.orders ?? [];
       for (const order of orders) {
         for (const li of order.lineItems ?? []) {
-          const sku = li.sku || null;
-          if (!sku) {
-            console.warn("[ebay] sale line without SKU (legacy listing); cannot reconcile", {
+          const sale = ebayFulfillmentLineToSale(order.orderId, li);
+          if (!sale) {
+            console.warn("[ebay] sale line without SKU or legacy Item ID; cannot reconcile", {
               orderId: order.orderId,
               lineItemId: li.lineItemId,
-              legacyItemId: li.legacyItemId,
             });
             continue;
           }
-          sales.push({
-            externalEventId: `order:${order.orderId}:line:${li.lineItemId}`,
-            externalListingId: sku,
-            quantitySold: Math.max(1, li.quantity ?? 1),
-            sku,
-          });
+          sales.push(sale);
         }
       }
       if (orders.length < 200) break;
