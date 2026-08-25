@@ -246,6 +246,16 @@ export async function channelCallbackGET(
         ? ((initial as Record<string, unknown>).etsyShippingProfileId as string)
         : null;
 
+    const existing = await prisma.channelConnection.findUnique({
+      where: { memberId_provider: { memberId: state.sub, provider } },
+      select: { config: true, etsyShippingProfileId: true },
+    });
+    const existingConfig =
+      existing?.config && typeof existing.config === "object" && !Array.isArray(existing.config)
+        ? (existing.config as Record<string, unknown>)
+        : {};
+    const mergedConfig = { ...existingConfig, ...(initial as object) };
+
     const data = {
       provider,
       externalShopId: shop.shopId,
@@ -258,8 +268,8 @@ export async function channelCallbackGET(
       scopes: tokens.scopes || profile.scopes,
       status: "active",
       lastError: null,
-      etsyShippingProfileId,
-      config: initial as object,
+      etsyShippingProfileId: etsyShippingProfileId || existing?.etsyShippingProfileId || null,
+      config: mergedConfig,
     };
 
     await prisma.channelConnection.upsert({

@@ -6,7 +6,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * DELETE: disconnect a channel.
- * Default: remove connection + links; StoreItems stay on INW; external marketplace listings stay.
+ * Default: keep listing links so My Items can flag unsynced listings; wipe tokens; mark disconnected.
+ * StoreItems stay on INW; external marketplace listings stay.
  * ?deleteInwItems=1: also delete StoreItems that were linked to this connection (not on the marketplace).
  */
 export async function DELETE(
@@ -34,9 +35,6 @@ export async function DELETE(
   });
   const storeItemIds = [...new Set(links.map((l) => l.storeItemId))];
 
-  // Cascade removes listing links. Do not call deleteStoreItemFromChannels — external listings stay.
-  await prisma.channelConnection.delete({ where: { id } });
-
   let deletedInwCount = 0;
   if (deleteInwItems) {
     for (const storeItemId of storeItemIds) {
@@ -51,6 +49,17 @@ export async function DELETE(
       }
     }
   }
+
+  await prisma.channelConnection.update({
+    where: { id },
+    data: {
+      status: "disconnected",
+      accessTokenEncrypted: null,
+      refreshTokenEncrypted: null,
+      tokenExpiresAt: null,
+      lastError: "Disconnected by seller",
+    },
+  });
 
   return NextResponse.json({
     ok: true,

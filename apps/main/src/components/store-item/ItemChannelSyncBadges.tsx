@@ -9,6 +9,8 @@ export type ItemChannelLink = {
   syncStatus: string;
   syncEnabled: boolean;
   syncError?: string | null;
+  connectionStatus?: string | null;
+  syncWarning?: string | null;
 };
 
 export function ItemChannelSyncBadges({
@@ -26,31 +28,36 @@ export function ItemChannelSyncBadges({
     <div className={compact ? "flex flex-wrap gap-1 mt-1" : "flex flex-col gap-1 mt-1.5"}>
       {links.map((link) => {
         const label = CHANNEL_PROVIDER_LABELS[link.provider] ?? link.provider;
-        const isError = link.syncStatus === "error";
-        const isPaused = !link.syncEnabled;
+        const warning = link.syncWarning?.trim() || null;
+        const isConnectionIssue =
+          link.connectionStatus === "error" || link.connectionStatus === "disconnected";
+        const isError = Boolean(warning) && !isConnectionIssue;
+        const isPaused = !warning && !link.syncEnabled;
         const needsConditionFix =
           link.provider === "ebay" && isError && isEbayConditionSyncError(link.syncError);
 
-        const errorDetail = link.syncError?.trim()
-          ? link.syncError.trim().slice(0, 120)
-          : "sync error";
+        const errorDetail = warning ?? (link.syncError?.trim() || "sync error");
 
         const text = compact
-          ? isError
-            ? `${label}: ${errorDetail}`
+          ? warning
+            ? `${isConnectionIssue ? "⚠ " : ""}${warning}`
             : isPaused
               ? `${label}: paused`
               : label
-          : isError
-            ? `${label}: ${errorDetail}`
+          : warning
+            ? warning
             : isPaused
               ? `${label}: paused`
               : `Synced to ${label}`;
 
-        const className = isError
+        const className = warning
           ? compact
-            ? "text-[11px] text-red-700 bg-red-50 border border-red-100 rounded-full px-2 py-0.5"
-            : "text-xs text-red-700 bg-red-50 border border-red-100 rounded px-2 py-0.5"
+            ? isConnectionIssue
+              ? "text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5"
+              : "text-[11px] text-red-700 bg-red-50 border border-red-100 rounded-full px-2 py-0.5"
+            : isConnectionIssue
+              ? "text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded px-2 py-0.5"
+              : "text-xs text-red-700 bg-red-50 border border-red-100 rounded px-2 py-0.5"
           : isPaused
             ? compact
               ? "text-[11px] text-gray-600 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5"
@@ -73,7 +80,7 @@ export function ItemChannelSyncBadges({
         }
 
         return (
-          <span key={link.provider} className={className} title={isError ? errorDetail : undefined}>
+          <span key={link.provider} className={className} title={warning ? errorDetail : undefined}>
             {text}
           </span>
         );

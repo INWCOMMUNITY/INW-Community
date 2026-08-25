@@ -142,7 +142,9 @@ export default function MyItemsPage() {
     return items.filter((item) => {
       if (q && !item.title.toLowerCase().includes(q)) return false;
       if (filter === "attention") {
-        return (item.channelLinks ?? []).some((l) => l.syncStatus === "error");
+        return (item.channelLinks ?? []).some(
+          (l) => Boolean(l.syncWarning) || l.syncStatus === "error"
+        );
       }
       if (filter !== "all") {
         return (item.channelLinks ?? []).some((l) => l.provider === filter);

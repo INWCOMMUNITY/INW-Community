@@ -44,6 +44,8 @@ interface ChannelLink {
   syncEnabled: boolean;
   externalListingId: string;
   syncError?: string | null;
+  connectionStatus?: string | null;
+  syncWarning?: string | null;
 }
 
 interface StoreItem {
@@ -589,21 +591,28 @@ export default function MyItemsScreen() {
                       const label =
                         CHANNEL_PROVIDER_LABEL[link.provider as ChannelProviderId] ??
                         link.provider;
-                      const isError = link.syncStatus === "error";
-                      const isPaused = !link.syncEnabled;
+                      const warning = link.syncWarning?.trim() || null;
+                      const isConnectionIssue =
+                        link.connectionStatus === "error" ||
+                        link.connectionStatus === "disconnected";
+                      const isError = Boolean(warning) && !isConnectionIssue;
+                      const isPaused = !warning && !link.syncEnabled;
                       const needsConditionFix =
-                        link.provider === "ebay" && isError && isEbayConditionSyncError(link.syncError);
+                        link.provider === "ebay" &&
+                        link.syncStatus === "error" &&
+                        isEbayConditionSyncError(link.syncError);
                       const badge = (
                         <Text
                           style={[
                             styles.syncBadge,
+                            warning && isConnectionIssue && styles.syncBadgeWarning,
                             isError && styles.syncBadgeError,
                             isPaused && styles.syncBadgePaused,
                           ]}
-                          numberOfLines={2}
+                          numberOfLines={3}
                         >
-                          {isError
-                            ? `${label}: ${link.syncError?.trim() ? link.syncError.trim().slice(0, 120) : "sync error"}`
+                          {warning
+                            ? `⚠ ${warning}`
                             : isPaused
                               ? `${label}: paused`
                               : `Synced to ${label}`}
@@ -896,6 +905,7 @@ const styles = StyleSheet.create({
   viewOrderLink: { fontSize: 12, color: theme.colors.primary, marginTop: 2, fontWeight: "600" },
   syncBadge: { fontSize: 11, color: "#2e7d32", marginTop: 4, fontWeight: "600" },
   syncBadgeError: { color: "#c62828" },
+  syncBadgeWarning: { color: "#b45309" },
   syncBadgePaused: { color: "#b26a00" },
   menuBtn: {
     padding: 8,
