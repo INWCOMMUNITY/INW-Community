@@ -85,12 +85,15 @@ function PostPreview({ post }: { post: FeedPost }) {
             ? post.sourceReward.title
             : post.type === "shared_store_item" && post.sourceStoreItem
               ? post.sourceStoreItem.title
+              : post.type === "shared_listing_collection" && post.sourceListingCollection
+                ? post.sourceListingCollection.title
               : post.content?.trim() ?? "Shared a post";
   const previewImg =
     post.photos?.[0] ??
     (post.type === "shared_blog" && post.sourceBlog?.photos?.[0]) ??
     (post.type === "shared_business" && post.sourceBusiness?.logoUrl) ??
-    (post.type === "shared_store_item" && post.sourceStoreItem?.photos?.[0]);
+    (post.type === "shared_store_item" && post.sourceStoreItem?.photos?.[0]) ??
+    (post.type === "shared_listing_collection" && post.sourceListingCollection?.previewPhotos?.[0]);
 
   return (
     <View style={styles.postPreview}>

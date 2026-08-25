@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
+import { ShareListingsToFeedPrompt } from "@/components/feed/ShareListingsToFeedPrompt";
 
 type RemoteListing = {
   externalListingId: string;
@@ -19,7 +20,7 @@ type ImportApiResponse = {
   error?: string;
   hint?: string;
   summary?: string;
-  imported?: unknown[];
+  imported?: { storeItemId?: string }[];
   skipped?: unknown[];
 };
 
@@ -42,6 +43,7 @@ export function ChannelImportContent() {
   const [done, setDone] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [shareItemIds, setShareItemIds] = useState<string[]>([]);
 
   const importable = useMemo(
     () => listings.filter((l) => !l.alreadyLinked),
@@ -161,6 +163,11 @@ export function ChannelImportContent() {
         setStatusMessage(failureMessage);
         return;
       }
+
+      const importedIds = (data.imported ?? [])
+        .map((row) => row.storeItemId)
+        .filter((id): id is string => Boolean(id));
+      if (importedIds.length > 0) setShareItemIds(importedIds);
 
       setDone(summary);
       setError(null);
@@ -323,6 +330,11 @@ export function ChannelImportContent() {
           </div>
         </div>
       ) : null}
+      <ShareListingsToFeedPrompt
+        open={shareItemIds.length > 0}
+        storeItemIds={shareItemIds}
+        onClose={() => setShareItemIds([])}
+      />
     </div>
   );
 }

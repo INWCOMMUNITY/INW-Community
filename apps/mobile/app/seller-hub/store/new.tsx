@@ -227,6 +227,9 @@ export default function ListItemScreen() {
   const [loadedDraft, setLoadedDraft] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
   const [showListingSuccessModal, setShowListingSuccessModal] = useState(false);
+  const [createdItemId, setCreatedItemId] = useState<string | null>(null);
+  const [feedShareBusy, setFeedShareBusy] = useState(false);
+  const [feedShareDone, setFeedShareDone] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
   const [hasEbayLink, setHasEbayLink] = useState(false);
   const [isEbayImportedListing, setIsEbayImportedListing] = useState(false);
@@ -1191,9 +1194,12 @@ export default function ListItemScreen() {
         setShowListingSuccessModal(true);
       } else {
         const res = await apiPost<{
+          id?: string;
           channelSync?: { provider: string; ok: boolean; error?: string }[];
         }>("/api/store-items", payload);
         alertChannelSyncFailures(res.channelSync, "saved");
+        setCreatedItemId(res.id ?? null);
+        setFeedShareDone(false);
         setShowListingSuccessModal(true);
       }
     } catch (e) {
@@ -1279,6 +1285,30 @@ export default function ListItemScreen() {
           <Text style={styles.successModalSubtitle}>
             {editSuccess ? "Your changes have been saved." : "Your listing is now live."}
           </Text>
+          {!editSuccess && createdItemId && !feedShareDone ? (
+            <Pressable
+              style={({ pressed }) => [styles.successModalBtn, pressed && { opacity: 0.8 }]}
+              disabled={feedShareBusy}
+              onPress={async () => {
+                setFeedShareBusy(true);
+                try {
+                  await apiPost("/api/store-items/share-to-feed", { storeItemIds: [createdItemId] });
+                  setFeedShareDone(true);
+                } catch {
+                  Alert.alert("Could not share", "Your listing is live. You can share it from the feed later.");
+                } finally {
+                  setFeedShareBusy(false);
+                }
+              }}
+            >
+              <Text style={styles.successModalBtnText}>
+                {feedShareBusy ? "Sharing…" : "Share on Community Feed"}
+              </Text>
+            </Pressable>
+          ) : null}
+          {!editSuccess && feedShareDone ? (
+            <Text style={[styles.successModalSubtitle, { marginBottom: 12 }]}>Shared to the Community Feed.</Text>
+          ) : null}
           <Pressable
             style={({ pressed }) => [styles.successModalBtn, pressed && { opacity: 0.8 }]}
             onPress={() => {

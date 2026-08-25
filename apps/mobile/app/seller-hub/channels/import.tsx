@@ -13,6 +13,7 @@ import {
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiDelete } from "@/lib/api";
+import { promptShareListingsToFeed } from "@/lib/prompt-share-listings-to-feed";
 
 type RemoteListing = {
   externalListingId: string;
@@ -32,7 +33,7 @@ type ImportProgress = {
 };
 
 type ImportApiResponse = {
-  imported?: unknown[];
+  imported?: { storeItemId?: string }[];
   skipped?: { externalListingId?: string; title?: string; reason: string; hint?: string }[];
   summary?: string;
   hint?: string;
@@ -253,6 +254,10 @@ export default function ChannelImportScreen() {
       setSelected(new Set());
       await new Promise((r) => setTimeout(r, 1500));
       setProgress(null);
+      const importedIds = (res.imported ?? [])
+        .map((row) => row.storeItemId)
+        .filter((id): id is string => Boolean(id));
+      if (importedIds.length > 0) promptShareListingsToFeed(importedIds);
       await load();
     } catch (e: unknown) {
       const err = e as { error?: string; message?: string; status?: number };
@@ -368,6 +373,10 @@ export default function ChannelImportScreen() {
       setSelected(new Set());
       await new Promise((r) => setTimeout(r, 1500));
       setProgress(null);
+      const importedIds = (res.imported ?? [])
+        .map((row) => row.storeItemId)
+        .filter((id): id is string => Boolean(id));
+      if (importedIds.length > 0) promptShareListingsToFeed(importedIds);
       await load();
     } catch (e: unknown) {
       const err = e as { error?: string; message?: string; status?: number };
