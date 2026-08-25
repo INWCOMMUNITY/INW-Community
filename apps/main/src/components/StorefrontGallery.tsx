@@ -100,7 +100,7 @@ interface StoreItem {
   quantity: number;
   variants?: { name: string; options: string[] }[];
   member?: { firstName: string; lastName: string };
-  business?: { name: string; slug: string };
+  business?: { name: string; slug: string } | null;
 }
 
 export type StorefrontGalleryProps = {

@@ -28,7 +28,7 @@ export function getSizesFromVariants(variants: unknown): string[] {
   return sizes;
 }
 
-export function itemHasSize(item: { variants?: unknown }, size: string): boolean {
+export function itemHasSize(item: { id?: string; variants?: unknown }, size: string): boolean {
   const sizes = getSizesFromVariants(item.variants);
   return sizes.some((s) => s.toLowerCase() === size.toLowerCase());
 }

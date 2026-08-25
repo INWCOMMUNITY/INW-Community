@@ -151,7 +151,7 @@ export async function loadCommunityFeed(opts: {
         p.id,
         {
           ...p,
-          tags: p.postTags?.map((pt) => pt.tag) ?? [],
+          tags: p.postTags?.map((pt: { tag: { id: string; name: string; slug: string } }) => pt.tag) ?? [],
           sourceBlog: null,
           sourceBusiness: resolveFeedPostSourceBusiness(p, businessMap, listingBizByMember),
           sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
@@ -169,7 +169,7 @@ export async function loadCommunityFeed(opts: {
     const feedItems = items
       .map((p) => ({
         ...p,
-        tags: p.postTags?.map((pt) => pt.tag) ?? [],
+        tags: p.postTags?.map((pt: { tag: { id: string; name: string; slug: string } }) => pt.tag) ?? [],
         sourceBlog: p.sourceBlogId ? blogMap[p.sourceBlogId] ?? null : null,
         sourceBusiness: resolveFeedPostSourceBusiness(p, businessMap, listingBizByMember),
         taggedBusinesses: taggedBusinessesFromIds(p.taggedBusinessIds, businessMap),
@@ -331,7 +331,7 @@ export async function loadCommunityFeed(opts: {
     if (p.groupId && viewerGroupIdSet.has(p.groupId)) return 2e15 + t;
     if (
       followedTagIds.length > 0 &&
-      p.postTags?.some((pt) => followedTagIds.includes(pt.tag.id))
+      p.postTags?.some((pt: { tag: { id: string } }) => followedTagIds.includes(pt.tag.id))
     ) {
       return 2e15 + t;
     }
@@ -573,7 +573,7 @@ export async function loadCommunityFeed(opts: {
       p.id,
       {
         ...p,
-        tags: p.postTags?.map((pt) => pt.tag) ?? [],
+        tags: p.postTags?.map((pt: { tag: { id: string; name: string; slug: string } }) => pt.tag) ?? [],
         sourceBlog: p.sourceBlogId ? (sourcePostBlogMap[p.sourceBlogId] ?? blogMap[p.sourceBlogId] ?? null) : null,
         sourceBusiness: resolveFeedPostSourceBusiness(p, businessById, listingBizByMember),
         sourceCoupon: p.sourceCouponId ? (sourcePostCouponMap[p.sourceCouponId] ?? couponMap[p.sourceCouponId] ?? null) : null,
@@ -593,7 +593,7 @@ export async function loadCommunityFeed(opts: {
   const feedItems = items
     .map((p) => ({
       ...p,
-      tags: p.postTags?.map((pt) => pt.tag) ?? [],
+      tags: p.postTags?.map((pt: { tag: { id: string; name: string; slug: string } }) => pt.tag) ?? [],
       sourceBlog: p.sourceBlogId ? blogMap[p.sourceBlogId] ?? null : null,
       sourceBusiness: resolveFeedPostSourceBusiness(p, businessById, listingBizByMember),
       taggedBusinesses: taggedBusinessesFromIds(p.taggedBusinessIds, businessMap),
