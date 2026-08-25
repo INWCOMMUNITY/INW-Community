@@ -6,6 +6,7 @@ import {
   fetchEbayItemDetails,
 } from "./trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
+import { ebayAspectsFingerprint } from "./ebay-compat";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
 import { normalizeEbayPhotoUrl, shouldApplyEbayInboundPhotos } from "./photos";
 import { selectInboundListingPhotos } from "../photo-urls";

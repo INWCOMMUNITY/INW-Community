@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { encrypt } from "@/lib/encrypt";
 import { verifyChannelOAuthState } from "@/lib/channels/oauth-state";
 import { getBaseUrl, redirectAfterChannelConnect } from "@/lib/channels/oauth-routes";
@@ -83,7 +83,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         siteId,
         autoImportInbound: true,
         ...(catalogApi ? { catalogApi, catalogVersion } : {}),
-      } as object,
+      } as Prisma.InputJsonValue,
     };
 
     const saved = await prisma.channelConnection.upsert({

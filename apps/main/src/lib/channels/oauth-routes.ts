@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { encrypt } from "@/lib/encrypt";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
@@ -269,7 +269,7 @@ export async function channelCallbackGET(
       status: "active",
       lastError: null,
       etsyShippingProfileId: etsyShippingProfileId || existing?.etsyShippingProfileId || null,
-      config: mergedConfig,
+      config: mergedConfig as Prisma.InputJsonValue,
     };
 
     await prisma.channelConnection.upsert({
