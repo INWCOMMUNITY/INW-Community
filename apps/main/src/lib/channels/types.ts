@@ -68,6 +68,8 @@ export type ChannelConnectionContext = {
   externalShopId: string | null;
   accessToken: string;
   etsyShippingProfileId: string | null;
+  /** OAuth scopes granted at connect time (space-separated). */
+  scopes?: string | null;
   /** Provider-specific settings persisted on the connection (e.g. eBay policy ids + location). */
   config: Record<string, unknown> | null;
 };

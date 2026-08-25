@@ -103,18 +103,6 @@ function resolveSelectedRemoteListings(
   return out;
 }
 
-function autoPostStoreItemToFeed(authorId: string, storeItemId: string): void {
-  prisma.post
-    .create({
-      data: {
-        type: "shared_store_item",
-        authorId,
-        sourceStoreItemId: storeItemId,
-      },
-    })
-    .catch((err) => console.error("[channels] ebay import auto-post failed", err));
-}
-
 async function attachEbayListingShippingOption(args: {
   memberId: string;
   storeItemId: string;
@@ -588,7 +576,6 @@ export async function POST(req: NextRequest) {
         throw linkErr;
       }
 
-      autoPostStoreItemToFeed(userId, storeItem.id);
       if (ebayCategoryPath && finalResolvedCat?.category) {
         void seedCategoryMappingFromImport({
           provider: "ebay",

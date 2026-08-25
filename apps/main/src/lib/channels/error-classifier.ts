@@ -173,6 +173,10 @@ export function classifyError(error: unknown): ErrorClassification {
   if (/Picture Policy|500 pixels on the longest side|resolution for provided picture/i.test(errorStr)) {
     return "transient";
   }
+  // Etsy all_caps titles are auto-softened on the next outbound push.
+  if (/all_caps|sequential capital/i.test(errorStr)) {
+    return "transient";
+  }
 
   const statusCode = extractStatusCode(error);
   if (statusCode !== null && STATUS_CLASSIFICATIONS[statusCode]) {

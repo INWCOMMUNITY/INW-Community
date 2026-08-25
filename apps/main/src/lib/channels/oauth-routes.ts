@@ -254,7 +254,11 @@ export async function channelCallbackGET(
       existing?.config && typeof existing.config === "object" && !Array.isArray(existing.config)
         ? (existing.config as Record<string, unknown>)
         : {};
-    const mergedConfig = { ...existingConfig, ...(initial as object) };
+    const mergedConfig: Record<string, unknown> = { ...existingConfig, ...(initial as object) };
+    const grantedScopes = tokens.scopes || profile.scopes;
+    if (provider === "etsy" && /\bshops_w\b/.test(String(grantedScopes))) {
+      delete mergedConfig.etsyCannotCreateShippingProfiles;
+    }
 
     const data = {
       provider,

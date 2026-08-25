@@ -271,12 +271,30 @@ const ETSY_CLASSIFIERS: TraceClassifier[] = [
     },
   },
   {
+    id: "etsy_title_all_caps",
+    provider: "etsy",
+    pattern: /all_caps|sequential capital/i,
+    category: "title_invalid",
+    analyze: () => {
+      return "Etsy rejected the title for too many all-caps words. Retry listing on Etsy — extra ALL-CAPS words are now converted automatically.";
+    },
+  },
+  {
     id: "etsy_title_length",
     provider: "etsy",
     pattern: /title.*long|title.*exceed|#1008/i,
     category: "title_invalid",
     analyze: () => {
       return "Title exceeds Etsy's 140-character limit. Shorten the title in the listing.";
+    },
+  },
+  {
+    id: "etsy_shops_w_scope",
+    provider: "etsy",
+    pattern: /shops_w|lacks scope for this request/i,
+    category: "permission_denied",
+    analyze: () => {
+      return "Etsy needs the shops_w permission to create shipping profiles. Reconnect Etsy in Sync Stores, then retry. Listings can still use an existing shipping profile in your Etsy shop.";
     },
   },
   {
@@ -449,7 +467,7 @@ export function getErrorCategoryLabel(category: string | null): string {
     sku_conflict: "SKU Already Exists",
     rate_limit: "Rate Limit Exceeded",
     photo_missing: "Photo Required",
-    title_invalid: "Title Too Long",
+    title_invalid: "Invalid Title",
     price_invalid: "Invalid Price",
     taxonomy_invalid: "Invalid Etsy Category",
     shipping_missing: "Missing Shipping Profile",

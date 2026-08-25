@@ -69,6 +69,7 @@ async function postToken(body: URLSearchParams): Promise<TokenResponse> {
     expiresInSec: data.expires_in ?? null,
     userId: data.user_id != null ? String(data.user_id) : null,
     apiKey: data.api_key ?? null,
+    scopes: data.scope ?? null,
   };
 }
 

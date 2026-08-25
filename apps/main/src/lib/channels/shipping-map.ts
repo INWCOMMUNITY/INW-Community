@@ -52,6 +52,29 @@ export function isEtsyCalculatedShippingProfile(
   return type === "calculated";
 }
 
+export function isEtsyMissingShopsWriteScope(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /shops_w/i.test(msg);
+}
+
+function canCreateEtsyShippingProfiles(conn: ChannelConnectionContext): boolean {
+  if (conn.config?.etsyCannotCreateShippingProfiles === true) return false;
+  const scopes = String(conn.scopes ?? "");
+  if (scopes && !/\bshops_w\b/.test(scopes)) return false;
+  return true;
+}
+
+async function markCannotCreateShippingProfiles(conn: ChannelConnectionContext): Promise<void> {
+  const config = { ...(conn.config ?? {}), etsyCannotCreateShippingProfiles: true };
+  conn.config = config;
+  await prisma.channelConnection
+    .update({
+      where: { id: conn.id },
+      data: { config },
+    })
+    .catch(() => {});
+}
+
 /** Prefer a flat/manual shop profile. Calculated profiles need package weight and size. */
 export function pickPreferredEtsyShippingProfile(
   profiles: EtsyShopShippingProfile[],
@@ -154,6 +177,14 @@ async function tryCreateInwFlatProfile(
     await persistShippingProfile(conn.id, conn.config, rateCents, profileId);
     return profileId;
   } catch (e) {
+    if (isEtsyMissingShopsWriteScope(e)) {
+      console.warn(
+        "[channels] Etsy token cannot create shipping profiles (needs shops_w). Reconnect Etsy in Sync Stores. Using an existing shop profile instead.",
+        { profileName }
+      );
+      await markCannotCreateShippingProfiles(conn);
+      return null;
+    }
     console.warn("[channels] could not create Etsy flat shipping profile", {
       error: String(e),
       profileName,
@@ -207,7 +238,9 @@ export async function resolveEtsyShippingProfile(
       await persistShippingProfile(conn.id, conn.config, rate, String(match.shipping_profile_id));
       return resolvedProfile(String(match.shipping_profile_id), false);
     }
-    const createdId = await tryCreateInwFlatProfile(conn, shopId, rate, profileName);
+    const createdId = canCreateEtsyShippingProfiles(conn)
+      ? await tryCreateInwFlatProfile(conn, shopId, rate, profileName)
+      : null;
     if (createdId) return resolvedProfile(createdId, false);
   }
 

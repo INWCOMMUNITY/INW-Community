@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { connectionReadyToPublish, publishBlockReason } from "@/lib/channels/connection-publish";
+import { countLinkedOverlap } from "@/lib/channels/disconnect-inw-items";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +32,24 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
+  const listingLinks = await prisma.channelListingLink.findMany({
+    where: { connection: { memberId: userId } },
+    select: {
+      connectionId: true,
+      storeItemId: true,
+      connection: { select: { status: true } },
+    },
+  });
+  const overlapRows = listingLinks.map((l) => ({
+    connectionId: l.connectionId,
+    storeItemId: l.storeItemId,
+    connectionStatus: l.connection.status,
+  }));
+
   return NextResponse.json(
     connections.map((c) => {
       const readyToPublish = c.status === "active" && connectionReadyToPublish(c);
+      const overlap = countLinkedOverlap(c.id, overlapRows);
       return {
         id: c.id,
         provider: c.provider,
@@ -46,6 +62,8 @@ export async function GET(req: NextRequest) {
         publishBlockReason: publishBlockReason(c),
         lastReconciledAt: c.lastReconciledAt,
         linkedListings: c._count.listingLinks,
+        linkedOnlyThisChannel: overlap.linkedOnlyThisChannel,
+        linkedAlsoOnOthers: overlap.linkedAlsoOnOthers,
         connectedAt: c.createdAt,
       };
     })

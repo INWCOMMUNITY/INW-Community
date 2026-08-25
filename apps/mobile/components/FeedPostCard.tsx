@@ -114,6 +114,59 @@ function businessInitials(name: string): string {
   return (t.length >= 2 ? t.slice(0, 2) : t.slice(0, 1) || "?").toUpperCase();
 }
 
+function ListingPhotoPyramid({ photos, size = 56 }: { photos: string[]; size?: number }) {
+  const shown = (photos ?? []).filter(Boolean).slice(0, 3);
+  const width = size * 1.75;
+  const height = size * 1.6;
+  const thumb = (uri: string, extra: object) => (
+    <AppImage
+      uri={uri}
+      targetWidth={size}
+      style={[{ width: size, height: size, borderRadius: 8, borderWidth: 2, borderColor: "#fff", position: "absolute" }, extra]}
+      resizeMode="cover"
+    />
+  );
+  if (shown.length === 0) {
+    return <View style={{ width, height, borderRadius: 8, backgroundColor: theme.colors.cream }} />;
+  }
+  if (shown.length === 1) {
+    return (
+      <View style={{ width, height }}>
+        {thumb(shown[0], { left: (width - size) / 2, top: (height - size) / 2 })}
+      </View>
+    );
+  }
+  return (
+    <View style={{ width, height }}>
+      {thumb(shown[0], { left: (width - size) / 2, top: 0, zIndex: 3 })}
+      {thumb(shown[1], { left: 0, bottom: 0, zIndex: 2 })}
+      {shown[2] ? thumb(shown[2], { right: 0, bottom: 0, zIndex: 1 }) : null}
+    </View>
+  );
+}
+
+function ListingCollectionEmbed({
+  collection,
+  onPress,
+}: {
+  collection: { id: string; title: string; itemCount: number; previewPhotos: string[] };
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={[styles.sourceCard, styles.sourceCardTall]} onPress={onPress}>
+      <View style={styles.sourceRow}>
+        <ListingPhotoPyramid photos={collection.previewPhotos} />
+        <View style={styles.sourceContent}>
+          <Text style={styles.sourceTitle}>{collection.title}</Text>
+          <Text style={styles.sourceBody}>
+            {collection.itemCount} new listing{collection.itemCount === 1 ? "" : "s"}
+          </Text>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
 function postBlocksLinkPreview(post: FeedPost): boolean {
   return !!(
     post.poll ||
@@ -122,6 +175,7 @@ function postBlocksLinkPreview(post: FeedPost): boolean {
     post.sourceCoupon ||
     post.sourceReward ||
     post.sourceStoreItem ||
+    post.sourceListingCollection ||
     post.sourceEvent
   );
 }
@@ -132,6 +186,7 @@ function sourcePostBlocksLinkPreview(sourcePost: {
   sourceCoupon?: unknown;
   sourceReward?: unknown;
   sourceStoreItem?: unknown;
+  sourceListingCollection?: unknown;
   sourceEvent?: unknown;
 }): boolean {
   return !!(
@@ -139,11 +194,13 @@ function sourcePostBlocksLinkPreview(sourcePost: {
     sourcePost.sourceCoupon ||
     sourcePost.sourceReward ||
     sourcePost.sourceStoreItem ||
+    sourcePost.sourceListingCollection ||
     sourcePost.sourceEvent ||
     sourcePost.type === "shared_blog" ||
     sourcePost.type === "shared_coupon" ||
     sourcePost.type === "shared_reward" ||
     sourcePost.type === "shared_store_item" ||
+    sourcePost.type === "shared_listing_collection" ||
     sourcePost.type === "shared_event" ||
     sourcePost.type === "shared_business"
   );
@@ -880,6 +937,17 @@ function FeedPostCardInner({
         </Pressable>
       )}
 
+      {post.type === "shared_listing_collection" && post.sourceListingCollection && (
+        <ListingCollectionEmbed
+          collection={post.sourceListingCollection}
+          onPress={() =>
+            (router.push as (href: string) => void)(
+              `/feed/collections/${post.sourceListingCollection!.id}`
+            )
+          }
+        />
+      )}
+
       {post.type === "shared_event" && post.sourceEvent && (
         <Pressable
           style={styles.sourceCard}
@@ -1109,6 +1177,19 @@ function FeedPostCardInner({
                         </Text>
                       </View>
                     </View>
+                  </View>
+                ) : null}
+
+                {sourcePost.type === "shared_listing_collection" && sourcePost.sourceListingCollection ? (
+                  <View style={{ marginTop: 10 }}>
+                    <ListingCollectionEmbed
+                      collection={sourcePost.sourceListingCollection}
+                      onPress={() =>
+                        (router.push as (href: string) => void)(
+                          `/feed/collections/${sourcePost.sourceListingCollection!.id}`
+                        )
+                      }
+                    />
                   </View>
                 ) : null}
 
@@ -1672,6 +1753,13 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 1,
     borderColor: "#e5e5e5",
+  },
+  sourceCardTall: {
+    paddingVertical: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
   },
   sourceTitle: {
     fontSize: 16,

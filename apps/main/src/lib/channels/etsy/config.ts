@@ -9,8 +9,9 @@ export const ETSY_CONNECT_URL = "https://www.etsy.com/oauth/connect";
  * - listings_r / listings_w: read + create/update/delete listings and inventory
  * - transactions_r: read receipts/transactions for sale detection (pooled inventory)
  * - shops_r: resolve the seller's shop id
+ * - shops_w: create shop shipping profiles (INW $X.XX flat-rate profiles)
  */
-export const ETSY_SCOPES = ["listings_r", "listings_w", "transactions_r", "shops_r"];
+export const ETSY_SCOPES = ["listings_r", "listings_w", "transactions_r", "shops_r", "shops_w"];
 
 export type EtsyAppConfig = {
   clientId: string;

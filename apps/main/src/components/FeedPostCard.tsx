@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { IonIcon } from "@/components/IonIcon";
-import { FeedPostMediaCarousel } from "@/components/FeedPostMediaCarousel";
+import { ListingPhotoPyramid } from "@/components/feed/ListingPhotoPyramid";
 import { PollCard } from "@/components/feed/PollCard";
 import { LinkPreviewCard } from "@/components/feed/LinkPreviewCard";
 import { formatRelativeTime } from "@/lib/format-relative-time";
@@ -78,6 +78,7 @@ type SourcePost = {
   sourceCoupon?: { id: string; name: string; discount: string; code: string; business: { name: string; slug: string } } | null;
   sourceReward?: { id: string; title: string; pointsRequired: number; business: { name: string; slug: string } } | null;
   sourceStoreItem?: { id: string; title: string; slug: string; photos: string[]; priceCents: number } | null;
+  sourceListingCollection?: { id: string; title: string; itemCount: number; previewPhotos: string[] } | null;
   sourceEvent?: SourceEvent | null;
 };
 
@@ -139,6 +140,7 @@ interface FeedPostCardProps {
     sourceCoupon?: { id: string; name: string; discount: string; code: string; business: { name: string; slug: string } } | null;
     sourceReward?: { id: string; title: string; pointsRequired: number; business: { name: string; slug: string } } | null;
     sourceStoreItem?: { id: string; title: string; slug: string; photos: string[]; priceCents: number } | null;
+    sourceListingCollection?: { id: string; title: string; itemCount: number; previewPhotos: string[] } | null;
     sourceEvent?: SourceEvent | null;
     sourcePost?: SourcePost | null;
     liked: boolean;
@@ -198,6 +200,7 @@ function postBlocksLinkPreview(post: FeedPostCardProps["post"]): boolean {
     post.sourceCoupon ||
     post.sourceReward ||
     post.sourceStoreItem ||
+    post.sourceListingCollection ||
     post.sourceEvent ||
     post.sourcePost ||
     (post.photos?.length ?? 0) > 0 ||
@@ -635,6 +638,27 @@ export function FeedPostCard({
             </Link>
           </div>
         )}
+        {post.type === "shared_listing_collection" && post.sourceListingCollection && (
+          <Link
+            href={`/feed/collections/${post.sourceListingCollection.id}`}
+            className="flex items-center gap-4 border-2 rounded-xl p-4 mb-3 hover:bg-[var(--color-section-alt)]"
+            style={{ borderColor: "var(--color-primary)" }}
+          >
+            <ListingPhotoPyramid photos={post.sourceListingCollection.previewPhotos} />
+            <div className="min-w-0">
+              <h3
+                className="font-bold leading-snug"
+                style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
+              >
+                {post.sourceListingCollection.title}
+              </h3>
+              <p className="text-sm mt-1" style={{ color: "var(--color-text)" }}>
+                {post.sourceListingCollection.itemCount} new listing
+                {post.sourceListingCollection.itemCount === 1 ? "" : "s"}
+              </p>
+            </div>
+          </Link>
+        )}
         {post.type === "shared_event" && post.sourceEvent && (
           <div className="border rounded p-4 bg-gray-50 mb-3">
             <Link href={`/events/${post.sourceEvent.slug}`} className="block hover:opacity-90">
@@ -789,6 +813,24 @@ export function FeedPostCard({
                   </div>
                 </Link>
               </div>
+            )}
+            {post.sourcePost.type === "shared_listing_collection" && post.sourcePost.sourceListingCollection && (
+              <Link
+                href={`/feed/collections/${post.sourcePost.sourceListingCollection.id}`}
+                className="flex items-center gap-3 border-2 rounded-xl p-3 mb-2 hover:bg-[var(--color-section-alt)]"
+                style={{ borderColor: "var(--color-primary)" }}
+              >
+                <ListingPhotoPyramid photos={post.sourcePost.sourceListingCollection.previewPhotos} size={44} />
+                <div className="min-w-0">
+                  <h3 className="font-bold text-sm" style={{ color: "var(--color-heading)" }}>
+                    {post.sourcePost.sourceListingCollection.title}
+                  </h3>
+                  <p className="text-xs text-gray-600">
+                    {post.sourcePost.sourceListingCollection.itemCount} new listing
+                    {post.sourcePost.sourceListingCollection.itemCount === 1 ? "" : "s"}
+                  </p>
+                </div>
+              </Link>
             )}
             {(post.sourcePost.photos?.length ?? 0) + (post.sourcePost.videos?.length ?? 0) > 0 && (
               <FeedPostMediaCarousel

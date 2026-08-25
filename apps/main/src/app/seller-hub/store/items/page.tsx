@@ -181,7 +181,7 @@ export default function MyItemsPage() {
     }`;
 
   return (
-    <div className={`w-full max-md:mx-auto max-md:max-w-[var(--max-width)] ${selectedIds.length > 0 ? "pb-24" : ""}`}>
+    <div className="w-full max-md:mx-auto max-md:max-w-[var(--max-width)]">
       <div className="flex items-center justify-between gap-3 mb-4">
         <h2 className="text-xl font-bold" style={{ color: "var(--color-heading)" }}>
           My Items
@@ -288,6 +288,16 @@ export default function MyItemsPage() {
         </div>
       </div>
 
+      <MyItemsBulkBar
+        tab={tab}
+        selectedIds={selectedIds}
+        selectedItems={items.filter((i) => selectedIds.includes(i.id))}
+        connections={connections}
+        onClear={() => setSelectedIds([])}
+        onDone={() => void load({ silent: true })}
+        onActionResult={setActionResult}
+      />
+
       {loading ? (
         <p className="text-gray-500 text-sm">Loading…</p>
       ) : items.length === 0 ? (
@@ -296,7 +306,7 @@ export default function MyItemsPage() {
         <p className="text-gray-500 text-sm">No items match this search.</p>
       ) : (
         <div className="grid gap-2 w-full">
-          <div className="flex items-center gap-2 px-1">
+          <div className="flex items-center gap-2 px-1 mb-2">
             <input
               type="checkbox"
               checked={allVisibleSelected}
@@ -304,6 +314,11 @@ export default function MyItemsPage() {
               aria-label="Select all visible items"
             />
             <span className="text-xs text-gray-500">Select all</span>
+            {selectedIds.length > 0 && (
+              <span className="text-xs font-semibold text-gray-700">
+                · {selectedIds.length} selected
+              </span>
+            )}
           </div>
           {visibleItems.map((item) => {
             const statusLabel = itemStatusLabel(item, tab);
@@ -396,14 +411,6 @@ export default function MyItemsPage() {
           onClose={() => setHistoryItemId(null)}
         />
       )}
-      <MyItemsBulkBar
-        tab={tab}
-        selectedIds={selectedIds}
-        selectedItems={items.filter((i) => selectedIds.includes(i.id))}
-        connections={connections}
-        onClear={() => setSelectedIds([])}
-        onDone={() => void load({ silent: true })}
-      />
     </div>
   );
 }

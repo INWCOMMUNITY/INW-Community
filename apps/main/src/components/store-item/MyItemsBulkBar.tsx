@@ -8,6 +8,15 @@ import { publishReadyConnections } from "@/lib/channel-connections-client";
 import type { ItemsTab, MyStoreItem } from "@/components/store-item/my-items-types";
 import { ListOnChannelCategoryModal } from "@/components/store-item/ListOnChannelCategoryModal";
 import { buildListOnCategoryQueue, type ListOnCategoryAssignment } from "@/lib/list-on-channel-category";
+import type { ChannelActionResult } from "@/components/store-item/ChannelActionResultModal";
+
+function itemLinkedTo(item: MyStoreItem, provider: string): boolean {
+  return (item.channelLinks ?? []).some((l) => l.provider === provider);
+}
+
+function itemsMissingProvider(items: MyStoreItem[], provider: string): MyStoreItem[] {
+  return items.filter((item) => !itemLinkedTo(item, provider));
+}
 
 export function MyItemsBulkBar({
   tab,
@@ -16,6 +25,7 @@ export function MyItemsBulkBar({
   connections,
   onClear,
   onDone,
+  onActionResult,
 }: {
   tab: ItemsTab;
   selectedIds: string[];
@@ -23,6 +33,7 @@ export function MyItemsBulkBar({
   connections: ChannelConnectionSummary[];
   onClear: () => void;
   onDone: () => void;
+  onActionResult?: (result: ChannelActionResult) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [panel, setPanel] = useState<"edit" | "publish" | null>(null);
@@ -30,11 +41,18 @@ export function MyItemsBulkBar({
   const [quantityAdjust, setQuantityAdjust] = useState("");
   const [syncAfterEdit, setSyncAfterEdit] = useState(true);
   const [publishProviders, setPublishProviders] = useState<string[]>([]);
+  const [pendingProviders, setPendingProviders] = useState<string[]>([]);
   const [categorySteps, setCategorySteps] = useState<ReturnType<typeof buildListOnCategoryQueue> | null>(
     null
   );
 
   const readyProviders = publishReadyConnections(connections);
+  const listOnChannels = readyProviders
+    .map((c) => ({
+      ...c,
+      missing: itemsMissingProvider(selectedItems, c.provider),
+    }))
+    .filter((c) => c.missing.length > 0);
   useLockBodyScroll(panel != null);
 
   if (selectedIds.length === 0) return null;
@@ -46,6 +64,14 @@ export function MyItemsBulkBar({
       throw new Error((data as { error?: string }).error ?? `Request failed (${res.status})`);
     }
     return data as T;
+  }
+
+  function notify(title: string, message: string, ok = true) {
+    if (onActionResult) {
+      onActionResult({ title, message, ok });
+      return;
+    }
+    alert(message);
   }
 
   async function bulkEnd() {
@@ -63,11 +89,13 @@ export function MyItemsBulkBar({
           syncToChannels: true,
         }),
       });
-      if (result.failed > 0) alert(`Ended ${result.updated}. ${result.failed} failed.`);
+      if (result.failed > 0) {
+        notify("Bulk end", `Ended ${result.updated}. ${result.failed} failed.`, false);
+      }
       onDone();
       onClear();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Bulk end failed");
+      notify("Bulk end failed", e instanceof Error ? e.message : "Bulk end failed", false);
     } finally {
       setLoading(false);
     }
@@ -84,11 +112,11 @@ export function MyItemsBulkBar({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ storeItemIds: selectedIds, quantity: 1, republishChannels: false }),
       });
-      alert(`Relisted ${result.relisted ?? selectedIds.length} item(s).`);
+      notify("Relisted", `Relisted ${result.relisted ?? selectedIds.length} item(s).`);
       onDone();
       onClear();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Bulk relist failed");
+      notify("Bulk relist failed", e instanceof Error ? e.message : "Bulk relist failed", false);
     } finally {
       setLoading(false);
     }
@@ -108,7 +136,7 @@ export function MyItemsBulkBar({
       onDone();
       onClear();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Bulk delete failed");
+      notify("Bulk delete failed", e instanceof Error ? e.message : "Bulk delete failed", false);
     } finally {
       setLoading(false);
     }
@@ -125,11 +153,14 @@ export function MyItemsBulkBar({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ storeItemIds: selectedIds }),
       });
-      alert(`Unpublished ${result.unpublished}. ${result.failed ? `${result.failed} failed.` : ""}`.trim());
+      notify(
+        "Unpublished",
+        `Unpublished ${result.unpublished}.${result.failed ? ` ${result.failed} failed.` : ""}`
+      );
       onDone();
       onClear();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Bulk unpublish failed");
+      notify("Bulk unpublish failed", e instanceof Error ? e.message : "Bulk unpublish failed", false);
     } finally {
       setLoading(false);
     }
@@ -137,7 +168,7 @@ export function MyItemsBulkBar({
 
   async function applyEdit() {
     if (!priceChangePercent && !quantityAdjust) {
-      alert("Enter a price change percent and/or quantity adjustment.");
+      notify("Bulk edit", "Enter a price change percent and/or quantity adjustment.", false);
       return;
     }
     setLoading(true);
@@ -154,26 +185,29 @@ export function MyItemsBulkBar({
           syncToChannels: syncAfterEdit,
         }),
       });
-      if (result.failed > 0) alert(`Updated ${result.updated}. ${result.failed} failed.`);
+      if (result.failed > 0) {
+        notify("Bulk edit", `Updated ${result.updated}. ${result.failed} failed.`, false);
+      }
       setPanel(null);
       setPriceChangePercent("");
       setQuantityAdjust("");
       onDone();
       onClear();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Bulk edit failed");
+      notify("Bulk edit failed", e instanceof Error ? e.message : "Bulk edit failed", false);
     } finally {
       setLoading(false);
     }
   }
 
-  async function applyPublish(assignments?: ListOnCategoryAssignment[]) {
-    if (publishProviders.length === 0) {
-      alert("Select at least one channel.");
+  async function applyPublish(providers: string[], assignments?: ListOnCategoryAssignment[]) {
+    if (providers.length === 0) {
+      notify("List on channel", "Select at least one channel.", false);
       return;
     }
-    const queue = buildListOnCategoryQueue(selectedItems, publishProviders);
+    const queue = buildListOnCategoryQueue(selectedItems, providers);
     if (!assignments && queue.length > 0) {
+      setPendingProviders(providers);
       setPanel(null);
       setCategorySteps(queue);
       return;
@@ -187,49 +221,92 @@ export function MyItemsBulkBar({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             storeItemIds: selectedIds,
-            providers: publishProviders,
+            providers,
             validateFirst: true,
             skipInvalid: true,
             ...(assignments?.length ? { assignments } : {}),
           }),
         }
       );
-      alert(
+      notify(
+        "List on channel",
         [
-          `Published: ${result.published}`,
+          `Listed: ${result.published}`,
           result.failed ? `Failed: ${result.failed}` : null,
-          result.skipped ? `Skipped: ${result.skipped}` : null,
+          result.skipped ? `Skipped (already listed or invalid): ${result.skipped}` : null,
         ]
           .filter(Boolean)
-          .join("\n")
+          .join("\n"),
+        result.failed === 0
       );
       setPanel(null);
       setCategorySteps(null);
       setPublishProviders([]);
+      setPendingProviders([]);
       onDone();
       onClear();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Bulk publish failed";
-      alert(msg);
+      notify("List on channel failed", msg, false);
       if (assignments) throw new Error(msg);
     } finally {
       setLoading(false);
     }
   }
 
+  async function listOnProvider(provider: string, missingCount: number) {
+    const label = CHANNEL_PROVIDER_LABELS[provider] ?? provider;
+    if (
+      !window.confirm(
+        `List ${missingCount} item${missingCount === 1 ? "" : "s"} on ${label}? Items already on ${label} will be skipped.`
+      )
+    ) {
+      return;
+    }
+    await applyPublish([provider]);
+  }
+
   const actionBtn =
-    "text-sm font-semibold px-3 py-1.5 rounded-full border hover:bg-[var(--color-section-alt)] disabled:opacity-50";
+    "text-sm font-semibold px-3 py-1.5 rounded-full border bg-white hover:bg-[var(--color-section-alt)] disabled:opacity-50";
 
   return (
     <>
       <div
-        className="fixed bottom-0 inset-x-0 z-40 border-t bg-white px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)]"
-        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+        className="sticky top-0 z-50 mb-2 rounded-xl border-2 bg-[var(--color-section-alt)] px-3 py-3 shadow-md"
+        style={{ borderColor: "var(--color-primary)" }}
+        role="toolbar"
+        aria-label="Bulk listing actions"
       >
-        <div className="max-w-[var(--max-width)] xl:max-w-[1520px] mx-auto flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold mr-2" style={{ color: "var(--color-heading)" }}>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-bold mr-1" style={{ color: "var(--color-heading)" }}>
             {selectedIds.length} selected
           </span>
+          {tab !== "sold" &&
+            listOnChannels.map((c) => (
+              <button
+                key={c.provider}
+                type="button"
+                className="btn text-sm"
+                disabled={loading}
+                onClick={() => void listOnProvider(c.provider, c.missing.length)}
+              >
+                List on {CHANNEL_PROVIDER_LABELS[c.provider] ?? c.provider}
+                {c.missing.length !== selectedIds.length ? ` (${c.missing.length})` : ""}
+              </button>
+            ))}
+          {tab !== "sold" && readyProviders.length > 1 && listOnChannels.length > 1 && (
+            <button
+              type="button"
+              className={actionBtn}
+              disabled={loading}
+              onClick={() => {
+                setPublishProviders(listOnChannels.map((c) => c.provider));
+                setPanel("publish");
+              }}
+            >
+              List on multiple
+            </button>
+          )}
           {tab === "active" && (
             <>
               <button type="button" className={actionBtn} disabled={loading} onClick={() => void bulkEnd()}>
@@ -238,13 +315,8 @@ export function MyItemsBulkBar({
               <button type="button" className={actionBtn} disabled={loading} onClick={() => setPanel("edit")}>
                 Price / qty
               </button>
-              {readyProviders.length > 0 && (
-                <button type="button" className={actionBtn} disabled={loading} onClick={() => setPanel("publish")}>
-                  Publish
-                </button>
-              )}
               <button type="button" className={actionBtn} disabled={loading} onClick={() => void bulkUnpublish()}>
-                Unpublish
+                Unlink stores
               </button>
             </>
           )}
@@ -255,13 +327,18 @@ export function MyItemsBulkBar({
           )}
           <button
             type="button"
-            className={`${actionBtn} text-red-700 border-red-200`}
+            className={`${actionBtn} text-red-700 border-red-300`}
             disabled={loading}
             onClick={() => void bulkDelete()}
           >
             Delete
           </button>
-          <button type="button" className="text-sm text-gray-600 px-2 py-1.5 ml-auto" disabled={loading} onClick={onClear}>
+          <button
+            type="button"
+            className="text-sm font-semibold text-gray-600 px-2 py-1.5 ml-auto"
+            disabled={loading}
+            onClick={onClear}
+          >
             Clear
           </button>
         </div>
@@ -311,10 +388,13 @@ export function MyItemsBulkBar({
           <button type="button" className="absolute inset-0" aria-label="Close" onClick={() => setPanel(null)} />
           <div className="relative z-10 w-full max-w-md rounded-xl border-2 bg-white p-5 shadow-xl" style={{ borderColor: "var(--color-primary)" }}>
             <h3 className="text-base font-bold mb-3" style={{ color: "var(--color-heading)" }}>
-              Publish {selectedIds.length} items
+              List {selectedIds.length} items
             </h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Only items that are not already live on a channel will be listed there.
+            </p>
             <div className="space-y-2 mb-4">
-              {readyProviders.map((c) => (
+              {listOnChannels.map((c) => (
                 <label key={c.provider} className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
@@ -327,18 +407,27 @@ export function MyItemsBulkBar({
                   />
                   {CHANNEL_PROVIDER_LABELS[c.provider] ?? c.provider}
                   {c.shopName ? ` · ${c.shopName}` : ""}
+                  {` · ${c.missing.length} to list`}
                 </label>
               ))}
-              {readyProviders.length === 0 && (
-                <p className="text-sm text-gray-600">No channels are ready to publish. Check Sync Stores.</p>
+              {listOnChannels.length === 0 && (
+                <p className="text-sm text-gray-600">
+                  Selected items are already listed on every connected store, or no store is ready. Check Sync
+                  Stores.
+                </p>
               )}
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" className="text-sm px-3 py-2" onClick={() => setPanel(null)}>
                 Cancel
               </button>
-              <button type="button" className="btn text-sm" disabled={loading} onClick={() => void applyPublish()}>
-                Publish
+              <button
+                type="button"
+                className="btn text-sm"
+                disabled={loading}
+                onClick={() => void applyPublish(publishProviders)}
+              >
+                List
               </button>
             </div>
           </div>
@@ -348,8 +437,11 @@ export function MyItemsBulkBar({
       {categorySteps && categorySteps.length > 0 ? (
         <ListOnChannelCategoryModal
           steps={categorySteps}
-          onClose={() => setCategorySteps(null)}
-          onComplete={(assignments) => applyPublish(assignments)}
+          onClose={() => {
+            setCategorySteps(null);
+            setPendingProviders([]);
+          }}
+          onComplete={(assignments) => applyPublish(pendingProviders, assignments)}
         />
       ) : null}
     </>

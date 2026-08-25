@@ -144,7 +144,7 @@ export async function POST(req: NextRequest) {
       provider: "etsy",
       listing,
       externalShopId: ctx.externalShopId,
-      postToFeed: true,
+      postToFeed: false,
     });
     if (result.ok) {
       imported.push({ externalListingId: result.externalListingId, storeItemId: result.storeItemId });

@@ -52,6 +52,25 @@ export function itemNeedsListOnCategoryStep(
   return itemNeedsEbayCategory(item);
 }
 
+/** Steps to collect missing Etsy/eBay categories (and Etsy who/when) before listing. */
+export function buildListOnCategoryQueue(
+  items: ListOnCategoryItem[],
+  providers: string[]
+): ListOnCategoryStep[] {
+  const wanted = providers.filter(isListOnCategoryProvider);
+  const steps: ListOnCategoryStep[] = [];
+  for (const provider of wanted) {
+    for (const item of items) {
+      const linked = new Set((item.channelLinks ?? []).map((l) => l.provider));
+      if (linked.has(provider)) continue;
+      if (itemNeedsListOnCategoryStep(item, provider)) {
+        steps.push({ item, provider });
+      }
+    }
+  }
+  return steps;
+}
+
 export function mergeListOnCategoryAssignment(
   current: ListOnCategoryAssignment | undefined,
   patch: ListOnCategoryAssignment

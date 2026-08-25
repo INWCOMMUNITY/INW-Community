@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   etsyProfileDomesticShippingCostCents,
   isEtsyCalculatedShippingProfile,
+  isEtsyMissingShopsWriteScope,
   pickPreferredEtsyShippingProfile,
   shippingProfileIdForEtsyUpdate,
   type EtsyShopShippingProfile,
@@ -85,5 +86,16 @@ describe("etsyProfileDomesticShippingCostCents", () => {
         ],
       })
     ).toBeNull();
+  });
+});
+
+describe("isEtsyMissingShopsWriteScope", () => {
+  it("detects the shops_w 403 from creating shipping profiles", () => {
+    expect(
+      isEtsyMissingShopsWriteScope(
+        new Error("Access token lacks scope for this request (requires scope: shops_w).")
+      )
+    ).toBe(true);
+    expect(isEtsyMissingShopsWriteScope(new Error("Etsy API error (400)"))).toBe(false);
   });
 });

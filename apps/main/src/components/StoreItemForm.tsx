@@ -271,6 +271,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [editSuccess, setEditSuccess] = useState(false);
   const [successItemId, setSuccessItemId] = useState<string | null>(existing?.id ?? null);
   const [successItemSlug, setSuccessItemSlug] = useState<string | null>(existing?.slug ?? null);
+  const [feedShareBusy, setFeedShareBusy] = useState(false);
+  const [feedShareDone, setFeedShareDone] = useState(false);
+  const [feedShareError, setFeedShareError] = useState<string | null>(null);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [hasChannelConnections, setHasChannelConnections] = useState(false);
   const [channelConnections, setChannelConnections] = useState<ChannelConnectionSummary[]>([]);
@@ -882,6 +885,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       setEditSuccess(!!existing);
       setSuccessItemId(data.id ?? existing?.id ?? null);
       setSuccessItemSlug(data.slug ?? existing?.slug ?? null);
+      setFeedShareDone(false);
+      setFeedShareError(null);
       if (Array.isArray(data.photos) && data.photos.length > 0) {
         setPhotos(data.photos);
       }
@@ -922,6 +927,30 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     const redirectTo = successRedirect ?? "/seller-hub/store/items";
     router.push(redirectTo);
     router.refresh();
+  }
+
+  async function handleShareToFeed() {
+    if (!successItemId || feedShareBusy || feedShareDone) return;
+    setFeedShareBusy(true);
+    setFeedShareError(null);
+    try {
+      const res = await fetch("/api/store-items/share-to-feed", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeItemIds: [successItemId] }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setFeedShareError(data.error ?? "Could not share to the feed.");
+        return;
+      }
+      setFeedShareDone(true);
+    } catch {
+      setFeedShareError("Connection failed.");
+    } finally {
+      setFeedShareBusy(false);
+    }
   }
   function handleSeeListing() {
     if (!successItemSlug) {
@@ -1856,6 +1885,31 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
               {editSuccess ? "Item Updated" : "Item listed successfully"}
             </p>
             <p className="text-gray-700 mb-6">{successDetail}</p>
+            {!editSuccess && successItemId ? (
+              <div className="mb-5 text-left rounded-xl border-2 p-4" style={{ borderColor: "var(--color-primary)" }}>
+                <p className="font-semibold mb-1" style={{ color: "var(--color-heading)" }}>
+                  Share your item on the Community Feed?
+                </p>
+                <p className="text-sm mb-3" style={{ color: "var(--color-text)" }}>
+                  Neighbors who follow you will see this listing in the feed.
+                </p>
+                {feedShareError ? <p className="text-sm text-red-700 mb-2">{feedShareError}</p> : null}
+                {feedShareDone ? (
+                  <p className="text-sm font-semibold" style={{ color: "var(--color-primary)" }}>
+                    Shared to the Community Feed.
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={feedShareBusy}
+                    className="btn w-full disabled:opacity-50"
+                    onClick={() => void handleShareToFeed()}
+                  >
+                    {feedShareBusy ? "Sharing…" : "Share"}
+                  </button>
+                )}
+              </div>
+            ) : null}
             <button
               type="button"
               onClick={handleSeeListing}

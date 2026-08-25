@@ -64,7 +64,7 @@ export async function reconcileConnectionInboundListings(
       provider,
       listing,
       externalShopId: ctx.externalShopId,
-      postToFeed: true,
+      postToFeed: false,
     });
     if (result.ok) imported += 1;
   }

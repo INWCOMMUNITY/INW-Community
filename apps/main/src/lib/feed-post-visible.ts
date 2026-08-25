@@ -16,12 +16,14 @@ export type FeedPostLike = {
   sourceCouponId: string | null;
   sourceStoreItemId: string | null;
   sourceEventId: string | null;
+  sourceListingCollectionId?: string | null;
   sourceBlog?: unknown;
   sourcePost?: unknown;
   sourceBusiness?: unknown;
   sourceCoupon?: unknown;
   sourceStoreItem?: unknown;
   sourceEvent?: unknown;
+  sourceListingCollection?: unknown;
 };
 
 function hasLinks(links: unknown): boolean {
@@ -57,6 +59,12 @@ export function isFeedPostRenderable(p: FeedPostLike): boolean {
   }
   if (p.type === "shared_event" || p.sourceEventId) {
     return Boolean(p.sourceEvent);
+  }
+  if (p.type === "shared_listing_collection" || p.sourceListingCollectionId) {
+    const col = p.sourceListingCollection;
+    if (!col || typeof col !== "object") return false;
+    const count = (col as { itemCount?: number }).itemCount ?? 0;
+    return count > 0;
   }
 
   return false;

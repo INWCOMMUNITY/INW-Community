@@ -36,6 +36,7 @@ const prismaClient = (() => {
   if (
     existing &&
     typeof (existing as { shippingOption?: unknown }).shippingOption !== "undefined" &&
+    typeof (existing as { listingFeedCollection?: unknown }).listingFeedCollection !== "undefined" &&
     prismaHasShippingOptionCost(existing)
   ) {
     return existing;

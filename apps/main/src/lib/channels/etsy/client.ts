@@ -42,6 +42,20 @@ async function parseBody(res: Response): Promise<unknown> {
 }
 
 function errorMessage(body: unknown, status: number): string {
+  if (Array.isArray(body) && body.length > 0) {
+    const parts = body.map((entry) => {
+      if (!entry || typeof entry !== "object") return String(entry);
+      const e = entry as { path?: unknown; type?: unknown; message?: unknown };
+      const path = String(e.path ?? "")
+        .replace(/^\//, "")
+        .replace(/\/0$/, "");
+      const msg = String(e.message || e.type || "").trim();
+      if (path && msg) return `${path}: ${msg}`;
+      return msg || path;
+    });
+    const joined = parts.filter(Boolean).join("; ");
+    if (joined) return joined;
+  }
   if (body && typeof body === "object") {
     const b = body as { error?: string; error_description?: string; message?: string };
     return b.error_description || b.error || b.message || `Etsy API error (${status})`;

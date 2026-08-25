@@ -898,16 +898,6 @@ export async function POST(req: NextRequest) {
       priceCents: item.priceCents,
       quantity: item.quantity,
     });
-    // Auto-post to feed so followers of seller see new listings
-    prisma.post
-      .create({
-        data: {
-          type: "shared_store_item",
-          authorId: userId,
-          sourceStoreItemId: item.id,
-        },
-      })
-      .catch((err) => console.error("[store-items] Auto-post failed:", err));
 
     // Publish to selected connected sales channels. Best-effort: never fail the listing save.
     let channelSync: { provider: string; ok: boolean; error?: string }[] = [];

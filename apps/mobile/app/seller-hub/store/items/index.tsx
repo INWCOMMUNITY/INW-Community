@@ -27,6 +27,7 @@ import {
 } from "@/lib/list-on-channel-category";
 import { isEbayConditionSyncError } from "@/lib/ebay-condition-sync";
 import { QualityScoreBadge } from "@/components/listing/QualityScoreBadge";
+import { BulkActionsBar } from "@/components/seller/BulkActionsBar";
 import {
   CHANNEL_PROVIDER_LABEL,
   channelNotReadyHint,
@@ -101,6 +102,7 @@ export default function MyItemsScreen() {
 
   type ItemsTab = "active" | "ended" | "sold";
   const [itemsTab, setItemsTab] = useState<ItemsTab>(initialTab);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const itemsUrl =
     (listingType ? "/api/store-items?mine=1&listingType=resale" : "/api/store-items?mine=1") +
@@ -171,6 +173,24 @@ export default function MyItemsScreen() {
   useEffect(() => {
     load();
   }, [itemsTab]);
+
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [itemsTab]);
+
+  useEffect(() => {
+    setSelectedIds((prev) => prev.filter((id) => items.some((i) => i.id === id)));
+  }, [items]);
+
+  const allSelected = items.length > 0 && items.every((i) => selectedIds.includes(i.id));
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds(allSelected ? [] : items.map((i) => i.id));
+  };
 
   const handleOnboard = async () => {
     try {
@@ -545,9 +565,32 @@ export default function MyItemsScreen() {
               }}
             />
           }
-          contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
+          contentContainerStyle={[styles.list, selectedIds.length > 0 && styles.listWithBulk]}
+          ListHeaderComponent={
+            <Pressable style={styles.selectAllRow} onPress={toggleSelectAll}>
+              <View style={[styles.checkbox, allSelected && styles.checkboxChecked]}>
+                {allSelected ? <Text style={styles.checkmark}>✓</Text> : null}
+              </View>
+              <Text style={styles.selectAllText}>
+                Select all{selectedIds.length > 0 ? ` · ${selectedIds.length} selected` : ""}
+              </Text>
+            </Pressable>
+          }
+          renderItem={({ item }) => {
+            const selected = selectedIds.includes(item.id);
+            return (
             <View style={styles.card}>
+              <Pressable
+                style={styles.checkboxHit}
+                onPress={() => toggleSelect(item.id)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: selected }}
+                accessibilityLabel={`Select ${item.title}`}
+              >
+                <View style={[styles.checkbox, selected && styles.checkboxChecked]}>
+                  {selected ? <Text style={styles.checkmark}>✓</Text> : null}
+                </View>
+              </Pressable>
               <Pressable
                 style={({ pressed }) => [
                   styles.cardMain,
@@ -641,9 +684,19 @@ export default function MyItemsScreen() {
                 <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.heading} />
               </Pressable>
             </View>
-          )}
+            );
+          }}
         />
       )}
+
+      <BulkActionsBar
+        selectedIds={selectedIds}
+        selectedItems={items.filter((i) => selectedIds.includes(i.id))}
+        tab={itemsTab}
+        connections={channelConnections}
+        onClearSelection={() => setSelectedIds([])}
+        onActionComplete={() => load()}
+      />
 
       <Modal
         visible={!!menuItemId}
@@ -887,6 +940,37 @@ const styles = StyleSheet.create({
   empty: { flex: 1, padding: 16, justifyContent: "flex-start" },
   emptyText: { fontSize: 14, color: "#666" },
   list: { padding: 16, paddingBottom: 40 },
+  listWithBulk: { paddingBottom: 180 },
+  selectAllRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    gap: 10,
+  },
+  selectAllText: { fontSize: 13, color: "#666", fontWeight: "600" },
+  checkboxHit: {
+    paddingRight: 10,
+    paddingVertical: 8,
+    justifyContent: "center",
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderWidth: 2,
+    borderColor: "#ccc",
+    borderRadius: 4,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  checkboxChecked: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  checkmark: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
   card: {
     flexDirection: "row",
     padding: 12,

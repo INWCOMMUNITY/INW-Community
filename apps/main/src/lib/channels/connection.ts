@@ -23,6 +23,7 @@ type ConnectionRow = {
   tokenExpiresAt: Date | null;
   status: string;
   etsyShippingProfileId: string | null;
+  scopes?: string | null;
   config?: unknown;
 };
 
@@ -157,6 +158,7 @@ export async function getConnectionContext(
           tokenExpiresAt: tokens.expiresInSec
             ? new Date(Date.now() + tokens.expiresInSec * 1000)
             : null,
+          ...(tokens.scopes ? { scopes: tokens.scopes } : {}),
           status: "active",
           lastError: null,
         },
@@ -186,6 +188,7 @@ export async function getConnectionContext(
     externalShopId: connection.externalShopId,
     accessToken,
     etsyShippingProfileId: connection.etsyShippingProfileId,
+    scopes: connection.scopes ?? null,
     config:
       connection.config && typeof connection.config === "object"
         ? (connection.config as Record<string, unknown>)

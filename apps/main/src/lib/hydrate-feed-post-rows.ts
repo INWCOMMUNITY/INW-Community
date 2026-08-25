@@ -7,6 +7,7 @@ import {
 } from "@/lib/feed-tagged-businesses";
 import { getShareCountBySourcePostId } from "@/lib/post-share-counts";
 import { storeItemRowsToFeedEmbedMap } from "@/lib/store-item-variants";
+import { listingCollectionEmbedMap, listingCollectionIdsFromPosts } from "@/lib/listing-feed-collection";
 
 /** Matches feed / group-feed includes for hydration + API responses. */
 export const feedPostListInclude = {
@@ -238,6 +239,10 @@ export async function hydrateFeedPostRows(
   for (const s of sourcePostStoreItems) storeItemMerge.set(s.id, s);
   const feedStoreItemMap = storeItemRowsToFeedEmbedMap([...storeItemMerge.values()]);
 
+  const listingCollectionMap = await listingCollectionEmbedMap(
+    listingCollectionIdsFromPosts([...items, ...sourcePosts])
+  );
+
   const sourcePostBlogMap = Object.fromEntries(sourcePostBlogs.map((b) => [b.id, b]));
   const sourcePostBusinessMap = Object.fromEntries(sourcePostBusinesses.map((b) => [b.id, b]));
   const sourcePostCouponMap = Object.fromEntries(sourcePostCoupons.map((c) => [c.id, c]));
@@ -263,6 +268,9 @@ export async function hydrateFeedPostRows(
           : null,
         sourceEvent: p.sourceEventId
           ? (sourcePostEventMap[p.sourceEventId] ?? eventMap[p.sourceEventId] ?? null)
+          : null,
+        sourceListingCollection: p.sourceListingCollectionId
+          ? (listingCollectionMap[p.sourceListingCollectionId] ?? null)
           : null,
       },
     ])
@@ -323,6 +331,9 @@ export async function hydrateFeedPostRows(
     sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
     sourceStoreItem: p.sourceStoreItemId ? feedStoreItemMap[p.sourceStoreItemId] ?? null : null,
     sourceEvent: p.sourceEventId ? eventMap[p.sourceEventId] ?? null : null,
+    sourceListingCollection: p.sourceListingCollectionId
+      ? listingCollectionMap[p.sourceListingCollectionId] ?? null
+      : null,
     sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,
     sourceGroup: p.groupId ? groupMap[p.groupId] ?? null : null,
     liked: likedSet.has(p.id),

@@ -19,7 +19,7 @@ export function isImmersiveMobileChromeRoute(pathname: string | null | undefined
   return false;
 }
 
-/** Listing editor and fulfillment hub use fixed action bars; hide the global NWC footer on those routes. */
+/** Listing editor, My Items bulk bar, and fulfillment hub use fixed action bars; hide the global NWC footer on those routes. */
 export function shouldHideGlobalSiteFooter(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
   if (pathname === "/seller-hub/store/new") return true;
@@ -29,7 +29,6 @@ export function shouldHideGlobalSiteFooter(pathname: string | null | undefined):
   if (!match) return false;
   const segment = match[1];
   const keepFooter = new Set([
-    "items",
     "manage",
     "payouts",
     "returns",

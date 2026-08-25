@@ -78,6 +78,12 @@ export type CommunityFeedPost = {
     photos: string[];
     priceCents: number;
   } | null;
+  sourceListingCollection?: {
+    id: string;
+    title: string;
+    itemCount: number;
+    previewPhotos: string[];
+  } | null;
   sourceEvent?: {
     id: string;
     slug: string;

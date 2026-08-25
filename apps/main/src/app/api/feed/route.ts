@@ -4,6 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { getFeedExcludedAuthorIds } from "@/lib/member-block";
 import { isFeedPostRenderable } from "@/lib/feed-post-visible";
 import { storeItemRowsToFeedEmbedMap } from "@/lib/store-item-variants";
+import { listingCollectionEmbedMap, listingCollectionIdsFromPosts } from "@/lib/listing-feed-collection";
 import { verifiedMemberWhere } from "@/lib/member-public-visibility";
 import {
   collectTaggedBusinessIdsFromPosts,
@@ -104,6 +105,9 @@ export async function GET(req: NextRequest) {
     const businessMap = Object.fromEntries(businesses.map((b) => [b.id, b]));
     const couponMap = Object.fromEntries(coupons.map((c) => [c.id, c]));
     const storeItemMap = storeItemRowsToFeedEmbedMap(storeItems);
+    const listingCollectionMap = await listingCollectionEmbedMap(
+      listingCollectionIdsFromPosts([...items, ...sourcePosts])
+    );
     const sourcePostMap = Object.fromEntries(
       sourcePosts.map((p) => [
         p.id,
@@ -115,6 +119,9 @@ export async function GET(req: NextRequest) {
           sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
           sourceStoreItem: p.sourceStoreItemId ? storeItemMap[p.sourceStoreItemId] ?? null : null,
           sourceEvent: p.sourceEventId ? eventMap[p.sourceEventId] ?? null : null,
+          sourceListingCollection: p.sourceListingCollectionId
+            ? listingCollectionMap[p.sourceListingCollectionId] ?? null
+            : null,
           sourcePost: null,
         },
       ])
@@ -144,6 +151,9 @@ export async function GET(req: NextRequest) {
         sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
         sourceStoreItem: p.sourceStoreItemId ? storeItemMap[p.sourceStoreItemId] ?? null : null,
         sourceEvent: p.sourceEventId ? eventMap[p.sourceEventId] ?? null : null,
+        sourceListingCollection: p.sourceListingCollectionId
+          ? listingCollectionMap[p.sourceListingCollectionId] ?? null
+          : null,
         sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,
         liked: false,
         likeCount: likeCountMap[p.id] ?? 0,
@@ -482,6 +492,10 @@ export async function GET(req: NextRequest) {
   for (const s of sourcePostStoreItems) storeItemEmbedMerge.set(s.id, s);
   const feedStoreItemMap = storeItemRowsToFeedEmbedMap([...storeItemEmbedMerge.values()]);
 
+  const listingCollectionMap = await listingCollectionEmbedMap(
+    listingCollectionIdsFromPosts([...items, ...sourcePosts])
+  );
+
   const sourcePostBlogMap = Object.fromEntries(sourcePostBlogs.map((b) => [b.id, b]));
   const sourcePostBusinessMap = Object.fromEntries(sourcePostBusinesses.map((b) => [b.id, b]));
   const sourcePostCouponMap = Object.fromEntries(sourcePostCoupons.map((c) => [c.id, c]));
@@ -497,6 +511,9 @@ export async function GET(req: NextRequest) {
         sourceCoupon: p.sourceCouponId ? (sourcePostCouponMap[p.sourceCouponId] ?? couponMap[p.sourceCouponId] ?? null) : null,
         sourceStoreItem: p.sourceStoreItemId ? (feedStoreItemMap[p.sourceStoreItemId] ?? null) : null,
         sourceEvent: p.sourceEventId ? (eventMap[p.sourceEventId] ?? null) : null,
+        sourceListingCollection: p.sourceListingCollectionId
+          ? listingCollectionMap[p.sourceListingCollectionId] ?? null
+          : null,
       },
     ])
   );
@@ -532,6 +549,9 @@ export async function GET(req: NextRequest) {
       sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
       sourceStoreItem: p.sourceStoreItemId ? feedStoreItemMap[p.sourceStoreItemId] ?? null : null,
       sourceEvent: p.sourceEventId ? eventMap[p.sourceEventId] ?? null : null,
+      sourceListingCollection: p.sourceListingCollectionId
+        ? listingCollectionMap[p.sourceListingCollectionId] ?? null
+        : null,
       sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,
       sourceGroup: p.groupId ? groupMap[p.groupId] ?? null : null,
       liked: likedSet.has(p.id),

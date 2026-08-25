@@ -115,6 +115,7 @@ model Member {
   contentShareEvents ContentShareEvent[]
   memberListingViews MemberListingView[]
   collections Collection[]
+  listingFeedCollections ListingFeedCollection[]
   priceDropAlerts PriceDropAlert[]
   reports                  Report[]
   pushTokens               MemberPushToken[]
@@ -437,6 +438,35 @@ model CollectionItem {
   
   @@unique([collectionId, storeItemId])
   @@index([storeItemId])
+}
+
+/// Seller import/list batch shared on the community feed (4+ listings). Distinct from buyer wishlist Collection.
+model ListingFeedCollection {
+  id        String   @id @default(cuid())
+  memberId  String   @map("member_id")
+  title     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  member Member                      @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  items  ListingFeedCollectionItem[]
+  posts  Post[]
+
+  @@index([memberId])
+  @@map("listing_feed_collection")
+}
+
+model ListingFeedCollectionItem {
+  id           String @id @default(cuid())
+  collectionId String @map("collection_id")
+  storeItemId  String @map("store_item_id")
+  sortOrder    Int    @default(0) @map("sort_order")
+
+  collection ListingFeedCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  storeItem  StoreItem             @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, storeItemId])
+  @@index([storeItemId])
+  @@map("listing_feed_collection_item")
 }
 
 model PriceDropAlert {
@@ -774,10 +804,10 @@ model FollowTag {
   @@index([tagId])
 }
 
-// Unified feed post - personal, group, shared_blog, shared_post, shared_business, shared_coupon, shared_store_item
+// Unified feed post - personal, group, shared_blog, shared_post, shared_business, shared_coupon, shared_store_item, shared_listing_collection
 model Post {
   id              String   @id @default(cuid())
-  type            String   // personal | group | shared_blog | shared_post | shared_business | shared_coupon | shared_store_item | shared_event
+  type            String   // personal | group | shared_blog | shared_post | shared_business | shared_coupon | shared_store_item | shared_event | shared_listing_collection
   authorId        String   @map("author_id")
   content         String?  @db.Text
   photos          String[]
@@ -789,6 +819,7 @@ model Post {
   sourceCouponId  String?  @map("source_coupon_id")
   sourceStoreItemId String? @map("source_store_item_id")
   sourceEventId   String?  @map("source_event_id")
+  sourceListingCollectionId String? @map("source_listing_collection_id")
   groupId             String?  @map("group_id")
   taggedMemberIds     String[] @default([]) @map("tagged_member_ids")
   /// Saved-directory businesses the author tagged (distinct from shared_business / posting-as).
@@ -797,6 +828,7 @@ model Post {
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   author       Member        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  sourceListingCollection ListingFeedCollection? @relation(fields: [sourceListingCollectionId], references: [id], onDelete: Cascade)
   comments     PostComment[]
   likes        PostLike[]
   postTags     PostTag[]
@@ -811,6 +843,7 @@ model Post {
   @@index([sourceCouponId])
   @@index([sourceStoreItemId])
   @@index([sourceEventId])
+  @@index([sourceListingCollectionId])
 }
 
 model PostComment {
@@ -949,6 +982,7 @@ model StoreItem {
   sellerAnalyticsEvents SellerAnalyticsEvent[]
   memberViews MemberListingView[]
   collectionItems CollectionItem[]
+  listingFeedCollectionItems ListingFeedCollectionItem[]
   priceDropAlerts PriceDropAlert[]
 }
 

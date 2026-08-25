@@ -11,6 +11,10 @@ export type ChannelConnectionSummary = {
   readyToPublish: boolean | null;
   publishBlockReason?: string | null;
   linkedListings: number;
+  /** Linked INW items that are not on another live connected store. */
+  linkedOnlyThisChannel?: number;
+  /** Linked INW items that are also on another live connected store. */
+  linkedAlsoOnOthers?: number;
 };
 
 export type ChannelProviderUi = {

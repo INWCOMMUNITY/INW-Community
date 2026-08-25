@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import {
+  exclusiveAndSharedIds,
+  parseDeleteInwMode,
+  storeItemIdsToDelete,
+} from "@/lib/channels/disconnect-inw-items";
 
 export const dynamic = "force-dynamic";
 
@@ -8,7 +13,8 @@ export const dynamic = "force-dynamic";
  * DELETE: disconnect a channel.
  * Default: keep listing links so My Items can flag unsynced listings; wipe tokens; mark disconnected.
  * StoreItems stay on INW; external marketplace listings stay.
- * ?deleteInwItems=1: also delete StoreItems that were linked to this connection (not on the marketplace).
+ * ?deleteInwItems=exclusive: delete INW items linked only to this store.
+ * ?deleteInwItems=1: delete all INW items linked to this store, including ones also on other stores.
  */
 export async function DELETE(
   req: NextRequest,
@@ -20,9 +26,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { id } = await params;
-  const deleteInwItems =
-    new URL(req.url).searchParams.get("deleteInwItems") === "1" ||
-    new URL(req.url).searchParams.get("deleteInwItems") === "true";
+  const deleteMode = parseDeleteInwMode(new URL(req.url).searchParams.get("deleteInwItems"));
 
   const conn = await prisma.channelConnection.findUnique({ where: { id } });
   if (!conn || conn.memberId !== userId) {
@@ -35,18 +39,31 @@ export async function DELETE(
   });
   const storeItemIds = [...new Set(links.map((l) => l.storeItemId))];
 
-  let deletedInwCount = 0;
-  if (deleteInwItems) {
-    for (const storeItemId of storeItemIds) {
-      try {
-        await prisma.storeItem.delete({ where: { id: storeItemId, memberId: userId } });
-        deletedInwCount += 1;
-      } catch (e) {
-        console.error("[channels] disconnect deleteInwItems failed", {
-          storeItemId,
-          error: String(e),
+  const otherLiveLinks =
+    storeItemIds.length === 0
+      ? []
+      : await prisma.channelListingLink.findMany({
+          where: {
+            storeItemId: { in: storeItemIds },
+            connectionId: { not: id },
+            connection: { status: { not: "disconnected" } },
+          },
+          select: { storeItemId: true },
         });
-      }
+  const otherLiveItemIds = new Set(otherLiveLinks.map((l) => l.storeItemId));
+  const { exclusiveIds, sharedIds } = exclusiveAndSharedIds(storeItemIds, otherLiveItemIds);
+  const idsToDelete = storeItemIdsToDelete(deleteMode, exclusiveIds, storeItemIds);
+
+  let deletedInwCount = 0;
+  for (const storeItemId of idsToDelete) {
+    try {
+      await prisma.storeItem.delete({ where: { id: storeItemId, memberId: userId } });
+      deletedInwCount += 1;
+    } catch (e) {
+      console.error("[channels] disconnect deleteInwItems failed", {
+        storeItemId,
+        error: String(e),
+      });
     }
   }
 
@@ -61,10 +78,15 @@ export async function DELETE(
     },
   });
 
+  const keptInwCount = storeItemIds.length - deletedInwCount;
+
   return NextResponse.json({
     ok: true,
-    deleteInwItems,
+    deleteInwItems: deleteMode === "all",
+    deleteMode,
     deletedInwCount,
-    keptInwCount: deleteInwItems ? 0 : storeItemIds.length,
+    keptInwCount,
+    exclusiveCount: exclusiveIds.length,
+    sharedCount: sharedIds.length,
   });
 }

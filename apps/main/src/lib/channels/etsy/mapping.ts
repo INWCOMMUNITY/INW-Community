@@ -468,9 +468,41 @@ export function etsyPriceFromCents(cents: number): string {
   return (Math.max(1, Math.round(cents)) / 100).toFixed(2);
 }
 
+/** True when a title word starts with two sequential capital letters (Etsy all_caps rule). */
+function etsyWordStartsWithTwoCaps(word: string): boolean {
+  const letters = word.replace(/^[^A-Za-z]+/, "");
+  return /^[A-Z]{2}/.test(letters);
+}
+
+function softenLongAllCapsRuns(word: string): string {
+  return word.replace(/[A-Z]{4,}/g, (run) => run.charAt(0) + run.slice(1).toLowerCase());
+}
+
+function titleCaseCapsRun(word: string): string {
+  return word.replace(/[A-Z]{2,}/g, (run) => run.charAt(0) + run.slice(1).toLowerCase());
+}
+
+/**
+ * Etsy rejects titles where more than 3 words start with two sequential capital letters
+ * (`all_caps`). Keep short acronyms (NGC, PF, MS) and convert extra / long ALL-CAPS words.
+ */
+export function sanitizeEtsyTitle(title: string): string {
+  const trimmed = title.trim();
+  if (!trimmed) return "Untitled";
+  const words = trimmed.split(/\s+/).map(softenLongAllCapsRuns);
+  const flagged = words
+    .map((word, index) => (etsyWordStartsWithTwoCaps(word) ? index : -1))
+    .filter((index) => index >= 0);
+  if (flagged.length > 3) {
+    for (const index of flagged.slice(3)) {
+      words[index] = titleCaseCapsRun(words[index]!);
+    }
+  }
+  return words.join(" ").slice(0, 140) || "Untitled";
+}
+
 function etsyTitle(title: string): string {
-  // Etsy titles are max 140 chars.
-  return title.trim().slice(0, 140) || "Untitled";
+  return sanitizeEtsyTitle(title);
 }
 
 function etsyDescription(item: SyncStoreItem): string {

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { buildEtsyCreateFields, buildEtsyUpdateFields, etsyListingToSummary } from "./mapping";
+import {
+  buildEtsyCreateFields,
+  buildEtsyUpdateFields,
+  etsyListingToSummary,
+  sanitizeEtsyTitle,
+} from "./mapping";
 import type { ChannelConnectionContext, SyncStoreItem } from "../types";
 
 function makeItem(overrides: Partial<SyncStoreItem> = {}): SyncStoreItem {
@@ -70,6 +75,19 @@ describe("buildEtsyCreateFields", () => {
     expect(() =>
       buildEtsyCreateFields(makeItem({ etsyTaxonomyId: null }), conn, { taxonomyId: undefined })
     ).toThrow(/category/i);
+  });
+
+  it("softens all-caps titles before create", () => {
+    const fields = buildEtsyCreateFields(
+      makeItem({
+        title: "Library of Coins EARLY SILVER DOLLARS Coin Album Volume 49 VERY RARE 1794/1803",
+      }),
+      conn,
+      { readinessStateId: 42 }
+    );
+    expect(fields.title).toBe(
+      "Library of Coins Early Silver Dollars Coin Album Volume 49 Very Rare 1794/1803"
+    );
   });
 
   it("sends real package measurements when the listing has a complete shipping option", () => {
@@ -178,5 +196,29 @@ describe("etsyListingToSummary", () => {
       ],
     });
     expect(summary.photos).toEqual(["https://i.etsystatic.com/full.jpg"]);
+  });
+});
+
+describe("sanitizeEtsyTitle", () => {
+  it("converts long ALL-CAPS words so Etsy all_caps validation passes", () => {
+    expect(
+      sanitizeEtsyTitle(
+        "Library of Coins EARLY SILVER DOLLARS Coin Album Volume 49 VERY RARE 1794/1803"
+      )
+    ).toBe("Library of Coins Early Silver Dollars Coin Album Volume 49 Very Rare 1794/1803");
+  });
+
+  it("keeps short coin acronyms", () => {
+    expect(sanitizeEtsyTitle("2002-S NGC PF 69 Ultra Cameo Roosevelt Dime")).toBe(
+      "2002-S NGC PF 69 Ultra Cameo Roosevelt Dime"
+    );
+  });
+
+  it("title-cases extra short all-caps words after the third", () => {
+    expect(sanitizeEtsyTitle("NGC PF MS AU extra")).toBe("NGC PF MS Au extra");
+  });
+
+  it("truncates to 140 characters", () => {
+    expect(sanitizeEtsyTitle("A".repeat(200)).length).toBe(140);
   });
 });

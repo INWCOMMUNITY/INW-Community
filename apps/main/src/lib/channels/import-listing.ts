@@ -295,7 +295,7 @@ export async function importRemoteListing(args: {
   externalShopId: string | null;
   postToFeed?: boolean;
 }): Promise<ImportRemoteListingResult> {
-  const { memberId, connectionId, provider, listing, externalShopId, postToFeed = true } = args;
+  const { memberId, connectionId, provider, listing, externalShopId, postToFeed = false } = args;
   const productId = listing.externalListingId;
   if (!productId) {
     return { ok: false, externalListingId: "", reason: "missing_id" };

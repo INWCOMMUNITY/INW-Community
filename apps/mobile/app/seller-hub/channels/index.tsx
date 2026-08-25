@@ -23,6 +23,12 @@ import { ReconnectChecklistModal } from "@/components/channels/ReconnectChecklis
 import { ChannelReconnectGuideModal } from "@/components/channels/ChannelReconnectGuideModal";
 import { ChannelSettingsModal } from "@/components/channels/ChannelSettingsModal";
 import { SyncOnboarding } from "@/components/channels/SyncOnboarding";
+import { DisconnectChannelModal, type DisconnectPrompt } from "@/components/channels/DisconnectChannelModal";
+import {
+  deleteInwQuery,
+  disconnectSuccessMessage,
+  type DisconnectDeleteMode,
+} from "@/lib/disconnect-inw-items";
 
 type Connection = {
   id: string;
@@ -34,6 +40,8 @@ type Connection = {
   hasShippingProfile: boolean;
   readyToPublish: boolean | null;
   linkedListings: number;
+  linkedOnlyThisChannel?: number;
+  linkedAlsoOnOthers?: number;
 };
 
 type ProviderConfig = {
@@ -126,6 +134,10 @@ export default function ChannelsScreen() {
   const [checklistSyncing, setChecklistSyncing] = useState(false);
   const [reconnectGuideProvider, setReconnectGuideProvider] = useState<string | null>(null);
   const dismissedReconnectGuides = React.useRef(new Set<string>());
+  const [disconnectPrompt, setDisconnectPrompt] = useState<DisconnectPrompt & { conn: Connection } | null>(
+    null
+  );
+  const [disconnectBusy, setDisconnectBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -320,23 +332,30 @@ export default function ChannelsScreen() {
     }
   };
 
-  const runDisconnect = async (conn: Connection, name: string, deleteInwItems: boolean) => {
+  const runDisconnect = async (conn: Connection, name: string, deleteMode: DisconnectDeleteMode) => {
+    setDisconnectBusy(true);
     try {
-      const qs = deleteInwItems ? "?deleteInwItems=1" : "";
-      const res = await apiDelete<{ deletedInwCount?: number }>(`/api/channels/${conn.id}${qs}`);
-      if (deleteInwItems) {
-        const n = res.deletedInwCount ?? 0;
-        setSuccess(
-          `${name} disconnected. ${n} listing${n === 1 ? "" : "s"} removed from INW Community. Your ${name} store is unchanged.`
-        );
-      } else {
-        setSuccess(`${name} disconnected. Your INW listings are unchanged.`);
-      }
+      const res = await apiDelete<{ deletedInwCount?: number; keptInwCount?: number }>(
+        `/api/channels/${conn.id}${deleteInwQuery(deleteMode)}`
+      );
+      setSuccess(
+        disconnectSuccessMessage(name, deleteMode, {
+          deletedInwCount: res.deletedInwCount,
+          keptInwCount: res.keptInwCount,
+        })
+      );
       setError(null);
+      setDisconnectPrompt(null);
       await refresh();
     } catch {
       setError("Could not disconnect. Try again.");
+    } finally {
+      setDisconnectBusy(false);
     }
+  };
+
+  const disconnect = (conn: Connection, name: string) => {
+    setDisconnectPrompt({ conn, name, step: "choose" });
   };
 
   const syncNow = async (conn: Connection, name: string) => {
@@ -364,48 +383,6 @@ export default function ChannelsScreen() {
     } finally {
       setSyncing(null);
     }
-  };
-
-  const disconnect = (conn: Connection, name: string) => {
-    const linked =
-      conn.linkedListings === 1
-        ? "1 linked listing"
-        : `${conn.linkedListings} linked listings`;
-    const baseMessage =
-      conn.linkedListings > 0
-        ? `You have ${linked} tied to ${name}. Sync will stop in both directions. Your listings on ${name} are not removed by INW.\n\nNWC is not responsible for inventory, oversells, or other business effects after you disconnect (see Terms of Service).`
-        : `Your ${name} account will disconnect from INW Community. Any items you add later on INW will not sync to ${name} until you connect again.`;
-
-    if (conn.linkedListings === 0) {
-      Alert.alert(`Disconnect ${name}?`, baseMessage, [
-        { text: "Cancel", style: "cancel" },
-        { text: "Disconnect", onPress: () => void runDisconnect(conn, name, false) },
-      ]);
-      return;
-    }
-
-    Alert.alert(`Disconnect ${name}?`, baseMessage, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Keep on INW", onPress: () => void runDisconnect(conn, name, false) },
-      {
-        text: "Delete from INW",
-        style: "destructive",
-        onPress: () => {
-          Alert.alert(
-            "Delete from INW Community?",
-            `This permanently removes ${linked} from your INW storefront only. Listings on ${name} stay as they are.\n\nAfter disconnecting, you are responsible for inventory and sales on ${name} and any other channel. INW is not liable for tracking errors, oversells, or business loss from disconnecting a third-party store.`,
-            [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Delete from INW",
-                style: "destructive",
-                onPress: () => void runDisconnect(conn, name, true),
-              },
-            ]
-          );
-        },
-      },
-    ]);
   };
 
   const runChecklistSync = async () => {
@@ -688,6 +665,34 @@ export default function ChannelsScreen() {
         <Text style={styles.activityLinkText}>Sync Activity</Text>
         <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
       </Pressable>
+
+      <DisconnectChannelModal
+        prompt={disconnectPrompt}
+        busy={disconnectBusy}
+        onClose={() => setDisconnectPrompt(null)}
+        onKeepOnInw={() => {
+          if (!disconnectPrompt) return;
+          void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, "none");
+        }}
+        onRequestExclusive={() =>
+          setDisconnectPrompt((prev) => (prev ? { ...prev, step: "confirmExclusive" } : null))
+        }
+        onRequestDeleteAll={() =>
+          setDisconnectPrompt((prev) => (prev ? { ...prev, step: "confirmAll" } : null))
+        }
+        onConfirmExclusive={() => {
+          if (!disconnectPrompt) return;
+          void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, "exclusive");
+        }}
+        onConfirmDeleteAll={() => {
+          if (!disconnectPrompt) return;
+          void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, "all");
+        }}
+        onDisconnectNoLinks={() => {
+          if (!disconnectPrompt) return;
+          void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, "none");
+        }}
+      />
 
       <ChannelSettingsModal
         visible={settingsModal.visible}

@@ -20,6 +20,11 @@ import {
 } from "./DisconnectChannelModal";
 import { ChannelSafetyBufferCard } from "./ChannelSafetyBufferCard";
 import { ChannelReconnectGuideModal } from "./ChannelReconnectGuideModal";
+import {
+  deleteInwQuery,
+  disconnectSuccessMessage,
+  type DisconnectDeleteMode,
+} from "@/lib/channels/disconnect-inw-items";
 
 type TabId = "connections" | "traces";
 
@@ -31,6 +36,7 @@ export function ChannelsSyncContent() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState<string | null>(null);
   const [disconnectPrompt, setDisconnectPrompt] = useState<DisconnectChannelPrompt | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("connections");
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
@@ -111,11 +117,14 @@ export function ChannelsSyncContent() {
   const connectionFor = (provider: string) =>
     connections.find((c) => c.provider === provider && c.status !== "disconnected");
 
-  const runDisconnect = async (conn: ChannelConnectionSummary, name: string, deleteInwItems: boolean) => {
+  const runDisconnect = async (
+    conn: ChannelConnectionSummary,
+    name: string,
+    deleteMode: DisconnectDeleteMode
+  ) => {
     setBusy(conn.id);
     try {
-      const qs = deleteInwItems ? "?deleteInwItems=1" : "";
-      const res = await fetch(`/api/channels/${conn.id}${qs}`, {
+      const res = await fetch(`/api/channels/${conn.id}${deleteInwQuery(deleteMode)}`, {
         method: "DELETE",
         credentials: "include",
       });
@@ -124,14 +133,12 @@ export function ChannelsSyncContent() {
         setError((data as { error?: string }).error ?? "Could not disconnect. Try again.");
         return;
       }
-      if (deleteInwItems) {
-        const n = (data as { deletedInwCount?: number }).deletedInwCount ?? 0;
-        setSuccess(
-          `${name} disconnected. ${n} listing${n === 1 ? "" : "s"} removed from INW Community. Your ${name} store is unchanged.`
-        );
-      } else {
-        setSuccess(`${name} disconnected. Your INW listings are unchanged.`);
-      }
+      setSuccess(
+        disconnectSuccessMessage(name, deleteMode, {
+          deletedInwCount: (data as { deletedInwCount?: number }).deletedInwCount,
+          keptInwCount: (data as { keptInwCount?: number }).keptInwCount,
+        })
+      );
       setError(null);
       setDisconnectPrompt(null);
       await refresh();
@@ -144,6 +151,34 @@ export function ChannelsSyncContent() {
 
   const openDisconnect = (conn: ChannelConnectionSummary, name: string) => {
     setDisconnectPrompt({ conn, name, step: "choose" });
+  };
+
+  const syncNow = async (conn: ChannelConnectionSummary, name: string) => {
+    setSyncing(conn.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(`/api/channels/${conn.id}/reconcile`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && (data as { ok?: boolean }).ok !== false) {
+        const applied = (data as { applied?: number }).applied;
+        const appliedText =
+          applied && applied > 0
+            ? ` ${applied} sale${applied === 1 ? "" : "s"} applied.`
+            : "";
+        setSuccess(`${name} synced.${appliedText}`);
+        await refresh();
+      } else {
+        setError((data as { error?: string }).error || `Could not sync ${name}. Try again.`);
+      }
+    } catch {
+      setError(`Could not sync ${name}. Try again.`);
+    } finally {
+      setSyncing(null);
+    }
   };
 
   const testWix = async () => {
@@ -339,6 +374,16 @@ export function ChannelsSyncContent() {
                     </div>
 
                     <div className="flex flex-col gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void syncNow(conn, p.name)}
+                        disabled={syncing === conn.id || busy === conn.id}
+                        className={btnPrimary}
+                        style={{ backgroundColor: "var(--color-primary)" }}
+                      >
+                        <IonIcon name="sync-outline" size={18} className="mr-1.5 shrink-0" />
+                        {syncing === conn.id ? "Syncing…" : "Sync Now"}
+                      </button>
                       {conn.status === "error" && (
                         <>
                           <button
@@ -480,18 +525,25 @@ export function ChannelsSyncContent() {
             onClose={() => setDisconnectPrompt(null)}
             onKeepOnInw={() => {
               if (!disconnectPrompt) return;
-              void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, false);
+              void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, "none");
             }}
-            onRequestDelete={() =>
-              setDisconnectPrompt((prev) => (prev ? { ...prev, step: "confirmDelete" } : null))
+            onRequestExclusive={() =>
+              setDisconnectPrompt((prev) => (prev ? { ...prev, step: "confirmExclusive" } : null))
             }
-            onConfirmDelete={() => {
+            onRequestDeleteAll={() =>
+              setDisconnectPrompt((prev) => (prev ? { ...prev, step: "confirmAll" } : null))
+            }
+            onConfirmExclusive={() => {
               if (!disconnectPrompt) return;
-              void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, true);
+              void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, "exclusive");
+            }}
+            onConfirmDeleteAll={() => {
+              if (!disconnectPrompt) return;
+              void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, "all");
             }}
             onDisconnectNoLinks={() => {
               if (!disconnectPrompt) return;
-              void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, false);
+              void runDisconnect(disconnectPrompt.conn, disconnectPrompt.name, "none");
             }}
           />
 
