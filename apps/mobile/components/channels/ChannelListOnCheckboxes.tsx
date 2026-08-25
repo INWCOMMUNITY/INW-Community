@@ -4,6 +4,7 @@ import { theme } from "@/lib/theme";
 import {
   CHANNEL_PROVIDER_LABEL,
   channelNotReadyHint,
+  listOnConnectionHealth,
   listOnConnections,
   type ChannelConnectionSummary,
   type ChannelProviderId,
@@ -46,9 +47,9 @@ export function ChannelListOnCheckboxes({ connections, selected, onChange, disab
       <Text style={styles.title}>Where Else to List?</Text>
       <Text style={styles.subtitle}>Choose other places to publish. Uncheck any store to skip.</Text>
       {rows.map((c) => {
-        const needsReconnect = c.status === "error";
-        const blocked = needsReconnect || c.readyToPublish === false;
-        const reason = blocked ? c.publishBlockReason || channelNotReadyHint(c.provider) : null;
+        const health = listOnConnectionHealth(c);
+        const blocked = health.blocked;
+        const reason = health.hint || (blocked ? channelNotReadyHint(c.provider) : null);
         const checked = !blocked && selected.includes(c.provider);
         const label = CHANNEL_PROVIDER_LABEL[c.provider] ?? c.provider;
         return (
@@ -56,13 +57,13 @@ export function ChannelListOnCheckboxes({ connections, selected, onChange, disab
             key={c.id}
             style={[styles.row, (blocked || disabled) && styles.rowDisabled]}
             onPress={() => {
-              if (needsReconnect) {
+              if (health.showReconnect) {
                 router.push("/seller-hub/channels");
                 return;
               }
               toggle(c.provider, blocked);
             }}
-            disabled={disabled || (blocked && !needsReconnect)}
+            disabled={disabled || (blocked && !health.showReconnect)}
           >
             <View style={[styles.box, checked && styles.boxChecked]}>
               {checked ? <Text style={styles.check}>✓</Text> : null}
@@ -73,7 +74,7 @@ export function ChannelListOnCheckboxes({ connections, selected, onChange, disab
               </Text>
               {c.shopName ? <Text style={styles.hint}>{c.shopName}</Text> : null}
               {reason ? <Text style={styles.hint}>{reason}</Text> : null}
-              {needsReconnect ? <Text style={styles.link}>Reconnect in Sync Stores</Text> : null}
+              {health.showReconnect ? <Text style={styles.link}>Reconnect in Sync Stores</Text> : null}
             </View>
           </Pressable>
         );

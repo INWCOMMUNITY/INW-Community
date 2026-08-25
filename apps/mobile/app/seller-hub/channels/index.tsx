@@ -42,6 +42,9 @@ type Connection = {
   linkedListings: number;
   linkedOnlyThisChannel?: number;
   linkedAlsoOnOthers?: number;
+  healthKind?: "ok" | "reconnect" | "delayed" | "platform_key" | null;
+  healthMessage?: string | null;
+  pauseReason?: string | null;
 };
 
 type ProviderConfig = {

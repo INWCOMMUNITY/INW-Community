@@ -4,6 +4,7 @@ import Link from "next/link";
 import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
 import {
   channelNotReadyHint,
+  listOnConnectionHealth,
   listOnConnections,
   type ChannelConnectionSummary,
   type ChannelProviderId,
@@ -53,11 +54,9 @@ export function ChannelListOnCheckboxes({
       <legend className="sr-only">Where else to list</legend>
       {rows.map((c) => {
         const provider = c.provider;
-        const needsReconnect = c.status === "error";
-        const blocked = needsReconnect || c.readyToPublish === false;
-        const reason = blocked
-          ? c.publishBlockReason || channelNotReadyHint(provider)
-          : null;
+        const health = listOnConnectionHealth(c);
+        const blocked = health.blocked;
+        const reason = health.hint || (blocked ? channelNotReadyHint(provider) : null);
         const checked = !blocked && selected.includes(provider);
         const label = CHANNEL_PROVIDER_LABELS[provider] ?? provider;
         return (
@@ -82,7 +81,7 @@ export function ChannelListOnCheckboxes({
               {reason ? (
                 <span className="block text-xs text-gray-500 font-normal mt-0.5">{reason}</span>
               ) : null}
-              {needsReconnect ? (
+              {health.showReconnect ? (
                 <Link
                   href="/seller-hub/channels"
                   className="inline-block mt-1 text-xs font-medium text-[var(--color-primary)] hover:underline"

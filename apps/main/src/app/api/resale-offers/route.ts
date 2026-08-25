@@ -7,6 +7,7 @@ import { scheduleRealtimePublish } from "@/lib/schedule-realtime-publish";
 import type { LiveSocketMessagePayload } from "@/lib/chat-live-types";
 import { resaleOfferRowToLiveSnapshot } from "@/lib/resale-offer-live";
 import { resaleOfferExceedsListPriceMessage } from "@/lib/resale-offer-list-price";
+import { sellerAcceptsListingMessages, sellerIsAwayFromOrders } from "@/lib/seller-write-gates";
 import { z } from "zod";
 
 const createBodySchema = z.object({
@@ -77,6 +78,18 @@ export async function POST(req: NextRequest) {
   }
   if (storeItem.quantity < 1 || storeItem.status !== "active") {
     return NextResponse.json({ error: "This item is not available for offers" }, { status: 400 });
+  }
+  if (await sellerIsAwayFromOrders(storeItem.memberId)) {
+    return NextResponse.json(
+      { error: "This seller is currently away and not accepting offers." },
+      { status: 400 }
+    );
+  }
+  if (!(await sellerAcceptsListingMessages(storeItem.memberId))) {
+    return NextResponse.json(
+      { error: "This seller is not accepting messages or offers on listings." },
+      { status: 400 }
+    );
   }
 
   let conversationIdForThread: string | null = null;

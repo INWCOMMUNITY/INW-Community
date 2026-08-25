@@ -80,7 +80,7 @@ export function StorefrontCard({
         </h2>
         {showBusiness && item.business ? (
           <Link
-            href={`/support-local/${item.business.slug}`}
+            href={`/support-local/sellers/${item.business.slug}`}
             className="text-xs hover:underline block truncate"
             style={{ color: "var(--color-link)" }}
           >
