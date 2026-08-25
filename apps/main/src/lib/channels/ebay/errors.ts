@@ -389,6 +389,9 @@ export function ebayErrorActionHint(reason: string): string | undefined {
   if (/multi-variation|variation/i.test(reason)) {
     return "Multi-variation listings need a unique SKU per variation in Seller Hub before they can sync.";
   }
+  if (/Could not set Custom Label/i.test(reason)) {
+    return "INW could not write a Custom Label on this eBay listing. Open it in Seller Hub, set an alphanumeric Custom Label (max 50 characters), and import again.";
+  }
   if (/SKU cannot be null|listing SKU cannot/i.test(reason)) {
     return "This eBay listing has no Custom Label (SKU). INW adds a valid SKU and retries migrate; if this persists, set an alphanumeric Custom Label (max 50 characters) in Seller Hub.";
   }

@@ -28,19 +28,60 @@ type RemoteListing = {
 type ImportProgress = {
   total: number;
   current: number;
-  status: "importing" | "done" | "error";
-  message?: string;
+  percent: number;
+  title?: string | null;
+  status: "importing" | "result";
+};
+
+type ImportResultImported = {
+  externalListingId?: string;
+  storeItemId?: string;
+  title?: string;
+  photo?: string;
+};
+
+type ImportResultSkipped = {
+  externalListingId: string;
+  title?: string;
+  photo?: string;
+  step?: string;
+  reason: string;
+  hint?: string;
+  retryable?: boolean;
 };
 
 type ImportApiResponse = {
-  imported?: { storeItemId?: string }[];
-  skipped?: { externalListingId?: string; title?: string; reason: string; hint?: string }[];
+  imported?: ImportResultImported[];
+  skipped?: ImportResultSkipped[];
   summary?: string;
   hint?: string;
+  jobId?: string;
 };
 
-/** eBay import can run up to 60s server-side; allow buffer for network. */
+type ImportJobStatus = {
+  jobId?: string;
+  id?: string;
+  status: string;
+  total: number;
+  completed: number;
+  failed: number;
+  processed?: number;
+  progress: number;
+  currentTitle?: string | null;
+  imported?: ImportResultImported[];
+  skipped?: ImportResultSkipped[];
+};
+
+const LISTING_TIMEOUT_MS: Record<string, number> = {
+  ebay: 120_000,
+};
 const IMPORT_TIMEOUT_MS = 120_000;
+
+function easedImportPercent(percent: number, inFlight: boolean, processed: number): number {
+  if (percent >= 100) return 100;
+  if (inFlight && processed <= 0 && percent <= 0) return 4;
+  return percent;
+}
 
 const PROVIDER_LABELS: Record<string, string> = {
   etsy: "Etsy",
@@ -61,6 +102,9 @@ export default function ChannelImportScreen() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
+  const [resultImported, setResultImported] = useState<ImportResultImported[]>([]);
+  const [resultSkipped, setResultSkipped] = useState<ImportResultSkipped[]>([]);
+  const [resultTab, setResultTab] = useState<"on-inw" | "attention">("on-inw");
   const [unsyncingId, setUnsyncingId] = useState<string | null>(null);
   const [unsyncConfirm, setUnsyncConfirm] = useState<{ listingId: string; title: string } | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
@@ -72,6 +116,7 @@ export default function ChannelImportScreen() {
   const [search, setSearch] = useState("");
 
   const importPath = useMemo(() => `/api/channels/${provider}/import`, [provider]);
+  const listingTimeoutMs = LISTING_TIMEOUT_MS[provider] ?? 60_000;
   const refreshPath = useMemo(() => `/api/channels/${provider}/refresh`, [provider]);
   const notificationsPath = useMemo(() => `/api/channels/${provider}/notifications`, [provider]);
 
@@ -213,77 +258,140 @@ export default function ChannelImportScreen() {
     });
   }, [filteredListings, selected]);
 
+  const runSequentialImport = useCallback(
+    async (listingIds: string[], merge = false) => {
+      if (listingIds.length === 0) return;
+      const titleFor = (id: string) => listings.find((l) => l.externalListingId === id)?.title;
+      const photoFor = (id: string) => listings.find((l) => l.externalListingId === id)?.photos?.[0];
+
+      setImporting(true);
+      setError(null);
+      setDone(null);
+      setProgress({
+        total: listingIds.length,
+        current: 0,
+        percent: 4,
+        title: titleFor(listingIds[0]) ?? null,
+        status: "importing",
+      });
+
+      try {
+        const start = await apiPost<ImportJobStatus>(
+          "/api/channels/import-job",
+          { provider, listingIds },
+          30_000
+        );
+        const jobId = start.jobId ?? start.id;
+        if (!jobId) throw { error: "Could not start import." };
+
+        const applyJob = (job: ImportJobStatus, inFlight: boolean) => {
+          const processed = job.processed ?? job.completed + job.failed;
+          setProgress({
+            total: job.total || listingIds.length,
+            current: processed,
+            percent: easedImportPercent(job.progress ?? 0, inFlight, processed),
+            title: job.currentTitle ?? titleFor(listingIds[processed] ?? listingIds[0]) ?? null,
+            status: "importing",
+          });
+        };
+        applyJob(start, true);
+
+        const poll = setInterval(() => {
+          void apiGet<ImportJobStatus>(`/api/channels/import-job/${jobId}`)
+            .then((job) => applyJob(job, true))
+            .catch(() => undefined);
+        }, 800);
+
+        const batchImported: ImportResultImported[] = [];
+        const batchSkipped: ImportResultSkipped[] = [];
+
+        try {
+          for (const id of listingIds) {
+            setProgress((prev) =>
+              prev
+                ? { ...prev, title: titleFor(id) ?? prev.title, status: "importing" }
+                : prev
+            );
+            try {
+              const res = await apiPost<ImportApiResponse>(
+                importPath,
+                { listingIds: [id], jobId },
+                listingTimeoutMs
+              );
+              batchImported.push(...(res.imported ?? []));
+              batchSkipped.push(...(res.skipped ?? []));
+            } catch (e: unknown) {
+              const err = e as { error?: string; message?: string };
+              const reason = err?.error ?? err?.message ?? "Import failed. Try again.";
+              batchSkipped.push({
+                externalListingId: id,
+                title: titleFor(id),
+                photo: photoFor(id),
+                step: "create",
+                reason,
+                retryable: true,
+              });
+            }
+          }
+
+          let imported = batchImported;
+          let skipped = batchSkipped;
+          try {
+            const job = await apiGet<ImportJobStatus>(`/api/channels/import-job/${jobId}`);
+            if (job.imported?.length) imported = job.imported;
+            if (job.skipped?.length) skipped = job.skipped;
+          } catch {
+            /* use local batches */
+          }
+
+          const nextImported = merge ? [...resultImported, ...imported] : imported;
+          const retried = new Set(listingIds);
+          const nextSkipped = merge
+            ? [...resultSkipped.filter((s) => !retried.has(s.externalListingId)), ...skipped]
+            : skipped;
+
+          setResultImported(nextImported);
+          setResultSkipped(nextSkipped);
+          setResultTab(
+            nextImported.length === 0 && nextSkipped.length > 0 ? "attention" : "on-inw"
+          );
+          setSelected(new Set());
+          setProgress({
+            total: listingIds.length,
+            current: listingIds.length,
+            percent: 100,
+            status: "result",
+          });
+        } finally {
+          clearInterval(poll);
+        }
+      } catch (e: unknown) {
+        const err = e as { error?: string; message?: string; status?: number };
+        let errorMsg = err?.error ?? err?.message ?? "Import failed.";
+        if (err.status === 0 || errorMsg.includes("timed out")) {
+          errorMsg =
+            "Import timed out. Some listings may still have been imported — refresh the list to check.";
+        } else if (
+          errorMsg.includes("network") ||
+          errorMsg.includes("fetch") ||
+          errorMsg.includes("reach")
+        ) {
+          errorMsg = "Unable to connect. Please check your internet connection and try again.";
+        }
+        setError(errorMsg);
+        setProgress(null);
+      } finally {
+        setImporting(false);
+      }
+    },
+    [listings, importPath, listingTimeoutMs, provider, resultImported, resultSkipped]
+  );
+
   const runImportAll = useCallback(async () => {
     const importableIds = visibleImportable.map((l) => l.externalListingId);
     if (importableIds.length === 0) return;
-
-    setImporting(true);
-    setError(null);
-    setDone(null);
-    setProgress({ total: importableIds.length, current: 0, status: "importing" });
-
-    try {
-      const res = await apiPost<ImportApiResponse>(
-        importPath,
-        { listingIds: importableIds },
-        IMPORT_TIMEOUT_MS
-      );
-      const importedCount = res.imported?.length ?? 0;
-      const summary =
-        res.summary ??
-        (importedCount > 0
-          ? `Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}.`
-          : "No listings were imported.");
-      setDone(summary);
-      if (importedCount === 0 && (res.hint || (res.skipped?.length ?? 0) > 0)) {
-        setError(res.hint ?? summary);
-        setProgress({
-          total: importableIds.length,
-          current: importableIds.length,
-          status: "error",
-          message: res.hint ?? summary,
-        });
-      } else {
-        setProgress({
-          total: importableIds.length,
-          current: importableIds.length,
-          status: "done",
-          message: summary,
-        });
-      }
-      setSelected(new Set());
-      await new Promise((r) => setTimeout(r, 1500));
-      setProgress(null);
-      const importedIds = (res.imported ?? [])
-        .map((row) => row.storeItemId)
-        .filter((id): id is string => Boolean(id));
-      if (importedIds.length > 0) promptShareListingsToFeed(importedIds);
-      await load();
-    } catch (e: unknown) {
-      const err = e as { error?: string; message?: string; status?: number };
-      let errorMsg = err?.error ?? err?.message ?? "Import failed.";
-      if (err.status === 0 || errorMsg.includes("timed out")) {
-        errorMsg =
-          "Import timed out. Some listings may still have been imported — refresh the list to check.";
-      } else if (
-        errorMsg.includes("network") ||
-        errorMsg.includes("fetch") ||
-        errorMsg.includes("reach")
-      ) {
-        errorMsg = "Unable to connect. Please check your internet connection and try again.";
-      }
-      setError(errorMsg);
-      setProgress({
-        total: importableIds.length,
-        current: importableIds.length,
-        status: "error",
-        message: errorMsg,
-      });
-      await load();
-    } finally {
-      setImporting(false);
-    }
-  }, [visibleImportable, importPath, load]);
+    await runSequentialImport(importableIds);
+  }, [visibleImportable, runSequentialImport]);
 
   const unsyncPath = useMemo(() => `/api/channels/${provider}/unsync`, [provider]);
 
@@ -334,74 +442,7 @@ export default function ChannelImportScreen() {
 
   const runImport = async () => {
     if (selected.size === 0) return;
-    const selectedIds = Array.from(selected);
-
-    setImporting(true);
-    setError(null);
-    setDone(null);
-    setProgress({ total: selectedIds.length, current: 0, status: "importing" });
-
-    try {
-      const res = await apiPost<ImportApiResponse>(
-        importPath,
-        { listingIds: selectedIds },
-        IMPORT_TIMEOUT_MS
-      );
-      const importedCount = res.imported?.length ?? 0;
-      const summary =
-        res.summary ??
-        (importedCount > 0
-          ? `Imported ${importedCount} listing${importedCount === 1 ? "" : "s"}.`
-          : "No listings were imported.");
-      setDone(summary);
-      if (importedCount === 0 && (res.hint || (res.skipped?.length ?? 0) > 0)) {
-        setError(res.hint ?? summary);
-        setProgress({
-          total: selectedIds.length,
-          current: selectedIds.length,
-          status: "error",
-          message: res.hint ?? summary,
-        });
-      } else {
-        setProgress({
-          total: selectedIds.length,
-          current: selectedIds.length,
-          status: "done",
-          message: summary,
-        });
-      }
-      setSelected(new Set());
-      await new Promise((r) => setTimeout(r, 1500));
-      setProgress(null);
-      const importedIds = (res.imported ?? [])
-        .map((row) => row.storeItemId)
-        .filter((id): id is string => Boolean(id));
-      if (importedIds.length > 0) promptShareListingsToFeed(importedIds);
-      await load();
-    } catch (e: unknown) {
-      const err = e as { error?: string; message?: string; status?: number };
-      let errorMsg = err?.error ?? err?.message ?? "Import failed.";
-      if (err.status === 0 || errorMsg.includes("timed out")) {
-        errorMsg =
-          "Import timed out. Some listings may still have been imported — refresh the list to check.";
-      } else if (
-        errorMsg.includes("network") ||
-        errorMsg.includes("fetch") ||
-        errorMsg.includes("reach")
-      ) {
-        errorMsg = "Unable to connect. Please check your internet connection and try again.";
-      }
-      setError(errorMsg);
-      setProgress({
-        total: selectedIds.length,
-        current: selectedIds.length,
-        status: "error",
-        message: errorMsg,
-      });
-      await load();
-    } finally {
-      setImporting(false);
-    }
+    await runSequentialImport(Array.from(selected));
   };
 
   const importable = listings.filter((l) => !l.alreadyLinked);
@@ -572,7 +613,7 @@ export default function ChannelImportScreen() {
           </>
         )}
 
-        {/* Progress Modal */}
+        {/* Progress / result modal */}
         <Modal
           visible={progress !== null}
           transparent
@@ -584,60 +625,151 @@ export default function ChannelImportScreen() {
           }}
         >
           <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
+            <View
+              style={[
+                styles.modalContent,
+                progress?.status === "result" && styles.resultModalContent,
+              ]}
+            >
               {progress?.status === "importing" ? (
                 <>
-                  <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginBottom: 16 }} />
-                  <Text style={styles.modalTitle}>Importing Listings</Text>
-                  <Text style={styles.modalMessage}>
-                    Importing {progress.total} listing{progress.total === 1 ? "" : "s"} to INW…
+                  <Text style={styles.modalTitle}>Importing listings</Text>
+                  <View style={styles.percentTrack}>
+                    <View style={[styles.percentFill, { width: `${Math.max(0, Math.min(100, progress.percent))}%` }]} />
+                  </View>
+                  <Text style={styles.percentLabel}>
+                    {Math.round(progress.percent)}%
+                    {progress.total > 0 ? `  ·  ${progress.current} of ${progress.total}` : ""}
                   </Text>
-                  <Text style={styles.modalHint}>This may take up to a minute</Text>
+                  <Text style={styles.modalMessage} numberOfLines={2}>
+                    {progress.title
+                      ? `${provider === "ebay" ? "Migrating" : "Importing"} ${progress.title}…`
+                      : "Preparing import…"}
+                  </Text>
                 </>
-              ) : progress?.status === "done" ? (
+              ) : progress?.status === "result" ? (
                 <>
-                  <View style={styles.successIcon}>
-                    <Text style={styles.successIconText}>✓</Text>
-                  </View>
-                  <Text style={styles.modalTitle}>Import Complete</Text>
-                  <Text style={styles.modalMessage}>{progress.message}</Text>
-                  <Pressable
-                    style={styles.modalDismissButton}
-                    onPress={async () => {
-                      setProgress(null);
-                      await load();
-                    }}
-                  >
-                    <Text style={styles.modalDismissButtonText}>Done</Text>
-                  </Pressable>
-                </>
-              ) : progress?.status === "error" ? (
-                <>
-                  <View style={styles.errorIcon}>
-                    <Text style={styles.errorIconText}>!</Text>
-                  </View>
-                  <Text style={styles.modalTitle}>Import Issue</Text>
-                  <Text style={styles.modalMessage}>{progress.message}</Text>
-                  <View style={styles.modalButtonRow}>
+                  <View style={styles.resultTabs}>
                     <Pressable
-                      style={styles.modalSecondaryButton}
-                      onPress={() => setProgress(null)}
+                      style={[styles.resultTab, resultTab === "on-inw" && styles.resultTabOn]}
+                      onPress={() => setResultTab("on-inw")}
                     >
-                      <Text style={styles.modalSecondaryButtonText}>Dismiss</Text>
+                      <Text style={[styles.resultTabText, resultTab === "on-inw" && styles.resultTabTextOn]}>
+                        On INW{resultImported.length ? ` (${resultImported.length})` : ""}
+                      </Text>
                     </Pressable>
                     <Pressable
-                      style={styles.modalRetryButton}
-                      onPress={() => {
-                        setProgress(null);
-                        // Retry the import
-                        if (selected.size > 0) {
-                          runImport();
-                        }
-                      }}
+                      style={[styles.resultTab, resultTab === "attention" && styles.resultTabOn]}
+                      onPress={() => setResultTab("attention")}
                     >
-                      <Text style={styles.modalRetryButtonText}>Retry</Text>
+                      <Text style={[styles.resultTabText, resultTab === "attention" && styles.resultTabTextOn]}>
+                        Needs attention{resultSkipped.length ? ` (${resultSkipped.length})` : ""}
+                      </Text>
                     </Pressable>
                   </View>
+                  <ScrollView style={styles.resultList} contentContainerStyle={styles.resultListContent}>
+                    {resultTab === "on-inw" ? (
+                      resultImported.length === 0 ? (
+                        <Text style={styles.modalMessage}>No listings were added to INW.</Text>
+                      ) : (
+                        resultImported.map((row, i) => (
+                          <View key={row.storeItemId ?? `${row.externalListingId}-${i}`} style={styles.resultRow}>
+                            {row.photo ? (
+                              <Image source={{ uri: row.photo }} style={styles.resultThumb} />
+                            ) : (
+                              <View style={[styles.resultThumb, styles.thumbEmpty]} />
+                            )}
+                            <Text style={styles.resultRowTitle} numberOfLines={2}>
+                              {row.title ?? "Listing"}
+                            </Text>
+                          </View>
+                        ))
+                      )
+                    ) : resultSkipped.length === 0 ? (
+                      <Text style={styles.modalMessage}>Everything imported cleanly.</Text>
+                    ) : (
+                      resultSkipped.map((row) => (
+                        <View key={row.externalListingId} style={styles.resultSkipBlock}>
+                          <View style={styles.resultRow}>
+                            {row.photo ? (
+                              <Image source={{ uri: row.photo }} style={styles.resultThumb} />
+                            ) : (
+                              <View style={[styles.resultThumb, styles.thumbEmpty]} />
+                            )}
+                            <Text style={styles.resultRowTitle} numberOfLines={2}>
+                              {row.title ?? row.externalListingId}
+                            </Text>
+                          </View>
+                          <Text style={styles.resultReason}>{row.reason}</Text>
+                          {row.hint ? <Text style={styles.resultHint}>{row.hint}</Text> : null}
+                        </View>
+                      ))
+                    )}
+                  </ScrollView>
+                  {resultTab === "on-inw" ? (
+                    <>
+                      {resultImported.length > 0 ? (
+                        <Pressable
+                          style={styles.modalDismissButton}
+                          onPress={() => {
+                            const ids = resultImported
+                              .map((row) => row.storeItemId)
+                              .filter((id): id is string => Boolean(id));
+                            if (ids.length > 0) promptShareListingsToFeed(ids);
+                          }}
+                        >
+                          <Text style={styles.modalDismissButtonText}>Share to feed</Text>
+                        </Pressable>
+                      ) : null}
+                      <Pressable
+                        style={resultImported.length > 0 ? styles.modalSecondaryButton : styles.modalDismissButton}
+                        onPress={async () => {
+                          setProgress(null);
+                          await load();
+                        }}
+                      >
+                        <Text
+                          style={
+                            resultImported.length > 0
+                              ? styles.modalSecondaryButtonText
+                              : styles.modalDismissButtonText
+                          }
+                        >
+                          Done
+                        </Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    <>
+                      {resultSkipped.some((s) => s.retryable) ? (
+                        <Pressable
+                          style={[styles.modalDismissButton, importing && { opacity: 0.5 }]}
+                          disabled={importing}
+                          onPress={() => {
+                            const ids = resultSkipped.filter((s) => s.retryable).map((s) => s.externalListingId);
+                            void runSequentialImport(ids, true);
+                          }}
+                        >
+                          <Text style={styles.modalDismissButtonText}>
+                            {importing
+                              ? "Retrying…"
+                              : `Retry ${resultSkipped.filter((s) => s.retryable).length} listing${
+                                  resultSkipped.filter((s) => s.retryable).length === 1 ? "" : "s"
+                                }`}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                      <Pressable
+                        style={styles.modalSecondaryButton}
+                        onPress={async () => {
+                          setProgress(null);
+                          await load();
+                        }}
+                      >
+                        <Text style={styles.modalSecondaryButtonText}>Done</Text>
+                      </Pressable>
+                    </>
+                  )}
                 </>
               ) : null}
             </View>
@@ -687,8 +819,8 @@ export default function ChannelImportScreen() {
           </View>
         </Modal>
 
-        {done && !error && <Text style={styles.success}>{done}</Text>}
-        {error ? <Text style={styles.err}>{error}</Text> : null}
+        {done && !error && progress === null ? <Text style={styles.success}>{done}</Text> : null}
+        {error && progress === null ? <Text style={styles.err}>{error}</Text> : null}
       </ScrollView>
 
       {importable.length > 0 && (
@@ -927,10 +1059,98 @@ const styles = StyleSheet.create({
   modalContent: {
     backgroundColor: "#fff",
     borderRadius: 16,
-    padding: 32,
+    padding: 24,
     width: "85%",
     maxWidth: 340,
+    alignItems: "stretch",
+  },
+  resultModalContent: {
+    width: "92%",
+    maxWidth: 420,
+    maxHeight: "85%",
+    padding: 16,
+  },
+  percentTrack: {
+    width: "100%",
+    height: 10,
+    backgroundColor: theme.colors.cream,
+    borderRadius: 6,
+    marginTop: 12,
+    marginBottom: 10,
+    overflow: "hidden",
+  },
+  percentFill: {
+    height: "100%",
+    backgroundColor: theme.colors.secondary,
+    borderRadius: 6,
+  },
+  percentLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    marginBottom: 8,
+  },
+  resultTabs: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e0e0e0",
+    marginBottom: 12,
+  },
+  resultTab: {
+    flex: 1,
+    paddingVertical: 10,
     alignItems: "center",
+  },
+  resultTabOn: {
+    borderBottomWidth: 2,
+    borderBottomColor: theme.colors.secondary,
+  },
+  resultTabText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#888",
+  },
+  resultTabTextOn: {
+    color: theme.colors.heading,
+  },
+  resultList: {
+    maxHeight: 280,
+    width: "100%",
+  },
+  resultListContent: {
+    paddingBottom: 8,
+  },
+  resultRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
+  },
+  resultThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 6,
+    backgroundColor: "#f0f0f0",
+  },
+  resultRowTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#000",
+  },
+  resultSkipBlock: {
+    marginBottom: 14,
+  },
+  resultReason: {
+    fontSize: 13,
+    color: "#444",
+    marginLeft: 58,
+  },
+  resultHint: {
+    fontSize: 12,
+    color: "#888",
+    marginLeft: 58,
+    marginTop: 4,
   },
   progressBarContainer: {
     width: "100%",
@@ -993,11 +1213,13 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   modalDismissButton: {
-    marginTop: 20,
+    marginTop: 16,
     backgroundColor: theme.colors.primary,
     paddingVertical: 12,
     paddingHorizontal: 32,
     borderRadius: 8,
+    alignItems: "center",
+    width: "100%",
   },
   modalDismissButtonText: {
     color: "#fff",
@@ -1010,7 +1232,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   modalSecondaryButton: {
-    flex: 1,
+    marginTop: 12,
+    width: "100%",
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 8,

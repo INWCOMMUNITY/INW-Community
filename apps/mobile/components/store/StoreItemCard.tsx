@@ -3,6 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 import { AppImage } from "@/components/AppImage";
+import { buildProductPath, type ProductReferrer } from "@/lib/product-referrer";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -29,6 +30,7 @@ interface StoreItemCardProps {
   variant?: "grid" | "carousel";
   showBadges?: boolean;
   onQuickAdd?: (item: StoreItemData) => void;
+  referrer?: ProductReferrer;
 }
 
 function formatPrice(cents: number): string {
@@ -46,6 +48,7 @@ export function StoreItemCard({
   variant = "grid",
   showBadges = true,
   onQuickAdd,
+  referrer,
 }: StoreItemCardProps) {
   const router = useRouter();
   const photoUrl = resolvePhotoUrl(item.photos?.[0]);
@@ -56,7 +59,7 @@ export function StoreItemCard({
   const hasLocalPickup = item.inStorePickupAvailable || item.localDeliveryAvailable;
 
   const openItem = () => {
-    router.push(`/product/${item.slug}`);
+    router.push(buildProductPath(item.slug, referrer ?? { type: "storefront" }) as never);
   };
 
   return (

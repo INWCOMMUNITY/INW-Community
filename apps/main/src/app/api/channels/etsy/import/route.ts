@@ -8,6 +8,14 @@ import { getAdapter } from "@/lib/channels/registry";
 import { importRemoteListing } from "@/lib/channels/import-listing";
 import { enrichEtsyListingSummaryWithInventory } from "@/lib/channels/etsy/variants";
 import { maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
+import { withSkipMeta } from "@/lib/channels/import-skip";
+import {
+  importPostBodySchema,
+  loadListingsForImport,
+  notifyImportJobSkip,
+  notifyImportJobStart,
+  notifyImportJobSuccess,
+} from "@/lib/channels/import-job-runtime";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -88,9 +96,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-const bodySchema = z.object({
-  listingIds: z.array(z.string()).min(1, "Select at least one listing to import."),
-});
+const bodySchema = importPostBodySchema;
 
 /** POST: import selected Etsy listings as StoreItems and link them for ongoing sync. */
 export async function POST(req: NextRequest) {
@@ -120,24 +126,58 @@ export async function POST(req: NextRequest) {
     console.warn("[etsy import] shipping option sync failed", { error: String(e) })
   );
 
-  let remote;
-  try {
-    remote = (await getAdapter("etsy").listRemoteListings(ctx)).filter((l) =>
-      body.listingIds.includes(l.externalListingId)
-    );
-    for (const l of remote) {
-      await enrichEtsyListingSummaryWithInventory(ctx.accessToken, l);
-    }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Could not load Etsy listings.";
-    return NextResponse.json({ error: msg }, { status: 502 });
+  const loaded = await loadListingsForImport({
+    jobId: body.jobId,
+    memberId: userId,
+    listingIds: body.listingIds,
+    fetchAll: async () => {
+      const listings = await getAdapter("etsy").listRemoteListings(ctx);
+      for (const l of listings) {
+        await enrichEtsyListingSummaryWithInventory(ctx.accessToken, l);
+      }
+      return listings;
+    },
+  });
+
+  if (body.jobId && !loaded.job) {
+    return NextResponse.json({ error: loaded.loadError ?? "Import job not found." }, { status: 404 });
   }
 
-  const imported: { externalListingId: string; storeItemId: string }[] = [];
-  const skipped: { externalListingId: string; reason: string }[] = [];
-  let uncategorizedCount = 0;
+  if (loaded.loadError && !loaded.job) {
+    return NextResponse.json({ error: loaded.loadError }, { status: 502 });
+  }
 
-  for (const listing of remote) {
+  const imported: { externalListingId: string; storeItemId: string; title?: string; photo?: string }[] = [];
+  const skipped: ReturnType<typeof withSkipMeta>[] = [];
+  let uncategorizedCount = 0;
+  const jobId = loaded.job?.id;
+
+  if (loaded.loadError && loaded.job) {
+    for (const id of body.listingIds) {
+      const row = withSkipMeta({
+        externalListingId: id,
+        step: "create",
+        reason: loaded.loadError,
+      });
+      skipped.push(row);
+      await notifyImportJobSkip(jobId, row);
+    }
+    return NextResponse.json({ ok: true, jobId, imported, skipped, uncategorizedCount });
+  }
+
+  for (const id of loaded.unmatchedIds) {
+    const row = withSkipMeta({
+      externalListingId: id,
+      step: "create",
+      reason: "Could not match this listing. Refresh and try again.",
+      retryable: true,
+    });
+    skipped.push(row);
+    await notifyImportJobSkip(jobId, row);
+  }
+
+  for (const listing of loaded.listings) {
+    await notifyImportJobStart(jobId, listing.title);
     const result = await importRemoteListing({
       memberId: userId,
       connectionId: ctx.id,
@@ -147,14 +187,29 @@ export async function POST(req: NextRequest) {
       postToFeed: false,
     });
     if (result.ok) {
-      imported.push({ externalListingId: result.externalListingId, storeItemId: result.storeItemId });
+      const row = {
+        externalListingId: result.externalListingId,
+        storeItemId: result.storeItemId,
+        title: listing.title,
+        photo: listing.photos?.[0],
+      };
+      imported.push(row);
+      await notifyImportJobSuccess(jobId, row);
       if (result.needsCategoryReview) {
         uncategorizedCount++;
       }
     } else {
-      skipped.push({ externalListingId: result.externalListingId, reason: result.reason });
+      const row = withSkipMeta({
+        externalListingId: result.externalListingId,
+        title: listing.title,
+        photo: listing.photos?.[0],
+        step: "create",
+        reason: result.reason,
+      });
+      skipped.push(row);
+      await notifyImportJobSkip(jobId, row);
     }
   }
 
-  return NextResponse.json({ ok: true, imported, skipped, uncategorizedCount });
+  return NextResponse.json({ ok: true, jobId, imported, skipped, uncategorizedCount });
 }

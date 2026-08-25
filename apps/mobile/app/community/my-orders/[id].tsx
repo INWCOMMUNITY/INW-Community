@@ -20,6 +20,7 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { formatShippingAddress } from "@/lib/format-address";
 import { getOrderStatusLabel } from "@/lib/order-status";
+import { buildProductPath } from "@/lib/product-referrer";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -460,7 +461,15 @@ export default function MyOrderDetailScreen() {
         {order.items && order.items.length > 0 && order.items[0].storeItem?.slug && (
           <Pressable
             style={({ pressed }) => [styles.actionBtnOutline, pressed && { opacity: 0.8 }]}
-            onPress={() => (router.push as (href: string) => void)(`/product/${order.items![0].storeItem!.slug}`)}
+            onPress={() =>
+              (router.push as (href: string) => void)(
+                buildProductPath(order.items![0].storeItem!.slug, {
+                  type: "order",
+                  orderId: orderId,
+                  orderKind: "buyer",
+                })
+              )
+            }
           >
             <Text style={styles.actionBtnOutlineText}>Order again</Text>
           </Pressable>

@@ -5,6 +5,14 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
+import { withSkipMeta } from "@/lib/channels/import-skip";
+import {
+  importPostBodySchema,
+  loadListingsForImport,
+  notifyImportJobSkip,
+  notifyImportJobStart,
+  notifyImportJobSuccess,
+} from "@/lib/channels/import-job-runtime";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -55,9 +63,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-const bodySchema = z.object({
-  listingIds: z.array(z.string()).min(1, "Select at least one product to import."),
-});
+const bodySchema = importPostBodySchema;
 
 /** POST: import selected Shopify products as StoreItems linked by product id. */
 export async function POST(req: NextRequest) {
@@ -86,32 +92,79 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let remote;
-  try {
-    remote = (await getAdapter("shopify").listRemoteListings(ctx)).filter((l) =>
-      body.listingIds.includes(l.externalListingId)
-    );
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Could not load Shopify products.";
-    return NextResponse.json({ error: msg }, { status: 502 });
+  const loaded = await loadListingsForImport({
+    jobId: body.jobId,
+    memberId: userId,
+    listingIds: body.listingIds,
+    fetchAll: () => getAdapter("shopify").listRemoteListings(ctx),
+  });
+
+  if (body.jobId && !loaded.job) {
+    return NextResponse.json({ error: loaded.loadError ?? "Import job not found." }, { status: 404 });
   }
 
-  const imported: { externalListingId: string; storeItemId: string }[] = [];
-  const skipped: { externalListingId: string; reason: string }[] = [];
-  let uncategorizedCount = 0;
+  if (loaded.loadError && !loaded.job) {
+    return NextResponse.json({ error: loaded.loadError }, { status: 502 });
+  }
 
-  for (const listing of remote) {
+  const imported: { externalListingId: string; storeItemId: string; title?: string; photo?: string }[] = [];
+  const skipped: ReturnType<typeof withSkipMeta>[] = [];
+  let uncategorizedCount = 0;
+  const jobId = loaded.job?.id;
+
+  if (loaded.loadError && loaded.job) {
+    for (const id of body.listingIds) {
+      const row = withSkipMeta({
+        externalListingId: id,
+        step: "create",
+        reason: loaded.loadError,
+      });
+      skipped.push(row);
+      await notifyImportJobSkip(jobId, row);
+    }
+    return NextResponse.json({ ok: true, jobId, imported, skipped, uncategorizedCount });
+  }
+
+  for (const id of loaded.unmatchedIds) {
+    const row = withSkipMeta({
+      externalListingId: id,
+      step: "create",
+      reason: "Could not match this product. Refresh and try again.",
+      retryable: true,
+    });
+    skipped.push(row);
+    await notifyImportJobSkip(jobId, row);
+  }
+
+  for (const listing of loaded.listings) {
+    await notifyImportJobStart(jobId, listing.title);
     const productId = listing.externalListingId;
 
     const existing = await prisma.channelListingLink.findUnique({
       where: { provider_externalListingId: { provider: "shopify", externalListingId: productId } },
     });
     if (existing) {
-      skipped.push({ externalListingId: productId, reason: "already_linked" });
+      const row = withSkipMeta({
+        externalListingId: productId,
+        title: listing.title,
+        photo: listing.photos?.[0],
+        step: "dedupe",
+        reason: "already_linked",
+      });
+      skipped.push(row);
+      await notifyImportJobSkip(jobId, row);
       continue;
     }
     if (listing.priceCents < 1) {
-      skipped.push({ externalListingId: productId, reason: "invalid_price" });
+      const row = withSkipMeta({
+        externalListingId: productId,
+        title: listing.title,
+        photo: listing.photos?.[0],
+        step: "validation",
+        reason: "invalid_price",
+      });
+      skipped.push(row);
+      await notifyImportJobSkip(jobId, row);
       continue;
     }
 
@@ -149,15 +202,30 @@ export async function POST(req: NextRequest) {
         });
         return storeItem;
       });
-      imported.push({ externalListingId: productId, storeItemId: created.id });
+      const row = {
+        externalListingId: productId,
+        storeItemId: created.id,
+        title: listing.title,
+        photo: listing.photos?.[0],
+      };
+      imported.push(row);
+      await notifyImportJobSuccess(jobId, row);
       if (!created.category) {
         uncategorizedCount++;
       }
     } catch (e) {
       console.error("[channels] shopify import failed", { externalListingId: productId, error: String(e) });
-      skipped.push({ externalListingId: productId, reason: "create_failed" });
+      const row = withSkipMeta({
+        externalListingId: productId,
+        title: listing.title,
+        photo: listing.photos?.[0],
+        step: "create",
+        reason: "create_failed",
+      });
+      skipped.push(row);
+      await notifyImportJobSkip(jobId, row);
     }
   }
 
-  return NextResponse.json({ ok: true, imported, skipped, uncategorizedCount });
+  return NextResponse.json({ ok: true, jobId, imported, skipped, uncategorizedCount });
 }

@@ -1,5 +1,6 @@
 import { isEbayConditionSyncError } from "@/lib/channels/ebay/conditions";
 import type { ItemChannelLink } from "@/components/store-item/ItemChannelSyncBadges";
+import { buildProductHref } from "@/lib/product-referrer";
 
 export type ItemsTab = "active" | "ended" | "sold";
 
@@ -37,5 +38,5 @@ export function itemEditHref(item: MyStoreItem): string {
 }
 
 export function itemListingHref(item: Pick<MyStoreItem, "slug">): string {
-  return `/storefront/${item.slug}`;
+  return buildProductHref(item.slug, { type: "my-items" });
 }

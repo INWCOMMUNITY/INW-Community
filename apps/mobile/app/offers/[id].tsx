@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPatch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { buildProductPath } from "@/lib/product-referrer";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -173,7 +174,11 @@ export default function BuyerOfferDetailScreen() {
         <Pressable
           onPress={() =>
             (router.push as (h: string) => void)(
-              `/product/${offer.storeItem.slug}?listingType=${encodeURIComponent(lt)}`
+              buildProductPath(
+                offer.storeItem.slug,
+                { type: "offer", offerId: String(offerId) },
+                { listingType: lt }
+              )
             )
           }
         >

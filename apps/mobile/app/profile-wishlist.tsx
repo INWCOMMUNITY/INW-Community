@@ -13,6 +13,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
+import { buildProductPath } from "@/lib/product-referrer";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -95,7 +96,9 @@ export default function ProfileWishlistScreen() {
                 key={item.id}
                 style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
                 onPress={() =>
-                  (router.push as (href: string) => void)(`/product/${item.slug}?listingType=${listingType}`)
+                  (router.push as (href: string) => void)(
+                    buildProductPath(item.slug, { type: "wishlist" }, { listingType })
+                  )
                 }
               >
                 {photoUrl ? (

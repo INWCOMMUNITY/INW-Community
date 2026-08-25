@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { getErrorMessage } from "@/lib/api-error";
 import { useParams, useSearchParams } from "next/navigation";
-import { getProductReferrer, buildBackLink } from "@/lib/product-referrer";
+import { getProductReferrer, buildBackLink, listingHrefPreservingReferrer } from "@/lib/product-referrer";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
@@ -956,7 +956,7 @@ export default function ProductDetailPage() {
                   </>
                 ) : (
                   <Link
-                    href={`/login?callbackUrl=${encodeURIComponent(`/storefront/${item.slug}`)}`}
+                    href={`/login?callbackUrl=${encodeURIComponent(listingHrefPreservingReferrer(item.slug, searchParams))}`}
                     className="btn inline-block text-center"
                   >
                     Sign in to Buy
@@ -1226,7 +1226,7 @@ className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] 
                   .map((other) => (
                     <Link
                       key={other.id}
-                      href={`/storefront/${other.slug}`}
+                      href={listingHrefPreservingReferrer(other.slug, searchParams)}
                       className="border-2 rounded-lg overflow-hidden hover:opacity-90 transition-opacity w-full max-w-[14rem] shrink-0"
                       style={{ borderColor: "#C9A86C" }}
                     >
@@ -1302,9 +1302,9 @@ className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] 
               {similarItems
                 .slice(moreLikeThisScrollIndex * ITEMS_PER_SCROLL, moreLikeThisScrollIndex * ITEMS_PER_SCROLL + ITEMS_PER_SCROLL)
                 .map((other) => (
-                  <Link
-                    key={`morelike-${other.id}`}
-                    href={`/storefront/${other.slug}`}
+                    <Link
+                      key={`morelike-${other.id}`}
+                      href={listingHrefPreservingReferrer(other.slug, searchParams)}
                     className="border-2 rounded-lg overflow-hidden hover:opacity-90 transition-opacity w-full max-w-[14rem] shrink-0"
                     style={{ borderColor: "#C9A86C" }}
                   >

@@ -16,6 +16,7 @@ import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPatch } from "@/lib/api";
+import { buildProductPath } from "@/lib/product-referrer";
 
 interface Buyer {
   id: string;
@@ -66,9 +67,11 @@ function OfferCard({
   return (
     <View style={styles.card}>
       <Pressable
-        onPress={() =>
-          (router.push as (href: string) => void)(`/product/${item.storeItem?.slug}`)
-        }
+        onPress={() => {
+          const slug = item.storeItem?.slug;
+          if (!slug) return;
+          (router.push as (href: string) => void)(buildProductPath(slug, { type: "offer" }));
+        }}
       >
         <View style={styles.cardRow}>
           {item.storeItem?.photos?.[0] ? (

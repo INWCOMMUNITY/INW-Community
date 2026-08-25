@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiPost, apiPostWithRetry } from "@/lib/api";
+import { buildProductPath } from "@/lib/product-referrer";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMobileChatRealtime } from "@/lib/use-mobile-chat-realtime";
 import {
@@ -686,9 +687,13 @@ export default function ResaleConversationScreen() {
     if (!conv?.storeItem?.slug) return;
     setSeeItemOpen(false);
     (router.push as (href: string) => void)(
-      `/product/${conv.storeItem.slug}`
+      buildProductPath(conv.storeItem.slug, {
+        type: "messages",
+        threadId: convId ?? undefined,
+        threadKind: "resale",
+      })
     );
-  }, [conv?.storeItem?.slug, router]);
+  }, [conv?.storeItem?.slug, convId, router]);
 
   const handleReportConversation = () => {
     setMenuOpen(false);

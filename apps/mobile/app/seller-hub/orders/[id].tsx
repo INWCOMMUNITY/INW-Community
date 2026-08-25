@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import { formatShippingAddress } from "@/lib/format-address";
+import { buildProductPath } from "@/lib/product-referrer";
 import {
   orderEligibleForAnotherShippoLabel,
   orderHasShippedLine,
@@ -136,8 +137,13 @@ export default function OrderDetailScreen() {
   const showPurchaseAnother = orderEligibleForAnotherShippoLabel(order);
 
   const openListing = (slug: string, listingType?: string) => {
-    const q = listingType === "resale" ? "?listingType=resale" : "";
-    router.push(`/product/${slug}${q}` as never);
+    router.push(
+      buildProductPath(
+        slug,
+        { type: "order", orderId: id, orderKind: "seller" },
+        listingType === "resale" ? { listingType: "resale" } : undefined
+      ) as never
+    );
   };
 
   const openShippoLabelFullScreen = (mode: "reprint" | "purchase" | "another") => {

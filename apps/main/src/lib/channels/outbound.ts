@@ -30,6 +30,7 @@ import { formatProviderPublishError, validateForProvider } from "./validate-publ
 import { shouldPushSoldOutInventoryOnly } from "./sold-out-guard";
 import { isEbayEndedListingError } from "./error-classifier";
 import { persistEbayListingEnded, shouldSkipEndedEbayOutbound } from "./listing-link-flags";
+import { claimChannelListingLink } from "./listing-link-claim";
 /** Content fingerprint so we can skip no-op pushes on update. */
 function contentHash(item: SyncStoreItem): string {
   return storeItemContentHash(item);
@@ -275,26 +276,25 @@ export async function publishStoreItemToChannels(
 
       const result = await adapter.createListing(conn, adjustedItem);
       const live = result.live !== false;
-      await prisma.channelListingLink.create({
-        data: {
-          storeItemId,
-          connectionId: conn.id,
-          provider,
-          externalListingId: result.externalListingId,
-          externalShopId: result.externalShopId,
-          ...(provider === "ebay" ? { linkOrigin: "inw_create" as const } : {}),
-          syncEnabled: true,
-          syncStatus: live ? "synced" : "error",
-          syncError: live ? null : (result.warning ?? "Created as a draft — it is not live yet."),
-          lastPushedHash: contentHash(item),
-          lastPushedAt: new Date(),
-          lastPushedPhotos: item.photos,
-          syncBaselineHash: syncContentHash(item),
-          syncBaselineMetaHash: syncMetaHash(item),
-          syncBaselineVariantsHash: variantsFingerprint(item.variants),
-          syncBaselineQty: item.quantity,
-          syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
-        },
+      await claimChannelListingLink({
+        storeItemId,
+        memberId,
+        connectionId: conn.id,
+        provider,
+        externalListingId: result.externalListingId,
+        externalShopId: result.externalShopId,
+        ...(provider === "ebay" || provider === "wix" ? { linkOrigin: "inw_create" as const } : {}),
+        syncEnabled: true,
+        syncStatus: live ? "synced" : "error",
+        syncError: live ? null : (result.warning ?? "Created as a draft — it is not live yet."),
+        lastPushedHash: contentHash(item),
+        lastPushedAt: new Date(),
+        lastPushedPhotos: item.photos,
+        syncBaselineHash: syncContentHash(item),
+        syncBaselineMetaHash: syncMetaHash(item),
+        syncBaselineVariantsHash: variantsFingerprint(item.variants),
+        syncBaselineQty: item.quantity,
+        syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
       });
       if (!live) {
         results.push({

@@ -10,6 +10,7 @@ import { AddressSearchInput, type AddressValue } from "@/components/AddressSearc
 import { LocalDeliveryModal, type LocalDeliveryDetails } from "@/components/LocalDeliveryModal";
 import { PickupTermsModal, type PickupDetails } from "@/components/PickupTermsModal";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { buildProductHref } from "@/lib/product-referrer";
 
 interface CartItemStoreItem {
   id: string;
@@ -57,7 +58,7 @@ type FulfillmentType = "ship" | "local_delivery" | "pickup";
 const emptyShippingAddress = { street: "", aptOrSuite: "", city: "", state: "", zip: "" };
 
 function getItemProductUrl(item: CartItem): string {
-  return `/storefront/${item.storeItem.slug}`;
+  return buildProductHref(item.storeItem.slug, { type: "cart" });
 }
 
 function refetchCart(): Promise<CartItem[]> {

@@ -128,6 +128,7 @@ function firstMediaUrl(product: WixProduct): string[] {
 export type WixV1Product = {
   id?: string;
   name?: string;
+  sku?: string | null;
   visible?: boolean;
   description?: string;
   price?: number;
@@ -136,6 +137,7 @@ export type WixV1Product = {
   stock?: { quantity?: number; trackInventory?: boolean; inStock?: boolean };
   variants?: {
     id?: string;
+    sku?: string | null;
     price?: number;
     priceData?: { price?: number };
     stock?: { quantity?: number; inStock?: boolean; trackInventory?: boolean; trackQuantity?: boolean };
@@ -242,9 +244,11 @@ export function wixV1ProductToSummary(
     (ribbon && !isWixNoiseCategoryLabel(ribbon) ? ribbon : null) ||
     fromCollections ||
     (productType && !isWixNoiseCategoryLabel(productType) ? productType : null);
+  const sku = product.sku?.trim() || product.variants?.[0]?.sku?.trim() || null;
   return {
     externalListingId: product.id || "",
     title: product.name || "Wix product",
+    sku,
     description: desc || null,
     priceCents: v1PriceCents(product),
     quantity: v1Quantity(product),
@@ -284,6 +288,7 @@ export function buildWixV1CreateBody(item: SyncStoreItem): Record<string, unknow
     name: item.title.slice(0, 80),
     productType: "physical",
     visible: true,
+    sku: getEffectiveSku(item),
     priceData: { price: Math.max(0, item.priceCents) / 100 },
     stock: buildWixV1StockFields(item.quantity),
   };
@@ -310,6 +315,7 @@ export function buildWixV1UpdateBody(
   const product: Record<string, unknown> = {
     name: item.title.slice(0, 80),
     description: (item.description ?? "").trim() || undefined,
+    sku: getEffectiveSku(item),
     priceData: { price },
   };
   const media = buildWixV1MediaFromPhotos(item.photos);

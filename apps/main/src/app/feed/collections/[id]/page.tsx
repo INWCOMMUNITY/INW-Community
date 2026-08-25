@@ -1,56 +1,16 @@
-"use client";
-
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
-import { useParams } from "next/navigation";
+import { notFound } from "next/navigation";
+import { getListingFeedCollectionById } from "@/lib/listing-feed-collection";
+import { buildProductHref } from "@/lib/product-referrer";
 
-type CollectionItem = {
-  id: string;
-  title: string;
-  slug: string;
-  photos: string[];
-  priceCents: number;
-  status: string;
-  quantity: number;
-};
+type PageProps = { params: Promise<{ id: string }> };
 
-export default function ListingFeedCollectionPage() {
-  const params = useParams();
-  const id = typeof params?.id === "string" ? params.id : "";
-  const [title, setTitle] = useState("New Listings");
-  const [items, setItems] = useState<CollectionItem[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+export default async function ListingFeedCollectionPage({ params }: PageProps) {
+  const { id } = await params;
+  const collection = await getListingFeedCollectionById(id);
+  if (!collection) notFound();
 
-  useEffect(() => {
-    if (!id) return;
-    let cancelled = false;
-    fetch(`/api/feed/listing-collections/${encodeURIComponent(id)}`)
-      .then(async (r) => {
-        const data = (await r.json().catch(() => ({}))) as {
-          title?: string;
-          items?: CollectionItem[];
-          error?: string;
-        };
-        if (cancelled) return;
-        if (!r.ok) {
-          setError(data.error ?? "Collection not found.");
-          setItems([]);
-          return;
-        }
-        setTitle(data.title ?? "New Listings");
-        setItems(Array.isArray(data.items) ? data.items : []);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setError("Could not load this collection.");
-          setItems([]);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [id]);
+  const { title, items } = collection;
 
   return (
     <section className="py-12 px-4" style={{ paddingTop: "calc(var(--section-padding) + 0.5in)" }}>
@@ -71,15 +31,7 @@ export default function ListingFeedCollectionPage() {
         <p className="text-sm mb-8" style={{ color: "var(--color-text)" }}>
           New listings from this share. Open any item to view or buy it.
         </p>
-        {items === null ? (
-          <p className="text-sm" style={{ color: "var(--color-text)" }}>
-            Loading…
-          </p>
-        ) : error ? (
-          <p className="text-sm" style={{ color: "var(--color-heading)" }}>
-            {error}
-          </p>
-        ) : items.length === 0 ? (
+        {items.length === 0 ? (
           <p className="text-sm" style={{ color: "var(--color-text)" }}>
             These listings are no longer available.
           </p>
@@ -90,18 +42,18 @@ export default function ListingFeedCollectionPage() {
               return (
                 <li key={item.id}>
                   <Link
-                    href={`/storefront/${item.slug}`}
+                    href={buildProductHref(item.slug, { type: "feed-collection", collectionId: id })}
                     className="flex gap-3 rounded-xl border-2 bg-white p-3 hover:bg-[var(--color-section-alt)]"
                     style={{ borderColor: "var(--color-primary)" }}
                   >
                     {item.photos[0] ? (
-                      <Image
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
                         src={item.photos[0]}
                         alt=""
                         width={88}
                         height={88}
                         className="h-[88px] w-[88px] shrink-0 rounded-lg object-cover"
-                        quality={90}
                       />
                     ) : (
                       <div

@@ -9,6 +9,7 @@ import {
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import { StoreItemCard, type StoreItemData } from "./StoreItemCard";
+import type { ProductReferrer } from "@/lib/product-referrer";
 
 const CARD_WIDTH = 140;
 const CARD_GAP = 12;
@@ -19,6 +20,7 @@ interface RelatedItemsSectionProps {
   category?: string;
   excludeId: string;
   limit?: number;
+  referrer?: ProductReferrer;
 }
 
 export function RelatedItemsSection({
@@ -27,6 +29,7 @@ export function RelatedItemsSection({
   category,
   excludeId,
   limit = 10,
+  referrer,
 }: RelatedItemsSectionProps) {
   const [items, setItems] = useState<StoreItemData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,6 +84,7 @@ export function RelatedItemsSection({
             width={CARD_WIDTH}
             variant="carousel"
             showBadges={false}
+            referrer={referrer}
           />
         ))}
       </ScrollView>

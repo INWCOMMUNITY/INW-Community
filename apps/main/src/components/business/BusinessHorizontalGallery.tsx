@@ -8,9 +8,14 @@ import { useLockBodyScroll } from "@/lib/scroll-lock";
 type Props = {
   photos: string[];
   alt: string;
+  thumbClassName?: string;
 };
 
-export function BusinessHorizontalGallery({ photos, alt }: Props) {
+export function BusinessHorizontalGallery({
+  photos,
+  alt,
+  thumbClassName = "w-[280px] h-[220px]",
+}: Props) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [index, setIndex] = useState(0);
   const [portalReady, setPortalReady] = useState(false);
@@ -44,7 +49,7 @@ export function BusinessHorizontalGallery({ photos, alt }: Props) {
               setIndex(i);
               setLightboxOpen(true);
             }}
-            className="relative shrink-0 w-[280px] h-[220px] rounded-lg overflow-hidden bg-[#f5f5f5]"
+            className={`relative shrink-0 rounded-xl overflow-hidden bg-[#f5f5f5] ${thumbClassName}`}
           >
             <Image
               src={url}

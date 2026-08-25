@@ -4,7 +4,13 @@ import {
   shouldPassThroughListingPhotoToWix,
   type WixProductMediaRef,
 } from "./media-import";
-import { buildWixV1CreateBody, buildWixV1MediaFromPhotos, v1Photos, wixProductToSummary } from "./mapping";
+import {
+  buildWixV1CreateBody,
+  buildWixV1MediaFromPhotos,
+  v1Photos,
+  wixProductToSummary,
+  wixV1ProductToSummary,
+} from "./mapping";
 import type { SyncStoreItem } from "../types";
 
 describe("buildWixV1MediaFromPhotos", () => {
@@ -53,10 +59,39 @@ describe("buildWixV1MediaFromPhotos", () => {
       ebayConditionEnum: null,
       aspects: null,
     };
-    const body = buildWixV1CreateBody(item) as { product: { media?: unknown } };
+    const body = buildWixV1CreateBody(item) as { product: { media?: unknown; sku?: string } };
     expect(body.product.media).toEqual({
       mainMedia: { image: { url: "https://cdn.example.com/hat.jpg" } },
     });
+    expect(body.product.sku).toBe("item-1");
+  });
+
+  it("sets sku from the item sku when present", () => {
+    const item: SyncStoreItem = {
+      id: "item-1",
+      sku: "HAT-42",
+      title: "Hat",
+      description: null,
+      photos: [],
+      priceCents: 1000,
+      quantity: 2,
+      variants: null,
+      status: "active",
+      condition: "new",
+      shippingCostCents: null,
+      category: null,
+      subcategory: null,
+      secondaryCategory: null,
+      etsyWhoMade: null,
+      etsyWhenMade: null,
+      etsyIsSupply: null,
+      etsyTaxonomyId: null,
+      ebayCategoryId: null,
+      ebayConditionEnum: null,
+      aspects: null,
+    };
+    const body = buildWixV1CreateBody(item) as { product: { sku?: string } };
+    expect(body.product.sku).toBe("HAT-42");
   });
 });
 
@@ -71,6 +106,16 @@ describe("Wix listing photo import quality", () => {
         media: { mainMedia: { image: { url: fillUrl } } },
       })
     ).toEqual([originalUrl]);
+  });
+
+  it("maps v1 product sku onto the import summary", () => {
+    expect(
+      wixV1ProductToSummary({
+        id: "p1",
+        name: "Hat",
+        sku: "item-1",
+      }).sku
+    ).toBe("item-1");
   });
 
   it("strips /v1/fill transforms from catalog v3 photos", () => {

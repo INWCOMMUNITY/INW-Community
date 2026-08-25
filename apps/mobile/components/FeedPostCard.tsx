@@ -51,6 +51,7 @@ import { CollapsibleLinkPreview } from "@/components/LinkPreviewCard";
 import { extractFirstUrl } from "@/lib/extract-urls";
 import { formatTime12h } from "@/lib/format-time";
 import { formatRelativeTime } from "@/lib/format-relative-time";
+import { buildProductPath } from "@/lib/product-referrer";
 import { Video, ResizeMode, type VideoReadyForDisplayEvent } from "expo-av";
 
 /** "Sat, Jun 6 · 9:00 AM – 5:00 PM" for a shared event embed. */
@@ -913,7 +914,9 @@ function FeedPostCardInner({
         <Pressable
           style={styles.sourceCard}
           onPress={() =>
-            (router.push as (href: string) => void)(`/product/${post.sourceStoreItem!.slug}`)
+            (router.push as (href: string) => void)(
+              buildProductPath(post.sourceStoreItem!.slug, { type: "feed" })
+            )
           }
         >
           <View style={styles.sourceRow}>

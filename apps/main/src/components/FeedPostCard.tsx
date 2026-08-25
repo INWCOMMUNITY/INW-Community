@@ -11,6 +11,7 @@ import { PollCard } from "@/components/feed/PollCard";
 import { LinkPreviewCard } from "@/components/feed/LinkPreviewCard";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import { extractFirstUrl } from "@/lib/extract-urls";
+import { buildProductHref } from "@/lib/product-referrer";
 const TRUNCATE_LENGTH = 200;
 
 function taggedBusinessListSeparator(index: number, total: number): string {
@@ -626,7 +627,7 @@ export function FeedPostCard({
         )}
         {post.type === "shared_store_item" && post.sourceStoreItem && (
           <div className="border rounded p-4 bg-gray-50 mb-3">
-            <Link href={`/storefront/${post.sourceStoreItem.slug}`} className="block hover:opacity-90">
+            <Link href={buildProductHref(post.sourceStoreItem.slug, { type: "feed" })} className="block hover:opacity-90">
               <div className="flex gap-3">
                 {post.sourceStoreItem.photos[0] && (
                   <Image src={post.sourceStoreItem.photos[0]} alt="" width={64} height={64} className="w-16 h-16 object-cover rounded" quality={95} />
@@ -787,7 +788,7 @@ export function FeedPostCard({
             )}
             {post.sourcePost.type === "shared_store_item" && post.sourcePost.sourceStoreItem && (
               <div className="border rounded p-3 bg-white mb-2">
-                <Link href={`/storefront/${post.sourcePost.sourceStoreItem.slug}`} className="block hover:opacity-90">
+                <Link href={buildProductHref(post.sourcePost.sourceStoreItem.slug, { type: "feed" })} className="block hover:opacity-90">
                   <div className="flex gap-2">
                     {post.sourcePost.sourceStoreItem.photos?.[0] && (
                       <Image src={post.sourcePost.sourceStoreItem.photos[0]} alt="" width={48} height={48} className="w-12 h-12 object-cover rounded" quality={95} />

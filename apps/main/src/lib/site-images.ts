@@ -25,6 +25,7 @@ export const SITE_IMAGE_KEYS = [
   { key: "rewards-header-bg", path: "/rewards-header-bg.png", label: "Rewards page header" },
   { key: "hero-background", path: "/hero-background.png", label: "Home hero background" },
   { key: "coupons-header-forest", path: "/coupons-header-forest.png", label: "Coupons header forest" },
+  { key: "local-sellers-header", path: "/local-sellers-header.png", label: "Local Sellers header" },
   { key: "storefront-header", path: "/storefront-header.png", label: "Storefront header" },
   { key: "calendars-fun_events", path: "/calendars/fun_events.png", label: "Calendar – Fun Events" },
   { key: "calendars-local_art_music", path: "/calendars/local_art_music.png", label: "Calendar – Local Art & Music" },

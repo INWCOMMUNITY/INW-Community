@@ -26,6 +26,7 @@ import {
   type ListOnCategoryProvider,
 } from "@/lib/list-on-channel-category";
 import { isEbayConditionSyncError } from "@/lib/ebay-condition-sync";
+import { buildProductPath } from "@/lib/product-referrer";
 import { QualityScoreBadge } from "@/components/listing/QualityScoreBadge";
 import { BulkActionsBar } from "@/components/seller/BulkActionsBar";
 import {
@@ -600,7 +601,7 @@ export default function MyItemsScreen() {
                   if (itemsTab === "sold" && item.soldOrderId) {
                     (router.push as (href: string) => void)(`/seller-hub/orders/${item.soldOrderId}`);
                   } else {
-                    router.push(`/product/${item.slug}` as any);
+                    router.push(buildProductPath(item.slug, { type: "my-items" }) as never);
                   }
                 }}
               >

@@ -52,6 +52,7 @@ import {
   type WixV1Product,
 } from "./mapping";
 import { syncWixProductMedia } from "./media";
+import { claimChannelListingLink } from "../listing-link-claim";
 
 type ProductResponse = { product?: WixProduct };
 type ProductsQueryResponse = {
@@ -693,6 +694,7 @@ export const wixAdapter: ChannelAdapter = {
   async createListing(conn, item): Promise<CreateListingResult> {
     let mode = await prepareWixConn(conn);
     let lastErr: unknown;
+    let createdProductId: string | undefined;
 
     // Retry once across catalog versions when the cached mode is wrong (428 wrong-catalog-version).
     for (let pass = 0; pass < 2; pass++) {
@@ -719,10 +721,26 @@ export const wixAdapter: ChannelAdapter = {
             return res.product?.id;
           };
 
-          const productId = mode === "v1" ? await createV1() : await createV3();
+          const productId =
+            createdProductId ?? (mode === "v1" ? await createV1() : await createV3());
           if (!productId) {
             throw new Error("Wix did not return a product id for the created listing.");
           }
+          createdProductId = productId;
+          // Claim before category/media so a Wix product-created webhook cannot auto-import
+          // this product onto a new StoreItem (P2002 race with outbound link create).
+          await claimChannelListingLink({
+            storeItemId: item.id,
+            memberId: conn.memberId,
+            connectionId: conn.id,
+            provider: "wix",
+            externalListingId: productId,
+            externalShopId: conn.externalShopId,
+            linkOrigin: "inw_create",
+            syncEnabled: true,
+            syncStatus: "synced",
+            lastPushedAt: new Date(),
+          });
           await applyWixCategoryAndOptions(conn, productId, item, opts, mode === "v1");
           await syncWixProductMedia(conn, productId, item.photos);
           return { externalListingId: productId, externalShopId: conn.externalShopId };

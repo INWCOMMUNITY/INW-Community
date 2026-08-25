@@ -5,8 +5,44 @@
  */
 
 import { prisma } from "database";
-import { logSyncEvent, type SyncLogAction } from "./sync-log";
+import { logSyncEvent } from "./sync-log";
 import type { ChannelProvider } from "./types";
+import type { ImportSkipEntry, ImportSuccessEntry } from "./import-skip";
+import { importJobDisplayPercent } from "./import-job-progress";
+
+export type ImportJobSnapshot = {
+  externalListingId: string;
+  title: string;
+  sku?: string | null;
+  description?: string | null;
+  priceCents?: number;
+  quantity?: number;
+  photos?: string[];
+  category?: string | null;
+  subcategory?: string | null;
+  remoteCategoryId?: string | null;
+  shippingCostCents?: number | null;
+  remoteShippingProfileId?: string | null;
+  packageWeightOz?: number | null;
+  packageLengthIn?: number | null;
+  packageWidthIn?: number | null;
+  packageHeightIn?: number | null;
+  variants?: unknown;
+  aspects?: { name: string; value: string }[];
+  acceptOffers?: boolean;
+  minOfferCents?: number | null;
+  [key: string]: unknown;
+};
+
+export type ImportJobBlob = {
+  listingIds?: string[];
+  snapshots?: ImportJobSnapshot[];
+  unmatchedIds?: string[];
+  currentTitle?: string | null;
+  imported?: ImportSuccessEntry[];
+  skipped?: ImportSkipEntry[];
+  errors?: { listingId: string; error: string }[];
+};
 
 export interface BatchImportJob {
   id: string;
@@ -20,6 +56,12 @@ export interface BatchImportJob {
   createdAt: Date;
   startedAt?: Date;
   completedAt?: Date;
+  currentTitle?: string | null;
+  imported: ImportSuccessEntry[];
+  skipped: ImportSkipEntry[];
+  listingIds: string[];
+  snapshots: ImportJobSnapshot[];
+  unmatchedIds: string[];
 }
 
 export interface BatchImportOptions {
@@ -45,7 +87,43 @@ function parseErrors(errors: unknown): { listingId: string; error: string }[] {
         typeof e === "object" && e !== null && "listingId" in e && "error" in e
     );
   }
+  if (typeof errors === "object") {
+    const blob = errors as ImportJobBlob;
+    if (Array.isArray(blob.errors)) return parseErrors(blob.errors);
+    if (Array.isArray(blob.skipped)) {
+      return blob.skipped.map((s) => ({ listingId: s.externalListingId, error: s.reason }));
+    }
+  }
   return [];
+}
+
+export function parseImportJobBlob(errors: unknown): ImportJobBlob {
+  if (!errors) {
+    return { listingIds: [], snapshots: [], unmatchedIds: [], imported: [], skipped: [], errors: [] };
+  }
+  if (Array.isArray(errors)) {
+    return {
+      listingIds: [],
+      snapshots: [],
+      unmatchedIds: [],
+      imported: [],
+      skipped: [],
+      errors: parseErrors(errors),
+    };
+  }
+  if (typeof errors === "object") {
+    const o = errors as ImportJobBlob;
+    return {
+      listingIds: Array.isArray(o.listingIds) ? o.listingIds : [],
+      snapshots: Array.isArray(o.snapshots) ? o.snapshots : [],
+      unmatchedIds: Array.isArray(o.unmatchedIds) ? o.unmatchedIds : [],
+      currentTitle: o.currentTitle ?? null,
+      imported: Array.isArray(o.imported) ? o.imported : [],
+      skipped: Array.isArray(o.skipped) ? o.skipped : [],
+      errors: parseErrors(o.errors ?? o.skipped),
+    };
+  }
+  return { listingIds: [], snapshots: [], unmatchedIds: [], imported: [], skipped: [], errors: [] };
 }
 
 function dbJobToInterface(
@@ -63,6 +141,7 @@ function dbJobToInterface(
     completedAt: Date | null;
   }
 ): BatchImportJob {
+  const blob = parseImportJobBlob(dbJob.errors);
   return {
     id: dbJob.id,
     memberId: dbJob.memberId,
@@ -71,10 +150,16 @@ function dbJobToInterface(
     total: dbJob.total,
     completed: dbJob.completed,
     failed: dbJob.failed,
-    errors: parseErrors(dbJob.errors),
+    errors: blob.errors ?? [],
     createdAt: dbJob.createdAt,
     startedAt: dbJob.startedAt ?? undefined,
     completedAt: dbJob.completedAt ?? undefined,
+    currentTitle: blob.currentTitle ?? null,
+    imported: blob.imported ?? [],
+    skipped: blob.skipped ?? [],
+    listingIds: blob.listingIds ?? [],
+    snapshots: blob.snapshots ?? [],
+    unmatchedIds: blob.unmatchedIds ?? [],
   };
 }
 
@@ -84,8 +169,18 @@ function dbJobToInterface(
 export async function createBatchImportJob(
   memberId: string,
   provider: ChannelProvider,
-  total: number
+  total: number,
+  listingIds: string[] = []
 ): Promise<BatchImportJob> {
+  const blob: ImportJobBlob = {
+    listingIds,
+    snapshots: [],
+    unmatchedIds: [],
+    currentTitle: null,
+    imported: [],
+    skipped: [],
+    errors: [],
+  };
   const dbJob = await prisma.batchImportJob.create({
     data: {
       memberId,
@@ -94,7 +189,7 @@ export async function createBatchImportJob(
       total,
       completed: 0,
       failed: 0,
-      errors: [],
+      errors: blob as object,
     },
   });
   return dbJobToInterface(dbJob);
@@ -129,17 +224,102 @@ export async function updateBatchImportProgress(
     });
     if (!current) return null;
 
-    const errors = parseErrors(current.errors);
+    const blob = parseImportJobBlob(current.errors);
+    const errors = blob.errors ?? [];
     if (!success && error) {
       errors.push(error);
     }
+    blob.errors = errors;
 
     const dbJob = await prisma.batchImportJob.update({
       where: { id: jobId },
       data: {
         completed: success ? current.completed + 1 : current.completed,
         failed: success ? current.failed : current.failed + 1,
-        errors,
+        errors: blob as object,
+      },
+    });
+    return dbJobToInterface(dbJob);
+  } catch {
+    return null;
+  }
+}
+
+export async function saveImportJobSnapshots(
+  jobId: string,
+  snapshots: ImportJobSnapshot[],
+  unmatchedIds: string[] = []
+): Promise<BatchImportJob | null> {
+  try {
+    const current = await prisma.batchImportJob.findUnique({ where: { id: jobId } });
+    if (!current) return null;
+    const blob = parseImportJobBlob(current.errors);
+    blob.snapshots = snapshots;
+    blob.unmatchedIds = unmatchedIds;
+    const dbJob = await prisma.batchImportJob.update({
+      where: { id: jobId },
+      data: { errors: blob as object },
+    });
+    return dbJobToInterface(dbJob);
+  } catch {
+    return null;
+  }
+}
+
+export async function setImportJobCurrentTitle(
+  jobId: string,
+  title: string | null
+): Promise<BatchImportJob | null> {
+  try {
+    const current = await prisma.batchImportJob.findUnique({ where: { id: jobId } });
+    if (!current) return null;
+    const blob = parseImportJobBlob(current.errors);
+    blob.currentTitle = title;
+    const dbJob = await prisma.batchImportJob.update({
+      where: { id: jobId },
+      data: { errors: blob as object },
+    });
+    return dbJobToInterface(dbJob);
+  } catch {
+    return null;
+  }
+}
+
+export async function recordImportJobItem(
+  jobId: string,
+  result:
+    | { success: true; imported: ImportSuccessEntry }
+    | { success: false; skipped: ImportSkipEntry }
+): Promise<BatchImportJob | null> {
+  try {
+    const current = await prisma.batchImportJob.findUnique({ where: { id: jobId } });
+    if (!current) return null;
+    const blob = parseImportJobBlob(current.errors);
+    if (result.success) {
+      blob.imported = [...(blob.imported ?? []), result.imported];
+    } else {
+      blob.skipped = [...(blob.skipped ?? []), result.skipped];
+      blob.errors = [
+        ...(blob.errors ?? []),
+        { listingId: result.skipped.externalListingId, error: result.skipped.reason },
+      ];
+    }
+    blob.currentTitle = null;
+
+    const nextCompleted = result.success ? current.completed + 1 : current.completed;
+    const nextFailed = result.success ? current.failed : current.failed + 1;
+    const processed = nextCompleted + nextFailed;
+    const done = processed >= current.total;
+
+    const dbJob = await prisma.batchImportJob.update({
+      where: { id: jobId },
+      data: {
+        status: done ? "completed" : current.status === "pending" ? "processing" : current.status,
+        startedAt: current.startedAt ?? new Date(),
+        completed: nextCompleted,
+        failed: nextFailed,
+        errors: blob as object,
+        ...(done ? { completedAt: new Date() } : {}),
       },
     });
     return dbJobToInterface(dbJob);
@@ -171,12 +351,12 @@ export async function failBatchImportJob(jobId: string, error: string): Promise<
     const current = await prisma.batchImportJob.findUnique({
       where: { id: jobId },
     });
-    const errors = parseErrors(current?.errors);
-    errors.push({ listingId: "job", error });
+    const blob = parseImportJobBlob(current?.errors);
+    blob.errors = [...(blob.errors ?? []), { listingId: "job", error }];
 
     const dbJob = await prisma.batchImportJob.update({
       where: { id: jobId },
-      data: { status: "failed", completedAt: new Date(), errors },
+      data: { status: "failed", completedAt: new Date(), errors: blob as object },
     });
     return dbJobToInterface(dbJob);
   } catch {
@@ -215,6 +395,27 @@ export async function getMemberBatchImportJobs(memberId: string): Promise<BatchI
   } catch {
     return [];
   }
+}
+
+export function serializeBatchImportJob(job: BatchImportJob) {
+  const processed = job.completed + job.failed;
+  return {
+    id: job.id,
+    status: job.status,
+    provider: job.provider,
+    total: job.total,
+    completed: job.completed,
+    failed: job.failed,
+    processed,
+    errors: job.errors.slice(-20),
+    progress: importJobDisplayPercent(job),
+    currentTitle: job.currentTitle ?? null,
+    imported: job.imported,
+    skipped: job.skipped,
+    createdAt: job.createdAt.toISOString(),
+    startedAt: job.startedAt?.toISOString(),
+    completedAt: job.completedAt?.toISOString(),
+  };
 }
 
 /**

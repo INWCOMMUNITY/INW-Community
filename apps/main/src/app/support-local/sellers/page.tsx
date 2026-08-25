@@ -1,36 +1,66 @@
 import { Metadata } from "next";
 import Link from "next/link";
-import { WIX_IMG } from "@/lib/wix-media";
 import { NWCSellersGallery } from "@/components/NWCSellersGallery";
+import { getSiteImageUrl } from "@/lib/site-images";
 
-const LOCAL_SELLERS_HEADER_IMAGE =
-  "2bdd49_e1e0586237f84ed0aa7a2403118573ca~mv2.jpg/v1/fill/w_1810,h_432,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/SPonsor.jpg";
+const SECTION_BG = "var(--color-primary)";
 
 export const metadata: Metadata = {
   title: "Local Sellers | Northwest Community",
   description: "Locally owned businesses and people who are actively working to make shopping locally more accessible to this community.",
 };
 
-export default function LocalSellersPage() {
+export default async function LocalSellersPage() {
+  const headerImageUrl =
+    (await getSiteImageUrl("local-sellers-header")) ?? "/local-sellers-header.png";
+
   return (
     <>
       <header
-        className="relative w-full h-[500px] min-h-[500px] flex items-center justify-center overflow-hidden bg-gray-900"
-        style={{
-          backgroundImage: `url(${WIX_IMG(LOCAL_SELLERS_HEADER_IMAGE)})`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-          backgroundRepeat: "no-repeat",
-        }}
+        className="w-full overflow-hidden border-2"
+        style={{ backgroundColor: SECTION_BG, borderColor: "var(--color-secondary)" }}
+        aria-label="Local sellers"
       >
-        <div className="relative z-10 w-full max-w-2xl mx-auto px-4 py-6 md:px-6 md:py-10">
-          <div className="bg-white/60 backdrop-blur-sm rounded-lg shadow-lg p-6 max-md:p-4 md:p-10 text-center max-md:max-w-[320px] max-md:mx-auto">
-            <h1 className="text-[2rem] max-md:text-xl md:text-4xl font-bold mb-3 max-md:mb-2 text-black">
-              Local Sellers
-            </h1>
-            <p className="text-black leading-relaxed max-md:text-sm">
-              Locally owned businesses and people who are actively working to make shopping locally more accessible to this community. Browse their storefronts, save your favorite sellers, and purchase goods. This is beneficial for our community, so thanks for being here.
-            </p>
+        <div className="mx-auto w-full max-w-[var(--max-width)] px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
+          <div>
+            <div
+              className="w-full overflow-hidden rounded-xl border-2 shadow-lg"
+              style={{ borderColor: "var(--color-secondary)" }}
+            >
+              <img
+                src={headerImageUrl}
+                alt="Trailhead parking with a van, pickup, and evergreen trees"
+                className="block h-auto w-full"
+              />
+            </div>
+
+            <div
+              className="mx-auto mt-4 w-[92%] max-w-4xl rounded-xl border-2 bg-white px-5 py-5 sm:mt-5 sm:px-8 sm:py-6 md:px-10"
+              style={{
+                borderColor: "var(--color-secondary)",
+                boxShadow: "0 10px 20px -8px rgba(0, 0, 0, 0.18)",
+              }}
+            >
+              <h1
+                className="font-bold leading-tight mb-3 break-words text-center"
+                style={{
+                  color: "var(--color-heading)",
+                  fontFamily: "var(--font-heading)",
+                  fontSize: "clamp(1.5rem, 2.6vw, 2.25rem)",
+                }}
+              >
+                Local Sellers
+              </h1>
+              <p
+                className="leading-relaxed break-words text-center"
+                style={{
+                  color: "var(--color-text)",
+                  fontSize: "clamp(0.875rem, 1.2vw, 1.0625rem)",
+                }}
+              >
+                Locally owned businesses and people who are actively working to make shopping locally more accessible to this community. Browse their storefronts, save your favorite sellers, and purchase goods. This is beneficial for our community, so thanks for being here.
+              </p>
+            </div>
           </div>
         </div>
       </header>

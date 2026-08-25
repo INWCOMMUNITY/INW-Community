@@ -7,6 +7,14 @@ import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
 import { importRemoteListing } from "@/lib/channels/import-listing";
 import { WixApiError } from "@/lib/channels/wix/client";
+import { withSkipMeta } from "@/lib/channels/import-skip";
+import {
+  importPostBodySchema,
+  loadListingsForImport,
+  notifyImportJobSkip,
+  notifyImportJobStart,
+  notifyImportJobSuccess,
+} from "@/lib/channels/import-job-runtime";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -58,9 +66,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-const bodySchema = z.object({
-  listingIds: z.array(z.string()).min(1, "Select at least one product to import."),
-});
+const bodySchema = importPostBodySchema;
 
 /**
  * POST: import selected Wix products. Wix products are already inventory-managed, so there is no
@@ -90,22 +96,66 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Connect your Wix store first.", code: "NOT_CONNECTED" }, { status: 400 });
   }
 
-  let remote;
-  try {
-    remote = (await getAdapter("wix").listRemoteListings(ctx)).filter((l) =>
-      body.listingIds.includes(l.externalListingId)
-    );
-  } catch (e) {
-    console.error("[channels] wix import POST load failed", e);
-    const msg = channelErrorMessage(e, "Could not load Wix products.");
-    return NextResponse.json({ error: msg, code: "WIX_LIST_FAILED" }, { status: 502 });
+  const loaded = await loadListingsForImport({
+    jobId: body.jobId,
+    memberId: userId,
+    listingIds: body.listingIds,
+    fetchAll: async () => {
+      try {
+        return await getAdapter("wix").listRemoteListings(ctx);
+      } catch (e) {
+        throw new Error(channelErrorMessage(e, "Could not load Wix products."));
+      }
+    },
+  });
+
+  if (body.jobId && !loaded.job) {
+    return NextResponse.json({ error: loaded.loadError ?? "Import job not found." }, { status: 404 });
   }
 
-  const imported: { externalListingId: string; storeItemId: string }[] = [];
-  const skipped: { externalListingId: string; reason: string }[] = [];
-  let uncategorizedCount = 0;
+  if (loaded.loadError && !loaded.job) {
+    console.error("[channels] wix import POST load failed", loaded.loadError);
+    return NextResponse.json({ error: loaded.loadError, code: "WIX_LIST_FAILED" }, { status: 502 });
+  }
 
-  for (const listing of remote) {
+  const imported: { externalListingId: string; storeItemId: string; title?: string; photo?: string }[] = [];
+  const skipped: ReturnType<typeof withSkipMeta>[] = [];
+  let uncategorizedCount = 0;
+  const jobId = loaded.job?.id;
+
+  if (loaded.loadError && loaded.job) {
+    for (const id of body.listingIds) {
+      const row = withSkipMeta({
+        externalListingId: id,
+        step: "create",
+        reason: loaded.loadError,
+      });
+      skipped.push(row);
+      await notifyImportJobSkip(jobId, row);
+    }
+    return NextResponse.json({
+      ok: true,
+      jobId,
+      imported,
+      skipped,
+      uncategorizedCount,
+      hint: loaded.loadError,
+    });
+  }
+
+  for (const id of loaded.unmatchedIds) {
+    const row = withSkipMeta({
+      externalListingId: id,
+      step: "create",
+      reason: "Could not match this product. Refresh and try again.",
+      retryable: true,
+    });
+    skipped.push(row);
+    await notifyImportJobSkip(jobId, row);
+  }
+
+  for (const listing of loaded.listings) {
+    await notifyImportJobStart(jobId, listing.title);
     const result = await importRemoteListing({
       memberId: userId,
       connectionId: ctx.id,
@@ -115,18 +165,34 @@ export async function POST(req: NextRequest) {
       postToFeed: false,
     });
     if (result.ok) {
-      imported.push({ externalListingId: result.externalListingId, storeItemId: result.storeItemId });
+      const row = {
+        externalListingId: result.externalListingId,
+        storeItemId: result.storeItemId,
+        title: listing.title,
+        photo: listing.photos?.[0],
+      };
+      imported.push(row);
+      await notifyImportJobSuccess(jobId, row);
       if (result.needsCategoryReview) {
         uncategorizedCount++;
       }
     } else {
-      skipped.push({ externalListingId: result.externalListingId, reason: result.reason });
+      const row = withSkipMeta({
+        externalListingId: result.externalListingId,
+        title: listing.title,
+        photo: listing.photos?.[0],
+        step: "create",
+        reason: result.reason,
+      });
+      skipped.push(row);
+      await notifyImportJobSkip(jobId, row);
     }
   }
 
   const skippedReasons = [...new Set(skipped.map((s) => s.reason))];
   return NextResponse.json({
     ok: true,
+    jobId,
     imported,
     skipped,
     uncategorizedCount,

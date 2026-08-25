@@ -151,6 +151,37 @@ export function etsyProfileDomesticShippingCostCents(
   return etsyMoneyToCents(picked?.primary_cost);
 }
 
+/** POST body for Etsy createShopShippingProfile (US domestic flat rate). */
+export function buildInwFlatProfileFields(
+  rateCents: number,
+  profileName: string
+): Record<string, string | number> {
+  const cost = (Math.max(0, Math.round(rateCents)) / 100).toFixed(2);
+  return {
+    title: profileName,
+    origin_country_iso: "US",
+    destination_country_iso: "US",
+    primary_cost: cost,
+    secondary_cost: cost,
+    min_processing_time: 1,
+    max_processing_time: 3,
+  };
+}
+
+/**
+ * When an INW rate bucket could not be created, only reuse a shop profile whose US
+ * primary cost matches. Otherwise the listing should stay a draft.
+ */
+export function etsyFallbackProfileIfRateMatches(
+  intendedCents: number,
+  profile: EtsyShopShippingProfile | null | undefined
+): EtsyShopShippingProfile | null {
+  if (!profile || isEtsyCalculatedShippingProfile(profile)) return null;
+  const domestic = etsyProfileDomesticShippingCostCents(profile);
+  if (domestic == null || domestic !== Math.round(intendedCents)) return null;
+  return profile;
+}
+
 async function tryCreateInwFlatProfile(
   conn: ChannelConnectionContext,
   shopId: string,
@@ -162,14 +193,7 @@ async function tryCreateInwFlatProfile(
       conn.accessToken,
       `/shops/${shopId}/shipping-profiles`,
       "POST",
-      {
-        title: profileName,
-        origin_country_iso: "US",
-        primary_cost: (rateCents / 100).toFixed(2),
-        secondary_cost: (rateCents / 100).toFixed(2),
-        min_processing_time: 1,
-        max_processing_time: 3,
-      }
+      buildInwFlatProfileFields(rateCents, profileName)
     );
     const id = created.shipping_profile_id;
     if (!id) return null;
@@ -179,13 +203,13 @@ async function tryCreateInwFlatProfile(
   } catch (e) {
     if (isEtsyMissingShopsWriteScope(e)) {
       console.warn(
-        "[channels] Etsy token cannot create shipping profiles (needs shops_w). Reconnect Etsy in Sync Stores. Using an existing shop profile instead.",
+        "[channels] Etsy token cannot create shipping profiles (needs shops_w). Reconnect Etsy in Sync Stores.",
         { profileName }
       );
       await markCannotCreateShippingProfiles(conn);
       return null;
     }
-    console.warn("[channels] could not create Etsy flat shipping profile", {
+    console.error("[channels] could not create Etsy flat shipping profile", {
       error: String(e),
       profileName,
     });
@@ -242,6 +266,32 @@ export async function resolveEtsyShippingProfile(
       ? await tryCreateInwFlatProfile(conn, shopId, rate, profileName)
       : null;
     if (createdId) return resolvedProfile(createdId, false);
+
+    const fallback = pickPreferredEtsyShippingProfile(profiles, conn.etsyShippingProfileId);
+    const matched = etsyFallbackProfileIfRateMatches(rate, fallback);
+    if (matched) {
+      const matchedId = String(matched.shipping_profile_id);
+      if (matchedId !== conn.etsyShippingProfileId) {
+        await prisma.channelConnection
+          .update({
+            where: { id: conn.id },
+            data: { etsyShippingProfileId: matchedId },
+          })
+          .catch(() => {});
+        conn.etsyShippingProfileId = matchedId;
+      }
+      return resolvedProfile(matchedId, false);
+    }
+    console.error(
+      "[channels] Etsy INW shipping profile unavailable; listing will be a draft rather than using a mismatched shop profile",
+      {
+        profileName,
+        intendedCents: rate,
+        fallbackProfileId: fallback ? String(fallback.shipping_profile_id) : null,
+        fallbackCents: fallback ? etsyProfileDomesticShippingCostCents(fallback) : null,
+      }
+    );
+    return resolvedProfile(null, false);
   }
 
   const picked = pickPreferredEtsyShippingProfile(profiles, conn.etsyShippingProfileId);

@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCart } from "@/contexts/CartContext";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { buildProductHref } from "@/lib/product-referrer";
 
 interface CartItem {
   id: string;
@@ -139,11 +140,7 @@ export function SideCart() {
                   )}
                   <div className="flex-1 min-w-0">
                     <Link
-                      href={
-                        item.storeItem.listingType === "resale"
-                          ? `/resale/${item.storeItem.slug}`
-                          : `/storefront/${item.storeItem.slug}`
-                      }
+                      href={buildProductHref(item.storeItem.slug, { type: "cart" })}
                       className="font-medium hover:underline text-sm"
                       onClick={() => setOpen(false)}
                     >

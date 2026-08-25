@@ -44,6 +44,10 @@ import { ListingRichDescription } from "@/components/ListingRichDescription";
 import { RelatedItemsSection, CustomersAlsoViewedSection } from "@/components/store";
 import { AddToCollectionModal } from "@/components/AddToCollectionModal";
 import { PriceAlertModal } from "@/components/PriceAlertModal";
+import {
+  getProductReferrer,
+  buildBackLink,
+} from "@/lib/product-referrer";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -126,10 +130,26 @@ function resolvePhotoUrl(path: string | undefined): string | undefined {
 }
 
 export default function ProductScreen() {
-  const { slug } = useLocalSearchParams<{ slug: string }>();
+  const params = useLocalSearchParams();
+  const slugParam = params.slug;
+  const slug = Array.isArray(slugParam) ? slugParam[0] ?? "" : (slugParam ?? "");
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const referrer = getProductReferrer(params);
+  const backLink = buildBackLink(referrer);
+
+  const goBack = useCallback(() => {
+    if (referrer.type !== "storefront") {
+      (router.navigate as (href: string) => void)(backLink.href);
+      return;
+    }
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/(tabs)/store" as never);
+  }, [backLink.href, referrer.type, router]);
 
   const [item, setItem] = useState<StoreItem | null>(null);
   const [itemUnavailable, setItemUnavailable] = useState(false);
@@ -516,7 +536,11 @@ export default function ProductScreen() {
     return (
       <View style={styles.container}>
         <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+          <Pressable
+            onPress={goBack}
+            style={styles.backBtn}
+            accessibilityLabel={backLink.label}
+          >
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </Pressable>
           <Text style={styles.headerTitle}>Product</Text>
@@ -567,7 +591,11 @@ export default function ProductScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable
+          onPress={goBack}
+          style={styles.backBtn}
+          accessibilityLabel={backLink.label}
+        >
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>
@@ -1121,6 +1149,7 @@ export default function ProductScreen() {
               memberId={item.memberId}
               excludeId={item.id}
               limit={10}
+              referrer={referrer}
             />
           )}
 
@@ -1130,12 +1159,14 @@ export default function ProductScreen() {
               category={item.category}
               excludeId={item.id}
               limit={10}
+              referrer={referrer}
             />
           )}
 
           <CustomersAlsoViewedSection
             storeItemId={item.id}
             limit={10}
+            referrer={referrer}
           />
         </View>
       </ScrollView>

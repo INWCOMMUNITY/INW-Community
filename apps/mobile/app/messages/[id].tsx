@@ -25,6 +25,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPostWithRetry, apiPatch, apiUploadFile } from "@/lib/api";
+import { buildProductPath } from "@/lib/product-referrer";
 import { useMobileChatRealtime } from "@/lib/use-mobile-chat-realtime";
 import {
   type LiveSocketMessagePayload,
@@ -1244,7 +1245,13 @@ export default function DirectConversationScreen() {
             onOpenShared = () => {
               const slug = item.sharedStoreItem?.slug ?? item.sharedContentSlug;
               if (!slug) return;
-              router.push(`/product/${slug}`);
+              router.push(
+                buildProductPath(slug, {
+                  type: "messages",
+                  threadId: convId,
+                  threadKind: "chat",
+                }) as never
+              );
             };
           } else if (hasBusinessShare) {
             cornerIcon = "business";

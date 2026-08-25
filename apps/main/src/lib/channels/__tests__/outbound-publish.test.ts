@@ -6,9 +6,14 @@ const mockPrisma = {
     create: vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
       Promise.resolve({ id: "link-1", ...data })
     ),
+    update: vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+      Promise.resolve({ id: "link-1", ...data })
+    ),
+    delete: vi.fn().mockResolvedValue({}),
   },
   storeItem: {
     findUnique: vi.fn(),
+    delete: vi.fn().mockResolvedValue({}),
   },
   memberSyncPreferences: {
     findUnique: vi.fn().mockResolvedValue(null),
@@ -97,6 +102,10 @@ describe("publishStoreItemToChannels", () => {
     mockPrisma.channelListingLink.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
       Promise.resolve({ id: "link-1", ...data })
     );
+    mockPrisma.channelListingLink.update.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+      Promise.resolve({ id: "link-1", ...data })
+    );
+    mockPrisma.storeItem.delete.mockResolvedValue({});
     mockAdapter.createListing.mockResolvedValue({
       externalListingId: "ext-123",
       externalShopId: "shop-1",
@@ -255,5 +264,37 @@ describe("publishStoreItemToChannels", () => {
     expect(results[0]?.ok).toBe(false);
     expect(results[0]?.error).toMatch(/draft/i);
     expect(mockPrisma.channelListingLink.create).toHaveBeenCalledOnce();
+  });
+
+  it("claims an auto-imported Wix link on P2002 instead of failing publish", async () => {
+    const { publishStoreItemToChannels } = await import("../outbound");
+    mockPrisma.storeItem.findUnique
+      .mockResolvedValueOnce(makeStoreItem())
+      .mockResolvedValueOnce({ _count: { channelLinks: 0, orderItems: 0 } });
+    mockGetActiveConnectionsForMember.mockResolvedValueOnce([makeConn({ provider: "wix" })]);
+    const p2002 = Object.assign(new Error("Unique constraint failed"), {
+      code: "P2002",
+      meta: { target: ["provider", "external_listing_id"] },
+    });
+    mockPrisma.channelListingLink.create.mockRejectedValueOnce(p2002);
+    mockPrisma.channelListingLink.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: "link-orphan",
+        storeItemId: "orphan-item",
+        storeItem: { memberId: "member-1" },
+      });
+
+    const results = await publishStoreItemToChannels("item-1", "member-1", { providers: ["wix"] });
+
+    expect(results[0]).toEqual({ provider: "wix", ok: true });
+    expect(mockAdapter.createListing).toHaveBeenCalledOnce();
+    expect(mockPrisma.channelListingLink.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "link-orphan" },
+        data: expect.objectContaining({ storeItemId: "item-1" }),
+      })
+    );
+    expect(mockPrisma.storeItem.delete).toHaveBeenCalledWith({ where: { id: "orphan-item" } });
   });
 });

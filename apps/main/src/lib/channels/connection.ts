@@ -9,9 +9,12 @@ import {
   notifyChannelDisconnectIfNew,
   readDisconnectNotifiedAt,
 } from "./channel-disconnect-notify";
+import { shouldBlockDevChannelTokenWrites } from "./dev-prod-guard";
 
 /** Refresh before the token's last 5 minutes so the channel cron never starts on a dying token. */
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
+const REFRESH_LOCK_TTL_MS = 20_000;
+const refreshInflight = new Map<string, Promise<string>>();
 
 type ConnectionRow = {
   id: string;
@@ -36,6 +39,167 @@ function mergeConnectionConfig(
       ? { ...(config as Record<string, unknown>) }
       : {};
   return { ...base, ...patch };
+}
+
+function readRefreshingAt(config: unknown): number | null {
+  if (!config || typeof config !== "object" || Array.isArray(config)) return null;
+  const raw = (config as Record<string, unknown>).refreshingAt;
+  if (typeof raw !== "string") return null;
+  const t = Date.parse(raw);
+  return Number.isNaN(t) ? null : t;
+}
+
+function isRefreshLockHeld(config: unknown): boolean {
+  const at = readRefreshingAt(config);
+  return at != null && Date.now() - at < REFRESH_LOCK_TTL_MS;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function persistRefreshLock(connection: ConnectionRow, held: boolean): Promise<void> {
+  await prisma.channelConnection
+    .update({
+      where: { id: connection.id },
+      data: {
+        config: mergeConnectionConfig(connection.config, {
+          refreshingAt: held ? new Date().toISOString() : null,
+        }) as Prisma.InputJsonValue,
+      },
+    })
+    .catch(() => {});
+}
+
+async function waitForPeerRefresh(connectionId: string): Promise<ConnectionRow | null> {
+  for (let i = 0; i < 15; i += 1) {
+    await sleep(250);
+    const row = await prisma.channelConnection.findUnique({ where: { id: connectionId } });
+    if (!row) return null;
+    if (!isRefreshLockHeld(row.config)) return row as ConnectionRow;
+  }
+  return (await prisma.channelConnection.findUnique({ where: { id: connectionId } })) as ConnectionRow | null;
+}
+
+async function performTokenRefresh(connection: ConnectionRow): Promise<string> {
+  if (shouldBlockDevChannelTokenWrites()) {
+    throw new Error(
+      "Skipped channel token refresh: local process is using a hosted production database. Set ALLOW_PROD_DB_FROM_DEV=1 to override."
+    );
+  }
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const latest =
+      ((await prisma.channelConnection.findUnique({ where: { id: connection.id } })) as ConnectionRow | null) ??
+      connection;
+    if (!latest.refreshTokenEncrypted) {
+      throw new Error("Connection not found or no refresh token available");
+    }
+    try {
+      const refreshToken = decrypt(latest.refreshTokenEncrypted);
+      const adapter = getAdapter(latest.provider as ChannelProvider);
+      const tokens = await adapter.refreshAccessToken(refreshToken);
+      await prisma.channelConnection.update({
+        where: { id: latest.id },
+        data: {
+          accessTokenEncrypted: encrypt(tokens.accessToken),
+          ...(tokens.refreshToken ? { refreshTokenEncrypted: encrypt(tokens.refreshToken) } : {}),
+          tokenExpiresAt: tokens.expiresInSec
+            ? new Date(Date.now() + tokens.expiresInSec * 1000)
+            : latest.tokenExpiresAt,
+          ...(tokens.scopes ? { scopes: tokens.scopes } : {}),
+          status: "active",
+          lastError: null,
+          config: mergeConnectionConfig(latest.config, { refreshingAt: null }) as Prisma.InputJsonValue,
+        },
+      });
+      logSyncEvent(latest.memberId, latest.provider as ChannelProvider, "token_refreshed");
+      return tokens.accessToken;
+    } catch (e) {
+      lastError = e;
+      const reread = (await prisma.channelConnection.findUnique({
+        where: { id: connection.id },
+      })) as ConnectionRow | null;
+      if (reread?.accessTokenEncrypted && reread.accessTokenEncrypted !== latest.accessTokenEncrypted) {
+        try {
+          return decrypt(reread.accessTokenEncrypted);
+        } catch {
+          /* continue */
+        }
+      }
+      if (attempt < 2) {
+        await sleep(400 * (attempt + 1));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+async function refreshAccessTokenSerialized(connection: ConnectionRow): Promise<string> {
+  const existing = refreshInflight.get(connection.id);
+  if (existing) return existing;
+
+  const run = (async () => {
+    const latest =
+      ((await prisma.channelConnection.findUnique({ where: { id: connection.id } })) as ConnectionRow | null) ??
+      connection;
+    if (isRefreshLockHeld(latest.config)) {
+      const waited = await waitForPeerRefresh(connection.id);
+      if (waited?.accessTokenEncrypted) {
+        try {
+          return decrypt(waited.accessTokenEncrypted);
+        } catch {
+          /* peer failed; try ourselves */
+        }
+      }
+    }
+    await persistRefreshLock(latest, true);
+    try {
+      return await performTokenRefresh(latest);
+    } finally {
+      const after = (await prisma.channelConnection.findUnique({
+        where: { id: connection.id },
+      })) as ConnectionRow | null;
+      if (after) await persistRefreshLock(after, false);
+    }
+  })();
+
+  refreshInflight.set(connection.id, run);
+  try {
+    return await run;
+  } finally {
+    if (refreshInflight.get(connection.id) === run) refreshInflight.delete(connection.id);
+  }
+}
+
+/** Cron: retry OAuth refresh for paused stores so sellers don't have to reconnect after a race. */
+export async function recoverPausedChannelConnections(): Promise<{ recovered: number; failed: number }> {
+  if (shouldBlockDevChannelTokenWrites()) {
+    console.error("[channels] skip recovering paused connections: local dev against hosted DB");
+    return { recovered: 0, failed: 0 };
+  }
+  const paused = await prisma.channelConnection.findMany({
+    where: { status: "error", refreshTokenEncrypted: { not: null } },
+  });
+  let recovered = 0;
+  let failed = 0;
+  for (const c of paused) {
+    try {
+      await refreshAccessTokenSerialized(c as ConnectionRow);
+      recovered += 1;
+    } catch (e) {
+      failed += 1;
+      console.warn("[channels] could not auto-recover paused connection", {
+        connectionId: c.id,
+        provider: c.provider,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+  return { recovered, failed };
 }
 
 /**
@@ -119,6 +283,13 @@ export async function getConnectionContext(
     const errMsg =
       "Stored channel tokens could not be decrypted. Disconnect and reconnect in Sync Stores.";
     logSyncEvent(connection.memberId, connection.provider, "token_expired", errMsg);
+    if (shouldBlockDevChannelTokenWrites()) {
+      console.error("[channels] decrypt failed; not pausing hosted connections from local dev", {
+        connectionId: connection.id,
+        provider: connection.provider,
+      });
+      return null;
+    }
     await markChannelConnectionFailure({
       connection,
       error: new Error(errMsg),
@@ -128,10 +299,7 @@ export async function getConnectionContext(
   }
 
   const expiresAt = connection.tokenExpiresAt?.getTime();
-  const expired =
-    expiresAt == null
-      ? Boolean(connection.refreshTokenEncrypted)
-      : expiresAt - REFRESH_SKEW_MS < Date.now();
+  const expired = expiresAt != null && expiresAt - REFRESH_SKEW_MS < Date.now();
   if (expired && !connection.refreshTokenEncrypted) {
     const errMsg = "Channel access token expired with no refresh token. Reconnect in Sync Stores.";
     logSyncEvent(connection.memberId, connection.provider, "token_expired", errMsg);
@@ -143,41 +311,29 @@ export async function getConnectionContext(
     return null;
   }
   if (expired && connection.refreshTokenEncrypted) {
-    try {
-      const refreshToken = decrypt(connection.refreshTokenEncrypted);
-      const adapter = getAdapter(connection.provider as ChannelProvider);
-      const tokens = await adapter.refreshAccessToken(refreshToken);
-      accessToken = tokens.accessToken;
-      await prisma.channelConnection.update({
-        where: { id: connection.id },
-        data: {
-          accessTokenEncrypted: encrypt(tokens.accessToken),
-          ...(tokens.refreshToken
-            ? { refreshTokenEncrypted: encrypt(tokens.refreshToken) }
-            : {}),
-          tokenExpiresAt: tokens.expiresInSec
-            ? new Date(Date.now() + tokens.expiresInSec * 1000)
-            : null,
-          ...(tokens.scopes ? { scopes: tokens.scopes } : {}),
-          status: "active",
-          lastError: null,
-        },
+    if (shouldBlockDevChannelTokenWrites()) {
+      console.error("[channels] refusing token refresh from local dev against hosted DB", {
+        connectionId: connection.id,
+        provider: connection.provider,
       });
-      logSyncEvent(connection.memberId, connection.provider, "token_refreshed");
-    } catch (e) {
-      const errMsg = String(e).slice(0, 500);
-      logSyncEvent(
-        connection.memberId,
-        connection.provider,
-        "token_expired",
-        `Token refresh failed: ${errMsg}`
-      );
-      await markChannelConnectionFailure({
-        connection,
-        error: e,
-        lastError: `Token refresh failed: ${errMsg}`,
-      });
-      return null;
+    } else {
+      try {
+        accessToken = await refreshAccessTokenSerialized(connection);
+      } catch (e) {
+        const errMsg = String(e).slice(0, 500);
+        logSyncEvent(
+          connection.memberId,
+          connection.provider,
+          "token_expired",
+          `Token refresh failed: ${errMsg}`
+        );
+        await markChannelConnectionFailure({
+          connection,
+          error: e,
+          lastError: `Token refresh failed: ${errMsg}`,
+        });
+        return null;
+      }
     }
   }
 
@@ -270,7 +426,7 @@ export async function getActiveConnectionsForMember(
  */
 export async function refreshConnectionToken(
   connectionId: string,
-  provider: ChannelProvider
+  _provider: ChannelProvider
 ): Promise<string> {
   const conn = await prisma.channelConnection.findUnique({
     where: { id: connectionId },
@@ -278,27 +434,7 @@ export async function refreshConnectionToken(
   if (!conn || !conn.refreshTokenEncrypted) {
     throw new Error("Connection not found or no refresh token available");
   }
-
-  const refreshToken = decrypt(conn.refreshTokenEncrypted);
-  const adapter = getAdapter(provider);
-  const tokens = await adapter.refreshAccessToken(refreshToken);
-
-  await prisma.channelConnection.update({
-    where: { id: connectionId },
-    data: {
-      accessTokenEncrypted: encrypt(tokens.accessToken),
-      ...(tokens.refreshToken
-        ? { refreshTokenEncrypted: encrypt(tokens.refreshToken) }
-        : {}),
-      tokenExpiresAt: tokens.expiresInSec
-        ? new Date(Date.now() + tokens.expiresInSec * 1000)
-        : null,
-      status: "active",
-      lastError: null,
-    },
-  });
-  logSyncEvent(conn.memberId, provider, "token_refreshed", "Refreshed after auth error in retry queue");
-  return tokens.accessToken;
+  return refreshAccessTokenSerialized(conn as ConnectionRow);
 }
 
 /** True when the channel returned an auth error that may succeed after refresh_token. */

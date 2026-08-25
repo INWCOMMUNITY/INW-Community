@@ -6,6 +6,7 @@ import Link from "next/link";
 import { getErrorMessage } from "@/lib/api-error";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { sumOptionQuantities } from "@/lib/store-item-variants";
+import { buildProductHref } from "@/lib/product-referrer";
 import {
   defaultSelectedProviders,
   fetchChannelConnections,
@@ -958,7 +959,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       return;
     }
     setShowSuccessModal(false);
-    router.push(`/storefront/${successItemSlug}`);
+    router.push(buildProductHref(successItemSlug, { type: "my-items" }));
   }
   function handleEditListing() {
     setShowSuccessModal(false);

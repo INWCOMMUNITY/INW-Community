@@ -18,17 +18,19 @@ import { variantsFingerprint, sumVariantQuantities } from "@/lib/channels/varian
 import { describeEbayThrownError, ebayErrorActionHint } from "@/lib/channels/ebay/errors";
 import { resolveEbayLegacyListingId, indexEbayRemoteListings } from "@/lib/channels/ebay/mapping";
 import { attachShippingOptionOnImport, maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
+import { withSkipMeta, type ImportSkipEntry, type ImportSuccessEntry } from "@/lib/channels/import-skip";
+import {
+  ensureJobSnapshots,
+  importPostBodySchema,
+  loadOwnedImportJob,
+  notifyImportJobSkip,
+  notifyImportJobStart,
+  notifyImportJobSuccess,
+  snapshotToListing,
+} from "@/lib/channels/import-job-runtime";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
-
-type ImportSkipEntry = {
-  externalListingId: string;
-  title?: string;
-  step: "migration" | "dedupe" | "validation" | "create";
-  reason: string;
-  hint?: string;
-};
 
 function buildImportSummary(importedCount: number, skipped: ImportSkipEntry[]): string {
   const lines: string[] = [];
@@ -234,9 +236,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-const bodySchema = z.object({
-  listingIds: z.array(z.string()).min(1, "Select at least one listing to import."),
-});
+const bodySchema = importPostBodySchema;
 
 /**
  * POST: import selected eBay listings. Each listing is migrated to the Inventory model (so unified
@@ -269,16 +269,121 @@ export async function POST(req: NextRequest) {
     console.warn("[ebay import] shipping option sync failed", { error: String(e) })
   );
 
+  const jobId = body.jobId;
+  let job = jobId ? await loadOwnedImportJob(jobId, userId) : null;
+  if (jobId && !job) {
+    return NextResponse.json({ error: "Import job not found." }, { status: 404 });
+  }
+
   let remote;
   try {
-    const allRemote = await getAdapter("ebay").listRemoteListings(ctx);
-    remote = resolveSelectedRemoteListings(allRemote, body.listingIds);
+    if (job) {
+      const captured = await ensureJobSnapshots(job, async (ids) => {
+        const allRemote = await getAdapter("ebay").listRemoteListings(ctx);
+        const listings = resolveSelectedRemoteListings(allRemote, ids);
+        const unmatchedIds = ids.filter(
+          (id) => resolveSelectedRemoteListings(allRemote, [id]).length === 0
+        );
+        return { listings, unmatchedIds };
+      });
+      const fromSnapshots = captured.snapshots.map(snapshotToListing);
+      remote = resolveSelectedRemoteListings(fromSnapshots, body.listingIds);
+    } else {
+      const allRemote = await getAdapter("ebay").listRemoteListings(ctx);
+      remote = resolveSelectedRemoteListings(allRemote, body.listingIds);
+    }
   } catch (e) {
     const msg = describeEbayThrownError(e);
+    if (job) {
+      const skippedOnLoad = body.listingIds.map((id) =>
+        withSkipMeta({
+          externalListingId: id,
+          step: "migration",
+          reason: msg,
+          hint: ebayErrorActionHint(msg),
+        })
+      );
+      for (const row of skippedOnLoad) {
+        await notifyImportJobSkip(job.id, row);
+      }
+      return NextResponse.json({
+        ok: true,
+        jobId: job.id,
+        imported: [],
+        skipped: skippedOnLoad,
+        summary: buildImportSummary(0, skippedOnLoad),
+        hint: ebayErrorActionHint(msg) ?? msg,
+      });
+    }
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 
+  const titleById = new Map(remote.map((l) => [l.externalListingId, l.title]));
+  const photoById = new Map(remote.map((l) => [l.externalListingId, l.photos?.[0]]));
+  const imported: (ImportSuccessEntry & {
+    categoryAssignment?: {
+      category: string;
+      subcategory: string | null;
+      source: string;
+    };
+  })[] = [];
+  const skipped: ImportSkipEntry[] = [];
+  let uncategorizedCount = 0;
+
+  const pushSkip = async (
+    externalListingId: string,
+    step: ImportSkipEntry["step"],
+    reason: string,
+    extras?: { title?: string; photo?: string }
+  ) => {
+    const row = withSkipMeta({
+      externalListingId,
+      title: extras?.title ?? titleById.get(externalListingId),
+      photo: extras?.photo ?? photoById.get(externalListingId),
+      step,
+      reason,
+      hint: ebayErrorActionHint(reason),
+    });
+    skipped.push(row);
+    await notifyImportJobSkip(jobId, row);
+  };
+
+  const pushImported = async (
+    row: ImportSuccessEntry & {
+      categoryAssignment?: {
+        category: string;
+        subcategory: string | null;
+        source: string;
+      };
+    }
+  ) => {
+    imported.push(row);
+    await notifyImportJobSuccess(jobId, {
+      externalListingId: row.externalListingId,
+      storeItemId: row.storeItemId,
+      title: row.title,
+      photo: row.photo,
+    });
+  };
+
   if (remote.length === 0) {
+    if (jobId) {
+      for (const id of body.listingIds) {
+        await pushSkip(
+          id,
+          "migration",
+          "Could not match this listing to your active eBay inventory. Refresh and try again."
+        );
+      }
+      return NextResponse.json({
+        ok: true,
+        jobId,
+        imported,
+        skipped,
+        summary: buildImportSummary(0, skipped),
+        hint: skipped[0]?.hint,
+      });
+    }
     return NextResponse.json(
       {
         error:
@@ -294,61 +399,57 @@ export async function POST(req: NextRequest) {
       requested: body.listingIds.length,
       matched: remote.length,
     });
-  }
-
-  const titleById = new Map(remote.map((l) => [l.externalListingId, l.title]));
-  const pushSkip = (
-    skipped: ImportSkipEntry[],
-    externalListingId: string,
-    step: ImportSkipEntry["step"],
-    reason: string
-  ) => {
-    skipped.push({
-      externalListingId,
-      title: titleById.get(externalListingId),
-      step,
-      reason,
-      hint: ebayErrorActionHint(reason),
-    });
-  };
-
-  const imported: {
-    externalListingId: string;
-    storeItemId: string;
-    categoryAssignment?: {
-      category: string;
-      subcategory: string | null;
-      source: string;
-    };
-  }[] = [];
-  const skipped: ImportSkipEntry[] = [];
-  let uncategorizedCount = 0;
-
-  // Migrate the classic listings to the Inventory model; this yields the SKU we link on.
-  let migration: Awaited<ReturnType<typeof migrateEbayListings>>;
-  try {
-    migration = await migrateEbayListings(
-      ctx.accessToken,
-      remote.map((l) => l.externalListingId),
-      {
-        knownSkus: new Map(remote.map((l) => [l.externalListingId, l.sku])),
-      }
+    const matchedKeys = new Set(
+      remote.flatMap((l) => {
+        const legacy = resolveEbayLegacyListingId(l.externalListingId) ?? l.externalListingId;
+        return [l.externalListingId, legacy, `inw${legacy}`];
+      })
     );
-  } catch (e) {
-    const msg = describeEbayThrownError(e);
-    return NextResponse.json({ error: msg }, { status: 502 });
+    for (const id of body.listingIds) {
+      const legacy = resolveEbayLegacyListingId(id) ?? id;
+      if (matchedKeys.has(id) || matchedKeys.has(legacy) || matchedKeys.has(`inw${legacy}`)) {
+        continue;
+      }
+      await pushSkip(
+        id,
+        "migration",
+        "Could not match this listing to your active eBay inventory. Refresh and try again."
+      );
+    }
   }
 
   for (const listing of remote) {
     const legacyId =
       resolveEbayLegacyListingId(listing.externalListingId) ?? listing.externalListingId;
-    const result = migration.get(legacyId);
-    if (!result || result.error || !result.sku) {
-      pushSkip(skipped, legacyId, "migration", result?.error || "migration_failed");
+    const listingPhoto = listing.photos?.[0];
+    await notifyImportJobStart(jobId, listing.title);
+
+    let sku: string | undefined;
+    try {
+      const migration = await migrateEbayListings(ctx.accessToken, [legacyId], {
+        knownSkus: new Map([
+          [legacyId, listing.sku],
+          [listing.externalListingId, listing.sku],
+        ]),
+      });
+      const result = migration.get(legacyId) ?? migration.get(listing.externalListingId);
+      if (!result || result.error || !result.sku) {
+        await pushSkip(legacyId, "migration", result?.error || "migration_failed", {
+          title: listing.title,
+          photo: listingPhoto,
+        });
+        continue;
+      }
+      sku = result.sku;
+    } catch (e) {
+      await pushSkip(legacyId, "migration", describeEbayThrownError(e), {
+        title: listing.title,
+        photo: listingPhoto,
+      });
       continue;
     }
-    const sku = result.sku;
 
+    try {
     const existing = await prisma.channelListingLink.findUnique({
       where: { provider_externalListingId: { provider: "ebay", externalListingId: sku } },
       include: {
@@ -400,9 +501,11 @@ export async function POST(req: NextRequest) {
               remoteCategorySubLabel: remoteSplit.subcategory?.slice(0, 200) ?? null,
             },
           });
-          imported.push({
+          await pushImported({
             externalListingId: legacyId,
             storeItemId: existing.storeItem.id,
+            title: listing.title,
+            photo: listingPhoto,
             categoryAssignment: {
               category: categoryAssignment.category,
               subcategory: categoryAssignment.subcategory,
@@ -424,7 +527,10 @@ export async function POST(req: NextRequest) {
           remoteProfileId: details.remoteShippingProfileId ?? listing.remoteShippingProfileId,
           listing,
         });
-        pushSkip(skipped, legacyId, "dedupe", "already_linked");
+        await pushSkip(legacyId, "dedupe", "already_linked", {
+          title: listing.title,
+          photo: listingPhoto,
+        });
         continue;
       } else {
         await attachEbayListingShippingOption({
@@ -433,14 +539,20 @@ export async function POST(req: NextRequest) {
           remoteProfileId: listing.remoteShippingProfileId,
           listing,
         });
-        pushSkip(skipped, legacyId, "dedupe", "already_linked");
+        await pushSkip(legacyId, "dedupe", "already_linked", {
+          title: listing.title,
+          photo: listingPhoto,
+        });
         continue;
       }
     }
 
     const safePriceCents = Math.max(0, Math.round(Number(listing.priceCents) || 0));
     if (safePriceCents < 1) {
-      pushSkip(skipped, legacyId, "validation", "invalid_price — listing price must be at least $0.01");
+      await pushSkip(legacyId, "validation", "invalid_price — listing price must be at least $0.01", {
+        title: listing.title,
+        photo: listingPhoto,
+      });
       continue;
     }
 
@@ -573,7 +685,10 @@ export async function POST(req: NextRequest) {
         await prisma.storeItem.delete({ where: { id: storeItem.id } }).catch(() => {});
         createdStoreItemId = null;
         if (linkErr instanceof Prisma.PrismaClientKnownRequestError && linkErr.code === "P2002") {
-          pushSkip(skipped, legacyId, "dedupe", "already_linked");
+          await pushSkip(legacyId, "dedupe", "already_linked", {
+          title: listing.title,
+          photo: listingPhoto,
+        });
           continue;
         }
         throw linkErr;
@@ -589,9 +704,11 @@ export async function POST(req: NextRequest) {
           confidence: finalResolvedCat.score,
         });
       }
-      imported.push({
+      await pushImported({
         externalListingId: legacyId,
         storeItemId: storeItem.id,
+        title: listing.title,
+        photo: photos[0] ?? listingPhoto,
         ...(categoryAssignment
           ? {
               categoryAssignment: {
@@ -611,7 +728,18 @@ export async function POST(req: NextRequest) {
       }
       const reason = describeImportError(e);
       console.error("[channels] ebay import failed", { externalListingId: legacyId, reason });
-      pushSkip(skipped, legacyId, "create", reason);
+      await pushSkip(legacyId, "create", reason, {
+        title: listing.title,
+        photo: listingPhoto,
+      });
+    }
+    } catch (e) {
+      const reason = describeImportError(e);
+      console.error("[channels] ebay import failed", { externalListingId: legacyId, reason });
+      await pushSkip(legacyId, "create", reason, {
+        title: listing.title,
+        photo: listingPhoto,
+      });
     }
   }
 
@@ -625,6 +753,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
+    jobId: jobId ?? undefined,
     imported,
     skipped,
     summary,

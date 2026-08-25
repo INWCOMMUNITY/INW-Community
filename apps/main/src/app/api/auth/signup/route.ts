@@ -19,6 +19,7 @@ const schema = z.object({
   lastName: z.string().optional().transform((v) => v?.trim() ?? ""),
   city: z.string().optional().transform((v) => v?.trim() || null),
   tagIds: z.array(z.string()).optional().default([]),
+  tagNames: z.array(z.string().max(50)).optional().default([]),
   signupIntent: z.enum(["resident", "business", "seller"]).optional(),
   ref: z.string().min(1).max(32).optional(),
 }).refine(
@@ -28,6 +29,40 @@ const schema = z.object({
   },
   { message: "First name and last name are required for resident signup.", path: ["firstName"] }
 );
+
+const HIDDEN_TAG_SLUGS = new Set(["null", "void", "test", "pest-control"]);
+
+function slugifyTagName(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/^#+/, "")
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+/** Follow existing tags only — never create new global tags from signup. */
+async function followExistingSignupTags(memberId: string, tagIds: string[], tagNames: string[]) {
+  const slugs = tagNames.map(slugifyTagName).filter((slug) => slug && !HIDDEN_TAG_SLUGS.has(slug));
+  const ids = tagIds.filter(Boolean);
+  if (!ids.length && !slugs.length) return;
+
+  const tags = await prisma.tag.findMany({
+    where: {
+      slug: { notIn: [...HIDDEN_TAG_SLUGS] },
+      OR: [
+        ...(ids.length ? [{ id: { in: ids } }] : []),
+        ...(slugs.length ? [{ slug: { in: slugs } }] : []),
+      ],
+    },
+    select: { id: true },
+  });
+  if (!tags.length) return;
+  await prisma.followTag.createMany({
+    data: tags.map((t) => ({ memberId, tagId: t.id })),
+    skipDuplicates: true,
+  });
+}
 
 function zodErrorToMessage(e: z.ZodError): string {
   const first = e.errors[0];
@@ -58,7 +93,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const parsed = schema.parse(body);
-    const { email, password, tagIds, signupIntent, ref } = parsed;
+    const { email, password, tagIds, tagNames, signupIntent, ref } = parsed;
     const firstName = (parsed.firstName ?? "").trim() || "Pending";
     const lastName = (parsed.lastName ?? "").trim() || "Pending";
     const namePolicyError = validateMemberDisplayNameFields(firstName, lastName);
@@ -103,18 +138,7 @@ export async function POST(req: NextRequest) {
           }
         }
       }
-      if (tagIds?.length) {
-        const validTags = await prisma.tag.findMany({
-          where: { id: { in: tagIds } },
-          select: { id: true },
-        });
-        if (validTags.length) {
-          await prisma.followTag.createMany({
-            data: validTags.map((t) => ({ memberId: member.id, tagId: t.id })),
-            skipDuplicates: true,
-          });
-        }
-      }
+      await followExistingSignupTags(member.id, tagIds, tagNames);
       const intent = signupIntent ?? "resident";
       const isBizOrSeller = intent === "business" || intent === "seller";
       const needsEmailVerification = !member.emailVerifiedAt && !isBizOrSeller;
@@ -148,18 +172,7 @@ export async function POST(req: NextRequest) {
         });
       }
     }
-    if (tagIds?.length) {
-      const validTags = await prisma.tag.findMany({
-        where: { id: { in: tagIds } },
-        select: { id: true },
-      });
-      if (validTags.length) {
-        await prisma.followTag.createMany({
-          data: validTags.map((t) => ({ memberId: member.id, tagId: t.id })),
-          skipDuplicates: true,
-        });
-      }
-    }
+    await followExistingSignupTags(member.id, tagIds, tagNames);
     const intent = signupIntent ?? "resident";
     const isBizOrSeller = intent === "business" || intent === "seller";
     const needsEmailVerification = !member.emailVerifiedAt && !isBizOrSeller;

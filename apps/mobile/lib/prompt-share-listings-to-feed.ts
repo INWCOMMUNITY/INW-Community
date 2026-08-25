@@ -1,7 +1,8 @@
 import { Alert } from "react-native";
 import { apiPost } from "@/lib/api";
 
-const COLLECTION_MIN = 4;
+/** Keep in sync with LISTING_FEED_COLLECTION_MIN in apps/main. */
+const COLLECTION_MIN = 3;
 
 export function promptShareListingsToFeed(storeItemIds: string[]): void {
   const ids = storeItemIds.filter(Boolean);

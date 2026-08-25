@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { prisma } from "database";
 import { LISTING_FEED_COLLECTION_MIN } from "@/lib/listing-feed-collection-constants";
 
@@ -34,6 +35,83 @@ export async function buildListingCollectionTitle(memberId: string, at = new Dat
   const name = await sellerListingDisplayName(memberId);
   return `${name} New Listings ${formatListingCollectionDate(at)}`;
 }
+
+export type ListingFeedCollectionItem = {
+  id: string;
+  title: string;
+  slug: string;
+  photos: string[];
+  priceCents: number;
+  status: string;
+  quantity: number;
+};
+
+export type ListingFeedCollectionDetail = {
+  id: string;
+  title: string;
+  createdAt: string;
+  items: ListingFeedCollectionItem[];
+};
+
+/** Card thumbs don't need the s-l2000 originals stored for listing pages. */
+function collectionCardPhotoUrl(url: string): string {
+  if (!url.includes("i.ebayimg.com")) return url;
+  return url.replace(/s-l\d+/i, "s-l225");
+}
+
+export const getListingFeedCollectionById = cache(
+  async function getListingFeedCollectionById(
+    id: string
+  ): Promise<ListingFeedCollectionDetail | null> {
+    if (!id) return null;
+    const collection = await prisma.listingFeedCollection.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        items: {
+          orderBy: { sortOrder: "asc" },
+          select: {
+            storeItem: {
+              select: {
+                id: true,
+                title: true,
+                slug: true,
+                photos: true,
+                priceCents: true,
+                status: true,
+                quantity: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!collection) return null;
+
+    return {
+      id: collection.id,
+      title: collection.title,
+      createdAt: collection.createdAt.toISOString(),
+      items: collection.items
+        .map((row) => row.storeItem)
+        .filter((item): item is NonNullable<typeof item> => item != null)
+        .map((item) => {
+          const photo = item.photos.find(Boolean);
+          return {
+            id: item.id,
+            title: item.title,
+            slug: item.slug,
+            photos: photo ? [collectionCardPhotoUrl(photo)] : [],
+            priceCents: item.priceCents,
+            status: item.status,
+            quantity: item.quantity,
+          };
+        }),
+    };
+  }
+);
 
 export function listingCollectionIdsFromPosts(
   posts: { sourceListingCollectionId?: string | null }[]

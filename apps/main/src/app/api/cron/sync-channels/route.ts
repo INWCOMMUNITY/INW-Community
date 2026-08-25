@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { reconcileAllConnections } from "@/lib/channels/reconcile";
 import { processRetryQueue, cleanupExhaustedRetries } from "@/lib/channels/retry-queue";
+import { recoverPausedChannelConnections } from "@/lib/channels/connection";
+import { shouldBlockDevChannelTokenWrites } from "@/lib/channels/dev-prod-guard";
 import {
   findStaleWebhookEvents,
   markWebhookProcessing,
@@ -99,6 +101,21 @@ export async function GET(req: NextRequest) {
 
   console.log("[cron] sync-channels starting", { timestamp: new Date().toISOString() });
 
+  if (shouldBlockDevChannelTokenWrites()) {
+    console.error(
+      "[cron] refusing sync-channels: local process is using a hosted production database. Set ALLOW_PROD_DB_FROM_DEV=1 to override."
+    );
+    return NextResponse.json({
+      ok: true,
+      skipped: "dev_prod_db_guard",
+    });
+  }
+
+  const recovered = await recoverPausedChannelConnections().catch((e) => {
+    console.warn("[cron] paused-connection recover failed", { error: String(e) });
+    return { recovered: 0, failed: 0 };
+  });
+
   // Check quota alerts FIRST - log warnings before doing any work
   const quotaAlerts = await checkAllQuotaAlerts().catch(() => []);
   for (const alert of quotaAlerts) {
@@ -147,8 +164,7 @@ export async function GET(req: NextRequest) {
   console.log("[cron] sync-channels completed", { durationMs, ...syncResult });
 
   return NextResponse.json({
-    ok: true,
-    retryQueue: retryResult,
+    recoveredConnections: recovered,
     exhaustedCleaned: cleaned,
     webhookEvents: webhookResult,
     webhooksCleaned,

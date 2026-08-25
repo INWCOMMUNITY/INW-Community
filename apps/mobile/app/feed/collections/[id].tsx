@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import { AppImage } from "@/components/AppImage";
+import { buildProductPath } from "@/lib/product-referrer";
 
 type CollectionItem = {
   id: string;
@@ -27,7 +28,7 @@ export default function ListingFeedCollectionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [title, setTitle] = useState("New Listings");
+  const [title, setTitle] = useState<string | null>(null);
   const [items, setItems] = useState<CollectionItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,26 +55,43 @@ export default function ListingFeedCollectionScreen() {
 
   return (
     <View style={styles.screen}>
-      <Stack.Screen options={{ headerShown: true, title: "New Listings", headerBackTitle: "Feed" }} />
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: title ?? "Collection",
+          headerBackTitle: "Feed",
+        }}
+      />
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}
       >
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.subtitle}>New listings from this share. Open any item to view or buy it.</Text>
         {items === null ? (
           <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 24 }} />
-        ) : error ? (
-          <Text style={styles.error}>{error}</Text>
-        ) : items.length === 0 ? (
-          <Text style={styles.subtitle}>These listings are no longer available.</Text>
         ) : (
+          <>
+            <Text style={styles.title}>{title ?? "Collection"}</Text>
+            <Text style={styles.subtitle}>
+              New listings from this share. Open any item to view or buy it.
+            </Text>
+            {error ? (
+              <Text style={styles.error}>{error}</Text>
+            ) : items.length === 0 ? (
+              <Text style={styles.subtitle}>These listings are no longer available.</Text>
+            ) : (
           items.map((item) => {
             const sold = item.status !== "active" || item.quantity <= 0;
             return (
               <Pressable
                 key={item.id}
                 style={styles.card}
-                onPress={() => (router.push as (href: string) => void)(`/product/${item.slug}`)}
+                onPress={() =>
+                  (router.push as (href: string) => void)(
+                    buildProductPath(item.slug, {
+                      type: "feed-collection",
+                      collectionId: String(id),
+                    })
+                  )
+                }
               >
                 {item.photos[0] ? (
                   <AppImage
@@ -97,6 +115,8 @@ export default function ListingFeedCollectionScreen() {
               </Pressable>
             );
           })
+            )}
+          </>
         )}
       </ScrollView>
     </View>

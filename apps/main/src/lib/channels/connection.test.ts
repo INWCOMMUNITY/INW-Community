@@ -4,6 +4,7 @@ import { EbayApiError } from "./ebay/errors";
 const mockPrisma = {
   channelConnection: {
     findUnique: vi.fn(),
+    findMany: vi.fn().mockResolvedValue([]),
     update: vi.fn().mockResolvedValue({}),
   },
   channelSyncLog: {
@@ -152,5 +153,14 @@ describe("withConnectionAuthRetry", () => {
     expect(result).toBe("ok");
     expect(tokens).toEqual(["expired-iaf", "new-token"]);
     expect(mockAdapter.refreshAccessToken).toHaveBeenCalledOnce();
+  });
+
+  it("does not refresh when tokenExpiresAt is missing", async () => {
+    const conn = { ...staleConn, tokenExpiresAt: null };
+    mockPrisma.channelConnection.findUnique.mockResolvedValue(conn);
+    const { getConnectionContext } = await import("./connection");
+    const ctx = await getConnectionContext(conn);
+    expect(ctx?.accessToken).toBe("expired-iaf");
+    expect(mockAdapter.refreshAccessToken).not.toHaveBeenCalled();
   });
 });

@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { BackToProfileLink } from "@/components/BackToProfileLink";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 import { listingDescriptionPreview } from "@/lib/channels/rich-description";
+import { buildProductHref } from "@/lib/product-referrer";
 
 interface StoreItem {
   id: string;
@@ -100,7 +101,7 @@ export default function MyWishlistPage() {
                   className="bg-white/90 rounded-full border-2 border-[var(--color-primary)]"
                 />
               </div>
-              <Link href={`/storefront/${item.slug}`}>
+              <Link href={buildProductHref(item.slug, { type: "wishlist" })}>
                 {item.photos[0] ? (
                   <img
                     src={item.photos[0]}
@@ -115,7 +116,7 @@ export default function MyWishlistPage() {
               </Link>
               <div className="p-4">
                 <h2 className="text-lg font-bold">
-                  <Link href={`/storefront/${item.slug}`} className="hover:underline">
+                  <Link href={buildProductHref(item.slug, { type: "wishlist" })} className="hover:underline">
                     {item.title}
                   </Link>
                 </h2>
@@ -133,7 +134,7 @@ export default function MyWishlistPage() {
                   </p>
                 )}
                 <p className="text-lg font-bold mt-2">${(item.priceCents / 100).toFixed(2)}</p>
-                <Link href={`/storefront/${item.slug}`} className="btn mt-4 inline-block">
+                <Link href={buildProductHref(item.slug, { type: "wishlist" })} className="btn mt-4 inline-block">
                   View details
                 </Link>
               </div>

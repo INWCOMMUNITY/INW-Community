@@ -9,11 +9,13 @@ import {
 import { apiGet } from "@/lib/api";
 import { theme } from "@/lib/theme";
 import { StoreItemCard, StoreItemData } from "./StoreItemCard";
+import type { ProductReferrer } from "@/lib/product-referrer";
 
 interface CustomersAlsoViewedSectionProps {
   storeItemId: string;
   excludeId?: string;
   limit?: number;
+  referrer?: ProductReferrer;
 }
 
 const CARD_WIDTH = 160;
@@ -21,6 +23,7 @@ const CARD_WIDTH = 160;
 export function CustomersAlsoViewedSection({
   storeItemId,
   limit = 10,
+  referrer,
 }: CustomersAlsoViewedSectionProps) {
   const [items, setItems] = useState<StoreItemData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,6 +76,7 @@ export function CustomersAlsoViewedSection({
             width={CARD_WIDTH}
             variant="carousel"
             showBadges={false}
+            referrer={referrer}
           />
         ))}
       </ScrollView>

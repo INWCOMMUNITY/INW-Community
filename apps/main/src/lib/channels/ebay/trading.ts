@@ -23,6 +23,22 @@ import type { ListingAspect } from "@/lib/listing-limits";
 import { getEbayCategoryPathFromId } from "./category-path";
 import { resolveEbayLegacyListingId } from "./mapping";
 import { redactEbayWebhookUrl } from "./webhook";
+import {
+  buildReviseItemSkuXml,
+  buildReviseVariationSkusXml,
+  canSkipEbayBulkMigrate,
+  classifyEbayItemForMigration,
+  EBAY_SKU_VERIFY_DELAYS_MS,
+  ENDED_LISTING_MIGRATE_ERROR,
+  generateEbayMigrationSku,
+  isValidEbayInventorySku,
+  listingHasValidMigrateSku,
+  NOT_FIXED_PRICE_MIGRATE_ERROR,
+  plannedParentSku,
+  plannedVariationSkus,
+  VARIATION_SKU_MIGRATE_ERROR,
+  type EbayVariationSkuRow,
+} from "./migrate-prep";
 
 /** A classic (Trading API) eBay listing enumerated for import preview. */
 export type EbayTradingListing = {
@@ -434,18 +450,10 @@ type MigrateResponse = {
 
 export type MigrationResult = { sku?: string; offerId?: string; error?: string };
 
+export { generateEbayMigrationSku, isValidEbayInventorySku } from "./migrate-prep";
+
 function formatMigrationError(e: unknown): string {
   return describeEbayThrownError(e);
-}
-
-/** Inventory API SKU: alphanumeric only, 1–50 chars (#25707). */
-export function isValidEbayInventorySku(sku: string): boolean {
-  return /^[a-zA-Z0-9]{1,50}$/.test(sku.trim());
-}
-
-/** Inventory API SKU for a migrated listing. Must be alphanumeric and <= 50 chars. */
-export function generateEbayMigrationSku(listingId: string): string {
-  return `inw${listingId}`.replace(/[^a-zA-Z0-9]/g, "").slice(0, 50);
 }
 
 function generateMigrationSku(listingId: string): string {
@@ -476,13 +484,7 @@ function migrationErrorNonRemediable(reason: string): boolean {
 }
 
 function buildReviseSkuXml(listingId: string, sku: string): string {
-  return `<?xml version="1.0" encoding="utf-8"?>
-<ReviseFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-  <Item>
-    <ItemID>${listingId}</ItemID>
-    <SKU>${sku}</SKU>
-  </Item>
-</ReviseFixedPriceItemRequest>`;
+  return buildReviseItemSkuXml(listingId, sku);
 }
 
 /** Trading API returns HTTP 200 with <Ack>Failure</Ack> + <Errors> for logical failures. */
@@ -507,6 +509,105 @@ async function setEbayListingSku(
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+async function setEbayVariationSkus(
+  accessToken: string,
+  listingId: string,
+  parentSku: string,
+  rows: EbayVariationSkuRow[],
+  variationSkus: string[]
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const xml = await callTrading(
+      accessToken,
+      "ReviseFixedPriceItem",
+      buildReviseVariationSkusXml(listingId, parentSku, rows, variationSkus)
+    );
+    return parseTradingAck(xml);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function reviseFailureMessage(error: string | undefined, fallback: string): string {
+  if (error && /fixed price|fixed-price|auction|not.*fixed|classified/i.test(error)) {
+    return NOT_FIXED_PRICE_MIGRATE_ERROR;
+  }
+  return error?.trim() ? error : fallback;
+}
+
+async function fetchItemXml(accessToken: string, listingId: string): Promise<string> {
+  const xml = await callTrading(accessToken, "GetItem", buildGetItemXml(listingId));
+  return tag(xml, "Item") ?? xml;
+}
+
+/**
+ * Confirm a valid Inventory SKU is on the live listing before bulk_migrate_listing.
+ * Never migrates a listing whose Custom Label is still empty.
+ */
+async function ensureListingSkuOnEbay(
+  accessToken: string,
+  listingId: string
+): Promise<{ sku?: string; error?: string }> {
+  let itemXml: string;
+  try {
+    itemXml = await fetchItemXml(accessToken, listingId);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+
+  let cls = classifyEbayItemForMigration(itemXml);
+  if (cls.kind === "not_fixed_price") return { error: NOT_FIXED_PRICE_MIGRATE_ERROR };
+  if (cls.kind === "ended") return { error: ENDED_LISTING_MIGRATE_ERROR };
+
+  if (listingHasValidMigrateSku(cls)) {
+    return { sku: cls.itemSku ?? generateMigrationSku(listingId) };
+  }
+
+  const parentSku = plannedParentSku(listingId, cls.itemSku);
+  if (cls.variations.length > 0) {
+    const variationSkus = plannedVariationSkus(listingId, cls.variations);
+    const set = await setEbayVariationSkus(accessToken, listingId, parentSku, cls.variations, variationSkus);
+    if (!set.ok) {
+      return { error: reviseFailureMessage(set.error, VARIATION_SKU_MIGRATE_ERROR) };
+    }
+  } else {
+    const set = await setEbayListingSku(accessToken, listingId, parentSku);
+    if (!set.ok) {
+      return {
+        error: reviseFailureMessage(
+          set.error,
+          `Could not set Custom Label (${parentSku}) on this listing.`
+        ),
+      };
+    }
+  }
+
+  for (let i = 0; i < EBAY_SKU_VERIFY_DELAYS_MS.length; i += 1) {
+    const delay = EBAY_SKU_VERIFY_DELAYS_MS[i];
+    if (delay > 0) await sleep(delay);
+    try {
+      itemXml = await fetchItemXml(accessToken, listingId);
+    } catch {
+      continue;
+    }
+    cls = classifyEbayItemForMigration(itemXml);
+    if (cls.kind === "ready" && listingHasValidMigrateSku(cls)) {
+      return { sku: cls.itemSku ?? parentSku };
+    }
+  }
+
+  if (cls.kind === "ready" && cls.variations.length > 0) {
+    return { error: VARIATION_SKU_MIGRATE_ERROR };
+  }
+  return {
+    error: `Could not set Custom Label (${parentSku}) on this listing — eBay did not show the SKU after revise.`,
+  };
 }
 
 /**
@@ -587,18 +688,11 @@ async function remediateMissingSkus(
     if (!/^\d+$/.test(listingId)) continue;
     const likelyMissing = migrationErrorLikelyMissingSku(res.error);
     const nonRemediable = migrationErrorNonRemediable(res.error);
-    const nextSku = generateMigrationSku(listingId);
     if (!likelyMissing || nonRemediable) continue;
 
-    const set = await setEbayListingSku(accessToken, listingId, nextSku);
-    if (!set.ok) {
-      if (set.error && /fixed price|fixed-price|auction|not.*fixed/i.test(set.error)) {
-        result.set(listingId, {
-          error:
-            "not_fixed_price — eBay can only sync fixed-price (Buy It Now) listings. Auctions and classified ads can't be synced.",
-        });
-      }
-      // Otherwise keep the original migration error.
+    const ensured = await ensureListingSkuOnEbay(accessToken, listingId);
+    if (ensured.error) {
+      result.set(listingId, { error: ensured.error });
       continue;
     }
 
@@ -694,23 +788,28 @@ function isEbayMigrateTimeout(e: unknown): boolean {
 }
 
 /**
- * Website listings often have no Custom Label. Stamp a valid Inventory SKU before
- * bulk_migrate_listing so we don't rely on a fail-then-revise round trip.
+ * Confirm a valid Inventory SKU on every listing before migrate. Listings that
+ * cannot be stamped are skipped with the Trading error — not Inventory #25002.
  */
-async function stampMissingMigrationSkus(
+async function ensureSkusBeforeMigrate(
   accessToken: string,
   listingIds: string[],
-  knownSkus?: Map<string, string | null | undefined>
-): Promise<void> {
+  result: Map<string, MigrationResult>
+): Promise<string[]> {
+  const ready: string[] = [];
   for (const listingId of listingIds) {
-    const known = knownSkus?.get(listingId)?.trim() || "";
-    if (known && isValidEbayInventorySku(known)) continue;
-    const nextSku = generateMigrationSku(listingId);
-    const set = await setEbayListingSku(accessToken, listingId, nextSku);
-    if (!set.ok) {
-      console.warn("[ebay] pre-migrate SKU stamp failed", { listingId, error: set.error });
+    const ensured = await ensureListingSkuOnEbay(accessToken, listingId);
+    if (ensured.error) {
+      console.warn("[ebay] skip migrate; listing has no confirmed SKU", {
+        listingId,
+        error: ensured.error,
+      });
+      result.set(listingId, { error: ensured.error });
+      continue;
     }
+    ready.push(listingId);
   }
+  return ready;
 }
 
 /**
@@ -761,6 +860,24 @@ async function recoverTimedOutMigrateBatch(
  * Bring classic listings under the Inventory model so unified inventory updates work.
  * Returns a map listingId -> { sku, offerId } (or an error reason).
  */
+function knownSkuForListing(
+  listingId: string,
+  knownSkus?: Map<string, string | null | undefined>
+): string | null | undefined {
+  if (!knownSkus) return undefined;
+  if (knownSkus.has(listingId)) return knownSkus.get(listingId);
+  const legacy = resolveEbayLegacyListingId(listingId);
+  if (legacy && knownSkus.has(legacy)) return knownSkus.get(legacy);
+  return undefined;
+}
+
+function skuForSkippedMigrate(listingId: string, knownSku?: string | null): string | null {
+  const known = knownSku?.trim();
+  if (known) return known;
+  const id = listingId.trim();
+  return id || null;
+}
+
 export async function migrateEbayListings(
   accessToken: string,
   listingIds: string[],
@@ -773,7 +890,17 @@ export async function migrateEbayListings(
   for (const raw of listingIds) {
     const trimmed = raw.trim();
     if (!trimmed) continue;
-    const legacy = resolveEbayLegacyListingId(trimmed);
+    const legacy = resolveEbayLegacyListingId(trimmed) ?? (/^\d+$/.test(trimmed) ? trimmed : null);
+    const known = knownSkuForListing(trimmed, opts?.knownSkus) ?? knownSkuForListing(legacy ?? "", opts?.knownSkus);
+    const migrateId = legacy ?? trimmed;
+    if (canSkipEbayBulkMigrate(migrateId, known ?? (!/^\d+$/.test(trimmed) ? trimmed : null))) {
+      const sku = skuForSkippedMigrate(migrateId, known ?? (!/^\d+$/.test(trimmed) ? trimmed : null));
+      if (sku) {
+        result.set(migrateId, { sku });
+        if (trimmed !== migrateId) result.set(trimmed, { sku });
+        continue;
+      }
+    }
     if (!legacy) {
       result.set(trimmed, {
         error: "Invalid eBay listing id — expected a numeric Item ID from your active listings.",
@@ -783,18 +910,11 @@ export async function migrateEbayListings(
     if (!pending.includes(legacy)) pending.push(legacy);
   }
 
-  const remappedKnown = new Map<string, string | null | undefined>();
-  if (opts?.knownSkus) {
-    for (const [raw, sku] of opts.knownSkus) {
-      const legacy = resolveEbayLegacyListingId(raw.trim()) ?? raw.trim();
-      remappedKnown.set(legacy, sku);
-    }
-  }
-  await stampMissingMigrationSkus(accessToken, pending, remappedKnown);
+  const toMigrate = await ensureSkusBeforeMigrate(accessToken, pending, result);
 
   // bulk_migrate_listing accepts up to 5 listings per call and is known to be flaky (HTTP 500).
-  for (let i = 0; i < pending.length; i += 5) {
-    const batch = pending.slice(i, i + 5);
+  for (let i = 0; i < toMigrate.length; i += 5) {
+    const batch = toMigrate.slice(i, i + 5);
     try {
       const res = await migrateListingBatch(accessToken, batch);
       applyMigrateResponse(result, res, batch);

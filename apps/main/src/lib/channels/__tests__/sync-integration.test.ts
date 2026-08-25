@@ -42,6 +42,8 @@ const mockPrisma = {
   },
   storeItem: {
     findUnique: vi.fn().mockResolvedValue(null),
+    findFirst: vi.fn().mockResolvedValue(null),
+    findMany: vi.fn().mockResolvedValue([]),
     create: vi.fn().mockImplementation(({ data }) =>
       Promise.resolve({ id: "item-1", ...data, updatedAt: new Date() })
     ),

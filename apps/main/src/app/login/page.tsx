@@ -15,9 +15,9 @@ const PLAN_OPTIONS: {
   signUpLabel: string;
   icon: string;
 }[] = [
-  { plan: "subscribe", loginLabel: "Login as Resident", signUpLabel: "Sign up as Resident", icon: "person" },
-  { plan: "sponsor", loginLabel: "Login as Business", signUpLabel: "Sign up as Business", icon: "business" },
-  { plan: "seller", loginLabel: "Login as Seller", signUpLabel: "Sign up as Seller", icon: "briefcase" },
+  { plan: "subscribe", loginLabel: "Login as Resident", signUpLabel: "Sign Up as Resident", icon: "person" },
+  { plan: "sponsor", loginLabel: "Login as Business", signUpLabel: "Sign Up as Business", icon: "business" },
+  { plan: "seller", loginLabel: "Login as Seller", signUpLabel: "Sign Up as Seller", icon: "briefcase" },
 ];
 
 const PLAN_DISPLAY_NAMES: Record<Plan, string> = {
@@ -465,7 +465,7 @@ function LoginForm() {
                 color: isSignUp ? "var(--color-button-text, #fff)" : "var(--color-text)",
               }}
             >
-              Sign up
+              Sign Up
             </button>
           </div>
           <div className="w-full max-w-[320px] space-y-4">
@@ -604,7 +604,7 @@ function LoginForm() {
               className="underline"
               style={{ color: "var(--color-primary)" }}
             >
-              Sign up
+              Sign Up
             </button>
           </p>
         </>

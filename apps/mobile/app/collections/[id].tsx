@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiDelete } from "@/lib/api";
+import { buildProductPath } from "@/lib/product-referrer";
 import { useAuth } from "@/contexts/AuthContext";
 import { AppImage } from "@/components/AppImage";
 
@@ -200,7 +201,11 @@ export default function CollectionDetailScreen() {
     return (
       <Pressable
         style={({ pressed }) => [styles.card, { width: cardWidth }, pressed && { opacity: 0.9 }]}
-        onPress={() => router.push(`/product/${item.slug}` as never)}
+        onPress={() =>
+          router.push(
+            buildProductPath(item.slug, { type: "collection", collectionId: String(id) }) as never
+          )
+        }
         onLongPress={
           collection?.isOwner
             ? () => handleRemoveItem(item.collectionItemId, item.title)

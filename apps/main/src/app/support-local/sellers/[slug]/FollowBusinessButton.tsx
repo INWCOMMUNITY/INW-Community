@@ -8,9 +8,22 @@ import { IonIcon } from "@/components/IonIcon";
 interface FollowBusinessButtonProps {
   businessId: string;
   variant?: "default" | "pill";
+  tone?: "primary" | "earth" | "tan";
+  className?: string;
 }
 
-export function FollowBusinessButton({ businessId, variant = "default" }: FollowBusinessButtonProps) {
+function pillToneClass(tone: "primary" | "earth" | "tan") {
+  if (tone === "earth") return "btn-pill-earth";
+  if (tone === "tan") return "btn-pill-tan";
+  return "btn-pill-primary";
+}
+
+export function FollowBusinessButton({
+  businessId,
+  variant = "default",
+  tone = "primary",
+  className = "",
+}: FollowBusinessButtonProps) {
   const { data: session, status } = useSession();
   const [followed, setFollowed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -43,9 +56,8 @@ export function FollowBusinessButton({ businessId, variant = "default" }: Follow
     }
   };
 
-  const pillClass = followed
-    ? "action-pill btn-pill-primary disabled:opacity-60"
-    : "action-pill btn-pill-outline disabled:opacity-60";
+  const pillClass = `action-pill action-pill-lg ${pillToneClass(tone)} disabled:opacity-60 ${className}`;
+  const iconClass = tone === "tan" ? "text-[var(--color-earth)]" : "text-white";
 
   const defaultClass = followed
     ? "px-4 py-2 rounded border text-sm font-medium border-gray-300 bg-gray-100 text-gray-700"
@@ -64,7 +76,7 @@ export function FollowBusinessButton({ businessId, variant = "default" }: Follow
     if (variant === "pill") {
       return (
         <Link href={href} className={pillClass}>
-          <IonIcon name="heart-outline" size={18} />
+          <IonIcon name="heart-outline" size={18} className={iconClass} />
           Follow
         </Link>
       );
@@ -75,7 +87,7 @@ export function FollowBusinessButton({ businessId, variant = "default" }: Follow
   if (variant === "pill") {
     return (
       <button type="button" onClick={handleToggle} disabled={loading} className={pillClass}>
-        <IonIcon name={followed ? "heart" : "heart-outline"} size={18} />
+        <IonIcon name={followed ? "heart" : "heart-outline"} size={18} className={iconClass} />
         {loading ? "…" : followed ? "Following" : "Follow"}
       </button>
     );

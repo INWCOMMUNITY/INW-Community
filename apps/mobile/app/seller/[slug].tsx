@@ -22,6 +22,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
+import { buildProductPath } from "@/lib/product-referrer";
 import { openAddressInMaps } from "@/lib/open-maps";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { AppImage } from "@/components/AppImage";
@@ -213,7 +214,14 @@ export default function SellerStorefrontScreen() {
   };
 
   const openProduct = (item: StoreItem) => {
-    router.push(`/product/${item.slug}`);
+    if (!seller) return;
+    router.push(
+      buildProductPath(item.slug, {
+        type: "seller",
+        sellerSlug: seller.slug,
+        sellerName: seller.name,
+      }) as never
+    );
   };
 
   const categories = useMemo(() => {

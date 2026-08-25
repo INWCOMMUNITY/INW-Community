@@ -16,9 +16,12 @@ export async function GET(req: NextRequest) {
   const q = (searchParams.get("q") ?? "").trim();
   const limit = Math.min(parseInt(searchParams.get("limit") ?? "50", 10) || 50, 100);
 
-  const where = q ? { name: { contains: q, mode: "insensitive" as const } } : undefined;
+  const hiddenSlugs = ["null", "void", "test", "pest-control"];
   const tags = await prisma.tag.findMany({
-    where,
+    where: {
+      slug: { notIn: hiddenSlugs },
+      ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}),
+    },
     orderBy: { name: "asc" },
     take: limit,
   });

@@ -24,6 +24,7 @@ import {
   sanitizeListingDescription,
 } from "./rich-description";
 import { attachShippingOptionOnImport } from "@/lib/shipping-options";
+import { claimChannelListingLink } from "./listing-link-claim";
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -278,6 +279,45 @@ async function resolveExistingLink(args: {
 }
 
 /**
+ * If the remote SKU is an existing StoreItem id (or a unique member SKU) with no link for this
+ * provider, attach the inbound listing there instead of minting a duplicate item.
+ */
+export async function findStoreItemForInboundSku(args: {
+  memberId: string;
+  provider: ChannelProvider;
+  sku: string;
+}): Promise<{ id: string; category: string | null } | null> {
+  const sku = args.sku.trim();
+  if (!sku) return null;
+
+  const byId = await prisma.storeItem.findFirst({
+    where: { id: sku, memberId: args.memberId },
+    select: {
+      id: true,
+      category: true,
+      channelLinks: { where: { provider: args.provider }, select: { id: true } },
+    },
+  });
+  if (byId) {
+    if (byId.channelLinks.length > 0) return null;
+    return { id: byId.id, category: byId.category };
+  }
+
+  const bySku = await prisma.storeItem.findMany({
+    where: { memberId: args.memberId, sku },
+    select: {
+      id: true,
+      category: true,
+      channelLinks: { where: { provider: args.provider }, select: { id: true } },
+    },
+    take: 3,
+  });
+  const unlinked = bySku.filter((row) => row.channelLinks.length === 0);
+  if (unlinked.length !== 1) return null;
+  return { id: unlinked[0].id, category: unlinked[0].category };
+}
+
+/**
  * Create a StoreItem + channel link from a remote catalog row (Wix/Etsy import path).
  * Skips rows that are already linked or have invalid price.
  *
@@ -340,6 +380,30 @@ export async function importRemoteListing(args: {
   const safePriceCents = Math.max(0, Math.round(Number(listing.priceCents) || 0));
   if (safePriceCents < 1) {
     return { ok: false, externalListingId: productId, reason: "invalid_price" };
+  }
+  const sku = listing.sku?.trim() || null;
+  if (sku) {
+    const skuMatch = await findStoreItemForInboundSku({ memberId, provider, sku });
+    if (skuMatch) {
+      await claimChannelListingLink({
+        storeItemId: skuMatch.id,
+        memberId,
+        connectionId,
+        provider,
+        externalListingId: productId,
+        externalShopId,
+        linkOrigin: sku === skuMatch.id ? "inw_create" : "import",
+        syncEnabled: true,
+        syncStatus: "synced",
+        lastInboundAt: new Date(),
+      });
+      return {
+        ok: true,
+        storeItemId: skuMatch.id,
+        externalListingId: productId,
+        needsCategoryReview: !skuMatch.category,
+      };
+    }
   }
   const safePhotos = Array.isArray(listing.photos)
     ? listing.photos.filter((p): p is string => typeof p === "string" && p.length > 0)
