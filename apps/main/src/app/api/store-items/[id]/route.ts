@@ -18,6 +18,10 @@ import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits
 import { isImportedEbayLink } from "@/lib/channels/ebay/listing-origin";
 import { Prisma } from "database";
 import { assertMemberShippingOption } from "@/lib/shipping-options";
+import {
+  SELLER_CHANNEL_LINK_SELECT,
+  withListingChannelSyncWarning,
+} from "@/lib/channels/listing-sync-warning";
 
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
@@ -62,10 +66,12 @@ const bodySchema = z.object({
 });
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const session = await getSessionForApi(req);
+  const userId = session?.user?.id;
   const item = await prisma.storeItem.findUnique({
     where: { id },
     include: {
@@ -73,12 +79,8 @@ export async function GET(
       business: { select: { id: true, name: true, slug: true } },
       channelLinks: {
         select: {
-          provider: true,
-          syncStatus: true,
-          syncEnabled: true,
-          syncError: true,
+          ...SELLER_CHANNEL_LINK_SELECT,
           lastPushedAt: true,
-          externalListingId: true,
           linkOrigin: true,
         },
       },
@@ -87,6 +89,14 @@ export async function GET(
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  const isOwner = Boolean(userId && item.memberId === userId);
+  const channelLinks = isOwner
+    ? item.channelLinks.map((link) => ({
+        ...withListingChannelSyncWarning(link),
+        lastPushedAt: link.lastPushedAt,
+        linkOrigin: link.linkOrigin,
+      }))
+    : item.channelLinks.map(({ connection: _connection, ...link }) => link);
   const hasEbayLink = item.channelLinks.some((l) => l.provider === "ebay");
   const ebayLink = item.channelLinks.find((l) => l.provider === "ebay");
   const hasEbayImportLink = Boolean(
@@ -103,7 +113,13 @@ export async function GET(
     : ebayLink
       ? "inw_create"
       : null;
-  return NextResponse.json({ ...item, hasEbayLink, hasEbayImportLink, ebayLinkOrigin });
+  return NextResponse.json({
+    ...item,
+    channelLinks,
+    hasEbayLink,
+    hasEbayImportLink,
+    ebayLinkOrigin,
+  });
 }
 
 export async function PATCH(

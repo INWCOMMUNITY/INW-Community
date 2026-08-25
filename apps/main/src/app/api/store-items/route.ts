@@ -11,6 +11,10 @@ import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { recordSellerListingView } from "@/lib/record-seller-listing-view";
 import { assertMemberShippingOption, getShippingOptionCostCents } from "@/lib/shipping-options";
+import {
+  SELLER_CHANNEL_LINK_SELECT,
+  withListingChannelSyncWarning,
+} from "@/lib/channels/listing-sync-warning";
 
 /** Ensure storefront listing is always fresh so newly listed items appear immediately. */
 export const dynamic = "force-dynamic";
@@ -466,13 +470,7 @@ export async function GET(req: NextRequest) {
       include: {
         business: { select: { id: true, name: true, slug: true } },
         channelLinks: {
-          select: {
-            provider: true,
-            syncStatus: true,
-            syncEnabled: true,
-            externalListingId: true,
-            syncError: true,
-          },
+          select: SELLER_CHANNEL_LINK_SELECT,
         },
       },
       orderBy: { createdAt: "desc" },
@@ -501,12 +499,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         items.map((i) => {
           const sold = lastOrderByItem.get(i.id);
-          return sold ? { ...i, soldOrderId: sold.orderId, soldAt: sold.soldAt } : i;
+          const mapped = {
+            ...i,
+            channelLinks: i.channelLinks.map(withListingChannelSyncWarning),
+          };
+          return sold ? { ...mapped, soldOrderId: sold.orderId, soldAt: sold.soldAt } : mapped;
         })
       );
     }
 
-    return NextResponse.json(items);
+    return NextResponse.json(
+      items.map((i) => ({
+        ...i,
+        channelLinks: i.channelLinks.map(withListingChannelSyncWarning),
+      }))
+    );
   }
 
   const localDelivery = searchParams.get("localDelivery");
