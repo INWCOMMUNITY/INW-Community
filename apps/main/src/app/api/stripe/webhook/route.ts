@@ -553,8 +553,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  }
-
   if (event.type === "charge.refunded" || event.type === "charge.dispute.created") {
     const charge = event.data.object as Stripe.Charge;
     const piId =
