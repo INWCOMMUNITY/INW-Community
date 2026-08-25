@@ -23,9 +23,20 @@ function sleep(ms: number): Promise<void> {
 /** Max photos fully imported into Media Manager per sync (rest use public/staging URLs). */
 const WIX_MEDIA_MANAGER_IMPORT_MAX = 8;
 
+function isWixStaticPhotoUrl(url: string): boolean {
+  return /wixstatic\.com/i.test(url);
+}
+
 /** True when Wix should fetch the listing URL as-is instead of a re-encoded staging JPEG. */
 export function shouldPassThroughListingPhotoToWix(sourceUrl: string): boolean {
-  return isInwHostedPhotoUrl(sourceUrl);
+  return isInwHostedPhotoUrl(sourceUrl) || isWixStaticPhotoUrl(sourceUrl);
+}
+
+/** Re-importing static.wixstatic.com URLs mints new file ids, 429s, and can wipe media. */
+export function shouldReplaceWixProductMedia(photos: string[]): boolean {
+  const urls = photos.filter((url) => typeof url === "string" && url.trim().length > 0);
+  if (urls.length === 0) return false;
+  return urls.some((url) => !isWixStaticPhotoUrl(url));
 }
 
 function mimeTypeForPhotoUrl(url: string): string {
@@ -171,6 +182,9 @@ export async function resolveWixProductMediaRefs(
   const urls = photoUrls.filter(Boolean).slice(0, 12);
 
   const resolveOne = async (url: string, index: number): Promise<WixProductMediaRef> => {
+    if (isWixStaticPhotoUrl(url)) {
+      return { url };
+    }
     if (index >= WIX_MEDIA_MANAGER_IMPORT_MAX) {
       return optimizedExternalRef(url, index);
     }

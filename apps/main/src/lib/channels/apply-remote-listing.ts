@@ -7,6 +7,7 @@ import { inboundListingPhotosDiffer, selectInboundListingPhotos } from "./photo-
 import { listingDescriptionToPlainText } from "./rich-description";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 import { logSyncPullQuantityChange } from "./quantity-audit";
+import { skuToAdoptFromRemote } from "@/lib/listing-sku";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
 
 /** Normalize title text so HTML entities don't trigger false content drift. */
