@@ -1,5 +1,5 @@
 import { prisma } from "database";
-import { isShippoTrackingDelivered } from "@/lib/shippo-transaction";
+import { isShippoTrackingDelivered } from "@/lib/shippo-tracking-status";
 import { nextStatusAfterFulfillmentConfirmations } from "@/lib/store-order-fulfillment";
 
 export async function persistShipmentTrackingStatus(args: {

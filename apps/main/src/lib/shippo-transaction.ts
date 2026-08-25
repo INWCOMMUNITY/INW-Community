@@ -1,5 +1,8 @@
 import type { SellerShippoCredential } from "@/lib/shippo-seller";
 import { shippoJsonHeaders } from "@/lib/shippo-seller";
+import { carrierToShippoToken } from "@/lib/shippo-tracking-status";
+
+export { carrierToShippoToken, isShippoTrackingDelivered } from "@/lib/shippo-tracking-status";
 
 const SHIPPO_API = "https://api.goshippo.com";
 
@@ -50,21 +53,6 @@ export async function fetchShippoTransaction(
     trackingUrlProvider: body.tracking_url_provider?.trim() || null,
     rateAmountCents: centsFromShippoAmount(body.rate?.amount),
   };
-}
-
-export function isShippoTrackingDelivered(status: string | null | undefined): boolean {
-  if (!status) return false;
-  const s = status.toUpperCase();
-  return s === "DELIVERED" || s.includes("DELIVERED");
-}
-
-export function carrierToShippoToken(carrier: string): string {
-  const c = carrier.toLowerCase().trim();
-  if (c.includes("usps")) return "usps";
-  if (c.includes("fedex")) return "fedex";
-  if (c.includes("ups")) return "ups";
-  if (c.includes("dhl")) return "dhl";
-  return c || "usps";
 }
 
 export type ShippoTrackSnapshot = {
