@@ -1,0 +1,1363 @@
+"use client";
+
+import { useState, useEffect, useRef, useMemo } from "react";
+import { getErrorMessage } from "@/lib/api-error";
+import { useParams, useSearchParams } from "next/navigation";
+import { getProductReferrer, buildBackLink, listingHrefPreservingReferrer } from "@/lib/product-referrer";
+import Link from "next/link";
+import { useSession } from "next-auth/react";
+import { HeartSaveButton } from "@/components/HeartSaveButton";
+import { ShareButton } from "@/components/ShareButton";
+import { useCart } from "@/contexts/CartContext";
+import { LocalDeliveryModal, type LocalDeliveryDetails } from "@/components/LocalDeliveryModal";
+import { PickupTermsModal, type PickupDetails } from "@/components/PickupTermsModal";
+import { IonIcon } from "@/components/IonIcon";
+import {
+  StoreItemFulfillmentPicker,
+  StoreItemQuantityStepper,
+  StoreItemAddToCartButton,
+} from "@/components/store-item/StoreItemDetailControls";
+import { useStoreItemRelatedLists } from "@/hooks/use-store-item-related-lists";
+import {
+  allVariantAxesSelected,
+  variantOptionLabels,
+  hasOptionQuantities,
+  getMaxPurchasableQuantity,
+  optionIsSoldOut,
+  getOptionQuantity,
+} from "@/lib/store-item-variants";
+import { ListingRichDescription } from "@/components/ListingRichDescription";
+import { parseStoredAspects } from "@/lib/listing-limits";
+import { listingDisplayPhoto } from "@/lib/listing-display-photo";
+
+interface VariantOption {
+  name: string;
+  options: string[] | { value: string; quantity: number }[];
+}
+
+type FulfillmentType = "ship" | "local_delivery" | "pickup";
+
+interface StoreItem {
+  id: string;
+  title: string;
+  slug: string;
+  status?: string;
+  description: string | null;
+  aspects?: unknown;
+  photos: string[];
+  category: string | null;
+  condition?: "new" | "used";
+  priceCents: number;
+  quantity: number;
+  variants?: VariantOption[] | null;
+  shippingCostCents: number | null;
+  shippingPolicy: string | null;
+  localDeliveryAvailable: boolean;
+  localDeliveryFeeCents?: number | null;
+  inStorePickupAvailable?: boolean;
+  shippingDisabled?: boolean;
+  localDeliveryTerms?: string | null;
+  pickupTerms?: string | null;
+  member?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    sellerShippingPolicy?: string | null;
+    sellerLocalDeliveryPolicy?: string | null;
+    sellerPickupPolicy?: string | null;
+    sellerReturnPolicy?: string | null;
+  };
+  business?: {
+    id: string;
+    name: string;
+    slug: string;
+    phone?: string | null;
+    email?: string | null;
+    website?: string | null;
+    address?: string | null;
+    logoUrl?: string | null;
+    fullDescription?: string | null;
+  };
+  soldAt?: string;
+}
+
+function buyBoxFulfillmentSummary(
+  fulfillmentType: FulfillmentType,
+  listing: StoreItem
+): string | null {
+  if (fulfillmentType === "pickup") return "Local pickup";
+  if (fulfillmentType === "local_delivery") {
+    const fee = listing.localDeliveryFeeCents ?? 0;
+    return fee > 0
+      ? `+ $${(fee / 100).toFixed(2)} local delivery`
+      : "Free local delivery";
+  }
+  if (listing.shippingDisabled) return null;
+  const ship = listing.shippingCostCents ?? 0;
+  return ship > 0 ? `+ $${(ship / 100).toFixed(2)} shipping` : "Free shipping";
+}
+
+export function StorefrontListingContent({
+  initialItem,
+  initialUnavailable = false,
+}: {
+  initialItem: StoreItem | null;
+  initialUnavailable?: boolean;
+}) {
+  const params = useParams();
+  const searchParams = useSearchParams();
+  const referrer = getProductReferrer(searchParams);
+  const backLink = buildBackLink(referrer);
+  const { data: session, status } = useSession();
+  const slugParam = params?.slug;
+  const slug =
+    typeof slugParam === "string"
+      ? slugParam
+      : Array.isArray(slugParam)
+        ? slugParam[0] ?? ""
+        : "";
+  const [item, setItem] = useState<StoreItem | null>(initialItem);
+  const [itemUnavailable, setItemUnavailable] = useState(initialUnavailable);
+  const [quantity, setQuantity] = useState(1);
+  const [selectedVariant, setSelectedVariant] = useState<Record<string, string>>({});
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
+  const [loading, setLoading] = useState(!initialItem);
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [error, setError] = useState("");
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [addingToCart, setAddingToCart] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxZoom, setLightboxZoom] = useState(1);
+  const [lightboxPan, setLightboxPan] = useState({ x: 0, y: 0 });
+  const [lightboxDragging, setLightboxDragging] = useState(false);
+  const lightboxDragStart = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const [sellerScrollIndex, setSellerScrollIndex] = useState(0);
+  const [moreLikeThisScrollIndex, setMoreLikeThisScrollIndex] = useState(0);
+  const [keepShoppingHref, setKeepShoppingHref] = useState("/storefront");
+  const ITEMS_PER_SCROLL = 2;
+  const { refresh, setOpen: setCartOpen } = useCart();
+
+  // Fulfillment: ship | local_delivery | pickup
+  const [fulfillmentType, setFulfillmentType] = useState<FulfillmentType>("ship");
+  const [localDeliveryModalOpen, setLocalDeliveryModalOpen] = useState(false);
+  const [localDeliveryForm, setLocalDeliveryForm] = useState<Partial<LocalDeliveryDetails>>({
+    firstName: "",
+    lastName: "",
+    phone: "",
+    email: "",
+    deliveryAddress: { street: "", city: "", state: "", zip: "" },
+    availableDropOffTimes: "",
+    note: "",
+  });
+  const [localDeliveryDetailsSaved, setLocalDeliveryDetailsSaved] = useState(false);
+  const [pickupModalOpen, setPickupModalOpen] = useState(false);
+  const [pickupForm, setPickupForm] = useState<Partial<PickupDetails>>({
+    firstName: "",
+    lastName: "",
+    phone: "",
+    email: "",
+    preferredPickupDate: "",
+    preferredPickupTime: "",
+    note: "",
+  });
+  const [pickupDetailsSaved, setPickupDetailsSaved] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = typeof window !== "undefined" ? sessionStorage.getItem("storefrontFilters") : null;
+      const f = raw ? (JSON.parse(raw) as { category?: string; size?: string; search?: string; deliveryFilter?: string }) : {};
+      const q = new URLSearchParams();
+      if (f.category) q.set("category", f.category);
+      if (f.size) q.set("size", f.size);
+      if (f.search) q.set("search", f.search);
+      if (f.deliveryFilter === "local") q.set("localDelivery", "1");
+      if (f.deliveryFilter === "shipping") q.set("shippingOnly", "1");
+      const query = q.toString();
+      setKeepShoppingHref(query ? `/storefront?${query}` : "/storefront");
+    } catch {
+      setKeepShoppingHref("/storefront");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (initialItem && !initialItem.shippingDisabled) setFulfillmentType("ship");
+    else if (initialItem?.localDeliveryAvailable) setFulfillmentType("local_delivery");
+    else if (initialItem?.inStorePickupAvailable) setFulfillmentType("pickup");
+  }, [initialItem]);
+
+  useEffect(() => {
+    if (!slug) return;
+    if (initialItem && initialItem.slug === slug) {
+      setItem(initialItem);
+      setItemUnavailable(initialUnavailable);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setSelectedPhotoIndex(0);
+    setSelectedVariant({});
+    setError("");
+    setItemUnavailable(false);
+    fetch(`/api/store-items?slug=${encodeURIComponent(slug)}`)
+      .then((r) => (r.ok ? r.json() : Promise.resolve(null)))
+      .then((data) => {
+        if (data && typeof data.id === "string") {
+          setItem(data);
+          if (!data.shippingDisabled) setFulfillmentType("ship");
+          else if (data.localDeliveryAvailable) setFulfillmentType("local_delivery");
+          else if (data.inStorePickupAvailable) setFulfillmentType("pickup");
+          return;
+        }
+        return fetch(`/api/store-items?slug=${encodeURIComponent(slug)}&includeUnavailable=1`)
+          .then((r2) => (r2.ok ? r2.json() : null))
+          .then((data2) => {
+            if (data2 && typeof data2.id === "string" && (data2 as { unavailable?: boolean }).unavailable) {
+              setItem(data2);
+              setItemUnavailable(true);
+              if (!data2.shippingDisabled) setFulfillmentType("ship");
+              else if (data2.localDeliveryAvailable) setFulfillmentType("local_delivery");
+              else if (data2.inStorePickupAvailable) setFulfillmentType("pickup");
+            } else {
+              setItem(null);
+            }
+          });
+      })
+      .catch(() => setItem(null))
+      .finally(() => setLoading(false));
+  }, [slug, initialItem, initialUnavailable]);
+
+  useEffect(() => {
+    if (session?.user) {
+      fetch("/api/saved?type=store_item")
+        .then((r) => r.json())
+        .then((items: { referenceId: string }[]) => {
+          setSavedIds(new Set(items.map((i) => i.referenceId)));
+        })
+        .catch(() => {});
+    }
+  }, [session?.user]);
+
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightboxOpen(false);
+      if (e.key === "ArrowLeft") setSelectedPhotoIndex((i) => (i <= 0 ? item!.photos.length - 1 : i - 1));
+      if (e.key === "ArrowRight") setSelectedPhotoIndex((i) => (i >= item!.photos.length - 1 ? 0 : i + 1));
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [lightboxOpen, item?.photos?.length]);
+
+  useEffect(() => {
+    if (!lightboxDragging) return;
+    const onMouseMove = (e: MouseEvent) => {
+      const start = lightboxDragStart.current;
+      if (!start) return;
+      setLightboxPan({
+        x: start.panX + (e.clientX - start.x),
+        y: start.panY + (e.clientY - start.y),
+      });
+    };
+    const onMouseUp = () => {
+      lightboxDragStart.current = null;
+      setLightboxDragging(false);
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const start = lightboxDragStart.current;
+      if (!start || e.touches.length !== 1) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      setLightboxPan({
+        x: start.panX + (t.clientX - start.x),
+        y: start.panY + (t.clientY - start.y),
+      });
+    };
+    const onTouchEnd = () => {
+      lightboxDragStart.current = null;
+      setLightboxDragging(false);
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
+    window.addEventListener("touchend", onTouchEnd);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [lightboxDragging]);
+
+  const { sellerItems, similarItems } = useStoreItemRelatedLists(item);
+
+  const hasVariants = item?.variants && item.variants.length > 0;
+  const allVariantsSelected =
+    !hasVariants || allVariantAxesSelected(item?.variants, selectedVariant);
+  const perOptionStock = item ? hasOptionQuantities(item.variants) : false;
+
+  const maxPurchasableQty = useMemo(() => {
+    if (!item || itemUnavailable) return 0;
+    return getMaxPurchasableQuantity(item, selectedVariant, allVariantsSelected);
+  }, [item, itemUnavailable, selectedVariant, allVariantsSelected]);
+  const fulfillmentSummary = item ? buyBoxFulfillmentSummary(fulfillmentType, item) : null;
+  const showLowStockChip =
+    !itemUnavailable && maxPurchasableQty > 0 && maxPurchasableQty < 10 && allVariantsSelected;
+
+  const itemDetails = useMemo(
+    () => (item ? parseStoredAspects(item.aspects) : []),
+    [item?.aspects]
+  );
+
+  useEffect(() => {
+    if (maxPurchasableQty < 1) {
+      setQuantity(1);
+      return;
+    }
+    setQuantity((q) => Math.min(Math.max(1, q), maxPurchasableQty));
+  }, [maxPurchasableQty, selectedVariant]);
+
+  const canPurchase =
+    maxPurchasableQty >= 1 && allVariantsSelected && !itemUnavailable;
+
+  const effectiveShippingPolicy =
+    item?.shippingPolicy ?? item?.member?.sellerShippingPolicy ?? null;
+  const effectiveLocalDeliveryPolicy =
+    (item as { localDeliveryTerms?: string | null })?.localDeliveryTerms ??
+    item?.member?.sellerLocalDeliveryPolicy ??
+    null;
+
+  const canAddToCart =
+    (fulfillmentType !== "local_delivery" || localDeliveryDetailsSaved) &&
+    (fulfillmentType !== "pickup" || pickupDetailsSaved);
+
+  const needsFulfillmentForm =
+    (fulfillmentType === "pickup" && !pickupDetailsSaved) ||
+    (fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved);
+
+  async function handleAddToCart() {
+    if (!item || quantity < 1 || quantity > maxPurchasableQty) return;
+    if (hasVariants && !allVariantsSelected) {
+      setError("Please select all options before adding to cart.");
+      return;
+    }
+    if (fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved) {
+      setLocalDeliveryModalOpen(true);
+      return;
+    }
+    if (fulfillmentType === "pickup" && !pickupDetailsSaved) {
+      setPickupModalOpen(true);
+      return;
+    }
+    setError("");
+    setAddingToCart(true);
+    try {
+      const body: {
+        storeItemId: string;
+        quantity: number;
+        variant?: Record<string, string>;
+        fulfillmentType?: FulfillmentType;
+        localDeliveryDetails?: LocalDeliveryDetails & { termsAcceptedAt?: string };
+        pickupDetails?: PickupDetails & { termsAcceptedAt?: string };
+      } = {
+        storeItemId: item.id,
+        quantity,
+        variant: Object.keys(selectedVariant).length > 0 ? selectedVariant : undefined,
+        fulfillmentType,
+      };
+      if (fulfillmentType === "local_delivery" && localDeliveryForm && localDeliveryDetailsSaved) {
+        body.localDeliveryDetails = {
+          firstName: localDeliveryForm.firstName ?? "",
+          lastName: localDeliveryForm.lastName ?? "",
+          phone: localDeliveryForm.phone ?? "",
+          email: localDeliveryForm.email ?? "",
+          deliveryAddress: localDeliveryForm.deliveryAddress ?? { street: "", city: "", state: "", zip: "" },
+          availableDropOffTimes: localDeliveryForm.availableDropOffTimes ?? "",
+          note: localDeliveryForm.note ?? "",
+          termsAcceptedAt: new Date().toISOString(),
+        };
+      }
+      if (fulfillmentType === "pickup" && pickupForm && pickupDetailsSaved) {
+        body.pickupDetails = {
+          ...pickupForm,
+          firstName: pickupForm.firstName ?? "",
+          lastName: pickupForm.lastName ?? "",
+          phone: pickupForm.phone ?? "",
+          email: pickupForm.email ?? "",
+          preferredPickupDate: pickupForm.preferredPickupDate ?? "",
+          preferredPickupTime: pickupForm.preferredPickupTime ?? "",
+          note: pickupForm.note ?? "",
+          termsAcceptedAt: (pickupForm as PickupDetails & { termsAcceptedAt?: string }).termsAcceptedAt ?? new Date().toISOString(),
+        };
+      }
+      const res = await fetch("/api/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError((d as { error?: string }).error ?? "Failed to add to cart");
+        return;
+      }
+      refresh();
+      setCartOpen(true);
+    } finally {
+      setAddingToCart(false);
+    }
+  }
+
+  async function handleCheckout() {
+    if (!item || quantity < 1 || quantity > maxPurchasableQty) return;
+    if (hasVariants && !allVariantsSelected) {
+      setError("Please select all options before checkout.");
+      return;
+    }
+    if (fulfillmentType === "local_delivery" && !localDeliveryDetailsSaved) {
+      setLocalDeliveryModalOpen(true);
+      return;
+    }
+    if (fulfillmentType === "pickup" && !pickupDetailsSaved) {
+      setPickupModalOpen(true);
+      return;
+    }
+    setError("");
+    setCheckingOut(true);
+    try {
+      const items = [
+        {
+          storeItemId: item.id,
+          quantity,
+          variant: Object.keys(selectedVariant).length > 0 ? selectedVariant : undefined,
+          fulfillmentType,
+        },
+      ];
+      const body: {
+        items: typeof items;
+        shippingCostCents?: number;
+        shippingAddress?: unknown;
+        localDeliveryDetails?: LocalDeliveryDetails & { termsAcceptedAt?: string };
+        pickupDetails?: PickupDetails & { termsAcceptedAt?: string };
+      } = {
+        items,
+        shippingCostCents: fulfillmentType === "ship" ? (item.shippingCostCents ?? 0) : 0,
+        shippingAddress: undefined,
+      };
+      if (fulfillmentType === "local_delivery" && localDeliveryForm && localDeliveryDetailsSaved) {
+        body.localDeliveryDetails = {
+          firstName: localDeliveryForm.firstName ?? "",
+          lastName: localDeliveryForm.lastName ?? "",
+          phone: localDeliveryForm.phone ?? "",
+          email: localDeliveryForm.email ?? "",
+          deliveryAddress: localDeliveryForm.deliveryAddress ?? { street: "", city: "", state: "", zip: "" },
+          availableDropOffTimes: localDeliveryForm.availableDropOffTimes ?? "",
+          note: localDeliveryForm.note ?? "",
+          termsAcceptedAt: new Date().toISOString(),
+        };
+      }
+      if (fulfillmentType === "pickup" && pickupForm && pickupDetailsSaved) {
+        body.pickupDetails = {
+          ...pickupForm,
+          firstName: pickupForm.firstName ?? "",
+          lastName: pickupForm.lastName ?? "",
+          phone: pickupForm.phone ?? "",
+          email: pickupForm.email ?? "",
+          preferredPickupDate: pickupForm.preferredPickupDate ?? "",
+          preferredPickupTime: pickupForm.preferredPickupTime ?? "",
+          note: pickupForm.note ?? "",
+          termsAcceptedAt: (pickupForm as PickupDetails & { termsAcceptedAt?: string }).termsAcceptedAt ?? new Date().toISOString(),
+        };
+      }
+
+      const checkoutRes = await fetch("/api/stripe/storefront-checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...body,
+          returnBaseUrl: typeof window !== "undefined" ? window.location.origin : undefined,
+          ...(fulfillmentType === "ship" ? { shippingCollectedByStripe: true } : {}),
+        }),
+      });
+      const checkoutData = (await checkoutRes.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!checkoutRes.ok) {
+        setError(getErrorMessage(checkoutData.error, "Checkout failed"));
+        return;
+      }
+      if (checkoutData.url) {
+        window.location.href = checkoutData.url;
+        return;
+      }
+      setError(getErrorMessage(checkoutData.error, "Checkout could not be started."));
+    } finally {
+      setCheckingOut(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
+        <div className="max-w-[var(--max-width)] mx-auto">
+          <p className="text-gray-500">Loading…</p>
+        </div>
+      </section>
+    );
+  }
+
+  if (!item) {
+    return (
+      <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
+        <div className="max-w-[var(--max-width)] mx-auto">
+          <p className="text-gray-500">Product not found.</p>
+          <Link href={backLink.href} className="btn mt-4 inline-block">
+            {backLink.label}
+          </Link>
+        </div>
+      </section>
+    );
+  }
+
+  const mainPhoto = item.photos[selectedPhotoIndex] ?? item.photos[0];
+  const heroPhoto = listingDisplayPhoto(mainPhoto, "hero") ?? mainPhoto;
+
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: item.title,
+    description: item.description?.replace(/<[^>]*>/g, "").slice(0, 500) || undefined,
+    image: heroPhoto ? [heroPhoto] : undefined,
+    sku: item.id,
+    offers: {
+      "@type": "Offer",
+      price: (item.priceCents / 100).toFixed(2),
+      priceCurrency: "USD",
+      availability:
+        itemUnavailable || item.quantity <= 0
+          ? "https://schema.org/OutOfStock"
+          : "https://schema.org/InStock",
+      itemCondition:
+        item.condition === "new"
+          ? "https://schema.org/NewCondition"
+          : "https://schema.org/UsedCondition",
+      seller: item.business
+        ? {
+            "@type": "Organization",
+            name: item.business.name,
+          }
+        : item.member
+          ? {
+              "@type": "Person",
+              name: `${item.member.firstName} ${item.member.lastName}`,
+            }
+          : undefined,
+    },
+    category: item.category || undefined,
+  };
+
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
+        <div className="max-w-[var(--max-width)] mx-auto">
+          <Link
+            href={backLink.href}
+            className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#C9A86C] bg-white px-4 py-2 text-sm font-semibold text-[var(--color-primary)] shadow-sm transition hover:bg-[#F8F8F3]"
+          >
+            <IonIcon name="arrow-back-outline" size={18} className="text-[var(--color-primary)]" />
+            {backLink.label}
+          </Link>
+        {itemUnavailable && item && (
+          <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
+            <p className="text-amber-800 font-semibold">
+              {item.status === "sold_out" || item.soldAt
+                ? item.soldAt
+                  ? `This item was sold on ${new Date(item.soldAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.`
+                  : "This item was sold."
+                : item.status === "inactive"
+                  ? "This listing has ended."
+                  : "This listing is not available for purchase right now."}
+            </p>
+          </div>
+        )}
+
+        {/* Photo lightbox: click through and zoom */}
+        {lightboxOpen && item.photos.length > 0 && (
+          <div
+            className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center"
+            onClick={() => setLightboxOpen(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Image gallery"
+          >
+            <div
+              className="relative max-w-[95vw] max-h-[95vh] flex items-center justify-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => setLightboxOpen(false)}
+                className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center text-2xl leading-none"
+                aria-label="Close"
+              >
+                ×
+              </button>
+              {item.photos.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedPhotoIndex((i) => (i <= 0 ? item.photos.length - 1 : i - 1));
+                      setLightboxZoom(1);
+                      setLightboxPan({ x: 0, y: 0 });
+                    }}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center text-2xl"
+                    aria-label="Previous image"
+                  >
+                    ‹
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedPhotoIndex((i) => (i >= item.photos.length - 1 ? 0 : i + 1));
+                      setLightboxZoom(1);
+                      setLightboxPan({ x: 0, y: 0 });
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 z-10 w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center text-2xl"
+                    aria-label="Next image"
+                  >
+                    ›
+                  </button>
+                </>
+              )}
+              <div
+                className="overflow-auto max-h-[95vh] max-w-[95vw] flex items-center justify-center p-12 select-none"
+                style={{
+                  cursor: lightboxZoom > 1 && lightboxDragging ? "grabbing" : lightboxZoom > 1 ? "grab" : "default",
+                }}
+                onMouseDown={(e) => {
+                  if (lightboxZoom <= 1 || e.button !== 0) return;
+                  e.preventDefault();
+                  lightboxDragStart.current = {
+                    x: e.clientX,
+                    y: e.clientY,
+                    panX: lightboxPan.x,
+                    panY: lightboxPan.y,
+                  };
+                  setLightboxDragging(true);
+                }}
+                onTouchStart={(e) => {
+                  if (lightboxZoom <= 1 || e.touches.length !== 1) return;
+                  const t = e.touches[0];
+                  lightboxDragStart.current = {
+                    x: t.clientX,
+                    y: t.clientY,
+                    panX: lightboxPan.x,
+                    panY: lightboxPan.y,
+                  };
+                  setLightboxDragging(true);
+                }}
+              >
+                <img
+                  src={item.photos[selectedPhotoIndex] ?? item.photos[0]}
+                  alt={`${item.title} ${selectedPhotoIndex + 1} of ${item.photos.length}`}
+                  className="max-w-full max-h-[calc(95vh-5rem)] w-auto h-auto object-contain touch-none"
+                  style={{
+                    transform: `translate(${lightboxPan.x}px, ${lightboxPan.y}px) scale(${lightboxZoom})`,
+                    transformOrigin: "center center",
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  draggable={false}
+                />
+              </div>
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 rounded-full bg-black/50 px-4 py-2">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLightboxZoom((z) => {
+                      const next = Math.max(0.5, z - 0.5);
+                      if (next === 1) setLightboxPan({ x: 0, y: 0 });
+                      return next;
+                    });
+                  }}
+                  className="text-white hover:bg-white/20 w-8 h-8 rounded flex items-center justify-center"
+                  aria-label="Zoom out"
+                >
+                  −
+                </button>
+                <span className="text-white text-sm tabular-nums min-w-[4rem] text-center">
+                  {Math.round(lightboxZoom * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLightboxZoom((z) => Math.min(3, z + 0.5));
+                  }}
+                  className="text-white hover:bg-white/20 w-8 h-8 rounded flex items-center justify-center"
+                  aria-label="Zoom in"
+                >
+                  +
+                </button>
+                {item.photos.length > 1 && (
+                  <span className="text-white/80 text-sm ml-2 border-l border-white/40 pl-2">
+                    {selectedPhotoIndex + 1} / {item.photos.length}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {localDeliveryModalOpen && item && (
+        <LocalDeliveryModal
+          open
+          onClose={() => setLocalDeliveryModalOpen(false)}
+          policyText={effectiveLocalDeliveryPolicy ?? undefined}
+          initialForm={{
+            firstName: localDeliveryForm.firstName ?? "",
+            lastName: localDeliveryForm.lastName ?? "",
+            phone: localDeliveryForm.phone ?? "",
+            email: localDeliveryForm.email ?? "",
+            deliveryAddress: {
+              street: localDeliveryForm.deliveryAddress?.street ?? "",
+              city: localDeliveryForm.deliveryAddress?.city ?? "",
+              state: localDeliveryForm.deliveryAddress?.state ?? "",
+              zip: localDeliveryForm.deliveryAddress?.zip ?? "",
+            },
+            availableDropOffTimes: localDeliveryForm.availableDropOffTimes ?? "",
+            note: localDeliveryForm.note ?? "",
+          }}
+          onSave={(form) => {
+            setLocalDeliveryForm(form);
+            setLocalDeliveryDetailsSaved(true);
+            setLocalDeliveryModalOpen(false);
+          }}
+        />
+        )}
+        {pickupModalOpen && item && (
+        <PickupTermsModal
+          open
+          onClose={() => setPickupModalOpen(false)}
+          policyText={item?.pickupTerms ?? item?.member?.sellerPickupPolicy ?? undefined}
+          initialForm={{
+            firstName: pickupForm.firstName ?? "",
+            lastName: pickupForm.lastName ?? "",
+            phone: pickupForm.phone ?? "",
+            email: pickupForm.email ?? "",
+            preferredPickupDate: pickupForm.preferredPickupDate ?? "",
+            preferredPickupTime: pickupForm.preferredPickupTime ?? "",
+            note: pickupForm.note ?? "",
+          }}
+          onSave={(form) => {
+            setPickupForm(form);
+            setPickupDetailsSaved(true);
+            setPickupModalOpen(false);
+          }}
+        />
+        )}
+
+        {/* Product Details - boxed */}
+        <div
+          className="rounded-2xl border-2 bg-white p-5 sm:p-6 mb-12 shadow-sm"
+          style={{ borderColor: "#C9A86C" }}
+        >
+          <div className="mb-6 border-b border-[#E6D8B7] pb-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-primary)]">
+                  LOCAL BUSINESS LISTING
+                </p>
+                <h1 className="text-3xl font-bold leading-tight text-[var(--color-heading)]">{item.title}</h1>
+              </div>
+              <div className="flex w-full sm:w-auto sm:min-w-[12rem]">
+                <ShareButton
+                  type="store_item"
+                  id={item.id}
+                  slug={item.slug}
+                  title={item.title}
+                  variant="full"
+                  tone="earth"
+                  label="Share Item"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="grid min-h-[480px] gap-8 lg:grid-cols-[minmax(0,1.08fr)_minmax(22rem,0.92fr)]">
+          <div className="rounded-2xl border border-[#E6D8B7] bg-[#F8F8F3] p-3 shadow-sm">
+            {mainPhoto ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (item.photos.length > 0) {
+                    setLightboxZoom(1);
+                    setLightboxPan({ x: 0, y: 0 });
+                    setLightboxOpen(true);
+                  }
+                }}
+                className="w-full aspect-square max-h-[560px] bg-white rounded-xl overflow-hidden mb-3 block text-left focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] focus:ring-offset-2 cursor-zoom-in border-2 border-[var(--color-primary)] shadow-sm"
+              >
+                <img
+                  src={heroPhoto}
+                  alt={item.title}
+                  className="w-full h-full object-contain"
+                  decoding="async"
+                  fetchPriority="high"
+                />
+              </button>
+            ) : (
+              <div className="w-full aspect-square max-h-[560px] bg-white rounded-xl flex items-center justify-center text-gray-400 shrink-0 border-2 border-[var(--color-primary)] shadow-sm">
+                No image
+              </div>
+            )}
+            {item.photos.length > 1 && (
+              <div className="flex gap-2 overflow-x-auto pb-2">
+                {item.photos.map((url, i) => (
+                  <button
+                    key={`${url}-${i}`}
+                    type="button"
+                    onClick={() => setSelectedPhotoIndex(i)}
+                    className={`shrink-0 w-16 h-16 rounded overflow-hidden border-2 outline-none focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0 ${
+                      selectedPhotoIndex === i
+                        ? "border-[var(--color-primary)]"
+                        : "border-[var(--color-primary)]/50 hover:border-[var(--color-primary)]"
+                    }`}
+                    style={{ outline: "none" }}
+                  >
+                    <img src={listingDisplayPhoto(url, "thumb") ?? url} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="rounded-2xl border border-[#E6D8B7] bg-[#FBFAF6] p-5 shadow-sm">
+            {item.business ? (
+              <Link
+                href={`/support-local/${item.business.slug}`}
+                className="inline-flex max-w-full items-center gap-1.5 text-sm text-gray-600 hover:text-[var(--color-heading)]"
+              >
+                <IonIcon name="storefront-outline" size={16} className="shrink-0 text-[var(--color-primary)]" />
+                <span className="min-w-0">
+                  Sold by{" "}
+                  <span className="font-semibold text-[var(--color-link)]">{item.business.name}</span>
+                </span>
+                <IonIcon name="chevron-forward" size={14} className="shrink-0 text-gray-400" />
+              </Link>
+            ) : item.member ? (
+              <p className="inline-flex items-center gap-1.5 text-sm text-gray-600">
+                <IonIcon name="person-outline" size={16} className="text-[var(--color-primary)]" />
+                <span>
+                  Sold by{" "}
+                  <span className="font-semibold text-[var(--color-heading)]">
+                    {item.member.firstName} {item.member.lastName}
+                  </span>
+                </span>
+              </p>
+            ) : null}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span
+                className="inline-block rounded px-2.5 py-1 text-xs font-semibold"
+                style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-heading)" }}
+              >
+                {item.condition === "used" ? "Used" : "New"}
+              </span>
+              {showLowStockChip && (
+                <span className="inline-block rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                  Only {maxPurchasableQty} left
+                </span>
+              )}
+            </div>
+            <p className="mt-3 text-3xl font-bold tracking-tight text-[var(--color-heading)]">
+              ${(item.priceCents / 100).toFixed(2)}
+            </p>
+            {fulfillmentSummary && (
+              <p className="mt-1 text-sm text-gray-500">{fulfillmentSummary}</p>
+            )}
+
+            <StoreItemFulfillmentPicker
+              fulfillmentType={fulfillmentType}
+              onFulfillmentTypeChange={setFulfillmentType}
+              shippingDisabled={item.shippingDisabled}
+              localDeliveryAvailable={item.localDeliveryAvailable}
+              inStorePickupAvailable={item.inStorePickupAvailable}
+              shippingCostCents={item.shippingCostCents}
+              localDeliveryFeeCents={item.localDeliveryFeeCents}
+              localDeliveryDetailsSaved={localDeliveryDetailsSaved}
+              pickupDetailsSaved={pickupDetailsSaved}
+            />
+            {fulfillmentType === "pickup" && (item.pickupTerms ?? item.member?.sellerPickupPolicy) && (
+              <div className="mt-2 p-3 bg-gray-50 rounded border border-gray-200 text-sm">
+                <strong>Seller&apos;s pickup policy:</strong>
+                <div className="mt-1 whitespace-pre-wrap text-gray-700">{item.pickupTerms ?? item.member?.sellerPickupPolicy}</div>
+              </div>
+            )}
+            {item.variants && item.variants.length > 0 && (
+              <div className="mt-6 space-y-3">
+                {item.variants.map((v, vi) => (
+                  <div key={vi}>
+                    <label className="block text-sm font-medium mb-1">{v.name} *</label>
+                    <div className="flex flex-wrap gap-2">
+                      {variantOptionLabels(v).map((opt) => {
+                        const soldOut = optionIsSoldOut(item.variants, v.name, opt);
+                        const optQty = getOptionQuantity(item.variants, v.name, opt);
+                        const lowStock =
+                          perOptionStock &&
+                          optQty != null &&
+                          optQty > 0 &&
+                          optQty < 10;
+                        return (
+                        <button
+                          key={opt}
+                          type="button"
+                          disabled={soldOut}
+                          onClick={() =>
+                            setSelectedVariant((prev) => ({ ...prev, [v.name]: opt }))
+                          }
+                          className={`border rounded px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+                            selectedVariant[v.name] === opt
+                              ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
+                              : soldOut
+                                ? "border-gray-200 text-gray-400 line-through"
+                                : "border-gray-300 hover:border-gray-400"
+                          }`}
+                        >
+                          {opt}
+                          {soldOut ? " (Out)" : lowStock ? ` (${optQty})` : ""}
+                        </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!itemUnavailable && (
+              <>
+                {perOptionStock && !allVariantsSelected ? (
+                  <p className="text-sm text-gray-600 mt-6">
+                    Select all options to see available quantity.
+                  </p>
+                ) : maxPurchasableQty >= 1 ? (
+                <StoreItemQuantityStepper
+                  quantity={quantity}
+                  maxQuantity={maxPurchasableQty}
+                  onChange={setQuantity}
+                />
+                ) : allVariantsSelected ? (
+                  <p className="text-sm text-red-600 mt-6">This option is sold out.</p>
+                ) : null}
+                {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
+              </>
+            )}
+            <div className="mt-6 flex flex-col gap-3">
+              {!itemUnavailable && (
+                status === "loading" ? (
+                  <p className="text-gray-500">Loading…</p>
+                ) : session?.user ? (
+                  <>
+                    <StoreItemAddToCartButton
+                      onClick={handleAddToCart}
+                      disabled={!canPurchase}
+                      loading={addingToCart}
+                      needsFulfillmentForm={needsFulfillmentForm}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCheckout}
+                      disabled={checkingOut || !canPurchase}
+                      className="w-full inline-flex items-center justify-center gap-2.5 border-2 border-[var(--color-primary)] bg-white hover:bg-gray-50 disabled:opacity-50 py-2.5 px-4 rounded font-medium text-[var(--color-primary)] transition-colors"
+                    >
+                      <IonIcon name="flash-outline" size={18} className="text-[var(--color-primary)] shrink-0" />
+                      {checkingOut ? "Redirecting…" : "Buy It Now"}
+                    </button>
+                  </>
+                ) : (
+                  <Link
+                    href={`/login?callbackUrl=${encodeURIComponent(listingHrefPreservingReferrer(item.slug, searchParams))}`}
+                    className="btn inline-block text-center"
+                  >
+                    Sign in to Buy
+                  </Link>
+                )
+              )}
+              <HeartSaveButton
+                type="store_item"
+                referenceId={item.id}
+                initialSaved={savedIds.has(item.id)}
+                variant="full"
+                tone="tan"
+                saveLabel="Add to Wishlist"
+                savedLabel="In Wishlist"
+                onSavedChange={(saved) => {
+                  setSavedIds((prev) => {
+                    const next = new Set(prev);
+                    if (saved) next.add(item.id);
+                    else next.delete(item.id);
+                    return next;
+                  });
+                }}
+              />
+            </div>
+          </div>
+          </div>
+          {itemDetails.length > 0 && (
+            <div className="mt-8 pt-8 border-t border-gray-200">
+              <h2 className="text-xl font-bold mb-3">Item Details</h2>
+              <dl className="border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-200">
+                {itemDetails.map((aspect, idx) => (
+                  <div
+                    key={`${aspect.name}-${idx}`}
+                    className="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-2 sm:gap-4 bg-white even:bg-gray-50"
+                  >
+                    <dt className="text-sm font-medium text-gray-700">{aspect.name}</dt>
+                    <dd className="text-sm text-gray-900">{aspect.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )}
+          {item.description && (
+            <div className="mt-8 pt-8 border-t border-gray-200">
+              <h2 className="text-xl font-bold mb-3">Item Description</h2>
+              <ListingRichDescription description={item.description} />
+            </div>
+          )}
+        </div>
+
+        {/* Store Information - always show when seller has business profile */}
+        {item.business && (
+          <div className="border rounded-lg overflow-hidden mb-8">
+            <div
+              className="px-6 py-3 text-white font-semibold"
+              style={{ backgroundColor: "var(--color-primary)" }}
+            >
+              Store Information
+            </div>
+            <div className="p-6 bg-gray-50">
+              {/* Symmetrical 3-column layout: left (name, description), center (phone, logo), right (email, website, address) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 items-stretch">
+                {/* Left column */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Company Name
+                    </label>
+                    <div
+                      className="border-2 rounded-lg px-3 py-2.5 bg-white text-gray-900 min-h-[2.75rem] flex items-center"
+                      style={{ borderColor: "#C9A86C" }}
+                    >
+                      {item.business.name || "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Store Description
+                    </label>
+                    <div
+                      className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-40 overflow-y-auto min-h-[6rem]"
+                      style={{ borderColor: "#C9A86C", scrollbarWidth: "thin" }}
+                    >
+                      {item.business.fullDescription || "—"}
+                    </div>
+                  </div>
+                </div>
+                {/* Center column: phone + logo (logo centered in space aligned with store description) */}
+                <div className="flex flex-col order-first md:order-none">
+                  <div className="w-full shrink-0">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Company Phone Number
+                    </label>
+                    <div
+                      className="border-2 rounded-lg px-3 py-2.5 bg-white text-gray-900 min-h-[2.75rem] flex items-center"
+                      style={{ borderColor: "#C9A86C" }}
+                    >
+                      {item.business.phone || "—"}
+                    </div>
+                  </div>
+                  <div className="flex justify-center items-center w-full mt-6 min-h-0 flex-1">
+                    {item.business.logoUrl ? (
+                      <img
+                        src={item.business.logoUrl}
+                        alt={item.business.name || "Store"}
+                        className="w-[9.72rem] h-[9.72rem] md:w-[10.8rem] md:h-[10.8rem] rounded-full object-cover border-2 flex-shrink-0"
+                        style={{ borderColor: "#C9A86C" }}
+                      />
+                    ) : (
+                      <div
+                        className="w-[9.72rem] h-[9.72rem] md:w-[10.8rem] md:h-[10.8rem] rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-sm flex-shrink-0"
+                        style={{ borderWidth: 2, borderStyle: "solid", borderColor: "#C9A86C" }}
+                      >
+                        No logo
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {/* Right column */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Contact Email
+                    </label>
+                    <div
+                      className="border-2 rounded-lg px-3 py-2.5 bg-white text-gray-900 min-h-[2.75rem] flex items-center break-all"
+                      style={{ borderColor: "#C9A86C" }}
+                    >
+                      {item.business.email || "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Business Website
+                    </label>
+                    <div
+                      className="border-2 rounded-lg px-3 py-2.5 bg-white min-h-[2.75rem] flex items-center"
+                      style={{ borderColor: "#C9A86C" }}
+                    >
+                      {item.business.website ? (
+                        <a
+                          href={item.business.website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[var(--color-link)] hover:underline break-all"
+                        >
+                          {item.business.website}
+                        </a>
+                      ) : (
+                        <span className="text-gray-900">—</span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Storefront Address
+                    </label>
+                    <div
+                      className="border-2 rounded-lg px-3 py-2.5 bg-white text-gray-900 min-h-[2.75rem] flex items-center"
+                      style={{ borderColor: "#C9A86C" }}
+                    >
+                      {item.business.address || "—"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {item.business.slug && (
+                <div className="flex justify-center mt-6">
+                  <a
+                    href={`/support-local/${item.business.slug}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn inline-block"
+                  >
+                    View Business Page
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Seller Policy - same design as Store Information */}
+        {(effectiveLocalDeliveryPolicy || effectiveShippingPolicy || item.member?.sellerReturnPolicy) && (
+          <div className="border rounded-lg overflow-hidden mb-8">
+            <div
+              className="px-6 py-3 text-white font-semibold"
+              style={{ backgroundColor: "var(--color-primary)" }}
+            >
+              Seller Policy
+            </div>
+            <div className="p-6 bg-gray-50">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+                {effectiveLocalDeliveryPolicy && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Local Delivery / Pick Up Policy
+                      </label>
+                      <div
+className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] overflow-y-auto min-h-[9rem]"
+                      style={{ borderColor: "#C9A86C", scrollbarWidth: "thin" }}
+                    >
+                      {effectiveLocalDeliveryPolicy}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {effectiveShippingPolicy && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Shipping Policy
+                      </label>
+                      <div
+className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] overflow-y-auto min-h-[9rem]"
+                      style={{ borderColor: "#C9A86C", scrollbarWidth: "thin" }}
+                    >
+                      {effectiveShippingPolicy}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {item.member?.sellerReturnPolicy && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Return Policy
+                      </label>
+                      <div
+className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] overflow-y-auto min-h-[9rem]"
+                      style={{ borderColor: "#C9A86C", scrollbarWidth: "thin" }}
+                    >
+                      {item.member.sellerReturnPolicy}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* More from [Business Name] - only if seller has more than one product */}
+        {item && sellerItems.length > 0 && (
+          <div
+            className="mt-12 mb-8 flex flex-col items-center rounded-lg border-2 p-6"
+            style={{ borderColor: "var(--color-primary)" }}
+          >
+            <h2 className="text-xl font-bold mb-4 text-center w-full">
+              More from {item.business?.name ?? "this seller"}
+            </h2>
+            <div className="flex items-center gap-4 w-full max-w-[var(--max-width)] justify-center">
+              <button
+                type="button"
+                onClick={() => setSellerScrollIndex((i) => Math.max(0, i - 1))}
+                disabled={sellerScrollIndex === 0}
+                className="shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed text-sm"
+                style={{ borderColor: "#C9A86C" }}
+                aria-label="Previous"
+              >
+                ‹
+              </button>
+              <div className="flex-1 min-w-0 grid grid-cols-2 gap-4 max-w-2xl mx-auto justify-items-center">
+                {sellerItems
+                  .slice(sellerScrollIndex * ITEMS_PER_SCROLL, sellerScrollIndex * ITEMS_PER_SCROLL + ITEMS_PER_SCROLL)
+                  .map((other) => (
+                    <Link
+                      key={other.id}
+                      href={listingHrefPreservingReferrer(other.slug, searchParams)}
+                      className="border-2 rounded-lg overflow-hidden hover:opacity-90 transition-opacity w-full max-w-[14rem] shrink-0"
+                      style={{ borderColor: "#C9A86C" }}
+                    >
+                      <div className="aspect-square bg-[#F8F8F3] p-2">
+                        {other.photos[0] ? (
+                          <img src={listingDisplayPhoto(other.photos[0], "card") ?? other.photos[0]} alt={other.title} className="w-full h-full object-contain" loading="lazy" decoding="async" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No image</div>
+                        )}
+                      </div>
+                      <div className="p-2">
+                        <p className="text-sm font-medium line-clamp-2">{other.title}</p>
+                        <p className="text-sm font-bold mt-0.5">${(other.priceCents / 100).toFixed(2)}</p>
+                      </div>
+                    </Link>
+                  ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setSellerScrollIndex((i) => Math.min(Math.ceil(sellerItems.length / ITEMS_PER_SCROLL) - 1, i + 1))}
+                disabled={sellerScrollIndex >= Math.ceil(sellerItems.length / ITEMS_PER_SCROLL) - 1}
+                className="shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed text-sm"
+                style={{ borderColor: "#C9A86C" }}
+                aria-label="Next"
+              >
+                ›
+              </button>
+            </div>
+          </div>
+        )}
+
+      </div>
+
+      {/* Thanks for supporting local - full width light tan */}
+      {item && (
+        <div
+          className="py-10 px-4"
+          style={{ backgroundColor: "var(--color-section-alt)" }}
+        >
+          <div className="max-w-[var(--max-width)] mx-auto text-center">
+            {/* Plan: reduce font size by 38% (text-3xl 1.875rem → 1.1625rem) */}
+            <p className="font-bold mb-2 md:text-xl" style={{ color: "var(--color-heading)", fontSize: "1.1625rem" }}>Thanks for supporting local!</p>
+            <p className="mb-6 max-w-xl mx-auto" style={{ color: "var(--color-text)" }}>
+              Keep exploring more products from local vendors in the Kootenai County / Spokane Area!
+            </p>
+            <Link href={keepShoppingHref} className="btn-sponsors inline-block">
+              Keep Shopping!
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Similar Items from Other Vendors - below tan, disconnected from tan */}
+      {item && similarItems.length > 0 && (
+        <div className="max-w-[var(--max-width)] mx-auto px-4 pt-12 pb-12">
+          <div
+            className="flex flex-col items-center rounded-lg border-2 p-6"
+            style={{ borderColor: "var(--color-primary)" }}
+          >
+          <h2 className="text-xl font-bold mb-4 w-full text-center">Similar Items from Other Vendors</h2>
+          <div className="flex items-center gap-4 w-full justify-center">
+            <button
+              type="button"
+              onClick={() => setMoreLikeThisScrollIndex((i) => Math.max(0, i - 1))}
+              disabled={moreLikeThisScrollIndex === 0}
+              className="shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed text-sm"
+              style={{ borderColor: "#C9A86C" }}
+              aria-label="Previous"
+            >
+              ‹
+            </button>
+            <div className="flex-1 min-w-0 grid grid-cols-2 gap-4 max-w-2xl mx-auto justify-items-center">
+              {similarItems
+                .slice(moreLikeThisScrollIndex * ITEMS_PER_SCROLL, moreLikeThisScrollIndex * ITEMS_PER_SCROLL + ITEMS_PER_SCROLL)
+                .map((other) => (
+                    <Link
+                      key={`morelike-${other.id}`}
+                      href={listingHrefPreservingReferrer(other.slug, searchParams)}
+                    className="border-2 rounded-lg overflow-hidden hover:opacity-90 transition-opacity w-full max-w-[14rem] shrink-0"
+                    style={{ borderColor: "#C9A86C" }}
+                  >
+                    <div className="aspect-square bg-[#F8F8F3] p-2">
+                      {other.photos[0] ? (
+                        <img src={listingDisplayPhoto(other.photos[0], "card") ?? other.photos[0]} alt={other.title} className="w-full h-full object-contain" loading="lazy" decoding="async" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No image</div>
+                      )}
+                    </div>
+                    <div className="p-2">
+                      <p className="text-sm font-medium line-clamp-2">{other.title}</p>
+                      <p className="text-sm font-bold mt-0.5">${(other.priceCents / 100).toFixed(2)}</p>
+                    </div>
+                  </Link>
+                ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setMoreLikeThisScrollIndex((i) => Math.min(Math.ceil(similarItems.length / ITEMS_PER_SCROLL) - 1, i + 1))}
+              disabled={moreLikeThisScrollIndex >= Math.ceil(similarItems.length / ITEMS_PER_SCROLL) - 1}
+              className="shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed text-sm"
+              style={{ borderColor: "#C9A86C" }}
+              aria-label="Next"
+            >
+              ›
+            </button>
+          </div>
+          </div>
+        </div>
+      )}
+
+    </section>
+    </>
+  );
+}

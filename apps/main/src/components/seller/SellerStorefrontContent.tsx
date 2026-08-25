@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -61,6 +61,9 @@ function formatWebsiteHref(url: string): string {
   return url.startsWith("http://") || url.startsWith("https://") ? url : `https://${url}`;
 }
 
+const FULFILLMENT_BADGE =
+  "inline-flex items-center gap-1.5 rounded-2xl border border-[var(--color-primary)] bg-[var(--color-section-alt)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary)]";
+
 export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontData }) {
   const router = useRouter();
   const { data: session } = useSession();
@@ -69,6 +72,7 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [hoursExpanded, setHoursExpanded] = useState(false);
   const [aboutExpanded, setAboutExpanded] = useState(true);
+  const hoursSectionRef = useRef<HTMLDivElement>(null);
   const [messageOpen, setMessageOpen] = useState(false);
   const [messageText, setMessageText] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -189,7 +193,7 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
               fill
               className="object-cover"
               priority
-              quality={95}
+              quality={75}
               unoptimized={seller.coverPhotoUrl.startsWith("blob:")}
             />
           ) : (
@@ -210,7 +214,7 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
               width={205}
               height={205}
               className="h-full w-full object-cover"
-              quality={95}
+              quality={75}
               unoptimized={seller.logoUrl.startsWith("blob:")}
             />
           ) : (
@@ -365,22 +369,35 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
 
             <div className="flex flex-wrap gap-2">
               {seller.offerShipping ? (
-                <span className="inline-flex items-center gap-1.5 rounded-2xl border border-[var(--color-primary)] bg-[var(--color-section-alt)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary)]">
+                <span className={FULFILLMENT_BADGE}>
                   <IonIcon name="airplane-outline" size={16} />
                   Ships items
                 </span>
               ) : null}
               {seller.offerLocalPickup ? (
-                <span className="inline-flex items-center gap-1.5 rounded-2xl border border-[var(--color-primary)] bg-[var(--color-section-alt)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary)]">
+                <span className={FULFILLMENT_BADGE}>
                   <IonIcon name="storefront-outline" size={16} />
                   Local pickup
                 </span>
               ) : null}
               {seller.offerLocalDelivery ? (
-                <span className="inline-flex items-center gap-1.5 rounded-2xl border border-[var(--color-primary)] bg-[var(--color-section-alt)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary)]">
+                <span className={FULFILLMENT_BADGE}>
                   <IonIcon name="car-outline" size={16} />
                   Local delivery
                 </span>
+              ) : null}
+              {hasHours ? (
+                <button
+                  type="button"
+                  className={FULFILLMENT_BADGE}
+                  onClick={() => {
+                    setHoursExpanded(true);
+                    hoursSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                >
+                  <IonIcon name="time-outline" size={16} />
+                  Hours of operation
+                </button>
               ) : null}
             </div>
 
@@ -394,7 +411,7 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
                     <li>
                       <a
                         href={`tel:${seller.phone.replace(/\s/g, "")}`}
-                        className="inline-flex items-center gap-2 text-sm font-medium text-[var(--color-primary)] hover:opacity-90"
+                        className="inline-flex items-center gap-2 text-[15px] font-medium text-[var(--color-primary)] hover:opacity-90"
                       >
                         <IonIcon name="call-outline" size={18} />
                         {seller.phone}
@@ -405,7 +422,7 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
                     <li>
                       <a
                         href={`mailto:${seller.email}`}
-                        className="inline-flex items-center gap-2 break-all text-sm font-medium text-[var(--color-primary)] hover:opacity-90"
+                        className="inline-flex items-center gap-2 break-all text-[15px] font-medium text-[var(--color-primary)] hover:opacity-90"
                       >
                         <IonIcon name="mail-outline" size={18} />
                         {seller.email}
@@ -418,7 +435,7 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
                         href={formatWebsiteHref(seller.website)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 break-all text-sm font-medium text-[var(--color-primary)] hover:opacity-90"
+                        className="inline-flex items-center gap-2 break-all text-[15px] font-medium text-[var(--color-primary)] hover:opacity-90"
                       >
                         <IonIcon name="globe-outline" size={18} />
                         {seller.website}
@@ -472,7 +489,7 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
                 <h2 className="mb-2.5 text-base font-semibold" style={{ color: "var(--color-heading)" }}>
                   Location
                 </h2>
-                <p className="flex items-start gap-2 text-sm" style={{ color: "var(--color-text)" }}>
+                <p className="flex items-start gap-2 text-[15px]" style={{ color: "var(--color-text)" }}>
                   <IonIcon name="location-outline" size={18} className="mt-0.5 shrink-0 text-[var(--color-primary)]" />
                   <span>{seller.addressDisplay}</span>
                 </p>
@@ -491,7 +508,7 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
             ) : null}
 
             {hasHours && seller.hoursOfOperation ? (
-              <div>
+              <div ref={hoursSectionRef} className="scroll-mt-28">
                 <button
                   type="button"
                   onClick={() => setHoursExpanded((v) => !v)}
@@ -512,7 +529,7 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
                       const val = seller.hoursOfOperation?.[day];
                       if (!val) return null;
                       return (
-                        <li key={day} className="flex justify-between text-sm" style={{ color: "var(--color-text)" }}>
+                        <li key={day} className="flex justify-between text-[15px]" style={{ color: "var(--color-text)" }}>
                           <span className="w-28 capitalize">{day}</span>
                           <span className="text-right">{val}</span>
                         </li>
@@ -554,7 +571,7 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
                   />
                 </button>
                 {aboutExpanded ? (
-                  <div className="mt-2 space-y-3 text-sm leading-relaxed whitespace-pre-wrap" style={{ color: "var(--color-text)" }}>
+                  <div className="mt-2 space-y-3 text-[15px] leading-relaxed whitespace-pre-wrap" style={{ color: "var(--color-text)" }}>
                     {seller.shortDescription ? <p>{seller.shortDescription}</p> : null}
                     {seller.fullDescription ? <p>{seller.fullDescription}</p> : null}
                   </div>
@@ -564,10 +581,10 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
 
             <Link
               href={`/support-local/${seller.slug}`}
-              className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-primary)] hover:opacity-90"
+              className="action-pill action-pill-lg btn-pill-primary w-full"
             >
-              <IonIcon name="business-outline" size={18} />
-              View business directory page
+              <IonIcon name="business-outline" size={18} className="text-white" />
+              View Business Directory Page
             </Link>
           </div>
         ) : null}

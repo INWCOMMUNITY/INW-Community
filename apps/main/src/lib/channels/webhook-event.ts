@@ -3,6 +3,20 @@ import type { ChannelProvider } from "./types";
 
 export type WebhookEventStatus = "pending" | "processing" | "completed" | "failed";
 
+export const STALE_WEBHOOK_PENDING_MS = 5 * 60 * 1000;
+export const STALE_WEBHOOK_PROCESSING_MS = 10 * 60 * 1000;
+
+export function isStaleWebhookEvent(
+  status: string,
+  createdAt: Date,
+  now = Date.now()
+): boolean {
+  const age = now - createdAt.getTime();
+  if (status === "pending") return age > STALE_WEBHOOK_PENDING_MS;
+  if (status === "processing") return age > STALE_WEBHOOK_PROCESSING_MS;
+  return false;
+}
+
 /**
  * Log a webhook event before processing to ensure delivery guarantee.
  * Returns the event ID for status updates.
@@ -69,7 +83,8 @@ export async function markWebhookFailed(eventId: string, error: string): Promise
 }
 
 /**
- * Find stale pending webhook events (older than 5 minutes) for reprocessing.
+ * Find stale webhook events for reprocessing: pending older than 5 minutes,
+ * or stuck in processing older than 10 minutes.
  */
 export async function findStaleWebhookEvents(limit = 50): Promise<
   Array<{
@@ -80,11 +95,14 @@ export async function findStaleWebhookEvents(limit = 50): Promise<
     payload: unknown;
   }>
 > {
-  const cutoff = new Date(Date.now() - 5 * 60 * 1000);
+  const pendingCutoff = new Date(Date.now() - 5 * 60 * 1000);
+  const processingCutoff = new Date(Date.now() - 10 * 60 * 1000);
   return prisma.channelWebhookEvent.findMany({
     where: {
-      status: "pending",
-      createdAt: { lt: cutoff },
+      OR: [
+        { status: "pending", createdAt: { lt: pendingCutoff } },
+        { status: "processing", createdAt: { lt: processingCutoff } },
+      ],
     },
     select: {
       id: true,

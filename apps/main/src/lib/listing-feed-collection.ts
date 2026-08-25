@@ -1,6 +1,8 @@
 import { cache } from "react";
 import { prisma } from "database";
 import { LISTING_FEED_COLLECTION_MIN } from "@/lib/listing-feed-collection-constants";
+import { listingDisplayPhoto } from "@/lib/listing-display-photo";
+import { sellerPrimaryBusinessForMember } from "@/lib/listing-feed-seller-business";
 
 export { LISTING_FEED_COLLECTION_MIN } from "@/lib/listing-feed-collection-constants";
 
@@ -16,11 +18,7 @@ export function formatListingCollectionDate(d = new Date()): string {
 }
 
 export async function sellerListingDisplayName(memberId: string): Promise<string> {
-  const biz = await prisma.business.findFirst({
-    where: { memberId },
-    orderBy: { createdAt: "asc" },
-    select: { name: true },
-  });
+  const biz = await sellerPrimaryBusinessForMember(memberId);
   const businessName = biz?.name?.trim();
   if (businessName) return businessName;
   const member = await prisma.member.findUnique({
@@ -52,12 +50,6 @@ export type ListingFeedCollectionDetail = {
   createdAt: string;
   items: ListingFeedCollectionItem[];
 };
-
-/** Card thumbs don't need the s-l2000 originals stored for listing pages. */
-function collectionCardPhotoUrl(url: string): string {
-  if (!url.includes("i.ebayimg.com")) return url;
-  return url.replace(/s-l\d+/i, "s-l225");
-}
 
 export const getListingFeedCollectionById = cache(
   async function getListingFeedCollectionById(
@@ -103,7 +95,7 @@ export const getListingFeedCollectionById = cache(
             id: item.id,
             title: item.title,
             slug: item.slug,
-            photos: photo ? [collectionCardPhotoUrl(photo)] : [],
+            photos: photo ? [listingDisplayPhoto(photo, "thumb") ?? photo] : [],
             priceCents: item.priceCents,
             status: item.status,
             quantity: item.quantity,
@@ -129,7 +121,9 @@ function previewPhotosFromItems(
   const photos: string[] = [];
   for (const row of items) {
     const url = row.storeItem.photos.find(Boolean);
-    if (url) photos.push(url);
+    if (url) {
+      photos.push(listingDisplayPhoto(url, "thumb") ?? url);
+    }
     if (photos.length >= 3) break;
   }
   return photos;
@@ -142,9 +136,13 @@ export async function listingCollectionEmbedMap(
   const unique = [...new Set(collectionIds)];
   const collections = await prisma.listingFeedCollection.findMany({
     where: { id: { in: unique } },
-    include: {
+    select: {
+      id: true,
+      title: true,
+      _count: { select: { items: true } },
       items: {
         orderBy: { sortOrder: "asc" },
+        take: 3,
         select: { storeItem: { select: { photos: true } } },
       },
     },
@@ -154,7 +152,7 @@ export async function listingCollectionEmbedMap(
     map[c.id] = {
       id: c.id,
       title: c.title,
-      itemCount: c.items.length,
+      itemCount: c._count.items,
       previewPhotos: previewPhotosFromItems(c.items),
     };
   }
@@ -186,6 +184,7 @@ export async function shareStoreItemsToFeed(
     return { ok: false, error: "One or more listings were not found.", status: 404 };
   }
   const ordered = unique.filter((id) => items.some((it) => it.id === id));
+  const sourceBusinessId = (await sellerPrimaryBusinessForMember(memberId))?.id ?? null;
 
   if (ordered.length >= LISTING_FEED_COLLECTION_MIN) {
     const title = await buildListingCollectionTitle(memberId);
@@ -203,6 +202,7 @@ export async function shareStoreItemsToFeed(
         type: "shared_listing_collection",
         authorId: memberId,
         sourceListingCollectionId: collection.id,
+        sourceBusinessId,
       },
     });
     return { ok: true, kind: "collection", collectionId: collection.id, postId: post.id, title };
@@ -215,6 +215,7 @@ export async function shareStoreItemsToFeed(
           type: "shared_store_item",
           authorId: memberId,
           sourceStoreItemId: storeItemId,
+          sourceBusinessId,
         },
       })
     )

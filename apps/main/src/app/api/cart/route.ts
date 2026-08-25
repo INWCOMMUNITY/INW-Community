@@ -167,6 +167,20 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+  const { memberHasConnectPayoutsEnabled } = await import("@/lib/stripe-connect-payout-gate");
+  if (!(await memberHasConnectPayoutsEnabled(storeItem.memberId))) {
+    return NextResponse.json(
+      { error: "Seller payouts are not enabled yet. This item cannot be added to cart." },
+      { status: 400 }
+    );
+  }
+  const { sellerIsAwayFromOrders } = await import("@/lib/seller-write-gates");
+  if (await sellerIsAwayFromOrders(storeItem.memberId)) {
+    return NextResponse.json(
+      { error: "This seller is currently away and not accepting orders." },
+      { status: 400 }
+    );
+  }
   const available = getAvailableQuantity(storeItem, body.variant);
   if (body.quantity > available) {
     return NextResponse.json(

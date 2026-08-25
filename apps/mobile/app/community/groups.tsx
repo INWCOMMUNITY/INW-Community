@@ -380,7 +380,7 @@ export default function GroupsScreen() {
           keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
         >
           <View style={[styles.createModalHeader, { paddingTop: Math.max(insets.top, 12) }]}>
-            <Text style={styles.createModalHeaderTitle}>Request a new group</Text>
+            <Text style={styles.createModalHeaderTitle}>Request a New Group</Text>
             <Pressable
               onPress={() => {
                 setShowCreate(false);
@@ -490,7 +490,7 @@ export default function GroupsScreen() {
                 {creating ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={styles.submitBtnText}>Submit request</Text>
+                  <Text style={styles.submitBtnText}>Submit Request</Text>
                 )}
               </Pressable>
             </View>

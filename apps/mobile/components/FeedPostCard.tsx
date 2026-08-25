@@ -52,6 +52,7 @@ import { extractFirstUrl } from "@/lib/extract-urls";
 import { formatTime12h } from "@/lib/format-time";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import { buildProductPath } from "@/lib/product-referrer";
+import { feedPostShowsAsBusiness } from "@/lib/feed-post-business-author";
 import { Video, ResizeMode, type VideoReadyForDisplayEvent } from "expo-av";
 
 /** "Sat, Jun 6 · 9:00 AM – 5:00 PM" for a shared event embed. */
@@ -466,8 +467,7 @@ function FeedPostCardInner({
 
   const blog = post.type === "shared_blog" ? post.sourceBlog : null;
 
-  const businessAsAuthor =
-    post.type === "shared_business" && post.sourceBusiness ? post.sourceBusiness : null;
+  const businessAsAuthor = feedPostShowsAsBusiness(post);
 
   const showFollowButton =
     !!member &&
@@ -991,10 +991,7 @@ function FeedPostCardInner({
           const sourceAuthorName = sourceAuthor
             ? `${sourceAuthor.firstName ?? ""} ${sourceAuthor.lastName ?? ""}`.trim()
             : "";
-          const nestedBiz =
-            sourcePost?.type === "shared_business" && sourcePost?.sourceBusiness
-              ? sourcePost.sourceBusiness
-              : null;
+          const nestedBiz = sourcePost ? feedPostShowsAsBusiness(sourcePost) : null;
           const nestedHeaderName = nestedBiz
             ? nestedBiz.name
             : sourceAuthorName || "Unknown";

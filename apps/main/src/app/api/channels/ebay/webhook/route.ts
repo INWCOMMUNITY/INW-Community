@@ -58,7 +58,7 @@ async function findConnectionByEbayUserId(ebayUserId: string) {
     where: {
       provider: "ebay",
       externalShopId: ebayUserId,
-      status: "active",
+      status: { not: "disconnected" },
     },
   });
 }
@@ -149,12 +149,14 @@ export async function POST(req: NextRequest) {
           { externalListingId: itemId },
           { externalListingId: `inw${itemId}` },
         ],
+        connection: { status: { not: "disconnected" } },
       },
       include: {
         connection: true,
       },
     });
     connection = link?.connection ?? null;
+    if (connection?.status === "disconnected") connection = null;
   }
 
   if (!connection) {

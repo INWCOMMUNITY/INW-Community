@@ -25,6 +25,7 @@ import {
 } from "./rich-description";
 import { attachShippingOptionOnImport } from "@/lib/shipping-options";
 import { claimChannelListingLink } from "./listing-link-claim";
+import { sellerPrimaryBusinessForMember } from "@/lib/listing-feed-seller-business";
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -49,15 +50,17 @@ export function storeListingDescription(description: string | null | undefined):
 
 /** Auto-post so the listing appears on the seller's storefront feed. */
 function autoPostStoreItemToFeed(authorId: string, storeItemId: string): void {
-  prisma.post
-    .create({
+  void (async () => {
+    const biz = await sellerPrimaryBusinessForMember(authorId);
+    await prisma.post.create({
       data: {
         type: "shared_store_item",
         authorId,
         sourceStoreItemId: storeItemId,
+        sourceBusinessId: biz?.id ?? null,
       },
-    })
-    .catch((err) => console.error("[channels] inbound auto-post failed", err));
+    });
+  })().catch((err) => console.error("[channels] inbound auto-post failed", err));
 }
 
 export type ImportRemoteListingResult =

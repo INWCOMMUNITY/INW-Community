@@ -10,7 +10,11 @@ import { BusinessForm } from "@/components/BusinessForm";
 import { DeleteBusinessButton } from "@/components/DeleteBusinessButton";
 import { CreatePostModal } from "@/components/CreatePostModal";
 import { IonIcon } from "@/components/IonIcon";
-import { useBusinessCompletion } from "@/components/BusinessProfileCompletionCard";
+import {
+  dismissProfileCompletion,
+  isProfileCompletionDismissed,
+  useBusinessCompletion,
+} from "@/components/BusinessProfileCompletionCard";
 import type { BusinessHubLiveCounts } from "@/lib/business-hub-live-counts";
 import type { Business } from "database";
 
@@ -157,6 +161,7 @@ export function BusinessHubFormModals({
   const { percentage: completionPct, refresh: refreshCompletion } = useBusinessCompletion(
     activeBusiness?.id ?? null
   );
+  const [completionDismissed, setCompletionDismissed] = useState(false);
 
   useEffect(() => {
     setActiveBusinessId((prev) => {
@@ -165,6 +170,15 @@ export function BusinessHubFormModals({
       return businesses[0]!.id;
     });
   }, [businesses]);
+
+  useEffect(() => {
+    const id = activeBusiness?.id;
+    if (!id) {
+      setCompletionDismissed(false);
+      return;
+    }
+    setCompletionDismissed(isProfileCompletionDismissed(id));
+  }, [activeBusiness?.id]);
 
   useEffect(() => {
     if (!initialOpenModal) return;
@@ -342,11 +356,11 @@ export function BusinessHubFormModals({
               <span>Business Hub</span>
             </h1>
             <p className="text-sm leading-5 mb-3" style={{ color: "var(--color-text)" }}>
-              Give residents a reason to support local.
+              Update your business page, offer coupons, post events, and more!
             </p>
             {hasBusiness && (
               <div className="flex flex-col gap-2">
-                {completionPct != null && completionPct < 100 && (
+                {completionPct != null && completionPct < 100 && !completionDismissed && (
                   <>
                     <div className="flex items-center gap-2">
                       <div
@@ -371,7 +385,19 @@ export function BusinessHubFormModals({
                       </span>
                     </div>
                     <p className="text-xs leading-4 text-gray-600">
-                      Business profile completeness — add details so customers can get in touch.
+                      Business profile completeness — add details so customers can get in touch.{" "}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const id = activeBusiness?.id;
+                          if (!id) return;
+                          dismissProfileCompletion([id]);
+                          setCompletionDismissed(true);
+                        }}
+                        className="underline underline-offset-2 hover:text-gray-800"
+                      >
+                        Ignore
+                      </button>
                     </p>
                   </>
                 )}

@@ -5,6 +5,8 @@
  * Selected variant from cart/checkout: { [variantName]: optionValue } e.g. { Size: "Medium" }.
  */
 
+import { listingDisplayPhotos } from "@/lib/listing-display-photo";
+
 export type VariantOptionWithQty = { value: string; quantity: number };
 export type VariantWithOptionQuantities = { name: string; options: VariantOptionWithQty[] };
 export type VariantLegacy = { name?: string; options?: string[] };
@@ -204,7 +206,7 @@ export function storeItemRowsToFeedEmbedMap(rows: StoreItemFeedRow[]): Record<st
       .filter((s) => isStoreItemPubliclyPurchasable(s))
       .map((s) => [
         s.id,
-        { id: s.id, title: s.title, slug: s.slug, photos: s.photos, priceCents: s.priceCents },
+        { id: s.id, title: s.title, slug: s.slug, photos: listingDisplayPhotos(s.photos, "thumb", 1), priceCents: s.priceCents },
       ])
   );
 }

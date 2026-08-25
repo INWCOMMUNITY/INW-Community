@@ -14,6 +14,8 @@ import { reconcileMemberProvider } from "@/lib/channels/reconcile";
 import { checkAllQuotaAlerts, shouldSkipSyncDueToQuota } from "@/lib/channels/daily-quota-tracker";
 import { prisma } from "database";
 import type { ChannelProvider } from "@/lib/channels/types";
+import { tryAcquireCronLock, releaseCronLock, SYNC_CHANNELS_LOCK_TTL_MS } from "@/lib/cron-job-lock";
+import { hydrateQuotaFromDb, persistQuotaToDb } from "@/lib/channels/daily-quota-tracker";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -111,6 +113,15 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  const lock = await tryAcquireCronLock("sync-channels", SYNC_CHANNELS_LOCK_TTL_MS);
+  if (!lock.acquired) {
+    console.warn("[cron] sync-channels skipped; lease held by another invocation");
+    return NextResponse.json({ ok: true, skipped: "lease_held" });
+  }
+
+  try {
+  await hydrateQuotaFromDb().catch(() => {});
+
   const recovered = await recoverPausedChannelConnections().catch((e) => {
     console.warn("[cron] paused-connection recover failed", { error: String(e) });
     return { recovered: 0, failed: 0 };
@@ -153,6 +164,7 @@ export async function GET(req: NextRequest) {
   try {
     syncResult = await reconcileAllConnections({
       skipProviders: skipEtsy ? ["etsy"] : undefined,
+      passStartedAt: lock.passStartedAt,
     });
     console.log("[cron] sync completed", syncResult);
   } catch (e) {
@@ -161,7 +173,11 @@ export async function GET(req: NextRequest) {
   }
 
   const durationMs = Date.now() - startTime;
-  console.log("[cron] sync-channels completed", { durationMs, ...syncResult });
+  if (durationMs > 240_000) {
+    console.warn("[cron] sync-channels duration exceeded 240s", { durationMs });
+  }
+  await persistQuotaToDb().catch(() => {});
+  console.log("[cron] sync-channels completed", { durationMs, resumed: lock.resumed, ...syncResult });
 
   return NextResponse.json({
     recoveredConnections: recovered,
@@ -170,6 +186,7 @@ export async function GET(req: NextRequest) {
     webhooksCleaned,
     ...syncResult,
     durationMs,
+    resumed: lock.resumed,
     quotaAlerts: quotaAlerts.map((a) => ({
       provider: a.provider,
       level: a.alertLevel,
@@ -178,4 +195,7 @@ export async function GET(req: NextRequest) {
       projected: a.projected,
     })),
   });
+  } finally {
+    await releaseCronLock("sync-channels", lock.holderId, { durationMs: Date.now() - startTime });
+  }
 }

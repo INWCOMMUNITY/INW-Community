@@ -41,6 +41,7 @@ export function useStoreItemRelatedLists(
         const sellerParams = new URLSearchParams({
           memberId,
           excludeId: item.id!,
+          limit: "12",
         });
         fetch(`/api/store-items?${sellerParams}`)
           .then((r) => r.json())
@@ -54,7 +55,7 @@ export function useStoreItemRelatedLists(
         setSellerItems([]);
       }
 
-      const similarParams = new URLSearchParams({ excludeId: item.id! });
+      const similarParams = new URLSearchParams({ excludeId: item.id!, limit: "12" });
       if (item.category) similarParams.set("category", item.category);
       fetch(`/api/store-items?${similarParams}`)
         .then((r) => r.json())

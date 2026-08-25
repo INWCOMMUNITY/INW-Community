@@ -23,6 +23,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { fetchComments, createComment, likeComment, type FeedComment } from "@/lib/feed-api";
 import type { FeedPost } from "@/lib/feed-api";
+import { feedPostShowsAsBusiness } from "@/lib/feed-post-business-author";
 import { apiPost, apiDelete, apiUploadFile, getToken } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { GifPickerModal } from "@/components/GifPickerModal";
@@ -68,11 +69,24 @@ function PostPreview({ post }: { post: FeedPost }) {
     setPreviewImgRowW(0);
   }, [post.id]);
 
-  const authorName = `${post.author.firstName ?? ""} ${post.author.lastName ?? ""}`.trim() || "Someone";
-  const initials = [post.author.firstName?.[0], post.author.lastName?.[0]]
-    .filter(Boolean)
-    .join("")
-    .toUpperCase() || "?";
+  const asBiz = feedPostShowsAsBusiness(post);
+  const authorName =
+    asBiz?.name?.trim() ||
+    `${post.author.firstName ?? ""} ${post.author.lastName ?? ""}`.trim() ||
+    "Someone";
+  const initials = asBiz
+    ? asBiz.name
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((p) => p[0])
+        .join("")
+        .toUpperCase() || "?"
+    : [post.author.firstName?.[0], post.author.lastName?.[0]]
+        .filter(Boolean)
+        .join("")
+        .toUpperCase() || "?";
 
   const previewText =
     post.type === "shared_blog" && post.sourceBlog
@@ -98,9 +112,9 @@ function PostPreview({ post }: { post: FeedPost }) {
   return (
     <View style={styles.postPreview}>
       <View style={styles.postPreviewHeader}>
-        {post.author.profilePhotoUrl ? (
+        {(asBiz?.logoUrl || post.author.profilePhotoUrl) ? (
           <Image
-            source={{ uri: resolveUri(post.author.profilePhotoUrl) }}
+            source={{ uri: resolveUri(asBiz?.logoUrl || post.author.profilePhotoUrl || "") }}
             style={styles.previewAvatar}
           />
         ) : (

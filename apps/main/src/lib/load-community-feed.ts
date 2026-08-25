@@ -1,0 +1,667 @@
+import { prisma } from "database";
+import { getFeedExcludedAuthorIds } from "@/lib/member-block";
+import { isFeedPostRenderable } from "@/lib/feed-post-visible";
+import { storeItemRowsToFeedEmbedMap } from "@/lib/store-item-variants";
+import { listingCollectionEmbedMap, listingCollectionIdsFromPosts } from "@/lib/listing-feed-collection";
+import {
+  listingSellerBusinessMapForPosts,
+  resolveFeedPostSourceBusiness,
+} from "@/lib/listing-feed-seller-business";
+import { verifiedMemberWhere } from "@/lib/member-public-visibility";
+import {
+  collectTaggedBusinessIdsFromPosts,
+  mergePostBusinessLookupIds,
+  taggedBusinessesFromIds,
+} from "@/lib/feed-tagged-businesses";
+import { getShareCountBySourcePostId } from "@/lib/post-share-counts";
+
+export type CommunityFeedPage = {
+  posts: unknown[];
+  nextCursor: string | null;
+  cacheControl?: string;
+};
+
+type AuthRankCacheEntry = { at: number; list: unknown[]; friendIds: string[]; groupIds: string[] };
+const AUTH_RANK_TTL_MS = 20_000;
+const authRankCache = new Map<string, AuthRankCacheEntry>();
+const GUEST_FEED_TTL_MS = 30_000;
+const guestFeedCache = new Map<number, { at: number; value: CommunityFeedPage }>();
+
+function firstEmbedPhotos<T extends { photos?: string[] }>(row: T, max = 1): T {
+  if (!row?.photos?.length) return row;
+  return { ...row, photos: row.photos.filter(Boolean).slice(0, max) };
+}
+
+export async function loadCommunityFeed(opts: {
+  viewerId: string | null;
+  limit: number;
+  cursor?: string;
+  filter: string;
+}): Promise<CommunityFeedPage> {
+  const { viewerId, filter } = opts;
+  const limit = opts.limit;
+  const cursor = opts.cursor;
+
+  // Unauthenticated: return a public discover feed (recent posts, no groups)
+  if (!viewerId) {
+    if (!cursor) {
+      const cached = guestFeedCache.get(limit);
+      if (cached && Date.now() - cached.at < GUEST_FEED_TTL_MS) return cached.value;
+    }
+    const where = { groupId: null, author: verifiedMemberWhere };
+    const posts = await prisma.post.findMany({
+      where,
+      include: {
+        author: {
+          select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true, privacyLevel: true },
+        },
+        postTags: { include: { tag: { select: { id: true, name: true, slug: true } } } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    const hasMore = posts.length > limit;
+    const pageRows = hasMore ? posts.slice(0, limit) : posts;
+    const nextCursor = hasMore ? pageRows[pageRows.length - 1]?.id ?? null : null;
+    const items = pageRows.filter((p) => p.author?.privacyLevel === "public");
+    const postIds = items.map((p) => p.id);
+    const sourceBlogIds = items.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);
+    const sourceBusinessIds = items.filter((p) => p.sourceBusinessId).map((p) => p.sourceBusinessId!);
+    const businessLookupIdsPublic = mergePostBusinessLookupIds(
+      sourceBusinessIds,
+      collectTaggedBusinessIdsFromPosts(items)
+    );
+    const sourceCouponIds = items.filter((p) => p.sourceCouponId).map((p) => p.sourceCouponId!);
+    const sourceStoreItemIds = items.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
+    const sourceEventIds = items.filter((p) => p.sourceEventId).map((p) => p.sourceEventId!);
+    const sourcePostIds = items.filter((p) => p.sourcePostId).map((p) => p.sourcePostId!);
+    const [blogs, businesses, coupons, storeItems, events, sourcePosts] = await Promise.all([
+      sourceBlogIds.length > 0
+        ? prisma.blog.findMany({
+            where: { id: { in: sourceBlogIds } },
+            include: {
+              member: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+              category: { select: { name: true, slug: true } },
+              blogTags: { include: { tag: { select: { id: true, name: true, slug: true } } } },
+            },
+          })
+        : [],
+      businessLookupIdsPublic.length > 0
+        ? prisma.business.findMany({
+            where: { id: { in: businessLookupIdsPublic } },
+            select: { id: true, name: true, slug: true, shortDescription: true, logoUrl: true },
+          })
+        : [],
+      sourceCouponIds.length > 0
+        ? prisma.coupon.findMany({
+            where: { id: { in: sourceCouponIds } },
+            include: { business: { select: { id: true, name: true, slug: true } } },
+          })
+        : [],
+      sourceStoreItemIds.length > 0
+        ? prisma.storeItem.findMany({
+            where: { id: { in: sourceStoreItemIds } },
+            select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true, memberId: true },
+          })
+        : [],
+      sourceEventIds.length > 0
+        ? prisma.event.findMany({
+            where: { id: { in: sourceEventIds } },
+            select: {
+              id: true, slug: true, title: true, date: true, time: true,
+              endTime: true, location: true, city: true, photos: true,
+            },
+          })
+        : [],
+      sourcePostIds.length > 0
+        ? prisma.post.findMany({
+            where: { id: { in: sourcePostIds }, author: verifiedMemberWhere },
+            include: {
+              author: {
+                select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true, privacyLevel: true },
+              },
+              postTags: { include: { tag: { select: { id: true, name: true, slug: true } } } },
+            },
+          })
+        : [],
+    ]);
+    const blogMap = Object.fromEntries(blogs.map((b) => [b.id, firstEmbedPhotos(b)]));
+    const eventMap = Object.fromEntries(events.map((e) => [e.id, firstEmbedPhotos(e)]));
+    const businessMap = Object.fromEntries(businesses.map((b) => [b.id, b]));
+    const couponMap = Object.fromEntries(coupons.map((c) => [c.id, c]));
+    const storeItemMap = storeItemRowsToFeedEmbedMap(storeItems);
+    const [likeCounts, commentCounts, shareCountMap, listingCollectionMap, listingBizByMember] = await Promise.all([
+      prisma.postLike.groupBy({
+        by: ["postId"],
+        where: { postId: { in: postIds } },
+        _count: { postId: true },
+      }),
+      prisma.postComment.groupBy({
+        by: ["postId"],
+        where: { postId: { in: postIds } },
+        _count: { postId: true },
+      }),
+      getShareCountBySourcePostId(postIds),
+      listingCollectionEmbedMap(listingCollectionIdsFromPosts([...items, ...sourcePosts])),
+      listingSellerBusinessMapForPosts([...items, ...sourcePosts], storeItems),
+    ]);
+    const sourcePostMap = Object.fromEntries(
+      sourcePosts.map((p) => [
+        p.id,
+        {
+          ...p,
+          tags: p.postTags?.map((pt) => pt.tag) ?? [],
+          sourceBlog: null,
+          sourceBusiness: resolveFeedPostSourceBusiness(p, businessMap, listingBizByMember),
+          sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
+          sourceStoreItem: p.sourceStoreItemId ? storeItemMap[p.sourceStoreItemId] ?? null : null,
+          sourceEvent: p.sourceEventId ? eventMap[p.sourceEventId] ?? null : null,
+          sourceListingCollection: p.sourceListingCollectionId
+            ? listingCollectionMap[p.sourceListingCollectionId] ?? null
+            : null,
+          sourcePost: null,
+        },
+      ])
+    );
+    const likeCountMap = Object.fromEntries(likeCounts.map((l) => [l.postId, l._count.postId]));
+    const commentCountMap = Object.fromEntries(commentCounts.map((c) => [c.postId, c._count.postId]));
+    const feedItems = items
+      .map((p) => ({
+        ...p,
+        tags: p.postTags?.map((pt) => pt.tag) ?? [],
+        sourceBlog: p.sourceBlogId ? blogMap[p.sourceBlogId] ?? null : null,
+        sourceBusiness: resolveFeedPostSourceBusiness(p, businessMap, listingBizByMember),
+        taggedBusinesses: taggedBusinessesFromIds(p.taggedBusinessIds, businessMap),
+        sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
+        sourceStoreItem: p.sourceStoreItemId ? storeItemMap[p.sourceStoreItemId] ?? null : null,
+        sourceEvent: p.sourceEventId ? eventMap[p.sourceEventId] ?? null : null,
+        sourceListingCollection: p.sourceListingCollectionId
+          ? listingCollectionMap[p.sourceListingCollectionId] ?? null
+          : null,
+        sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,
+        liked: false,
+        likeCount: likeCountMap[p.id] ?? 0,
+        commentCount: commentCountMap[p.id] ?? 0,
+        shareCount: shareCountMap[p.id] ?? 0,
+      }))
+      .filter(isFeedPostRenderable)
+      .filter((p) => p.type !== "shared_post" || p.sourcePost?.author?.privacyLevel === "public");
+    const page = {
+      posts: feedItems,
+      nextCursor,
+      cacheControl: "public, s-maxage=30, stale-while-revalidate=60",
+    };
+    if (!cursor) guestFeedCache.set(limit, { at: Date.now(), value: page });
+    return page;
+  }
+
+  const rankKey = `${viewerId}:${filter}`;
+  const rankHit = cursor ? authRankCache.get(rankKey) : undefined;
+  const useRankCache = Boolean(rankHit && Date.now() - rankHit.at < AUTH_RANK_TTL_MS);
+
+  let filteredList: any[] = [];
+  let viewerFriendIdSet = new Set<string>();
+  let viewerGroupIdSet = new Set<string>();
+
+  if (!(useRankCache && rankHit)) {
+  const [followBusinesses, friendships, myGroups, followedTags, excludedAuthors] = await Promise.all([
+    prisma.followBusiness.findMany({
+      where: { memberId: viewerId },
+      select: { business: { select: { memberId: true } } },
+    }),
+    prisma.friendRequest.findMany({
+      where: {
+        OR: [
+          { requesterId: viewerId, status: "accepted" },
+          { addresseeId: viewerId, status: "accepted" },
+        ],
+      },
+      select: { requesterId: true, addresseeId: true },
+    }),
+    prisma.groupMember.findMany({
+      where: { memberId: viewerId },
+      select: { groupId: true },
+    }),
+    prisma.followTag.findMany({
+      where: { memberId: viewerId },
+      select: { tagId: true },
+    }),
+    getFeedExcludedAuthorIds(viewerId),
+  ]);
+  const blockedIds = excludedAuthors;
+
+  const followBusinessAuthorIds = followBusinesses
+    .map((fb) => fb.business?.memberId)
+    .filter(Boolean) as string[];
+  const friendIds = [...new Set(
+    friendships.flatMap((f) =>
+      f.requesterId === viewerId ? f.addresseeId : f.requesterId
+    )
+  )];
+  const groupIds = myGroups.map((g) => g.groupId);
+  viewerFriendIdSet = new Set(friendIds);
+  viewerGroupIdSet = new Set(groupIds);
+  const authorIds = new Set([viewerId, ...friendIds, ...followBusinessAuthorIds]);
+  const followedTagIds = followedTags.map((f) => f.tagId);
+
+  let sharedBlogIdsWithFollowedTags: string[] = [];
+  if (followedTagIds.length > 0) {
+    const blogsWithTags = await prisma.blog.findMany({
+      where: {
+        blogTags: { some: { tagId: { in: followedTagIds } } },
+      },
+      select: { id: true },
+    });
+    sharedBlogIdsWithFollowedTags = blogsWithTags.map((b) => b.id);
+  }
+
+  const visibilityOr = [
+    { authorId: { in: Array.from(authorIds) } },
+    ...(groupIds.length > 0 ? [{ groupId: { in: groupIds } }] : []),
+    ...(followedTagIds.length > 0
+      ? [
+          { postTags: { some: { tagId: { in: followedTagIds } } } },
+          ...(sharedBlogIdsWithFollowedTags.length > 0
+            ? [{ sourceBlogId: { in: sharedBlogIdsWithFollowedTags } }]
+            : []),
+        ]
+      : []),
+  ] as const;
+
+  const baseWhere = {
+    author: verifiedMemberWhere,
+    ...(blockedIds.length > 0 ? { authorId: { notIn: blockedIds } } : {}),
+    OR: [...visibilityOr],
+  };
+
+  const followBizAuthorSet = new Set(followBusinessAuthorIds);
+  const boostedOr = [
+    {
+      authorId: {
+        in: [viewerId, ...friendIds, ...followBusinessAuthorIds],
+      },
+    },
+    ...(groupIds.length > 0 ? [{ groupId: { in: groupIds } }] : []),
+    ...(followedTagIds.length > 0
+      ? [
+          { postTags: { some: { tagId: { in: followedTagIds } } } },
+          ...(sharedBlogIdsWithFollowedTags.length > 0
+            ? [{ sourceBlogId: { in: sharedBlogIdsWithFollowedTags } }]
+            : []),
+        ]
+      : []),
+  ];
+
+  const postInclude = {
+    author: {
+      select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true, privacyLevel: true },
+    },
+    postTags: { include: { tag: { select: { id: true, name: true, slug: true } } } },
+  } as const;
+
+  const RANK_FETCH = 80;
+  const boostedPosts = await prisma.post.findMany({
+    where: { AND: [baseWhere, { OR: boostedOr }] },
+    include: postInclude,
+    orderBy: { createdAt: "desc" },
+    take: RANK_FETCH,
+  });
+  const boostedIdSet = new Set(boostedPosts.map((p) => p.id));
+  const restPosts = await prisma.post.findMany({
+    where: {
+      AND: [baseWhere, { id: { notIn: [...boostedIdSet] } }],
+    },
+    include: postInclude,
+    orderBy: { createdAt: "desc" },
+    take: RANK_FETCH,
+  });
+
+  const mergedById = new Map<string, (typeof boostedPosts)[0]>();
+  for (const p of boostedPosts) mergedById.set(p.id, p);
+  for (const p of restPosts) mergedById.set(p.id, p);
+  const mergedList = [...mergedById.values()];
+
+  function rankScore(p: (typeof mergedList)[0]): number {
+    const t = new Date(p.createdAt).getTime();
+    const aid = p.authorId;
+    if (aid === viewerId || viewerFriendIdSet.has(aid) || followBizAuthorSet.has(aid)) {
+      return 3e15 + t;
+    }
+    if (p.groupId && viewerGroupIdSet.has(p.groupId)) return 2e15 + t;
+    if (
+      followedTagIds.length > 0 &&
+      p.postTags?.some((pt) => followedTagIds.includes(pt.tag.id))
+    ) {
+      return 2e15 + t;
+    }
+    if (
+      p.sourceBlogId &&
+      sharedBlogIdsWithFollowedTags.includes(p.sourceBlogId)
+    ) {
+      return 2e15 + t;
+    }
+    return 1e15 + t;
+  }
+
+  // Apply filter-specific sorting/filtering
+  filteredList = mergedList;
+  if (filter === "friends") {
+    filteredList = mergedList.filter((p) => viewerFriendIdSet.has(p.authorId));
+  } else if (filter === "groups") {
+    filteredList = mergedList.filter((p) => !!p.groupId);
+  } else if (filter === "businesses") {
+    filteredList = mergedList.filter((p) => p.type === "shared_business");
+  }
+
+  if (filter === "trending") {
+    // For trending, we need engagement data to sort by
+    const allPostIds = mergedList.map((p) => p.id);
+    const cutoff48h = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const [trendLikes, trendComments, trendShares] = await Promise.all([
+      prisma.postLike.groupBy({
+        by: ["postId"],
+        where: { postId: { in: allPostIds }, createdAt: { gte: cutoff48h } },
+        _count: { postId: true },
+      }),
+      prisma.postComment.groupBy({
+        by: ["postId"],
+        where: { postId: { in: allPostIds }, createdAt: { gte: cutoff48h } },
+        _count: { postId: true },
+      }),
+      getShareCountBySourcePostId(allPostIds),
+    ]);
+    const trendLikeMap = Object.fromEntries(trendLikes.map((l) => [l.postId, l._count.postId]));
+    const trendCommentMap = Object.fromEntries(trendComments.map((c) => [c.postId, c._count.postId]));
+    filteredList = [...mergedList].sort((a, b) => {
+      const scoreA = (trendLikeMap[a.id] ?? 0) + (trendCommentMap[a.id] ?? 0) + (trendShares[a.id] ?? 0);
+      const scoreB = (trendLikeMap[b.id] ?? 0) + (trendCommentMap[b.id] ?? 0) + (trendShares[b.id] ?? 0);
+      return scoreB - scoreA;
+    });
+  } else if (filter === "all") {
+    filteredList.sort((a, b) => rankScore(b) - rankScore(a));
+  } else {
+    filteredList.sort((a, b) => rankScore(b) - rankScore(a));
+  }
+    if (authRankCache.size >= 200) {
+      const oldest = authRankCache.keys().next().value;
+      if (oldest) authRankCache.delete(oldest);
+    }
+    authRankCache.set(rankKey, {
+      at: Date.now(),
+      list: filteredList,
+      friendIds: [...viewerFriendIdSet],
+      groupIds: [...viewerGroupIdSet],
+    });
+  } else {
+    filteredList = rankHit.list as typeof filteredList;
+    viewerFriendIdSet = new Set(rankHit.friendIds);
+    viewerGroupIdSet = new Set(rankHit.groupIds);
+  }
+
+  let startIdx = 0;
+  if (cursor) {
+    const ci = filteredList.findIndex((p) => p.id === cursor);
+    startIdx = ci >= 0 ? ci + 1 : 0;
+  }
+
+  const OVERSHOOT = 12;
+  const items = filteredList.slice(startIdx, startIdx + limit + OVERSHOOT);
+
+  const postIds = items.map((p) => p.id);
+  const sourceBlogIds = items.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);
+  const sourceBusinessIds = items.filter((p) => p.sourceBusinessId).map((p) => p.sourceBusinessId!);
+  const businessLookupIdsAuth = mergePostBusinessLookupIds(
+    sourceBusinessIds,
+    collectTaggedBusinessIdsFromPosts(items)
+  );
+  const sourceCouponIds = items.filter((p) => p.sourceCouponId).map((p) => p.sourceCouponId!);
+  const sourceStoreItemIds = items.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
+  const sourceEventIds = items.filter((p) => p.sourceEventId).map((p) => p.sourceEventId!);
+  const sourcePostIds = items.filter((p) => p.sourcePostId).map((p) => p.sourcePostId!);
+  const postGroupIds = items.filter((p) => p.groupId).map((p) => p.groupId!);
+
+  const [blogs, businesses, coupons, storeItems, events, sourcePosts, groups] = await Promise.all([
+    sourceBlogIds.length > 0
+      ? prisma.blog.findMany({
+          where: { id: { in: sourceBlogIds } },
+          include: {
+            member: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+            category: { select: { name: true, slug: true } },
+            blogTags: { include: { tag: { select: { id: true, name: true, slug: true } } } },
+          },
+        })
+      : [],
+    businessLookupIdsAuth.length > 0
+      ? prisma.business.findMany({
+          where: { id: { in: businessLookupIdsAuth } },
+          select: { id: true, name: true, slug: true, shortDescription: true, logoUrl: true },
+        })
+      : [],
+    sourceCouponIds.length > 0
+      ? prisma.coupon.findMany({
+          where: { id: { in: sourceCouponIds } },
+          include: { business: { select: { id: true, name: true, slug: true } } },
+        })
+      : [],
+    sourceStoreItemIds.length > 0
+      ? prisma.storeItem.findMany({
+          where: { id: { in: sourceStoreItemIds } },
+          select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true, memberId: true },
+        })
+      : [],
+    sourceEventIds.length > 0
+      ? prisma.event.findMany({
+          where: { id: { in: sourceEventIds } },
+          select: {
+            id: true, slug: true, title: true, date: true, time: true,
+            endTime: true, location: true, city: true, photos: true,
+          },
+        })
+      : [],
+    sourcePostIds.length > 0
+      ? prisma.post.findMany({
+          where: { id: { in: sourcePostIds }, author: verifiedMemberWhere },
+          include: {
+            author: {
+              select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true, privacyLevel: true },
+            },
+            postTags: { include: { tag: { select: { id: true, name: true, slug: true } } } },
+          },
+        })
+      : [],
+    postGroupIds.length > 0
+      ? prisma.group.findMany({
+          where: { id: { in: postGroupIds } },
+          select: { id: true, name: true, slug: true },
+        })
+      : [],
+  ]);
+
+  const blogMap = Object.fromEntries(blogs.map((b) => [b.id, firstEmbedPhotos(b)]));
+  const groupMap = Object.fromEntries((groups as { id: string; name: string; slug: string }[]).map((g) => [g.id, g]));
+  const businessMap = Object.fromEntries(businesses.map((b) => [b.id, b]));
+  const couponMap = Object.fromEntries(coupons.map((c) => [c.id, c]));
+
+  const sourcePostBlogIds = sourcePosts.filter((p) => p.sourceBlogId).map((p) => p.sourceBlogId!);
+  const sourcePostBusinessIds = sourcePosts.filter((p) => p.sourceBusinessId).map((p) => p.sourceBusinessId!);
+  const sourcePostCouponIds = sourcePosts.filter((p) => p.sourceCouponId).map((p) => p.sourceCouponId!);
+  const sourcePostStoreItemIds = sourcePosts.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
+  const sourcePostEventIds = sourcePosts.filter((p) => p.sourceEventId).map((p) => p.sourceEventId!);
+
+  const [sourcePostBlogs, sourcePostBusinesses, sourcePostCoupons, sourcePostStoreItems, sourcePostEvents, listingCollectionMap] = await Promise.all([
+    sourcePostBlogIds.length > 0
+      ? prisma.blog.findMany({
+          where: { id: { in: sourcePostBlogIds } },
+          include: {
+            member: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+            category: { select: { name: true, slug: true } },
+            blogTags: { include: { tag: { select: { id: true, name: true, slug: true } } } },
+          },
+        })
+      : [],
+    sourcePostBusinessIds.length > 0
+      ? prisma.business.findMany({
+          where: { id: { in: sourcePostBusinessIds } },
+          select: { id: true, name: true, slug: true, shortDescription: true, logoUrl: true },
+        })
+      : [],
+    sourcePostCouponIds.length > 0
+      ? prisma.coupon.findMany({
+          where: { id: { in: sourcePostCouponIds } },
+          include: { business: { select: { id: true, name: true, slug: true } } },
+        })
+      : [],
+    sourcePostStoreItemIds.length > 0
+      ? prisma.storeItem.findMany({
+          where: { id: { in: sourcePostStoreItemIds } },
+          select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true, memberId: true },
+        })
+      : [],
+    sourcePostEventIds.length > 0
+      ? prisma.event.findMany({
+          where: { id: { in: sourcePostEventIds } },
+          select: {
+            id: true, slug: true, title: true, date: true, time: true,
+            endTime: true, location: true, city: true, photos: true,
+          },
+        })
+      : [],
+    listingCollectionEmbedMap(listingCollectionIdsFromPosts([...items, ...sourcePosts])),
+  ]);
+
+  const eventMap = Object.fromEntries(
+    [...events, ...sourcePostEvents].map((e) => [e.id, firstEmbedPhotos(e)])
+  );
+
+  const storeItemEmbedMerge = new Map<
+    string,
+    { id: string; title: string; slug: string; photos: string[]; priceCents: number; status: string; quantity: number; memberId: string }
+  >();
+  for (const s of storeItems) storeItemEmbedMerge.set(s.id, s);
+  for (const s of sourcePostStoreItems) storeItemEmbedMerge.set(s.id, s);
+  const feedStoreItemMap = storeItemRowsToFeedEmbedMap([...storeItemEmbedMerge.values()]);
+
+  const sourcePostBlogMap = Object.fromEntries(sourcePostBlogs.map((b) => [b.id, firstEmbedPhotos(b)]));
+  const sourcePostBusinessMap = Object.fromEntries(sourcePostBusinesses.map((b) => [b.id, b]));
+  const sourcePostCouponMap = Object.fromEntries(sourcePostCoupons.map((c) => [c.id, c]));
+  const [listingBizByMember, likes, likeCounts, commentCounts, shareCountMap] = await Promise.all([
+    listingSellerBusinessMapForPosts(
+      [...items, ...sourcePosts],
+      [...storeItemEmbedMerge.values()]
+    ),
+    prisma.postLike.findMany({
+      where: { postId: { in: postIds }, memberId: viewerId },
+      select: { postId: true },
+    }),
+    prisma.postLike.groupBy({
+      by: ["postId"],
+      where: { postId: { in: postIds } },
+      _count: { postId: true },
+    }),
+    prisma.postComment.groupBy({
+      by: ["postId"],
+      where: { postId: { in: postIds } },
+      _count: { postId: true },
+    }),
+    getShareCountBySourcePostId(postIds),
+  ]);
+  const businessById = { ...businessMap, ...sourcePostBusinessMap };
+
+  const sourcePostMap = Object.fromEntries(
+    sourcePosts.map((p) => [
+      p.id,
+      {
+        ...p,
+        tags: p.postTags?.map((pt) => pt.tag) ?? [],
+        sourceBlog: p.sourceBlogId ? (sourcePostBlogMap[p.sourceBlogId] ?? blogMap[p.sourceBlogId] ?? null) : null,
+        sourceBusiness: resolveFeedPostSourceBusiness(p, businessById, listingBizByMember),
+        sourceCoupon: p.sourceCouponId ? (sourcePostCouponMap[p.sourceCouponId] ?? couponMap[p.sourceCouponId] ?? null) : null,
+        sourceStoreItem: p.sourceStoreItemId ? (feedStoreItemMap[p.sourceStoreItemId] ?? null) : null,
+        sourceEvent: p.sourceEventId ? (eventMap[p.sourceEventId] ?? null) : null,
+        sourceListingCollection: p.sourceListingCollectionId
+          ? listingCollectionMap[p.sourceListingCollectionId] ?? null
+          : null,
+      },
+    ])
+  );
+
+  const likedSet = new Set(likes.map((l) => l.postId));
+  const likeCountMap = Object.fromEntries(likeCounts.map((l) => [l.postId, l._count.postId]));
+  const commentCountMap = Object.fromEntries(commentCounts.map((c) => [c.postId, c._count.postId]));
+
+  const feedItems = items
+    .map((p) => ({
+      ...p,
+      tags: p.postTags?.map((pt) => pt.tag) ?? [],
+      sourceBlog: p.sourceBlogId ? blogMap[p.sourceBlogId] ?? null : null,
+      sourceBusiness: resolveFeedPostSourceBusiness(p, businessById, listingBizByMember),
+      taggedBusinesses: taggedBusinessesFromIds(p.taggedBusinessIds, businessMap),
+      sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
+      sourceStoreItem: p.sourceStoreItemId ? feedStoreItemMap[p.sourceStoreItemId] ?? null : null,
+      sourceEvent: p.sourceEventId ? eventMap[p.sourceEventId] ?? null : null,
+      sourceListingCollection: p.sourceListingCollectionId
+        ? listingCollectionMap[p.sourceListingCollectionId] ?? null
+        : null,
+      sourcePost: p.sourcePostId ? sourcePostMap[p.sourcePostId] ?? null : null,
+      sourceGroup: p.groupId ? groupMap[p.groupId] ?? null : null,
+      liked: likedSet.has(p.id),
+      likeCount: likeCountMap[p.id] ?? 0,
+      commentCount: commentCountMap[p.id] ?? 0,
+      shareCount: shareCountMap[p.id] ?? 0,
+    }))
+    .filter(isFeedPostRenderable);
+
+  const feedItemsVisible = feedItems.filter((p) => {
+    if (!p.author?.id) return false;
+
+    // Shared post visibility is driven by the *source post author privacy*,
+    // not by the sharer's feed-post metadata.
+    if (p.type === "shared_post") {
+      const sourcePost = p.sourcePost;
+      if (!sourcePost?.author?.id) return false;
+
+      const sourceAuthorId = sourcePost.author.id as string;
+      const sourcePrivacyLevel = sourcePost.author.privacyLevel as string;
+      const sourceGroupId = (sourcePost.groupId as string | null) ?? null;
+
+      // Posts originating from a group are visible to members of that group.
+      if (sourceGroupId && viewerGroupIdSet.has(sourceGroupId)) return true;
+
+      if (sourcePrivacyLevel === "public") return true;
+      if (sourcePrivacyLevel === "friends_only") {
+        return sourceAuthorId === viewerId || viewerFriendIdSet.has(sourceAuthorId);
+      }
+      if (sourcePrivacyLevel === "completely_private") {
+        return sourceAuthorId === viewerId;
+      }
+      return false;
+    }
+
+    // Normal (non-shared) posts: group posts are visible to members of that group.
+    const postGroupId = (p.groupId as string | null) ?? null;
+    if (postGroupId && viewerGroupIdSet.has(postGroupId)) return true;
+
+    const authorId = p.author.id as string;
+    const privacyLevel = (p.author.privacyLevel as string) ?? "public";
+
+    if (privacyLevel === "public") return true;
+    if (privacyLevel === "friends_only") {
+      return authorId === viewerId || viewerFriendIdSet.has(authorId);
+    }
+    if (privacyLevel === "completely_private") {
+      return authorId === viewerId;
+    }
+    return false;
+  });
+
+  const visibleWindow = feedItemsVisible.slice(0, limit + 1);
+  const hasMoreVisible = visibleWindow.length > limit;
+  const postsOut = hasMoreVisible ? visibleWindow.slice(0, limit) : visibleWindow;
+  const nextCursor = hasMoreVisible ? postsOut[postsOut.length - 1]?.id ?? null : null;
+
+  return {
+    posts: postsOut,
+    nextCursor,
+  };
+}

@@ -229,7 +229,7 @@ export default function GroupDetailPage() {
     <section className="py-12 px-4">
       <div className="max-w-[var(--max-width)] mx-auto text-center">
         <h1 className="text-2xl font-bold mb-4">Group not found</h1>
-        <Link href="/community-groups" className="btn">Back to groups</Link>
+        <Link href="/community-groups" className="btn">Back to Groups</Link>
       </div>
     </section>
   );
@@ -305,7 +305,7 @@ export default function GroupDetailPage() {
               className="self-start rounded-full bg-white/90 px-3 py-1.5 text-sm font-semibold no-underline hover:bg-white"
               style={{ color: "var(--color-heading)" }}
             >
-              ← Back to groups
+              ← Back to Groups
             </Link>
             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
               <div className="min-w-0">

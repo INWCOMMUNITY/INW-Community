@@ -3,6 +3,7 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { connectionReadyToPublish, publishBlockReason } from "@/lib/channels/connection-publish";
 import { countLinkedOverlap } from "@/lib/channels/disconnect-inw-items";
+import { CHANNEL_SALES_FULFILL_NOTE, connectionHealthUx } from "@/lib/channels/pause-reason";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,11 @@ export async function GET(req: NextRequest) {
     connections.map((c) => {
       const readyToPublish = c.status === "active" && connectionReadyToPublish(c);
       const overlap = countLinkedOverlap(c.id, overlapRows);
+      const health = connectionHealthUx({
+        status: c.status,
+        lastError: c.lastError,
+        config: c.config,
+      });
       return {
         id: c.id,
         provider: c.provider,
@@ -65,6 +71,10 @@ export async function GET(req: NextRequest) {
         linkedOnlyThisChannel: overlap.linkedOnlyThisChannel,
         linkedAlsoOnOthers: overlap.linkedAlsoOnOthers,
         connectedAt: c.createdAt,
+        healthKind: health.kind,
+        healthMessage: health.message || null,
+        pauseReason: health.pauseReason,
+        channelSalesNote: CHANNEL_SALES_FULFILL_NOTE,
       };
     })
   );

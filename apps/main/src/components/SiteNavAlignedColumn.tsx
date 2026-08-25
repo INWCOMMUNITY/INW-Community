@@ -46,7 +46,9 @@ export function SiteHeaderActionsSpacer() {
 }
 
 /**
- * My Community shell: thin sidebar in the logo column, feed in the Home–Members nav band.
+ * My Community shell: feed uses the same 12rem | flex-1 | 12rem row as the header.
+ * The INW Community box is centered in the gutter from the viewport left edge
+ * to the tan feed (so it also sits under the "Northwest Community" header title).
  */
 export function MyCommunityNavGrid({
   sidebar,
@@ -63,21 +65,33 @@ export function MyCommunityNavGrid({
     <div className={`${SITE_PAGE_SHELL} overflow-visible`}>
       {/* Layout `children` must mount once — duplicating the App Router slot crashes with parallelRouterKey null. */}
       <div
-        className={`flex flex-col gap-8 md:grid md:grid-cols-[auto_1fr_auto] md:items-stretch md:gap-0 w-full overflow-visible ${className}`}
+        className={`flex flex-col gap-8 md:flex-row md:items-stretch md:gap-0 w-full overflow-visible ${className}`}
       >
-        <div className="relative hidden md:block shrink-0 self-stretch min-h-0 overflow-visible">
-          <SiteHeaderLogoSpacer />
-          <div className={`absolute inset-y-0 left-0 -translate-x-6 ${SITE_HEADER_SIDE} z-20 pointer-events-auto`}>
-            <div className="sticky w-full" style={SITE_STICKY_BELOW_HEADER}>
+        <div
+          className={`relative hidden md:block shrink-0 self-stretch min-h-0 ${SITE_HEADER_SIDE}`}
+          aria-hidden
+        />
+        <div className="relative min-w-0 flex-1 w-full self-stretch md:ml-[0.5in]">
+          <div
+            className="pointer-events-none absolute inset-y-0 z-20 hidden md:flex justify-center"
+            style={{
+              right: "100%",
+              width:
+                "max(12rem, calc((100vw - min(100vw, var(--max-width))) / 2 + 1rem + 12rem + 0.5in))",
+            }}
+          >
+            <div
+              className={`pointer-events-auto sticky w-full ${SITE_HEADER_SIDE} max-w-[calc(100%-0.75rem)]`}
+              style={SITE_STICKY_BELOW_HEADER}
+            >
               {sidebar}
             </div>
           </div>
+          {children}
         </div>
-        <div className="min-w-0 w-full self-stretch md:px-[0.5in]">{children}</div>
-        <div className="relative hidden md:block shrink-0 self-stretch min-h-0">
-          <SiteHeaderActionsSpacer />
+        <div className={`relative hidden md:block shrink-0 self-stretch min-h-0 ${SITE_HEADER_SIDE}`}>
           {asideRight ? (
-            <div className="absolute inset-y-0 right-0 w-[11.5rem] max-w-[calc(100vw-2rem)] pointer-events-auto">
+            <div className="absolute inset-y-0 right-0 w-full max-w-[calc(100vw-2rem)] pointer-events-auto">
               <div
                 className="sticky flex flex-col gap-6 w-full"
                 style={SITE_STICKY_BELOW_HEADER}

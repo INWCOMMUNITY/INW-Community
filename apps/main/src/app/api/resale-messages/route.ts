@@ -40,6 +40,13 @@ export async function POST(req: NextRequest) {
   if (sellerId === buyerId) {
     return NextResponse.json({ error: "You cannot message yourself" }, { status: 400 });
   }
+  const { sellerAcceptsListingMessages } = await import("@/lib/seller-write-gates");
+  if (!(await sellerAcceptsListingMessages(sellerId))) {
+    return NextResponse.json(
+      { error: "This seller is not accepting messages on listings." },
+      { status: 400 }
+    );
+  }
 
   let conversation = await prisma.resaleConversation.findUnique({
     where: {

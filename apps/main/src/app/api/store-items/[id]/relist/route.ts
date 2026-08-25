@@ -79,6 +79,16 @@ export async function POST(
       { status: 403 }
     );
   }
+  const { memberHasConnectPayoutsEnabled } = await import("@/lib/stripe-connect-payout-gate");
+  if (!(await memberHasConnectPayoutsEnabled(userId))) {
+    return NextResponse.json(
+      {
+        error:
+          "Stripe Connect payouts are not enabled yet. Finish payout setup in Seller Hub → Payouts.",
+      },
+      { status: 403 }
+    );
+  }
 
   const update: { status: string; quantity: number; variants?: unknown } = {
     status: "active",

@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 import { prisma } from "database";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { extractBusinessDisplayCity } from "@/lib/city-utils";
 import { photosExcludingLogo } from "@/lib/business-photos";
+import { listingDisplayPhotos } from "@/lib/listing-display-photo";
+import { listingDescriptionPreview } from "@/lib/channels/rich-description";
 import {
   SellerStorefrontContent,
   type SellerStorefrontData,
@@ -13,16 +16,35 @@ function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
 }
 
+const getSellerStorefrontBusiness = cache(async (slug: string) => {
+  return prisma.business.findFirst({
+    where: isCuid(slug) ? { id: slug } : { slug },
+    include: {
+      member: {
+        select: {
+          id: true,
+          createdAt: true,
+          sellerLocalDeliveryPolicy: true,
+          sellerPickupPolicy: true,
+          sellerShippingPolicy: true,
+          sellerReturnPolicy: true,
+          offerShipping: true,
+          offerLocalDelivery: true,
+          offerLocalPickup: true,
+          acceptMessagesForListings: true,
+        },
+      },
+    },
+  });
+});
+
 export async function generateMetadata({
   params,
 }: {
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const business = await prisma.business.findFirst({
-    where: isCuid(slug) ? { id: slug } : { slug },
-    select: { name: true, shortDescription: true, logoUrl: true },
-  });
+  const business = await getSellerStorefrontBusiness(slug);
   if (!business) return { title: "Seller | Northwest Community" };
   const title = `${business.name} | Northwest Community`;
   const description =
@@ -44,25 +66,7 @@ export default async function SellerStorefrontPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const business = await prisma.business.findFirst({
-    where: isCuid(slug) ? { id: slug } : { slug },
-    include: {
-      member: {
-        select: {
-          id: true,
-          createdAt: true,
-          sellerLocalDeliveryPolicy: true,
-          sellerPickupPolicy: true,
-          sellerShippingPolicy: true,
-          sellerReturnPolicy: true,
-          offerShipping: true,
-          offerLocalDelivery: true,
-          offerLocalPickup: true,
-          acceptMessagesForListings: true,
-        },
-      },
-    },
-  });
+  const business = await getSellerStorefrontBusiness(slug);
   if (!business) notFound();
 
   const sellerSub = await prisma.subscription.findFirst({
@@ -77,6 +81,7 @@ export default async function SellerStorefrontPage({
       quantity: { gt: 0 },
     },
     orderBy: { createdAt: "desc" },
+    take: 48,
     select: {
       id: true,
       title: true,
@@ -130,8 +135,8 @@ export default async function SellerStorefrontPage({
       id: item.id,
       title: item.title,
       slug: item.slug,
-      description: item.description,
-      photos: item.photos ?? [],
+      description: listingDescriptionPreview(item.description),
+      photos: listingDisplayPhotos(item.photos ?? [], "card", 2),
       category: item.category,
       priceCents: item.priceCents,
     })),

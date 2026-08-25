@@ -98,9 +98,9 @@ export default function NewGroupPage() {
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
       <div className="max-w-[var(--max-width)] mx-auto">
         <Link href="/community-groups" className="text-sm text-gray-600 hover:underline mb-4 inline-block">
-          ← Back to groups
+          ← Back to Groups
         </Link>
-        <h1 className="text-3xl font-bold mb-2">Request a new group</h1>
+        <h1 className="text-3xl font-bold mb-2">Request a New Group</h1>
         <p className="text-gray-600 text-sm mb-6">
           Your request is reviewed by Northwest Community. If it is not approved, you will receive an email explaining why.
         </p>
@@ -222,7 +222,7 @@ export default function NewGroupPage() {
           </div>
           <div className="flex gap-3">
             <button type="submit" disabled={loading} className="btn">
-              {loading ? "Submitting…" : "Submit request"}
+              {loading ? "Submitting…" : "Submit Request"}
             </button>
             <Link href="/community-groups" className="btn border">
               Cancel

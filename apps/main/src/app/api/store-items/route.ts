@@ -15,6 +15,17 @@ import {
   SELLER_CHANNEL_LINK_SELECT,
   withListingChannelSyncWarning,
 } from "@/lib/channels/listing-sync-warning";
+import { getStoreItemPublicPayload } from "@/lib/get-store-item-public";
+import {
+  BROWSE_CACHE_HEADERS,
+  META_CACHE_HEADERS,
+  getFeaturedBrowseCards,
+  getPublicBrowseCards,
+  getPublicBrowseCardsByIds,
+  getRecentBrowseCards,
+  getSellerSpotlight,
+  getStorefrontBrowseMeta,
+} from "@/lib/storefront-browse-data";
 
 /** Ensure storefront listing is always fresh so newly listed items appear immediately. */
 export const dynamic = "force-dynamic";
@@ -30,77 +41,6 @@ function uniqueSlug(base: string): string {
   return `${base}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-type VariantEntry = { name?: string; options?: string[] | { value: string; quantity: number }[] };
-function getSizesFromVariants(variants: unknown): string[] {
-  if (!variants || !Array.isArray(variants)) return [];
-  const sizes: string[] = [];
-  for (const v of variants as VariantEntry[]) {
-    const name = (v?.name ?? "").trim().toLowerCase();
-    if (name !== "size" || !Array.isArray(v?.options)) continue;
-    for (const opt of v.options) {
-      if (opt == null) continue;
-      const val = typeof opt === "object" && "value" in opt ? (opt as { value: string }).value : opt;
-      if (String(val).trim()) sizes.push(String(val).trim());
-    }
-  }
-  return sizes;
-}
-function itemHasSize(item: { variants?: unknown }, size: string): boolean {
-  const sizes = getSizesFromVariants(item.variants);
-  return sizes.some((s) => s.toLowerCase() === size.toLowerCase());
-}
-
-function passesPublicStorefrontSlugFilter(item: { slug: string }): boolean {
-  const s = item.slug.toLowerCase();
-  return !s.includes("trial") && !s.includes("test-resale");
-}
-
-/** Public browse: include uncategorized items; exclude primary or secondary category exactly "Test". */
-const publicBrowseCategoryWhere: Prisma.StoreItemWhereInput = {
-  AND: [
-    { OR: [{ category: null }, { category: { not: "Test" } }] },
-    { OR: [{ secondaryCategory: null }, { secondaryCategory: { not: "Test" } }] },
-  ],
-};
-
-/** While seller time away is active, hide listings from public storefront browse/checkout. */
-function passesSellerTimeAwayForPurchases(item: {
-  member?: { sellerTimeAway?: { startAt: Date; endAt: Date } | null } | null;
-}): boolean {
-  const now = new Date();
-  const ta = item.member?.sellerTimeAway;
-  if (!ta) return true;
-  const start = new Date(ta.startAt);
-  const end = new Date(ta.endAt);
-  if (now < start || now > end) return true;
-  return false;
-}
-
-type BrowseCategoryRow = { label: string; subcategories: string[] };
-
-function buildBrowseCategoriesFromItems(
-  items: { category: string | null; subcategory: string | null; secondaryCategory: string | null }[]
-): BrowseCategoryRow[] {
-  const byCat = new Map<string, Set<string>>();
-  for (const item of items) {
-    const cat = item.category?.trim();
-    if (cat) {
-      if (!byCat.has(cat)) byCat.set(cat, new Set());
-      const sub = item.subcategory?.trim();
-      if (sub) byCat.get(cat)!.add(sub);
-    }
-    const sec = item.secondaryCategory?.trim();
-    if (sec && sec !== cat) {
-      if (!byCat.has(sec)) byCat.set(sec, new Set());
-    }
-  }
-  return Array.from(byCat.entries())
-    .map(([label, subs]) => ({
-      label,
-      subcategories: Array.from(subs).sort((a, b) => a.localeCompare(b)),
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label));
-}
 
 export async function GET(req: NextRequest) {
   try {
@@ -118,209 +58,36 @@ export async function GET(req: NextRequest) {
     const conditionParam = searchParams.get("condition");
     const condition =
       conditionParam === "new" || conditionParam === "used" ? conditionParam : null;
-    const listingWhere = condition ? ({ condition } as const) : ({} as const);
 
     if (list === "meta") {
       try {
-        const sellerCanReceivePayment = { member: { stripeConnectAccountId: { not: null } } };
-        const [browseItems, variantItems] = await Promise.all([
-          prisma.storeItem.findMany({
-            where: {
-              status: "active",
-              quantity: { gt: 0 },
-              ...listingWhere,
-              ...sellerCanReceivePayment,
-              AND: [publicBrowseCategoryWhere],
-            },
-            select: {
-              category: true,
-              subcategory: true,
-              secondaryCategory: true,
-              slug: true,
-              member: { select: { sellerTimeAway: true } },
-            },
-          }),
-          prisma.storeItem.findMany({
-            where: {
-              status: "active",
-              quantity: { gt: 0 },
-              variants: { not: Prisma.JsonNull },
-              ...listingWhere,
-              AND: [publicBrowseCategoryWhere],
-              ...sellerCanReceivePayment,
-            },
-            select: { variants: true, slug: true, member: { select: { sellerTimeAway: true } } },
-          }),
-        ]);
-        const visibleForBrowse = browseItems.filter(
-          (i) => passesPublicStorefrontSlugFilter(i) && passesSellerTimeAwayForPurchases(i)
-        );
-        const browseByCategories = buildBrowseCategoriesFromItems(visibleForBrowse);
-        const categories = browseByCategories.map((c) => c.label);
-
-        const visibleForSizes = variantItems.filter(
-          (i) => passesPublicStorefrontSlugFilter(i) && passesSellerTimeAwayForPurchases(i)
-        );
-        const sizeSet = new Set<string>();
-        for (const i of visibleForSizes) {
-          getSizesFromVariants(i.variants).forEach((s) => sizeSet.add(s));
-        }
-        return NextResponse.json({
-          categories,
-          browseByCategories,
-          sizes: Array.from(sizeSet).sort(),
-        });
+        const meta = await getStorefrontBrowseMeta(condition);
+        return NextResponse.json(meta, { headers: META_CACHE_HEADERS });
       } catch {
         return NextResponse.json({ categories: [], browseByCategories: [], sizes: [] });
       }
     }
 
   if (slug) {
-    // Single store: look up by slug. Consistent with public browse: active, quantity > 0, Connect on seller.
-    const slugWhere = {
-      slug,
-      status: "active" as const,
-      quantity: { gt: 0 } as const,
-      member: { stripeConnectAccountId: { not: null } },
-    };
-    // Do not hide listings while another buyer has only started checkout (pending order).
-    // Inventory is decremented and status becomes sold_out only after payment succeeds (webhook / cash flow).
-    const item = await prisma.storeItem.findFirst({
-      where: {
-        ...slugWhere,
-      },
-      include: {
-        member: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            createdAt: true,
-            acceptMessagesForListings: true,
-            sellerShippingPolicy: true,
-            sellerLocalDeliveryPolicy: true,
-            sellerPickupPolicy: true,
-            sellerReturnPolicy: true,
-            acceptCashForPickupDelivery: true,
-          },
-        },
-        business: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            phone: true,
-            email: true,
-            website: true,
-            address: true,
-            logoUrl: true,
-            fullDescription: true,
-          },
-        },
-      },
-    });
     const includeUnavailable = searchParams.get("includeUnavailable") === "1";
-    let resolvedItem = item;
-    if (!resolvedItem && includeUnavailable) {
-      resolvedItem = await prisma.storeItem.findFirst({
-        where: { slug },
-        include: {
-          member: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              createdAt: true,
-              acceptMessagesForListings: true,
-              sellerShippingPolicy: true,
-              sellerLocalDeliveryPolicy: true,
-              sellerPickupPolicy: true,
-              sellerReturnPolicy: true,
-              acceptCashForPickupDelivery: true,
-            },
-          },
-          business: {
-            select: {
-              id: true,
-              name: true,
-              slug: true,
-              phone: true,
-              email: true,
-              website: true,
-              address: true,
-              logoUrl: true,
-              fullDescription: true,
-            },
-          },
-        },
-      });
-    }
-    if (!resolvedItem) {
+    const session = includeUnavailable ? await getSessionForApi(req) : null;
+    const payload = await getStoreItemPublicPayload(slug, {
+      includeUnavailable,
+      viewerId: session?.user?.id,
+    });
+    if (!payload) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    const isUnavailable = includeUnavailable && !item;
-    let soldAt: string | undefined;
-    if (isUnavailable && resolvedItem.status === "sold_out") {
-      const lastOrderItem = await prisma.orderItem.findFirst({
-        where: {
-          storeItemId: resolvedItem.id,
-          order: { status: { in: ["paid", "shipped", "delivered"] } },
-        },
-        include: { order: { select: { updatedAt: true } } },
-        orderBy: { order: { updatedAt: "desc" } },
-      });
-      if (lastOrderItem) soldAt = lastOrderItem.order.updatedAt.toISOString();
-    }
-    // Always include seller's business for Store Information (use linked business or member's first)
-    let business = resolvedItem.business;
-    if (!business && resolvedItem.memberId) {
-      const memberBusiness = await prisma.business.findFirst({
-        where: { memberId: resolvedItem.memberId },
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          phone: true,
-          email: true,
-          website: true,
-          address: true,
-          logoUrl: true,
-          fullDescription: true,
-        },
-      });
-      business = memberBusiness;
-    }
-    const saveCountResult = await prisma.savedItem.count({
-      where: { type: "store_item", referenceId: resolvedItem.id },
-    });
-    recordSellerListingView(req, resolvedItem.id, resolvedItem.memberId);
-    return NextResponse.json({
-      ...resolvedItem,
-      business,
-      memberId: resolvedItem.memberId,
-      saveCount: saveCountResult,
-      ...(isUnavailable ? { unavailable: true } : {}),
-      ...(soldAt ? { soldAt } : {}),
+    recordSellerListingView(req, payload.id, payload.memberId);
+    return NextResponse.json(payload, {
+      headers: { "Cache-Control": "private, no-store" },
     });
   }
 
   if (idsParam) {
     const ids = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
     if (ids.length > 0) {
-      const items = await prisma.storeItem.findMany({
-        where: {
-          id: { in: ids },
-          status: "active",
-          quantity: { gt: 0 },
-          member: { stripeConnectAccountId: { not: null } },
-        },
-        include: {
-          member: { select: { id: true, firstName: true, lastName: true } },
-          business: { select: { id: true, name: true, slug: true } },
-        },
-        orderBy: { createdAt: "desc" },
-      });
-      return NextResponse.json(items);
+      return NextResponse.json(await getPublicBrowseCardsByIds(ids));
     }
   }
 
@@ -331,101 +98,15 @@ export async function GET(req: NextRequest) {
   const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10), 1), 50) : 10;
 
   if (featured === "1") {
-    const sellerCanReceivePayment = { member: { stripeConnectAccountId: { not: null } } };
-    let items = await prisma.storeItem.findMany({
-      where: {
-        featured: true,
-        status: "active",
-        quantity: { gt: 0 },
-        ...sellerCanReceivePayment,
-        AND: [publicBrowseCategoryWhere],
-      },
-      include: {
-        member: { include: { sellerTimeAway: true } },
-        business: { select: { id: true, name: true, slug: true, logoUrl: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: limit,
-    });
-    items = items.filter(
-      (item) => passesPublicStorefrontSlugFilter(item) && passesSellerTimeAwayForPurchases(item)
-    );
-    return NextResponse.json(items);
+    return NextResponse.json(await getFeaturedBrowseCards(limit), { headers: BROWSE_CACHE_HEADERS });
   }
 
   if (recent === "1") {
-    const sellerCanReceivePayment = { member: { stripeConnectAccountId: { not: null } } };
-    let items = await prisma.storeItem.findMany({
-      where: {
-        status: "active",
-        quantity: { gt: 0 },
-        ...sellerCanReceivePayment,
-        AND: [publicBrowseCategoryWhere],
-      },
-      include: {
-        member: { include: { sellerTimeAway: true } },
-        business: { select: { id: true, name: true, slug: true, logoUrl: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: limit,
-    });
-    items = items.filter(
-      (item) => passesPublicStorefrontSlugFilter(item) && passesSellerTimeAwayForPurchases(item)
-    );
-    return NextResponse.json(items);
+    return NextResponse.json(await getRecentBrowseCards(limit), { headers: BROWSE_CACHE_HEADERS });
   }
 
   if (sellerSpotlight === "1") {
-    const sellerCanReceivePayment = { stripeConnectAccountId: { not: null } };
-    const sellers = await prisma.member.findMany({
-      where: {
-        ...sellerCanReceivePayment,
-        storeItemsSold: {
-          some: {
-            status: "active",
-            quantity: { gt: 0 },
-            AND: [publicBrowseCategoryWhere],
-          },
-        },
-      },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        createdAt: true,
-        sellerTimeAway: true,
-        businesses: {
-          take: 1,
-          select: { id: true, name: true, slug: true, logoUrl: true },
-        },
-        _count: {
-          select: {
-            storeItemsSold: {
-              where: { status: "active", quantity: { gt: 0 } },
-            },
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-      take: limit,
-    });
-    const now = new Date();
-    const activeSellers = sellers.filter((s) => {
-      const ta = s.sellerTimeAway;
-      if (!ta) return true;
-      const start = new Date(ta.startAt);
-      const end = new Date(ta.endAt);
-      return now < start || now > end;
-    });
-    const spotlight = activeSellers.map((s) => ({
-      memberId: s.id,
-      name: s.businesses[0]?.name || `${s.firstName} ${s.lastName}`,
-      logoUrl: s.businesses[0]?.logoUrl || null,
-      businessSlug: s.businesses[0]?.slug || null,
-      itemCount: s._count.storeItemsSold,
-      memberSince: s.createdAt.getFullYear(),
-    }));
-    return NextResponse.json(spotlight);
+    return NextResponse.json(await getSellerSpotlight(limit), { headers: BROWSE_CACHE_HEADERS });
   }
 
   if (mine === "1") {
@@ -523,76 +204,29 @@ export async function GET(req: NextRequest) {
   const sortParam = searchParams.get("sort");
   const minPriceCents = minPriceParam ? Math.round(parseFloat(minPriceParam) * 100) : null;
   const maxPriceCents = maxPriceParam ? Math.round(parseFloat(maxPriceParam) * 100) : null;
-  const categoryTrim = categoryParam?.trim() || "";
-  const subcategoryTrim = subcategoryParam?.trim() || "";
-
-  const orderBy: Prisma.StoreItemOrderByWithRelationInput =
-    sortParam === "price_asc"
-      ? { priceCents: "asc" }
-      : sortParam === "price_desc"
-        ? { priceCents: "desc" }
-        : { createdAt: "desc" };
+  const listLimit = limitParam
+    ? Math.min(Math.max(parseInt(limitParam, 10) || 48, 1), 100)
+    : 48;
+  const listOffset = Math.max(parseInt(searchParams.get("offset") ?? "0", 10) || 0, 0);
 
   try {
-    // Only list items from sellers who have Stripe Connect set up (payment/redirect can function).
-    // Single store: optional `condition` filter (new | used) narrows results when provided.
-    const sellerCanReceivePayment = { member: { stripeConnectAccountId: { not: null } } };
-    const listAndConditions: Prisma.StoreItemWhereInput[] = [publicBrowseCategoryWhere];
-    if (categoryTrim && !subcategoryTrim) {
-      listAndConditions.push({
-        OR: [{ category: categoryTrim }, { secondaryCategory: categoryTrim }],
-      });
-    }
-    if (categoryTrim && subcategoryTrim) {
-      listAndConditions.push({ category: categoryTrim, subcategory: subcategoryTrim });
-    }
-    if (search) {
-      listAndConditions.push({
-        OR: [
-          { title: { contains: search } },
-          { description: { contains: search } },
-          { category: { contains: search } },
-          { secondaryCategory: { contains: search } },
-          { subcategory: { contains: search } },
-        ],
-      });
-    }
-    // Exclude Test category in DB. Trial/test-resale slugs excluded in-memory below (Neon adapter does not support mode in nested slug filter).
-    let items = await prisma.storeItem.findMany({
-      where: {
-        status: "active",
-        quantity: { gt: 0 },
-        ...listingWhere,
-        ...sellerCanReceivePayment,
-        AND: listAndConditions,
-        ...(memberId ? { memberId } : {}),
-        ...(excludeId ? { id: { not: excludeId } } : {}),
-        ...(localDelivery === "1" ? { localDeliveryAvailable: true } : {}),
-        ...(shippingOnly === "1"
-          ? { shippingDisabled: false, localDeliveryAvailable: false, inStorePickupAvailable: false }
-          : {}),
-        ...(minPriceCents !== null && !isNaN(minPriceCents) ? { priceCents: { gte: minPriceCents } } : {}),
-        ...(maxPriceCents !== null && !isNaN(maxPriceCents) 
-          ? { priceCents: { ...(minPriceCents !== null ? { gte: minPriceCents } : {}), lte: maxPriceCents } } 
-          : {}),
-      },
-      include: {
-        member: { include: { sellerTimeAway: true } },
-        business: { select: { id: true, name: true, slug: true, logoUrl: true } },
-      },
-      orderBy,
+    const items = await getPublicBrowseCards({
+      category: categoryParam ?? undefined,
+      subcategory: subcategoryParam ?? undefined,
+      size,
+      search,
+      condition,
+      memberId,
+      excludeId,
+      localDelivery: localDelivery === "1",
+      shippingOnly: shippingOnly === "1",
+      minPriceCents,
+      maxPriceCents,
+      sort: sortParam,
+      limit: listLimit,
+      offset: listOffset,
     });
-    items = items.filter(
-      (item) => passesPublicStorefrontSlugFilter(item) && passesSellerTimeAwayForPurchases(item)
-    );
-    if (size) {
-      items = items.filter((item) => itemHasSize(item, size));
-    }
-    return NextResponse.json(items, {
-      headers: {
-        "Cache-Control": "private, no-store, max-age=0",
-      },
-    });
+    return NextResponse.json(items, { headers: BROWSE_CACHE_HEADERS });
   } catch (e) {
     console.error("[store-items] Public listing error:", e);
     return NextResponse.json([]);
@@ -690,6 +324,16 @@ export async function POST(req: NextRequest) {
   if (!member?.stripeConnectAccountId?.trim()) {
     return NextResponse.json(
       { error: "You must complete Stripe Connect setup (payment account) before listing items. Go to Seller Hub → Payouts to set up." },
+      { status: 403 }
+    );
+  }
+  const { memberHasConnectPayoutsEnabled } = await import("@/lib/stripe-connect-payout-gate");
+  if (!(await memberHasConnectPayoutsEnabled(userId))) {
+    return NextResponse.json(
+      {
+        error:
+          "Stripe Connect payouts are not enabled yet. Finish payout setup in Seller Hub → Payouts before listing items.",
+      },
       { status: 403 }
     );
   }

@@ -1,13 +1,15 @@
 import { Metadata } from "next";
 import Link from "next/link";
+import { IonIcon } from "@/components/IonIcon";
 import { NWCSellersGallery } from "@/components/NWCSellersGallery";
 import { getSiteImageUrl } from "@/lib/site-images";
 
-const SECTION_BG = "var(--color-primary)";
+const SECTION_BG = "var(--color-earth)";
 
 export const metadata: Metadata = {
   title: "Local Sellers | Northwest Community",
-  description: "Locally owned businesses and people who are actively working to make shopping locally more accessible to this community.",
+  description:
+    "Here is a list of local online retailers who have teamed up with Northwest Community to make local online shopping a possibility. Sift through the sellers below and find items you will love!",
 };
 
 export default async function LocalSellersPage() {
@@ -17,12 +19,12 @@ export default async function LocalSellersPage() {
   return (
     <>
       <header
-        className="w-full overflow-hidden border-2"
+        className="w-full border-2"
         style={{ backgroundColor: SECTION_BG, borderColor: "var(--color-secondary)" }}
         aria-label="Local sellers"
       >
         <div className="mx-auto w-full max-w-[var(--max-width)] px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
-          <div>
+          <div className="relative">
             <div
               className="w-full overflow-hidden rounded-xl border-2 shadow-lg"
               style={{ borderColor: "var(--color-secondary)" }}
@@ -30,25 +32,26 @@ export default async function LocalSellersPage() {
               <img
                 src={headerImageUrl}
                 alt="Trailhead parking with a van, pickup, and evergreen trees"
-                className="block h-auto w-full"
+                className="block h-auto w-full -mt-[1.25in] md:-mt-[2in]"
               />
             </div>
 
             <div
-              className="mx-auto mt-4 w-[92%] max-w-4xl rounded-xl border-2 bg-white px-5 py-5 sm:mt-5 sm:px-8 sm:py-6 md:px-10"
+              className="absolute bottom-6 left-1/2 z-10 w-[92%] max-w-4xl -translate-x-1/2 rounded-xl border-2 bg-white px-5 py-5 sm:bottom-8 sm:px-8 sm:py-6 md:px-10"
               style={{
                 borderColor: "var(--color-secondary)",
                 boxShadow: "0 10px 20px -8px rgba(0, 0, 0, 0.18)",
               }}
             >
               <h1
-                className="font-bold leading-tight mb-3 break-words text-center"
+                className="mb-3 flex items-center justify-center gap-2.5 break-words text-center font-bold leading-tight"
                 style={{
                   color: "var(--color-heading)",
                   fontFamily: "var(--font-heading)",
                   fontSize: "clamp(1.5rem, 2.6vw, 2.25rem)",
                 }}
               >
+                <IonIcon name="storefront-outline" size={32} className="shrink-0" />
                 Local Sellers
               </h1>
               <p
@@ -58,7 +61,8 @@ export default async function LocalSellersPage() {
                   fontSize: "clamp(0.875rem, 1.2vw, 1.0625rem)",
                 }}
               >
-                Locally owned businesses and people who are actively working to make shopping locally more accessible to this community. Browse their storefronts, save your favorite sellers, and purchase goods. This is beneficial for our community, so thanks for being here.
+                Here is a list of local online retailers who have teamed up with Northwest Community to make local
+                online shopping a possibility. Sift through the sellers below and find items you will love!
               </p>
             </div>
           </div>

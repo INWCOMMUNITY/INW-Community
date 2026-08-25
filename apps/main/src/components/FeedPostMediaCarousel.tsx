@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IonIcon } from "@/components/IonIcon";
+import { listingDisplayPhoto } from "@/lib/listing-display-photo";
 
 const TRACK_SCROLLBAR_HIDE =
   "overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden";
@@ -181,10 +182,14 @@ export function FeedPostMediaCarousel({
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={item.url}
+          src={
+            listingDisplayPhoto(item.url, index === 0 ? "hero" : "card") ?? item.url
+          }
           alt=""
           className="w-full h-full object-contain bg-neutral-100 select-none"
           draggable={false}
+          loading={index === 0 ? "eager" : "lazy"}
+          decoding="async"
           onLoad={(e) => {
             const img = e.currentTarget;
             if (img.naturalWidth > 0 && img.naturalHeight > 0) {

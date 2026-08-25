@@ -6,6 +6,7 @@ import { listingDescriptionPreview } from "@/lib/channels/rich-description";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 import { ShareButton } from "@/components/ShareButton";
 import { CARD_RADIUS, CARD_SHADOW } from "@/components/ui/card-styles";
+import { listingDisplayPhoto } from "@/lib/listing-display-photo";
 
 export type StorefrontCardItem = {
   id: string;
@@ -23,16 +24,19 @@ export function StorefrontCard({
   basePath = "/storefront",
   productHref,
   showBusiness = true,
+  eager = false,
 }: {
   item: StorefrontCardItem;
   savedIds: Set<string>;
   basePath?: string;
   productHref?: string;
   showBusiness?: boolean;
+  eager?: boolean;
 }) {
   const [hoveredPhotoIndex, setHoveredPhotoIndex] = useState(0);
   const href = productHref ?? `${basePath}/${item.slug}`;
-  const photoUrl = item.photos.length > 0 ? item.photos[hoveredPhotoIndex % item.photos.length] : null;
+  const rawPhoto = item.photos.length > 0 ? item.photos[hoveredPhotoIndex % item.photos.length] : null;
+  const photoUrl = listingDisplayPhoto(rawPhoto, "card") ?? rawPhoto;
 
   return (
     <div
@@ -53,6 +57,8 @@ export function StorefrontCard({
             src={photoUrl}
             alt={item.title}
             className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-105"
+            loading={eager ? "eager" : "lazy"}
+            decoding="async"
           />
         ) : (
           <div

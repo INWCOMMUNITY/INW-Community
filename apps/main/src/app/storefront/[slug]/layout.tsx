@@ -1,21 +1,20 @@
 import type { Metadata } from "next";
-import { prisma } from "database";
+import {
+  getCachedStoreItemPublicPayload,
+  storeItemOgDescription,
+  storeItemOgImage,
+} from "@/lib/get-store-item-public";
 
 type Props = { params: Promise<{ slug: string }>; children: React.ReactNode };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const item = await prisma.storeItem.findFirst({
-    where: { slug, status: "active" },
-    select: { title: true, description: true, photos: true },
-  });
+  const item = await getCachedStoreItemPublicPayload(slug);
   if (!item) return { title: "Item | Northwest Community" };
   const title = `${item.title} | Northwest Community`;
-  const description = item.description ?? item.title;
-  const imageUrl = item.photos?.[0];
-  const images = imageUrl
-    ? [{ url: imageUrl, width: 1200, height: 630, alt: item.title }]
-    : undefined;
+  const description = storeItemOgDescription(item.description, item.title);
+  const images = storeItemOgImage(item.photos, item.title);
+  const imageUrl = images?.[0]?.url;
   return {
     title,
     description,

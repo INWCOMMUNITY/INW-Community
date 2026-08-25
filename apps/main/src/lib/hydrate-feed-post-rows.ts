@@ -8,6 +8,10 @@ import {
 import { getShareCountBySourcePostId } from "@/lib/post-share-counts";
 import { storeItemRowsToFeedEmbedMap } from "@/lib/store-item-variants";
 import { listingCollectionEmbedMap, listingCollectionIdsFromPosts } from "@/lib/listing-feed-collection";
+import {
+  listingSellerBusinessMapForPosts,
+  resolveFeedPostSourceBusiness,
+} from "@/lib/listing-feed-seller-business";
 
 /** Matches feed / group-feed includes for hydration + API responses. */
 export const feedPostListInclude = {
@@ -80,7 +84,7 @@ export async function hydrateFeedPostRows(
       sourceStoreItemIds.length > 0
         ? prisma.storeItem.findMany({
             where: { id: { in: sourceStoreItemIds } },
-            select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true },
+            select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true, memberId: true },
           })
         : [],
       sourceEventIds.length > 0
@@ -186,7 +190,7 @@ export async function hydrateFeedPostRows(
   const sourcePostStoreItemIds = sourcePosts.filter((p) => p.sourceStoreItemId).map((p) => p.sourceStoreItemId!);
   const sourcePostEventIds = sourcePosts.filter((p) => p.sourceEventId).map((p) => p.sourceEventId!);
 
-  const [sourcePostBlogs, sourcePostBusinesses, sourcePostCoupons, sourcePostStoreItems, sourcePostEvents] =
+  const [sourcePostBlogs, sourcePostBusinesses, sourcePostCoupons, sourcePostStoreItems, sourcePostEvents, listingCollectionMap] =
     await Promise.all([
       sourcePostBlogIds.length > 0
         ? prisma.blog.findMany({
@@ -213,7 +217,7 @@ export async function hydrateFeedPostRows(
       sourcePostStoreItemIds.length > 0
         ? prisma.storeItem.findMany({
             where: { id: { in: sourcePostStoreItemIds } },
-            select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true },
+            select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true, memberId: true },
           })
         : [],
       sourcePostEventIds.length > 0
@@ -232,6 +236,7 @@ export async function hydrateFeedPostRows(
             },
           })
         : [],
+      listingCollectionEmbedMap(listingCollectionIdsFromPosts([...items, ...sourcePosts])),
     ]);
 
   const storeItemMerge = new Map<string, (typeof storeItems)[0]>();
@@ -239,14 +244,15 @@ export async function hydrateFeedPostRows(
   for (const s of sourcePostStoreItems) storeItemMerge.set(s.id, s);
   const feedStoreItemMap = storeItemRowsToFeedEmbedMap([...storeItemMerge.values()]);
 
-  const listingCollectionMap = await listingCollectionEmbedMap(
-    listingCollectionIdsFromPosts([...items, ...sourcePosts])
-  );
-
   const sourcePostBlogMap = Object.fromEntries(sourcePostBlogs.map((b) => [b.id, b]));
   const sourcePostBusinessMap = Object.fromEntries(sourcePostBusinesses.map((b) => [b.id, b]));
   const sourcePostCouponMap = Object.fromEntries(sourcePostCoupons.map((c) => [c.id, c]));
   const sourcePostEventMap = Object.fromEntries(sourcePostEvents.map((e) => [e.id, e]));
+  const listingBizByMember = await listingSellerBusinessMapForPosts(
+    [...items, ...sourcePosts],
+    [...storeItemMerge.values()]
+  );
+  const businessById = { ...businessMap, ...sourcePostBusinessMap };
 
   const sourcePostMap = Object.fromEntries(
     sourcePosts.map((p) => [
@@ -257,9 +263,7 @@ export async function hydrateFeedPostRows(
         sourceBlog: p.sourceBlogId
           ? (sourcePostBlogMap[p.sourceBlogId] ?? blogMap[p.sourceBlogId] ?? null)
           : null,
-        sourceBusiness: p.sourceBusinessId
-          ? (sourcePostBusinessMap[p.sourceBusinessId] ?? businessMap[p.sourceBusinessId] ?? null)
-          : null,
+        sourceBusiness: resolveFeedPostSourceBusiness(p, businessById, listingBizByMember),
         sourceCoupon: p.sourceCouponId
           ? (sourcePostCouponMap[p.sourceCouponId] ?? couponMap[p.sourceCouponId] ?? null)
           : null,
@@ -326,7 +330,7 @@ export async function hydrateFeedPostRows(
     ...p,
     tags: p.postTags?.map((pt) => pt.tag) ?? [],
     sourceBlog: p.sourceBlogId ? blogMap[p.sourceBlogId] ?? null : null,
-    sourceBusiness: p.sourceBusinessId ? businessMap[p.sourceBusinessId] ?? null : null,
+    sourceBusiness: resolveFeedPostSourceBusiness(p, businessById, listingBizByMember),
     taggedBusinesses: taggedBusinessesFromIds(p.taggedBusinessIds, businessMap),
     sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
     sourceStoreItem: p.sourceStoreItemId ? feedStoreItemMap[p.sourceStoreItemId] ?? null : null,

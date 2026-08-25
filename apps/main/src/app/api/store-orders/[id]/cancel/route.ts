@@ -4,8 +4,9 @@ import { prisma } from "database";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
+import { restockOrderLinesAfterReturn } from "@/lib/store-item-restock";
 import { syncInventoryToChannelsAfterSale } from "@/lib/channels/sync-inventory";
+import { refundPaidStorefrontOrder } from "@/lib/stripe/refund-store-order";
 
 const CANCEL_REASONS = [
   "Changed my mind",
@@ -15,15 +16,12 @@ const CANCEL_REASONS = [
   "Other",
 ] as const;
 
-const PLATFORM_FEE_PERCENT = 0.05;
-const PLATFORM_FEE_MIN_CENTS = 50;
-
 export const dynamic = "force-dynamic";
 
 /**
  * Buyer cancels an order before it is shipped.
- * - Card orders: refund from seller's funds (Stripe refund + deduct seller balance), restore inventory.
- * - Cash orders: cancel only (no refund), restore inventory.
+ * Card: reverse Connect transfer, refund platform PI (incl. tax), restock.
+ * Cash: cancel only, restock.
  */
 export async function POST(
   req: NextRequest,
@@ -73,58 +71,17 @@ export async function POST(
     await prisma.$transaction(async (tx) => {
       await tx.storeOrder.update({
         where: { id: order.id },
-        data: { status: "canceled", cancelReason: cancelReason ?? undefined, cancelNote: note ?? undefined },
+        data: {
+          status: "canceled",
+          cancelReason: cancelReason ?? undefined,
+          cancelNote: note ?? undefined,
+          inventoryRestoredAt: new Date(),
+        },
       });
-      const storeItemsCancel = await tx.storeItem.findMany({
-        where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
-      });
-      const storeItemMapCancel = new Map(storeItemsCancel.map((s) => [s.id, s]));
-      for (const oi of order.items) {
-        const storeItem = storeItemMapCancel.get(oi.storeItemId);
-        if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
-          const res = incrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
-          if (res) {
-            await tx.storeItem.update({
-              where: { id: oi.storeItemId },
-              data: { variants: res.variants as object, quantity: { increment: res.quantityDelta } },
-            });
-          } else {
-            await tx.storeItem.update({
-              where: { id: oi.storeItemId },
-              data: { quantity: { increment: oi.quantity } },
-            });
-          }
-        } else {
-          await tx.storeItem.update({
-            where: { id: oi.storeItemId },
-            data: { quantity: { increment: oi.quantity } },
-          });
-        }
-      }
+      await restockOrderLinesAfterReturn(tx, order.items);
     });
-    // Pooled inventory: restored stock should be reflected on any linked channels (Etsy, etc.).
     await Promise.all(order.items.map((oi) => syncInventoryToChannelsAfterSale(oi.storeItemId)));
     return NextResponse.json({ ok: true, refunded: false });
-  }
-
-  const totalCents = order.totalCents;
-  const platformFeeCents = Math.max(
-    PLATFORM_FEE_MIN_CENTS,
-    Math.floor(totalCents * PLATFORM_FEE_PERCENT)
-  );
-  const sellerDeductionCents = totalCents - platformFeeCents;
-
-  const balance = await prisma.sellerBalance.findUnique({
-    where: { memberId: order.sellerId },
-  });
-  const availableCents = balance?.balanceCents ?? 0;
-  if (availableCents < sellerDeductionCents) {
-    return NextResponse.json(
-      {
-        error: "Seller has insufficient funds to process this refund. Please contact the seller or request a refund instead.",
-      },
-      { status: 400 }
-    );
   }
 
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
@@ -138,71 +95,14 @@ export async function POST(
     apiVersion: "2024-11-20.acacia" as "2023-10-16",
   });
 
-  try {
-    await stripe.refunds.create({
-      payment_intent: order.stripePaymentIntentId!,
-      amount: totalCents,
-      reason: "requested_by_customer",
-    });
-
-    await prisma.$transaction(async (tx) => {
-      await tx.storeOrder.update({
-        where: { id: order.id },
-        data: { status: "refunded", cancelReason: cancelReason ?? undefined, cancelNote: note ?? undefined },
-      });
-      await tx.sellerBalance.upsert({
-        where: { memberId: order.sellerId },
-        create: {
-          memberId: order.sellerId,
-          balanceCents: -sellerDeductionCents,
-          totalEarnedCents: 0,
-          totalPaidOutCents: 0,
-        },
-        update: { balanceCents: { decrement: sellerDeductionCents } },
-      });
-      await tx.sellerBalanceTransaction.create({
-        data: {
-          memberId: order.sellerId,
-          type: "return",
-          amountCents: -sellerDeductionCents,
-          orderId: order.id,
-          description: `Buyer canceled: Order #${order.id.slice(-6)} - $${(totalCents / 100).toFixed(2)}`,
-        },
-      });
-      const storeItemsCancel = await tx.storeItem.findMany({
-        where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
-      });
-      const storeItemMapCancel = new Map(storeItemsCancel.map((s) => [s.id, s]));
-      for (const oi of order.items) {
-        const storeItem = storeItemMapCancel.get(oi.storeItemId);
-        if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
-          const res = incrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
-          if (res) {
-            await tx.storeItem.update({
-              where: { id: oi.storeItemId },
-              data: { variants: res.variants as object, quantity: { increment: res.quantityDelta } },
-            });
-          } else {
-            await tx.storeItem.update({
-              where: { id: oi.storeItemId },
-              data: { quantity: { increment: oi.quantity } },
-            });
-          }
-        } else {
-          await tx.storeItem.update({
-            where: { id: oi.storeItemId },
-            data: { quantity: { increment: oi.quantity } },
-          });
-        }
-      }
-    });
-
-    // Pooled inventory: restored stock should be reflected on any linked channels (Etsy, etc.).
-    await Promise.all(order.items.map((oi) => syncInventoryToChannelsAfterSale(oi.storeItemId)));
-
-    return NextResponse.json({ ok: true, refunded: true });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Cancel/refund failed";
-    return NextResponse.json({ error: msg }, { status: 500 });
+  const result = await refundPaidStorefrontOrder({
+    stripe,
+    order,
+    reason: cancelReason ?? "Buyer canceled",
+    note,
+  });
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status });
   }
+  return NextResponse.json({ ok: true, refunded: true });
 }

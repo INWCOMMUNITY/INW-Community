@@ -10,6 +10,13 @@ import {
   readDisconnectNotifiedAt,
 } from "./channel-disconnect-notify";
 import { shouldBlockDevChannelTokenWrites } from "./dev-prod-guard";
+import {
+  classifyChannelPauseReason,
+  connectionHealthUx,
+  nextRecoverAt,
+  shouldSkipPausedRecover,
+  readPauseConfig,
+} from "./pause-reason";
 
 /** Refresh before the token's last 5 minutes so the channel cron never starts on a dying token. */
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
@@ -30,7 +37,7 @@ type ConnectionRow = {
   config?: unknown;
 };
 
-function mergeConnectionConfig(
+export function mergeConnectionConfig(
   config: unknown,
   patch: Record<string, unknown>
 ): Record<string, unknown> {
@@ -187,14 +194,46 @@ export async function recoverPausedChannelConnections(): Promise<{ recovered: nu
   let recovered = 0;
   let failed = 0;
   for (const c of paused) {
+    if (shouldSkipPausedRecover(c.config)) {
+      continue;
+    }
+    const pause = readPauseConfig(c.config);
     try {
       await refreshAccessTokenSerialized(c as ConnectionRow);
+      await prisma.channelConnection
+        .update({
+          where: { id: c.id },
+          data: {
+            config: mergeConnectionConfig(c.config, {
+              pauseReason: null,
+              recoverAttempts: 0,
+              nextRecoverAt: null,
+            }) as Prisma.InputJsonValue,
+          },
+        })
+        .catch(() => {});
       recovered += 1;
     } catch (e) {
       failed += 1;
+      const reason = classifyChannelPauseReason(e);
+      const attempts = pause.recoverAttempts + 1;
+      await prisma.channelConnection
+        .update({
+          where: { id: c.id },
+          data: {
+            config: mergeConnectionConfig(c.config, {
+              pauseReason: reason,
+              recoverAttempts: attempts,
+              nextRecoverAt: nextRecoverAt(reason, attempts).toISOString(),
+            }) as Prisma.InputJsonValue,
+          },
+        })
+        .catch(() => {});
       console.warn("[channels] could not auto-recover paused connection", {
         connectionId: c.id,
         provider: c.provider,
+        pauseReason: reason,
+        recoverAttempts: attempts,
         error: e instanceof Error ? e.message : String(e),
       });
     }
@@ -208,7 +247,7 @@ export async function recoverPausedChannelConnections(): Promise<{ recovered: nu
  */
 export function isPermanentChannelAuthFailure(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
-  return /invalid[_ -]?grant|invalid_refresh|refresh token.*(expired|revoked|invalid)|unauthorized_client|invalid_client|no refresh token|could not be decrypted|consent.*revoked/i.test(
+  return /invalid[_ -]?grant|invalid_refresh|refresh token.*(expired|revoked|invalid)|unauthorized_client|invalid_client|no refresh token|could not be decrypted|encryption key cannot decrypt|platform encryption|consent.*revoked/i.test(
     msg
   );
 }
@@ -237,32 +276,46 @@ export async function markChannelConnectionFailure(args: {
     return { paused: false };
   }
 
+  const pauseReason = classifyChannelPauseReason(error);
+  const pause = readPauseConfig(connection.config);
+  const attempts = pause.recoverAttempts + 1;
+  logSyncEvent(
+    connection.memberId,
+    connection.provider,
+    "pause_classified",
+    `${pauseReason}: ${lastError.slice(0, 200)}`
+  );
+
+  let nextConfig = mergeConnectionConfig(connection.config, {
+    pauseReason,
+    recoverAttempts: attempts,
+    nextRecoverAt: nextRecoverAt(pauseReason, attempts).toISOString(),
+  });
+
+  if (pauseReason !== "decrypt_failure") {
+    const sent = await notifyChannelDisconnectIfNew({
+      memberId: connection.memberId,
+      provider: connection.provider,
+      previousStatus: connection.status,
+      lastNotifiedAt: readDisconnectNotifiedAt(connection.config),
+    }).catch(() => false);
+    if (sent) {
+      nextConfig = mergeConnectionConfig(nextConfig, {
+        disconnectNotifiedAt: new Date().toISOString(),
+      });
+    }
+  }
+
   await prisma.channelConnection
     .update({
       where: { id: connection.id },
-      data: { status: "error", lastError },
+      data: {
+        status: "error",
+        lastError,
+        config: nextConfig as Prisma.InputJsonValue,
+      },
     })
     .catch(() => {});
-
-  const sent = await notifyChannelDisconnectIfNew({
-    memberId: connection.memberId,
-    provider: connection.provider,
-    previousStatus: connection.status,
-    lastNotifiedAt: readDisconnectNotifiedAt(connection.config),
-  }).catch(() => false);
-
-  if (sent) {
-    await prisma.channelConnection
-      .update({
-        where: { id: connection.id },
-        data: {
-          config: mergeConnectionConfig(connection.config, {
-            disconnectNotifiedAt: new Date().toISOString(),
-          }) as Prisma.InputJsonValue,
-        },
-      })
-      .catch(() => {});
-  }
 
   return { paused: true };
 }
@@ -281,7 +334,7 @@ export async function getConnectionContext(
     accessToken = decrypt(connection.accessTokenEncrypted);
   } catch (e) {
     const errMsg =
-      "Stored channel tokens could not be decrypted. Disconnect and reconnect in Sync Stores.";
+      "Platform encryption key cannot decrypt this store's tokens. Do not reconnect — contact support.";
     logSyncEvent(connection.memberId, connection.provider, "token_expired", errMsg);
     if (shouldBlockDevChannelTokenWrites()) {
       console.error("[channels] decrypt failed; not pausing hosted connections from local dev", {
@@ -381,13 +434,18 @@ export async function getMemberConnectionContextWithError(
     select: { lastError: true, status: true },
   });
   const label = provider.charAt(0).toUpperCase() + provider.slice(1);
+  const health = connectionHealthUx({
+    status: latest?.status ?? conn.status,
+    lastError: latest?.lastError,
+    config: conn.config,
+  });
+  const fallback =
+    health.kind === "ok"
+      ? `${label} connection is unavailable. Reconnect in Sync Stores.`
+      : health.message;
   return {
     ctx: null,
-    error:
-      latest?.lastError ??
-      (latest?.status === "error"
-        ? `${label} connection needs reconnecting. Open Sync Stores and reconnect.`
-        : `${label} connection is unavailable. Reconnect in Sync Stores.`),
+    error: latest?.lastError ?? fallback,
   };
 }
 

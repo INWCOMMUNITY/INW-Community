@@ -1,5 +1,9 @@
 import type { PrismaClient } from "database";
 import {
+  ConcurrentModificationError,
+  InsufficientStockError,
+} from "@/lib/store-item-inventory-errors";
+import {
   decrementOptionQuantity,
   decrementSingleAxisOptionQuantities,
   hasMeaningfulVariantSelection,
@@ -7,19 +11,11 @@ import {
   sumOptionQuantities,
 } from "@/lib/store-item-variants";
 
+export { ConcurrentModificationError, InsufficientStockError };
+
 type StoreItemRow = { id: string; variants: unknown; quantity: number; updatedAt: Date };
 
 const MAX_RETRIES = 3;
-
-/**
- * Optimistic locking error - thrown when concurrent modification detected.
- */
-export class ConcurrentModificationError extends Error {
-  constructor(storeItemId: string) {
-    super(`Concurrent modification detected for StoreItem ${storeItemId}`);
-    this.name = "ConcurrentModificationError";
-  }
-}
 
 /**
  * Decrement listing inventory after a confirmed sale (webhook, cash checkout, etc.).
@@ -49,11 +45,19 @@ export async function applyStoreItemDecrementAfterSale(
           where: {
             id: storeItem.id,
             updatedAt: updatedAt,
+            quantity: { gte: sold },
           },
           data: { quantity: { decrement: sold } },
         });
 
         if (result.count === 0) {
+          const fresh = await prisma.storeItem.findUnique({
+            where: { id: storeItem.id },
+            select: { quantity: true, updatedAt: true },
+          });
+          if (!fresh || fresh.quantity < sold) {
+            throw new InsufficientStockError(storeItem.id, sold, fresh?.quantity ?? 0);
+          }
           throw new ConcurrentModificationError(storeItem.id);
         }
         return;
@@ -72,6 +76,7 @@ export async function applyStoreItemDecrementAfterSale(
           where: {
             id: storeItem.id,
             updatedAt: updatedAt,
+            quantity: { gte: sold },
           },
           data: {
             variants: res.variants as object,
@@ -80,6 +85,13 @@ export async function applyStoreItemDecrementAfterSale(
         });
 
         if (result.count === 0) {
+          const fresh = await prisma.storeItem.findUnique({
+            where: { id: storeItem.id },
+            select: { quantity: true, updatedAt: true },
+          });
+          if (!fresh || fresh.quantity < sold) {
+            throw new InsufficientStockError(storeItem.id, sold, fresh?.quantity ?? 0);
+          }
           throw new ConcurrentModificationError(storeItem.id);
         }
         return;
@@ -94,11 +106,19 @@ export async function applyStoreItemDecrementAfterSale(
         where: {
           id: storeItem.id,
           updatedAt: updatedAt,
+          quantity: { gte: sold },
         },
         data: { quantity: { decrement: sold } },
       });
 
       if (result.count === 0) {
+        const fresh = await prisma.storeItem.findUnique({
+          where: { id: storeItem.id },
+          select: { quantity: true, updatedAt: true },
+        });
+        if (!fresh || fresh.quantity < sold) {
+          throw new InsufficientStockError(storeItem.id, sold, fresh?.quantity ?? 0);
+        }
         throw new ConcurrentModificationError(storeItem.id);
       }
       return;

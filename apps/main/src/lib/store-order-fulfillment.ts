@@ -15,6 +15,7 @@ export {
 } from "types";
 
 import { orderHasShippedLine } from "types";
+import { isShippoTrackingDelivered } from "@/lib/shippo-transaction";
 
 export function orderPaymentLabel(order: { stripePaymentIntentId?: string | null }): "Paid online" | "Cash due" {
   return order.stripePaymentIntentId ? "Paid online" : "Cash due";
@@ -34,9 +35,19 @@ export function isLocalDeliveryFullyConfirmed(order: {
   return !!(order.deliveryConfirmedAt && order.deliveryBuyerConfirmedAt);
 }
 
+export function isShipFulfillmentComplete(shipment?: {
+  trackingStatus?: string | null;
+  status?: string | null;
+} | null): boolean {
+  if (!shipment) return false;
+  if (shipment.status === "delivered") return true;
+  return isShippoTrackingDelivered(shipment.trackingStatus);
+}
+
 /**
- * When safe, set status to delivered for orders with no shipped lines once
- * pickup and/or local delivery confirmations are satisfied.
+ * Order is delivered only when every present fulfillment type is complete:
+ * mail ship (tracking delivered), pickup confirmations, local delivery confirmations.
+ * Mixed carts no longer leave pickup open forever because a ship line exists.
  */
 export function nextStatusAfterFulfillmentConfirmations(
   order: {
@@ -46,24 +57,26 @@ export function nextStatusAfterFulfillmentConfirmations(
     deliveryConfirmedAt?: Date | null;
     deliveryBuyerConfirmedAt?: Date | null;
   },
-  items: { fulfillmentType?: string | null }[]
+  items: { fulfillmentType?: string | null }[],
+  shipment?: { trackingStatus?: string | null; status?: string | null } | null
 ): string | undefined {
   if (order.status !== "paid" && order.status !== "shipped") {
     return undefined;
   }
-  if (orderHasShippedLine(items)) {
-    return undefined;
-  }
   const hasPickup = items.some((i) => (i.fulfillmentType ?? "") === "pickup");
   const hasLocal = items.some((i) => (i.fulfillmentType ?? "") === "local_delivery");
+  const hasShip = orderHasShippedLine(items);
+  if (!hasPickup && !hasLocal && !hasShip) {
+    return undefined;
+  }
+  if (hasShip && !isShipFulfillmentComplete(shipment)) {
+    return undefined;
+  }
   if (hasPickup && !isPickupFullyConfirmed(order)) {
     return undefined;
   }
   if (hasLocal && !isLocalDeliveryFullyConfirmed(order)) {
     return undefined;
   }
-  if (hasPickup || hasLocal) {
-    return "delivered";
-  }
-  return undefined;
+  return "delivered";
 }

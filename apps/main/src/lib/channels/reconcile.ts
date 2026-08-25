@@ -1,10 +1,6 @@
 import { prisma } from "database";
-import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
-import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
-import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
 import { getAdapter } from "./registry";
 import { getConnectionContext, withConnectionAuthRetry, markChannelConnectionFailure } from "./connection";
-import { syncInventoryToChannels } from "./sync-inventory";
 import { reconcileConnectionInboundListings } from "./reconcile-inbound";
 import { reconcileConnectionInboundCatalog } from "./reconcile-inbound-catalog";
 import { reconcileConnectionInboundMeta } from "./reconcile-inbound-meta";
@@ -12,11 +8,10 @@ import type { ChannelProvider } from "./types";
 import { describeChannelSyncError } from "./ebay/errors";
 import { ensureEbayPlatformNotifications } from "./ebay/notifications-setup";
 import { pullEbayUpdatesForConnection } from "./ebay/pull-ebay-updates";
-import { matchSaleToVariantOption } from "./variant-sync";
 import { logSyncEvent } from "./sync-log";
-import { logSaleQuantityChange } from "./quantity-audit";
 import { findChannelLinkForSale } from "./sale-link";
 import { maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
+import { applyInboundChannelSale } from "./apply-channel-sale";
 
 const DEFAULT_LOOKBACK_MS = 1000 * 60 * 60 * 24 * 2; // 2 days
 
@@ -41,7 +36,7 @@ type ConnectionRow = {
  */
 export async function reconcileConnectionSales(
   connection: ConnectionRow
-): Promise<{ applied: number; paused: boolean }> {
+): Promise<{ applied: number; paused: boolean; salesFetched: boolean }> {
   const provider = connection.provider as ChannelProvider;
   const adapter = getAdapter(provider);
 
@@ -64,11 +59,11 @@ export async function reconcileConnectionSales(
       error: e,
       lastError: msg,
     });
-    if (paused) return { applied: 0, paused: true };
+    if (paused) return { applied: 0, paused: true, salesFetched: false };
     const latest = await prisma.channelConnection
       .findUnique({ where: { id: connection.id }, select: { status: true } })
       .catch(() => null);
-    return { applied: 0, paused: latest?.status === "error" };
+    return { applied: 0, paused: latest?.status === "error", salesFetched: false };
   }
 
   let applied = 0;
@@ -102,101 +97,35 @@ export async function reconcileConnectionSales(
             type: "sale",
             storeItemId: link.storeItemId,
             payload: { quantitySold: sale.quantitySold, skipped: "missing_store_item" },
+            appliedAt: new Date(),
           },
         })
         .catch(() => {});
       continue;
     }
 
-    // Dedupe: the unique (provider, externalEventId) row means this sale runs at most once.
-    try {
-      await prisma.channelSyncEvent.create({
-        data: {
-          provider,
-          externalEventId: sale.externalEventId,
-          type: "sale",
-          storeItemId: link.storeItemId,
-          payload: { quantitySold: sale.quantitySold },
-        },
-      });
-    } catch {
-      continue;
-    }
-
-    const saleVariant = sale.variant
-      ? matchSaleToVariantOption(sale.variant, storeItem.variants) ?? sale.variant
-      : null;
-
-    const previousQty = storeItem.quantity;
-    await applyStoreItemDecrementAfterSale(prisma, storeItem, {
-      quantity: sale.quantitySold,
-      variant: saleVariant,
-    });
-
-    const updated = await prisma.storeItem.findUnique({
-      where: { id: link.storeItemId },
-      select: { quantity: true, variants: true },
-    });
-
-    // Log the quantity change for audit trail
-    logSaleQuantityChange({
-      storeItemId: link.storeItemId,
+    const result = await applyInboundChannelSale({
+      provider,
       memberId: connection.memberId,
-      provider,
-      previousQty,
-      newQty: updated?.quantity ?? previousQty - sale.quantitySold,
-      externalEventId: sale.externalEventId,
-      variantValue: saleVariant
-        ? JSON.stringify(saleVariant)
-        : undefined,
+      sale,
+      storeItem,
+      linkId: link.id,
     });
-    if (updated && shouldMarkStoreItemSoldOut(updated)) {
-      await prisma.storeItem.update({
-        where: { id: link.storeItemId },
-        data: { status: "sold_out" },
-      });
-      deleteFeedPostsForSoldItem(link.storeItemId).catch(() => {});
-    }
-
-    await prisma.channelSyncEvent
-      .update({
-        where: { provider_externalEventId: { provider, externalEventId: sale.externalEventId } },
-        data: { storeItemId: link.storeItemId },
-      })
-      .catch(() => {});
-    await prisma.channelListingLink
-      .update({ where: { id: link.id }, data: { lastInboundAt: new Date() } })
-      .catch(() => {});
-
-    // Push the new shared quantity out to the other channels (and back to origin; idempotent).
-    await syncInventoryToChannels(link.storeItemId);
-    logSyncEvent(
-      connection.memberId,
-      provider,
-      "sale_applied",
-      `Sale ${sale.externalEventId}: qty -${sale.quantitySold}`,
-      link.storeItemId
-    );
-    
-    // Check for low stock alert
-    if (updated) {
-      const { checkLowStock } = await import("@/lib/low-stock-alerts");
-      const itemForCheck = await prisma.storeItem.findUnique({
-        where: { id: link.storeItemId },
-        select: { id: true, memberId: true, title: true, quantity: true, lowStockThreshold: true },
-      });
-      if (itemForCheck) {
-        const previousQty = storeItem.quantity;
-        checkLowStock(itemForCheck, previousQty).catch(() => {});
-      }
-    }
-    applied += 1;
+    if (result === "applied") applied += 1;
   }
 
   await prisma.channelConnection
     .update({ where: { id: connection.id }, data: { lastReconciledAt: new Date(), status: "active", lastError: null } })
     .catch(() => {});
-  return { applied, paused: false };
+  return { applied, paused: false, salesFetched: true };
+}
+
+/** Sales cursor only moves after a successful fetch so a failed pull cannot drop later sales. */
+export function shouldAdvanceLastReconciledAt(result: {
+  salesFetched: boolean;
+  paused: boolean;
+}): boolean {
+  return result.salesFetched && !result.paused;
 }
 
 /**
@@ -233,6 +162,8 @@ export async function acknowledgeRecentSalesWithoutDecrement(
           provider,
           externalEventId: sale.externalEventId,
           type: "sale_ack_absolute",
+          appliedAt: new Date(),
+          payload: { applied: true, ack: "absolute" },
         },
       });
       acknowledged += 1;
@@ -326,14 +257,11 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
     console.error("[channels] reconcile inbound failed", { id: c.id, error: String(e) });
   }
 
-  await prisma.channelConnection
-    .update({
-      where: { id: c.id },
-      data: keepPaused
-        ? { lastReconciledAt: new Date() }
-        : { lastReconciledAt: new Date(), status: "active", lastError: null },
-    })
-    .catch(() => {});
+  // lastReconciledAt is the sales cursor — only reconcileConnectionSales advances it
+  // after a successful fetch. Do not bump here on pause/failure or later ticks drop sales.
+  if (keepPaused) {
+    console.warn("[channels] connection left paused; sales cursor not advanced", { id: c.id });
+  }
 
   return { applied, imported, catalogUpdated, catalogRemoved, metaUpdated };
 }
@@ -344,6 +272,7 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
  */
 export async function reconcileAllConnections(opts?: {
   skipProviders?: ChannelProvider[];
+  passStartedAt?: Date;
 }): Promise<{
   connections: number;
   applied: number;
@@ -353,8 +282,16 @@ export async function reconcileAllConnections(opts?: {
   metaUpdated: number;
 }> {
   const skip = new Set(opts?.skipProviders ?? []);
+  const passStartedAt = opts?.passStartedAt;
   const conns = await prisma.channelConnection.findMany({
-    where: { status: { not: "disconnected" } },
+    where: {
+      status: { not: "disconnected" },
+      ...(passStartedAt
+        ? {
+            OR: [{ lastReconciledAt: null }, { lastReconciledAt: { lt: passStartedAt } }],
+          }
+        : {}),
+    },
     include: {
       _count: {
         select: {

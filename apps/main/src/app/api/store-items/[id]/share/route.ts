@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
+import { sellerPrimaryBusinessForMember } from "@/lib/listing-feed-seller-business";
 
 export async function POST(
   req: NextRequest,
@@ -22,12 +23,17 @@ export async function POST(
 
   const body = await req.json().catch(() => ({}));
   const text = typeof body?.content === "string" ? body.content.trim().slice(0, 5000) : null;
+  const sourceBusinessId =
+    session.user.id === storeItem.memberId
+      ? (await sellerPrimaryBusinessForMember(storeItem.memberId))?.id ?? null
+      : null;
 
   const post = await prisma.post.create({
     data: {
       type: "shared_store_item",
       authorId: session.user.id,
       sourceStoreItemId: storeItem.id,
+      sourceBusinessId,
       content: text || null,
       photos: [],
     },

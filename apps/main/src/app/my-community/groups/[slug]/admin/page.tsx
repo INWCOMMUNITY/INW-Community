@@ -404,7 +404,7 @@ function GroupAdminHubContent() {
       <div>
         <p className="text-red-600 mb-4">{error}</p>
         <Link href="/my-community/groups" className="btn">
-          Back to groups
+          Back to Groups
         </Link>
       </div>
     );

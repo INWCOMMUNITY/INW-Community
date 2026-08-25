@@ -4,8 +4,7 @@
  * Etsy limits: 10,000 requests/day (sliding 24-hour window)
  * This tracker monitors usage and alerts when approaching limits.
  * 
- * Uses in-memory tracking (resets on deploy/restart) plus projection-based
- * alerts to warn about potential limit issues.
+ * Uses in-memory tracking plus ChannelQuotaUsage so skip decisions survive cold starts.
  */
 
 import { prisma } from "database";
@@ -58,6 +57,13 @@ export function recordDailyRequest(
   current.count += requestCount;
   current.lastUpdated = Date.now();
   usageCache.set(provider, current);
+  void prisma.channelQuotaUsage
+    .upsert({
+      where: { provider_dateUtc: { provider, dateUtc: today } },
+      create: { provider, dateUtc: today, requestCount: current.count },
+      update: { requestCount: current.count },
+    })
+    .catch(() => {});
 }
 
 /** Get current usage from cache */
@@ -201,9 +207,45 @@ export async function checkAllQuotaAlerts(): Promise<Array<{
 }
 
 /**
+ * Load persisted counts into memory. Call at cron start.
+ */
+export async function hydrateQuotaFromDb(): Promise<void> {
+  const today = getTodayUTC();
+  try {
+    const rows = await prisma.channelQuotaUsage.findMany({ where: { dateUtc: today } });
+    for (const row of rows) {
+      usageCache.set(row.provider as ChannelProvider, {
+        count: row.requestCount,
+        date: today,
+        lastUpdated: Date.now(),
+      });
+    }
+  } catch (e) {
+    console.warn("[quota] hydrate failed", { error: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+export async function persistQuotaToDb(): Promise<void> {
+  const today = getTodayUTC();
+  for (const [provider, cached] of usageCache) {
+    if (cached.date !== today) continue;
+    await prisma.channelQuotaUsage
+      .upsert({
+        where: { provider_dateUtc: { provider, dateUtc: today } },
+        create: { provider, dateUtc: today, requestCount: cached.count },
+        update: { requestCount: cached.count },
+      })
+      .catch(() => {});
+  }
+}
+
+/**
  * Should we skip sync due to quota exhaustion?
+ * Empty memory (cold start, not yet hydrated) must not skip — that would starve Etsy falsely.
  */
 export function shouldSkipSyncDueToQuota(provider: ChannelProvider): boolean {
+  const cached = usageCache.get(provider);
+  if (!cached || cached.count <= 0) return false;
   const usage = getDailyUsage(provider);
-  return usage.percentUsed >= 95; // Skip if >95% used
+  return usage.percentUsed >= 95;
 }

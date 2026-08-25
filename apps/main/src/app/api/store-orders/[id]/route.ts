@@ -137,7 +137,10 @@ export async function PATCH(
   const { id } = await params;
   const existing = await prisma.storeOrder.findUnique({
     where: { id },
-    include: { items: { select: { fulfillmentType: true } } },
+    include: {
+      items: { select: { fulfillmentType: true } },
+      shipment: { select: { trackingStatus: true, status: true } },
+    },
   });
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -242,7 +245,11 @@ export async function PATCH(
     pickupSellerConfirmedAt: data.pickupSellerConfirmedAt ?? existing.pickupSellerConfirmedAt,
     pickupBuyerConfirmedAt: data.pickupBuyerConfirmedAt ?? existing.pickupBuyerConfirmedAt,
   };
-  const autoStatus = nextStatusAfterFulfillmentConfirmations(merged, existing.items);
+  const autoStatus = nextStatusAfterFulfillmentConfirmations(
+    merged,
+    existing.items,
+    existing.shipment
+  );
   if (autoStatus) {
     data.status = autoStatus;
   }

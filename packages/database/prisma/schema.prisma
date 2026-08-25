@@ -1077,15 +1077,18 @@ model ChannelListingLink {
 
 // Dedupe inbound channel events (webhooks + reconciliation receipts) so a sale is only applied once.
 model ChannelSyncEvent {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   provider        String
-  externalEventId String   @map("external_event_id")
-  type            String   // order_created | reconcile_sale | listing_deleted ...
-  storeItemId     String?  @map("store_item_id")
+  externalEventId String    @map("external_event_id")
+  type            String    // order_created | reconcile_sale | listing_deleted ...
+  storeItemId     String?   @map("store_item_id")
   payload         Json?
-  processedAt     DateTime @default(now()) @map("processed_at")
+  processedAt     DateTime  @default(now()) @map("processed_at")
+  /// Null until inventory decrement succeeds. Unique claim can exist without burning a failed apply.
+  appliedAt       DateTime? @map("applied_at")
 
   @@unique([provider, externalEventId])
+  @@index([appliedAt])
   @@map("channel_sync_event")
 }
 
@@ -1141,6 +1144,31 @@ model ChannelWebhookEvent {
   @@index([provider, status])
   @@index([status, createdAt])
   @@map("channel_webhook_event")
+}
+
+/// Single-row lease so overlapping Vercel cron invocations cannot share a connection set.
+model CronJobLock {
+  jobName        String    @id @map("job_name")
+  holderId       String    @map("holder_id")
+  acquiredAt     DateTime  @map("acquired_at")
+  expiresAt      DateTime  @map("expires_at")
+  passStartedAt  DateTime? @map("pass_started_at")
+  lastDurationMs Int?      @map("last_duration_ms")
+  lastFinishedAt DateTime? @map("last_finished_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@map("cron_job_lock")
+}
+
+/// Persisted daily API counts so quota skip survives serverless cold starts.
+model ChannelQuotaUsage {
+  provider     String
+  dateUtc      String   @map("date_utc")
+  requestCount Int      @default(0) @map("request_count")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@id([provider, dateUtc])
+  @@map("channel_quota_usage")
 }
 
 // Structured sync trace for detailed diagnostics of every sync operation.
@@ -1311,6 +1339,8 @@ model Shipment {
   heightIn        Float    @map("height_in")
   shippoTransactionId String? @map("shippo_transaction_id") // Shippo transaction object_id after label purchase
   shippoOrderId   String?  @map("shippo_order_id") // Shippo order id from ORDER_CREATED; pass as object_id to Elements for re-print
+  /// Latest carrier status from Shippo track poll/webhook (UNKNOWN | TRANSIT | DELIVERED | ...).
+  trackingStatus  String?  @map("tracking_status")
   createdAt       DateTime @default(now()) @map("created_at")
 
   order StoreOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)

@@ -125,7 +125,7 @@ export function CouponBookGallery() {
                 onClick={() => setCouponPopupId(c.id)}
                 className="btn mt-4 w-full text-center text-sm py-2 px-3 min-w-0"
               >
-                See coupon
+                See Coupon
               </button>
             </div>
           </div>

@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { IonIcon } from "@/components/IonIcon";
 import { CARD_RADIUS, CARD_SHADOW } from "@/components/ui/card-styles";
+import { listingDisplayPhoto } from "@/lib/listing-display-photo";
 
 interface FeaturedItem {
   id: string;
@@ -15,13 +15,14 @@ interface FeaturedItem {
   business?: { name: string; slug: string } | null;
 }
 
-export function FeaturedCarousel() {
-  const [items, setItems] = useState<FeaturedItem[]>([]);
-  const [loading, setLoading] = useState(true);
+export function FeaturedCarousel({ initialItems }: { initialItems?: FeaturedItem[] }) {
+  const [items, setItems] = useState<FeaturedItem[]>(initialItems ?? []);
+  const [loading, setLoading] = useState(!initialItems);
   const [currentIndex, setCurrentIndex] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (initialItems) return;
     fetch("/api/store-items?featured=1&limit=20")
       .then((r) => r.json())
       .then((data) => {
@@ -99,7 +100,7 @@ export function FeaturedCarousel() {
         className="-mx-4 flex gap-5 overflow-x-auto px-4 pb-2 snap-x snap-mandatory scrollbar-hide"
         style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
-        {items.map((item) => (
+        {items.map((item, index) => (
           <Link
             key={item.id}
             href={`/storefront/${item.slug}`}
@@ -107,12 +108,13 @@ export function FeaturedCarousel() {
           >
             <div className="aspect-[4/5] bg-[#f5f5f5] relative overflow-hidden">
               {item.photos[0] ? (
-                <Image
-                  src={item.photos[0]}
+                <img
+                  src={listingDisplayPhoto(item.photos[0], "card") ?? item.photos[0]}
                   alt={item.title}
-                  fill
-                  className="object-cover transition-transform duration-300 group-hover:scale-105"
-                  sizes="(max-width: 640px) 200px, 240px"
+                  className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  loading={index < 2 ? "eager" : "lazy"}
+                  decoding="async"
+                  fetchPriority={index < 2 ? "high" : "low"}
                 />
               ) : (
                 <div className="flex h-full items-center justify-center">

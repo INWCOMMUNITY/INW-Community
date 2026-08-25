@@ -14,6 +14,13 @@ import {
   type LocalDeliveryDetailsJson,
 } from "@/lib/pickup-delivery-checkout";
 import { ensureStripeCustomerForStorefrontCheckout } from "@/lib/stripe-storefront-checkout-customer";
+import { shippingCentsForSellerLines } from "@/lib/checkout-shipping-cost";
+import {
+  cancelStaleBuyerPendingOrders,
+  conflictingQty1PendingHold,
+} from "@/lib/storefront-checkout-hold";
+import { memberHasConnectPayoutsEnabled } from "@/lib/stripe-connect-payout-gate";
+import { sellerIsAwayFromOrders } from "@/lib/seller-write-gates";
 
 /**
  * Stripe Product tax code **General - Tangible Goods** (`txcd_99999999`).
@@ -80,7 +87,6 @@ export async function POST(req: NextRequest) {
 
   const {
     items,
-    shippingCostCents = 0,
     shippingAddress,
     localDeliveryDetails,
     returnBaseUrl,
@@ -122,6 +128,18 @@ export async function POST(req: NextRequest) {
   }
 
   const itemMap = new Map(storeItems.map((s) => [s.id, s]));
+
+  const sellerIdsAway = [...new Set(storeItems.map((s) => s.memberId))];
+  for (const sellerId of sellerIdsAway) {
+    if (await sellerIsAwayFromOrders(sellerId)) {
+      return NextResponse.json(
+        { error: "This seller is currently away and not accepting orders." },
+        { status: 400 }
+      );
+    }
+  }
+
+  await cancelStaleBuyerPendingOrders(session.user.id);
 
   for (const line of items) {
     const si = itemMap.get(line.storeItemId);
@@ -177,15 +195,32 @@ export async function POST(req: NextRequest) {
 
   // Group cart items by seller; each seller gets a separate order and their share of the payment.
   const bySeller = new Map<string, typeof items>();
+  const singleQtyStoreItemIds: string[] = [];
   for (const item of items) {
     const storeItem = itemMap.get(item.storeItemId);
     const available = storeItem ? getAvailableQuantity(storeItem, item.variant) : 0;
     if (!storeItem || item.quantity < 1 || item.quantity > available) {
       return NextResponse.json({ error: `Invalid quantity for ${storeItem?.title ?? "item"}` }, { status: 400 });
     }
+    if (available === 1) {
+      singleQtyStoreItemIds.push(item.storeItemId);
+    }
     const sellerId = storeItem.memberId;
     if (!bySeller.has(sellerId)) bySeller.set(sellerId, []);
     bySeller.get(sellerId)!.push(item);
+  }
+
+  const hold = await conflictingQty1PendingHold({
+    storeItemIds: singleQtyStoreItemIds,
+    buyerId: session.user.id,
+  });
+  if (hold) {
+    const storeItem = itemMap.get(hold.storeItemId);
+    const title = storeItem?.title ?? "This item";
+    return NextResponse.json(
+      { error: `${title} is currently in another customer's checkout.` },
+      { status: 400 }
+    );
   }
 
   const sellerIdsForConnect = [...bySeller.keys()];
@@ -204,11 +239,19 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    if (!(await memberHasConnectPayoutsEnabled(sid))) {
+      return NextResponse.json(
+        {
+          error:
+            "Seller payouts are not enabled on Stripe Connect yet. This item cannot be purchased until payouts are active.",
+        },
+        { status: 400 }
+      );
+    }
   }
 
   const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
   const orderIds: string[] = [];
-  let shippingAssigned = false;
 
   for (const [sellerId, sellerItems] of bySeller) {
     let subtotalCents = 0;
@@ -277,8 +320,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const orderShippingCents = hasShippedInThisOrder && !shippingAssigned ? shippingCostCents : 0;
-    if (orderShippingCents > 0) shippingAssigned = true;
+    const orderShippingCents =
+      hasShippedInThisOrder && !deferShippingToStripe
+        ? shippingCentsForSellerLines(sellerItems, itemMap)
+        : 0;
     const totalCents = subtotalCents + orderShippingCents + localDeliveryFeeCentsTotal;
 
     if (orderShippingCents > 0) {

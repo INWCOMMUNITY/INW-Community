@@ -17,6 +17,7 @@ import {
   recordCircuitFailure,
   hydrateCircuitFromConfig,
 } from "./circuit-breaker";
+import { shouldBypassCircuitForInventoryPush } from "./circuit-inventory-bypass";
 
 /**
  * Push the StoreItem's current (authoritative) quantity out to every linked channel as an
@@ -72,19 +73,33 @@ export async function syncInventoryToChannels(
 
     hydrateCircuitFromConfig(link.connectionId, link.connection.config);
     if (isCircuitOpen(link.connectionId)) {
-      logSyncEvent(
-        link.connection.memberId,
-        provider,
-        "circuit_open",
-        "Sync skipped - channel temporarily unavailable",
-        storeItemId
-      );
-      results.push({
-        provider,
-        ok: false,
-        error: "Channel sync temporarily paused due to repeated failures",
+      // Load item qty after we know we might skip — cheap path uses connection only.
+      const peek = await prisma.storeItem.findUnique({
+        where: { id: storeItemId },
+        select: { quantity: true, status: true },
       });
-      continue;
+      const bypass =
+        peek &&
+        shouldBypassCircuitForInventoryPush({
+          quantity: peek.quantity,
+          status: peek.status,
+          adjustedQty: Math.max(0, peek.quantity),
+        });
+      if (!bypass) {
+        logSyncEvent(
+          link.connection.memberId,
+          provider,
+          "circuit_open",
+          "Sync skipped - channel temporarily unavailable",
+          storeItemId
+        );
+        results.push({
+          provider,
+          ok: false,
+          error: "Channel sync temporarily paused due to repeated failures",
+        });
+        continue;
+      }
     }
 
     // Check per-channel sync direction from config

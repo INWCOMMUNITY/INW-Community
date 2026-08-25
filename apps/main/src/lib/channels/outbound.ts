@@ -28,6 +28,7 @@ import {
 import { logSyncEvent } from "./sync-log";
 import { formatProviderPublishError, validateForProvider } from "./validate-publish";
 import { shouldPushSoldOutInventoryOnly } from "./sold-out-guard";
+import { shouldBypassCircuitForInventoryPush } from "./circuit-inventory-bypass";
 import { isEbayEndedListingError } from "./error-classifier";
 import { persistEbayListingEnded, shouldSkipEndedEbayOutbound } from "./listing-link-flags";
 import { claimChannelListingLink } from "./listing-link-claim";
@@ -410,7 +411,14 @@ export async function updateStoreItemOnChannels(
       if (syncDirection === "pull_only" || syncDirection === "paused") continue;
 
       hydrateCircuitFromConfig(link.connectionId, link.connection.config);
-      if (isCircuitOpen(link.connectionId)) {
+      if (
+        isCircuitOpen(link.connectionId) &&
+        !shouldBypassCircuitForInventoryPush({
+          quantity: item.quantity,
+          status: item.status,
+          adjustedQty: Math.max(0, item.quantity),
+        })
+      ) {
         results.push({
           provider,
           ok: false,
@@ -473,7 +481,14 @@ export async function updateStoreItemOnChannels(
     }
 
     hydrateCircuitFromConfig(link.connectionId, link.connection.config);
-    if (isCircuitOpen(link.connectionId)) {
+    if (
+      isCircuitOpen(link.connectionId) &&
+      !shouldBypassCircuitForInventoryPush({
+        quantity: item.quantity,
+        status: item.status,
+        adjustedQty: Math.max(0, item.quantity),
+      })
+    ) {
       logSyncEvent(
         link.connection.memberId,
         provider,

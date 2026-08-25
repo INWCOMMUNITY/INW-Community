@@ -1,5 +1,6 @@
 import { prisma } from "database";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { SOLD_BEFORE_CHECKOUT_REASON } from "@/lib/store-order-cancel-reasons";
 
 /** Cancel other buyers' pending checkout orders that include sold-out items; notify once per buyer+item. */
 export async function cancelPendingOrdersForSoldOutItems(params: {
@@ -40,7 +41,7 @@ export async function cancelPendingOrdersForSoldOutItems(params: {
       where: { id: { in: [...ordersToCancel] } },
       data: {
         status: "canceled",
-        cancelReason: "Item sold before checkout was complete",
+        cancelReason: SOLD_BEFORE_CHECKOUT_REASON,
       },
     });
   }

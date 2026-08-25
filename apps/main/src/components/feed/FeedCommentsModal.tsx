@@ -9,6 +9,7 @@ import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import { getStandaloneGifImageUrl } from "@/lib/message-gif-url";
 import type { CommunityFeedPost } from "@/lib/feed-types";
+import { feedPostShowsAsBusiness } from "@/lib/feed-post-business-author";
 
 export type FeedCommentItem = {
   id: string;
@@ -281,9 +282,9 @@ export function FeedCommentsModal({
 
   if (!open || !postId) return null;
 
-  const authorName = post
-    ? `${post.author.firstName} ${post.author.lastName}`.trim()
-    : "Post";
+  const businessAsAuthor = post ? feedPostShowsAsBusiness(post) : null;
+  const authorName = businessAsAuthor?.name
+    ?? (post ? `${post.author.firstName} ${post.author.lastName}`.trim() : "Post");
 
   return (
     <>

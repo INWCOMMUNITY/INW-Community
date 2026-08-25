@@ -10,12 +10,16 @@ import {
 
 const NEW_POSTS_POLL_MS = 20_000;
 
-export function useCommunityFeed(activeFilter: FeedFilterId, signedIn: boolean) {
-  const [posts, setPosts] = useState<CommunityFeedPost[]>([]);
-  const [loading, setLoading] = useState(true);
+export function useCommunityFeed(
+  activeFilter: FeedFilterId,
+  signedIn: boolean,
+  initial?: { initialPosts?: CommunityFeedPost[]; initialCursor?: string | null }
+) {
+  const [posts, setPosts] = useState<CommunityFeedPost[]>(initial?.initialPosts ?? []);
+  const [loading, setLoading] = useState(!initial?.initialPosts);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(initial?.initialCursor ?? null);
   const [newPostCount, setNewPostCount] = useState(0);
   const newestPostTimestamp = useRef<string | null>(null);
 
@@ -75,7 +79,13 @@ export function useCommunityFeed(activeFilter: FeedFilterId, signedIn: boolean) 
     }
   }, [nextCursor, loadingMore, load, activeFilter]);
 
+  const skipFirstLoad = useRef(initial?.initialPosts !== undefined);
+
   useEffect(() => {
+    if (skipFirstLoad.current) {
+      skipFirstLoad.current = false;
+      return;
+    }
     void resetAndLoad(activeFilter);
   }, [activeFilter, resetAndLoad]);
 

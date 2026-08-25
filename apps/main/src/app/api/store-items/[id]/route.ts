@@ -22,6 +22,7 @@ import {
   SELLER_CHANNEL_LINK_SELECT,
   withListingChannelSyncWarning,
 } from "@/lib/channels/listing-sync-warning";
+import { strangerMayViewStoreItemById } from "@/lib/store-item-public-access";
 
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
@@ -90,6 +91,16 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   const isOwner = Boolean(userId && item.memberId === userId);
+  if (
+    !strangerMayViewStoreItemById({
+      status: item.status,
+      quantity: item.quantity,
+      memberId: item.memberId,
+      viewerId: userId,
+    })
+  ) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   const channelLinks = isOwner
     ? item.channelLinks.map((link) => ({
         ...withListingChannelSyncWarning(link),
@@ -380,6 +391,16 @@ export async function PATCH(
         {
           error:
             "This seller must complete Stripe Connect before a listing can be live on the storefront.",
+        },
+        { status: 403 }
+      );
+    }
+    const { memberHasConnectPayoutsEnabled } = await import("@/lib/stripe-connect-payout-gate");
+    if (!(await memberHasConnectPayoutsEnabled(ownerId))) {
+      return NextResponse.json(
+        {
+          error:
+            "Stripe Connect payouts are not enabled yet. Finish payout setup before a listing can be live.",
         },
         { status: 403 }
       );

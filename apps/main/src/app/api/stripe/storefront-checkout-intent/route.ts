@@ -20,6 +20,13 @@ import {
   storeItemHasLocalDeliveryPolicy,
   type LocalDeliveryDetailsJson,
 } from "@/lib/pickup-delivery-checkout";
+import { shippingCentsForSellerLines } from "@/lib/checkout-shipping-cost";
+import {
+  cancelStaleBuyerPendingOrders,
+  conflictingQty1PendingHold,
+} from "@/lib/storefront-checkout-hold";
+import { memberHasConnectPayoutsEnabled } from "@/lib/stripe-connect-payout-gate";
+import { sellerIsAwayFromOrders } from "@/lib/seller-write-gates";
 
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -76,7 +83,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { items, shippingCostCents = 0, shippingAddress, localDeliveryDetails, returnBaseUrl } = body;
+  const { items, shippingAddress, localDeliveryDetails, returnBaseUrl } = body;
   if (!Array.isArray(items) || items.length === 0) {
     return NextResponse.json({ error: "At least one item required" }, { status: 400 });
   }
@@ -99,18 +106,7 @@ export async function POST(req: NextRequest) {
 
   const hasLocalDelivery = items.some((i) => i.fulfillmentType === "local_delivery");
 
-  // Cancel older pending orders for this buyer to avoid duplicates when they tap Checkout
-  // multiple times (e.g. retry after cancel or session expired). Leave orders created in the
-  // last 60s so a double-tap doesn't cancel the first request's orders before the client uses them.
-  const cancelPendingOlderThan = new Date(Date.now() - 60 * 1000);
-  await prisma.storeOrder.updateMany({
-    where: {
-      buyerId: session.user.id,
-      status: "pending",
-      createdAt: { lt: cancelPendingOlderThan },
-    },
-    data: { status: "canceled" },
-  });
+  await cancelStaleBuyerPendingOrders(session.user.id);
 
   const storeItems = await prisma.storeItem.findMany({
     where: { id: { in: items.map((i) => i.storeItemId) }, status: "active" },
@@ -124,6 +120,15 @@ export async function POST(req: NextRequest) {
   }
 
   const itemMap = new Map(storeItems.map((s) => [s.id, s]));
+
+  for (const sellerId of [...new Set(storeItems.map((s) => s.memberId))]) {
+    if (await sellerIsAwayFromOrders(sellerId)) {
+      return NextResponse.json(
+        { error: "This seller is currently away and not accepting orders." },
+        { status: 400 }
+      );
+    }
+  }
 
   for (const line of items) {
     const si = itemMap.get(line.storeItemId);
@@ -196,20 +201,12 @@ export async function POST(req: NextRequest) {
   // Reject only if the item is in another customer's pending order (they started checkout).
   // We do not block when the item is only in someone's cart—carts have no order until checkout is started.
   if (singleQtyStoreItemIds.length > 0) {
-    const pendingCutoff = new Date(Date.now() - 25 * 60 * 1000);
-    const otherPending = await prisma.orderItem.findFirst({
-      where: {
-        storeItemId: { in: singleQtyStoreItemIds },
-        order: {
-          status: "pending",
-          buyerId: { not: session.user.id },
-          createdAt: { gte: pendingCutoff },
-        },
-      },
-      include: { order: { select: { buyerId: true } } },
+    const hold = await conflictingQty1PendingHold({
+      storeItemIds: singleQtyStoreItemIds,
+      buyerId: session.user.id,
     });
-    if (otherPending) {
-      const storeItem = itemMap.get(otherPending.storeItemId);
+    if (hold) {
+      const storeItem = itemMap.get(hold.storeItemId);
       const title = storeItem?.title ?? "This item";
       return NextResponse.json(
         { error: `${title} is currently in another customer's checkout.` },
@@ -232,11 +229,19 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    if (!(await memberHasConnectPayoutsEnabled(sid))) {
+      return NextResponse.json(
+        {
+          error:
+            "Seller payouts are not enabled on Stripe Connect yet. This item cannot be purchased until payouts are active.",
+        },
+        { status: 400 }
+      );
+    }
   }
 
   const sellerOrderPairs: { sellerId: string; orderId: string; totalCents: number }[] = [];
   const summaryItems: { name: string; quantity: number; unitPriceCents: number; lineTotalCents: number }[] = [];
-  let shippingAssigned = false;
   let grandTotalCents = 0;
 
   for (const [sellerId, sellerItems] of bySeller) {
@@ -289,9 +294,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const orderShippingCents = hasShippedInThisOrder && !shippingAssigned ? shippingCostCents : 0;
+    const orderShippingCents = hasShippedInThisOrder
+      ? shippingCentsForSellerLines(sellerItems, itemMap)
+      : 0;
     if (orderShippingCents > 0) {
-      shippingAssigned = true;
       summaryItems.push({
         name: "Shipping",
         quantity: 1,

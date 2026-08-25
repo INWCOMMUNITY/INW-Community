@@ -25,6 +25,7 @@ import {
   assertPreTaxSplitMatchesOrderTotal,
   computeSellerTransferCents,
 } from "@/lib/storefront-payout";
+import { SOLD_BEFORE_CHECKOUT_REASON } from "@/lib/store-order-cancel-reasons";
 import {
   fulfillStoreOrdersFromCheckoutSession,
   syncStoreItemsAfterSale,
@@ -552,6 +553,31 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  }
+
+  if (event.type === "charge.refunded" || event.type === "charge.dispute.created") {
+    const charge = event.data.object as Stripe.Charge;
+    const piId =
+      typeof charge.payment_intent === "string"
+        ? charge.payment_intent
+        : charge.payment_intent?.id;
+    if (piId) {
+      const orders = await prisma.storeOrder.findMany({
+        where: { stripePaymentIntentId: piId },
+        select: { id: true },
+      });
+      const { restockAfterExternalRefund } = await import("@/lib/stripe/refund-store-order");
+      for (const o of orders) {
+        await restockAfterExternalRefund(o.id, stripe).catch((err) =>
+          console.error("[stripe/webhook] restock after refund/dispute failed", {
+            orderId: o.id,
+            error: String(err),
+          })
+        );
+      }
+    }
+  }
+
   if (event.type === "payment_intent.succeeded") {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
     const connectAccountId = (event as Stripe.Event & { account?: string }).account ?? null;
@@ -647,7 +673,7 @@ export async function POST(req: NextRequest) {
           where: { id: order.id },
           data: {
             status: "canceled",
-            cancelReason: "Item sold before checkout was complete",
+            cancelReason: SOLD_BEFORE_CHECKOUT_REASON,
             cancelNote: itemTitles,
           },
         });

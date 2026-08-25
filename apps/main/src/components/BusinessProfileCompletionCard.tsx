@@ -90,6 +90,28 @@ export function useBusinessCompletion(businessId: string | null) {
   return { percentage, refresh };
 }
 
+const PROFILE_COMPLETION_DISMISSED_KEY = "nwc-profile-completion-dismissed";
+
+export function getDismissedProfileCompletionIds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROFILE_COMPLETION_DISMISSED_KEY) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function isProfileCompletionDismissed(businessId: string): boolean {
+  return getDismissedProfileCompletionIds().includes(businessId);
+}
+
+export function dismissProfileCompletion(businessIds: string[]): void {
+  if (typeof window === "undefined" || businessIds.length === 0) return;
+  const next = [...new Set([...getDismissedProfileCompletionIds(), ...businessIds])];
+  localStorage.setItem(PROFILE_COMPLETION_DISMISSED_KEY, JSON.stringify(next));
+}
+
 export function BusinessProfileCompletionCard({
   businessIds,
   onOpenBusinessForm,
@@ -128,7 +150,7 @@ export function BusinessProfileCompletionCard({
 
   useEffect(() => {
     if (loading || businesses.length === 0) return;
-    const dismissedIds = JSON.parse(localStorage.getItem("nwc-profile-completion-dismissed") ?? "[]");
+    const dismissedIds = getDismissedProfileCompletionIds();
     const allDismissed = businesses.every((b) => dismissedIds.includes(b.id));
     setDismissed(allDismissed);
   }, [businesses, loading]);
@@ -136,9 +158,7 @@ export function BusinessProfileCompletionCard({
   if (loading || dismissed || businesses.length === 0) return null;
 
   const handleDismiss = () => {
-    const dismissedIds = JSON.parse(localStorage.getItem("nwc-profile-completion-dismissed") ?? "[]");
-    const newDismissed = [...new Set([...dismissedIds, ...businesses.map((b) => b.id)])];
-    localStorage.setItem("nwc-profile-completion-dismissed", JSON.stringify(newDismissed));
+    dismissProfileCompletion(businesses.map((b) => b.id));
     setDismissed(true);
   };
 

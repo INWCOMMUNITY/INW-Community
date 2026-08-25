@@ -42,7 +42,7 @@ export function isFeedPostRenderable(p: FeedPostLike): boolean {
   if (p.type === "shared_post" || p.sourcePostId) {
     return Boolean(p.sourcePost);
   }
-  if (p.type === "shared_business" || p.sourceBusinessId) {
+  if (p.type === "shared_business") {
     return Boolean(p.sourceBusiness);
   }
   if (p.type === "shared_coupon" || p.sourceCouponId) {

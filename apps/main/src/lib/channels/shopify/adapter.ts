@@ -30,6 +30,7 @@ import {
 } from "./mapping";
 import { normalizeVariantsFromProvider } from "../variant-sync";
 import { hasOptionQuantities } from "../../store-item-variants";
+import { isShopifySaleOrder } from "./sale-order";
 
 type ProductsResponse = { products?: ShopifyProduct[] };
 type ProductResponse = { product?: ShopifyProduct };
@@ -78,18 +79,6 @@ async function setInventoryAbsolute(
       available: Math.max(0, Math.round(absoluteQuantity)),
     }
   );
-}
-
-/** True when the order should decrement pooled inventory (paid, not cancelled/voided/refunded). */
-function isShopifySaleOrder(order: {
-  cancelled_at?: string | null;
-  cancel_reason?: string | null;
-  financial_status?: string | null;
-}): boolean {
-  if (order.cancelled_at || order.cancel_reason) return false;
-  const fs = (order.financial_status || "").toLowerCase();
-  if (fs === "voided" || fs === "refunded") return false;
-  return fs === "paid" || fs === "partially_paid" || fs === "authorized";
 }
 
 async function readShopifyAvailable(

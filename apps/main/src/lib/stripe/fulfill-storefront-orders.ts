@@ -17,8 +17,10 @@ import {
 import {
   allocateTaxCentsAcrossOrders,
   assertPreTaxSplitMatchesOrderTotal,
+  assertSessionSubtotalMatchesOrderTotals,
   computeSellerTransferCents,
 } from "@/lib/storefront-payout";
+import { SOLD_BEFORE_CHECKOUT_REASON } from "@/lib/store-order-cancel-reasons";
 
 type FulfillOptions = {
   /** When set (app success return), only fulfill orders owned by this buyer. */
@@ -152,7 +154,7 @@ export async function fulfillStoreOrdersFromCheckoutSession(
       where: { id: { in: ordersToFulfill.map((o) => o.id) } },
       data: {
         status: "canceled",
-        cancelReason: "Item sold before checkout was complete",
+        cancelReason: SOLD_BEFORE_CHECKOUT_REASON,
         cancelNote: itemTitles,
       },
     });
@@ -175,6 +177,11 @@ export async function fulfillStoreOrdersFromCheckoutSession(
   const titleByItemId = new Map<string, string>();
   const sessionAmountSubtotal = session.amount_subtotal ?? 0;
   const sessionTaxCents = session.total_details?.amount_tax ?? 0;
+
+  assertSessionSubtotalMatchesOrderTotals(
+    ordersToFulfill.map((o) => ({ id: o.id, totalCents: o.totalCents })),
+    session.amount_subtotal
+  );
 
   const taxByOrderId = allocateTaxCentsAcrossOrders(
     ordersToFulfill.map((o) => ({ id: o.id, totalCents: o.totalCents })),

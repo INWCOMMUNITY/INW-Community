@@ -15,12 +15,12 @@ interface SpotlightSeller {
   memberSince: number;
 }
 
-export function SellerSpotlight() {
-  const [sellers, setSellers] = useState<SpotlightSeller[]>([]);
-  const [loading, setLoading] = useState(true);
+export function SellerSpotlight({ initialSellers }: { initialSellers?: SpotlightSeller[] }) {
+  const [sellers, setSellers] = useState<SpotlightSeller[]>(initialSellers ?? []);
+  const [loading, setLoading] = useState(!initialSellers);
 
   useEffect(() => {
-    // Use the sellerSpotlight endpoint from store-items API
+    if (initialSellers) return;
     fetch("/api/store-items?sellerSpotlight=1&limit=12")
       .then((r) => r.json())
       .then((data) => {

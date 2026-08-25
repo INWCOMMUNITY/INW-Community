@@ -6,6 +6,10 @@ import { isFeedPostRenderable } from "@/lib/feed-post-visible";
 import { storeItemRowsToFeedEmbedMap } from "@/lib/store-item-variants";
 import { listingCollectionEmbedMap, listingCollectionIdsFromPosts } from "@/lib/listing-feed-collection";
 import {
+  listingSellerBusinessMapForPosts,
+  resolveFeedPostSourceBusiness,
+} from "@/lib/listing-feed-seller-business";
+import {
   collectTaggedBusinessIdsFromPosts,
   mergePostBusinessLookupIds,
   taggedBusinessesFromIds,
@@ -82,7 +86,7 @@ export async function GET(req: NextRequest) {
     sourceStoreItemIds.length > 0
       ? prisma.storeItem.findMany({
           where: { id: { in: sourceStoreItemIds } },
-          select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true },
+          select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true, memberId: true },
         })
       : [],
     sourceEventIds.length > 0
@@ -166,7 +170,7 @@ export async function GET(req: NextRequest) {
     sourcePostStoreItemIds.length > 0
       ? prisma.storeItem.findMany({
           where: { id: { in: sourcePostStoreItemIds } },
-          select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true },
+          select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true, memberId: true },
         })
       : [],
     sourcePostEventIds.length > 0
@@ -184,7 +188,7 @@ export async function GET(req: NextRequest) {
   );
   const storeItemEmbedMerge = new Map<
     string,
-    { id: string; title: string; slug: string; photos: string[]; priceCents: number; status: string; quantity: number }
+    { id: string; title: string; slug: string; photos: string[]; priceCents: number; status: string; quantity: number; memberId: string }
   >();
   for (const s of storeItems) storeItemEmbedMerge.set(s.id, s);
   for (const s of sourcePostStoreItems) storeItemEmbedMerge.set(s.id, s);
@@ -197,6 +201,11 @@ export async function GET(req: NextRequest) {
   const sourcePostBlogMap = Object.fromEntries(sourcePostBlogs.map((b) => [b.id, b]));
   const sourcePostBusinessMap = Object.fromEntries(sourcePostBusinesses.map((b) => [b.id, b]));
   const sourcePostCouponMap = Object.fromEntries(sourcePostCoupons.map((c) => [c.id, c]));
+  const listingBizByMember = await listingSellerBusinessMapForPosts(
+    [...items, ...sourcePosts],
+    [...storeItemEmbedMerge.values()]
+  );
+  const businessById = { ...businessMap, ...sourcePostBusinessMap };
   const sourcePostMap = Object.fromEntries(
     sourcePosts.map((p) => [
       p.id,
@@ -204,7 +213,7 @@ export async function GET(req: NextRequest) {
         ...p,
         tags: p.postTags?.map((pt) => pt.tag) ?? [],
         sourceBlog: p.sourceBlogId ? (sourcePostBlogMap[p.sourceBlogId] ?? blogMap[p.sourceBlogId] ?? null) : null,
-        sourceBusiness: p.sourceBusinessId ? (sourcePostBusinessMap[p.sourceBusinessId] ?? businessMap[p.sourceBusinessId] ?? null) : null,
+        sourceBusiness: resolveFeedPostSourceBusiness(p, businessById, listingBizByMember),
         sourceCoupon: p.sourceCouponId ? (sourcePostCouponMap[p.sourceCouponId] ?? couponMap[p.sourceCouponId] ?? null) : null,
         sourceStoreItem: p.sourceStoreItemId ? (feedStoreItemMap[p.sourceStoreItemId] ?? null) : null,
         sourceEvent: p.sourceEventId ? (eventMap[p.sourceEventId] ?? null) : null,
@@ -220,7 +229,7 @@ export async function GET(req: NextRequest) {
       ...p,
       tags: p.postTags?.map((pt) => pt.tag) ?? [],
       sourceBlog: p.sourceBlogId ? blogMap[p.sourceBlogId] ?? null : null,
-      sourceBusiness: p.sourceBusinessId ? businessMap[p.sourceBusinessId] ?? null : null,
+      sourceBusiness: resolveFeedPostSourceBusiness(p, businessById, listingBizByMember),
       taggedBusinesses: taggedBusinessesFromIds(p.taggedBusinessIds, businessMap),
       sourceCoupon: p.sourceCouponId ? couponMap[p.sourceCouponId] ?? null : null,
       sourceStoreItem: p.sourceStoreItemId ? feedStoreItemMap[p.sourceStoreItemId] ?? null : null,

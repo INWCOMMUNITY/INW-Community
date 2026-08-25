@@ -109,6 +109,8 @@ export type StorefrontGalleryProps = {
   placeholder?: string;
   search?: string;
   onSearchChange?: (value: string) => void;
+  initialItems?: StoreItem[];
+  initialMeta?: { sizes?: string[]; browseByCategories?: BrowseCategoryOption[]; categories?: string[] };
 };
 
 export function StorefrontGallery({
@@ -117,14 +119,21 @@ export function StorefrontGallery({
   placeholder = "Search storefront...",
   search: searchProp,
   onSearchChange,
+  initialItems,
+  initialMeta,
 }: StorefrontGalleryProps = {}) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
   const { data: session } = useSession();
-  const [items, setItems] = useState<StoreItem[]>([]);
-  const [sizes, setSizes] = useState<string[]>([]);
-  const [browseByCategories, setBrowseByCategories] = useState<BrowseCategoryOption[]>([]);
+  const [items, setItems] = useState<StoreItem[]>(initialItems ?? []);
+  const [sizes, setSizes] = useState<string[]>(initialMeta?.sizes ?? []);
+  const [browseByCategories, setBrowseByCategories] = useState<BrowseCategoryOption[]>(
+    initialMeta?.browseByCategories ??
+      (initialMeta?.categories ?? []).map((label) => ({ label, subcategories: [] }))
+  );
+  const [hasMoreItems, setHasMoreItems] = useState((initialItems?.length ?? 0) >= 48);
+  const [loadingMore, setLoadingMore] = useState(false);
   
   // Initialize from URL params
   const urlCategory = searchParams?.get("category") ?? "";
@@ -152,6 +161,8 @@ export function StorefrontGallery({
   const lastScrollYRef = useRef(0);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const skipFirstItemsFetch = useRef(initialItems !== undefined);
+  const skipFirstMetaFetch = useRef(initialMeta !== undefined);
 
   useEffect(() => {
     if (session?.user) {
@@ -182,8 +193,11 @@ export function StorefrontGallery({
       .catch(() => {});
   }, []);
 
-  const fetchItems = useCallback(() => {
+  const PAGE_SIZE = 48;
+
+  const fetchItems = useCallback((offset = 0, append = false) => {
     setFetchError(null);
+    if (append) setLoadingMore(true);
     const params = new URLSearchParams();
     if (conditionFilter) params.set("condition", conditionFilter);
     if (category) params.set("category", category);
@@ -194,45 +208,54 @@ export function StorefrontGallery({
     if (deliveryFilter === "shipping") params.set("shippingOnly", "1");
     if (minPrice) params.set("minPrice", minPrice);
     if (maxPrice) params.set("maxPrice", maxPrice);
-    params.set("_", String(Date.now()));
+    params.set("limit", String(PAGE_SIZE));
+    if (offset > 0) params.set("offset", String(offset));
     fetch(`/api/store-items?${params}`)
       .then(async (r) => {
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error((d as { error?: string }).error ?? "Failed to load items.");
         return Array.isArray(d) ? d : [];
       })
-      .then(setItems)
+      .then((next) => {
+        setHasMoreItems(next.length >= PAGE_SIZE);
+        setItems((prev) => (append ? [...prev, ...next] : next));
+      })
       .catch((err) => {
         setFetchError(err instanceof Error ? err.message : "Failed to load items.");
-        setItems([]);
-      });
+        if (!append) setItems([]);
+        setHasMoreItems(false);
+      })
+      .finally(() => setLoadingMore(false));
   }, [conditionFilter, category, subcategory, size, search, deliveryFilter, minPrice, maxPrice]);
 
   useEffect(() => {
+    if (skipFirstMetaFetch.current) {
+      skipFirstMetaFetch.current = false;
+      return;
+    }
     fetchMeta();
   }, [fetchMeta]);
 
   useEffect(() => {
-    fetchItems();
+    if (skipFirstItemsFetch.current) {
+      skipFirstItemsFetch.current = false;
+      return;
+    }
+    fetchItems(0, false);
   }, [fetchItems]);
 
-  const visibilitySkipRef = useRef(true);
+  const lastRefreshAt = useRef(0);
   useEffect(() => {
     const onVisible = () => {
       if (typeof document === "undefined" || document.visibilityState !== "visible") return;
-      if (visibilitySkipRef.current) {
-        visibilitySkipRef.current = false;
-        return;
-      }
+      const now = Date.now();
+      if (now - lastRefreshAt.current < 60_000) return;
+      lastRefreshAt.current = now;
       fetchMeta();
-      fetchItems();
+      fetchItems(0, false);
     };
     document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onVisible);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onVisible);
-    };
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, [fetchMeta, fetchItems]);
 
   // Collapse browse/filter box when scrolling down
@@ -587,13 +610,26 @@ export function StorefrontGallery({
           <div
             key={item.id}
             className="animate-fadeInUp"
-            style={{ animationDelay: `${index * 50}ms` }}
+            style={{ animationDelay: `${Math.min(index, 24) * 40}ms` }}
           >
-            <StorefrontCard item={item} savedIds={savedIds} basePath={basePath} />
+            <StorefrontCard item={item} savedIds={savedIds} basePath={basePath} eager={index < 8} />
           </div>
         ))}
       </div>
 
+      {hasMoreItems && (
+        <div className="mt-8 flex justify-center">
+          <button
+            type="button"
+            onClick={() => fetchItems(items.length, true)}
+            disabled={loadingMore}
+            className="rounded-full border-2 px-5 py-2 text-sm font-medium disabled:opacity-50"
+            style={{ borderColor: "var(--color-primary)", color: "var(--color-primary)" }}
+          >
+            {loadingMore ? "Loading…" : "Load more"}
+          </button>
+        </div>
+      )}
       {fetchError && (
         <div className="mt-6 rounded-lg border-2 border-red-300 p-6 bg-red-50">
           <p className="text-red-700">{fetchError}</p>

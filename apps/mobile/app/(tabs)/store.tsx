@@ -138,6 +138,7 @@ export default function StoreScreen() {
         if (deliveryFilter === "local") params.set("localDelivery", "1");
         if (deliveryFilter === "shipping") params.set("shippingOnly", "1");
         if (sortOption !== "newest") params.set("sort", sortOption);
+        params.set("limit", "100");
         const data = await apiGet<StoreItem[] | { error?: string }>(`/api/store-items?${params}`);
         if (Array.isArray(data)) {
           setItems(data);

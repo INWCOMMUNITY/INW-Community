@@ -12,6 +12,8 @@ import { LinkPreviewCard } from "@/components/feed/LinkPreviewCard";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import { extractFirstUrl } from "@/lib/extract-urls";
 import { buildProductHref } from "@/lib/product-referrer";
+import { listingDisplayPhoto } from "@/lib/listing-display-photo";
+import { feedBusinessAuthorHref, feedPostShowsAsBusiness } from "@/lib/feed-post-business-author";
 const TRUNCATE_LENGTH = 200;
 
 function taggedBusinessListSeparator(index: number, total: number): string {
@@ -326,8 +328,8 @@ export function FeedPostCard({
     (onEditPost || onDeletePost || onSave || onReport || onBlockUser);
   const isAuthor = viewerUserId === post.author.id;
   const useInlineComments = !onComment;
-  const businessAsAuthor =
-    post.type === "shared_business" && post.sourceBusiness ? post.sourceBusiness : null;
+  const businessAsAuthor = feedPostShowsAsBusiness(post);
+  const nestedBusinessAsAuthor = post.sourcePost ? feedPostShowsAsBusiness(post.sourcePost) : null;
   const taggedBusinessesHeader =
     post.taggedBusinesses?.filter((b): b is NonNullable<typeof b> => !!b?.name) ?? [];
   const showFollowButton =
@@ -350,25 +352,25 @@ export function FeedPostCard({
     <article className="border-y border-black/10 bg-white overflow-hidden w-full shadow-sm mb-3">
       <div className="p-4">
         <div className="flex items-start justify-between gap-3 mb-3">
-          {post.type === "shared_business" && post.sourceBusiness ? (
-            <Link href={`/support-local/${post.sourceBusiness.slug}`} className="flex items-center gap-3 hover:opacity-90 flex-1 min-w-0">
-              {post.sourceBusiness.logoUrl ? (
+          {businessAsAuthor ? (
+            <Link href={feedBusinessAuthorHref(post.type, businessAsAuthor.slug)} className="flex items-center gap-3 hover:opacity-90 flex-1 min-w-0">
+              {businessAsAuthor.logoUrl ? (
                 <Image
-                  src={post.sourceBusiness.logoUrl}
+                  src={businessAsAuthor.logoUrl}
                   alt=""
                   width={48}
                   height={48}
                   className="w-12 h-12 rounded-full object-cover shrink-0"
-                  quality={95}
+                  quality={75}
                 />
               ) : (
                 <div className="w-12 h-12 rounded-full bg-gray-300 flex items-center justify-center text-lg font-medium text-gray-600 shrink-0">
-                  {post.sourceBusiness.name?.[0] ?? "?"}
+                  {businessAsAuthor.name?.[0] ?? "?"}
                 </div>
               )}
               <div className="min-w-0">
                 <span className="font-semibold text-gray-900 block truncate">
-                  {post.sourceBusiness.name}
+                  {businessAsAuthor.name}
                 </span>
                 <span className="text-gray-500 text-sm">
                   {timeLabel}
@@ -385,7 +387,7 @@ export function FeedPostCard({
                     width={48}
                     height={48}
                     className="w-12 h-12 rounded-full object-cover shrink-0"
-                    quality={95}
+                    quality={75}
                   />
                 ) : (
                   <div className="w-12 h-12 rounded-full bg-gray-300 flex items-center justify-center text-lg font-medium text-gray-600 shrink-0">
@@ -591,7 +593,7 @@ export function FeedPostCard({
                     fill
                     className="object-cover rounded"
                     sizes="(max-width: 768px) 100vw, 500px"
-                    quality={95}
+                    quality={75}
                   />
                 </div>
               )}
@@ -630,7 +632,14 @@ export function FeedPostCard({
             <Link href={buildProductHref(post.sourceStoreItem.slug, { type: "feed" })} className="block hover:opacity-90">
               <div className="flex gap-3">
                 {post.sourceStoreItem.photos[0] && (
-                  <Image src={post.sourceStoreItem.photos[0]} alt="" width={64} height={64} className="w-16 h-16 object-cover rounded" quality={95} />
+                  <Image
+                    src={listingDisplayPhoto(post.sourceStoreItem.photos[0], "thumb") ?? post.sourceStoreItem.photos[0]}
+                    alt=""
+                    width={64}
+                    height={64}
+                    className="w-16 h-16 object-cover rounded"
+                    quality={75}
+                  />
                 )}
                 <div>
                   <h3 className="font-bold">{post.sourceStoreItem.title}</h3>
@@ -666,7 +675,7 @@ export function FeedPostCard({
             <Link href={`/events/${post.sourceEvent.slug}`} className="block hover:opacity-90">
               <div className="flex gap-3">
                 {post.sourceEvent.photos[0] ? (
-                  <Image src={post.sourceEvent.photos[0]} alt="" width={64} height={64} className="w-16 h-16 object-cover rounded shrink-0" quality={95} />
+                  <Image src={post.sourceEvent.photos[0]} alt="" width={64} height={64} className="w-16 h-16 object-cover rounded shrink-0" quality={75} />
                 ) : (
                   <div className="w-16 h-16 rounded bg-gray-200 flex items-center justify-center shrink-0">
                     <IonIcon name="calendar-outline" size={28} className="text-gray-500" />
@@ -692,27 +701,27 @@ export function FeedPostCard({
             >
               View original post
             </Link>
-            {post.sourcePost.type === "shared_business" && post.sourcePost.sourceBusiness ? (
+            {nestedBusinessAsAuthor ? (
               <div className="flex items-center gap-2 mb-2">
-                {post.sourcePost.sourceBusiness.logoUrl ? (
+                {nestedBusinessAsAuthor.logoUrl ? (
                   <Image
-                    src={post.sourcePost.sourceBusiness.logoUrl}
+                    src={nestedBusinessAsAuthor.logoUrl}
                     alt=""
                     width={32}
                     height={32}
                     className="w-8 h-8 rounded-full object-cover shrink-0"
-                    quality={95}
+                    quality={75}
                   />
                 ) : (
                   <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-xs font-medium text-gray-600 shrink-0">
-                    {post.sourcePost.sourceBusiness.name?.[0] ?? "?"}
+                    {nestedBusinessAsAuthor.name?.[0] ?? "?"}
                   </div>
                 )}
                 <Link
-                  href={`/support-local/${post.sourcePost.sourceBusiness.slug}`}
+                  href={feedBusinessAuthorHref(post.sourcePost?.type ?? post.type, nestedBusinessAsAuthor.slug)}
                   className="font-semibold text-gray-900 hover:underline min-w-0 truncate"
                 >
-                  {post.sourcePost.sourceBusiness.name}
+                  {nestedBusinessAsAuthor.name}
                 </Link>
                 <span className="text-gray-500 text-sm shrink-0">
                   {new Date(post.sourcePost.createdAt).toLocaleDateString()}
@@ -727,7 +736,7 @@ export function FeedPostCard({
                     width={32}
                     height={32}
                     className="w-8 h-8 rounded-full object-cover"
-                    quality={95}
+                    quality={75}
                   />
                 ) : (
                   <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-xs font-medium text-gray-600">
@@ -764,7 +773,7 @@ export function FeedPostCard({
                   </p>
                   {post.sourcePost.sourceBlog.photos?.[0] && (
                     <div className="relative mt-2 w-full h-32">
-                      <Image src={post.sourcePost.sourceBlog.photos[0]} alt="" fill className="object-cover rounded" sizes="(max-width: 768px) 100vw, 768px" quality={95} />
+                      <Image src={post.sourcePost.sourceBlog.photos[0]} alt="" fill className="object-cover rounded" sizes="(max-width: 768px) 100vw, 768px" quality={75} />
                     </div>
                   )}
                 </Link>
@@ -791,7 +800,17 @@ export function FeedPostCard({
                 <Link href={buildProductHref(post.sourcePost.sourceStoreItem.slug, { type: "feed" })} className="block hover:opacity-90">
                   <div className="flex gap-2">
                     {post.sourcePost.sourceStoreItem.photos?.[0] && (
-                      <Image src={post.sourcePost.sourceStoreItem.photos[0]} alt="" width={48} height={48} className="w-12 h-12 object-cover rounded" quality={95} />
+                      <Image
+                        src={
+                          listingDisplayPhoto(post.sourcePost.sourceStoreItem.photos[0], "thumb") ??
+                          post.sourcePost.sourceStoreItem.photos[0]
+                        }
+                        alt=""
+                        width={48}
+                        height={48}
+                        className="w-12 h-12 object-cover rounded"
+                        quality={75}
+                      />
                     )}
                     <div>
                       <h3 className="font-bold text-sm">{post.sourcePost.sourceStoreItem.title}</h3>
@@ -806,7 +825,7 @@ export function FeedPostCard({
                 <Link href={`/events/${post.sourcePost.sourceEvent.slug}`} className="block hover:opacity-90">
                   <div className="flex gap-2">
                     {post.sourcePost.sourceEvent.photos?.[0] && (
-                      <Image src={post.sourcePost.sourceEvent.photos[0]} alt="" width={48} height={48} className="w-12 h-12 object-cover rounded shrink-0" quality={95} />
+                      <Image src={post.sourcePost.sourceEvent.photos[0]} alt="" width={48} height={48} className="w-12 h-12 object-cover rounded shrink-0" quality={75} />
                     )}
                     <div className="min-w-0">
                       <h3 className="font-bold text-sm">{post.sourcePost.sourceEvent.title}</h3>

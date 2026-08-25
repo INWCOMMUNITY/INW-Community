@@ -191,6 +191,35 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  let verifiedTracking = trackingNumber?.trim() ?? null;
+  let verifiedLabelUrl = labelUrl?.trim() ?? null;
+  let verifiedRateCents = Math.round(rateCents);
+  const txId = shippoTransactionId?.trim() || null;
+  if (txId) {
+    const { getSellerShippoCredential } = await import("@/lib/shippo-seller");
+    const { fetchShippoTransaction } = await import("@/lib/shippo-transaction");
+    const cred = await getSellerShippoCredential(userId);
+    if (!cred) {
+      return NextResponse.json(
+        { error: "Shippo is not connected. Reconnect shipping in Seller Hub." },
+        { status: 400 }
+      );
+    }
+    const tx = await fetchShippoTransaction(cred, txId);
+    if (!tx || !/success/i.test(tx.status)) {
+      return NextResponse.json(
+        {
+          error:
+            "Could not verify the Shippo label. If you were charged, tap retry save or contact support.",
+        },
+        { status: 502 }
+      );
+    }
+    verifiedTracking = tx.trackingNumber ?? verifiedTracking;
+    verifiedLabelUrl = tx.labelUrl ?? verifiedLabelUrl;
+    if (tx.rateAmountCents != null) verifiedRateCents = tx.rateAmountCents;
+  }
+
   const combinedParcel = parcelFromOrderItems({
     id: primaryOrder.id,
     shippingAddress: null,
@@ -211,9 +240,9 @@ export async function POST(req: NextRequest) {
   const shipData = {
     carrier: carrier.trim(),
     service: service.trim(),
-    trackingNumber: trackingNumber?.trim() ?? null,
-    labelUrl: labelUrl?.trim() ?? null,
-    labelCostCents: Math.round(rateCents),
+    trackingNumber: verifiedTracking,
+    labelUrl: verifiedLabelUrl,
+    labelCostCents: verifiedRateCents,
     nwcFeeCents: 0,
     status: "created" as const,
     weightOz,
