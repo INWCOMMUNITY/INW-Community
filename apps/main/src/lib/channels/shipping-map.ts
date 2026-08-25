@@ -232,8 +232,10 @@ function resolvedProfile(
 /** Resolve an Etsy shipping profile, preferring flat/manual over calculated. */
 export async function resolveEtsyShippingProfile(
   conn: ChannelConnectionContext,
-  shippingCostCents: number | null
+  shippingCostCents: number | null,
+  options?: { createIfMissing?: boolean }
 ): Promise<ResolvedEtsyShippingProfile> {
+  const createIfMissing = options?.createIfMissing !== false;
   const shopId = conn.externalShopId;
   let profiles: EtsyShopShippingProfile[] = [];
   if (shopId) {
@@ -262,7 +264,7 @@ export async function resolveEtsyShippingProfile(
       await persistShippingProfile(conn.id, conn.config, rate, String(match.shipping_profile_id));
       return resolvedProfile(String(match.shipping_profile_id), false);
     }
-    const createdId = canCreateEtsyShippingProfiles(conn)
+    const createdId = createIfMissing && canCreateEtsyShippingProfiles(conn)
       ? await tryCreateInwFlatProfile(conn, shopId, rate, profileName)
       : null;
     if (createdId) return resolvedProfile(createdId, false);
@@ -282,15 +284,17 @@ export async function resolveEtsyShippingProfile(
       }
       return resolvedProfile(matchedId, false);
     }
-    console.error(
-      "[channels] Etsy INW shipping profile unavailable; listing will be a draft rather than using a mismatched shop profile",
-      {
-        profileName,
-        intendedCents: rate,
-        fallbackProfileId: fallback ? String(fallback.shipping_profile_id) : null,
-        fallbackCents: fallback ? etsyProfileDomesticShippingCostCents(fallback) : null,
-      }
-    );
+    if (createIfMissing) {
+      console.error(
+        "[channels] Etsy INW shipping profile unavailable; listing will be a draft rather than using a mismatched shop profile",
+        {
+          profileName,
+          intendedCents: rate,
+          fallbackProfileId: fallback ? String(fallback.shipping_profile_id) : null,
+          fallbackCents: fallback ? etsyProfileDomesticShippingCostCents(fallback) : null,
+        }
+      );
+    }
     return resolvedProfile(null, false);
   }
 
