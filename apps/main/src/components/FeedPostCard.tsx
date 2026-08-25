@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { IonIcon } from "@/components/IonIcon";
+import { FeedPostMediaCarousel } from "@/components/FeedPostMediaCarousel";
 import { ListingPhotoPyramid } from "@/components/feed/ListingPhotoPyramid";
 import { PollCard } from "@/components/feed/PollCard";
 import { LinkPreviewCard } from "@/components/feed/LinkPreviewCard";
