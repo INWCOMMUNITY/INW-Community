@@ -648,7 +648,13 @@ export default function ProductScreen() {
                     }}
                   >
                     {url ? (
-                      <AppImage uri={url} targetWidth={width} style={styles.galleryImage} resizeMode="contain" />
+                      <AppImage
+                        uri={url}
+                        targetWidth={width}
+                        quality={90}
+                        style={styles.galleryImage}
+                        resizeMode="contain"
+                      />
                     ) : (
                       <View style={[styles.galleryImage, styles.placeholder]}>
                         <Ionicons name="image-outline" size={48} color={theme.colors.primary} />

@@ -42,12 +42,20 @@ import {
   publishOfferByInventoryItemGroup,
   shouldUseInventoryItemGroup,
 } from "./inventory-groups";
-import { listInventoryItems, mergeInventoryRowsWithTrading } from "./inventory-import";
+import {
+  emptyOfferFulfillmentIndex,
+  listEbayOfferFulfillmentPolicies,
+  listInventoryItems,
+  mergeInventoryRowsWithTrading,
+  resolveEbayListingFulfillmentPolicyId,
+} from "./inventory-import";
 import {
   putInventoryWithPhotoRecovery,
   readInventoryProductImageUrls,
   readStoredPhotoUrls,
   ebayPhotosAreHostFamilyMismatchOnly,
+  selectPassthroughInventoryImageUrls,
+  withInventoryProductImageUrls,
 } from "./media";
 import {
   checkRevisionLimit,
@@ -1025,6 +1033,9 @@ async function upsertListing(
       offerId = created.offerId ?? null;
     }
 
+    const liveNative = await fetchLiveInventoryItem(conn.accessToken, sku);
+    const liveNativeImageUrls = liveNative ? readInventoryProductImageUrls(liveNative) : [];
+
     async function pushInventoryBody(body: Record<string, unknown>, traceCtx?: SyncTraceContext) {
       if (traceCtx) {
         addRequest(traceCtx, body);
@@ -1034,6 +1045,7 @@ async function upsertListing(
           accessToken: conn.accessToken,
           body,
           fallbackImageUrls: item.photos,
+          liveImageUrls: liveNativeImageUrls,
           describeError: describeEbayThrownError,
           put: async (payload) => {
             await ebayJson(
@@ -1066,6 +1078,15 @@ async function upsertListing(
         item: syncItem,
       }
     );
+    if (liveNativeImageUrls.length > 0) {
+      const pinned = selectPassthroughInventoryImageUrls(
+        liveNativeImageUrls,
+        readInventoryProductImageUrls(inventoryBody)
+      );
+      if (pinned.length > 0) {
+        inventoryBody = withInventoryProductImageUrls(inventoryBody, pinned);
+      }
+    }
     const offerBody = buildEbayOffer(syncItem, cfg, aspectCategoryId, sku);
 
     if (shouldUseInventoryItemGroup(syncItem)) {
@@ -1527,6 +1548,17 @@ export const ebayAdapter: ChannelAdapter = {
           });
         } else {
           inventoryBody = buildEbayInventoryItem(qtyItem);
+          const live = await fetchLiveInventoryItem(conn.accessToken, inventorySku);
+          const liveUrls = live ? readInventoryProductImageUrls(live) : [];
+          if (liveUrls.length > 0) {
+            const pinned = selectPassthroughInventoryImageUrls(
+              liveUrls,
+              readInventoryProductImageUrls(inventoryBody)
+            );
+            if (pinned.length > 0) {
+              inventoryBody = withInventoryProductImageUrls(inventoryBody, pinned);
+            }
+          }
         }
         await ebayJson(
           conn.accessToken,
@@ -1577,10 +1609,12 @@ export const ebayAdapter: ChannelAdapter = {
         .filter((row) => row.sku?.trim())
         .map((row) => [row.sku!.trim(), row] as const)
     );
-    const fulfillmentPolicyId =
-      conn.config && typeof conn.config.fulfillmentPolicyId === "string"
-        ? conn.config.fulfillmentPolicyId
-        : null;
+    const offerIndex = await listEbayOfferFulfillmentPolicies(conn.accessToken).catch((e) => {
+      console.warn("[ebay] listEbayOfferFulfillmentPolicies failed during import", {
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return emptyOfferFulfillmentIndex();
+    });
     return listings.map((l) => {
       const inv = l.sku?.trim() ? invBySku.get(l.sku.trim()) : undefined;
       return ebayListingToSummary({
@@ -1594,7 +1628,12 @@ export const ebayAdapter: ChannelAdapter = {
         remoteUpdatedAt: l.remoteUpdatedAt ?? null,
         sku: l.sku ?? undefined,
         packageWeightAndSize: inv?.packageWeightAndSize,
-        remoteShippingProfileId: fulfillmentPolicyId,
+        remoteShippingProfileId: resolveEbayListingFulfillmentPolicyId({
+          tradingProfileId: l.remoteShippingProfileId,
+          listingId: l.listingId,
+          sku: l.sku,
+          offerIndex,
+        }),
       });
     });
   },

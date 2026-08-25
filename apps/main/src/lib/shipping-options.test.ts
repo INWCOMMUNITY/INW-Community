@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { listingPackageFromRemote, mergeImportedShippingOption, parseShippingCostCentsInput } from "./shipping-options";
+import {
+  listingPackageFromRemote,
+  mergeImportedShippingOption,
+  parseShippingCostCentsInput,
+  importedListingShippingPatch,
+} from "./shipping-options";
 
 describe("mergeImportedShippingOption", () => {
   it("fills empty package fields from the remote and keeps existing measurements", () => {
@@ -76,5 +81,57 @@ describe("parseShippingCostCentsInput", () => {
     expect(parseShippingCostCentsInput({ shippingCostDollars: "5.99" })).toBe(599);
     expect(parseShippingCostCentsInput({ shippingCostCents: 0 })).toBe(0);
     expect(() => parseShippingCostCentsInput({ required: true })).toThrow(/required/i);
+  });
+});
+
+describe("importedListingShippingPatch", () => {
+  it("uses the listing's synced option and price", () => {
+    expect(
+      importedListingShippingPatch({
+        importOptionsEnabled: true,
+        offerFreeShippingOnInw: false,
+        matchedOption: { id: "opt-1", shippingCostCents: 400 },
+      })
+    ).toEqual({ shippingOptionId: "opt-1", shippingCostCents: 400 });
+  });
+
+  it("keeps the option but charges $0 when INW free shipping is on", () => {
+    expect(
+      importedListingShippingPatch({
+        importOptionsEnabled: true,
+        offerFreeShippingOnInw: true,
+        matchedOption: { id: "opt-1", shippingCostCents: 400 },
+      })
+    ).toEqual({ shippingOptionId: "opt-1", shippingCostCents: 0 });
+  });
+
+  it("does not attach a marketplace option when the seller did not sync them", () => {
+    expect(
+      importedListingShippingPatch({
+        importOptionsEnabled: false,
+        offerFreeShippingOnInw: false,
+        matchedOption: { id: "opt-1", shippingCostCents: 400 },
+      })
+    ).toBeNull();
+  });
+
+  it("still applies free INW shipping when marketplace options are not synced", () => {
+    expect(
+      importedListingShippingPatch({
+        importOptionsEnabled: false,
+        offerFreeShippingOnInw: true,
+      })
+    ).toEqual({ shippingCostCents: 0 });
+  });
+
+  it("leaves an INW-created package in place", () => {
+    expect(
+      importedListingShippingPatch({
+        importOptionsEnabled: true,
+        offerFreeShippingOnInw: false,
+        existingOptionSource: "inw",
+        matchedOption: { id: "ebay-opt", shippingCostCents: 400 },
+      })
+    ).toBeNull();
   });
 });

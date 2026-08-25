@@ -5,9 +5,11 @@ import {
   combinePackages,
   convertLengthToIn,
   convertWeightToOz,
+  formatShippingOptionPackageSummary,
   isPackageComplete,
   lbsOzToTotalOz,
   packageFingerprint,
+  shippingOptionNeedsMeasurements,
   totalOzToLbsOz,
 } from "./package-weight";
 
@@ -49,6 +51,37 @@ describe("package completeness and combine", () => {
   it("requires all four measurements", () => {
     expect(isPackageComplete({ weightOz: 16, lengthIn: 12, widthIn: 8, heightIn: 4 })).toBe(true);
     expect(isPackageComplete({ weightOz: 16, lengthIn: 12, widthIn: 8, heightIn: null })).toBe(false);
+  });
+
+  it("does not require measurements on imported shipping options", () => {
+    expect(shippingOptionNeedsMeasurements({ source: "etsy", complete: false })).toBe(false);
+    expect(shippingOptionNeedsMeasurements({ source: "ebay", complete: false })).toBe(false);
+    expect(shippingOptionNeedsMeasurements({ source: "inw", complete: false })).toBe(true);
+    expect(
+      formatShippingOptionPackageSummary({
+        source: "etsy",
+        complete: false,
+        lengthIn: null,
+        widthIn: null,
+        heightIn: null,
+        weightLbs: 0,
+        weightOzRemainder: 0,
+      })
+    ).toBe("");
+    expect(
+      formatShippingOptionPackageSummary(
+        {
+          source: "etsy",
+          complete: false,
+          lengthIn: null,
+          widthIn: null,
+          heightIn: null,
+          weightLbs: 0,
+          weightOzRemainder: 0,
+        },
+        "Needs weight and size — Shippo and calculated Etsy will use defaults until you add measurements."
+      )
+    ).toBe("");
   });
 
   it("sums weight by quantity and takes max dimensions", () => {

@@ -38,7 +38,21 @@ export type EbayTradingListing = {
   condition?: "new" | "used" | null;
   /** Seller-defined SKU (Custom Label) when set. Used for INW-migrated listings. */
   sku?: string | null;
+  /** Business-policy fulfillment / shipping profile id when the listing uses one. */
+  remoteShippingProfileId?: string | null;
 };
+
+/** Shipping business policy on a Trading API Item (GetMyeBaySelling / GetItem). */
+export function parseEbaySellerShippingProfile(itemXml: string): {
+  remoteProfileId: string | null;
+  name: string | null;
+} {
+  const profiles = tag(itemXml, "SellerProfiles") ?? "";
+  const shipping = tag(profiles, "SellerShippingProfile") ?? tag(itemXml, "SellerShippingProfile") ?? "";
+  const id = tag(shipping, "ShippingProfileID")?.trim() || null;
+  const name = tag(shipping, "ShippingProfileName")?.trim() || null;
+  return { remoteProfileId: id, name };
+}
 
 /** Full item specifics + description + photos for a listing (fetched on import, not preview). */
 export type EbayItemDetails = {
@@ -60,6 +74,7 @@ export type EbayItemDetails = {
   quantitySold: number;
   acceptOffers: boolean;
   minOfferCents: number | null;
+  remoteShippingProfileId: string | null;
 };
 
 /**
@@ -319,6 +334,7 @@ export async function fetchEbayItemDetails(
       listingEnded: availability.listingEnded,
       acceptOffers: bestOffer.acceptOffers,
       minOfferCents: bestOffer.minOfferCents,
+      remoteShippingProfileId: parseEbaySellerShippingProfile(item).remoteProfileId,
     };
   } catch (e) {
     console.error("[ebay] fetchEbayItemDetails failed", {
@@ -394,6 +410,7 @@ export async function enumerateEbayListings(
         remoteUpdatedAt: parseEbayLastModified(item),
         condition: parseEbayCondition(item),
         sku,
+        remoteShippingProfileId: parseEbaySellerShippingProfile(item).remoteProfileId,
       });
     }
     // Stop early if this page was not full (no further pages).

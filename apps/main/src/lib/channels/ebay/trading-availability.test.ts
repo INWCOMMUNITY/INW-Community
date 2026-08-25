@@ -3,6 +3,7 @@ import {
   ebayGetItemMarksInwSoldOut,
   ebayGetItemQtyIsUnsoldZero,
   parseEbayGetItemAvailability,
+  parseEbaySellerShippingProfile,
 } from "./trading";
 
 describe("parseEbayGetItemAvailability", () => {
@@ -66,5 +67,31 @@ describe("ebayGetItemQtyIsUnsoldZero", () => {
     expect(
       ebayGetItemQtyIsUnsoldZero({ listingEnded: false, quantitySold: 1, quantity: 0 })
     ).toBe(false);
+  });
+});
+
+describe("parseEbaySellerShippingProfile", () => {
+  it("reads the listing's business-policy shipping profile id", () => {
+    const xml = `
+      <Item>
+        <ItemID>123</ItemID>
+        <SellerProfiles>
+          <SellerShippingProfile>
+            <ShippingProfileID>61909470024</ShippingProfileID>
+            <ShippingProfileName>Padded Envelope $4</ShippingProfileName>
+          </SellerShippingProfile>
+        </SellerProfiles>
+      </Item>`;
+    expect(parseEbaySellerShippingProfile(xml)).toEqual({
+      remoteProfileId: "61909470024",
+      name: "Padded Envelope $4",
+    });
+  });
+
+  it("returns null when the listing has no shipping profile", () => {
+    expect(parseEbaySellerShippingProfile("<Item><ItemID>1</ItemID></Item>")).toEqual({
+      remoteProfileId: null,
+      name: null,
+    });
   });
 });

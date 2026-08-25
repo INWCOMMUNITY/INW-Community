@@ -160,19 +160,24 @@ function errorToString(error: unknown): string {
  * Classify an error as transient, permanent, or auth.
  *
  * Classification priority:
- * 1. Check HTTP status code if available
- * 2. Check for auth-related patterns (most specific)
- * 3. Check for permanent error patterns
- * 4. Check for transient error patterns
- * 5. Default to transient (safer to retry than to drop)
+ * 1. eBay Picture Policy size errors (auto-fixed by sending full-size CDN URLs)
+ * 2. Check HTTP status code if available
+ * 3. Check for auth-related patterns (most specific)
+ * 4. Check for permanent error patterns
+ * 5. Check for transient error patterns
+ * 6. Default to transient (safer to retry than to drop)
  */
 export function classifyError(error: unknown): ErrorClassification {
+  const errorStr = errorToString(error);
+  // Inventory #25002 picture-size failures are auto-fixed by sending full-size EPS URLs.
+  if (/Picture Policy|500 pixels on the longest side|resolution for provided picture/i.test(errorStr)) {
+    return "transient";
+  }
+
   const statusCode = extractStatusCode(error);
   if (statusCode !== null && STATUS_CLASSIFICATIONS[statusCode]) {
     return STATUS_CLASSIFICATIONS[statusCode];
   }
-
-  const errorStr = errorToString(error);
 
   for (const pattern of AUTH_PATTERNS) {
     if (pattern.test(errorStr)) {

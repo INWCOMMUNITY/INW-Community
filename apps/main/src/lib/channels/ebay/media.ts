@@ -1,5 +1,6 @@
 import { ebayGet, ebayJson } from "./client";
 import { EBAY_APIZ_BASE } from "./config";
+import { upgradeEbayCdnPhotoUrl } from "./photos";
 
 const IMAGE_RELATED_ERROR = /#25014|#25015|image|photo|picture|hosted/i;
 
@@ -76,14 +77,14 @@ export function selectPassthroughInventoryImageUrls(liveUrls: string[], inwUrls:
   return inw;
 }
 
-/** HTTPS image URL for Inventory PUT — do not upscale eBay CDN sizes (that can 25014). */
+/** HTTPS image URL for Inventory PUT. Upsize eBay thumbs so they meet the 500px Picture Policy. */
 export function sanitizeInventoryImageUrl(raw: string): string | null {
   let url = raw.trim();
   if (!url) return null;
   if (url.startsWith("//")) url = `https:${url}`;
   if (url.startsWith("http://")) url = `https://${url.slice("http://".length)}`;
   if (!url.startsWith("https://")) return null;
-  return url;
+  return isEbayEpsImageUrl(url) ? upgradeEbayCdnPhotoUrl(url) : url;
 }
 
 export function normalizeInventoryImageUrls(urls: string[]): string[] {
@@ -161,7 +162,8 @@ export async function ensureEbayHostedPhotoUrls(
   for (const raw of photoUrls) {
     const url = sanitizeInventoryImageUrl(raw) ?? raw.trim();
     if (!url) continue;
-    if (!forceHost && isEbayHostedImageUrl(url)) {
+    if (isEbayHostedImageUrl(url)) {
+      // Never send EPS through create_image_from_url — eBay returns HTTP 500 HTML.
       out.push(url);
       continue;
     }

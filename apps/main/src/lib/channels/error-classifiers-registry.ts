@@ -129,6 +129,14 @@ const EBAY_CLASSIFIERS: TraceClassifier[] = [
     },
   },
   {
+    id: "ebay_picture_resolution",
+    provider: "ebay",
+    pattern: /500 pixels|longest side|Picture Policy|resolution for provided picture/i,
+    category: "photo_missing",
+    analyze: () =>
+      "eBay requires each photo to be at least 500 pixels on the longest side. Gallery thumbs cannot be used. If a photo file is itself smaller than 500px, replace it on the listing.",
+  },
+  {
     id: "ebay_category_invalid",
     provider: "ebay",
     pattern: /category.*invalid|invalid.*category|#25002/i,

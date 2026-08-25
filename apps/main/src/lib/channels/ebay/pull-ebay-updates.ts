@@ -7,7 +7,8 @@ import {
 } from "./trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
-import { normalizeEbayPhotoUrl } from "./photos";
+import { normalizeEbayPhotoUrl, shouldApplyEbayInboundPhotos } from "./photos";
+import { selectInboundListingPhotos } from "../photo-urls";
 import { storeListingDescription } from "../import-listing";
 import { resolveInwCategoryFromEbayPath } from "../category-resolver";
 import { isValidPresetSubcategory } from "../repair-categories";
@@ -21,7 +22,7 @@ import {
   persistEbayListingActive,
   persistEbayListingEnded,
 } from "../listing-link-flags";
-import { ebayAspectsFingerprint } from "./ebay-compat";
+import { attachShippingOptionOnImport } from "@/lib/shipping-options";
 
 type ConnectionRow = {
   id: string;
@@ -336,6 +337,18 @@ export async function refreshEbayListingByItemId(
 
   let conflictDetails: unknown = await persistEbayListingActive(link.id, link.conflictDetails);
 
+  await attachShippingOptionOnImport({
+    memberId: storeItem.memberId,
+    storeItemId: storeItem.id,
+    source: "ebay",
+    hint: { remoteProfileId: details.remoteShippingProfileId },
+  }).catch((e) =>
+    console.warn("[ebay] attach shipping option on GetItem pull failed", {
+      storeItemId: storeItem.id,
+      error: String(e),
+    })
+  );
+
   if (!opts?.force && applyDecision.action !== "apply") {
     if (applyDecision.action === "pending" && applyDecision.pendingHash) {
       await prisma.channelListingLink.update({
@@ -421,10 +434,20 @@ export async function refreshEbayListingByItemId(
     changes.push(`aspects (${aspectsForStorage.length} fields)`);
   }
 
-  // Authoritative photo set from GetItem (may shrink when seller removes images).
-  if (!skipContent && photos.length > 0 && !photosEqual(photos, storeItem.photos)) {
-    updateData.photos = photos;
-    changes.push(`photos (${photos.length})`);
+  // GetItem PictureURL often echoes Etsy/INW hosts. Never replace INW Blob photos
+  // with marketplace CDN derivatives; imported CDN listings can still upgrade.
+  const inboundPhotos = selectInboundListingPhotos(storeItem.photos, photos);
+  if (
+    !skipContent &&
+    shouldApplyEbayInboundPhotos({
+      incoming: photos,
+      current: storeItem.photos,
+      force: opts?.force === true,
+    }) &&
+    !photosEqual(inboundPhotos, storeItem.photos)
+  ) {
+    updateData.photos = inboundPhotos;
+    changes.push(`photos (${inboundPhotos.length})`);
   }
 
   if (!skipContent && description && description !== storeItem.description) {

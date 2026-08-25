@@ -26,6 +26,30 @@ export function inwPhotoUrlsMatch(a: string[], b: string[]): boolean {
   return a.every((url, i) => url === b[i]);
 }
 
+function isChannelCdnPhotoUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return (
+      host.includes("etsystatic") ||
+      host.includes("ebayimg") ||
+      host.includes("ebaystatic")
+    );
+  } catch {
+    return /etsystatic|ebayimg|ebaystatic/i.test(url);
+  }
+}
+
+/** GetItem/Etsy rehost overwrote INW blobs with marketplace CDNs — not a seller photo change. */
+export function inwPhotosAreChannelRehost(inw: string[], lastPushed: string[]): boolean {
+  if (inw.length === 0 || lastPushed.length === 0) return false;
+  if (inwPhotoUrlsMatch(inw, lastPushed)) return false;
+  const inwAllCdn = inw.every(isChannelCdnPhotoUrl);
+  if (!inwAllCdn) return false;
+  const lastHadSelfHosted = lastPushed.some((url) => !isChannelCdnPhotoUrl(url));
+  if (lastHadSelfHosted) return true;
+  return inw.length === lastPushed.length;
+}
+
 function normalizeInwPhotos(photos: string[]): string[] {
   const out: string[] = [];
   for (const raw of photos) {
@@ -78,6 +102,13 @@ export function planEtsyPhotoSync(args: {
   if (
     args.lastPushedInwPhotos != null &&
     inwPhotoUrlsMatch(inw, normalizeInwPhotos(args.lastPushedInwPhotos))
+  ) {
+    return { uploadUrls: [], deleteBeforeUpload: [], deleteAfterUpload: [] };
+  }
+
+  if (
+    args.lastPushedInwPhotos != null &&
+    inwPhotosAreChannelRehost(inw, normalizeInwPhotos(args.lastPushedInwPhotos))
   ) {
     return { uploadUrls: [], deleteBeforeUpload: [], deleteAfterUpload: [] };
   }
@@ -179,13 +210,24 @@ export async function syncEtsyListingPhotos(args: {
   }
 
   let rank = Math.max(1, etsyImages.length - plan.deleteBeforeUpload.length + 1);
+  let uploaded = 0;
   for (const url of plan.uploadUrls) {
     try {
       await etsyUploadImage(args.accessToken, args.shopId, args.listingId, url, rank);
+      uploaded += 1;
       rank += 1;
     } catch (e) {
       console.error("[etsy] photo upload failed", { listingId: args.listingId, url, error: String(e) });
     }
+  }
+
+  if (plan.uploadUrls.length > 0 && uploaded < plan.uploadUrls.length) {
+    console.warn("[etsy] skip deleting existing photos after incomplete upload", {
+      listingId: args.listingId,
+      uploaded,
+      attempted: plan.uploadUrls.length,
+    });
+    return;
   }
 
   for (const id of plan.deleteAfterUpload) {

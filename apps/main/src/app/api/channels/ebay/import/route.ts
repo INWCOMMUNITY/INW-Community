@@ -17,6 +17,7 @@ import { syncContentHash, syncMetaHash } from "@/lib/channels/sync-baseline";
 import { variantsFingerprint, sumVariantQuantities } from "@/lib/channels/variant-sync";
 import { describeEbayThrownError, ebayErrorActionHint } from "@/lib/channels/ebay/errors";
 import { resolveEbayLegacyListingId, indexEbayRemoteListings } from "@/lib/channels/ebay/mapping";
+import { attachShippingOptionOnImport, maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -112,6 +113,38 @@ function autoPostStoreItemToFeed(authorId: string, storeItemId: string): void {
       },
     })
     .catch((err) => console.error("[channels] ebay import auto-post failed", err));
+}
+
+async function attachEbayListingShippingOption(args: {
+  memberId: string;
+  storeItemId: string;
+  remoteProfileId?: string | null;
+  listing?: {
+    packageWeightOz?: number | null;
+    packageLengthIn?: number | null;
+    packageWidthIn?: number | null;
+    packageHeightIn?: number | null;
+    shippingCostCents?: number | null;
+  };
+}) {
+  await attachShippingOptionOnImport({
+    memberId: args.memberId,
+    storeItemId: args.storeItemId,
+    source: "ebay",
+    hint: {
+      remoteProfileId: args.remoteProfileId?.trim() || null,
+      weightOz: args.listing?.packageWeightOz ?? null,
+      lengthIn: args.listing?.packageLengthIn ?? null,
+      widthIn: args.listing?.packageWidthIn ?? null,
+      heightIn: args.listing?.packageHeightIn ?? null,
+      shippingCostCents: args.listing?.shippingCostCents ?? null,
+    },
+  }).catch((e) =>
+    console.warn("[ebay import] attach shipping option failed", {
+      storeItemId: args.storeItemId,
+      error: String(e),
+    })
+  );
 }
 
 async function loadRemoteWithLinkState(userId: string) {
@@ -243,6 +276,10 @@ export async function POST(req: NextRequest) {
   if (!ctx) {
     return NextResponse.json({ error: "Connect your eBay account first.", code: "NOT_CONNECTED" }, { status: 400 });
   }
+
+  await maybeImportShippingOptionsOnSync(userId, "ebay").catch((e) =>
+    console.warn("[ebay import] shipping option sync failed", { error: String(e) })
+  );
 
   let remote;
   try {
@@ -381,12 +418,30 @@ export async function POST(req: NextRequest) {
               source: categoryAssignment.source,
             },
           });
+          await attachEbayListingShippingOption({
+            memberId: userId,
+            storeItemId: existing.storeItem.id,
+            remoteProfileId: details.remoteShippingProfileId ?? listing.remoteShippingProfileId,
+            listing,
+          });
           continue;
         }
 
+        await attachEbayListingShippingOption({
+          memberId: userId,
+          storeItemId: existing.storeItem.id,
+          remoteProfileId: details.remoteShippingProfileId ?? listing.remoteShippingProfileId,
+          listing,
+        });
         pushSkip(skipped, legacyId, "dedupe", "already_linked");
         continue;
       } else {
+        await attachEbayListingShippingOption({
+          memberId: userId,
+          storeItemId: existing.storeItem.id,
+          remoteProfileId: listing.remoteShippingProfileId,
+          listing,
+        });
         pushSkip(skipped, legacyId, "dedupe", "already_linked");
         continue;
       }
@@ -479,14 +534,22 @@ export async function POST(req: NextRequest) {
         },
       });
       createdStoreItemId = storeItem.id;
+      await attachEbayListingShippingOption({
+        memberId: userId,
+        storeItemId: storeItem.id,
+        remoteProfileId: details.remoteShippingProfileId ?? listing.remoteShippingProfileId,
+        listing,
+      });
+      const hashedItem =
+        (await prisma.storeItem.findUnique({ where: { id: storeItem.id } })) ?? storeItem;
 
-      const contentHash = syncContentHash(storeItem);
+      const contentHash = syncContentHash(hashedItem);
       const metaHash = syncMetaHash({
-        category: storeItem.category,
-        subcategory: storeItem.subcategory,
-        secondaryCategory: storeItem.secondaryCategory,
-        shippingCostCents: storeItem.shippingCostCents,
-        variants: storeItem.variants,
+        category: hashedItem.category,
+        subcategory: hashedItem.subcategory,
+        secondaryCategory: hashedItem.secondaryCategory,
+        shippingCostCents: hashedItem.shippingCostCents,
+        variants: hashedItem.variants,
       });
 
       const remoteSplitForLink = splitEbayCategoryPath(ebayCategoryPath);
@@ -507,8 +570,8 @@ export async function POST(req: NextRequest) {
             lastPushedHash: contentHash,
             syncBaselineHash: contentHash,
             syncBaselineMetaHash: metaHash,
-            syncBaselineVariantsHash: variantsFingerprint(storeItem.variants),
-            syncBaselineQty: storeItem.quantity,
+            syncBaselineVariantsHash: variantsFingerprint(hashedItem.variants),
+            syncBaselineQty: hashedItem.quantity,
             syncBaselineAt: new Date(),
             remoteCategoryLabel: ebayCategoryPath?.slice(0, 500) ?? null,
             remoteCategorySubLabel: remoteSplitForLink.subcategory?.slice(0, 200) ?? null,

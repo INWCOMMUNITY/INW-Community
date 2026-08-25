@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { carryOuncesIntoPoundsFields } from "@/lib/package-weight";
+import { carryOuncesIntoPoundsFields, formatShippingOptionPackageSummary } from "@/lib/package-weight";
 
 type ShippingOption = {
   id: string;
@@ -50,6 +50,12 @@ function dollarsToCents(raw: string): number {
   const n = Number(trimmed.replace(/[^0-9.]/g, ""));
   if (!Number.isFinite(n) || n < 0) throw new Error("Enter a valid shipping price");
   return Math.round(n * 100);
+}
+
+function optionMetaLine(opt: ShippingOption): string {
+  return [formatShippingOptionPackageSummary(opt), formatOptionPrice(opt.shippingCostCents)]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 export default function ShippingOptionsPage() {
@@ -364,13 +370,9 @@ export default function ShippingOptionsPage() {
               <span className="text-sm text-gray-500 w-6">{idx + 1}.</span>
               <div className="flex-1 min-w-0">
                 <p className="font-medium truncate">{opt.name}</p>
-                <p className="text-xs text-gray-500">
-                  {opt.complete
-                    ? `${opt.lengthIn}×${opt.widthIn}×${opt.heightIn} in · ${opt.weightLbs} lb ${opt.weightOzRemainder} oz`
-                    : "Needs weight and size"}
-                  {" · "}
-                  {formatOptionPrice(opt.shippingCostCents)}
-                </p>
+                {optionMetaLine(opt) ? (
+                  <p className="text-xs text-gray-500">{optionMetaLine(opt)}</p>
+                ) : null}
               </div>
               {opt.source !== "inw" && (
                 <span className="text-xs rounded-full px-2 py-0.5 bg-gray-100 border">{sourceLabel(opt.source)}</span>

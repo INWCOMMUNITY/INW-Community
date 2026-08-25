@@ -42,7 +42,10 @@ export function buildEbayInventoryItem(
   const product: Record<string, unknown> = {
     title,
     description: listingDescriptionForHtmlChannel(item.description, title),
-    imageUrls: item.photos.slice(0, 12),
+    imageUrls: item.photos
+      .slice(0, 12)
+      .map((url) => normalizeEbayPhotoUrl(url) ?? url)
+      .filter((url) => url.startsWith("https://")),
   };
 
   if (axes && axes.length > 0) {

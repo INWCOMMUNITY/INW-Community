@@ -64,6 +64,15 @@ describe("ebayListingToSummary", () => {
     expect(summary.packageWidthIn).toBe(8);
     expect(summary.packageHeightIn).toBe(6);
   });
+
+  it("does not invent a shipping profile when the listing has none", () => {
+    const summary = ebayListingToSummary({
+      listingId: "1",
+      title: "Test item",
+      price: { value: "1.00" },
+    });
+    expect(summary.remoteShippingProfileId).toBeNull();
+  });
 });
 
 describe("indexEbayRemoteListings", () => {

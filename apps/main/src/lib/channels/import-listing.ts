@@ -301,14 +301,37 @@ export async function importRemoteListing(args: {
     return { ok: false, externalListingId: "", reason: "missing_id" };
   }
 
-  const existingResult = await resolveExistingLink({
-    memberId,
-    connectionId,
-    provider,
-    productId,
-    externalShopId,
-  });
-  if (existingResult) return existingResult;
+    const existingResult = await resolveExistingLink({
+      memberId,
+      connectionId,
+      provider,
+      productId,
+      externalShopId,
+    });
+    if (existingResult) {
+      if (existingResult.ok && (provider === "etsy" || provider === "ebay")) {
+        await attachShippingOptionOnImport({
+          memberId,
+          storeItemId: existingResult.storeItemId,
+          source: provider,
+          hint: {
+            remoteProfileId: listing.remoteShippingProfileId,
+            weightOz: listing.packageWeightOz ?? null,
+            lengthIn: listing.packageLengthIn ?? null,
+            widthIn: listing.packageWidthIn ?? null,
+            heightIn: listing.packageHeightIn ?? null,
+            shippingCostCents: listing.shippingCostCents ?? null,
+          },
+        }).catch((e) =>
+          console.warn("[channels] attach shipping option on re-import failed", {
+            provider,
+            storeItemId: existingResult.storeItemId,
+            error: String(e),
+          })
+        );
+      }
+      return existingResult;
+    }
 
   if (!listing.title?.trim()) {
     return { ok: false, externalListingId: productId, reason: "invalid_title" };
@@ -325,11 +348,18 @@ export async function importRemoteListing(args: {
   let createdStoreItemId: string | null = null;
   try {
     // Check member's sync preferences for shipping sync toggle
-    const syncPrefs = await prisma.memberSyncPreferences.findUnique({
-      where: { memberId },
-      select: { syncShipping: true },
-    });
+    const [syncPrefs, member] = await Promise.all([
+      prisma.memberSyncPreferences.findUnique({
+        where: { memberId },
+        select: { syncShipping: true },
+      }),
+      prisma.member.findUnique({
+        where: { id: memberId },
+        select: { offerFreeShippingOnInw: true },
+      }),
+    ]);
     const shouldSyncShipping = syncPrefs?.syncShipping ?? true;
+    const offerFreeShippingOnInw = member?.offerFreeShippingOnInw === true;
     
     const remoteCategoryLabel = listing.category?.trim() || null;
     const remoteCategorySubLabel = listing.subcategory?.trim() || null;
@@ -390,8 +420,9 @@ export async function importRemoteListing(args: {
           ? 0
           : Math.max(0, Math.round(Number(listing.quantity) || 0));
     // Only import shipping cost if syncShipping is enabled
-    const shippingCents =
-      shouldSyncShipping && listing.shippingKnown !== false && listing.shippingCostCents != null
+    const shippingCents = offerFreeShippingOnInw
+      ? 0
+      : shouldSyncShipping && listing.shippingKnown !== false && listing.shippingCostCents != null
         ? Math.max(0, Math.round(listing.shippingCostCents))
         : null;
 
@@ -426,7 +457,7 @@ export async function importRemoteListing(args: {
     });
     createdStoreItemId = storeItem.id;
 
-    if ((provider === "etsy" || provider === "ebay") && listing.remoteShippingProfileId) {
+    if ((provider === "etsy" || provider === "ebay")) {
       await attachShippingOptionOnImport({
         memberId,
         storeItemId: storeItem.id,
@@ -448,12 +479,14 @@ export async function importRemoteListing(args: {
       );
     }
 
+    const hashedItem =
+      (await prisma.storeItem.findUnique({ where: { id: storeItem.id } })) ?? storeItem;
     const metaHash = syncMetaHash({
-      category: storeItem.category,
-      subcategory: storeItem.subcategory,
-      secondaryCategory: storeItem.secondaryCategory,
-      shippingCostCents: storeItem.shippingCostCents,
-      variants: storeItem.variants,
+      category: hashedItem.category,
+      subcategory: hashedItem.subcategory,
+      secondaryCategory: hashedItem.secondaryCategory,
+      shippingCostCents: hashedItem.shippingCostCents,
+      variants: hashedItem.variants,
     });
     const remoteSplit =
       provider === "ebay" && remoteCategoryLabel
@@ -472,10 +505,10 @@ export async function importRemoteListing(args: {
           syncStatus: "synced",
           lastPushedAt: new Date(),
           lastInboundAt: new Date(),
-          syncBaselineHash: syncContentHash(storeItem),
+          syncBaselineHash: syncContentHash(hashedItem),
           syncBaselineMetaHash: metaHash,
-          syncBaselineVariantsHash: variantsFingerprint(storeItem.variants),
-          syncBaselineQty: storeItem.quantity,
+          syncBaselineVariantsHash: variantsFingerprint(hashedItem.variants),
+          syncBaselineQty: hashedItem.quantity,
           syncBaselineAt: listing.remoteUpdatedAt ?? new Date(),
           remoteCategoryLabel: remoteCategoryLabel?.slice(0, 500) ?? null,
           remoteCategorySubLabel:

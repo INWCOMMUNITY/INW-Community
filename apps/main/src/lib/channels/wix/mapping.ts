@@ -1,3 +1,4 @@
+import { wixOriginalMediaUrl } from "@/lib/business-photos";
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
 import { hasOptionQuantities } from "../../store-item-variants";
@@ -110,12 +111,15 @@ export function buildWixUpdateBody(
 
 function firstMediaUrl(product: WixProduct): string[] {
   const urls: string[] = [];
+  const push = (raw?: string) => {
+    if (!raw) return;
+    const url = wixOriginalMediaUrl(raw);
+    if (url && !urls.includes(url)) urls.push(url);
+  };
   const main = product.media?.main;
-  const mainUrl = main?.url || main?.image?.url;
-  if (mainUrl) urls.push(mainUrl);
+  push(main?.url || main?.image?.url);
   for (const it of product.media?.itemsInfo?.items ?? []) {
-    const u = it.url || it.image?.url;
-    if (u && !urls.includes(u)) urls.push(u);
+    push(it.url || it.image?.url);
   }
   return urls;
 }
@@ -178,14 +182,16 @@ function parseWixDate(value?: string | null): Date | null {
 
 export function v1Photos(product: WixV1Product): string[] {
   const urls: string[] = [];
-  const main = product.media?.mainMedia?.image?.url;
-  if (main) urls.push(main);
+  const push = (raw?: string) => {
+    if (!raw) return;
+    const url = wixOriginalMediaUrl(raw);
+    if (url && !urls.includes(url)) urls.push(url);
+  };
+  push(product.media?.mainMedia?.image?.url);
   for (const it of product.media?.items ?? []) {
-    const u = it.image?.url;
-    if (u && !urls.includes(u)) urls.push(u);
+    push(it.image?.url);
   }
-  const v0 = product.variants?.[0]?.media?.image?.url;
-  if (v0 && !urls.includes(v0)) urls.push(v0);
+  push(product.variants?.[0]?.media?.image?.url);
   return urls;
 }
 

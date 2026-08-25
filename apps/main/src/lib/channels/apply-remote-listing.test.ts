@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { remoteTitleOrPriceDiffersFromStoreItem } from "./apply-remote-listing";
+import {
+  remoteContentDiffersFromStoreItem,
+  remoteTitleOrPriceDiffersFromStoreItem,
+} from "./apply-remote-listing";
+import type { RemoteListingSummary } from "./types";
+
+function remote(overrides: Partial<RemoteListingSummary> = {}): RemoteListingSummary {
+  return {
+    externalListingId: "1",
+    title: "Clock",
+    description: "A clock",
+    priceCents: 1000,
+    quantity: 1,
+    photos: ["https://i.ebayimg.com/images/g/xx/s-l2000.jpg"],
+    ...overrides,
+  };
+}
 
 describe("remoteTitleOrPriceDiffersFromStoreItem", () => {
   const inw = {
@@ -33,5 +49,26 @@ describe("remoteTitleOrPriceDiffersFromStoreItem", () => {
         { title: long.slice(0, 80), priceCents: 1000 }
       )
     ).toBe(false);
+  });
+});
+
+describe("remoteContentDiffersFromStoreItem photos", () => {
+  const blobItem = {
+    title: "Clock",
+    description: "A clock",
+    photos: ["https://abc.public.blob.vercel-storage.com/clock.jpg"],
+    priceCents: 1000,
+  };
+
+  it("does not treat Blob vs eBay CDN as a photo change", () => {
+    expect(remoteContentDiffersFromStoreItem(blobItem, remote())).toBe(false);
+  });
+
+  it("applies a real CDN photo change on imported listings", () => {
+    const imported = {
+      ...blobItem,
+      photos: ["https://i.ebayimg.com/images/g/xx/s-l500.jpg"],
+    };
+    expect(remoteContentDiffersFromStoreItem(imported, remote())).toBe(true);
   });
 });

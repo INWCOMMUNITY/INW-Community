@@ -1,6 +1,7 @@
 import { ebayGet } from "./client";
 import { normalizeEbayPhotoUrl } from "./photos";
 import type { EbayTradingListing } from "./trading";
+import { EBAY_MARKETPLACE_ID } from "./config";
 
 export type EbayInventoryListRow = {
   sku?: string;
@@ -35,6 +36,97 @@ export async function listInventoryItems(accessToken: string): Promise<EbayInven
   }
 
   return rows;
+}
+
+export type EbayOfferFulfillmentRef = {
+  sku?: string | null;
+  listingId?: string | null;
+  fulfillmentPolicyId?: string | null;
+};
+
+export type EbayOfferFulfillmentIndex = {
+  bySku: Map<string, string>;
+  byListingId: Map<string, string>;
+};
+
+export function emptyOfferFulfillmentIndex(): EbayOfferFulfillmentIndex {
+  return { bySku: new Map(), byListingId: new Map() };
+}
+
+export function indexOfferFulfillmentPolicies(
+  offers: EbayOfferFulfillmentRef[]
+): EbayOfferFulfillmentIndex {
+  const index = emptyOfferFulfillmentIndex();
+  for (const offer of offers) {
+    const policyId = offer.fulfillmentPolicyId?.trim();
+    if (!policyId) continue;
+    const sku = offer.sku?.trim();
+    if (sku) index.bySku.set(sku, policyId);
+    const listingId = offer.listingId?.trim();
+    if (listingId) index.byListingId.set(listingId, policyId);
+  }
+  return index;
+}
+
+export function resolveEbayListingFulfillmentPolicyId(args: {
+  tradingProfileId?: string | null;
+  listingId?: string | null;
+  sku?: string | null;
+  offerIndex: EbayOfferFulfillmentIndex;
+}): string | null {
+  const fromTrading = args.tradingProfileId?.trim();
+  if (fromTrading) return fromTrading;
+  const listingId = args.listingId?.trim();
+  if (listingId) {
+    const fromListing = args.offerIndex.byListingId.get(listingId);
+    if (fromListing) return fromListing;
+  }
+  const sku = args.sku?.trim();
+  if (sku) {
+    const fromSku = args.offerIndex.bySku.get(sku);
+    if (fromSku) return fromSku;
+  }
+  return null;
+}
+
+type EbayOfferListRow = {
+  sku?: string;
+  listingId?: string;
+  listing?: { listingId?: string };
+  listingPolicies?: { fulfillmentPolicyId?: string };
+};
+
+type OfferListResponse = {
+  offers?: EbayOfferListRow[];
+  total?: number;
+};
+
+/** Paginate Inventory offers so import can use each listing's fulfillment policy, not the shop default. */
+export async function listEbayOfferFulfillmentPolicies(
+  accessToken: string
+): Promise<EbayOfferFulfillmentIndex> {
+  const rows: EbayOfferFulfillmentRef[] = [];
+  let offset = 0;
+  const limit = 200;
+
+  for (let page = 0; page < 20; page += 1) {
+    const res = await ebayGet<OfferListResponse>(
+      accessToken,
+      `/sell/inventory/v1/offer?limit=${limit}&offset=${offset}&marketplace_id=${EBAY_MARKETPLACE_ID}`
+    );
+    const offers = res.offers ?? [];
+    for (const offer of offers) {
+      rows.push({
+        sku: offer.sku,
+        listingId: offer.listing?.listingId ?? offer.listingId,
+        fulfillmentPolicyId: offer.listingPolicies?.fulfillmentPolicyId ?? null,
+      });
+    }
+    if (offers.length < limit) break;
+    offset += offers.length;
+  }
+
+  return indexOfferFulfillmentPolicies(rows);
 }
 
 export function inventoryRowToTradingListing(row: EbayInventoryListRow): EbayTradingListing | null {

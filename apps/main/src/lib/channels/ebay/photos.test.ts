@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractEbayItemPhotos, normalizeEbayPhotoUrl } from "./photos";
+import { extractEbayItemPhotos, normalizeEbayPhotoUrl, shouldApplyEbayInboundPhotos } from "./photos";
 
 describe("normalizeEbayPhotoUrl", () => {
   it("upgrades http and protocol-relative URLs to https", () => {
@@ -82,5 +82,65 @@ describe("extractEbayItemPhotos", () => {
         </PictureDetails>
       </Item>`;
     expect(extractEbayItemPhotos(xml)).toEqual(["https://i.ebayimg.com/images/g/g1/s-l2000.jpg"]);
+  });
+
+  it("keeps EPS PictureURLs and drops Etsy ExternalPictureURL echoes", () => {
+    const xml = `
+      <Item>
+        <PictureDetails>
+          <PictureURL>https://i.ebayimg.com/images/g/one/s-l500.jpg</PictureURL>
+          <ExternalPictureURL>https://i.etsystatic.com/67230490/r/il/638602/8475142285/il_fullxfull.8475142285</ExternalPictureURL>
+        </PictureDetails>
+      </Item>`;
+    expect(extractEbayItemPhotos(xml)).toEqual(["https://i.ebayimg.com/images/g/one/s-l2000.jpg"]);
+  });
+
+  it("drops Etsy PictureURLs when any EPS URL is present", () => {
+    const xml = `
+      <Item>
+        <PictureDetails>
+          <PictureURL>https://i.etsystatic.com/67230490/r/il/638602/8475142285/il_fullxfull.8475142285</PictureURL>
+          <PictureURL>https://i.ebayimg.com/00/s/MTYwMFgxNDcw/z/SHEAAeSw3vtqjNEh/$_1.JPG</PictureURL>
+        </PictureDetails>
+      </Item>`;
+    expect(extractEbayItemPhotos(xml)).toEqual([
+      "https://i.ebayimg.com/images/g/SHEAAeSw3vtqjNEh/s-l2000.jpg",
+    ]);
+  });
+});
+
+describe("shouldApplyEbayInboundPhotos", () => {
+  const eps = ["https://i.ebayimg.com/images/g/one/s-l2000.jpg"];
+  const blob = ["https://blob.vercel-storage.com/clock.jpg"];
+
+  it("fills INW when it has no photos yet", () => {
+    expect(shouldApplyEbayInboundPhotos({ incoming: eps, current: [] })).toBe(true);
+  });
+
+  it("does not overwrite existing INW photos on cron GetItem", () => {
+    expect(shouldApplyEbayInboundPhotos({ incoming: eps, current: blob })).toBe(false);
+  });
+
+  it("does not overwrite INW Blob photos with EPS, even on force refresh", () => {
+    expect(shouldApplyEbayInboundPhotos({ incoming: eps, current: blob, force: true })).toBe(false);
+  });
+
+  it("upgrades imported eBay thumbs to s-l2000 on cron", () => {
+    expect(
+      shouldApplyEbayInboundPhotos({
+        incoming: ["https://i.ebayimg.com/images/g/one/s-l2000.jpg"],
+        current: ["https://i.ebayimg.com/images/g/one/s-l500.jpg"],
+      })
+    ).toBe(true);
+  });
+
+  it("does not apply foreign CDN-only photos even on force", () => {
+    expect(
+      shouldApplyEbayInboundPhotos({
+        incoming: ["https://i.etsystatic.com/67230490/il_fullxfull.1.jpg"],
+        current: blob,
+        force: true,
+      })
+    ).toBe(false);
   });
 });

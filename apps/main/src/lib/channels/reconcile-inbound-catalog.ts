@@ -276,6 +276,8 @@ export async function reconcileConnectionInboundCatalog(
           acceptOffers: details.acceptOffers ?? existing?.acceptOffers,
           minOfferCents: details.minOfferCents ?? existing?.minOfferCents,
           acceptOffersKnown: details.acceptOffers != null || existing?.acceptOffersKnown,
+          remoteShippingProfileId:
+            details.remoteShippingProfileId ?? existing?.remoteShippingProfileId ?? null,
         };
         remoteById.set(link.externalListingId, overlaid);
         remoteById.set(legacyId, overlaid);

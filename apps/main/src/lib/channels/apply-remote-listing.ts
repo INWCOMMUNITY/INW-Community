@@ -3,15 +3,11 @@ import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
 import { EBAY_TITLE_MAX } from "@/lib/listing-limits";
 import { clampSaneInventoryQty } from "./inventory-sanity";
 import { storeListingDescription } from "./import-listing";
+import { inboundListingPhotosDiffer, selectInboundListingPhotos } from "./photo-urls";
 import { sanitizeListingDescription } from "./rich-description";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 import { logSyncPullQuantityChange } from "./quantity-audit";
 import { isSoldOutQtyRecovery, shouldBlockSoldOutQtyRecovery } from "./sold-out-guard";
-
-function photosEqual(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  return a.every((url, i) => url === b[i]);
-}
 
 /** Normalize title text so HTML entities don't trigger false content drift. */
 function normalizeTitleForCompare(title: string): string {
@@ -53,7 +49,7 @@ export function remoteContentDiffersFromStoreItem(
   return (
     normalizeTitleForCompare(item.title) !== normalizeTitleForCompare(remote.title.slice(0, 200)) ||
     item.priceCents !== remote.priceCents ||
-    !photosEqual(item.photos, remote.photos) ||
+    inboundListingPhotosDiffer(item.photos, remote.photos) ||
     (sanitizeListingDescription(item.description) ?? "") !==
       (sanitizeListingDescription(remote.description) ?? "")
   );
@@ -99,6 +95,7 @@ export async function applyRemoteContentToStoreItem(
   const safeRemote: RemoteListingSummary =
     remote.priceCents < 1 && item.priceCents > 0 ? { ...remote, priceCents: item.priceCents } : remote;
 
+  const inboundPhotos = selectInboundListingPhotos(item.photos, safeRemote.photos);
   const differs = remoteContentDiffersFromStoreItem(item, safeRemote);
   if (!differs) {
     console.log("[channels] applyRemoteContent: no differences detected", {
@@ -117,7 +114,7 @@ export async function applyRemoteContentToStoreItem(
     storeItemId,
     titleChanged: item.title !== safeRemote.title.slice(0, 200),
     priceChanged: item.priceCents !== safeRemote.priceCents,
-    photosChanged: !photosEqual(item.photos, safeRemote.photos),
+    photosChanged: inboundListingPhotosDiffer(item.photos, safeRemote.photos),
     oldPrice: item.priceCents,
     newPrice: safeRemote.priceCents,
   });
@@ -127,7 +124,7 @@ export async function applyRemoteContentToStoreItem(
     data: {
       title: safeRemote.title.slice(0, 200),
       description: storeListingDescription(safeRemote.description),
-      photos: safeRemote.photos,
+      photos: inboundPhotos,
       priceCents: safeRemote.priceCents,
     },
   });

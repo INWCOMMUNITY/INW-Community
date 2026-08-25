@@ -66,6 +66,22 @@ describe("planEtsyPhotoSync", () => {
     expect(plan.deleteBeforeUpload).toEqual([]);
   });
 
+  it("does not replace Etsy images when GetItem overwrote INW blobs with marketplace CDNs", () => {
+    const plan = planEtsyPhotoSync({
+      inwPhotos: [
+        "https://i.ebayimg.com/images/g/one/s-l2000.jpg",
+        "https://i.etsystatic.com/67230490/il_fullxfull.1.jpg",
+      ],
+      etsyImages: etsy([1, 2, 3]),
+      lastPushedInwPhotos: inw,
+    });
+    expect(plan).toEqual({
+      uploadUrls: [],
+      deleteBeforeUpload: [],
+      deleteAfterUpload: [],
+    });
+  });
+
   it("uploads only the new tail when Etsy has fewer images and there is no snapshot", () => {
     const plan = planEtsyPhotoSync({
       inwPhotos: inw,

@@ -571,6 +571,15 @@ describe("error classification", () => {
     expect(isEbayEndedListingError("listing ended")).toBe(true);
     expect(isEbayEndedListingError("revise an ended listing")).toBe(true);
   });
+
+  it("classifies eBay Picture Policy 500px errors as transient so URL upgrades can retry", async () => {
+    const { classifyError } = await import("../error-classifier");
+    const err = new Error(
+      "Listing details didn't update on eBay: [#25002 · API_INVENTORY · Request · HTTP 400] The resolution for provided picture(s) does not meet eBay's Picture Policy requirements. Please only use pictures that are at least 500 pixels on the longest side."
+    );
+    (err as Error & { status: number }).status = 400;
+    expect(classifyError(err)).toBe("transient");
+  });
 });
 
 describe("circuit breaker", () => {

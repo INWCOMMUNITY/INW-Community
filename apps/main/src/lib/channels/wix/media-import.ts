@@ -1,5 +1,6 @@
 import { put } from "@vercel/blob";
 import { fetchListingPhotoSource, optimizeListingPhoto } from "@/lib/listing-photo-optimize";
+import { isInwHostedPhotoUrl } from "../photo-urls";
 import { wixGet, wixJson, type WixRequestOpts } from "./client";
 
 type WixFileDescriptor = {
@@ -19,10 +20,23 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Max photos fully imported into Media Manager per sync (rest use optimized staging URLs). */
+/** Max photos fully imported into Media Manager per sync (rest use public/staging URLs). */
 const WIX_MEDIA_MANAGER_IMPORT_MAX = 8;
 
-/** Short-lived public JPEG URL Wix can fetch reliably (smaller than original blob). */
+/** True when Wix should fetch the listing URL as-is instead of a re-encoded staging JPEG. */
+export function shouldPassThroughListingPhotoToWix(sourceUrl: string): boolean {
+  return isInwHostedPhotoUrl(sourceUrl);
+}
+
+function mimeTypeForPhotoUrl(url: string): string {
+  const path = url.split("?")[0]?.toLowerCase() ?? "";
+  if (path.endsWith(".png")) return "image/png";
+  if (path.endsWith(".webp")) return "image/webp";
+  if (path.endsWith(".gif")) return "image/gif";
+  return "image/jpeg";
+}
+
+/** Short-lived public JPEG URL Wix can fetch when the source URL is not importable. */
 export async function stagingUrlForWixImport(jpeg: Buffer, index: number): Promise<string> {
   const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
   if (!token) {
@@ -65,31 +79,13 @@ async function waitForWixFileReady(
   );
 }
 
-/**
- * Import one INW photo into the site's Media Manager (hosted on static.wixstatic.com).
- * Falls back to external URL when import is unavailable.
- */
-export async function importPhotoToWixMediaManager(
+async function importWixFileFromUrl(
   accessToken: string,
-  sourceUrl: string,
+  importUrl: string,
   opts: WixRequestOpts,
-  index: number
+  index: number,
+  mimeType: string
 ): Promise<WixProductMediaRef> {
-  let importUrl = sourceUrl;
-  let mimeType = "image/jpeg";
-
-  try {
-    const raw = await fetchListingPhotoSource(sourceUrl);
-    const jpeg = await optimizeListingPhoto(raw);
-    importUrl = await stagingUrlForWixImport(jpeg, index);
-    mimeType = "image/jpeg";
-  } catch (e) {
-    console.warn("[wix] photo optimize/staging skipped, using source URL", {
-      sourceUrl: sourceUrl.slice(0, 120),
-      error: e instanceof Error ? e.message : String(e),
-    });
-  }
-
   const imported = await wixJson<ImportFileResponse>(
     accessToken,
     "/site-media/v1/files/import",
@@ -120,18 +116,53 @@ export async function importPhotoToWixMediaManager(
   return { mediaId: ready.id, wixUrl: ready.url };
 }
 
-async function optimizedExternalRef(sourceUrl: string, index: number): Promise<WixProductMediaRef> {
+async function stagingJpegUrl(sourceUrl: string, index: number): Promise<string> {
+  const raw = await fetchListingPhotoSource(sourceUrl);
+  const jpeg = await optimizeListingPhoto(raw);
+  return stagingUrlForWixImport(jpeg, index);
+}
+
+/**
+ * Import one INW photo into the site's Media Manager (hosted on static.wixstatic.com).
+ * Tries the public source URL first; only re-encodes to a staging JPEG if Wix cannot fetch it.
+ */
+export async function importPhotoToWixMediaManager(
+  accessToken: string,
+  sourceUrl: string,
+  opts: WixRequestOpts,
+  index: number
+): Promise<WixProductMediaRef> {
   try {
-    const raw = await fetchListingPhotoSource(sourceUrl);
-    const jpeg = await optimizeListingPhoto(raw);
-    const staging = await stagingUrlForWixImport(jpeg, index);
+    return await importWixFileFromUrl(
+      accessToken,
+      sourceUrl,
+      opts,
+      index,
+      mimeTypeForPhotoUrl(sourceUrl)
+    );
+  } catch (first) {
+    console.warn("[wix] media import from source URL failed, staging optimized JPEG", {
+      sourceUrl: sourceUrl.slice(0, 120),
+      error: first instanceof Error ? first.message : String(first),
+    });
+    const staging = await stagingJpegUrl(sourceUrl, index);
+    return importWixFileFromUrl(accessToken, staging, opts, index, "image/jpeg");
+  }
+}
+
+async function optimizedExternalRef(sourceUrl: string, index: number): Promise<WixProductMediaRef> {
+  if (shouldPassThroughListingPhotoToWix(sourceUrl)) {
+    return { url: sourceUrl };
+  }
+  try {
+    const staging = await stagingJpegUrl(sourceUrl, index);
     return { url: staging };
   } catch {
     return { url: sourceUrl };
   }
 }
 
-/** Import listing photos into Wix Media Manager; per-photo fallback to optimized external URL. */
+/** Import listing photos into Wix Media Manager; per-photo fallback to public/staging URL. */
 export async function resolveWixProductMediaRefs(
   accessToken: string,
   photoUrls: string[],
@@ -146,7 +177,7 @@ export async function resolveWixProductMediaRefs(
     try {
       return await importPhotoToWixMediaManager(accessToken, url, opts, index);
     } catch (e) {
-      console.warn("[wix] media manager import failed, using optimized URL", {
+      console.warn("[wix] media manager import failed, using public/staging URL", {
         url: url.slice(0, 120),
         error: e instanceof Error ? e.message : String(e),
       });

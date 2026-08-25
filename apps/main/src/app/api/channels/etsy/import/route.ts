@@ -7,6 +7,7 @@ import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
 import { importRemoteListing } from "@/lib/channels/import-listing";
 import { enrichEtsyListingSummaryWithInventory } from "@/lib/channels/etsy/variants";
+import { maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -114,6 +115,10 @@ export async function POST(req: NextRequest) {
   if (!ctx) {
     return NextResponse.json({ error: "Connect your Etsy shop first.", code: "NOT_CONNECTED" }, { status: 400 });
   }
+
+  await maybeImportShippingOptionsOnSync(userId, "etsy").catch((e) =>
+    console.warn("[etsy import] shipping option sync failed", { error: String(e) })
+  );
 
   let remote;
   try {

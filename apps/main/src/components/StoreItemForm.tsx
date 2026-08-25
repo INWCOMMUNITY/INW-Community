@@ -49,6 +49,10 @@ import {
   type ListingAspect,
 } from "@/lib/listing-limits";
 import {
+  formatShippingOptionPackageSummary,
+  shippingOptionNeedsMeasurements,
+} from "@/lib/package-weight";
+import {
   formatAspectValidationErrors,
   prepareAspectRowsForForm,
   prepareAspectsForEbayCategory,
@@ -704,7 +708,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       return null;
     }
     if (!existing && !effectiveShippingDisabled && !shippingOptionId) {
-      setError("Choose a shipping option (package size and weight), or create one in Shipping options.");
+      setError("Choose a shipping option, or create one in Shipping options.");
       return null;
     }
     const effectivePickupPolicy = useSellerProfilePickup ? sellerProfilePickupPolicy : pickupTerms;
@@ -1638,27 +1642,26 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                         ? " · Free"
                         : ` · $${(opt.shippingCostCents / 100).toFixed(2)}`
                       : ""}
-                    {opt.complete ? "" : " — needs weight and size"}
+                    {shippingOptionNeedsMeasurements(opt) ? " — needs weight and size" : ""}
                   </option>
                 ))}
               </select>
               {(() => {
                 const selected = shippingOptions.find((o) => o.id === shippingOptionId);
                 if (!selected) return null;
-                return (
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {selected.complete
-                      ? `${selected.lengthIn}×${selected.widthIn}×${selected.heightIn} in · ${selected.weightLbs} lb ${selected.weightOzRemainder} oz`
-                      : "Needs weight and size — Shippo and calculated Etsy will use defaults until you add measurements."}
-                    {selected.shippingCostCents != null
-                      ? ` · ${
-                          selected.shippingCostCents === 0
-                            ? "Free"
-                            : `$${(selected.shippingCostCents / 100).toFixed(2)}`
-                        }`
-                      : ""}
-                  </p>
+                const pkg = formatShippingOptionPackageSummary(
+                  selected,
+                  "Needs weight and size — Shippo and calculated Etsy will use defaults until you add measurements."
                 );
+                const price =
+                  selected.shippingCostCents != null
+                    ? selected.shippingCostCents === 0
+                      ? "Free"
+                      : `$${(selected.shippingCostCents / 100).toFixed(2)}`
+                    : "";
+                const line = [pkg, price].filter(Boolean).join(" · ");
+                if (!line) return null;
+                return <p className="text-xs text-gray-500 mt-0.5">{line}</p>;
               })()}
               <p className="text-xs text-gray-500 mt-0.5">
                 Used for Shippo labels and eBay/Etsy package size.{" "}

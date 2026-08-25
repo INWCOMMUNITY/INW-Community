@@ -1,3 +1,5 @@
+import { isMarketplaceCdnPhotoUrl, selectInboundListingPhotos } from "../photo-urls";
+
 /** Normalize eBay image URLs from Trading/GetItem XML for import preview and storage. */
 
 /** Longest edge eBay's CDN will serve for listing photos (PictureURLSuperSize). */
@@ -41,6 +43,47 @@ function isEbayImageHost(url: string): boolean {
   } catch {
     return /ebayimg\.com|ebaystatic\.com/i.test(url);
   }
+}
+
+/** Etsy/other marketplace CDNs that GetItem sometimes echoes as PictureURL. */
+export function isForeignMarketplacePhotoUrl(url: string): boolean {
+  try {
+    const href = url.startsWith("//") ? `https:${url}` : url;
+    const host = new URL(href).hostname.toLowerCase();
+    return host === "i.etsystatic.com" || host.endsWith(".etsystatic.com") || host.includes("etsystatic");
+  } catch {
+    return /etsystatic\.com/i.test(url);
+  }
+}
+
+/**
+ * Prefer eBay EPS URLs. Drop Etsy/blob ExternalPictureURL echoes when any EPS exists
+ * so inbound GetItem cannot overwrite INW with sibling-channel CDNs.
+ */
+export function preferEbayHostedItemPhotos(urls: string[]): string[] {
+  const unique: string[] = [];
+  for (const url of urls) {
+    if (url && !unique.includes(url)) unique.push(url);
+  }
+  const eps = unique.filter(isEbayImageHost);
+  if (eps.length > 0) return eps;
+  return unique.filter((url) => !isForeignMarketplacePhotoUrl(url));
+}
+
+/** Cron GetItem must not replace INW-hosted photos with marketplace CDN derivatives. */
+export function shouldApplyEbayInboundPhotos(args: {
+  incoming: string[];
+  current: string[];
+  force?: boolean;
+}): boolean {
+  if (args.incoming.length === 0) return false;
+  if (args.current.length === 0) return true;
+  const selected = selectInboundListingPhotos(args.current, args.incoming);
+  const unchanged =
+    selected.length === args.current.length && selected.every((url, i) => url === args.current[i]);
+  if (unchanged) return false;
+  if (args.force) return true;
+  return args.current.every(isMarketplaceCdnPhotoUrl);
 }
 
 /**
@@ -101,7 +144,7 @@ export function extractEbayItemPhotos(itemXml: string): string[] {
     if (gallery) push(gallery);
   }
 
-  return urls.slice(0, 12);
+  return preferEbayHostedItemPhotos(urls).slice(0, 12);
 }
 
 export { tag, allTags, decodeXmlEntities };

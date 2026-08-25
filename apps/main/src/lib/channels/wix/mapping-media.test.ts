@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { buildWixV1AddProductMediaPayload } from "./media";
-import type { WixProductMediaRef } from "./media-import";
-import { buildWixV1CreateBody, buildWixV1MediaFromPhotos } from "./mapping";
+import {
+  shouldPassThroughListingPhotoToWix,
+  type WixProductMediaRef,
+} from "./media-import";
+import { buildWixV1CreateBody, buildWixV1MediaFromPhotos, v1Photos, wixProductToSummary } from "./mapping";
 import type { SyncStoreItem } from "../types";
 
 describe("buildWixV1MediaFromPhotos", () => {
@@ -54,5 +57,37 @@ describe("buildWixV1MediaFromPhotos", () => {
     expect(body.product.media).toEqual({
       mainMedia: { image: { url: "https://cdn.example.com/hat.jpg" } },
     });
+  });
+});
+
+describe("Wix listing photo import quality", () => {
+  const fillUrl =
+    "https://static.wixstatic.com/media/abc123~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80/abc123~mv2.jpg";
+  const originalUrl = "https://static.wixstatic.com/media/abc123~mv2.jpg";
+
+  it("strips /v1/fill transforms from catalog v1 photos", () => {
+    expect(
+      v1Photos({
+        media: { mainMedia: { image: { url: fillUrl } } },
+      })
+    ).toEqual([originalUrl]);
+  });
+
+  it("strips /v1/fill transforms from catalog v3 photos", () => {
+    const summary = wixProductToSummary({
+      id: "p1",
+      name: "Hat",
+      media: { main: { url: fillUrl } },
+    });
+    expect(summary.photos).toEqual([originalUrl]);
+  });
+
+  it("passes INW Blob URLs through to Wix without restaging", () => {
+    expect(
+      shouldPassThroughListingPhotoToWix("https://abc.public.blob.vercel-storage.com/hat.jpg")
+    ).toBe(true);
+    expect(shouldPassThroughListingPhotoToWix("https://i.ebayimg.com/images/g/x/s-l2000.jpg")).toBe(
+      false
+    );
   });
 });

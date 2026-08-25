@@ -164,4 +164,19 @@ describe("etsyListingToSummary", () => {
     expect(summary.packageWidthIn).toBe(8);
     expect(summary.packageHeightIn).toBe(6);
   });
+
+  it("prefers url_fullxfull over url_570xN", () => {
+    const summary = etsyListingToSummary({
+      listing_id: 1,
+      title: "Mug",
+      images: [
+        {
+          rank: 1,
+          url_fullxfull: "https://i.etsystatic.com/full.jpg",
+          url_570xN: "https://i.etsystatic.com/570.jpg",
+        },
+      ],
+    });
+    expect(summary.photos).toEqual(["https://i.etsystatic.com/full.jpg"]);
+  });
 });

@@ -137,4 +137,13 @@ describe("ebay picture errors", () => {
     expect(ebayErrorActionHint(msg)).not.toMatch(/migrate this listing/i);
     expect(describeChannelSyncError("ebay", new Error(msg))).toMatch(/mixed eBay-hosted/i);
   });
+
+  it("hints about 500px Picture Policy instead of migrate-listing for #25002", () => {
+    const msg =
+      "[#25002 · API_INVENTORY · Request · HTTP 400] A user error has occurred. The resolution for provided picture(s) does not meet eBay's Picture Policy requirements. Please only use pictures that are at least 500 pixels on the longest side.";
+    expect(ebayErrorActionHint(msg)).toMatch(/500 pixels/i);
+    expect(ebayErrorActionHint(msg)).not.toMatch(/migrate this listing/i);
+    expect(describeChannelSyncError("ebay", new Error(msg))).toMatch(/500 pixels/i);
+    expect(describeChannelSyncError("ebay", new Error(msg))).not.toMatch(/migrate this listing/i);
+  });
 });

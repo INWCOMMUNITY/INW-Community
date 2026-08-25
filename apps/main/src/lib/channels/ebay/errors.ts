@@ -353,6 +353,9 @@ export function ebayErrorActionHint(reason: string): string | undefined {
   if (/mixture of self hosted and eps|self hosted and eps pictures/i.test(reason)) {
     return "eBay already has these photos as eBay-hosted images and does not allow mixing those with INW photo URLs. Other fields can still update; you do not need to re-upload the same pictures.";
   }
+  if (/500 pixels|longest side|Picture Policy|resolution for provided picture/i.test(reason)) {
+    return "eBay requires each photo to be at least 500 pixels on the longest side. Gallery thumbs cannot be used. If the listing already has full-size eBay photos, sync will send those; if a file itself is smaller than 500px, replace it and try again.";
+  }
   if (/\b25014\b|\b25015\b|invalid pictures|invalid picture url/i.test(reason)) {
     return "eBay rejected the listing photos. This is usually mixed eBay-hosted and INW-hosted URLs, not a missing JPG. If you did not change photos, try again. If you did, use HTTPS JPG or PNG.";
   }

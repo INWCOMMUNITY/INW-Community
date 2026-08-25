@@ -28,6 +28,10 @@ import {
 } from "@/lib/theme";
 import { useTheme } from "@/contexts/ThemeContext";
 import { apiGet, apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
+import {
+  formatShippingOptionPackageSummary,
+  shippingOptionNeedsMeasurements,
+} from "@/lib/shipping-option-display";
 import { alertChannelSyncFailures } from "@/lib/channel-sync-alert";
 import {
   defaultSelectedProviders,
@@ -898,7 +902,7 @@ export default function ListItemScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       allowsMultipleSelection: true,
-      quality: 0.8,
+      quality: 1,
     });
     if (result.canceled) return;
     setUploading(true);
@@ -1011,7 +1015,7 @@ export default function ListItemScreen() {
       return;
     }
     if (!editId && !shippingDisabled && !shippingOptionId) {
-      setError("Choose a shipping option (package size and weight), or create one in Shipping options.");
+      setError("Choose a shipping option, or create one in Shipping options.");
       return;
     }
     if (listingOnEbay && !isEbayImportedListing && !ebayCategoryId.trim()) {
@@ -1791,7 +1795,7 @@ export default function ListItemScreen() {
                           ? " · Free"
                           : ` · $${(opt.shippingCostCents / 100).toFixed(2)}`
                         : ""}
-                      {opt.complete ? "" : " *"}
+                      {shippingOptionNeedsMeasurements(opt) ? " *" : ""}
                       </Text>
                     </Pressable>
                   ))}
@@ -1805,20 +1809,25 @@ export default function ListItemScreen() {
                       </Text>
                     );
                   }
-                  return (
-                    <Text style={styles.hint}>
-                      {selected.complete
-                        ? `${selected.lengthIn}×${selected.widthIn}×${selected.heightIn} in · ${selected.weightLbs} lb ${selected.weightOzRemainder} oz`
-                        : "Needs weight and size — labels will use defaults until complete."}
-                      {selected.shippingCostCents != null
-                        ? ` · ${
-                            selected.shippingCostCents === 0
-                              ? "Free"
-                              : `$${(selected.shippingCostCents / 100).toFixed(2)}`
-                          }`
-                        : ""}
-                    </Text>
+                  const pkg = formatShippingOptionPackageSummary(
+                    selected,
+                    "Needs weight and size — labels will use defaults until complete."
                   );
+                  const price =
+                    selected.shippingCostCents != null
+                      ? selected.shippingCostCents === 0
+                        ? "Free"
+                        : `$${(selected.shippingCostCents / 100).toFixed(2)}`
+                      : "";
+                  const line = [pkg, price].filter(Boolean).join(" · ");
+                  if (!line) {
+                    return (
+                      <Text style={styles.hint}>
+                        Used for Shippo labels and eBay/Etsy package size.
+                      </Text>
+                    );
+                  }
+                  return <Text style={styles.hint}>{line}</Text>;
                 })()}
                 <Pressable onPress={() => router.push("/seller-hub/shipping-options" as never)}>
                   <Text style={styles.link}>Manage shipping options</Text>

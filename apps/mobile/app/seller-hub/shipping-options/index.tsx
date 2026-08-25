@@ -13,6 +13,7 @@ import {
 import { useFocusEffect, useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
+import { formatShippingOptionPackageSummary } from "@/lib/shipping-option-display";
 
 type ShippingOption = {
   id: string;
@@ -332,13 +333,15 @@ export default function ShippingOptionsScreen() {
           <Text style={styles.optionIndex}>{idx + 1}.</Text>
           <View style={styles.optionBody}>
             <Text style={styles.optionName}>{opt.name}</Text>
-            <Text style={styles.optionMeta}>
-              {opt.complete
-                ? `${opt.lengthIn}×${opt.widthIn}×${opt.heightIn} in · ${opt.weightLbs} lb ${opt.weightOzRemainder} oz`
-                : "Needs weight and size"}
-              {" · "}
-              {formatOptionPrice(opt.shippingCostCents)}
-            </Text>
+            {(() => {
+              const meta = [
+                formatShippingOptionPackageSummary(opt),
+                formatOptionPrice(opt.shippingCostCents),
+              ]
+                .filter(Boolean)
+                .join(" · ");
+              return meta ? <Text style={styles.optionMeta}>{meta}</Text> : null;
+            })()}
           </View>
           {opt.source !== "inw" ? (
             <View style={styles.pill}>
