@@ -195,6 +195,12 @@ export async function POST(req: NextRequest) {
   let verifiedLabelUrl = labelUrl?.trim() ?? null;
   let verifiedRateCents = Math.round(rateCents);
   const txId = shippoTransactionId?.trim() || null;
+  if (!txId) {
+    return NextResponse.json(
+      { error: "Shippo transaction id is required to save a label." },
+      { status: 400 }
+    );
+  }
   if (txId) {
     const { getSellerShippoCredential } = await import("@/lib/shippo-seller");
     const { fetchShippoTransaction } = await import("@/lib/shippo-transaction");

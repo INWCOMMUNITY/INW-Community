@@ -1,18 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { getSellerShippoCredential, shippoJsonHeaders } from "@/lib/shippo-seller";
-
-const SHIPPO_API = "https://api.goshippo.com";
-
-function carrierToShippoToken(carrier: string): string {
-  const c = carrier.toLowerCase().trim();
-  if (c.includes("usps")) return "usps";
-  if (c.includes("fedex")) return "fedex";
-  if (c.includes("ups")) return "ups";
-  if (c.includes("dhl")) return "dhl";
-  return c || "usps";
-}
+import { getSellerShippoCredential } from "@/lib/shippo-seller";
+import { fetchShippoTracking } from "@/lib/shippo-transaction";
+import { persistShipmentTrackingStatus } from "@/lib/shippo-tracking-persist";
 
 export const dynamic = "force-dynamic";
 
@@ -58,34 +49,23 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const token = carrierToShippoToken(carrier);
-    const res = await fetch(`${SHIPPO_API}/tracks`, {
-      method: "POST",
-      headers: shippoJsonHeaders(cred),
-      body: JSON.stringify({
-        carrier: token,
-        tracking_number: code,
-      }),
-    });
-    const data = (await res.json().catch(() => ({}))) as {
-      tracking_status?: { status?: string };
-      tracking_history?: unknown[];
-      status?: string;
-    };
-    if (!res.ok) {
-      const msg = typeof (data as { message?: string }).message === "string"
-        ? (data as { message: string }).message
-        : "Failed to get tracking";
-      return NextResponse.json({ error: msg }, { status: res.status >= 500 ? 502 : 400 });
+    const track = await fetchShippoTracking(cred, carrier, code);
+    if (!track) {
+      return NextResponse.json({ error: "Failed to get tracking" }, { status: 502 });
     }
-    const status = data.tracking_status?.status ?? data.status ?? "UNKNOWN";
-    const trackingDetails = data.tracking_history ?? [];
+    if (shipmentId) {
+      await persistShipmentTrackingStatus({
+        shipmentId,
+        trackingStatus: track.trackingStatus,
+      });
+    }
     return NextResponse.json({
-      status,
-      trackingDetails,
+      status: track.trackingStatus,
+      trackingDetails: track.trackingHistory,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to get tracking";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
+
