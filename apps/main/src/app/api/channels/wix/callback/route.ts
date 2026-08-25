@@ -54,6 +54,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       tokens.accessToken
     );
 
+    const existing = await prisma.channelConnection.findUnique({
+      where: { memberId_provider: { memberId: state.sub, provider: "wix" } },
+      select: { config: true },
+    });
+    const existingConfig =
+      existing?.config && typeof existing.config === "object" && !Array.isArray(existing.config)
+        ? (existing.config as Record<string, unknown>)
+        : {};
+
     const data = {
       provider: "wix",
       externalShopId: shopId,
@@ -69,6 +78,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       lastError: null,
       etsyShippingProfileId: null,
       config: {
+        ...existingConfig,
         instanceId,
         siteId,
         autoImportInbound: true,
