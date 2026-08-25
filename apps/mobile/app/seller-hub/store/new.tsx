@@ -32,7 +32,7 @@ import {
   formatShippingOptionPackageSummary,
   shippingOptionNeedsMeasurements,
 } from "@/lib/shipping-option-display";
-import { alertChannelSyncFailures } from "@/lib/channel-sync-alert";
+import { alertChannelPublishResult, alertChannelSyncFailures } from "@/lib/channel-sync-alert";
 import {
   defaultSelectedProviders,
   fetchChannelConnections,
@@ -1197,7 +1197,9 @@ export default function ListItemScreen() {
           id?: string;
           channelSync?: { provider: string; ok: boolean; error?: string }[];
         }>("/api/store-items", payload);
-        alertChannelSyncFailures(res.channelSync, "saved");
+        if ((res.channelSync?.length ?? 0) > 0) {
+          alertChannelPublishResult(res.channelSync);
+        }
         setCreatedItemId(res.id ?? null);
         setFeedShareDone(false);
         setShowListingSuccessModal(true);
@@ -1462,7 +1464,8 @@ export default function ListItemScreen() {
         autoCorrect={false}
       />
       <Text style={styles.hint}>
-        Synced with Etsy, eBay, and Wix. Leave blank to auto-generate.
+        Synced with Etsy, eBay, Wix, and Shopify. Leave blank to auto-generate.
+        eBay needs letters and numbers only (no spaces or hyphens).
       </Text>
 
       <Text style={styles.label}>Description</Text>

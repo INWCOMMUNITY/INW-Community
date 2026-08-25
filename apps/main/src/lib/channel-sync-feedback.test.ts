@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { buildPublishResultAlert, buildSyncFailureMessage, isChannelPublishOk } from "./channel-sync-feedback";
+import {
+  buildPublishResultAlert,
+  buildSyncFailureMessage,
+  formatChannelSyncResults,
+  isChannelPublishOk,
+} from "./channel-sync-feedback";
 
 describe("buildPublishResultAlert", () => {
   it("explains an empty result instead of staying silent", () => {
@@ -37,6 +42,19 @@ describe("buildPublishResultAlert", () => {
     expect(alert.message).toContain("do not need to re-upload");
   });
 
+  it("keeps successes visible when one store fails", () => {
+    const alert = buildPublishResultAlert([
+      { provider: "etsy", ok: true },
+      { provider: "wix", ok: true },
+      { provider: "ebay", ok: false, error: "Invalid SKU" },
+    ]);
+    expect(alert.title).toBe("Partially listed");
+    expect(alert.message).toContain("Etsy");
+    expect(alert.message).toContain("Wix");
+    expect(alert.message).toContain("eBay");
+    expect(alert.message).toContain("Invalid SKU");
+  });
+
   it("treats an empty or failed channelSync as not listed", () => {
     expect(isChannelPublishOk([])).toBe(false);
     expect(isChannelPublishOk(undefined)).toBe(false);
@@ -44,6 +62,22 @@ describe("buildPublishResultAlert", () => {
       false
     );
     expect(isChannelPublishOk([{ provider: "ebay", ok: true }])).toBe(true);
+  });
+});
+
+describe("formatChannelSyncResults", () => {
+  it("titles mixed create/save as partially listed", () => {
+    const result = formatChannelSyncResults(
+      [
+        { provider: "etsy", ok: true },
+        { provider: "ebay", ok: false, error: "Missing Brand" },
+      ],
+      "saved"
+    );
+    expect(result.title).toBe("Partially listed");
+    expect(result.successLines).toEqual(["Etsy"]);
+    expect(result.failureLines[0]).toContain("eBay");
+    expect(result.allOk).toBe(false);
   });
 });
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   remoteContentDiffersFromStoreItem,
   remoteTitleOrPriceDiffersFromStoreItem,
+  shouldApplyAggregateRemoteQuantity,
 } from "./apply-remote-listing";
 import type { RemoteListingSummary } from "./types";
 
@@ -52,6 +53,24 @@ describe("remoteTitleOrPriceDiffersFromStoreItem", () => {
   });
 });
 
+describe("shouldApplyAggregateRemoteQuantity", () => {
+  const optionVariants = [
+    { name: "size", options: [{ value: "small", quantity: 5 }, { value: "xl", quantity: 5 }] },
+  ];
+
+  it("allows aggregate qty on simple listings", () => {
+    expect(shouldApplyAggregateRemoteQuantity(null)).toBe(true);
+  });
+
+  it("blocks aggregate qty when INW has per-option stock", () => {
+    expect(shouldApplyAggregateRemoteQuantity(optionVariants)).toBe(false);
+  });
+
+  it("allows qty when remote variant axes were actually read", () => {
+    expect(shouldApplyAggregateRemoteQuantity(optionVariants, true)).toBe(true);
+  });
+});
+
 describe("remoteContentDiffersFromStoreItem photos", () => {
   const blobItem = {
     title: "Clock",
@@ -62,6 +81,15 @@ describe("remoteContentDiffersFromStoreItem photos", () => {
 
   it("does not treat Blob vs eBay CDN as a photo change", () => {
     expect(remoteContentDiffersFromStoreItem(blobItem, remote())).toBe(false);
+  });
+
+  it("treats HTML and plain-text descriptions as the same body", () => {
+    expect(
+      remoteContentDiffersFromStoreItem(
+        { ...blobItem, description: "<p>A clock</p>" },
+        remote({ description: "A clock" })
+      )
+    ).toBe(false);
   });
 
   it("applies a real CDN photo change on imported listings", () => {

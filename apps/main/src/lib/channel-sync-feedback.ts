@@ -48,7 +48,9 @@ export function formatChannelSyncResults(
           : "Removed from store"
         : failed.length === 0
           ? "Saved successfully"
-          : "Saved on INW";
+          : succeeded.length > 0
+            ? "Partially listed"
+            : "Saved on INW";
 
   const intro =
     action === "deleted"

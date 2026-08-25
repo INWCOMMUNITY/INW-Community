@@ -68,6 +68,7 @@ export default async function EditStoreItemPage({
             slug: item.slug,
             businessId: item.businessId,
             title: item.title,
+            sku: item.sku,
             description: item.description,
             photos: item.photos,
             category: item.category,

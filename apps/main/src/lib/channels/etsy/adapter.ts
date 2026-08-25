@@ -226,12 +226,25 @@ export const etsyAdapter: ChannelAdapter = {
         throw error;
       }
 
-      await pushEtsyVariants(conn.accessToken, listingId, resolvedTaxonomyId, item, readinessStateId).catch((e) =>
-        console.error("[etsy] variant push failed", { listingId, error: String(e) })
-      );
-      await this.updateInventory(conn, listingId, item.quantity, item).catch((e) =>
-        console.error("[etsy] initial inventory set failed", { listingId, error: String(e) })
-      );
+      let variantWarning: string | undefined;
+      if (hasOptionQuantities(item.variants)) {
+        try {
+          await pushEtsyVariants(
+            conn.accessToken,
+            listingId,
+            resolvedTaxonomyId,
+            item,
+            readinessStateId
+          );
+        } catch (e) {
+          variantWarning = e instanceof Error ? e.message : String(e);
+          console.error("[etsy] variant push failed", { listingId, error: variantWarning });
+        }
+      } else {
+        await this.updateInventory(conn, listingId, item.quantity, item).catch((e) =>
+          console.error("[etsy] initial inventory set failed", { listingId, error: String(e) })
+        );
+      }
 
       const profileForPublish = shippingProfileId ?? conn.etsyShippingProfileId;
       if (!profileForPublish) {
@@ -240,8 +253,9 @@ export const etsyAdapter: ChannelAdapter = {
           externalListingId: listingId,
           externalShopId: shopId,
           live: false,
-          warning:
-            "Created as an Etsy draft — add a shipping profile in Sync Stores to go live.",
+          warning: variantWarning
+            ? `Listed on Etsy but options could not be pushed: ${variantWarning}`
+            : "Created as an Etsy draft — add a shipping profile in Sync Stores to go live.",
         };
       }
       if (item.status === "active" && item.quantity > 0) {
@@ -257,7 +271,9 @@ export const etsyAdapter: ChannelAdapter = {
             externalListingId: listingId,
             externalShopId: shopId,
             live: false,
-            warning: `Created as an Etsy draft — it could not go live. ${msg.slice(0, 180)}`,
+            warning: variantWarning
+              ? `Listed on Etsy but options could not be pushed: ${variantWarning}`
+              : `Created as an Etsy draft — it could not go live. ${msg.slice(0, 180)}`,
           };
         }
       } else {
@@ -266,7 +282,19 @@ export const etsyAdapter: ChannelAdapter = {
           externalListingId: listingId,
           externalShopId: shopId,
           live: false,
-          warning: "Created as an Etsy draft — it is not live yet.",
+          warning: variantWarning
+            ? `Listed on Etsy but options could not be pushed: ${variantWarning}`
+            : "Created as an Etsy draft — it is not live yet.",
+        };
+      }
+
+      if (variantWarning) {
+        await completeTrace(trace, "success");
+        return {
+          externalListingId: listingId,
+          externalShopId: shopId,
+          live: false,
+          warning: `Listed on Etsy but options could not be pushed: ${variantWarning}`,
         };
       }
 
@@ -305,7 +333,9 @@ export const etsyAdapter: ChannelAdapter = {
       const taxonomyId =
         item.etsyTaxonomyId ??
         (await resolveProviderCategoryId(conn, "etsy", item.category)).etsyTaxonomyId;
-      const shipping = await resolveEtsyShippingProfile(conn, item.shippingCostCents);
+      const shipping = await resolveEtsyShippingProfile(conn, item.shippingCostCents, {
+        createIfMissing: false,
+      });
       const packageComplete = Boolean(
         item.package &&
           item.package.weightOz &&

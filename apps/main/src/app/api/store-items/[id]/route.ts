@@ -15,6 +15,8 @@ import type { ChannelProvider } from "@/lib/channels/types";
 import { z } from "zod";
 import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-rules";
 import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
+import { LISTING_SKU_MAX, normalizeListingSku } from "@/lib/listing-sku";
+import { findConflictingStoreItemSku } from "@/lib/listing-sku-db";
 import { isImportedEbayLink } from "@/lib/channels/ebay/listing-origin";
 import { Prisma } from "database";
 import { assertMemberShippingOption } from "@/lib/shipping-options";
@@ -27,7 +29,7 @@ import { strangerMayViewStoreItemById } from "@/lib/store-item-public-access";
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
   title: z.string().min(1).optional(),
-  sku: z.string().max(50).nullable().optional(),
+  sku: z.string().max(LISTING_SKU_MAX).nullable().optional(),
   description: z.string().nullable().optional(),
   photos: z.array(z.string()).optional(),
   category: z.string().nullable().optional(),
@@ -292,7 +294,23 @@ export async function PATCH(
 
   const update: Record<string, unknown> = {};
   if (data.title !== undefined) update.title = clampListingTitle(data.title.trim());
-  if (data.sku !== undefined) update.sku = data.sku?.trim() || null;
+  if (data.sku !== undefined) {
+    const sku = normalizeListingSku(data.sku);
+    if (sku) {
+      const conflict = await findConflictingStoreItemSku({
+        memberId: ownerId,
+        sku,
+        excludeItemId: itemId,
+      });
+      if (conflict) {
+        return NextResponse.json(
+          { error: "You already have another listing with this SKU." },
+          { status: 400 }
+        );
+      }
+    }
+    update.sku = sku;
+  }
   if (data.description !== undefined) update.description = data.description?.trim() || null;
   if (data.photos !== undefined) update.photos = data.photos;
   if (data.category !== undefined) update.category = data.category?.trim() || null;

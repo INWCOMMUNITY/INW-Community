@@ -6,6 +6,8 @@ import { createFlaggedContent } from "@/lib/flag-content";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { validateInwVariantsForSave } from "@/lib/channels/variant-sync";
 import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
+import { LISTING_SKU_MAX, normalizeListingSku } from "@/lib/listing-sku";
+import { findConflictingStoreItemSku } from "@/lib/listing-sku-db";
 import { normalizeAspectsForEbayStorage } from "@/lib/channels/ebay/sync-aspects";
 import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
@@ -244,7 +246,7 @@ export async function GET(req: NextRequest) {
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
   title: z.string().min(1, "Title is required"),
-  sku: z.string().max(50).nullable().optional(),
+  sku: z.string().max(LISTING_SKU_MAX).nullable().optional(),
   description: z.string().nullable().optional(),
   photos: z.array(z.string()).default([]),
   category: z.string().nullable().optional(),
@@ -469,6 +471,16 @@ export async function POST(req: NextRequest) {
       if (s === p) return null;
       return s;
     })();
+    const sku = normalizeListingSku(data.sku);
+    if (sku) {
+      const conflict = await findConflictingStoreItemSku({ memberId: userId, sku });
+      if (conflict) {
+        return NextResponse.json(
+          { error: "You already have another listing with this SKU." },
+          { status: 400 }
+        );
+      }
+    }
     const normalizedAspects = normalizeListingAspects(data.aspects);
     const aspectsForStorage =
       data.ebayCategoryId && normalizedAspects.length > 0
@@ -498,7 +510,7 @@ export async function POST(req: NextRequest) {
         memberId: userId,
         businessId: data.businessId || null,
         title: clampListingTitle(data.title.trim()),
-        sku: data.sku?.trim() || null,
+        sku,
         description: data.description?.trim() || null,
         photos: Array.isArray(data.photos) ? data.photos.map((p) => (p != null ? String(p) : "")).filter(Boolean) : [],
         category: data.category?.trim() || null,
@@ -563,7 +575,21 @@ export async function POST(req: NextRequest) {
       console.error("[store-items] Channel publish failed:", err);
     }
 
-    return NextResponse.json({ ...item, channelSync });
+    const links = await prisma.channelListingLink.findMany({
+      where: { storeItemId: item.id },
+      select: {
+        ...SELLER_CHANNEL_LINK_SELECT,
+        lastPushedAt: true,
+        linkOrigin: true,
+      },
+    });
+    const channelLinks = links.map((link) => ({
+      ...withListingChannelSyncWarning(link),
+      lastPushedAt: link.lastPushedAt,
+      linkOrigin: link.linkOrigin,
+    }));
+
+    return NextResponse.json({ ...item, channelSync, channelLinks });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const isConn = /P1001|ECONNREFUSED|connect/i.test(msg);

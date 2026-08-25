@@ -13,6 +13,47 @@ type TaxonomyProperty = {
   possible_values?: { value_id?: number; name?: string }[];
 };
 
+/** Pick the taxonomy property that matches an INW option axis (e.g. Size). Never fall back to props[0]. */
+export function pickEtsyTaxonomyPropertyForAxis(
+  props: TaxonomyProperty[],
+  axisName: string,
+  optionValues: string[] = []
+): TaxonomyProperty | undefined {
+  if (props.length === 0) return undefined;
+  const want = axisName.trim().toLowerCase();
+  const exact = props.find((p) => (p.name ?? "").trim().toLowerCase() === want);
+  if (exact) return exact;
+
+  const aliases = new Set<string>([want]);
+  if (want === "size" || /\bsize\b/.test(want)) {
+    aliases.add("size");
+    aliases.add("primary size");
+    aliases.add("clothing size");
+  }
+  const byAlias = props.find((p) => aliases.has((p.name ?? "").trim().toLowerCase()));
+  if (byAlias) return byAlias;
+
+  const byIncludes = props.find((p) => {
+    const n = (p.name ?? "").trim().toLowerCase();
+    return n.includes(want) || (want.length >= 3 && n.length >= 3 && want.includes(n));
+  });
+  if (byIncludes) return byIncludes;
+
+  const optionKeys = optionValues.map((v) => v.trim().toLowerCase()).filter(Boolean);
+  if (optionKeys.length > 0) {
+    const covering = props.find((p) => {
+      const names = new Set(
+        (p.possible_values ?? []).map((v) => (v.name ?? "").trim().toLowerCase()).filter(Boolean)
+      );
+      if (names.size === 0) return false;
+      return optionKeys.every((k) => names.has(k));
+    });
+    if (covering) return covering;
+  }
+
+  return undefined;
+}
+
 type EtsyInventoryOffering = {
   offering_id?: number;
   quantity?: number;
@@ -161,11 +202,9 @@ async function putEtsyInventoryIfValid(
   skuPropertyId?: number
 ): Promise<void> {
   if (!inventoryHasEnabledOfferingWithStock(products)) {
-    console.warn("[etsy] skipping inventory PUT — Etsy requires at least one enabled offering with quantity > 0", {
-      listingId,
-      productCount: products.length,
-    });
-    return;
+    throw new Error(
+      "Etsy requires at least one enabled offering with quantity > 0. Options were not pushed."
+    );
   }
   await etsyJson(
     accessToken,
@@ -173,6 +212,22 @@ async function putEtsyInventoryIfValid(
     "PUT",
     inventoryPutBody(inv, products, skuPropertyId)
   );
+}
+
+async function putEtsyVariantMatrix(
+  accessToken: string,
+  listingId: string,
+  body: { products: Record<string, unknown>[] }
+): Promise<void> {
+  const propId = (body.products[0] as { property_values?: { property_id?: number }[] })
+    ?.property_values?.[0]?.property_id;
+  const inv: EtsyInventory = {};
+  if (propId != null && body.products.length > 1) {
+    inv.quantity_on_property = [propId];
+    inv.price_on_property = [propId];
+    inv.sku_on_property = [propId];
+  }
+  await putEtsyInventoryIfValid(accessToken, listingId, inv, body.products, propId);
 }
 
 function rebuildExistingProduct(
@@ -235,8 +290,11 @@ async function buildProductRowForOption(
   skuPattern?: { hasSkus: boolean; useValueSuffix: boolean }
 ): Promise<Record<string, unknown> | null> {
   const props = properties ?? (await fetchTaxonomyProperties(accessToken, taxonomyId));
-  const prop =
-    props.find((p) => p.name?.toLowerCase() === axis.name.toLowerCase()) ?? props[0];
+  const prop = pickEtsyTaxonomyPropertyForAxis(
+    props,
+    axis.name,
+    [opt.value]
+  );
   if (!prop?.property_id) return null;
 
   const valueName = opt.value.trim();
@@ -480,14 +538,7 @@ export async function syncEtsyListingInventoryFromInw(
     if (!body) {
       throw new Error("Could not create Etsy inventory from INW variant options.");
     }
-    const propId = (body.products[0] as { property_values?: { property_id?: number }[] })
-      ?.property_values?.[0]?.property_id;
-    const putPayload: Record<string, unknown> = { ...body };
-    if (propId != null && body.products.length > 1) {
-      putPayload.quantity_on_property = [propId];
-      putPayload.price_on_property = [propId];
-    }
-    await etsyJson(accessToken, `/listings/${listingId}/inventory`, "PUT", putPayload);
+    await putEtsyVariantMatrix(accessToken, listingId, body);
     return;
   }
 
@@ -505,14 +556,7 @@ export async function syncEtsyListingInventoryFromInw(
     if (!body) {
       throw new Error("Could not build Etsy variant inventory from INW options.");
     }
-    const propId = (body.products[0] as { property_values?: { property_id?: number }[] })
-      ?.property_values?.[0]?.property_id;
-    const putPayload: Record<string, unknown> = { ...body };
-    if (propId != null && body.products.length > 1) {
-      putPayload.quantity_on_property = [propId];
-      putPayload.price_on_property = [propId];
-    }
-    await etsyJson(accessToken, `/listings/${listingId}/inventory`, "PUT", putPayload);
+    await putEtsyVariantMatrix(accessToken, listingId, body);
     return;
   }
 
@@ -755,6 +799,16 @@ export async function buildEtsyInventoryProducts(
 
   const products: Record<string, unknown>[] = [];
   const primaryAxis = axes[0];
+  const matchedProp = pickEtsyTaxonomyPropertyForAxis(
+    properties,
+    primaryAxis.name,
+    primaryAxis.options.map((o) => o.value)
+  );
+  if (!matchedProp?.property_id) {
+    throw new Error(
+      `Etsy category has no "${primaryAxis.name}" variation. Rename the option to match an Etsy property (for example Size) or choose a different Etsy category.`
+    );
+  }
   for (const opt of primaryAxis.options) {
     const row = await buildProductRowForOption(
       accessToken,
@@ -768,7 +822,11 @@ export async function buildEtsyInventoryProducts(
     if (row) products.push(row);
   }
 
-  if (products.length === 0) return null;
+  if (products.length === 0) {
+    throw new Error(
+      `Could not map INW "${primaryAxis.name}" options onto Etsy. Check the Etsy category supports those values.`
+    );
+  }
   return { products };
 }
 
@@ -797,7 +855,7 @@ export async function pushEtsyVariants(
     productCount: body.products.length,
     defaultReadinessStateId: readiness,
   });
-  await etsyJson(accessToken, `/listings/${listingId}/inventory`, "PUT", body);
+  await putEtsyVariantMatrix(accessToken, listingId, body);
 }
 
 /** Normalize Etsy inventory products to INW variant axes. */

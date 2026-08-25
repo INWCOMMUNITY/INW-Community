@@ -181,6 +181,47 @@ export async function mergeV2InventoryIntoV1Product(
 
 type WixCollection = { id?: string; name?: string; productIds?: string[] };
 
+export function isWixCollectionAlreadyExistsError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /already exists/i.test(msg);
+}
+
+async function queryWixCollections(
+  accessToken: string,
+  opts: WixRequestOpts,
+  v1: boolean
+): Promise<WixCollection[]> {
+  if (v1) {
+    const posted = await wixJson<{ collections?: WixCollection[] }>(
+      accessToken,
+      `/stores/v1/collections/query`,
+      "POST",
+      { query: { paging: { limit: 100 } } },
+      opts
+    ).catch(() => null);
+    if (posted?.collections?.length) return posted.collections;
+    const got = await wixGet<{ collections?: WixCollection[] }>(
+      accessToken,
+      `/stores/v1/collections/query`,
+      opts
+    ).catch(() => null);
+    return got?.collections ?? [];
+  }
+  const posted = await wixJson<{ collections?: WixCollection[] }>(
+    accessToken,
+    `/stores/v3/collections/query`,
+    "POST",
+    { query: { cursorPaging: { limit: 100 } } },
+    opts
+  ).catch(() => null);
+  return posted?.collections ?? [];
+}
+
+function wixCollectionIdByName(collections: WixCollection[], name: string): string | null {
+  const want = name.trim().toLowerCase();
+  return collections.find((c) => c.name?.trim().toLowerCase() === want)?.id ?? null;
+}
+
 /**
  * Build collection id → name map and (best-effort) product id → first collection name
  * for inbound category auto-translate.
@@ -197,15 +238,11 @@ export async function fetchWixCollectionCategoryMaps(
   const categoryByProductId = new Map<string, string>();
 
   try {
+    const listed = await queryWixCollections(accessToken, opts, v1);
+    for (const c of listed) {
+      if (c.id && c.name?.trim()) collectionNameById.set(c.id, c.name.trim());
+    }
     if (v1) {
-      const list = await wixGet<{ collections?: WixCollection[] }>(
-        accessToken,
-        `/stores/v1/collections/query`,
-        opts
-      ).catch(() => null);
-      for (const c of list?.collections ?? []) {
-        if (c.id && c.name?.trim()) collectionNameById.set(c.id, c.name.trim());
-      }
       // Enrich product → collection via each collection's productIds (cap to avoid timeouts).
       let fetched = 0;
       for (const [id, name] of collectionNameById) {
@@ -222,19 +259,6 @@ export async function fetchWixCollectionCategoryMaps(
           }
         }
       }
-      return { collectionNameById, categoryByProductId };
-    }
-
-    // Catalog v3 — query collections list when available.
-    const list = await wixJson<{ collections?: WixCollection[] }>(
-      accessToken,
-      `/stores/v3/collections/query`,
-      "POST",
-      { query: { cursorPaging: { limit: 100 } } },
-      opts
-    ).catch(() => null);
-    for (const c of list?.collections ?? []) {
-      if (c.id && c.name?.trim()) collectionNameById.set(c.id, c.name.trim());
     }
   } catch (e) {
     console.warn("[wix] fetchWixCollectionCategoryMaps failed", { error: String(e) });
@@ -252,17 +276,10 @@ export async function ensureWixCollection(
 ): Promise<string | null> {
   const name = collectionName.trim().slice(0, 80);
   if (!name) return null;
+  const existingId = wixCollectionIdByName(await queryWixCollections(accessToken, opts, v1), name);
+  if (existingId) return existingId;
   try {
     if (v1) {
-      const list = await wixGet<{ collections?: WixCollection[] }>(
-        accessToken,
-        `/stores/v1/collections/query`,
-        opts
-      ).catch(() => null);
-      const existing = list?.collections?.find(
-        (c) => c.name?.toLowerCase() === name.toLowerCase()
-      );
-      if (existing?.id) return existing.id;
       const created = await wixJson<{ collection?: WixCollection }>(
         accessToken,
         `/stores/v1/collections`,
@@ -281,6 +298,10 @@ export async function ensureWixCollection(
     );
     return created.collection?.id ?? null;
   } catch (e) {
+    if (isWixCollectionAlreadyExistsError(e)) {
+      const retryId = wixCollectionIdByName(await queryWixCollections(accessToken, opts, v1), name);
+      if (retryId) return retryId;
+    }
     console.error("[wix] ensureWixCollection failed", { name, error: String(e) });
     return null;
   }
@@ -335,7 +356,7 @@ export function buildWixV1OptionsCreateBody(item: SyncStoreItem): Record<string,
     priceData: { price: Math.max(0, item.priceCents) / 100 },
   }));
 
-  return { product: { productOptions, variants } };
+  return { product: { manageVariants: true, productOptions, variants } };
 }
 
 function inwPrimaryAxis(item: SyncStoreItem): InwVariantAxis | null {
@@ -389,6 +410,15 @@ export function wixOptionStructureMatches(
   }
 
   return false;
+}
+
+/** True when Wix still has a dummy/default variant (no choice values) and options need to be created. */
+export function wixV1NeedsOptionStructureRebuild(
+  product: WixV1Product | null | undefined
+): boolean {
+  const rows = product?.variants?.filter((v) => v.id) ?? [];
+  if (rows.length === 0) return true;
+  return rows.every((row) => Object.keys(wixVariantChoiceMap(row)).length === 0);
 }
 
 /**
@@ -486,9 +516,9 @@ export async function pushWixV1PerOptionInventory(
   let product = await fetchWixV1Product(accessToken, productId, opts);
   let rows = product?.variants?.filter((v) => v.id) ?? [];
 
-  // Create the option structure ONLY when the product genuinely has no managed variants.
-  // (Never reset/replace an existing structure here — that path can wipe live Wix stock.)
-  if (rows.length === 0) {
+  // Create the option structure when the product has no managed variants, or only a dummy
+  // default variant with empty choices (Wix Catalog v1 before manageVariants is on).
+  if (wixV1NeedsOptionStructureRebuild(product)) {
     const structureOk = await pushWixV1OptionsUpdate(accessToken, productId, item, opts);
     if (!structureOk) {
       console.warn("[wix] pushWixV1PerOptionInventory: no variants and structure create failed", {
@@ -498,7 +528,7 @@ export async function pushWixV1PerOptionInventory(
     }
     product = await fetchWixV1Product(accessToken, productId, opts);
     rows = product?.variants?.filter((v) => v.id) ?? [];
-    if (rows.length === 0) {
+    if (wixV1NeedsOptionStructureRebuild(product) || rows.length === 0) {
       console.warn("[wix] pushWixV1PerOptionInventory: structure did not propagate", { productId });
       return false;
     }
@@ -598,8 +628,9 @@ export async function pushWixV1OptionsUpdate(
 
   const product = await fetchWixV1Product(accessToken, productId, opts);
   const existingRows = product?.variants?.filter((v) => v.id) ?? [];
+  const needsRebuild = wixV1NeedsOptionStructureRebuild(product);
 
-  if (existingRows.length > 0) {
+  if (existingRows.length > 0 && !needsRebuild) {
     if (wixOptionStructureMatches(item, product)) {
       const patchBody = buildWixV1ExistingVariantsPatchBody(item, product!);
       if (!patchBody) return false;
@@ -625,6 +656,10 @@ export async function pushWixV1OptionsUpdate(
       opts
     );
     return true;
+  }
+
+  if (existingRows.length > 0 && needsRebuild) {
+    await resetWixV1VariantsToDefault(accessToken, productId, opts).catch(() => {});
   }
 
   const createBody = buildWixV1OptionsCreateBody(item);

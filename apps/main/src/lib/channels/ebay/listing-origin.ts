@@ -3,6 +3,8 @@
  * Imported listings use passthrough sync (live eBay aspects are source of truth).
  */
 
+import { isValidEbayInventorySku } from "./migrate-prep";
+
 export type EbayLinkOrigin = "import" | "inw_create";
 
 const IMPORTED_EBAY_SKU = /^inw\d+$/i;
@@ -39,14 +41,17 @@ export function resolveEbayPushSku(args: {
     const sku = args.itemSku?.trim();
     // Migrated inw{listingId} SKUs must not replace the original StoreItem id SKU —
     // that publishes a second live listing on the next cron push.
-    if (sku && !IMPORTED_EBAY_SKU.test(sku)) return sku;
+    // Hyphens/spaces are valid seller SKUs on Etsy/Wix/Shopify but not eBay Inventory.
+    if (sku && !IMPORTED_EBAY_SKU.test(sku) && isValidEbayInventorySku(sku)) return sku;
     return args.itemId;
   }
   if (args.linkOrigin === "import") {
     return resolveEbayInventorySku(args.externalListingId);
   }
   if (!args.linkOrigin && args.externalListingId === args.itemId) {
-    return args.itemSku?.trim() || args.itemId;
+    const sku = args.itemSku?.trim();
+    if (sku && isValidEbayInventorySku(sku) && !IMPORTED_EBAY_SKU.test(sku)) return sku;
+    return args.itemId;
   }
   return resolveEbayInventorySku(args.externalListingId);
 }

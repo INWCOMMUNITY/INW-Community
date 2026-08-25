@@ -87,6 +87,28 @@ describe("listing-origin", () => {
     ).toBe("cmsz85hpj0001ahwfa2pmvtun");
   });
 
+  it("uses a seller SKU on eBay when it is alphanumeric", () => {
+    expect(
+      resolveEbayPushSku({
+        itemId: "cmsz85hpj0001ahwfa2pmvtun",
+        itemSku: "HAT42",
+        externalListingId: "403004607151",
+        linkOrigin: "inw_create",
+      })
+    ).toBe("HAT42");
+  });
+
+  it("keeps StoreItem id when the seller SKU is not eBay-safe", () => {
+    expect(
+      resolveEbayPushSku({
+        itemId: "cmsz85hpj0001ahwfa2pmvtun",
+        itemSku: "HAT-42",
+        externalListingId: "403004607151",
+        linkOrigin: "inw_create",
+      })
+    ).toBe("cmsz85hpj0001ahwfa2pmvtun");
+  });
+
   it("treats numeric legacy Item ID as import", () => {
     expect(
       isImportedEbayLink({

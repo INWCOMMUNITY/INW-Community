@@ -4,10 +4,10 @@ import { EBAY_TITLE_MAX } from "@/lib/listing-limits";
 import { clampSaneInventoryQty } from "./inventory-sanity";
 import { storeListingDescription } from "./import-listing";
 import { inboundListingPhotosDiffer, selectInboundListingPhotos } from "./photo-urls";
-import { sanitizeListingDescription } from "./rich-description";
+import { listingDescriptionToPlainText } from "./rich-description";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 import { logSyncPullQuantityChange } from "./quantity-audit";
-import { isSoldOutQtyRecovery, shouldBlockSoldOutQtyRecovery } from "./sold-out-guard";
+import { hasOptionQuantities } from "@/lib/store-item-variants";
 
 /** Normalize title text so HTML entities don't trigger false content drift. */
 function normalizeTitleForCompare(title: string): string {
@@ -37,6 +37,14 @@ export function remoteTitleOrPriceDiffersFromStoreItem(
   return titleDiffers || priceDiffers;
 }
 
+/** Compare listing bodies as plain text so HTML vs Etsy/Wix markup is not a false edit. */
+export function inboundDescriptionsMatch(
+  local: string | null | undefined,
+  remote: string | null | undefined
+): boolean {
+  return (listingDescriptionToPlainText(local) ?? "") === (listingDescriptionToPlainText(remote) ?? "");
+}
+
 export function remoteContentDiffersFromStoreItem(
   item: {
     title: string;
@@ -50,8 +58,7 @@ export function remoteContentDiffersFromStoreItem(
     normalizeTitleForCompare(item.title) !== normalizeTitleForCompare(remote.title.slice(0, 200)) ||
     item.priceCents !== remote.priceCents ||
     inboundListingPhotosDiffer(item.photos, remote.photos) ||
-    (sanitizeListingDescription(item.description) ?? "") !==
-      (sanitizeListingDescription(remote.description) ?? "")
+    !inboundDescriptionsMatch(item.description, remote.description)
   );
 }
 
@@ -97,7 +104,12 @@ export async function applyRemoteContentToStoreItem(
 
   const inboundPhotos = selectInboundListingPhotos(item.photos, safeRemote.photos);
   const differs = remoteContentDiffersFromStoreItem(item, safeRemote);
-  if (!differs) {
+  const adoptedSku = skuToAdoptFromRemote({
+    localSku: item.sku,
+    remoteSku: safeRemote.sku,
+    itemId: storeItemId,
+  });
+  if (!differs && !adoptedSku) {
     console.log("[channels] applyRemoteContent: no differences detected", {
       storeItemId,
       localTitle: item.title?.slice(0, 30),
@@ -122,16 +134,29 @@ export async function applyRemoteContentToStoreItem(
   await prisma.storeItem.update({
     where: { id: storeItemId },
     data: {
-      title: safeRemote.title.slice(0, 200),
-      description: storeListingDescription(safeRemote.description),
-      photos: inboundPhotos,
-      priceCents: safeRemote.priceCents,
+      ...(differs
+        ? {
+            title: safeRemote.title.slice(0, 200),
+            description: storeListingDescription(safeRemote.description),
+            photos: inboundPhotos,
+            priceCents: safeRemote.priceCents,
+          }
+        : {}),
+      ...(adoptedSku ? { sku: adoptedSku } : {}),
     },
   });
   return true;
 }
 
 /** Apply quantity from Wix inventory webhooks or targeted pull (not catalog list defaults). */
+export function shouldApplyAggregateRemoteQuantity(
+  variants: unknown,
+  remoteVariantsKnown?: boolean
+): boolean {
+  if (!hasOptionQuantities(variants)) return true;
+  return remoteVariantsKnown === true;
+}
+
 export async function applyRemoteQuantityToStoreItem(
   storeItemId: string,
   remoteQuantity: number,
@@ -143,6 +168,14 @@ export async function applyRemoteQuantityToStoreItem(
 ): Promise<boolean> {
   const item = await prisma.storeItem.findUnique({ where: { id: storeItemId } });
   if (!item) return false;
+
+  if (!shouldApplyAggregateRemoteQuantity(item.variants)) {
+    console.log("[channels] skip aggregate qty pull; listing uses per-option stock", {
+      storeItemId,
+      remoteQuantity,
+    });
+    return false;
+  }
 
   const remoteQty = clampSaneInventoryQty(remoteQuantity);
   if (remoteQty == null) {

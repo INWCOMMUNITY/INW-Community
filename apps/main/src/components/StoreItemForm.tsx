@@ -19,6 +19,10 @@ import {
   formatChannelSyncResults,
   type ChannelSyncRow,
 } from "@/lib/channel-sync-feedback";
+import {
+  consumeListingChannelSync,
+  persistListingChannelSync,
+} from "@/lib/listing-channel-sync-session";
 import { ListingEditorLayout } from "@/components/store-item/ListingEditorLayout";
 import { ListingFormSection } from "@/components/store-item/ListingFormSection";
 import { ListingConditionToggle } from "@/components/store-item/ListingConditionToggle";
@@ -32,6 +36,7 @@ import { ChannelListOnCheckboxes } from "@/components/store-item/ChannelListOnCh
 import { ChannelSyncResultBanner } from "@/components/store-item/ChannelSyncResultBanner";
 import { ItemSyncActivityLog } from "@/components/store-item/ItemSyncActivityLog";
 import { LISTING_SYNC_HINTS, SyncFieldHint } from "@/components/store-item/listing-sync-hints";
+import { LISTING_SKU_MAX } from "@/lib/listing-sku";
 import {
   listingHintClass,
   listingInputClass,
@@ -130,6 +135,7 @@ interface StoreItemFormProps {
     channelLinks?: ChannelLinkSummary[];
     ebayLinkOrigin?: "import" | "inw_create" | null;
     hasEbayImportLink?: boolean;
+    sku?: string | null;
   };
   /** Redirect after successful create/update (default: /seller-hub/store/items). */
   successRedirect?: string;
@@ -141,6 +147,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [businessId, setBusinessId] = useState(existing?.businessId ?? "");
   const [condition, setCondition] = useState<"new" | "used">(existing?.condition ?? "new");
   const [title, setTitle] = useState(existing?.title ?? "");
+  const [sku, setSku] = useState(existing?.sku ?? "");
   const [description, setDescription] = useState(() =>
     listingDescriptionForEditForm(existing?.description)
   );
@@ -284,6 +291,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   );
   const [skipSyncOnSave, setSkipSyncOnSave] = useState(false);
   const [lastChannelSync, setLastChannelSync] = useState<ChannelSyncRow[] | undefined>();
+  const [retryingFailedChannels, setRetryingFailedChannels] = useState(false);
   const [successDetail, setSuccessDetail] = useState("");
   const [syncLogRefreshKey, setSyncLogRefreshKey] = useState(0);
 
@@ -318,6 +326,12 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     : listOnProviders.includes("ebay");
   const showEtsyRequirements = listingOnEtsy;
   const showEbayRequirements = listingOnEbay;
+
+  useEffect(() => {
+    if (!existing?.id) return;
+    const stored = consumeListingChannelSync(existing.id);
+    if (stored?.length) setLastChannelSync(stored);
+  }, [existing?.id]);
 
   useEffect(() => {
     fetch("/api/me/policies")
@@ -762,6 +776,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     return {
       businessId: businessId || null,
       title: title.trim(),
+      sku: sku.trim() || null,
       description: listingDescriptionFromEditForm(description),
       photos,
       category: category.trim() || null,
@@ -870,16 +885,17 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           }))
         );
       } else if (existing?.id) {
-        const refresh = await fetch(`/api/store-items/${existing.id}`, { credentials: "include" });
-        const refreshed = await refresh.json();
-        if (Array.isArray(refreshed.channelLinks)) {
-          setChannelLinks(refreshed.channelLinks);
-        }
+        await refreshChannelLinks(existing.id);
       }
 
       setSyncLogRefreshKey((k) => k + 1);
 
       if (!syncResult.allOk && (data.channelSync?.length ?? 0) > 0) {
+        if (!existing && data.id) {
+          persistListingChannelSync(data.id, data.channelSync ?? []);
+          router.replace(`/seller-hub/store/${data.id}`);
+          router.refresh();
+        }
         return;
       }
 
@@ -921,6 +937,53 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     }
 
     await performSubmit(payload);
+  }
+
+  async function refreshChannelLinks(itemId: string) {
+    const refresh = await fetch(`/api/store-items/${itemId}`, { credentials: "include" });
+    const refreshed = await refresh.json();
+    if (Array.isArray(refreshed.channelLinks)) {
+      setChannelLinks(refreshed.channelLinks);
+    }
+  }
+
+  async function retryFailedChannelPublish() {
+    const itemId = existing?.id;
+    const failed = (lastChannelSync ?? [])
+      .filter((r) => !r.ok)
+      .map((r) => r.provider)
+      .filter((p): p is ChannelProviderId =>
+        p === "etsy" || p === "ebay" || p === "shopify" || p === "wix"
+      );
+    if (!itemId || failed.length === 0 || retryingFailedChannels) return;
+    setRetryingFailedChannels(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/store-items/${itemId}/publish-channels`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providers: failed }),
+      });
+      let data: { error?: unknown; message?: string; channelSync?: ChannelSyncRow[] } = {};
+      try {
+        const text = await res.text();
+        if (text) data = JSON.parse(text);
+      } catch {
+        data = { error: `Retry failed (${res.status}).` };
+      }
+      if (!res.ok) {
+        setError(getErrorMessage(data?.error, data?.message ?? "Could not retry failed stores"));
+        return;
+      }
+      setLastChannelSync(data.channelSync);
+      await refreshChannelLinks(itemId);
+      setSyncLogRefreshKey((k) => k + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not retry failed stores");
+    } finally {
+      setRetryingFailedChannels(false);
+    }
   }
 
   function handleSuccessModalClose() {
@@ -1096,6 +1159,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                   onLinksUpdated={setChannelLinks}
                   onItemRefreshed={(item) => {
                     setTitle(item.title ?? "");
+                    if (item.sku !== undefined) setSku(item.sku ?? "");
                     setDescription(listingDescriptionForEditForm(item.description));
                     setPhotos(Array.isArray(item.photos) ? item.photos : []);
                     setCategory(item.category ?? "");
@@ -1173,9 +1237,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
               <ChannelSyncResultBanner
                 channelSync={lastChannelSync}
                 onDismiss={() => setLastChannelSync(undefined)}
+                onRetryFailed={existing ? () => void retryFailedChannelPublish() : undefined}
+                retrying={retryingFailedChannels}
               />
 
-              <ListingFormSection title="Listing Details" description="Title, Description, and Category.">
+              <ListingFormSection title="Listing Details" description="Title, SKU, description, and category.">
                 <div>
                   <label className={listingLabelClass}>Title *</label>
                   <input
@@ -1190,6 +1256,38 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                     {title.length}/{EBAY_TITLE_MAX}
                   </p>
                   {showSyncHints ? <SyncFieldHint text={LISTING_SYNC_HINTS.title} /> : null}
+                </div>
+
+                <div>
+                  <label className={listingLabelClass} htmlFor="listing-sku">
+                    SKU
+                  </label>
+                  <input
+                    id="listing-sku"
+                    type="text"
+                    value={sku}
+                    maxLength={LISTING_SKU_MAX}
+                    autoComplete="off"
+                    spellCheck={false}
+                    onChange={(e) => setSku(e.target.value.slice(0, LISTING_SKU_MAX))}
+                    className={`${listingInputClass} max-w-md font-mono`}
+                    placeholder="Optional — your stock keeping unit"
+                  />
+                  <p className={listingHintClass}>
+                    {existing?.ebayLinkOrigin === "import"
+                      ? "Synced to Etsy, Wix, and Shopify. eBay imported listings keep their eBay inventory SKU."
+                      : "Synced to Etsy, eBay, Wix, and Shopify when you save. Leave blank to auto-generate."}
+                  </p>
+                  {showSyncHints ? <SyncFieldHint text={LISTING_SYNC_HINTS.sku} /> : null}
+                  {existing?.ebayLinkOrigin === "inw_create" ? (
+                    <p className={listingHintClass}>
+                      eBay only accepts letters and numbers (no spaces or hyphens). Other stores can keep punctuation.
+                    </p>
+                  ) : sku && /[^a-zA-Z0-9]/.test(sku) ? (
+                    <p className={listingHintClass}>
+                      eBay only accepts letters and numbers. This SKU still syncs to Etsy, Wix, and Shopify; eBay will keep using this listing’s id.
+                    </p>
+                  ) : null}
                 </div>
 
                 <div>

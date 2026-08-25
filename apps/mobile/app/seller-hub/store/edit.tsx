@@ -11,6 +11,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  Modal,
   Switch,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -24,6 +25,14 @@ const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 function toFullUrl(url: string): string {
   return url.startsWith("http") ? url : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+function normalizeWebsiteUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  return `https://${trimmed}`;
 }
 
 interface SellerProfile {
@@ -62,6 +71,8 @@ export default function EditSellerProfileScreen() {
   const [coverPhotoUrl, setCoverPhotoUrl] = useState("");
   const [acceptOffersOnResale, setAcceptOffersOnResale] = useState(true);
   const [acceptMessagesForListings, setAcceptMessagesForListings] = useState(true);
+  const [savedOpen, setSavedOpen] = useState(false);
+  const [sellerSlug, setSellerSlug] = useState("");
 
   useEffect(() => {
     apiGet<SellerProfile | { error: string }>("/api/seller-profile")
@@ -76,6 +87,7 @@ export default function EditSellerProfileScreen() {
           setAddress(biz.address ?? "");
           setLogoUrl(biz.logoUrl ?? "");
           setCoverPhotoUrl((biz as { coverPhotoUrl?: string | null }).coverPhotoUrl ?? "");
+          setSellerSlug(biz.slug ?? "");
         }
         if (data && "member" in data && data.member) {
           if (typeof data.member.acceptOffersOnResale === "boolean") {
@@ -154,6 +166,8 @@ export default function EditSellerProfileScreen() {
   const handleSave = useCallback(async () => {
     setError("");
     setSaving(true);
+    const websiteUrl = normalizeWebsiteUrl(website);
+    setWebsite(websiteUrl);
     try {
       await apiPatch("/api/seller-profile", {
         acceptOffersOnResale,
@@ -163,20 +177,31 @@ export default function EditSellerProfileScreen() {
           phone: phone.trim() || null,
           email: email.trim() || null,
           fullDescription: fullDescription.trim() || null,
-          website: website.trim() || null,
+          website: websiteUrl || null,
           address: address.trim() || null,
           logoUrl: logoUrl.trim() || null,
           coverPhotoUrl: coverPhotoUrl.trim() || null,
         },
       });
-      router.back();
+      let slug = sellerSlug;
+      if (!slug) {
+        try {
+          const refreshed = await apiGet<SellerProfile | { error: string }>("/api/seller-profile");
+          if (refreshed && "business" in refreshed && refreshed.business?.slug) {
+            slug = refreshed.business.slug;
+          }
+        } catch {
+          slug = "";
+        }
+      }
+      setSellerSlug(slug);
+      setSavedOpen(true);
     } catch (e) {
       setError((e as { error?: string }).error ?? "Failed to save");
     } finally {
       setSaving(false);
     }
   }, [
-    router,
     acceptOffersOnResale,
     acceptMessagesForListings,
     name,
@@ -187,6 +212,7 @@ export default function EditSellerProfileScreen() {
     address,
     logoUrl,
     coverPhotoUrl,
+    sellerSlug,
   ]);
 
   useLayoutEffect(() => {
@@ -226,6 +252,31 @@ export default function EditSellerProfileScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
     >
+      <Modal visible={savedOpen} transparent animationType="fade" statusBarTranslucent>
+        <View style={styles.savedBackdrop}>
+          <View style={styles.savedPanel}>
+            <Text style={styles.savedTitle}>Your Seller Page has been saved.</Text>
+            <Pressable
+              style={({ pressed }) => [styles.savedBtn, pressed && { opacity: 0.85 }]}
+              onPress={() => router.replace("/seller-hub")}
+              accessibilityRole="button"
+              accessibilityLabel="Return to Seller Hub"
+            >
+              <Text style={styles.savedBtnText}>Return to Seller Hub</Text>
+            </Pressable>
+            {sellerSlug ? (
+              <Pressable
+                style={({ pressed }) => [styles.savedBtn, pressed && { opacity: 0.85 }]}
+                onPress={() => router.push(`/seller/${sellerSlug}` as never)}
+                accessibilityRole="button"
+                accessibilityLabel="See Seller Page"
+              >
+                <Text style={styles.savedBtnText}>See Seller Page</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -332,10 +383,11 @@ export default function EditSellerProfileScreen() {
             style={inputStyle}
             value={website}
             onChangeText={setWebsite}
+            onBlur={() => setWebsite(normalizeWebsiteUrl(website))}
             placeholder="https://"
             keyboardType="url"
             autoCapitalize="none"
-            autoCorrect={true}
+            autoCorrect={false}
           />
 
           <View style={styles.switchRow}>
@@ -442,4 +494,36 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   switchHint: { fontSize: 12, color: "#888", marginTop: 4, lineHeight: 18 },
+  savedBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  savedPanel: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    padding: 24,
+  },
+  savedTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  savedBtn: {
+    backgroundColor: theme.colors.primary,
+    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  savedBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
 });

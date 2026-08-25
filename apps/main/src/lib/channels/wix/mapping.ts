@@ -214,18 +214,39 @@ function v1PriceCents(product: WixV1Product): number {
   return 0;
 }
 
-export function v1Quantity(product: WixV1Product): number {
+export function v1QuantityInfo(product: WixV1Product): { quantity: number; known: boolean } {
   const stock = product.stock;
   if (stock?.trackInventory && typeof stock.quantity === "number") {
-    return Math.max(0, stock.quantity);
+    return { quantity: Math.max(0, stock.quantity), known: true };
+  }
+  const choiceRows = (product.variants ?? []).filter((v) => {
+    const choices = v.choices;
+    if (!choices) return false;
+    if (Array.isArray(choices)) return choices.length > 0;
+    return Object.keys(choices as object).length > 0;
+  });
+  if (choiceRows.length > 0) {
+    let total = 0;
+    let saw = false;
+    for (const row of choiceRows) {
+      if (typeof row.stock?.quantity === "number") {
+        total += row.stock.quantity;
+        saw = true;
+      }
+    }
+    if (saw) return { quantity: Math.max(0, total), known: true };
   }
   const vStock = product.variants?.[0]?.stock;
   if (vStock?.trackInventory !== false && typeof vStock?.quantity === "number") {
-    return Math.max(0, vStock.quantity);
+    return { quantity: Math.max(0, vStock.quantity), known: true };
   }
-  if (stock?.inStock === false) return 0;
-  if (vStock?.inStock === false) return 0;
-  return 1;
+  if (stock?.inStock === false) return { quantity: 0, known: true };
+  if (vStock?.inStock === false) return { quantity: 0, known: true };
+  return { quantity: 1, known: false };
+}
+
+export function v1Quantity(product: WixV1Product): number {
+  return v1QuantityInfo(product).quantity;
 }
 
 /** Map a Catalog v1 product to an import preview entry (classic Wix Stores sites). */
@@ -245,14 +266,15 @@ export function wixV1ProductToSummary(
     fromCollections ||
     (productType && !isWixNoiseCategoryLabel(productType) ? productType : null);
   const sku = product.sku?.trim() || product.variants?.[0]?.sku?.trim() || null;
+  const qty = v1QuantityInfo(product);
   return {
     externalListingId: product.id || "",
     title: product.name || "Wix product",
     sku,
     description: desc || null,
     priceCents: v1PriceCents(product),
-    quantity: v1Quantity(product),
-    quantityKnown: true,
+    quantity: qty.quantity,
+    quantityKnown: qty.known,
     photos: v1Photos(product),
     remoteUpdatedAt: parseWixDate(product.lastUpdated),
     category: categoryLabel,

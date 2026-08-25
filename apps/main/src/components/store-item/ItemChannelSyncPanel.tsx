@@ -44,6 +44,7 @@ type ItemChannelSyncPanelProps = {
   onFixEbayCondition?: () => void;
   onItemRefreshed?: (item: {
     title: string;
+    sku?: string | null;
     description: string | null;
     photos: string[];
     category: string | null;

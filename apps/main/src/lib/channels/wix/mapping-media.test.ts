@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildWixV1AddProductMediaPayload } from "./media";
 import {
   shouldPassThroughListingPhotoToWix,
+  shouldReplaceWixProductMedia,
   type WixProductMediaRef,
 } from "./media-import";
 import {
@@ -118,6 +119,15 @@ describe("Wix listing photo import quality", () => {
     ).toBe("item-1");
   });
 
+  it("does not treat fallback qty 1 as known stock", () => {
+    const summary = wixV1ProductToSummary({
+      id: "p1",
+      name: "Hat",
+      variants: [{ id: "default", choices: {} }],
+    });
+    expect(summary.quantityKnown).toBe(false);
+  });
+
   it("strips /v1/fill transforms from catalog v3 photos", () => {
     const summary = wixProductToSummary({
       id: "p1",
@@ -134,5 +144,22 @@ describe("Wix listing photo import quality", () => {
     expect(shouldPassThroughListingPhotoToWix("https://i.ebayimg.com/images/g/x/s-l2000.jpg")).toBe(
       false
     );
+    expect(
+      shouldPassThroughListingPhotoToWix(
+        "https://static.wixstatic.com/media/2bdd49_e8516210f633401a835101e736618657~mv2.jpg"
+      )
+    ).toBe(true);
+  });
+
+  it("does not replace Wix media when every photo is already on wixstatic", () => {
+    expect(
+      shouldReplaceWixProductMedia([
+        "https://static.wixstatic.com/media/aaa~mv2.jpg",
+        "https://static.wixstatic.com/media/bbb~mv2.jpg",
+      ])
+    ).toBe(false);
+    expect(
+      shouldReplaceWixProductMedia(["https://abc.public.blob.vercel-storage.com/hat.jpg"])
+    ).toBe(true);
   });
 });

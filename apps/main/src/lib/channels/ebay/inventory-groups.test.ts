@@ -35,8 +35,28 @@ describe("inventory item groups", () => {
     expect(shouldUseInventoryItemGroup(variantItem)).toBe(true);
   });
 
-  it("builds stable group key and variant skus", () => {
+  it("builds stable group key and alphanumeric variant skus", () => {
     expect(buildInventoryItemGroupKey(variantItem)).toBe("inw-group-SKU-1");
-    expect(buildVariantInventorySkus(variantItem)).toEqual(["SKU-1-S", "SKU-1-M"]);
+    expect(buildVariantInventorySkus(variantItem)).toEqual(["SKU1S", "SKU1M"]);
+  });
+
+  it("strips hyphens from size values so eBay Inventory accepts the SKU", () => {
+    const hyphenItem = {
+      ...variantItem,
+      sku: "HAT-42",
+      variants: [
+        {
+          name: "Size",
+          options: [
+            { value: "small", quantity: 1 },
+            { value: "xl", quantity: 2 },
+          ],
+        },
+      ],
+    };
+    expect(buildVariantInventorySkus(hyphenItem)).toEqual(["HAT42small", "HAT42xl"]);
+    expect(buildVariantInventorySkus(hyphenItem).every((sku) => /^[a-zA-Z0-9]{1,50}$/.test(sku))).toBe(
+      true
+    );
   });
 });

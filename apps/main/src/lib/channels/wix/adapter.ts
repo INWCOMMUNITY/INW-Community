@@ -37,6 +37,7 @@ import {
   pushWixV1PerOptionInventory,
   wixV1ProductToVariants,
   fetchWixCollectionCategoryMaps,
+  buildWixV1OptionsCreateBody,
 } from "./collections";
 import {
   buildWixCreateBody,
@@ -45,14 +46,16 @@ import {
   buildWixV1InventoryOnlyBody,
   buildWixV1UpdateBody,
   isWixProductVisibleOnSite,
-  v1Quantity,
+  v1QuantityInfo,
   wixProductToSummary,
   wixV1ProductToSummary,
   type WixProduct,
   type WixV1Product,
 } from "./mapping";
 import { syncWixProductMedia } from "./media";
+import { shouldReplaceWixProductMedia } from "./media-import";
 import { claimChannelListingLink } from "../listing-link-claim";
+import { prisma } from "database";
 
 type ProductResponse = { product?: WixProduct };
 type ProductsQueryResponse = {
@@ -479,7 +482,7 @@ export async function readWixProductQuantity(
         } else if (v.inStock) inStock = true;
       }
       if (sawQty) return { quantity: Math.max(0, total), known: true };
-      if (variants.length > 0) return { quantity: inStock ? 1 : 0, known: true };
+      if (variants.length > 0) return { quantity: inStock ? 1 : 0, known: false };
     }
   } catch {
     /* try v1 product */
@@ -492,7 +495,8 @@ export async function readWixProductQuantity(
       opts
     );
     if (got.product) {
-      return { quantity: v1Quantity(got.product), known: true };
+      const qty = v1QuantityInfo(got.product);
+      return { quantity: qty.quantity, known: qty.known };
     }
   } catch {
     /* try v3 only when allowed */
@@ -667,9 +671,23 @@ async function applyWixCategoryAndOptions(
     }
   }
   if (v1) {
-    await pushWixV1OptionsUpdate(conn.accessToken, productId, item, opts);
+    const structureOk = await pushWixV1OptionsUpdate(conn.accessToken, productId, item, opts);
     if (hasOptionQuantities(item.variants)) {
-      await pushWixV1PerOptionInventory(conn.accessToken, productId, item, opts);
+      if (!structureOk) {
+        throw new WixApiError(
+          "Could not create product options on Wix (Catalog v1).",
+          502,
+          null
+        );
+      }
+      const pushed = await pushWixV1PerOptionInventory(conn.accessToken, productId, item, opts);
+      if (!pushed) {
+        throw new WixApiError(
+          "Could not update per-option inventory on Wix (Catalog v1). Check that Manage inventory per variant is enabled.",
+          502,
+          null
+        );
+      }
     }
   }
 }
@@ -701,11 +719,16 @@ export const wixAdapter: ChannelAdapter = {
       for (const opts of wixRequestAttempts(conn)) {
         try {
           const createV1 = async (): Promise<string | undefined> => {
+            const body = buildWixV1CreateBody(item) as { product: Record<string, unknown> };
+            const options = buildWixV1OptionsCreateBody(item);
+            if (options && typeof options.product === "object" && options.product) {
+              Object.assign(body.product, options.product);
+            }
             const res = await wixJson<{ product?: { id?: string } }>(
               conn.accessToken,
               `/stores/v1/products`,
               "POST",
-              buildWixV1CreateBody(item),
+              body,
               opts
             );
             return res.product?.id;
@@ -741,8 +764,19 @@ export const wixAdapter: ChannelAdapter = {
             syncStatus: "synced",
             lastPushedAt: new Date(),
           });
-          await applyWixCategoryAndOptions(conn, productId, item, opts, mode === "v1");
-          await syncWixProductMedia(conn, productId, item.photos);
+          try {
+            await applyWixCategoryAndOptions(conn, productId, item, opts, mode === "v1");
+            await syncWixProductMedia(conn, productId, item.photos);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            await prisma.channelListingLink
+              .updateMany({
+                where: { storeItemId: item.id, provider: "wix" },
+                data: { syncStatus: "error", syncError: msg.slice(0, 800) },
+              })
+              .catch(() => {});
+            throw e;
+          }
           return { externalListingId: productId, externalShopId: conn.externalShopId };
         } catch (e) {
           lastErr = e;
@@ -782,7 +816,7 @@ export const wixAdapter: ChannelAdapter = {
               opts
             );
             await applyWixCategoryAndOptions(conn, productId, item, opts, true);
-            if (item.photos.length > 0) {
+            if (shouldReplaceWixProductMedia(item.photos)) {
               await syncWixProductMedia(conn, productId, item.photos, { replace: true });
             }
             if (!hasOptionQuantities(item.variants)) {
@@ -825,7 +859,7 @@ export const wixAdapter: ChannelAdapter = {
               opts,
               false
             );
-            if (item.photos.length > 0) {
+            if (shouldReplaceWixProductMedia(item.photos)) {
               await syncWixProductMedia(conn, productId, item.photos, { replace: true }).catch(
                 (e) => {
                   console.warn("[wix] updateListing v3 media sync failed", {

@@ -1,4 +1,5 @@
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
+import { getEffectiveSku } from "../types";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 import { listingDescriptionForHtmlChannel } from "../rich-description";
 
@@ -59,9 +60,10 @@ function cartesianVariants(
   }
 
   return combos.map((c) => {
+    const baseSku = getEffectiveSku(item);
     const skuSuffix = c.labels.join("-").replace(/\s+/g, "_").slice(0, 40);
     const variant: Record<string, unknown> = {
-      sku: skuSuffix ? `${item.id}-${skuSuffix}`.slice(0, 64) : item.id,
+      sku: skuSuffix ? `${baseSku}-${skuSuffix}`.slice(0, 64) : baseSku,
       price: shopifyPriceFromCents(item.priceCents),
       inventory_management: "shopify",
       inventory_quantity: Math.max(0, c.qty),
@@ -92,7 +94,7 @@ export function buildShopifyCreateBody(item: SyncStoreItem): Record<string, unkn
   } else {
     product.variants = [
       {
-        sku: item.id,
+        sku: getEffectiveSku(item),
         price: shopifyPriceFromCents(item.priceCents),
         inventory_management: "shopify",
         inventory_quantity: Math.max(0, item.quantity),
@@ -135,7 +137,7 @@ export function buildShopifyUpdateBody(
   } else {
     const variantId = existing?.variants?.[0]?.id ?? null;
     const variant: Record<string, unknown> = {
-      sku: item.id,
+      sku: getEffectiveSku(item),
       price: shopifyPriceFromCents(item.priceCents),
       requires_shipping: true,
     };
@@ -189,6 +191,7 @@ export function shopifyProductToSummary(product: ShopifyProduct): RemoteListingS
     priceCents: shopifyPriceToCents(variant?.price),
     quantity: totalQty,
     quantityKnown: true,
+    sku: variant?.sku?.trim() || null,
     photos,
     category: product.product_type?.trim() || null,
     remoteUpdatedAt: product.updated_at ? new Date(product.updated_at) : null,
