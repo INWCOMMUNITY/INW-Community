@@ -10,7 +10,7 @@ type NavItem = {
   label: string;
   icon: string;
   alert?: boolean;
-  action?: "stripe" | "create-post" | "offer-coupon";
+  action?: "stripe";
 };
 
 function AlertBadge() {
@@ -28,12 +28,10 @@ function NavRow({
   item,
   onNavigate,
   onStripe,
-  onCreatePost,
 }: {
   item: NavItem;
   onNavigate: () => void;
   onStripe: () => void;
-  onCreatePost: () => void;
 }) {
   const inner = (
     <>
@@ -60,20 +58,6 @@ function NavRow({
       </button>
     );
   }
-  if (item.action === "create-post") {
-    return (
-      <button type="button" className={rowClass} onClick={() => { onNavigate(); onCreatePost(); }}>
-        {inner}
-      </button>
-    );
-  }
-  if (item.action === "offer-coupon") {
-    return (
-      <Link href="/business-hub?from=seller-hub&open=coupon" className={rowClass} onClick={onNavigate}>
-        {inner}
-      </Link>
-    );
-  }
   return (
     <Link href={item.href} prefetch={false} className={rowClass} onClick={onNavigate}>
       {inner}
@@ -86,13 +70,11 @@ function Section({
   items,
   onNavigate,
   onStripe,
-  onCreatePost,
 }: {
   title: string;
   items: NavItem[];
   onNavigate: () => void;
   onStripe: () => void;
-  onCreatePost: () => void;
 }) {
   return (
     <div className="mb-6">
@@ -110,7 +92,6 @@ function Section({
             item={item}
             onNavigate={onNavigate}
             onStripe={onStripe}
-            onCreatePost={onCreatePost}
           />
         ))}
       </div>
@@ -122,12 +103,12 @@ export function SellerHubMobileDrawer({
   open,
   onClose,
   onStripeDashboard,
-  onCreatePost,
+  hasLocalDelivery,
 }: {
   open: boolean;
   onClose: () => void;
   onStripeDashboard: () => void;
-  onCreatePost: () => void;
+  hasLocalDelivery: boolean;
 }) {
   const [pendingShip, setPendingShip] = useState(0);
 
@@ -143,28 +124,34 @@ export function SellerHubMobileDrawer({
       .catch(() => {});
   }, [open]);
 
-  const storefrontItems: NavItem[] = [
+  const listingsItems: NavItem[] = [
     { href: "/seller-hub/store/items", label: "My Items", icon: "cube-outline" },
+    { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
+    { href: "/seller-hub/channels", label: "Sync Stores", icon: "sync-outline" },
+  ];
+
+  const ordersItems: NavItem[] = [
     { href: "/seller-hub/orders", label: "Fulfillment", icon: "receipt-outline", alert: pendingShip > 0 },
+    { href: "/seller-hub/orders?tab=pickups", label: "Pickups", icon: "hand-left-outline" },
+    ...(hasLocalDelivery
+      ? [{ href: "/seller-hub/orders?tab=deliveries", label: "Deliveries", icon: "bicycle-outline" }]
+      : []),
     { href: "/seller-hub/offers", label: "Offers", icon: "pricetag-outline" },
     { href: "/seller-hub/store/cancellations", label: "Cancellations", icon: "close-circle-outline" },
+  ];
+
+  const storeItems: NavItem[] = [
+    { href: "/seller-hub/store", label: "Storefront Info", icon: "storefront-outline" },
     { href: "/seller-hub/policies", label: "Policies", icon: "book-outline" },
-  ];
-
-  const actionItems: NavItem[] = [
-    { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
-    { href: "/business-hub?from=seller-hub&open=coupon", label: "Offer Coupon", icon: "pricetag-outline", action: "offer-coupon" },
-    { href: "/seller-hub", label: "Create Post", icon: "megaphone-outline", action: "create-post" },
-  ];
-
-  const profileItems: NavItem[] = [
-    { href: "/seller-hub/store", label: "Seller Storefront", icon: "storefront-outline" },
-    { href: "/business-hub?from=seller-hub", label: "Business Hub", icon: "business-outline" },
-    { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
-    { href: "#stripe", label: "Stripe", icon: "card-outline", action: "stripe" },
     { href: "/seller-hub/shipping-setup", label: "Shipping", icon: "boat-outline" },
-    { href: "/seller-hub/shipping-options", label: "Shipping options", icon: "cube-outline" },
-    { href: "/seller-hub/channels", label: "Sync Stores", icon: "sync-outline" },
+    { href: "/seller-hub/shipping-options", label: "Shipping Options", icon: "cube-outline" },
+    { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
+    { href: "/business-hub?from=seller-hub", label: "Business Hub", icon: "business-outline" },
+  ];
+
+  const moneyItems: NavItem[] = [
+    { href: "/seller-hub/store/payouts", label: "Get Paid", icon: "wallet-outline" },
+    { href: "#stripe", label: "Stripe Dashboard", icon: "card-outline", action: "stripe" },
   ];
 
   if (!open) return null;
@@ -198,26 +185,42 @@ export function SellerHubMobileDrawer({
           </button>
         </div>
         <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 pb-8">
+          <Link
+            href="/seller-hub"
+            prefetch={false}
+            onClick={onClose}
+            className="flex items-center gap-3 py-2.5 px-3 rounded-md hover:bg-gray-100 mb-4"
+          >
+            <span className="w-[22px] shrink-0 flex justify-center">
+              <IonIcon name="globe-outline" size={22} className="text-[var(--color-primary)]" />
+            </span>
+            <span className="text-[15px] font-semibold" style={{ color: "var(--color-heading)" }}>
+              Seller Hub
+            </span>
+          </Link>
           <Section
-            title="Storefront"
-            items={storefrontItems}
+            title="Listings"
+            items={listingsItems}
             onNavigate={onClose}
             onStripe={onStripeDashboard}
-            onCreatePost={onCreatePost}
           />
           <Section
-            title="Actions"
-            items={actionItems}
+            title="Orders"
+            items={ordersItems}
             onNavigate={onClose}
             onStripe={onStripeDashboard}
-            onCreatePost={onCreatePost}
           />
           <Section
-            title="Profile"
-            items={profileItems}
+            title="Store"
+            items={storeItems}
             onNavigate={onClose}
             onStripe={onStripeDashboard}
-            onCreatePost={onCreatePost}
+          />
+          <Section
+            title="Money"
+            items={moneyItems}
+            onNavigate={onClose}
+            onStripe={onStripeDashboard}
           />
         </div>
       </div>

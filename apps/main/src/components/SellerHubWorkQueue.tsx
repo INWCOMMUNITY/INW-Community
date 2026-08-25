@@ -95,6 +95,12 @@ export function SellerHubWorkQueue({
     () =>
       [
         {
+          label: "My Items",
+          href: "/seller-hub/store/items",
+          icon: "cube",
+          description: "View and edit your listings.",
+        },
+        {
           label: "List Item",
           href: "/seller-hub/store/new",
           icon: "add-circle",
@@ -179,12 +185,12 @@ export function SellerHubWorkQueue({
   }
 
   return (
-    <div className="flex flex-wrap justify-center gap-8">
+    <div className="mx-auto grid w-full max-w-[1100px] grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 justify-items-center">
       {actions.map((action) => (
         <Link
           key={action.href + action.label}
           href={action.href}
-          className="relative hub-card w-72 min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
+          className="relative hub-card w-full min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
         >
           <HubExclamationBadge show={!!action.badge} />
           <IonIcon name={action.icon} size={28} className="text-[var(--color-primary)] mb-2" />

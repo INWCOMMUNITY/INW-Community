@@ -1,8 +1,7 @@
 /**
- * Seller Hub side menu - matches website SellerHubTopNav dropdown structure.
- * Categories: Seller Hub, Storefront, Actions, Profile. Excludes pages that are
- * on the main hub (List Items, Orders/To Ship, Storefront Info, Manage Store,
- * Deliveries, Pick Up, Payouts, Before You Start). Includes Ionicons.
+ * Seller Hub side menu — matches website SellerHubTopNav:
+ * Listings, Orders, Store, Money. Expo-only screens (Sold Items, Drafts,
+ * Returns, Analytics, etc.) stay in the matching group.
  */
 import { useEffect, useState } from "react";
 import {
@@ -23,7 +22,6 @@ import { apiGet } from "@/lib/api";
 import { useProfileView } from "@/contexts/ProfileViewContext";
 
 const SOLD_ITEMS_VIEWED_KEY = "sellerHubSoldItemsViewedAt";
-const SHIPPO_URL = "https://apps.goshippo.com/";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
@@ -34,8 +32,7 @@ type NavItem = {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   alert?: boolean;
-  external?: boolean;
-  action?: "stripe" | "create-post" | "business-hub" | "offer-coupon";
+  action?: "stripe" | "business-hub";
 };
 
 interface SellerHubSideMenuProps {
@@ -110,6 +107,7 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
   const [pendingReturns, setPendingReturns] = useState(0);
   const [soldCount, setSoldCount] = useState(0);
   const [soldItemsViewedAt, setSoldItemsViewedAt] = useState<string | null>(null);
+  const [hasLocalDelivery, setHasLocalDelivery] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -120,12 +118,14 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
             pendingShip?: number;
             pendingReturns?: number;
             soldCount?: number;
+            hasLocalDelivery?: boolean;
           }>("/api/seller-hub/pending-actions"),
           AsyncStorage.getItem(SOLD_ITEMS_VIEWED_KEY),
         ]);
         setPendingShip(Number(data.pendingShip) || 0);
         setPendingReturns(Number(data.pendingReturns) || 0);
         setSoldCount(Number(data.soldCount) || 0);
+        setHasLocalDelivery(Boolean(data.hasLocalDelivery));
         setSoldItemsViewedAt(viewedAt);
       } catch {
         // ignore
@@ -136,40 +136,40 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
 
   const soldItemsAlert = soldCount > 0 && !soldItemsViewedAt;
 
-  // Website dropdown: Storefront (exclude Orders, Pickups, Deliveries - on hub)
-  const storefrontItems: NavItem[] = [
+  const listingsItems: NavItem[] = [
     { href: "/seller-hub/store/items", label: "My Items", icon: "cube-outline" },
+    { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
     { href: "/seller-hub/store/items?tab=sold", label: "Sold Items", icon: "pricetag-outline", alert: soldItemsAlert },
     { href: "/seller-hub/store/drafts", label: "Drafts", icon: "document-text-outline" },
-    { href: "/seller-hub/offers", label: "Offers", icon: "pricetag-outline" },
-    { href: "/seller-hub/store/returns", label: "Return Requests", icon: "arrow-undo-outline", alert: pendingReturns > 0 },
-    { href: "/seller-hub/store/cancellations", label: "Cancellations", icon: "close-circle-outline" },
-    { href: "/policies", label: "Policies", icon: "book-outline" },
-  ];
-
-  // Website dropdown: Actions (exclude List Item - on hub). Offer Coupon goes to Business Hub and opens the modal there.
-  const actionItems: NavItem[] = [
-    { href: "/seller-hub/orders", label: "Fulfillment", icon: "boat-outline", alert: pendingShip > 0 },
-    { href: "/(tabs)/my-community", label: "Offer Coupon", icon: "pricetag-outline", action: "offer-coupon" },
-    { href: "/(tabs)/my-community", label: "Create Post", icon: "megaphone-outline", action: "create-post" },
-  ];
-
-  // Website dropdown: Profile (exclude Seller Storefront - on hub as Storefront Info)
-  const profileItems: NavItem[] = [
-    { href: "/seller-hub/business-hub", label: "Local Business", icon: "business-outline" },
-    { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
-    { href: "#stripe", label: "Stripe", icon: "card-outline", action: "stripe" },
-    { href: SHIPPO_URL, label: "Shippo", icon: "boat-outline", external: true },
-    { href: "/seller-hub/shipping-options", label: "Shipping options", icon: "cube-outline" },
     { href: "/seller-hub/channels", label: "Sync Stores", icon: "sync-outline" },
   ];
 
-  // Website dropdown: Seller Hub (exclude Seller Hub home - current screen). Business Hub redirects to existing tab.
-  const sellerHubItems: NavItem[] = [
+  const ordersItems: NavItem[] = [
+    { href: "/seller-hub/orders", label: "Fulfillment", icon: "receipt-outline", alert: pendingShip > 0 },
+    { href: "/seller-hub/orders?tab=pickups", label: "Pickups", icon: "hand-left-outline" },
+    ...(hasLocalDelivery
+      ? [{ href: "/seller-hub/orders?tab=deliveries", label: "Deliveries", icon: "bicycle-outline" as const }]
+      : []),
+    { href: "/seller-hub/offers", label: "Offers", icon: "pricetag-outline" },
+    { href: "/seller-hub/store/returns", label: "Return Requests", icon: "arrow-undo-outline", alert: pendingReturns > 0 },
+    { href: "/seller-hub/store/cancellations", label: "Cancellations", icon: "close-circle-outline" },
+  ];
+
+  const storeItems: NavItem[] = [
+    { href: "/seller-hub/store", label: "Storefront Info", icon: "storefront-outline" },
+    { href: "/policies", label: "Policies", icon: "book-outline" },
+    { href: "/seller-hub/shipping-setup", label: "Shipping", icon: "boat-outline" },
+    { href: "/seller-hub/shipping-options", label: "Shipping Options", icon: "cube-outline" },
+    { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
     { href: "/(tabs)/my-community", label: "Business Hub", icon: "business-outline", action: "business-hub" },
     { href: "/seller-hub/analytics", label: "Analytics", icon: "analytics-outline" },
     { href: "/seller-hub/activity", label: "Activity Log", icon: "time-outline" },
     { href: "/seller-hub/data-tools", label: "Data Tools", icon: "download-outline" },
+  ];
+
+  const moneyItems: NavItem[] = [
+    { href: "/seller-hub/store/payouts", label: "Get Paid", icon: "wallet-outline" },
+    { href: "#stripe", label: "Stripe Dashboard", icon: "card-outline", action: "stripe" },
   ];
 
   const handleItemPress = async (item: NavItem) => {
@@ -192,22 +192,6 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
     if (item.action === "business-hub") {
       setProfileView("business_hub");
       router.push("/(tabs)/my-community" as never);
-      return;
-    }
-    if (item.action === "offer-coupon") {
-      setProfileView("business_hub");
-      router.push("/(tabs)/my-community?open=coupon" as never);
-      return;
-    }
-    if (item.action === "create-post") {
-      router.push("/(tabs)/my-community" as never);
-      return;
-    }
-    if (item.external && item.href.startsWith("http")) {
-      const siteBase = (process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com").replace(/\/api.*$/, "").replace(/\/$/, "");
-      router.push(
-        `/web?url=${encodeURIComponent(item.href)}&title=${encodeURIComponent(item.label)}` as never
-      );
       return;
     }
     router.push(item.href as never);
@@ -239,10 +223,10 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            <Section title="Seller Hub" items={sellerHubItems} onItemPress={handleItemPress} />
-            <Section title="Storefront" items={storefrontItems} onItemPress={handleItemPress} />
-            <Section title="Actions" items={actionItems} onItemPress={handleItemPress} />
-            <Section title="Profile" items={profileItems} onItemPress={handleItemPress} />
+            <Section title="Listings" items={listingsItems} onItemPress={handleItemPress} />
+            <Section title="Orders" items={ordersItems} onItemPress={handleItemPress} />
+            <Section title="Store" items={storeItems} onItemPress={handleItemPress} />
+            <Section title="Money" items={moneyItems} onItemPress={handleItemPress} />
           </ScrollView>
         </View>
       </View>

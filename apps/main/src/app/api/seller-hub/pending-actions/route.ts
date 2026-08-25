@@ -19,6 +19,7 @@ const emptyPending = {
   payoutReady: false,
   soldCount: 0,
   payoutSetupComplete: false,
+  hasLocalDelivery: false,
 };
 
 /** Returns counts of actions needing seller attention (ship, deliveries, pickups, offers, returns, payout) for hub badges. */
@@ -38,6 +39,7 @@ export async function GET(req: NextRequest) {
       balance,
       member,
       soldCount,
+      hasLocalDeliveryItem,
     ] = await Promise.all([
       prisma.storeOrder.findMany({
         where: {
@@ -85,6 +87,10 @@ export async function GET(req: NextRequest) {
       prisma.storeItem.count({
         where: { memberId: userId, status: "sold_out" },
       }),
+      prisma.storeItem.findFirst({
+        where: { memberId: userId, localDeliveryAvailable: true },
+        select: { id: true },
+      }),
     ]);
     const pendingShip = paidOrdersUnshipped.filter((o) => orderHasShippedLine(o.items)).length;
     const hasStripeConnect = !!member?.stripeConnectAccountId;
@@ -120,6 +126,7 @@ export async function GET(req: NextRequest) {
       payoutReady,
       soldCount: soldCount ?? 0,
       payoutSetupComplete: hasStripeConnect,
+      hasLocalDelivery: !!hasLocalDeliveryItem,
     });
   } catch {
     return NextResponse.json(emptyPending, { status: 200 });

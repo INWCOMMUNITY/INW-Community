@@ -224,6 +224,7 @@ function SellerHubContent() {
     icon: keyof typeof Ionicons.glyphMap;
   }[] = useMemo(
     () => [
+      { label: "My Items", href: "/seller-hub/store/items", icon: "cube" },
       { label: "List Items", href: "/seller-hub/store/new", icon: "add-circle" },
       { label: "Fulfillment", href: "/seller-hub/orders", icon: "receipt" },
       { label: "Storefront Info", href: "/seller-hub/store", icon: "storefront" },
