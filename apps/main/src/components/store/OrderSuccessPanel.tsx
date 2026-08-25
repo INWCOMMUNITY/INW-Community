@@ -4,6 +4,7 @@ import Link from "next/link";
 type Props = {
   ordersHref?: string;
   shopHref?: string;
+  variant?: "success" | "sold_while_paying";
 };
 
 /**
@@ -12,7 +13,9 @@ type Props = {
 export function OrderSuccessPanel({
   ordersHref = "/my-community/orders",
   shopHref = "/storefront",
+  variant = "success",
 }: Props) {
+  const soldWhilePaying = variant === "sold_while_paying";
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
@@ -34,13 +37,15 @@ export function OrderSuccessPanel({
             className="font-bold text-black leading-tight mb-2"
             style={{ fontSize: "clamp(1.35rem, 4.5vw, 1.65rem)" }}
           >
-            Thanks for Shopping Local!
+            {soldWhilePaying ? "This item sold while you were paying" : "Thanks for Shopping Local!"}
           </h1>
           <p
             className="font-bold text-black leading-tight"
             style={{ fontSize: "clamp(1.15rem, 3.8vw, 1.375rem)" }}
           >
-            Your order was a success!
+            {soldWhilePaying
+              ? "Your payment was refunded. Someone else completed checkout first."
+              : "Your order was a success!"}
           </p>
         </div>
 
@@ -61,7 +66,7 @@ export function OrderSuccessPanel({
             className="block w-full py-4 px-6 rounded-full font-bold text-lg text-black bg-white text-center transition-opacity hover:opacity-90"
             style={{ border: "3px solid #000" }}
           >
-            View Order
+            {soldWhilePaying ? "View account" : "View Order"}
           </Link>
           <Link
             href={shopHref}

@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { orderIdsFromCheckoutSessionMetadata } from "@/lib/stripe-checkout-order-ids";
 import { fulfillStoreOrdersFromCheckoutSession } from "@/lib/stripe/fulfill-storefront-orders";
+import { isSoldWhilePayingCancel } from "@/lib/store-order-cancel-reasons";
 
 export const dynamic = "force-dynamic";
 
@@ -70,5 +71,16 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ orderIds });
+  const orders = orderIds.length
+    ? await prisma.storeOrder.findMany({
+        where: { id: { in: orderIds }, buyerId: session.user.id },
+        select: { id: true, status: true, cancelReason: true },
+      })
+    : [];
+
+  const soldWhilePaying = orders.some(
+    (o) => o.status === "canceled" && isSoldWhilePayingCancel(o.cancelReason)
+  );
+
+  return NextResponse.json({ orderIds, orders, soldWhilePaying });
 }

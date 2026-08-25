@@ -11,7 +11,7 @@ function OrderSuccessContent() {
   const sessionId = searchParams?.get("session_id");
   const orderIdsParam = searchParams?.get("order_ids");
   const orderIds = orderIdsParam ? orderIdsParam.split(",").map((id) => id.trim()).filter(Boolean) : [];
-  const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "success" | "sold_while_paying" | "error">("loading");
 
   useEffect(() => {
     let cancelled = false;
@@ -26,14 +26,22 @@ function OrderSuccessContent() {
         const params = new URLSearchParams();
         if (sessionId) params.set("session_id", sessionId);
         if (orderIds.length > 0) params.set("order_ids", orderIds.join(","));
-        await fetch(`/api/store-orders/success-summary?${params.toString()}`);
+        const res = await fetch(`/api/store-orders/success-summary?${params.toString()}`);
+        const data = (await res.json().catch(() => ({}))) as {
+          soldWhilePaying?: boolean;
+          orders?: Array<{ status?: string; cancelReason?: string | null }>;
+        };
         await fetch("/api/cart", { method: "DELETE" });
         await refresh();
+        if (!cancelled) {
+          setStatus(data.soldWhilePaying ? "sold_while_paying" : "success");
+        }
+        return;
       } catch (err) {
         console.error("[order-success] finalize failed:", err);
       }
 
-      if (!cancelled) setStatus("success");
+      if (!cancelled) setStatus("error");
     }
 
     void finalizeOrder();
@@ -83,7 +91,7 @@ function OrderSuccessContent() {
     );
   }
 
-  return <OrderSuccessPanel />;
+  return <OrderSuccessPanel variant={status === "sold_while_paying" ? "sold_while_paying" : "success"} />;
 }
 
 export default function OrderSuccessPage() {
