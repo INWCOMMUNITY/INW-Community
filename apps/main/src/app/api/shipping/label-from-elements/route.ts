@@ -201,7 +201,7 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (txId) {
+  {
     const { getSellerShippoCredential } = await import("@/lib/shippo-seller");
     const { fetchShippoTransaction } = await import("@/lib/shippo-transaction");
     const cred = await getSellerShippoCredential(userId);
