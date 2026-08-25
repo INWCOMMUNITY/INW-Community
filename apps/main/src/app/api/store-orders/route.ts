@@ -169,6 +169,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   } catch (e) {
+    console.error("[store-orders GET]", e);
     const msg = e instanceof Error ? e.message : "Database error";
     const isConn = /P1001|ECONNREFUSED|connect/i.test(String(e));
     return NextResponse.json(

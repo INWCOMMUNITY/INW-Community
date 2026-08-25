@@ -37,6 +37,18 @@ function parseTabParam(value: string | null): FulfillmentTabKey {
   return "ship";
 }
 
+function fetchWithTimeout(input: string, ms = 20000): Promise<Response> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  return fetch(input, { credentials: "include", signal: ctrl.signal }).finally(() => clearTimeout(t));
+}
+
+function loadErrorMessage(e: unknown, fallback: string): string {
+  if (e instanceof DOMException && e.name === "AbortError") return "Request timed out. Try again.";
+  if (e instanceof Error && e.name === "AbortError") return "Request timed out. Try again.";
+  return fallback;
+}
+
 export function FulfillmentHubContent(props: {
   backHref: string;
   backLabel: string;
@@ -83,7 +95,7 @@ export function FulfillmentHubContent(props: {
   const [apiCounts, setApiCounts] = useState<Partial<typeof tabCounts> | null>(null);
 
   useEffect(() => {
-    fetch("/api/store-orders?mine=1&counts=1")
+    fetchWithTimeout("/api/store-orders?mine=1&counts=1")
       .then((r) => r.json())
       .then((data) => {
         if (data && typeof data === "object" && "toShip" in data) {
@@ -107,7 +119,7 @@ export function FulfillmentHubContent(props: {
   );
 
   const refetchToShipSilent = useCallback(() => {
-    fetch("/api/store-orders?mine=1&needsShipment=1")
+    fetchWithTimeout("/api/store-orders?mine=1&needsShipment=1")
       .then(async (r) => {
         const data = await r.json().catch(() => ({}));
         if (!r.ok) return;
@@ -158,7 +170,7 @@ export function FulfillmentHubContent(props: {
 
     if (tab === "ship") {
       fetches.push(
-        fetch("/api/store-orders?mine=1&needsShipment=1")
+        fetchWithTimeout("/api/store-orders?mine=1&needsShipment=1")
           .then(async (r) => {
             const data = await r.json().catch(() => ({}));
             if (!r.ok) {
@@ -168,8 +180,8 @@ export function FulfillmentHubContent(props: {
             }
             setShipOrders(Array.isArray(data) ? data : []);
           })
-          .catch(() => {
-            setFetchError("Connection failed.");
+          .catch((e) => {
+            setFetchError(loadErrorMessage(e, "Connection failed."));
             setShipOrders([]);
           })
       );
@@ -177,7 +189,7 @@ export function FulfillmentHubContent(props: {
 
     if (tab === "pickups" || tab === "deliveries") {
       fetches.push(
-        fetch("/api/store-orders?mine=1")
+        fetchWithTimeout("/api/store-orders?mine=1")
           .then(async (r) => {
             const data = await r.json().catch(() => ({}));
             if (!r.ok) {
@@ -187,8 +199,8 @@ export function FulfillmentHubContent(props: {
             }
             setAllOrders(Array.isArray(data) ? data : []);
           })
-          .catch(() => {
-            setFetchError("Connection failed.");
+          .catch((e) => {
+            setFetchError(loadErrorMessage(e, "Connection failed."));
             setAllOrders([]);
           })
       );
@@ -197,40 +209,18 @@ export function FulfillmentHubContent(props: {
     if (tab === "history") {
       fetches.push(
         Promise.all([
-          fetch("/api/store-orders?mine=1&shipped=1").then((r) => r.json()),
-          fetch("/api/store-orders?mine=1&canceled=1").then((r) => r.json()),
+          fetchWithTimeout("/api/store-orders?mine=1&shipped=1").then((r) => r.json()),
+          fetchWithTimeout("/api/store-orders?mine=1&canceled=1").then((r) => r.json()),
         ])
           .then(([shipped, canceled]) => {
             setShippedOrders(Array.isArray(shipped) ? shipped : []);
             setCanceledOrders(Array.isArray(canceled) ? canceled : []);
           })
-          .catch(() => {
+          .catch((e) => {
+            setFetchError(loadErrorMessage(e, "Failed to load order history."));
             setShippedOrders([]);
             setCanceledOrders([]);
           })
-      );
-    }
-
-    // Preload counts for tab badges on ship tab
-    if (tab === "ship") {
-      fetches.push(
-        fetch("/api/store-orders?mine=1")
-          .then((r) => r.json())
-          .then((data) => {
-            if (Array.isArray(data)) setAllOrders(data);
-          })
-          .catch(() => {})
-      );
-      fetches.push(
-        Promise.all([
-          fetch("/api/store-orders?mine=1&shipped=1").then((r) => r.json()),
-          fetch("/api/store-orders?mine=1&canceled=1").then((r) => r.json()),
-        ])
-          .then(([shipped, canceled]) => {
-            if (Array.isArray(shipped)) setShippedOrders(shipped);
-            if (Array.isArray(canceled)) setCanceledOrders(canceled);
-          })
-          .catch(() => {})
       );
     }
 
@@ -262,22 +252,20 @@ export function FulfillmentHubContent(props: {
       setShippingConnected(null);
       return;
     }
-    if (toShipOrders.length === 0) {
-      fetch("/api/shipping/status")
-        .then((r) => r.json().catch(() => ({})))
-        .then((data: { connected?: boolean }) => setShippingConnected(!!data.connected))
-        .catch(() => setShippingConnected(false));
-      return;
-    }
-    fetch("/api/shipping/status")
-      .then((r) => r.json().catch(() => ({})))
-      .then((data: { connected?: boolean }) => setShippingConnected(!!data.connected))
-      .catch(() => setShippingConnected(false));
-  }, [tab, toShipOrders.length]);
+    fetchWithTimeout("/api/shipping/status")
+      .then(async (r) => {
+        if (!r.ok) return;
+        const data = (await r.json().catch(() => ({}))) as { connected?: boolean };
+        if (typeof data.connected === "boolean") setShippingConnected(data.connected);
+      })
+      .catch(() => {
+        // Keep "checking…" rather than treating a timeout as disconnected.
+      });
+  }, [tab]);
 
   useEffect(() => {
     if (tab !== "ship") return;
-    fetch("/api/seller-profile")
+    fetchWithTimeout("/api/seller-profile")
       .then((r) => r.json())
       .then((data) => {
         const biz = data.business;

@@ -1,28 +1,17 @@
-import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth";
-import { prisma } from "database";
-import { authOptions } from "@/lib/auth";
-import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
+import { ClientErrorBoundary } from "@/components/ClientErrorBoundary";
 
-export default async function SellerOrdersLayout({
+export default function SellerOrdersLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    redirect("/login?callbackUrl=/seller-hub/orders");
-  }
-  /** Seller list + labels; Business-plan members need order detail for reward fulfillments (same sellerId as business owner). */
-  const sub = await prisma.subscription.findFirst({
-    where: prismaWhereActivePaidNwcPlan(session.user.id),
-  });
-  if (!sub) {
-    redirect("/seller-hub");
-  }
+  // Auth is enforced by `seller-hub/layout.tsx`. Do not query Prisma here:
+  // a hung DB call in this nested layout produces a blank page with no error log.
   return (
     <div className="py-8" style={{ padding: "var(--section-padding)" }}>
-      <main className="max-w-[var(--max-width)] xl:max-w-[1520px] mx-auto">{children}</main>
+      <main className="max-w-[var(--max-width)] xl:max-w-[1520px] mx-auto">
+        <ClientErrorBoundary>{children}</ClientErrorBoundary>
+      </main>
     </div>
   );
 }
