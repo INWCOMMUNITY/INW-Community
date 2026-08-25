@@ -389,6 +389,15 @@ export function ebayErrorActionHint(reason: string): string | undefined {
   if (/multi-variation|variation/i.test(reason)) {
     return "Multi-variation listings need a unique SKU per variation in Seller Hub before they can sync.";
   }
+  if (/SKU cannot be null|listing SKU cannot/i.test(reason)) {
+    return "This eBay listing has no Custom Label (SKU). INW adds a valid SKU and retries migrate; if this persists, set an alphanumeric Custom Label (max 50 characters) in Seller Hub.";
+  }
+  if (/#25707|invalid value for a SKU/i.test(reason)) {
+    return "eBay Inventory SKUs must be alphanumeric and at most 50 characters. Hyphens, spaces, and longer Custom Labels cannot be used.";
+  }
+  if (/timed out after \d+s/i.test(reason)) {
+    return "eBay took too long to migrate this listing. Try importing it again — if migrate finished on eBay's side, the next attempt will pick up the existing SKU.";
+  }
   if (/25718|Cannot migrate listing|bad request|HTTP 400/i.test(reason)) {
     return "eBay couldn't migrate this listing. Make sure it's a fixed-price GTC listing with payment/return/shipping policies and a merchant location set in Seller Hub.";
   }

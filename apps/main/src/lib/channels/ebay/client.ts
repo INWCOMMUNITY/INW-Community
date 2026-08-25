@@ -104,10 +104,18 @@ function isRetryableStatus(status: number): boolean {
 }
 
 const EBAY_FETCH_TIMEOUT_MS = 20_000;
+/** bulk_migrate_listing often exceeds 20s; aborting it caused import 504s with an empty body. */
+const EBAY_MIGRATE_TIMEOUT_MS = 60_000;
 
-function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
+function fetchTimeoutMsForPath(path: string, override?: number): number {
+  if (override != null && Number.isFinite(override) && override > 0) return override;
+  if (path.includes("bulk_migrate_listing")) return EBAY_MIGRATE_TIMEOUT_MS;
+  return EBAY_FETCH_TIMEOUT_MS;
+}
+
+function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = EBAY_FETCH_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), EBAY_FETCH_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(url, {
     ...EBAY_NO_STORE_FETCH,
     ...init,
@@ -120,21 +128,30 @@ function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response
 async function ebayRequest<T>(
   accessToken: string,
   path: string,
-  init: RequestInit & { headers?: Record<string, string>; contentLanguage?: boolean } = {},
+  init: RequestInit & { headers?: Record<string, string>; contentLanguage?: boolean; timeoutMs?: number } = {},
   attempt = 0
 ): Promise<T> {
   const url = path.startsWith("http") ? path : `${EBAY_API_BASE}${path}`;
-  const { contentLanguage, headers: extraHeaders, ...fetchInit } = init;
+  const { contentLanguage, headers: extraHeaders, timeoutMs: timeoutOverride, ...fetchInit } = init;
+  const timeoutMs = fetchTimeoutMsForPath(path, timeoutOverride);
   let res: Response;
   try {
-    res = await fetchWithTimeout(url, {
-      ...fetchInit,
-      headers: { ...baseHeaders(accessToken, { contentLanguage }), ...(extraHeaders ?? {}) },
-    });
+    res = await fetchWithTimeout(
+      url,
+      {
+        ...fetchInit,
+        headers: { ...baseHeaders(accessToken, { contentLanguage }), ...(extraHeaders ?? {}) },
+      },
+      timeoutMs
+    );
   } catch (e) {
     const aborted = e instanceof Error && e.name === "AbortError";
+    if (aborted && attempt < 2 && !path.includes("bulk_migrate_listing")) {
+      await new Promise((r) => setTimeout(r, DEFAULT_RETRY_BACKOFF_MS * (attempt + 1)));
+      return ebayRequest<T>(accessToken, path, init, attempt + 1);
+    }
     throw new EbayApiError(
-      aborted ? `eBay request timed out after ${EBAY_FETCH_TIMEOUT_MS / 1000}s` : "eBay request failed",
+      aborted ? `eBay request timed out after ${timeoutMs / 1000}s` : "eBay request failed",
       aborted ? 504 : 502,
       null,
       path

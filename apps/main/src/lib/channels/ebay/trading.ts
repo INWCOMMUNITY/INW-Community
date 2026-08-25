@@ -438,9 +438,18 @@ function formatMigrationError(e: unknown): string {
   return describeEbayThrownError(e);
 }
 
+/** Inventory API SKU: alphanumeric only, 1–50 chars (#25707). */
+export function isValidEbayInventorySku(sku: string): boolean {
+  return /^[a-zA-Z0-9]{1,50}$/.test(sku.trim());
+}
+
 /** Inventory API SKU for a migrated listing. Must be alphanumeric and <= 50 chars. */
-function generateMigrationSku(listingId: string): string {
+export function generateEbayMigrationSku(listingId: string): string {
   return `inw${listingId}`.replace(/[^a-zA-Z0-9]/g, "").slice(0, 50);
+}
+
+function generateMigrationSku(listingId: string): string {
+  return generateEbayMigrationSku(listingId);
 }
 
 /**
@@ -460,9 +469,10 @@ function migrationErrorLikelyMissingSku(reason: string): boolean {
   );
 }
 
-/** Auctions / non-GTC / classified-ad listings can never be migrated; SKU won't help. */
+/** Auctions / classified-ad listings can never be migrated; SKU won't help. */
 function migrationErrorNonRemediable(reason: string): boolean {
-  return /auction|classified|listingtype|not a fixed|non-fixed|good 'til|\bgtc\b|duration/i.test(reason);
+  if (/sku cannot be null|listing sku cannot|null or empty/i.test(reason)) return false;
+  return /auction|classified|listingtype|not a fixed|non-fixed|good 'til cancelled|duration/i.test(reason);
 }
 
 function buildReviseSkuXml(listingId: string, sku: string): string {
@@ -512,8 +522,22 @@ async function fetchExistingListingSku(
     const item = tag(xml, "Item") ?? xml;
     const sku = tag(item, "SKU");
     if (sku) {
-      console.log("[ebay] fetchExistingListingSku: found SKU", { listingId, sku });
-      return sku.trim();
+      const trimmed = sku.trim();
+      const valid = isValidEbayInventorySku(trimmed);
+      if (!valid) {
+        const nextSku = generateMigrationSku(listingId);
+        const set = await setEbayListingSku(accessToken, listingId, nextSku);
+        if (set.ok) {
+          console.log("[ebay] fetchExistingListingSku: replaced invalid SKU", { listingId, nextSku });
+          return nextSku;
+        }
+        console.warn("[ebay] fetchExistingListingSku: invalid SKU and revise failed", {
+          listingId,
+          error: set.error,
+        });
+      }
+      console.log("[ebay] fetchExistingListingSku: found SKU", { listingId, sku: trimmed });
+      return trimmed;
     }
     console.warn("[ebay] fetchExistingListingSku: no SKU in listing", { listingId });
     return null;
@@ -561,9 +585,12 @@ async function remediateMissingSkus(
   for (const [listingId, res] of result) {
     if (!res.error || res.sku) continue;
     if (!/^\d+$/.test(listingId)) continue;
-    if (!migrationErrorLikelyMissingSku(res.error) || migrationErrorNonRemediable(res.error)) continue;
+    const likelyMissing = migrationErrorLikelyMissingSku(res.error);
+    const nonRemediable = migrationErrorNonRemediable(res.error);
+    const nextSku = generateMigrationSku(listingId);
+    if (!likelyMissing || nonRemediable) continue;
 
-    const set = await setEbayListingSku(accessToken, listingId, generateMigrationSku(listingId));
+    const set = await setEbayListingSku(accessToken, listingId, nextSku);
     if (!set.ok) {
       if (set.error && /fixed price|fixed-price|auction|not.*fixed/i.test(set.error)) {
         result.set(listingId, {
@@ -604,7 +631,8 @@ function applyMigrateResponse(
     }
     
     if (!ok) {
-      result.set(r.listingId, { error: formatMigrateListingError(r) });
+      const err = formatMigrateListingError(r);
+      result.set(r.listingId, { error: err });
       continue;
     }
     const sku = r.inventoryItems?.[0]?.sku;
@@ -659,13 +687,84 @@ async function migrateListingBatch(
   }
 }
 
+function isEbayMigrateTimeout(e: unknown): boolean {
+  if (e instanceof EbayApiError && e.status === 504) return true;
+  const msg = e instanceof Error ? e.message : String(e);
+  return /timed out after \d+s/i.test(msg);
+}
+
+/**
+ * Website listings often have no Custom Label. Stamp a valid Inventory SKU before
+ * bulk_migrate_listing so we don't rely on a fail-then-revise round trip.
+ */
+async function stampMissingMigrationSkus(
+  accessToken: string,
+  listingIds: string[],
+  knownSkus?: Map<string, string | null | undefined>
+): Promise<void> {
+  for (const listingId of listingIds) {
+    const known = knownSkus?.get(listingId)?.trim() || "";
+    if (known && isValidEbayInventorySku(known)) continue;
+    const nextSku = generateMigrationSku(listingId);
+    const set = await setEbayListingSku(accessToken, listingId, nextSku);
+    if (!set.ok) {
+      console.warn("[ebay] pre-migrate SKU stamp failed", { listingId, error: set.error });
+    }
+  }
+}
+
+/**
+ * Client abort / eBay 504 often means migrate is still running. Look up SKU first,
+ * then retry that listing once if it was never migrated.
+ */
+async function recoverTimedOutMigrateBatch(
+  accessToken: string,
+  batch: string[],
+  result: Map<string, MigrationResult>
+): Promise<void> {
+  for (const listingId of batch) {
+    const current = result.get(listingId);
+    if (current?.sku) continue;
+    const existing = await fetchExistingListingSku(accessToken, listingId);
+    if (existing && isValidEbayInventorySku(existing)) {
+      result.set(listingId, { sku: existing });
+      console.log("[ebay] recovered timed-out migrate via existing SKU", { listingId, sku: existing });
+      continue;
+    }
+    try {
+      const res = await migrateListingBatch(accessToken, [listingId]);
+      applyMigrateResponse(result, res, [listingId]);
+    } catch (e) {
+      if (isEbayMigrateTimeout(e)) {
+        const again = await fetchExistingListingSku(accessToken, listingId);
+        if (again) {
+          result.set(listingId, { sku: again });
+          console.log("[ebay] recovered timed-out migrate retry via SKU", { listingId, sku: again });
+        } else {
+          result.set(listingId, { error: formatMigrationError(e) });
+        }
+        continue;
+      }
+      if (e instanceof EbayApiError) {
+        const bulk = extractBulkMigrateResponse(e.body);
+        if (bulk) {
+          applyMigrateResponse(result, bulk, [listingId]);
+          continue;
+        }
+      }
+      result.set(listingId, { error: formatMigrationError(e) });
+    }
+  }
+}
+
 /**
  * Bring classic listings under the Inventory model so unified inventory updates work.
  * Returns a map listingId -> { sku, offerId } (or an error reason).
  */
 export async function migrateEbayListings(
   accessToken: string,
-  listingIds: string[]
+  listingIds: string[],
+  opts?: { knownSkus?: Map<string, string | null | undefined> }
 ): Promise<Map<string, MigrationResult>> {
   const result = new Map<string, MigrationResult>();
   // The Inventory API `getOffers` endpoint cannot look up offers by listingId (it requires
@@ -684,6 +783,15 @@ export async function migrateEbayListings(
     if (!pending.includes(legacy)) pending.push(legacy);
   }
 
+  const remappedKnown = new Map<string, string | null | undefined>();
+  if (opts?.knownSkus) {
+    for (const [raw, sku] of opts.knownSkus) {
+      const legacy = resolveEbayLegacyListingId(raw.trim()) ?? raw.trim();
+      remappedKnown.set(legacy, sku);
+    }
+  }
+  await stampMissingMigrationSkus(accessToken, pending, remappedKnown);
+
   // bulk_migrate_listing accepts up to 5 listings per call and is known to be flaky (HTTP 500).
   for (let i = 0; i < pending.length; i += 5) {
     const batch = pending.slice(i, i + 5);
@@ -692,6 +800,14 @@ export async function migrateEbayListings(
       applyMigrateResponse(result, res, batch);
       continue;
     } catch (batchErr) {
+      if (isEbayMigrateTimeout(batchErr)) {
+        console.warn("[ebay] bulk_migrate_listing timed out; recovering via SKU lookup", {
+          batch,
+          error: formatMigrationError(batchErr),
+        });
+        await recoverTimedOutMigrateBatch(accessToken, batch, result);
+        continue;
+      }
       console.warn("[ebay] bulk_migrate_listing batch failed; retrying one-by-one", {
         batch,
         error: formatMigrationError(batchErr),
@@ -704,6 +820,10 @@ export async function migrateEbayListings(
         const res = await migrateListingBatch(accessToken, [listingId]);
         applyMigrateResponse(result, res, [listingId]);
       } catch (singleErr) {
+        if (isEbayMigrateTimeout(singleErr)) {
+          await recoverTimedOutMigrateBatch(accessToken, [listingId], result);
+          continue;
+        }
         result.set(listingId, { error: formatMigrationError(singleErr) });
       }
     }

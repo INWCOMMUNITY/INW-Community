@@ -1609,7 +1609,12 @@ export const ebayAdapter: ChannelAdapter = {
         .filter((row) => row.sku?.trim())
         .map((row) => [row.sku!.trim(), row] as const)
     );
-    const offerIndex = await listEbayOfferFulfillmentPolicies(conn.accessToken).catch((e) => {
+    const offerIndex = await listEbayOfferFulfillmentPolicies(conn.accessToken, {
+      fallbackSkus: [
+        ...inventoryRows.map((row) => row.sku),
+        ...tradingListings.map((row) => row.sku),
+      ].filter((sku): sku is string => Boolean(sku?.trim())),
+    }).catch((e) => {
       console.warn("[ebay] listEbayOfferFulfillmentPolicies failed during import", {
         error: e instanceof Error ? e.message : String(e),
       });

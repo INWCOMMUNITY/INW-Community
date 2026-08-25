@@ -1,6 +1,6 @@
 import { ebayGet } from "./client";
 import { normalizeEbayPhotoUrl } from "./photos";
-import type { EbayTradingListing } from "./trading";
+import { isValidEbayInventorySku, type EbayTradingListing } from "./trading";
 import { EBAY_MARKETPLACE_ID } from "./config";
 
 export type EbayInventoryListRow = {
@@ -101,27 +101,69 @@ type OfferListResponse = {
   total?: number;
 };
 
+function offerRowsFromResponse(res: OfferListResponse): EbayOfferFulfillmentRef[] {
+  return (res.offers ?? []).map((offer) => ({
+    sku: offer.sku,
+    listingId: offer.listing?.listingId ?? offer.listingId,
+    fulfillmentPolicyId: offer.listingPolicies?.fulfillmentPolicyId ?? null,
+  }));
+}
+
+function isInvalidSkuOfferError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /#25707|invalid value for a SKU/i.test(msg);
+}
+
+async function listOffersByKnownSkus(
+  accessToken: string,
+  skus: string[]
+): Promise<EbayOfferFulfillmentRef[]> {
+  const unique = [...new Set(skus.map((s) => s.trim()).filter((s) => isValidEbayInventorySku(s)))];
+  const rows: EbayOfferFulfillmentRef[] = [];
+  const concurrency = 5;
+  for (let i = 0; i < unique.length; i += concurrency) {
+    const chunk = unique.slice(i, i + concurrency);
+    const pages = await Promise.all(
+      chunk.map(async (sku) => {
+        try {
+          const res = await ebayGet<OfferListResponse>(
+            accessToken,
+            `/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}&limit=20&marketplace_id=${EBAY_MARKETPLACE_ID}`
+          );
+          return offerRowsFromResponse(res);
+        } catch {
+          return [] as EbayOfferFulfillmentRef[];
+        }
+      })
+    );
+    for (const page of pages) rows.push(...page);
+  }
+  return rows;
+}
+
 /** Paginate Inventory offers so import can use each listing's fulfillment policy, not the shop default. */
 export async function listEbayOfferFulfillmentPolicies(
-  accessToken: string
+  accessToken: string,
+  opts?: { fallbackSkus?: string[] }
 ): Promise<EbayOfferFulfillmentIndex> {
   const rows: EbayOfferFulfillmentRef[] = [];
   let offset = 0;
   const limit = 200;
 
   for (let page = 0; page < 20; page += 1) {
-    const res = await ebayGet<OfferListResponse>(
-      accessToken,
-      `/sell/inventory/v1/offer?limit=${limit}&offset=${offset}&marketplace_id=${EBAY_MARKETPLACE_ID}`
-    );
-    const offers = res.offers ?? [];
-    for (const offer of offers) {
-      rows.push({
-        sku: offer.sku,
-        listingId: offer.listing?.listingId ?? offer.listingId,
-        fulfillmentPolicyId: offer.listingPolicies?.fulfillmentPolicyId ?? null,
-      });
+    const offerPath = `/sell/inventory/v1/offer?limit=${limit}&offset=${offset}&marketplace_id=${EBAY_MARKETPLACE_ID}`;
+    let res: OfferListResponse;
+    try {
+      res = await ebayGet<OfferListResponse>(accessToken, offerPath);
+    } catch (e) {
+      if (isInvalidSkuOfferError(e) && (opts?.fallbackSkus?.length ?? 0) > 0) {
+        const bySku = await listOffersByKnownSkus(accessToken, opts?.fallbackSkus ?? []);
+        return indexOfferFulfillmentPolicies(bySku);
+      }
+      throw e;
     }
+    rows.push(...offerRowsFromResponse(res));
+    const offers = res.offers ?? [];
     if (offers.length < limit) break;
     offset += offers.length;
   }

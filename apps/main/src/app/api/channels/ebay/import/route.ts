@@ -20,7 +20,7 @@ import { resolveEbayLegacyListingId, indexEbayRemoteListings } from "@/lib/chann
 import { attachShippingOptionOnImport, maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 type ImportSkipEntry = {
   externalListingId: string;
@@ -329,7 +329,10 @@ export async function POST(req: NextRequest) {
   try {
     migration = await migrateEbayListings(
       ctx.accessToken,
-      remote.map((l) => l.externalListingId)
+      remote.map((l) => l.externalListingId),
+      {
+        knownSkus: new Map(remote.map((l) => [l.externalListingId, l.sku])),
+      }
     );
   } catch (e) {
     const msg = describeEbayThrownError(e);

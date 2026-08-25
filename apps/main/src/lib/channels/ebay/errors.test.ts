@@ -146,4 +146,15 @@ describe("ebay picture errors", () => {
     expect(describeChannelSyncError("ebay", new Error(msg))).toMatch(/500 pixels/i);
     expect(describeChannelSyncError("ebay", new Error(msg))).not.toMatch(/migrate this listing/i);
   });
+
+  it("hints about missing Custom Label instead of GTC migrate for empty SKU #25002", () => {
+    const msg =
+      "[#25002 · API_INVENTORY · REQUEST · HTTP 400] A user error has occurred. The listing SKU cannot be null or empty.";
+    expect(ebayErrorActionHint(msg)).toMatch(/Custom Label/i);
+    expect(ebayErrorActionHint(msg)).not.toMatch(/GTC listing/i);
+  });
+
+  it("hints to retry after an eBay migrate timeout", () => {
+    expect(ebayErrorActionHint("eBay request timed out after 20s")).toMatch(/Try importing/i);
+  });
 });
