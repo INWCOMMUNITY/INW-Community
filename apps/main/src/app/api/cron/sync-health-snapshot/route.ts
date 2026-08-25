@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getPlatformSyncHealth } from "@/lib/channels/sync-health";
 import { readCronLock } from "@/lib/cron-job-lock";
+import { readPauseConfig } from "@/lib/channels/pause-reason";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -43,11 +44,16 @@ export async function POST(req: NextRequest) {
       ]);
 
     let circuitOpen = 0;
+    const pauseByReason: Record<string, number> = {};
     for (const row of circuitOpenRows) {
       const cfg =
         row.config && typeof row.config === "object" ? (row.config as Record<string, unknown>) : null;
       const cb = cfg?.circuitBreaker as { state?: string } | undefined;
       if (cb?.state === "OPEN") circuitOpen += 1;
+      const pause = readPauseConfig(row.config);
+      if (pause.pauseReason) {
+        pauseByReason[pause.pauseReason] = (pauseByReason[pause.pauseReason] ?? 0) + 1;
+      }
     }
 
     const lastDurationMs = cronLock?.lastDurationMs ?? null;
@@ -74,6 +80,7 @@ export async function POST(req: NextRequest) {
               staleReconcile,
               unmatched24h,
               pausedConnections,
+              pauseByReason,
               circuitOpen,
               lastCronDurationMs: lastDurationMs,
               timestamp: new Date().toISOString(),
@@ -104,6 +111,7 @@ export async function POST(req: NextRequest) {
         staleReconcile,
         unmatched24h,
         pausedConnections,
+        pauseByReason,
         circuitOpen,
         lastDurationMs,
       });
@@ -139,6 +147,7 @@ export async function POST(req: NextRequest) {
         staleReconcile,
         unmatched24h,
         pausedConnections,
+        pauseByReason,
         circuitOpen,
         lastCronDurationMs: lastDurationMs,
       },
