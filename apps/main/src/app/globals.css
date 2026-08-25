@@ -43,6 +43,17 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+html[data-nw-app-chrome="1"] {
+  background-color: #fff;
+  --section-padding: 12px;
+}
+
+@media (min-width: 640px) {
+  html[data-nw-app-chrome="1"] {
+    --section-padding: 16px;
+  }
+}
+
 body {
   font-family: var(--font-body);
   font-weight: var(--font-body-weight);

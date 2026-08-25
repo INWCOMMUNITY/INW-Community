@@ -48,7 +48,7 @@ export function FulfillmentHubContent(props: {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  const tab = parseTabParam(searchParams.get("tab"));
+  const tab = parseTabParam(searchParams?.get("tab") ?? null);
 
   const [shipOrders, setShipOrders] = useState<FulfillmentStoreOrder[]>([]);
   const [allOrders, setAllOrders] = useState<FulfillmentStoreOrder[]>([]);
@@ -134,11 +134,11 @@ export function FulfillmentHubContent(props: {
 
   const setTab = useCallback(
     (next: FulfillmentTabKey) => {
-      const sp = new URLSearchParams(searchParams.toString());
+      const sp = new URLSearchParams(searchParams?.toString() ?? "");
       if (next === "ship") sp.delete("tab");
       else sp.set("tab", next);
       const qs = sp.toString();
-      router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
+      router.replace(`${pathname ?? "/seller-hub/orders"}${qs ? `?${qs}` : ""}`, { scroll: false });
     },
     [pathname, router, searchParams]
   );
@@ -340,7 +340,7 @@ export function FulfillmentHubContent(props: {
   const selectedOrders = toShipOrders.filter((o) => selectedOrderIds.has(o.id));
   const sameBuyer =
     selectedOrders.length <= 1 ||
-    selectedOrders.every((o) => o.buyer.email === selectedOrders[0].buyer.email);
+    selectedOrders.every((o) => o.buyer?.email === selectedOrders[0]?.buyer?.email);
 
   const printSlips = () => {
     window.print();
@@ -379,7 +379,9 @@ export function FulfillmentHubContent(props: {
       className="py-12 px-4"
       style={{ padding: "var(--section-padding)", paddingBottom: showStickyBar ? "6rem" : undefined }}
     >
-      <Script src={SHIPPO_BULK_EMBEDDABLE_URL} strategy="afterInteractive" />
+      {elementsLoading || shippoSurfaceOpen ? (
+        <Script src={SHIPPO_BULK_EMBEDDABLE_URL} strategy="afterInteractive" />
+      ) : null}
       <div className="max-w-[var(--max-width)] mx-auto">
         <Link href={props.backHref} className="text-sm text-gray-600 hover:underline mb-4 inline-block">
           {props.backLabel}

@@ -88,8 +88,8 @@ export function OrderCard({
                 ) : null}
               </Link>
               <p className="text-sm text-gray-600 mt-0.5">
-                {order.buyer.firstName} {order.buyer.lastName} ·{" "}
-                {new Date(order.createdAt).toLocaleString()}
+                {[order.buyer?.firstName, order.buyer?.lastName].filter(Boolean).join(" ") || "Customer"}{" "}
+                · {new Date(order.createdAt).toLocaleString()}
               </p>
             </div>
             <p className="font-semibold shrink-0">{formatSellerOrderTotal(order)}</p>

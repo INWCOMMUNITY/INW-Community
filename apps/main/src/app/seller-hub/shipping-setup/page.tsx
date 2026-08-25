@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
-export default function SetUpShippoPage() {
+function SetUpShippoPageInner() {
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -80,5 +80,13 @@ export default function SetUpShippoPage() {
         </p>
       </div>
     </section>
+  );
+}
+
+export default function SetUpShippoPage() {
+  return (
+    <Suspense fallback={<p className="p-8 text-gray-500 text-center">Loading…</p>}>
+      <SetUpShippoPageInner />
+    </Suspense>
   );
 }
