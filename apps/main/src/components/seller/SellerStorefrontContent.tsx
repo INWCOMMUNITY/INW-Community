@@ -351,291 +351,224 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
         ) : null}
 
         {activeTab === "about" ? (
-          <div
-            className="-mx-4 -mt-4"
-            style={{ backgroundColor: "var(--color-section-alt)" }}
-          >
-            <section className="px-4 py-8 text-center md:px-10 md:py-10">
-              {leadQuote ? (
-                <p
-                  className="mx-auto mb-6 max-w-3xl text-xl font-medium leading-snug md:text-[1.65rem]"
-                  style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
-                >
-                  {leadQuote}
-                </p>
-              ) : null}
-              <div className="mb-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
-                <span className="inline-flex items-center gap-1.5 text-sm" style={{ color: "var(--color-text)" }}>
-                  <IonIcon name="calendar-outline" size={18} className="text-[var(--color-primary)]" />
-                  Member since {seller.memberSince}
-                </span>
-                <span className="inline-flex items-center gap-1.5 text-sm" style={{ color: "var(--color-text)" }}>
-                  <IonIcon name="cube-outline" size={18} className="text-[var(--color-primary)]" />
-                  {seller.storeItems.length} listing{seller.storeItems.length === 1 ? "" : "s"}
-                </span>
-              </div>
-              <div className="flex flex-wrap justify-center gap-2">
-                {seller.offerShipping ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-2xl border-2 border-[var(--color-primary)] bg-white px-3 py-1.5 text-xs font-medium text-[var(--color-primary)]">
-                    <IonIcon name="airplane-outline" size={16} />
-                    Ships items
-                  </span>
-                ) : null}
-                {seller.offerLocalPickup ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-2xl border-2 border-[var(--color-primary)] bg-white px-3 py-1.5 text-xs font-medium text-[var(--color-primary)]">
-                    <IonIcon name="storefront-outline" size={16} />
-                    Local pickup
-                  </span>
-                ) : null}
-                {seller.offerLocalDelivery ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-2xl border-2 border-[var(--color-primary)] bg-white px-3 py-1.5 text-xs font-medium text-[var(--color-primary)]">
-                    <IonIcon name="car-outline" size={16} />
-                    Local delivery
-                  </span>
-                ) : null}
-              </div>
-            </section>
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center justify-center gap-6 border-b border-[#eee] pb-4">
+              <span className="inline-flex items-center gap-1.5 text-sm" style={{ color: "var(--color-text)" }}>
+                <IonIcon name="calendar-outline" size={20} className="text-[var(--color-primary)]" />
+                Member since {seller.memberSince}
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-sm" style={{ color: "var(--color-text)" }}>
+                <IonIcon name="cube-outline" size={20} className="text-[var(--color-primary)]" />
+                {seller.storeItems.length} items
+              </span>
+            </div>
 
-            {storyBody ? (
-              <section className="px-4 pb-6 md:px-10">
-                <div
-                  className="mx-auto max-w-5xl rounded-xl border-2 bg-white p-6 md:p-8"
-                  style={{ borderColor: "var(--color-primary)" }}
-                >
-                  <h2
-                    className="mb-2 text-xl font-semibold"
-                    style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
-                  >
-                    Our story
-                  </h2>
-                  <div
-                    className="mb-5 h-0.5 w-16"
-                    style={{ backgroundColor: "var(--color-primary)" }}
-                    aria-hidden
-                  />
-                  <div
-                    className="max-w-3xl whitespace-pre-wrap text-[15px] leading-[1.75]"
-                    style={{ color: "var(--color-text)" }}
-                  >
-                    {storyBody}
-                  </div>
-                </div>
-              </section>
-            ) : !hasAboutCopy ? (
-              <section className="px-4 py-8 md:px-10">
-                <p className="text-center text-sm" style={{ color: "var(--color-text)" }}>
-                  This seller hasn&apos;t added a story yet.
-                </p>
-              </section>
+            <div className="flex flex-wrap gap-2">
+              {seller.offerShipping ? (
+                <span className="inline-flex items-center gap-1.5 rounded-2xl border border-[var(--color-primary)] bg-[var(--color-section-alt)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary)]">
+                  <IonIcon name="airplane-outline" size={16} />
+                  Ships items
+                </span>
+              ) : null}
+              {seller.offerLocalPickup ? (
+                <span className="inline-flex items-center gap-1.5 rounded-2xl border border-[var(--color-primary)] bg-[var(--color-section-alt)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary)]">
+                  <IonIcon name="storefront-outline" size={16} />
+                  Local pickup
+                </span>
+              ) : null}
+              {seller.offerLocalDelivery ? (
+                <span className="inline-flex items-center gap-1.5 rounded-2xl border border-[var(--color-primary)] bg-[var(--color-section-alt)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary)]">
+                  <IonIcon name="car-outline" size={16} />
+                  Local delivery
+                </span>
+              ) : null}
+            </div>
+
+            {(seller.phone || seller.email || seller.website) ? (
+              <div>
+                <h2 className="mb-2.5 text-base font-semibold" style={{ color: "var(--color-heading)" }}>
+                  Contact
+                </h2>
+                <ul className="space-y-2">
+                  {seller.phone ? (
+                    <li>
+                      <a
+                        href={`tel:${seller.phone.replace(/\s/g, "")}`}
+                        className="inline-flex items-center gap-2 text-sm font-medium text-[var(--color-primary)] hover:opacity-90"
+                      >
+                        <IonIcon name="call-outline" size={18} />
+                        {seller.phone}
+                      </a>
+                    </li>
+                  ) : null}
+                  {seller.email ? (
+                    <li>
+                      <a
+                        href={`mailto:${seller.email}`}
+                        className="inline-flex items-center gap-2 break-all text-sm font-medium text-[var(--color-primary)] hover:opacity-90"
+                      >
+                        <IonIcon name="mail-outline" size={18} />
+                        {seller.email}
+                      </a>
+                    </li>
+                  ) : null}
+                  {seller.website ? (
+                    <li>
+                      <a
+                        href={formatWebsiteHref(seller.website)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 break-all text-sm font-medium text-[var(--color-primary)] hover:opacity-90"
+                      >
+                        <IonIcon name="globe-outline" size={18} />
+                        {seller.website}
+                      </a>
+                    </li>
+                  ) : null}
+                </ul>
+              </div>
             ) : null}
 
-            {hasVisitCard ? (
-              <section className="px-4 pb-8 md:px-8">
-                <div
-                  className={`mx-auto grid max-w-5xl items-start gap-4 ${
-                    hasVisitInfo && hasHours
-                      ? "md:grid-cols-[minmax(0,1.5fr)_minmax(17rem,0.95fr)]"
-                      : ""
-                  }`}
-                >
-                  {hasVisitInfo ? (
-                    <div
-                      className="rounded-xl border-2 bg-white p-5 md:p-6"
-                      style={{ borderColor: "var(--color-primary)" }}
-                    >
-                      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-primary)]">
-                        <IonIcon name="navigate-outline" size={18} className="text-white" />
-                      </div>
-                      <h3
-                        className="mb-4 text-lg font-semibold"
-                        style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
-                      >
-                        Visit
-                      </h3>
-                      <div className={`grid gap-5 ${hasContact && hasFindUs ? "sm:grid-cols-2" : ""}`}>
-                        {hasContact ? (
-                          <div>
-                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-primary)]">
-                              Contact
-                            </p>
-                            <ul className="space-y-2.5">
-                              {seller.phone ? (
-                                <li>
-                                  <a
-                                    href={`tel:${seller.phone.replace(/\D/g, "")}`}
-                                    className="inline-flex items-center gap-2 text-sm font-medium text-[var(--color-primary)] hover:opacity-90"
-                                  >
-                                    <IonIcon name="call-outline" size={18} />
-                                    {formatPhoneDisplay(seller.phone)}
-                                  </a>
-                                </li>
-                              ) : null}
-                              {seller.email ? (
-                                <li>
-                                  <a
-                                    href={`mailto:${seller.email}`}
-                                    className="inline-flex items-center gap-2 break-all text-sm font-medium text-[var(--color-primary)] hover:opacity-90"
-                                  >
-                                    <IonIcon name="mail-outline" size={18} />
-                                    {seller.email}
-                                  </a>
-                                </li>
-                              ) : null}
-                              {seller.website ? (
-                                <li>
-                                  <a
-                                    href={formatWebsiteHref(seller.website)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-2 break-all text-sm font-medium text-[var(--color-primary)] hover:opacity-90"
-                                  >
-                                    <IonIcon name="globe-outline" size={18} />
-                                    {displayWebsite(seller.website)}
-                                  </a>
-                                </li>
-                              ) : null}
-                            </ul>
-                            {hasSocial ? (
-                              <div className="mt-4 flex gap-2">
-                                {seller.facebookUrl ? (
-                                  <a
-                                    href={seller.facebookUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-primary)] hover:opacity-90"
-                                    aria-label="Facebook"
-                                  >
-                                    <IonIcon name="logo-facebook" size={20} className="text-white" />
-                                  </a>
-                                ) : null}
-                                {seller.instagramUrl ? (
-                                  <a
-                                    href={seller.instagramUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-primary)] hover:opacity-90"
-                                    aria-label="Instagram"
-                                  >
-                                    <IonIcon name="logo-instagram" size={20} className="text-white" />
-                                  </a>
-                                ) : null}
-                                {seller.tiktokUrl ? (
-                                  <a
-                                    href={seller.tiktokUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-primary)] hover:opacity-90"
-                                    aria-label="TikTok"
-                                  >
-                                    <IonIcon name="logo-tiktok" size={20} className="text-white" />
-                                  </a>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
-                        {hasFindUs ? (
-                          <div>
-                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-primary)]">
-                              Location
-                            </p>
-                            <p className="text-sm leading-relaxed" style={{ color: "var(--color-text)" }}>
-                              {seller.addressDisplay}
-                            </p>
-                            {seller.googleMapsUrl ? (
-                              <a
-                                href={seller.googleMapsUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-[var(--color-primary)] px-3.5 py-2 text-xs font-semibold text-white hover:opacity-90"
-                              >
-                                <IonIcon name="map-outline" size={16} className="text-white" />
-                                Open in Maps
-                              </a>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : null}
+            {hasSocial ? (
+              <div className="flex gap-3">
+                {seller.facebookUrl ? (
+                  <a
+                    href={seller.facebookUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--color-primary)] hover:opacity-90"
+                    aria-label="Facebook"
+                  >
+                    <IonIcon name="logo-facebook" size={22} className="text-white" />
+                  </a>
+                ) : null}
+                {seller.instagramUrl ? (
+                  <a
+                    href={seller.instagramUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--color-primary)] hover:opacity-90"
+                    aria-label="Instagram"
+                  >
+                    <IonIcon name="logo-instagram" size={22} className="text-white" />
+                  </a>
+                ) : null}
+                {seller.tiktokUrl ? (
+                  <a
+                    href={seller.tiktokUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--color-primary)] hover:opacity-90"
+                    aria-label="TikTok"
+                  >
+                    <IonIcon name="logo-tiktok" size={22} className="text-white" />
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
 
-                  {hasHours && seller.hoursOfOperation ? (
-                    <div
-                      className="rounded-xl border-2 bg-white p-5"
-                      style={{ borderColor: "var(--color-primary)" }}
-                    >
-                      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-primary)]">
-                        <IonIcon name="time-outline" size={18} className="text-white" />
-                      </div>
-                      <h3
-                        className="mb-1 text-lg font-semibold"
-                        style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
-                      >
-                        Hours
-                      </h3>
-                      {todayHours ? (
-                        <p className="mb-3 text-xs font-medium text-[var(--color-primary)]">
-                          Today · {todayHours}
-                        </p>
-                      ) : null}
-                      <ul className="space-y-0.5">
-                        {DAY_ORDER.map((day) => {
-                          const val = seller.hoursOfOperation?.[day];
-                          if (!val) return null;
-                          const isToday = day === todayHoursKey;
-                          return (
-                            <li
-                              key={day}
-                              className={`flex justify-between gap-3 rounded-md px-2 py-1 text-[13px] ${
-                                isToday ? "font-semibold" : ""
-                              }`}
-                              style={{
-                                color: "var(--color-text)",
-                                backgroundColor: isToday ? "var(--color-section-alt)" : undefined,
-                              }}
-                            >
-                              <span className="capitalize">{day.slice(0, 3)}</span>
-                              <span className="text-right">{val}</span>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  ) : null}
-                </div>
-              </section>
+            {seller.addressDisplay ? (
+              <div>
+                <h2 className="mb-2.5 text-base font-semibold" style={{ color: "var(--color-heading)" }}>
+                  Location
+                </h2>
+                <p className="flex items-start gap-2 text-sm" style={{ color: "var(--color-text)" }}>
+                  <IonIcon name="location-outline" size={18} className="mt-0.5 shrink-0 text-[var(--color-primary)]" />
+                  <span>{seller.addressDisplay}</span>
+                </p>
+                {seller.googleMapsUrl ? (
+                  <a
+                    href={seller.googleMapsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-primary)] py-2.5 text-sm font-semibold text-white hover:opacity-90"
+                  >
+                    <IonIcon name="map-outline" size={18} className="text-white" />
+                    Open in Maps
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
+
+            {hasHours && seller.hoursOfOperation ? (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setHoursExpanded((v) => !v)}
+                  className="flex w-full items-center justify-between"
+                >
+                  <h2 className="text-base font-semibold" style={{ color: "var(--color-heading)" }}>
+                    Hours of Operation
+                  </h2>
+                  <IonIcon
+                    name={hoursExpanded ? "chevron-up" : "chevron-down"}
+                    size={20}
+                    className="text-[var(--color-primary)]"
+                  />
+                </button>
+                {hoursExpanded ? (
+                  <ul className="mt-2 space-y-1">
+                    {DAY_ORDER.map((day) => {
+                      const val = seller.hoursOfOperation?.[day];
+                      if (!val) return null;
+                      return (
+                        <li key={day} className="flex justify-between text-sm" style={{ color: "var(--color-text)" }}>
+                          <span className="w-28 capitalize">{day}</span>
+                          <span className="text-right">{val}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+              </div>
             ) : null}
 
             {seller.galleryPhotos.length > 0 ? (
-              <section className="px-4 py-8 md:px-8">
-                <div className="mb-4 flex items-end justify-between gap-3">
-                  <h2
-                    className="text-xl font-semibold"
-                    style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
-                  >
+              <div>
+                <div className="mb-2.5 flex items-center justify-between">
+                  <h2 className="text-base font-semibold" style={{ color: "var(--color-heading)" }}>
                     Gallery
                   </h2>
-                  <span className="rounded-xl border-2 border-[var(--color-primary)] bg-white px-2.5 py-1 text-xs font-semibold text-[var(--color-primary)]">
+                  <span className="rounded-xl bg-[var(--color-section-alt)] px-2.5 py-1 text-xs font-semibold text-[var(--color-primary)]">
                     {seller.galleryPhotos.length} photos
                   </span>
                 </div>
-                <BusinessHorizontalGallery
-                  photos={seller.galleryPhotos}
-                  alt={seller.name}
-                  thumbClassName="w-[320px] h-[240px] md:w-[380px] md:h-[270px]"
-                />
-              </section>
+                <BusinessHorizontalGallery photos={seller.galleryPhotos} alt={seller.name} />
+              </div>
             ) : null}
 
-            <div className="px-4 py-6">
-              <Link
-                href={`/support-local/${seller.slug}`}
-                className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-primary)] hover:opacity-90"
-              >
-                <IonIcon name="business-outline" size={18} />
-                View business directory page
-              </Link>
-            </div>
+            {(seller.shortDescription || seller.fullDescription) ? (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setAboutExpanded((v) => !v)}
+                  className="flex w-full items-center justify-between"
+                >
+                  <h2 className="text-base font-semibold" style={{ color: "var(--color-heading)" }}>
+                    About
+                  </h2>
+                  <IonIcon
+                    name={aboutExpanded ? "chevron-up" : "chevron-down"}
+                    size={20}
+                    className="text-[var(--color-primary)]"
+                  />
+                </button>
+                {aboutExpanded ? (
+                  <div className="mt-2 space-y-3 text-sm leading-relaxed whitespace-pre-wrap" style={{ color: "var(--color-text)" }}>
+                    {seller.shortDescription ? <p>{seller.shortDescription}</p> : null}
+                    {seller.fullDescription ? <p>{seller.fullDescription}</p> : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <Link
+              href={`/support-local/${seller.slug}`}
+              className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-primary)] hover:opacity-90"
+            >
+              <IonIcon name="business-outline" size={18} />
+              View business directory page
+            </Link>
           </div>
         ) : null}
 
