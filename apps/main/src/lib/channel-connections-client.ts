@@ -2,6 +2,8 @@ import type { ChannelProvider } from "@/lib/channels/types";
 
 export type ChannelProviderId = ChannelProvider;
 
+export type ChannelHealthKind = "ok" | "reconnect" | "delayed" | "platform_key";
+
 export type ChannelConnectionSummary = {
   id: string;
   provider: ChannelProviderId;
@@ -10,7 +12,30 @@ export type ChannelConnectionSummary = {
   lastError?: string | null;
   readyToPublish: boolean | null;
   publishBlockReason?: string | null;
+  healthKind?: ChannelHealthKind | null;
+  healthMessage?: string | null;
+  pauseReason?: string | null;
 };
+
+export function listOnConnectionHealth(c: {
+  status: string;
+  readyToPublish?: boolean | null;
+  publishBlockReason?: string | null;
+  healthKind?: ChannelHealthKind | null;
+  healthMessage?: string | null;
+}): { blocked: boolean; showReconnect: boolean; hint: string | null } {
+  const kind = c.healthKind ?? (c.status === "error" ? "reconnect" : "ok");
+  const errored = c.status === "error";
+  const blocked = errored || c.readyToPublish === false;
+  const showReconnect = kind === "reconnect";
+  if (errored && c.healthMessage) {
+    return { blocked, showReconnect, hint: c.healthMessage };
+  }
+  if (blocked) {
+    return { blocked, showReconnect, hint: c.publishBlockReason ?? null };
+  }
+  return { blocked: false, showReconnect: false, hint: null };
+}
 
 export const LIST_ON_PROVIDER_ORDER: ChannelProviderId[] = ["ebay", "etsy", "wix", "shopify"];
 

@@ -39,9 +39,8 @@ function OrderSuccessContent() {
         return;
       } catch (err) {
         console.error("[order-success] finalize failed:", err);
+        if (!cancelled) setStatus("success");
       }
-
-      if (!cancelled) setStatus("error");
     }
 
     void finalizeOrder();
