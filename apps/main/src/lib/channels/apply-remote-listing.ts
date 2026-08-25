@@ -9,6 +9,7 @@ import type { ChannelProvider, RemoteListingSummary } from "./types";
 import { logSyncPullQuantityChange } from "./quantity-audit";
 import { skuToAdoptFromRemote } from "@/lib/listing-sku";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
+import { isSoldOutQtyRecovery, shouldBlockSoldOutQtyRecovery } from "./sold-out-guard";
 
 /** Normalize title text so HTML entities don't trigger false content drift. */
 function normalizeTitleForCompare(title: string): string {
