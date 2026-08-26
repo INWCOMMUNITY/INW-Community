@@ -1,3 +1,5 @@
+import { NWC_SHIPPO_IFRAME_HEIGHT_PX } from "@/lib/shippo-elements-theme";
+
 /** Clear Shippo embed mount nodes so the next `labelPurchase` gets a fresh DOM target. */
 export function clearShippoElementsMount(containerId: string): void {
   if (typeof document === "undefined") return;
@@ -50,15 +52,22 @@ export function watchShippoElementsHeight(containerId: string): () => void {
   let stopped = false;
   let observer: MutationObserver | null = null;
 
+  const applyCompactHeight = (iframe: HTMLIFrameElement, px?: number) => {
+    const viewport = window.visualViewport?.height ?? window.innerHeight;
+    const cap = Math.max(360, Math.round(viewport - 56));
+    const target = Math.min(px ?? NWC_SHIPPO_IFRAME_HEIGHT_PX, NWC_SHIPPO_IFRAME_HEIGHT_PX, cap);
+    iframe.setAttribute("height", String(target));
+    iframe.style.setProperty("height", `${target}px`, "important");
+    iframe.style.setProperty("max-height", `min(${target}px, calc(100svh - 3.5rem))`, "important");
+    iframe.style.width = "100%";
+    iframe.style.minHeight = "0";
+    iframe.style.flex = "none";
+  };
+
   const relaxIframe = (root: HTMLElement) => {
     const iframe = root.querySelector("iframe");
     if (!iframe) return;
-    const inline = iframe.style.height.trim();
-    if (inline === "100%" || inline === "100vh" || inline === "100dvh") {
-      iframe.style.height = "";
-    }
-    iframe.style.minHeight = "0";
-    iframe.style.flex = "none";
+    applyCompactHeight(iframe);
   };
 
   const onMessage = (event: MessageEvent) => {
@@ -68,10 +77,7 @@ export function watchShippoElementsHeight(containerId: string): () => void {
     const root = document.getElementById(containerId);
     const iframe = root?.querySelector("iframe");
     if (!iframe) return;
-    iframe.style.height = `${Math.ceil(height)}px`;
-    iframe.style.minHeight = "0";
-    iframe.style.maxHeight = "none";
-    iframe.removeAttribute("height");
+    applyCompactHeight(iframe, height);
   };
 
   const attach = () => {
@@ -85,8 +91,6 @@ export function watchShippoElementsHeight(containerId: string): () => void {
     observer.observe(root, {
       childList: true,
       subtree: true,
-      attributes: true,
-      attributeFilter: ["style", "height"],
     });
     relaxIframe(root);
   };

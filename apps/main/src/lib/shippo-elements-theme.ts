@@ -3,6 +3,8 @@
  * @see https://docs.goshippo.com/docs/shippingelements/customisation
  */
 
+/** Compact iframe height (px). Shippo defaults to 600, which leaves empty white under Next. */
+export const NWC_SHIPPO_IFRAME_HEIGHT_PX = 520;
 /** Primary olive green */
 const PRIMARY = "#505542";
 /** Darker green (headings) */
@@ -84,17 +86,13 @@ export type ShippoElementsTheme = {
 export const NWC_SHIPPO_ELEMENTS_THEME: ShippoElementsTheme = {
   title: "Shipping Label",
   primaryColor: PRIMARY,
-  /** Fill the host container (modal); default embed is ~half-width. */
-  width: "100%",
   /**
-   * Injected into the Elements iframe. Compact the sticky purchase bar so it
-   * does not fill leftover viewport, and title-case section headers.
+   * `style`/`height`/`width`/`title` are iframe HTML attributes (see embeddable-client
+   * `buildIframe` defaults: height 600). Extra height is empty white under Next.
    */
-  style: [
-    "html,body,#root,#app,#__next{height:auto!important;min-height:0!important;max-height:none!important}",
-    "[class*='Footer'],[class*='footer'],[class*='ActionBar'],[class*='action-bar']{min-height:0!important;height:auto!important;padding-top:8px!important;padding-bottom:8px!important;flex-grow:0!important}",
-    "[class*='AccordionSummary'],[class*='CardTitle'],[class*='card-title'],[class*='SubHeader'],[class*='subHeader']{text-transform:capitalize}",
-  ].join(""),
+  width: "100%",
+  height: String(NWC_SHIPPO_IFRAME_HEIGHT_PX),
+  style: "border:none;width:100%;max-width:100%;display:block;min-height:0",
   container: {
     backgroundColor: WHITE,
   },

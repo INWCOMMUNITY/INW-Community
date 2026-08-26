@@ -93,7 +93,7 @@ export function ShippoElementsSurface({
           </span>
         </button>
       </div>
-      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
+      <div className="h-fit min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain max-h-[calc(100svh-3.5rem)]">
         <div
           ref={containerRef}
           id={containerId}
@@ -130,11 +130,13 @@ export function ShippoElementsSurface({
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex flex-col overflow-hidden bg-[var(--color-background)] pb-[env(safe-area-inset-bottom)]"
+      className="fixed inset-0 z-[90] flex flex-col bg-black/40 pb-[env(safe-area-inset-bottom)]"
       role="region"
       aria-labelledby={titleId}
     >
-      {inner}
+      <div className="flex h-fit max-h-[100svh] w-full shrink-0 flex-col overflow-hidden bg-[var(--color-background)]">
+        {inner}
+      </div>
     </div>
   );
 }
