@@ -128,7 +128,7 @@ export function buyerCoverPhoto(order: BuyerStoreOrder): string | undefined {
 }
 
 export function buyerPaymentLabel(order: Pick<BuyerStoreOrder, "isCashOrder">): string {
-  return order.isCashOrder ? "Cash due" : "Paid online";
+  return order.isCashOrder ? "Cash due" : "Paid Online";
 }
 
 export function canCancelBuyerOrder(order: Pick<BuyerStoreOrder, "status">): boolean {

@@ -62,7 +62,7 @@ export function FulfillmentActionBar({
             disabled={slipsDisabled || selectedCount === 0}
             className="action-pill action-pill-lg btn-pill-outline flex-1 sm:flex-none justify-center min-w-[7rem] disabled:opacity-50"
           >
-            Print slips
+            Print Slips
           </button>
           <button
             type="button"
@@ -70,7 +70,7 @@ export function FulfillmentActionBar({
             disabled={labelsDisabled}
             className="action-pill action-pill-lg btn-pill-primary flex-1 sm:flex-none justify-center min-w-[9rem] disabled:opacity-50"
           >
-            {elementsLoading ? "Opening…" : "Purchase labels"}
+            {elementsLoading ? "Opening…" : "Purchase Labels"}
           </button>
         </div>
       </div>

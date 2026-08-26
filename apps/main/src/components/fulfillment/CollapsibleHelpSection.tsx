@@ -10,7 +10,7 @@ type CollapsibleHelpSectionProps = {
 export function CollapsibleHelpSection({ shippingSetupHref }: CollapsibleHelpSectionProps) {
   return (
     <CollapsibleListingSection
-      title="How shipping works"
+      title="How Shipping Works"
       subtitle="Labels, packing slips, and mark-shipped without a label."
       icon="help-circle-outline"
       defaultExpanded={false}

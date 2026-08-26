@@ -185,7 +185,7 @@ function ToShipFlowView({
       returnTo: "/seller-hub/orders",
       bulkOrderIds: selectedIdList,
     });
-    const url = `/web?url=${encodeURIComponent(hubUrl)}&title=${encodeURIComponent("Shipping labels")}`;
+    const url = `/web?url=${encodeURIComponent(hubUrl)}&title=${encodeURIComponent("Shipping Labels")}`;
     (router.push as (href: string) => void)(url);
   };
 
@@ -330,7 +330,7 @@ function ToShipFlowView({
             disabled={selectedCount === 0}
           >
             <Ionicons name="pricetag-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
-            <Text style={styles.shipBtnText}>Purchase labels</Text>
+            <Text style={styles.shipBtnText}>Purchase Labels</Text>
           </Pressable>
           <Text style={styles.packingSlipHint}>Packing slips use the same order selection.</Text>
           <Pressable

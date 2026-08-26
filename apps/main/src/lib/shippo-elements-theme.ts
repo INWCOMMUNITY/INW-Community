@@ -82,9 +82,19 @@ export type ShippoElementsTheme = {
 };
 
 export const NWC_SHIPPO_ELEMENTS_THEME: ShippoElementsTheme = {
+  title: "Shipping Label",
   primaryColor: PRIMARY,
   /** Fill the host container (modal); default embed is ~half-width. */
   width: "100%",
+  /**
+   * Injected into the Elements iframe. Compact the sticky purchase bar so it
+   * does not fill leftover viewport, and title-case section headers.
+   */
+  style: [
+    "html,body,#root,#app,#__next{height:auto!important;min-height:0!important;max-height:none!important}",
+    "[class*='Footer'],[class*='footer'],[class*='ActionBar'],[class*='action-bar']{min-height:0!important;height:auto!important;padding-top:8px!important;padding-bottom:8px!important;flex-grow:0!important}",
+    "[class*='AccordionSummary'],[class*='CardTitle'],[class*='card-title'],[class*='SubHeader'],[class*='subHeader']{text-transform:capitalize}",
+  ].join(""),
   container: {
     backgroundColor: WHITE,
   },

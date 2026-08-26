@@ -261,7 +261,7 @@ export default function MyOrderDetailScreen() {
     order?.items?.some((i) => (i.fulfillmentType ?? "") === "local_delivery") ?? false;
   const orderNumberDisplay = order?.orderNumber ?? order?.id.slice(-8).toUpperCase();
   const paymentLabelText =
-    order?.paymentLabel ?? (order?.isCashOrder ? "Cash due" : "Paid online");
+    order?.paymentLabel ?? (order?.isCashOrder ? "Cash due" : "Paid Online");
 
   return viewMode === "loading" ? (
     <View style={styles.center}>

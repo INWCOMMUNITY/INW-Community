@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef } from "react";
-import { clearShippoElementsMount } from "@/lib/shippo-mount-utils";
+import { clearShippoElementsMount, watchShippoElementsHeight } from "@/lib/shippo-mount-utils";
 
 export type ShippoElementsPresentation = "modal" | "page";
 
@@ -23,7 +23,7 @@ export function ShippoElementsSurface({
   open,
   onClose,
   containerId,
-  title = "Purchase label",
+  title = "Purchase Label",
   presentation,
   subtitle,
 }: Props) {
@@ -39,6 +39,11 @@ export function ShippoElementsSurface({
     return () => {
       clearShippoElementsMount(containerId);
     };
+  }, [open, containerId]);
+
+  useEffect(() => {
+    if (!open) return;
+    return watchShippoElementsHeight(containerId);
   }, [open, containerId]);
 
   useEffect(() => {
@@ -63,8 +68,8 @@ export function ShippoElementsSurface({
 
   const mountClass =
     presentation === "modal"
-      ? "shippo-modal-elements-root min-h-[min(70vh,720px)] w-full min-w-0"
-      : "shippo-page-elements-root min-h-[min(72dvh,820px)] w-full min-w-0 flex-1";
+      ? "shippo-modal-elements-root w-full min-w-0 h-auto self-start"
+      : "shippo-page-elements-root w-full min-w-0 h-auto self-start";
 
   const inner = (
     <>
@@ -88,7 +93,7 @@ export function ShippoElementsSurface({
           </span>
         </button>
       </div>
-      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
         <div
           ref={containerRef}
           id={containerId}
@@ -125,7 +130,7 @@ export function ShippoElementsSurface({
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex flex-col overflow-hidden bg-[var(--color-background)]"
+      className="fixed inset-0 z-[90] flex flex-col overflow-hidden bg-[var(--color-background)] pb-[env(safe-area-inset-bottom)]"
       role="region"
       aria-labelledby={titleId}
     >
@@ -139,7 +144,7 @@ export function ShippoElementsModal({
   open,
   onClose,
   containerId,
-  title = "Purchase label",
+  title = "Purchase Label",
 }: Omit<Props, "presentation" | "subtitle">) {
   return (
     <ShippoElementsSurface

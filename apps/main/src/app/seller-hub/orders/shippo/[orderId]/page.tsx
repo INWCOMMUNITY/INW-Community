@@ -238,7 +238,7 @@ export default function SellerShippoThinLabelPage() {
                 disabled={elementsLoading}
                 className="btn text-sm py-2 px-4 disabled:opacity-50 w-full sm:w-auto"
               >
-                {elementsLoading ? "Opening…" : "Purchase label"}
+                {elementsLoading ? "Opening…" : "Purchase Label"}
               </button>
             )}
             {canLabelFlow &&
@@ -251,7 +251,7 @@ export default function SellerShippoThinLabelPage() {
                   disabled={elementsLoading}
                   className="btn text-sm py-2 px-4 disabled:opacity-50 w-full sm:w-auto"
                 >
-                  {elementsLoading ? "Opening…" : "Reprint label"}
+                  {elementsLoading ? "Opening…" : "Reprint Label"}
                 </button>
               )}
             {orderEligibleForAnotherShippoLabel(order) && (
@@ -261,7 +261,7 @@ export default function SellerShippoThinLabelPage() {
                 disabled={elementsLoading}
                 className="btn text-sm py-2 px-4 disabled:opacity-50 w-full sm:w-auto"
               >
-                {elementsLoading ? "Opening…" : "Purchase another label"}
+                {elementsLoading ? "Opening…" : "Purchase Another Label"}
               </button>
             )}
           </div>
@@ -272,7 +272,7 @@ export default function SellerShippoThinLabelPage() {
         open={shippoModalOpen}
         onClose={closeShippoModal}
         containerId={SHIPPO_CONTAINER_ID_THIN}
-        title="Shippo — label"
+        title="Shippo — Labels"
         presentation="page"
       />
     </div>

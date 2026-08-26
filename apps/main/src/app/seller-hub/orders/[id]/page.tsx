@@ -170,7 +170,7 @@ function SellerOrderDetailInner() {
                   href={shippoLabelHref(order.id, "purchase")}
                   className="action-pill action-pill-lg btn-pill-primary w-full justify-center mb-2"
                 >
-                  Purchase label
+                  Purchase Label
                 </Link>
               </div>
             ) : null}
@@ -197,7 +197,7 @@ function SellerOrderDetailInner() {
                       href={shippoLabelHref(order.id, "reprint")}
                       className="action-pill btn-pill-outline w-full justify-center text-sm"
                     >
-                      Reprint label
+                      Reprint Label
                     </Link>
                   ) : null}
                   {canReprint && order.shipment.labelUrl ? (
@@ -215,7 +215,7 @@ function SellerOrderDetailInner() {
                       href={shippoLabelHref(order.id, "another")}
                       className="action-pill btn-pill-outline w-full justify-center text-sm"
                     >
-                      Purchase another label
+                      Purchase Another Label
                     </Link>
                   ) : null}
                 </div>

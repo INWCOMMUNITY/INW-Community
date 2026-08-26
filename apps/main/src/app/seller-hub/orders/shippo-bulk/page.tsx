@@ -162,7 +162,7 @@ export default function ShippoBulkDirectPage() {
         open={shippoSurfaceOpen}
         onClose={closeShippoSurface}
         containerId={CONTAINER_ID}
-        title="Shippo — labels"
+        title="Shippo — Labels"
         presentation="page"
         subtitle={progressSubtitle}
       />

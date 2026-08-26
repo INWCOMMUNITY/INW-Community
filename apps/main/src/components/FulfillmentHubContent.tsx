@@ -494,7 +494,7 @@ export function FulfillmentHubContent(props: {
         open={shippoSurfaceOpen}
         onClose={closeShippoSurface}
         containerId={SHIPPO_BULK_CONTAINER_ID}
-        title="Shippo — labels"
+        title="Shippo — Labels"
         presentation="page"
         subtitle={progressSubtitle}
       />

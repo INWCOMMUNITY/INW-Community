@@ -213,7 +213,7 @@ export default function OrderDetailScreen() {
                 style={({ pressed }) => [styles.labelBtn, pressed && { opacity: 0.8 }]}
                 onPress={() => openShippoLabelFullScreen("purchase")}
               >
-                <Text style={styles.labelBtnText}>Purchase labels</Text>
+                <Text style={styles.labelBtnText}>Purchase Labels</Text>
               </Pressable>
             ) : null}
             {showPurchaseAnother ? (

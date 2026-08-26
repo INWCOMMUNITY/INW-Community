@@ -13,7 +13,7 @@ function useHeaderTitle() {
   if (path.includes("store/items") || (last === "items" && prev === "store")) return "My Items";
   if (path.includes("store/sold") || (String(last) === "sold" && prev === "store")) return "Sold Items";
   if (path.includes("store/manage") || (last === "manage" && prev === "store")) return "Manage Store";
-  if (path.includes("shippo-order")) return "Shipping label";
+  if (path.includes("shippo-order")) return "Shipping Label";
   if (path.includes("orders") && last !== "orders") return "Order Details";
   if (path.includes("orders") || last === "orders") return "Fulfillment";
   if (path.includes("business-hub") || String(last) === "business-hub") return "Business Hub";

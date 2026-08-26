@@ -65,7 +65,7 @@ function SetUpShippoPageInner() {
           <div className="border rounded-lg p-4 bg-green-50 border-green-200 mb-6 w-full max-md:text-center">
             <p className="text-green-800 font-medium">Shippo is connected.</p>
             <p className="text-green-700 text-sm mt-1">
-              Select orders and click <strong>Purchase labels</strong> to buy and print on the site. Add at least one
+              Select orders and click <strong>Purchase Labels</strong> to buy and print on the site. Add at least one
               address to your Shippo Address Book if you haven’t already.
             </p>
             <Link href="/seller-hub/orders?tab=ship" className="btn mt-4 inline-block">

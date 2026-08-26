@@ -64,7 +64,7 @@ describe("buyer order display", () => {
 
   it("uses one payment label", () => {
     expect(buyerPaymentLabel({ isCashOrder: true })).toBe("Cash due");
-    expect(buyerPaymentLabel({ isCashOrder: false })).toBe("Paid online");
+    expect(buyerPaymentLabel({ isCashOrder: false })).toBe("Paid Online");
   });
 });
 

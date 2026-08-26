@@ -84,9 +84,9 @@ export function sellerOrderPaymentLabel(order: {
   stripePaymentIntentId?: string | null;
   orderKind?: string;
   totalCents?: number;
-}): "Paid online" | "Cash due" | "Reward" {
+}): "Paid Online" | "Cash due" | "Reward" {
   if (order.orderKind === "reward_redemption" && (order.totalCents ?? 0) === 0) return "Reward";
-  return order.stripePaymentIntentId ? "Paid online" : "Cash due";
+  return order.stripePaymentIntentId ? "Paid Online" : "Cash due";
 }
 
 export function orderFulfillmentBadge(order: { items?: { fulfillmentType?: string | null }[] }): string {
