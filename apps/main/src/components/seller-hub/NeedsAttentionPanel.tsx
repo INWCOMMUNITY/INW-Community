@@ -7,7 +7,7 @@ import { ETSY_WHEN_MADE_OPTIONS, ETSY_WHO_MADE_OPTIONS } from "@/lib/etsy-listin
 type Field = {
   key: string;
   label: string;
-  type: "select" | "boolean" | "zip" | "category";
+  type: "select" | "boolean" | "zip" | "category" | "text";
   value: string | boolean | number | null;
   helpText?: string;
   options?: { value: string; label: string }[];
@@ -107,6 +107,19 @@ function FieldInputs({
             </label>
           );
         }
+        if (field.type === "text") {
+          return (
+            <label key={field.key} className="block mb-3">
+              <span className="text-sm font-medium text-gray-700 block mb-1">{field.label}</span>
+              <input
+                className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm"
+                value={String(values[field.key] ?? "")}
+                onChange={(e) => setValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
+              />
+              {field.helpText ? <span className="text-xs text-gray-500 mt-1 block">{field.helpText}</span> : null}
+            </label>
+          );
+        }
         if (field.type === "zip") {
           return (
             <label key={field.key} className="block mb-3">
@@ -192,6 +205,13 @@ function AttentionCard({
         if (typeof values.etsyOriginPostalCode === "string") {
           fields.etsyOriginPostalCode = values.etsyOriginPostalCode;
         }
+        const aspects: Record<string, string> = {};
+        for (const [key, value] of Object.entries(values)) {
+          if (key.startsWith("aspect:") && typeof value === "string" && value.trim()) {
+            aspects[key.slice("aspect:".length)] = value.trim();
+          }
+        }
+        if (Object.keys(aspects).length > 0) fields.aspects = aspects;
       }
       const res = await fetch("/api/seller/needs-attention", {
         method: "POST",
@@ -303,7 +323,7 @@ export function NeedsAttentionPanel({
   if (items.length === 0) {
     return (
       <p className="text-gray-600 text-sm py-6">
-        Nothing needs attention. When Etsy or eBay asks for origin, category, or ship-from ZIP, those
+        Nothing needs attention. When Etsy or eBay asks for origin, category, item specifics, or ship-from ZIP, those
         listings show up here so you can fill them in without opening every item.
       </p>
     );

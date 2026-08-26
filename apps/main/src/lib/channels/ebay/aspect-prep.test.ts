@@ -3,6 +3,8 @@ import type { EbayCategoryAspect } from "./aspects";
 import {
   enrichInventoryProductAspectsForPush,
   ensureGradedCoinInventoryAspects,
+  fillDefaultEbayAspects,
+  missingOftenRequiredEbayAspects,
   filterSellerVisibleCategoryAspects,
   prepareAspectRowsForForm,
   prepareAspectsForEbayCategory,
@@ -365,5 +367,35 @@ describe("prepareLiveAspectsForInventoryPut", () => {
         "1952-D NGC MS 67 Jefferson Nickel"
       )
     ).toBe(true);
+  });
+});
+
+describe("fillDefaultEbayAspects", () => {
+  const schema: EbayCategoryAspect[] = [
+    {
+      name: "Brand",
+      required: false,
+      mode: "SELECTION_ONLY",
+      cardinality: "SINGLE",
+      suggestedValues: ["Nintendo", "Unbranded"],
+    },
+    {
+      name: "Type",
+      required: false,
+      mode: "SELECTION_ONLY",
+      cardinality: "SINGLE",
+      suggestedValues: ["Clock", "Figurine"],
+    },
+  ];
+
+  it("fills Unbranded when Brand is empty", () => {
+    const filled = fillDefaultEbayAspects(schema, [], "Awesome Bear Clock");
+    expect(filled.find((a) => a.name === "Brand")?.value).toBe("Unbranded");
+    expect(filled.find((a) => a.name === "Type")?.value).toBe("Clock");
+  });
+
+  it("reports Type as missing when it cannot be inferred", () => {
+    const filled = fillDefaultEbayAspects(schema, [{ name: "Brand", value: "Unbranded" }], "Random object");
+    expect(missingOftenRequiredEbayAspects(schema, filled)).toEqual(["Type"]);
   });
 });

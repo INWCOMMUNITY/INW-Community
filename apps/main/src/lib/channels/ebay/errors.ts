@@ -70,6 +70,30 @@ export function formatEbayErrorRow(row: EbayErrorRow, httpStatus?: number): stri
   return `${prefix}${text}`.slice(0, 500);
 }
 
+/** Names eBay said were missing (`The item specific Type is missing`). */
+export function parseMissingEbayItemSpecifics(message: string): string[] {
+  const names: string[] = [];
+  const normalized = message.replace(/\u00a0/g, " ");
+  const re = /The item specific\s+(.+?)\s+is missing/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(normalized))) {
+    const name = (match[1] ?? "").replace(/\s+/g, " ").trim();
+    if (name && !names.some((existing) => existing.toLowerCase() === name.toLowerCase())) {
+      names.push(name);
+    }
+  }
+  const listed = normalized.match(/Missing required eBay item specifics:\s*([^.]+)/i);
+  if (listed?.[1]) {
+    for (const part of listed[1].split(/,| and /i)) {
+      const name = part.trim();
+      if (name && !names.some((existing) => existing.toLowerCase() === name.toLowerCase())) {
+        names.push(name);
+      }
+    }
+  }
+  return names;
+}
+
 function summarizeRawBody(body: unknown): string | null {
   if (body == null) return null;
   if (typeof body === "string") {
@@ -358,6 +382,12 @@ export function ebayErrorActionHint(reason: string): string | undefined {
   }
   if (/\b25014\b|\b25015\b|invalid pictures|invalid picture url/i.test(reason)) {
     return "eBay rejected the listing photos. This is usually mixed eBay-hosted and INW-hosted URLs, not a missing JPG. If you did not change photos, try again. If you did, use HTTPS JPG or PNG.";
+  }
+  const missingSpecifics = parseMissingEbayItemSpecifics(reason);
+  if (missingSpecifics.length > 0) {
+    return `eBay needs ${missingSpecifics.join(", ")} on this listing. Open Sync Stores → Needs Attention and enter ${
+      missingSpecifics.length === 1 ? "that item specific" : "those item specifics"
+    }.`;
   }
   if (/\b25017\b|Missing.*field|required field/i.test(reason)) {
     return "This listing is missing required information. Check that title, description, price, category, and item specifics are filled in.";

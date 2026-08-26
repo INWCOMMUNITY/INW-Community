@@ -13,6 +13,8 @@ import {
   backfillRequiredTaxonomyAspects,
   expandGradedCoinAspectsForTaxonomy,
   fillEmptyTaxonomyAspectsFromTitle,
+  fillDefaultEbayAspects,
+  missingOftenRequiredEbayAspects,
   formatAspectValidationErrors,
   mergeListingAspects,
   missingRequiredEbayAspects,
@@ -166,17 +168,29 @@ export async function prepareOutboundAspects(args: {
     aspects,
     args.item.title ?? ""
   );
-  const remappedAspects = ensureGradedCoinInventoryAspects(
+  const remappedAspects = fillDefaultEbayAspects(
     categoryAspects,
-    backfilled,
-    aspects,
-    args.item.title ?? ""
+    ensureGradedCoinInventoryAspects(
+      categoryAspects,
+      backfilled,
+      aspects,
+      args.item.title ?? ""
+    ),
+    args.item.title ?? "",
+    [args.item.category, args.item.subcategory, args.item.secondaryCategory].filter(
+      (v): v is string => Boolean(v?.trim())
+    )
   );
 
   const validation = validateRemappedAspects(categoryAspects, remappedAspects);
   const enriched = JSON.stringify(aspects) !== beforeKey;
 
-  let missingRequired = validation.missingRequired;
+  let missingRequired = [
+    ...validation.missingRequired,
+    ...missingOftenRequiredEbayAspects(categoryAspects, remappedAspects).filter(
+      (name) => !validation.missingRequired.some((existing) => existing.toLowerCase() === name.toLowerCase())
+    ),
+  ];
   if (args.categoryId?.trim() && categoryAspects.length === 0) {
     missingRequired = [
       ...missingRequired,

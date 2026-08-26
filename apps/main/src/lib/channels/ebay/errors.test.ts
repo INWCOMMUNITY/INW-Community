@@ -8,6 +8,7 @@ import {
   formatEbayApiBody,
   formatEbayErrorDiagnostics,
   formatMigrateListingError,
+  parseMissingEbayItemSpecifics,
 } from "./errors";
 
 describe("extractEbayWarnings", () => {
@@ -172,5 +173,13 @@ describe("ebay picture errors", () => {
     expect(
       describeChannelSyncError("etsy", new Error("marketplace: Oh dear, you cannot sell this item on Etsy."))
     ).toMatch(/Needs Attention/i);
+  });
+
+  it("parses missing item specifics including NBSP from eBay", () => {
+    const msg =
+      "The item specific Brand\u00a0is missing.\u00a0Add Brand to this listing. The item specific Type is missing.";
+    expect(parseMissingEbayItemSpecifics(msg)).toEqual(["Brand", "Type"]);
+    expect(ebayErrorActionHint(msg)).toMatch(/Needs Attention/i);
+    expect(ebayErrorActionHint(msg)).toMatch(/Brand, Type/);
   });
 });

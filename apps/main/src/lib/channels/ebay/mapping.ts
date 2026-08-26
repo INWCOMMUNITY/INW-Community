@@ -15,6 +15,7 @@ import {
 import { listingDescriptionForHtmlChannel } from "../rich-description";
 import { isPackageComplete } from "@/lib/package-weight";
 import { listingPackageFromRemote } from "@/lib/shipping-options";
+import { LEGACY_EBAY_ITEM_ID } from "./listing-origin";
 
 /** cents -> "12.34" (eBay expects a string decimal price). */
 export function ebayPriceFromCents(cents: number): string {
@@ -158,8 +159,8 @@ function priceStringToCents(value?: string): number {
 export function resolveEbayLegacyListingId(id: string): string | null {
   const trimmed = id.trim();
   if (!trimmed) return null;
-  if (/^\d+$/.test(trimmed)) return trimmed;
-  const inw = trimmed.match(/^inw(\d+)$/i);
+  if (LEGACY_EBAY_ITEM_ID.test(trimmed)) return trimmed;
+  const inw = trimmed.match(/^inw(\d{9,15})$/i);
   return inw ? inw[1]! : null;
 }
 

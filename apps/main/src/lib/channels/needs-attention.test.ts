@@ -81,6 +81,17 @@ describe("classifyListingNeedsAttention", () => {
     expect(result?.summary).toMatch(/will not sell this item/i);
   });
 
+  it("asks for missing eBay Type/Brand item specifics", () => {
+    const result = classifyListingNeedsAttention({
+      provider: "ebay",
+      syncError:
+        "The item specific Type is missing. Add Type to this listing, enter a valid value, and then try again.",
+      item,
+    });
+    expect(result?.action).toBe("fill");
+    expect(result?.fields.map((f) => f.key)).toEqual(["aspect:Type"]);
+  });
+
   it("explains eBay variation SKU collisions as retry-only", () => {
     const result = classifyListingNeedsAttention({
       provider: "ebay",

@@ -69,11 +69,8 @@ export async function prepareEbaySyncAspects(args: {
       (await resolveSyncLegacyListingId(args.accessToken, {
         linkedSku: args.externalListingId,
         sku,
-        itemSku: args.item.sku,
         offerId: args.offerId ?? null,
-      })) ??
-      resolveEbayLegacyListingId(args.externalListingId ?? "") ??
-      resolveEbayLegacyListingId(getEffectiveSku(args.item));
+      })) ?? resolveEbayLegacyListingId(args.externalListingId ?? "");
 
     if (legacyId) {
       try {

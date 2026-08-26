@@ -7,6 +7,7 @@ import {
   listNeedsAttention,
 } from "@/lib/channels/needs-attention";
 import { isEtsyWhoMade, normalizeEtsyWhenMade } from "@/lib/etsy-listing-options";
+import { parseStoredAspects } from "@/lib/listing-limits";
 import { CHANNEL_PROVIDERS, type ChannelProvider } from "@/lib/channels/types";
 import { updateStoreItemOnChannels } from "@/lib/channels/outbound";
 import { resetCircuit } from "@/lib/channels/circuit-breaker";
@@ -45,6 +46,7 @@ const postSchema = z.object({
       etsyIsSupply: z.boolean().optional(),
       etsyTaxonomyId: z.number().int().positive().optional(),
       etsyOriginPostalCode: z.string().optional(),
+      aspects: z.record(z.string()).optional(),
     })
     .optional(),
   retry: z.boolean().optional(),
@@ -128,7 +130,7 @@ export async function POST(req: NextRequest) {
 
   const link = await prisma.channelListingLink.findFirst({
     where: { id, connection: { memberId: userId } },
-    include: { connection: true, storeItem: { select: { id: true, memberId: true } } },
+    include: { connection: true, storeItem: { select: { id: true, memberId: true, aspects: true } } },
   });
   if (!link || link.storeItem.memberId !== userId) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -154,6 +156,16 @@ export async function POST(req: NextRequest) {
   }
   if (fields?.etsyTaxonomyId !== undefined) {
     update.etsyTaxonomyId = fields.etsyTaxonomyId;
+  }
+  if (fields?.aspects) {
+    const existing = parseStoredAspects(link.storeItem.aspects);
+    const merged = new Map(existing.map((a) => [a.name.toLowerCase(), a]));
+    for (const [name, value] of Object.entries(fields.aspects)) {
+      const trimmed = value.trim();
+      if (!name.trim() || !trimmed) continue;
+      merged.set(name.trim().toLowerCase(), { name: name.trim(), value: trimmed });
+    }
+    update.aspects = Array.from(merged.values()) as Prisma.InputJsonValue;
   }
 
   if (Object.keys(update).length > 0) {

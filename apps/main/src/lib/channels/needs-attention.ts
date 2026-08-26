@@ -5,11 +5,13 @@
 
 import { prisma } from "database";
 import { isEbayConditionSyncError } from "./ebay/conditions";
+import { parseMissingEbayItemSpecifics } from "./ebay/errors";
 import { isEtsyWhoMade, normalizeEtsyWhenMade } from "@/lib/etsy-listing-options";
+import { parseStoredAspects } from "@/lib/listing-limits";
 import { CHANNEL_PROVIDERS, type ChannelProvider } from "./types";
 import { etsyOriginPostalCodeFromConfig } from "./shipping-map";
 
-export type NeedsAttentionFieldType = "select" | "boolean" | "zip" | "category";
+export type NeedsAttentionFieldType = "select" | "boolean" | "zip" | "category" | "text";
 
 export type NeedsAttentionField = {
   key: string;
@@ -63,6 +65,7 @@ type ListingInput = {
   etsyIsSupply: boolean | null;
   etsyTaxonomyId: number | null;
   condition: string | null;
+  aspects?: unknown;
 };
 
 export function classifyListingNeedsAttention(args: {
@@ -156,6 +159,24 @@ export function classifyListingNeedsAttention(args: {
     };
   }
 
+  if (provider === "ebay") {
+    const missing = parseMissingEbayItemSpecifics(syncError ?? "");
+    if (missing.length > 0) {
+      const existing = parseStoredAspects(item.aspects);
+      return {
+        summary: `eBay needs ${missing.join(", ")} before this listing can go live.`,
+        fields: missing.map((name) => ({
+          key: `aspect:${name}`,
+          label: name,
+          type: "text" as const,
+          value: existing.find((a) => a.name.toLowerCase() === name.toLowerCase())?.value ?? "",
+          helpText: "Required item specific for this eBay category.",
+        })),
+        action: "fill",
+      };
+    }
+  }
+
   if (fields.length > 0) {
     return {
       summary: reasons.join(" "),
@@ -247,6 +268,7 @@ export async function listNeedsAttention(memberId: string): Promise<NeedsAttenti
             etsyIsSupply: true,
             etsyTaxonomyId: true,
             condition: true,
+            aspects: true,
           },
         },
       },

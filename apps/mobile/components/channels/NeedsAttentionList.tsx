@@ -20,7 +20,7 @@ import { EbayConditionFixModal } from "@/components/channels/EbayConditionFixMod
 export type NeedsAttentionField = {
   key: string;
   label: string;
-  type: "select" | "boolean" | "zip" | "category";
+  type: "select" | "boolean" | "zip" | "category" | "text";
   value: string | boolean | number | null;
   helpText?: string;
   options?: { value: string; label: string }[];
@@ -105,6 +105,13 @@ function CardForm({
       if (typeof values.etsyOriginPostalCode === "string") {
         fields.etsyOriginPostalCode = values.etsyOriginPostalCode;
       }
+      const aspects: Record<string, string> = {};
+      for (const [key, value] of Object.entries(values)) {
+        if (key.startsWith("aspect:") && typeof value === "string" && value.trim()) {
+          aspects[key.slice("aspect:".length)] = value.trim();
+        }
+      }
+      if (Object.keys(aspects).length > 0) fields.aspects = aspects;
       const res = await apiPost<{
         ok: boolean;
         items: NeedsAttentionItem[];
@@ -121,7 +128,7 @@ function CardForm({
       const firstError =
         res.retryResult?.error ?? res.retryResults?.find((r) => r.error)?.error;
       if (firstError) {
-        Alert.alert("Saved, but Etsy still blocked", firstError);
+        Alert.alert("Saved, but sync is still blocked", firstError);
       }
     } catch (e) {
       const msg = (e as { error?: string })?.error ?? "Could not save. Try again.";
@@ -193,6 +200,21 @@ function CardForm({
                 thumbColor={switchThumbColor(on)}
                 ios_backgroundColor={switchIosBackgroundColor}
               />
+            </View>
+          );
+        }
+        if (field.type === "text") {
+          return (
+            <View key={field.key} style={styles.fieldWrap}>
+              <Text style={styles.fieldLabel}>{field.label}</Text>
+              <TextInput
+                value={String(values[field.key] ?? "")}
+                onChangeText={(t) => setValues((prev) => ({ ...prev, [field.key]: t }))}
+                placeholder={field.label}
+                placeholderTextColor="#999"
+                style={styles.input}
+              />
+              {field.helpText ? <Text style={styles.help}>{field.helpText}</Text> : null}
             </View>
           );
         }

@@ -30,6 +30,10 @@ describe("resolveEbayLegacyListingId", () => {
     expect(resolveEbayLegacyListingId("inw394295737513")).toBe("394295737513");
   });
 
+  it("rejects 8-digit seller SKUs that are not eBay Item IDs", () => {
+    expect(resolveEbayLegacyListingId("51515151")).toBeNull();
+  });
+
   it("rejects non-legacy ids", () => {
     expect(resolveEbayLegacyListingId("offer-abc")).toBeNull();
   });
