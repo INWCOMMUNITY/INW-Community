@@ -272,12 +272,15 @@ export function MyItemsBulkBar({
   return (
     <>
       <div
-        className="sticky top-0 z-50 mb-2 rounded-xl border-2 bg-[var(--color-section-alt)] px-3 py-3 shadow-md"
-        style={{ borderColor: "var(--color-primary)" }}
+        className="fixed bottom-0 left-0 right-0 z-50 border-t-2 bg-[var(--color-section-alt)] px-4 py-3 shadow-[0_-8px_24px_rgba(0,0,0,0.12)]"
+        style={{
+          borderColor: "var(--color-primary)",
+          paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+        }}
         role="toolbar"
         aria-label="Bulk listing actions"
       >
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="mx-auto flex max-w-[var(--max-width)] xl:max-w-[1520px] flex-wrap items-center gap-2">
           <span className="text-sm font-bold mr-1" style={{ color: "var(--color-heading)" }}>
             {selectedIds.length} selected
           </span>

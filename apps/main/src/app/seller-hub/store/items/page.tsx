@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { ItemChannelSyncBadges } from "@/components/store-item/ItemChannelSyncBadges";
 import { MyItemsRowMenu } from "@/components/store-item/MyItemsRowMenu";
@@ -26,6 +26,10 @@ const ITEMS_TABS: { key: ItemsTab; label: string }[] = [
   { key: "ended", label: "Ended" },
   { key: "sold", label: "Sold" },
 ];
+
+function stopRowClick(e: MouseEvent) {
+  e.stopPropagation();
+}
 
 type FilterKey = "all" | "attention" | string;
 
@@ -181,7 +185,11 @@ export default function MyItemsPage() {
     }`;
 
   return (
-    <div className="w-full max-md:mx-auto max-md:max-w-[var(--max-width)]">
+    <div
+      className={`w-full max-md:mx-auto max-md:max-w-[var(--max-width)] ${
+        selectedIds.length > 0 ? "pb-32" : ""
+      }`}
+    >
       <div className="flex items-center justify-between gap-3 mb-4">
         <h2 className="text-xl font-bold" style={{ color: "var(--color-heading)" }}>
           My Items
@@ -306,10 +314,14 @@ export default function MyItemsPage() {
         <p className="text-gray-500 text-sm">No items match this search.</p>
       ) : (
         <div className="grid gap-2 w-full">
-          <div className="flex items-center gap-2 px-1 mb-2">
+          <div
+            className="flex items-center gap-2 px-1 mb-2 cursor-pointer"
+            onClick={toggleSelectAll}
+          >
             <input
               type="checkbox"
               checked={allVisibleSelected}
+              onClick={stopRowClick}
               onChange={toggleSelectAll}
               aria-label="Select all visible items"
             />
@@ -322,24 +334,28 @@ export default function MyItemsPage() {
           </div>
           {visibleItems.map((item) => {
             const statusLabel = itemStatusLabel(item, tab);
-            const rowHref =
-              tab === "sold" && item.soldOrderId
-                ? `/seller-hub/orders/${item.soldOrderId}`
-                : itemListingHref(item);
+            const listingHref = itemListingHref(item);
+            const selected = selectedIds.includes(item.id);
             return (
               <div
                 key={item.id}
-                className="border rounded-lg overflow-hidden flex flex-col hover:bg-gray-50 w-full min-w-0"
+                className={`border rounded-lg overflow-hidden flex flex-col w-full min-w-0 cursor-pointer ${
+                  selected
+                    ? "border-[var(--color-primary)] bg-[var(--color-section-alt)]"
+                    : "hover:bg-gray-50"
+                }`}
+                onClick={() => toggleSelect(item.id)}
               >
                 <div className="p-3 flex items-center gap-3">
                   <input
                     type="checkbox"
                     className="shrink-0"
-                    checked={selectedIds.includes(item.id)}
+                    checked={selected}
+                    onClick={stopRowClick}
                     onChange={() => toggleSelect(item.id)}
                     aria-label={`Select ${item.title}`}
                   />
-                  <Link href={rowHref} className="relative shrink-0 no-underline">
+                  <div className="relative shrink-0">
                     {item.photos[0] ? (
                       <img src={item.photos[0]} alt="" className="w-12 h-12 object-cover rounded" />
                     ) : (
@@ -352,9 +368,14 @@ export default function MyItemsPage() {
                         Sold
                       </span>
                     )}
-                  </Link>
+                  </div>
                   <div className="flex-1 min-w-0 overflow-hidden">
-                    <Link href={rowHref} className="font-medium truncate block no-underline hover:underline" style={{ color: "var(--color-heading)" }}>
+                    <Link
+                      href={listingHref}
+                      onClick={stopRowClick}
+                      className="font-medium truncate block underline underline-offset-2 hover:opacity-80"
+                      style={{ color: "var(--color-heading)" }}
+                    >
                       {item.title}
                     </Link>
                     <p className="text-xs text-gray-600">
@@ -364,14 +385,29 @@ export default function MyItemsPage() {
                         : ` · ${item.quantity} in stock · ${statusLabel}`}
                     </p>
                     {tab !== "sold" && item.channelLinks?.length ? (
-                      <ItemChannelSyncBadges links={item.channelLinks} storeItemId={item.id} compact />
+                      <div onClick={stopRowClick}>
+                        <ItemChannelSyncBadges links={item.channelLinks} storeItemId={item.id} compact />
+                      </div>
                     ) : null}
                   </div>
-                  <Link href={itemEditHref(item)} className="btn text-sm shrink-0">
+                  <Link
+                    href={listingHref}
+                    onClick={stopRowClick}
+                    className="text-sm font-semibold px-3 py-1.5 rounded-lg border shrink-0 no-underline hover:bg-white"
+                    style={{ borderColor: "var(--color-primary)", color: "var(--color-heading)" }}
+                  >
+                    View
+                  </Link>
+                  <Link href={itemEditHref(item)} onClick={stopRowClick} className="btn text-sm shrink-0">
                     Edit
                   </Link>
                   {tab === "sold" && item.soldOrderId && (
-                    <Link href={`/seller-hub/orders/${item.soldOrderId}`} className="text-sm font-semibold shrink-0 no-underline hover:underline" style={{ color: "var(--color-primary)" }}>
+                    <Link
+                      href={`/seller-hub/orders/${item.soldOrderId}`}
+                      onClick={stopRowClick}
+                      className="text-sm font-semibold shrink-0 no-underline hover:underline"
+                      style={{ color: "var(--color-primary)" }}
+                    >
                       View order
                     </Link>
                   )}
@@ -379,7 +415,10 @@ export default function MyItemsPage() {
                     type="button"
                     className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100"
                     aria-label={`More actions for ${item.title}`}
-                    onClick={() => setMenuItemId(item.id)}
+                    onClick={(e) => {
+                      stopRowClick(e);
+                      setMenuItemId(item.id);
+                    }}
                   >
                     <IonIcon name="ellipsis-vertical" size={20} />
                   </button>

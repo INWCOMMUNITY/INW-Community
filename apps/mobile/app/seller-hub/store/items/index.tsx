@@ -219,6 +219,10 @@ export default function MyItemsScreen() {
     router.push(`/seller-hub/store/new?edit=${itemId}` as never);
   };
 
+  const openListing = (item: StoreItem) => {
+    router.push(buildProductPath(item.slug, { type: "my-items" }) as never);
+  };
+
   const markAsSold = async (id: string, unpublishProviders?: ChannelProviderId[]) => {
     setActingId(id);
     try {
@@ -580,58 +584,55 @@ export default function MyItemsScreen() {
           renderItem={({ item }) => {
             const selected = selectedIds.includes(item.id);
             return (
-            <View style={styles.card}>
-              <Pressable
-                style={styles.checkboxHit}
-                onPress={() => toggleSelect(item.id)}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: selected }}
-                accessibilityLabel={`Select ${item.title}`}
-              >
-                <View style={[styles.checkbox, selected && styles.checkboxChecked]}>
-                  {selected ? <Text style={styles.checkmark}>✓</Text> : null}
-                </View>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.cardMain,
-                  pressed && { opacity: 0.9 },
-                ]}
-                onPress={() => {
-                  if (itemsTab === "sold" && item.soldOrderId) {
-                    (router.push as (href: string) => void)(`/seller-hub/orders/${item.soldOrderId}`);
-                  } else {
-                    router.push(buildProductPath(item.slug, { type: "my-items" }) as never);
-                  }
-                }}
-              >
-                {item.photos?.[0] ? (
-                  <Image
-                    source={{ uri: item.photos[0] }}
-                    style={styles.thumb}
-                  />
-                ) : (
-                  <View style={[styles.thumb, styles.thumbPlaceholder]} />
-                )}
-                <View style={styles.cardBody}>
+            <Pressable
+              style={[styles.card, selected && styles.cardSelected]}
+              onPress={() => toggleSelect(item.id)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: selected }}
+              accessibilityLabel={`Select ${item.title}`}
+            >
+              <View style={[styles.checkbox, selected && styles.checkboxChecked]}>
+                {selected ? <Text style={styles.checkmark}>✓</Text> : null}
+              </View>
+              {item.photos?.[0] ? (
+                <Image
+                  source={{ uri: item.photos[0] }}
+                  style={styles.thumb}
+                />
+              ) : (
+                <View style={[styles.thumb, styles.thumbPlaceholder]} />
+              )}
+              <View style={styles.cardBody}>
+                <Pressable
+                  onPress={() => openListing(item)}
+                  accessibilityRole="link"
+                  accessibilityLabel={`View ${item.title}`}
+                >
                   <Text style={styles.cardTitle} numberOfLines={2}>
                     {item.title}
                   </Text>
-                  <Text style={styles.cardPrice}>
-                    {formatPrice(item.priceCents)}
-                    {itemsTab === "sold" && item.soldAt
-                      ? ` · Sold on ${new Date(item.soldAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
-                      : ` · ${item.quantity} in stock · ${statusLabel(item)}`}
-                  </Text>
-                  {itemsTab !== "sold" && (
-                    <View style={styles.qualityBadgeRow}>
-                      <QualityScoreBadge storeItemId={item.id} compact />
-                    </View>
-                  )}
-                  {itemsTab === "sold" && item.soldOrderId && (
+                </Pressable>
+                <Text style={styles.cardPrice}>
+                  {formatPrice(item.priceCents)}
+                  {itemsTab === "sold" && item.soldAt
+                    ? ` · Sold on ${new Date(item.soldAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
+                    : ` · ${item.quantity} in stock · ${statusLabel(item)}`}
+                </Text>
+                {itemsTab !== "sold" && (
+                  <View style={styles.qualityBadgeRow}>
+                    <QualityScoreBadge storeItemId={item.id} compact />
+                  </View>
+                )}
+                {itemsTab === "sold" && item.soldOrderId && (
+                  <Pressable
+                    onPress={() =>
+                      (router.push as (href: string) => void)(`/seller-hub/orders/${item.soldOrderId}`)
+                    }
+                  >
                     <Text style={styles.viewOrderLink}>View order</Text>
-                  )}
-                  {item.channelLinks?.map((link) => {
+                  </Pressable>
+                )}
+                {item.channelLinks?.map((link) => {
                       const label =
                         CHANNEL_PROVIDER_LABEL[link.provider as ChannelProviderId] ??
                         link.provider;
@@ -672,7 +673,17 @@ export default function MyItemsScreen() {
                       }
                       return <View key={link.provider}>{badge}</View>;
                     })}
-                </View>
+              </View>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.viewBtn,
+                  pressed && { opacity: 0.8 },
+                ]}
+                onPress={() => openListing(item)}
+                accessibilityRole="button"
+                accessibilityLabel={`View ${item.title}`}
+              >
+                <Text style={styles.viewBtnText}>View</Text>
               </Pressable>
               <Pressable
                 style={({ pressed }) => [
@@ -684,7 +695,7 @@ export default function MyItemsScreen() {
               >
                 <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.heading} />
               </Pressable>
-            </View>
+            </Pressable>
             );
           }}
         />
@@ -733,6 +744,15 @@ export default function MyItemsScreen() {
                 if (!menuItem) return null;
                 return (
                   <>
+                    <Pressable
+                      style={styles.menuOption}
+                      onPress={() => {
+                        setMenuItemId(null);
+                        openListing(menuItem);
+                      }}
+                    >
+                      <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>View listing</Text>
+                    </Pressable>
                     {listableProvidersForItem(menuItem).map((provider) => (
                       <Pressable
                         key={`list-${provider}`}
@@ -949,11 +969,6 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   selectAllText: { fontSize: 13, color: "#666", fontWeight: "600" },
-  checkboxHit: {
-    paddingRight: 10,
-    paddingVertical: 8,
-    justifyContent: "center",
-  },
   checkbox: {
     width: 22,
     height: 22,
@@ -979,9 +994,14 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 12,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "transparent",
   },
-  cardMain: { flex: 1, flexDirection: "row" },
-  thumb: { width: 48, height: 48, borderRadius: 8 },
+  cardSelected: {
+    backgroundColor: theme.colors.creamAlt,
+    borderColor: theme.colors.primary,
+  },
+  thumb: { width: 48, height: 48, borderRadius: 8, marginLeft: 10 },
   thumbPlaceholder: { backgroundColor: "#ddd" },
   cardBody: { flex: 1, marginLeft: 12, justifyContent: "center" },
   cardTitle: { fontSize: 16, fontWeight: "600", color: "#333" },
@@ -992,6 +1012,19 @@ const styles = StyleSheet.create({
   syncBadgeError: { color: "#c62828" },
   syncBadgeWarning: { color: "#b45309" },
   syncBadgePaused: { color: "#b26a00" },
+  viewBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginLeft: 4,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+  },
+  viewBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.colors.heading,
+  },
   menuBtn: {
     padding: 8,
     marginLeft: 4,
