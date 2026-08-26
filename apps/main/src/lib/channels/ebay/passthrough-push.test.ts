@@ -13,6 +13,7 @@ import {
   formatPushedAspectsSummary,
   inwPhotosChangedSinceLastEbayPush,
   needsInventoryPut,
+  overlayOfferAvailableQuantity,
   overlayPassthroughOffer,
   passthroughEndedQuantityOnly,
   passthroughSyncHasFailures,
@@ -353,6 +354,26 @@ describe("passthrough-push", () => {
     );
     const product = body.product as Record<string, unknown>;
     expect(product.imageUrls).toEqual(["https://i.ebayimg.com/original.jpg"]);
+  });
+
+  it("overlayOfferAvailableQuantity zeros qty and strips read-only keys", () => {
+    const offer = overlayOfferAvailableQuantity(
+      {
+        categoryId: "39458",
+        listingPolicies: { paymentPolicyId: "p1" },
+        availableQuantity: 1,
+        offerId: "offer-1",
+        status: "PUBLISHED",
+        listing: { listingId: "403004607151" },
+      },
+      0
+    );
+    expect(offer.availableQuantity).toBe(0);
+    expect(offer.categoryId).toBe("39458");
+    expect(offer.listingPolicies).toEqual({ paymentPolicyId: "p1" });
+    expect(offer.offerId).toBeUndefined();
+    expect(offer.status).toBeUndefined();
+    expect(offer.listing).toBeUndefined();
   });
 
   it("overlayPassthroughOffer updates pricingSummary without rewriting categoryId", () => {

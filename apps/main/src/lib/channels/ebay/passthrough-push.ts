@@ -527,6 +527,20 @@ const OFFER_READ_ONLY_KEYS = new Set([
   "conditionDescriptors",
 ]);
 
+/** Strip read-only offer fields and set availableQuantity for a qty-only PUT. */
+export function overlayOfferAvailableQuantity(
+  liveOffer: Record<string, unknown>,
+  quantity: number
+): Record<string, unknown> {
+  const offer: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(liveOffer)) {
+    if (OFFER_READ_ONLY_KEYS.has(key)) continue;
+    offer[key] = value;
+  }
+  offer.availableQuantity = Math.max(0, quantity);
+  return offer;
+}
+
 /** Overlay INW description/qty on a live GET offer — never rewrite category or policies. */
 export function overlayPassthroughOffer(
   liveOffer: Record<string, unknown>,

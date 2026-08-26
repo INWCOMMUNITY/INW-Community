@@ -1363,6 +1363,27 @@ async function upsertListing(
   }
 }
 
+/** Read-back: live listing stock is offer.availableQuantity, not inventory PUT. */
+async function verifyOfferWrite(
+  accessToken: string,
+  offerId: string,
+  expectedQuantity: number
+): Promise<void> {
+  await new Promise((r) => setTimeout(r, 500));
+  const offer = await getOfferDetails(accessToken, offerId);
+  if (!offer) return;
+  const actual = Number(offer.availableQuantity);
+  if (!Number.isFinite(actual) || actual === expectedQuantity) return;
+  await new Promise((r) => setTimeout(r, 800));
+  const retry = await getOfferDetails(accessToken, offerId);
+  const retryQty = Number(retry?.availableQuantity);
+  if (Number.isFinite(retryQty) && retryQty !== expectedQuantity) {
+    throw new Error(
+      `eBay offer verify failed for ${offerId}: expected ${expectedQuantity}, got ${retryQty}`
+    );
+  }
+}
+
 /**
  * Read-back verification: confirm the inventory quantity was actually applied.
  * This catches cases where eBay returns 200 OK but the stock didn't change.
@@ -1647,7 +1668,11 @@ export const ebayAdapter: ChannelAdapter = {
       });
       await persistRevisionCount(conn.id, inventorySku, conn.config);
 
-      if (quantity > 0) {
+      if (quantity <= 0) {
+        if (offer?.offerId) {
+          await verifyOfferWrite(conn.accessToken, offer.offerId, 0);
+        }
+      } else {
         await verifyInventoryWrite(conn.accessToken, inventorySku, quantity);
       }
     } catch (e) {
