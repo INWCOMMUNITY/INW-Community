@@ -25,6 +25,7 @@ import {
   withListingChannelSyncWarning,
 } from "@/lib/channels/listing-sync-warning";
 import { strangerMayViewStoreItemById } from "@/lib/store-item-public-access";
+import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
 
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
@@ -334,7 +335,9 @@ export async function PATCH(
     const variantsForQuantity = data.variants !== undefined ? data.variants : existing.variants;
     if (!hasOptionQuantities(variantsForQuantity)) update.quantity = data.quantity;
   }
-  if (data.status !== undefined) update.status = data.status;
+  if (data.status !== undefined) {
+    Object.assign(update, storeItemStatusWrite(data.status, existing.status));
+  }
   if (data.shippingCostCents !== undefined) update.shippingCostCents = data.shippingCostCents;
   if (data.shippingOptionId !== undefined) {
     try {
@@ -507,7 +510,9 @@ export async function PATCH(
   try {
     const existingLinks = await prisma.channelListingLink.count({ where: { storeItemId: itemId } });
     const unpublishProviders = data.unpublishChannelProviders ?? [];
-    if (item.status === "sold_out" && unpublishProviders.length > 0) {
+    if (data.status === "inactive") {
+      // End listing is INW-only: leave eBay/Etsy/Wix/Shopify listings as they are.
+    } else if (item.status === "sold_out" && unpublishProviders.length > 0) {
       const { unpublishStoreItemFromChannels } = await import("@/lib/channels/outbound");
       channelSync = await unpublishStoreItemFromChannels(itemId, unpublishProviders);
     } else if (data.syncToChannels === false && existingLinks > 0) {

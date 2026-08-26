@@ -968,6 +968,8 @@ model StoreItem {
   ebayConditionEnum    String?  @map("ebay_condition_enum")
   lowStockThreshold    Int?     @map("low_stock_threshold") // Alert when quantity falls to or below this value
   featured             Boolean  @default(false) @map("featured") // Admin-curated featured listings
+  /// Set when the listing is ended (status inactive); cleared on relist. INW record is purged 14 days later.
+  endedAt             DateTime? @map("ended_at")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
@@ -984,6 +986,8 @@ model StoreItem {
   collectionItems CollectionItem[]
   listingFeedCollectionItems ListingFeedCollectionItem[]
   priceDropAlerts PriceDropAlert[]
+
+  @@index([status, endedAt])
 }
 
 model MemberListingView {

@@ -512,7 +512,7 @@ export default function MyItemsScreen() {
         {itemsTab === "active"
           ? "Live on the storefront."
           : itemsTab === "ended"
-            ? "Ended listings."
+            ? "Ended listings are not live on INW. They are removed from INW 14 days after they are ended."
             : "Items you've sold."}
       </Text>
       <View style={styles.addBtnWrap}>
@@ -961,7 +961,7 @@ const styles = StyleSheet.create({
   empty: { flex: 1, padding: 16, justifyContent: "flex-start" },
   emptyText: { fontSize: 14, color: "#666" },
   list: { padding: 16, paddingBottom: 40 },
-  listWithBulk: { paddingBottom: 180 },
+  listWithBulk: { paddingBottom: 260 },
   selectAllRow: {
     flexDirection: "row",
     alignItems: "center",

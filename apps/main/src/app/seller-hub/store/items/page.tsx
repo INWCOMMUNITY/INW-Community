@@ -187,7 +187,7 @@ export default function MyItemsPage() {
   return (
     <div
       className={`w-full max-md:mx-auto max-md:max-w-[var(--max-width)] ${
-        selectedIds.length > 0 ? "pb-32" : ""
+        selectedIds.length > 0 ? "pb-48" : ""
       }`}
     >
       <div className="flex items-center justify-between gap-3 mb-4">
@@ -253,7 +253,7 @@ export default function MyItemsPage() {
         {tab === "active"
           ? "Live on the storefront, including out of stock."
           : tab === "ended"
-            ? "Ended listings (not live)."
+            ? "Ended listings are not live on INW. They are removed from INW 14 days after they are ended. Other shops stay up."
             : "Items you've sold."}
       </p>
 
@@ -313,21 +313,24 @@ export default function MyItemsPage() {
       ) : visibleItems.length === 0 ? (
         <p className="text-gray-500 text-sm">No items match this search.</p>
       ) : (
-        <div className="grid gap-2 w-full">
+        <div className="grid gap-3 w-full">
           <div
-            className="flex items-center gap-2 px-1 mb-2 cursor-pointer"
+            className="flex items-center gap-3 px-1 mb-1 cursor-pointer"
             onClick={toggleSelectAll}
           >
-            <input
-              type="checkbox"
-              checked={allVisibleSelected}
-              onClick={stopRowClick}
-              onChange={toggleSelectAll}
-              aria-label="Select all visible items"
-            />
-            <span className="text-xs text-gray-500">Select all</span>
+            <span className="flex h-10 w-10 items-center justify-center">
+              <input
+                type="checkbox"
+                className="h-5 w-5 accent-[var(--color-primary)]"
+                checked={allVisibleSelected}
+                onClick={stopRowClick}
+                onChange={toggleSelectAll}
+                aria-label="Select all visible items"
+              />
+            </span>
+            <span className="text-sm text-gray-600">Select all</span>
             {selectedIds.length > 0 && (
-              <span className="text-xs font-semibold text-gray-700">
+              <span className="text-sm font-semibold text-gray-700">
                 · {selectedIds.length} selected
               </span>
             )}
@@ -339,89 +342,93 @@ export default function MyItemsPage() {
             return (
               <div
                 key={item.id}
-                className={`border rounded-lg overflow-hidden flex flex-col w-full min-w-0 cursor-pointer ${
+                className={`border-2 rounded-xl overflow-hidden flex flex-col w-full min-w-0 cursor-pointer ${
                   selected
                     ? "border-[var(--color-primary)] bg-[var(--color-section-alt)]"
-                    : "hover:bg-gray-50"
+                    : "border-gray-200 hover:bg-gray-50"
                 }`}
                 onClick={() => toggleSelect(item.id)}
               >
-                <div className="p-3 flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    className="shrink-0"
-                    checked={selected}
-                    onClick={stopRowClick}
-                    onChange={() => toggleSelect(item.id)}
-                    aria-label={`Select ${item.title}`}
-                  />
-                  <div className="relative shrink-0">
-                    {item.photos[0] ? (
-                      <img src={item.photos[0]} alt="" className="w-12 h-12 object-cover rounded" />
-                    ) : (
-                      <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center text-gray-400 text-xs">
-                        No photo
-                      </div>
-                    )}
-                    {tab === "sold" && (
-                      <span className="absolute inset-0 flex items-center justify-center rounded bg-red-600/90 text-white text-[10px] font-bold uppercase tracking-wide">
-                        Sold
-                      </span>
-                    )}
+                <div className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="flex items-center gap-4 min-w-0 flex-1">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center">
+                      <input
+                        type="checkbox"
+                        className="h-5 w-5 accent-[var(--color-primary)]"
+                        checked={selected}
+                        onClick={stopRowClick}
+                        onChange={() => toggleSelect(item.id)}
+                        aria-label={`Select ${item.title}`}
+                      />
+                    </span>
+                    <div className="relative shrink-0">
+                      {item.photos[0] ? (
+                        <img src={item.photos[0]} alt="" className="w-16 h-16 object-cover rounded-lg" />
+                      ) : (
+                        <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400 text-xs">
+                          No photo
+                        </div>
+                      )}
+                      {tab === "sold" && (
+                        <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-red-600/90 text-white text-[10px] font-bold uppercase tracking-wide">
+                          Sold
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      <Link
+                        href={listingHref}
+                        onClick={stopRowClick}
+                        className="font-medium truncate block underline underline-offset-2 hover:opacity-80"
+                        style={{ color: "var(--color-heading)" }}
+                      >
+                        {item.title}
+                      </Link>
+                      <p className="text-sm text-gray-600 mt-0.5">
+                        ${(item.priceCents / 100).toFixed(2)}
+                        {tab === "sold" && item.soldAt
+                          ? ` · Sold on ${new Date(item.soldAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
+                          : ` · ${item.quantity} in stock · ${statusLabel}`}
+                      </p>
+                      {tab !== "sold" && item.channelLinks?.length ? (
+                        <div onClick={stopRowClick}>
+                          <ItemChannelSyncBadges links={item.channelLinks} storeItemId={item.id} compact />
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0 overflow-hidden">
+                  <div
+                    className="flex items-center gap-2 shrink-0 pl-10 sm:pl-0"
+                    onClick={stopRowClick}
+                  >
                     <Link
                       href={listingHref}
-                      onClick={stopRowClick}
-                      className="font-medium truncate block underline underline-offset-2 hover:opacity-80"
-                      style={{ color: "var(--color-heading)" }}
+                      className="text-sm font-semibold px-3 py-2 rounded-lg border-2 shrink-0 no-underline hover:bg-white"
+                      style={{ borderColor: "var(--color-primary)", color: "var(--color-heading)" }}
                     >
-                      {item.title}
+                      View
                     </Link>
-                    <p className="text-xs text-gray-600">
-                      ${(item.priceCents / 100).toFixed(2)}
-                      {tab === "sold" && item.soldAt
-                        ? ` · Sold on ${new Date(item.soldAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
-                        : ` · ${item.quantity} in stock · ${statusLabel}`}
-                    </p>
-                    {tab !== "sold" && item.channelLinks?.length ? (
-                      <div onClick={stopRowClick}>
-                        <ItemChannelSyncBadges links={item.channelLinks} storeItemId={item.id} compact />
-                      </div>
-                    ) : null}
+                    <Link href={itemEditHref(item)} className="btn text-sm shrink-0">
+                      Edit
+                    </Link>
+                    {tab === "sold" && item.soldOrderId && (
+                      <Link
+                        href={`/seller-hub/orders/${item.soldOrderId}`}
+                        className="text-sm font-semibold shrink-0 no-underline hover:underline"
+                        style={{ color: "var(--color-primary)" }}
+                      >
+                        View order
+                      </Link>
+                    )}
+                    <button
+                      type="button"
+                      className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-100"
+                      aria-label={`More actions for ${item.title}`}
+                      onClick={() => setMenuItemId(item.id)}
+                    >
+                      <IonIcon name="ellipsis-vertical" size={20} />
+                    </button>
                   </div>
-                  <Link
-                    href={listingHref}
-                    onClick={stopRowClick}
-                    className="text-sm font-semibold px-3 py-1.5 rounded-lg border shrink-0 no-underline hover:bg-white"
-                    style={{ borderColor: "var(--color-primary)", color: "var(--color-heading)" }}
-                  >
-                    View
-                  </Link>
-                  <Link href={itemEditHref(item)} onClick={stopRowClick} className="btn text-sm shrink-0">
-                    Edit
-                  </Link>
-                  {tab === "sold" && item.soldOrderId && (
-                    <Link
-                      href={`/seller-hub/orders/${item.soldOrderId}`}
-                      onClick={stopRowClick}
-                      className="text-sm font-semibold shrink-0 no-underline hover:underline"
-                      style={{ color: "var(--color-primary)" }}
-                    >
-                      View order
-                    </Link>
-                  )}
-                  <button
-                    type="button"
-                    className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100"
-                    aria-label={`More actions for ${item.title}`}
-                    onClick={(e) => {
-                      stopRowClick(e);
-                      setMenuItemId(item.id);
-                    }}
-                  >
-                    <IonIcon name="ellipsis-vertical" size={20} />
-                  </button>
                 </div>
               </div>
             );

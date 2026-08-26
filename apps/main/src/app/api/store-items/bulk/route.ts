@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
 import { logBulkEditQuantityChange } from "@/lib/channels/quantity-audit";
+import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,37 @@ type BulkUpdateResult = {
   errors: { itemId: string; error: string }[];
   synced?: Record<string, number>;
 };
+
+function isEndedAtWriteError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /endedAt|ended_at/i.test(msg);
+}
+
+async function updateManyStoreItems(ids: string[], data: Record<string, unknown>) {
+  try {
+    return await prisma.storeItem.updateMany({
+      where: { id: { in: ids } },
+      data,
+    });
+  } catch (e) {
+    if (!isEndedAtWriteError(e) || data.endedAt === undefined) throw e;
+    const { endedAt: _endedAt, ...rest } = data;
+    return prisma.storeItem.updateMany({
+      where: { id: { in: ids } },
+      data: rest,
+    });
+  }
+}
+
+async function updateOneStoreItem(id: string, data: Record<string, unknown>) {
+  try {
+    await prisma.storeItem.update({ where: { id }, data });
+  } catch (e) {
+    if (!isEndedAtWriteError(e) || data.endedAt === undefined) throw e;
+    const { endedAt: _endedAt, ...rest } = data;
+    await prisma.storeItem.update({ where: { id }, data: rest });
+  }
+}
 
 /**
  * PATCH /api/store-items/bulk
@@ -141,7 +173,7 @@ export async function PATCH(req: NextRequest) {
       updateData.condition = updates.condition;
     }
     if (updates.status !== undefined) {
-      updateData.status = updates.status;
+      Object.assign(updateData, storeItemStatusWrite(updates.status));
     }
     if (updates.shippingCostCents !== undefined) {
       updateData.shippingCostCents = updates.shippingCostCents;
@@ -183,10 +215,7 @@ export async function PATCH(req: NextRequest) {
             itemUpdate.quantity = updates.quantity;
           }
 
-          await prisma.storeItem.update({
-            where: { id: item.id },
-            data: itemUpdate,
-          });
+          await updateOneStoreItem(item.id, itemUpdate);
           result.updated++;
         } catch (e) {
           result.failed++;
@@ -206,12 +235,7 @@ export async function PATCH(req: NextRequest) {
       }
 
       if (Object.keys(updateData).length > 0) {
-        const batchResult = await prisma.storeItem.updateMany({
-          where: {
-            id: { in: Array.from(ownedIds) },
-          },
-          data: updateData,
-        });
+        const batchResult = await updateManyStoreItems(Array.from(ownedIds), updateData);
         result.updated = batchResult.count;
       } else {
         result.updated = ownedItems.length;
@@ -298,8 +322,8 @@ export async function PATCH(req: NextRequest) {
       }
     }
     
-    // Sync to channels if requested
-    if (syncToChannels && result.updated > 0) {
+    // Sync to channels if requested. Ending a listing is INW-only.
+    if (syncToChannels && updates.status !== "inactive" && result.updated > 0) {
       result.synced = {};
 
       // Get connections for syncing

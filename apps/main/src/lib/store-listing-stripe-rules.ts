@@ -1,4 +1,5 @@
 import { prisma } from "database";
+import { inactiveStoreItemData } from "@/lib/store-item-ended-status";
 
 /**
  * A listing is publicly sellable on the storefront only when Connect is on the owning member.
@@ -30,6 +31,6 @@ export async function deactivateActiveListingsIfMemberLacksConnect(memberId: str
   if (has) return;
   await prisma.storeItem.updateMany({
     where: { memberId, status: "active" },
-    data: { status: "inactive" },
+    data: inactiveStoreItemData(),
   });
 }

@@ -11,17 +11,26 @@ import {
   ScrollView,
 } from "react-native";
 import { theme } from "@/lib/theme";
-import { apiPatch, apiPost, apiDelete } from "@/lib/api";
+import { apiPatch, apiPost } from "@/lib/api";
 import {
   CHANNEL_PROVIDER_LABEL,
-  publishReadyConnections,
+  listOnConnections,
   type ChannelConnectionSummary,
 } from "@/lib/channel-connections";
 import { ListOnChannelCategoryModal } from "@/components/channels/ListOnChannelCategoryModal";
+import { BulkDestinationGridModal } from "@/components/seller/BulkDestinationGridModal";
 import {
-  buildListOnCategoryQueue,
+  buildListOnCategoryQueueFromDesired,
   type ListOnCategoryAssignment,
 } from "@/lib/list-on-channel-category";
+import {
+  desiredProvidersByItemId,
+  summarizeBulkDestinations,
+  END_LISTINGS_CONFIRM,
+  type BulkDestinationAction,
+  type BulkDestinationsResultCounts,
+  type DestinationAssignment,
+} from "@/lib/store-item-bulk-destinations";
 
 type ItemsTab = "active" | "ended" | "sold";
 
@@ -45,10 +54,6 @@ interface BulkActionsBarProps {
   onActionComplete: () => void;
 }
 
-function itemsMissingProvider(items: BulkItem[], provider: string): BulkItem[] {
-  return items.filter((item) => !(item.channelLinks ?? []).some((l) => l.provider === provider));
-}
-
 export function BulkActionsBar({
   selectedIds,
   selectedItems,
@@ -59,18 +64,23 @@ export function BulkActionsBar({
 }: BulkActionsBarProps) {
   const [loading, setLoading] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showPublishModal, setShowPublishModal] = useState(false);
+  const [gridAction, setGridAction] = useState<BulkDestinationAction | null>(null);
   const [priceChangePercent, setPriceChangePercent] = useState("");
   const [quantityAdjust, setQuantityAdjust] = useState("");
   const [syncAfterEdit, setSyncAfterEdit] = useState(true);
-  const [selectedProviders, setSelectedProviders] = useState<string[]>([]);
-  const [pendingProviders, setPendingProviders] = useState<string[]>([]);
-  const [categorySteps, setCategorySteps] = useState<ReturnType<typeof buildListOnCategoryQueue>>([]);
+  const [pendingAssignments, setPendingAssignments] = useState<DestinationAssignment[] | null>(null);
+  const [categorySteps, setCategorySteps] = useState<ReturnType<typeof buildListOnCategoryQueueFromDesired>>([]);
 
-  const readyProviders = publishReadyConnections(connections);
-  const listOnChannels = readyProviders
-    .map((c) => ({ ...c, missing: itemsMissingProvider(selectedItems, c.provider) }))
-    .filter((c) => c.missing.length > 0);
+  const connected = listOnConnections(connections);
+  const connectedProviders = connected.map((c) => c.provider);
+  const missingHints = connected
+    .map((c) => {
+      const missing = selectedItems.filter((item) => !(item.channelLinks ?? []).some((l) => l.provider === c.provider))
+        .length;
+      return missing > 0 ? `${missing} not on ${CHANNEL_PROVIDER_LABEL[c.provider]}` : null;
+    })
+    .filter(Boolean)
+    .join(" · ");
 
   if (selectedIds.length === 0) return null;
 
@@ -119,100 +129,75 @@ export function BulkActionsBar({
     }
   };
 
-  const applyPublish = async (providers: string[], assignments?: ListOnCategoryAssignment[]) => {
-    if (providers.length === 0) {
-      Alert.alert("Select Channels", "Select at least one channel to list on.");
-      return;
+  const applyDestinations = async (
+    action: BulkDestinationAction,
+    assignments: DestinationAssignment[],
+    categoryAssignments?: ListOnCategoryAssignment[]
+  ) => {
+    if (action === "sync" && !categoryAssignments) {
+      const queue = buildListOnCategoryQueueFromDesired(selectedItems, desiredProvidersByItemId(assignments));
+      if (queue.length > 0) {
+        setPendingAssignments(assignments);
+        setGridAction(null);
+        setCategorySteps(queue);
+        return;
+      }
     }
-    const queue = buildListOnCategoryQueue(selectedItems, providers);
-    if (!assignments && queue.length > 0) {
-      setPendingProviders(providers);
-      setShowPublishModal(false);
-      setCategorySteps(queue);
-      return;
-    }
-
     setLoading(true);
     try {
-      const result = await apiPost<{
-        published: number;
-        failed: number;
-        skipped: number;
-      }>("/api/store-items/bulk-publish", {
-        storeItemIds: selectedIds,
-        providers,
-        validateFirst: true,
-        skipInvalid: true,
-        ...(assignments?.length ? { assignments } : {}),
+      const result = await apiPost<BulkDestinationsResultCounts>("/api/store-items/bulk-destinations", {
+        action,
+        items: assignments,
+        ...(categoryAssignments?.length ? { assignments: categoryAssignments } : {}),
       });
-
-      setShowPublishModal(false);
-      setSelectedProviders([]);
-      setPendingProviders([]);
+      const summary = summarizeBulkDestinations(action, result);
+      Alert.alert(summary.title, summary.message);
+      setGridAction(null);
       setCategorySteps([]);
-
-      const message = [
-        `Listed: ${result.published}`,
-        result.failed > 0 ? `Failed: ${result.failed}` : null,
-        result.skipped > 0 ? `Skipped: ${result.skipped}` : null,
-      ]
-        .filter(Boolean)
-        .join("\n");
-
-      Alert.alert("List on channel", message);
+      setPendingAssignments(null);
       onActionComplete();
       onClearSelection();
     } catch (e) {
-      const msg = (e as { error?: string })?.error || "Bulk publish failed";
+      const msg = (e as { error?: string })?.error || "Update failed";
       Alert.alert("Error", msg);
-      if (assignments) throw new Error(msg);
+      if (categoryAssignments) throw new Error(msg);
     } finally {
       setLoading(false);
     }
   };
 
-  const listOnProvider = (provider: string, missingCount: number) => {
-    const label = CHANNEL_PROVIDER_LABEL[provider as keyof typeof CHANNEL_PROVIDER_LABEL] ?? provider;
-    Alert.alert(
-      `List on ${label}?`,
-      `List ${missingCount} item${missingCount === 1 ? "" : "s"} on ${label}? Items already on ${label} will be skipped.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "List", onPress: () => void applyPublish([provider]) },
-      ]
-    );
-  };
-
-  const handleBulkEnd = () => {
-    Alert.alert(
-      "End listings",
-      `End ${selectedIds.length} listing${selectedIds.length === 1 ? "" : "s"}? They will move to Ended.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "End",
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const result = await apiPatch<{ updated: number; failed: number }>("/api/store-items/bulk", {
-                storeItemIds: selectedIds,
-                updates: { status: "inactive" },
-                syncToChannels: true,
-              });
-              if (result.failed > 0) {
-                Alert.alert("Partial Success", `Ended ${result.updated}. ${result.failed} failed.`);
-              }
-              onActionComplete();
-              onClearSelection();
-            } catch (e) {
-              Alert.alert("Error", (e as { error?: string })?.error || "Bulk end failed");
-            } finally {
-              setLoading(false);
+  const handleEndListings = () => {
+    Alert.alert("End Listings", END_LISTINGS_CONFIRM, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "End on INW",
+        style: "destructive",
+        onPress: async () => {
+          setLoading(true);
+          try {
+            const result = await apiPatch<{ updated: number; failed: number }>("/api/store-items/bulk", {
+              storeItemIds: selectedIds,
+              updates: { status: "inactive" },
+              syncToChannels: false,
+            });
+            if (result.failed > 0) {
+              Alert.alert("End Listings", `Ended ${result.updated}. ${result.failed} failed.`);
+            } else {
+              Alert.alert(
+                "End Listings",
+                `Ended ${result.updated} listing${result.updated === 1 ? "" : "s"} on INW.`
+              );
             }
-          },
+            onActionComplete();
+            onClearSelection();
+          } catch (e) {
+            Alert.alert("Error", (e as { error?: string })?.error || "End listings failed");
+          } finally {
+            setLoading(false);
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const handleBulkRelist = () => {
@@ -245,162 +230,80 @@ export function BulkActionsBar({
     );
   };
 
-  const handleBulkUnpublish = () => {
-    Alert.alert(
-      "Unlink stores",
-      `Unlink ${selectedIds.length} items from all connected channels?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Unlink",
-          style: "destructive",
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const result = await apiPost<{
-                unpublished: number;
-                failed: number;
-              }>("/api/store-items/bulk-unpublish", {
-                storeItemIds: selectedIds,
-              });
-
-              Alert.alert("Success", `Unpublished ${result.unpublished} items.`);
-              onActionComplete();
-              onClearSelection();
-            } catch (e) {
-              Alert.alert("Error", (e as { error?: string })?.error || "Bulk unpublish failed");
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleBulkDelete = () => {
-    Alert.alert(
-      "Delete Items",
-      `Permanently delete ${selectedIds.length} items? This cannot be undone.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const result = await apiDelete<{ deleted: number }>("/api/store-items/bulk", {
-                storeItemIds: selectedIds,
-              });
-
-              Alert.alert("Success", `Deleted ${result.deleted} items.`);
-              onActionComplete();
-              onClearSelection();
-            } catch (e) {
-              Alert.alert("Error", (e as { error?: string })?.error || "Bulk delete failed");
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const toggleProvider = (provider: string) => {
-    setSelectedProviders((prev) =>
-      prev.includes(provider) ? prev.filter((p) => p !== provider) : [...prev, provider]
-    );
-  };
-
   return (
     <>
-      <View style={styles.bar}>
-        <View style={styles.selectionInfo}>
-          <Text style={styles.selectionCount}>{selectedIds.length} selected</Text>
-          <Pressable onPress={onClearSelection}>
-            <Text style={styles.clearText}>Clear</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.actions}>
-          {tab !== "sold" &&
-            listOnChannels.map((c) => (
-              <Pressable
-                key={c.provider}
-                style={[styles.actionBtn, styles.primaryBtn, loading && styles.actionBtnDisabled]}
-                onPress={() => listOnProvider(c.provider, c.missing.length)}
-                disabled={loading}
-              >
-                <Text style={styles.primaryBtnText}>
-                  List on {CHANNEL_PROVIDER_LABEL[c.provider]}
-                  {c.missing.length !== selectedIds.length ? ` (${c.missing.length})` : ""}
-                </Text>
-              </Pressable>
-            ))}
-          {tab !== "sold" && listOnChannels.length > 1 && (
-            <Pressable
-              style={[styles.actionBtn, loading && styles.actionBtnDisabled]}
-              onPress={() => {
-                setSelectedProviders(listOnChannels.map((c) => c.provider));
-                setShowPublishModal(true);
-              }}
-              disabled={loading}
-            >
-              <Text style={styles.actionBtnText}>List on multiple</Text>
+      <View style={styles.trayWrap} pointerEvents="box-none">
+        <View style={styles.bar}>
+          <View style={styles.selectionInfo}>
+            <View style={styles.selectionCopy}>
+              <Text style={styles.selectionCount}>{selectedIds.length} selected</Text>
+              {missingHints ? <Text style={styles.hintText}>{missingHints}</Text> : null}
+            </View>
+            <Pressable onPress={onClearSelection} hitSlop={8}>
+              <Text style={styles.clearText}>Clear</Text>
             </Pressable>
-          )}
-          {tab === "active" && (
-            <>
-              <Pressable
-                style={[styles.actionBtn, loading && styles.actionBtnDisabled]}
-                onPress={handleBulkEnd}
-                disabled={loading}
-              >
-                <Text style={styles.actionBtnText}>End</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.actionBtn, loading && styles.actionBtnDisabled]}
-                onPress={() => setShowEditModal(true)}
-                disabled={loading}
-              >
-                <Text style={styles.actionBtnText}>Price / qty</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.actionBtn, loading && styles.actionBtnDisabled]}
-                onPress={handleBulkUnpublish}
-                disabled={loading}
-              >
-                <Text style={styles.actionBtnText}>Unlink</Text>
-              </Pressable>
-            </>
-          )}
-          {(tab === "ended" || tab === "sold") && (
-            <Pressable
-              style={[styles.actionBtn, loading && styles.actionBtnDisabled]}
-              onPress={handleBulkRelist}
-              disabled={loading}
-            >
-              <Text style={styles.actionBtnText}>Relist</Text>
-            </Pressable>
-          )}
-          <Pressable
-            style={[styles.actionBtn, styles.deleteBtn, loading && styles.actionBtnDisabled]}
-            onPress={handleBulkDelete}
-            disabled={loading}
-          >
-            <Text style={[styles.actionBtnText, styles.deleteBtnText]}>Delete</Text>
-          </Pressable>
-        </View>
+          </View>
 
-        {loading && <ActivityIndicator style={styles.loader} color={theme.colors.primary} />}
+          <View style={styles.actions}>
+            {tab !== "sold" && (
+              <Pressable
+                style={[styles.actionBtn, styles.primaryBtn, styles.actionBtnWide, loading && styles.actionBtnDisabled]}
+                onPress={() => setGridAction("sync")}
+                disabled={loading}
+              >
+                <Text style={styles.primaryBtnText}>Manage Listings</Text>
+              </Pressable>
+            )}
+            {tab === "active" && (
+              <>
+                <Pressable
+                  style={[styles.actionBtn, loading && styles.actionBtnDisabled]}
+                  onPress={handleEndListings}
+                  disabled={loading}
+                >
+                  <Text style={styles.actionBtnText}>End Listings</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.actionBtn, loading && styles.actionBtnDisabled]}
+                  onPress={() => setShowEditModal(true)}
+                  disabled={loading}
+                >
+                  <Text style={styles.actionBtnText}>Price / Quantity</Text>
+                </Pressable>
+              </>
+            )}
+            {(tab === "ended" || tab === "sold") && (
+              <Pressable
+                style={[styles.actionBtn, loading && styles.actionBtnDisabled]}
+                onPress={handleBulkRelist}
+                disabled={loading}
+              >
+                <Text style={styles.actionBtnText}>Relist</Text>
+              </Pressable>
+            )}
+          </View>
+
+          {loading && <ActivityIndicator style={styles.loader} color={theme.colors.primary} />}
+        </View>
       </View>
+
+      <BulkDestinationGridModal
+        visible={gridAction != null}
+        action={gridAction ?? "sync"}
+        items={selectedItems}
+        connectedProviders={connectedProviders}
+        loading={loading}
+        onClose={() => setGridAction(null)}
+        onApply={(assignments) => {
+          if (!gridAction) return;
+          return applyDestinations(gridAction, assignments);
+        }}
+      />
 
       <Modal visible={showEditModal} animationType="slide" presentationStyle="pageSheet">
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Edit {selectedIds.length} Items</Text>
+            <Text style={styles.modalTitle}>Price / Quantity</Text>
             <Pressable
               onPress={() => {
                 setShowEditModal(false);
@@ -450,93 +353,68 @@ export function BulkActionsBar({
         </View>
       </Modal>
 
-      <Modal visible={showPublishModal} animationType="slide" presentationStyle="pageSheet">
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>List {selectedIds.length} Items</Text>
-            <Pressable
-              onPress={() => {
-                setShowPublishModal(false);
-                setSelectedProviders([]);
-              }}
-            >
-              <Text style={styles.modalClose}>Cancel</Text>
-            </Pressable>
-          </View>
-
-          <ScrollView style={styles.modalContent}>
-            <Text style={styles.fieldLabel}>Select channels. Items already listed there are skipped.</Text>
-
-            {listOnChannels.map((c) => (
-              <Pressable key={c.provider} style={styles.providerRow} onPress={() => toggleProvider(c.provider)}>
-                <View
-                  style={[styles.checkbox, selectedProviders.includes(c.provider) && styles.checkboxChecked]}
-                >
-                  {selectedProviders.includes(c.provider) && <Text style={styles.checkmark}>✓</Text>}
-                </View>
-                <Text style={styles.providerLabel}>
-                  {CHANNEL_PROVIDER_LABEL[c.provider]} · {c.missing.length} to list
-                </Text>
-              </Pressable>
-            ))}
-
-            <Pressable
-              style={[styles.submitBtn, loading && { opacity: 0.5 }]}
-              onPress={() => void applyPublish(selectedProviders)}
-              disabled={loading}
-            >
-              {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>List</Text>}
-            </Pressable>
-          </ScrollView>
-        </View>
-      </Modal>
-
       <ListOnChannelCategoryModal
         visible={categorySteps.length > 0}
         steps={categorySteps}
         onClose={() => {
           setCategorySteps([]);
-          setPendingProviders([]);
+          setPendingAssignments(null);
         }}
-        onComplete={(assignments) => applyPublish(pendingProviders, assignments)}
+        onComplete={(assignments) => {
+          if (!pendingAssignments) return Promise.resolve();
+          return applyDestinations("sync", pendingAssignments, assignments);
+        }}
       />
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  bar: {
+  trayWrap: {
     position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
+    bottom: 12,
+    left: 12,
+    right: 12,
+  },
+  bar: {
     backgroundColor: "#fff",
-    borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 16,
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 32,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 5,
+    paddingTop: 14,
+    paddingBottom: 14,
+    shadowColor: "#3E432F",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    elevation: 8,
   },
   selectionInfo: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-start",
     marginBottom: 12,
+    gap: 12,
+  },
+  selectionCopy: {
+    flex: 1,
   },
   selectionCount: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "700",
-    color: "#333",
+    color: theme.colors.heading,
+  },
+  hintText: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 4,
   },
   clearText: {
     fontSize: 14,
     fontWeight: "600",
     color: theme.colors.primary,
+    paddingTop: 2,
   },
   actions: {
     flexDirection: "row",
@@ -544,14 +422,24 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   actionBtn: {
+    minHeight: 44,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: "#f0f0f0",
+    borderRadius: 12,
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: "#ddd",
     alignItems: "center",
+    justifyContent: "center",
+    flexGrow: 1,
+    flexBasis: "47%",
+  },
+  actionBtnWide: {
+    flexBasis: "100%",
   },
   primaryBtn: {
     backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
   },
   actionBtnDisabled: {
     opacity: 0.5,
@@ -565,12 +453,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: "#fff",
-  },
-  deleteBtn: {
-    backgroundColor: "#fee2e2",
-  },
-  deleteBtnText: {
-    color: "#dc2626",
   },
   loader: {
     position: "absolute",
@@ -645,17 +527,6 @@ const styles = StyleSheet.create({
   },
   checkboxLabel: {
     fontSize: 14,
-    color: "#333",
-  },
-  providerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  providerLabel: {
-    fontSize: 16,
     color: "#333",
   },
   submitBtn: {

@@ -17,6 +17,10 @@
       "schedule": "15 7 * * *"
     },
     {
+      "path": "/api/cron/delete-ended-listings",
+      "schedule": "20 7 * * *"
+    },
+    {
       "path": "/api/cron/sync-channels",
       "schedule": "*/5 * * * *"
     },

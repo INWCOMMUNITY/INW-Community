@@ -180,7 +180,7 @@ export default function PayoutsScreen() {
             {payoutLoading ? (
               <ActivityIndicator color="#fff" size="small" />
             ) : (
-              <Text style={styles.btnText}>Send to bank</Text>
+              <Text style={styles.btnText}>Send to Bank</Text>
             )}
           </Pressable>
 
@@ -192,7 +192,7 @@ export default function PayoutsScreen() {
             style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }, { marginTop: 12 }]}
             onPress={handleManageAccount}
           >
-            <Text style={styles.linkText}>Manage payment account</Text>
+            <Text style={styles.linkText}>Manage Payment Account</Text>
           </Pressable>
 
           <View style={styles.links}>
@@ -200,7 +200,7 @@ export default function PayoutsScreen() {
               style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }]}
               onPress={() => (router.push as (href: string) => void)("/seller-hub/orders")}
             >
-              <Text style={styles.linkText}>Ship items</Text>
+              <Text style={styles.linkText}>Ship Items</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }]}

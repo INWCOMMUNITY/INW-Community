@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildListOnCategoryQueue,
+  buildListOnCategoryQueueFromDesired,
   itemNeedsListOnCategoryStep,
   mergeListOnCategoryAssignment,
   type ListOnCategoryItem,
@@ -67,6 +68,19 @@ describe("buildListOnCategoryQueue", () => {
   it("queues Etsy then eBay for the same item when both are missing", () => {
     const steps = buildListOnCategoryQueue([item()], ["etsy", "ebay"]);
     expect(steps.map((s) => s.provider)).toEqual(["etsy", "ebay"]);
+  });
+});
+
+describe("buildListOnCategoryQueueFromDesired", () => {
+  it("only queues stores this item is adding", () => {
+    const steps = buildListOnCategoryQueueFromDesired(
+      [
+        item({ id: "a", ebayCategoryId: null, etsyTaxonomyId: null }),
+        item({ id: "b", ebayCategoryId: null, etsyTaxonomyId: 9 }),
+      ],
+      { a: ["ebay"], b: ["etsy"] }
+    );
+    expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["a:ebay"]);
   });
 });
 

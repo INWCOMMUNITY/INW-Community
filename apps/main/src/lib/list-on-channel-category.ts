@@ -71,6 +71,25 @@ export function buildListOnCategoryQueue(
   return steps;
 }
 
+/** Per-item desired stores (Manage Listings). Only queues adds that still need a category. */
+export function buildListOnCategoryQueueFromDesired(
+  items: ListOnCategoryItem[],
+  desiredProvidersByItemId: Record<string, string[]>
+): ListOnCategoryStep[] {
+  const steps: ListOnCategoryStep[] = [];
+  for (const item of items) {
+    const desired = (desiredProvidersByItemId[item.id] ?? []).filter(isListOnCategoryProvider);
+    const linked = new Set((item.channelLinks ?? []).map((l) => l.provider));
+    for (const provider of desired) {
+      if (linked.has(provider)) continue;
+      if (itemNeedsListOnCategoryStep(item, provider)) {
+        steps.push({ item, provider });
+      }
+    }
+  }
+  return steps;
+}
+
 export function mergeListOnCategoryAssignment(
   current: ListOnCategoryAssignment | undefined,
   patch: ListOnCategoryAssignment

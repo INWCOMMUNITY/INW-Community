@@ -13,6 +13,7 @@ import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { recordSellerListingView } from "@/lib/record-seller-listing-view";
 import { assertMemberShippingOption, getShippingOptionCostCents } from "@/lib/shipping-options";
+import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
 import {
   SELLER_CHANNEL_LINK_SELECT,
   withListingChannelSyncWarning,
@@ -520,7 +521,7 @@ export async function POST(req: NextRequest) {
         variants: data.variants === null ? Prisma.JsonNull : (data.variants as object),
         aspects: aspectsForStorage.length > 0 ? (aspectsForStorage as object) : Prisma.JsonNull,
         quantity,
-        status: data.status,
+        ...storeItemStatusWrite(data.status),
         shippingCostCents,
         shippingOptionId,
         shippingPolicy: data.shippingPolicy?.trim() || null,

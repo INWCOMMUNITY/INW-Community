@@ -1,4 +1,5 @@
 import { prisma } from "database";
+import { inactiveStoreItemData } from "@/lib/store-item-ended-status";
 import {
   NWC_PAID_PLAN_ACCESS_STATUSES,
   NWC_PAID_PLAN_SLUGS,
@@ -34,7 +35,7 @@ export async function removeNwcMemberPerksAfterSubscriptionEnd(memberId: string)
         status: "active",
         OR: [{ businessId: null }, { business: { adminGrantedAt: null } }],
       },
-      data: { status: "inactive" },
+      data: inactiveStoreItemData(),
     });
     await tx.coupon.deleteMany({
       where: { business: { memberId, adminGrantedAt: null } },
@@ -45,7 +46,7 @@ export async function removeNwcMemberPerksAfterSubscriptionEnd(memberId: string)
 
     await tx.storeItem.updateMany({
       where: { memberId, status: "active", businessId: null },
-      data: { status: "inactive" },
+      data: inactiveStoreItemData(),
     });
   });
 }

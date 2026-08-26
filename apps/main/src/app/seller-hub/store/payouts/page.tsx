@@ -151,14 +151,14 @@ export default function MyFundsPage() {
               disabled={payoutLoading || availableCents < 100}
               className="btn disabled:opacity-50"
             >
-              {payoutLoading ? "Processing…" : "Send to bank"}
+              {payoutLoading ? "Processing…" : "Send to Bank"}
             </button>
             <button
               type="button"
               onClick={handleManageAccount}
               className="btn border border-gray-300 bg-white hover:bg-gray-50"
             >
-              Manage payment account
+              Manage Payment Account
             </button>
             <button
               type="button"
@@ -167,13 +167,13 @@ export default function MyFundsPage() {
               className="btn border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 disabled:opacity-50"
               title="Disconnect your Stripe account. Your listings will be disabled until you complete payment setup again."
             >
-              {disconnectLoading ? "Disconnecting…" : "Disconnect Stripe account"}
+              {disconnectLoading ? "Disconnecting…" : "Disconnect Stripe Account"}
             </button>
             <Link href="/seller-hub/orders" className="btn border border-gray-300 bg-white hover:bg-gray-50">
-              Ship items
+              Ship Items
             </Link>
             <Link href="/seller-hub/store/returns" className="btn border border-gray-300 bg-white hover:bg-gray-50">
-              Requested returns
+              Requested Returns
             </Link>
           </div>
 

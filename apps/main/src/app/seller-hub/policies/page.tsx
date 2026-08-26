@@ -186,7 +186,7 @@ export default function PoliciesPage() {
             href="/seller-hub/store"
             className="text-gray-600 hover:text-gray-900 text-sm"
           >
-            Back to seller page
+            Back to Seller Page
           </Link>
         </div>
       </form>

@@ -1,4 +1,5 @@
 import { prisma } from "database";
+import { inactiveStoreItemData } from "@/lib/store-item-ended-status";
 
 /**
  * Disconnects a member from Stripe Connect: clears stripeConnectAccountId and
@@ -13,7 +14,7 @@ export async function disconnectStripeAndDisableListings(memberId: string): Prom
     }),
     prisma.storeItem.updateMany({
       where: { memberId, status: "active" },
-      data: { status: "inactive" },
+      data: inactiveStoreItemData(),
     }),
   ]);
 }

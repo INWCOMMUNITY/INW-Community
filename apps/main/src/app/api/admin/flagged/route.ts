@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { requireAdmin } from "@/lib/admin-auth";
+import { inactiveStoreItemData } from "@/lib/store-item-ended-status";
 
 export async function GET(req: NextRequest) {
   if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -49,7 +50,7 @@ export async function PATCH(req: NextRequest) {
         case "store_item":
           await prisma.storeItem.updateMany({
             where: { id: contentId },
-            data: { status: "inactive" },
+            data: inactiveStoreItemData(),
           });
           break;
         default:

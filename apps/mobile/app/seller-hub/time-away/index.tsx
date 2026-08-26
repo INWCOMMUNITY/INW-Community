@@ -123,10 +123,14 @@ export default function TimeAwayScreen() {
         Set dates when you won&apos;t be able to fulfill orders. While time away is active, your storefront listings are
         hidden from buyers until the end date.
       </Text>
+      <Text style={styles.note}>
+        INW does not sync Time Away with eBay, Etsy, Wix, or other shops. You&apos;ll need to set vacation or away mode on
+        those sites separately.
+      </Text>
 
       {timeAway && (
         <View style={styles.current}>
-          <Text style={styles.currentLabel}>Current time away</Text>
+          <Text style={styles.currentLabel}>Current Time Away</Text>
           <Text style={styles.currentDates}>
             {formatDate(new Date(timeAway.startAt))} – {formatDate(new Date(timeAway.endAt))}
           </Text>
@@ -139,7 +143,7 @@ export default function TimeAwayScreen() {
         style={({ pressed }) => [styles.dateRow, pressed && { opacity: 0.8 }]}
         onPress={() => openDatePicker("date", startAt, setStartAt, showStart, setShowStart)}
       >
-        <Text style={styles.dateLabel}>Start</Text>
+        <Text style={styles.dateLabel}>Start Date & Time</Text>
         <Text style={styles.dateValue}>{formatDate(startAt)}</Text>
       </Pressable>
       {showStart && Platform.OS !== "android" && (
@@ -157,7 +161,7 @@ export default function TimeAwayScreen() {
         style={({ pressed }) => [styles.dateRow, pressed && { opacity: 0.8 }]}
         onPress={() => openDatePicker("date", endAt, setEndAt, showEnd, setShowEnd)}
       >
-        <Text style={styles.dateLabel}>End</Text>
+        <Text style={styles.dateLabel}>End Date & Time</Text>
         <Text style={styles.dateValue}>{formatDate(endAt)}</Text>
       </Pressable>
       {showEnd && Platform.OS !== "android" && (
@@ -181,7 +185,7 @@ export default function TimeAwayScreen() {
         {saving ? (
           <ActivityIndicator color="#fff" size="small" />
         ) : (
-          <Text style={styles.btnText}>{timeAway ? "Update" : "Set time away"}</Text>
+          <Text style={styles.btnText}>{timeAway ? "Update Time Away" : "Set Time Away"}</Text>
         )}
       </Pressable>
 
@@ -191,7 +195,7 @@ export default function TimeAwayScreen() {
           onPress={handleClear}
           disabled={saving}
         >
-          <Text style={[styles.btnText, { color: theme.colors.primary }]}>Clear time away</Text>
+          <Text style={[styles.btnText, { color: theme.colors.primary }]}>Clear Time Away</Text>
         </Pressable>
       )}
     </ScrollView>
@@ -203,7 +207,8 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#fff" },
   title: { fontSize: 20, fontWeight: "700", marginBottom: 8, color: theme.colors.heading },
-  hint: { fontSize: 14, color: "#666", marginBottom: 24 },
+  hint: { fontSize: 14, color: "#666", marginBottom: 12 },
+  note: { fontSize: 13, color: "#666", marginBottom: 24, lineHeight: 18 },
   current: {
     backgroundColor: theme.colors.creamAlt,
     padding: 16,

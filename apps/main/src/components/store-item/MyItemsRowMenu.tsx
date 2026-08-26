@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
+import { END_LISTING_CONFIRM } from "@/lib/store-item-ended-status";
 import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
 import {
   channelNotReadyHint,
@@ -106,7 +107,7 @@ export function MyItemsRowMenu({
   }
 
   async function endListing() {
-    if (!window.confirm("End this listing? It will leave the storefront and move to Ended.")) return;
+    if (!window.confirm(END_LISTING_CONFIRM)) return;
     setActing(true);
     try {
       const data = await jsonFetch<{ channelSync?: { provider: string; ok: boolean; error?: string }[] }>(
@@ -114,7 +115,7 @@ export function MyItemsRowMenu({
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "inactive" }),
+          body: JSON.stringify({ status: "inactive", syncToChannels: false }),
         }
       );
       alertChannelSyncFailures(data.channelSync);

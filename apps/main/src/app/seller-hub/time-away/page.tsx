@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { ThemeDateTimeField } from "@/components/ThemeDateTimeField";
 
 type TimeAwayState = {
   timeAway: {
@@ -98,17 +99,21 @@ export default function TimeAwayPage() {
       <h1 className="text-2xl font-bold mb-2" style={{ color: "var(--color-heading)" }}>
         Time Away
       </h1>
-      <p className="text-gray-600 mb-6">
+      <p className="text-gray-600 mb-3 max-w-sm leading-snug">
         Set dates when you’re away. While time away is active, your storefront listings are hidden from buyers until your
         end date.
+      </p>
+      <p className="text-sm text-gray-600 mb-6 max-w-md leading-snug">
+        INW does not sync Time Away with eBay, Etsy, Wix, or other shops. You’ll need to set vacation or away mode on
+        those sites separately.
       </p>
 
       {t && (
         <div
-          className="mb-6 p-4 rounded-lg border-2"
+          className="mb-6 p-4 rounded-lg border-2 max-w-md"
           style={{ backgroundColor: "var(--color-section-alt)", borderColor: "var(--color-primary)" }}
         >
-          <p className="font-medium mb-1">Current time away</p>
+          <p className="font-medium mb-1">Current Time Away</p>
           <p className="text-sm text-gray-700">
             {new Date(t.startAt).toLocaleDateString()} – {new Date(t.endAt).toLocaleDateString()}
           </p>
@@ -120,37 +125,35 @@ export default function TimeAwayPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4 max-w-md">
+      <form onSubmit={handleSubmit} className="space-y-4 max-w-md overflow-visible">
         <div>
           <label htmlFor="startAt" className="block text-sm font-medium text-gray-700 mb-1">
-            Start date
+            Start Date & Time
           </label>
-          <input
+          <ThemeDateTimeField
             id="startAt"
-            type="datetime-local"
             value={startAt}
-            onChange={(e) => setStartAt(e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-2"
+            onChange={setStartAt}
             required
+            pickerLabel="Start Date & Time"
           />
         </div>
         <div>
           <label htmlFor="endAt" className="block text-sm font-medium text-gray-700 mb-1">
-            End date (return date)
+            End Date & Time
           </label>
-          <input
+          <ThemeDateTimeField
             id="endAt"
-            type="datetime-local"
             value={endAt}
-            onChange={(e) => setEndAt(e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-2"
+            onChange={setEndAt}
             required
+            pickerLabel="End Date & Time"
           />
         </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
         <div className="flex gap-3">
           <button type="submit" className="btn" disabled={saving}>
-            {saving ? "Saving…" : t ? "Update time away" : "Set time away"}
+            {saving ? "Saving…" : t ? "Update Time Away" : "Set Time Away"}
           </button>
           {t && (
             <button
@@ -159,7 +162,7 @@ export default function TimeAwayPage() {
               className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-100"
               disabled={saving}
             >
-              Clear time away
+              Clear Time Away
             </button>
           )}
         </div>

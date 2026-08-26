@@ -84,6 +84,7 @@ export async function POST(req: NextRequest) {
     data: {
       status: "active",
       quantity: newQuantity,
+      endedAt: null,
     },
   });
 
