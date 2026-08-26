@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { KeyboardEvent, MouseEvent } from "react";
 import { formatShippingAddress } from "@/lib/format-address";
 import { getOrderStatusLabel } from "@/lib/order-status";
 import {
@@ -45,17 +46,44 @@ export function OrderCard({
     .join(" · ");
   const paymentLabel = sellerOrderPaymentLabel(order);
   const canMarkShipped = isOrderEligibleForToShipQueue(order) && onMarkShipped;
+  const stop = (e: MouseEvent) => e.stopPropagation();
 
   return (
-    <article className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+    <article
+      className={`rounded-xl border bg-white p-4 shadow-sm transition-colors ${
+        selectable
+          ? `cursor-pointer hover:border-[var(--color-primary)] hover:bg-[var(--color-section-alt)] ${
+              selected
+                ? "border-[var(--color-primary)] bg-[var(--color-section-alt)]"
+                : "border-gray-200"
+            }`
+          : "border-gray-200"
+      }`}
+      onClick={selectable ? () => onToggleSelect?.(order.id) : undefined}
+      onKeyDown={
+        selectable
+          ? (e: KeyboardEvent<HTMLElement>) => {
+              if (e.key === " " || e.key === "Enter") {
+                e.preventDefault();
+                onToggleSelect?.(order.id);
+              }
+            }
+          : undefined
+      }
+      role={selectable ? "checkbox" : undefined}
+      aria-checked={selectable ? !!selected : undefined}
+      aria-label={selectable ? `Select order ${orderNum}` : undefined}
+      tabIndex={selectable ? 0 : undefined}
+    >
       <div className="flex flex-wrap items-start gap-4">
         {selectable ? (
           <input
             type="checkbox"
             checked={!!selected}
-            onChange={() => onToggleSelect?.(order.id)}
-            className="mt-1 shrink-0"
-            aria-label={`Select order ${orderNum}`}
+            readOnly
+            tabIndex={-1}
+            aria-hidden
+            className="pointer-events-none mt-1 shrink-0"
           />
         ) : null}
 
@@ -79,6 +107,7 @@ export function OrderCard({
             <div className="min-w-0">
               <Link
                 href={`${ordersBasePath}/${order.id}`}
+                onClick={stop}
                 className="font-semibold hover:underline inline-flex flex-wrap items-center gap-x-2 gap-y-0"
                 style={{ color: "var(--color-link)" }}
               >
@@ -130,7 +159,10 @@ export function OrderCard({
           {canMarkShipped ? (
             <button
               type="button"
-              onClick={() => onMarkShipped(order.id)}
+              onClick={(e) => {
+                stop(e);
+                onMarkShipped(order.id);
+              }}
               disabled={markingShipped}
               className="mt-3 text-sm font-medium px-3 py-1.5 rounded-lg border border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-section-alt)] disabled:opacity-50"
             >
@@ -138,10 +170,14 @@ export function OrderCard({
             </button>
           ) : null}
 
-          {trailing}
+          {trailing ? <div onClick={stop}>{trailing}</div> : null}
         </div>
 
-        {menu ? <div className="shrink-0">{menu}</div> : null}
+        {menu ? (
+          <div className="shrink-0" onClick={stop}>
+            {menu}
+          </div>
+        ) : null}
       </div>
     </article>
   );

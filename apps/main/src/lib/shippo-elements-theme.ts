@@ -139,7 +139,7 @@ export const NWC_SHIPPO_ELEMENTS_THEME: ShippoElementsTheme = {
     backgroundColor: WHITE,
     borderRadius: "8px",
     borderColor: BORDER_SUBTLE,
-    hoverBackgroundColor: "#faf9f7",
+    hoverBackgroundColor: CREAM,
     activeBackgroundColor: CREAM,
   },
   inputs: {

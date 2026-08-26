@@ -67,7 +67,10 @@ export function ShippoElementsSurface({
   if (!open) return null;
 
   const chrome = (
-    <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-3 sm:px-6">
+    <div
+      data-shippo-chrome
+      className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-3 sm:px-6"
+    >
       <div className="min-w-0 pr-2">
         <h2 id={titleId} className="text-lg font-semibold truncate" style={{ color: "var(--color-heading)" }}>
           {title}
@@ -123,16 +126,17 @@ export function ShippoElementsSurface({
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex flex-col overflow-hidden bg-[var(--color-background)] pb-[env(safe-area-inset-bottom)]"
+      data-shippo-surface
+      className="fixed inset-0 z-[90] flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden bg-[var(--color-background)] pb-[env(safe-area-inset-bottom)]"
       role="region"
       aria-labelledby={titleId}
     >
       {chrome}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex h-0 min-h-0 min-w-0 flex-1 flex-col">
         <div
           ref={containerRef}
           id={containerId}
-          className="shippo-page-elements-root flex h-full min-h-0 w-full min-w-0 flex-1"
+          className="shippo-page-elements-root h-full min-h-0 w-full min-w-0 flex-1"
           aria-hidden="true"
         />
       </div>

@@ -28,11 +28,17 @@ export function watchShippoElementsHeight(containerId: string): () => void {
   const fillIframe = (root: HTMLElement) => {
     const iframe = root.querySelector("iframe");
     if (!iframe) return;
-    const h = Math.round(root.getBoundingClientRect().height);
+    const overlay = root.closest("[data-shippo-surface]");
+    const chrome = overlay?.querySelector("[data-shippo-chrome]");
+    const overlayH = overlay?.getBoundingClientRect().height
+      ?? (window.visualViewport?.height ?? window.innerHeight);
+    const chromeH = chrome?.getBoundingClientRect().height ?? 0;
+    const fromMount = Math.round(root.getBoundingClientRect().height);
+    const h = Math.max(fromMount, Math.round(overlayH - chromeH));
     if (h < 80) return;
     iframe.setAttribute("height", String(h));
     iframe.style.setProperty("height", `${h}px`, "important");
-    iframe.style.setProperty("max-height", "100%", "important");
+    iframe.style.setProperty("max-height", `${h}px`, "important");
     iframe.style.setProperty("width", "100%", "important");
     iframe.style.minHeight = "0";
     iframe.style.flex = "1 1 auto";
