@@ -19,6 +19,7 @@ import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { AppImage } from "@/components/AppImage";
+import { buildBusinessPath } from "@/lib/business-referrer";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const GRID_GAP = 4;
@@ -615,7 +616,11 @@ export default function MemberProfileScreen() {
                   <Pressable
                     key={b.id}
                     style={({ pressed }) => [styles.businessPreviewCard, pressed && styles.pressed]}
-                    onPress={() => router.push(`/business/${b.slug}`)}
+                    onPress={() =>
+                      router.push(
+                        buildBusinessPath(b.slug, { type: "member-profile", memberId: profile.id }) as never
+                      )
+                    }
                   >
                     {logoUri ? (
                       <AppImage uri={logoUri} targetWidth={96} style={styles.businessPreviewImage} resizeMode="cover" />

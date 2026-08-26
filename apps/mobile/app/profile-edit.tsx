@@ -527,7 +527,7 @@ export default function ProfileEditScreen() {
           ) : uploadingPhoto ? (
             <Text style={styles.saveBtnText}>Uploading…</Text>
           ) : (
-            <Text style={styles.saveBtnText}>Save profile</Text>
+            <Text style={styles.saveBtnText}>Save Profile</Text>
           )}
         </Pressable>
 

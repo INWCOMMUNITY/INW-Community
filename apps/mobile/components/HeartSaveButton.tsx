@@ -12,6 +12,8 @@ interface HeartSaveButtonProps {
   /** When provided and user is not signed in, called on press instead of doing nothing */
   onRequireAuth?: () => void;
   size?: number;
+  /** Override icon color for both saved and unsaved states. */
+  iconColor?: string;
 }
 
 export function HeartSaveButton({
@@ -21,6 +23,7 @@ export function HeartSaveButton({
   onSavedChange,
   onRequireAuth,
   size = 24,
+  iconColor,
 }: HeartSaveButtonProps) {
   const [saved, setSaved] = useState(initialSaved);
   const [loading, setLoading] = useState(false);
@@ -70,7 +73,7 @@ export function HeartSaveButton({
       <Ionicons
         name={saved ? "heart" : "heart-outline"}
         size={size}
-        color={saved ? theme.colors.cream : "#555"}
+        color={iconColor ?? (saved ? theme.colors.cream : "#555")}
       />
     </Pressable>
   );

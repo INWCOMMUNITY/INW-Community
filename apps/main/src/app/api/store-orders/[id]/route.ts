@@ -29,7 +29,10 @@ export async function GET(
       include: {
         buyer: { select: { id: true, firstName: true, lastName: true, email: true } },
         seller: {
-          include: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
             businesses: { take: 1, select: { name: true, slug: true } },
           },
         },

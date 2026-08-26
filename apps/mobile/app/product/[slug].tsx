@@ -48,6 +48,7 @@ import {
   getProductReferrer,
   buildBackLink,
 } from "@/lib/product-referrer";
+import { buildBusinessPath } from "@/lib/business-referrer";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -1094,7 +1095,12 @@ export default function ProductScreen() {
                   <Pressable
                     style={styles.viewBusinessBtn}
                     onPress={() =>
-                      router.push(`/business/${item.business!.slug}`)
+                      router.push(
+                        buildBusinessPath(item.business!.slug, {
+                          type: "listing",
+                          listingSlug: item.slug,
+                        }) as never
+                      )
                     }
                   >
                     <Text style={styles.viewBusinessBtnText}>

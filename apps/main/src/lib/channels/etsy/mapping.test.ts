@@ -3,6 +3,7 @@ import {
   buildEtsyCreateFields,
   buildEtsyUpdateFields,
   etsyListingToSummary,
+  etsyOriginTrioFields,
   sanitizeEtsyTitle,
 } from "./mapping";
 import type { ChannelConnectionContext, SyncStoreItem } from "../types";
@@ -44,6 +45,17 @@ const conn: ChannelConnectionContext = {
   config: null,
 };
 
+describe("etsyOriginTrioFields", () => {
+  it("returns the full trio or nothing", () => {
+    expect(etsyOriginTrioFields(makeItem({ etsyWhoMade: null }))).toBeNull();
+    expect(etsyOriginTrioFields(makeItem({ etsyIsSupply: null }))).toEqual({
+      who_made: "i_did",
+      when_made: "2020_2026",
+      is_supply: false,
+    });
+  });
+});
+
 describe("buildEtsyCreateFields", () => {
   it("maps legacy when_made onto the current Etsy enum", () => {
     const fields = buildEtsyCreateFields(makeItem(), conn, { readinessStateId: 42 });
@@ -57,6 +69,7 @@ describe("buildEtsyCreateFields", () => {
     expect(fields.item_height).toBe("12.0");
     expect(fields.item_weight_unit).toBe("oz");
     expect(fields.item_dimensions_unit).toBe("in");
+    expect(fields.is_supply).toBe(false);
   });
 
   it("throws when readiness_state_id is missing", () => {
@@ -131,10 +144,19 @@ describe("buildEtsyCreateFields", () => {
 });
 
 describe("buildEtsyUpdateFields", () => {
-  it("maps legacy when_made without inventing defaults", () => {
-    const fields = buildEtsyUpdateFields(makeItem({ etsyWhenMade: "before_1960" }));
-    expect(fields.when_made).toBe("1950s");
+  it("sends who_made, when_made, and is_supply together even when supply is unset", () => {
+    const fields = buildEtsyUpdateFields(makeItem({ etsyIsSupply: null }));
     expect(fields.who_made).toBe("i_did");
+    expect(fields.when_made).toBe("2020_2026");
+    expect(fields.is_supply).toBe(false);
+  });
+
+  it("omits the whole origin trio when who/when is missing so price can still PATCH", () => {
+    const fields = buildEtsyUpdateFields(makeItem({ etsyWhoMade: null, etsyWhenMade: null }));
+    expect(fields.who_made).toBeUndefined();
+    expect(fields.when_made).toBeUndefined();
+    expect(fields.is_supply).toBeUndefined();
+    expect(fields.price).toBeDefined();
   });
 
   it("includes shipping_profile_id only when provided", () => {

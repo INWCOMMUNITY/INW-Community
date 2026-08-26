@@ -203,6 +203,27 @@ async function recoverExistingLink(
 export async function claimChannelListingLink(
   input: ClaimChannelListingLinkInput
 ): Promise<ClaimChannelListingLinkResult> {
+  const existingByItem = await prisma.channelListingLink.findUnique({
+    where: {
+      storeItemId_provider: { storeItemId: input.storeItemId, provider: input.provider },
+    },
+  });
+  if (existingByItem) {
+    const updated = await prisma.channelListingLink.update({
+      where: { id: existingByItem.id },
+      data: {
+        ...linkUpdateData(input),
+        externalListingId: existingByItem.externalListingId,
+      },
+    });
+    return {
+      id: updated.id,
+      storeItemId: input.storeItemId,
+      created: false,
+      stolenFromStoreItemId: null,
+    };
+  }
+
   try {
     const created = await prisma.channelListingLink.create({
       data: linkCreateData(input),

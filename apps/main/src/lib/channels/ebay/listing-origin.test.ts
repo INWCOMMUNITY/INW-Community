@@ -98,6 +98,24 @@ describe("listing-origin", () => {
     ).toBe("HAT42");
   });
 
+  it("does not use a numeric Custom Label as the Inventory SKU on first publish", () => {
+    expect(
+      resolveEbayPushSku({
+        itemId: "cmt9br02u0001ogr5kqvvjwm3",
+        itemSku: "51515151",
+        externalListingId: "cmt9br02u0001ogr5kqvvjwm3",
+      })
+    ).toBe("cmt9br02u0001ogr5kqvvjwm3");
+    expect(
+      resolveEbayPushSku({
+        itemId: "cmt9br02u0001ogr5kqvvjwm3",
+        itemSku: "51515151",
+        externalListingId: "cmt9br02u0001ogr5kqvvjwm3",
+        linkOrigin: "inw_create",
+      })
+    ).toBe("cmt9br02u0001ogr5kqvvjwm3");
+  });
+
   it("keeps StoreItem id when the seller SKU is not eBay-safe", () => {
     expect(
       resolveEbayPushSku({

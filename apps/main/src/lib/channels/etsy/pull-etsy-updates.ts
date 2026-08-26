@@ -1,6 +1,5 @@
 import { prisma } from "database";
 import { getConnectionContext } from "../connection";
-import { getAdapter } from "../registry";
 import { enrichEtsyListingSummaryWithInventory } from "./variants";
 import {
   applyRemoteContentToStoreItem,
@@ -15,7 +14,9 @@ import { variantsFingerprint } from "../variant-sync";
 import { updateStoreItemOnChannels } from "../outbound";
 import { channelSyncSucceeded, syncInventoryToChannels } from "../sync-inventory";
 import { inboundContentFanoutKind } from "../listing-link-flags";
-import { setEtsyConnectionContext } from "./client";
+import { etsyGet, setEtsyConnectionContext } from "./client";
+import { etsyListingToSummary } from "./mapping";
+import type { RemoteListingSummary } from "../types";
 
 type ConnectionRow = {
   id: string;
@@ -36,6 +37,37 @@ export type EtsyPullResult = {
   updated: boolean;
   changes: string[];
 };
+
+export async function fetchEtsyRemoteListingById(
+  accessToken: string,
+  listingId: string
+): Promise<RemoteListingSummary | null> {
+  const id = listingId.trim();
+  if (!id) return null;
+  const listing = await etsyGet<Parameters<typeof etsyListingToSummary>[0]>(
+    accessToken,
+    `/listings/${encodeURIComponent(id)}?includes=Images`
+  ).catch(() => null);
+  if (!listing) return null;
+  return etsyListingToSummary(listing);
+}
+
+export async function refreshEtsyListingByExternalId(
+  connection: ConnectionRow,
+  externalListingId: string
+): Promise<EtsyPullResult | null> {
+  const ids = [externalListingId, `inw${externalListingId}`];
+  const link = await prisma.channelListingLink.findFirst({
+    where: {
+      connectionId: connection.id,
+      provider: "etsy",
+      externalListingId: { in: ids },
+    },
+    select: { storeItemId: true },
+  });
+  if (!link) return null;
+  return refreshEtsyListingByStoreItemId(link.storeItemId, connection.memberId);
+}
 
 /**
  * Pull latest Etsy listing data into a linked StoreItem.
@@ -79,8 +111,7 @@ export async function refreshEtsyListingByStoreItemId(
   const ctx = await getConnectionContext(conn);
   if (!ctx) return null;
 
-  const remoteList = await getAdapter("etsy").listRemoteListings(ctx);
-  const remote = remoteList.find((l) => l.externalListingId === link.externalListingId);
+  const remote = await fetchEtsyRemoteListingById(ctx.accessToken, link.externalListingId);
   if (!remote) {
     return {
       storeItemId,

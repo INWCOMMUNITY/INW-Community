@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useLayoutEffect, useRef } from "react";
+import { useEffect, useState, useCallback, useLayoutEffect, useRef, useMemo } from "react";
 import {
   StyleSheet,
   View,
@@ -23,6 +23,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
 import { slugifyStoreCategory } from "@/lib/store-category-slug";
+import { storefrontCloseMatchNote } from "@/lib/storefront-search";
 import {
   StoreFilterDrawer,
   type DeliveryFilter,
@@ -294,16 +295,23 @@ export default function StoreScreen() {
     setShowCarousels(!hasActiveFilters);
   }, [hasActiveFilters]);
 
+  const closeMatchNote = useMemo(() => storefrontCloseMatchNote(search, items), [search, items]);
+
   const renderListHeader = useCallback(() => {
-    if (!showCarousels) return null;
+    if (!closeMatchNote && !showCarousels) return null;
     return (
-      <View style={styles.carouselsContainer}>
-        <FeaturedItemsCarousel onQuickAdd={handleQuickAdd} refreshKey={carouselRefreshKey} />
-        <RecentlyAddedCarousel onQuickAdd={handleQuickAdd} refreshKey={carouselRefreshKey} />
-        <SellerSpotlightCarousel refreshKey={carouselRefreshKey} />
+      <View>
+        {closeMatchNote ? <Text style={styles.closeMatchNote}>{closeMatchNote}</Text> : null}
+        {showCarousels ? (
+          <View style={styles.carouselsContainer}>
+            <FeaturedItemsCarousel onQuickAdd={handleQuickAdd} refreshKey={carouselRefreshKey} />
+            <RecentlyAddedCarousel onQuickAdd={handleQuickAdd} refreshKey={carouselRefreshKey} />
+            <SellerSpotlightCarousel refreshKey={carouselRefreshKey} />
+          </View>
+        ) : null}
       </View>
     );
-  }, [showCarousels, handleQuickAdd, carouselRefreshKey]);
+  }, [closeMatchNote, showCarousels, handleQuickAdd, carouselRefreshKey]);
 
   const renderItem = useCallback(({ item }: { item: StoreItem }) => {
     return (
@@ -935,6 +943,14 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 32,
     backgroundColor: "#f5f0e6",
+  },
+  closeMatchNote: {
+    fontSize: 13,
+    fontStyle: "italic",
+    color: theme.colors.text,
+    textAlign: "center",
+    marginBottom: 12,
+    paddingHorizontal: 8,
   },
   carouselsContainer: {
     marginHorizontal: -16,

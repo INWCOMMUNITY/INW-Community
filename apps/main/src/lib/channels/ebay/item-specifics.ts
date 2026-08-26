@@ -124,8 +124,10 @@ export function parseEbayLastModified(itemXml: string): Date | null {
 
 export type EbayVariationAxis = {
   name: string;
-  options: { value: string; quantity: number }[];
+  options: { value: string; quantity: number; sku?: string }[];
 };
+
+type ParsedVariationOption = { quantity: number; sku?: string };
 
 /**
  * Parse single-axis Variations from GetItem XML into INW-shaped variant axes.
@@ -137,10 +139,11 @@ export function parseEbayVariations(itemXml: string): EbayVariationAxis[] | null
   const variationNodes = allTags(variationsBlock, "Variation");
   if (variationNodes.length === 0) return null;
 
-  const byAxis = new Map<string, Map<string, number>>();
+  const byAxis = new Map<string, Map<string, ParsedVariationOption>>();
   for (const v of variationNodes) {
     const qtyStr = tag(v, "Quantity") ?? tag(v, "QuantityAvailable") ?? "0";
     const qty = Math.max(0, Number(qtyStr) || 0);
+    const sku = tag(v, "SKU")?.trim() || undefined;
     const specifics = tag(v, "VariationSpecifics") ?? "";
     const nvls = allTags(specifics, "NameValueList");
     const primary = nvls[0];
@@ -150,14 +153,22 @@ export function parseEbayVariations(itemXml: string): EbayVariationAxis[] | null
     if (!value) continue;
     if (!byAxis.has(name)) byAxis.set(name, new Map());
     const opts = byAxis.get(name)!;
-    opts.set(value, (opts.get(value) ?? 0) + qty);
+    const prev = opts.get(value);
+    opts.set(value, {
+      quantity: (prev?.quantity ?? 0) + qty,
+      sku: prev?.sku || sku,
+    });
   }
 
   const axes: EbayVariationAxis[] = [];
   for (const [name, opts] of byAxis) {
     axes.push({
       name: name.slice(0, 80),
-      options: [...opts.entries()].map(([value, quantity]) => ({ value, quantity })),
+      options: [...opts.entries()].map(([value, row]) => ({
+        value,
+        quantity: row.quantity,
+        ...(row.sku ? { sku: row.sku } : {}),
+      })),
     });
   }
   return axes.length > 0 ? axes : null;

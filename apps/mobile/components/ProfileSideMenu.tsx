@@ -100,7 +100,7 @@ export function ProfileSideMenu({ visible, onClose }: ProfileSideMenuProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const drawerTop = insets.top + NAV_HEADER_HEIGHT;
-  const { member, signOut } = useAuth();
+  const { member } = useAuth();
 
   const hasManageablePaidPlan =
     member?.subscriptions?.some((s) =>
@@ -176,23 +176,11 @@ export function ProfileSideMenu({ visible, onClose }: ProfileSideMenuProps) {
       icon: "notifications-outline",
     },
     { href: "/profile-edit", label: "Delete account", icon: "trash-outline" },
-    { href: "action:logout", label: "Logout", icon: "log-out-outline" },
   ];
 
   const handleNavigate = (href: string) => {
     if (href === "action:manage-subscription") {
       handleManageSubscription();
-      return;
-    }
-    if (href === "action:logout") {
-      onClose();
-      signOut
-        ?.()
-        .then(() => router.replace("/(auth)/login" as any))
-        .catch((e) => {
-          if (__DEV__) console.warn("[ProfileSideMenu] signOut", e);
-          router.replace("/(auth)/login" as any);
-        });
       return;
     }
     if (href.startsWith("mailto:")) {

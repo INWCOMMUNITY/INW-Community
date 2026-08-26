@@ -3,6 +3,7 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { getSellerShippoCredential, getSellerFromAddress } from "@/lib/shippo-seller";
+import { normalizeWebsiteUrl } from "@/lib/website-url";
 
 export const dynamic = "force-dynamic";
 
@@ -198,7 +199,7 @@ export async function PATCH(req: NextRequest) {
           email: typeof biz.email === "string" ? biz.email : existing.email,
           fullDescription:
             typeof biz.fullDescription === "string" ? biz.fullDescription : existing.fullDescription,
-          website: typeof biz.website === "string" ? biz.website : existing.website,
+          website: typeof biz.website === "string" ? normalizeWebsiteUrl(biz.website) || null : existing.website,
           address: typeof biz.address === "string" ? biz.address : existing.address,
           logoUrl: biz.logoUrl !== undefined ? (typeof biz.logoUrl === "string" && biz.logoUrl.trim() ? biz.logoUrl.trim() : null) : existing.logoUrl,
           coverPhotoUrl: biz.coverPhotoUrl !== undefined ? (typeof biz.coverPhotoUrl === "string" && biz.coverPhotoUrl.trim() ? biz.coverPhotoUrl.trim() : null) : existing.coverPhotoUrl,
@@ -213,7 +214,7 @@ export async function PATCH(req: NextRequest) {
           fullDescription: typeof biz.fullDescription === "string" ? biz.fullDescription : null,
           phone: typeof biz.phone === "string" ? biz.phone : null,
           email: typeof biz.email === "string" ? biz.email : null,
-          website: typeof biz.website === "string" ? biz.website : null,
+          website: typeof biz.website === "string" ? normalizeWebsiteUrl(biz.website) || null : null,
           address: typeof biz.address === "string" ? biz.address : null,
           logoUrl: typeof biz.logoUrl === "string" ? biz.logoUrl : null,
           coverPhotoUrl: typeof biz.coverPhotoUrl === "string" ? biz.coverPhotoUrl : null,

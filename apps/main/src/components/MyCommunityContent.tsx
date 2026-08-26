@@ -63,7 +63,7 @@ export function MyCommunityContent({ member }: MyCommunityContentProps) {
       </div>
 
       <Link href="/my-community/profile" className="btn inline-block">
-        Edit profile
+        Edit Profile
       </Link>
     </div>
   );

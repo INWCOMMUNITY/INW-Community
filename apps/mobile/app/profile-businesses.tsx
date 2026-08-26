@@ -8,11 +8,16 @@ import {
   ScrollView,
   Image,
   RefreshControl,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
+import { initialsAvatarColor } from "@/lib/initials-avatar";
+import { resolveBusinessLogoDisplayUri } from "@/lib/business-logo-display";
+import { buildBusinessPath } from "@/lib/business-referrer";
+import { HeartSaveButton } from "@/components/HeartSaveButton";
 
 interface Business {
   id: string;
@@ -20,10 +25,35 @@ interface Business {
   slug: string;
   logoUrl: string | null;
   city: string | null;
+  categories?: string[];
+}
+
+function uniqueCategories(categories: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of categories) {
+    const label = raw.trim();
+    if (!label) continue;
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(label);
+  }
+  return out.slice(0, 2);
+}
+
+function businessInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase() || "?";
 }
 
 export default function ProfileBusinessesScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const twoUp = width >= 360;
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -54,6 +84,8 @@ export default function ProfileBusinessesScreen() {
     );
   }
 
+  const cardWidth = twoUp ? (width - 16 * 2 - 12) / 2 : width - 32;
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -72,26 +104,69 @@ export default function ProfileBusinessesScreen() {
             You haven&apos;t saved any businesses yet. Browse Support Local to find businesses to save.
           </Text>
         ) : (
-          businesses.map((b) => (
-            <Pressable
-              key={b.id}
-              style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-              onPress={() => (router.push as (href: string) => void)(`/business/${b.slug}`)}
-            >
-              {b.logoUrl ? (
-                <Image source={{ uri: b.logoUrl }} style={styles.logo} />
-              ) : (
-                <View style={styles.logoPlaceholder}>
-                  <Ionicons name="business" size={24} color={theme.colors.primary} />
+          <View style={styles.grid}>
+            {businesses.map((b) => {
+              const logoUri = resolveBusinessLogoDisplayUri(b.logoUrl);
+              const categories = uniqueCategories(b.categories ?? []);
+              return (
+                <View
+                  key={b.id}
+                  style={[styles.card, { width: cardWidth }]}
+                >
+                  <View style={styles.heartWrap}>
+                    <HeartSaveButton
+                      type="business"
+                      referenceId={b.id}
+                      initialSaved
+                      iconColor="#5d4f40"
+                      size={22}
+                      onSavedChange={(saved) => {
+                        if (!saved) {
+                          setBusinesses((prev) => prev.filter((x) => x.id !== b.id));
+                        }
+                      }}
+                    />
+                  </View>
+                  <Pressable
+                    style={({ pressed }) => [pressed && styles.cardPressed]}
+                    onPress={() =>
+                      (router.push as (href: string) => void)(
+                        buildBusinessPath(b.slug, { type: "my-businesses" })
+                      )
+                    }
+                  >
+                    {logoUri ? (
+                      <Image source={{ uri: logoUri }} style={styles.logo} resizeMode="contain" />
+                    ) : (
+                      <View
+                        style={[
+                          styles.logoPlaceholder,
+                          { backgroundColor: initialsAvatarColor(b.name) },
+                        ]}
+                      >
+                        <Text style={styles.logoInitials}>{businessInitials(b.name)}</Text>
+                      </View>
+                    )}
+                    <Text style={styles.cardTitle} numberOfLines={2}>
+                      {b.name}
+                    </Text>
+                    {categories.length > 0 ? (
+                      <View style={styles.chipRow}>
+                        {categories.map((cat) => (
+                          <View key={cat} style={styles.chip}>
+                            <Text style={styles.chipText} numberOfLines={1}>
+                              {cat}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+                    {b.city ? <Text style={styles.cardSub}>{b.city}</Text> : null}
+                  </Pressable>
                 </View>
-              )}
-              <View style={styles.cardText}>
-                <Text style={styles.cardTitle}>{b.name}</Text>
-                {b.city ? <Text style={styles.cardSub}>{b.city}</Text> : null}
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={theme.colors.primary} />
-            </Pressable>
-          ))
+              );
+            })}
+          </View>
         )}
       </ScrollView>
     </View>
@@ -131,40 +206,79 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: theme.colors.text,
   },
-  card: {
+  grid: {
     flexDirection: "row",
-    alignItems: "center",
-    padding: 16,
-    marginBottom: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.colors.primary,
+    flexWrap: "wrap",
     gap: 12,
+  },
+  card: {
+    padding: 12,
+    paddingTop: 14,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    backgroundColor: "#fff",
+    gap: 8,
+    position: "relative",
+  },
+  heartWrap: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    zIndex: 2,
   },
   cardPressed: { opacity: 0.8 },
   logo: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    backgroundColor: "#f5f5f5",
+    width: 80,
+    height: 80,
+    borderRadius: 10,
+    alignSelf: "center",
+    backgroundColor: "#fff",
+    borderWidth: 2,
+    borderColor: "#5d4f40",
   },
   logoPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: 8,
-    backgroundColor: theme.colors.creamAlt,
+    width: 80,
+    height: 80,
+    borderRadius: 10,
+    alignSelf: "center",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#5d4f40",
   },
-  cardText: { flex: 1 },
+  logoInitials: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#fff",
+  },
   cardTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "600",
     color: theme.colors.heading,
+    textAlign: "center",
+  },
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 6,
+  },
+  chip: {
+    backgroundColor: theme.colors.cream,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    maxWidth: "100%",
+  },
+  chipText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: theme.colors.primary,
   },
   cardSub: {
-    fontSize: 14,
+    fontSize: 13,
     color: theme.colors.text,
-    marginTop: 2,
+    textAlign: "center",
   },
 });

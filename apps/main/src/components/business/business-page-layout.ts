@@ -9,4 +9,6 @@ export const BUSINESS_ABOUT_TEXT = "text-sm md:text-base leading-snug";
 export const BUSINESS_PAGE_TITLE = "text-xl md:text-3xl font-bold";
 
 export const BUSINESS_SECTION_TITLE =
-  "text-base md:text-2xl font-semibold mb-2" as const;
+  "text-sm md:text-lg font-semibold mb-2" as const;
+/** Hours list — a step smaller than contact/body (`BUSINESS_TEXT_SM`). */
+export const BUSINESS_HOURS_TEXT = "text-sm md:text-lg" as const;

@@ -556,19 +556,35 @@ function etsyPackageFields(
   return { ...ETSY_DEFAULT_PACKAGE_FIELDS };
 }
 
+/**
+ * Etsy origin fields. PATCH must send who_made, when_made, and is_supply together
+ * or omit all three — a partial trio 400s the whole update (including price).
+ */
+export function etsyOriginTrioFields(
+  item: Pick<SyncStoreItem, "etsyWhoMade" | "etsyWhenMade" | "etsyIsSupply">
+): { who_made: string; when_made: string; is_supply: boolean } | null {
+  const whoMade = isEtsyWhoMade(item.etsyWhoMade) ? item.etsyWhoMade : null;
+  const whenMade = normalizeEtsyWhenMade(item.etsyWhenMade);
+  if (!whoMade || !whenMade) return null;
+  return {
+    who_made: whoMade,
+    when_made: whenMade,
+    is_supply: item.etsyIsSupply === true,
+  };
+}
+
 /** Fields for createDraftListing (POST /shops/{shop_id}/listings). */
 export function buildEtsyCreateFields(
   item: SyncStoreItem,
   conn: ChannelConnectionContext,
   overrides?: { taxonomyId?: number; shippingProfileId?: string | null; readinessStateId?: number }
 ): Record<string, string | number | boolean | undefined> {
-  const whoMade = isEtsyWhoMade(item.etsyWhoMade) ? item.etsyWhoMade : null;
-  const whenMade = normalizeEtsyWhenMade(item.etsyWhenMade);
+  const origin = etsyOriginTrioFields(item);
   const taxonomyId = overrides?.taxonomyId ?? item.etsyTaxonomyId ?? null;
-  if (!whoMade) {
-    throw new Error('Etsy requires you to specify who made the item (select "Who made it?").');
-  }
-  if (!whenMade) {
+  if (!origin) {
+    if (!isEtsyWhoMade(item.etsyWhoMade)) {
+      throw new Error('Etsy requires you to specify who made the item (select "Who made it?").');
+    }
     throw new Error('Etsy requires you to specify when it was made (select "When was it made?").');
   }
   if (!taxonomyId) {
@@ -591,10 +607,8 @@ export function buildEtsyCreateFields(
     title: etsyTitle(item.title),
     description: etsyDescription(item),
     price: etsyPriceFromCents(item.priceCents),
-    who_made: whoMade,
-    when_made: whenMade,
+    ...origin,
     taxonomy_id: taxonomyId,
-    is_supply: item.etsyIsSupply ?? false,
     type: "physical",
     ...(shippingId ? { shipping_profile_id: Number(shippingId) } : {}),
     ...etsyPackageFields(shippingId, item.package),
@@ -612,8 +626,6 @@ export function buildEtsyUpdateFields(
     (item.package?.source === "etsy" && item.package.remoteProfileId
       ? item.package.remoteProfileId
       : undefined);
-  const whoMade = isEtsyWhoMade(item.etsyWhoMade) ? item.etsyWhoMade : undefined;
-  const whenMade = normalizeEtsyWhenMade(item.etsyWhenMade) ?? undefined;
   return {
     title: etsyTitle(item.title),
     description: etsyDescription(item),
@@ -624,11 +636,7 @@ export function buildEtsyUpdateFields(
       : {}),
     ...(shippingId ? { shipping_profile_id: Number(shippingId) } : {}),
     ...etsyPackageFields(shippingId, item.package),
-    // Include who_made and when_made if set (so edits sync these fields)
-    ...(whoMade ? { who_made: whoMade } : {}),
-    ...(whenMade ? { when_made: whenMade } : {}),
-    // is_supply can also be updated
-    ...(item.etsyIsSupply != null ? { is_supply: item.etsyIsSupply } : {}),
+    ...(etsyOriginTrioFields(item) ?? {}),
   };
 }
 

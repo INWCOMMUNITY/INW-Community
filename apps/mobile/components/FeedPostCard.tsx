@@ -52,6 +52,7 @@ import { extractFirstUrl } from "@/lib/extract-urls";
 import { formatTime12h } from "@/lib/format-time";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import { buildProductPath } from "@/lib/product-referrer";
+import { buildBusinessPath } from "@/lib/business-referrer";
 import { feedPostShowsAsBusiness } from "@/lib/feed-post-business-author";
 import { Video, ResizeMode, type VideoReadyForDisplayEvent } from "expo-av";
 
@@ -542,7 +543,7 @@ function FeedPostCardInner({
   };
 
   const openBusinessPage = (slug: string) => {
-    (router.push as (href: string) => void)(`/business/${slug}`);
+    (router.push as (href: string) => void)(buildBusinessPath(slug, { type: "feed" }));
   };
 
   const openOriginalPost = (sourcePostId: string) => {

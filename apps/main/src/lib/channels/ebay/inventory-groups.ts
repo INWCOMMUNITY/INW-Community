@@ -2,7 +2,7 @@ import { ebayJson } from "./client";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 import type { SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
-import { isValidEbayInventorySku } from "./migrate-prep";
+import { generateEbayVariationMigrationSku, isValidEbayInventorySku } from "./migrate-prep";
 
 export function shouldUseInventoryItemGroup(item: SyncStoreItem): boolean {
   const axes = normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[] | null;
@@ -19,13 +19,15 @@ export function buildInventoryItemGroupBody(
 ): Record<string, unknown> {
   const axes = normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[];
   const primary = axes[0]!;
+  const values = primary.options.map((option) => option.value);
   return {
     inventoryItemGroupKey: buildInventoryItemGroupKey(item),
     variantSKUs: variantSkus,
     title: item.title,
-    description: item.description,
-    aspects: {
-      [primary.name]: primary.options.map((option) => option.value),
+    description: item.description ?? item.title,
+    variesBy: {
+      specifications: [{ name: primary.name, values }],
+      aspectsImageVariesBy: [primary.name],
     },
     imageUrls: item.photos.slice(0, 12),
   };
@@ -65,17 +67,46 @@ export type EbayVariantInventoryRow = {
   sku: string;
   value: string;
   quantity: number;
+  aspectName: string;
 };
 
-/** eBay Inventory SKUs must be alphanumeric (#25707). Hyphens in `base-size` always fail. */
-export function buildVariantInventoryRows(item: SyncStoreItem): EbayVariantInventoryRow[] {
+export type BuildVariantInventoryRowsOptions = {
+  /** Inventory SKU of the parent listing (imported `inw{legacyId}` or INW-created SKU). */
+  parentSku?: string | null;
+  /** eBay legacy Item ID — used so generated SKUs match migrate (`inw{listingId}vN`). */
+  legacyListingId?: string | null;
+};
+
+function optionSku(option: InwVariantAxis["options"][number]): string | null {
+  const sku = option.sku?.trim();
+  if (!sku || !isValidEbayInventorySku(sku)) return null;
+  return sku;
+}
+
+/**
+ * Unique alphanumeric Inventory SKUs for each variation.
+ * Prefers a seller/imported option SKU, then INW-generated keys — sellers do not
+ * need to type Custom Labels in Seller Hub before a push.
+ */
+export function buildVariantInventoryRows(
+  item: SyncStoreItem,
+  options: BuildVariantInventoryRowsOptions = {}
+): EbayVariantInventoryRow[] {
   const axes = normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[];
   const primary = axes[0]!;
-  const baseSku = alphanumericSku(getEffectiveSku(item), 36);
+  const baseSku = alphanumericSku(options.parentSku?.trim() || getEffectiveSku(item), 36);
+  const legacyId = options.legacyListingId?.trim() || "";
   const used = new Set<string>();
   return primary.options.map((option, i) => {
-    const valuePart = alphanumericSku(option.value, 12);
-    let sku = `${baseSku}${valuePart}`.slice(0, 50);
+    const existing = optionSku(option);
+    let sku = existing && !used.has(existing) ? existing : "";
+    if (!sku && legacyId) {
+      sku = generateEbayVariationMigrationSku(legacyId, i);
+    }
+    if (!sku || !isValidEbayInventorySku(sku) || used.has(sku)) {
+      const valuePart = alphanumericSku(option.value, 12);
+      sku = `${baseSku}${valuePart}`.slice(0, 50);
+    }
     if (!sku || !isValidEbayInventorySku(sku) || used.has(sku)) {
       sku = `${baseSku}v${i + 1}`.slice(0, 50);
     }
@@ -87,10 +118,50 @@ export function buildVariantInventoryRows(item: SyncStoreItem): EbayVariantInven
       sku,
       value: option.value,
       quantity: Math.max(0, option.quantity),
+      aspectName: primary.name,
     };
   });
 }
 
-export function buildVariantInventorySkus(item: SyncStoreItem): string[] {
-  return buildVariantInventoryRows(item).map((row) => row.sku);
+export function buildVariantInventorySkus(
+  item: SyncStoreItem,
+  options: BuildVariantInventoryRowsOptions = {}
+): string[] {
+  return buildVariantInventoryRows(item, options).map((row) => row.sku);
+}
+
+/** Narrow a parent SyncStoreItem to one variation so Inventory aspects are that value only. */
+export function buildVariantSyncItem(
+  item: SyncStoreItem,
+  row: EbayVariantInventoryRow
+): SyncStoreItem {
+  return {
+    ...item,
+    sku: row.sku,
+    quantity: row.quantity,
+    variants: [
+      {
+        name: row.aspectName,
+        options: [{ value: row.value, quantity: row.quantity, sku: row.sku }],
+      },
+    ],
+  };
+}
+
+/** Pin the variation aspect on an inventory PUT so eBay does not see a parent SKU. */
+export function withVariationAspect(
+  body: Record<string, unknown>,
+  row: EbayVariantInventoryRow
+): Record<string, unknown> {
+  const product =
+    body.product && typeof body.product === "object"
+      ? { ...(body.product as Record<string, unknown>) }
+      : {};
+  const aspects =
+    product.aspects && typeof product.aspects === "object" && !Array.isArray(product.aspects)
+      ? { ...(product.aspects as Record<string, unknown>) }
+      : {};
+  aspects[row.aspectName] = [row.value];
+  product.aspects = aspects;
+  return { ...body, product };
 }

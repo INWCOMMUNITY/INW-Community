@@ -1,6 +1,8 @@
 import { createHash } from "crypto";
 import { variantsFingerprint } from "./variant-sync";
 import { ebayAspectsFingerprint } from "./ebay/ebay-compat";
+import { photosFingerprintForSyncHash } from "./photo-urls";
+import { listingDescriptionToPlainText } from "./rich-description";
 import type { SyncStoreItem } from "./types";
 
 /**
@@ -91,9 +93,9 @@ export function syncContentHash(item: SyncContentInput): string {
     .update(
       JSON.stringify({
         t: item.title ?? "",
-        d: (item.description ?? "").trim(),
+        d: listingDescriptionToPlainText(item.description) ?? "",
         p: item.priceCents ?? 0,
-        ph: Array.isArray(item.photos) ? item.photos : [],
+        ph: photosFingerprintForSyncHash(Array.isArray(item.photos) ? item.photos : []),
       })
     )
     .digest("hex");

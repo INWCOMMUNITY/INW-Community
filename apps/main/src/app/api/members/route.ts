@@ -40,6 +40,7 @@ export async function GET(req: NextRequest) {
     lastName: true,
     profilePhotoUrl: true,
     city: true,
+    bio: true,
     savedItems: {
       where: { type: "business" },
       take: 5,
@@ -67,6 +68,7 @@ export async function GET(req: NextRequest) {
       lastName: m.lastName,
       profilePhotoUrl: m.profilePhotoUrl,
       city: m.city,
+      bio: m.bio,
       favoriteBusinesses: m.savedItems
         .map((s) => businessMap.get(s.referenceId))
         .filter(Boolean) as { id: string; name: string; slug: string }[],

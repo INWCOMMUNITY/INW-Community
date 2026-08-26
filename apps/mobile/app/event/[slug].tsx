@@ -28,6 +28,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
 import { openAddressInMaps } from "@/lib/open-maps";
+import { buildBusinessPath } from "@/lib/business-referrer";
 import {
   addEventToDeviceCalendar,
   openGoogleCalendarAddEvent,
@@ -526,7 +527,12 @@ export default function EventDetailScreen() {
             <Pressable
               onPress={() => {
                 const bizSlug = event.business?.slug;
-                if (bizSlug) router.push(`/business/${bizSlug}`);
+                const eventSlug = Array.isArray(slug) ? slug[0] : slug;
+                if (bizSlug && eventSlug) {
+                  router.push(
+                    buildBusinessPath(bizSlug, { type: "event", eventSlug }) as never
+                  );
+                }
               }}
               style={({ pressed }) => [styles.eventByTitlePressable, pressed && styles.pressed]}
             >

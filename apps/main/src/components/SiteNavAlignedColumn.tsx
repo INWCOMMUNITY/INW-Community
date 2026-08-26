@@ -46,9 +46,9 @@ export function SiteHeaderActionsSpacer() {
 }
 
 /**
- * My Community shell: feed uses the same 12rem | flex-1 | 12rem row as the header.
- * The INW Community box is centered in the gutter from the viewport left edge
- * to the tan feed (so it also sits under the "Northwest Community" header title).
+ * My Community shell: same 12rem | flex-1 | 12rem row as the header.
+ * The INW Community box lives in the logo column so it sits under
+ * “Northwest Community”.
  */
 export function MyCommunityNavGrid({
   sidebar,
@@ -68,27 +68,13 @@ export function MyCommunityNavGrid({
         className={`flex flex-col gap-8 md:flex-row md:items-stretch md:gap-0 w-full overflow-visible ${className}`}
       >
         <div
-          className={`relative hidden md:block shrink-0 self-stretch min-h-0 ${SITE_HEADER_SIDE}`}
-          aria-hidden
-        />
-        <div className="relative min-w-0 flex-1 w-full self-stretch md:ml-[0.5in]">
-          <div
-            className="pointer-events-none absolute inset-y-0 z-20 hidden md:flex justify-center"
-            style={{
-              right: "100%",
-              width:
-                "max(12rem, calc((100vw - min(100vw, var(--max-width))) / 2 + 1rem + 12rem + 0.5in))",
-            }}
-          >
-            <div
-              className={`pointer-events-auto sticky w-full ${SITE_HEADER_SIDE} max-w-[calc(100%-0.75rem)]`}
-              style={SITE_STICKY_BELOW_HEADER}
-            >
-              {sidebar}
-            </div>
+          className={`relative hidden md:flex justify-center shrink-0 self-stretch min-h-0 ${SITE_HEADER_SIDE}`}
+        >
+          <div className="sticky w-fit max-w-full" style={SITE_STICKY_BELOW_HEADER}>
+            {sidebar}
           </div>
-          {children}
         </div>
+        <div className="min-w-0 flex-1 w-full self-stretch md:px-[0.5in]">{children}</div>
         <div className={`relative hidden md:block shrink-0 self-stretch min-h-0 ${SITE_HEADER_SIDE}`}>
           {asideRight ? (
             <div className="absolute inset-y-0 right-0 w-full max-w-[calc(100vw-2rem)] pointer-events-auto">

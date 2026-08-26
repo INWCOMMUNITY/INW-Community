@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
+import { countNeedsAttention } from "@/lib/channels/needs-attention";
 
 const MIN_PAYOUT_CENTS = 100;
 
@@ -20,6 +21,7 @@ const emptyPending = {
   soldCount: 0,
   payoutSetupComplete: false,
   hasLocalDelivery: false,
+  needsAttentionCount: 0,
 };
 
 /** Returns counts of actions needing seller attention (ship, deliveries, pickups, offers, returns, payout) for hub badges. */
@@ -40,6 +42,7 @@ export async function GET(req: NextRequest) {
       member,
       soldCount,
       hasLocalDeliveryItem,
+      needsAttentionCount,
     ] = await Promise.all([
       prisma.storeOrder.findMany({
         where: {
@@ -91,6 +94,7 @@ export async function GET(req: NextRequest) {
         where: { memberId: userId, localDeliveryAvailable: true },
         select: { id: true },
       }),
+      countNeedsAttention(userId).catch(() => 0),
     ]);
     const pendingShip = paidOrdersUnshipped.filter((o) => orderHasShippedLine(o.items)).length;
     const hasStripeConnect = !!member?.stripeConnectAccountId;
@@ -127,6 +131,7 @@ export async function GET(req: NextRequest) {
       soldCount: soldCount ?? 0,
       payoutSetupComplete: hasStripeConnect,
       hasLocalDelivery: !!hasLocalDeliveryItem,
+      needsAttentionCount,
     });
   } catch {
     return NextResponse.json(emptyPending, { status: 200 });

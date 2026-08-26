@@ -38,9 +38,11 @@ import { formatListingFeeSummary, getListingFeeBlockReason, getListingFees } fro
 import {
   buildInventoryItemGroupBody,
   buildVariantInventoryRows,
+  buildVariantSyncItem,
   createOrReplaceInventoryItemGroup,
   publishOfferByInventoryItemGroup,
   shouldUseInventoryItemGroup,
+  withVariationAspect,
 } from "./inventory-groups";
 import {
   emptyOfferFulfillmentIndex,
@@ -621,7 +623,16 @@ async function upsertListing(
           legacyListingId: legacyListingId ?? null,
         });
         addRequest(trace, inventoryBody);
-        const putPassthroughInventory = async (payload: Record<string, unknown>) => {
+        const variantRows = shouldUseInventoryItemGroup(item)
+          ? buildVariantInventoryRows(item, {
+              parentSku: sku,
+              legacyListingId,
+            })
+          : [];
+        const putPassthroughInventory = async (
+          payload: Record<string, unknown>,
+          targetSku = sku
+        ) => {
           await putInventoryWithPhotoRecovery({
             accessToken: conn.accessToken,
             body: payload,
@@ -631,17 +642,26 @@ async function upsertListing(
             put: async (next) => {
               await ebayJson(
                 conn.accessToken,
-                `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+                `/sell/inventory/v1/inventory_item/${encodeURIComponent(targetSku)}`,
                 "PUT",
                 next
               );
-              await persistRevisionCount(conn.id, sku, conn.config);
+              await persistRevisionCount(conn.id, targetSku, conn.config);
             },
           });
         };
+        const putPassthroughInventoryTargets = async (payload: Record<string, unknown>) => {
+          if (variantRows.length === 0) {
+            await putPassthroughInventory(payload);
+            return;
+          }
+          for (const row of variantRows) {
+            await putPassthroughInventory(withVariationAspect(payload, row), row.sku);
+          }
+        };
         let contentPutOk = false;
         try {
-          await putPassthroughInventory(inventoryBody);
+          await putPassthroughInventoryTargets(inventoryBody);
           addResponse(trace, 200, {
             success: true,
             contentOverlays,
@@ -675,7 +695,7 @@ async function upsertListing(
               aspectMode,
             });
             try {
-              await putPassthroughInventory(inventoryBody);
+              await putPassthroughInventoryTargets(inventoryBody);
               addResponse(trace, 200, {
                 success: true,
                 contentOverlays,
@@ -1090,19 +1110,25 @@ async function upsertListing(
     const offerBody = buildEbayOffer(syncItem, cfg, aspectCategoryId, sku);
 
     if (shouldUseInventoryItemGroup(syncItem)) {
-      const variantRows = buildVariantInventoryRows(syncItem);
+      const variantRows = buildVariantInventoryRows(syncItem, {
+        parentSku: sku,
+        legacyListingId,
+      });
       const variantSkus = variantRows.map((row) => row.sku);
       for (const row of variantRows) {
-        const variantItem = { ...syncItem, sku: row.sku, quantity: row.quantity };
-        const variantBody = await finalizeInventoryBody(
-          conn.accessToken,
-          buildEbayInventoryItem(variantItem, pushAspects),
-          {
-            categoryId: aspectCategoryId,
-            pushAspects,
-            operation,
-            item: syncItem,
-          }
+        const variantItem = buildVariantSyncItem(syncItem, row);
+        const variantBody = withVariationAspect(
+          await finalizeInventoryBody(
+            conn.accessToken,
+            buildEbayInventoryItem(variantItem, pushAspects),
+            {
+              categoryId: aspectCategoryId,
+              pushAspects,
+              operation,
+              item: syncItem,
+            }
+          ),
+          row
         );
         await ebayJson(
           conn.accessToken,
@@ -1536,11 +1562,14 @@ export const ebayAdapter: ChannelAdapter = {
         linkOrigin: ebayLink?.linkOrigin,
       });
 
-      if (hasOptionQuantities(item.variants) && shouldUseInventoryItemGroup(item) && !isImported) {
-        const variantRows = buildVariantInventoryRows(item);
+      if (hasOptionQuantities(item.variants) && shouldUseInventoryItemGroup(item)) {
+        const variantRows = buildVariantInventoryRows(item, {
+          parentSku: inventorySku,
+          legacyListingId: resolveEbayLegacyListingId(externalListingId),
+        });
         for (const row of variantRows) {
-          const qtyItem = { ...item, sku: row.sku, quantity: row.quantity };
-          let inventoryBody = buildEbayInventoryItem(qtyItem);
+          const qtyItem = buildVariantSyncItem(item, row);
+          let inventoryBody = withVariationAspect(buildEbayInventoryItem(qtyItem), row);
           const live = await fetchLiveInventoryItem(conn.accessToken, row.sku);
           const liveUrls = live ? readInventoryProductImageUrls(live) : [];
           if (liveUrls.length > 0) {
@@ -1560,13 +1589,15 @@ export const ebayAdapter: ChannelAdapter = {
           );
           await persistRevisionCount(conn.id, row.sku, conn.config);
         }
-        await createOrReplaceInventoryItemGroup(
-          conn.accessToken,
-          buildInventoryItemGroupBody(
-            item,
-            variantRows.map((row) => row.sku)
-          )
-        );
+        if (!isImported) {
+          await createOrReplaceInventoryItemGroup(
+            conn.accessToken,
+            buildInventoryItemGroupBody(
+              item,
+              variantRows.map((row) => row.sku)
+            )
+          );
+        }
         return;
       }
 

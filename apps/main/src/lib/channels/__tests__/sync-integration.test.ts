@@ -602,7 +602,7 @@ describe("circuit breaker", () => {
     const { recordCircuitFailure, isCircuitOpen, getCircuitStatus } = await import("../circuit-breaker");
     
     for (let i = 0; i < 5; i++) {
-      await recordCircuitFailure("test-conn-1", "wix", "member-1", `Error ${i}`);
+      await recordCircuitFailure("test-conn-1", "wix", "member-1", `503 Service Unavailable ${i}`);
     }
     
     expect(isCircuitOpen("test-conn-1")).toBe(true);
@@ -613,7 +613,7 @@ describe("circuit breaker", () => {
     const { recordCircuitFailure, isCircuitOpen, getCircuitStatus } = await import("../circuit-breaker");
     
     for (let i = 0; i < 5; i++) {
-      await recordCircuitFailure("test-conn-2", "wix", "member-1", `Error ${i}`);
+      await recordCircuitFailure("test-conn-2", "wix", "member-1", `503 Service Unavailable ${i}`);
     }
     
     expect(isCircuitOpen("test-conn-2")).toBe(true);
@@ -631,7 +631,7 @@ describe("circuit breaker", () => {
     const { recordCircuitFailure, recordCircuitSuccess, isCircuitOpen, getCircuitStatus } = await import("../circuit-breaker");
     
     for (let i = 0; i < 5; i++) {
-      await recordCircuitFailure("test-conn-3", "wix", "member-1", `Error ${i}`);
+      await recordCircuitFailure("test-conn-3", "wix", "member-1", `503 Service Unavailable ${i}`);
     }
     
     vi.useFakeTimers();
@@ -650,7 +650,7 @@ describe("circuit breaker", () => {
     const { recordCircuitFailure, isCircuitOpen, getCircuitStatus } = await import("../circuit-breaker");
     
     for (let i = 0; i < 5; i++) {
-      await recordCircuitFailure("test-conn-4", "wix", "member-1", `Error ${i}`);
+      await recordCircuitFailure("test-conn-4", "wix", "member-1", `503 Service Unavailable ${i}`);
     }
     
     vi.useFakeTimers();
@@ -658,11 +658,63 @@ describe("circuit breaker", () => {
     isCircuitOpen("test-conn-4");
     expect(getCircuitStatus("test-conn-4").state).toBe("HALF_OPEN");
     
-    await recordCircuitFailure("test-conn-4", "wix", "member-1", "Still failing");
+    await recordCircuitFailure("test-conn-4", "wix", "member-1", "503 Service Unavailable");
     
     expect(getCircuitStatus("test-conn-4").state).toBe("OPEN");
     
     vi.useRealTimers();
+  });
+
+  it("does not trip the shop on listing-level Etsy verify/validation errors", async () => {
+    const { recordCircuitFailure, isCircuitOpen, resetCircuit } = await import("../circuit-breaker");
+    await resetCircuit("test-conn-etsy-edit", "etsy");
+    for (let i = 0; i < 8; i++) {
+      await recordCircuitFailure(
+        "test-conn-etsy-edit",
+        "etsy",
+        "member-1",
+        `Etsy inventory verify failed for listing ${i}: expected 3, got 2`
+      );
+    }
+    expect(isCircuitOpen("test-conn-etsy-edit")).toBe(false);
+  });
+
+  it("does not re-open half-open on an Etsy listing validation 400", async () => {
+    const { recordCircuitFailure, isCircuitOpen, getCircuitStatus } = await import("../circuit-breaker");
+
+    for (let i = 0; i < 5; i++) {
+      await recordCircuitFailure("test-conn-5", "etsy", "member-1", `503 Service Unavailable ${i}`);
+    }
+
+    vi.useFakeTimers();
+    vi.advanceTimersByTime(35_000);
+    isCircuitOpen("test-conn-5");
+    expect(getCircuitStatus("test-conn-5").state).toBe("HALF_OPEN");
+
+    await recordCircuitFailure(
+      "test-conn-5",
+      "etsy",
+      "member-1",
+      "Cannot update 'when_made' without 'who_made' and  without 'is_supply' and vice versa"
+    );
+
+    expect(getCircuitStatus("test-conn-5").state).toBe("HALF_OPEN");
+    vi.useRealTimers();
+  });
+
+  it("does not restore a listing-level pause from saved connection config", async () => {
+    const { hydrateCircuitFromConfig, isCircuitOpen, getCircuitStatus } = await import(
+      "../circuit-breaker"
+    );
+    hydrateCircuitFromConfig("test-conn-stale-etsy", {
+      circuitBreaker: {
+        state: "OPEN",
+        openedAt: new Date().toISOString(),
+        lastError: "Cannot update 'when_made' without 'who_made' and  without 'is_supply'",
+      },
+    });
+    expect(isCircuitOpen("test-conn-stale-etsy")).toBe(false);
+    expect(getCircuitStatus("test-conn-stale-etsy").state).toBe("CLOSED");
   });
 });
 

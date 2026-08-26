@@ -4,6 +4,7 @@ import {
   parseEbayItemSpecifics,
   parseEbayLastModified,
   parseEbayPrimaryCategory,
+  parseEbayVariations,
 } from "./item-specifics";
 
 const ITEM_XML = `
@@ -103,5 +104,38 @@ describe("parseEbayLastModified", () => {
   </Item>
 </GetItemResponse>`;
     expect(parseEbayLastModified(xml)).toBeNull();
+  });
+});
+
+describe("parseEbayVariations", () => {
+  it("keeps each variation SKU from GetItem", () => {
+    const xml = `
+<Item>
+  <Variations>
+    <Variation>
+      <SKU>REDSHIRT</SKU>
+      <Quantity>2</Quantity>
+      <VariationSpecifics>
+        <NameValueList><Name>Size</Name><Value>S</Value></NameValueList>
+      </VariationSpecifics>
+    </Variation>
+    <Variation>
+      <SKU>BLUESHIRT</SKU>
+      <Quantity>1</Quantity>
+      <VariationSpecifics>
+        <NameValueList><Name>Size</Name><Value>M</Value></NameValueList>
+      </VariationSpecifics>
+    </Variation>
+  </Variations>
+</Item>`;
+    expect(parseEbayVariations(xml)).toEqual([
+      {
+        name: "Size",
+        options: [
+          { value: "S", quantity: 2, sku: "REDSHIRT" },
+          { value: "M", quantity: 1, sku: "BLUESHIRT" },
+        ],
+      },
+    ]);
   });
 });

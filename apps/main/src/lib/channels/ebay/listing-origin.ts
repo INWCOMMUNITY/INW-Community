@@ -9,7 +9,7 @@ export type EbayLinkOrigin = "import" | "inw_create";
 
 const IMPORTED_EBAY_SKU = /^inw\d+$/i;
 /** Numeric eBay legacy Item ID (older links stored this instead of inw SKU). */
-const LEGACY_EBAY_ITEM_ID = /^\d{9,15}$/;
+export const LEGACY_EBAY_ITEM_ID = /^\d{9,15}$/;
 
 export type EbayLinkOriginInput = {
   provider: string;
@@ -27,6 +27,17 @@ export function resolveEbayInventorySku(externalListingId: string): string {
   return trimmed;
 }
 
+function sellerSkuForEbayInventory(sku: string | null | undefined): string | null {
+  const trimmed = sku?.trim();
+  if (!trimmed) return null;
+  if (!isValidEbayInventorySku(trimmed)) return null;
+  if (IMPORTED_EBAY_SKU.test(trimmed)) return null;
+  // Digit-only Custom Labels of 8+ digits look like eBay Item IDs (the seller SKU
+  // 51515151 was GetItem'd as a live listing and then #25002'd as a variation SKU).
+  if (/^\d{8,}$/.test(trimmed)) return null;
+  return trimmed;
+}
+
 /**
  * SKU for Inventory API writes. INW-created listings keep StoreItem id as the SKU
  * even when ChannelListingLink.externalListingId stores the live eBay listing id.
@@ -38,20 +49,13 @@ export function resolveEbayPushSku(args: {
   linkOrigin?: string | null;
 }): string {
   if (args.linkOrigin === "inw_create") {
-    const sku = args.itemSku?.trim();
-    // Migrated inw{listingId} SKUs must not replace the original StoreItem id SKU —
-    // that publishes a second live listing on the next cron push.
-    // Hyphens/spaces are valid seller SKUs on Etsy/Wix/Shopify but not eBay Inventory.
-    if (sku && !IMPORTED_EBAY_SKU.test(sku) && isValidEbayInventorySku(sku)) return sku;
-    return args.itemId;
+    return sellerSkuForEbayInventory(args.itemSku) ?? args.itemId;
   }
   if (args.linkOrigin === "import") {
     return resolveEbayInventorySku(args.externalListingId);
   }
   if (!args.linkOrigin && args.externalListingId === args.itemId) {
-    const sku = args.itemSku?.trim();
-    if (sku && isValidEbayInventorySku(sku) && !IMPORTED_EBAY_SKU.test(sku)) return sku;
-    return args.itemId;
+    return sellerSkuForEbayInventory(args.itemSku) ?? args.itemId;
   }
   return resolveEbayInventorySku(args.externalListingId);
 }

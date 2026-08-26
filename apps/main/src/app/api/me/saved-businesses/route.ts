@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     businessIds.length > 0
       ? await prisma.business.findMany({
           where: { id: { in: businessIds } },
-          select: { id: true, name: true, slug: true, logoUrl: true, city: true },
+          select: { id: true, name: true, slug: true, logoUrl: true, city: true, categories: true },
         })
       : [];
 

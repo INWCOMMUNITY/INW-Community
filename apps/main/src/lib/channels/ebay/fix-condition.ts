@@ -136,9 +136,7 @@ export async function enrichSyncItemConditionFromEbay(
 ): Promise<SyncStoreItem> {
   if (item.ebayConditionEnum?.trim()) return item;
 
-  const legacyId =
-    resolveEbayLegacyListingId(externalListingId ?? "") ??
-    resolveEbayLegacyListingId(item.sku ?? "");
+  const legacyId = resolveEbayLegacyListingId(externalListingId ?? "");
   if (!legacyId) return item;
 
   try {

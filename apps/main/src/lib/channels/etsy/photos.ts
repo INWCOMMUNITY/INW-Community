@@ -1,3 +1,4 @@
+import { isMarketplaceCdnPhotoUrl } from "../photo-urls";
 import { etsyDelete, etsyGet, etsyUploadImage } from "./client";
 
 export const ETSY_MAX_LISTING_IMAGES = 10;
@@ -26,26 +27,13 @@ export function inwPhotoUrlsMatch(a: string[], b: string[]): boolean {
   return a.every((url, i) => url === b[i]);
 }
 
-function isChannelCdnPhotoUrl(url: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return (
-      host.includes("etsystatic") ||
-      host.includes("ebayimg") ||
-      host.includes("ebaystatic")
-    );
-  } catch {
-    return /etsystatic|ebayimg|ebaystatic/i.test(url);
-  }
-}
-
-/** GetItem/Etsy rehost overwrote INW blobs with marketplace CDNs — not a seller photo change. */
+/** GetItem/Wix/Etsy rehost overwrote INW blobs with marketplace CDNs — not a seller photo change. */
 export function inwPhotosAreChannelRehost(inw: string[], lastPushed: string[]): boolean {
   if (inw.length === 0 || lastPushed.length === 0) return false;
   if (inwPhotoUrlsMatch(inw, lastPushed)) return false;
-  const inwAllCdn = inw.every(isChannelCdnPhotoUrl);
+  const inwAllCdn = inw.every(isMarketplaceCdnPhotoUrl);
   if (!inwAllCdn) return false;
-  const lastHadSelfHosted = lastPushed.some((url) => !isChannelCdnPhotoUrl(url));
+  const lastHadSelfHosted = lastPushed.some((url) => !isMarketplaceCdnPhotoUrl(url));
   if (lastHadSelfHosted) return true;
   return inw.length === lastPushed.length;
 }
@@ -94,42 +82,57 @@ export function planEtsyPhotoSync(args: {
 }): EtsyPhotoSyncPlan {
   const inw = normalizeInwPhotos(args.inwPhotos);
   const etsy = sortedEtsyImages(args.etsyImages);
+  const uploadable = inw.filter((url) => !isMarketplaceCdnPhotoUrl(url));
+  const empty = { uploadUrls: [] as string[], deleteBeforeUpload: [] as number[], deleteAfterUpload: [] as number[] };
 
   if (inw.length === 0) {
-    return { uploadUrls: [], deleteBeforeUpload: [], deleteAfterUpload: [] };
+    return empty;
   }
 
   if (
     args.lastPushedInwPhotos != null &&
     inwPhotoUrlsMatch(inw, normalizeInwPhotos(args.lastPushedInwPhotos))
   ) {
-    return { uploadUrls: [], deleteBeforeUpload: [], deleteAfterUpload: [] };
+    return empty;
   }
 
   if (
     args.lastPushedInwPhotos != null &&
     inwPhotosAreChannelRehost(inw, normalizeInwPhotos(args.lastPushedInwPhotos))
   ) {
-    return { uploadUrls: [], deleteBeforeUpload: [], deleteAfterUpload: [] };
+    return empty;
+  }
+
+  // Wix/eBay CDN URLs on the StoreItem are re-hosts, not new photos. Uploading them
+  // appends copies onto the live Etsy listing (then delete-after often fails).
+  if (uploadable.length === 0) {
+    if (etsy.length > inw.length) {
+      return {
+        uploadUrls: [],
+        deleteBeforeUpload: [],
+        deleteAfterUpload: etsy.slice(inw.length).map((img) => img.listing_image_id),
+      };
+    }
+    return empty;
   }
 
   if (args.lastPushedInwPhotos != null) {
-    const order = planEtsyPhotoReplaceOrder(etsy, inw.length);
-    return { uploadUrls: inw, ...order };
+    const order = planEtsyPhotoReplaceOrder(etsy, uploadable.length);
+    return { uploadUrls: uploadable, ...order };
   }
 
   // Existing links with no snapshot: trimming extras undoes prior doubling.
   // Do not re-upload when Etsy already has at least as many images as INW.
-  if (etsy.length >= inw.length) {
+  if (etsy.length >= uploadable.length) {
     return {
       uploadUrls: [],
       deleteBeforeUpload: [],
-      deleteAfterUpload: etsy.slice(inw.length).map((img) => img.listing_image_id),
+      deleteAfterUpload: etsy.slice(uploadable.length).map((img) => img.listing_image_id),
     };
   }
 
   return {
-    uploadUrls: inw.slice(etsy.length),
+    uploadUrls: uploadable.slice(etsy.length),
     deleteBeforeUpload: [],
     deleteAfterUpload: [],
   };

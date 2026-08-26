@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
@@ -107,10 +108,8 @@ export default async function EventDetailPage({
   };
 
   return (
-    <EventDetailContent
-      event={detail}
-      initialSaved={!!saved}
-      backHref="/calendars"
-    />
+    <Suspense fallback={<p className="p-8 text-gray-500">Loading event…</p>}>
+      <EventDetailContent event={detail} initialSaved={!!saved} />
+    </Suspense>
   );
 }

@@ -10,7 +10,7 @@ const COPY: Record<
 > = {
   ship: {
     icon: "boat-outline",
-    title: "Nothing to ship",
+    title: "Nothing to Ship",
     body: "Paid orders with ship fulfillment will appear here when they need a label or mark-shipped.",
     cta: { href: "/seller-hub/shipping-setup", label: "Shipping setup" },
   },

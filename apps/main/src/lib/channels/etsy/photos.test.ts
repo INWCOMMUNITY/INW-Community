@@ -82,6 +82,34 @@ describe("planEtsyPhotoSync", () => {
     });
   });
 
+  it("does not append Wix CDN photos onto an existing Etsy listing", () => {
+    const plan = planEtsyPhotoSync({
+      inwPhotos: [
+        "https://static.wixstatic.com/media/aaa~mv2.jpg",
+        "https://static.wixstatic.com/media/bbb~mv2.jpg",
+        "https://static.wixstatic.com/media/ccc~mv2.jpg",
+        "https://static.wixstatic.com/media/ddd~mv2.jpg",
+      ],
+      etsyImages: etsy([1, 2, 3]),
+      lastPushedInwPhotos: inw,
+    });
+    expect(plan.uploadUrls).toEqual([]);
+  });
+
+  it("does not append Wix CDN photos when there is no last-push snapshot", () => {
+    const plan = planEtsyPhotoSync({
+      inwPhotos: [
+        "https://static.wixstatic.com/media/aaa~mv2.jpg",
+        "https://static.wixstatic.com/media/bbb~mv2.jpg",
+        "https://static.wixstatic.com/media/ccc~mv2.jpg",
+        "https://static.wixstatic.com/media/ddd~mv2.jpg",
+      ],
+      etsyImages: etsy([1, 2, 3]),
+      lastPushedInwPhotos: null,
+    });
+    expect(plan.uploadUrls).toEqual([]);
+  });
+
   it("uploads only the new tail when Etsy has fewer images and there is no snapshot", () => {
     const plan = planEtsyPhotoSync({
       inwPhotos: inw,

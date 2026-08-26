@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   inboundListingPhotosDiffer,
+  inwHostedPhotosChangedSinceLastPush,
   isInwHostedPhotoUrl,
   isMarketplaceCdnPhotoUrl,
+  marketplaceCdnPhotoRehostOnly,
   selectInboundListingPhotos,
 } from "./photo-urls";
 
@@ -49,6 +51,46 @@ describe("selectInboundListingPhotos", () => {
   it("applies Etsy CDN updates for imported Etsy listings", () => {
     const next = ["https://i.etsystatic.com/1/il_fullxfull.2.jpg"];
     expect(selectInboundListingPhotos(etsy, next)).toEqual(next);
+  });
+});
+
+describe("marketplaceCdnPhotoRehostOnly", () => {
+  it("treats same-count Wix static URLs as a re-host, not a photo edit", () => {
+    const a = ["https://static.wixstatic.com/media/2bdd49_aaa~mv2.jpg"];
+    const b = ["https://static.wixstatic.com/media/2bdd49_bbb~mv2.jpg"];
+    expect(marketplaceCdnPhotoRehostOnly(a, b)).toBe(true);
+  });
+
+  it("does not treat a count change as a re-host", () => {
+    expect(
+      marketplaceCdnPhotoRehostOnly(
+        ["https://static.wixstatic.com/media/a~mv2.jpg"],
+        [
+          "https://static.wixstatic.com/media/a~mv2.jpg",
+          "https://static.wixstatic.com/media/b~mv2.jpg",
+        ]
+      )
+    ).toBe(false);
+  });
+});
+
+describe("inwHostedPhotosChangedSinceLastPush", () => {
+  it("detects a new INW Blob photo since the last push", () => {
+    expect(
+      inwHostedPhotosChangedSinceLastPush(
+        ["https://abc.public.blob.vercel-storage.com/new.jpg"],
+        ["https://abc.public.blob.vercel-storage.com/old.jpg"]
+      )
+    ).toBe(true);
+  });
+
+  it("ignores Wix CDN churn when no INW-hosted photos are present", () => {
+    expect(
+      inwHostedPhotosChangedSinceLastPush(
+        ["https://static.wixstatic.com/media/bbb~mv2.jpg"],
+        ["https://static.wixstatic.com/media/aaa~mv2.jpg"]
+      )
+    ).toBe(false);
   });
 });
 

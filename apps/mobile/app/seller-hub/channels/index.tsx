@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -24,6 +24,7 @@ import { ChannelReconnectGuideModal } from "@/components/channels/ChannelReconne
 import { ChannelSettingsModal } from "@/components/channels/ChannelSettingsModal";
 import { SyncOnboarding } from "@/components/channels/SyncOnboarding";
 import { DisconnectChannelModal, type DisconnectPrompt } from "@/components/channels/DisconnectChannelModal";
+import { NeedsAttentionList } from "@/components/channels/NeedsAttentionList";
 import {
   deleteInwQuery,
   disconnectSuccessMessage,
@@ -111,7 +112,17 @@ export default function ChannelsScreen() {
     connected?: string;
     channel_error?: string;
     reconnect?: string;
+    tab?: string;
   }>();
+  const [hubTab, setHubTab] = useState<"stores" | "attention">(
+    params.tab === "attention" ? "attention" : "stores"
+  );
+  const [attentionCount, setAttentionCount] = useState(0);
+  const [attentionNonce, setAttentionNonce] = useState(0);
+
+  useEffect(() => {
+    if (params.tab === "attention") setHubTab("attention");
+  }, [params.tab]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState<string | null>(null);
@@ -145,8 +156,13 @@ export default function ChannelsScreen() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiGet<Connection[]>("/api/channels");
+      const [data, attention] = await Promise.all([
+        apiGet<Connection[]>("/api/channels"),
+        apiGet<{ count: number }>("/api/seller/needs-attention?count=1").catch(() => ({ count: 0 })),
+      ]);
       setConnections(Array.isArray(data) ? data : []);
+      setAttentionCount(Number(attention.count) || 0);
+      setAttentionNonce((n) => n + 1);
     } catch {
       setConnections([]);
     } finally {
@@ -431,6 +447,28 @@ export default function ChannelsScreen() {
         connected store reduces stock everywhere.
       </Text>
 
+      <View style={styles.tabRow}>
+        <Pressable
+          style={[styles.tabBtn, hubTab === "stores" && styles.tabBtnActive]}
+          onPress={() => setHubTab("stores")}
+        >
+          <Text style={[styles.tabBtnText, hubTab === "stores" && styles.tabBtnTextActive]}>Stores</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tabBtn, hubTab === "attention" && styles.tabBtnActive]}
+          onPress={() => setHubTab("attention")}
+        >
+          <Text style={[styles.tabBtnText, hubTab === "attention" && styles.tabBtnTextActive]}>
+            Needs Attention{attentionCount > 0 ? ` (${attentionCount})` : ""}
+          </Text>
+        </Pressable>
+      </View>
+
+      {hubTab === "attention" ? (
+        <NeedsAttentionList refreshNonce={attentionNonce} onCountChange={setAttentionCount} />
+      ) : (
+      <>
+
       {!loading && (
         <SyncPausedBanner
           connections={connections}
@@ -668,6 +706,8 @@ export default function ChannelsScreen() {
         <Text style={styles.activityLinkText}>Sync Activity</Text>
         <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
       </Pressable>
+      </>
+      )}
 
       <DisconnectChannelModal
         prompt={disconnectPrompt}
@@ -749,6 +789,22 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f5f5f5" },
   content: { padding: 16, paddingBottom: 40 },
   hint: { fontSize: 14, color: "#666", marginBottom: 16, paddingHorizontal: 4 },
+  tabRow: {
+    flexDirection: "row",
+    backgroundColor: "#eee",
+    borderRadius: 10,
+    padding: 3,
+    marginBottom: 16,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderRadius: 8,
+  },
+  tabBtnActive: { backgroundColor: "#fff" },
+  tabBtnText: { fontSize: 13, fontWeight: "600", color: "#666" },
+  tabBtnTextActive: { color: theme.colors.primary },
   spinner: { marginVertical: 16 },
   
   // Section headers for grouping

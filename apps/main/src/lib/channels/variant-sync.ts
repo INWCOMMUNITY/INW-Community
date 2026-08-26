@@ -1,10 +1,25 @@
 import { createHash } from "crypto";
 import type { ChannelProvider } from "./types";
 
+export type InwVariantOption = {
+  value: string;
+  quantity: number;
+  /** Channel SKU for this option (eBay variation Custom Label). */
+  sku?: string;
+};
+
 export type InwVariantAxis = {
   name: string;
-  options: { value: string; quantity: number }[];
+  options: InwVariantOption[];
 };
+
+function readOptionSku(opt: unknown): string | undefined {
+  if (typeof opt !== "object" || opt == null) return undefined;
+  const sku = (opt as { sku?: unknown }).sku;
+  if (typeof sku !== "string") return undefined;
+  const trimmed = sku.trim();
+  return trimmed || undefined;
+}
 
 function isOptionWithQty(opt: unknown): opt is { value: string; quantity: number } {
   return (
@@ -34,12 +49,14 @@ export function normalizeVariantsFromProvider(
     const rawOpts = row.options ?? row.values ?? row.choices;
     if (!Array.isArray(rawOpts) || rawOpts.length === 0) continue;
 
-    const options: { value: string; quantity: number }[] = [];
+    const options: InwVariantOption[] = [];
     for (const o of rawOpts) {
       if (isOptionWithQty(o)) {
+        const sku = readOptionSku(o);
         options.push({
           value: String(o.value).trim(),
           quantity: Math.max(0, Math.round(o.quantity)),
+          ...(sku ? { sku } : {}),
         });
       } else if (typeof o === "object" && o != null) {
         const obj = o as Record<string, unknown>;
@@ -51,7 +68,8 @@ export function normalizeVariantsFromProvider(
             : typeof obj.inventory_quantity === "number"
               ? Math.max(0, Math.round(obj.inventory_quantity))
               : 0;
-        options.push({ value, quantity: qty });
+        const sku = readOptionSku(obj);
+        options.push({ value, quantity: qty, ...(sku ? { sku } : {}) });
       } else if (o != null) {
         options.push({ value: String(o).trim(), quantity: 0 });
       }

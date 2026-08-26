@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
+import { buildBusinessPath } from "@/lib/business-referrer";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 
@@ -97,7 +98,13 @@ export default function MemberBusinessesScreen() {
             <Pressable
               key={b.id}
               style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-              onPress={() => router.push(`/business/${b.slug}`)}
+              onPress={() => {
+                const memberId = Array.isArray(id) ? id[0] : id;
+                if (!memberId) return;
+                router.push(
+                  buildBusinessPath(b.slug, { type: "member-businesses", memberId }) as never
+                );
+              }}
             >
               {b.logoUrl ? (
                 <Image source={{ uri: resolveUrl(b.logoUrl) ?? b.logoUrl }} style={styles.logo} />

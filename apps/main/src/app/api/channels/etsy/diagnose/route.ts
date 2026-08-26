@@ -6,7 +6,7 @@ import { getEtsyConfig } from "@/lib/channels/etsy/config";
 import { etsyGet, setEtsyConnectionContext } from "@/lib/channels/etsy/client";
 import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
 import { resetCorruptBaselinesForConnection } from "@/lib/channels/reset-corrupt-baselines";
-import { getCircuitStatus } from "@/lib/channels/circuit-breaker";
+import { getCircuitStatus, hydrateCircuitFromConfig, resetCircuit } from "@/lib/channels/circuit-breaker";
 import { getRateLimitStats } from "@/lib/channels/rate-limit-tracker";
 import { getRecentTraces } from "@/lib/channels/sync-trace";
 import { getErrorCategoryLabel, getSuggestedFixes } from "@/lib/channels/error-classifiers-registry";
@@ -60,6 +60,7 @@ type DiagnosisResult = {
   repairAttempted?: boolean;
   repairResults?: { storeItemId: string; ok: boolean; error?: string }[];
   baselineReset?: { reset: number; linkIds: string[] };
+  circuitReset?: boolean;
   recentTraces?: RecentTrace[];
 };
 
@@ -72,6 +73,7 @@ type DiagnosisResult = {
  *   - storeItemId — focus on one linked item
  *   - repair=1 — run a sync push for linked items, then re-diagnose
  *   - resetBaseline=1 — reset poisoned syncBaselineQty values
+ *   - resetCircuit=1 — clear the “temporarily paused” circuit so Etsy pushes run again
  *
  * Returns:
  *   - Token validity check
@@ -111,6 +113,14 @@ export async function GET(req: NextRequest) {
   const storeItemId = searchParams.get("storeItemId")?.trim() || null;
   const repair = searchParams.get("repair") === "1";
   const resetBaseline = searchParams.get("resetBaseline") === "1";
+  const resetCircuitParam = searchParams.get("resetCircuit") === "1";
+
+  hydrateCircuitFromConfig(ctx.id, ctx.config);
+  let circuitReset = false;
+  if (resetCircuitParam) {
+    await resetCircuit(ctx.id, "etsy", userId);
+    circuitReset = true;
+  }
 
   // Check token validity with a simple API call
   let tokenValid = false;
@@ -267,7 +277,8 @@ export async function GET(req: NextRequest) {
   } else if (circuitStatus.state === "OPEN") {
     verdict = "CIRCUIT_OPEN";
     summary = "Sync is temporarily paused due to repeated failures.";
-    nextStep = "Wait for the circuit breaker to recover, or check the errors below and resolve any issues.";
+    nextStep =
+      "Use Sync Now in Seller Hub, or open this diagnose URL with ?resetCircuit=1 after deploying the latest fix.";
   } else if (linkRows.length === 0) {
     verdict = "NO_LINKS";
     summary = storeItemId
@@ -326,6 +337,7 @@ export async function GET(req: NextRequest) {
     repairAttempted: repair,
     repairResults,
     baselineReset,
+    circuitReset,
     recentTraces,
   });
 }

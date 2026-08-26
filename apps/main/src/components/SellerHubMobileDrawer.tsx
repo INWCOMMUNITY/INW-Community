@@ -132,7 +132,6 @@ export function SellerHubMobileDrawer({
 
   const ordersItems: NavItem[] = [
     { href: "/seller-hub/orders", label: "Fulfillment", icon: "receipt-outline", alert: pendingShip > 0 },
-    { href: "/seller-hub/orders?tab=pickups", label: "Pickups", icon: "hand-left-outline" },
     ...(hasLocalDelivery
       ? [{ href: "/seller-hub/orders?tab=deliveries", label: "Deliveries", icon: "bicycle-outline" }]
       : []),

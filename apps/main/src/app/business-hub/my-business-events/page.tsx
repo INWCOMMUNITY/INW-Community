@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { buildEventHref } from "@/lib/event-referrer";
 
 type InviteStats = {
   sent: number;
@@ -131,7 +132,7 @@ export default function MyBusinessEventsPage() {
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
                 <div>
                   <Link
-                    href={`/events/${e.slug}`}
+                    href={buildEventHref(e.slug, { type: "my-business-events" })}
                     className="font-semibold text-lg hover:underline"
                     style={{ color: "var(--color-link)" }}
                   >

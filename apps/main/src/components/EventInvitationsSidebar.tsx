@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { IonIcon } from "@/components/IonIcon";
 import { formatTime12h } from "@/lib/format-time";
+import { buildEventHref } from "@/lib/event-referrer";
 
 interface EventInvite {
   id: string;
@@ -129,7 +130,7 @@ export function EventInvitationsSidebar() {
               {pending.map((inv) => (
                 <li key={inv.id} className={cardClass} style={{ borderColor: "var(--color-primary)" }}>
                   <Link
-                    href={`/events/${inv.event.slug}`}
+                    href={buildEventHref(inv.event.slug, { type: "invites" })}
                     className="block font-semibold text-[#333] hover:underline text-sm leading-tight"
                   >
                     {inv.event.title}
@@ -202,7 +203,7 @@ export function EventInvitationsSidebar() {
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
                       <Link
-                        href={`/events/${inv.event.slug}`}
+                        href={buildEventHref(inv.event.slug, { type: "invites" })}
                         className="font-semibold text-[#333] hover:underline block text-sm leading-tight pr-1"
                       >
                         {inv.event.title}

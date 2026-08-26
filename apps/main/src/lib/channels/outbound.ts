@@ -342,6 +342,8 @@ export function resolvePublishProviders(args: {
 
 export type ChannelPushOptions = {
   skipProviders?: ChannelProvider[];
+  /** Push even when lastPushedHash already matches (Needs Attention retry / shop ZIP). */
+  force?: boolean;
 };
 
 /** Push content + inventory updates for an edited StoreItem to every linked channel. */
@@ -391,19 +393,21 @@ export async function updateStoreItemOnChannels(
       (link.syncBaselineVariantsHash ?? "") !== varFp;
     const contentUnchanged = link.lastPushedHash === hash;
 
-    if (contentUnchanged && !inventoryDrift) continue;
+    if (contentUnchanged && !inventoryDrift && !options.force) continue;
 
     // Quantity / variant stock changed but title/price/etc. unchanged — push inventory only.
     // After a sale, lastPushedHash also changes (it includes qty/status). Still stay on
     // updateInventory so we do not run eBay passthrough / Etsy content verify for qty 0.
-    const inventoryOnly = shouldPushSoldOutInventoryOnly({
-      quantity: item.quantity,
-      status: item.status,
-      contentUnchanged,
-      inventoryDrift,
-      syncBaselineHash: link.syncBaselineHash,
-      contentHashNow: syncContentHash(item),
-    });
+    const inventoryOnly =
+      !options.force &&
+      shouldPushSoldOutInventoryOnly({
+        quantity: item.quantity,
+        status: item.status,
+        contentUnchanged,
+        inventoryDrift,
+        syncBaselineHash: link.syncBaselineHash,
+        contentHashNow: syncContentHash(item),
+      });
 
     if (inventoryOnly) {
       const connConfig = (link.connection.config ?? {}) as Record<string, unknown>;
@@ -464,7 +468,7 @@ export async function updateStoreItemOnChannels(
             data: { syncStatus: "error", syncError: msg },
           })
           .catch(() => {});
-        await recordCircuitFailure(link.connectionId, provider, link.connection.memberId, msg);
+        await recordCircuitFailure(link.connectionId, provider, link.connection.memberId, e);
         enqueueRetry(link.id, storeItemId, provider, "inventory", msg, e).catch(() => {});
         results.push({ provider, ok: false, error: msg });
       }
@@ -550,7 +554,7 @@ export async function updateStoreItemOnChannels(
           data: { syncStatus: "error", syncError: msg },
         })
         .catch(() => {});
-      await recordCircuitFailure(link.connectionId, provider, link.connection.memberId, msg);
+      await recordCircuitFailure(link.connectionId, provider, link.connection.memberId, e);
       enqueueRetry(link.id, storeItemId, provider, "content", msg, e).catch(() => {});
       results.push({ provider, ok: false, error: msg });
     }

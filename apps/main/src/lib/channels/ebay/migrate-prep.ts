@@ -36,7 +36,7 @@ export const ENDED_LISTING_MIGRATE_ERROR =
   "This eBay listing has ended and cannot be imported.";
 
 export const VARIATION_SKU_MIGRATE_ERROR =
-  "This multi-variation listing needs a unique Custom Label on each variation before it can sync.";
+  "This multi-variation listing needs a unique SKU on each variation. INW generates those SKUs automatically; retry import if eBay did not keep them.";
 
 export type EbayVariationSkuRow = {
   sku: string | null;

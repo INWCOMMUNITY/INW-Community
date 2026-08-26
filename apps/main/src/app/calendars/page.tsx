@@ -5,6 +5,7 @@ import { getCalendarImagePath } from "@/lib/wix-media";
 import { formatTime12h } from "@/lib/format-time";
 import { calendarImageObjectClass, shortCalendarLabel } from "@/lib/calendar-labels";
 import { PostEventModal } from "@/components/PostEventModal";
+import { buildEventHref } from "@/lib/event-referrer";
 
 function startOfLocalDay(d: Date): Date {
   const x = new Date(d);
@@ -84,7 +85,7 @@ export default async function CalendarsPage() {
                 return (
                   <li key={ev.id}>
                     <Link
-                      href={`/events/${ev.slug}`}
+                      href={buildEventHref(ev.slug, { type: "calendars" })}
                       className="block rounded-lg border px-4 py-3 no-underline hover:bg-[var(--color-section-alt)] transition"
                       style={{ borderColor: "var(--color-earth)", color: "var(--color-heading)" }}
                     >

@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { prisma } from "database";
 import { authOptions } from "@/lib/auth";
 import { canViewerSeeFullMemberProfile } from "@/lib/member-profile-access";
+import { buildBusinessHref } from "@/lib/business-referrer";
 
 export const dynamic = "force-dynamic";
 
@@ -74,7 +75,7 @@ export default async function MemberFavoriteBusinessesPage({
                 {businesses.map((b) => (
                   <li key={b.id}>
                     <Link
-                      href={`/support-local/${b.slug}`}
+                      href={buildBusinessHref(b.slug, { type: "member-businesses", memberId: id })}
                       className="border rounded-lg p-4 hover:bg-gray-50 flex flex-col items-center text-center transition-colors"
                     >
                       {b.logoUrl ? (

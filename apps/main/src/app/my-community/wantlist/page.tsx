@@ -7,6 +7,7 @@ import { BackToProfileLink } from "@/components/BackToProfileLink";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 import { listingDescriptionPreview } from "@/lib/channels/rich-description";
 import { buildProductHref } from "@/lib/product-referrer";
+import { buildBusinessHref } from "@/lib/business-referrer";
 
 interface StoreItem {
   id: string;
@@ -122,7 +123,7 @@ export default function MyWishlistPage() {
                 </h2>
                 {item.business && (
                   <Link
-                    href={`/support-local/${item.business.slug}`}
+                    href={buildBusinessHref(item.business.slug, { type: "wantlist" })}
                     className="text-sm text-primary-600 hover:underline"
                   >
                     {item.business.name}
@@ -135,7 +136,7 @@ export default function MyWishlistPage() {
                 )}
                 <p className="text-lg font-bold mt-2">${(item.priceCents / 100).toFixed(2)}</p>
                 <Link href={buildProductHref(item.slug, { type: "wishlist" })} className="btn mt-4 inline-block">
-                  View details
+                  View Details
                 </Link>
               </div>
             </div>

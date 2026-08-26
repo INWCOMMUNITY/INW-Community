@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildInventoryItemGroupBody,
   buildInventoryItemGroupKey,
+  buildVariantInventoryRows,
   buildVariantInventorySkus,
+  buildVariantSyncItem,
   shouldUseInventoryItemGroup,
+  withVariationAspect,
 } from "./inventory-groups";
 import type { SyncStoreItem } from "../types";
 
@@ -58,5 +62,56 @@ describe("inventory item groups", () => {
     expect(buildVariantInventorySkus(hyphenItem).every((sku) => /^[a-zA-Z0-9]{1,50}$/.test(sku))).toBe(
       true
     );
+  });
+
+  it("prefers an existing option SKU and generates the rest", () => {
+    const mixed = {
+      ...variantItem,
+      variants: [
+        {
+          name: "Size",
+          options: [
+            { value: "S", quantity: 1, sku: "KEEPME" },
+            { value: "M", quantity: 2 },
+          ],
+        },
+      ],
+    };
+    expect(buildVariantInventorySkus(mixed)).toEqual(["KEEPME", "SKU1M"]);
+  });
+
+  it("generates migrate-style SKUs for imported listings without option SKUs", () => {
+    const imported = { ...variantItem, sku: null };
+    expect(
+      buildVariantInventorySkus(imported, {
+        parentSku: "inw403004607151",
+        legacyListingId: "403004607151",
+      })
+    ).toEqual(["inw403004607151v1", "inw403004607151v2"]);
+  });
+
+  it("includes variesBy so eBay gets variationInformation", () => {
+    const body = buildInventoryItemGroupBody(variantItem, ["SKU1S", "SKU1M"]);
+    expect(body.variesBy).toEqual({
+      specifications: [{ name: "Size", values: ["S", "M"] }],
+      aspectsImageVariesBy: ["Size"],
+    });
+    expect(body.variantSKUs).toEqual(["SKU1S", "SKU1M"]);
+    expect(body).not.toHaveProperty("aspects");
+  });
+
+  it("pins a single variation aspect on an inventory PUT", () => {
+    const row = buildVariantInventoryRows(variantItem)[0]!;
+    const body = withVariationAspect(
+      { product: { title: "T-Shirt", aspects: { Brand: ["Acme"], Size: ["S", "M"] } } },
+      row
+    );
+    expect((body.product as { aspects: Record<string, string[]> }).aspects).toEqual({
+      Brand: ["Acme"],
+      Size: ["S"],
+    });
+    expect(buildVariantSyncItem(variantItem, row).variants).toEqual([
+      { name: "Size", options: [{ value: "S", quantity: 1, sku: "SKU1S" }] },
+    ]);
   });
 });

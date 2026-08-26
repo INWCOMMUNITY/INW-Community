@@ -12,6 +12,8 @@ import { LinkPreviewCard } from "@/components/feed/LinkPreviewCard";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import { extractFirstUrl } from "@/lib/extract-urls";
 import { buildProductHref } from "@/lib/product-referrer";
+import { buildBusinessHref } from "@/lib/business-referrer";
+import { buildEventHref } from "@/lib/event-referrer";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
 import { feedBusinessAuthorHref, feedPostShowsAsBusiness } from "@/lib/feed-post-business-author";
 const TRUNCATE_LENGTH = 200;
@@ -406,7 +408,7 @@ export function FeedPostCard({
                       <Fragment key={b.id}>
                         <span>{taggedBusinessListSeparator(i, taggedBusinessesHeader.length)}</span>
                         <Link
-                          href={`/support-local/${b.slug}`}
+                          href={buildBusinessHref(b.slug, { type: "feed" })}
                           className="font-semibold hover:underline"
                           style={{ color: "var(--color-primary)" }}
                         >
@@ -672,7 +674,7 @@ export function FeedPostCard({
         )}
         {post.type === "shared_event" && post.sourceEvent && (
           <div className="border rounded p-4 bg-gray-50 mb-3">
-            <Link href={`/events/${post.sourceEvent.slug}`} className="block hover:opacity-90">
+            <Link href={buildEventHref(post.sourceEvent.slug, { type: "feed" })} className="block hover:opacity-90">
               <div className="flex gap-3">
                 {post.sourceEvent.photos[0] ? (
                   <Image src={post.sourceEvent.photos[0]} alt="" width={64} height={64} className="w-16 h-16 object-cover rounded shrink-0" quality={75} />
@@ -822,7 +824,7 @@ export function FeedPostCard({
             )}
             {post.sourcePost.type === "shared_event" && post.sourcePost.sourceEvent && (
               <div className="border rounded p-3 bg-white mb-2">
-                <Link href={`/events/${post.sourcePost.sourceEvent.slug}`} className="block hover:opacity-90">
+                <Link href={buildEventHref(post.sourcePost.sourceEvent.slug, { type: "feed" })} className="block hover:opacity-90">
                   <div className="flex gap-2">
                     {post.sourcePost.sourceEvent.photos?.[0] && (
                       <Image src={post.sourcePost.sourceEvent.photos[0]} alt="" width={48} height={48} className="w-12 h-12 object-cover rounded shrink-0" quality={75} />

@@ -137,6 +137,14 @@ const EBAY_CLASSIFIERS: TraceClassifier[] = [
       "eBay requires each photo to be at least 500 pixels on the longest side. Gallery thumbs cannot be used. If a photo file is itself smaller than 500px, replace it on the listing.",
   },
   {
+    id: "ebay_variation_information",
+    provider: "ebay",
+    pattern: /variationInformation|#25002.*variation/i,
+    category: "sku_conflict",
+    analyze: () =>
+      "INW generates a unique SKU for each variation when it pushes to eBay. Retry sync so the listing is updated as a variation group.",
+  },
+  {
     id: "ebay_category_invalid",
     provider: "ebay",
     pattern: /category.*invalid|invalid.*category|#25002/i,
@@ -204,6 +212,14 @@ const EBAY_CLASSIFIERS: TraceClassifier[] = [
  */
 const ETSY_CLASSIFIERS: TraceClassifier[] = [
   {
+    id: "etsy_invalid_marketplace",
+    provider: "etsy",
+    pattern: /invalid_marketplace|cannot sell this item on Etsy/i,
+    category: "listing_prohibited",
+    analyze: () =>
+      "Etsy will not list this item (prohibited category or marketplace rules). Pick a different Etsy category in Needs Attention, or skip Etsy for this listing.",
+  },
+  {
     id: "etsy_taxonomy_invalid",
     provider: "etsy",
     pattern: /taxonomy.*invalid|category.*invalid|#1044|#1002/i,
@@ -240,7 +256,16 @@ const ETSY_CLASSIFIERS: TraceClassifier[] = [
     pattern: /who_made.*required|who made|#1003/i,
     category: "field_missing",
     analyze: () => {
-      return "'Who made it?' is required for Etsy. Edit the listing and select who made this item (I did, A member of my shop, Another company or person).";
+      return "'Who made it?' is required for Etsy. Open Sync Stores → Needs Attention and fill who made it, when, and whether this is a supply.";
+    },
+  },
+  {
+    id: "etsy_origin_trio",
+    provider: "etsy",
+    pattern: /when_made.*who_made.*is_supply|without 'is_supply'/i,
+    category: "field_missing",
+    analyze: () => {
+      return "Etsy needs who made it, when it was made, and whether this is a supply together. Open Sync Stores → Needs Attention and save those fields.";
     },
   },
   {
@@ -443,6 +468,14 @@ export function getSuggestedFixes(errorCategory: string | null): string[] {
       "Reduce the frequency of listing updates",
       "Consider batching changes instead of syncing after every edit",
     ],
+    field_missing: [
+      "Open Sync Stores → Needs Attention and fill the missing Etsy fields",
+      "Save and retry from that tab so only Etsy is updated",
+    ],
+    listing_prohibited: [
+      "Open Sync Stores → Needs Attention and try a different Etsy category",
+      "If Etsy still rejects it, skip Etsy for this listing — the item is not allowed on that marketplace",
+    ],
     photo_missing: [
       "Add at least one photo to the listing before syncing",
       "Make sure photos are high quality and meet marketplace requirements",
@@ -473,6 +506,7 @@ export function getErrorCategoryLabel(category: string | null): string {
     shipping_missing: "Missing Shipping Profile",
     shipping_package_missing: "Missing Package Size",
     field_missing: "Required Field Missing",
+    listing_prohibited: "Item Not Allowed",
     listing_not_found: "Listing Not Found",
     description_invalid: "Description Too Long",
     shop_inactive: "Shop Inactive",

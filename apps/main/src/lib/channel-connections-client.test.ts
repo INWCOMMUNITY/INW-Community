@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeListOnConnections, listOnConnections } from "./channel-connections-client";
+import { activeListOnConnections, listOnConnectionHealth, listOnConnections } from "./channel-connections-client";
 import type { ChannelConnectionSummary } from "./channel-connections-client";
 
 function conn(
@@ -29,5 +29,34 @@ describe("listOnConnections", () => {
     expect(
       activeListOnConnections([conn("ebay", "active"), conn("etsy", "error")]).map((c) => c.provider)
     ).toEqual(["ebay"]);
+  });
+});
+
+describe("listOnConnectionHealth", () => {
+  it("shows reconnect only for reconnect health, not delayed or platform_key", () => {
+    expect(
+      listOnConnectionHealth({
+        status: "error",
+        readyToPublish: false,
+        healthKind: "reconnect",
+        healthMessage: "Reconnect this store",
+      })
+    ).toEqual({ blocked: true, showReconnect: true, hint: "Reconnect this store" });
+    expect(
+      listOnConnectionHealth({
+        status: "error",
+        readyToPublish: false,
+        healthKind: "delayed",
+        healthMessage: "Sync is delayed",
+      }).showReconnect
+    ).toBe(false);
+    expect(
+      listOnConnectionHealth({
+        status: "error",
+        readyToPublish: false,
+        healthKind: "platform_key",
+        healthMessage: "Do not reconnect",
+      }).showReconnect
+    ).toBe(false);
   });
 });

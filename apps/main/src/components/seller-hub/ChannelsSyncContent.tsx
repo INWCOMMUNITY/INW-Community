@@ -20,13 +20,14 @@ import {
 } from "./DisconnectChannelModal";
 import { ChannelSafetyBufferCard } from "./ChannelSafetyBufferCard";
 import { ChannelReconnectGuideModal } from "./ChannelReconnectGuideModal";
+import { NeedsAttentionPanel } from "./NeedsAttentionPanel";
 import {
   deleteInwQuery,
   disconnectSuccessMessage,
   type DisconnectDeleteMode,
 } from "@/lib/channels/disconnect-inw-items";
 
-type TabId = "connections" | "traces";
+type TabId = "connections" | "attention" | "traces";
 
 export function ChannelsSyncContent() {
   const searchParams = useSearchParams();
@@ -39,6 +40,7 @@ export function ChannelsSyncContent() {
   const [syncing, setSyncing] = useState<string | null>(null);
   const [disconnectPrompt, setDisconnectPrompt] = useState<DisconnectChannelPrompt | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("connections");
+  const [attentionCount, setAttentionCount] = useState(0);
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [reconnectGuide, setReconnectGuide] = useState<{ provider: string; name: string } | null>(
     null
@@ -50,6 +52,10 @@ export function ChannelsSyncContent() {
       const res = await fetch("/api/channels", { credentials: "include" });
       const data = await res.json();
       setConnections(Array.isArray(data) ? data : []);
+      const attention = await fetch("/api/seller/needs-attention?count=1", { credentials: "include" })
+        .then((r) => r.json())
+        .catch(() => ({ count: 0 }));
+      setAttentionCount(Number(attention.count) || 0);
     } catch {
       setConnections([]);
     } finally {
@@ -76,6 +82,9 @@ export function ChannelsSyncContent() {
     if (reconnect) {
       const p = CHANNEL_PROVIDERS_UI.find((x) => x.provider === reconnect);
       if (p) setReconnectGuide({ provider: p.provider, name: p.name });
+    }
+    if (searchParams.get("tab") === "attention") {
+      setActiveTab("attention");
     }
   }, [searchParams, refresh]);
 
@@ -268,12 +277,25 @@ export function ChannelsSyncContent() {
         </button>
         <button
           type="button"
+          onClick={() => { setActiveTab("attention"); setSelectedTraceId(null); }}
+          className={tabClasses("attention")}
+        >
+          Needs Attention{attentionCount > 0 ? ` (${attentionCount})` : ""}
+        </button>
+        <button
+          type="button"
           onClick={() => { setActiveTab("traces"); setSelectedTraceId(null); }}
           className={tabClasses("traces")}
         >
           Sync Traces
         </button>
       </div>
+
+      {activeTab === "attention" && (
+        <div className="mb-6">
+          <NeedsAttentionPanel onCountChange={setAttentionCount} />
+        </div>
+      )}
 
       {/* Traces Tab */}
       {activeTab === "traces" && (

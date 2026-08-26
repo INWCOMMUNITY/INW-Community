@@ -1,3 +1,5 @@
+import { buildBusinessHref } from "@/lib/business-referrer";
+
 export type FeedBusinessAuthor = {
   id: string;
   name: string;
@@ -26,5 +28,5 @@ export function feedBusinessAuthorHref(type: string, slug: string): string {
   if (type === "shared_store_item" || type === "shared_listing_collection") {
     return `/support-local/sellers/${slug}`;
   }
-  return `/support-local/${slug}`;
+  return buildBusinessHref(slug, { type: "feed" });
 }

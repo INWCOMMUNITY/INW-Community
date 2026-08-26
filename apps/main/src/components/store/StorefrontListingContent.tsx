@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { getErrorMessage } from "@/lib/api-error";
 import { useParams, useSearchParams } from "next/navigation";
 import { getProductReferrer, buildBackLink, listingHrefPreservingReferrer } from "@/lib/product-referrer";
+import { buildBusinessHref } from "@/lib/business-referrer";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
@@ -836,7 +837,7 @@ export function StorefrontListingContent({
           <div className="rounded-2xl border border-[#E6D8B7] bg-[#FBFAF6] p-5 shadow-sm">
             {item.business ? (
               <Link
-                href={`/support-local/${item.business.slug}`}
+                href={buildBusinessHref(item.business.slug, { type: "listing", listingSlug: item.slug })}
                 className="inline-flex max-w-full items-center gap-1.5 text-sm text-gray-600 hover:text-[var(--color-heading)]"
               >
                 <IonIcon name="storefront-outline" size={16} className="shrink-0 text-[var(--color-primary)]" />
@@ -1146,7 +1147,7 @@ export function StorefrontListingContent({
               {item.business.slug && (
                 <div className="flex justify-center mt-6">
                   <a
-                    href={`/support-local/${item.business.slug}`}
+                    href={buildBusinessHref(item.business.slug, { type: "listing", listingSlug: item.slug })}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="btn inline-block"

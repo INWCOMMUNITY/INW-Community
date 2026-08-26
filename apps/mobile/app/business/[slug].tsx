@@ -28,6 +28,7 @@ import { useCreatePost } from "@/contexts/CreatePostContext";
 import { fetchBusinessFeed, toggleLike, deletePost, nextShareCountAfterShare, type FeedPost } from "@/lib/feed-api";
 import { FeedPostCard } from "@/components/FeedPostCard";
 import { FeedCommentsModal } from "@/components/FeedCommentsModal";
+import { getBusinessReferrer, buildBusinessBackLink } from "@/lib/business-referrer";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -169,10 +170,13 @@ const BusinessListingHeader = memo(function BusinessListingHeader({
             {DAY_ORDER.map((day) => {
               const val = hours[day];
               if (!val) return null;
+              const isToday = day === DAY_ORDER[(new Date().getDay() + 6) % 7];
               return (
-                <View key={day} style={styles.hoursRow}>
-                  <Text style={styles.hoursDay}>{day.charAt(0).toUpperCase() + day.slice(1)}</Text>
-                  <Text style={styles.hoursVal}>{val}</Text>
+                <View key={day} style={[styles.hoursRow, isToday && styles.hoursRowToday]}>
+                  <Text style={[styles.hoursDay, isToday && styles.hoursTodayText]}>
+                    {day.charAt(0).toUpperCase() + day.slice(1)}
+                  </Text>
+                  <Text style={[styles.hoursVal, isToday && styles.hoursTodayText]}>{val}</Text>
                 </View>
               );
             })}
@@ -367,9 +371,25 @@ const BusinessListingHeader = memo(function BusinessListingHeader({
 });
 
 export default function BusinessScreen() {
-  const { slug } = useLocalSearchParams<{ slug: string }>();
+  const params = useLocalSearchParams();
+  const slugParam = params.slug;
+  const slug = Array.isArray(slugParam) ? slugParam[0] ?? "" : (slugParam ?? "");
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const referrer = getBusinessReferrer(params);
+  const backLink = buildBusinessBackLink(referrer);
+
+  const goBack = useCallback(() => {
+    if (referrer.type !== "directory") {
+      (router.navigate as (href: string) => void)(backLink.href);
+      return;
+    }
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/(tabs)/support-local" as never);
+  }, [backLink.href, referrer.type, router]);
 
   const [business, setBusiness] = useState<Business | null>(null);
   const [loading, setLoading] = useState(true);
@@ -752,7 +772,7 @@ export default function BusinessScreen() {
     return (
       <View style={styles.container}>
         <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+          <Pressable onPress={goBack} style={styles.backBtn} accessibilityLabel={backLink.label}>
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </Pressable>
           <View style={styles.headerTitleWrap}>
@@ -768,7 +788,7 @@ export default function BusinessScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable onPress={goBack} style={styles.backBtn} accessibilityLabel={backLink.label}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
         <View style={styles.headerTitleWrap}>
@@ -1005,23 +1025,34 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
     color: theme.colors.heading,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   hoursRow: {
     flexDirection: "row",
-    marginBottom: 4,
+    marginBottom: 2,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    marginHorizontal: -8,
+    borderRadius: 6,
+  },
+  hoursRowToday: {
+    backgroundColor: theme.colors.cream,
   },
   hoursDay: {
     width: 90,
-    fontSize: 14,
+    fontSize: 13,
     color: theme.colors.text,
   },
   hoursVal: {
-    fontSize: 14,
+    fontSize: 13,
     color: theme.colors.text,
+  },
+  hoursTodayText: {
+    fontWeight: "600",
+    color: theme.colors.heading,
   },
   contactRow: {
     flexDirection: "row",

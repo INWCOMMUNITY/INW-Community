@@ -159,7 +159,6 @@ export function ProfileForm() {
               className="sr-only"
             />
           </label>
-          <p className="text-xs text-gray-500 mt-1">Upload from your device or camera. Max 40MB. JPEG, PNG, WebP, GIF.</p>
         </div>
 
         {/* First Name | Last Name - side by side */}
@@ -213,34 +212,21 @@ export function ProfileForm() {
           </p>
         </div>
 
-        {/* City | Badges - side by side */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">City</label>
-            <input
-              type="text"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              placeholder="Your city"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Badges</label>
-            <div className="w-full border rounded px-3 py-2 min-h-[42px] flex items-center">
-              <Link
-                href="/my-community/my-badges"
-                className="text-[var(--color-primary)] font-medium hover:underline"
-              >
-                Manage your badges →
-              </Link>
-            </div>
-          </div>
+        {/* City */}
+        <div>
+          <label className="block text-sm font-medium mb-1">City</label>
+          <input
+            type="text"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            className="w-full border rounded px-3 py-2"
+            placeholder="Your city"
+          />
         </div>
 
         {/* Phone & delivery address – private, for orders/deliveries only */}
         <div className="border-t pt-6 space-y-4">
-          <h3 className="font-semibold text-gray-800">Orders &amp; deliveries</h3>
+          <h3 className="font-semibold text-gray-800">Orders &amp; Deliveries</h3>
           <p className="text-xs text-gray-500">
             The following are used only for checkout and local delivery. They are not shown on your public profile.
           </p>
@@ -291,7 +277,7 @@ export function ProfileForm() {
 
         {error && <p className="text-red-600 text-sm">{error}</p>}
         <button type="submit" className="btn" disabled={submitting}>
-          {submitting ? "Saving…" : "Save profile"}
+          {submitting ? "Saving…" : "Save Profile"}
         </button>
       </form>
 
@@ -299,9 +285,9 @@ export function ProfileForm() {
       <div className="mt-8 pt-6 border-t border-gray-200">
         <Link
           href="/api/auth/signout?callbackUrl=%2F"
-          className="text-gray-600 hover:text-gray-800 hover:underline text-sm"
+          className="action-pill btn-pill-tan inline-flex"
         >
-          Log out
+          Log Out
         </Link>
       </div>
 
@@ -312,7 +298,7 @@ export function ProfileForm() {
           className="text-[var(--color-link)] hover:underline text-sm font-medium"
           style={{ color: "var(--color-primary)" }}
         >
-          Manage subscriptions
+          Manage Subscriptions
         </Link>
         <p className="text-xs text-gray-500 mt-1">
           View your active subscriptions in Stripe&apos;s billing portal, update payment methods, or cancel.

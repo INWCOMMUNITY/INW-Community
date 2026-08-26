@@ -194,7 +194,7 @@ export async function syncInventoryToChannels(
           data: { syncStatus: "error", syncError: msg },
         })
         .catch(() => {});
-      await recordCircuitFailure(link.connectionId, provider, link.connection.memberId, msg);
+      await recordCircuitFailure(link.connectionId, provider, link.connection.memberId, e);
       enqueueRetry(link.id, storeItemId, provider, "inventory", msg, e).catch(() => {});
       logSyncEvent(link.connection.memberId, provider, "error", `Inventory push failed: ${msg}`, storeItemId);
       results.push({ provider, ok: false, error: msg });

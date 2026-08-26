@@ -68,6 +68,8 @@ const PERMANENT_PATTERNS = [
   /cannot be modified/i,
   /immutable/i,
   /policy violation/i,
+  /invalid_marketplace/i,
+  /cannot sell this item on Etsy/i,
   /blocked/i,
   /banned/i,
   /revision limit/i,
@@ -229,6 +231,32 @@ export function isEbayEndedListingError(error: unknown): boolean {
  */
 export function isAuthError(error: unknown): boolean {
   return classifyError(error) === "auth";
+}
+
+/**
+ * Circuit breaker pauses the whole shop. Only count connection-level outages
+ * (5xx, timeout, network, 429) — not per-listing validation, inventory verify,
+ * 409 echo after the seller edited on the channel, or OAuth (handled separately).
+ */
+export function shouldCountTowardCircuit(error: unknown): boolean {
+  const msg = errorToString(error);
+  if (/inventory verify failed/i.test(msg)) return false;
+  if (/all_caps|sequential capital/i.test(msg)) return false;
+  if (/Picture Policy|500 pixels on the longest side/i.test(msg)) return false;
+  if (/when_made|who_made|is_supply|Postal Code is required/i.test(msg)) return false;
+
+  const status = extractStatusCode(error);
+  if (status === 429 || (status != null && status >= 500)) return true;
+  if (status != null && status >= 400 && status < 500) return false;
+
+  if (/\b429\b|rate.?limit|too many requests/i.test(msg)) return true;
+  if (/\b5\d{2}\b|internal server error|service unavailable|bad gateway|gateway timeout/i.test(msg)) {
+    return true;
+  }
+  if (/ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|timed? out|network error/i.test(msg)) {
+    return true;
+  }
+  return false;
 }
 
 /**

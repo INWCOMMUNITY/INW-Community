@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
         prisma.channelConnection.count({ where: { status: "error" } }),
         prisma.channelConnection.findMany({
           where: { status: { not: "disconnected" } },
-          select: { config: true },
+          select: { config: true, status: true },
         }),
         readCronLock("sync-channels"),
       ]);
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
       const cb = cfg?.circuitBreaker as { state?: string } | undefined;
       if (cb?.state === "OPEN") circuitOpen += 1;
       const pause = readPauseConfig(row.config);
-      if (pause.pauseReason) {
+      if (row.status === "error" && pause.pauseReason) {
         pauseByReason[pause.pauseReason] = (pauseByReason[pause.pauseReason] ?? 0) + 1;
       }
     }

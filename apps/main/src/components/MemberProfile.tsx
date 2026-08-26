@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { IonIcon } from "@/components/IonIcon";
+import { buildBusinessHref } from "@/lib/business-referrer";
 
 interface MemberProfileProps {
   member: {
@@ -380,7 +381,7 @@ export function MemberProfile({
               ) : (
                 <>
                   <IonIcon name="person-add-outline" size={20} className="text-white" />
-                  Add friend
+                  Add Friend
                 </>
               )}
             </button>
@@ -417,7 +418,7 @@ export function MemberProfile({
             href={editProfileHref}
             className="inline-block btn text-sm py-2 px-4 mb-6"
           >
-            Edit profile
+            Edit Profile
           </Link>
         ) : null}
 
@@ -497,7 +498,7 @@ export function MemberProfile({
               {favoriteBusinesses.map((b) => (
                 <Link
                   key={b.id}
-                  href={`/support-local/${b.slug}`}
+                  href={buildBusinessHref(b.slug, { type: "member-profile", memberId: member.id })}
                   className="shrink-0 w-24 flex flex-col items-center text-center"
                 >
                   {b.logoUrl ? (

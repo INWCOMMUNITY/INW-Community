@@ -19,6 +19,7 @@ export async function GET() {
           lastName: true,
           profilePhotoUrl: true,
           city: true,
+          bio: true,
         },
       },
     },

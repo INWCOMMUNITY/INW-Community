@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { verifiedMemberWhere } from "@/lib/member-public-visibility";
 import { requireVerifiedActiveMember } from "@/lib/require-verified-member";
+import { buildFriendSuggestionReasons } from "@/lib/friend-suggestion-reasons";
 
 export async function GET(req: NextRequest) {
   const session = (await getSessionForApi(req)) ?? (await getServerSession(authOptions));
@@ -64,6 +65,8 @@ export async function GET(req: NextRequest) {
   // Score map: candidate -> total relevance score
   const scoreMap: Record<string, number> = {};
   const mutualCountMap: Record<string, number> = {};
+  const sharedGroupsMap: Record<string, string[]> = {};
+  const sharedBusinessCountMap: Record<string, number> = {};
 
   // 1. Friends of friends (mutual friends scoring)
   if (myFriendIds.size > 0) {
@@ -93,17 +96,29 @@ export async function GET(req: NextRequest) {
 
   // 2. Shared group membership scoring
   if (myGroupIds.size > 0) {
-    const groupMembers = await prisma.groupMember.findMany({
-      where: {
-        groupId: { in: Array.from(myGroupIds) },
-        memberId: { not: myId },
-      },
-      select: { memberId: true, groupId: true },
-    });
+    const myGroupIdList = Array.from(myGroupIds);
+    const [groupMembers, groups] = await Promise.all([
+      prisma.groupMember.findMany({
+        where: {
+          groupId: { in: myGroupIdList },
+          memberId: { not: myId },
+        },
+        select: { memberId: true, groupId: true },
+      }),
+      prisma.group.findMany({
+        where: { id: { in: myGroupIdList } },
+        select: { id: true, name: true },
+      }),
+    ]);
+    const groupNameById = new Map(groups.map((g) => [g.id, g.name]));
 
     for (const gm of groupMembers) {
       if (myFriendIds.has(gm.memberId) || pendingIds.has(gm.memberId)) continue;
       scoreMap[gm.memberId] = (scoreMap[gm.memberId] ?? 0) + 2; // 2 points per shared group
+      const groupName = groupNameById.get(gm.groupId);
+      if (!groupName) continue;
+      const names = sharedGroupsMap[gm.memberId] ?? (sharedGroupsMap[gm.memberId] = []);
+      if (!names.includes(groupName)) names.push(groupName);
     }
   }
 
@@ -121,6 +136,7 @@ export async function GET(req: NextRequest) {
     for (const sf of sharedBusinessFollowers) {
       if (myFriendIds.has(sf.memberId) || pendingIds.has(sf.memberId)) continue;
       scoreMap[sf.memberId] = (scoreMap[sf.memberId] ?? 0) + 1; // 1 point per shared followed business
+      sharedBusinessCountMap[sf.memberId] = (sharedBusinessCountMap[sf.memberId] ?? 0) + 1;
     }
   }
 
@@ -142,6 +158,7 @@ export async function GET(req: NextRequest) {
       lastName: true,
       profilePhotoUrl: true,
       city: true,
+      bio: true,
     },
   });
 
@@ -150,12 +167,20 @@ export async function GET(req: NextRequest) {
     .map((m) => {
       let score = scoreMap[m.id] ?? 0;
       const memberCity = m.city?.toLowerCase().trim() || null;
-      if (myCity && memberCity && myCity === memberCity) {
+      const sameCity = !!(myCity && memberCity && myCity === memberCity);
+      if (sameCity) {
         score += 2; // 2 points for same city
       }
+      const mutualCount = mutualCountMap[m.id] ?? 0;
       return {
         ...m,
-        mutualCount: mutualCountMap[m.id] ?? 0,
+        mutualCount,
+        reasons: buildFriendSuggestionReasons({
+          mutualCount,
+          sameCity,
+          sharedGroupNames: sharedGroupsMap[m.id] ?? [],
+          sharedBusinessCount: sharedBusinessCountMap[m.id] ?? 0,
+        }),
         score,
       };
     })

@@ -2,6 +2,7 @@ import { cache } from "react";
 import { prisma, Prisma } from "database";
 import { listingDisplayPhotos } from "@/lib/listing-display-photo";
 import { listingDescriptionPreview } from "@/lib/channels/rich-description";
+import { sortByStorefrontSearchRelevance } from "@/lib/storefront-search";
 
 export const BROWSE_CACHE_HEADERS = {
   "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",
@@ -379,13 +380,14 @@ export async function getPublicBrowseCards(query: PublicBrowseQuery): Promise<Pu
     listAndConditions.push({ category: categoryTrim, subcategory: subcategoryTrim });
   }
   if (search) {
+    const mode = "insensitive" as const;
     listAndConditions.push({
       OR: [
-        { title: { contains: search } },
-        { description: { contains: search } },
-        { category: { contains: search } },
-        { secondaryCategory: { contains: search } },
-        { subcategory: { contains: search } },
+        { title: { contains: search, mode } },
+        { description: { contains: search, mode } },
+        { category: { contains: search, mode } },
+        { secondaryCategory: { contains: search, mode } },
+        { subcategory: { contains: search, mode } },
       ],
     });
   }
@@ -399,6 +401,7 @@ export async function getPublicBrowseCards(query: PublicBrowseQuery): Promise<Pu
 
   const minPriceCents = query.minPriceCents ?? null;
   const maxPriceCents = query.maxPriceCents ?? null;
+  const needsWindow = Boolean(search) || Boolean(size);
 
   let items = await prisma.storeItem.findMany({
     where: {
@@ -418,9 +421,12 @@ export async function getPublicBrowseCards(query: PublicBrowseQuery): Promise<Pu
         ? { priceCents: { ...(minPriceCents !== null ? { gte: minPriceCents } : {}), lte: maxPriceCents } }
         : {}),
     },
-    select: size ? publicBrowseSelectWithVariants : publicBrowseCardSelect,
+    select: {
+      ...(size ? publicBrowseSelectWithVariants : publicBrowseCardSelect),
+      ...(search ? { createdAt: true, secondaryCategory: true } : {}),
+    },
     orderBy,
-    ...(size
+    ...(needsWindow
       ? { take: Math.min(listOffset + listLimit + 80, 250) }
       : { skip: listOffset, take: listLimit }),
   });
@@ -429,6 +435,11 @@ export async function getPublicBrowseCards(query: PublicBrowseQuery): Promise<Pu
   );
   if (size) {
     items = items.filter((item) => itemHasSize(item, size));
+  }
+  if (search) {
+    items = sortByStorefrontSearchRelevance(items, search, query.sort);
+  }
+  if (needsWindow) {
     items = items.slice(listOffset, listOffset + listLimit);
   }
   const cards = items.map(toPublicBrowseCard);

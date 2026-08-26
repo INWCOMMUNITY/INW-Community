@@ -952,4 +952,20 @@ describe("passthrough-push", () => {
       ])
     ).toBe(false);
   });
+
+  it("does not attach a Trading-style variations container to Inventory PUTs", () => {
+    const shirt = {
+      ...coinItem,
+      variants: [
+        { name: "Size", options: [{ value: "S", quantity: 1 }, { value: "M", quantity: 2 }] },
+      ],
+    };
+    const body = buildPassthroughInventoryBody(
+      liveJeffersonNickel,
+      shirt,
+      { content: true, title: true, quantity: false, price: false, photos: false }
+    );
+    expect(body).not.toHaveProperty("variations");
+    expect((body.product as { title: string }).title).toBe(shirt.title);
+  });
 });

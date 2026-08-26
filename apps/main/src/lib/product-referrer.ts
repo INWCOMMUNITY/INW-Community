@@ -163,6 +163,12 @@ export function buildBackLink(ref: ProductReferrer): { href: string; label: stri
     case "offer":
       return { href: "/seller-hub/offers", label: "Back to Offers" };
     case "order":
+      if (ref.orderKind === "buyer") {
+        if (ref.orderId) {
+          return { href: `/my-community/orders/${ref.orderId}`, label: "Back to Order" };
+        }
+        return { href: "/my-community/orders", label: "Back to My Orders" };
+      }
       if (ref.orderId) {
         return { href: `/seller-hub/orders/${ref.orderId}`, label: "Back to Order" };
       }

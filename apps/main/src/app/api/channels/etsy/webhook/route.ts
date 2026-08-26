@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
-import { verifyEtsyWebhook, parseEtsyWebhookEnvelope } from "@/lib/channels/etsy/webhook";
+import { verifyEtsyWebhook, parseEtsyWebhookEnvelope, isEtsyListingWebhookTopic, isEtsySalesWebhookTopic } from "@/lib/channels/etsy/webhook";
 import { reconcileConnectionSales } from "@/lib/channels/reconcile";
 import { reconcileConnectionInboundCatalog } from "@/lib/channels/reconcile-inbound-catalog";
+import { refreshEtsyListingByExternalId } from "@/lib/channels/etsy/pull-etsy-updates";
 import {
   logWebhookEvent,
   markWebhookProcessing,
@@ -33,8 +34,8 @@ export async function POST(req: NextRequest) {
   } catch {
     payload = null;
   }
-  const { shopId, topic } = parseEtsyWebhookEnvelope(payload);
-  console.log("[channels] etsy webhook received", { topic, shopId });
+  const { shopId, topic, listingId } = parseEtsyWebhookEnvelope(payload);
+  console.log("[channels] etsy webhook received", { topic, shopId, listingId });
 
   const webhookEventId = await logWebhookEvent(
     "etsy",
@@ -51,16 +52,36 @@ export async function POST(req: NextRequest) {
         where: { provider: "etsy", externalShopId: shopId, status: { not: "disconnected" } },
       });
       if (conn) {
-        console.log("[channels] etsy webhook processing for connection", { connectionId: conn.id, topic });
-        const salesResult = await reconcileConnectionSales(conn);
-        console.log("[channels] etsy webhook sales reconcile completed", { applied: salesResult.applied });
-        const catalogResult = await reconcileConnectionInboundCatalog(conn).catch((e) => {
-          console.error("[channels] etsy webhook catalog reconcile failed", {
-            error: String(e),
+        console.log("[channels] etsy webhook processing for connection", { connectionId: conn.id, topic, listingId });
+        if (isEtsyListingWebhookTopic(topic) && listingId) {
+          const pulled = await refreshEtsyListingByExternalId(conn, listingId);
+          console.log("[channels] etsy webhook listing pull completed", {
+            listingId,
+            updated: pulled?.updated ?? false,
+            changes: pulled?.changes ?? [],
           });
-          return { updated: 0, removed: 0 };
-        });
-        console.log("[channels] etsy webhook catalog reconcile completed", catalogResult);
+        } else if (isEtsySalesWebhookTopic(topic)) {
+          const salesResult = await reconcileConnectionSales(conn);
+          console.log("[channels] etsy webhook sales reconcile completed", { applied: salesResult.applied });
+        } else if (isEtsyListingWebhookTopic(topic)) {
+          const catalogResult = await reconcileConnectionInboundCatalog(conn).catch((e) => {
+            console.error("[channels] etsy webhook catalog reconcile failed", {
+              error: String(e),
+            });
+            return { updated: 0, removed: 0 };
+          });
+          console.log("[channels] etsy webhook catalog reconcile completed", catalogResult);
+        } else {
+          const salesResult = await reconcileConnectionSales(conn);
+          console.log("[channels] etsy webhook sales reconcile completed", { applied: salesResult.applied });
+          const catalogResult = await reconcileConnectionInboundCatalog(conn).catch((e) => {
+            console.error("[channels] etsy webhook catalog reconcile failed", {
+              error: String(e),
+            });
+            return { updated: 0, removed: 0 };
+          });
+          console.log("[channels] etsy webhook catalog reconcile completed", catalogResult);
+        }
       } else {
         console.warn("[channels] etsy webhook - no connection found for shop", { shopId });
       }

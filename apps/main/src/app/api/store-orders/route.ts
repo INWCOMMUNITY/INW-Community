@@ -34,7 +34,10 @@ export async function GET(req: NextRequest) {
         where: buyerWhere,
         include: {
           seller: {
-            include: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
               businesses: { take: 1, select: { name: true, slug: true } },
             },
           },

@@ -13,7 +13,6 @@ import { enrichInventoryProductAspectsForPush, prepareLiveAspectsForInventoryPut
 import { applyBestOfferTermsToOfferBody, bestOfferStatesMatch, inwBestOfferState, readOfferBestOfferTerms } from "./best-offer";
 import { EBAY_CURRENCY } from "./config";
 import { ebayPriceFromCents } from "./mapping";
-import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 import {
   ebayPhotosAreHostFamilyMismatchOnly,
   normalizeInventoryImageUrls,
@@ -421,21 +420,6 @@ export function buildPassthroughInventoryBody(
     );
   } else {
     pinSanitizedLiveImageUrls(liveProduct);
-  }
-
-  const axes = normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[] | null;
-  if (axes && axes.length > 0) {
-    const primary = axes[0];
-    const variations = primary.options.map((o) => ({
-      sku: `${item.id}-${o.value}`.slice(0, 50),
-      aspects: { [primary.name]: [o.value] },
-      availability: { shipToLocationAvailability: { quantity: Math.max(0, o.quantity) } },
-    }));
-    return {
-      ...(typeof live.condition === "string" ? { condition: live.condition } : {}),
-      product: liveProduct,
-      variations,
-    };
   }
 
   const body: Record<string, unknown> = {

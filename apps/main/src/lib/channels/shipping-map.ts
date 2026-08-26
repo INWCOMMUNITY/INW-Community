@@ -151,12 +151,29 @@ export function etsyProfileDomesticShippingCostCents(
   return etsyMoneyToCents(picked?.primary_cost);
 }
 
+/** 5-digit US ZIP stored on ChannelConnection.config.etsyOriginPostalCode. */
+export function etsyOriginPostalCodeFromConfig(config: unknown): string | null {
+  if (!config || typeof config !== "object") return null;
+  const raw = String((config as Record<string, unknown>).etsyOriginPostalCode ?? "").trim();
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length < 5) return null;
+  return digits.slice(0, 5);
+}
+
+export function normalizeEtsyOriginPostalCode(value: string): string | null {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length < 5) return null;
+  return digits.slice(0, 5);
+}
+
 /** POST body for Etsy createShopShippingProfile (US domestic flat rate). */
 export function buildInwFlatProfileFields(
   rateCents: number,
-  profileName: string
+  profileName: string,
+  originPostalCode?: string | null
 ): Record<string, string | number> {
   const cost = (Math.max(0, Math.round(rateCents)) / 100).toFixed(2);
+  const zip = originPostalCode?.replace(/\D/g, "").slice(0, 5);
   return {
     title: profileName,
     origin_country_iso: "US",
@@ -165,6 +182,9 @@ export function buildInwFlatProfileFields(
     secondary_cost: cost,
     min_processing_time: 1,
     max_processing_time: 3,
+    min_delivery_days: 5,
+    max_delivery_days: 10,
+    ...(zip && zip.length === 5 ? { origin_postal_code: zip } : {}),
   };
 }
 
@@ -188,12 +208,19 @@ async function tryCreateInwFlatProfile(
   rateCents: number,
   profileName: string
 ): Promise<string | null> {
+  const originPostalCode = etsyOriginPostalCodeFromConfig(conn.config);
+  if (!originPostalCode) {
+    console.warn("[channels] skip creating Etsy flat shipping profile; ship-from ZIP not set", {
+      profileName,
+    });
+    return null;
+  }
   try {
     const created = await etsyForm<{ shipping_profile_id?: number }>(
       conn.accessToken,
       `/shops/${shopId}/shipping-profiles`,
       "POST",
-      buildInwFlatProfileFields(rateCents, profileName)
+      buildInwFlatProfileFields(rateCents, profileName, originPostalCode)
     );
     const id = created.shipping_profile_id;
     if (!id) return null;

@@ -135,14 +135,32 @@ export async function GET(req: NextRequest) {
   const incoming = await prisma.friendRequest.findMany({
     where: { addresseeId: session.user.id, status: "pending" },
     include: {
-      requester: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+      requester: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          profilePhotoUrl: true,
+          city: true,
+          bio: true,
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
   const outgoing = await prisma.friendRequest.findMany({
     where: { requesterId: session.user.id, status: "pending" },
     include: {
-      addressee: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+      addressee: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          profilePhotoUrl: true,
+          city: true,
+          bio: true,
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -154,13 +172,32 @@ export async function GET(req: NextRequest) {
       ],
     },
     include: {
-      requester: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
-      addressee: { select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true } },
+      requester: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          profilePhotoUrl: true,
+          city: true,
+          bio: true,
+        },
+      },
+      addressee: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          profilePhotoUrl: true,
+          city: true,
+          bio: true,
+        },
+      },
     },
   });
-  const friendList = friends.map((f) =>
-    f.requesterId === session.user!.id ? f.addressee : f.requester
-  );
+  const friendList = friends.map((f) => {
+    const other = f.requesterId === session.user!.id ? f.addressee : f.requester;
+    return { ...other, friendsSince: f.createdAt };
+  });
 
   return NextResponse.json({
     incoming,

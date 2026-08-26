@@ -31,6 +31,7 @@ function p2002(target: string[]) {
 describe("claimChannelListingLink", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrisma.channelListingLink.findUnique.mockResolvedValue(null);
     mockPrisma.channelListingLink.create.mockImplementation(
       ({ data }: { data: Record<string, unknown> }) => Promise.resolve({ id: "link-1", ...data })
     );
@@ -38,6 +39,37 @@ describe("claimChannelListingLink", () => {
       ({ data }: { data: Record<string, unknown> }) => Promise.resolve({ id: "link-stolen", ...data })
     );
     mockPrisma.storeItem.delete.mockResolvedValue({});
+  });
+
+  it("updates an existing same-item link without creating", async () => {
+    const { claimChannelListingLink } = await import("./listing-link-claim");
+    mockPrisma.channelListingLink.findUnique.mockResolvedValueOnce({
+      id: "link-existing",
+      storeItemId: "item-1",
+      externalListingId: "wix-already",
+    });
+    mockPrisma.channelListingLink.update.mockResolvedValueOnce({
+      id: "link-existing",
+      storeItemId: "item-1",
+    });
+
+    const result = await claimChannelListingLink({
+      storeItemId: "item-1",
+      memberId: "member-1",
+      connectionId: "conn-1",
+      provider: "wix",
+      externalListingId: "wix-new",
+      linkOrigin: "inw_create",
+    });
+
+    expect(result.created).toBe(false);
+    expect(mockPrisma.channelListingLink.create).not.toHaveBeenCalled();
+    expect(mockPrisma.channelListingLink.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "link-existing" },
+        data: expect.objectContaining({ externalListingId: "wix-already" }),
+      })
+    );
   });
 
   it("creates a new link when none exists", async () => {
@@ -60,11 +92,13 @@ describe("claimChannelListingLink", () => {
     mockPrisma.channelListingLink.create.mockRejectedValueOnce(
       p2002(["provider", "external_listing_id"])
     );
-    mockPrisma.channelListingLink.findUnique.mockResolvedValueOnce({
-      id: "link-stolen",
-      storeItemId: "orphan-item",
-      storeItem: { memberId: "member-1" },
-    });
+    mockPrisma.channelListingLink.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: "link-stolen",
+        storeItemId: "orphan-item",
+        storeItem: { memberId: "member-1" },
+      });
     mockPrisma.storeItem.findUnique.mockResolvedValueOnce({
       _count: { channelLinks: 0, orderItems: 0 },
     });
@@ -97,6 +131,7 @@ describe("claimChannelListingLink", () => {
     );
     mockPrisma.channelListingLink.findUnique
       .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
         id: "link-existing",
         storeItemId: "item-1",
@@ -126,11 +161,13 @@ describe("claimChannelListingLink", () => {
     mockPrisma.channelListingLink.create.mockRejectedValueOnce(
       p2002(["provider", "external_listing_id"])
     );
-    mockPrisma.channelListingLink.findUnique.mockResolvedValueOnce({
-      id: "link-other",
-      storeItemId: "other-item",
-      storeItem: { memberId: "member-other" },
-    });
+    mockPrisma.channelListingLink.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: "link-other",
+        storeItemId: "other-item",
+        storeItem: { memberId: "member-other" },
+      });
 
     await expect(
       claimChannelListingLink({

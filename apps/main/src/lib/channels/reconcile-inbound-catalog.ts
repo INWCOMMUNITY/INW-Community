@@ -4,6 +4,7 @@ import {
   applyRemoteContentToStoreItem,
   applyRemoteQuantityToStoreItem,
   applyRemoteListingRemoved,
+  inboundDescriptionsMatch,
   remoteContentDiffersFromStoreItem,
   remoteTitleOrPriceDiffersFromStoreItem,
 } from "./apply-remote-listing";
@@ -19,7 +20,7 @@ import {
 } from "./sync-baseline";
 import { clampSaneInventoryQty } from "./inventory-sanity";
 import { variantsFingerprint } from "./variant-sync";
-import type { ChannelProvider, RemoteListingSummary } from "./types";
+import { CHANNEL_PROVIDERS, type ChannelProvider, type RemoteListingSummary } from "./types";
 import { getChannelCapabilities } from "./capabilities";
 import { indexEbayRemoteListings, resolveEbayLegacyListingId } from "./ebay/mapping";
 import { refreshEbayListingByItemId } from "./ebay/pull-ebay-updates";
@@ -30,6 +31,13 @@ import {
   persistRemoteCatalogState,
   clearRemoteCatalogStateIfSet,
 } from "./listing-link-flags";
+import { isInboundCatalogContentEcho } from "./inbound-catalog-decision";
+import {
+  inwHostedPhotosChangedSinceLastPush,
+  marketplaceCdnPhotoRehostOnly,
+  readStoredPhotoUrls,
+} from "./photo-urls";
+import { tryAcquireCronLock, releaseCronLock, INBOUND_CATALOG_LOCK_TTL_MS } from "@/lib/cron-job-lock";
 
 /** Content fingerprint for a remote catalog row (same fields as syncContentHash on StoreItem). */
 function remoteListingContentHash(remote: RemoteListingSummary): string {
@@ -61,6 +69,7 @@ type LinkRow = {
   syncBaselineHash: string | null;
   syncBaselineQty: number | null;
   syncBaselineAt: Date | null;
+  lastPushedPhotos: unknown;
   conflictDetails: unknown;
   storeItem: {
     title: string;
@@ -174,6 +183,19 @@ export async function reconcileConnectionInboundCatalog(
     return { updated: 0, removed: 0 };
   }
 
+  const lock = await tryAcquireCronLock(
+    `inbound-catalog:${connection.id}`,
+    INBOUND_CATALOG_LOCK_TTL_MS
+  );
+  if (!lock.acquired) {
+    console.log("[channels] inbound catalog skipped; already running", {
+      connectionId: connection.id,
+      provider,
+    });
+    return { updated: 0, removed: 0 };
+  }
+
+  try {
   const links = (await prisma.channelListingLink.findMany({
     where: { connectionId: connection.id, provider, syncEnabled: true },
     select: {
@@ -183,6 +205,7 @@ export async function reconcileConnectionInboundCatalog(
       syncBaselineHash: true,
       syncBaselineQty: true,
       syncBaselineAt: true,
+      lastPushedPhotos: true,
       conflictDetails: true,
       storeItem: {
         select: {
@@ -434,6 +457,23 @@ export async function reconcileConnectionInboundCatalog(
     const qtyDiffers =
       (remoteQtyKnown && remote.quantity !== item.quantity) || inwQtyChangedSinceBaseline;
 
+    const hashEcho = isInboundCatalogContentEcho({
+      inwContentChanged,
+      remoteContentChanged,
+      qtyDiffers,
+      titleOrPriceDiffers: remoteTitleOrPriceDiffersFromStoreItem(item, remote),
+      descriptionDiffers: !inboundDescriptionsMatch(item.description, remote.description),
+      remoteContentActuallyDiffers,
+      marketplaceCdnPhotoRehostOnly: marketplaceCdnPhotoRehostOnly(item.photos, remote.photos ?? []),
+      inwHostedPhotosChangedSinceLastPush: inwHostedPhotosChangedSinceLastPush(
+        item.photos,
+        readStoredPhotoUrls(link.lastPushedPhotos)
+      ),
+    });
+    if (hashEcho) {
+      contentDecision = "noop";
+    }
+
     // Debug logging for inbound sync - always log to understand what's happening
     const remoteTimestamp = remote.remoteUpdatedAt?.getTime() ?? 0;
     const baseTimestamp = baseAt?.getTime() ?? 0;
@@ -450,6 +490,7 @@ export async function reconcileConnectionInboundCatalog(
         remoteContentChanged,
         remoteListEditVisible,
         staleRemoteNeedsPush,
+        hashEcho,
         contentDecision,
         qtyDiffers,
         baseAt: baseAt?.toISOString(),
@@ -470,7 +511,19 @@ export async function reconcileConnectionInboundCatalog(
     }
 
     if (contentDecision === "noop" && !qtyDiffers) {
-      if (staleRemoteNeedsPush || link.syncBaselineHash == null || link.syncBaselineAt == null) {
+      if (
+        hashEcho ||
+        staleRemoteNeedsPush ||
+        link.syncBaselineHash == null ||
+        link.syncBaselineAt == null
+      ) {
+        if (hashEcho) {
+          console.log("[channels] inbound catalog hash echo — rewriting baseline", {
+            storeItemId: link.storeItemId,
+            provider,
+            externalListingId: link.externalListingId,
+          });
+        }
         await writeBaseline(link.id, link.storeItemId, remote, false);
       }
       continue;
@@ -641,7 +694,9 @@ export async function reconcileConnectionInboundCatalog(
     if (contentDecision === "push" && allowPush && !needsQtyRecovery) {
       attemptedPush = true;
       pushOk = channelSyncSucceeded(
-        await updateStoreItemOnChannels(link.storeItemId),
+        await updateStoreItemOnChannels(link.storeItemId, {
+          skipProviders: CHANNEL_PROVIDERS.filter((p) => p !== provider),
+        }),
         provider
       );
     } else if (contentDecision === "push" && needsQtyRecovery) {
@@ -726,4 +781,7 @@ export async function reconcileConnectionInboundCatalog(
     });
   }
   return { updated, removed };
+  } finally {
+    await releaseCronLock(`inbound-catalog:${connection.id}`, lock.holderId);
+  }
 }

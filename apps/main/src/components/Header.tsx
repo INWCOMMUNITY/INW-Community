@@ -319,22 +319,9 @@ export function Header() {
                       <Link
                         href="/my-community/messages"
                         prefetch={false}
-                        className="block py-2.5 px-5 hover:bg-[var(--color-section-alt)] text-sm sm:text-base text-gray-700 text-center"
-                      >
-                        Messages ({unreadMessages})
-                      </Link>
-                      <Link
-                        href="/my-community/profile"
-                        prefetch={false}
-                        className="block py-2.5 px-5 hover:bg-[var(--color-section-alt)] text-sm sm:text-base text-gray-700 text-center"
-                      >
-                        Edit profile
-                      </Link>
-                      <Link
-                        href="/api/auth/signout?callbackUrl=%2F"
                         className="block py-2.5 px-5 hover:bg-[var(--color-section-alt)] rounded-b-md text-sm sm:text-base text-gray-700 text-center"
                       >
-                        Log out
+                        Messages ({unreadMessages})
                       </Link>
                     </div>
                   </div>
@@ -500,15 +487,6 @@ export function Header() {
                 style={pathname?.startsWith("/my-community/messages") ? { backgroundColor: "var(--color-primary)" } : undefined}
               >
                 Messages ({unreadMessages})
-              </Link>
-            )}
-            {session?.user && (
-              <Link
-                href="/api/auth/signout?callbackUrl=%2F"
-                onClick={() => setMobileOpen(false)}
-                className="w-full rounded-lg overflow-hidden text-left block py-3 px-4 font-medium text-gray-800 hover:bg-[var(--color-section-alt)]"
-              >
-                Log out
               </Link>
             )}
           </nav>

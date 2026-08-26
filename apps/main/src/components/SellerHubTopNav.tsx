@@ -93,7 +93,6 @@ export function SellerHubTopNav() {
 
   const ordersChildren: Child[] = [
     { href: "/seller-hub/orders", label: "Fulfillment", icon: "receipt-outline" },
-    { href: "/seller-hub/orders?tab=pickups", label: "Pickups", icon: "hand-left-outline" },
     ...(hasLocalDelivery
       ? [{ href: "/seller-hub/orders?tab=deliveries", label: "Deliveries", icon: "bicycle-outline" }]
       : []),

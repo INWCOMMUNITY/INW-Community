@@ -34,7 +34,6 @@ export default function SellerProfilePage() {
   }, []);
 
   function onSaved() {
-    setEditing(false);
     fetch("/api/seller-profile")
       .then((r) => r.json())
       .then(setProfile);

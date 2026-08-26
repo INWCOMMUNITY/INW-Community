@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { IonIcon } from "@/components/IonIcon";
 import { EventHeroGallery } from "@/components/event/EventHeroGallery";
@@ -16,6 +16,8 @@ import {
   type EventCalendarInput,
 } from "@/lib/event-calendar-export-web";
 import { SiteNavAlignedColumn } from "@/components/SiteNavAlignedColumn";
+import { buildBusinessHref } from "@/lib/business-referrer";
+import { buildEventBackLink, getEventReferrer } from "@/lib/event-referrer";
 
 const EVENT_SECTION_STACK = "flex flex-col gap-2";
 
@@ -85,13 +87,13 @@ function Sheet({
 export function EventDetailContent({
   event,
   initialSaved,
-  backHref = "/calendars",
 }: {
   event: EventDetailData;
   initialSaved: boolean;
-  backHref?: string;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const backLink = buildEventBackLink(getEventReferrer(searchParams));
   const { data: session } = useSession();
   const siteBase = typeof window !== "undefined" ? window.location.origin : "";
 
@@ -177,7 +179,7 @@ export function EventDetailContent({
 
   const openInvite = useCallback(async () => {
     if (!session?.user) {
-      router.push(`/login?callbackUrl=${encodeURIComponent(`/events/${event.slug}`)}`);
+      router.push(`/login?callbackUrl=${encodeURIComponent(`/events/${event.slug}${typeof window !== "undefined" ? window.location.search : ""}`)}`);
       return;
     }
     setInviteOpen(true);
@@ -255,7 +257,7 @@ export function EventDetailContent({
 
   const openRsvp = () => {
     if (!session?.user) {
-      router.push(`/login?callbackUrl=${encodeURIComponent(`/events/${event.slug}`)}`);
+      router.push(`/login?callbackUrl=${encodeURIComponent(`/events/${event.slug}${typeof window !== "undefined" ? window.location.search : ""}`)}`);
       return;
     }
     setRsvpOpen(true);
@@ -269,9 +271,9 @@ export function EventDetailContent({
           style={{ backgroundColor: "var(--color-primary)" }}
         >
           <Link
-            href={backHref}
+            href={backLink.href}
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-white hover:opacity-90"
-            aria-label="Back"
+            aria-label={backLink.label}
           >
             <IonIcon name="arrow-back" size={22} className="text-white" />
           </Link>
@@ -312,7 +314,7 @@ export function EventDetailContent({
             <p className="text-center text-sm -mt-0.5 mb-1.5" style={{ color: "var(--color-text)" }}>
               by{" "}
               <Link
-                href={`/support-local/${event.business.slug}`}
+                href={buildBusinessHref(event.business.slug, { type: "event", eventSlug: event.slug })}
                 className="font-semibold underline"
                 style={{ color: "var(--color-primary)" }}
               >

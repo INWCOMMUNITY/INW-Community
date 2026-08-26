@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
           lastName: true,
           profilePhotoUrl: true,
           city: true,
+          bio: true,
         },
       },
       addressee: {
@@ -36,6 +37,7 @@ export async function GET(req: NextRequest) {
           lastName: true,
           profilePhotoUrl: true,
           city: true,
+          bio: true,
         },
       },
     },
@@ -49,6 +51,8 @@ export async function GET(req: NextRequest) {
       lastName: other.lastName,
       profilePhotoUrl: other.profilePhotoUrl,
       city: other.city,
+      bio: other.bio,
+      friendsSince: fr.createdAt,
     };
   });
 

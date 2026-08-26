@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useLockBodyScroll } from "@/lib/scroll-lock";
+import { normalizeWebsiteUrl } from "@/lib/website-url";
 
 async function uploadFile(file: File, opts?: { purpose?: "business-logo" }): Promise<string> {
   const formData = new FormData();
@@ -37,6 +40,7 @@ interface SellerProfileEditProps {
 }
 
 export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileEditProps) {
+  const router = useRouter();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -50,6 +54,10 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [savedOpen, setSavedOpen] = useState(false);
+  const [sellerSlug, setSellerSlug] = useState(profile?.business?.slug ?? "");
+
+  useLockBodyScroll(savedOpen);
 
   useEffect(() => {
     if (profile?.business) {
@@ -61,6 +69,7 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
       setAddress(profile.business.address ?? "");
       setLogoUrl(profile.business.logoUrl ?? "");
       setCoverPhotoUrl((profile.business as { coverPhotoUrl?: string | null }).coverPhotoUrl ?? "");
+      setSellerSlug(profile.business.slug ?? "");
     }
     if (profile) {
       setPackingSlipNote(profile.packingSlipNote ?? "");
@@ -71,6 +80,8 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
     e.preventDefault();
     setError("");
     setSaving(true);
+    const websiteUrl = normalizeWebsiteUrl(website);
+    setWebsite(websiteUrl);
     try {
       const res = await fetch("/api/seller-profile", {
         method: "PATCH",
@@ -81,7 +92,7 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
             phone: phone.trim() || null,
             email: email.trim() || null,
             fullDescription: fullDescription.trim() || null,
-            website: website.trim() || null,
+            website: websiteUrl || null,
             address: address.trim() || null,
             logoUrl: logoUrl.trim() || null,
             coverPhotoUrl: coverPhotoUrl.trim() || null,
@@ -94,6 +105,20 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
         setError(data.error ?? "Failed to save");
         return;
       }
+      let slug = sellerSlug || profile?.business?.slug || "";
+      if (!slug) {
+        try {
+          const refreshed = await fetch("/api/seller-profile", { credentials: "include" }).then((r) =>
+            r.json()
+          );
+          slug =
+            typeof refreshed?.business?.slug === "string" ? refreshed.business.slug : "";
+        } catch {
+          slug = "";
+        }
+      }
+      setSellerSlug(slug);
+      setSavedOpen(true);
       onSaved();
     } finally {
       setSaving(false);
@@ -229,9 +254,14 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
           <div className="min-w-0">
             <label className="block text-sm font-medium mb-1">Business Website</label>
             <input
-              type="url"
+              type="text"
+              inputMode="url"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               value={website}
               onChange={(e) => setWebsite(e.target.value)}
+              onBlur={() => setWebsite(normalizeWebsiteUrl(website))}
               className="w-full max-w-full min-w-0 border rounded px-3 py-2 box-border"
               placeholder="https://"
             />
@@ -267,6 +297,42 @@ export function SellerProfileEdit({ profile, onSaved, onCancel }: SellerProfileE
           Cancel
         </button>
       </div>
+      {savedOpen ? (
+        <div
+          className="fixed inset-0 z-[270] flex items-center justify-center p-4 bg-black/40"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="seller-page-saved-title"
+        >
+          <div
+            className="relative z-10 w-full max-w-md rounded-xl border-2 bg-white p-6 shadow-xl text-center"
+            style={{ borderColor: "var(--color-primary)" }}
+          >
+            <h3
+              id="seller-page-saved-title"
+              className="text-lg font-bold mb-5"
+              style={{ color: "var(--color-heading)" }}
+            >
+              Your Seller Page has been saved.
+            </h3>
+            <div className="flex flex-col gap-3">
+              <button type="button" className="btn w-full" onClick={() => router.push("/seller-hub")}>
+                Return to Seller Hub
+              </button>
+              {sellerSlug ? (
+                <a
+                  href={`/support-local/sellers/${sellerSlug}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn w-full inline-flex items-center justify-center"
+                >
+                  See Seller Page
+                </a>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </form>
   );
 }

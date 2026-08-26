@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { getBusinessReferrer, buildBusinessBackLink } from "@/lib/business-referrer";
 import { IonIcon } from "@/components/IonIcon";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 import { ShareButton } from "@/components/ShareButton";
@@ -17,9 +19,14 @@ import {
   BUSINESS_SECTION_TITLE,
   BUSINESS_ABOUT_TEXT,
   BUSINESS_TEXT_SM,
+  BUSINESS_HOURS_TEXT,
 } from "@/components/business/business-page-layout";
 
 const DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+function localWeekdayKey(): string {
+  return DAY_ORDER[(new Date().getDay() + 6) % 7];
+}
 
 export type BusinessDetailData = {
   id: string;
@@ -51,14 +58,19 @@ function formatWebsiteHref(url: string): string {
 export function BusinessDetailContent({
   business,
   initialSaved,
-  backHref = "/support-local",
 }: {
   business: BusinessDetailData;
   initialSaved: boolean;
-  backHref?: string;
 }) {
   const { data: session } = useSession();
+  const searchParams = useSearchParams();
+  const backLink = buildBusinessBackLink(getBusinessReferrer(searchParams));
   const [savedNote, setSavedNote] = useState(false);
+  const [todayKey, setTodayKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTodayKey(localWeekdayKey());
+  }, []);
 
   const hours = business.hoursOfOperation;
   const hasHours = hours && typeof hours === "object" && Object.keys(hours).length > 0;
@@ -82,9 +94,9 @@ export function BusinessDetailContent({
             style={{ backgroundColor: "var(--color-primary)" }}
           >
             <Link
-              href={backHref}
+              href={backLink.href}
               className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-white hover:opacity-90"
-              aria-label="Back to directory"
+              aria-label={backLink.label}
             >
               <IonIcon name="arrow-back" size={22} className="text-white" />
             </Link>
@@ -190,15 +202,22 @@ export function BusinessDetailContent({
               <p className={BUSINESS_SECTION_TITLE} style={{ color: "var(--color-heading)" }}>
                 Hours of Operation
               </p>
-              <ul className="space-y-1">
+              <ul className="space-y-0.5">
                 {DAY_ORDER.map((day) => {
                   const val = hours[day];
                   if (!val) return null;
+                  const isToday = day === todayKey;
                   return (
                     <li
                       key={day}
-                      className={`flex gap-6 md:gap-8 ${BUSINESS_TEXT_SM}`}
-                      style={{ color: "var(--color-text)" }}
+                      className={`flex gap-6 md:gap-8 rounded-md px-2 py-0.5 -mx-2 ${BUSINESS_HOURS_TEXT} ${
+                        isToday ? "font-semibold" : ""
+                      }`}
+                      style={
+                        isToday
+                          ? { backgroundColor: "var(--color-section-alt)", color: "var(--color-heading)" }
+                          : { color: "var(--color-text)" }
+                      }
                     >
                       <span className="w-[6.75rem] shrink-0 capitalize sm:w-[7.5rem] md:w-[9.5rem]">
                         {day}

@@ -6,18 +6,20 @@ const RELEASED_HOLDER = "";
 /** Must be >= sync-channels maxDuration (300s) so a live run cannot be stolen. */
 export const SYNC_CHANNELS_LOCK_TTL_MS = 320_000;
 
+/** Per-connection inbound catalog (webhook + cron must not overlap media writes). */
+export const INBOUND_CATALOG_LOCK_TTL_MS = 120_000;
+
 export type CronLockAcquireResult =
   | { acquired: false }
   | { acquired: true; holderId: string; passStartedAt: Date; resumed: boolean };
-
-function isUniqueViolation(e: unknown): boolean {
-  return Boolean(e && typeof e === "object" && "code" in e && (e as { code: string }).code === "P2002");
-}
 
 /**
  * Exclusive lease for a named cron job. Stolen only after `ttlMs` so a timed-out
  * invocation cannot overlap the next tick. Resume keeps `passStartedAt` so
  * reconcile can skip connections already finished in this pass.
+ *
+ * Insert uses ON CONFLICT so overlapping Vercel ticks never throw Prisma P2002
+ * (which is logged as [prisma:error] even when caught).
  */
 export async function tryAcquireCronLock(
   jobName: string,
@@ -27,38 +29,60 @@ export async function tryAcquireCronLock(
   const holderId = randomUUID();
   const expiresAt = new Date(now.getTime() + ttlMs);
 
-  try {
-    const created = await prisma.cronJobLock.create({
-      data: {
-        jobName,
-        holderId,
-        acquiredAt: now,
-        expiresAt,
-        passStartedAt: now,
-      },
-    });
+  const inserted = await prisma.$executeRaw`
+    INSERT INTO cron_job_lock (
+      job_name,
+      holder_id,
+      acquired_at,
+      expires_at,
+      pass_started_at,
+      updated_at
+    )
+    VALUES (
+      ${jobName},
+      ${holderId},
+      ${now},
+      ${expiresAt},
+      ${now},
+      ${now}
+    )
+    ON CONFLICT (job_name) DO NOTHING
+  `;
+
+  if (Number(inserted) === 1) {
     return {
       acquired: true,
       holderId,
-      passStartedAt: created.passStartedAt ?? now,
+      passStartedAt: now,
       resumed: false,
     };
-  } catch (e) {
-    if (!isUniqueViolation(e)) throw e;
   }
 
+  const row = await prisma.cronJobLock.findUnique({ where: { jobName } });
+  if (!row) return { acquired: false };
+
+  const held = row.holderId !== RELEASED_HOLDER && row.expiresAt.getTime() >= now.getTime();
+  if (held) return { acquired: false };
+
+  const resume = row.holderId !== RELEASED_HOLDER && row.passStartedAt != null;
   const stolen = await prisma.cronJobLock.updateMany({
-    where: { jobName, expiresAt: { lt: now } },
-    data: { holderId, acquiredAt: now, expiresAt },
+    where: {
+      jobName,
+      OR: [{ holderId: RELEASED_HOLDER }, { expiresAt: { lt: now } }],
+    },
+    data: {
+      holderId,
+      acquiredAt: now,
+      expiresAt,
+      passStartedAt: resume ? row.passStartedAt : now,
+    },
   });
   if (stolen.count !== 1) return { acquired: false };
-
-  const row = await prisma.cronJobLock.findUnique({ where: { jobName } });
   return {
     acquired: true,
     holderId,
-    passStartedAt: row?.passStartedAt ?? now,
-    resumed: true,
+    passStartedAt: resume && row.passStartedAt ? row.passStartedAt : now,
+    resumed: resume,
   };
 }
 

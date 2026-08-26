@@ -11,6 +11,7 @@ import { FollowBusinessButton } from "@/app/support-local/sellers/[slug]/FollowB
 import { ShareButton } from "@/components/ShareButton";
 import { StorefrontCard } from "@/components/store/StorefrontCard";
 import { buildProductLinkWithReferrer } from "@/lib/product-referrer";
+import { buildBusinessHref } from "@/lib/business-referrer";
 
 const DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
@@ -580,7 +581,7 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
             ) : null}
 
             <Link
-              href={`/support-local/${seller.slug}`}
+              href={buildBusinessHref(seller.slug, { type: "seller", sellerSlug: seller.slug })}
               className="action-pill action-pill-lg btn-pill-primary w-full"
             >
               <IonIcon name="business-outline" size={18} className="text-white" />

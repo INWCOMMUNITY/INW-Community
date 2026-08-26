@@ -173,7 +173,7 @@ export async function resolveSyncLegacyListingId(
     offerId?: string | null;
   }
 ): Promise<string | null> {
-  for (const candidate of [args.linkedSku, args.sku, args.itemSku]) {
+  for (const candidate of [args.linkedSku, args.sku]) {
     if (!candidate) continue;
     const legacy = resolveEbayLegacyListingId(candidate);
     if (legacy) return legacy;

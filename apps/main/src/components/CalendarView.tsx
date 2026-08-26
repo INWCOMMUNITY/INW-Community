@@ -5,6 +5,7 @@ import Link from "next/link";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 import { formatTime12h } from "@/lib/format-time";
 import { IonIcon } from "@/components/IonIcon";
+import { buildEventHref } from "@/lib/event-referrer";
 
 interface EventItem {
   id: string;
@@ -52,6 +53,7 @@ export function CalendarView({
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [view, setView] = useState<"list" | "month">("list");
   const [scrollDay, setScrollDay] = useState<string | null>(null);
+  const eventHref = (slug: string) => buildEventHref(slug, { type: "local-events", calendarType });
 
   const from = useMemo(() => startOfMonth(currentMonth), [currentMonth]);
   const to = useMemo(() => endOfMonth(currentMonth), [currentMonth]);
@@ -214,7 +216,7 @@ export function CalendarView({
                     initialSaved={savedIds.has(ev.id)}
                   />
                 </div>
-                <Link href={`/events/${ev.slug}`} className="block">
+                <Link href={eventHref(ev.slug)} className="block">
                   <h4 className="font-bold pr-8">{ev.title}</h4>
                   <p className="text-gray-600 text-sm">
                     {dateStr}
@@ -230,9 +232,6 @@ export function CalendarView({
                   {ev.business && (
                     <p className="text-sm mt-1" style={{ color: "var(--color-link)" }}>{ev.business.name}</p>
                   )}
-                </Link>
-                <Link href={`/events/${ev.slug}`} className="btn mt-2 inline-block text-sm">
-                  Details
                 </Link>
               </li>
             );
@@ -297,7 +296,7 @@ export function CalendarView({
                   {dayEvents.slice(0, 3).map((ev) => (
                     <Link
                       key={ev.id}
-                      href={`/events/${ev.slug}`}
+                      href={eventHref(ev.slug)}
                       className="block text-xs px-1.5 py-0.5 rounded truncate hover:opacity-80"
                       style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
                       title={ev.title}

@@ -24,20 +24,43 @@ export function verifyEtsyWebhook(rawBody: string, headers: Headers): boolean {
   }
 }
 
-/** Pull the shop id + topic out of an Etsy webhook envelope (shapes vary by topic). */
+/** Pull the shop id, topic, and listing id out of an Etsy webhook envelope (shapes vary by topic). */
 export function parseEtsyWebhookEnvelope(payload: unknown): {
   topic: string | null;
   shopId: string | null;
+  listingId: string | null;
 } {
-  if (!payload || typeof payload !== "object") return { topic: null, shopId: null };
+  if (!payload || typeof payload !== "object") return { topic: null, shopId: null, listingId: null };
   const p = payload as Record<string, unknown>;
-  const topic = typeof p.topic === "string" ? p.topic : null;
+  const data = p.data && typeof p.data === "object" && !Array.isArray(p.data)
+    ? (p.data as Record<string, unknown>)
+    : {};
+  const topic = typeof p.topic === "string" ? p.topic : typeof data.topic === "string" ? data.topic : null;
   const rawShop =
     p.shop_id ??
-    (p.data as Record<string, unknown> | undefined)?.shop_id ??
+    data.shop_id ??
     (p.shop as Record<string, unknown> | undefined)?.shop_id;
   const shopId = rawShop != null ? String(rawShop) : null;
-  return { topic, shopId };
+  const listingId = firstNumericId(p.listing_id, data.listing_id, p.resource_id, data.resource_id);
+  return { topic, shopId, listingId };
+}
+
+function firstNumericId(...vals: unknown[]): string | null {
+  for (const v of vals) {
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) return String(Math.trunc(v));
+    if (typeof v === "string" && /^\d+$/.test(v.trim())) return v.trim();
+  }
+  return null;
+}
+
+export function isEtsyListingWebhookTopic(topic: string | null): boolean {
+  if (!topic) return false;
+  return /listing/i.test(topic) && !/receipt|transaction|order/i.test(topic);
+}
+
+export function isEtsySalesWebhookTopic(topic: string | null): boolean {
+  if (!topic) return false;
+  return /receipt|order|transaction|sale/i.test(topic);
 }
 
 /**

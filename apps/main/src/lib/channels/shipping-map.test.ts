@@ -102,8 +102,15 @@ describe("buildInwFlatProfileFields", () => {
       secondary_cost: "0.00",
       min_processing_time: 1,
       max_processing_time: 3,
+      min_delivery_days: 5,
+      max_delivery_days: 10,
     });
     expect(fields).not.toHaveProperty("destination_region");
+    expect(fields).not.toHaveProperty("origin_postal_code");
+  });
+
+  it("includes origin_postal_code when a US ZIP is provided", () => {
+    expect(buildInwFlatProfileFields(0, "INW $0.00", "99201").origin_postal_code).toBe("99201");
   });
 
   it("formats a non-zero rate as dollars", () => {

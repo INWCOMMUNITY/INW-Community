@@ -118,7 +118,7 @@ export default function MySubscriptionsPage() {
             disabled={loading}
             className="btn w-full"
           >
-            {loading ? "Opening…" : "Manage subscriptions"}
+            {loading ? "Opening…" : "Manage Subscriptions"}
           </button>
           <button
             type="button"

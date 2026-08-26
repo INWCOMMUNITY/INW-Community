@@ -157,4 +157,20 @@ describe("ebay picture errors", () => {
   it("hints to retry after an eBay migrate timeout", () => {
     expect(ebayErrorActionHint("eBay request timed out after 20s")).toMatch(/Try importing/i);
   });
+
+  it("hints about variationInformation #25002 instead of a generic variation SKU", () => {
+    const msg =
+      "[#25002 · API_INVENTORY · Request · HTTP 400] A user error has occurred. Required variationInformation container is missing.";
+    expect(ebayErrorActionHint(msg)).toMatch(/generates a unique SKU for each variation/i);
+    expect(ebayErrorActionHint(msg)).not.toMatch(/unique SKU per variation in Seller Hub/i);
+    expect(describeChannelSyncError("ebay", new Error(msg))).toMatch(
+      /generates a unique SKU for each variation/i
+    );
+  });
+
+  it("explains Etsy marketplace prohibition", () => {
+    expect(
+      describeChannelSyncError("etsy", new Error("marketplace: Oh dear, you cannot sell this item on Etsy."))
+    ).toMatch(/Needs Attention/i);
+  });
 });

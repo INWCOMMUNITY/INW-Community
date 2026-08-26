@@ -1,6 +1,7 @@
 import { prisma, Prisma } from "database";
 import type { ChannelProvider } from "./types";
 import { logSyncEvent } from "./sync-log";
+import { shouldCountTowardCircuit } from "./error-classifier";
 
 /**
  * Circuit breaker states:
@@ -139,6 +140,12 @@ export async function recordCircuitSuccess(
   }
 }
 
+function circuitErrorText(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message;
+  return String(error ?? "");
+}
+
 /**
  * Record a failed request. May trip the circuit to open state.
  */
@@ -146,10 +153,14 @@ export async function recordCircuitFailure(
   connectionId: string,
   provider: ChannelProvider,
   memberId?: string,
-  error?: string
+  error?: unknown
 ): Promise<void> {
+  if (!shouldCountTowardCircuit(error ?? "")) {
+    return;
+  }
   const circuit = getCircuitState(connectionId);
   const now = Date.now();
+  const errorText = circuitErrorText(error);
 
   circuit.failures.push(now);
   circuit.lastFailure = now;
@@ -160,14 +171,14 @@ export async function recordCircuitFailure(
     circuit.openedAt = now;
     circuit.halfOpenSuccesses = 0;
 
-    await persistCircuitState(connectionId, "OPEN", error);
+    await persistCircuitState(connectionId, "OPEN", errorText);
 
     if (memberId) {
       logSyncEvent(
         memberId,
         provider,
         "circuit_open",
-        `Channel sync paused after failed recovery test: ${error?.slice(0, 200) ?? "Unknown error"}`
+        `Channel sync paused after failed recovery test: ${errorText.slice(0, 200) || "Unknown error"}`
       );
     }
     console.warn("[circuit-breaker] circuit re-opened after half-open failure", {
@@ -181,27 +192,15 @@ export async function recordCircuitFailure(
     circuit.state = "OPEN";
     circuit.openedAt = now;
 
-    await persistCircuitState(connectionId, "OPEN", error);
+    await persistCircuitState(connectionId, "OPEN", errorText);
 
     if (memberId) {
       logSyncEvent(
         memberId,
         provider,
         "circuit_open",
-        `Channel sync paused due to repeated failures (${FAILURE_THRESHOLD} in ${FAILURE_WINDOW_MS / 1000}s): ${error?.slice(0, 200) ?? "Unknown error"}`
+        `Channel sync paused due to repeated failures (${FAILURE_THRESHOLD} in ${FAILURE_WINDOW_MS / 1000}s): ${errorText.slice(0, 200) || "Unknown error"}`
       );
-
-      import("@/lib/send-push-notification")
-        .then(({ sendPushNotification }) => {
-          const label = provider.charAt(0).toUpperCase() + provider.slice(1);
-          sendPushNotification(memberId, {
-            title: `${label} sync temporarily paused`,
-            body: "Multiple sync failures detected. We'll retry automatically soon.",
-            data: { screen: "seller-hub/channels/sync-activity" },
-            category: "commerce",
-          }).catch(() => {});
-        })
-        .catch(() => {});
     }
 
     console.warn("[circuit-breaker] circuit opened", {
@@ -277,6 +276,8 @@ async function persistCircuitState(
 
 /**
  * Hydrate circuit breaker state from ChannelConnection.config on cold start.
+ * Listing-level 400s (who_made, etc.) used to persist OPEN and pause the whole
+ * shop forever; those must not come back as a pause after deploy.
  */
 export function hydrateCircuitFromConfig(connectionId: string, config: unknown): void {
   if (!config || typeof config !== "object") return;
@@ -287,6 +288,22 @@ export function hydrateCircuitFromConfig(connectionId: string, config: unknown):
 
   const state = cb.state as CircuitState | undefined;
   if (!state || !["CLOSED", "OPEN", "HALF_OPEN"].includes(state)) return;
+
+  const lastError = typeof cb.lastError === "string" ? cb.lastError : "";
+  if (state === "OPEN" && lastError && !shouldCountTowardCircuit(lastError)) {
+    const circuit = getCircuitState(connectionId);
+    circuit.state = "CLOSED";
+    circuit.failures = [];
+    circuit.lastFailure = null;
+    circuit.openedAt = null;
+    circuit.halfOpenSuccesses = 0;
+    void persistCircuitState(connectionId, "CLOSED");
+    console.info("[circuit-breaker] cleared stale listing-level pause", {
+      connectionId,
+      lastError: lastError.slice(0, 120),
+    });
+    return;
+  }
 
   const circuit = getCircuitState(connectionId);
   circuit.state = state;

@@ -8,6 +8,7 @@ import { IonIcon } from "@/components/IonIcon";
 import { useCart } from "@/contexts/CartContext";
 import { CARD_SHADOW, CARD_RADIUS } from "@/components/ui/card-styles";
 import { StorefrontCard } from "@/components/store/StorefrontCard";
+import { storefrontCloseMatchNote } from "@/lib/storefront-search";
 type BrowseCategoryOption = { label: string; subcategories: string[] };
 
 function AddToCartButton({
@@ -336,6 +337,7 @@ export function StorefrontGallery({
     maxPrice,
     size,
   ].filter(Boolean).length;
+  const closeMatchNote = storefrontCloseMatchNote(search, items);
 
   return (
     <div className="w-full max-w-[var(--max-width)] mx-auto px-4">
@@ -605,6 +607,9 @@ export function StorefrontGallery({
       </div>
 
       {/* Product grid - full width with staggered animation */}
+      {closeMatchNote ? (
+        <p className="text-sm text-gray-600 mb-4 italic text-center">{closeMatchNote}</p>
+      ) : null}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6">
         {items.map((item, index) => (
           <div

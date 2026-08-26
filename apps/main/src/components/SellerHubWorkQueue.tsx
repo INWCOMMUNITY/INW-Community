@@ -34,7 +34,6 @@ export function SellerHubWorkQueue({
 }) {
   const [pendingShip, setPendingShip] = useState(0);
   const [pendingDeliveries, setPendingDeliveries] = useState(0);
-  const [pendingPickups, setPendingPickups] = useState(0);
   const [pendingOffers, setPendingOffers] = useState(0);
   const [sellerSetupComplete, setSellerSetupComplete] = useState<boolean | null>(null);
 
@@ -45,12 +44,10 @@ export function SellerHubWorkQueue({
         (d: {
           pendingShip?: number;
           pendingDeliveries?: number;
-          pendingPickups?: number;
           sellerOffersPending?: number;
         }) => {
           setPendingShip(Number(d?.pendingShip) || 0);
           setPendingDeliveries(Number(d?.pendingDeliveries) || 0);
-          setPendingPickups(Number(d?.pendingPickups) || 0);
           setPendingOffers(Number(d?.sellerOffersPending) || 0);
         }
       )
@@ -95,16 +92,16 @@ export function SellerHubWorkQueue({
     () =>
       [
         {
-          label: "My Items",
-          href: "/seller-hub/store/items",
-          icon: "cube",
-          description: "View and edit your listings.",
-        },
-        {
           label: "List Item",
           href: "/seller-hub/store/new",
           icon: "add-circle",
           description: "Add a product to the NWC Storefront.",
+        },
+        {
+          label: "My Items",
+          href: "/seller-hub/store/items",
+          icon: "cube",
+          description: "View and edit your listings.",
         },
         {
           label: "Fulfillment",
@@ -114,11 +111,10 @@ export function SellerHubWorkQueue({
           badge: pendingShip > 0,
         },
         {
-          label: "Pickups",
-          href: "/seller-hub/orders?tab=pickups",
-          icon: "hand-left-outline",
-          description: "In-store pickup orders ready for the buyer.",
-          badge: pendingPickups > 0,
+          label: "Policies",
+          href: "/seller-hub/policies",
+          icon: "book-outline",
+          description: "Set shipping, pickup, delivery, and return terms.",
         },
         {
           label: "Deliveries",
@@ -153,7 +149,6 @@ export function SellerHubWorkQueue({
       hasLocalDelivery,
       pendingDeliveries,
       pendingOffers,
-      pendingPickups,
       pendingShip,
       sellerSetupComplete,
     ]

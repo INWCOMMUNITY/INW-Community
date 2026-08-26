@@ -88,7 +88,7 @@ export function AddFriendButton({
       disabled={loading}
       className="btn text-sm"
     >
-      {loading ? "Sending…" : "Add friend"}
+      {loading ? "Sending…" : "Add Friend"}
     </button>
   );
 }

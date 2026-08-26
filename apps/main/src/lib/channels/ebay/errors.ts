@@ -386,8 +386,11 @@ export function ebayErrorActionHint(reason: string): string | undefined {
   if (/not_fixed_price|not a fixed|auction|classified/i.test(reason)) {
     return "eBay only syncs fixed-price (Buy It Now) listings. Convert auctions/classified ads to fixed price to sync them.";
   }
+  if (/variationInformation/i.test(reason)) {
+    return "INW generates a unique SKU for each variation when it pushes to eBay. Retry sync so those SKUs are sent as a variation group.";
+  }
   if (/multi-variation|variation/i.test(reason)) {
-    return "Multi-variation listings need a unique SKU per variation in Seller Hub before they can sync.";
+    return "INW generates a unique SKU for each variation when it pushes to eBay. Retry sync if this listing still needs a variation group update.";
   }
   if (/Could not set Custom Label/i.test(reason)) {
     return "INW could not write a Custom Label on this eBay listing. Open it in Seller Hub, set an alphanumeric Custom Label (max 50 characters), and import again.";
@@ -445,6 +448,11 @@ export function describeChannelSyncError(provider: string, e: unknown): string {
     return hint ? `${msg} — ${hint}` : msg;
   }
   const msg = (e instanceof Error ? e.message : String(e)).slice(0, 500);
+  if (provider === "etsy") {
+    if (/invalid_marketplace|cannot sell this item on Etsy/i.test(msg)) {
+      return `${msg} — Etsy will not list this item under the current category. Open Sync Stores → Needs Attention to pick a different Etsy category, or skip Etsy for this listing.`;
+    }
+  }
   if (provider === "wix") {
     if (/No Metasite Context|MetaSite not found/i.test(msg)) {
       return `${msg} — Disconnect and reconnect Wix in Sync Stores to refresh the site token.`;
