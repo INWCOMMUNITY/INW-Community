@@ -66,42 +66,27 @@ export function ShippoElementsSurface({
 
   if (!open) return null;
 
-  const mountClass =
-    presentation === "modal"
-      ? "shippo-modal-elements-root w-full min-w-0 h-auto self-start"
-      : "shippo-page-elements-root w-full min-w-0 h-auto self-start";
-
-  const inner = (
-    <>
-      <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-3 sm:px-6">
-        <div className="min-w-0 pr-2">
-          <h2 id={titleId} className="text-lg font-semibold truncate" style={{ color: "var(--color-heading)" }}>
-            {title}
-          </h2>
-          {presentation === "page" && subtitle ? (
-            <p className="text-sm text-gray-500 mt-0.5 truncate">{subtitle}</p>
-          ) : null}
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-900 shrink-0"
-          aria-label="Close"
-        >
-          <span className="text-2xl leading-none" aria-hidden>
-            ×
-          </span>
-        </button>
+  const chrome = (
+    <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-3 sm:px-6">
+      <div className="min-w-0 pr-2">
+        <h2 id={titleId} className="text-lg font-semibold truncate" style={{ color: "var(--color-heading)" }}>
+          {title}
+        </h2>
+        {presentation === "page" && subtitle ? (
+          <p className="text-sm text-gray-500 mt-0.5 truncate">{subtitle}</p>
+        ) : null}
       </div>
-      <div className="h-fit min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain max-h-[calc(100svh-3.5rem)]">
-        <div
-          ref={containerRef}
-          id={containerId}
-          className={mountClass}
-          aria-hidden="true"
-        />
-      </div>
-    </>
+      <button
+        type="button"
+        onClick={onClose}
+        className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-900 shrink-0"
+        aria-label="Close"
+      >
+        <span className="text-2xl leading-none" aria-hidden>
+          ×
+        </span>
+      </button>
+    </div>
   );
 
   if (presentation === "modal") {
@@ -122,7 +107,15 @@ export function ShippoElementsSurface({
           className="relative z-[101] flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-[var(--color-background)] shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
-          {inner}
+          {chrome}
+          <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
+            <div
+              ref={containerRef}
+              id={containerId}
+              className="shippo-modal-elements-root h-auto w-full min-w-0 self-start"
+              aria-hidden="true"
+            />
+          </div>
         </div>
       </div>
     );
@@ -130,12 +123,18 @@ export function ShippoElementsSurface({
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex flex-col bg-black/40 pb-[env(safe-area-inset-bottom)]"
+      className="fixed inset-0 z-[90] flex flex-col overflow-hidden bg-[var(--color-background)] pb-[env(safe-area-inset-bottom)]"
       role="region"
       aria-labelledby={titleId}
     >
-      <div className="flex h-fit max-h-[100svh] w-full shrink-0 flex-col overflow-hidden bg-[var(--color-background)]">
-        {inner}
+      {chrome}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div
+          ref={containerRef}
+          id={containerId}
+          className="shippo-page-elements-root flex h-full min-h-0 w-full min-w-0 flex-1"
+          aria-hidden="true"
+        />
       </div>
     </div>
   );

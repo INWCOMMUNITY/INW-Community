@@ -3,8 +3,6 @@
  * @see https://docs.goshippo.com/docs/shippingelements/customisation
  */
 
-/** Compact iframe height (px). Shippo defaults to 600, which leaves empty white under Next. */
-export const NWC_SHIPPO_IFRAME_HEIGHT_PX = 520;
 /** Primary olive green */
 const PRIMARY = "#505542";
 /** Darker green (headings) */
@@ -88,11 +86,12 @@ export const NWC_SHIPPO_ELEMENTS_THEME: ShippoElementsTheme = {
   primaryColor: PRIMARY,
   /**
    * `style`/`height`/`width`/`title` are iframe HTML attributes (see embeddable-client
-   * `buildIframe` defaults: height 600). Extra height is empty white under Next.
+   * `buildIframe` defaults: height 600). Fill the remaining viewport so Next
+   * sits at the bottom of the screen.
    */
   width: "100%",
-  height: String(NWC_SHIPPO_IFRAME_HEIGHT_PX),
-  style: "border:none;width:100%;max-width:100%;display:block;min-height:0",
+  height: "100%",
+  style: "border:none;width:100%;max-width:100%;height:100%;display:block;min-height:0",
   container: {
     backgroundColor: WHITE,
   },

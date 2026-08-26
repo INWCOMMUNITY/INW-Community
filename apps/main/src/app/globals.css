@@ -433,16 +433,21 @@ input[type="datetime-local"]::-webkit-datetime-edit-ampm-field:focus {
   font-weight: bold;
 }
 
-/* Shippo Embeddable: width-fill only. Do not stretch height — leftover viewport
-   under Next is empty white if the iframe is forced to 100%. */
+/* Shippo Embeddable: page mode fills leftover viewport so Next sits at the bottom. */
 .shippo-modal-elements-root,
 .shippo-page-elements-root {
   width: 100%;
   max-width: 100%;
   min-width: 0;
   min-height: 0;
+}
+.shippo-modal-elements-root {
   height: auto;
   flex: 0 0 auto;
+}
+.shippo-page-elements-root {
+  height: 100%;
+  flex: 1 1 auto;
 }
 .shippo-modal-elements-root > *,
 .shippo-page-elements-root > * {
@@ -450,16 +455,21 @@ input[type="datetime-local"]::-webkit-datetime-edit-ampm-field:focus {
   max-width: 100% !important;
   box-sizing: border-box;
 }
+.shippo-page-elements-root > * {
+  height: 100% !important;
+}
 .shippo-modal-elements-root iframe,
 .shippo-page-elements-root iframe {
   width: 100% !important;
   max-width: 100% !important;
-  height: min(520px, calc(100svh - 3.5rem)) !important;
-  max-height: min(520px, calc(100svh - 3.5rem)) !important;
   min-height: 0 !important;
   border: 0;
   display: block;
   vertical-align: top;
+}
+.shippo-page-elements-root iframe {
+  height: 100% !important;
+  max-height: 100% !important;
 }
 
 /* Chat typing row: global img rules use height:auto which can flatten avatars in flex rows */
