@@ -978,6 +978,10 @@ export function backfillRequiredTaxonomyAspects(
 const BRAND_DEFAULTS = ["Unbranded", "Does Not Apply", "Does not apply", "N/A", "Unknown"];
 const PUBLISH_OFTEN_REQUIRED = new Set(["brand", "brand name", "type"]);
 
+export function isOftenRequiredEbayAspectName(name: string): boolean {
+  return PUBLISH_OFTEN_REQUIRED.has(name.trim().toLowerCase());
+}
+
 function pickSuggestedValue(aspect: CategoryAspectSchema, want: string[]): string | null {
   for (const candidate of want) {
     const hit = aspect.suggestedValues.find((s) => s.toLowerCase() === candidate.toLowerCase());
@@ -1178,6 +1182,19 @@ export function missingRequiredEbayAspects(
   return missing;
 }
 
+/** Taxonomy-required plus Type/Brand, which eBay often rejects even when optional in taxonomy. */
+export function missingEbayAspectsForListOn(
+  categoryAspects: CategoryAspectSchema[],
+  aspects: ListingAspect[]
+): string[] {
+  const required = missingRequiredEbayAspects(categoryAspects, aspects);
+  const seen = new Set(required.map((name) => name.toLowerCase()));
+  const extra = missingOftenRequiredEbayAspects(categoryAspects, aspects).filter(
+    (name) => !seen.has(name.toLowerCase())
+  );
+  return [...required, ...extra];
+}
+
 export function validateRemappedAspects(
   categoryAspects: CategoryAspectSchema[],
   aspects: ListingAspect[]
@@ -1290,14 +1307,16 @@ export function ebayAspectRowsForListOnPopup(
 ): ListingAspect[] {
   const rows = prepareAspectRowsForForm(categoryAspects, aspects, title);
   const required = new Set(
-    categoryAspects.filter((a) => a.required).map((a) => a.name.trim().toLowerCase())
+    categoryAspects
+      .filter((a) => a.required || isOftenRequiredEbayAspectName(a.name))
+      .map((a) => a.name.trim().toLowerCase())
   );
   const filtered = rows.filter(
     (row) => required.has(row.name.trim().toLowerCase()) || row.value.trim()
   );
   const existing = new Set(filtered.map((row) => row.name.trim().toLowerCase()));
   for (const aspect of categoryAspects) {
-    if (!aspect.required) continue;
+    if (!aspect.required && !isOftenRequiredEbayAspectName(aspect.name)) continue;
     const key = aspect.name.trim().toLowerCase();
     if (existing.has(key)) continue;
     filtered.push({ name: aspect.name, value: "" });

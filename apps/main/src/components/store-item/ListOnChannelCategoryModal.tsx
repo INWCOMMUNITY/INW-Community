@@ -19,7 +19,7 @@ import {
 } from "@/lib/etsy-listing-options";
 import {
   ebayAspectRowsForListOnPopup,
-  missingRequiredEbayAspects,
+  missingEbayAspectsForListOn,
 } from "@/lib/channels/ebay/aspect-prep";
 import { parseStoredAspects, type ListingAspect } from "@/lib/listing-limits";
 import {
@@ -104,7 +104,8 @@ export function ListOnChannelCategoryModal({
       { credentials: "include" }
     )
       .then(async (res) => {
-        const data: { aspects?: EbayCategoryAspectField[]; error?: string } = await res.json().catch(() => ({}));
+        const data: { aspects?: EbayCategoryAspectField[]; error?: string; warning?: string } =
+          await res.json().catch(() => ({}));
         if (cancelled) return;
         if (!res.ok) {
           setCategoryAspects([]);
@@ -118,6 +119,12 @@ export function ListOnChannelCategoryModal({
           return;
         }
         const list = data.aspects ?? [];
+        if (list.length === 0 && data.warning) {
+          setCategoryAspects([]);
+          setAspects([]);
+          setAspectsError(data.warning);
+          return;
+        }
         setCategoryAspects(list);
         setAspects(
           ebayAspectRowsForListOnPopup(list, parseStoredAspects(step.item.aspects), step.item.title)
@@ -140,10 +147,11 @@ export function ListOnChannelCategoryModal({
   const providerLabel = step?.provider === "etsy" ? "Etsy" : "eBay";
   const showEtsyDetails = step?.provider === "etsy" && itemNeedsEtsyListingDetails(step.item);
   const missingEbayAspects =
-    step?.provider === "ebay" ? missingRequiredEbayAspects(categoryAspects, aspects) : [];
+    step?.provider === "ebay" ? missingEbayAspectsForListOn(categoryAspects, aspects) : [];
   const canContinue =
     Boolean(categoryId) &&
     !aspectsLoading &&
+    !aspectsError &&
     missingEbayAspects.length === 0 &&
     (step?.provider !== "etsy" ||
       !showEtsyDetails ||

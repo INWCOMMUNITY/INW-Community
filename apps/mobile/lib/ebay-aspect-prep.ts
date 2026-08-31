@@ -466,6 +466,61 @@ export function expandGradedCoinAspectsForTaxonomy(
   return normalizeListingAspects(Array.from(filled.values()));
 }
 
+const BRAND_DEFAULTS = ["Unbranded", "Does Not Apply", "Does not apply", "N/A", "Unknown"];
+const PUBLISH_OFTEN_REQUIRED = new Set(["brand", "brand name", "type"]);
+
+export function isOftenRequiredEbayAspectName(name: string): boolean {
+  return PUBLISH_OFTEN_REQUIRED.has(name.trim().toLowerCase());
+}
+
+function pickSuggestedValue(aspect: CategoryAspectSchema, want: string[]): string | null {
+  for (const candidate of want) {
+    const hit = aspect.suggestedValues.find((s) => s.toLowerCase() === candidate.toLowerCase());
+    if (hit) return hit;
+  }
+  return null;
+}
+
+export function defaultValueForEbayAspect(
+  aspect: CategoryAspectSchema,
+  title: string,
+  extraCandidates: string[] = []
+): string | null {
+  const name = aspect.name.toLowerCase();
+  if (name === "brand" || name === "brand name") {
+    return pickSuggestedValue(aspect, BRAND_DEFAULTS) ?? (aspect.suggestedValues.length === 1 ? aspect.suggestedValues[0]! : null);
+  }
+  if (name === "type") {
+    const hay = `${title} ${extraCandidates.join(" ")}`.toLowerCase();
+    const matches = aspect.suggestedValues.filter(
+      (s) => s.trim().length >= 3 && hay.includes(s.toLowerCase())
+    );
+    matches.sort((a, b) => b.length - a.length);
+    if (matches[0]) return matches[0];
+    if (aspect.suggestedValues.length === 1) return aspect.suggestedValues[0]!;
+    return null;
+  }
+  return pickSuggestedValue(aspect, BRAND_DEFAULTS);
+}
+
+export function fillDefaultEbayAspects(
+  categoryAspects: CategoryAspectSchema[],
+  aspects: ListingAspect[],
+  title: string,
+  extraCandidates: string[] = []
+): ListingAspect[] {
+  const out = new Map(aspects.map((a) => [a.name.toLowerCase(), a]));
+  for (const schema of categoryAspects) {
+    const key = schema.name.toLowerCase();
+    if (!PUBLISH_OFTEN_REQUIRED.has(key)) continue;
+    if (out.get(key)?.value.trim()) continue;
+    const value = defaultValueForEbayAspect(schema, title, extraCandidates);
+    if (!value) continue;
+    out.set(key, { name: schema.name, value });
+  }
+  return normalizeListingAspects(Array.from(out.values()));
+}
+
 export function missingRequiredEbayAspects(
   categoryAspects: CategoryAspectSchema[],
   aspects: ListingAspect[]
@@ -478,6 +533,34 @@ export function missingRequiredEbayAspects(
     if (!value?.trim()) missing.push(aspect.name);
   }
   return missing;
+}
+
+/** Type/Brand are often required at publish even when taxonomy marks them optional. */
+export function missingOftenRequiredEbayAspects(
+  categoryAspects: CategoryAspectSchema[],
+  aspects: ListingAspect[]
+): string[] {
+  const have = new Map(aspects.map((a) => [a.name.toLowerCase(), a.value.trim()]));
+  const missing: string[] = [];
+  for (const schema of categoryAspects) {
+    if (!PUBLISH_OFTEN_REQUIRED.has(schema.name.toLowerCase())) continue;
+    if (have.get(schema.name.toLowerCase())) continue;
+    missing.push(schema.name);
+  }
+  return missing;
+}
+
+/** Taxonomy-required plus Type/Brand, which eBay often rejects even when optional in taxonomy. */
+export function missingEbayAspectsForListOn(
+  categoryAspects: CategoryAspectSchema[],
+  aspects: ListingAspect[]
+): string[] {
+  const required = missingRequiredEbayAspects(categoryAspects, aspects);
+  const seen = new Set(required.map((name) => name.toLowerCase()));
+  const extra = missingOftenRequiredEbayAspects(categoryAspects, aspects).filter(
+    (name) => !seen.has(name.toLowerCase())
+  );
+  return [...required, ...extra];
 }
 
 export function validateRemappedAspects(
@@ -545,11 +628,19 @@ export function prepareAspectsForEbayCategory(
     title
   );
   const ensured = ensureGradedCoinInventoryAspects(categoryAspects, backfilled, expanded, title);
-  const sellerVisible = filterSellerVisibleAspectRows(ensured);
+  const withDefaults = fillDefaultEbayAspects(categoryAspects, ensured, title);
+  const sellerVisible = filterSellerVisibleAspectRows(withDefaults);
   const sellerSchema = filterSellerVisibleCategoryAspects(categoryAspects);
   const validation = validateRemappedAspects(sellerSchema, sellerVisible);
+  const missingRequired = [
+    ...validation.missingRequired,
+    ...missingOftenRequiredEbayAspects(sellerSchema, sellerVisible).filter(
+      (name) => !validation.missingRequired.some((existing) => existing.toLowerCase() === name.toLowerCase())
+    ),
+  ];
   return {
     ...validation,
+    missingRequired,
     remappedAspects: sellerVisible,
     dropped: remapped.dropped,
   };
@@ -584,14 +675,16 @@ export function ebayAspectRowsForListOnPopup(
 ): ListingAspect[] {
   const rows = prepareAspectRowsForForm(categoryAspects, aspects, title);
   const required = new Set(
-    categoryAspects.filter((a) => a.required).map((a) => a.name.trim().toLowerCase())
+    categoryAspects
+      .filter((a) => a.required || isOftenRequiredEbayAspectName(a.name))
+      .map((a) => a.name.trim().toLowerCase())
   );
   const filtered = rows.filter(
     (row) => required.has(row.name.trim().toLowerCase()) || row.value.trim()
   );
   const existing = new Set(filtered.map((row) => row.name.trim().toLowerCase()));
   for (const aspect of categoryAspects) {
-    if (!aspect.required) continue;
+    if (!aspect.required && !isOftenRequiredEbayAspectName(aspect.name)) continue;
     const key = aspect.name.trim().toLowerCase();
     if (existing.has(key)) continue;
     filtered.push({ name: aspect.name, value: "" });

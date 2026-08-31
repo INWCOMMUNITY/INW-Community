@@ -10,6 +10,7 @@ import { ListOnChannelCategoryModal } from "@/components/store-item/ListOnChanne
 import { BulkDestinationGridModal } from "@/components/store-item/BulkDestinationGridModal";
 import {
   buildListOnCategoryQueueFromDesired,
+  isMissingEbayItemSpecificsError,
   type ListOnCategoryAssignment,
 } from "@/lib/list-on-channel-category";
 import type { ChannelActionResult } from "@/components/store-item/ChannelActionResultModal";
@@ -119,6 +120,23 @@ export function MyItemsBulkBar({
           ...(categoryAssignments?.length ? { assignments: categoryAssignments } : {}),
         }),
       });
+      const failedSpecifics = (result.results ?? []).some(
+        (row) => row.status === "failed" && isMissingEbayItemSpecificsError(row.detail)
+      );
+      if (action === "sync" && failedSpecifics) {
+        const summary = summarizeBulkDestinations(action, result);
+        if (categoryAssignments) throw new Error(summary.message);
+        const queue = buildListOnCategoryQueueFromDesired(
+          selectedItems,
+          desiredProvidersByItemId(assignments)
+        );
+        if (queue.length > 0) {
+          setPendingAssignments(assignments);
+          setGridAction(null);
+          setCategorySteps(queue);
+          return;
+        }
+      }
       const summary = summarizeBulkDestinations(action, result);
       notify(summary.title, summary.message, summary.ok);
       setGridAction(null);

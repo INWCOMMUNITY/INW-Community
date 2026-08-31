@@ -44,6 +44,27 @@ export function itemNeedsEtsyListingDetails(item: ListOnCategoryItem): boolean {
   return !isEtsyWhoMade(item.etsyWhoMade) || normalizeEtsyWhenMade(item.etsyWhenMade) == null;
 }
 
+export function itemHasEbayAspectValue(item: ListOnCategoryItem, name: string): boolean {
+  const rows = Array.isArray(item.aspects) ? item.aspects : [];
+  const want = name.trim().toLowerCase();
+  return rows.some(
+    (row) =>
+      row &&
+      typeof row === "object" &&
+      "name" in row &&
+      "value" in row &&
+      String((row as { name?: unknown }).name ?? "").trim().toLowerCase() === want &&
+      String((row as { value?: unknown }).value ?? "").trim().length > 0
+  );
+}
+
+/** Type/Brand are often required at eBay publish even when a category is already saved. */
+export function itemNeedsEbayListingDetails(item: ListOnCategoryItem): boolean {
+  const hasType = itemHasEbayAspectValue(item, "Type");
+  const hasBrand = itemHasEbayAspectValue(item, "Brand") || itemHasEbayAspectValue(item, "Brand Name");
+  return !hasType || !hasBrand;
+}
+
 export function itemNeedsListOnCategoryStep(
   item: ListOnCategoryItem,
   provider: ListOnCategoryProvider
@@ -51,7 +72,11 @@ export function itemNeedsListOnCategoryStep(
   if (provider === "etsy") {
     return itemNeedsEtsyCategory(item) || itemNeedsEtsyListingDetails(item);
   }
-  return itemNeedsEbayCategory(item);
+  return itemNeedsEbayCategory(item) || itemNeedsEbayListingDetails(item);
+}
+
+export function isMissingEbayItemSpecificsError(message: string | null | undefined): boolean {
+  return /Missing required eBay item specifics/i.test(message ?? "");
 }
 
 /** Steps to collect missing Etsy/eBay categories (and Etsy who/when) before listing. */
@@ -73,7 +98,7 @@ export function buildListOnCategoryQueue(
   return steps;
 }
 
-/** Per-item desired stores (Manage Listings). Only queues adds that still need a category. */
+/** Per-item desired stores (Manage Listings). Queues adds that still need a category or eBay specifics. */
 export function buildListOnCategoryQueueFromDesired(
   items: ListOnCategoryItem[],
   desiredProvidersByItemId: Record<string, string[]>

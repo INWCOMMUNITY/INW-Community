@@ -21,6 +21,7 @@ import { ListOnChannelCategoryModal } from "@/components/channels/ListOnChannelC
 import { BulkDestinationGridModal } from "@/components/seller/BulkDestinationGridModal";
 import {
   buildListOnCategoryQueueFromDesired,
+  isMissingEbayItemSpecificsError,
   type ListOnCategoryAssignment,
 } from "@/lib/list-on-channel-category";
 import {
@@ -45,6 +46,7 @@ type BulkItem = {
   ebayCategoryId?: number | null;
   etsyWhoMade?: string | null;
   etsyWhenMade?: string | null;
+  aspects?: { name: string; value: string }[] | unknown;
   channelLinks?: { provider: string }[];
 };
 
@@ -153,6 +155,23 @@ export function BulkActionsBar({
         items: assignments,
         ...(categoryAssignments?.length ? { assignments: categoryAssignments } : {}),
       });
+      const failedSpecifics = (result.results ?? []).some(
+        (row) => row.status === "failed" && isMissingEbayItemSpecificsError(row.detail)
+      );
+      if (action === "sync" && failedSpecifics) {
+        const summary = summarizeBulkDestinations(action, result);
+        if (categoryAssignments) throw new Error(summary.message);
+        const queue = buildListOnCategoryQueueFromDesired(
+          selectedItems,
+          desiredProvidersByItemId(assignments)
+        );
+        if (queue.length > 0) {
+          setPendingAssignments(assignments);
+          setGridAction(null);
+          setCategorySteps(queue);
+          return;
+        }
+      }
       const summary = summarizeBulkDestinations(action, result);
       Alert.alert(summary.title, summary.message);
       setGridAction(null);

@@ -30,7 +30,8 @@ import {
 } from "@/lib/list-on-channel-category";
 import {
   ebayAspectRowsForListOnPopup,
-  missingRequiredEbayAspects,
+  isOftenRequiredEbayAspectName,
+  missingEbayAspectsForListOn,
   type CategoryAspectSchema,
 } from "@/lib/ebay-aspect-prep";
 
@@ -82,10 +83,11 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
   const providerLabel = step?.provider === "etsy" ? "Etsy" : "eBay";
   const showEtsyDetails = step?.provider === "etsy" && itemNeedsEtsyListingDetails(step.item);
   const missingEbayAspects =
-    step?.provider === "ebay" ? missingRequiredEbayAspects(categoryAspects, aspects) : [];
+    step?.provider === "ebay" ? missingEbayAspectsForListOn(categoryAspects, aspects) : [];
   const canContinue =
     Boolean(categoryId) &&
     !aspectsLoading &&
+    !aspectsError &&
     missingEbayAspects.length === 0 &&
     (step?.provider !== "etsy" ||
       !showEtsyDetails ||
@@ -145,12 +147,18 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
     let cancelled = false;
     setAspectsLoading(true);
     setAspectsError(null);
-    apiGet<{ aspects?: CategoryAspectSchema[]; error?: string }>(
+    apiGet<{ aspects?: CategoryAspectSchema[]; error?: string; warning?: string }>(
       `/api/channels/ebay/category-aspects?categoryId=${encodeURIComponent(categoryId)}&storeItemId=${encodeURIComponent(step.item.id)}`
     )
       .then((data) => {
         if (cancelled) return;
         const list = data.aspects ?? [];
+        if (list.length === 0 && data.warning) {
+          setCategoryAspects([]);
+          setAspects([]);
+          setAspectsError(data.warning);
+          return;
+        }
         setCategoryAspects(list);
         setAspects(ebayAspectRowsForListOnPopup(list, parseItemAspects(step.item.aspects), step.item.title));
       })
@@ -350,7 +358,7 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
                   const schema = categoryAspects.find(
                     (aspect) => aspect.name.trim().toLowerCase() === row.name.trim().toLowerCase()
                   );
-                  const required = Boolean(schema?.required);
+                  const required = Boolean(schema?.required) || isOftenRequiredEbayAspectName(row.name);
                   const suggestions = schema?.suggestedValues ?? [];
                   const isSelectionOnly = schema?.mode === "SELECTION_ONLY" && suggestions.length > 0;
                   const isMulti = schema?.cardinality === "MULTI";

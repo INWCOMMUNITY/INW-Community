@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildListOnCategoryQueue,
   buildListOnCategoryQueueFromDesired,
+  isMissingEbayItemSpecificsError,
   itemNeedsListOnCategoryStep,
   mergeListOnCategoryAssignment,
   type ListOnCategoryItem,
@@ -39,9 +40,21 @@ describe("itemNeedsListOnCategoryStep", () => {
     expect(itemNeedsListOnCategoryStep(item({ etsyTaxonomyId: 33 }), "etsy")).toBe(false);
   });
 
-  it("needs an eBay step only when category is missing", () => {
+  it("needs an eBay step when category or Type/Brand specifics are missing", () => {
     expect(itemNeedsListOnCategoryStep(item(), "ebay")).toBe(true);
-    expect(itemNeedsListOnCategoryStep(item({ ebayCategoryId: 11450 }), "ebay")).toBe(false);
+    expect(itemNeedsListOnCategoryStep(item({ ebayCategoryId: 11450 }), "ebay")).toBe(true);
+    expect(
+      itemNeedsListOnCategoryStep(
+        item({
+          ebayCategoryId: 11450,
+          aspects: [
+            { name: "Type", value: "Clock" },
+            { name: "Brand", value: "Unbranded" },
+          ],
+        }),
+        "ebay"
+      )
+    ).toBe(false);
   });
 });
 
@@ -53,7 +66,7 @@ describe("buildListOnCategoryQueue", () => {
       item({ id: "c", title: "Three", ebayCategoryId: null }),
     ];
     const steps = buildListOnCategoryQueue(items, ["ebay"]);
-    expect(steps.map((s) => s.item.id)).toEqual(["a", "c"]);
+    expect(steps.map((s) => s.item.id)).toEqual(["a", "b", "c"]);
     expect(steps.every((s) => s.provider === "ebay")).toBe(true);
   });
 
@@ -99,5 +112,16 @@ describe("mergeListOnCategoryAssignment", () => {
       { storeItemId: "a", aspects: [{ name: "Brand", value: "Unbranded" }] }
     );
     expect(merged.aspects).toEqual([{ name: "Brand", value: "Unbranded" }]);
+  });
+});
+
+describe("isMissingEbayItemSpecificsError", () => {
+  it("matches eBay publish errors that the category popup can collect", () => {
+    expect(
+      isMissingEbayItemSpecificsError(
+        "eBay: Missing required eBay item specifics: Type. Fill them in under eBay Listing Requirements."
+      )
+    ).toBe(true);
+    expect(isMissingEbayItemSpecificsError("Could not list on Etsy.")).toBe(false);
   });
 });

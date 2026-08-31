@@ -18,6 +18,7 @@ export type MyStoreItem = {
   ebayCategoryId?: number | null;
   etsyWhoMade?: string | null;
   etsyWhenMade?: string | null;
+  aspects?: { name: string; value: string }[] | unknown;
   channelLinks?: ItemChannelLink[];
 };
 

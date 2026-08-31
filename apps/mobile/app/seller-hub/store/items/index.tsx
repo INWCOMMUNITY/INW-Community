@@ -21,6 +21,7 @@ import { EbayConditionFixModal } from "@/components/channels/EbayConditionFixMod
 import { ListOnChannelCategoryModal } from "@/components/channels/ListOnChannelCategoryModal";
 import {
   isListOnCategoryProvider,
+  isMissingEbayItemSpecificsError,
   itemNeedsListOnCategoryStep,
   type ListOnCategoryAssignment,
   type ListOnCategoryProvider,
@@ -72,6 +73,7 @@ interface StoreItem {
   ebayCategoryId?: number | null;
   etsyWhoMade?: string | null;
   etsyWhenMade?: string | null;
+  aspects?: { name: string; value: string }[] | unknown;
   channelLinks?: ChannelLink[];
 }
 
@@ -479,6 +481,20 @@ export default function MyItemsScreen() {
         ...(assignment?.etsyWhenMade ? { etsyWhenMade: assignment.etsyWhenMade } : {}),
         ...(assignment?.aspects?.length ? { aspects: assignment.aspects } : {}),
       });
+      const failedSpecifics = (res.channelSync ?? []).some(
+        (row) => !row.ok && isMissingEbayItemSpecificsError(row.error)
+      );
+      if (failedSpecifics && isListOnCategoryProvider(provider)) {
+        const msg = (res.channelSync ?? [])
+          .filter((row) => !row.ok)
+          .map((row) => row.error)
+          .filter(Boolean)
+          .join("\n") || `Could not list on ${label}.`;
+        if (assignment) throw new Error(msg);
+        setCategoryItemId(storeItemId);
+        setCategoryProvider(provider);
+        return;
+      }
       alertChannelPublishResult(res.channelSync);
       setCategoryProvider(null);
       setCategoryItemId(null);

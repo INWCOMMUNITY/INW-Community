@@ -438,4 +438,26 @@ describe("ebayAspectRowsForListOnPopup", () => {
     expect(rows.find((row) => row.name === "Color")?.value).toBe("Blue");
     expect(rows.some((row) => row.name === "Material")).toBe(false);
   });
+
+  it("includes Type even when taxonomy marks it optional", () => {
+    const schema: EbayCategoryAspect[] = [
+      {
+        name: "Type",
+        required: false,
+        mode: "SELECTION_ONLY",
+        cardinality: "SINGLE",
+        suggestedValues: ["Clock", "Figurine"],
+      },
+      {
+        name: "Brand",
+        required: false,
+        mode: "SELECTION_ONLY",
+        cardinality: "SINGLE",
+        suggestedValues: ["Unbranded"],
+      },
+    ];
+    const rows = ebayAspectRowsForListOnPopup(schema, [], "Random object");
+    expect(rows.some((row) => row.name === "Type")).toBe(true);
+    expect(rows.some((row) => row.name === "Brand")).toBe(true);
+  });
 });

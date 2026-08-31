@@ -28,6 +28,7 @@ import { itemEditHref, itemListingHref, type ItemsTab, type MyStoreItem } from "
 import { ListOnChannelCategoryModal } from "@/components/store-item/ListOnChannelCategoryModal";
 import {
   isListOnCategoryProvider,
+  isMissingEbayItemSpecificsError,
   itemNeedsListOnCategoryStep,
   type ListOnCategoryAssignment,
   type ListOnCategoryProvider,
@@ -254,18 +255,27 @@ export function MyItemsRowMenu({
           body: JSON.stringify(body),
         }
       );
+      const failedSpecifics = (data.channelSync ?? []).some(
+        (row) => !row.ok && isMissingEbayItemSpecificsError(row.error)
+      );
+      if (failedSpecifics && isListOnCategoryProvider(provider)) {
+        const msg = buildPublishResultAlert(data.channelSync).message;
+        if (assignment) throw new Error(msg);
+        setCategoryProvider(provider);
+        return;
+      }
       showPublishResult(data.channelSync);
       onDone();
       onClose();
     } catch (e) {
       const msg = e instanceof Error ? e.message : `Could not list on ${label}.`;
+      if (assignment) throw new Error(msg);
       if (onActionResult) {
         onActionResult({ title: "Could not list", message: msg, ok: false });
         onDone();
         onClose();
         return;
       }
-      if (assignment) throw new Error(msg);
       alert(msg);
     } finally {
       setActing(false);

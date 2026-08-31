@@ -6,6 +6,7 @@ import {
   listingLabelClass,
   listingSelectClass,
 } from "@/components/store-item/listing-form-styles";
+import { isOftenRequiredEbayAspectName } from "@/lib/channels/ebay/aspect-prep";
 import { EBAY_ASPECT_VALUE_MAX, type ListingAspect } from "@/lib/listing-limits";
 
 export type EbayCategoryAspectField = {
@@ -59,7 +60,7 @@ export function EbayAspectFields({
         const schema = categoryAspects.find(
           (aspect) => aspect.name.trim().toLowerCase() === row.name.trim().toLowerCase()
         );
-        const required = Boolean(schema?.required);
+        const required = Boolean(schema?.required) || isOftenRequiredEbayAspectName(row.name);
         const suggestions = schema?.suggestedValues ?? [];
         const isSelectionOnly = schema?.mode === "SELECTION_ONLY" && suggestions.length > 0;
         const isMulti = schema?.cardinality === "MULTI";
