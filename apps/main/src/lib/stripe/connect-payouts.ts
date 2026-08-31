@@ -12,13 +12,13 @@ export async function sumPaidConnectPayoutsCents(
     const page = await stripe.payouts.list(
       {
         status: "paid",
-        currency: "usd",
         limit: 100,
         ...(startingAfter ? { starting_after: startingAfter } : {}),
       },
       { stripeAccount: connectAccountId }
     );
     for (const p of page.data) {
+      if (p.currency !== "usd") continue;
       total += p.amount;
     }
     if (!page.has_more || page.data.length === 0) break;
