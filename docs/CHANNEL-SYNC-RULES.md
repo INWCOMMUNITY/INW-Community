@@ -104,12 +104,12 @@ Stripe layer; new channels inherit it automatically (no per-provider trigger cod
 
 | Checkout flow | Fulfilled by | Push call |
 |---------------|-------------|-----------|
-| Hosted **Checkout Session** (platform) | `checkout.session.completed` webhook **and** `success-summary` (safety net) → `fulfillStoreOrdersFromCheckoutSession` | `syncStoreItemsAfterSale()` (awaited) |
-| **PaymentIntent on the seller's Connect account** (storefront default — `storefront-checkout-intent`) | `payment_intent.succeeded` **Connect** webhook (`event.account` set) | `syncStoreItemsAfterSale()` (awaited) |
+| Hosted **Checkout Session** (platform + Stripe Tax; live storefront) | `checkout.session.completed` webhook **and** `success-summary` (safety net) → `fulfillStoreOrdersFromCheckoutSession` (Connect Transfer of seller share) | `syncStoreItemsAfterSale()` (awaited) |
+| Retired **PaymentIntent on the seller's Connect account** (`storefront-checkout-intent`, HTTP 410) | `payment_intent.succeeded` **Connect** webhook (`event.account` set) — leftover orders only | `syncStoreItemsAfterSale()` (awaited) |
 
-**Hard-won rules (these were the actual production bugs — June 2026):**
+**Hard-won rules (these were the actual production bugs — June 2026; facilitator flow is now platform Checkout):**
 
-- **Know which webhook fulfills the sale.** The storefront uses **Connect PaymentIntents**, so sales are fulfilled by `payment_intent.succeeded`, *not* `checkout.session.completed`. `success-summary` only fulfills the `session_id` (hosted Checkout) path. Fixing the Checkout-Session path alone does nothing for storefront sales.
+- **Know which webhook fulfills the sale.** Live storefront uses **platform Checkout Sessions**, so sales are fulfilled by `checkout.session.completed` (plus `success-summary`). Do not mark paid on platform `payment_intent.succeeded` — that skips the Connect Transfer.
 - **Await the push; don't fire-and-forget it.** `waitUntil`/detached promises get killed on serverless before a multi-call channel write finishes, leaving the channel stale while INW shows the sale. Collect the sold `storeItemId`s and `await syncStoreItemsAfterSale(ids, prefix)` before the handler returns.
 - **Re-push on idempotent re-entry.** Two paths fulfill the same order (webhook + success-return; or Stripe redelivery). Whichever runs second finds the order already `paid` and returns early — it must still re-push inventory so a missed/failed first push self-heals.
 - **Log per-provider results** (`post-sale channel inventory sync ok/failed`) so production can tell "trigger didn't fire" from "channel write failed".

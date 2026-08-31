@@ -185,7 +185,7 @@ function verdictForLinkState(args: {
       verdict: "PUSH_NEVER_RAN",
       summary: `INW is ${inwQty} after a change (baseline ${baselineQty}) but Wix shows ${wixQty}.`,
       nextStep:
-        "Run ?repair=1 or save the listing in Seller Hub. For sales, configure STRIPE_CONNECT_WEBHOOK_SECRET (see stripeConnectWebhookHint).",
+        "Run ?repair=1 or save the listing in Seller Hub. For sales, configure STRIPE_WEBHOOK_SECRET (see stripeConnectWebhookHint).",
     };
   }
 
@@ -203,7 +203,7 @@ function verdictForLinkState(args: {
       verdict: "PUSH_NEVER_RAN",
       summary: `INW qty is ${inwQty} (baseline ${baselineQty}) but Wix shows ${wixQty}; no successful push recorded.`,
       nextStep:
-        "Storefront sales need payment_intent.succeeded on the Connect webhook. Configure STRIPE_CONNECT_WEBHOOK_SECRET, then run repair=1.",
+        "Storefront sales need checkout.session.completed on the platform webhook so the order fulfills and inventory can push. Configure STRIPE_WEBHOOK_SECRET, then run repair=1.",
     };
   }
 
@@ -332,7 +332,7 @@ export async function diagnoseWixLinks(
     siteId,
     links,
     stripeConnectWebhookHint:
-      "Storefront checkout charges the seller's Stripe Connect account. In Stripe Dashboard → Developers → Webhooks, add an endpoint for **Events on connected accounts** pointing to https://www.inwcommunity.com/api/stripe/webhook with payment_intent.succeeded enabled. Put that signing secret in Vercel as STRIPE_CONNECT_WEBHOOK_SECRET (separate from STRIPE_WEBHOOK_SECRET). Without it, orders can stay pending and Wix never updates after an INW sale.",
+      "Storefront checkout charges the platform (Stripe Tax), then transfers the seller share to Connect. In Stripe Dashboard → Developers → Webhooks, the platform endpoint must receive checkout.session.completed at https://www.inwcommunity.com/api/stripe/webhook (STRIPE_WEBHOOK_SECRET). The Connect endpoint (STRIPE_CONNECT_WEBHOOK_SECRET) is for Express account events such as payout.paid. Without the platform webhook, orders can stay pending and Wix never updates after an INW sale.",
   };
 }
 
@@ -349,7 +349,7 @@ export function diagnoseOrderFulfillment(order: {
       verdict: "ORDER_STILL_PENDING",
       summary: `Order ${order.id.slice(-6)} is still pending after ${minutes} minute(s). INW never fulfilled the sale.`,
       nextStep:
-        "Payment may have succeeded in Stripe but our server did not receive payment_intent.succeeded on the Connect webhook. Configure STRIPE_CONNECT_WEBHOOK_SECRET (see stripeConnectWebhookHint), then mark/fix the order or retry fulfillment.",
+        "Payment may have succeeded in Stripe but our server did not receive checkout.session.completed on the platform webhook. Configure STRIPE_WEBHOOK_SECRET (see stripeConnectWebhookHint), then mark/fix the order or retry fulfillment.",
       order: {
         id: order.id,
         status: order.status,

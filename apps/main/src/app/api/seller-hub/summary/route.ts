@@ -155,15 +155,19 @@ export async function GET(req: NextRequest) {
     } : null;
 
     const pendingShip = paidOrdersUnshipped.filter((o) => orderHasShippedLine(o.items)).length;
-    const hasStripeConnect = !!member?.stripeConnectAccountId;
+    let chargesEnabled = false;
     const balanceCents = balance?.balanceCents ?? 0;
     let stripeAvailableCents = 0;
 
     if (member?.stripeConnectAccountId) {
       try {
-        const stripeBalance = await stripe.balance.retrieve({
-          stripeAccount: member.stripeConnectAccountId,
-        });
+        const [account, stripeBalance] = await Promise.all([
+          stripe.accounts.retrieve(member.stripeConnectAccountId),
+          stripe.balance.retrieve({
+            stripeAccount: member.stripeConnectAccountId,
+          }),
+        ]);
+        chargesEnabled = account.charges_enabled === true;
         const usdAvailable = stripeBalance.available?.find((b) => b.currency === "usd");
         stripeAvailableCents = usdAvailable?.amount ?? 0;
       } catch (e) {
@@ -178,8 +182,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const payoutReady =
-      hasStripeConnect && (stripeAvailableCents >= MIN_PAYOUT_CENTS || balanceCents >= MIN_PAYOUT_CENTS);
+    const payoutReady = chargesEnabled && stripeAvailableCents >= MIN_PAYOUT_CENTS;
 
     return NextResponse.json({
       pendingActions: {
@@ -190,13 +193,13 @@ export async function GET(req: NextRequest) {
         pendingReturns,
         payoutReady,
         soldCount: soldCount ?? 0,
-        payoutSetupComplete: hasStripeConnect,
+        payoutSetupComplete: chargesEnabled,
       },
       syncHealth: syncHealthData,
       funds: {
         balanceCents,
         totalEarnedCents: balance?.totalEarnedCents ?? 0,
-        hasStripeConnect,
+        hasStripeConnect: chargesEnabled,
         availableForPayoutCents: stripeAvailableCents,
       },
     });

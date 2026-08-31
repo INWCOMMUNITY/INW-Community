@@ -35,6 +35,7 @@ export function SellerHubWorkQueue({
   const [pendingShip, setPendingShip] = useState(0);
   const [pendingDeliveries, setPendingDeliveries] = useState(0);
   const [pendingOffers, setPendingOffers] = useState(0);
+  const [payoutReady, setPayoutReady] = useState(false);
   const [sellerSetupComplete, setSellerSetupComplete] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -45,10 +46,12 @@ export function SellerHubWorkQueue({
           pendingShip?: number;
           pendingDeliveries?: number;
           sellerOffersPending?: number;
+          payoutReady?: boolean;
         }) => {
           setPendingShip(Number(d?.pendingShip) || 0);
           setPendingDeliveries(Number(d?.pendingDeliveries) || 0);
           setPendingOffers(Number(d?.sellerOffersPending) || 0);
+          setPayoutReady(Boolean(d?.payoutReady));
         }
       )
       .catch(() => {});
@@ -136,6 +139,7 @@ export function SellerHubWorkQueue({
           href: "/seller-hub/store/payouts",
           icon: "wallet",
           description: "View your balance and send funds to your bank.",
+          badge: payoutReady,
         },
         {
           label: "Before You Start",
@@ -150,6 +154,7 @@ export function SellerHubWorkQueue({
       pendingDeliveries,
       pendingOffers,
       pendingShip,
+      payoutReady,
       sellerSetupComplete,
     ]
   );

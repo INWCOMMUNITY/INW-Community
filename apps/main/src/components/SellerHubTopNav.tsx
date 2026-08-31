@@ -9,7 +9,7 @@ import { SellerHubMobileDrawer } from "@/components/SellerHubMobileDrawer";
 
 const SEGMENT_COLOR = "#5F6955";
 
-type Child = { href: string; label: string; icon: string };
+type Child = { href: string; label: string; icon: string; alert?: boolean };
 type NavItem =
   | { href: string; label: string; icon: string }
   | { label: string; icon: string; children: Child[] };
@@ -54,6 +54,7 @@ export function SellerHubTopNav() {
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [hasLocalDelivery, setHasLocalDelivery] = useState(false);
+  const [payoutReady, setPayoutReady] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleEnter = useCallback((label: string) => {
@@ -79,8 +80,9 @@ export function SellerHubTopNav() {
   useEffect(() => {
     fetch("/api/seller-hub/pending-actions", { credentials: "include" })
       .then((r) => r.json())
-      .then((d: { hasLocalDelivery?: boolean }) => {
+      .then((d: { hasLocalDelivery?: boolean; payoutReady?: boolean }) => {
         setHasLocalDelivery(Boolean(d?.hasLocalDelivery));
+        setPayoutReady(Boolean(d?.payoutReady));
       })
       .catch(() => {});
   }, []);
@@ -110,7 +112,7 @@ export function SellerHubTopNav() {
   ];
 
   const moneyChildren: Child[] = [
-    { href: "/seller-hub/store/payouts", label: "Get Paid", icon: "wallet-outline" },
+    { href: "/seller-hub/store/payouts", label: "Get Paid", icon: "wallet-outline", alert: payoutReady },
     { href: "#stripe", label: "Stripe Dashboard", icon: "card-outline" },
   ];
 
@@ -227,6 +229,15 @@ export function SellerHubTopNav() {
                 >
                   <IonIcon name={item.icon} size={22} />
                   <span>{item.label}</span>
+                  {item.label === "Money" && payoutReady ? (
+                    <span
+                      className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold leading-none text-white"
+                      style={{ backgroundColor: "var(--color-secondary)" }}
+                      aria-label="Payout ready"
+                    >
+                      !
+                    </span>
+                  ) : null}
                   {hasChildren && <span className="text-xs opacity-80" aria-hidden>▾</span>}
                 </Link>
                 {hasChildren && hoveredDropdown === item.label && typeof document !== "undefined" && createPortal(
@@ -276,6 +287,15 @@ export function SellerHubTopNav() {
                           >
                             <IonIcon name={c.icon} size={18} />
                             {c.label}
+                            {c.alert ? (
+                              <span
+                                className="ml-auto inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold leading-none text-white"
+                                style={{ backgroundColor: "var(--color-secondary)" }}
+                                aria-label="Action needed"
+                              >
+                                !
+                              </span>
+                            ) : null}
                           </Link>
                         );
                       })}

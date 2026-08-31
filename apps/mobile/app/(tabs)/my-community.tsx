@@ -122,6 +122,7 @@ function SellerHubContent() {
   const [pendingDeliveries, setPendingDeliveries] = useState(0);
   const [pendingPickups, setPendingPickups] = useState(0);
   const [pendingReturns, setPendingReturns] = useState(0);
+  const [payoutReady, setPayoutReady] = useState(false);
   const [sellerSetupComplete, setSellerSetupComplete] = useState(false);
 
   const hasSeller = member?.subscriptions?.some((s) => s.plan === "seller") ?? false;
@@ -134,12 +135,14 @@ function SellerHubContent() {
           pendingDeliveries?: number;
           pendingPickups?: number;
           pendingReturns?: number;
+          payoutReady?: boolean;
         }>("/api/seller-hub/pending-actions")
           .then((data) => {
             setPendingShip(Number(data.pendingShip) || 0);
             setPendingDeliveries(Number(data.pendingDeliveries) || 0);
             setPendingPickups(Number(data.pendingPickups) || 0);
             setPendingReturns(Number(data.pendingReturns) || 0);
+            setPayoutReady(Boolean(data.payoutReady));
           })
           .catch(() => {});
       }
@@ -250,9 +253,10 @@ function SellerHubContent() {
       if (label === "Fulfillment") return pendingShip > 0;
       if (label === "Deliveries") return pendingDeliveries > 0;
       if (label === "Pick Up") return pendingPickups > 0;
+      if (label === "Payouts") return payoutReady;
       return false;
     },
-    [pendingDeliveries, pendingPickups, pendingShip]
+    [pendingDeliveries, pendingPickups, pendingShip, payoutReady]
   );
 
   return (

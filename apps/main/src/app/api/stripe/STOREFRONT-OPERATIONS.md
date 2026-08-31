@@ -32,28 +32,28 @@ Plain-language review of how the storefront works and what is credited to you (p
 
 ## 4. Payments (who gets the money)
 
-**Website and app work the same way:** card payments use **Stripe Connect** only.
+**Website and app work the same way:** hosted Checkout on the **platform** (marketplace facilitator), then a Connect Transfer to the seller.
 
-- Both **website** and **mobile** call `storefront-checkout-intent`, which creates PaymentIntents **on each seller’s Connect account** (`stripeAccount: connectAccountId`).
-- **Money goes to the seller’s Stripe account**, not the platform. Buyers pay; Stripe sends funds to the seller. You do not receive the payment.
-- The webhook receives **Connect** `payment_intent.succeeded` (`event.account` set). Your code does **not** credit platform or internal seller balance; it only updates order status, inventory, and notifications.
-
-**Requirement:** The website needs `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` set so the embedded checkout page can confirm payment. If it’s missing, the site shows a message that card payment is not configured instead of falling back to a different flow.
+- Both **website** and **mobile** call `POST /api/stripe/storefront-checkout`, which creates a Checkout Session on the NORTHWEST COMMUNITY LLC Stripe account with Stripe Tax enabled.
+- The **full charge** (items + shipping + tax) lands on the platform. That is why the LLC Payments tab shows the sale.
+- On `checkout.session.completed`, the app transfers the seller share to their Express Connect account. **Sales tax** and the **1% Sales Tax Reserve** stay on the platform for remittance (Terms §7.9).
+- `POST /api/stripe/storefront-checkout-intent` is retired (410). It charged the seller Connect account directly and skipped facilitator tax.
 
 ---
 
 ## 5. Shipping (labels and who pays)
 
 - **Who pays for the shipping label?** The **seller**. Labels are bought with the **seller’s Shippo account** (they connect it in Seller Hub). The API says: “You pay for labels with your own card.”
-- **Who receives the shipping money from the buyer?** The **seller**. Shipping is part of the order total and goes to the seller’s Connect account (website and app use the same Connect flow).
-- **Platform’s role:** You don’t pay for labels and you don’t receive shipping funds; the seller receives everything in their Stripe Connect account.
+- **Who receives the shipping money from the buyer?** The **seller**. Shipping is part of the pre-tax order total and is included in the Connect Transfer (minus the 1% reserve on item subtotal only).
+- **Platform’s role:** You don’t pay for labels. You briefly collect the charge, then transfer the seller share (including shipping). Tax stays with you.
 
 ---
 
 ## 6. Refunds
 
-- **If the order was paid with Connect (seller’s Stripe):** Refund is created **on the seller’s Connect account** (`stripeAccount: connectAccountId`). Money goes **back from the seller’s Stripe balance** to the buyer. You don’t pay the refund.
-- **If the order was paid on the platform** (legacy or non-Connect path): Refund is created on the platform Stripe account and you deduct from **SellerBalance**. Inventory is restored. (Current storefront UI uses Connect only, so new orders are Connect-refunded.)
+- Card refunds run on the **platform** PaymentIntent (`refund-store-order.ts`) and **reverse the Connect Transfer** so seller money comes back before the buyer is refunded.
+- The internal seller ledger is debited by the same amount that was transferred (not a hardcoded 5% fee).
+- Inventory is restored. Cash (pay-in-person) orders have no Stripe refund.
 
 ---
 
@@ -71,15 +71,14 @@ Plain-language review of how the storefront works and what is credited to you (p
 | Product listing         | Seller (owner of listing) |
 | Edit/delete listing     | Seller only            |
 | Quantity                | Set by seller; updated by system on sale/refund |
-| Mobile card payment     | **Seller** (Stripe Connect) |
-| Website card payment    | **Seller** (Stripe Connect; same as app) |
+| Mobile card payment     | Charge on **platform**; seller share **Transferred** to Connect; tax + 1% reserve stay on LLC |
+| Website card payment    | Same as mobile |
 | Shipping label purchase | **Seller** (their Shippo) |
-| Connect refund          | **Seller** (from their Stripe) |
-| Platform-order refund   | **Platform** (your Stripe + SellerBalance) |
+| Card refund             | **Platform** refund + Connect transfer reversal |
 | Cash orders             | No platform; seller and buyer in person |
 
 ---
 
-## 9. Legacy platform checkout
+## 9. Retired Connect-direct checkout
 
-- The route `storefront-checkout` (platform Checkout Session) is **no longer used** by the storefront UI. Cart, product, and resale pages all use `storefront-checkout-intent` (Connect) only. If you need platform-collected payments for another use case, that route still exists.
+- `storefront-checkout-intent` (PaymentIntent on the seller Connect account) is **retired** and returns HTTP 410. Do not use it; tax would go to the seller instead of the LLC.

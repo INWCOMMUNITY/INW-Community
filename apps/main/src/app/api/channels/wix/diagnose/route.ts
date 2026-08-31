@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
         siteId: siteId ?? null,
         links: [],
         stripeConnectWebhookHint:
-          "Storefront checkout uses PaymentIntents on the seller's Connect account. Stripe must send payment_intent.succeeded to https://www.inwcommunity.com/api/stripe/webhook with STRIPE_CONNECT_WEBHOOK_SECRET set in Vercel.",
+          "Storefront checkout charges the platform and transfers the seller share to Connect. Stripe must send checkout.session.completed to https://www.inwcommunity.com/api/stripe/webhook with STRIPE_WEBHOOK_SECRET set in Vercel.",
       });
     }
     orderBlock = {
@@ -197,7 +197,7 @@ export async function GET(req: NextRequest) {
       order: orderBlock,
       links: [],
       stripeConnectWebhookHint:
-        "After linking, storefront sales need the Connect webhook (payment_intent.succeeded) to decrement INW and push qty to Wix.",
+        "After linking, storefront sales need checkout.session.completed on the platform webhook to decrement INW and push qty to Wix.",
     });
   }
 

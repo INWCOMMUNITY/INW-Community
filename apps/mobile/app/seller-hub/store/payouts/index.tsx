@@ -65,7 +65,7 @@ export default function PayoutsScreen() {
       });
       if (res?.url) {
         const webUrl =
-          `/web?url=${encodeURIComponent(res.url)}&title=${encodeURIComponent("Payment setup")}`;
+          `/web?url=${encodeURIComponent(res.url)}&title=${encodeURIComponent("Payment Setup")}`;
         router.push(webUrl as never);
       }
     } catch {
@@ -93,7 +93,7 @@ export default function PayoutsScreen() {
       const d = await apiGet<{ url?: string; error?: string }>("/api/stripe/connect/express-dashboard");
       if (d?.url) {
         const webUrl =
-          `/web?url=${encodeURIComponent(d.url)}&title=Payment account` +
+          `/web?url=${encodeURIComponent(d.url)}&title=Payment Account` +
           `&successRoute=${encodeURIComponent("/seller-hub/store/payouts")}`;
         (router.push as (href: string) => void)(webUrl);
       } else {
@@ -115,6 +115,25 @@ export default function PayoutsScreen() {
     );
   }
 
+  if (error && !data) {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <Text style={styles.title}>My Funds</Text>
+        <Text style={styles.err}>{error}</Text>
+        <Pressable
+          style={({ pressed }) => [styles.btn, pressed && { opacity: 0.8 }]}
+          onPress={() => {
+            setError(null);
+            setLoading(true);
+            load();
+          }}
+        >
+          <Text style={styles.btnText}>Try Again</Text>
+        </Pressable>
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>My Funds</Text>
@@ -128,16 +147,16 @@ export default function PayoutsScreen() {
             style={({ pressed }) => [styles.btn, pressed && { opacity: 0.8 }]}
             onPress={handleSetup}
           >
-            <Text style={styles.btnText}>Complete payment setup</Text>
+            <Text style={styles.btnText}>Complete Payment Setup</Text>
           </Pressable>
         </View>
       ) : (
         <>
           <View style={styles.cards}>
             <View style={styles.balanceCard}>
-              <Text style={styles.cardLabel}>Available for payout</Text>
+              <Text style={styles.cardLabel}>Available for Payout</Text>
               <Text style={styles.balance}>{formatPrice(availableCents)}</Text>
-              <Text style={styles.cardHint}>Ready to send to your bank</Text>
+              <Text style={styles.cardHint}>Ready to Send to Your Bank</Text>
             </View>
             {(data?.pendingCents ?? 0) > 0 && (
               <View style={styles.balanceCard}>
@@ -149,11 +168,11 @@ export default function PayoutsScreen() {
               </View>
             )}
             <View style={styles.balanceCard}>
-              <Text style={styles.cardLabel}>Total earned</Text>
+              <Text style={styles.cardLabel}>Total Earned</Text>
               <Text style={styles.balance}>{formatPrice(data?.totalEarnedCents ?? 0)}</Text>
             </View>
             <View style={styles.balanceCard}>
-              <Text style={styles.cardLabel}>Total paid out</Text>
+              <Text style={styles.cardLabel}>Total Paid Out</Text>
               <Text style={styles.balance}>{formatPrice(data?.totalPaidOutCents ?? 0)}</Text>
             </View>
           </View>
@@ -206,13 +225,13 @@ export default function PayoutsScreen() {
               style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.8 }]}
               onPress={() => (router.push as (href: string) => void)("/seller-hub/store/returns")}
             >
-              <Text style={styles.linkText}>Return requests</Text>
+              <Text style={styles.linkText}>Return Requests</Text>
             </Pressable>
           </View>
 
           {data?.transactions && data.transactions.length > 0 && (
             <>
-              <Text style={styles.sectionTitle}>Recent transactions</Text>
+              <Text style={styles.sectionTitle}>Recent Transactions</Text>
               {data.transactions.slice(0, 10).map((t) => (
                 <View key={t.id} style={styles.txnRow}>
                   <Text style={styles.txnDesc}>{t.description ?? t.type}</Text>

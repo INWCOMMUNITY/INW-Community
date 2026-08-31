@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { prisma, Prisma } from "database";
+import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 import { countNeedsAttention } from "@/lib/channels/needs-attention";
@@ -38,7 +38,6 @@ export async function GET(req: NextRequest) {
       pendingPickups,
       sellerOffersPending,
       pendingReturns,
-      balance,
       member,
       soldCount,
       hasLocalDeliveryItem,
@@ -79,10 +78,6 @@ export async function GET(req: NextRequest) {
           status: { not: "refunded" },
         },
       }),
-      prisma.sellerBalance.findUnique({
-        where: { memberId: userId },
-        select: { balanceCents: true },
-      }),
       prisma.member.findUnique({
         where: { id: userId },
         select: { stripeConnectAccountId: true },
@@ -97,14 +92,17 @@ export async function GET(req: NextRequest) {
       countNeedsAttention(userId).catch(() => 0),
     ]);
     const pendingShip = paidOrdersUnshipped.filter((o) => orderHasShippedLine(o.items)).length;
-    const hasStripeConnect = !!member?.stripeConnectAccountId;
-    const balanceCents = balance?.balanceCents ?? 0;
+    let chargesEnabled = false;
     let stripeAvailableCents = 0;
     if (member?.stripeConnectAccountId) {
       try {
-        const stripeBalance = await stripe.balance.retrieve({
-          stripeAccount: member.stripeConnectAccountId,
-        });
+        const [account, stripeBalance] = await Promise.all([
+          stripe.accounts.retrieve(member.stripeConnectAccountId),
+          stripe.balance.retrieve({
+            stripeAccount: member.stripeConnectAccountId,
+          }),
+        ]);
+        chargesEnabled = account.charges_enabled === true;
         const usdAvailable = stripeBalance.available?.find((b) => b.currency === "usd");
         stripeAvailableCents = usdAvailable?.amount ?? 0;
       } catch (e) {
@@ -119,8 +117,7 @@ export async function GET(req: NextRequest) {
         // use balanceCents only
       }
     }
-    const payoutReady =
-      hasStripeConnect && (stripeAvailableCents >= MIN_PAYOUT_CENTS || balanceCents >= MIN_PAYOUT_CENTS);
+    const payoutReady = chargesEnabled && stripeAvailableCents >= MIN_PAYOUT_CENTS;
     return NextResponse.json({
       pendingShip,
       pendingDeliveries,
@@ -129,7 +126,7 @@ export async function GET(req: NextRequest) {
       pendingReturns,
       payoutReady,
       soldCount: soldCount ?? 0,
-      payoutSetupComplete: hasStripeConnect,
+      payoutSetupComplete: chargesEnabled,
       hasLocalDelivery: !!hasLocalDeliveryItem,
       needsAttentionCount,
     });

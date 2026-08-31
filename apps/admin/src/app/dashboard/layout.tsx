@@ -32,6 +32,7 @@ const SIDEBAR_SECTIONS: { divider: string; items: SidebarItem[] }[] = [
       { href: "/dashboard/sponsors", label: "Business Subscriptions", icon: "business-outline" },
       { href: "/dashboard/businesses", label: "Businesses", icon: "storefront-outline" },
       { href: "/dashboard/sellers", label: "Sellers", icon: "bag-handle-outline" },
+      { href: "/dashboard/facilitator-payouts", label: "Facilitator Payouts", icon: "cash-outline" },
     ],
   },
   {

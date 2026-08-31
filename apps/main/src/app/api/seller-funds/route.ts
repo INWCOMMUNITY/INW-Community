@@ -3,6 +3,10 @@ import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { prismaWhereMemberSellerOrSubscribeAccess } from "@/lib/nwc-paid-subscription";
+import {
+  recordConnectPayoutInLedger,
+  sumPaidConnectPayoutsCents,
+} from "@/lib/stripe/connect-payouts";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -41,14 +45,21 @@ export async function GET(req: NextRequest) {
   let availableForPayoutCents: number | undefined;
   let pendingCents: number | undefined;
   let payoutScheduleDescription: string | undefined;
+  let totalPaidOutCents = balance?.totalPaidOutCents ?? 0;
 
   if (member?.stripeConnectAccountId) {
     try {
       const account = await stripe.accounts.retrieve(member.stripeConnectAccountId);
       hasStripeConnect = account.charges_enabled === true;
-      const stripeBalance = await stripe.balance.retrieve({
-        stripeAccount: member.stripeConnectAccountId,
-      });
+      const [stripeBalance, paidOutFromStripe] = await Promise.all([
+        stripe.balance.retrieve({
+          stripeAccount: member.stripeConnectAccountId,
+        }),
+        sumPaidConnectPayoutsCents(stripe, member.stripeConnectAccountId).catch(() => null),
+      ]);
+      if (paidOutFromStripe !== null) {
+        totalPaidOutCents = paidOutFromStripe;
+      }
       const usdAvailable = stripeBalance.available?.find((b) => b.currency === "usd");
       const usdPending = stripeBalance.pending?.find((b) => b.currency === "usd");
       availableForPayoutCents = usdAvailable?.amount ?? 0;
@@ -88,7 +99,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     balanceCents: balance?.balanceCents ?? 0,
     totalEarnedCents: balance?.totalEarnedCents ?? 0,
-    totalPaidOutCents: balance?.totalPaidOutCents ?? 0,
+    totalPaidOutCents,
     transactions,
     hasStripeConnect,
     ...(availableForPayoutCents !== undefined && { availableForPayoutCents }),
@@ -160,6 +171,13 @@ export async function POST(req: NextRequest) {
         metadata: { memberId: userId },
       },
       { stripeAccount: member.stripeConnectAccountId }
+    );
+    await recordConnectPayoutInLedger({
+      memberId: userId,
+      payoutId: payout.id,
+      amountCents: availableCents,
+    }).catch((ledgerErr) =>
+      console.error("[seller-funds] ledger record after payout failed:", ledgerErr)
     );
     return NextResponse.json({ ok: true, payoutId: payout.id });
   } catch (e) {

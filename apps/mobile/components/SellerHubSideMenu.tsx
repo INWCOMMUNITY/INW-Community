@@ -109,6 +109,7 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
   const [soldItemsViewedAt, setSoldItemsViewedAt] = useState<string | null>(null);
   const [hasLocalDelivery, setHasLocalDelivery] = useState(false);
   const [needsAttentionCount, setNeedsAttentionCount] = useState(0);
+  const [payoutReady, setPayoutReady] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -121,6 +122,7 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
             soldCount?: number;
             hasLocalDelivery?: boolean;
             needsAttentionCount?: number;
+            payoutReady?: boolean;
           }>("/api/seller-hub/pending-actions"),
           AsyncStorage.getItem(SOLD_ITEMS_VIEWED_KEY),
         ]);
@@ -129,6 +131,7 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
         setSoldCount(Number(data.soldCount) || 0);
         setHasLocalDelivery(Boolean(data.hasLocalDelivery));
         setNeedsAttentionCount(Number(data.needsAttentionCount) || 0);
+        setPayoutReady(Boolean(data.payoutReady));
         setSoldItemsViewedAt(viewedAt);
       } catch {
         // ignore
@@ -175,7 +178,7 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
   ];
 
   const moneyItems: NavItem[] = [
-    { href: "/seller-hub/store/payouts", label: "Get Paid", icon: "wallet-outline" },
+    { href: "/seller-hub/store/payouts", label: "Get Paid", icon: "wallet-outline", alert: payoutReady },
     { href: "#stripe", label: "Stripe Dashboard", icon: "card-outline", action: "stripe" },
   ];
 

@@ -111,6 +111,7 @@ export function SellerHubMobileDrawer({
   hasLocalDelivery: boolean;
 }) {
   const [pendingShip, setPendingShip] = useState(0);
+  const [payoutReady, setPayoutReady] = useState(false);
 
   useLockBodyScroll(open);
 
@@ -118,8 +119,9 @@ export function SellerHubMobileDrawer({
     if (!open) return;
     fetch("/api/seller-hub/pending-actions", { credentials: "include" })
       .then((r) => r.json())
-      .then((d: { pendingShip?: number }) => {
+      .then((d: { pendingShip?: number; payoutReady?: boolean }) => {
         setPendingShip(Number(d?.pendingShip) || 0);
+        setPayoutReady(Boolean(d?.payoutReady));
       })
       .catch(() => {});
   }, [open]);
@@ -149,7 +151,7 @@ export function SellerHubMobileDrawer({
   ];
 
   const moneyItems: NavItem[] = [
-    { href: "/seller-hub/store/payouts", label: "Get Paid", icon: "wallet-outline" },
+    { href: "/seller-hub/store/payouts", label: "Get Paid", icon: "wallet-outline", alert: payoutReady },
     { href: "#stripe", label: "Stripe Dashboard", icon: "card-outline", action: "stripe" },
   ];
 

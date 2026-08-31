@@ -30,6 +30,7 @@ import {
   fulfillStoreOrdersFromCheckoutSession,
   syncStoreItemsAfterSale,
 } from "@/lib/stripe/fulfill-storefront-orders";
+import { recordConnectPayoutInLedger } from "@/lib/stripe/connect-payouts";
 import type { Plan } from "database";
 
 /**
@@ -246,6 +247,26 @@ export async function POST(req: NextRequest) {
       });
       if (member) {
         await disconnectStripeAndDisableListings(member.id);
+      }
+    }
+  }
+
+  if (event.type === "payout.paid" || event.type === "payout.failed") {
+    const payout = event.data.object as Stripe.Payout;
+    const connectAccountId = (event as Stripe.Event & { account?: string }).account ?? null;
+    if (connectAccountId && event.type === "payout.paid" && payout.amount > 0) {
+      const member = await prisma.member.findFirst({
+        where: { stripeConnectAccountId: connectAccountId },
+        select: { id: true },
+      });
+      if (member) {
+        await recordConnectPayoutInLedger({
+          memberId: member.id,
+          payoutId: payout.id,
+          amountCents: payout.amount,
+        }).catch((err) =>
+          console.error("[webhook] payout.paid ledger record failed:", err)
+        );
       }
     }
   }
@@ -506,48 +527,112 @@ export async function POST(req: NextRequest) {
           await syncStoreItemsAfterSale(legacySyncItemIds, "[webhook:checkout.session.completed]");
         }
 
-        const sellerCreditsCents = sellerTransferCents;
-        await prisma.sellerBalance.upsert({
-          where: { memberId: sellerId },
-          create: {
-            memberId: sellerId,
-            balanceCents: sellerCreditsCents,
-            totalEarnedCents: sellerCreditsCents,
-          },
-          update: {
-            balanceCents: { increment: sellerCreditsCents },
-            totalEarnedCents: { increment: sellerCreditsCents },
-          },
-        });
-        await prisma.sellerBalanceTransaction.create({
-          data: {
-            memberId: sellerId,
-            type: "sale",
-            amountCents: sellerCreditsCents,
-            orderId: order.id,
-            description: `Sale: Order #${order.id.slice(-6)}`,
-          },
-        });
-
-        const { sendPushNotification } = await import("@/lib/send-push-notification");
-        sendPushNotification(sellerId, {
-          title: "Woo Hoo! You made a sale!",
-          body: "Someone just bought from your store — open the app to see the order!",
-          data: { screen: "seller-hub/orders", orderId: order.id },
-          category: "commerce",
-        }).catch(() => {});
-
-        if (shippingCostCents > 0) {
+        let transferId: string | null = null;
+        let legacyTransferAborted = false;
+        if (sellerTransferCents > 0 && paymentIntentId) {
+          const sellerRow = await prisma.member.findUnique({
+            where: { id: sellerId },
+            select: { stripeConnectAccountId: true },
+          });
+          const connectId = sellerRow?.stripeConnectAccountId?.trim() ?? "";
+          let chargeId: string | null = null;
           try {
-            await stripe.payouts.create({
-              amount: shippingCostCents,
-              currency: "usd",
-              method: "instant",
-              metadata: { orderId: order.id, reason: "shipping" },
+            const piRetrieved = await stripe.paymentIntents.retrieve(paymentIntentId, {
+              expand: ["latest_charge"],
             });
-          } catch (payoutErr) {
-            console.error("[webhook] Instant payout for shipping failed:", payoutErr);
+            const ch = piRetrieved.latest_charge;
+            chargeId =
+              typeof ch === "string"
+                ? ch
+                : ch && typeof ch === "object" && "id" in ch
+                  ? (ch as Stripe.Charge).id
+                  : null;
+          } catch (piErr) {
+            console.error("[webhook] retrieve PI for legacy Connect transfer:", piErr);
           }
+          if (!connectId || !chargeId) {
+            console.error("[webhook] legacy checkout: missing Connect account or charge; refunding");
+            try {
+              await stripe.refunds.create({ payment_intent: paymentIntentId });
+            } catch (refundErr) {
+              console.error("[webhook] refund after missing transfer target:", refundErr);
+            }
+            await prisma.storeOrder.update({
+              where: { id: order.id },
+              data: {
+                status: "canceled",
+                cancelReason: "Payment to seller could not be completed",
+              },
+            });
+            legacyTransferAborted = true;
+          } else {
+            try {
+              const tr = await stripe.transfers.create(
+                {
+                  amount: sellerTransferCents,
+                  currency: "usd",
+                  destination: connectId,
+                  source_transaction: chargeId,
+                  metadata: { orderId: order.id },
+                },
+                { idempotencyKey: `nwc_store_transfer_${order.id}` }
+              );
+              transferId = tr.id;
+              await prisma.storeOrder.update({
+                where: { id: order.id },
+                data: { stripeSellerTransferId: tr.id },
+              });
+            } catch (transferErr) {
+              console.error("[webhook] legacy checkout Connect transfer failed:", transferErr);
+              try {
+                await stripe.refunds.create({ payment_intent: paymentIntentId });
+              } catch (refundErr) {
+                console.error("[webhook] refund after transfer failure:", refundErr);
+              }
+              await prisma.storeOrder.update({
+                where: { id: order.id },
+                data: {
+                  status: "canceled",
+                  cancelReason: "Payment to seller could not be completed",
+                },
+              });
+              legacyTransferAborted = true;
+            }
+          }
+        }
+
+        if (!legacyTransferAborted) {
+          const sellerCreditsCents = sellerTransferCents;
+          await prisma.sellerBalance.upsert({
+            where: { memberId: sellerId },
+            create: {
+              memberId: sellerId,
+              balanceCents: sellerCreditsCents,
+              totalEarnedCents: sellerCreditsCents,
+            },
+            update: {
+              balanceCents: { increment: sellerCreditsCents },
+              totalEarnedCents: { increment: sellerCreditsCents },
+            },
+          });
+          await prisma.sellerBalanceTransaction.create({
+            data: {
+              memberId: sellerId,
+              type: "sale",
+              amountCents: sellerCreditsCents,
+              orderId: order.id,
+              description: `Sale: Order #${order.id.slice(-6)}`,
+              ...(transferId ? { stripeTransferId: transferId } : {}),
+            },
+          });
+
+          const { sendPushNotification } = await import("@/lib/send-push-notification");
+          sendPushNotification(sellerId, {
+            title: "Woo Hoo! You made a sale!",
+            body: "Someone just bought from your store — open the app to see the order!",
+            data: { screen: "seller-hub/orders", orderId: order.id },
+            category: "commerce",
+          }).catch(() => {});
         }
       }
     }
@@ -619,6 +704,12 @@ export async function POST(req: NextRequest) {
 
       // Only process pending orders (avoid race / duplicate events)
       if (order.status !== "pending") continue;
+
+      // Platform Checkout is fulfilled on checkout.session.completed (Connect transfer + tax split).
+      // Do not mark paid or credit the ledger here — that would skip the Transfer.
+      if (!isConnectEvent) {
+        continue;
+      }
 
       // Connect events: ensure payment was for this order's seller's Connect account (funds go to seller, not platform)
       let sellerConnectAccountId: string | null = null;
@@ -754,52 +845,6 @@ export async function POST(req: NextRequest) {
             where: { id: { in: roi }, status: "accepted" },
             data: { status: "completed" },
           });
-        }
-      }
-
-      if (!isConnectEvent) {
-        const { platformFeeCents, salesTaxReserveCents, sellerTransferCents } = computeSellerTransferCents(
-          order.totalCents,
-          order.subtotalCents
-        );
-        assertPreTaxSplitMatchesOrderTotal(order, {
-          platformFeeCents,
-          salesTaxReserveCents,
-          sellerTransferCents,
-        });
-        const sellerCreditsCents = sellerTransferCents;
-        await prisma.sellerBalance.upsert({
-          where: { memberId: order.sellerId },
-          create: {
-            memberId: order.sellerId,
-            balanceCents: sellerCreditsCents,
-            totalEarnedCents: sellerCreditsCents,
-          },
-          update: {
-            balanceCents: { increment: sellerCreditsCents },
-            totalEarnedCents: { increment: sellerCreditsCents },
-          },
-        });
-        await prisma.sellerBalanceTransaction.create({
-          data: {
-            memberId: order.sellerId,
-            type: "sale",
-            amountCents: sellerCreditsCents,
-            orderId: order.id,
-            description: `Sale: Order #${order.id.slice(-6)}`,
-          },
-        });
-        if (order.shippingCostCents > 0) {
-          try {
-            await stripe.payouts.create({
-              amount: order.shippingCostCents,
-              currency: "usd",
-              method: "instant",
-              metadata: { orderId: order.id, reason: "shipping" },
-            });
-          } catch (payoutErr) {
-            console.error("[webhook] Instant payout for shipping failed:", payoutErr);
-          }
         }
       }
 

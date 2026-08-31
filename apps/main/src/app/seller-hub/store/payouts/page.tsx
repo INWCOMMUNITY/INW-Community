@@ -32,10 +32,14 @@ export default function MyFundsPage() {
   function fetchFunds() {
     setLoading(true);
     fetch("/api/seller-funds")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.error) setError(d.error);
-        else setData(d);
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || d.error) {
+          setError(d.error ?? "Failed to load");
+          return;
+        }
+        setError(null);
+        setData(d);
       })
       .catch(() => setError("Failed to load"))
       .finally(() => setLoading(false));
@@ -99,6 +103,20 @@ export default function MyFundsPage() {
 
   if (loading) return <p className="text-gray-500">Loading…</p>;
 
+  if (error && !data) {
+    return (
+      <div>
+        <h2 className="text-xl font-bold mb-4">My Funds</h2>
+        <div className="border rounded-lg p-4 bg-red-50 mb-6">
+          <p className="text-red-700">{error}</p>
+        </div>
+        <button type="button" onClick={fetchFunds} className="btn">
+          Try Again
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div>
       <h2 className="text-xl font-bold mb-4">My Funds</h2>
@@ -106,16 +124,16 @@ export default function MyFundsPage() {
         <div className="border rounded-lg p-4 bg-amber-50">
           <p className="mb-3">Complete Stripe Connect setup to receive payouts from sales.</p>
           <button type="button" onClick={handleSetup} className="btn">
-            Complete payment setup
+            Complete Payment Setup
           </button>
         </div>
       ) : (
         <>
           <div className="grid md:grid-cols-3 gap-4 mb-6">
             <div className="border rounded-lg p-4 bg-gray-50">
-              <p className="text-sm text-gray-500 mb-1">Available for payout</p>
+              <p className="text-sm text-gray-500 mb-1">Available for Payout</p>
               <p className="text-2xl font-bold">${(availableCents / 100).toFixed(2)}</p>
-              <p className="text-xs text-gray-500 mt-1">Ready to send to your bank</p>
+              <p className="text-xs text-gray-500 mt-1">Ready to Send to Your Bank</p>
             </div>
             {(data?.pendingCents ?? 0) > 0 && (
               <div className="border rounded-lg p-4 bg-gray-50">
@@ -127,11 +145,11 @@ export default function MyFundsPage() {
               </div>
             )}
             <div className="border rounded-lg p-4 bg-gray-50">
-              <p className="text-sm text-gray-500 mb-1">Total earned</p>
+              <p className="text-sm text-gray-500 mb-1">Total Earned</p>
               <p className="text-2xl font-bold">${((data?.totalEarnedCents ?? 0) / 100).toFixed(2)}</p>
             </div>
             <div className="border rounded-lg p-4 bg-gray-50">
-              <p className="text-sm text-gray-500 mb-1">Total paid out</p>
+              <p className="text-sm text-gray-500 mb-1">Total Paid Out</p>
               <p className="text-2xl font-bold">${((data?.totalPaidOutCents ?? 0) / 100).toFixed(2)}</p>
             </div>
           </div>
@@ -194,7 +212,7 @@ export default function MyFundsPage() {
             </button>
             .
           </p>
-          <h3 className="font-semibold mb-3">Transaction history</h3>
+          <h3 className="font-semibold mb-3">Transaction History</h3>
           {data?.transactions && data.transactions.length > 0 ? (
             <div className="border rounded-lg overflow-hidden">
               <table className="w-full text-sm">

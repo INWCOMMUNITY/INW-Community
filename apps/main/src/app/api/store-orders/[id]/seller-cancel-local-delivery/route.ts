@@ -5,11 +5,9 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 import { syncInventoryToChannelsAfterSale } from "@/lib/channels/sync-inventory";
+import { refundPaidStorefrontOrder } from "@/lib/stripe/refund-store-order";
 
 export const dynamic = "force-dynamic";
-
-const PLATFORM_FEE_PERCENT = 0.05;
-const PLATFORM_FEE_MIN_CENTS = 50;
 
 /**
  * Seller cancels a local-delivery order before they mark it delivered (handoff not claimed yet).
@@ -99,27 +97,6 @@ export async function POST(
       }
     });
   } else {
-    const totalCents = order.totalCents;
-    const platformFeeCents = Math.max(
-      PLATFORM_FEE_MIN_CENTS,
-      Math.floor(totalCents * PLATFORM_FEE_PERCENT)
-    );
-    const sellerDeductionCents = totalCents - platformFeeCents;
-
-    const balance = await prisma.sellerBalance.findUnique({
-      where: { memberId: order.sellerId },
-    });
-    const availableCents = balance?.balanceCents ?? 0;
-    if (availableCents < sellerDeductionCents) {
-      return NextResponse.json(
-        {
-          error:
-            "Your seller balance is too low to refund this card order. Ask the buyer to request a refund from their order screen, or contact support.",
-        },
-        { status: 400 }
-      );
-    }
-
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeSecretKey?.startsWith("sk_")) {
       return NextResponse.json(
@@ -130,68 +107,23 @@ export async function POST(
     const stripe = new Stripe(stripeSecretKey, {
       apiVersion: "2024-11-20.acacia" as "2023-10-16",
     });
-
-    try {
-      await stripe.refunds.create({
-        payment_intent: order.stripePaymentIntentId!,
-        amount: totalCents,
-        reason: "requested_by_customer",
-      });
-
-      await prisma.$transaction(async (tx) => {
-        await tx.storeOrder.update({
-          where: { id: order.id },
-          data: { status: "refunded", cancelReason, cancelNote: undefined },
-        });
-        await tx.sellerBalance.upsert({
-          where: { memberId: order.sellerId },
-          create: {
-            memberId: order.sellerId,
-            balanceCents: -sellerDeductionCents,
-            totalEarnedCents: 0,
-            totalPaidOutCents: 0,
-          },
-          update: { balanceCents: { decrement: sellerDeductionCents } },
-        });
-        await tx.sellerBalanceTransaction.create({
-          data: {
-            memberId: order.sellerId,
-            type: "return",
-            amountCents: -sellerDeductionCents,
-            orderId: order.id,
-            description: `Seller canceled delivery: Order #${order.id.slice(-6)} - $${(totalCents / 100).toFixed(2)}`,
-          },
-        });
-        const storeItemsCancel = await tx.storeItem.findMany({
-          where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
-        });
-        const storeItemMapCancel = new Map(storeItemsCancel.map((s) => [s.id, s]));
-        for (const oi of order.items) {
-          const storeItem = storeItemMapCancel.get(oi.storeItemId);
-          if (storeItem && hasOptionQuantities(storeItem.variants) && oi.variant) {
-            const res = incrementOptionQuantity(storeItem.variants, oi.variant, oi.quantity);
-            if (res) {
-              await tx.storeItem.update({
-                where: { id: oi.storeItemId },
-                data: { variants: res.variants as object, quantity: { increment: res.quantityDelta } },
-              });
-            } else {
-              await tx.storeItem.update({
-                where: { id: oi.storeItemId },
-                data: { quantity: { increment: oi.quantity } },
-              });
-            }
-          } else {
-            await tx.storeItem.update({
-              where: { id: oi.storeItemId },
-              data: { quantity: { increment: oi.quantity } },
-            });
-          }
-        }
-      });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Cancel/refund failed";
-      return NextResponse.json({ error: msg }, { status: 500 });
+    const result = await refundPaidStorefrontOrder({
+      stripe,
+      order: {
+        id: order.id,
+        sellerId: order.sellerId,
+        status: order.status,
+        totalCents: order.totalCents,
+        subtotalCents: order.subtotalCents,
+        taxCents: order.taxCents,
+        stripePaymentIntentId: order.stripePaymentIntentId,
+        stripeSellerTransferId: order.stripeSellerTransferId,
+        items: order.items,
+      },
+      reason: cancelReason,
+    });
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
     }
   }
 
