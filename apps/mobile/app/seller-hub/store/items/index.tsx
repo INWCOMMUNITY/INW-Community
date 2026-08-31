@@ -29,13 +29,21 @@ import { isEbayConditionSyncError } from "@/lib/ebay-condition-sync";
 import { buildProductPath } from "@/lib/product-referrer";
 import { QualityScoreBadge } from "@/components/listing/QualityScoreBadge";
 import { BulkActionsBar } from "@/components/seller/BulkActionsBar";
+import { BulkDestinationGridModal } from "@/components/seller/BulkDestinationGridModal";
 import {
   CHANNEL_PROVIDER_LABEL,
   channelNotReadyHint,
   fetchChannelConnections,
+  listOnConnections,
   type ChannelConnectionSummary,
   type ChannelProviderId,
 } from "@/lib/channel-connections";
+import {
+  endOnInwConfirm,
+  endOnInwResult,
+  summarizeBulkDestinations,
+  type BulkDestinationsResultCounts,
+} from "@/lib/store-item-bulk-destinations";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -100,6 +108,8 @@ export default function MyItemsScreen() {
   const [channelConnections, setChannelConnections] = useState<ChannelConnectionSummary[]>([]);
   const [categoryProvider, setCategoryProvider] = useState<ListOnCategoryProvider | null>(null);
   const [categoryItemId, setCategoryItemId] = useState<string | null>(null);
+  const [endGridItem, setEndGridItem] = useState<StoreItem | null>(null);
+  const [endGridLoading, setEndGridLoading] = useState(false);
 
   type ItemsTab = "active" | "ended" | "sold";
   const [itemsTab, setItemsTab] = useState<ItemsTab>(initialTab);
@@ -262,6 +272,40 @@ export default function MyItemsScreen() {
     } finally {
       setActingId(null);
     }
+  };
+
+  const endListing = (id: string) => {
+    setMenuItemId(null);
+    const item = items.find((i) => i.id === id);
+    if (!item) return;
+    if ((item.channelLinks ?? []).length > 0) {
+      setEndGridItem(item);
+      return;
+    }
+    Alert.alert("End listing", endOnInwConfirm(1, []), [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "End on INW",
+        style: "destructive",
+        onPress: async () => {
+          setActingId(id);
+          try {
+            await apiPatch(`/api/store-items/${id}`, {
+              status: "inactive",
+              syncToChannels: false,
+            });
+            const summary = endOnInwResult(1, 0, []);
+            Alert.alert(summary.title, summary.message);
+            load();
+          } catch (e) {
+            const err = e as { error?: string };
+            Alert.alert("Error", err.error ?? "Failed to end listing");
+          } finally {
+            setActingId(null);
+          }
+        },
+      },
+    ]);
   };
 
   const confirmMarkAsSold = (id: string) => {
@@ -433,6 +477,7 @@ export default function MyItemsScreen() {
         ...(assignment?.ebayCategoryId != null ? { ebayCategoryId: assignment.ebayCategoryId } : {}),
         ...(assignment?.etsyWhoMade ? { etsyWhoMade: assignment.etsyWhoMade } : {}),
         ...(assignment?.etsyWhenMade ? { etsyWhenMade: assignment.etsyWhenMade } : {}),
+        ...(assignment?.aspects?.length ? { aspects: assignment.aspects } : {}),
       });
       alertChannelPublishResult(res.channelSync);
       setCategoryProvider(null);
@@ -828,6 +873,14 @@ export default function MyItemsScreen() {
                 <Text style={styles.menuOptionTextGreen}>Mark sold</Text>
               </Pressable>
             )}
+            {itemsTab === "active" && (
+              <Pressable
+                style={styles.menuOption}
+                onPress={() => menuItemId && endListing(menuItemId)}
+              >
+                <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>End listing</Text>
+              </Pressable>
+            )}
             <Pressable
               style={styles.menuOption}
               onPress={() => menuItemId && deleteItem(menuItemId)}
@@ -862,6 +915,32 @@ export default function MyItemsScreen() {
         onComplete={async (assignments) => {
           if (!categoryProvider || !categoryItemId) return;
           await runPublish(categoryItemId, categoryProvider, assignments[0]);
+        }}
+      />
+      <BulkDestinationGridModal
+        visible={endGridItem != null}
+        action="end"
+        items={endGridItem ? [endGridItem] : []}
+        connectedProviders={listOnConnections(channelConnections).map((c) => c.provider)}
+        loading={endGridLoading}
+        onClose={() => setEndGridItem(null)}
+        onApply={async (assignments) => {
+          setEndGridLoading(true);
+          try {
+            const result = await apiPost<BulkDestinationsResultCounts>("/api/store-items/bulk-destinations", {
+              action: "end",
+              items: assignments,
+            });
+            const summary = summarizeBulkDestinations("end", result);
+            Alert.alert(summary.title, summary.message);
+            setEndGridItem(null);
+            load();
+          } catch (e) {
+            const err = e as { error?: string };
+            Alert.alert("End Listings failed", err.error ?? "Failed to end listing");
+          } finally {
+            setEndGridLoading(false);
+          }
         }}
       />
     </View>

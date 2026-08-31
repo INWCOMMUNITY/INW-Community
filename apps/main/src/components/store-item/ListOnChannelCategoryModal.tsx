@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
 import { ChannelCategorySearchField } from "@/components/store-item/ChannelCategorySearchField";
+import { EbayAspectFields, type EbayCategoryAspectField } from "@/components/store-item/EbayAspectFields";
 import {
   listingHintClass,
   listingLabelClass,
@@ -16,6 +17,11 @@ import {
   type EtsyWhenMade,
   type EtsyWhoMade,
 } from "@/lib/etsy-listing-options";
+import {
+  ebayAspectRowsForListOnPopup,
+  missingRequiredEbayAspects,
+} from "@/lib/channels/ebay/aspect-prep";
+import { parseStoredAspects, type ListingAspect } from "@/lib/listing-limits";
 import {
   itemNeedsEtsyListingDetails,
   mergeListOnCategoryAssignment,
@@ -44,6 +50,10 @@ export function ListOnChannelCategoryModal({
   const [categoryLabel, setCategoryLabel] = useState("");
   const [etsyWhoMade, setEtsyWhoMade] = useState<EtsyWhoMade>("i_did");
   const [etsyWhenMade, setEtsyWhenMade] = useState<EtsyWhenMade>("made_to_order");
+  const [categoryAspects, setCategoryAspects] = useState<EbayCategoryAspectField[]>([]);
+  const [aspects, setAspects] = useState<ListingAspect[]>([]);
+  const [aspectsLoading, setAspectsLoading] = useState(false);
+  const [aspectsError, setAspectsError] = useState<string | null>(null);
 
   useLockBodyScroll(true);
 
@@ -63,6 +73,10 @@ export function ListOnChannelCategoryModal({
     }
     setEtsyWhoMade(isEtsyWhoMade(step.item.etsyWhoMade) ? step.item.etsyWhoMade : "i_did");
     setEtsyWhenMade(normalizeEtsyWhenMade(step.item.etsyWhenMade) ?? "made_to_order");
+    setCategoryAspects([]);
+    setAspects([]);
+    setAspectsError(null);
+    setAspectsLoading(false);
     setError(null);
   }, [
     index,
@@ -73,11 +87,64 @@ export function ListOnChannelCategoryModal({
     step?.item.etsyWhoMade,
     step?.item.etsyWhenMade,
   ]);
+
+  useEffect(() => {
+    if (!step || step.provider !== "ebay" || !categoryId) {
+      setCategoryAspects([]);
+      setAspects([]);
+      setAspectsError(null);
+      setAspectsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setAspectsLoading(true);
+    setAspectsError(null);
+    fetch(
+      `/api/channels/ebay/category-aspects?categoryId=${encodeURIComponent(categoryId)}&storeItemId=${encodeURIComponent(step.item.id)}`,
+      { credentials: "include" }
+    )
+      .then(async (res) => {
+        const data: { aspects?: EbayCategoryAspectField[]; error?: string } = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) {
+          setCategoryAspects([]);
+          setAspects([]);
+          setAspectsError(
+            data.error ??
+              (res.status === 503
+                ? "eBay item specifics are not configured on this server."
+                : "Could not load eBay item specifics for this category.")
+          );
+          return;
+        }
+        const list = data.aspects ?? [];
+        setCategoryAspects(list);
+        setAspects(
+          ebayAspectRowsForListOnPopup(list, parseStoredAspects(step.item.aspects), step.item.title)
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCategoryAspects([]);
+        setAspects([]);
+        setAspectsError("Could not load eBay item specifics for this category.");
+      })
+      .finally(() => {
+        if (!cancelled) setAspectsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [step?.provider, step?.item.id, step?.item.title, categoryId]);
   const isLast = index === steps.length - 1;
   const providerLabel = step?.provider === "etsy" ? "Etsy" : "eBay";
   const showEtsyDetails = step?.provider === "etsy" && itemNeedsEtsyListingDetails(step.item);
+  const missingEbayAspects =
+    step?.provider === "ebay" ? missingRequiredEbayAspects(categoryAspects, aspects) : [];
   const canContinue =
     Boolean(categoryId) &&
+    !aspectsLoading &&
+    missingEbayAspects.length === 0 &&
     (step?.provider !== "etsy" ||
       !showEtsyDetails ||
       (isEtsyWhoMade(etsyWhoMade) && normalizeEtsyWhenMade(etsyWhenMade) != null));
@@ -100,6 +167,7 @@ export function ListOnChannelCategoryModal({
       }
     } else {
       patch.ebayCategoryId = Number(categoryId);
+      patch.aspects = aspects;
     }
     return patch;
   }
@@ -132,7 +200,7 @@ export function ListOnChannelCategoryModal({
     <div className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/40" role="dialog">
       <button type="button" className="absolute inset-0" aria-label="Close" onClick={onClose} disabled={submitting} />
       <div
-        className="relative z-10 w-full max-w-md rounded-xl border-2 bg-white p-5 shadow-xl max-h-[90vh] overflow-y-auto"
+        className="relative z-10 w-full max-w-lg rounded-xl border-2 bg-white p-5 shadow-xl max-h-[90vh] overflow-y-auto"
         style={{ borderColor: "var(--color-primary)" }}
       >
         <div className="flex items-start justify-between gap-3 mb-3">
@@ -154,7 +222,9 @@ export function ListOnChannelCategoryModal({
         </div>
 
         <p className={`${listingHintClass} mb-3`}>
-          {providerLabel} needs a category before this item can be listed.
+          {step.provider === "ebay"
+            ? "eBay needs a category and required item specifics before this item can be listed."
+            : `${providerLabel} needs a category before this item can be listed.`}
         </p>
 
         <ChannelCategorySearchField
@@ -168,9 +238,25 @@ export function ListOnChannelCategoryModal({
           onClear={() => {
             setCategoryId("");
             setCategoryLabel("");
+            setCategoryAspects([]);
+            setAspects([]);
+            setAspectsError(null);
           }}
           disabled={submitting}
         />
+
+        {step.provider === "ebay" && categoryId ? (
+          <EbayAspectFields
+            aspects={aspects}
+            categoryAspects={categoryAspects}
+            loading={aspectsLoading}
+            error={aspectsError}
+            disabled={submitting}
+            onAspectValueChange={(index, value) =>
+              setAspects((prev) => prev.map((row, i) => (i === index ? { ...row, value } : row)))
+            }
+          />
+        ) : null}
 
         {showEtsyDetails ? (
           <div className="mt-4 space-y-3">

@@ -5,6 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { validateForProviders, summarizeValidation } from "@/lib/channels/validate-publish";
 import { publishStoreItemToChannels } from "@/lib/channels/outbound";
 import { isChannelProvider, type ChannelProvider, type SyncStoreItem } from "@/lib/channels/types";
+import { storeItemPatchFromListOnCategoryAssignment } from "@/lib/list-on-channel-category-patch";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ const bulkPublishSchema = z.object({
         ebayCategoryId: z.number().int().positive().optional(),
         etsyWhoMade: z.string().min(1).optional(),
         etsyWhenMade: z.string().min(1).optional(),
+        aspects: z.array(z.object({ name: z.string().min(1), value: z.string() })).optional(),
       })
     )
     .optional(),
@@ -120,16 +122,7 @@ export async function POST(req: NextRequest) {
       for (const assignment of assignments) {
         const item = itemsById.get(assignment.storeItemId);
         if (!item) continue;
-        const data: {
-          etsyTaxonomyId?: number;
-          ebayCategoryId?: number;
-          etsyWhoMade?: string;
-          etsyWhenMade?: string;
-        } = {};
-        if (assignment.etsyTaxonomyId != null) data.etsyTaxonomyId = assignment.etsyTaxonomyId;
-        if (assignment.ebayCategoryId != null) data.ebayCategoryId = assignment.ebayCategoryId;
-        if (assignment.etsyWhoMade) data.etsyWhoMade = assignment.etsyWhoMade;
-        if (assignment.etsyWhenMade) data.etsyWhenMade = assignment.etsyWhenMade;
+        const data = storeItemPatchFromListOnCategoryAssignment(assignment);
         if (Object.keys(data).length === 0) continue;
         await prisma.storeItem.update({ where: { id: item.id }, data });
         Object.assign(item, data);

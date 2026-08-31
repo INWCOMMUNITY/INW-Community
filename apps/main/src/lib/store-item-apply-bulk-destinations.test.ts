@@ -17,6 +17,7 @@ const { mockPrisma, publishStoreItemToChannels, unpublishStoreItemFromChannels }
 
 vi.mock("database", () => ({
   prisma: mockPrisma,
+  Prisma: { JsonNull: { $type: "JsonNull" } },
 }));
 
 vi.mock("@/lib/channels/outbound", () => ({

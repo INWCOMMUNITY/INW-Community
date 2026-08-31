@@ -93,6 +93,14 @@ describe("planBulkDestinations", () => {
     expect(plan.unsyncInw).toEqual(["a"]);
   });
 
+  it("ends INW and unpublishes checked live shops", () => {
+    const plan = planBulkDestinations("end", [listed], [
+      { storeItemId: "a", inw: true, providers: ["ebay", "wix"] },
+    ]);
+    expect(plan.unpublish).toEqual([{ itemId: "a", providers: ["ebay", "wix"] }]);
+    expect(plan.endInw).toEqual(["a"]);
+  });
+
   it("ends INW only when End leaves channels unchecked", () => {
     const plan = planBulkDestinations("end", [listed], [
       { storeItemId: "a", inw: true, providers: [] },

@@ -1,9 +1,10 @@
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { isChannelProvider, type ChannelProvider } from "@/lib/channels/types";
 import { publishStoreItemToChannels, unpublishStoreItemFromChannels } from "@/lib/channels/outbound";
 import { logSellerActivity } from "@/lib/seller-activity-log";
 import { inactiveStoreItemData } from "@/lib/store-item-ended-status";
 import type { ListOnCategoryAssignment } from "@/lib/list-on-channel-category";
+import { storeItemPatchFromListOnCategoryAssignment } from "@/lib/list-on-channel-category-patch";
 import {
   planBulkDestinations,
   type BulkDestinationAction,
@@ -51,18 +52,12 @@ function mergeProviderResults(
 async function applyCategoryAssignments(assignments: ListOnCategoryAssignment[] | undefined) {
   if (!assignments?.length) return;
   for (const assignment of assignments) {
-    const data: {
-      etsyTaxonomyId?: number;
-      ebayCategoryId?: number;
-      etsyWhoMade?: string;
-      etsyWhenMade?: string;
-    } = {};
-    if (assignment.etsyTaxonomyId != null) data.etsyTaxonomyId = assignment.etsyTaxonomyId;
-    if (assignment.ebayCategoryId != null) data.ebayCategoryId = assignment.ebayCategoryId;
-    if (assignment.etsyWhoMade) data.etsyWhoMade = assignment.etsyWhoMade;
-    if (assignment.etsyWhenMade) data.etsyWhenMade = assignment.etsyWhenMade;
+    const data = storeItemPatchFromListOnCategoryAssignment(assignment);
     if (Object.keys(data).length === 0) continue;
-    await prisma.storeItem.update({ where: { id: assignment.storeItemId }, data });
+    await prisma.storeItem.update({
+      where: { id: assignment.storeItemId },
+      data: data as Prisma.StoreItemUpdateInput,
+    });
   }
 }
 

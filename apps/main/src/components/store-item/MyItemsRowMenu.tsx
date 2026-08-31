@@ -3,13 +3,20 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
-import { END_LISTING_CONFIRM } from "@/lib/store-item-ended-status";
+import { endOnInwConfirm, endOnInwResult, uniqueLinkedShopNames } from "@/lib/store-item-ended-status";
 import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
 import {
   channelNotReadyHint,
+  listOnConnections,
   type ChannelConnectionSummary,
   type ChannelProviderId,
 } from "@/lib/channel-connections-client";
+import { BulkDestinationGridModal } from "@/components/store-item/BulkDestinationGridModal";
+import {
+  summarizeBulkDestinations,
+  type BulkDestinationsResultCounts,
+  type DestinationAssignment,
+} from "@/lib/store-item-bulk-destinations";
 import {
   alertChannelPublishResult,
   alertChannelSyncFailures,
@@ -53,6 +60,7 @@ export function MyItemsRowMenu({
   const [acting, setActing] = useState(false);
   const [actingLabel, setActingLabel] = useState<string | null>(null);
   const [soldPrompt, setSoldPrompt] = useState(false);
+  const [endGridOpen, setEndGridOpen] = useState(false);
   const [categoryProvider, setCategoryProvider] = useState<ListOnCategoryProvider | null>(null);
   useLockBodyScroll(true);
 
@@ -75,7 +83,11 @@ export function MyItemsRowMenu({
     const res = await fetch(url, { credentials: "include", ...init });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error((data as { error?: string }).error ?? `Request failed (${res.status})`);
+      throw new Error(
+        (data as { detail?: string; error?: string }).detail ??
+          (data as { error?: string }).error ??
+          `Request failed (${res.status})`
+      );
     }
     return data as T;
   }
@@ -106,23 +118,45 @@ export function MyItemsRowMenu({
     }
   }
 
-  async function endListing() {
-    if (!window.confirm(END_LISTING_CONFIRM)) return;
+  async function endListingOnInw() {
+    const shopNames = uniqueLinkedShopNames([item], CHANNEL_PROVIDER_LABELS);
+    if (!window.confirm(endOnInwConfirm(1, shopNames))) return;
     setActing(true);
     try {
-      const data = await jsonFetch<{ channelSync?: { provider: string; ok: boolean; error?: string }[] }>(
-        `/api/store-items/${item.id}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "inactive", syncToChannels: false }),
-        }
-      );
-      alertChannelSyncFailures(data.channelSync);
+      await jsonFetch(`/api/store-items/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "inactive", syncToChannels: false }),
+      });
+      const summary = endOnInwResult(1, 0, shopNames);
+      if (onActionResult) onActionResult(summary);
+      else alert(summary.message);
       onDone();
       onClose();
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to end listing");
+    } finally {
+      setActing(false);
+    }
+  }
+
+  async function applyEndDestinations(assignments: DestinationAssignment[]) {
+    setActing(true);
+    try {
+      const result = await jsonFetch<BulkDestinationsResultCounts>("/api/store-items/bulk-destinations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "end", items: assignments }),
+      });
+      const summary = summarizeBulkDestinations("end", result);
+      if (onActionResult) onActionResult(summary);
+      else alert(summary.message);
+      onDone();
+      onClose();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to end listing";
+      if (onActionResult) onActionResult({ title: "End Listings failed", message: msg, ok: false });
+      else alert(msg);
     } finally {
       setActing(false);
     }
@@ -211,6 +245,7 @@ export function MyItemsRowMenu({
       if (assignment?.ebayCategoryId != null) body.ebayCategoryId = assignment.ebayCategoryId;
       if (assignment?.etsyWhoMade) body.etsyWhoMade = assignment.etsyWhoMade;
       if (assignment?.etsyWhenMade) body.etsyWhenMade = assignment.etsyWhenMade;
+      if (assignment?.aspects?.length) body.aspects = assignment.aspects;
       const data = await jsonFetch<{ channelSync?: { provider: string; ok: boolean; error?: string }[] }>(
         `/api/store-items/${item.id}/publish-channels`,
         {
@@ -279,6 +314,19 @@ export function MyItemsRowMenu({
         onComplete={async (assignments) => {
           await runPublish(categoryProvider, assignments[0]);
         }}
+      />
+    );
+  }
+
+  if (endGridOpen) {
+    return (
+      <BulkDestinationGridModal
+        action="end"
+        items={[item]}
+        connectedProviders={listOnConnections(connections).map((c) => c.provider)}
+        loading={acting}
+        onClose={() => setEndGridOpen(false)}
+        onApply={(assignments) => applyEndDestinations(assignments)}
       />
     );
   }
@@ -445,7 +493,13 @@ export function MyItemsRowMenu({
               <button
                 type="button"
                 disabled={acting}
-                onClick={() => void endListing()}
+                onClick={() => {
+                  if ((item.channelLinks ?? []).length > 0) {
+                    setEndGridOpen(true);
+                    return;
+                  }
+                  void endListingOnInw();
+                }}
                 className={menuRowClass}
                 style={{ color: "var(--color-heading)" }}
               >

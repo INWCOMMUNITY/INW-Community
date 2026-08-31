@@ -12,6 +12,7 @@ const categoryAssignmentSchema = z.object({
   ebayCategoryId: z.number().int().positive().optional(),
   etsyWhoMade: z.string().min(1).optional(),
   etsyWhenMade: z.string().min(1).optional(),
+  aspects: z.array(z.object({ name: z.string().min(1), value: z.string() })).optional(),
 });
 
 const bodySchema = z.object({

@@ -67,7 +67,7 @@ export function BulkDestinationGridModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[240] flex items-center justify-center p-4 bg-black/40" role="dialog">
+    <div className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/40" role="dialog">
       <button type="button" className="absolute inset-0" aria-label="Close" onClick={onClose} />
       <div
         className="relative z-10 flex w-full max-w-4xl max-h-[min(90vh,720px)] flex-col overflow-hidden rounded-2xl border-2 bg-white shadow-xl"

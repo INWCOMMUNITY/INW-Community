@@ -32,8 +32,70 @@ function isChannelProvider(value: string): value is ChannelProvider {
 export const UNSYNC_INW_NOTE =
   "Unchecking INW takes this item off our storefront and stops us from matching stock with your other shops. Listings you leave checked stay up, but we will not update their quantities — the same item could sell twice.";
 
-export const END_LISTINGS_CONFIRM =
-  "End these listings on INW? They leave our storefront. Listings on eBay, Etsy, and other shops stay up. Ended INW listings are removed after 14 days.";
+export function hasLinkedChannelListings(
+  items: { channelLinks?: { provider: string }[] }[]
+): boolean {
+  return items.some((item) => (item.channelLinks ?? []).length > 0);
+}
+
+export function uniqueLinkedShopNames(
+  items: { channelLinks?: { provider: string }[] }[],
+  labels: Record<string, string>
+): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    for (const link of item.channelLinks ?? []) {
+      const name = labels[link.provider] ?? link.provider;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      names.push(name);
+    }
+  }
+  return names;
+}
+
+export function formatShopList(names: string[]): string {
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+}
+
+export function endOnInwConfirm(count: number, shopNames: string[]): string {
+  const endWhat = count === 1 ? "this listing" : "these listings";
+  const leave = count === 1 ? "It leaves" : "They leave";
+  if (shopNames.length === 0) {
+    return `End ${endWhat} on INW? ${leave} our storefront. Ended INW listings are removed after 14 days.`;
+  }
+  const shops = formatShopList(shopNames);
+  const stay = shopNames.length === 1 ? "stays" : "stay";
+  const there = shopNames.length === 1 ? "it" : "them";
+  return (
+    `This will NOT end ${endWhat} on ${shops}.\n\n` +
+    `End on INW only? ${leave} our storefront. ${shops} ${stay} live until you end ${there} there. Ended INW listings are removed after 14 days.`
+  );
+}
+
+export function endOnInwResult(
+  updated: number,
+  failed: number,
+  shopNames: string[]
+): { title: string; message: string; ok: boolean } {
+  if (failed > 0) {
+    return { title: "End Listings", message: `Ended ${updated}. ${failed} failed.`, ok: false };
+  }
+  const ended = `Ended ${updated} listing${updated === 1 ? "" : "s"} on INW.`;
+  if (shopNames.length === 0) {
+    return { title: "Ended on INW", message: ended, ok: true };
+  }
+  const shops = formatShopList(shopNames);
+  return {
+    title: "Ended on INW only",
+    message: `${ended}\n\nThis did not end the listing on ${shops}. End it there separately if you want it down.`,
+    ok: true,
+  };
+}
 
 export const BULK_DESTINATION_COPY: Record<
   BulkDestinationAction,
@@ -45,9 +107,9 @@ export const BULK_DESTINATION_COPY: Record<
     apply: "Save Listings",
   },
   end: {
-    title: "Select where you'd like these listings ended",
-    body: "End takes the listing down but keeps the INW record so you can Relist later. On other stores we close the live listing. End and Delete both take eBay, Etsy, and Wix listings down; the difference is whether INW keeps a record.",
-    apply: "End listings",
+    title: "Where to end these listings",
+    body: "Check INW and any other shops where you want the listing taken down. Unchecked shops stay live. Ending on INW keeps a record you can Relist; that INW record is removed after 14 days.",
+    apply: "End Listings",
   },
   delete: {
     title: "Select where you'd like these listings deleted",
@@ -157,7 +219,7 @@ export function summarizeBulkDestinations(
   result: BulkDestinationsResultCounts
 ): { title: string; message: string; ok: boolean } {
   const title =
-    action === "sync" ? "Manage Listings" : action === "end" ? "End listings" : "Delete listings";
+    action === "sync" ? "Manage Listings" : action === "end" ? "End Listings" : "Delete listings";
   const lines = [
     result.published ? `Listed: ${result.published}` : null,
     result.unpublished ? `Removed from stores: ${result.unpublished}` : null,

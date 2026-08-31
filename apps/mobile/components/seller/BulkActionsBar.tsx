@@ -26,7 +26,10 @@ import {
 import {
   desiredProvidersByItemId,
   summarizeBulkDestinations,
-  END_LISTINGS_CONFIRM,
+  uniqueLinkedShopNames,
+  hasLinkedChannelListings,
+  endOnInwConfirm,
+  endOnInwResult,
   type BulkDestinationAction,
   type BulkDestinationsResultCounts,
   type DestinationAssignment,
@@ -167,7 +170,12 @@ export function BulkActionsBar({
   };
 
   const handleEndListings = () => {
-    Alert.alert("End Listings", END_LISTINGS_CONFIRM, [
+    if (hasLinkedChannelListings(selectedItems)) {
+      setGridAction("end");
+      return;
+    }
+    const shopNames = uniqueLinkedShopNames(selectedItems, CHANNEL_PROVIDER_LABEL);
+    Alert.alert("End Listings", endOnInwConfirm(selectedIds.length, shopNames), [
       { text: "Cancel", style: "cancel" },
       {
         text: "End on INW",
@@ -180,14 +188,8 @@ export function BulkActionsBar({
               updates: { status: "inactive" },
               syncToChannels: false,
             });
-            if (result.failed > 0) {
-              Alert.alert("End Listings", `Ended ${result.updated}. ${result.failed} failed.`);
-            } else {
-              Alert.alert(
-                "End Listings",
-                `Ended ${result.updated} listing${result.updated === 1 ? "" : "s"} on INW.`
-              );
-            }
+            const summary = endOnInwResult(result.updated, result.failed, shopNames);
+            Alert.alert(summary.title, summary.message);
             onActionComplete();
             onClearSelection();
           } catch (e) {

@@ -28,8 +28,27 @@ import {
   type ListOnCategoryAssignment,
   type ListOnCategoryStep,
 } from "@/lib/list-on-channel-category";
+import {
+  ebayAspectRowsForListOnPopup,
+  missingRequiredEbayAspects,
+  type CategoryAspectSchema,
+} from "@/lib/ebay-aspect-prep";
 
 type CategoryChoice = { id: string; name: string; path: string };
+type ListingAspect = { name: string; value: string };
+
+function parseItemAspects(raw: unknown): ListingAspect[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ListingAspect[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const rec = entry as { name?: unknown; value?: unknown };
+    const name = typeof rec.name === "string" ? rec.name.trim() : "";
+    const value = typeof rec.value === "string" ? rec.value.trim() : "";
+    if (name) out.push({ name, value });
+  }
+  return out;
+}
 
 type Props = {
   visible: boolean;
@@ -53,12 +72,24 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
   const [searchError, setSearchError] = useState<string | null>(null);
   const [etsyWhoMade, setEtsyWhoMade] = useState<EtsyWhoMade>("i_did");
   const [etsyWhenMade, setEtsyWhenMade] = useState<EtsyWhenMade>("made_to_order");
+  const [categoryAspects, setCategoryAspects] = useState<CategoryAspectSchema[]>([]);
+  const [aspects, setAspects] = useState<ListingAspect[]>([]);
+  const [aspectsLoading, setAspectsLoading] = useState(false);
+  const [aspectsError, setAspectsError] = useState<string | null>(null);
 
   const step = steps[index];
   const isLast = index === steps.length - 1;
   const providerLabel = step?.provider === "etsy" ? "Etsy" : "eBay";
   const showEtsyDetails = step?.provider === "etsy" && itemNeedsEtsyListingDetails(step.item);
-  const canContinue = Boolean(categoryId);
+  const missingEbayAspects =
+    step?.provider === "ebay" ? missingRequiredEbayAspects(categoryAspects, aspects) : [];
+  const canContinue =
+    Boolean(categoryId) &&
+    !aspectsLoading &&
+    missingEbayAspects.length === 0 &&
+    (step?.provider !== "etsy" ||
+      !showEtsyDetails ||
+      (isEtsyWhoMade(etsyWhoMade) && normalizeEtsyWhenMade(etsyWhenMade) != null));
 
   useEffect(() => {
     if (!visible) {
@@ -86,6 +117,10 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
     setSearchError(null);
     setEtsyWhoMade(isEtsyWhoMade(step.item.etsyWhoMade) ? step.item.etsyWhoMade : "i_did");
     setEtsyWhenMade(normalizeEtsyWhenMade(step.item.etsyWhenMade) ?? "made_to_order");
+    setCategoryAspects([]);
+    setAspects([]);
+    setAspectsError(null);
+    setAspectsLoading(false);
     setError(null);
   }, [
     index,
@@ -96,6 +131,42 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
     step?.item.etsyWhoMade,
     step?.item.etsyWhenMade,
   ]);
+
+  useEffect(() => {
+    if (!visible || !step || step.provider !== "ebay" || !categoryId) {
+      if (step?.provider !== "ebay" || !categoryId) {
+        setCategoryAspects([]);
+        setAspects([]);
+        setAspectsError(null);
+        setAspectsLoading(false);
+      }
+      return;
+    }
+    let cancelled = false;
+    setAspectsLoading(true);
+    setAspectsError(null);
+    apiGet<{ aspects?: CategoryAspectSchema[]; error?: string }>(
+      `/api/channels/ebay/category-aspects?categoryId=${encodeURIComponent(categoryId)}&storeItemId=${encodeURIComponent(step.item.id)}`
+    )
+      .then((data) => {
+        if (cancelled) return;
+        const list = data.aspects ?? [];
+        setCategoryAspects(list);
+        setAspects(ebayAspectRowsForListOnPopup(list, parseItemAspects(step.item.aspects), step.item.title));
+      })
+      .catch((e: { error?: string }) => {
+        if (cancelled) return;
+        setCategoryAspects([]);
+        setAspects([]);
+        setAspectsError(e?.error ?? "Could not load eBay item specifics for this category.");
+      })
+      .finally(() => {
+        if (!cancelled) setAspectsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, step?.provider, step?.item.id, step?.item.title, categoryId]);
 
   useEffect(() => {
     const q = query.trim();
@@ -163,6 +234,7 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
       }
     } else {
       patch.ebayCategoryId = Number(categoryId);
+      patch.aspects = aspects;
     }
     const nextMap = {
       ...assignmentsByItem,
@@ -202,7 +274,11 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
               {step.item.title}
             </Text>
           </View>
-          <Text style={styles.hint}>{providerLabel} needs a category before this item can be listed.</Text>
+          <Text style={styles.hint}>
+            {step.provider === "ebay"
+              ? "eBay needs a category and required item specifics before this item can be listed."
+              : `${providerLabel} needs a category before this item can be listed.`}
+          </Text>
           <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
             {categoryId ? (
               <View style={styles.chip}>
@@ -216,6 +292,9 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
                   onPress={() => {
                     setCategoryId("");
                     setCategoryLabel("");
+                    setCategoryAspects([]);
+                    setAspects([]);
+                    setAspectsError(null);
                   }}
                   disabled={submitting}
                 >
@@ -256,6 +335,73 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
                 ))}
               </>
             )}
+            {step.provider === "ebay" && categoryId ? (
+              <View style={{ marginTop: 12 }}>
+                <Text style={styles.fieldLabel}>Item specifics</Text>
+                <Text style={styles.hint}>
+                  Fill in the details eBay requires for this category. Required fields are marked with *.
+                </Text>
+                {aspectsLoading ? <ActivityIndicator color={theme.colors.primary} /> : null}
+                {aspectsError ? <Text style={styles.error}>{aspectsError}</Text> : null}
+                {!aspectsLoading && !aspectsError && aspects.length === 0 ? (
+                  <Text style={styles.hint}>This category has no required item specifics.</Text>
+                ) : null}
+                {aspects.map((row, index) => {
+                  const schema = categoryAspects.find(
+                    (aspect) => aspect.name.trim().toLowerCase() === row.name.trim().toLowerCase()
+                  );
+                  const required = Boolean(schema?.required);
+                  const suggestions = schema?.suggestedValues ?? [];
+                  const isSelectionOnly = schema?.mode === "SELECTION_ONLY" && suggestions.length > 0;
+                  const isMulti = schema?.cardinality === "MULTI";
+                  const label = `${row.name}${required ? " *" : ""}`;
+                  if (isSelectionOnly) {
+                    return (
+                      <SelectField
+                        key={`${row.name}-${index}`}
+                        label={label}
+                        value={row.value}
+                        options={suggestions.map((value) => ({ value, label: value }))}
+                        onChange={(value) =>
+                          setAspects((prev) =>
+                            prev.map((current, i) => (i === index ? { ...current, value } : current))
+                          )
+                        }
+                        placeholder={required ? "Select value (required)" : "Select value"}
+                      />
+                    );
+                  }
+                  return (
+                    <View key={`${row.name}-${index}`} style={{ marginBottom: 8 }}>
+                      <Text style={styles.fieldLabel}>{label}</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={row.value}
+                        onChangeText={(value) =>
+                          setAspects((prev) =>
+                            prev.map((current, i) => (i === index ? { ...current, value } : current))
+                          )
+                        }
+                        placeholder={
+                          isMulti
+                            ? required
+                              ? "Values (comma-separated, required)"
+                              : "Values (comma-separated)"
+                            : required
+                              ? "Value (required)"
+                              : "Value"
+                        }
+                        placeholderTextColor="#888"
+                        editable={!submitting}
+                      />
+                      {isMulti ? (
+                        <Text style={styles.hint}>Separate multiple values with commas.</Text>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
             {showEtsyDetails ? (
               <View style={{ marginTop: 12 }}>
                 <Text style={styles.fieldLabel}>Who made it?</Text>

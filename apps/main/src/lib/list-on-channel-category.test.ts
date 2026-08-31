@@ -92,4 +92,12 @@ describe("mergeListOnCategoryAssignment", () => {
     );
     expect(merged).toEqual({ storeItemId: "a", etsyTaxonomyId: 33, ebayCategoryId: 11450 });
   });
+
+  it("includes eBay item specifics from the later patch", () => {
+    const merged = mergeListOnCategoryAssignment(
+      { storeItemId: "a", ebayCategoryId: 11450 },
+      { storeItemId: "a", aspects: [{ name: "Brand", value: "Unbranded" }] }
+    );
+    expect(merged.aspects).toEqual([{ name: "Brand", value: "Unbranded" }]);
+  });
 });

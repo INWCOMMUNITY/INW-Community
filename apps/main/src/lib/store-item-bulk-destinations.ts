@@ -36,9 +36,9 @@ export const BULK_DESTINATION_COPY: Record<
     apply: "Save Listings",
   },
   end: {
-    title: "Select where you'd like these listings ended",
-    body: "End takes the listing down but keeps the INW record so you can Relist later. On other stores we close the live listing. End and Delete both take eBay, Etsy, and Wix listings down; the difference is whether INW keeps a record.",
-    apply: "End listings",
+    title: "Where to end these listings",
+    body: "Check INW and any other shops where you want the listing taken down. Unchecked shops stay live. Ending on INW keeps a record you can Relist; that INW record is removed after 14 days.",
+    apply: "End Listings",
   },
   delete: {
     title: "Select where you'd like these listings deleted",
@@ -211,7 +211,7 @@ export function summarizeBulkDestinations(
   result: BulkDestinationsResultCounts
 ): { title: string; message: string; ok: boolean } {
   const title =
-    action === "sync" ? "Manage Listings" : action === "end" ? "End listings" : "Delete listings";
+    action === "sync" ? "Manage Listings" : action === "end" ? "End Listings" : "Delete listings";
   const lines = [
     result.published ? `Listed: ${result.published}` : null,
     result.unpublished ? `Removed from stores: ${result.unpublished}` : null,

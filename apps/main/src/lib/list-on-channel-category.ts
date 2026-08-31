@@ -10,6 +10,7 @@ export type ListOnCategoryItem = {
   ebayCategoryId?: number | null;
   etsyWhoMade?: string | null;
   etsyWhenMade?: string | null;
+  aspects?: { name: string; value: string }[] | unknown;
   channelLinks?: { provider: string }[];
 };
 
@@ -24,6 +25,7 @@ export type ListOnCategoryAssignment = {
   ebayCategoryId?: number;
   etsyWhoMade?: string;
   etsyWhenMade?: string;
+  aspects?: { name: string; value: string }[];
 };
 
 export function isListOnCategoryProvider(value: string): value is ListOnCategoryProvider {

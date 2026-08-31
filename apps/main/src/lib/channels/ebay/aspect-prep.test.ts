@@ -11,6 +11,7 @@ import {
   prepareLiveAspectsForInventoryPut,
   liveInventoryWireGradesCorrupted,
   passthroughUsePreparedInventoryAspects,
+  ebayAspectRowsForListOnPopup,
 } from "./aspect-prep";
 
 const nickelTaxonomy: EbayCategoryAspect[] = [
@@ -397,5 +398,44 @@ describe("fillDefaultEbayAspects", () => {
   it("reports Type as missing when it cannot be inferred", () => {
     const filled = fillDefaultEbayAspects(schema, [{ name: "Brand", value: "Unbranded" }], "Random object");
     expect(missingOftenRequiredEbayAspects(schema, filled)).toEqual(["Type"]);
+  });
+});
+
+describe("ebayAspectRowsForListOnPopup", () => {
+  it("shows required specifics and already-filled optional ones", () => {
+    const schema: EbayCategoryAspect[] = [
+      {
+        name: "Brand",
+        required: true,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+      {
+        name: "Color",
+        required: false,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+      {
+        name: "Material",
+        required: false,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+    ];
+    const rows = ebayAspectRowsForListOnPopup(
+      schema,
+      [
+        { name: "Color", value: "Blue" },
+        { name: "Brand", value: "" },
+      ],
+      "Blue widget"
+    );
+    expect(rows.some((row) => row.name === "Brand")).toBe(true);
+    expect(rows.find((row) => row.name === "Color")?.value).toBe("Blue");
+    expect(rows.some((row) => row.name === "Material")).toBe(false);
   });
 });

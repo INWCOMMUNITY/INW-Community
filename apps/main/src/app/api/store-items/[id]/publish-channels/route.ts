@@ -4,10 +4,16 @@ import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { publishStoreItemToChannels } from "@/lib/channels/outbound";
 import type { ChannelProvider } from "@/lib/channels/types";
+import { storeItemPatchFromListOnCategoryAssignment } from "@/lib/list-on-channel-category-patch";
 
 export const dynamic = "force-dynamic";
 /** Wix media import can take tens of seconds for multiple photos. */
 export const maxDuration = 120;
+
+const listingAspectSchema = z.object({
+  name: z.string().min(1),
+  value: z.string(),
+});
 
 const bodySchema = z.object({
   providers: z
@@ -18,6 +24,7 @@ const bodySchema = z.object({
   etsyWhoMade: z.string().min(1).optional(),
   etsyWhenMade: z.string().min(1).optional(),
   etsyIsSupply: z.boolean().optional(),
+  aspects: z.array(listingAspectSchema).optional(),
 });
 
 /**
@@ -51,18 +58,17 @@ export async function POST(
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }
 
-  const categoryPatch: {
-    etsyTaxonomyId?: number;
-    ebayCategoryId?: number;
-    etsyWhoMade?: string;
-    etsyWhenMade?: string;
-    etsyIsSupply?: boolean;
-  } = {};
-  if (body.etsyTaxonomyId != null) categoryPatch.etsyTaxonomyId = body.etsyTaxonomyId;
-  if (body.ebayCategoryId != null) categoryPatch.ebayCategoryId = body.ebayCategoryId;
-  if (body.etsyWhoMade) categoryPatch.etsyWhoMade = body.etsyWhoMade;
-  if (body.etsyWhenMade) categoryPatch.etsyWhenMade = body.etsyWhenMade;
-  if (body.etsyIsSupply != null) categoryPatch.etsyIsSupply = body.etsyIsSupply;
+  const categoryPatch = storeItemPatchFromListOnCategoryAssignment({
+    storeItemId: item.id,
+    etsyTaxonomyId: body.etsyTaxonomyId,
+    ebayCategoryId: body.ebayCategoryId,
+    etsyWhoMade: body.etsyWhoMade,
+    etsyWhenMade: body.etsyWhenMade,
+    aspects: body.aspects,
+  });
+  if (body.etsyIsSupply != null) {
+    Object.assign(categoryPatch, { etsyIsSupply: body.etsyIsSupply });
+  }
   if (Object.keys(categoryPatch).length > 0) {
     await prisma.storeItem.update({
       where: { id: item.id },

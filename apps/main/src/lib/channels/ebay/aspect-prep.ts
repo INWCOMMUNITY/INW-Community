@@ -1281,3 +1281,27 @@ export function prepareAspectRowsForForm(
 
   return filterSellerVisibleAspectRows(rows).slice(0, 30);
 }
+
+/** Required (and already-filled) item specifics for the List on eBay category popup. */
+export function ebayAspectRowsForListOnPopup(
+  categoryAspects: CategoryAspectSchema[],
+  aspects: ListingAspect[],
+  title: string
+): ListingAspect[] {
+  const rows = prepareAspectRowsForForm(categoryAspects, aspects, title);
+  const required = new Set(
+    categoryAspects.filter((a) => a.required).map((a) => a.name.trim().toLowerCase())
+  );
+  const filtered = rows.filter(
+    (row) => required.has(row.name.trim().toLowerCase()) || row.value.trim()
+  );
+  const existing = new Set(filtered.map((row) => row.name.trim().toLowerCase()));
+  for (const aspect of categoryAspects) {
+    if (!aspect.required) continue;
+    const key = aspect.name.trim().toLowerCase();
+    if (existing.has(key)) continue;
+    filtered.push({ name: aspect.name, value: "" });
+    existing.add(key);
+  }
+  return filtered;
+}

@@ -20,7 +20,12 @@ import {
   type BulkDestinationsResultCounts,
   type DestinationAssignment,
 } from "@/lib/store-item-bulk-destinations";
-import { END_LISTINGS_CONFIRM } from "@/lib/store-item-ended-status";
+import {
+  endOnInwConfirm,
+  endOnInwResult,
+  hasLinkedChannelListings,
+  uniqueLinkedShopNames,
+} from "@/lib/store-item-ended-status";
 
 function itemLinkedTo(item: MyStoreItem, provider: string): boolean {
   return (item.channelLinks ?? []).some((l) => l.provider === provider);
@@ -124,7 +129,7 @@ export function MyItemsBulkBar({
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Update failed";
       notify(
-        action === "sync" ? "Manage Listings failed" : "Update failed",
+        action === "sync" ? "Manage Listings failed" : action === "end" ? "End Listings failed" : "Update failed",
         msg,
         false
       );
@@ -135,7 +140,8 @@ export function MyItemsBulkBar({
   }
 
   async function bulkEnd() {
-    if (!window.confirm(END_LISTINGS_CONFIRM)) return;
+    const shopNames = uniqueLinkedShopNames(selectedItems, CHANNEL_PROVIDER_LABELS);
+    if (!window.confirm(endOnInwConfirm(selectedIds.length, shopNames))) return;
     setLoading(true);
     try {
       const result = await jsonFetch<{ updated: number; failed: number }>("/api/store-items/bulk", {
@@ -147,11 +153,8 @@ export function MyItemsBulkBar({
           syncToChannels: false,
         }),
       });
-      if (result.failed > 0) {
-        notify("End Listings", `Ended ${result.updated}. ${result.failed} failed.`, false);
-      } else {
-        notify("End Listings", `Ended ${result.updated} listing${result.updated === 1 ? "" : "s"} on INW.`);
-      }
+      const summary = endOnInwResult(result.updated, result.failed, shopNames);
+      notify(summary.title, summary.message, summary.ok);
       onDone();
       onClear();
     } catch (e) {
@@ -260,7 +263,18 @@ export function MyItemsBulkBar({
             )}
             {tab === "active" && (
               <>
-                <button type="button" className={dockBtn} disabled={loading} onClick={() => void bulkEnd()}>
+                <button
+                  type="button"
+                  className={dockBtn}
+                  disabled={loading}
+                  onClick={() => {
+                    if (hasLinkedChannelListings(selectedItems)) {
+                      setGridAction("end");
+                      return;
+                    }
+                    void bulkEnd();
+                  }}
+                >
                   End Listings
                 </button>
                 <button type="button" className={dockBtn} disabled={loading} onClick={() => setPanel("edit")}>
