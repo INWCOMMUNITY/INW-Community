@@ -1,5 +1,6 @@
 import { prisma } from "database";
 import { getConnectionContext } from "../connection";
+import { getAdapter } from "../registry";
 import {
   isRemoteDeletedPending,
   persistRemoteDeletedPending,
@@ -80,29 +81,47 @@ export async function flagGoneWixListingsForConnection(connection: {
     },
   });
 
-  const live = await listLiveWixProductIds(ctx);
-  if (!live) {
-    const removed = await flagGoneWixLinks(ctx, links);
-    return { removed, checked: true };
+  // Same catalog call as /api/channels/wix/health. That endpoint already
+  // returns 0 products for this shop while listLiveWixProductIds still
+  // finds deleted IDs on a fallback API.
+  let liveIds: Set<string> | null = null;
+  try {
+    const listings = await getAdapter("wix").listRemoteListings(ctx);
+    liveIds = new Set(
+      listings.map((l) => l.externalListingId.trim()).filter(Boolean)
+    );
+  } catch (e) {
+    console.warn("[channels] Wix listRemoteListings failed; falling back to live id list", {
+      connectionId: connection.id,
+      error: e instanceof Error ? e.message : String(e),
+    });
   }
 
-  const liveIds = new Set(live.ids);
+  if (!liveIds) {
+    const live = await listLiveWixProductIds(ctx);
+    if (!live) {
+      const removed = await flagGoneWixLinks(ctx, links);
+      return { removed, checked: true };
+    }
+    if (live.truncated) {
+      const missingFallback = links.filter((link) =>
+        wixLinkMissingFromLiveCatalog(link.externalListingId, new Set(live.ids))
+      );
+      const removed = await flagGoneWixLinks(ctx, missingFallback);
+      return { removed, checked: true };
+    }
+    liveIds = new Set(live.ids);
+  }
+
   const missing = links.filter((link) =>
     wixLinkMissingFromLiveCatalog(link.externalListingId, liveIds)
   );
   console.info("[channels] Wix live catalog vs linked listings", {
     connectionId: connection.id,
-    liveCount: live.ids.length,
+    liveCount: liveIds.size,
     linkedCount: links.length,
     missingCount: missing.length,
-    truncated: live.truncated,
   });
-
-  // A truncated catalog must not mark later pages as deleted.
-  if (live.truncated) {
-    const removed = await flagGoneWixLinks(ctx, missing);
-    return { removed, checked: true };
-  }
 
   let removed = 0;
   for (const link of missing) {
