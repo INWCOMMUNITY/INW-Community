@@ -138,8 +138,9 @@ describe("aspect cache fallback", () => {
     expect(getCachedCategoryAspects("41087", "0")).toBeNull();
   });
 
-  it("loads official Type values from Metadata with the seller token", async () => {
+  it("loads official Type values from Metadata with the application token", async () => {
     vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
+    vi.spyOn(oauth, "withEbayApplicationTokenRetry").mockImplementation(async (fn) => fn("app-token"));
     const ebayGet = vi.spyOn(client, "ebayGet").mockResolvedValueOnce({
       aspects: [
         {
@@ -155,44 +156,31 @@ describe("aspect cache fallback", () => {
       ],
     });
 
-    const rows = await getItemAspectsForCategory("261605", { sellerAccessToken: "seller-token" });
+    const rows = await getItemAspectsForCategory("261605");
     expect(rows.find((row) => row.name === "Type")?.suggestedValues).toEqual(["Wall Clock", "Desk Clock"]);
     expect(rows.find((row) => row.name === "Brand")?.suggestedValues).toEqual(["Howard Miller", "Seiko"]);
+    expect(ebayGet.mock.calls[0]?.[0]).toBe("app-token");
     expect(String(ebayGet.mock.calls[0]?.[1])).toMatch(/sell\/metadata/);
     expect(ebayGet).toHaveBeenCalledTimes(1);
   });
 
-  it("asks Taxonomy for official Brand values when Metadata omits them", async () => {
+  it("does not ask Taxonomy when Metadata already returned aspects", async () => {
     vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
     vi.spyOn(oauth, "withEbayApplicationTokenRetry").mockImplementation(async (fn) => fn("token"));
-    const ebayGet = vi.spyOn(client, "ebayGet")
-      .mockResolvedValueOnce({
-        aspects: [
-          {
-            localizedAspectName: "Type",
-            aspectConstraint: { aspectRequired: true, aspectMode: "SELECTION_ONLY" },
-            aspectValues: [{ localizedValue: "Wall Clock" }],
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        aspects: [
-          {
-            localizedAspectName: "Type",
-            aspectConstraint: { aspectRequired: true, aspectMode: "SELECTION_ONLY" },
-            aspectValues: [{ localizedValue: "Wall Clock" }, { localizedValue: "Desk Clock" }],
-          },
-          {
-            localizedAspectName: "Brand",
-            aspectConstraint: { aspectRequired: true, aspectMode: "SELECTION_ONLY" },
-            aspectValues: [{ localizedValue: "Howard Miller" }, { localizedValue: "Seiko" }],
-          },
-        ],
-      });
+    const ebayGet = vi.spyOn(client, "ebayGet").mockResolvedValueOnce({
+      aspects: [
+        {
+          localizedAspectName: "Type",
+          aspectConstraint: { aspectRequired: true, aspectMode: "SELECTION_ONLY" },
+          aspectValues: [{ localizedValue: "Wall Clock" }],
+        },
+      ],
+    });
 
-    const rows = await getItemAspectsForCategory("261605", { sellerAccessToken: "seller-token" });
-    expect(rows.find((row) => row.name === "Brand")?.suggestedValues).toEqual(["Howard Miller", "Seiko"]);
-    expect(String(ebayGet.mock.calls[1]?.[1])).toMatch(/get_item_aspects_for_category/);
+    const rows = await getItemAspectsForCategory("261605");
+    expect(rows.find((row) => row.name === "Type")?.suggestedValues).toEqual(["Wall Clock"]);
+    expect(ebayGet).toHaveBeenCalledTimes(1);
+    expect(String(ebayGet.mock.calls[0]?.[1])).toMatch(/sell\/metadata/);
   });
 });
 
@@ -225,7 +213,7 @@ describe("searchEbayCategories", () => {
     expect(ebayGet).toHaveBeenCalledTimes(1);
   });
 
-  it("does not call Taxonomy again while cooling down after a 429", async () => {
+  it("does not call Taxonomy for a cached search while cooling down after a 429", async () => {
     cacheEbayCategorySearch("clock", [{ categoryId: "1", categoryName: "Clocks" }]);
     markEbayTaxonomyRateLimited();
     vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
@@ -233,6 +221,20 @@ describe("searchEbayCategories", () => {
 
     await expect(searchEbayCategories("clock")).resolves.toEqual([{ categoryId: "1", categoryName: "Clocks" }]);
     expect(ebayGet).not.toHaveBeenCalled();
+  });
+
+  it("still asks eBay for a new category search while cooling down", async () => {
+    markEbayTaxonomyRateLimited();
+    vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
+    vi.spyOn(oauth, "withEbayApplicationTokenRetry").mockImplementation(async (fn) => fn("token"));
+    const ebayGet = vi.spyOn(client, "ebayGet").mockResolvedValueOnce({
+      categorySuggestions: [{ category: { categoryId: "39477", categoryName: "Coins" } }],
+    });
+
+    await expect(searchEbayCategories("coin")).resolves.toEqual([
+      { categoryId: "39477", categoryName: "Coins", categoryPath: "Coins" },
+    ]);
+    expect(ebayGet).toHaveBeenCalledTimes(1);
   });
 });
 

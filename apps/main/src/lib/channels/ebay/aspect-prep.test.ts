@@ -584,12 +584,56 @@ describe("ebayAspectRowsForListOnPopup", () => {
     expect(brand?.mode).toBe("FREE_TEXT");
   });
 
-  it("does not treat a taxonomy outage as a missing item specific when Type and Brand are set", () => {
-    expect(
-      missingEbayAspectsForListOn(ebayListOnFallbackAspects(), [
-        { name: "Type", value: "Wall Clock" },
+  it("does not invent Unbranded when the seller has not picked a Brand", () => {
+    const rows = ebayAspectRowsForListOnPopup(
+      [
+        {
+          name: "Type",
+          required: true,
+          mode: "SELECTION_ONLY",
+          cardinality: "SINGLE",
+          suggestedValues: ["Clock", "Figurine"],
+        },
+        {
+          name: "Brand",
+          required: true,
+          mode: "SELECTION_ONLY",
+          cardinality: "SINGLE",
+          suggestedValues: ["Unbranded", "Howard Miller"],
+        },
+      ],
+      [],
+      "Vintage Bear Clock"
+    );
+    expect(rows.find((row) => row.name === "Type")?.value).toBe("");
+    expect(rows.find((row) => row.name === "Brand")?.value).toBe("");
+  });
+
+  it("keeps stored values only when they are on eBay's list", () => {
+    const rows = ebayAspectRowsForListOnPopup(
+      [
+        {
+          name: "Type",
+          required: true,
+          mode: "SELECTION_ONLY",
+          cardinality: "SINGLE",
+          suggestedValues: ["Clock", "Figurine"],
+        },
+        {
+          name: "Brand",
+          required: true,
+          mode: "SELECTION_ONLY",
+          cardinality: "SINGLE",
+          suggestedValues: ["Unbranded", "Howard Miller"],
+        },
+      ],
+      [
+        { name: "Type", value: "No Brand" },
         { name: "Brand", value: "Unbranded" },
-      ])
-    ).toEqual([]);
+      ],
+      "Vintage Bear Clock"
+    );
+    expect(rows.find((row) => row.name === "Type")?.value).toBe("");
+    expect(rows.find((row) => row.name === "Brand")?.value).toBe("Unbranded");
   });
 });

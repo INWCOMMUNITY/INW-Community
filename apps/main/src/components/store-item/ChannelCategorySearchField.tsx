@@ -106,9 +106,11 @@ export function ChannelCategorySearchField({
           <p className="text-sm font-medium text-gray-900 truncate">
             {selectedLabel || `${label} category #${selectedId}`}
           </p>
-          <p className="text-xs text-gray-500">
-            {label} category #{selectedId}
-          </p>
+          {selectedLabel ? (
+            <p className="text-xs text-gray-500">
+              {label} category #{selectedId}
+            </p>
+          ) : null}
         </div>
         <button
           type="button"

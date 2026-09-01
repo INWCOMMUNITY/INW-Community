@@ -29,13 +29,10 @@ import {
   type ListOnCategoryStep,
 } from "@/lib/list-on-channel-category";
 import {
-  EBAY_LIST_ON_RATE_LIMIT_NOTICE,
+  ebayAspectRowsForListOnPopup,
   ebayAspectUsesDropdown,
-  ebayListOnFallbackAspects,
   isOftenRequiredEbayAspectName,
   missingEbayAspectsForListOn,
-  prepareAspectRowsForForm,
-  preserveEbayAspectValues,
   type CategoryAspectSchema,
 } from "@/lib/ebay-aspect-prep";
 
@@ -170,29 +167,25 @@ export function ListOnChannelCategoryModal({
       .then((data) => {
         if (cancelled) return;
         const list = data.aspects ?? [];
-        const schema = list.length > 0 ? list : ebayListOnFallbackAspects();
-        setCategoryAspects(schema);
-        setAspects((prev) =>
-          preserveEbayAspectValues(
-            prepareAspectRowsForForm(schema, parseItemAspects(step.item.aspects), step.item.title),
-            prev
-          )
-        );
-        setAspectsError(
-          list.length > 0 ? data.warning ?? null : data.warning ?? data.error ?? EBAY_LIST_ON_RATE_LIMIT_NOTICE
-        );
+        if (list.length === 0) {
+          setCategoryAspects([]);
+          setAspects([]);
+          setAspectsError(
+            data.warning ??
+              data.error ??
+              "Could not load eBay's item specifics. Change the category or try again."
+          );
+          return;
+        }
+        setCategoryAspects(list);
+        setAspects(ebayAspectRowsForListOnPopup(list, parseItemAspects(step.item.aspects), step.item.title));
+        setAspectsError(null);
       })
       .catch(() => {
         if (cancelled) return;
-        const fallback = ebayListOnFallbackAspects();
-        setCategoryAspects(fallback);
-        setAspects((prev) =>
-          preserveEbayAspectValues(
-            prepareAspectRowsForForm(fallback, parseItemAspects(step.item.aspects), step.item.title),
-            prev
-          )
-        );
-        setAspectsError(EBAY_LIST_ON_RATE_LIMIT_NOTICE);
+        setCategoryAspects([]);
+        setAspects([]);
+        setAspectsError("Could not load eBay's item specifics. Change the category or try again.");
       })
       .finally(() => {
         if (!cancelled) setAspectsLoading(false);
@@ -382,8 +375,8 @@ export function ListOnChannelCategoryModal({
                   Fill in the details eBay requires for this category. Required fields are marked with *.
                 </Text>
                 {aspectsLoading ? <ActivityIndicator color={theme.colors.primary} /> : null}
-                {aspectsError ? <Text style={styles.hint}>{aspectsError}</Text> : null}
-                {!aspectsLoading && aspects.length === 0 ? (
+                {aspectsError ? <Text style={styles.error}>{aspectsError}</Text> : null}
+                {!aspectsLoading && !aspectsError && aspects.length === 0 ? (
                   <Text style={styles.hint}>This category has no required item specifics.</Text>
                 ) : null}
                 {aspects.map((row, index) => {

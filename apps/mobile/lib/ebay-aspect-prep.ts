@@ -557,7 +557,7 @@ export function ebayAspectUsesDropdown(aspect: Pick<CategoryAspectSchema, "sugge
 }
 
 export const EBAY_LIST_ON_RATE_LIMIT_NOTICE =
-  "eBay is busy right now. Enter Type and Brand below, then list.";
+  "Could not load eBay's item specifics. Try again in a minute.";
 
 function pickSuggestedValue(aspect: CategoryAspectSchema, want: string[]): string | null {
   for (const candidate of want) {
@@ -764,28 +764,53 @@ export function prepareAspectRowsForForm(
   return filterSellerVisibleAspectRows(rows).slice(0, 30);
 }
 
-/** Required (and already-filled) item specifics for the List on eBay category popup. */
+/** Required (and already-filled) item specifics for the List on eBay category popup.
+ * Official eBay values only — do not invent Unbranded / No Brand. */
 export function ebayAspectRowsForListOnPopup(
   categoryAspects: CategoryAspectSchema[],
   aspects: ListingAspect[],
-  title: string
+  _title: string
 ): ListingAspect[] {
-  const rows = prepareAspectRowsForForm(categoryAspects, aspects, title);
-  const required = new Set(
-    categoryAspects
-      .filter((a) => a.required || isOftenRequiredEbayAspectName(a.name))
-      .map((a) => a.name.trim().toLowerCase())
-  );
-  const filtered = rows.filter(
-    (row) => required.has(row.name.trim().toLowerCase()) || row.value.trim()
-  );
-  const existing = new Set(filtered.map((row) => row.name.trim().toLowerCase()));
-  for (const aspect of categoryAspects) {
-    if (!aspect.required && !isOftenRequiredEbayAspectName(aspect.name)) continue;
-    const key = aspect.name.trim().toLowerCase();
-    if (existing.has(key)) continue;
-    filtered.push({ name: aspect.name, value: "" });
-    existing.add(key);
+  const stored = normalizeListingAspects(aspects);
+  const rows: ListingAspect[] = [];
+  const seen = new Set<string>();
+
+  const officialValue = (schema: CategoryAspectSchema): string => {
+    const key = schema.name.trim().toLowerCase();
+    const seller =
+      stored.find((row) => row.name.trim().toLowerCase() === key) ??
+      (isBrandAspectName(schema.name)
+        ? stored.find((row) => isBrandAspectName(row.name))
+        : key === "type"
+          ? stored.find((row) => row.name.trim().toLowerCase() === "item type")
+          : undefined);
+    const raw = seller?.value.trim() ?? "";
+    if (!raw) return "";
+    if (schema.suggestedValues.length > 0) {
+      const exact = schema.suggestedValues.find((value) => value.toLowerCase() === raw.toLowerCase());
+      if (exact) return exact;
+      if (isBrandAspectName(schema.name) && isNoBrandAlias(raw)) {
+        return officialNoBrandValue(schema.suggestedValues) ?? "";
+      }
+      return "";
+    }
+    if (key === "type" && isNoBrandAlias(raw)) return "";
+    return isBrandAspectName(schema.name) ? normalizeEbayBrandValue(raw) : raw;
+  };
+
+  for (const schema of filterSellerVisibleCategoryAspects(categoryAspects)) {
+    const required = schema.required || isOftenRequiredEbayAspectName(schema.name);
+    const value = officialValue(schema);
+    if (!required && !value) continue;
+    rows.push({ name: schema.name, value });
+    seen.add(schema.name.trim().toLowerCase());
   }
-  return filtered;
+  for (const schema of filterSellerVisibleCategoryAspects(categoryAspects)) {
+    if (!schema.required && !isOftenRequiredEbayAspectName(schema.name)) continue;
+    const key = schema.name.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    rows.push({ name: schema.name, value: "" });
+    seen.add(key);
+  }
+  return rows.slice(0, 30);
 }

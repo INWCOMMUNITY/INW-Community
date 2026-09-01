@@ -135,14 +135,6 @@ export async function searchEbayCategories(query: string): Promise<EbayCategoryS
   requireEbayTaxonomyConfig();
   const cached = getCachedEbayCategorySearch(q);
   if (cached && isEbayTaxonomyCoolingDown()) return cached;
-  if (isEbayTaxonomyCoolingDown() && !cached) {
-    throw new EbayApiError(
-      "[#2001 · ACCESS · REQUEST · HTTP 429] The request limit has been reached for the resource.",
-      429,
-      { errors: [{ errorId: 2001, message: "The request limit has been reached for the resource." }] },
-      "/commerce/taxonomy/v1/get_category_suggestions"
-    );
-  }
 
   const treeId = await getDefaultCategoryTreeId();
   try {
@@ -266,16 +258,21 @@ async function fetchItemAspectsForCategory(
   );
 }
 
-/** Same aspect list as Taxonomy, billed against the seller token (sell.inventory). */
+/**
+ * Official item specifics via Sell Metadata + application token.
+ * Separate quota from Taxonomy category search — do not use the seller user token
+ * (that 404s and then burns Taxonomy, which also powers the category picker).
+ */
 export async function fetchItemAspectsForCategoryViaMetadata(
-  sellerAccessToken: string,
   categoryId: string
 ): Promise<AspectApiResponse> {
-  return ebayGet<AspectApiResponse>(
-    sellerAccessToken,
-    `${EBAY_METADATA_BASE}/marketplace/${encodeURIComponent(
-      EBAY_MARKETPLACE_ID
-    )}/get_item_aspects_for_category?category_id=${encodeURIComponent(categoryId)}`
+  return withEbayApplicationTokenRetry((accessToken) =>
+    ebayGet<AspectApiResponse>(
+      accessToken,
+      `${EBAY_METADATA_BASE}/marketplace/${encodeURIComponent(
+        EBAY_MARKETPLACE_ID
+      )}/get_item_aspects_for_category?category_id=${encodeURIComponent(categoryId)}`
+    )
   );
 }
 
@@ -346,7 +343,7 @@ async function writePersistedCategoryAspects(
 }
 
 export type GetItemAspectsOptions = {
-  /** Seller OAuth token — used for Metadata API when Taxonomy is rate-limited. */
+  /** Unused; Metadata uses the application token. Kept so callers do not break. */
   sellerAccessToken?: string | null;
 };
 
@@ -367,68 +364,63 @@ function rememberAspects(categoryId: string, treeId: string, aspects: EbayCatego
 
 export async function getItemAspectsForCategory(
   categoryId: string,
-  opts?: GetItemAspectsOptions
+  _opts?: GetItemAspectsOptions
 ): Promise<EbayCategoryAspect[]> {
   const id = categoryId.trim();
   if (!id) return [];
   requireEbayTaxonomyConfig();
   const treeId = await getDefaultCategoryTreeId();
   const fresh = getCachedCategoryAspects(id, treeId);
-  if (fresh && !aspectSchemaNeedsOfficialValues(fresh)) return fresh;
+  if (fresh?.length) return fresh;
 
   const persisted = await readPersistedCategoryAspects(id, treeId, false);
-  if (persisted && !aspectSchemaNeedsOfficialValues(persisted)) {
+  if (persisted?.length) {
     cacheCategoryAspects(id, treeId, persisted);
     return persisted;
   }
 
-  let metadataAspects: EbayCategoryAspect[] | null = null;
-  if (opts?.sellerAccessToken) {
-    try {
-      const meta = await fetchItemAspectsForCategoryViaMetadata(opts.sellerAccessToken, id);
-      const aspects = parseAspectApiResponse(meta);
-      if (aspects.length > 0 && !aspectSchemaNeedsOfficialValues(aspects)) {
-        return rememberAspects(id, treeId, aspects);
+  try {
+    const meta = await fetchItemAspectsForCategoryViaMetadata(id);
+    const aspects = parseAspectApiResponse(meta);
+    if (aspects.length > 0) return rememberAspects(id, treeId, aspects);
+  } catch (metaErr) {
+    console.warn("[ebay] getItemAspectsForCategory: Metadata lookup failed", {
+      categoryId: id,
+      error: metaErr instanceof Error ? metaErr.message : String(metaErr),
+    });
+    if (isEbayRateLimitError(metaErr)) {
+      const stale =
+        getCachedCategoryAspects(id, treeId, { allowStale: true }) ??
+        (await readPersistedCategoryAspects(id, treeId, true));
+      if (stale?.length) {
+        cacheCategoryAspects(id, treeId, stale);
+        return stale;
       }
-      if (aspects.length > 0) metadataAspects = aspects;
-    } catch (metaErr) {
-      console.warn("[ebay] getItemAspectsForCategory: Metadata lookup failed", {
-        categoryId: id,
-        error: metaErr instanceof Error ? metaErr.message : String(metaErr),
-      });
     }
   }
 
   if (isEbayTaxonomyCoolingDown()) {
-    if (metadataAspects) return rememberAspects(id, treeId, metadataAspects);
-    if (fresh?.length) return fresh;
-    if (persisted?.length) return persisted;
-    return [];
+    const stale = getCachedCategoryAspects(id, treeId, { allowStale: true })
+      ?? (await readPersistedCategoryAspects(id, treeId, true));
+    return stale ?? [];
   }
 
   try {
     const res = await fetchItemAspectsForCategory(id, treeId);
     const aspects = parseAspectApiResponse(res);
     if (aspects.length > 0) return rememberAspects(id, treeId, aspects);
-    if (metadataAspects) return rememberAspects(id, treeId, metadataAspects);
-    if (fresh?.length) return fresh;
-    if (persisted?.length) return persisted;
     return aspects;
   } catch (e) {
     if (isEbayRateLimitError(e)) markEbayTaxonomyRateLimited();
-    if (metadataAspects) return rememberAspects(id, treeId, metadataAspects);
-    const cached = fresh ?? getCachedCategoryAspects(id, treeId, { allowStale: true }) ?? persisted;
+    const cached = getCachedCategoryAspects(id, treeId, { allowStale: true })
+      ?? (await readPersistedCategoryAspects(id, treeId, true));
     if (cached && shouldUseAspectCacheFallback(e)) {
       console.warn("[ebay] getItemAspectsForCategory: serving cached aspects", {
         categoryId: id,
         error: e instanceof Error ? e.message : String(e),
       });
+      cacheCategoryAspects(id, treeId, cached);
       return cached;
-    }
-    const stalePersisted = await readPersistedCategoryAspects(id, treeId, true);
-    if (stalePersisted && shouldUseAspectCacheFallback(e)) {
-      cacheCategoryAspects(id, treeId, stalePersisted);
-      return stalePersisted;
     }
     throw e;
   }

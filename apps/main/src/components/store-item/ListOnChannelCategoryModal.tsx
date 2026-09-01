@@ -18,13 +18,9 @@ import {
   type EtsyWhoMade,
 } from "@/lib/etsy-listing-options";
 import {
-  EBAY_LIST_ON_RATE_LIMIT_NOTICE,
-  ebayListOnFallbackAspects,
+  ebayAspectRowsForListOnPopup,
   missingEbayAspectsForListOn,
-  prepareAspectRowsForForm,
-  preserveEbayAspectValues,
 } from "@/lib/channels/ebay/aspect-prep";
-import { isEbayRateLimitError } from "@/lib/channels/ebay/errors";
 import { parseStoredAspects, type ListingAspect } from "@/lib/listing-limits";
 import {
   itemNeedsEtsyListingDetails,
@@ -62,7 +58,7 @@ export function ListOnChannelCategoryModal({
   const [aspects, setAspects] = useState<ListingAspect[]>([]);
   const [aspectsLoading, setAspectsLoading] = useState(false);
   const [aspectsError, setAspectsError] = useState<string | null>(null);
-  const [aspectsNotice, setAspectsNotice] = useState<string | null>(null);
+  const [aspectsReload, setAspectsReload] = useState(0);
 
   useLockBodyScroll(true);
 
@@ -85,7 +81,6 @@ export function ListOnChannelCategoryModal({
     setCategoryAspects([]);
     setAspects([]);
     setAspectsError(null);
-    setAspectsNotice(null);
     setAspectsLoading(false);
     setError(null);
   }, [
@@ -103,14 +98,12 @@ export function ListOnChannelCategoryModal({
       setCategoryAspects([]);
       setAspects([]);
       setAspectsError(null);
-      setAspectsNotice(null);
       setAspectsLoading(false);
       return;
     }
     let cancelled = false;
     setAspectsLoading(true);
     setAspectsError(null);
-    setAspectsNotice(null);
     fetch(
       `/api/channels/ebay/category-aspects?categoryId=${encodeURIComponent(categoryId)}&storeItemId=${encodeURIComponent(step.item.id)}`,
       { credentials: "include" }
@@ -124,37 +117,25 @@ export function ListOnChannelCategoryModal({
         } = await res.json().catch(() => ({}));
         if (cancelled) return;
         const list = data.aspects ?? [];
-        const rateLimited =
-          Boolean(data.rateLimited) || isEbayRateLimitError(data.error ?? data.warning ?? "");
-        const schema = list.length > 0 ? list : ebayListOnFallbackAspects();
-        setCategoryAspects(schema);
-        setAspects((prev) =>
-          preserveEbayAspectValues(
-            prepareAspectRowsForForm(schema, parseStoredAspects(step.item.aspects), step.item.title),
-            prev
-          )
-        );
+        if (list.length === 0) {
+          setCategoryAspects([]);
+          setAspects([]);
+          setAspectsError(
+            data.warning ??
+              data.error ??
+              "Could not load eBay's item specifics. Change the category or try again."
+          );
+          return;
+        }
+        setCategoryAspects(list);
+        setAspects(ebayAspectRowsForListOnPopup(list, parseStoredAspects(step.item.aspects), step.item.title));
         setAspectsError(null);
-        setAspectsNotice(
-          list.length > 0
-            ? rateLimited
-              ? data.warning ?? null
-              : null
-            : data.warning ?? data.error ?? EBAY_LIST_ON_RATE_LIMIT_NOTICE
-        );
       })
       .catch(() => {
         if (cancelled) return;
-        const fallback = ebayListOnFallbackAspects();
-        setCategoryAspects(fallback);
-        setAspects((prev) =>
-          preserveEbayAspectValues(
-            prepareAspectRowsForForm(fallback, parseStoredAspects(step.item.aspects), step.item.title),
-            prev
-          )
-        );
-        setAspectsError(null);
-        setAspectsNotice(EBAY_LIST_ON_RATE_LIMIT_NOTICE);
+        setCategoryAspects([]);
+        setAspects([]);
+        setAspectsError("Could not load eBay's item specifics. Change the category or try again.");
       })
       .finally(() => {
         if (!cancelled) setAspectsLoading(false);
@@ -162,7 +143,7 @@ export function ListOnChannelCategoryModal({
     return () => {
       cancelled = true;
     };
-  }, [step?.provider, step?.item.id, step?.item.title, categoryId]);
+  }, [step?.provider, step?.item.id, step?.item.title, categoryId, aspectsReload]);
   const isLast = index === steps.length - 1;
   const providerLabel = step?.provider === "etsy" ? "Etsy" : "eBay";
   const showEtsyDetails = step?.provider === "etsy" && itemNeedsEtsyListingDetails(step.item);
@@ -268,26 +249,33 @@ export function ListOnChannelCategoryModal({
             setCategoryAspects([]);
             setAspects([]);
             setAspectsError(null);
-            setAspectsNotice(null);
           }}
           disabled={submitting}
         />
 
-        {step.provider === "ebay" && categoryId && aspectsNotice ? (
-          <p className={`${listingHintClass} mt-3`}>{aspectsNotice}</p>
-        ) : null}
-
         {step.provider === "ebay" && categoryId ? (
-          <EbayAspectFields
-            aspects={aspects}
-            categoryAspects={categoryAspects}
-            loading={aspectsLoading}
-            error={aspectsError}
-            disabled={submitting}
-            onAspectValueChange={(index, value) =>
-              setAspects((prev) => prev.map((row, i) => (i === index ? { ...row, value } : row)))
-            }
-          />
+          <>
+            <EbayAspectFields
+              aspects={aspects}
+              categoryAspects={categoryAspects}
+              loading={aspectsLoading}
+              error={aspectsError}
+              disabled={submitting}
+              onAspectValueChange={(index, value) =>
+                setAspects((prev) => prev.map((row, i) => (i === index ? { ...row, value } : row)))
+              }
+            />
+            {aspectsError && !aspectsLoading ? (
+              <button
+                type="button"
+                className="text-sm text-red-700 underline mt-2"
+                disabled={submitting}
+                onClick={() => setAspectsReload((n) => n + 1)}
+              >
+                Try again
+              </button>
+            ) : null}
+          </>
         ) : null}
 
         {showEtsyDetails ? (
