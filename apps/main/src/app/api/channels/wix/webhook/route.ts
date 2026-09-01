@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { pullWixInventoryForConnection } from "@/lib/channels/pull-wix-inventory";
 import { reconcileConnectionFull } from "@/lib/channels/reconcile-connection";
 import { findWixConnectionByInstanceId } from "@/lib/channels/wix/site";
+import { markRemoteDeletedByExternalId } from "@/lib/channels/listing-link-flags";
 import {
   parseWixWebhook,
   wixWebhookIsInventoryEvent,
+  wixWebhookIsProductDeleted,
   wixWebhookTriggersFullReconcile,
 } from "@/lib/channels/wix/webhook";
 import {
@@ -47,8 +49,9 @@ export async function POST(req: NextRequest) {
 
   const isInventory = wixWebhookIsInventoryEvent(eventType);
   const isFull = wixWebhookTriggersFullReconcile(eventType);
+  const isDeleted = wixWebhookIsProductDeleted(eventType);
 
-  if (!isInventory && !isFull) {
+  if (!isInventory && !isFull && !isDeleted) {
     return NextResponse.json({ ok: true, skipped: "event_type", eventType });
   }
 
@@ -66,6 +69,14 @@ export async function POST(req: NextRequest) {
     if (!conn) {
       await markWebhookCompleted(webhookEventId);
       return NextResponse.json({ ok: true, skipped: "unknown_instance" });
+    }
+
+    if (isDeleted && productId) {
+      await markRemoteDeletedByExternalId({
+        connectionId: conn.id,
+        provider: "wix",
+        externalListingId: productId,
+      });
     }
 
     if (isInventory) {

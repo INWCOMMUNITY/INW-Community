@@ -4,6 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { reconcileConnectionInboundCatalog } from "@/lib/channels/reconcile-inbound-catalog";
 import { reconcileConnectionInboundMeta } from "@/lib/channels/reconcile-inbound-meta";
 import { setEtsyConnectionContext } from "@/lib/channels/etsy/client";
+import { flagGoneWixListingsForConnection } from "@/lib/channels/wix/flag-remote-deleted";
 import { maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +27,7 @@ const lastSyncByUser = new Map<string, number>();
  * - User pulls to refresh on inventory
  * - User navigates to a linked listing
  * 
- * This ensures the user always sees the latest data from Etsy.
+ * This ensures the user always sees the latest data from Etsy and Wix deletes.
  */
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -52,13 +53,14 @@ export async function POST(req: NextRequest) {
   lastSyncByUser.set(userId, now);
 
   // Etsy has no reliable listing webhooks; pull catalog when inventory is opened.
+  // Wix deletes should drop the listing tag as soon as My Items is opened.
   // eBay is handled by the 5-minute GetItem cron — a page-load pull was overwriting
   // a good cron with a lagged Trading replica (TEST suffixes disappearing on refresh).
   const connections = await prisma.channelConnection.findMany({
     where: {
       memberId: userId,
       status: "active",
-      provider: "etsy",
+      provider: { in: ["etsy", "wix"] },
     },
   });
 
@@ -84,6 +86,16 @@ export async function POST(req: NextRequest) {
     }
 
     try {
+      if (conn.provider === "wix") {
+        const flagged = await flagGoneWixListingsForConnection(conn);
+        results.push({
+          provider: conn.provider,
+          catalogUpdated: 0,
+          metaUpdated: 0,
+          removed: flagged.removed,
+        });
+        continue;
+      }
       const catalog = await reconcileConnectionInboundCatalog(conn);
       const meta = await reconcileConnectionInboundMeta(conn);
       results.push({

@@ -23,11 +23,12 @@ export function ItemChannelSyncBadges({
   storeItemId: string;
   compact?: boolean;
 }) {
-  if (!links?.length) return null;
+  const visibleLinks = (links ?? []).filter((link) => !link.remoteDeletedProvider);
+  if (!visibleLinks.length) return null;
 
   return (
     <div className={compact ? "flex flex-wrap gap-1 mt-1" : "flex flex-col gap-1 mt-1.5"}>
-      {links.map((link) => {
+      {visibleLinks.map((link) => {
         const label = CHANNEL_PROVIDER_LABELS[link.provider] ?? link.provider;
         const warning = link.syncWarning?.trim() || null;
         const isConnectionIssue =

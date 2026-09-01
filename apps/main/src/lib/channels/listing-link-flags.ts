@@ -242,7 +242,38 @@ export function shouldSkipEndedEbayOutbound(
   provider: string,
   conflictDetails: unknown
 ): boolean {
+  if (isRemoteDeletedPending(conflictDetails)) return true;
   return provider === "ebay" && isEbayListingEnded(conflictDetails);
+}
+
+/** Flag a linked listing after a third-party delete webhook (by external product id). */
+export async function markRemoteDeletedByExternalId(args: {
+  connectionId: string;
+  provider: string;
+  externalListingId: string;
+}): Promise<boolean> {
+  const id = args.externalListingId.trim();
+  if (!id) return false;
+  const link = await prisma.channelListingLink.findFirst({
+    where: {
+      connectionId: args.connectionId,
+      provider: args.provider,
+      syncEnabled: true,
+      externalListingId: id,
+    },
+    select: {
+      id: true,
+      conflictDetails: true,
+      storeItem: { select: { status: true } },
+    },
+  });
+  if (!link) return false;
+  if (link.storeItem.status === "sold_out" || link.storeItem.status === "inactive") return false;
+  return persistRemoteDeletedPending({
+    linkId: link.id,
+    conflictDetails: link.conflictDetails,
+    provider: args.provider,
+  });
 }
 
 /**

@@ -245,11 +245,12 @@ export default function MyItemsScreen() {
   }, [itemsUrl]);
 
   useFocusEffect(useCallback(() => {
-    // Trigger channel sync when viewing inventory (pulls Etsy changes to INW)
-    apiPost("/api/channels/sync-on-view", {}).catch(() => {
-      // Silently ignore sync errors - it's a background operation
-    });
     load();
+    apiPost("/api/channels/sync-on-view", {})
+      .catch(() => {})
+      .finally(() => {
+        load();
+      });
   }, [load]));
 
   useEffect(() => {
@@ -804,7 +805,7 @@ export default function MyItemsScreen() {
                     <Text style={styles.viewOrderLink}>View order</Text>
                   </Pressable>
                 )}
-                {item.channelLinks?.map((link) => {
+                {item.channelLinks?.filter((link) => !link.remoteDeletedProvider).map((link) => {
                       const label =
                         CHANNEL_PROVIDER_LABEL[link.provider as ChannelProviderId] ??
                         link.provider;

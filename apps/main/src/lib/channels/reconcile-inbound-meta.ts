@@ -1,6 +1,8 @@
 import { prisma } from "database";
 import { getConnectionContext } from "./connection";
 import { persistRemoteDeletedPending } from "./listing-link-flags";
+import { flagGoneWixLinks } from "./wix/flag-remote-deleted";
+import { wixProductIsGone } from "./wix/listing-exists";
 import {
   applyRemoteCategoryToStoreItem,
   applyRemoteShippingToStoreItem,
@@ -144,7 +146,20 @@ export async function reconcileConnectionInboundMeta(
     return { updated: 0, removed: 0 };
   }
 
-  if (remoteList.length === 0) return { updated: 0, removed: 0 };
+  if (remoteList.length === 0) {
+    if (provider !== "wix") return { updated: 0, removed: 0 };
+    const emptyLinks = await prisma.channelListingLink.findMany({
+      where: { connectionId: connection.id, provider, syncEnabled: true },
+      select: {
+        id: true,
+        externalListingId: true,
+        conflictDetails: true,
+        storeItem: { select: { status: true } },
+      },
+    });
+    const removed = await flagGoneWixLinks(ctx, emptyLinks);
+    return { updated: 0, removed };
+  }
 
   const remoteById =
     provider === "ebay"
@@ -217,6 +232,8 @@ export async function reconcileConnectionInboundMeta(
     if (!remote) {
       if (provider === "wix") {
         if (link.storeItem.status !== "sold_out" && link.storeItem.status !== "inactive") {
+          const gone = await wixProductIsGone(ctx, link.externalListingId).catch(() => false);
+          if (!gone) continue;
           const flagged = await persistRemoteDeletedPending({
             linkId: link.id,
             conflictDetails: link.conflictDetails,

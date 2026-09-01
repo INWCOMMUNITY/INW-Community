@@ -111,6 +111,14 @@ export function wixWebhookIsInventoryEvent(eventType: string | null): boolean {
   return /inventory|stock|tracking/.test(t);
 }
 
+/** Product removed on the Wix site — flag Needs Attention immediately. */
+export function wixWebhookIsProductDeleted(eventType: string | null): boolean {
+  if (!eventType) return false;
+  if (wixWebhookIsInventoryEvent(eventType)) return false;
+  const t = eventType.toLowerCase();
+  return /delet/.test(t) && /product|catalog/.test(t);
+}
+
 /** Product create/delete and orders need full reconcile. */
 export function wixWebhookTriggersFullReconcile(eventType: string | null): boolean {
   if (!eventType) return true;

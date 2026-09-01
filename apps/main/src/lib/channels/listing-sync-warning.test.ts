@@ -49,6 +49,20 @@ describe("listingChannelSyncWarning", () => {
 });
 
 describe("withListingChannelSyncWarning", () => {
+  it("exposes the deleted shop so listing tags can hide immediately", () => {
+    const mapped = withListingChannelSyncWarning({
+      provider: "wix",
+      syncStatus: "synced",
+      syncEnabled: true,
+      externalListingId: "prod-1",
+      syncError: null,
+      conflictDetails: { remoteDeleted: { provider: "wix", detectedAt: "2026-08-31T00:00:00.000Z" } },
+      connection: { status: "active" },
+    });
+    expect(mapped.remoteDeletedProvider).toBe("wix");
+    expect(mapped.syncStatus).toBe("synced");
+  });
+
   it("exposes syncWarning and hides the nested connection object", () => {
     const mapped = withListingChannelSyncWarning({
       provider: "ebay",

@@ -36,10 +36,24 @@ describe("ended eBay outbound skip", () => {
     expect(shouldSkipEndedEbayOutbound("ebay", details)).toBe(true);
     expect(shouldSkipEndedEbayOutbound("etsy", details)).toBe(false);
     expect(shouldSkipEndedEbayOutbound("ebay", {})).toBe(false);
+    expect(shouldSkipEndedEbayOutbound("wix", withRemoteDeletedPending({}, "wix"))).toBe(true);
+    expect(shouldSkipEndedEbayOutbound("wix", {})).toBe(false);
   });
 });
 
 describe("stale retry drop", () => {
+  it("drops retries for a shop that already deleted the listing", () => {
+    expect(
+      shouldDropStaleChannelRetry({
+        provider: "wix",
+        retryType: "inventory",
+        conflictDetails: withRemoteDeletedPending({}, "wix"),
+        storeItemQuantity: 1,
+        hasRecentSale: false,
+      })
+    ).toBe(true);
+  });
+
   it("drops eBay retries once the listing is ended", () => {
     expect(
       shouldDropStaleChannelRetry({

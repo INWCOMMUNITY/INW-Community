@@ -99,6 +99,7 @@ export default function MyItemsPage() {
   const [menuItemId, setMenuItemId] = useState<string | null>(null);
   const [historyItemId, setHistoryItemId] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<ChannelActionResult | null>(null);
+  const [syncTick, setSyncTick] = useState(0);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -181,8 +182,15 @@ export default function MyItemsPage() {
 
   useEffect(() => {
     void fetchChannelConnections().then(setConnections).catch(() => setConnections([]));
-    void fetch("/api/channels/sync-on-view", { method: "POST", credentials: "include" }).catch(() => {});
+    void fetch("/api/channels/sync-on-view", { method: "POST", credentials: "include" })
+      .then(() => setSyncTick((n) => n + 1))
+      .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (syncTick === 0) return;
+    void load({ silent: true });
+  }, [syncTick, load]);
 
   async function handleRemoteDeleteDecision(itemId: string, action: "keep" | "delete_everywhere") {
     const item = items.find((row) => row.id === itemId);
@@ -225,7 +233,11 @@ export default function MyItemsPage() {
   }
 
   const providerFilters = useMemo(() => {
-    const fromItems = new Set((items ?? []).flatMap((i) => (i.channelLinks ?? []).map((l) => l.provider)));
+    const fromItems = new Set(
+      (items ?? []).flatMap((i) =>
+        (i.channelLinks ?? []).filter((l) => !l.remoteDeletedProvider).map((l) => l.provider)
+      )
+    );
     const fromConnections = connections.map((c) => c.provider);
     return CHANNEL_PROVIDERS_UI.map((p) => p.provider).filter(
       (p) => fromItems.has(p) || fromConnections.includes(p)
@@ -238,11 +250,16 @@ export default function MyItemsPage() {
       if (q && !item.title.toLowerCase().includes(q)) return false;
       if (filter === "attention") {
         return (item.channelLinks ?? []).some(
-          (l) => Boolean(l.syncWarning) || l.syncStatus === "error"
+          (l) =>
+            Boolean(l.remoteDeletedProvider) ||
+            Boolean(l.syncWarning) ||
+            l.syncStatus === "error"
         );
       }
       if (filter !== "all") {
-        return (item.channelLinks ?? []).some((l) => l.provider === filter);
+        return (item.channelLinks ?? []).some(
+          (l) => l.provider === filter && !l.remoteDeletedProvider
+        );
       }
       return true;
     });
