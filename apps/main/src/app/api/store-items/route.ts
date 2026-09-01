@@ -126,10 +126,11 @@ export async function GET(req: NextRequest) {
     if (!sellerSub) {
       return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
     }
-    await flagSellerWixDeletes(userId).catch((e) => {
+    const wixCheck = await flagSellerWixDeletes(userId).catch((e) => {
       console.warn("[store-items] Wix delete check failed", {
         error: e instanceof Error ? e.message : String(e),
       });
+      return { removed: 0, checked: false };
     });
     if (searchParams.get("counts") === "1") {
       const [active, ended, sold, attentionIds] = await Promise.all([
@@ -138,7 +139,13 @@ export async function GET(req: NextRequest) {
         prisma.storeItem.count({ where: { memberId: userId, status: "sold_out" } }),
         listRemoteDeletedStoreItemIds(userId),
       ]);
-      return NextResponse.json({ active, ended, sold, attention: attentionIds.length });
+      return NextResponse.json({
+        active,
+        ended,
+        sold,
+        attention: attentionIds.length,
+        wixCheckFailed: !wixCheck.checked,
+      });
     }
 
     const where: {

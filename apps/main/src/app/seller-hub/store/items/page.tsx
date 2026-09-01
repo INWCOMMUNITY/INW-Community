@@ -93,6 +93,7 @@ export default function MyItemsPage() {
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [wixCheckFailed, setWixCheckFailed] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -142,6 +143,7 @@ export default function MyItemsPage() {
           ended: countsData.ended,
           sold: countsData.sold,
         });
+        setWixCheckFailed(countsData.wixCheckFailed === true);
       }
 
       if (!statusRes.ok) {
@@ -299,7 +301,7 @@ export default function MyItemsPage() {
           My Items
         </h2>
         <Link href="/seller-hub/store/new" className="btn text-sm shrink-0">
-          List an item
+          List an Item
         </Link>
       </div>
 
@@ -311,6 +313,14 @@ export default function MyItemsPage() {
               Sign in
             </Link>
           )}
+        </div>
+      )}
+      {wixCheckFailed && (
+        <div className="border rounded-lg p-4 bg-amber-50 mb-6">
+          <p className="text-sm text-amber-950">
+            Couldn’t verify Wix listings, so the green Wix tags may be stale. Refresh this page in
+            a minute. If this stays up, reconnect Wix in Sync Stores (do not disconnect first).
+          </p>
         </div>
       )}
       {connectStatus && (!connectStatus.onboarded || !connectStatus.chargesEnabled) && (
@@ -386,7 +396,7 @@ export default function MyItemsPage() {
             style={filter === "attention" ? { backgroundColor: "var(--color-primary)" } : undefined}
             onClick={() => setFilter("attention")}
           >
-            Needs attention
+            Needs Attention
           </button>
           {providerFilters.map((p) => (
             <button
@@ -537,7 +547,7 @@ export default function MyItemsPage() {
                         className="text-sm font-semibold shrink-0 no-underline hover:underline"
                         style={{ color: "var(--color-primary)" }}
                       >
-                        View order
+                        View Order
                       </Link>
                     )}
                     <button

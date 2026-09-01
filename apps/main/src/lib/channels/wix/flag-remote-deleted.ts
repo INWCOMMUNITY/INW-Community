@@ -8,7 +8,7 @@ import type { ChannelConnectionContext } from "../types";
 import { setWixConnectionContext } from "./client";
 import { listLiveWixProductIds, wixLinkMissingFromLiveCatalog } from "./list-live-ids";
 import { wixProductIsGone } from "./listing-exists";
-import { ensureWixSiteId } from "./site";
+import { ensureWixSiteId, remintWixAccessToken } from "./site";
 
 type WixLinkToCheck = {
   id: string;
@@ -55,11 +55,19 @@ export async function flagGoneWixListingsForConnection(connection: {
   externalShopId: string | null;
   etsyShippingProfileId: string | null;
   config?: unknown;
-}): Promise<{ removed: number }> {
-  if (connection.provider !== "wix") return { removed: 0 };
+}): Promise<{ removed: number; checked: boolean }> {
+  if (connection.provider !== "wix") return { removed: 0, checked: true };
   setWixConnectionContext(connection.id);
   const ctx = await getConnectionContext(connection);
-  if (!ctx) return { removed: 0 };
+  if (!ctx) {
+    console.warn("[channels] Wix delete check skipped; no usable connection", {
+      connectionId: connection.id,
+      status: connection.status,
+    });
+    return { removed: 0, checked: false };
+  }
+  // Fresh 4h app token so a stale JWT does not silently skip the catalog check.
+  await remintWixAccessToken(ctx);
   await ensureWixSiteId(ctx).catch(() => null);
 
   const links = await prisma.channelListingLink.findMany({
@@ -75,18 +83,25 @@ export async function flagGoneWixListingsForConnection(connection: {
   const live = await listLiveWixProductIds(ctx);
   if (!live) {
     const removed = await flagGoneWixLinks(ctx, links);
-    return { removed };
+    return { removed, checked: true };
   }
 
   const liveIds = new Set(live.ids);
   const missing = links.filter((link) =>
     wixLinkMissingFromLiveCatalog(link.externalListingId, liveIds)
   );
+  console.info("[channels] Wix live catalog vs linked listings", {
+    connectionId: connection.id,
+    liveCount: live.ids.length,
+    linkedCount: links.length,
+    missingCount: missing.length,
+    truncated: live.truncated,
+  });
 
   // A truncated catalog must not mark later pages as deleted.
   if (live.truncated) {
     const removed = await flagGoneWixLinks(ctx, missing);
-    return { removed };
+    return { removed, checked: true };
   }
 
   let removed = 0;
@@ -106,16 +121,22 @@ export async function flagGoneWixListingsForConnection(connection: {
       removed += 1;
     }
   }
-  return { removed };
+  return { removed, checked: true };
 }
 
-export async function flagSellerWixDeletes(memberId: string): Promise<number> {
+export async function flagSellerWixDeletes(
+  memberId: string
+): Promise<{ removed: number; checked: boolean }> {
   const connections = await prisma.channelConnection.findMany({
     where: { memberId, provider: "wix", status: { not: "disconnected" } },
   });
+  if (connections.length === 0) return { removed: 0, checked: true };
   let removed = 0;
+  let checked = true;
   for (const conn of connections) {
-    removed += (await flagGoneWixListingsForConnection(conn)).removed;
+    const result = await flagGoneWixListingsForConnection(conn);
+    removed += result.removed;
+    if (!result.checked) checked = false;
   }
-  return removed;
+  return { removed, checked };
 }

@@ -29,15 +29,15 @@ export function isWixNotFoundStatus(status: number, message?: string): boolean {
 }
 
 /**
- * GET 404/hidden wins. An empty query is gone only when GET does not still
- * show a live product (avoids flagging every item if the query filter is ignored).
+ * Catalog miss or GET 404/hidden = gone. Wix GET often still 200s a product
+ * after the seller deleted it from the site; do not keep the green tag for that.
  */
 export function wixDecideGone(args: {
   query: WixListingExistence;
   get: WixListingExistence;
 }): boolean {
   if (args.get === "gone") return true;
-  return args.query === "gone" && args.get !== "exists";
+  return args.query === "gone";
 }
 
 function existenceFromCaught(e: unknown): WixListingExistence {

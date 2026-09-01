@@ -41,9 +41,9 @@ describe("wixDecideGone", () => {
     expect(wixDecideGone({ query: "exists", get: "gone" })).toBe(true);
   });
 
-  it("flags a catalog miss when GET does not still show a live product", () => {
+  it("flags a catalog miss even if GET still returns the deleted product", () => {
     expect(wixDecideGone({ query: "gone", get: "unknown" })).toBe(true);
-    expect(wixDecideGone({ query: "gone", get: "exists" })).toBe(false);
+    expect(wixDecideGone({ query: "gone", get: "exists" })).toBe(true);
   });
 
   it("does not flag when both checks are inconclusive", () => {
