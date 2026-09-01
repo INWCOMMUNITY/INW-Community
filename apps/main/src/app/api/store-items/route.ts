@@ -19,6 +19,7 @@ import {
   withListingChannelSyncWarning,
 } from "@/lib/channels/listing-sync-warning";
 import { listRemoteDeletedStoreItemIds } from "@/lib/channels/remote-deleted-attention";
+import { flagSellerWixDeletes } from "@/lib/channels/wix/flag-remote-deleted";
 import { getStoreItemPublicPayload } from "@/lib/get-store-item-public";
 import {
   BROWSE_CACHE_HEADERS,
@@ -125,6 +126,11 @@ export async function GET(req: NextRequest) {
     if (!sellerSub) {
       return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
     }
+    await flagSellerWixDeletes(userId).catch((e) => {
+      console.warn("[store-items] Wix delete check failed", {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    });
     if (searchParams.get("counts") === "1") {
       const [active, ended, sold, attentionIds] = await Promise.all([
         prisma.storeItem.count({ where: { memberId: userId, status: "active" } }),
