@@ -123,6 +123,24 @@ describe("aspect cache fallback", () => {
   it("returns null from getCachedCategoryAspects when empty", () => {
     expect(getCachedCategoryAspects("41087", "0")).toBeNull();
   });
+
+  it("loads official Type values from Metadata with the seller token", async () => {
+    vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
+    const ebayGet = vi.spyOn(client, "ebayGet").mockResolvedValueOnce({
+      aspects: [
+        {
+          localizedAspectName: "Type",
+          aspectConstraint: { aspectRequired: true, aspectMode: "SELECTION_ONLY" },
+          aspectValues: [{ localizedValue: "Wall Clock" }, { localizedValue: "Desk Clock" }],
+        },
+      ],
+    });
+
+    const rows = await getItemAspectsForCategory("261605", { sellerAccessToken: "seller-token" });
+    expect(rows[0]?.name).toBe("Type");
+    expect(rows[0]?.suggestedValues).toEqual(["Wall Clock", "Desk Clock"]);
+    expect(String(ebayGet.mock.calls[0]?.[1])).toMatch(/sell\/metadata/);
+  });
 });
 
 describe("getDefaultCategoryTreeId", () => {

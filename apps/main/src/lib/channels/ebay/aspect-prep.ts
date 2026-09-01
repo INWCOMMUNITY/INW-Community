@@ -995,11 +995,16 @@ export function ebayListOnFallbackAspects(): CategoryAspectSchema[] {
     {
       name: "Brand",
       required: true,
-      mode: "FREE_TEXT",
+      mode: "SELECTION_ONLY",
       cardinality: "SINGLE",
       suggestedValues: [...BRAND_DEFAULTS],
     },
   ];
+}
+
+/** True when eBay listed official values — show a clickable dropdown, not a text box. */
+export function ebayAspectUsesDropdown(aspect: Pick<CategoryAspectSchema, "suggestedValues"> | undefined): boolean {
+  return Boolean(aspect?.suggestedValues?.length);
 }
 
 export const EBAY_LIST_ON_RATE_LIMIT_NOTICE =

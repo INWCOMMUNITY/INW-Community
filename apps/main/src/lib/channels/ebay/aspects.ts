@@ -9,6 +9,8 @@
 import { prisma } from "database";
 import { ebayGet } from "./client";
 import {
+  EBAY_MARKETPLACE_ID,
+  EBAY_METADATA_BASE,
   EBAY_TAXONOMY_BASE,
   EBAY_US_CATEGORY_TREE_ID,
   isEbayConfigured,
@@ -195,6 +197,19 @@ async function fetchItemAspectsForCategory(
   );
 }
 
+/** Same aspect list as Taxonomy, billed against the seller token (sell.inventory). */
+export async function fetchItemAspectsForCategoryViaMetadata(
+  sellerAccessToken: string,
+  categoryId: string
+): Promise<AspectApiResponse> {
+  return ebayGet<AspectApiResponse>(
+    sellerAccessToken,
+    `${EBAY_METADATA_BASE}/marketplace/${encodeURIComponent(
+      EBAY_MARKETPLACE_ID
+    )}/get_item_aspects_for_category?category_id=${encodeURIComponent(categoryId)}`
+  );
+}
+
 function persistedAspectsKey(treeId: string, categoryId: string): string {
   return `ebay_aspects:${treeId}:${categoryId}`;
 }
@@ -261,7 +276,15 @@ async function writePersistedCategoryAspects(
   }
 }
 
-export async function getItemAspectsForCategory(categoryId: string): Promise<EbayCategoryAspect[]> {
+export type GetItemAspectsOptions = {
+  /** Seller OAuth token — used for Metadata API when Taxonomy is rate-limited. */
+  sellerAccessToken?: string | null;
+};
+
+export async function getItemAspectsForCategory(
+  categoryId: string,
+  opts?: GetItemAspectsOptions
+): Promise<EbayCategoryAspect[]> {
   const id = categoryId.trim();
   if (!id) return [];
   requireEbayTaxonomyConfig();
@@ -273,6 +296,23 @@ export async function getItemAspectsForCategory(categoryId: string): Promise<Eba
   if (persisted) {
     cacheCategoryAspects(id, treeId, persisted);
     return persisted;
+  }
+
+  if (opts?.sellerAccessToken) {
+    try {
+      const meta = await fetchItemAspectsForCategoryViaMetadata(opts.sellerAccessToken, id);
+      const aspects = parseAspectApiResponse(meta);
+      if (aspects.length > 0) {
+        cacheCategoryAspects(id, treeId, aspects);
+        void writePersistedCategoryAspects(id, treeId, aspects);
+        return aspects;
+      }
+    } catch (metaErr) {
+      console.warn("[ebay] getItemAspectsForCategory: Metadata lookup failed", {
+        categoryId: id,
+        error: metaErr instanceof Error ? metaErr.message : String(metaErr),
+      });
+    }
   }
 
   try {

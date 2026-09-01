@@ -1,12 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import {
   listingHintClass,
   listingInputClass,
   listingLabelClass,
   listingSelectClass,
 } from "@/components/store-item/listing-form-styles";
-import { isOftenRequiredEbayAspectName } from "@/lib/channels/ebay/aspect-prep";
+import { ebayAspectUsesDropdown, isOftenRequiredEbayAspectName } from "@/lib/channels/ebay/aspect-prep";
 import { EBAY_ASPECT_VALUE_MAX, type ListingAspect } from "@/lib/listing-limits";
 
 export type EbayCategoryAspectField = {
@@ -16,6 +17,8 @@ export type EbayCategoryAspectField = {
   cardinality: "SINGLE" | "MULTI";
   suggestedValues: string[];
 };
+
+const OTHER_VALUE = "__ebay_other__";
 
 export function EbayAspectFields({
   aspects,
@@ -32,6 +35,8 @@ export function EbayAspectFields({
   disabled?: boolean;
   onAspectValueChange: (index: number, value: string) => void;
 }) {
+  const [otherOpen, setOtherOpen] = useState<Record<number, boolean>>({});
+
   if (loading) {
     return <p className={`${listingHintClass} mt-3`}>Loading required item specifics…</p>;
   }
@@ -53,7 +58,7 @@ export function EbayAspectFields({
       <div>
         <p className={listingLabelClass}>Item specifics</p>
         <p className={listingHintClass}>
-          Fill in the details eBay requires for this category. Required fields are marked with *.
+          Pick the value eBay lists for this category. Required fields are marked with *.
         </p>
       </div>
       {aspects.map((row, index) => {
@@ -62,8 +67,15 @@ export function EbayAspectFields({
         );
         const required = Boolean(schema?.required) || isOftenRequiredEbayAspectName(row.name);
         const suggestions = schema?.suggestedValues ?? [];
+        const useDropdown = ebayAspectUsesDropdown(schema);
         const isSelectionOnly = schema?.mode === "SELECTION_ONLY" && suggestions.length > 0;
         const isMulti = schema?.cardinality === "MULTI";
+        const valueInList = suggestions.some((option) => option === row.value);
+        const showOther =
+          useDropdown &&
+          !isSelectionOnly &&
+          (otherOpen[index] || (Boolean(row.value.trim()) && !valueInList));
+        const selectValue = valueInList ? row.value : showOther ? OTHER_VALUE : "";
         const listId = `list-on-ebay-aspect-${index}`;
         return (
           <div key={`${row.name}-${index}`}>
@@ -71,21 +83,44 @@ export function EbayAspectFields({
               {row.name}
               {required ? " *" : ""}
             </label>
-            {isSelectionOnly ? (
-              <select
-                id={`list-on-ebay-aspect-value-${index}`}
-                value={row.value}
-                onChange={(e) => onAspectValueChange(index, e.target.value)}
-                className={`${listingSelectClass} ${required && !row.value.trim() ? "border-red-400" : ""}`}
-                disabled={disabled}
-              >
-                <option value="">{required ? "Select value (required)" : "Select value"}</option>
-                {suggestions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
+            {useDropdown ? (
+              <>
+                <select
+                  id={`list-on-ebay-aspect-value-${index}`}
+                  value={selectValue}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    if (next === OTHER_VALUE) {
+                      setOtherOpen((prev) => ({ ...prev, [index]: true }));
+                      if (valueInList) onAspectValueChange(index, "");
+                      return;
+                    }
+                    setOtherOpen((prev) => ({ ...prev, [index]: false }));
+                    onAspectValueChange(index, next);
+                  }}
+                  className={`${listingSelectClass} ${required && !row.value.trim() ? "border-red-400" : ""}`}
+                  disabled={disabled}
+                >
+                  <option value="">{required ? "Select value (required)" : "Select value"}</option>
+                  {suggestions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                  {!isSelectionOnly ? <option value={OTHER_VALUE}>Other…</option> : null}
+                </select>
+                {showOther ? (
+                  <input
+                    type="text"
+                    value={valueInList ? "" : row.value}
+                    maxLength={EBAY_ASPECT_VALUE_MAX}
+                    onChange={(e) => onAspectValueChange(index, e.target.value)}
+                    placeholder={required ? "Enter a value (required)" : "Enter a value"}
+                    className={`${listingInputClass} mt-2 ${required && !row.value.trim() ? "border-red-400" : ""}`}
+                    disabled={disabled}
+                  />
+                ) : null}
+              </>
             ) : (
               <>
                 <input
@@ -107,13 +142,6 @@ export function EbayAspectFields({
                   className={`${listingInputClass} ${required && !row.value.trim() ? "border-red-400" : ""}`}
                   disabled={disabled}
                 />
-                {suggestions.length > 0 ? (
-                  <datalist id={listId}>
-                    {suggestions.map((option) => (
-                      <option key={option} value={option} />
-                    ))}
-                  </datalist>
-                ) : null}
                 {isMulti ? (
                   <p className={listingHintClass}>Separate multiple values with commas.</p>
                 ) : null}

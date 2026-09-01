@@ -6,6 +6,8 @@ export const EBAY_API_BASE = "https://api.ebay.com";
 export const EBAY_APIZ_BASE = "https://apiz.ebay.com";
 /** Commerce Taxonomy API (category search + item specifics). */
 export const EBAY_TAXONOMY_BASE = `${EBAY_API_BASE}/commerce/taxonomy/v1`;
+/** Sell Metadata API (item specifics via the seller token — separate quota from Taxonomy). */
+export const EBAY_METADATA_BASE = `${EBAY_API_BASE}/sell/metadata/v1`;
 export const EBAY_AUTH_URL = "https://auth.ebay.com/oauth2/authorize";
 export const EBAY_TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token";
 /** Opens eBay's sign-out page in the device browser (clears the shared OAuth cookie session). */

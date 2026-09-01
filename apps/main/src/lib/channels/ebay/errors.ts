@@ -70,6 +70,10 @@ export function formatEbayErrorRow(row: EbayErrorRow, httpStatus?: number): stri
   return `${prefix}${text}`.slice(0, 500);
 }
 
+export function isEbayTaxonomyLoadPlaceholder(name: string): boolean {
+  return /category taxonomy|could not load required item specifics/i.test(name);
+}
+
 /** Names eBay said were missing (`The item specific Type is missing`). */
 export function parseMissingEbayItemSpecifics(message: string): string[] {
   const names: string[] = [];
@@ -91,7 +95,7 @@ export function parseMissingEbayItemSpecifics(message: string): string[] {
       }
     }
   }
-  return names;
+  return names.filter((name) => !isEbayTaxonomyLoadPlaceholder(name));
 }
 
 function summarizeRawBody(body: unknown): string | null {

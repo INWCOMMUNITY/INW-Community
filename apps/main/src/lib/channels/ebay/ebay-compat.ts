@@ -17,7 +17,8 @@ import {
   missingOftenRequiredEbayAspects,
   formatAspectValidationErrors,
   mergeListingAspects,
-  missingRequiredEbayAspects,
+  missingEbayAspectsForListOn,
+  ebayListOnFallbackAspects,
   ensureGradedCoinInventoryAspects,
   prepareAspectsForEbayCategory,
   remapAspectsToTaxonomy,
@@ -60,7 +61,10 @@ export type OutboundAspectPrep = {
 const schemaCache = new Map<string, { schema: EbayCategorySchema; at: number }>();
 const SCHEMA_CACHE_MS = 6 * 60 * 60 * 1000;
 
-export async function fetchCategorySchema(categoryId: string): Promise<EbayCategorySchema> {
+export async function fetchCategorySchema(
+  categoryId: string,
+  opts?: { sellerAccessToken?: string | null }
+): Promise<EbayCategorySchema> {
   const id = categoryId.trim();
   if (!id) return { categoryId: id, aspects: [] };
 
@@ -70,7 +74,9 @@ export async function fetchCategorySchema(categoryId: string): Promise<EbayCateg
     return cached.schema;
   }
 
-  const aspects = await getItemAspectsForCategory(id);
+  const aspects = await getItemAspectsForCategory(id, {
+    sellerAccessToken: opts?.sellerAccessToken,
+  });
   const schema = { categoryId: id, aspects };
   schemaCache.set(id, { schema, at: now });
   return schema;
@@ -140,7 +146,9 @@ export async function prepareOutboundAspects(args: {
   let categoryAspects: EbayCategoryAspect[] = [];
   if (args.categoryId?.trim()) {
     try {
-      const schema = await fetchCategorySchema(args.categoryId);
+      const schema = await fetchCategorySchema(args.categoryId, {
+        sellerAccessToken: args.accessToken,
+      });
       categoryAspects = schema.aspects;
     } catch {
       /* validated below if taxonomy unavailable */
@@ -192,10 +200,13 @@ export async function prepareOutboundAspects(args: {
     ),
   ];
   if (args.categoryId?.trim() && categoryAspects.length === 0) {
-    missingRequired = [
-      ...missingRequired,
-      "eBay category taxonomy (could not load required item specifics for this category)",
-    ];
+    const fallbackMissing = missingEbayAspectsForListOn(
+      ebayListOnFallbackAspects(),
+      remappedAspects
+    ).filter(
+      (name) => !missingRequired.some((existing) => existing.toLowerCase() === name.toLowerCase())
+    );
+    missingRequired = [...missingRequired, ...fallbackMissing];
   }
 
   const nextItem: SyncStoreItem = {

@@ -188,6 +188,11 @@ describe("ebay picture errors", () => {
     const msg =
       "The item specific Brand\u00a0is missing.\u00a0Add Brand to this listing. The item specific Type is missing.";
     expect(parseMissingEbayItemSpecifics(msg)).toEqual(["Brand", "Type"]);
+    expect(
+      parseMissingEbayItemSpecifics(
+        "Missing required eBay item specifics: eBay category taxonomy (could not load required item specifics for this category)"
+      )
+    ).toEqual([]);
     expect(ebayErrorActionHint(msg)).toMatch(/Needs Attention/i);
     expect(ebayErrorActionHint(msg)).toMatch(/Brand, Type/);
   });

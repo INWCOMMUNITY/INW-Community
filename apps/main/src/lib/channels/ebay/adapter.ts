@@ -498,7 +498,9 @@ async function upsertListing(
         }
         if (offerCategoryId) {
           try {
-            categoryAspects = await getItemAspectsForCategory(offerCategoryId);
+            categoryAspects = await getItemAspectsForCategory(offerCategoryId, {
+              sellerAccessToken: conn.accessToken,
+            });
           } catch (e) {
             console.warn("[ebay] passthrough category taxonomy failed", {
               storeItemId: item.id,

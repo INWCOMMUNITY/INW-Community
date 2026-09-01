@@ -485,11 +485,15 @@ export function ebayListOnFallbackAspects(): CategoryAspectSchema[] {
     {
       name: "Brand",
       required: true,
-      mode: "FREE_TEXT",
+      mode: "SELECTION_ONLY",
       cardinality: "SINGLE",
       suggestedValues: [...BRAND_DEFAULTS],
     },
   ];
+}
+
+export function ebayAspectUsesDropdown(aspect: Pick<CategoryAspectSchema, "suggestedValues"> | undefined): boolean {
+  return Boolean(aspect?.suggestedValues?.length);
 }
 
 function pickSuggestedValue(aspect: CategoryAspectSchema, want: string[]): string | null {

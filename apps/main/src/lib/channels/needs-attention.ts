@@ -5,7 +5,14 @@
 
 import { prisma } from "database";
 import { isEbayConditionSyncError } from "./ebay/conditions";
-import { parseMissingEbayItemSpecifics } from "./ebay/errors";
+import { isEbayTaxonomyLoadPlaceholder, parseMissingEbayItemSpecifics } from "./ebay/errors";
+import {
+  ebayAspectRowsForListOnPopup,
+  ebayListOnFallbackAspects,
+  filterSellerVisibleCategoryAspects,
+} from "./ebay/aspect-prep";
+import { getItemAspectsForCategory, type EbayCategoryAspect } from "./ebay/aspects";
+import { getMemberConnectionContext } from "./connection";
 import { isEtsyWhoMade, normalizeEtsyWhenMade } from "@/lib/etsy-listing-options";
 import { parseStoredAspects } from "@/lib/listing-limits";
 import { CHANNEL_PROVIDERS, type ChannelProvider } from "./types";
@@ -66,7 +73,18 @@ type ListingInput = {
   etsyTaxonomyId: number | null;
   condition: string | null;
   aspects?: unknown;
+  ebayCategoryId?: number | null;
 };
+
+/** Never treat the old “taxonomy could not load” sentence as an item-specific name. */
+export function ebayAttentionSpecificNames(syncError: string | null | undefined): string[] {
+  const missing = parseMissingEbayItemSpecifics(syncError ?? "").filter(
+    (name) => !isEbayTaxonomyLoadPlaceholder(name)
+  );
+  if (missing.length > 0) return missing;
+  if (isEbayTaxonomyLoadPlaceholder(syncError ?? "")) return ["Type", "Brand"];
+  return [];
+}
 
 export function classifyListingNeedsAttention(args: {
   provider: ChannelProvider;
@@ -160,17 +178,20 @@ export function classifyListingNeedsAttention(args: {
   }
 
   if (provider === "ebay") {
-    const missing = parseMissingEbayItemSpecifics(syncError ?? "");
+    const missing = ebayAttentionSpecificNames(syncError);
     if (missing.length > 0) {
       const existing = parseStoredAspects(item.aspects);
       return {
-        summary: `eBay needs ${missing.join(", ")} before this listing can go live.`,
+        summary:
+          missing.length === 2 && missing[0] === "Type" && missing[1] === "Brand"
+            ? "eBay needs Type and Brand for this category. Pick the values eBay lists."
+            : `eBay needs ${missing.join(", ")} before this listing can go live.`,
         fields: missing.map((name) => ({
           key: `aspect:${name}`,
           label: name,
           type: "text" as const,
           value: existing.find((a) => a.name.toLowerCase() === name.toLowerCase())?.value ?? "",
-          helpText: "Required item specific for this eBay category.",
+          helpText: "Pick the value eBay lists for this category.",
         })),
         action: "fill",
       };
@@ -236,6 +257,142 @@ export function classifyShopNeedsAttention(args: {
   };
 }
 
+function aspectOptionsForName(
+  name: string,
+  categoryAspects: EbayCategoryAspect[]
+): { value: string; label: string }[] | null {
+  const key = name.trim().toLowerCase();
+  const schema =
+    categoryAspects.find((aspect) => aspect.name.trim().toLowerCase() === key) ??
+    ebayListOnFallbackAspects().find((aspect) => aspect.name.trim().toLowerCase() === key);
+  const values = schema?.suggestedValues ?? [];
+  if (values.length === 0) return null;
+  return [
+    { value: "", label: "Select value (required)" },
+    ...values.map((value) => ({ value, label: value })),
+  ];
+}
+
+function fieldFromAspectRow(
+  row: { name: string; value: string },
+  categoryAspects: EbayCategoryAspect[]
+): NeedsAttentionField {
+  const options = aspectOptionsForName(row.name, categoryAspects);
+  const current = row.value.trim();
+  const withCurrent =
+    options && current && !options.some((option) => option.value === current)
+      ? [...options, { value: current, label: current }]
+      : options;
+  return {
+    key: `aspect:${row.name}`,
+    label: row.name,
+    type: withCurrent ? "select" : "text",
+    value: current,
+    helpText: "Pick the value eBay lists for this category.",
+    ...(withCurrent ? { options: withCurrent } : {}),
+  };
+}
+
+export function ebayAttentionFieldsFromCategoryAspects(args: {
+  categoryAspects: EbayCategoryAspect[];
+  existingAspects: { name: string; value: string }[];
+  title: string;
+  fallbackNames: string[];
+}): NeedsAttentionField[] {
+  const schema =
+    args.categoryAspects.length > 0
+      ? filterSellerVisibleCategoryAspects(args.categoryAspects)
+      : ebayListOnFallbackAspects();
+  const rows = ebayAspectRowsForListOnPopup(schema, args.existingAspects, args.title);
+  if (rows.length > 0) {
+    return rows.map((row) => fieldFromAspectRow(row, schema));
+  }
+  const existing = new Map(args.existingAspects.map((a) => [a.name.toLowerCase(), a.value]));
+  return args.fallbackNames
+    .filter((name) => !isEbayTaxonomyLoadPlaceholder(name))
+    .map((name) =>
+      fieldFromAspectRow({ name, value: existing.get(name.toLowerCase()) ?? "" }, schema)
+    );
+}
+
+async function attachEbayAspectDropdowns(
+  memberId: string,
+  links: {
+    storeItemId: string;
+    storeItem: { ebayCategoryId: number | null; title: string; aspects?: unknown } | null;
+  }[],
+  items: NeedsAttentionItem[]
+): Promise<void> {
+  const needsOptions = items.some(
+    (item) =>
+      item.provider === "ebay" &&
+      (item.fields.some((field) => field.key.startsWith("aspect:")) ||
+        isEbayTaxonomyLoadPlaceholder(item.syncError ?? "") ||
+        isEbayTaxonomyLoadPlaceholder(item.summary))
+  );
+  if (!needsOptions) return;
+
+  const categoryIds = [
+    ...new Set(
+      links
+        .map((link) => (link.storeItem?.ebayCategoryId != null ? String(link.storeItem.ebayCategoryId) : ""))
+        .filter(Boolean)
+    ),
+  ];
+
+  let sellerAccessToken: string | null = null;
+  try {
+    const ctx = await getMemberConnectionContext(memberId, "ebay");
+    sellerAccessToken = ctx?.accessToken ?? null;
+  } catch {
+    sellerAccessToken = null;
+  }
+
+  const aspectsByCategory = new Map<string, EbayCategoryAspect[]>();
+  await Promise.all(
+    categoryIds.map(async (categoryId) => {
+      try {
+        aspectsByCategory.set(
+          categoryId,
+          await getItemAspectsForCategory(categoryId, { sellerAccessToken })
+        );
+      } catch {
+        aspectsByCategory.set(categoryId, []);
+      }
+    })
+  );
+
+  const itemByStoreId = new Map(links.map((link) => [link.storeItemId, link.storeItem]));
+
+  for (const item of items) {
+    if (item.provider !== "ebay" || !item.storeItemId) continue;
+    const storeItem = itemByStoreId.get(item.storeItemId);
+    if (!storeItem) continue;
+    const hasAspectFields = item.fields.some((field) => field.key.startsWith("aspect:"));
+    const taxonomyError =
+      isEbayTaxonomyLoadPlaceholder(item.syncError ?? "") || isEbayTaxonomyLoadPlaceholder(item.summary);
+    if (!hasAspectFields && !taxonomyError) continue;
+
+    const categoryId = storeItem.ebayCategoryId != null ? String(storeItem.ebayCategoryId) : "";
+    const categoryAspects = (categoryId ? aspectsByCategory.get(categoryId) : null) ?? [];
+    const fallbackNames = item.fields
+      .filter((field) => field.key.startsWith("aspect:"))
+      .map((field) => field.key.slice("aspect:".length))
+      .filter((name) => !isEbayTaxonomyLoadPlaceholder(name));
+    const nextFields = ebayAttentionFieldsFromCategoryAspects({
+      categoryAspects,
+      existingAspects: parseStoredAspects(storeItem.aspects),
+      title: storeItem.title,
+      fallbackNames: fallbackNames.length > 0 ? fallbackNames : ["Type", "Brand"],
+    });
+    const kept = item.fields.filter((field) => !field.key.startsWith("aspect:"));
+    item.fields = [...kept, ...nextFields];
+    if (taxonomyError && nextFields.length > 0) {
+      item.summary = `eBay needs ${nextFields.map((field) => field.label).join(", ")} before this listing can go live.`;
+    }
+  }
+}
+
 export async function listNeedsAttention(memberId: string): Promise<NeedsAttentionItem[]> {
   const [links, connections] = await Promise.all([
     prisma.channelListingLink.findMany({
@@ -269,6 +426,7 @@ export async function listNeedsAttention(memberId: string): Promise<NeedsAttenti
             etsyTaxonomyId: true,
             condition: true,
             aspects: true,
+            ebayCategoryId: true,
           },
         },
       },
@@ -313,6 +471,8 @@ export async function listNeedsAttention(memberId: string): Promise<NeedsAttenti
       canRetry: true,
     });
   }
+
+  await attachEbayAspectDropdowns(memberId, links, out);
 
   for (const conn of connections) {
     const provider = conn.provider as ChannelProvider;

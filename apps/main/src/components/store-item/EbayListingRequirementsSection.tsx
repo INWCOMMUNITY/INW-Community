@@ -212,7 +212,7 @@ export function EbayListingRequirementsSection({
                 (ca) => ca.name.trim().toLowerCase() === a.name.trim().toLowerCase()
               );
               const suggestions = suggestionsForAspect(a.name);
-              const isSelectionOnly = schema?.mode === "SELECTION_ONLY" && suggestions.length > 0;
+              const useDropdown = suggestions.length > 0;
               const isMulti = schema?.cardinality === "MULTI";
               const listId = `ebay-aspect-values-${i}`;
               return (
@@ -233,7 +233,7 @@ export function EbayListingRequirementsSection({
                       }`}
                     />
                     <div className="flex-1 min-w-[120px]">
-                      {isSelectionOnly && !readOnlyAspects ? (
+                      {useDropdown && !readOnlyAspects ? (
                         <select
                           value={a.value}
                           onChange={(e) => onAspectValueChange(i, e.target.value)}
@@ -242,6 +242,9 @@ export function EbayListingRequirementsSection({
                           }`}
                         >
                           <option value="">{required ? "Select value (required)" : "Select value"}</option>
+                          {a.value.trim() && !suggestions.includes(a.value) ? (
+                            <option value={a.value}>{a.value}</option>
+                          ) : null}
                           {suggestions.map((s) => (
                             <option key={s} value={s}>
                               {s}
@@ -254,7 +257,7 @@ export function EbayListingRequirementsSection({
                             type="text"
                             value={a.value}
                             maxLength={EBAY_ASPECT_VALUE_MAX}
-                            list={suggestions.length > 0 && !isSelectionOnly && !readOnlyAspects ? listId : undefined}
+                            list={suggestions.length > 0 && !useDropdown && !readOnlyAspects ? listId : undefined}
                             onChange={(e) => onAspectValueChange(i, e.target.value)}
                             readOnly={readOnlyAspects}
                             placeholder={
@@ -272,7 +275,7 @@ export function EbayListingRequirementsSection({
                               readOnlyAspects ? "bg-gray-50 text-gray-800" : ""
                             } ${required && !readOnlyAspects && !a.value.trim() ? "border-red-400" : ""}`}
                           />
-                          {suggestions.length > 0 && !isSelectionOnly && (
+                          {suggestions.length > 0 && !useDropdown && (
                             <datalist id={listId}>
                               {suggestions.map((s) => (
                                 <option key={s} value={s} />
@@ -281,7 +284,7 @@ export function EbayListingRequirementsSection({
                           )}
                         </>
                       )}
-                      {isMulti && !isSelectionOnly ? (
+                      {isMulti && !useDropdown ? (
                         <p className="text-xs text-gray-500 mt-0.5">Separate multiple values with commas.</p>
                       ) : null}
                     </div>

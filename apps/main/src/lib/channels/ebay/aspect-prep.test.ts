@@ -12,7 +12,9 @@ import {
   liveInventoryWireGradesCorrupted,
   passthroughUsePreparedInventoryAspects,
   ebayAspectRowsForListOnPopup,
+  ebayAspectUsesDropdown,
   ebayListOnFallbackAspects,
+  missingEbayAspectsForListOn,
 } from "./aspect-prep";
 
 const nickelTaxonomy: EbayCategoryAspect[] = [
@@ -466,5 +468,20 @@ describe("ebayAspectRowsForListOnPopup", () => {
     const rows = ebayAspectRowsForListOnPopup(ebayListOnFallbackAspects(), [], "Random object");
     expect(rows.some((row) => row.name === "Type")).toBe(true);
     expect(rows.some((row) => row.name === "Brand")).toBe(true);
+  });
+
+  it("shows Brand as a dropdown when taxonomy is unavailable", () => {
+    const brand = ebayListOnFallbackAspects().find((row) => row.name === "Brand");
+    expect(ebayAspectUsesDropdown(brand)).toBe(true);
+    expect(brand?.mode).toBe("SELECTION_ONLY");
+  });
+
+  it("does not treat a taxonomy outage as a missing item specific when Type and Brand are set", () => {
+    expect(
+      missingEbayAspectsForListOn(ebayListOnFallbackAspects(), [
+        { name: "Type", value: "Wall Clock" },
+        { name: "Brand", value: "Unbranded" },
+      ])
+    ).toEqual([]);
   });
 });

@@ -31,6 +31,7 @@ import {
 } from "@/lib/list-on-channel-category";
 import {
   ebayAspectRowsForListOnPopup,
+  ebayAspectUsesDropdown,
   ebayListOnFallbackAspects,
   isOftenRequiredEbayAspectName,
   missingEbayAspectsForListOn,
@@ -384,10 +385,10 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
                   );
                   const required = Boolean(schema?.required) || isOftenRequiredEbayAspectName(row.name);
                   const suggestions = schema?.suggestedValues ?? [];
-                  const isSelectionOnly = schema?.mode === "SELECTION_ONLY" && suggestions.length > 0;
+                  const useDropdown = ebayAspectUsesDropdown(schema);
                   const isMulti = schema?.cardinality === "MULTI";
                   const label = `${row.name}${required ? " *" : ""}`;
-                  if (isSelectionOnly) {
+                  if (useDropdown) {
                     return (
                       <SelectField
                         key={`${row.name}-${index}`}

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   classifyListingNeedsAttention,
   classifyShopNeedsAttention,
+  ebayAttentionFieldsFromCategoryAspects,
+  ebayAttentionSpecificNames,
   isEtsyOriginSyncError,
   isEtsyPostalSyncError,
 } from "./needs-attention";
@@ -90,6 +92,54 @@ describe("classifyListingNeedsAttention", () => {
     });
     expect(result?.action).toBe("fill");
     expect(result?.fields.map((f) => f.key)).toEqual(["aspect:Type"]);
+  });
+
+  it("asks for Type and Brand when category specifics could not load", () => {
+    const result = classifyListingNeedsAttention({
+      provider: "ebay",
+      syncError:
+        "Listing details didn't update on eBay: Missing required eBay item specifics: eBay category taxonomy (could not load required item specifics for this category).",
+      item,
+    });
+    expect(result?.action).toBe("fill");
+    expect(result?.fields.map((f) => f.key)).toEqual(["aspect:Type", "aspect:Brand"]);
+    expect(result?.fields.some((f) => /taxonomy/i.test(f.label))).toBe(false);
+    expect(result?.summary).toMatch(/Type and Brand/i);
+  });
+
+  it("never treats the taxonomy-load sentence as an item specific name", () => {
+    expect(
+      ebayAttentionSpecificNames(
+        "Missing required eBay item specifics: eBay category taxonomy (could not load required item specifics for this category)"
+      )
+    ).toEqual(["Type", "Brand"]);
+  });
+
+  it("turns eBay Type values into a clickable dropdown", () => {
+    const fields = ebayAttentionFieldsFromCategoryAspects({
+      categoryAspects: [
+        {
+          name: "Type",
+          required: false,
+          mode: "SELECTION_ONLY",
+          cardinality: "SINGLE",
+          suggestedValues: ["Wall Clock", "Desk Clock"],
+        },
+        {
+          name: "Brand",
+          required: false,
+          mode: "SELECTION_ONLY",
+          cardinality: "SINGLE",
+          suggestedValues: ["Unbranded"],
+        },
+      ],
+      existingAspects: [],
+      title: "Vintage Bear Clock",
+      fallbackNames: ["Type", "Brand"],
+    });
+    const typeField = fields.find((f) => f.key === "aspect:Type");
+    expect(typeField?.type).toBe("select");
+    expect(typeField?.options?.some((o) => o.value === "Wall Clock")).toBe(true);
   });
 
   it("explains eBay variation SKU collisions as retry-only", () => {

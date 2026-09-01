@@ -13,6 +13,7 @@ import {
   isEbayRateLimitError,
 } from "@/lib/channels/ebay/errors";
 import { prisma } from "database";
+import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { isImportedEbayLink } from "@/lib/channels/ebay/listing-origin";
 
 export const dynamic = "force-dynamic";
@@ -64,7 +65,12 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    let aspects = filterSellerVisibleCategoryAspects(await getItemAspectsForCategory(categoryId));
+    const ebayCtx = await getMemberConnectionContext(userId, "ebay");
+    let aspects = filterSellerVisibleCategoryAspects(
+      await getItemAspectsForCategory(categoryId, {
+        sellerAccessToken: ebayCtx?.accessToken,
+      })
+    );
     if (readOnly) {
       aspects = aspects.map((a) => ({ ...a, required: false }));
     }
