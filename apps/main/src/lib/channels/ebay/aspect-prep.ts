@@ -31,6 +31,8 @@ export const EBAY_ASPECT_SYNONYMS: Record<string, string[]> = {
   composition: ["composition", "material"],
   coin: ["coin"],
   "circulated/uncirculated": ["circulated/uncirculated", "circulated", "uncirculated"],
+  brand: ["brand name"],
+  type: ["item type"],
 };
 
 export type RemapAspectsResult = {
@@ -975,8 +977,107 @@ export function backfillRequiredTaxonomyAspects(
   return normalizeListingAspects(Array.from(out.values()));
 }
 
-const BRAND_DEFAULTS = ["Unbranded", "Does Not Apply", "Does not apply", "N/A", "Unknown"];
+const BRAND_DEFAULTS = ["Unbranded"];
+const NO_BRAND_ALIASES = new Set([
+  "does not apply",
+  "does not apply.",
+  "n/a",
+  "na",
+  "unknown",
+  "no brand",
+  "none",
+  "not applicable",
+  "unbranded",
+]);
 const PUBLISH_OFTEN_REQUIRED = new Set(["brand", "brand name", "type"]);
+
+export function isBrandAspectName(name: string): boolean {
+  const key = name.trim().toLowerCase();
+  return key === "brand" || key === "brand name";
+}
+
+export function isNoBrandAlias(value: string): boolean {
+  return NO_BRAND_ALIASES.has(value.trim().toLowerCase());
+}
+
+/** eBay accepts Unbranded for no-name items — not "Does Not Apply" / N/A / Unknown. */
+export function normalizeEbayBrandValue(value: string, allowed?: string[]): string {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+  if (!isNoBrandAlias(trimmed)) return trimmed;
+  const unbranded =
+    allowed?.find((option) => option.trim().toLowerCase() === "unbranded") ??
+    (allowed && allowed.length > 0 && !allowed.some((option) => option.trim().toLowerCase() === "unbranded")
+      ? null
+      : "Unbranded");
+  return unbranded ?? trimmed;
+}
+
+/** Hide eBay aliases that look selectable but do not satisfy Brand on publish. */
+export function sellerVisibleBrandChoices(suggestedValues: string[]): string[] {
+  const kept = suggestedValues.filter(
+    (value) => !isNoBrandAlias(value) || value.trim().toLowerCase() === "unbranded"
+  );
+  const hasUnbranded = kept.some((value) => value.trim().toLowerCase() === "unbranded");
+  const hadNoBrandAlias = suggestedValues.some((value) => isNoBrandAlias(value));
+  if (hadNoBrandAlias && !hasUnbranded) kept.push("Unbranded");
+  return kept;
+}
+
+export function preserveEbayAspectValues(
+  nextRows: ListingAspect[],
+  previousRows: ListingAspect[]
+): ListingAspect[] {
+  return nextRows.map((row) => {
+    const prev = previousRows.find(
+      (candidate) => candidate.name.trim().toLowerCase() === row.name.trim().toLowerCase()
+    );
+    if (prev?.value.trim() && !row.value.trim()) {
+      return { ...row, value: prev.value };
+    }
+    return row;
+  });
+}
+
+export function restoreOftenRequiredSellerAspects(
+  categoryAspects: CategoryAspectSchema[],
+  remapped: ListingAspect[],
+  sellerAspects: ListingAspect[]
+): ListingAspect[] {
+  const out = new Map(remapped.map((row) => [row.name.toLowerCase(), row]));
+  const sellerByKey = new Map(
+    sellerAspects.map((row) => [row.name.trim().toLowerCase(), row] as const)
+  );
+
+  const applySeller = (name: string, allowed?: string[]) => {
+    const key = name.toLowerCase();
+    if (out.get(key)?.value.trim()) return;
+    const seller = isBrandAspectName(name)
+      ? sellerByKey.get("brand") ?? sellerByKey.get("brand name")
+      : sellerByKey.get("type") ?? sellerByKey.get("item type");
+    if (!seller?.value.trim()) return;
+    const value = isBrandAspectName(name)
+      ? normalizeEbayBrandValue(seller.value, allowed)
+      : seller.value.trim();
+    if (!value) return;
+    if (allowed && allowed.length > 0 && !allowed.some((option) => option.toLowerCase() === value.toLowerCase())) {
+      return;
+    }
+    out.set(key, { name, value });
+  };
+
+  if (categoryAspects.length === 0) {
+    applySeller("Type");
+    applySeller("Brand");
+    return normalizeListingAspects(Array.from(out.values()));
+  }
+
+  for (const schema of categoryAspects) {
+    if (!isOftenRequiredEbayAspectName(schema.name)) continue;
+    applySeller(schema.name, schema.suggestedValues);
+  }
+  return normalizeListingAspects(Array.from(out.values()));
+}
 
 export function isOftenRequiredEbayAspectName(name: string): boolean {
   return PUBLISH_OFTEN_REQUIRED.has(name.trim().toLowerCase());
@@ -1281,9 +1382,10 @@ export function prepareAspectsForEbayCategory(
   const merged = fillEmptyTaxonomyAspectsFromTitle(title, categoryAspects, aspects);
   const expanded = expandGradedCoinAspectsForTaxonomy(categoryAspects, merged);
   const remapped = remapAspectsToTaxonomy(categoryAspects, expanded);
+  const restored = restoreOftenRequiredSellerAspects(categoryAspects, remapped.aspects, aspects);
   const backfilled = backfillRequiredTaxonomyAspects(
     categoryAspects,
-    remapped.aspects,
+    restored,
     expanded,
     title
   );

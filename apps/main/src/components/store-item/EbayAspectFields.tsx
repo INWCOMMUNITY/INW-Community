@@ -7,7 +7,12 @@ import {
   listingLabelClass,
   listingSelectClass,
 } from "@/components/store-item/listing-form-styles";
-import { ebayAspectUsesDropdown, isOftenRequiredEbayAspectName } from "@/lib/channels/ebay/aspect-prep";
+import {
+  ebayAspectUsesDropdown,
+  isBrandAspectName,
+  isOftenRequiredEbayAspectName,
+  sellerVisibleBrandChoices,
+} from "@/lib/channels/ebay/aspect-prep";
 import { EBAY_ASPECT_VALUE_MAX, type ListingAspect } from "@/lib/listing-limits";
 
 export type EbayCategoryAspectField = {
@@ -66,7 +71,9 @@ export function EbayAspectFields({
           (aspect) => aspect.name.trim().toLowerCase() === row.name.trim().toLowerCase()
         );
         const required = Boolean(schema?.required) || isOftenRequiredEbayAspectName(row.name);
-        const suggestions = schema?.suggestedValues ?? [];
+        const suggestions = isBrandAspectName(row.name)
+          ? sellerVisibleBrandChoices(schema?.suggestedValues ?? [])
+          : schema?.suggestedValues ?? [];
         const useDropdown = ebayAspectUsesDropdown(schema);
         const isSelectionOnly = schema?.mode === "SELECTION_ONLY" && suggestions.length > 0;
         const isMulti = schema?.cardinality === "MULTI";

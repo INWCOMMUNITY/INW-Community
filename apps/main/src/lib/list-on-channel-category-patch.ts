@@ -1,5 +1,6 @@
 import { Prisma } from "database";
-import { normalizeListingAspects } from "@/lib/listing-limits";
+import { normalizeEbayBrandValue, isBrandAspectName } from "@/lib/channels/ebay/aspect-prep";
+import { normalizeListingAspects, parseStoredAspects } from "@/lib/listing-limits";
 import type { ListOnCategoryAssignment } from "@/lib/list-on-channel-category";
 
 export type ListOnCategoryStoreItemPatch = {
@@ -11,7 +12,8 @@ export type ListOnCategoryStoreItemPatch = {
 };
 
 export function storeItemPatchFromListOnCategoryAssignment(
-  assignment: ListOnCategoryAssignment
+  assignment: ListOnCategoryAssignment,
+  existingAspects?: unknown
 ): ListOnCategoryStoreItemPatch {
   const data: ListOnCategoryStoreItemPatch = {};
   if (assignment.etsyTaxonomyId != null) data.etsyTaxonomyId = assignment.etsyTaxonomyId;
@@ -19,8 +21,21 @@ export function storeItemPatchFromListOnCategoryAssignment(
   if (assignment.etsyWhoMade) data.etsyWhoMade = assignment.etsyWhoMade;
   if (assignment.etsyWhenMade) data.etsyWhenMade = assignment.etsyWhenMade;
   if (assignment.aspects) {
-    const normalized = normalizeListingAspects(assignment.aspects);
-    data.aspects = normalized.length > 0 ? (normalized as Prisma.InputJsonValue) : Prisma.JsonNull;
+    const incoming = normalizeListingAspects(
+      assignment.aspects.map((row) => ({
+        name: row.name,
+        value: isBrandAspectName(row.name) ? normalizeEbayBrandValue(row.value) : row.value,
+      }))
+    );
+    if (incoming.length > 0) {
+      const merged = new Map(
+        parseStoredAspects(existingAspects).map((row) => [row.name.toLowerCase(), row])
+      );
+      for (const row of incoming) {
+        merged.set(row.name.toLowerCase(), row);
+      }
+      data.aspects = Array.from(merged.values()) as Prisma.InputJsonValue;
+    }
   }
   return data;
 }

@@ -56,7 +56,11 @@ function mergeProviderResults(
 async function applyCategoryAssignments(assignments: ListOnCategoryAssignment[] | undefined) {
   if (!assignments?.length) return;
   for (const assignment of assignments) {
-    const data = storeItemPatchFromListOnCategoryAssignment(assignment);
+    const current = await prisma.storeItem.findUnique({
+      where: { id: assignment.storeItemId },
+      select: { aspects: true },
+    });
+    const data = storeItemPatchFromListOnCategoryAssignment(assignment, current?.aspects);
     if (Object.keys(data).length === 0) continue;
     await prisma.storeItem.update({
       where: { id: assignment.storeItemId },

@@ -466,8 +466,49 @@ export function expandGradedCoinAspectsForTaxonomy(
   return normalizeListingAspects(Array.from(filled.values()));
 }
 
-const BRAND_DEFAULTS = ["Unbranded", "Does Not Apply", "Does not apply", "N/A", "Unknown"];
+const BRAND_DEFAULTS = ["Unbranded"];
+const NO_BRAND_ALIASES = new Set([
+  "does not apply",
+  "does not apply.",
+  "n/a",
+  "na",
+  "unknown",
+  "no brand",
+  "none",
+  "not applicable",
+  "unbranded",
+]);
 const PUBLISH_OFTEN_REQUIRED = new Set(["brand", "brand name", "type"]);
+
+export function isBrandAspectName(name: string): boolean {
+  const key = name.trim().toLowerCase();
+  return key === "brand" || key === "brand name";
+}
+
+export function sellerVisibleBrandChoices(suggestedValues: string[]): string[] {
+  const kept = suggestedValues.filter(
+    (value) => !NO_BRAND_ALIASES.has(value.trim().toLowerCase()) || value.trim().toLowerCase() === "unbranded"
+  );
+  const hasUnbranded = kept.some((value) => value.trim().toLowerCase() === "unbranded");
+  const hadNoBrandAlias = suggestedValues.some((value) => NO_BRAND_ALIASES.has(value.trim().toLowerCase()));
+  if (hadNoBrandAlias && !hasUnbranded) kept.push("Unbranded");
+  return kept;
+}
+
+export function preserveEbayAspectValues(
+  nextRows: { name: string; value: string }[],
+  previousRows: { name: string; value: string }[]
+): { name: string; value: string }[] {
+  return nextRows.map((row) => {
+    const prev = previousRows.find(
+      (candidate) => candidate.name.trim().toLowerCase() === row.name.trim().toLowerCase()
+    );
+    if (prev?.value.trim() && !row.value.trim()) {
+      return { ...row, value: prev.value };
+    }
+    return row;
+  });
+}
 
 export function isOftenRequiredEbayAspectName(name: string): boolean {
   return PUBLISH_OFTEN_REQUIRED.has(name.trim().toLowerCase());

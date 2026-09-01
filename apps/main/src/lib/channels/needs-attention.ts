@@ -11,6 +11,8 @@ import {
   ebayAspectRowsForListOnPopup,
   ebayListOnFallbackAspects,
   filterSellerVisibleCategoryAspects,
+  isBrandAspectName,
+  sellerVisibleBrandChoices,
 } from "./ebay/aspect-prep";
 import { getItemAspectsForCategory, type EbayCategoryAspect } from "./ebay/aspects";
 import { getMemberConnectionContext } from "./connection";
@@ -318,7 +320,9 @@ function aspectOptionsForName(
   const schema =
     categoryAspects.find((aspect) => aspect.name.trim().toLowerCase() === key) ??
     ebayListOnFallbackAspects().find((aspect) => aspect.name.trim().toLowerCase() === key);
-  const values = schema?.suggestedValues ?? [];
+  const values = isBrandAspectName(name)
+    ? sellerVisibleBrandChoices(schema?.suggestedValues ?? [])
+    : schema?.suggestedValues ?? [];
   if (values.length === 0) return null;
   return [
     { value: "", label: "Select value (required)" },

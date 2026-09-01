@@ -32,8 +32,11 @@ import {
   ebayAspectRowsForListOnPopup,
   ebayAspectUsesDropdown,
   ebayListOnFallbackAspects,
+  isBrandAspectName,
   isOftenRequiredEbayAspectName,
   missingEbayAspectsForListOn,
+  preserveEbayAspectValues,
+  sellerVisibleBrandChoices,
   type CategoryAspectSchema,
 } from "@/lib/ebay-aspect-prep";
 
@@ -172,19 +175,34 @@ export function ListOnChannelCategoryModal({
         if (list.length === 0) {
           const fallback = ebayListOnFallbackAspects();
           setCategoryAspects(fallback);
-          setAspects(ebayAspectRowsForListOnPopup(fallback, parseItemAspects(step.item.aspects), step.item.title));
+          setAspects((prev) =>
+            preserveEbayAspectValues(
+              ebayAspectRowsForListOnPopup(fallback, parseItemAspects(step.item.aspects), step.item.title),
+              prev
+            )
+          );
           setAspectsError(null);
           return;
         }
         setCategoryAspects(list);
-        setAspects(ebayAspectRowsForListOnPopup(list, parseItemAspects(step.item.aspects), step.item.title));
+        setAspects((prev) =>
+          preserveEbayAspectValues(
+            ebayAspectRowsForListOnPopup(list, parseItemAspects(step.item.aspects), step.item.title),
+            prev
+          )
+        );
         setAspectsError(null);
       })
-      .catch((e: { error?: string }) => {
+      .catch(() => {
         if (cancelled) return;
         const fallback = ebayListOnFallbackAspects();
         setCategoryAspects(fallback);
-        setAspects(ebayAspectRowsForListOnPopup(fallback, parseItemAspects(step.item.aspects), step.item.title));
+        setAspects((prev) =>
+          preserveEbayAspectValues(
+            ebayAspectRowsForListOnPopup(fallback, parseItemAspects(step.item.aspects), step.item.title),
+            prev
+          )
+        );
         setAspectsError(null);
       })
       .finally(() => {
@@ -378,8 +396,12 @@ export function ListOnChannelCategoryModal({
                     (aspect) => aspect.name.trim().toLowerCase() === row.name.trim().toLowerCase()
                   );
                   const required = Boolean(schema?.required) || isOftenRequiredEbayAspectName(row.name);
-                  const suggestions = schema?.suggestedValues ?? [];
-                  const useDropdown = ebayAspectUsesDropdown(schema);
+                  const suggestions = isBrandAspectName(row.name)
+                    ? sellerVisibleBrandChoices(schema?.suggestedValues ?? [])
+                    : schema?.suggestedValues ?? [];
+                  const useDropdown = ebayAspectUsesDropdown(
+                    isBrandAspectName(row.name) ? { suggestedValues: suggestions } : schema
+                  );
                   const isMulti = schema?.cardinality === "MULTI";
                   const label = `${row.name}${required ? " *" : ""}`;
                   if (useDropdown) {

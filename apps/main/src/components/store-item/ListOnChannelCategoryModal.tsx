@@ -21,6 +21,7 @@ import {
   ebayAspectRowsForListOnPopup,
   ebayListOnFallbackAspects,
   missingEbayAspectsForListOn,
+  preserveEbayAspectValues,
 } from "@/lib/channels/ebay/aspect-prep";
 import { isEbayRateLimitError } from "@/lib/channels/ebay/errors";
 import { parseStoredAspects, type ListingAspect } from "@/lib/listing-limits";
@@ -125,8 +126,11 @@ export function ListOnChannelCategoryModal({
         if (!res.ok || list.length === 0) {
           const fallback = ebayListOnFallbackAspects();
           setCategoryAspects(fallback);
-          setAspects(
-            ebayAspectRowsForListOnPopup(fallback, parseStoredAspects(step.item.aspects), step.item.title)
+          setAspects((prev) =>
+            preserveEbayAspectValues(
+              ebayAspectRowsForListOnPopup(fallback, parseStoredAspects(step.item.aspects), step.item.title),
+              prev
+            )
           );
           setAspectsError(null);
           setAspectsNotice(
@@ -137,8 +141,11 @@ export function ListOnChannelCategoryModal({
           return;
         }
         setCategoryAspects(list);
-        setAspects(
-          ebayAspectRowsForListOnPopup(list, parseStoredAspects(step.item.aspects), step.item.title)
+        setAspects((prev) =>
+          preserveEbayAspectValues(
+            ebayAspectRowsForListOnPopup(list, parseStoredAspects(step.item.aspects), step.item.title),
+            prev
+          )
         );
         setAspectsError(null);
         setAspectsNotice(data.rateLimited ? data.warning ?? null : null);
@@ -147,8 +154,11 @@ export function ListOnChannelCategoryModal({
         if (cancelled) return;
         const fallback = ebayListOnFallbackAspects();
         setCategoryAspects(fallback);
-        setAspects(
-          ebayAspectRowsForListOnPopup(fallback, parseStoredAspects(step.item.aspects), step.item.title)
+        setAspects((prev) =>
+          preserveEbayAspectValues(
+            ebayAspectRowsForListOnPopup(fallback, parseStoredAspects(step.item.aspects), step.item.title),
+            prev
+          )
         );
         setAspectsError(null);
         setAspectsNotice("Could not load eBay's full list. Enter Type and Brand below.");

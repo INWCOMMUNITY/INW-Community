@@ -22,6 +22,7 @@ import {
   ensureGradedCoinInventoryAspects,
   prepareAspectsForEbayCategory,
   remapAspectsToTaxonomy,
+  restoreOftenRequiredSellerAspects,
   validateRemappedAspects,
   type RemapAspectsResult,
   type ValidateRemappedAspectsResult,
@@ -170,9 +171,14 @@ export async function prepareOutboundAspects(args: {
   aspects = expandGradedCoinAspectsForTaxonomy(categoryAspects, aspects);
 
   const remapped = remapAspectsToTaxonomy(categoryAspects, aspects);
-  const backfilled = backfillRequiredTaxonomyAspects(
+  const restored = restoreOftenRequiredSellerAspects(
     categoryAspects,
     remapped.aspects,
+    parseStoredAspects(args.item.aspects)
+  );
+  const backfilled = backfillRequiredTaxonomyAspects(
+    categoryAspects,
+    restored,
     aspects,
     args.item.title ?? ""
   );

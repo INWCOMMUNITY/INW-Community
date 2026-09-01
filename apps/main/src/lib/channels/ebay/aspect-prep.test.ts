@@ -15,6 +15,9 @@ import {
   ebayAspectUsesDropdown,
   ebayListOnFallbackAspects,
   missingEbayAspectsForListOn,
+  normalizeEbayBrandValue,
+  restoreOftenRequiredSellerAspects,
+  sellerVisibleBrandChoices,
 } from "./aspect-prep";
 
 const nickelTaxonomy: EbayCategoryAspect[] = [
@@ -374,6 +377,54 @@ describe("prepareLiveAspectsForInventoryPut", () => {
   });
 });
 
+describe("normalizeEbayBrandValue", () => {
+  it("maps Does Not Apply and No Brand to Unbranded", () => {
+    expect(normalizeEbayBrandValue("Does Not Apply")).toBe("Unbranded");
+    expect(normalizeEbayBrandValue("no brand")).toBe("Unbranded");
+    expect(normalizeEbayBrandValue("Nintendo")).toBe("Nintendo");
+  });
+
+  it("keeps Does Not Apply when Unbranded is not in the official list", () => {
+    expect(normalizeEbayBrandValue("Does Not Apply", ["Does Not Apply", "Nike"])).toBe("Does Not Apply");
+  });
+});
+
+describe("sellerVisibleBrandChoices", () => {
+  it("replaces Does Not Apply with Unbranded so the dropdown matches what eBay accepts", () => {
+    expect(sellerVisibleBrandChoices(["Nike", "Does Not Apply"])).toEqual(["Nike", "Unbranded"]);
+  });
+});
+
+describe("restoreOftenRequiredSellerAspects", () => {
+  it("puts seller Type/Brand back when remap dropped them", () => {
+    const restored = restoreOftenRequiredSellerAspects(
+      [
+        {
+          name: "Type",
+          required: true,
+          mode: "SELECTION_ONLY",
+          cardinality: "SINGLE",
+          suggestedValues: ["Clock", "Figurine"],
+        },
+        {
+          name: "Brand",
+          required: true,
+          mode: "SELECTION_ONLY",
+          cardinality: "SINGLE",
+          suggestedValues: ["Unbranded", "Nintendo"],
+        },
+      ],
+      [],
+      [
+        { name: "Type", value: "Clock" },
+        { name: "Brand", value: "Does Not Apply" },
+      ]
+    );
+    expect(restored.find((row) => row.name === "Type")?.value).toBe("Clock");
+    expect(restored.find((row) => row.name === "Brand")?.value).toBe("Unbranded");
+  });
+});
+
 describe("fillDefaultEbayAspects", () => {
   const schema: EbayCategoryAspect[] = [
     {
@@ -401,6 +452,13 @@ describe("fillDefaultEbayAspects", () => {
   it("reports Type as missing when it cannot be inferred", () => {
     const filled = fillDefaultEbayAspects(schema, [{ name: "Brand", value: "Unbranded" }], "Random object");
     expect(missingOftenRequiredEbayAspects(schema, filled)).toEqual(["Type"]);
+  });
+});
+
+describe("ebayListOnFallbackAspects", () => {
+  it("only offers Unbranded for Brand, not Does Not Apply", () => {
+    const brand = ebayListOnFallbackAspects().find((aspect) => aspect.name === "Brand");
+    expect(brand?.suggestedValues).toEqual(["Unbranded"]);
   });
 });
 
