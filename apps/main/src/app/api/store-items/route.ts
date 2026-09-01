@@ -130,7 +130,7 @@ export async function GET(req: NextRequest) {
       console.warn("[store-items] Wix delete check failed", {
         error: e instanceof Error ? e.message : String(e),
       });
-      return { removed: 0, checked: false, debug: { source: "throw", error: String(e).slice(0, 200) } };
+      return { removed: 0, checked: false };
     });
     if (searchParams.get("counts") === "1") {
       const [active, ended, sold, attentionIds] = await Promise.all([
@@ -145,7 +145,6 @@ export async function GET(req: NextRequest) {
         sold,
         attention: attentionIds.length,
         wixCheckFailed: !wixCheck.checked,
-        wixDebug: { ...wixCheck.debug, removed: wixCheck.removed, checked: wixCheck.checked },
       });
     }
 

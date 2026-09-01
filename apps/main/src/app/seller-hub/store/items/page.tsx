@@ -146,34 +146,6 @@ export default function MyItemsPage() {
         setWixCheckFailed(countsData.wixCheckFailed === true);
       }
 
-      // #region agent log
-      {
-        const rows = Array.isArray(itemsData) ? itemsData : [];
-        fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "ad9cb6" },
-          body: JSON.stringify({
-            sessionId: "ad9cb6",
-            hypothesisId: "E",
-            location: "seller-hub/store/items/page.tsx:load",
-            message: "My Items load Wix tag state",
-            data: {
-              wixDebug: (countsData as { wixDebug?: unknown }).wixDebug ?? null,
-              wixCheckFailed: (countsData as { wixCheckFailed?: boolean }).wixCheckFailed ?? null,
-              attention: (countsData as { attention?: number }).attention ?? null,
-              wixPills: rows.map((i: { title?: string; channelLinks?: { provider: string; remoteDeletedProvider?: string | null }[] }) => ({
-                title: i.title,
-                wix: (i.channelLinks ?? [])
-                  .filter((l) => l.provider === "wix")
-                  .map((l) => ({ remoteDeletedProvider: l.remoteDeletedProvider ?? null })),
-              })),
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-      }
-      // #endregion
-
       if (!statusRes.ok) {
         if (!itemsRes.ok) {
           setConnectStatus(null);
