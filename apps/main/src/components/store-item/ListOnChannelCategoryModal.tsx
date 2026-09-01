@@ -18,9 +18,8 @@ import {
   type EtsyWhoMade,
 } from "@/lib/etsy-listing-options";
 import {
-  ebayAspectRowsForListOnPopup,
-  ebayListOnFallbackAspects,
   missingEbayAspectsForListOn,
+  prepareAspectRowsForForm,
   preserveEbayAspectValues,
 } from "@/lib/channels/ebay/aspect-prep";
 import { isEbayRateLimitError } from "@/lib/channels/ebay/errors";
@@ -123,45 +122,34 @@ export function ListOnChannelCategoryModal({
         const list = data.aspects ?? [];
         const rateLimited =
           Boolean(data.rateLimited) || isEbayRateLimitError(data.error ?? data.warning ?? "");
-        if (!res.ok || list.length === 0) {
-          const fallback = ebayListOnFallbackAspects();
-          setCategoryAspects(fallback);
-          setAspects((prev) =>
-            preserveEbayAspectValues(
-              ebayAspectRowsForListOnPopup(fallback, parseStoredAspects(step.item.aspects), step.item.title),
-              prev
-            )
-          );
-          setAspectsError(null);
-          setAspectsNotice(
-            rateLimited
-              ? data.warning ?? data.error ?? "eBay is busy right now. Enter Type and Brand below, then list."
-              : data.warning ?? data.error ?? null
-          );
-          return;
-        }
         setCategoryAspects(list);
         setAspects((prev) =>
-          preserveEbayAspectValues(
-            ebayAspectRowsForListOnPopup(list, parseStoredAspects(step.item.aspects), step.item.title),
-            prev
-          )
+          list.length > 0
+            ? preserveEbayAspectValues(
+                prepareAspectRowsForForm(list, parseStoredAspects(step.item.aspects), step.item.title),
+                prev
+              )
+            : []
         );
         setAspectsError(null);
-        setAspectsNotice(data.rateLimited ? data.warning ?? null : null);
+        setAspectsNotice(
+          list.length > 0
+            ? rateLimited
+              ? data.warning ?? null
+              : null
+            : data.warning ??
+                data.error ??
+                (rateLimited
+                  ? "eBay is busy. Change the category or try again so we can load official values."
+                  : "eBay did not return official values for this category. Change the category and try again.")
+        );
       })
       .catch(() => {
         if (cancelled) return;
-        const fallback = ebayListOnFallbackAspects();
-        setCategoryAspects(fallback);
-        setAspects((prev) =>
-          preserveEbayAspectValues(
-            ebayAspectRowsForListOnPopup(fallback, parseStoredAspects(step.item.aspects), step.item.title),
-            prev
-          )
-        );
+        setCategoryAspects([]);
+        setAspects([]);
         setAspectsError(null);
-        setAspectsNotice("Could not load eBay's full list. Enter Type and Brand below.");
+        setAspectsNotice("Could not load eBay's official values. Change the category or try again.");
       })
       .finally(() => {
         if (!cancelled) setAspectsLoading(false);
@@ -178,8 +166,7 @@ export function ListOnChannelCategoryModal({
   const canContinue =
     Boolean(categoryId) &&
     !aspectsLoading &&
-    (categoryAspects.length > 0 || !aspectsError) &&
-    missingEbayAspects.length === 0 &&
+    (step?.provider !== "ebay" || (categoryAspects.length > 0 && missingEbayAspects.length === 0)) &&
     (step?.provider !== "etsy" ||
       !showEtsyDetails ||
       (isEtsyWhoMade(etsyWhoMade) && normalizeEtsyWhenMade(etsyWhenMade) != null));

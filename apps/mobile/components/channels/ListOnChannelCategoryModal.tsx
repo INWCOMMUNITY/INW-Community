@@ -29,14 +29,11 @@ import {
   type ListOnCategoryStep,
 } from "@/lib/list-on-channel-category";
 import {
-  ebayAspectRowsForListOnPopup,
   ebayAspectUsesDropdown,
-  ebayListOnFallbackAspects,
-  isBrandAspectName,
   isOftenRequiredEbayAspectName,
   missingEbayAspectsForListOn,
+  prepareAspectRowsForForm,
   preserveEbayAspectValues,
-  sellerVisibleBrandChoices,
   type CategoryAspectSchema,
 } from "@/lib/ebay-aspect-prep";
 
@@ -101,8 +98,7 @@ export function ListOnChannelCategoryModal({
   const canContinue =
     Boolean(categoryId) &&
     !aspectsLoading &&
-    (categoryAspects.length > 0 || !aspectsError) &&
-    missingEbayAspects.length === 0 &&
+    (step?.provider !== "ebay" || (categoryAspects.length > 0 && missingEbayAspects.length === 0)) &&
     (step?.provider !== "etsy" ||
       !showEtsyDetails ||
       (isEtsyWhoMade(etsyWhoMade) && normalizeEtsyWhenMade(etsyWhenMade) != null));
@@ -172,38 +168,28 @@ export function ListOnChannelCategoryModal({
       .then((data) => {
         if (cancelled) return;
         const list = data.aspects ?? [];
-        if (list.length === 0) {
-          const fallback = ebayListOnFallbackAspects();
-          setCategoryAspects(fallback);
-          setAspects((prev) =>
-            preserveEbayAspectValues(
-              ebayAspectRowsForListOnPopup(fallback, parseItemAspects(step.item.aspects), step.item.title),
-              prev
-            )
-          );
-          setAspectsError(null);
-          return;
-        }
         setCategoryAspects(list);
         setAspects((prev) =>
-          preserveEbayAspectValues(
-            ebayAspectRowsForListOnPopup(list, parseItemAspects(step.item.aspects), step.item.title),
-            prev
-          )
+          list.length > 0
+            ? preserveEbayAspectValues(
+                prepareAspectRowsForForm(list, parseItemAspects(step.item.aspects), step.item.title),
+                prev
+              )
+            : []
         );
-        setAspectsError(null);
+        setAspectsError(
+          list.length > 0
+            ? null
+            : data.warning ??
+                data.error ??
+                "eBay did not return official values for this category. Change the category and try again."
+        );
       })
       .catch(() => {
         if (cancelled) return;
-        const fallback = ebayListOnFallbackAspects();
-        setCategoryAspects(fallback);
-        setAspects((prev) =>
-          preserveEbayAspectValues(
-            ebayAspectRowsForListOnPopup(fallback, parseItemAspects(step.item.aspects), step.item.title),
-            prev
-          )
-        );
-        setAspectsError(null);
+        setCategoryAspects([]);
+        setAspects([]);
+        setAspectsError("Could not load eBay's official values. Change the category or try again.");
       })
       .finally(() => {
         if (!cancelled) setAspectsLoading(false);
@@ -396,12 +382,8 @@ export function ListOnChannelCategoryModal({
                     (aspect) => aspect.name.trim().toLowerCase() === row.name.trim().toLowerCase()
                   );
                   const required = Boolean(schema?.required) || isOftenRequiredEbayAspectName(row.name);
-                  const suggestions = isBrandAspectName(row.name)
-                    ? sellerVisibleBrandChoices(schema?.suggestedValues ?? [])
-                    : schema?.suggestedValues ?? [];
-                  const useDropdown = ebayAspectUsesDropdown(
-                    isBrandAspectName(row.name) ? { suggestedValues: suggestions } : schema
-                  );
+                  const suggestions = schema?.suggestedValues ?? [];
+                  const useDropdown = ebayAspectUsesDropdown(schema);
                   const isMulti = schema?.cardinality === "MULTI";
                   const label = `${row.name}${required ? " *" : ""}`;
                   if (useDropdown) {

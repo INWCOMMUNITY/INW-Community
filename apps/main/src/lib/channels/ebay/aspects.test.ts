@@ -59,6 +59,13 @@ describe("aspect cache fallback", () => {
         cardinality: "SINGLE",
         suggestedValues: ["Clock"],
       },
+      {
+        name: "Brand",
+        required: false,
+        mode: "SELECTION_ONLY",
+        cardinality: "SINGLE",
+        suggestedValues: ["Howard Miller"],
+      },
     ]);
     vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
     const ebayGet = vi.spyOn(client, "ebayGet");
@@ -133,13 +140,52 @@ describe("aspect cache fallback", () => {
           aspectConstraint: { aspectRequired: true, aspectMode: "SELECTION_ONLY" },
           aspectValues: [{ localizedValue: "Wall Clock" }, { localizedValue: "Desk Clock" }],
         },
+        {
+          localizedAspectName: "Brand",
+          aspectConstraint: { aspectRequired: true, aspectMode: "SELECTION_ONLY" },
+          aspectValues: [{ localizedValue: "Howard Miller" }, { localizedValue: "Seiko" }],
+        },
       ],
     });
 
     const rows = await getItemAspectsForCategory("261605", { sellerAccessToken: "seller-token" });
-    expect(rows[0]?.name).toBe("Type");
-    expect(rows[0]?.suggestedValues).toEqual(["Wall Clock", "Desk Clock"]);
+    expect(rows.find((row) => row.name === "Type")?.suggestedValues).toEqual(["Wall Clock", "Desk Clock"]);
+    expect(rows.find((row) => row.name === "Brand")?.suggestedValues).toEqual(["Howard Miller", "Seiko"]);
     expect(String(ebayGet.mock.calls[0]?.[1])).toMatch(/sell\/metadata/);
+    expect(ebayGet).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks Taxonomy for official Brand values when Metadata omits them", async () => {
+    vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
+    vi.spyOn(oauth, "withEbayApplicationTokenRetry").mockImplementation(async (fn) => fn("token"));
+    const ebayGet = vi.spyOn(client, "ebayGet")
+      .mockResolvedValueOnce({
+        aspects: [
+          {
+            localizedAspectName: "Type",
+            aspectConstraint: { aspectRequired: true, aspectMode: "SELECTION_ONLY" },
+            aspectValues: [{ localizedValue: "Wall Clock" }],
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        aspects: [
+          {
+            localizedAspectName: "Type",
+            aspectConstraint: { aspectRequired: true, aspectMode: "SELECTION_ONLY" },
+            aspectValues: [{ localizedValue: "Wall Clock" }, { localizedValue: "Desk Clock" }],
+          },
+          {
+            localizedAspectName: "Brand",
+            aspectConstraint: { aspectRequired: true, aspectMode: "SELECTION_ONLY" },
+            aspectValues: [{ localizedValue: "Howard Miller" }, { localizedValue: "Seiko" }],
+          },
+        ],
+      });
+
+    const rows = await getItemAspectsForCategory("261605", { sellerAccessToken: "seller-token" });
+    expect(rows.find((row) => row.name === "Brand")?.suggestedValues).toEqual(["Howard Miller", "Seiko"]);
+    expect(String(ebayGet.mock.calls[1]?.[1])).toMatch(/get_item_aspects_for_category/);
   });
 });
 

@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getItemAspectsForCategory, requireEbayTaxonomyConfig } from "@/lib/channels/ebay/aspects";
-import {
-  EBAY_LIST_ON_RATE_LIMIT_NOTICE,
-  ebayListOnFallbackAspects,
-  filterSellerVisibleCategoryAspects,
-} from "@/lib/channels/ebay/aspect-prep";
+import { EBAY_LIST_ON_RATE_LIMIT_NOTICE, filterSellerVisibleCategoryAspects } from "@/lib/channels/ebay/aspect-prep";
 import {
   describeChannelSyncError,
   describeEbayThrownError,
@@ -78,7 +74,7 @@ export async function GET(req: NextRequest) {
   } catch (e) {
     if (isEbayRateLimitError(e)) {
       return NextResponse.json({
-        aspects: filterSellerVisibleCategoryAspects(ebayListOnFallbackAspects()),
+        aspects: [],
         readOnly,
         warning: EBAY_LIST_ON_RATE_LIMIT_NOTICE,
         rateLimited: true,

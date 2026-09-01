@@ -281,6 +281,21 @@ export type GetItemAspectsOptions = {
   sellerAccessToken?: string | null;
 };
 
+/** True when Type or Brand is missing, or eBay listed no official values for them. */
+export function aspectSchemaNeedsOfficialValues(aspects: EbayCategoryAspect[]): boolean {
+  if (aspects.length === 0) return true;
+  const type = aspects.find((aspect) => aspect.name.trim().toLowerCase() === "type");
+  const brand = aspects.find((aspect) => /^(brand|brand name)$/i.test(aspect.name.trim()));
+  if (!type || !brand) return true;
+  return type.suggestedValues.length === 0 || brand.suggestedValues.length === 0;
+}
+
+function rememberAspects(categoryId: string, treeId: string, aspects: EbayCategoryAspect[]): EbayCategoryAspect[] {
+  cacheCategoryAspects(categoryId, treeId, aspects);
+  void writePersistedCategoryAspects(categoryId, treeId, aspects);
+  return aspects;
+}
+
 export async function getItemAspectsForCategory(
   categoryId: string,
   opts?: GetItemAspectsOptions
@@ -290,23 +305,23 @@ export async function getItemAspectsForCategory(
   requireEbayTaxonomyConfig();
   const treeId = await getDefaultCategoryTreeId();
   const fresh = getCachedCategoryAspects(id, treeId);
-  if (fresh) return fresh;
+  if (fresh && !aspectSchemaNeedsOfficialValues(fresh)) return fresh;
 
   const persisted = await readPersistedCategoryAspects(id, treeId, false);
-  if (persisted) {
+  if (persisted && !aspectSchemaNeedsOfficialValues(persisted)) {
     cacheCategoryAspects(id, treeId, persisted);
     return persisted;
   }
 
+  let metadataAspects: EbayCategoryAspect[] | null = null;
   if (opts?.sellerAccessToken) {
     try {
       const meta = await fetchItemAspectsForCategoryViaMetadata(opts.sellerAccessToken, id);
       const aspects = parseAspectApiResponse(meta);
-      if (aspects.length > 0) {
-        cacheCategoryAspects(id, treeId, aspects);
-        void writePersistedCategoryAspects(id, treeId, aspects);
-        return aspects;
+      if (aspects.length > 0 && !aspectSchemaNeedsOfficialValues(aspects)) {
+        return rememberAspects(id, treeId, aspects);
       }
+      if (aspects.length > 0) metadataAspects = aspects;
     } catch (metaErr) {
       console.warn("[ebay] getItemAspectsForCategory: Metadata lookup failed", {
         categoryId: id,
@@ -318,11 +333,14 @@ export async function getItemAspectsForCategory(
   try {
     const res = await fetchItemAspectsForCategory(id, treeId);
     const aspects = parseAspectApiResponse(res);
-    cacheCategoryAspects(id, treeId, aspects);
-    void writePersistedCategoryAspects(id, treeId, aspects);
+    if (aspects.length > 0) return rememberAspects(id, treeId, aspects);
+    if (metadataAspects) return rememberAspects(id, treeId, metadataAspects);
+    if (fresh?.length) return fresh;
+    if (persisted?.length) return persisted;
     return aspects;
   } catch (e) {
-    const cached = getCachedCategoryAspects(id, treeId, { allowStale: true });
+    if (metadataAspects) return rememberAspects(id, treeId, metadataAspects);
+    const cached = fresh ?? getCachedCategoryAspects(id, treeId, { allowStale: true }) ?? persisted;
     if (cached && shouldUseAspectCacheFallback(e)) {
       console.warn("[ebay] getItemAspectsForCategory: serving cached aspects", {
         categoryId: id,

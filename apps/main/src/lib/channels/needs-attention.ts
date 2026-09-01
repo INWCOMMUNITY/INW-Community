@@ -9,10 +9,7 @@ import { isEbayTaxonomyLoadPlaceholder, parseMissingEbayItemSpecifics } from "./
 import { mergeConflictDetails } from "./listing-link-flags";
 import {
   ebayAspectRowsForListOnPopup,
-  ebayListOnFallbackAspects,
   filterSellerVisibleCategoryAspects,
-  isBrandAspectName,
-  sellerVisibleBrandChoices,
 } from "./ebay/aspect-prep";
 import { getItemAspectsForCategory, type EbayCategoryAspect } from "./ebay/aspects";
 import { getMemberConnectionContext } from "./connection";
@@ -317,12 +314,8 @@ function aspectOptionsForName(
   categoryAspects: EbayCategoryAspect[]
 ): { value: string; label: string }[] | null {
   const key = name.trim().toLowerCase();
-  const schema =
-    categoryAspects.find((aspect) => aspect.name.trim().toLowerCase() === key) ??
-    ebayListOnFallbackAspects().find((aspect) => aspect.name.trim().toLowerCase() === key);
-  const values = isBrandAspectName(name)
-    ? sellerVisibleBrandChoices(schema?.suggestedValues ?? [])
-    : schema?.suggestedValues ?? [];
+  const schema = categoryAspects.find((aspect) => aspect.name.trim().toLowerCase() === key);
+  const values = schema?.suggestedValues ?? [];
   if (values.length === 0) return null;
   return [
     { value: "", label: "Select value (required)" },
@@ -356,11 +349,11 @@ export function ebayAttentionFieldsFromCategoryAspects(args: {
   title: string;
   fallbackNames: string[];
 }): NeedsAttentionField[] {
-  const schema =
-    args.categoryAspects.length > 0
-      ? filterSellerVisibleCategoryAspects(args.categoryAspects)
-      : ebayListOnFallbackAspects();
-  const rows = ebayAspectRowsForListOnPopup(schema, args.existingAspects, args.title);
+  const schema = filterSellerVisibleCategoryAspects(args.categoryAspects);
+  const rows =
+    schema.length > 0
+      ? ebayAspectRowsForListOnPopup(schema, args.existingAspects, args.title)
+      : [];
   if (rows.length > 0) {
     return rows.map((row) => fieldFromAspectRow(row, schema));
   }
