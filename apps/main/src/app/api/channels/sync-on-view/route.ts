@@ -4,29 +4,21 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { reconcileConnectionInboundCatalog } from "@/lib/channels/reconcile-inbound-catalog";
 import { reconcileConnectionInboundMeta } from "@/lib/channels/reconcile-inbound-meta";
 import { setEtsyConnectionContext } from "@/lib/channels/etsy/client";
+import { flagGoneWixListingsForConnection } from "@/lib/channels/wix/flag-remote-deleted";
 import { maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-// Minimum time between syncs per user (30 seconds)
 const SYNC_COOLDOWN_MS = 30_000;
-
-// In-memory cooldown tracker (resets on deploy, which is fine)
 const lastSyncByUser = new Map<string, number>();
 
 /**
  * POST /api/channels/sync-on-view
- * 
- * Lightweight sync trigger for when user opens store/inventory page.
- * Has a 30-second cooldown to prevent excessive API calls.
- * 
- * Call this from the mobile app when:
- * - User opens the Store tab
- * - User pulls to refresh on inventory
- * - User navigates to a linked listing
- * 
- * This ensures the user always sees the latest data from Etsy and Wix deletes.
+ *
+ * Lightweight sync when the seller opens My Items.
+ * Wix deletes are always re-checked (no cooldown) so listing tags drop immediately.
+ * Etsy catalog pulls stay on a 30-second cooldown.
  */
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -35,41 +27,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Check cooldown
   const lastSync = lastSyncByUser.get(userId) ?? 0;
   const now = Date.now();
-  if (now - lastSync < SYNC_COOLDOWN_MS) {
-    const waitSec = Math.ceil((SYNC_COOLDOWN_MS - (now - lastSync)) / 1000);
-    return NextResponse.json({
-      ok: true,
-      synced: false,
-      reason: "cooldown",
-      retryInSeconds: waitSec,
-    });
-  }
+  const onCooldown = now - lastSync < SYNC_COOLDOWN_MS;
 
-  // Update cooldown immediately to prevent concurrent requests
-  lastSyncByUser.set(userId, now);
-
-  // Etsy has no reliable listing webhooks; pull catalog when inventory is opened.
-  // Wix deletes should drop the listing tag as soon as My Items is opened.
-  // eBay is handled by the 5-minute GetItem cron — a page-load pull was overwriting
-  // a good cron with a lagged Trading replica (TEST suffixes disappearing on refresh).
   const connections = await prisma.channelConnection.findMany({
     where: {
       memberId: userId,
-      status: "active",
+      status: { not: "disconnected" },
       provider: { in: ["etsy", "wix"] },
     },
   });
 
-  if (connections.length === 0) {
+  const wixConnections = connections.filter((c) => c.provider === "wix");
+  const etsyConnections = onCooldown
+    ? []
+    : connections.filter((c) => c.provider === "etsy" && c.status === "active");
+
+  if (wixConnections.length === 0 && etsyConnections.length === 0) {
     return NextResponse.json({
       ok: true,
       synced: false,
-      reason: "no_connections",
+      reason: connections.length === 0 ? "no_connections" : "cooldown",
     });
   }
+
+  if (!onCooldown) lastSyncByUser.set(userId, now);
 
   const results: {
     provider: string;
@@ -78,23 +61,24 @@ export async function POST(req: NextRequest) {
     removed: number;
   }[] = [];
 
-  for (const conn of connections) {
-    if (conn.provider === "etsy") {
-      setEtsyConnectionContext(conn.id);
-      await maybeImportShippingOptionsOnSync(userId, "etsy").catch(() => {});
-    }
-
+  for (const conn of wixConnections) {
     try {
-      if (conn.provider === "wix") {
-        const catalog = await reconcileConnectionInboundCatalog(conn);
-        results.push({
-          provider: conn.provider,
-          catalogUpdated: catalog.updated,
-          metaUpdated: 0,
-          removed: catalog.removed,
-        });
-        continue;
-      }
+      const flagged = await flagGoneWixListingsForConnection(conn);
+      results.push({
+        provider: conn.provider,
+        catalogUpdated: 0,
+        metaUpdated: 0,
+        removed: flagged.removed,
+      });
+    } catch (e) {
+      console.error("[sync-on-view] Wix delete check failed", { error: String(e) });
+    }
+  }
+
+  for (const conn of etsyConnections) {
+    setEtsyConnectionContext(conn.id);
+    await maybeImportShippingOptionsOnSync(userId, "etsy").catch(() => {});
+    try {
       const catalog = await reconcileConnectionInboundCatalog(conn);
       const meta = await reconcileConnectionInboundMeta(conn);
       results.push({

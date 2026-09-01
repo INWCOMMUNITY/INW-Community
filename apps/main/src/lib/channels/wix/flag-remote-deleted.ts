@@ -7,6 +7,7 @@ import {
 import type { ChannelConnectionContext } from "../types";
 import { setWixConnectionContext } from "./client";
 import { wixProductIsGone } from "./listing-exists";
+import { ensureWixSiteId } from "./site";
 
 type WixLinkToCheck = {
   id: string;
@@ -58,6 +59,7 @@ export async function flagGoneWixListingsForConnection(connection: {
   setWixConnectionContext(connection.id);
   const ctx = await getConnectionContext(connection);
   if (!ctx) return { removed: 0 };
+  await ensureWixSiteId(ctx).catch(() => null);
 
   const links = await prisma.channelListingLink.findMany({
     where: { connectionId: connection.id, provider: "wix", syncEnabled: true },
