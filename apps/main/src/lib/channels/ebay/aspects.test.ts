@@ -138,7 +138,7 @@ describe("aspect cache fallback", () => {
     expect(getCachedCategoryAspects("41087", "0")).toBeNull();
   });
 
-  it("loads official Type values from Metadata with the application token", async () => {
+  it("loads official Type values from Taxonomy", async () => {
     vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
     vi.spyOn(oauth, "withEbayApplicationTokenRetry").mockImplementation(async (fn) => fn("app-token"));
     const ebayGet = vi.spyOn(client, "ebayGet").mockResolvedValueOnce({
@@ -160,27 +160,9 @@ describe("aspect cache fallback", () => {
     expect(rows.find((row) => row.name === "Type")?.suggestedValues).toEqual(["Wall Clock", "Desk Clock"]);
     expect(rows.find((row) => row.name === "Brand")?.suggestedValues).toEqual(["Howard Miller", "Seiko"]);
     expect(ebayGet.mock.calls[0]?.[0]).toBe("app-token");
-    expect(String(ebayGet.mock.calls[0]?.[1])).toMatch(/sell\/metadata/);
+    expect(String(ebayGet.mock.calls[0]?.[1])).toMatch(/get_item_aspects_for_category/);
+    expect(String(ebayGet.mock.calls[0]?.[1])).toMatch(/taxonomy/);
     expect(ebayGet).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not ask Taxonomy when Metadata already returned aspects", async () => {
-    vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
-    vi.spyOn(oauth, "withEbayApplicationTokenRetry").mockImplementation(async (fn) => fn("token"));
-    const ebayGet = vi.spyOn(client, "ebayGet").mockResolvedValueOnce({
-      aspects: [
-        {
-          localizedAspectName: "Type",
-          aspectConstraint: { aspectRequired: true, aspectMode: "SELECTION_ONLY" },
-          aspectValues: [{ localizedValue: "Wall Clock" }],
-        },
-      ],
-    });
-
-    const rows = await getItemAspectsForCategory("261605");
-    expect(rows.find((row) => row.name === "Type")?.suggestedValues).toEqual(["Wall Clock"]);
-    expect(ebayGet).toHaveBeenCalledTimes(1);
-    expect(String(ebayGet.mock.calls[0]?.[1])).toMatch(/sell\/metadata/);
   });
 });
 
@@ -192,25 +174,17 @@ describe("searchEbayCategories", () => {
     vi.restoreAllMocks();
   });
 
-  it("serves a cached search when Taxonomy is rate-limited", async () => {
+  it("serves a cached search without calling Taxonomy", async () => {
     cacheEbayCategorySearch("clock", [
       { categoryId: "261605", categoryName: "Clocks", categoryPath: "Collectibles > Clocks" },
     ]);
     vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
-    vi.spyOn(oauth, "withEbayApplicationTokenRetry").mockImplementation(async (fn) => fn("token"));
-    const ebayGet = vi.spyOn(client, "ebayGet").mockRejectedValueOnce(
-      new EbayApiError(
-        "[#2001 · ACCESS · REQUEST · HTTP 429] The request limit has been reached for the resource.",
-        429,
-        { errors: [{ errorId: 2001, message: "The request limit has been reached for the resource." }] },
-        "/taxonomy"
-      )
-    );
+    const ebayGet = vi.spyOn(client, "ebayGet");
 
     await expect(searchEbayCategories("clock")).resolves.toEqual([
       { categoryId: "261605", categoryName: "Clocks", categoryPath: "Collectibles > Clocks" },
     ]);
-    expect(ebayGet).toHaveBeenCalledTimes(1);
+    expect(ebayGet).not.toHaveBeenCalled();
   });
 
   it("does not call Taxonomy for a cached search while cooling down after a 429", async () => {

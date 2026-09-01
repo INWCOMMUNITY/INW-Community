@@ -5,9 +5,9 @@
 
 import { prisma } from "database";
 import { ebayGet } from "./client";
-import { EbayApiError } from "./errors";
+import { EbayApiError, isEbayRateLimitError } from "./errors";
 import { EBAY_API_BASE, EBAY_TAXONOMY_BASE } from "./config";
-import { getDefaultCategoryTreeId } from "./aspects";
+import { getDefaultCategoryTreeId, isEbayTaxonomyCoolingDown, markEbayTaxonomyRateLimited } from "./aspects";
 import { withEbayApplicationTokenRetry } from "./oauth";
 
 type TaxonomySubtreeNode = {
@@ -47,6 +47,11 @@ async function lookupCachedEbayCategoryPath(categoryId: string): Promise<string 
   }
 }
 
+/** GetItem already returns CategoryName (often a full path). Do not spend Taxonomy quota on it. */
+export function ebayGetItemCategoryLabelIsUsable(leafName?: string | null): boolean {
+  return Boolean(leafName?.trim());
+}
+
 /**
  * Build the full eBay category breadcrumb for imports and category resolution.
  * Falls back to leafName when Taxonomy lookup fails.
@@ -61,6 +66,43 @@ export async function getEbayCategoryPathFromId(
 
   const cached = await lookupCachedEbayCategoryPath(id);
   if (cached) return cached;
+
+  if (ebayGetItemCategoryLabelIsUsable(leaf)) {
+    // #region agent log
+    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
+      body: JSON.stringify({
+        sessionId: "7a4ccb",
+        hypothesisId: "A",
+        location: "category-path.ts:getEbayCategoryPathFromId",
+        message: "skipped Taxonomy subtree walk",
+        data: { categoryId: id, reason: "getitem-label" },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    return leaf;
+  }
+
+  if (isEbayTaxonomyCoolingDown()) {
+    return leaf;
+  }
+
+  // #region agent log
+  fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
+    body: JSON.stringify({
+      sessionId: "7a4ccb",
+      hypothesisId: "A",
+      location: "category-path.ts:getEbayCategoryPathFromId",
+      message: "Taxonomy subtree walk starting",
+      data: { categoryId: id, hasLeafName: Boolean(leaf) },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
 
   try {
     const treeId = await getDefaultCategoryTreeId();
@@ -95,6 +137,7 @@ export async function getEbayCategoryPathFromId(
     });
     if (path) return path;
   } catch (e) {
+    if (isEbayRateLimitError(e)) markEbayTaxonomyRateLimited();
     console.warn("[ebay] getEbayCategoryPathFromId failed", {
       categoryId: id,
       error: e instanceof Error ? e.message : String(e),

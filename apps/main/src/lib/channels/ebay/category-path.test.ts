@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("database", () => ({
   prisma: {
-    channelCategoryMapping: { findFirst: vi.fn() },
+    channelCategoryMapping: { findFirst: vi.fn().mockResolvedValue(null) },
   },
 }));
 
-import { isEbayTaxonomyRootCategoryError } from "./category-path";
+import { ebayGetItemCategoryLabelIsUsable, getEbayCategoryPathFromId, isEbayTaxonomyRootCategoryError } from "./category-path";
 import { EbayApiError } from "./errors";
+import * as client from "./client";
 
 describe("isEbayTaxonomyRootCategoryError", () => {
   it("matches eBay 62008 root-tree subtree errors", () => {
@@ -22,5 +23,19 @@ describe("isEbayTaxonomyRootCategoryError", () => {
       )
     ).toBe(true);
     expect(isEbayTaxonomyRootCategoryError(new Error("boom"))).toBe(false);
+  });
+});
+
+describe("getEbayCategoryPathFromId", () => {
+  it("uses the GetItem category name instead of walking Taxonomy", async () => {
+    const ebayGet = vi.spyOn(client, "ebayGet");
+    await expect(
+      getEbayCategoryPathFromId(
+        "261605",
+        "Collectibles:Decorative Collectibles:Clocks:Desk, Mantel & Shelf Clocks"
+      )
+    ).resolves.toBe("Collectibles:Decorative Collectibles:Clocks:Desk, Mantel & Shelf Clocks");
+    expect(ebayGet).not.toHaveBeenCalled();
+    expect(ebayGetItemCategoryLabelIsUsable("Clocks")).toBe(true);
   });
 });

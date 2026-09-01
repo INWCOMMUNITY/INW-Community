@@ -9,8 +9,6 @@
 import { prisma } from "database";
 import { ebayGet } from "./client";
 import {
-  EBAY_MARKETPLACE_ID,
-  EBAY_METADATA_BASE,
   EBAY_TAXONOMY_BASE,
   EBAY_US_CATEGORY_TREE_ID,
   isEbayConfigured,
@@ -134,7 +132,38 @@ export async function searchEbayCategories(query: string): Promise<EbayCategoryS
   if (!q) return [];
   requireEbayTaxonomyConfig();
   const cached = getCachedEbayCategorySearch(q);
-  if (cached && isEbayTaxonomyCoolingDown()) return cached;
+  const coolingDown = isEbayTaxonomyCoolingDown();
+  // #region agent log
+  fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
+    body: JSON.stringify({
+      sessionId: "7a4ccb",
+      hypothesisId: "C",
+      location: "aspects.ts:searchEbayCategories",
+      message: "category search start",
+      data: { q, coolingDown, hasCache: Boolean(cached), cacheCount: cached?.length ?? 0 },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+  if (cached) {
+    // #region agent log
+    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
+      body: JSON.stringify({
+        sessionId: "7a4ccb",
+        hypothesisId: "C",
+        location: "aspects.ts:searchEbayCategories",
+        message: "category search cache hit",
+        data: { q, coolingDown, cacheCount: cached.length },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    return cached;
+  }
 
   const treeId = await getDefaultCategoryTreeId();
   try {
@@ -153,8 +182,44 @@ export async function searchEbayCategories(query: string): Promise<EbayCategoryS
     );
     const out = suggestionsFromTaxonomyResponse(res);
     cacheEbayCategorySearch(q, out);
+    // #region agent log
+    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
+      body: JSON.stringify({
+        sessionId: "7a4ccb",
+        hypothesisId: "C",
+        location: "aspects.ts:searchEbayCategories",
+        message: "category search ok",
+        data: { q, resultCount: out.length },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     return out;
   } catch (e) {
+    const status = e instanceof EbayApiError ? e.status : 0;
+    const errPath = e instanceof EbayApiError ? e.path ?? "" : "";
+    // #region agent log
+    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
+      body: JSON.stringify({
+        sessionId: "7a4ccb",
+        hypothesisId: "C",
+        location: "aspects.ts:searchEbayCategories",
+        message: "category search failed",
+        data: {
+          q,
+          status,
+          errPath: errPath.replace(/https?:\/\/[^/]+/, ""),
+          rateLimited: isEbayRateLimitError(e),
+          msg: e instanceof Error ? e.message.slice(0, 180) : String(e).slice(0, 180),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     if (isEbayRateLimitError(e)) {
       markEbayTaxonomyRateLimited();
       if (cached) return cached;
@@ -253,24 +318,6 @@ async function fetchItemAspectsForCategory(
       accessToken,
       `${EBAY_TAXONOMY_BASE}/category_tree/${encodeURIComponent(
         treeId
-      )}/get_item_aspects_for_category?category_id=${encodeURIComponent(categoryId)}`
-    )
-  );
-}
-
-/**
- * Official item specifics via Sell Metadata + application token.
- * Separate quota from Taxonomy category search — do not use the seller user token
- * (that 404s and then burns Taxonomy, which also powers the category picker).
- */
-export async function fetchItemAspectsForCategoryViaMetadata(
-  categoryId: string
-): Promise<AspectApiResponse> {
-  return withEbayApplicationTokenRetry((accessToken) =>
-    ebayGet<AspectApiResponse>(
-      accessToken,
-      `${EBAY_METADATA_BASE}/marketplace/${encodeURIComponent(
-        EBAY_MARKETPLACE_ID
       )}/get_item_aspects_for_category?category_id=${encodeURIComponent(categoryId)}`
     )
   );
@@ -379,31 +426,29 @@ export async function getItemAspectsForCategory(
     return persisted;
   }
 
-  try {
-    const meta = await fetchItemAspectsForCategoryViaMetadata(id);
-    const aspects = parseAspectApiResponse(meta);
-    if (aspects.length > 0) return rememberAspects(id, treeId, aspects);
-  } catch (metaErr) {
-    console.warn("[ebay] getItemAspectsForCategory: Metadata lookup failed", {
-      categoryId: id,
-      error: metaErr instanceof Error ? metaErr.message : String(metaErr),
-    });
-    if (isEbayRateLimitError(metaErr)) {
-      const stale =
-        getCachedCategoryAspects(id, treeId, { allowStale: true }) ??
-        (await readPersistedCategoryAspects(id, treeId, true));
-      if (stale?.length) {
-        cacheCategoryAspects(id, treeId, stale);
-        return stale;
-      }
-    }
-  }
+  // Metadata 404s (#2002) and 429s on the same app-token bucket as Taxonomy search.
+  // Skip it and use Taxonomy only when we are not already cooling down.
 
   if (isEbayTaxonomyCoolingDown()) {
     const stale = getCachedCategoryAspects(id, treeId, { allowStale: true })
       ?? (await readPersistedCategoryAspects(id, treeId, true));
     return stale ?? [];
   }
+
+  // #region agent log
+  fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
+    body: JSON.stringify({
+      sessionId: "7a4ccb",
+      hypothesisId: "B",
+      location: "aspects.ts:getItemAspectsForCategory",
+      message: "falling through to Taxonomy aspects",
+      data: { categoryId: id, coolingDown: false },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
 
   try {
     const res = await fetchItemAspectsForCategory(id, treeId);
