@@ -34,6 +34,11 @@ vi.mock("./registry", () => ({
 }));
 
 const mockNotify = vi.fn().mockResolvedValue(true);
+const mockRemintWix = vi.fn().mockResolvedValue(true);
+
+vi.mock("./wix/site", () => ({
+  remintWixAccessToken: (...args: unknown[]) => mockRemintWix(...args),
+}));
 
 vi.mock("./channel-disconnect-notify", () => ({
   notifyChannelDisconnectIfNew: (...args: unknown[]) => mockNotify(...args),
@@ -153,6 +158,24 @@ describe("withConnectionAuthRetry", () => {
     expect(result).toBe("ok");
     expect(tokens).toEqual(["expired-iaf", "new-token"]);
     expect(mockAdapter.refreshAccessToken).toHaveBeenCalledOnce();
+  });
+
+  it("remints an expired Wix app token instead of requiring a refresh token", async () => {
+    mockRemintWix.mockImplementation(async (ctx: { accessToken: string }) => {
+      ctx.accessToken = "wix-fresh";
+      return true;
+    });
+    const conn = {
+      ...staleConn,
+      provider: "wix",
+      refreshTokenEncrypted: null,
+      tokenExpiresAt: new Date(Date.now() - 60_000),
+      config: { instanceId: "inst-1" },
+    };
+    const { getConnectionContext } = await import("./connection");
+    const ctx = await getConnectionContext(conn);
+    expect(ctx?.accessToken).toBe("wix-fresh");
+    expect(mockRemintWix).toHaveBeenCalledOnce();
   });
 
   it("does not refresh when tokenExpiresAt is missing", async () => {

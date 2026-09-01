@@ -10,6 +10,7 @@ import {
   readDisconnectNotifiedAt,
 } from "./channel-disconnect-notify";
 import { shouldBlockDevChannelTokenWrites } from "./dev-prod-guard";
+import { remintWixAccessToken } from "./wix/site";
 import {
   classifyChannelPauseReason,
   connectionHealthUx,
@@ -353,6 +354,27 @@ export async function getConnectionContext(
 
   const expiresAt = connection.tokenExpiresAt?.getTime();
   const expired = expiresAt != null && expiresAt - REFRESH_SKEW_MS < Date.now();
+
+  // Wix app tokens last 4h and have no refresh token — remint from instanceId.
+  if (expired && connection.provider === "wix") {
+    const ctx: ChannelConnectionContext = {
+      id: connection.id,
+      memberId: connection.memberId,
+      provider: "wix",
+      externalShopId: connection.externalShopId,
+      accessToken,
+      etsyShippingProfileId: connection.etsyShippingProfileId,
+      scopes: connection.scopes ?? null,
+      config:
+        connection.config && typeof connection.config === "object"
+          ? (connection.config as Record<string, unknown>)
+          : null,
+    };
+    if (await remintWixAccessToken(ctx)) {
+      return ctx;
+    }
+  }
+
   if (expired && !connection.refreshTokenEncrypted) {
     const errMsg = "Channel access token expired with no refresh token. Reconnect in Sync Stores.";
     logSyncEvent(connection.memberId, connection.provider, "token_expired", errMsg);
