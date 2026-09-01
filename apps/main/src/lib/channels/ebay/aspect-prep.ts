@@ -977,7 +977,7 @@ export function backfillRequiredTaxonomyAspects(
   return normalizeListingAspects(Array.from(out.values()));
 }
 
-const BRAND_DEFAULTS = ["Unbranded"];
+const BRAND_DEFAULTS = ["Unbranded", "Does Not Apply"];
 const NO_BRAND_ALIASES = new Set([
   "does not apply",
   "does not apply.",
@@ -1000,28 +1000,32 @@ export function isNoBrandAlias(value: string): boolean {
   return NO_BRAND_ALIASES.has(value.trim().toLowerCase());
 }
 
-/** eBay accepts Unbranded for no-name items — not "Does Not Apply" / N/A / Unknown. */
+/** Official no-brand value for this category — never invent Unbranded. */
+export function officialNoBrandValue(allowed?: string[]): string | null {
+  if (!allowed?.length) return null;
+  for (const want of BRAND_DEFAULTS) {
+    const hit = allowed.find((option) => option.trim().toLowerCase() === want.toLowerCase());
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** Keep official taxonomy strings. Map no-brand aliases only onto a value eBay listed. */
 export function normalizeEbayBrandValue(value: string, allowed?: string[]): string {
   const trimmed = value.trim();
   if (!trimmed) return trimmed;
-  if (!isNoBrandAlias(trimmed)) return trimmed;
-  const unbranded =
-    allowed?.find((option) => option.trim().toLowerCase() === "unbranded") ??
-    (allowed && allowed.length > 0 && !allowed.some((option) => option.trim().toLowerCase() === "unbranded")
-      ? null
-      : "Unbranded");
-  return unbranded ?? trimmed;
+  if (allowed?.length) {
+    const exact = allowed.find((option) => option.trim().toLowerCase() === trimmed.toLowerCase());
+    if (exact) return exact;
+    if (isNoBrandAlias(trimmed)) return officialNoBrandValue(allowed) ?? trimmed;
+    return trimmed;
+  }
+  return trimmed;
 }
 
-/** Hide eBay aliases that look selectable but do not satisfy Brand on publish. */
+/** Dropdown shows eBay's official values only. */
 export function sellerVisibleBrandChoices(suggestedValues: string[]): string[] {
-  const kept = suggestedValues.filter(
-    (value) => !isNoBrandAlias(value) || value.trim().toLowerCase() === "unbranded"
-  );
-  const hasUnbranded = kept.some((value) => value.trim().toLowerCase() === "unbranded");
-  const hadNoBrandAlias = suggestedValues.some((value) => isNoBrandAlias(value));
-  if (hadNoBrandAlias && !hasUnbranded) kept.push("Unbranded");
-  return kept;
+  return suggestedValues.map((value) => value.trim()).filter(Boolean);
 }
 
 export function preserveEbayAspectValues(
@@ -1119,7 +1123,7 @@ function pickSuggestedValue(aspect: CategoryAspectSchema, want: string[]): strin
   return null;
 }
 
-/** Brand → Unbranded when allowed; Type → title/category match when eBay lists values. */
+/** Brand → official no-brand value when allowed; Type → title/category match when eBay lists values. */
 export function defaultValueForEbayAspect(
   aspect: CategoryAspectSchema,
   title: string,
@@ -1157,7 +1161,18 @@ export function fillDefaultEbayAspects(
     if (!value) continue;
     out.set(key, { name: schema.name, value });
   }
-  return normalizeListingAspects(Array.from(out.values()));
+  return normalizeListingAspects(
+    Array.from(out.values()).map((row) => {
+      if (!isBrandAspectName(row.name) || !row.value.trim()) return row;
+      const schema =
+        categoryAspects.find((candidate) => candidate.name.toLowerCase() === row.name.toLowerCase()) ??
+        categoryAspects.find((candidate) => isBrandAspectName(candidate.name));
+      return {
+        name: schema?.name ?? row.name,
+        value: normalizeEbayBrandValue(row.value, schema?.suggestedValues),
+      };
+    })
+  );
 }
 
 /** Type/Brand are often required at publish even when taxonomy marks them optional. */

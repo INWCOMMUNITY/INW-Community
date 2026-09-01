@@ -378,20 +378,28 @@ describe("prepareLiveAspectsForInventoryPut", () => {
 });
 
 describe("normalizeEbayBrandValue", () => {
-  it("maps Does Not Apply and No Brand to Unbranded", () => {
-    expect(normalizeEbayBrandValue("Does Not Apply")).toBe("Unbranded");
-    expect(normalizeEbayBrandValue("no brand")).toBe("Unbranded");
+  it("keeps the seller value when taxonomy is unavailable", () => {
+    expect(normalizeEbayBrandValue("Does Not Apply")).toBe("Does Not Apply");
+    expect(normalizeEbayBrandValue("no brand")).toBe("no brand");
     expect(normalizeEbayBrandValue("Nintendo")).toBe("Nintendo");
   });
 
-  it("keeps Does Not Apply when Unbranded is not in the official list", () => {
+  it("keeps Does Not Apply when that is the official no-brand value", () => {
     expect(normalizeEbayBrandValue("Does Not Apply", ["Does Not Apply", "Nike"])).toBe("Does Not Apply");
+  });
+
+  it("maps Unbranded onto Does Not Apply when that is what eBay listed", () => {
+    expect(normalizeEbayBrandValue("Unbranded", ["Does Not Apply", "Nike"])).toBe("Does Not Apply");
+  });
+
+  it("maps Does Not Apply onto Unbranded when that is what eBay listed", () => {
+    expect(normalizeEbayBrandValue("Does Not Apply", ["Unbranded", "Nike"])).toBe("Unbranded");
   });
 });
 
 describe("sellerVisibleBrandChoices", () => {
-  it("replaces Does Not Apply with Unbranded so the dropdown matches what eBay accepts", () => {
-    expect(sellerVisibleBrandChoices(["Nike", "Does Not Apply"])).toEqual(["Nike", "Unbranded"]);
+  it("keeps official eBay values including Does Not Apply", () => {
+    expect(sellerVisibleBrandChoices(["Nike", "Does Not Apply"])).toEqual(["Nike", "Does Not Apply"]);
   });
 });
 
@@ -423,6 +431,23 @@ describe("restoreOftenRequiredSellerAspects", () => {
     expect(restored.find((row) => row.name === "Type")?.value).toBe("Clock");
     expect(restored.find((row) => row.name === "Brand")?.value).toBe("Unbranded");
   });
+
+  it("maps seller Unbranded onto Does Not Apply when that is the official value", () => {
+    const restored = restoreOftenRequiredSellerAspects(
+      [
+        {
+          name: "Brand",
+          required: true,
+          mode: "SELECTION_ONLY",
+          cardinality: "SINGLE",
+          suggestedValues: ["Does Not Apply", "Nike"],
+        },
+      ],
+      [],
+      [{ name: "Brand", value: "Unbranded" }]
+    );
+    expect(restored.find((row) => row.name === "Brand")?.value).toBe("Does Not Apply");
+  });
 });
 
 describe("fillDefaultEbayAspects", () => {
@@ -449,6 +474,23 @@ describe("fillDefaultEbayAspects", () => {
     expect(filled.find((a) => a.name === "Type")?.value).toBe("Clock");
   });
 
+  it("coerces stored Unbranded to Does Not Apply when that is the official value", () => {
+    const filled = fillDefaultEbayAspects(
+      [
+        {
+          name: "Brand",
+          required: true,
+          mode: "SELECTION_ONLY",
+          cardinality: "SINGLE",
+          suggestedValues: ["Does Not Apply", "Nike"],
+        },
+      ],
+      [{ name: "Brand", value: "Unbranded" }],
+      "Random object"
+    );
+    expect(filled.find((a) => a.name === "Brand")?.value).toBe("Does Not Apply");
+  });
+
   it("reports Type as missing when it cannot be inferred", () => {
     const filled = fillDefaultEbayAspects(schema, [{ name: "Brand", value: "Unbranded" }], "Random object");
     expect(missingOftenRequiredEbayAspects(schema, filled)).toEqual(["Type"]);
@@ -456,9 +498,9 @@ describe("fillDefaultEbayAspects", () => {
 });
 
 describe("ebayListOnFallbackAspects", () => {
-  it("only offers Unbranded for Brand, not Does Not Apply", () => {
+  it("offers official no-brand values when taxonomy is unavailable", () => {
     const brand = ebayListOnFallbackAspects().find((aspect) => aspect.name === "Brand");
-    expect(brand?.suggestedValues).toEqual(["Unbranded"]);
+    expect(brand?.suggestedValues).toEqual(["Unbranded", "Does Not Apply"]);
   });
 });
 

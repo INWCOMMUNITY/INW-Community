@@ -466,7 +466,7 @@ export function expandGradedCoinAspectsForTaxonomy(
   return normalizeListingAspects(Array.from(filled.values()));
 }
 
-const BRAND_DEFAULTS = ["Unbranded"];
+const BRAND_DEFAULTS = ["Unbranded", "Does Not Apply"];
 const NO_BRAND_ALIASES = new Set([
   "does not apply",
   "does not apply.",
@@ -485,14 +485,33 @@ export function isBrandAspectName(name: string): boolean {
   return key === "brand" || key === "brand name";
 }
 
+export function isNoBrandAlias(value: string): boolean {
+  return NO_BRAND_ALIASES.has(value.trim().toLowerCase());
+}
+
+export function officialNoBrandValue(allowed?: string[]): string | null {
+  if (!allowed?.length) return null;
+  for (const want of BRAND_DEFAULTS) {
+    const hit = allowed.find((option) => option.trim().toLowerCase() === want.toLowerCase());
+    if (hit) return hit;
+  }
+  return null;
+}
+
+export function normalizeEbayBrandValue(value: string, allowed?: string[]): string {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+  if (allowed?.length) {
+    const exact = allowed.find((option) => option.trim().toLowerCase() === trimmed.toLowerCase());
+    if (exact) return exact;
+    if (isNoBrandAlias(trimmed)) return officialNoBrandValue(allowed) ?? trimmed;
+    return trimmed;
+  }
+  return trimmed;
+}
+
 export function sellerVisibleBrandChoices(suggestedValues: string[]): string[] {
-  const kept = suggestedValues.filter(
-    (value) => !NO_BRAND_ALIASES.has(value.trim().toLowerCase()) || value.trim().toLowerCase() === "unbranded"
-  );
-  const hasUnbranded = kept.some((value) => value.trim().toLowerCase() === "unbranded");
-  const hadNoBrandAlias = suggestedValues.some((value) => NO_BRAND_ALIASES.has(value.trim().toLowerCase()));
-  if (hadNoBrandAlias && !hasUnbranded) kept.push("Unbranded");
-  return kept;
+  return suggestedValues.map((value) => value.trim()).filter(Boolean);
 }
 
 export function preserveEbayAspectValues(
@@ -582,7 +601,18 @@ export function fillDefaultEbayAspects(
     if (!value) continue;
     out.set(key, { name: schema.name, value });
   }
-  return normalizeListingAspects(Array.from(out.values()));
+  return normalizeListingAspects(
+    Array.from(out.values()).map((row) => {
+      if (!isBrandAspectName(row.name) || !row.value.trim()) return row;
+      const schema =
+        categoryAspects.find((candidate) => candidate.name.toLowerCase() === row.name.toLowerCase()) ??
+        categoryAspects.find((candidate) => isBrandAspectName(candidate.name));
+      return {
+        name: schema?.name ?? row.name,
+        value: normalizeEbayBrandValue(row.value, schema?.suggestedValues),
+      };
+    })
+  );
 }
 
 export function missingRequiredEbayAspects(

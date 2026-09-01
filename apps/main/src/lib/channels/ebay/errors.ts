@@ -452,7 +452,10 @@ export function ebayErrorActionHint(reason: string): string | undefined {
   if (/timed out after \d+s/i.test(reason)) {
     return "eBay took too long to migrate this listing. Try importing it again — if migrate finished on eBay's side, the next attempt will pick up the existing SKU.";
   }
-  if (/25718|Cannot migrate listing|bad request|HTTP 400/i.test(reason)) {
+  if (/\b25004\b|invalid quantity|quantity must be a valid number greater than 0/i.test(reason)) {
+    return "eBay needs quantity greater than 0 to keep a draft offer. Relist when this item is back in stock — sold-out drafts are skipped so Brand and other details can still update.";
+  }
+  if (/25718|Cannot migrate listing/i.test(reason)) {
     return "eBay couldn't migrate this listing. Make sure it's a fixed-price GTC listing with payment/return/shipping policies and a merchant location set in Seller Hub.";
   }
   if (/Accept-Language/i.test(reason)) {

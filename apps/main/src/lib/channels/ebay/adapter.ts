@@ -112,7 +112,9 @@ import { isImportedEbayLink, extractEbayInventoryAspects, resolveEbayPushSku } f
 import {
   pickEbayOffer,
   readEbayOfferListingId,
+  shouldDeleteUnpublishedZeroQuantityOffer,
   shouldPublishEbayOffer,
+  shouldWriteEbayOffer,
 } from "./publish-policy";
 import { passthroughUsePreparedInventoryAspects } from "./aspect-prep";
 import {
@@ -1110,6 +1112,56 @@ async function upsertListing(
       }
     }
     const offerBody = buildEbayOffer(syncItem, cfg, aspectCategoryId, sku);
+    const offerStatus =
+      (typeof liveOffer?.status === "string" ? liveOffer.status : null) ??
+      existingOffer?.status ??
+      null;
+    if (
+      shouldDeleteUnpublishedZeroQuantityOffer({
+        quantity: item.quantity,
+        offerId,
+        offerStatus,
+      }) &&
+      offerId
+    ) {
+      let clearedUnpublishedOffer = false;
+      try {
+        await ebayAction(conn.accessToken, `/sell/inventory/v1/offer/${offerId}`, "DELETE");
+        clearedUnpublishedOffer = true;
+        console.info("[ebay] deleted unpublished zero-qty offer so inventory can update", {
+          storeItemId: item.id,
+          sku,
+          offerId,
+        });
+      } catch (e) {
+        if (e instanceof EbayApiError && e.status === 404) {
+          clearedUnpublishedOffer = true;
+        } else {
+          console.warn("[ebay] delete unpublished zero-qty offer failed", {
+            storeItemId: item.id,
+            sku,
+            offerId,
+            error: describeEbayThrownError(e),
+          });
+          try {
+            await pushOfferBody({ ...offerBody, availableQuantity: 1 });
+          } catch (fallbackErr) {
+            console.warn("[ebay] unpublished offer qty-1 fallback failed", {
+              storeItemId: item.id,
+              sku,
+              offerId,
+              error: describeEbayThrownError(fallbackErr),
+            });
+          }
+        }
+      }
+      if (clearedUnpublishedOffer) offerId = null;
+    }
+    const writeOffer = shouldWriteEbayOffer({
+      quantity: item.quantity,
+      offerId,
+      offerStatus: offerId ? offerStatus : null,
+    });
 
     if (shouldUseInventoryItemGroup(syncItem)) {
       const variantRows = buildVariantInventoryRows(syncItem, {
@@ -1145,15 +1197,48 @@ async function upsertListing(
           aspectCategoryId,
           row.sku
         );
-        if (variantOffer?.offerId) {
-          await ebayJson(
-            conn.accessToken,
-            `/sell/inventory/v1/offer/${variantOffer.offerId}`,
-            "PUT",
-            variantOfferBody
-          );
-        } else {
-          await ebayJson(conn.accessToken, `/sell/inventory/v1/offer`, "POST", variantOfferBody);
+        const variantOfferStatus =
+          typeof variantOffer?.status === "string" ? variantOffer.status : null;
+        if (
+          shouldDeleteUnpublishedZeroQuantityOffer({
+            quantity: variantItem.quantity,
+            offerId: variantOffer?.offerId,
+            offerStatus: variantOfferStatus,
+          }) &&
+          variantOffer?.offerId
+        ) {
+          try {
+            await ebayAction(
+              conn.accessToken,
+              `/sell/inventory/v1/offer/${variantOffer.offerId}`,
+              "DELETE"
+            );
+          } catch (e) {
+            if (!(e instanceof EbayApiError && e.status === 404)) {
+              console.warn("[ebay] delete unpublished zero-qty variant offer failed", {
+                sku: row.sku,
+                offerId: variantOffer.offerId,
+                error: describeEbayThrownError(e),
+              });
+            }
+          }
+        } else if (
+          shouldWriteEbayOffer({
+            quantity: variantItem.quantity,
+            offerId: variantOffer?.offerId,
+            offerStatus: variantOfferStatus,
+          })
+        ) {
+          if (variantOffer?.offerId) {
+            await ebayJson(
+              conn.accessToken,
+              `/sell/inventory/v1/offer/${variantOffer.offerId}`,
+              "PUT",
+              variantOfferBody
+            );
+          } else {
+            await ebayJson(conn.accessToken, `/sell/inventory/v1/offer`, "POST", variantOfferBody);
+          }
         }
       }
       await createOrReplaceInventoryItemGroup(
@@ -1202,9 +1287,7 @@ async function upsertListing(
       return { sku: variantSkus[0] ?? sku };
     }
 
-    // Existing offers: set category on the offer before updating inventory condition (eBay #25021).
-    if (offerId) {
-      await pushOfferBody(offerBody);
+    async function pushInventoryWithConditionRetry() {
       try {
         await pushInventoryBody(inventoryBody, trace);
       } catch (e) {
@@ -1236,9 +1319,17 @@ async function upsertListing(
           trace
         );
       }
-    } else {
-      await pushInventoryBody(inventoryBody, trace);
+    }
+
+    // Existing offers: set category on the offer before updating inventory condition (eBay #25021).
+    if (writeOffer && offerId) {
       await pushOfferBody(offerBody);
+      await pushInventoryWithConditionRetry();
+    } else {
+      await pushInventoryWithConditionRetry();
+      if (writeOffer) {
+        await pushOfferBody(offerBody);
+      }
     }
 
     const shouldPublish = shouldPublishEbayOffer({

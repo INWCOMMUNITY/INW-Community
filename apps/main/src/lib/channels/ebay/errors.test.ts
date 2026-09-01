@@ -184,6 +184,14 @@ describe("ebay picture errors", () => {
     ).toMatch(/Needs Attention/i);
   });
 
+  it("explains #25004 quantity without a GTC migrate hint", () => {
+    const msg =
+      "[#25004 · API_INVENTORY · Request · HTTP 400] The eBay listing associated with the inventory item, or the unpublished offer has an invalid quantity. The quantity must be a valid number greater than 0.";
+    expect(ebayErrorActionHint(msg)).toMatch(/quantity greater than 0/i);
+    expect(ebayErrorActionHint(msg)).not.toMatch(/migrate this listing/i);
+    expect(ebayErrorActionHint("eBay HTTP 400 — bad request")).toBeUndefined();
+  });
+
   it("parses missing item specifics including NBSP from eBay", () => {
     const msg =
       "The item specific Brand\u00a0is missing.\u00a0Add Brand to this listing. The item specific Type is missing.";

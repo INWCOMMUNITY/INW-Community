@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { storeItemPatchFromListOnCategoryAssignment } from "./list-on-channel-category-patch";
 
 describe("storeItemPatchFromListOnCategoryAssignment", () => {
-  it("keeps existing aspects and maps no-brand to Unbranded", () => {
+  it("keeps existing aspects and the official Brand value the seller picked", () => {
     const patch = storeItemPatchFromListOnCategoryAssignment(
       {
         storeItemId: "a",
@@ -16,7 +16,7 @@ describe("storeItemPatchFromListOnCategoryAssignment", () => {
     expect(patch.aspects).toEqual([
       { name: "Color", value: "Red" },
       { name: "Type", value: "Clock" },
-      { name: "Brand", value: "Unbranded" },
+      { name: "Brand", value: "Does Not Apply" },
     ]);
   });
 

@@ -3,7 +3,9 @@ import {
   ebayOfferIsPublished,
   pickEbayOffer,
   readEbayOfferListingId,
+  shouldDeleteUnpublishedZeroQuantityOffer,
   shouldPublishEbayOffer,
+  shouldWriteEbayOffer,
 } from "./publish-policy";
 
 describe("publish-policy", () => {
@@ -40,5 +42,36 @@ describe("publish-policy", () => {
     ).toBe(true);
     expect(ebayOfferIsPublished("published")).toBe(true);
     expect(readEbayOfferListingId({ listing: { listingId: 394295737513 } })).toBe("394295737513");
+  });
+
+  it("does not write unpublished offers at quantity 0", () => {
+    expect(
+      shouldWriteEbayOffer({
+        quantity: 0,
+        offerId: "o1",
+        offerStatus: "UNPUBLISHED",
+      })
+    ).toBe(false);
+    expect(
+      shouldWriteEbayOffer({
+        quantity: 0,
+        offerId: null,
+        offerStatus: null,
+      })
+    ).toBe(false);
+    expect(
+      shouldWriteEbayOffer({
+        quantity: 0,
+        offerId: "o1",
+        offerStatus: "PUBLISHED",
+      })
+    ).toBe(true);
+    expect(
+      shouldDeleteUnpublishedZeroQuantityOffer({
+        quantity: 0,
+        offerId: "o1",
+        offerStatus: "UNPUBLISHED",
+      })
+    ).toBe(true);
   });
 });

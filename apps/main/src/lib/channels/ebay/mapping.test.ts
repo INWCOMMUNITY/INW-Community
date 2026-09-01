@@ -148,6 +148,22 @@ describe("buildEbayInventoryItem", () => {
     });
   });
 
+  it("copies Brand Name onto Brand for inventory PUT", () => {
+    const body = buildEbayInventoryItem(
+      makeInventoryItem({
+        aspects: [
+          { name: "Type", value: "Clock" },
+          { name: "Brand Name", value: "Does Not Apply" },
+        ],
+      })
+    );
+    expect((body.product as { aspects?: Record<string, string[]> }).aspects).toMatchObject({
+      Type: ["Clock"],
+      "Brand Name": ["Does Not Apply"],
+      Brand: ["Does Not Apply"],
+    });
+  });
+
   it("omits packageWeightAndSize when the option is incomplete", () => {
     const body = buildEbayInventoryItem(
       makeInventoryItem({

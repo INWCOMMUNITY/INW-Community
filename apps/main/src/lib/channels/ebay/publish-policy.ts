@@ -37,3 +37,21 @@ export function shouldPublishEbayOffer(args: {
   if (!args.canPublish || !args.itemIsActive || args.quantity <= 0 || !args.offerId) return false;
   return !ebayOfferIsPublished(args.offerStatus);
 }
+
+/** Unpublished offers reject quantity 0 (#25004) and then block inventory Brand updates. */
+export function shouldWriteEbayOffer(args: {
+  quantity: number;
+  offerId: string | null | undefined;
+  offerStatus?: string | null;
+}): boolean {
+  if (args.quantity > 0) return true;
+  return Boolean(args.offerId) && ebayOfferIsPublished(args.offerStatus);
+}
+
+export function shouldDeleteUnpublishedZeroQuantityOffer(args: {
+  quantity: number;
+  offerId: string | null | undefined;
+  offerStatus?: string | null;
+}): boolean {
+  return args.quantity <= 0 && Boolean(args.offerId) && !ebayOfferIsPublished(args.offerStatus);
+}

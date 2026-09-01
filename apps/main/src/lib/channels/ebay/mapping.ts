@@ -49,11 +49,25 @@ export function buildEbayInventoryItem(
       .filter((url) => url.startsWith("https://")),
   };
 
+  let productAspects: Record<string, string[]> | undefined;
   if (axes && axes.length > 0) {
     const primary = axes[0];
-    product.aspects = { ...storedAspects, [primary.name]: primary.options.map((o) => o.value) };
+    productAspects = { ...storedAspects, [primary.name]: primary.options.map((o) => o.value) };
   } else if (Object.keys(storedAspects).length > 0) {
-    product.aspects = storedAspects;
+    productAspects = storedAspects;
+  }
+  if (productAspects) {
+    const brandNameKey = Object.keys(productAspects).find(
+      (key) => key.trim().toLowerCase() === "brand name"
+    );
+    if (
+      brandNameKey &&
+      productAspects[brandNameKey]?.some((value) => value.trim()) &&
+      !productAspects.Brand?.some((value) => value.trim())
+    ) {
+      productAspects = { ...productAspects, Brand: productAspects[brandNameKey] };
+    }
+    product.aspects = productAspects;
   }
 
   const body: Record<string, unknown> = {
