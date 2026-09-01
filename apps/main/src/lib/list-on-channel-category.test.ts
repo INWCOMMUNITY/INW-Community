@@ -97,6 +97,14 @@ describe("buildListOnCategoryQueue", () => {
     expect(steps).toEqual([]);
   });
 
+  it("queues a store whose listing was deleted on that shop", () => {
+    const steps = buildListOnCategoryQueue(
+      [item({ id: "a", channelLinks: [{ provider: "etsy", remoteDeletedProvider: "etsy" }] })],
+      ["etsy"]
+    );
+    expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["a:etsy"]);
+  });
+
   it("queues Etsy then eBay for the same item when both are missing", () => {
     const steps = buildListOnCategoryQueue([item()], ["etsy", "ebay"]);
     expect(steps.map((s) => s.provider)).toEqual(["etsy", "ebay"]);

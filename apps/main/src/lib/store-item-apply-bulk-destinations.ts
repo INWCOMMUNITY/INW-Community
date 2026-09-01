@@ -1,5 +1,6 @@
 import { prisma, Prisma } from "database";
 import { CHANNEL_PROVIDERS, isChannelProvider, type ChannelProvider } from "@/lib/channels/types";
+import { readRemoteDeletedNotice } from "@/lib/channels/listing-link-flags";
 import {
   publishStoreItemToChannels,
   unpublishStoreItemFromChannels,
@@ -84,7 +85,7 @@ export async function applyBulkDestinations(input: {
     select: {
       id: true,
       status: true,
-      channelLinks: { select: { provider: true, syncEnabled: true } },
+      channelLinks: { select: { provider: true, syncEnabled: true, conflictDetails: true } },
     },
   });
   const ownedById = new Map(owned.map((item) => [item.id, item]));
@@ -98,7 +99,10 @@ export async function applyBulkDestinations(input: {
     owned.map((item) => ({
       id: item.id,
       status: item.status,
-      linkedProviders: item.channelLinks.map((l) => l.provider).filter(isChannelProvider),
+      linkedProviders: item.channelLinks
+        .filter((l) => !readRemoteDeletedNotice(l.conflictDetails))
+        .map((l) => l.provider)
+        .filter(isChannelProvider),
     })),
     input.assignments
   );
@@ -162,7 +166,9 @@ export async function applyBulkDestinations(input: {
     // checkboxes do not produce an assignment, so those listings are left alone.
     const ebayAssignment = input.categoryAssignments?.find((row) => row.storeItemId === item.id);
     const alreadyLinkedEbay =
-      item.channelLinks.some((link) => link.provider === "ebay") && !toAdd.includes("ebay");
+      item.channelLinks.some(
+        (link) => link.provider === "ebay" && !readRemoteDeletedNotice(link.conflictDetails)
+      ) && !toAdd.includes("ebay");
     if (input.action === "sync" && alreadyLinkedEbay && ebayAssignment && !failed) {
       try {
         const rows = await updateStoreItemOnChannels(item.id, {

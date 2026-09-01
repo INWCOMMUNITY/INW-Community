@@ -31,7 +31,7 @@ import {
 } from "@/lib/store-item-ended-status";
 
 function itemLinkedTo(item: MyStoreItem, provider: string): boolean {
-  return (item.channelLinks ?? []).some((l) => l.provider === provider);
+  return (item.channelLinks ?? []).some((l) => l.provider === provider && !l.remoteDeletedProvider);
 }
 
 export function MyItemsBulkBar({

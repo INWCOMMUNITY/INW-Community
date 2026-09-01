@@ -376,7 +376,7 @@ export default function MyItemsScreen() {
     setMenuItemId(null);
     const item = items.find((i) => i.id === id);
     if (!item) return;
-    if ((item.channelLinks ?? []).length > 0) {
+    if ((item.channelLinks ?? []).some((l) => !l.remoteDeletedProvider)) {
       setEndGridItem(item);
       return;
     }
@@ -409,7 +409,9 @@ export default function MyItemsScreen() {
   const confirmMarkAsSold = (id: string) => {
     setMenuItemId(null);
     const item = items.find((i) => i.id === id);
-    const linked = (item?.channelLinks ?? []).map((l) => l.provider as ChannelProviderId);
+    const linked = (item?.channelLinks ?? [])
+      .filter((l) => !l.remoteDeletedProvider)
+      .map((l) => l.provider as ChannelProviderId);
     if (linked.length === 0) {
       void markAsSold(id);
       return;
@@ -514,7 +516,9 @@ export default function MyItemsScreen() {
 
   const listableProvidersForItem = (item: StoreItem): ChannelProviderId[] => {
     if (itemsTab === "sold") return [];
-    const linked = new Set((item.channelLinks ?? []).map((l) => l.provider));
+    const linked = new Set(
+      (item.channelLinks ?? []).filter((l) => !l.remoteDeletedProvider).map((l) => l.provider)
+    );
     return channelConnections
       .filter(
         (c) =>
@@ -527,7 +531,9 @@ export default function MyItemsScreen() {
 
   const blockedListConnectionsForItem = (item: StoreItem): ChannelConnectionSummary[] => {
     if (itemsTab === "sold") return [];
-    const linked = new Set((item.channelLinks ?? []).map((l) => l.provider));
+    const linked = new Set(
+      (item.channelLinks ?? []).filter((l) => !l.remoteDeletedProvider).map((l) => l.provider)
+    );
     return channelConnections.filter(
       (c) =>
         (c.status === "active" || c.status === "error") &&
@@ -606,7 +612,9 @@ export default function MyItemsScreen() {
   };
 
   const linkedProvidersForItem = (item: StoreItem): ChannelProviderId[] =>
-    (item.channelLinks ?? []).map((l) => l.provider as ChannelProviderId);
+    (item.channelLinks ?? [])
+      .filter((l) => !l.remoteDeletedProvider)
+      .map((l) => l.provider as ChannelProviderId);
 
   const unpublishFromChannel = (storeItemId: string, provider: ChannelProviderId) => {
     const label = CHANNEL_PROVIDER_LABEL[provider] ?? provider;

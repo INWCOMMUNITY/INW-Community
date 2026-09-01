@@ -9,12 +9,17 @@ export type DestinationAssignment = {
   providers: ChannelProvider[];
 };
 
+export type BulkDestinationChannelLink = {
+  provider: string;
+  remoteDeletedProvider?: string | null;
+};
+
 export type BulkDestinationGridItem = {
   id: string;
   title: string;
   photos: string[];
   status?: string;
-  channelLinks?: { provider: string }[];
+  channelLinks?: BulkDestinationChannelLink[];
 };
 
 export type GridRowState = {
@@ -55,8 +60,12 @@ export function destinationColumns(connectedProviders: string[]): ChannelProvide
   return LIST_ON_PROVIDER_ORDER.filter((p) => wanted.has(p));
 }
 
+export function isLiveChannelLink(link: BulkDestinationChannelLink): boolean {
+  return !link.remoteDeletedProvider;
+}
+
 export function linkedProvidersOf(item: BulkDestinationGridItem): Set<string> {
-  return new Set((item.channelLinks ?? []).map((l) => l.provider));
+  return new Set((item.channelLinks ?? []).filter(isLiveChannelLink).map((l) => l.provider));
 }
 
 export function isProviderCellEnabled(

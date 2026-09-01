@@ -43,6 +43,14 @@ describe("hasLinkedChannelListings", () => {
     expect(hasLinkedChannelListings([{ channelLinks: [] }])).toBe(false);
     expect(hasLinkedChannelListings([{}])).toBe(false);
   });
+
+  it("is false when leftover shop links were already deleted there", () => {
+    expect(
+      hasLinkedChannelListings([
+        { channelLinks: [{ provider: "wix", remoteDeletedProvider: "wix" }] },
+      ])
+    ).toBe(false);
+  });
 });
 
 describe("endOnInw copy", () => {

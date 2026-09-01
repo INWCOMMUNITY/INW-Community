@@ -245,6 +245,30 @@ describe("publishStoreItemToChannels", () => {
     expect(mockAdapter.createListing).not.toHaveBeenCalled();
   });
 
+  it("creates a new listing when the leftover shop link was remotely deleted", async () => {
+    const { publishStoreItemToChannels } = await import("../outbound");
+    mockPrisma.storeItem.findUnique.mockResolvedValueOnce(makeStoreItem());
+    mockGetActiveConnectionsForMember.mockResolvedValueOnce([makeConn({ provider: "wix" })]);
+    mockPrisma.channelListingLink.findUnique
+      .mockResolvedValueOnce({
+        id: "link-stale",
+        externalListingId: "gone-wix",
+        conflictDetails: {
+          remoteDeleted: { provider: "wix", detectedAt: "2026-08-31T00:00:00.000Z" },
+        },
+      })
+      .mockResolvedValueOnce(null);
+
+    const results = await publishStoreItemToChannels("item-1", "member-1", { providers: ["wix"] });
+
+    expect(results).toEqual([{ provider: "wix", ok: true }]);
+    expect(mockPrisma.channelListingLink.delete).toHaveBeenCalledWith({
+      where: { id: "link-stale" },
+    });
+    expect(mockAdapter.createListing).toHaveBeenCalledOnce();
+    expect(mockPrisma.channelListingLink.create).toHaveBeenCalledOnce();
+  });
+
   it("creates an Etsy draft result when the connection has no shipping profile", async () => {
     const { publishStoreItemToChannels } = await import("../outbound");
     mockPrisma.storeItem.findUnique.mockResolvedValueOnce(makeStoreItem());
@@ -278,6 +302,7 @@ describe("publishStoreItemToChannels", () => {
     });
     mockPrisma.channelListingLink.create.mockRejectedValueOnce(p2002);
     mockPrisma.channelListingLink.findUnique
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
         id: "link-orphan",

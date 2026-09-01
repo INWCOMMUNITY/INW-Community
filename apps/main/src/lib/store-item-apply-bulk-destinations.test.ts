@@ -35,7 +35,10 @@ function ownedItem(overrides: Record<string, unknown> = {}) {
   return {
     id: "a",
     status: "active",
-    channelLinks: [{ provider: "ebay", syncEnabled: true }, { provider: "wix", syncEnabled: true }],
+    channelLinks: [
+      { provider: "ebay", syncEnabled: true, conflictDetails: {} },
+      { provider: "wix", syncEnabled: true, conflictDetails: {} },
+    ],
     ...overrides,
   };
 }
@@ -118,5 +121,57 @@ describe("applyBulkDestinations", () => {
       data: { syncEnabled: false },
     });
     expect(result.unsyncedInw).toBe(1);
+  });
+
+  it("treats a remotely deleted store as unlisted so Save does not delete it again", async () => {
+    mockPrisma.storeItem.findMany.mockResolvedValueOnce([
+      ownedItem({
+        channelLinks: [
+          { provider: "ebay", syncEnabled: true, conflictDetails: {} },
+          {
+            provider: "wix",
+            syncEnabled: true,
+            conflictDetails: {
+              remoteDeleted: { provider: "wix", detectedAt: "2026-08-31T00:00:00.000Z" },
+            },
+          },
+        ],
+      }),
+    ]);
+    const result = await applyBulkDestinations({
+      memberId: "m1",
+      action: "sync",
+      assignments: [{ storeItemId: "a", inw: true, providers: ["ebay"] }],
+    });
+    expect(unpublishStoreItemFromChannels).not.toHaveBeenCalled();
+    expect(publishStoreItemToChannels).not.toHaveBeenCalled();
+    expect(result.published).toBe(0);
+    expect(result.unpublished).toBe(0);
+  });
+
+  it("relists a remotely deleted store when that box is checked", async () => {
+    mockPrisma.storeItem.findMany.mockResolvedValueOnce([
+      ownedItem({
+        channelLinks: [
+          { provider: "ebay", syncEnabled: true, conflictDetails: {} },
+          {
+            provider: "wix",
+            syncEnabled: true,
+            conflictDetails: {
+              remoteDeleted: { provider: "wix", detectedAt: "2026-08-31T00:00:00.000Z" },
+            },
+          },
+        ],
+      }),
+    ]);
+    publishStoreItemToChannels.mockResolvedValueOnce([{ provider: "wix", ok: true }]);
+    const result = await applyBulkDestinations({
+      memberId: "m1",
+      action: "sync",
+      assignments: [{ storeItemId: "a", inw: true, providers: ["ebay", "wix"] }],
+    });
+    expect(unpublishStoreItemFromChannels).not.toHaveBeenCalled();
+    expect(publishStoreItemToChannels).toHaveBeenCalledWith("a", "m1", { providers: ["wix"] });
+    expect(result.published).toBe(1);
   });
 });

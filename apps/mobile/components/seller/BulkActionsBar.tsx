@@ -49,7 +49,7 @@ type BulkItem = {
   etsyWhoMade?: string | null;
   etsyWhenMade?: string | null;
   aspects?: { name: string; value: string }[] | unknown;
-  channelLinks?: { provider: string }[];
+  channelLinks?: { provider: string; remoteDeletedProvider?: string | null }[];
 };
 
 interface BulkActionsBarProps {
@@ -82,8 +82,10 @@ export function BulkActionsBar({
   const connectedProviders = connected.map((c) => c.provider);
   const missingHints = connected
     .map((c) => {
-      const missing = selectedItems.filter((item) => !(item.channelLinks ?? []).some((l) => l.provider === c.provider))
-        .length;
+      const missing = selectedItems.filter(
+        (item) =>
+          !(item.channelLinks ?? []).some((l) => l.provider === c.provider && !l.remoteDeletedProvider)
+      ).length;
       return missing > 0 ? `${missing} not on ${CHANNEL_PROVIDER_LABEL[c.provider]}` : null;
     })
     .filter(Boolean)

@@ -1,20 +1,27 @@
 /** Ended INW listings are removed from our records after this window. Third-party shops are not touched. */
 export const ENDED_LISTING_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
+type ChannelLinkLike = { provider: string; remoteDeletedProvider?: string | null };
+
+function isLiveChannelLink(link: ChannelLinkLike): boolean {
+  return !link.remoteDeletedProvider;
+}
+
 export function hasLinkedChannelListings(
-  items: { channelLinks?: { provider: string }[] }[]
+  items: { channelLinks?: ChannelLinkLike[] }[]
 ): boolean {
-  return items.some((item) => (item.channelLinks ?? []).length > 0);
+  return items.some((item) => (item.channelLinks ?? []).some(isLiveChannelLink));
 }
 
 export function uniqueLinkedShopNames(
-  items: { channelLinks?: { provider: string }[] }[],
+  items: { channelLinks?: ChannelLinkLike[] }[],
   labels: Record<string, string>
 ): string[] {
   const names: string[] = [];
   const seen = new Set<string>();
   for (const item of items) {
     for (const link of item.channelLinks ?? []) {
+      if (!isLiveChannelLink(link)) continue;
       const name = labels[link.provider] ?? link.provider;
       if (seen.has(name)) continue;
       seen.add(name);

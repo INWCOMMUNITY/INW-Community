@@ -11,8 +11,14 @@ export type ListOnCategoryItem = {
   etsyWhoMade?: string | null;
   etsyWhenMade?: string | null;
   aspects?: { name: string; value: string }[] | unknown;
-  channelLinks?: { provider: string }[];
+  channelLinks?: { provider: string; remoteDeletedProvider?: string | null }[];
 };
+
+function liveLinkedProviders(item: ListOnCategoryItem): Set<string> {
+  return new Set(
+    (item.channelLinks ?? []).filter((l) => !l.remoteDeletedProvider).map((l) => l.provider)
+  );
+}
 
 export type ListOnCategoryStep = {
   item: ListOnCategoryItem;
@@ -110,7 +116,7 @@ export function buildListOnCategoryQueue(
   const steps: ListOnCategoryStep[] = [];
   for (const provider of wanted) {
     for (const item of items) {
-      const linked = new Set((item.channelLinks ?? []).map((l) => l.provider));
+      const linked = liveLinkedProviders(item);
       if (linked.has(provider)) continue;
       if (shouldOpenListOnCategoryStep(item, provider)) {
         steps.push({ item, provider });
@@ -128,7 +134,7 @@ export function buildListOnCategoryQueueFromDesired(
   const steps: ListOnCategoryStep[] = [];
   for (const item of items) {
     const desired = (desiredProvidersByItemId[item.id] ?? []).filter(isListOnCategoryProvider);
-    const linked = new Set((item.channelLinks ?? []).map((l) => l.provider));
+    const linked = liveLinkedProviders(item);
     for (const provider of desired) {
       if (linked.has(provider)) continue;
       if (shouldOpenListOnCategoryStep(item, provider)) {

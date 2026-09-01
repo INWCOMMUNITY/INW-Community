@@ -30,7 +30,11 @@ import { formatProviderPublishError, validateForProvider } from "./validate-publ
 import { shouldPushSoldOutInventoryOnly } from "./sold-out-guard";
 import { shouldBypassCircuitForInventoryPush } from "./circuit-inventory-bypass";
 import { isEbayEndedListingError } from "./error-classifier";
-import { persistEbayListingEnded, shouldSkipEndedEbayOutbound } from "./listing-link-flags";
+import {
+  persistEbayListingEnded,
+  readRemoteDeletedNotice,
+  shouldSkipEndedEbayOutbound,
+} from "./listing-link-flags";
 import { claimChannelListingLink } from "./listing-link-claim";
 /** Content fingerprint so we can skip no-op pushes on update. */
 function contentHash(item: SyncStoreItem): string {
@@ -201,7 +205,7 @@ export async function publishStoreItemToChannels(
     const existing = await prisma.channelListingLink.findUnique({
       where: { storeItemId_provider: { storeItemId, provider } },
     });
-    if (existing) {
+    if (existing && !readRemoteDeletedNotice(existing.conflictDetails)) {
       if (existing.syncStatus === "error") {
         try {
           const connConfig = (conn.config ?? {}) as Record<string, unknown>;
@@ -242,6 +246,10 @@ export async function publishStoreItemToChannels(
       }
       results.push({ provider, ok: true });
       continue;
+    }
+
+    if (existing) {
+      await prisma.channelListingLink.delete({ where: { id: existing.id } });
     }
 
     const connConfig = (conn.config ?? {}) as Record<string, unknown>;

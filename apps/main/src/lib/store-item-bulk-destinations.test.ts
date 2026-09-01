@@ -36,6 +36,22 @@ describe("initialGridRows", () => {
       providers: { ebay: true, etsy: false, wix: true },
     });
   });
+
+  it("leaves a remotely deleted store unchecked", () => {
+    const rows = initialGridRows(
+      "sync",
+      [
+        item({
+          channelLinks: [
+            { provider: "ebay" },
+            { provider: "wix", remoteDeletedProvider: "wix" },
+          ],
+        }),
+      ],
+      [...columns]
+    );
+    expect(rows[0].providers).toEqual({ ebay: true, etsy: false, wix: false });
+  });
 });
 
 describe("isProviderCellEnabled", () => {
@@ -49,6 +65,18 @@ describe("isProviderCellEnabled", () => {
     expect(isProviderCellEnabled("end", listed, "etsy")).toBe(false);
     expect(isProviderCellEnabled("delete", listed, "wix")).toBe(true);
     expect(isProviderCellEnabled("delete", listed, "etsy")).toBe(false);
+  });
+
+  it("does not treat a remotely deleted store as live on End or Delete", () => {
+    const goneOnWix = item({
+      channelLinks: [
+        { provider: "ebay" },
+        { provider: "wix", remoteDeletedProvider: "wix" },
+      ],
+    });
+    expect(isProviderCellEnabled("end", goneOnWix, "wix")).toBe(false);
+    expect(isProviderCellEnabled("delete", goneOnWix, "wix")).toBe(false);
+    expect(isProviderCellEnabled("end", goneOnWix, "ebay")).toBe(true);
   });
 });
 

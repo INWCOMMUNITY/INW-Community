@@ -9,12 +9,17 @@ export type DestinationAssignment = {
   providers: ChannelProvider[];
 };
 
+export type BulkDestinationChannelLink = {
+  provider: string;
+  remoteDeletedProvider?: string | null;
+};
+
 export type BulkDestinationGridItem = {
   id: string;
   title: string;
   photos: string[];
   status?: string;
-  channelLinks?: { provider: string }[];
+  channelLinks?: BulkDestinationChannelLink[];
 };
 
 export type GridRowState = {
@@ -35,20 +40,25 @@ export const UNSYNC_INW_NOTE =
 export const MANAGE_LISTINGS_UNCHECK_NOTE =
   "Unchecking a connected store (eBay, Etsy, Shopify, or Wix) deletes that listing on that store. It is removed there, not just unsynced from INW.";
 
+function isLiveChannelLink(link: BulkDestinationChannelLink): boolean {
+  return !link.remoteDeletedProvider;
+}
+
 export function hasLinkedChannelListings(
-  items: { channelLinks?: { provider: string }[] }[]
+  items: { channelLinks?: BulkDestinationChannelLink[] }[]
 ): boolean {
-  return items.some((item) => (item.channelLinks ?? []).length > 0);
+  return items.some((item) => (item.channelLinks ?? []).some(isLiveChannelLink));
 }
 
 export function uniqueLinkedShopNames(
-  items: { channelLinks?: { provider: string }[] }[],
+  items: { channelLinks?: BulkDestinationChannelLink[] }[],
   labels: Record<string, string>
 ): string[] {
   const names: string[] = [];
   const seen = new Set<string>();
   for (const item of items) {
     for (const link of item.channelLinks ?? []) {
+      if (!isLiveChannelLink(link)) continue;
       const name = labels[link.provider] ?? link.provider;
       if (seen.has(name)) continue;
       seen.add(name);
@@ -131,7 +141,7 @@ export function destinationColumns(connectedProviders: string[]): ChannelProvide
 }
 
 export function linkedProvidersOf(item: BulkDestinationGridItem): Set<string> {
-  return new Set((item.channelLinks ?? []).map((l) => l.provider));
+  return new Set((item.channelLinks ?? []).filter(isLiveChannelLink).map((l) => l.provider));
 }
 
 export function isProviderCellEnabled(
