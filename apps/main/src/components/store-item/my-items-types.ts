@@ -2,7 +2,25 @@ import { isEbayConditionSyncError } from "@/lib/channels/ebay/conditions";
 import type { ItemChannelLink } from "@/components/store-item/ItemChannelSyncBadges";
 import { buildProductHref } from "@/lib/product-referrer";
 
-export type ItemsTab = "active" | "ended" | "sold";
+export type ItemsTab = "active" | "attention" | "ended" | "sold";
+
+export function itemRemoteDeletedProvider(item: Pick<MyStoreItem, "channelLinks">): string | null {
+  return item.channelLinks?.find((l) => l.remoteDeletedProvider)?.remoteDeletedProvider ?? null;
+}
+
+export function itemOtherLiveProviders(
+  item: Pick<MyStoreItem, "channelLinks">,
+  deletedProvider: string
+): string[] {
+  const seen = new Set<string>();
+  for (const link of item.channelLinks ?? []) {
+    if (link.provider === deletedProvider) continue;
+    if (!link.syncEnabled) continue;
+    if (link.remoteDeletedProvider) continue;
+    seen.add(link.provider);
+  }
+  return [...seen];
+}
 
 export type MyStoreItem = {
   id: string;

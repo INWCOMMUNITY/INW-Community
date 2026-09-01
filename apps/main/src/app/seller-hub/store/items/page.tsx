@@ -10,10 +10,13 @@ import { ChannelActionResultModal, type ChannelActionResult } from "@/components
 import {
   itemEditHref,
   itemListingHref,
+  itemOtherLiveProviders,
+  itemRemoteDeletedProvider,
   itemStatusLabel,
   type ItemsTab,
   type MyStoreItem,
 } from "@/components/store-item/my-items-types";
+import { formatRemoteDeletedMessage } from "@/lib/channels/remote-deleted-copy";
 import { IonIcon } from "@/components/IonIcon";
 import {
   fetchChannelConnections,
@@ -23,6 +26,7 @@ import { CHANNEL_PROVIDER_LABELS, CHANNEL_PROVIDERS_UI } from "@/lib/channels/pr
 
 const ITEMS_TABS: { key: ItemsTab; label: string }[] = [
   { key: "active", label: "Active" },
+  { key: "attention", label: "Needs Attention" },
   { key: "ended", label: "Ended" },
   { key: "sold", label: "Sold" },
 ];
@@ -31,12 +35,57 @@ function stopRowClick(e: MouseEvent) {
   e.stopPropagation();
 }
 
+function RemoteDeletedDecision({
+  item,
+  busy,
+  onKeep,
+  onDelete,
+}: {
+  item: MyStoreItem;
+  busy: boolean;
+  onKeep: () => void;
+  onDelete: () => void;
+}) {
+  const deletedProvider = itemRemoteDeletedProvider(item);
+  if (!deletedProvider) return null;
+  const copy = formatRemoteDeletedMessage({
+    deletedProvider,
+    otherProviders: itemOtherLiveProviders(item, deletedProvider),
+  });
+  return (
+    <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3" onClick={stopRowClick}>
+      <p className="text-sm font-semibold text-amber-950">{copy.headline}</p>
+      <p className="text-xs text-amber-900 mt-0.5">{copy.body}</p>
+      <div className="flex flex-wrap gap-2 mt-2">
+        <button type="button" className="btn text-xs" disabled={busy} onClick={onDelete}>
+          {busy ? "Working…" : "Delete everywhere"}
+        </button>
+        <button
+          type="button"
+          className="text-xs font-semibold px-3 py-1.5 rounded-lg border-2 bg-white"
+          style={{ borderColor: "var(--color-primary)", color: "var(--color-heading)" }}
+          disabled={busy}
+          onClick={onKeep}
+        >
+          Keep on INW and other shops
+        </button>
+      </div>
+    </div>
+  );
+}
+
 type FilterKey = "all" | "attention" | string;
 
 export default function MyItemsPage() {
   const [tab, setTab] = useState<ItemsTab>("active");
   const [items, setItems] = useState<MyStoreItem[]>([]);
-  const [counts, setCounts] = useState<{ active: number; ended: number; sold: number } | null>(null);
+  const [counts, setCounts] = useState<{
+    active: number;
+    attention: number;
+    ended: number;
+    sold: number;
+  } | null>(null);
+  const [decidingId, setDecidingId] = useState<string | null>(null);
   const [connections, setConnections] = useState<ChannelConnectionSummary[]>([]);
   const [connectStatus, setConnectStatus] = useState<{
     onboarded: boolean;
@@ -54,7 +103,14 @@ export default function MyItemsPage() {
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     setFetchError(null);
-    const filterParam = tab === "active" ? "&filter=active" : tab === "ended" ? "&filter=ended" : "&filter=sold";
+    const filterParam =
+      tab === "active"
+        ? "&filter=active"
+        : tab === "attention"
+          ? "&filter=attention"
+          : tab === "ended"
+            ? "&filter=ended"
+            : "&filter=sold";
     try {
       const [itemsRes, statusRes, countsRes] = await Promise.all([
         fetch(`/api/store-items?mine=1${filterParam}`, { credentials: "include" }),
@@ -79,7 +135,12 @@ export default function MyItemsPage() {
       }
 
       if (countsRes.ok && countsData && typeof countsData.active === "number") {
-        setCounts({ active: countsData.active, ended: countsData.ended, sold: countsData.sold });
+        setCounts({
+          active: countsData.active,
+          attention: typeof countsData.attention === "number" ? countsData.attention : 0,
+          ended: countsData.ended,
+          sold: countsData.sold,
+        });
       }
 
       if (!statusRes.ok) {
@@ -122,6 +183,36 @@ export default function MyItemsPage() {
     void fetchChannelConnections().then(setConnections).catch(() => setConnections([]));
     void fetch("/api/channels/sync-on-view", { method: "POST", credentials: "include" }).catch(() => {});
   }, []);
+
+  async function handleRemoteDeleteDecision(itemId: string, action: "keep" | "delete_everywhere") {
+    const item = items.find((row) => row.id === itemId);
+    const deletedProvider = item ? itemRemoteDeletedProvider(item) : null;
+    const others = item && deletedProvider ? itemOtherLiveProviders(item, deletedProvider) : [];
+    const shopNames = others.map((p) => CHANNEL_PROVIDER_LABELS[p] ?? p);
+    if (action === "delete_everywhere") {
+      const extra = shopNames.length > 0 ? ` and on ${shopNames.join(", ")}` : "";
+      if (!window.confirm(`Delete this listing on INW${extra}? This cannot be undone.`)) return;
+    }
+    setDecidingId(itemId);
+    try {
+      const res = await fetch(`/api/store-items/${itemId}/remote-delete-decision`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setFetchError(data.error ?? "Could not save that choice.");
+        return;
+      }
+      await load({ silent: true });
+    } catch {
+      setFetchError("Could not save that choice.");
+    } finally {
+      setDecidingId(null);
+    }
+  }
 
   async function handleOnboard() {
     const res = await fetch("/api/stripe/connect/onboard", { method: "POST", credentials: "include" });
@@ -252,9 +343,11 @@ export default function MyItemsPage() {
       <p className="text-gray-600 text-sm mb-3">
         {tab === "active"
           ? "Live on the storefront, including out of stock."
-          : tab === "ended"
-            ? "Ended listings are not live on INW. They are removed from INW 14 days after they are ended. Other shops stay up."
-            : "Items you've sold."}
+          : tab === "attention"
+            ? "A connected shop deleted this listing. Choose whether to delete it on INW and your other shops too."
+            : tab === "ended"
+              ? "Ended listings are not live on INW. They are removed from INW 14 days after they are ended. Other shops stay up."
+              : "Items you've sold."}
       </p>
 
       <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
@@ -296,20 +389,26 @@ export default function MyItemsPage() {
         </div>
       </div>
 
-      <MyItemsBulkBar
-        tab={tab}
-        selectedIds={selectedIds}
-        selectedItems={items.filter((i) => selectedIds.includes(i.id))}
-        connections={connections}
-        onClear={() => setSelectedIds([])}
-        onDone={() => void load({ silent: true })}
-        onActionResult={setActionResult}
-      />
+      {tab !== "attention" ? (
+        <MyItemsBulkBar
+          tab={tab}
+          selectedIds={selectedIds}
+          selectedItems={items.filter((i) => selectedIds.includes(i.id))}
+          connections={connections}
+          onClear={() => setSelectedIds([])}
+          onDone={() => void load({ silent: true })}
+          onActionResult={setActionResult}
+        />
+      ) : null}
 
       {loading ? (
         <p className="text-gray-500 text-sm">Loading…</p>
       ) : items.length === 0 ? (
-        <p className="text-gray-500 text-sm">No items yet. Add your first item to start selling.</p>
+        <p className="text-gray-500 text-sm">
+          {tab === "attention"
+            ? "Nothing needs attention. When a listing is deleted on eBay, Etsy, or another connected shop, it shows up here."
+            : "No items yet. Add your first item to start selling."}
+        </p>
       ) : visibleItems.length === 0 ? (
         <p className="text-gray-500 text-sm">No items match this search.</p>
       ) : (
@@ -394,6 +493,14 @@ export default function MyItemsPage() {
                         <div onClick={stopRowClick}>
                           <ItemChannelSyncBadges links={item.channelLinks} storeItemId={item.id} compact />
                         </div>
+                      ) : null}
+                      {tab === "attention" ? (
+                        <RemoteDeletedDecision
+                          item={item}
+                          busy={decidingId === item.id}
+                          onKeep={() => void handleRemoteDeleteDecision(item.id, "keep")}
+                          onDelete={() => void handleRemoteDeleteDecision(item.id, "delete_everywhere")}
+                        />
                       ) : null}
                     </div>
                   </div>

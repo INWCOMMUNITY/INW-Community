@@ -1,6 +1,6 @@
 import { prisma } from "database";
 import { getConnectionContext } from "./connection";
-import { applyRemoteListingRemoved } from "./apply-remote-listing";
+import { persistRemoteDeletedPending } from "./listing-link-flags";
 import {
   applyRemoteCategoryToStoreItem,
   applyRemoteShippingToStoreItem,
@@ -10,7 +10,7 @@ import {
 import { getAdapter } from "./registry";
 import { indexEbayRemoteListings } from "./ebay/mapping";
 import { updateStoreItemOnChannels } from "./outbound";
-import { channelSyncSucceeded, syncInventoryToChannels } from "./sync-inventory";
+import { channelSyncSucceeded } from "./sync-inventory";
 import {
   resolveSyncDirection,
   syncContentHash,
@@ -60,6 +60,7 @@ type LinkRow = {
   id: string;
   storeItemId: string;
   externalListingId: string;
+  conflictDetails: unknown;
   syncBaselineHash: string | null;
   syncBaselineMetaHash: string | null;
   syncBaselineVariantsHash: string | null;
@@ -76,6 +77,7 @@ type LinkRow = {
     secondaryCategory: string | null;
     shippingCostCents: number | null;
     variants: unknown;
+    status: string;
     updatedAt: Date;
   };
 };
@@ -182,6 +184,7 @@ export async function reconcileConnectionInboundMeta(
       id: true,
       storeItemId: true,
       externalListingId: true,
+      conflictDetails: true,
       syncBaselineHash: true,
       syncBaselineMetaHash: true,
       syncBaselineVariantsHash: true,
@@ -199,6 +202,7 @@ export async function reconcileConnectionInboundMeta(
           secondaryCategory: true,
           shippingCostCents: true,
           variants: true,
+          status: true,
           updatedAt: true,
         },
       },
@@ -212,14 +216,14 @@ export async function reconcileConnectionInboundMeta(
     const remote = remoteById.get(link.externalListingId);
     if (!remote) {
       if (provider === "wix") {
-        await applyRemoteListingRemoved(link.storeItemId);
-        await syncInventoryToChannels(link.storeItemId, { skipProviders: ["wix"] });
-        await prisma.channelListingLink.update({
-          where: { id: link.id },
-          data: { lastInboundAt: new Date() },
-        });
-        await writeBaseline(link.id, link.storeItemId, null, false);
-        removed += 1;
+        if (link.storeItem.status !== "sold_out" && link.storeItem.status !== "inactive") {
+          const flagged = await persistRemoteDeletedPending({
+            linkId: link.id,
+            conflictDetails: link.conflictDetails,
+            provider,
+          });
+          if (flagged) removed += 1;
+        }
       }
       continue;
     }

@@ -11,6 +11,7 @@ export type ItemChannelLink = {
   syncError?: string | null;
   connectionStatus?: string | null;
   syncWarning?: string | null;
+  remoteDeletedProvider?: string | null;
 };
 
 export function ItemChannelSyncBadges({

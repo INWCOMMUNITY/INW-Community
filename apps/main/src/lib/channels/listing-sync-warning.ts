@@ -1,4 +1,5 @@
 import { CHANNEL_PROVIDER_LABELS } from "./provider-ui";
+import { isRemoteDeletedPending, readRemoteDeletedNotice } from "./listing-link-flags";
 
 export const SELLER_CHANNEL_LINK_SELECT = {
   provider: true,
@@ -6,6 +7,7 @@ export const SELLER_CHANNEL_LINK_SELECT = {
   syncEnabled: true,
   externalListingId: true,
   syncError: true,
+  conflictDetails: true,
   connection: { select: { status: true } },
 } as const;
 
@@ -37,9 +39,15 @@ export function withListingChannelSyncWarning(link: {
   syncEnabled: boolean;
   externalListingId: string;
   syncError?: string | null;
+  conflictDetails?: unknown;
   connection?: { status: string } | null;
 }) {
   const connectionStatus = link.connection?.status ?? "active";
+  const notice = readRemoteDeletedNotice(link.conflictDetails);
+  const remoteDeletedProvider =
+    notice && !notice.dismissedAt && isRemoteDeletedPending(link.conflictDetails)
+      ? notice.provider
+      : null;
   return {
     provider: link.provider,
     syncStatus: link.syncStatus,
@@ -47,6 +55,7 @@ export function withListingChannelSyncWarning(link: {
     externalListingId: link.externalListingId,
     syncError: link.syncError ?? null,
     connectionStatus,
+    remoteDeletedProvider,
     syncWarning: listingChannelSyncWarning({
       provider: link.provider,
       syncStatus: link.syncStatus,

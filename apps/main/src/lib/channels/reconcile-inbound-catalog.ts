@@ -3,7 +3,6 @@ import { getConnectionContext, withConnectionAuthRetry } from "./connection";
 import {
   applyRemoteContentToStoreItem,
   applyRemoteQuantityToStoreItem,
-  applyRemoteListingRemoved,
   inboundDescriptionsMatch,
   remoteContentDiffersFromStoreItem,
   remoteTitleOrPriceDiffersFromStoreItem,
@@ -29,7 +28,9 @@ import { logSyncEvent } from "./sync-log";
 import { shouldBlockSoldOutQtyRecovery } from "./sold-out-guard";
 import {
   persistRemoteCatalogState,
+  persistRemoteDeletedPending,
   clearRemoteCatalogStateIfSet,
+  clearRemoteDeletedNoticeIfSet,
 } from "./listing-link-flags";
 import { isInboundCatalogContentEcho } from "./inbound-catalog-decision";
 import {
@@ -77,6 +78,7 @@ type LinkRow = {
     photos: string[];
     priceCents: number;
     quantity: number;
+    status: string;
     updatedAt: Date;
   };
 };
@@ -214,6 +216,7 @@ export async function reconcileConnectionInboundCatalog(
           photos: true,
           priceCents: true,
           quantity: true,
+          status: true,
           updatedAt: true,
         },
       },
@@ -345,29 +348,6 @@ export async function reconcileConnectionInboundCatalog(
         }
         continue;
       }
-      const otherChannelLinks = await prisma.channelListingLink.count({
-        where: {
-          storeItemId: link.storeItemId,
-          syncEnabled: true,
-          provider: { not: provider },
-        },
-      });
-      if (otherChannelLinks > 0) {
-        const changed = await persistRemoteCatalogState({
-          linkId: link.id,
-          conflictDetails: link.conflictDetails,
-          state: "linked_other_channel",
-        });
-        if (changed) {
-          console.warn("[channels] skip sell-out; listing still linked on another channel", {
-            storeItemId: link.storeItemId,
-            provider,
-            externalListingId: link.externalListingId,
-            otherChannelLinks,
-          });
-        }
-        continue;
-      }
       if (provider === "etsy") {
         const { etsyListingIsGone } = await import("./etsy/listing-exists");
         const gone = await etsyListingIsGone(ctx.accessToken, link.externalListingId).catch(
@@ -388,21 +368,27 @@ export async function reconcileConnectionInboundCatalog(
           continue;
         }
       }
-      const changed = await applyRemoteListingRemoved(link.storeItemId);
-      if (!changed) {
+      if (link.storeItem.status === "sold_out" || link.storeItem.status === "inactive") {
         continue;
       }
-      await syncInventoryToChannels(link.storeItemId, { skipProviders: [provider] });
-      await prisma.channelListingLink.update({
-        where: { id: link.id },
-        data: { lastInboundAt: new Date() },
+      const flagged = await persistRemoteDeletedPending({
+        linkId: link.id,
+        conflictDetails: link.conflictDetails,
+        provider,
       });
-      await writeBaseline(link.id, link.storeItemId, null, false);
-      removed += 1;
+      if (flagged) {
+        console.warn("[channels] remote listing deleted; waiting for seller decision", {
+          storeItemId: link.storeItemId,
+          provider,
+          externalListingId: link.externalListingId,
+        });
+        removed += 1;
+      }
       continue;
     }
 
     await clearRemoteCatalogStateIfSet(link.id, link.conflictDetails);
+    await clearRemoteDeletedNoticeIfSet(link.id, link.conflictDetails);
 
     const item = link.storeItem;
     const remoteQtyKnown = remote.quantityKnown !== false;

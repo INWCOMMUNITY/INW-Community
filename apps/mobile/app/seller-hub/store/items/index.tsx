@@ -57,6 +57,7 @@ interface ChannelLink {
   syncError?: string | null;
   connectionStatus?: string | null;
   syncWarning?: string | null;
+  remoteDeletedProvider?: string | null;
 }
 
 interface StoreItem {
@@ -94,11 +95,72 @@ function statusLabel(item: StoreItem): string {
   return item.status === "active" && item.quantity > 0 ? "Active" : "Ended";
 }
 
+function RemoteDeletedCard({
+  item,
+  busy,
+  onKeep,
+  onDelete,
+}: {
+  item: StoreItem;
+  busy: boolean;
+  onKeep: () => void;
+  onDelete: () => void;
+}) {
+  const copy = remoteDeletedCopy(item);
+  if (!copy) return null;
+  return (
+    <View style={styles.attentionBox}>
+      <Text style={styles.attentionTitle}>{copy.headline}</Text>
+      <Text style={styles.attentionBody}>{copy.body}</Text>
+      <View style={styles.attentionActions}>
+        <Pressable
+          style={[styles.attentionDelete, busy && { opacity: 0.6 }]}
+          disabled={busy}
+          onPress={onDelete}
+        >
+          <Text style={styles.attentionDeleteText}>{busy ? "Working…" : "Delete everywhere"}</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.attentionKeep, busy && { opacity: 0.6 }]}
+          disabled={busy}
+          onPress={onKeep}
+        >
+          <Text style={styles.attentionKeepText}>Keep on INW and other shops</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function remoteDeletedCopy(item: StoreItem): { headline: string; body: string } | null {
+  const deleted = item.channelLinks?.find((l) => l.remoteDeletedProvider)?.remoteDeletedProvider;
+  if (!deleted) return null;
+  const deletedLabel = CHANNEL_PROVIDER_LABEL[deleted as ChannelProviderId] ?? deleted;
+  const others = [...new Set(
+    (item.channelLinks ?? [])
+      .filter((l) => l.provider !== deleted && l.syncEnabled && !l.remoteDeletedProvider)
+      .map((l) => CHANNEL_PROVIDER_LABEL[l.provider as ChannelProviderId] ?? l.provider)
+  )];
+  const headline = `This listing was deleted on ${deletedLabel}.`;
+  if (others.length === 0) {
+    return { headline, body: "Delete it on INW too, or keep it listed here." };
+  }
+  const also = others.length === 1 ? others[0] : `${others.slice(0, -1).join(", ")} and ${others[others.length - 1]}`;
+  return { headline, body: `Delete it on INW and ${also} too, or keep those listings up.` };
+}
+
 export default function MyItemsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ listingType?: string; tab?: string }>();
   const listingType = params.listingType === "resale" ? "resale" : undefined;
-  const initialTab = params.tab === "sold" ? "sold" : params.tab === "ended" ? "ended" : "active";
+  const initialTab =
+    params.tab === "sold"
+      ? "sold"
+      : params.tab === "ended"
+        ? "ended"
+        : params.tab === "attention"
+          ? "attention"
+          : "active";
   const [items, setItems] = useState<StoreItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -113,13 +175,20 @@ export default function MyItemsScreen() {
   const [endGridItem, setEndGridItem] = useState<StoreItem | null>(null);
   const [endGridLoading, setEndGridLoading] = useState(false);
 
-  type ItemsTab = "active" | "ended" | "sold";
+  type ItemsTab = "active" | "attention" | "ended" | "sold";
   const [itemsTab, setItemsTab] = useState<ItemsTab>(initialTab);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [decidingId, setDecidingId] = useState<string | null>(null);
 
   const itemsUrl =
     (listingType ? "/api/store-items?mine=1&listingType=resale" : "/api/store-items?mine=1") +
-    (itemsTab === "active" ? "&filter=active" : itemsTab === "ended" ? "&filter=ended" : "&filter=sold");
+    (itemsTab === "active"
+      ? "&filter=active"
+      : itemsTab === "attention"
+        ? "&filter=attention"
+        : itemsTab === "ended"
+          ? "&filter=ended"
+          : "&filter=sold");
 
   const load = useCallback(() => {
     setFetchError(null);
@@ -233,6 +302,32 @@ export default function MyItemsScreen() {
 
   const openListing = (item: StoreItem) => {
     router.push(buildProductPath(item.slug, { type: "my-items" }) as never);
+  };
+
+  const decideRemoteDeleted = async (item: StoreItem, action: "keep" | "delete_everywhere") => {
+    const copy = remoteDeletedCopy(item);
+    if (action === "delete_everywhere") {
+      const confirmed = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          "Delete everywhere?",
+          copy?.body ?? "Delete this listing on INW and your other shops?",
+          [
+            { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+            { text: "Delete", style: "destructive", onPress: () => resolve(true) },
+          ]
+        );
+      });
+      if (!confirmed) return;
+    }
+    setDecidingId(item.id);
+    try {
+      await apiPost(`/api/store-items/${item.id}/remote-delete-decision`, { action });
+      load();
+    } catch (e) {
+      Alert.alert("Could not save", (e as { error?: string })?.error ?? "Try again.");
+    } finally {
+      setDecidingId(null);
+    }
   };
 
   const markAsSold = async (id: string, unpublishProviders?: ChannelProviderId[]) => {
@@ -557,14 +652,20 @@ export default function MyItemsScreen() {
     <View style={styles.container}>
       <Text style={styles.pageTitle}>My Items</Text>
       <View style={styles.tabRow}>
-        {(["active", "ended", "sold"] as const).map((t) => (
+        {(["active", "attention", "ended", "sold"] as const).map((t) => (
           <Pressable
             key={t}
             style={[styles.tab, itemsTab === t && styles.tabActive]}
             onPress={() => setItemsTab(t)}
           >
             <Text style={[styles.tabText, itemsTab === t && styles.tabTextActive]}>
-              {t === "active" ? "Active" : t === "ended" ? "Ended" : "Sold"}
+              {t === "active"
+                ? "Active"
+                : t === "attention"
+                  ? "Needs Attention"
+                  : t === "ended"
+                    ? "Ended"
+                    : "Sold"}
             </Text>
           </Pressable>
         ))}
@@ -572,9 +673,11 @@ export default function MyItemsScreen() {
       <Text style={styles.hint}>
         {itemsTab === "active"
           ? "Live on the storefront."
-          : itemsTab === "ended"
-            ? "Ended listings are not live on INW. They are removed from INW 14 days after they are ended."
-            : "Items you've sold."}
+          : itemsTab === "attention"
+            ? "A connected shop deleted this listing. Choose whether to delete it on INW and your other shops too."
+            : itemsTab === "ended"
+              ? "Ended listings are not live on INW. They are removed from INW 14 days after they are ended."
+              : "Items you've sold."}
       </Text>
       <View style={styles.addBtnWrap}>
         <Pressable
@@ -684,6 +787,14 @@ export default function MyItemsScreen() {
                     <QualityScoreBadge storeItemId={item.id} compact />
                   </View>
                 )}
+                {itemsTab === "attention" ? (
+                  <RemoteDeletedCard
+                    item={item}
+                    busy={decidingId === item.id}
+                    onKeep={() => void decideRemoteDeleted(item, "keep")}
+                    onDelete={() => void decideRemoteDeleted(item, "delete_everywhere")}
+                  />
+                ) : null}
                 {itemsTab === "sold" && item.soldOrderId && (
                   <Pressable
                     onPress={() =>
@@ -762,14 +873,16 @@ export default function MyItemsScreen() {
         />
       )}
 
-      <BulkActionsBar
-        selectedIds={selectedIds}
-        selectedItems={items.filter((i) => selectedIds.includes(i.id))}
-        tab={itemsTab}
-        connections={channelConnections}
-        onClearSelection={() => setSelectedIds([])}
-        onActionComplete={() => load()}
-      />
+      {itemsTab !== "attention" ? (
+        <BulkActionsBar
+          selectedIds={selectedIds}
+          selectedItems={items.filter((i) => selectedIds.includes(i.id))}
+          tab={itemsTab}
+          connections={channelConnections}
+          onClearSelection={() => setSelectedIds([])}
+          onActionComplete={() => load()}
+        />
+      ) : null}
 
       <Modal
         visible={!!menuItemId}
@@ -995,7 +1108,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderBottomColor: theme.colors.primary,
   },
-  tabText: { fontSize: 13, color: "#666" },
+  tabText: { fontSize: 11, color: "#666" },
   tabTextActive: { fontWeight: "600", color: theme.colors.primary },
   hint: {
     fontSize: 14,
@@ -1120,6 +1233,33 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: theme.colors.heading,
   },
+  attentionBox: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: "#fffbeb",
+    borderWidth: 1,
+    borderColor: "#fde68a",
+  },
+  attentionTitle: { fontSize: 13, fontWeight: "700", color: "#78350f" },
+  attentionBody: { fontSize: 12, color: "#92400e", marginTop: 4 },
+  attentionActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
+  attentionDelete: {
+    backgroundColor: theme.colors.primary,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  attentionDeleteText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  attentionKeep: {
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: "#fff",
+  },
+  attentionKeepText: { color: theme.colors.heading, fontSize: 12, fontWeight: "700" },
   menuBtn: {
     padding: 8,
     marginLeft: 4,

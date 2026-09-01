@@ -18,6 +18,7 @@ import {
   SELLER_CHANNEL_LINK_SELECT,
   withListingChannelSyncWarning,
 } from "@/lib/channels/listing-sync-warning";
+import { listRemoteDeletedStoreItemIds } from "@/lib/channels/remote-deleted-attention";
 import { getStoreItemPublicPayload } from "@/lib/get-store-item-public";
 import {
   BROWSE_CACHE_HEADERS,
@@ -125,18 +126,20 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
     }
     if (searchParams.get("counts") === "1") {
-      const [active, ended, sold] = await Promise.all([
+      const [active, ended, sold, attentionIds] = await Promise.all([
         prisma.storeItem.count({ where: { memberId: userId, status: "active" } }),
         prisma.storeItem.count({ where: { memberId: userId, status: "inactive" } }),
         prisma.storeItem.count({ where: { memberId: userId, status: "sold_out" } }),
+        listRemoteDeletedStoreItemIds(userId),
       ]);
-      return NextResponse.json({ active, ended, sold });
+      return NextResponse.json({ active, ended, sold, attention: attentionIds.length });
     }
 
     const where: {
       memberId: string;
       condition?: string;
       status?: string;
+      id?: { in: string[] };
     } = { memberId: userId };
     if (condition) where.condition = condition;
     // My Items tabs: active (incl. out of stock), ended (inactive), sold (sold_out).
@@ -148,6 +151,12 @@ export async function GET(req: NextRequest) {
       where.status = "active";
     } else if (filter === "ended") {
       where.status = "inactive";
+    } else if (filter === "attention") {
+      const attentionIds = await listRemoteDeletedStoreItemIds(userId);
+      if (attentionIds.length === 0) {
+        return NextResponse.json([]);
+      }
+      where.id = { in: attentionIds };
     }
     const items = await prisma.storeItem.findMany({
       where,

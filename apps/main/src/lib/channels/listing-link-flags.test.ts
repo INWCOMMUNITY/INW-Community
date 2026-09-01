@@ -8,6 +8,11 @@ import {
   shouldSkipEndedEbayOutbound,
   withEbayListingEnded,
   withRemoteCatalogState,
+  isRemoteDeletedPending,
+  readRemoteDeletedNotice,
+  withRemoteDeletedCleared,
+  withRemoteDeletedDismissed,
+  withRemoteDeletedPending,
 } from "./listing-link-flags";
 
 describe("inboundContentFanoutKind", () => {
@@ -115,6 +120,18 @@ describe("remoteCatalogState", () => {
       (stored as { ebayPendingInbound: { hash: string } }).ebayPendingInbound.hash
     ).toBe("a");
     expect(readRemoteCatalogState(withRemoteCatalogState(stored, null))).toBeNull();
+  });
+
+  it("flags a pending remote delete once and keeps it dismissed", () => {
+    const pending = withRemoteDeletedPending({ ebayListingEnded: true }, "ebay", "2026-08-31T00:00:00.000Z");
+    expect(isRemoteDeletedPending(pending)).toBe(true);
+    expect(readRemoteDeletedNotice(pending)?.provider).toBe("ebay");
+    expect(isRemoteDeletedPending(withRemoteDeletedPending(pending, "etsy"))).toBe(true);
+    expect(readRemoteDeletedNotice(withRemoteDeletedPending(pending, "etsy"))?.provider).toBe("ebay");
+    const dismissed = withRemoteDeletedDismissed(pending, "2026-08-31T01:00:00.000Z");
+    expect(isRemoteDeletedPending(dismissed)).toBe(false);
+    expect(readRemoteDeletedNotice(dismissed)?.dismissedAt).toBe("2026-08-31T01:00:00.000Z");
+    expect(readRemoteDeletedNotice(withRemoteDeletedCleared(dismissed))).toBeNull();
   });
 
   it("merges patches and deletes null keys", () => {

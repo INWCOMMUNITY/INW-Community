@@ -24,6 +24,93 @@ export function mergeConflictDetails(
   return base as Prisma.InputJsonValue;
 }
 
+export type RemoteDeletedNotice = {
+  provider: string;
+  detectedAt: string;
+  dismissedAt?: string;
+};
+
+export function readRemoteDeletedNotice(conflictDetails: unknown): RemoteDeletedNotice | null {
+  const raw = asObject(conflictDetails).remoteDeleted;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as { provider?: unknown; detectedAt?: unknown; dismissedAt?: unknown };
+  if (typeof rec.provider !== "string" || !rec.provider.trim()) return null;
+  return {
+    provider: rec.provider.trim(),
+    detectedAt: typeof rec.detectedAt === "string" ? rec.detectedAt : "",
+    ...(typeof rec.dismissedAt === "string" && rec.dismissedAt ? { dismissedAt: rec.dismissedAt } : {}),
+  };
+}
+
+export function isRemoteDeletedPending(conflictDetails: unknown): boolean {
+  const notice = readRemoteDeletedNotice(conflictDetails);
+  return Boolean(notice && !notice.dismissedAt);
+}
+
+export function withRemoteDeletedPending(
+  conflictDetails: unknown,
+  provider: string,
+  detectedAt = new Date().toISOString()
+): Prisma.InputJsonValue {
+  const existing = readRemoteDeletedNotice(conflictDetails);
+  if (existing) return asObject(conflictDetails) as Prisma.InputJsonValue;
+  return mergeConflictDetails(conflictDetails, {
+    remoteDeleted: { provider: provider.trim(), detectedAt },
+  });
+}
+
+export function withRemoteDeletedDismissed(
+  conflictDetails: unknown,
+  dismissedAt = new Date().toISOString()
+): Prisma.InputJsonValue {
+  const existing = readRemoteDeletedNotice(conflictDetails);
+  if (!existing) return asObject(conflictDetails) as Prisma.InputJsonValue;
+  return mergeConflictDetails(conflictDetails, {
+    remoteDeleted: { ...existing, dismissedAt },
+  });
+}
+
+export function withRemoteDeletedCleared(conflictDetails: unknown): Prisma.InputJsonValue {
+  return mergeConflictDetails(conflictDetails, { remoteDeleted: null });
+}
+
+export async function persistRemoteDeletedPending(args: {
+  linkId: string;
+  conflictDetails: unknown;
+  provider: string;
+}): Promise<boolean> {
+  const existing = readRemoteDeletedNotice(args.conflictDetails);
+  if (existing) return false;
+  const next = withRemoteDeletedPending(args.conflictDetails, args.provider);
+  await prisma.channelListingLink.update({
+    where: { id: args.linkId },
+    data: { conflictDetails: next },
+  });
+  return true;
+}
+
+export async function persistRemoteDeletedDismissed(args: {
+  linkId: string;
+  conflictDetails: unknown;
+}): Promise<void> {
+  if (!isRemoteDeletedPending(args.conflictDetails)) return;
+  await prisma.channelListingLink.update({
+    where: { id: args.linkId },
+    data: { conflictDetails: withRemoteDeletedDismissed(args.conflictDetails) },
+  });
+}
+
+export async function clearRemoteDeletedNoticeIfSet(
+  linkId: string,
+  conflictDetails: unknown
+): Promise<void> {
+  if (!readRemoteDeletedNotice(conflictDetails)) return;
+  await prisma.channelListingLink.update({
+    where: { id: linkId },
+    data: { conflictDetails: withRemoteDeletedCleared(conflictDetails) },
+  });
+}
+
 export function isEbayListingEnded(conflictDetails: unknown): boolean {
   return asObject(conflictDetails).ebayListingEnded === true;
 }

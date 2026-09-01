@@ -22,6 +22,8 @@ import {
   inboundContentFanoutKind,
   persistEbayListingActive,
   persistEbayListingEnded,
+  persistRemoteDeletedPending,
+  clearRemoteDeletedNoticeIfSet,
 } from "../listing-link-flags";
 import { attachShippingOptionOnImport } from "@/lib/shipping-options";
 
@@ -307,12 +309,19 @@ export async function refreshEbayListingByItemId(
         quantity: details.quantity,
         forcedInactive: opts?.activeListingIds != null && !stillActive,
       });
-      await persistEbayListingEnded(link.id, link.conflictDetails);
+      const endedDetails = await persistEbayListingEnded(link.id, link.conflictDetails);
+      if (storeItem.status !== "sold_out" && storeItem.status !== "inactive") {
+        await persistRemoteDeletedPending({
+          linkId: link.id,
+          conflictDetails: endedDetails,
+          provider: "ebay",
+        });
+      }
       return {
         storeItemId: storeItem.id,
         title: storeItem.title,
         updated: false,
-        changes: [],
+        changes: ["ended_without_sale"],
       };
     }
     await applyRemoteListingRemoved(storeItem.id);
@@ -337,6 +346,7 @@ export async function refreshEbayListingByItemId(
   }
 
   let conflictDetails: unknown = await persistEbayListingActive(link.id, link.conflictDetails);
+  await clearRemoteDeletedNoticeIfSet(link.id, conflictDetails);
 
   await attachShippingOptionOnImport({
     memberId: storeItem.memberId,
