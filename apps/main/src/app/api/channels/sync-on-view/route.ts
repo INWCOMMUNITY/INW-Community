@@ -4,7 +4,6 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { reconcileConnectionInboundCatalog } from "@/lib/channels/reconcile-inbound-catalog";
 import { reconcileConnectionInboundMeta } from "@/lib/channels/reconcile-inbound-meta";
 import { setEtsyConnectionContext } from "@/lib/channels/etsy/client";
-import { flagGoneWixListingsForConnection } from "@/lib/channels/wix/flag-remote-deleted";
 import { maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
 
 export const dynamic = "force-dynamic";
@@ -87,12 +86,12 @@ export async function POST(req: NextRequest) {
 
     try {
       if (conn.provider === "wix") {
-        const flagged = await flagGoneWixListingsForConnection(conn);
+        const catalog = await reconcileConnectionInboundCatalog(conn);
         results.push({
           provider: conn.provider,
-          catalogUpdated: 0,
+          catalogUpdated: catalog.updated,
           metaUpdated: 0,
-          removed: flagged.removed,
+          removed: catalog.removed,
         });
         continue;
       }

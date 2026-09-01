@@ -65,7 +65,9 @@ export function MyItemsRowMenu({
   const [categoryProvider, setCategoryProvider] = useState<ListOnCategoryProvider | null>(null);
   useLockBodyScroll(true);
 
-  const linked = (item.channelLinks ?? []).map((l) => l.provider as ChannelProviderId);
+  const linked = (item.channelLinks ?? [])
+    .filter((l) => !l.remoteDeletedProvider)
+    .map((l) => l.provider as ChannelProviderId);
   const linkedSet = new Set(linked);
   const listCandidates =
     tab === "sold"

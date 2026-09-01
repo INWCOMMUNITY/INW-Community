@@ -6,8 +6,16 @@ export type RemoteCatalogState =
   | "linked_other_channel";
 
 function asObject(conflictDetails: unknown): Record<string, unknown> {
-  if (conflictDetails && typeof conflictDetails === "object" && !Array.isArray(conflictDetails)) {
-    return { ...(conflictDetails as Record<string, unknown>) };
+  let value = conflictDetails;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value) as unknown;
+    } catch {
+      return {};
+    }
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return { ...(value as Record<string, unknown>) };
   }
   return {};
 }

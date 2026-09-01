@@ -1,4 +1,5 @@
 import type { ChannelConnectionContext } from "../types";
+import { wixCatalogApiFromConn } from "./catalog-api";
 import { WixApiError, wixGet, type WixRequestOpts } from "./client";
 import { isWixProductVisibleOnSite, type WixProduct, type WixV1Product } from "./mapping";
 import { wixInventoryRequestOpts } from "./site";
@@ -65,19 +66,19 @@ export async function wixProductIsGone(
   const id = productId.trim();
   if (!id) return false;
 
+  const preferV1 = wixCatalogApiFromConn(ctx) === "v1";
   let sawGone = false;
   for (const opts of wixInventoryRequestOpts(ctx)) {
-    const v3 = await fetchV3Product(ctx.accessToken, id, opts);
-    if (v3 === "exists") return false;
-    if (v3 === "gone") {
-      const v1 = await fetchV1Product(ctx.accessToken, id, opts);
-      if (v1 === "exists") return false;
-      if (v1 === "gone") sawGone = true;
-      continue;
-    }
-    const v1 = await fetchV1Product(ctx.accessToken, id, opts);
-    if (v1 === "exists") return false;
-    if (v1 === "gone") sawGone = true;
+    const primary = preferV1
+      ? await fetchV1Product(ctx.accessToken, id, opts)
+      : await fetchV3Product(ctx.accessToken, id, opts);
+    if (primary === "exists") return false;
+    if (primary === "gone") return true;
+    const secondary = preferV1
+      ? await fetchV3Product(ctx.accessToken, id, opts)
+      : await fetchV1Product(ctx.accessToken, id, opts);
+    if (secondary === "exists") return false;
+    if (secondary === "gone") sawGone = true;
   }
   return sawGone;
 }

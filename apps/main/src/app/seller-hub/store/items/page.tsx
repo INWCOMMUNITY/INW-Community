@@ -99,7 +99,7 @@ export default function MyItemsPage() {
   const [menuItemId, setMenuItemId] = useState<string | null>(null);
   const [historyItemId, setHistoryItemId] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<ChannelActionResult | null>(null);
-  const [syncTick, setSyncTick] = useState(0);
+  const [channelsChecked, setChannelsChecked] = useState(false);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -168,8 +168,9 @@ export default function MyItemsPage() {
   }, [tab]);
 
   useEffect(() => {
+    if (!channelsChecked) return;
     void load();
-  }, [load]);
+  }, [load, channelsChecked]);
 
   useEffect(() => {
     setSelectedIds([]);
@@ -183,14 +184,9 @@ export default function MyItemsPage() {
   useEffect(() => {
     void fetchChannelConnections().then(setConnections).catch(() => setConnections([]));
     void fetch("/api/channels/sync-on-view", { method: "POST", credentials: "include" })
-      .then(() => setSyncTick((n) => n + 1))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setChannelsChecked(true));
   }, []);
-
-  useEffect(() => {
-    if (syncTick === 0) return;
-    void load({ silent: true });
-  }, [syncTick, load]);
 
   async function handleRemoteDeleteDecision(itemId: string, action: "keep" | "delete_everywhere") {
     const item = items.find((row) => row.id === itemId);

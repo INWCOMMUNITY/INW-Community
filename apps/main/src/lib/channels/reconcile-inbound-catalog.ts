@@ -34,7 +34,6 @@ import {
   isRemoteDeletedPending,
 } from "./listing-link-flags";
 import { isInboundCatalogContentEcho } from "./inbound-catalog-decision";
-import { flagGoneWixLinks } from "./wix/flag-remote-deleted";
 import { wixProductIsGone } from "./wix/listing-exists";
 import {
   inwHostedPhotosChangedSinceLastPush,
@@ -253,11 +252,20 @@ export async function reconcileConnectionInboundCatalog(
   }
 
   // Empty catalog usually means wrong API version or a transient failure — do not mark all links removed.
-  // Wix is the exception: confirm each linked product with a GET (404 / hidden = gone).
+  // Wix list returning [] after successful v1/v3 queries means the shop has no visible products.
   if (remoteList.length === 0) {
     if (provider === "wix") {
-      const removed = await flagGoneWixLinks(ctx, links);
-      console.warn("[channels] inbound catalog empty — probed Wix links", {
+      let removed = 0;
+      for (const link of links) {
+        if (link.storeItem.status === "sold_out" || link.storeItem.status === "inactive") continue;
+        const flagged = await persistRemoteDeletedPending({
+          linkId: link.id,
+          conflictDetails: link.conflictDetails,
+          provider,
+        });
+        if (flagged) removed += 1;
+      }
+      console.warn("[channels] inbound catalog empty — flagged Wix links as remotely deleted", {
         connectionId: connection.id,
         links: links.length,
         removed,
@@ -374,23 +382,6 @@ export async function reconcileConnectionInboundCatalog(
           });
           if (changed) {
             console.warn("[channels] skip sell-out; Etsy listing still exists outside active catalog", {
-              storeItemId: link.storeItemId,
-              externalListingId: link.externalListingId,
-            });
-          }
-          continue;
-        }
-      }
-      if (provider === "wix") {
-        const gone = await wixProductIsGone(ctx, link.externalListingId).catch(() => false);
-        if (!gone) {
-          const changed = await persistRemoteCatalogState({
-            linkId: link.id,
-            conflictDetails: link.conflictDetails,
-            state: "inactive_outside_catalog",
-          });
-          if (changed) {
-            console.warn("[channels] skip remote-delete; Wix product still exists outside catalog", {
               storeItemId: link.storeItemId,
               externalListingId: link.externalListingId,
             });

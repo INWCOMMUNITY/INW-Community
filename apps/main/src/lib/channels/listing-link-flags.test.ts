@@ -136,6 +136,11 @@ describe("remoteCatalogState", () => {
     expect(readRemoteCatalogState(withRemoteCatalogState(stored, null))).toBeNull();
   });
 
+  it("reads a remote-delete notice stored as a JSON string", () => {
+    const pending = withRemoteDeletedPending({}, "wix", "2026-08-31T00:00:00.000Z");
+    expect(isRemoteDeletedPending(JSON.stringify(pending))).toBe(true);
+  });
+
   it("flags a pending remote delete once and keeps it dismissed", () => {
     const pending = withRemoteDeletedPending({ ebayListingEnded: true }, "ebay", "2026-08-31T00:00:00.000Z");
     expect(isRemoteDeletedPending(pending)).toBe(true);
