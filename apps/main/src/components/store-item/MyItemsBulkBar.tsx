@@ -10,12 +10,14 @@ import { ListOnChannelCategoryModal } from "@/components/store-item/ListOnChanne
 import { BulkDestinationGridModal } from "@/components/store-item/BulkDestinationGridModal";
 import {
   buildListOnCategoryQueueFromDesired,
+  buildListOnCategoryQueueFromFailedSpecifics,
   isMissingEbayItemSpecificsError,
   type ListOnCategoryAssignment,
 } from "@/lib/list-on-channel-category";
 import type { ChannelActionResult } from "@/components/store-item/ChannelActionResultModal";
 import {
   desiredProvidersByItemId,
+  bulkDestinationFailTitle,
   summarizeBulkDestinations,
   type BulkDestinationAction,
   type BulkDestinationsResultCounts,
@@ -120,16 +122,11 @@ export function MyItemsBulkBar({
           ...(categoryAssignments?.length ? { assignments: categoryAssignments } : {}),
         }),
       });
-      const failedSpecifics = (result.results ?? []).some(
-        (row) => row.status === "failed" && isMissingEbayItemSpecificsError(row.detail)
-      );
-      if (action === "sync" && failedSpecifics) {
-        const summary = summarizeBulkDestinations(action, result);
-        if (categoryAssignments) throw new Error(summary.message);
-        const queue = buildListOnCategoryQueueFromDesired(
-          selectedItems,
-          desiredProvidersByItemId(assignments)
-        );
+      const failedSpecificIds = (result.results ?? [])
+        .filter((row) => row.status === "failed" && isMissingEbayItemSpecificsError(row.detail))
+        .map((row) => row.itemId);
+      if (action === "sync" && failedSpecificIds.length > 0 && !categoryAssignments) {
+        const queue = buildListOnCategoryQueueFromFailedSpecifics(selectedItems, failedSpecificIds);
         if (queue.length > 0) {
           setPendingAssignments(assignments);
           setGridAction(null);
@@ -145,12 +142,8 @@ export function MyItemsBulkBar({
       onDone();
       onClear();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Update failed";
-      notify(
-        action === "sync" ? "Manage Listings failed" : action === "end" ? "End Listings failed" : "Update failed",
-        msg,
-        false
-      );
+      const msg = e instanceof Error ? e.message : "That update didn't go through.";
+      notify(bulkDestinationFailTitle(action), msg, false);
       if (categoryAssignments) throw new Error(msg);
     } finally {
       setLoading(false);
@@ -176,7 +169,7 @@ export function MyItemsBulkBar({
       onDone();
       onClear();
     } catch (e) {
-      notify("End Listings failed", e instanceof Error ? e.message : "End listings failed", false);
+      notify("Couldn't End Those Listings", e instanceof Error ? e.message : "End didn't go through.", false);
     } finally {
       setLoading(false);
     }
@@ -193,11 +186,12 @@ export function MyItemsBulkBar({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ storeItemIds: selectedIds, quantity: 1, republishChannels: false }),
       });
-      notify("Relisted", `Relisted ${result.relisted ?? selectedIds.length} item(s).`);
+      const n = result.relisted ?? selectedIds.length;
+      notify("Back On The Floor", `Relisted ${n} item${n === 1 ? "" : "s"} with quantity 1.`);
       onDone();
       onClear();
     } catch (e) {
-      notify("Bulk relist failed", e instanceof Error ? e.message : "Bulk relist failed", false);
+      notify("Couldn't Relist", e instanceof Error ? e.message : "Relist didn't go through.", false);
     } finally {
       setLoading(false);
     }
@@ -205,7 +199,7 @@ export function MyItemsBulkBar({
 
   async function applyEdit() {
     if (!priceChangePercent && !quantityAdjust) {
-      notify("Bulk edit", "Enter a price change percent and/or quantity adjustment.", false);
+      notify("Nothing To Apply", "Add a price change percent and/or a quantity adjustment first.", false);
       return;
     }
     setLoading(true);
@@ -223,7 +217,12 @@ export function MyItemsBulkBar({
         }),
       });
       if (result.failed > 0) {
-        notify("Bulk edit", `Updated ${result.updated}. ${result.failed} failed.`, false);
+        notify("Updated Some, Missed Some", `Updated ${result.updated}. ${result.failed} didn't go through.`, false);
+      } else {
+        notify(
+          "Numbers Updated",
+          `Updated ${result.updated} item${result.updated === 1 ? "" : "s"}.`
+        );
       }
       setPanel(null);
       setPriceChangePercent("");
@@ -231,7 +230,7 @@ export function MyItemsBulkBar({
       onDone();
       onClear();
     } catch (e) {
-      notify("Bulk edit failed", e instanceof Error ? e.message : "Bulk edit failed", false);
+      notify("Couldn't Apply That Edit", e instanceof Error ? e.message : "Bulk edit didn't go through.", false);
     } finally {
       setLoading(false);
     }

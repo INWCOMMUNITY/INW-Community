@@ -45,27 +45,54 @@ export default async function CalendarsPage() {
   return (
     <section className="px-4 py-8 md:py-10" style={{ padding: "var(--section-padding)" }}>
       <div className="max-w-[var(--max-width)] mx-auto">
-        <div className="mb-8">
-          <h1
-            className="text-2xl md:text-3xl font-bold"
-            style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
-          >
-            Northwest Community Calendars
-          </h1>
-          <p className="text-sm md:text-base mt-1" style={{ color: "var(--color-text)" }}>
-            Take a look at the events happening in Spokane &amp; Kootenai County!
-          </p>
-          <div className="mt-3">
-            <PostEventModal className="inline-block" />
+        <div className="relative mb-8 overflow-hidden rounded-2xl min-h-[220px] md:min-h-[300px] flex items-end">
+          <img
+            src="/calendars/calendars-hero.jpg"
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover object-center"
+            aria-hidden
+          />
+          <div className="relative z-10 w-full p-5 md:p-8">
+            <div
+              className="inline-flex flex-col rounded-xl px-8 py-5 md:px-10 md:py-6"
+              style={{ backgroundColor: "rgba(62, 67, 47, 0.66)" }}
+            >
+              <p
+                className="text-[11px] md:text-xs font-semibold tracking-[0.16em] uppercase"
+                style={{ color: "#FDEDCC" }}
+              >
+                Spokane &amp; Kootenai County
+              </p>
+              <h1
+                className="text-3xl md:text-4xl font-bold text-white mt-1.5 whitespace-nowrap"
+                style={{ fontFamily: "var(--font-heading)" }}
+              >
+                Northwest Community Calendars
+              </h1>
+              <p className="text-sm md:text-base mt-2" style={{ color: "rgba(253,237,204,0.95)" }}>
+                Take a look at the events happening in Spokane &amp; Kootenai County!
+              </p>
+              <div
+                className="mt-4"
+                style={{
+                  ["--color-button" as string]: "var(--color-earth)",
+                  ["--color-button-text" as string]: "#ffffff",
+                  ["--color-button-hover" as string]: "#4a3f33",
+                  ["--color-button-hover-text" as string]: "#ffffff",
+                }}
+              >
+                <PostEventModal className="inline-block" />
+              </div>
+            </div>
           </div>
         </div>
 
         <section>
           <h2
-            className="text-lg font-semibold mb-3"
+            className="text-2xl font-semibold mb-3"
             style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
           >
-            Upcoming this week
+            Upcoming this Week
           </h2>
           {upcoming.length === 0 ? (
             <p className="text-sm text-gray-600">No events this week — check a calendar below.</p>
@@ -107,7 +134,7 @@ export default async function CalendarsPage() {
 
         <section className="mt-10">
           <h2
-            className="text-lg font-semibold mb-3"
+            className="text-2xl font-semibold mb-3"
             style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
           >
             Calendars

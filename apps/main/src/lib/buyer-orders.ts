@@ -82,6 +82,14 @@ export function formatBuyerPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+/** Amount the buyer paid. Stored `totalCents` is pre-tax. */
+export function buyerOrderGrandTotalCents(order: {
+  totalCents: number;
+  taxCents?: number | null;
+}): number {
+  return Math.max(0, order.totalCents + (order.taxCents ?? 0));
+}
+
 export function formatBuyerOrderDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;

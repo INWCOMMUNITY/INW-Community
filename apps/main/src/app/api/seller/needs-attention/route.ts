@@ -4,6 +4,7 @@ import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import {
   countNeedsAttention,
+  dismissNeedsAttention,
   listNeedsAttention,
 } from "@/lib/channels/needs-attention";
 import { isEtsyWhoMade, normalizeEtsyWhenMade } from "@/lib/etsy-listing-options";
@@ -46,10 +47,12 @@ const postSchema = z.object({
       etsyIsSupply: z.boolean().optional(),
       etsyTaxonomyId: z.number().int().positive().optional(),
       etsyOriginPostalCode: z.string().optional(),
+      ebayCategoryId: z.number().int().positive().optional(),
       aspects: z.record(z.string()).optional(),
     })
     .optional(),
   retry: z.boolean().optional(),
+  dismiss: z.boolean().optional(),
 });
 
 /**
@@ -71,7 +74,14 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
-  const { id, kind, fields, retry } = parsed.data;
+  const { id, kind, fields, retry, dismiss } = parsed.data;
+
+  if (dismiss) {
+    const ok = await dismissNeedsAttention(userId, id, kind);
+    if (!ok) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const items = await listNeedsAttention(userId);
+    return NextResponse.json({ ok: true, items });
+  }
 
   if (kind === "shop") {
     const connectionId = id.startsWith("shop:") ? id.slice(5) : id;
@@ -156,6 +166,9 @@ export async function POST(req: NextRequest) {
   }
   if (fields?.etsyTaxonomyId !== undefined) {
     update.etsyTaxonomyId = fields.etsyTaxonomyId;
+  }
+  if (fields?.ebayCategoryId !== undefined) {
+    update.ebayCategoryId = fields.ebayCategoryId;
   }
   if (fields?.aspects) {
     const existing = parseStoredAspects(link.storeItem.aspects);

@@ -15,6 +15,7 @@ import { fetchEvents, fetchEventsAllCalendars, type EventItem } from "@/lib/even
 import { formatTime12h } from "@/lib/format-time";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { PopupModal } from "@/components/PopupModal";
 import { PostEventForm, type PostEventAsContext } from "@/components/PostEventForm";
 import { PostEventAsPickerModal } from "@/components/PostEventAsPickerModal";
@@ -221,10 +222,30 @@ export default function CalendarsScreen() {
       contentContainerStyle={styles.container}
     >
       <View style={styles.header} lightColor="#fff" darkColor="#fff">
-        <Text style={styles.title}>Northwest Community Calendars</Text>
-        <Text style={styles.subtitle}>
-          Local events not run by NWC. See what&apos;s happening in our area!
-        </Text>
+        <View style={styles.introBanner}>
+          <View style={styles.introPhotoRow} pointerEvents="none">
+            {CALENDAR_TYPES.map((c) => (
+              <Image
+                key={c.value}
+                source={getCalendarImage(c.value as CalendarType)}
+                style={styles.introPhoto}
+                resizeMode="cover"
+              />
+            ))}
+          </View>
+          <LinearGradient
+            colors={["rgba(62,67,47,0.12)", "rgba(62,67,47,0.88)"]}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+          <View style={styles.introCopy}>
+            <Text style={styles.introEyebrow}>Spokane & Kootenai County</Text>
+            <Text style={styles.title}>Northwest{"\n"}Community Calendars</Text>
+            <Text style={styles.subtitle}>
+              Local events not run by NWC. See what&apos;s happening in our area!
+            </Text>
+          </View>
+        </View>
         <View style={styles.calendarsActionRow}>
           <Pressable
             style={({ pressed }) => [styles.sideNavButton, styles.calendarPrimaryBtn, pressed && styles.buttonPressed]}
@@ -396,21 +417,56 @@ const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: "#ffffff" },
   container: { paddingBottom: 40 },
   header: {
-    padding: 20,
     paddingBottom: 24,
     alignItems: "center",
   },
+  introBanner: {
+    width: "100%",
+    minHeight: 188,
+    justifyContent: "flex-end",
+    overflow: "hidden",
+  },
+  introPhotoRow: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: "row",
+  },
+  introPhoto: {
+    flex: 1,
+    height: "100%",
+  },
+  introCopy: {
+    paddingHorizontal: 20,
+    paddingTop: 44,
+    paddingBottom: 20,
+  },
+  introEyebrow: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+    color: theme.colors.cream,
+    textAlign: "center",
+    marginBottom: 8,
+    textShadowColor: "rgba(0,0,0,0.35)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
   title: {
-    fontSize: 20,
+    fontSize: 26,
+    lineHeight: 32,
     fontWeight: "bold",
-    color: theme.colors.heading,
+    color: "#fff",
     fontFamily: theme.fonts.heading,
     textAlign: "center",
+    textShadowColor: "rgba(0,0,0,0.4)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 5,
   },
   subtitle: {
-    marginTop: 8,
+    marginTop: 10,
     fontSize: 14,
-    color: theme.colors.text,
+    lineHeight: 20,
+    color: "rgba(255,248,225,0.95)",
     textAlign: "center",
   },
   calendarsActionRow: {
@@ -418,6 +474,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginTop: 16,
+    paddingHorizontal: 20,
     gap: 8,
     width: "100%",
     maxWidth: 400,

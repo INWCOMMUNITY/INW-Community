@@ -49,8 +49,8 @@ describe("endOnInw copy", () => {
   it("names Wix in the confirm and success heads-up", () => {
     expect(endOnInwConfirm(1, ["Wix"])).toMatch(/will NOT end this listing on Wix/i);
     const result = endOnInwResult(1, 0, ["Wix"]);
-    expect(result.title).toBe("Ended on INW only");
-    expect(result.message).toMatch(/did not end the listing on Wix/i);
+    expect(result.title).toBe("Off INW Only");
+    expect(result.message).toMatch(/did not take it down on Wix/i);
   });
 });
 

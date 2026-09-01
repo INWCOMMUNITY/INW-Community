@@ -40,17 +40,17 @@ export function formatChannelSyncResults(
   const title =
     action === "deleted"
       ? failed.length > 0 && succeeded.length === 0
-        ? "Could not delete from connected stores"
-        : "Removed from INW"
+        ? "Could Not Delete From Connected Stores"
+        : "Removed From INW"
       : action === "removed"
         ? failed.length > 0 && succeeded.length === 0
-          ? "Could not remove from store"
-          : "Removed from store"
+          ? "Could Not Remove From Stores"
+          : "Removed From Stores"
         : failed.length === 0
-          ? "Saved successfully"
+          ? "Saved Successfully"
           : succeeded.length > 0
-            ? "Partially listed"
-            : "Saved on INW";
+            ? "Partially Listed"
+            : "Saved On INW";
 
   const intro =
     action === "deleted"
@@ -101,7 +101,7 @@ export function buildPublishResultAlert(
   const result = formatChannelSyncResults(rows, "saved");
   if (rows.length === 0) {
     return {
-      title: "Could not list",
+      title: "That Store Didn't Take It",
       message: "Could not list on the selected store. Check Sync Stores and try again.",
     };
   }
@@ -111,18 +111,19 @@ export function buildPublishResultAlert(
         ? result.successLines[0]
         : result.successLines.join(", ");
     return {
-      title: "Listed",
-      message: `Listed on ${listed}.`,
+      title: "You're Live",
+      message: `Listed on ${listed}. Shoppers can find it there now.`,
     };
   }
   if (result.succeeded.length > 0) {
     return {
-      title: "Partially listed",
+      title:
+        result.failureLines.length === 1 ? "Almost — One Store Said No" : "Almost — Some Stores Said No",
       message: `Listed on ${result.successLines.join(", ")}.\n\nCould not list on others:\n\n${result.failureLines.join("\n\n")}`,
     };
   }
   return {
-    title: "Could not list",
+    title: "That Store Said No",
     message: result.failureLines.join("\n\n"),
   };
 }

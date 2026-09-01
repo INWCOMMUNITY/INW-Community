@@ -8,6 +8,7 @@ import {
   canRequestBuyerRefund,
   emptyBuyerTabCopy,
   formatBuyerOrderDate,
+  buyerOrderGrandTotalCents,
   formatBuyerPrice,
   orderMatchesBuyerTab,
   partitionBuyerOrders,
@@ -26,6 +27,11 @@ function order(partial: Partial<BuyerStoreOrder> & Pick<BuyerStoreOrder, "id" | 
 }
 
 describe("buyer order display", () => {
+  it("adds tax into the buyer-facing grand total", () => {
+    expect(buyerOrderGrandTotalCents({ totalCents: 100, taxCents: 6 })).toBe(106);
+    expect(buyerOrderGrandTotalCents({ totalCents: 100 })).toBe(100);
+  });
+
   it("formats price and a short date", () => {
     expect(formatBuyerPrice(100)).toBe("$1.00");
     expect(formatBuyerOrderDate("2026-08-12T17:59:48.000Z")).toMatch(/2026/);

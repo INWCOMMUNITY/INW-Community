@@ -52,16 +52,20 @@ export function endOnInwResult(
   shopNames: string[]
 ): { title: string; message: string; ok: boolean } {
   if (failed > 0) {
-    return { title: "End Listings", message: `Ended ${updated}. ${failed} failed.`, ok: false };
+    return {
+      title: "Couldn't End Every Listing",
+      message: `Ended ${updated}. ${failed} didn't go through.`,
+      ok: false,
+    };
   }
-  const ended = `Ended ${updated} listing${updated === 1 ? "" : "s"} on INW.`;
+  const ended = `Ended ${updated} listing${updated === 1 ? "" : "s"} on INW. Relist anytime — we drop the INW record after 14 days.`;
   if (shopNames.length === 0) {
-    return { title: "Ended on INW", message: ended, ok: true };
+    return { title: "Off INW", message: ended, ok: true };
   }
   const shops = formatShopList(shopNames);
   return {
-    title: "Ended on INW only",
-    message: `${ended}\n\nThis did not end the listing on ${shops}. End it there separately if you want it down.`,
+    title: "Off INW Only",
+    message: `${ended}\n\nThis did not take it down on ${shops}. End it there separately if you want it gone.`,
     ok: true,
   };
 }

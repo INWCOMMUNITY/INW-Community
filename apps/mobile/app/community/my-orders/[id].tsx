@@ -38,6 +38,8 @@ interface StoreOrder {
   id: string;
   status: string;
   totalCents: number;
+  taxCents?: number;
+  subtotalCents?: number;
   shippingCostCents?: number;
   createdAt: string;
   shippingAddress?: unknown;
@@ -396,9 +398,18 @@ export default function MyOrderDetailScreen() {
         </View>
       )}
 
+      {(order.taxCents ?? 0) > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.label}>Tax</Text>
+          <Text style={styles.value}>{formatPrice(order.taxCents ?? 0)}</Text>
+        </View>
+      )}
+
       <View style={styles.section}>
         <Text style={styles.label}>Total</Text>
-        <Text style={styles.totalValue}>{formatPrice(order.totalCents)}</Text>
+        <Text style={styles.totalValue}>
+          {formatPrice(order.totalCents + (order.taxCents ?? 0))}
+        </Text>
       </View>
 
       {shippingAddressStr && (

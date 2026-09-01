@@ -9,21 +9,21 @@ import {
 describe("buildPublishResultAlert", () => {
   it("explains an empty result instead of staying silent", () => {
     const alert = buildPublishResultAlert([]);
-    expect(alert.title).toBe("Could not list");
+    expect(alert.title).toBe("That Store Didn't Take It");
     expect(alert.message).toMatch(/check sync stores/i);
   });
 
   it("reports a live listing", () => {
     const alert = buildPublishResultAlert([{ provider: "wix", ok: true }]);
-    expect(alert.title).toBe("Listed");
-    expect(alert.message).toBe("Listed on Wix.");
+    expect(alert.title).toBe("You're Live");
+    expect(alert.message).toMatch(/Listed on Wix/);
   });
 
   it("reports a failed listing with the provider error", () => {
     const alert = buildPublishResultAlert([
       { provider: "ebay", ok: false, error: "Missing required eBay item specifics: Brand" },
     ]);
-    expect(alert.title).toBe("Could not list");
+    expect(alert.title).toBe("That Store Said No");
     expect(alert.message).toContain("eBay");
     expect(alert.message).toContain("Brand");
   });
@@ -48,7 +48,7 @@ describe("buildPublishResultAlert", () => {
       { provider: "wix", ok: true },
       { provider: "ebay", ok: false, error: "Invalid SKU" },
     ]);
-    expect(alert.title).toBe("Partially listed");
+    expect(alert.title).toBe("Almost — One Store Said No");
     expect(alert.message).toContain("Etsy");
     expect(alert.message).toContain("Wix");
     expect(alert.message).toContain("eBay");
@@ -74,7 +74,7 @@ describe("formatChannelSyncResults", () => {
       ],
       "saved"
     );
-    expect(result.title).toBe("Partially listed");
+    expect(result.title).toBe("Partially Listed");
     expect(result.successLines).toEqual(["Etsy"]);
     expect(result.failureLines[0]).toContain("eBay");
     expect(result.allOk).toBe(false);

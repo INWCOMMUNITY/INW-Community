@@ -23,7 +23,6 @@ import {
   type EtsyWhoMade,
 } from "@/lib/etsy-listing-options";
 import {
-  isEbayRateLimitError,
   itemNeedsEtsyListingDetails,
   mergeListOnCategoryAssignment,
   type ListOnCategoryAssignment,
@@ -59,9 +58,18 @@ type Props = {
   steps: ListOnCategoryStep[];
   onClose: () => void;
   onComplete: (assignments: ListOnCategoryAssignment[]) => Promise<void>;
+  heading?: string;
+  completeLabel?: string;
 };
 
-export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete }: Props) {
+export function ListOnChannelCategoryModal({
+  visible,
+  steps,
+  onClose,
+  onComplete,
+  heading,
+  completeLabel,
+}: Props) {
   const [index, setIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +98,7 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
   const canContinue =
     Boolean(categoryId) &&
     !aspectsLoading &&
-    !aspectsError &&
+    (categoryAspects.length > 0 || !aspectsError) &&
     missingEbayAspects.length === 0 &&
     (step?.provider !== "etsy" ||
       !showEtsyDetails ||
@@ -161,19 +169,11 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
       .then((data) => {
         if (cancelled) return;
         const list = data.aspects ?? [];
-        const rateLimited =
-          Boolean(data.rateLimited) || isEbayRateLimitError(data.error ?? data.warning ?? "");
-        if ((list.length === 0 && data.warning && rateLimited) || (rateLimited && list.length === 0)) {
+        if (list.length === 0) {
           const fallback = ebayListOnFallbackAspects();
           setCategoryAspects(fallback);
           setAspects(ebayAspectRowsForListOnPopup(fallback, parseItemAspects(step.item.aspects), step.item.title));
           setAspectsError(null);
-          return;
-        }
-        if (list.length === 0 && data.warning) {
-          setCategoryAspects([]);
-          setAspects([]);
-          setAspectsError(data.warning);
           return;
         }
         setCategoryAspects(list);
@@ -182,16 +182,10 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
       })
       .catch((e: { error?: string }) => {
         if (cancelled) return;
-        if (isEbayRateLimitError(e?.error)) {
-          const fallback = ebayListOnFallbackAspects();
-          setCategoryAspects(fallback);
-          setAspects(ebayAspectRowsForListOnPopup(fallback, parseItemAspects(step.item.aspects), step.item.title));
-          setAspectsError(null);
-          return;
-        }
-        setCategoryAspects([]);
-        setAspects([]);
-        setAspectsError(e?.error ?? "Could not load eBay item specifics for this category.");
+        const fallback = ebayListOnFallbackAspects();
+        setCategoryAspects(fallback);
+        setAspects(ebayAspectRowsForListOnPopup(fallback, parseItemAspects(step.item.aspects), step.item.title));
+        setAspectsError(null);
       })
       .finally(() => {
         if (!cancelled) setAspectsLoading(false);
@@ -295,7 +289,7 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.overlay} onPress={submitting ? undefined : onClose}>
         <Pressable style={styles.card} onPress={() => {}}>
-          <Text style={styles.title}>Select {providerLabel} category</Text>
+          <Text style={styles.title}>{heading ?? `Select ${providerLabel} category`}</Text>
           {steps.length > 1 ? (
             <Text style={styles.progress}>
               {index + 1} of {steps.length}
@@ -462,7 +456,9 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
               disabled={!canContinue || submitting}
               onPress={() => void goNext()}
             >
-              <Text style={styles.listBtnText}>{submitting ? "Listing…" : isLast ? "List" : "Next"}</Text>
+              <Text style={styles.listBtnText}>
+                {submitting ? "Saving…" : isLast ? completeLabel ?? "List" : "Next"}
+              </Text>
             </Pressable>
           </View>
         </Pressable>

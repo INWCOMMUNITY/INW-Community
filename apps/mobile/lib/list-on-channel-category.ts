@@ -17,6 +17,8 @@ export type ListOnCategoryItem = {
 export type ListOnCategoryStep = {
   item: ListOnCategoryItem;
   provider: ListOnCategoryProvider;
+  /** Names eBay already asked for (Needs Attention / publish error). Used if taxonomy fails. */
+  requiredAspectNames?: string[];
 };
 
 export type ListOnCategoryAssignment = {
@@ -114,13 +116,66 @@ export function buildListOnCategoryQueueFromDesired(
     const desired = (desiredProvidersByItemId[item.id] ?? []).filter(isListOnCategoryProvider);
     const linked = new Set((item.channelLinks ?? []).map((l) => l.provider));
     for (const provider of desired) {
-      if (linked.has(provider)) continue;
+      if (linked.has(provider)) {
+        if (provider === "ebay" && itemNeedsEbayListingDetails(item)) {
+          steps.push({ item, provider });
+        }
+        continue;
+      }
       if (itemNeedsListOnCategoryStep(item, provider)) {
         steps.push({ item, provider });
       }
     }
   }
   return steps;
+}
+
+/** After eBay rejects missing item specifics, always open the picker for those items. */
+export function buildListOnCategoryQueueFromFailedSpecifics(
+  items: ListOnCategoryItem[],
+  failedItemIds: Iterable<string>
+): ListOnCategoryStep[] {
+  const failed = new Set(failedItemIds);
+  return items.filter((item) => failed.has(item.id)).map((item) => ({ item, provider: "ebay" as const }));
+}
+
+export function isEbaySpecificsAttentionItem(item: {
+  provider: string;
+  storeItemId: string | null;
+  action?: string;
+  fields?: { key: string }[];
+  syncError?: string | null;
+  summary?: string;
+}): boolean {
+  if (item.provider !== "ebay" || !item.storeItemId) return false;
+  if (item.fields?.some((field) => field.key.startsWith("aspect:"))) return true;
+  return isMissingEbayItemSpecificsError(`${item.syncError ?? ""} ${item.summary ?? ""}`);
+}
+
+export function listOnStepFromEbayAttentionItem(item: {
+  storeItemId: string;
+  title: string;
+  photo?: string | null;
+  photos?: string[];
+  ebayCategoryId?: number | null;
+  aspects?: unknown;
+  fields?: { key: string }[];
+}): ListOnCategoryStep {
+  const requiredAspectNames = (item.fields ?? [])
+    .filter((field) => field.key.startsWith("aspect:"))
+    .map((field) => field.key.slice("aspect:".length))
+    .filter(Boolean);
+  return {
+    item: {
+      id: item.storeItemId,
+      title: item.title,
+      photos: item.photos?.length ? item.photos : item.photo ? [item.photo] : [],
+      ebayCategoryId: item.ebayCategoryId ?? null,
+      aspects: item.aspects,
+    },
+    provider: "ebay",
+    requiredAspectNames: requiredAspectNames.length > 0 ? requiredAspectNames : ["Type", "Brand"],
+  };
 }
 
 export function mergeListOnCategoryAssignment(

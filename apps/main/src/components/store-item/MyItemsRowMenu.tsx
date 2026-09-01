@@ -112,7 +112,7 @@ export function MyItemsRowMenu({
       onDone();
       onClose();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to mark as sold");
+      alert(e instanceof Error ? e.message : "Couldn't mark that sold.");
     } finally {
       setActing(false);
       setSoldPrompt(false);
@@ -135,7 +135,7 @@ export function MyItemsRowMenu({
       onDone();
       onClose();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to end listing");
+      alert(e instanceof Error ? e.message : "Couldn't end that listing.");
     } finally {
       setActing(false);
     }
@@ -155,8 +155,8 @@ export function MyItemsRowMenu({
       onDone();
       onClose();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to end listing";
-      if (onActionResult) onActionResult({ title: "End Listings failed", message: msg, ok: false });
+      const msg = e instanceof Error ? e.message : "Couldn't end that listing.";
+      if (onActionResult) onActionResult({ title: "Couldn't End Those Listings", message: msg, ok: false });
       else alert(msg);
     } finally {
       setActing(false);
@@ -181,7 +181,7 @@ export function MyItemsRowMenu({
       onDone();
       onClose();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to delete");
+      alert(e instanceof Error ? e.message : "Couldn't delete that listing.");
     } finally {
       setActing(false);
     }
@@ -206,7 +206,7 @@ export function MyItemsRowMenu({
       onDone();
       onClose();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to relist");
+      alert(e instanceof Error ? e.message : "Couldn't relist that one.");
     } finally {
       setActing(false);
     }
@@ -271,7 +271,7 @@ export function MyItemsRowMenu({
       const msg = e instanceof Error ? e.message : `Could not list on ${label}.`;
       if (assignment) throw new Error(msg);
       if (onActionResult) {
-        onActionResult({ title: "Could not list", message: msg, ok: false });
+        onActionResult({ title: "That Store Said No", message: msg, ok: false });
         onDone();
         onClose();
         return;

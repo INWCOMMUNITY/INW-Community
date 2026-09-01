@@ -1,54 +1,32 @@
-/** Shared branding for packing slips (website print + mobile app PDF). */
-export const PACKING_SLIP_FOOTER = "- inwcommunity.com";
-
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import {
+  PACKING_SLIP_FOOTER,
+  PACKING_SLIP_THANKS,
+  packingSlipContactLine,
+  packingSlipOrderMetaLine,
+  packingSlipTotalRows,
+  type PackingSlipGroup,
+  type PackingSlipSellerProfile,
+} from "./packing-slip-shared";
 
-const PT = 72; // points per inch
-const PW = 612; // 8.5in
-const PH = 792; // 11in
-const M = 0.4 * PT; // margin
-const CW = PW - M * 2; // content width
+export {
+  PACKING_SLIP_FOOTER,
+  PACKING_SLIP_THANKS,
+  packingSlipGrandTotalCents,
+  packingSlipTotalRows,
+  type PackingSlipGroup,
+  type PackingSlipOrder,
+  type PackingSlipSellerProfile,
+} from "./packing-slip-shared";
+
+const PT = 72;
+const PW = 612;
+const PH = 792;
+const M = 0.5 * PT;
+const CW = PW - M * 2;
 const BLACK = rgb(0, 0, 0);
-const LINE_W = 1;
-const THIN = 0.5;
-
-export interface PackingSlipGroup {
-  buyer: { firstName: string; lastName: string; email: string };
-  orders: Array<{ id: string; shippingAddress: unknown }>;
-  combinedItems: Array<{
-    id: string;
-    quantity: number;
-    priceCentsAtPurchase: number;
-    storeItem: { title: string };
-    orderId: string;
-  }>;
-  totalCents: number;
-  subtotalCents: number;
-  shippingCostCents: number;
-  taxCents?: number;
-}
-
-export interface PackingSlipSellerProfile {
-  business: {
-    name: string;
-    phone: string | null;
-    address: string | null;
-    city?: string | null;
-    logoUrl: string | null;
-    website?: string | null;
-    email?: string | null;
-  } | null;
-  /** Return/ship-from address (from Shippo Address Book when generating slip). */
-  returnAddressFormatted: string | null;
-  packingSlipNote?: string | null;
-}
-
-function fmtAddr(addr: string | null, city?: string | null): string {
-  if (!addr?.trim()) return "";
-  const lines = addr.split(/\n/).map((l) => l.trim()).filter(Boolean);
-  if (city?.trim()) lines.push(city.trim());
-  return lines.join("\n");
-}
+const THIN = 0.4;
+const FOOTER_RESERVE = 52;
 
 function fmtShipTo(addr: unknown): string {
   if (!addr || typeof addr !== "object") return "";
@@ -65,7 +43,6 @@ function fmtShipTo(addr: unknown): string {
 type PDFPage = Awaited<ReturnType<PDFDocument["addPage"]>>;
 type PDFFont = Awaited<ReturnType<PDFDocument["embedFont"]>>;
 
-/** Resolve relative logo URLs (e.g. /uploads/...) to absolute so server-side fetch works. */
 function resolveLogoUrl(logoUrl: string): string {
   const trimmed = logoUrl.trim();
   if (!trimmed) return trimmed;
@@ -83,7 +60,6 @@ async function tryEmbedLogo(doc: PDFDocument, url: string) {
     if (!res.ok) return null;
     const bytes = new Uint8Array(await res.arrayBuffer());
     const ct = (res.headers.get("content-type") ?? "").toLowerCase();
-    // Detect by magic bytes if content-type is missing or generic
     const isPng =
       ct.includes("png") ||
       (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47);
@@ -99,12 +75,8 @@ async function tryEmbedLogo(doc: PDFDocument, url: string) {
   }
 }
 
-function drawRect(p: PDFPage, x: number, y: number, w: number, h: number, lw = LINE_W) {
-  p.drawRectangle({ x, y, width: w, height: h, borderColor: BLACK, borderWidth: lw, color: undefined });
-}
-
-function drawLine(p: PDFPage, x1: number, y1: number, x2: number, _y2: number, lw = LINE_W * 2) {
-  p.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: _y2 }, thickness: lw, color: BLACK });
+function drawLine(p: PDFPage, x1: number, y1: number, x2: number, y2: number, lw = 0.75) {
+  p.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, thickness: lw, color: BLACK });
 }
 
 function textLines(text: string, font: PDFFont, size: number, maxW: number): string[] {
@@ -127,17 +99,16 @@ function textLines(text: string, font: PDFFont, size: number, maxW: number): str
   return result;
 }
 
-function drawWrapped(
-  p: PDFPage, text: string, x: number, y: number,
-  font: PDFFont, size: number, maxW: number
-): number {
-  const lines = textLines(text, font, size, maxW);
-  let cy = y;
-  for (const line of lines) {
-    p.drawText(line, { x, y: cy, size, font, color: BLACK });
-    cy -= size * 1.4;
-  }
-  return cy;
+function drawRight(
+  p: PDFPage,
+  text: string,
+  rightX: number,
+  y: number,
+  size: number,
+  font: PDFFont
+) {
+  const w = font.widthOfTextAtSize(text, size);
+  p.drawText(text, { x: rightX - w, y, size, font, color: BLACK });
 }
 
 export async function generatePackingSlipPdf(
@@ -147,168 +118,215 @@ export async function generatePackingSlipPdf(
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const fontItalic = await doc.embedFont(StandardFonts.HelveticaOblique);
 
   const biz = sellerProfile.business;
-  const bizName = biz?.name ?? "Business";
+  const bizName = biz?.name?.trim() || "Packing slip";
   const returnAddress = sellerProfile.returnAddressFormatted?.trim() || "—";
-
+  const contact = packingSlipContactLine(biz);
+  const note = sellerProfile.packingSlipNote?.trim() ?? "";
   const logo = biz?.logoUrl ? await tryEmbedLogo(doc, biz.logoUrl) : null;
 
-  for (const group of groups) {
-    const page = doc.addPage([PW, PH]);
-    let y = PH - M;
+  const qtyW = 36;
+  const unitW = 72;
+  const lineW = 72;
+  const nameW = CW - qtyW - unitW - lineW;
+  const unitX = M + qtyW + nameW;
+  const lineX = M + CW;
 
-    // ── Header: Logo (left) + Note box & Website/Email boxes (right) ──
-    const logoSize = 90;
-    const logoX = M;
-    const logoY = y - logoSize;
-    const rightX = M + logoSize + 16;
-    const rightW = CW - logoSize - 16;
+  for (const group of groups) {
+    const groupPages: PDFPage[] = [];
+    let page!: PDFPage;
+    let y = 0;
+
+    const addPage = () => {
+      page = doc.addPage([PW, PH]);
+      groupPages.push(page);
+      y = PH - M;
+    };
+
+    const contentFloor = () => M + FOOTER_RESERVE;
+
+    const drawTableHeader = () => {
+      page.drawText("Qty", { x: M, y, size: 8, font: fontBold, color: BLACK });
+      page.drawText("Item", { x: M + qtyW, y, size: 8, font: fontBold, color: BLACK });
+      drawRight(page, "Unit price", unitX + unitW, y, 8, fontBold);
+      drawRight(page, "Line total", lineX, y, 8, fontBold);
+      y -= 5;
+      drawLine(page, M, y, M + CW, y, 0.75);
+      y -= 12;
+    };
+
+    const drawContinuationHeader = () => {
+      page.drawText(`${bizName}  —  ${packingSlipOrderMetaLine(group)} (continued)`, {
+        x: M,
+        y,
+        size: 8,
+        font,
+        color: BLACK,
+      });
+      y -= 10;
+      drawLine(page, M, y, M + CW, y, 0.75);
+      y -= 16;
+    };
+
+    const ensureSpace = (needed: number, continued = true) => {
+      if (y - needed >= contentFloor()) return;
+      addPage();
+      if (continued) drawContinuationHeader();
+    };
+
+    addPage();
+
+    const logoSize = 64;
+    const textX = logo ? M + logoSize + 14 : M;
+    const textW = logo ? CW - logoSize - 14 : CW;
+    let textY = y - 12;
+
+    page.drawText(bizName, { x: textX, y: textY, size: 14, font: fontBold, color: BLACK });
+    textY -= 16;
+    if (contact) {
+      const contactLines = textLines(contact, font, 8, textW);
+      for (const cl of contactLines) {
+        page.drawText(cl, { x: textX, y: textY, size: 8, font, color: BLACK });
+        textY -= 11;
+      }
+    }
+    if (note) {
+      textY -= 4;
+      const noteLines = textLines(note, fontItalic, 8, textW).slice(0, 6);
+      for (const nl of noteLines) {
+        page.drawText(nl, { x: textX, y: textY, size: 8, font: fontItalic, color: BLACK });
+        textY -= 11;
+      }
+    }
 
     if (logo) {
       const { width: iw, height: ih } = logo.scale(1);
-      const scale = logoSize / Math.max(iw, ih);
+      const inset = 3;
+      const box = logoSize - inset * 2;
+      const scale = box / Math.max(iw, ih);
       const dw = iw * scale;
       const dh = ih * scale;
-      const cx = logoX + logoSize / 2;
-      const cy = logoY + logoSize / 2;
-      page.drawImage(logo, { x: cx - dw / 2, y: cy - dh / 2, width: dw, height: dh });
-    }
-    // Circle border around logo area
-    page.drawCircle({ x: logoX + logoSize / 2, y: logoY + logoSize / 2, size: logoSize / 2, borderColor: BLACK, borderWidth: LINE_W * 1.5, color: undefined });
-    if (!logo) {
-      const lbl = "Business Logo";
-      const tw = font.widthOfTextAtSize(lbl, 8);
-      page.drawText(lbl, { x: logoX + (logoSize - tw) / 2, y: logoY + logoSize / 2 - 4, size: 8, font, color: BLACK });
-    }
-
-    // Note box
-    const noteBoxH = 52;
-    const noteBoxY = y - noteBoxH;
-    drawRect(page, rightX, noteBoxY, rightW, noteBoxH);
-    page.drawText(`A Note from ${bizName}`, { x: rightX + 8, y: noteBoxY + noteBoxH - 14, size: 9, font: fontBold, color: BLACK });
-    const noteText = sellerProfile.packingSlipNote?.trim() || "—";
-    const noteLines = textLines(noteText.slice(0, 250), font, 8, rightW - 16);
-    let ny = noteBoxY + noteBoxH - 28;
-    for (const nl of noteLines.slice(0, 3)) {
-      page.drawText(nl, { x: rightX + 8, y: ny, size: 8, font, color: BLACK });
-      ny -= 11;
+      const logoY = y - logoSize;
+      page.drawRectangle({
+        x: M,
+        y: logoY,
+        width: logoSize,
+        height: logoSize,
+        borderColor: BLACK,
+        borderWidth: 0.6,
+        color: undefined,
+      });
+      page.drawImage(logo, {
+        x: M + inset + (box - dw) / 2,
+        y: logoY + inset + (box - dh) / 2,
+        width: dw,
+        height: dh,
+      });
     }
 
-    // Website & Email boxes
-    const smallBoxH = 32;
-    const smallBoxY = noteBoxY - 6 - smallBoxH;
-    const halfW = (rightW - 6) / 2;
+    y = Math.min(logo ? y - logoSize : y, textY) - 14;
 
-    drawRect(page, rightX, smallBoxY, halfW, smallBoxH);
-    page.drawText("Sellers Website", { x: rightX + 6, y: smallBoxY + smallBoxH - 11, size: 7, font: fontBold, color: BLACK });
-    const webText = biz?.website ?? "—";
-    page.drawText(webText.slice(0, 35), { x: rightX + 6, y: smallBoxY + 6, size: 8, font, color: BLACK });
-
-    drawRect(page, rightX + halfW + 6, smallBoxY, halfW, smallBoxH);
-    page.drawText("Sellers Email", { x: rightX + halfW + 12, y: smallBoxY + smallBoxH - 11, size: 7, font: fontBold, color: BLACK });
-    const emailText = biz?.email ?? "—";
-    page.drawText(emailText.slice(0, 35), { x: rightX + halfW + 12, y: smallBoxY + 6, size: 8, font, color: BLACK });
-
-    y = Math.min(logoY, smallBoxY) - 12;
-
-    // ── Separator ──
-    drawLine(page, M, y, M + CW, y, 2);
+    page.drawText(packingSlipOrderMetaLine(group), { x: M, y, size: 9, font, color: BLACK });
+    y -= 12;
+    drawLine(page, M, y, M + CW, y, 0.75);
     y -= 16;
 
-    // ── Return Address | Shipping Address side-by-side boxes ──
-    const addrBoxW = (CW - 12) / 2;
-    const addrBoxH = 80;
-    const addrBoxY = y - addrBoxH;
+    const colW = (CW - 24) / 2;
+    const labelSize = 7;
+    page.drawText("RETURN ADDRESS", { x: M, y, size: labelSize, font: fontBold, color: BLACK });
+    page.drawText("SHIP TO", { x: M + colW + 24, y, size: labelSize, font: fontBold, color: BLACK });
+    y -= 13;
 
-    drawRect(page, M, addrBoxY, addrBoxW, addrBoxH, 1.5);
-    page.drawText("RETURN ADDRESS", { x: M + 10, y: addrBoxY + addrBoxH - 16, size: 8, font: fontBold, color: BLACK });
-    drawWrapped(page, returnAddress || "—", M + 10, addrBoxY + addrBoxH - 30, font, 9, addrBoxW - 20);
+    const returnLines = textLines(returnAddress, font, 9, colW);
+    const buyerName = `${group.buyer.firstName} ${group.buyer.lastName}`.trim();
+    const shipLines = [
+      buyerName,
+      ...textLines(fmtShipTo(group.orders[0]?.shippingAddress) || "—", font, 9, colW),
+    ];
+    const addrCount = Math.max(returnLines.length, shipLines.length);
+    for (let i = 0; i < addrCount; i++) {
+      const ret = returnLines[i];
+      const ship = shipLines[i];
+      if (ret) page.drawText(ret, { x: M, y, size: 9, font, color: BLACK });
+      if (ship) {
+        page.drawText(ship, {
+          x: M + colW + 24,
+          y,
+          size: 9,
+          font: i === 0 ? fontBold : font,
+          color: BLACK,
+        });
+      }
+      y -= 12;
+    }
 
-    const shipBoxX = M + addrBoxW + 12;
-    drawRect(page, shipBoxX, addrBoxY, addrBoxW, addrBoxH, 1.5);
-    page.drawText("SHIPPING ADDRESS", { x: shipBoxX + 10, y: addrBoxY + addrBoxH - 16, size: 8, font: fontBold, color: BLACK });
-    const buyerName = `${group.buyer.firstName} ${group.buyer.lastName}`;
-    page.drawText(buyerName, { x: shipBoxX + 10, y: addrBoxY + addrBoxH - 30, size: 9, font: fontBold, color: BLACK });
-    const shipAddr = fmtShipTo(group.orders[0]?.shippingAddress);
-    drawWrapped(page, shipAddr || "—", shipBoxX + 10, addrBoxY + addrBoxH - 44, font, 9, addrBoxW - 20);
+    y -= 8;
+    drawLine(page, M, y, M + CW, y, 0.75);
+    y -= 16;
 
-    y = addrBoxY - 12;
-
-    // ── Separator ──
-    drawLine(page, M, y, M + CW, y, 2);
-    y -= 20;
-
-    // ── Item table ──
-    const qtyColW = 60;
-    const priceColW = 80;
-    const nameColW = CW - qtyColW - priceColW;
-
-    page.drawText("Quantity", { x: M, y, size: 9, font: fontBold, color: BLACK });
-    page.drawText("Item Name", { x: M + qtyColW, y, size: 9, font: fontBold, color: BLACK });
-    page.drawText("Price Per Item", { x: M + CW - priceColW, y, size: 9, font: fontBold, color: BLACK });
-    y -= 6;
-    drawLine(page, M, y, M + CW, y, 1.5);
-    y -= 14;
+    drawTableHeader();
 
     for (const oi of group.combinedItems) {
+      const title = oi.storeItem.title?.trim() || "Item";
+      const titleLines = textLines(title, font, 9, nameW);
+      const rowH = Math.max(14, titleLines.length * 12) + 6;
+      ensureSpace(rowH);
       page.drawText(String(oi.quantity), { x: M, y, size: 9, font, color: BLACK });
-      const title = oi.storeItem.title.length > 50 ? oi.storeItem.title.slice(0, 47) + "..." : oi.storeItem.title;
-      page.drawText(title, { x: M + qtyColW, y, size: 9, font, color: BLACK });
-      const priceStr = `$${(oi.priceCentsAtPurchase / 100).toFixed(2)}`;
-      const priceW = font.widthOfTextAtSize(priceStr, 9);
-      page.drawText(priceStr, { x: M + CW - priceW, y, size: 9, font, color: BLACK });
-      y -= 4;
+      let ty = y;
+      for (const tl of titleLines) {
+        page.drawText(tl, { x: M + qtyW, y: ty, size: 9, font, color: BLACK });
+        ty -= 12;
+      }
+      const unitStr = `$${(oi.priceCentsAtPurchase / 100).toFixed(2)}`;
+      const lineStr = `$${((oi.priceCentsAtPurchase * oi.quantity) / 100).toFixed(2)}`;
+      drawRight(page, unitStr, unitX + unitW, y, 9, font);
+      drawRight(page, lineStr, lineX, y, 9, font);
+      y = Math.min(y, ty) - 4;
       drawLine(page, M, y, M + CW, y, THIN);
+      y -= 10;
+    }
+
+    const totalRows = packingSlipTotalRows(group);
+    const totalsH = 10 + totalRows.length * 14 + 8;
+    ensureSpace(totalsH);
+    y -= 6;
+
+    const totalsW = 200;
+    const totalsRight = M + CW;
+    const totalsLeft = totalsRight - totalsW;
+
+    for (const row of totalRows) {
+      if (row.emphasis) {
+        drawLine(page, totalsLeft, y + 10, totalsRight, y + 10, 0.75);
+        y -= 4;
+      }
+      const rowFont = row.emphasis ? fontBold : font;
+      const rowSize = row.emphasis ? 11 : 9;
+      page.drawText(row.label, { x: totalsLeft, y, size: rowSize, font: rowFont, color: BLACK });
+      drawRight(page, row.value, totalsRight, y, rowSize, rowFont);
       y -= 14;
     }
 
-    y -= 4;
-
-    // ── Shipping Cost, Tax, Total boxes (right-aligned) ──
-    const boxW = 90;
-    const boxH = 36;
-    const boxGap = 8;
-
-    const hasTax = group.taxCents && group.taxCents > 0;
-    const numBoxes = hasTax ? 3 : 2;
-    const totalBoxesW = numBoxes * boxW + (numBoxes - 1) * boxGap;
-    let bx = M + CW - totalBoxesW;
-    const boxY = y - boxH;
-
-    // Shipping Cost
-    drawRect(page, bx, boxY, boxW, boxH, 1.5);
-    page.drawText("Shipping Cost", { x: bx + 6, y: boxY + boxH - 12, size: 7, font: fontBold, color: BLACK });
-    const shipStr = `$${(group.shippingCostCents / 100).toFixed(2)}`;
-    const shipW = font.widthOfTextAtSize(shipStr, 9);
-    page.drawText(shipStr, { x: bx + boxW - shipW - 6, y: boxY + 8, size: 9, font: fontBold, color: BLACK });
-    bx += boxW + boxGap;
-
-    // Tax (if applicable)
-    if (hasTax) {
-      drawRect(page, bx, boxY, boxW, boxH, 1.5);
-      page.drawText("Tax", { x: bx + 6, y: boxY + boxH - 12, size: 7, font: fontBold, color: BLACK });
-      const taxStr = `$${(group.taxCents! / 100).toFixed(2)}`;
-      const taxW = font.widthOfTextAtSize(taxStr, 9);
-      page.drawText(taxStr, { x: bx + boxW - taxW - 6, y: boxY + 8, size: 9, font: fontBold, color: BLACK });
-      bx += boxW + boxGap;
+    const n = groupPages.length;
+    for (let i = 0; i < n; i++) {
+      const p = groupPages[i]!;
+      const footerY = M + 18;
+      drawLine(p, M, footerY + 22, M + CW, footerY + 22, 0.6);
+      const thanksW = font.widthOfTextAtSize(PACKING_SLIP_THANKS, 8);
+      p.drawText(PACKING_SLIP_THANKS, {
+        x: M + (CW - thanksW) / 2,
+        y: footerY + 8,
+        size: 8,
+        font,
+        color: BLACK,
+      });
+      p.drawText(PACKING_SLIP_FOOTER, { x: M, y: footerY - 6, size: 8, font, color: BLACK });
+      if (n > 1) {
+        drawRight(p, `Page ${i + 1} of ${n}`, M + CW, footerY - 6, 8, font);
+      }
     }
-
-    // Total
-    drawRect(page, bx, boxY, boxW, boxH, 1.5);
-    page.drawText("Total", { x: bx + 6, y: boxY + boxH - 12, size: 7, font: fontBold, color: BLACK });
-    const totalStr = `$${(group.totalCents / 100).toFixed(2)}`;
-    const totalW = fontBold.widthOfTextAtSize(totalStr, 10);
-    page.drawText(totalStr, { x: bx + boxW - totalW - 6, y: boxY + 8, size: 10, font: fontBold, color: BLACK });
-
-    // ── Footer at bottom of page ──
-    const footerY = M + 40;
-    drawLine(page, M, footerY + 24, M + CW, footerY + 24, 2);
-    const tyMsg = "Thank you for Supporting Locally Owned Businesses!";
-    const tyW = fontBold.widthOfTextAtSize(tyMsg, 13);
-    page.drawText(tyMsg, { x: M + (CW - tyW) / 2, y: footerY + 6, size: 13, font: fontBold, color: BLACK });
-    const footW = font.widthOfTextAtSize(PACKING_SLIP_FOOTER, 9);
-    page.drawText(PACKING_SLIP_FOOTER, { x: M + (CW - footW) / 2, y: footerY - 10, size: 9, font, color: BLACK });
   }
 
   const pdfBytes = await doc.save();

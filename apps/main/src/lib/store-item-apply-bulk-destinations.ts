@@ -1,6 +1,10 @@
 import { prisma, Prisma } from "database";
-import { isChannelProvider, type ChannelProvider } from "@/lib/channels/types";
-import { publishStoreItemToChannels, unpublishStoreItemFromChannels } from "@/lib/channels/outbound";
+import { CHANNEL_PROVIDERS, isChannelProvider, type ChannelProvider } from "@/lib/channels/types";
+import {
+  publishStoreItemToChannels,
+  unpublishStoreItemFromChannels,
+  updateStoreItemOnChannels,
+} from "@/lib/channels/outbound";
 import { logSellerActivity } from "@/lib/seller-activity-log";
 import { inactiveStoreItemData } from "@/lib/store-item-ended-status";
 import type { ListOnCategoryAssignment } from "@/lib/list-on-channel-category";
@@ -146,6 +150,26 @@ export async function applyBulkDestinations(input: {
         for (const provider of toAdd) {
           providerResults[provider] = { ok: false, error: msg };
         }
+      }
+    }
+
+    const ebayAssignment = input.categoryAssignments?.find((row) => row.storeItemId === item.id);
+    const alreadyLinkedEbay =
+      item.channelLinks.some((link) => link.provider === "ebay") && !toAdd.includes("ebay");
+    if (input.action === "sync" && alreadyLinkedEbay && ebayAssignment && !failed) {
+      try {
+        const rows = await updateStoreItemOnChannels(item.id, {
+          skipProviders: CHANNEL_PROVIDERS.filter((provider) => provider !== "ebay"),
+          force: true,
+        });
+        mergeProviderResults(providerResults, rows);
+        if (rows.some((row) => !row.ok)) failed = true;
+      } catch (e) {
+        failed = true;
+        providerResults.ebay = {
+          ok: false,
+          error: e instanceof Error ? e.message : "eBay update failed",
+        };
       }
     }
 

@@ -436,6 +436,7 @@ export function FulfillmentHubContent(props: {
                     ...o,
                     shippingCostCents: o.shippingCostCents ?? 0,
                     shippingAddress: o.shippingAddress ?? {},
+                    taxCents: o.taxCents,
                     items: (o.items ?? []).map((item) => ({
                       ...item,
                       priceCentsAtPurchase: item.priceCentsAtPurchase ?? 0,

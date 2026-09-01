@@ -110,7 +110,12 @@ export async function POST(req: NextRequest) {
           }
           return Array.from(byBuyer.values()).map((group) => ({
             buyer: group[0].buyer,
-            orders: group,
+            orders: group.map((o) => ({
+              id: o.id,
+              shippingAddress: o.shippingAddress,
+              createdAt: o.createdAt,
+              stripePaymentIntentId: o.stripePaymentIntentId,
+            })),
             combinedItems: group.flatMap((o) =>
               o.items.map((oi) => ({
                 id: oi.id,
@@ -126,15 +131,19 @@ export async function POST(req: NextRequest) {
               0
             ),
             shippingCostCents: group.reduce((s, o) => s + o.shippingCostCents, 0),
-            taxCents: group.reduce(
-              (s, o) => s + ((o as { taxCents?: number }).taxCents ?? 0),
-              0
-            ),
+            taxCents: group.reduce((s, o) => s + o.taxCents, 0),
           }));
         })()
       : orders.map((o) => ({
           buyer: o.buyer,
-          orders: [o],
+          orders: [
+            {
+              id: o.id,
+              shippingAddress: o.shippingAddress,
+              createdAt: o.createdAt,
+              stripePaymentIntentId: o.stripePaymentIntentId,
+            },
+          ],
           combinedItems: o.items.map((oi) => ({
             id: oi.id,
             quantity: oi.quantity,
@@ -145,7 +154,7 @@ export async function POST(req: NextRequest) {
           totalCents: o.totalCents,
           subtotalCents: o.subtotalCents ?? o.totalCents - o.shippingCostCents,
           shippingCostCents: o.shippingCostCents,
-          taxCents: (o as { taxCents?: number }).taxCents,
+          taxCents: o.taxCents,
         }));
 
     const pdfBytes = await generatePackingSlipPdf(groups, sellerProfile);

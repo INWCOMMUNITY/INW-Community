@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildListOnCategoryQueue,
   buildListOnCategoryQueueFromDesired,
+  buildListOnCategoryQueueFromFailedSpecifics,
+  isEbaySpecificsAttentionItem,
   isMissingEbayItemSpecificsError,
   itemNeedsListOnCategoryStep,
+  listOnStepFromEbayAttentionItem,
   mergeListOnCategoryAssignment,
   type ListOnCategoryItem,
 } from "./list-on-channel-category";
@@ -94,6 +97,100 @@ describe("buildListOnCategoryQueueFromDesired", () => {
       { a: ["ebay"], b: ["etsy"] }
     );
     expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["a:ebay"]);
+  });
+
+  it("queues already-linked eBay when Type or Brand is still missing", () => {
+    const steps = buildListOnCategoryQueueFromDesired(
+      [
+        item({
+          id: "a",
+          ebayCategoryId: 11450,
+          channelLinks: [{ provider: "ebay" }],
+        }),
+      ],
+      { a: ["ebay"] }
+    );
+    expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["a:ebay"]);
+  });
+
+  it("does not queue already-linked eBay when Type and Brand are set", () => {
+    const steps = buildListOnCategoryQueueFromDesired(
+      [
+        item({
+          id: "a",
+          ebayCategoryId: 11450,
+          aspects: [
+            { name: "Type", value: "Clock" },
+            { name: "Brand", value: "Unbranded" },
+          ],
+          channelLinks: [{ provider: "ebay" }],
+        }),
+      ],
+      { a: ["ebay"] }
+    );
+    expect(steps).toEqual([]);
+  });
+});
+
+describe("buildListOnCategoryQueueFromFailedSpecifics", () => {
+  it("queues eBay for failed items even when they are already linked", () => {
+    const steps = buildListOnCategoryQueueFromFailedSpecifics(
+      [
+        item({
+          id: "a",
+          ebayCategoryId: 11450,
+          channelLinks: [{ provider: "ebay" }],
+        }),
+        item({ id: "b" }),
+      ],
+      ["a"]
+    );
+    expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["a:ebay"]);
+  });
+});
+
+describe("isEbaySpecificsAttentionItem", () => {
+  it("matches fillable Type/Brand fields and missing-specifics errors", () => {
+    expect(
+      isEbaySpecificsAttentionItem({
+        provider: "ebay",
+        storeItemId: "a",
+        action: "fill",
+        fields: [{ key: "aspect:Type" }],
+      })
+    ).toBe(true);
+    expect(
+      isEbaySpecificsAttentionItem({
+        provider: "ebay",
+        storeItemId: "a",
+        action: "retry_only",
+        fields: [],
+        syncError: "Missing required eBay item specifics: Type, Brand.",
+      })
+    ).toBe(true);
+    expect(
+      isEbaySpecificsAttentionItem({
+        provider: "etsy",
+        storeItemId: "a",
+        fields: [{ key: "etsyWhoMade" }],
+      })
+    ).toBe(false);
+  });
+});
+
+describe("listOnStepFromEbayAttentionItem", () => {
+  it("builds a centered eBay picker step from Needs Attention fields", () => {
+    const step = listOnStepFromEbayAttentionItem({
+      storeItemId: "a",
+      title: "Bear Clock",
+      photo: "/clock.jpg",
+      ebayCategoryId: 11450,
+      fields: [{ key: "aspect:Type" }, { key: "aspect:Brand" }],
+    });
+    expect(step.provider).toBe("ebay");
+    expect(step.item.id).toBe("a");
+    expect(step.item.ebayCategoryId).toBe(11450);
+    expect(step.requiredAspectNames).toEqual(["Type", "Brand"]);
   });
 });
 

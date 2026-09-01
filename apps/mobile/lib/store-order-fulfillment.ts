@@ -14,6 +14,8 @@ export type StoreOrderSummary = {
   orderKind?: string;
   status: string;
   totalCents: number;
+  taxCents?: number;
+  subtotalCents?: number;
   shippingCostCents?: number;
   stripePaymentIntentId?: string | null;
   shippingAddress?: unknown;

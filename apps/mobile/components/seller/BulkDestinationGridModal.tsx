@@ -13,6 +13,7 @@ import { theme } from "@/lib/theme";
 import { CHANNEL_PROVIDER_LABEL } from "@/lib/channel-connections";
 import {
   BULK_DESTINATION_COPY,
+  MANAGE_LISTINGS_UNCHECK_NOTE,
   UNSYNC_INW_NOTE,
   assignmentsFromGrid,
   columnChecked,
@@ -106,6 +107,7 @@ export function BulkDestinationGridModal({
           </Pressable>
         </View>
         <Text style={styles.body}>{copy.body}</Text>
+        {action === "sync" ? <Text style={styles.warning}>{MANAGE_LISTINGS_UNCHECK_NOTE}</Text> : null}
         <ScrollView horizontal style={styles.tableScroll} contentContainerStyle={{ minWidth: 520 }}>
           <View style={{ flex: 1 }}>
             <View style={styles.row}>

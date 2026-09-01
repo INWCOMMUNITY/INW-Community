@@ -39,6 +39,7 @@ interface StoreOrder {
   id: string;
   orderNumber?: string;
   totalCents: number;
+  taxCents?: number;
   status: string;
   createdAt: string;
   isCashOrder?: boolean;
@@ -182,7 +183,7 @@ export default function MyOrdersScreen() {
                     <Text style={styles.orderId}>#{item.orderNumber ?? item.id.slice(-8).toUpperCase()}</Text>
                     <Text style={styles.sellerName}>{sellerName}</Text>
                     <Text style={styles.date}>{formatDate(item.createdAt)}</Text>
-                    <Text style={styles.total}>{formatPrice(item.totalCents)}</Text>
+                    <Text style={styles.total}>{formatPrice(item.totalCents + (item.taxCents ?? 0))}</Text>
                     <View style={styles.statusBadge}>
                       <Text style={styles.statusText}>{getOrderStatusLabel(item.status)}</Text>
                     </View>

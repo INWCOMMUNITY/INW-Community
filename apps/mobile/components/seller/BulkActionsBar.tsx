@@ -21,11 +21,13 @@ import { ListOnChannelCategoryModal } from "@/components/channels/ListOnChannelC
 import { BulkDestinationGridModal } from "@/components/seller/BulkDestinationGridModal";
 import {
   buildListOnCategoryQueueFromDesired,
+  buildListOnCategoryQueueFromFailedSpecifics,
   isMissingEbayItemSpecificsError,
   type ListOnCategoryAssignment,
 } from "@/lib/list-on-channel-category";
 import {
   desiredProvidersByItemId,
+  bulkDestinationFailTitle,
   summarizeBulkDestinations,
   uniqueLinkedShopNames,
   hasLinkedChannelListings,
@@ -36,7 +38,7 @@ import {
   type DestinationAssignment,
 } from "@/lib/store-item-bulk-destinations";
 
-type ItemsTab = "active" | "ended" | "sold";
+type ItemsTab = "active" | "attention" | "ended" | "sold";
 
 type BulkItem = {
   id: string;
@@ -97,7 +99,7 @@ export function BulkActionsBar({
 
   const handleBulkEdit = async () => {
     if (!priceChangePercent && !quantityAdjust) {
-      Alert.alert("No Changes", "Enter a price change percent and/or quantity adjustment.");
+      Alert.alert("Nothing To Apply", "Add a price change percent and/or a quantity adjustment first.");
       return;
     }
 
@@ -120,15 +122,15 @@ export function BulkActionsBar({
       resetEditForm();
 
       if (result.failed > 0) {
-        Alert.alert("Partial Success", `Updated ${result.updated} items. ${result.failed} failed.`);
+        Alert.alert("Updated Some, Missed Some", `Updated ${result.updated}. ${result.failed} didn't go through.`);
       } else {
-        Alert.alert("Success", `Updated ${result.updated} items.`);
+        Alert.alert("Numbers Updated", `Updated ${result.updated} item${result.updated === 1 ? "" : "s"}.`);
       }
 
       onActionComplete();
       onClearSelection();
     } catch (e) {
-      Alert.alert("Error", (e as { error?: string })?.error || "Bulk edit failed");
+      Alert.alert("Couldn't Apply That Edit", (e as { error?: string })?.error || "Bulk edit didn't go through.");
     } finally {
       setLoading(false);
     }
@@ -155,16 +157,11 @@ export function BulkActionsBar({
         items: assignments,
         ...(categoryAssignments?.length ? { assignments: categoryAssignments } : {}),
       });
-      const failedSpecifics = (result.results ?? []).some(
-        (row) => row.status === "failed" && isMissingEbayItemSpecificsError(row.detail)
-      );
-      if (action === "sync" && failedSpecifics) {
-        const summary = summarizeBulkDestinations(action, result);
-        if (categoryAssignments) throw new Error(summary.message);
-        const queue = buildListOnCategoryQueueFromDesired(
-          selectedItems,
-          desiredProvidersByItemId(assignments)
-        );
+      const failedSpecificIds = (result.results ?? [])
+        .filter((row) => row.status === "failed" && isMissingEbayItemSpecificsError(row.detail))
+        .map((row) => row.itemId);
+      if (action === "sync" && failedSpecificIds.length > 0 && !categoryAssignments) {
+        const queue = buildListOnCategoryQueueFromFailedSpecifics(selectedItems, failedSpecificIds);
         if (queue.length > 0) {
           setPendingAssignments(assignments);
           setGridAction(null);
@@ -181,7 +178,7 @@ export function BulkActionsBar({
       onClearSelection();
     } catch (e) {
       const msg = (e as { error?: string })?.error || "Update failed";
-      Alert.alert("Error", msg);
+      Alert.alert(bulkDestinationFailTitle(action), msg);
       if (categoryAssignments) throw new Error(msg);
     } finally {
       setLoading(false);
@@ -212,7 +209,7 @@ export function BulkActionsBar({
             onActionComplete();
             onClearSelection();
           } catch (e) {
-            Alert.alert("Error", (e as { error?: string })?.error || "End listings failed");
+            Alert.alert("Couldn't End Those Listings", (e as { error?: string })?.error || "End didn't go through.");
           } finally {
             setLoading(false);
           }
@@ -237,11 +234,12 @@ export function BulkActionsBar({
                 quantity: 1,
                 republishChannels: false,
               });
-              Alert.alert("Relisted", `Relisted ${result.relisted ?? selectedIds.length} item(s).`);
+              const n = result.relisted ?? selectedIds.length;
+              Alert.alert("Back On The Floor", `Relisted ${n} item${n === 1 ? "" : "s"} with quantity 1.`);
               onActionComplete();
               onClearSelection();
             } catch (e) {
-              Alert.alert("Error", (e as { error?: string })?.error || "Bulk relist failed");
+              Alert.alert("Couldn't Relist", (e as { error?: string })?.error || "Relist didn't go through.");
             } finally {
               setLoading(false);
             }

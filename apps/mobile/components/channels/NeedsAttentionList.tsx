@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -16,6 +16,13 @@ import { theme, switchIosBackgroundColor, switchThumbColor, switchTrackColor } f
 import { apiGet, apiPost } from "@/lib/api";
 import { SelectField } from "@/components/listing/SelectField";
 import { EbayConditionFixModal } from "@/components/channels/EbayConditionFixModal";
+import { ListOnChannelCategoryModal } from "@/components/channels/ListOnChannelCategoryModal";
+import {
+  isEbaySpecificsAttentionItem,
+  listOnStepFromEbayAttentionItem,
+  type ListOnCategoryAssignment,
+  type ListOnCategoryStep,
+} from "@/lib/list-on-channel-category";
 
 export type NeedsAttentionField = {
   key: string;
@@ -33,6 +40,9 @@ export type NeedsAttentionItem = {
   connectionId: string;
   title: string;
   photo: string | null;
+  photos?: string[];
+  ebayCategoryId?: number | null;
+  aspects?: unknown;
   provider: string;
   summary: string;
   syncError: string | null;
@@ -40,6 +50,27 @@ export type NeedsAttentionItem = {
   action: "fill" | "ebay_condition" | "retry_only";
   canRetry: boolean;
 };
+
+function ebaySpecificsSummary(item: NeedsAttentionItem): string {
+  const names = item.fields.filter((field) => field.key.startsWith("aspect:")).map((field) => field.label);
+  if (names.length > 0) {
+    return `eBay needs ${names.join(", ")} for this listing. Pick the values eBay lists.`;
+  }
+  return "eBay needs item specifics for this listing. Pick the values eBay lists.";
+}
+
+function attentionToEbayStep(item: NeedsAttentionItem): ListOnCategoryStep | null {
+  if (!item.storeItemId) return null;
+  return listOnStepFromEbayAttentionItem({
+    storeItemId: item.storeItemId,
+    title: item.title,
+    photo: item.photo,
+    photos: item.photos,
+    ebayCategoryId: item.ebayCategoryId,
+    aspects: item.aspects,
+    fields: item.fields,
+  });
+}
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -60,9 +91,13 @@ const PROVIDER_NAMES: Record<string, string> = {
 function CardForm({
   item,
   onSaved,
+  onOpenEbaySpecifics,
+  onDismiss,
 }: {
   item: NeedsAttentionItem;
   onSaved: (items: NeedsAttentionItem[]) => void;
+  onOpenEbaySpecifics?: (item: NeedsAttentionItem) => void;
+  onDismiss: (item: NeedsAttentionItem) => void;
 }) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -170,10 +205,22 @@ function CardForm({
             {item.title}
           </Text>
         </View>
+        <Pressable
+          onPress={() => onDismiss(item)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss this request"
+          style={styles.dismissBtn}
+        >
+          <Ionicons name="close" size={20} color="#666" />
+        </Pressable>
       </View>
-      <Text style={styles.summary}>{item.summary}</Text>
+      <Text style={styles.summary}>
+        {isEbaySpecificsAttentionItem(item) ? ebaySpecificsSummary(item) : item.summary}
+      </Text>
 
-      {item.fields.map((field) => {
+      {!isEbaySpecificsAttentionItem(item) &&
+        item.fields.map((field) => {
         if (field.type === "select" && field.options) {
           return (
             <SelectField
@@ -272,7 +319,11 @@ function CardForm({
       })}
 
       <View style={styles.actions}>
-        {item.action === "ebay_condition" && item.storeItemId ? (
+        {isEbaySpecificsAttentionItem(item) && onOpenEbaySpecifics ? (
+          <Pressable style={styles.primaryBtn} onPress={() => onOpenEbaySpecifics(item)}>
+            <Text style={styles.primaryBtnText}>Choose eBay values</Text>
+          </Pressable>
+        ) : item.action === "ebay_condition" && item.storeItemId ? (
           <Pressable
             style={styles.primaryBtn}
             onPress={() => setConditionItemId(item.storeItemId)}
@@ -329,6 +380,82 @@ export function NeedsAttentionList({
 }) {
   const [items, setItems] = useState<NeedsAttentionItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [ebaySteps, setEbaySteps] = useState<ListOnCategoryStep[]>([]);
+  const dismissedEbayKey = useRef<string | null>(null);
+
+  function ebayQueueKey(list: NeedsAttentionItem[]) {
+    return list
+      .filter(isEbaySpecificsAttentionItem)
+      .map((item) => item.id)
+      .join(",");
+  }
+
+  function openEbayPopup(list: NeedsAttentionItem[]) {
+    const steps = list
+      .filter(isEbaySpecificsAttentionItem)
+      .map(attentionToEbayStep)
+      .filter((step): step is ListOnCategoryStep => step != null);
+    if (steps.length === 0) return;
+    setEbaySteps(steps);
+  }
+
+  async function saveEbayAssignments(assignments: ListOnCategoryAssignment[]) {
+    let nextItems = items;
+    for (const assignment of assignments) {
+      const item = nextItems.find((row) => row.storeItemId === assignment.storeItemId);
+      if (!item) continue;
+      const aspects: Record<string, string> = {};
+      for (const row of assignment.aspects ?? []) {
+        if (row.name.trim() && row.value.trim()) aspects[row.name.trim()] = row.value.trim();
+      }
+      const res = await apiPost<{
+        ok: boolean;
+        items: NeedsAttentionItem[];
+        retryResult?: { ok: boolean; error?: string };
+        error?: string;
+      }>("/api/seller/needs-attention", {
+        id: item.id,
+        kind: item.kind,
+        fields: {
+          ...(assignment.ebayCategoryId ? { ebayCategoryId: assignment.ebayCategoryId } : {}),
+          ...(Object.keys(aspects).length > 0 ? { aspects } : {}),
+        },
+        retry: true,
+      });
+      nextItems = res.items ?? nextItems;
+      if (res.retryResult?.error) throw new Error(res.retryResult.error);
+    }
+    setItems(nextItems);
+    onCountChange?.(nextItems.length);
+    dismissedEbayKey.current = ebayQueueKey(nextItems);
+    setEbaySteps([]);
+  }
+
+  async function dismissItem(item: NeedsAttentionItem) {
+    const previous = items;
+    const next = items.filter((row) => row.id !== item.id);
+    setItems(next);
+    onCountChange?.(next.length);
+    if (item.storeItemId && ebaySteps.some((step) => step.item.id === item.storeItemId)) {
+      dismissedEbayKey.current = ebayQueueKey(next);
+      setEbaySteps([]);
+    }
+    try {
+      const res = await apiPost<{ items?: NeedsAttentionItem[] }>("/api/seller/needs-attention", {
+        id: item.id,
+        kind: item.kind,
+        dismiss: true,
+      });
+      if (Array.isArray(res.items)) {
+        setItems(res.items);
+        onCountChange?.(res.items.length);
+        dismissedEbayKey.current = ebayQueueKey(res.items);
+      }
+    } catch {
+      setItems(previous);
+      onCountChange?.(previous.length);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -348,6 +475,13 @@ export function NeedsAttentionList({
   useEffect(() => {
     void load();
   }, [load, refreshNonce]);
+
+  useEffect(() => {
+    if (loading) return;
+    const key = ebayQueueKey(items);
+    if (!key || dismissedEbayKey.current === key) return;
+    openEbayPopup(items);
+  }, [items, loading]);
 
   const count = items.length;
   const body = useMemo(() => {
@@ -373,11 +507,33 @@ export function NeedsAttentionList({
           setItems(next);
           onCountChange?.(next.length);
         }}
+        onOpenEbaySpecifics={(target) => {
+          const step = attentionToEbayStep(target);
+          if (step) setEbaySteps([step]);
+        }}
+        onDismiss={(target) => {
+          void dismissItem(target);
+        }}
       />
     ));
-  }, [count, items, loading]);
+  }, [count, items, loading, onCountChange]);
 
-  return <View>{body}</View>;
+  return (
+    <View>
+      {body}
+      <ListOnChannelCategoryModal
+        visible={ebaySteps.length > 0}
+        steps={ebaySteps}
+        heading="eBay listing details"
+        completeLabel="Save"
+        onClose={() => {
+          dismissedEbayKey.current = ebayQueueKey(items);
+          setEbaySteps([]);
+        }}
+        onComplete={saveEbayAssignments}
+      />
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -389,7 +545,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#f3d9a8",
   },
-  cardHeader: { flexDirection: "row", gap: 10, marginBottom: 8 },
+  cardHeader: { flexDirection: "row", gap: 10, marginBottom: 8, alignItems: "flex-start" },
+  dismissBtn: { padding: 4, marginTop: -2 },
   thumb: { width: 56, height: 56, borderRadius: 8, backgroundColor: "#eee" },
   thumbEmpty: { alignItems: "center", justifyContent: "center" },
   cardHeaderText: { flex: 1, minWidth: 0 },

@@ -3,9 +3,10 @@
  * missing Etsy/eBay fields (origin, category, ship-from ZIP, condition).
  */
 
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { isEbayConditionSyncError } from "./ebay/conditions";
 import { isEbayTaxonomyLoadPlaceholder, parseMissingEbayItemSpecifics } from "./ebay/errors";
+import { mergeConflictDetails } from "./listing-link-flags";
 import {
   ebayAspectRowsForListOnPopup,
   ebayListOnFallbackAspects,
@@ -38,6 +39,9 @@ export type NeedsAttentionItem = {
   connectionId: string;
   title: string;
   photo: string | null;
+  photos?: string[];
+  ebayCategoryId?: number | null;
+  aspects?: unknown;
   provider: ChannelProvider;
   summary: string;
   syncError: string | null;
@@ -45,6 +49,55 @@ export type NeedsAttentionItem = {
   action: NeedsAttentionAction;
   canRetry: boolean;
 };
+
+export type AttentionDismissal = {
+  at: string;
+  fingerprint: string;
+};
+
+export function attentionFingerprint(args: {
+  action: string;
+  fields: { key: string }[];
+  summary: string;
+  syncError: string | null;
+}): string {
+  const fields = args.fields.map((field) => field.key).sort().join(",");
+  const error = (args.syncError ?? "").replace(/\s+/g, " ").trim().slice(0, 400);
+  const summary = args.summary.replace(/\s+/g, " ").trim().slice(0, 200);
+  return `${args.action}|${fields}|${error || summary}`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+export function readAttentionDismissal(source: unknown): AttentionDismissal | null {
+  const raw = asRecord(source).attentionDismissed;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as { at?: unknown; fingerprint?: unknown };
+  if (typeof rec.fingerprint !== "string" || !rec.fingerprint.trim()) return null;
+  return {
+    at: typeof rec.at === "string" ? rec.at : "",
+    fingerprint: rec.fingerprint.trim(),
+  };
+}
+
+export function isAttentionDismissed(source: unknown, fingerprint: string): boolean {
+  return readAttentionDismissal(source)?.fingerprint === fingerprint;
+}
+
+export function withAttentionDismissed(
+  source: unknown,
+  fingerprint: string,
+  at = new Date().toISOString()
+): Prisma.InputJsonValue {
+  return mergeConflictDetails(source, {
+    attentionDismissed: { at, fingerprint },
+  });
+}
 
 const ETSY_ORIGIN_ERROR = /when_made|who_made|is_supply/i;
 const ETSY_POSTAL_ERROR =
@@ -416,6 +469,7 @@ export async function listNeedsAttention(memberId: string): Promise<NeedsAttenti
         storeItemId: true,
         connectionId: true,
         syncError: true,
+        conflictDetails: true,
         storeItem: {
           select: {
             title: true,
@@ -456,6 +510,13 @@ export async function listNeedsAttention(memberId: string): Promise<NeedsAttenti
       item,
     });
     if (!classified) continue;
+    const fingerprint = attentionFingerprint({
+      action: classified.action,
+      fields: classified.fields,
+      summary: classified.summary,
+      syncError: link.syncError,
+    });
+    if (isAttentionDismissed(link.conflictDetails, fingerprint)) continue;
     out.push({
       id: link.id,
       kind: "listing",
@@ -463,6 +524,9 @@ export async function listNeedsAttention(memberId: string): Promise<NeedsAttenti
       connectionId: link.connectionId,
       title: item.title,
       photo: item.photos[0] ?? null,
+      photos: item.photos,
+      ebayCategoryId: item.ebayCategoryId ?? null,
+      aspects: item.aspects,
       provider,
       summary: classified.summary,
       syncError: link.syncError,
@@ -485,6 +549,13 @@ export async function listNeedsAttention(memberId: string): Promise<NeedsAttenti
       hasEtsyListingAttention: out.some((i) => i.kind === "listing" && i.provider === "etsy"),
     });
     if (!shop) continue;
+    const fingerprint = attentionFingerprint({
+      action: "fill",
+      fields: shop.fields,
+      summary: shop.summary,
+      syncError: conn.lastError,
+    });
+    if (isAttentionDismissed(conn.config, fingerprint)) continue;
     out.unshift({
       id: `shop:${conn.id}`,
       kind: "shop",
@@ -507,4 +578,83 @@ export async function listNeedsAttention(memberId: string): Promise<NeedsAttenti
 export async function countNeedsAttention(memberId: string): Promise<number> {
   const items = await listNeedsAttention(memberId);
   return items.length;
+}
+
+export async function dismissNeedsAttention(
+  memberId: string,
+  id: string,
+  kind: "listing" | "shop"
+): Promise<boolean> {
+  if (kind === "shop") {
+    const connectionId = id.startsWith("shop:") ? id.slice(5) : id;
+    const conn = await prisma.channelConnection.findFirst({
+      where: { id: connectionId, memberId, provider: "etsy" },
+      select: { id: true, lastError: true, config: true },
+    });
+    if (!conn) return false;
+    const zip = etsyOriginPostalCodeFromConfig(conn.config);
+    const shop = classifyShopNeedsAttention({
+      provider: "etsy",
+      originPostalCode: zip,
+      lastError: conn.lastError,
+      listingPostalError: true,
+      hasEtsyListingAttention: true,
+    });
+    if (!shop) return true;
+    const fingerprint = attentionFingerprint({
+      action: "fill",
+      fields: shop.fields,
+      summary: shop.summary,
+      syncError: conn.lastError,
+    });
+    await prisma.channelConnection.update({
+      where: { id: conn.id },
+      data: { config: withAttentionDismissed(conn.config, fingerprint) },
+    });
+    return true;
+  }
+
+  const link = await prisma.channelListingLink.findFirst({
+    where: { id, connection: { memberId } },
+    select: {
+      id: true,
+      provider: true,
+      syncError: true,
+      conflictDetails: true,
+      storeItem: {
+        select: {
+          memberId: true,
+          title: true,
+          photos: true,
+          etsyWhoMade: true,
+          etsyWhenMade: true,
+          etsyIsSupply: true,
+          etsyTaxonomyId: true,
+          condition: true,
+          aspects: true,
+          ebayCategoryId: true,
+        },
+      },
+    },
+  });
+  if (!link?.storeItem || link.storeItem.memberId !== memberId) return false;
+  const provider = link.provider as ChannelProvider;
+  if (!CHANNEL_PROVIDERS.includes(provider)) return false;
+  const classified = classifyListingNeedsAttention({
+    provider,
+    syncError: link.syncError,
+    item: link.storeItem,
+  });
+  if (!classified) return true;
+  const fingerprint = attentionFingerprint({
+    action: classified.action,
+    fields: classified.fields,
+    summary: classified.summary,
+    syncError: link.syncError,
+  });
+  await prisma.channelListingLink.update({
+    where: { id: link.id },
+    data: { conflictDetails: withAttentionDismissed(link.conflictDetails, fingerprint) },
+  });
+  return true;
 }

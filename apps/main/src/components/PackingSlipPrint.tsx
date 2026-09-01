@@ -1,6 +1,14 @@
 "use client";
 
-import { PACKING_SLIP_FOOTER } from "@/lib/packing-slip";
+import {
+  PACKING_SLIP_FOOTER,
+  PACKING_SLIP_THANKS,
+  packingSlipContactLine,
+  packingSlipOrderMetaLine,
+  packingSlipTotalRows,
+  type PackingSlipGroup,
+  type PackingSlipSellerProfile,
+} from "@/lib/packing-slip-shared";
 import { formatShippingAddress } from "@/lib/format-address";
 
 interface OrderItem {
@@ -21,32 +29,20 @@ interface StoreOrder {
   subtotalCents?: number;
   shippingCostCents: number;
   totalCents: number;
+  taxCents?: number;
   status: string;
   shippingAddress: unknown;
   createdAt: string;
+  stripePaymentIntentId?: string | null;
+  orderKind?: string | null;
   buyer: { firstName: string; lastName: string; email: string };
   items: OrderItem[];
 }
 
-interface SellerProfile {
-  business: {
-    name: string;
-    phone: string | null;
-    address: string | null;
-    city?: string | null;
-    logoUrl: string | null;
-    website?: string | null;
-    email?: string | null;
-  } | null;
-  /** Return/ship-from address (from Shippo when generating packing slip). */
-  returnAddressFormatted?: string | null;
-  packingSlipNote?: string | null;
-}
-
 interface PackingSlipPrintProps {
   orders: StoreOrder[];
-  sellerProfile: SellerProfile | null;
-  combined?: boolean; // When true, group by buyer
+  sellerProfile: PackingSlipSellerProfile | null;
+  combined?: boolean;
 }
 
 function formatSellerAddress(addr: string | null, city?: string | null): string {
@@ -71,6 +67,26 @@ function shipToBlock(buyer: { firstName: string; lastName: string }, shippingAdd
   return formatShippingAddress(addr);
 }
 
+function toPrintGroup(order: StoreOrder): PackingSlipGroup {
+  return {
+    buyer: order.buyer,
+    orders: [
+      {
+        id: order.id,
+        shippingAddress: order.shippingAddress,
+        createdAt: order.createdAt,
+        stripePaymentIntentId: order.stripePaymentIntentId,
+        orderKind: order.orderKind,
+      },
+    ],
+    combinedItems: order.items.map((oi) => ({ ...oi, orderId: order.id })),
+    totalCents: order.totalCents,
+    subtotalCents: order.subtotalCents ?? order.totalCents - order.shippingCostCents,
+    shippingCostCents: order.shippingCostCents,
+    taxCents: order.taxCents,
+  };
+}
+
 export function PackingSlipPrint({
   orders,
   sellerProfile,
@@ -81,8 +97,11 @@ export function PackingSlipPrint({
   }
 
   const biz = sellerProfile.business;
+  const bizName = biz?.name?.trim() || "Packing slip";
+  const contact = packingSlipContactLine(biz);
+  const note = sellerProfile.packingSlipNote?.trim() ?? "";
 
-  const ordersToPrint = combined
+  const ordersToPrint: PackingSlipGroup[] = combined
     ? (() => {
         const byBuyer = new Map<string, StoreOrder[]>();
         orders.forEach((o) => {
@@ -92,28 +111,24 @@ export function PackingSlipPrint({
         });
         return Array.from(byBuyer.values()).map((group) => ({
           buyer: group[0].buyer,
-          orders: group,
-          combinedItems: group.flatMap((o) =>
-            o.items.map((oi) => ({ ...oi, orderId: o.id }))
-          ),
+          orders: group.map((o) => ({
+            id: o.id,
+            shippingAddress: o.shippingAddress,
+            createdAt: o.createdAt,
+            stripePaymentIntentId: o.stripePaymentIntentId,
+            orderKind: o.orderKind,
+          })),
+          combinedItems: group.flatMap((o) => o.items.map((oi) => ({ ...oi, orderId: o.id }))),
           totalCents: group.reduce((s, o) => s + o.totalCents, 0),
           subtotalCents: group.reduce(
             (s, o) => s + (o.subtotalCents ?? o.totalCents - o.shippingCostCents),
             0
           ),
           shippingCostCents: group.reduce((s, o) => s + o.shippingCostCents, 0),
-          taxCents: (group as StoreOrder[]).reduce((s, o) => s + ((o as { taxCents?: number }).taxCents ?? 0), 0),
+          taxCents: group.reduce((s, o) => s + (o.taxCents ?? 0), 0),
         }));
       })()
-    : orders.map((order) => ({
-        buyer: order.buyer,
-        orders: [order],
-        combinedItems: order.items.map((oi) => ({ ...oi, orderId: order.id })),
-        totalCents: order.totalCents,
-        subtotalCents: order.subtotalCents ?? order.totalCents - order.shippingCostCents,
-        shippingCostCents: order.shippingCostCents,
-        taxCents: (order as { taxCents?: number }).taxCents,
-      }));
+    : orders.map(toPrintGroup);
 
   const returnAddress =
     sellerProfile.returnAddressFormatted?.trim() ||
@@ -123,105 +138,89 @@ export function PackingSlipPrint({
   return (
     <div className="print-only packing-slip-container packing-slip-print-root">
       {ordersToPrint.map((group, idx) => (
-        <div key={idx} className="packing-slip break-inside-avoid flex flex-col">
-          {/* Top header: Logo left aligned with note/website/email boxes on right */}
-          <div className="flex justify-between items-start gap-6 mb-4">
-            <div className="shrink-0">
-              {biz?.logoUrl ? (
-                <img src={biz.logoUrl} alt="" className="w-[120px] h-[120px] rounded-full object-cover border-2 border-black" />
-              ) : (
-                <div className="w-[120px] h-[120px] rounded-full border-2 border-black flex items-center justify-center text-xs text-center px-1 text-black">Business Logo</div>
-              )}
+        <div key={idx} className="packing-slip flex flex-col">
+          <header className="flex items-start gap-4 mb-3">
+            {biz?.logoUrl ? (
+              <img
+                src={biz.logoUrl}
+                alt=""
+                className="w-16 h-16 rounded-md object-contain border border-black shrink-0"
+              />
+            ) : null}
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-bold leading-tight text-black">{bizName}</p>
+              {contact ? <p className="text-xs text-black mt-1">{contact}</p> : null}
+              {note ? <p className="text-xs italic text-black mt-2 whitespace-pre-wrap">{note}</p> : null}
             </div>
-            <div className="flex-1 min-w-0 space-y-2">
-              <div className="border border-black rounded p-3 pt-4 min-h-[4rem]">
-                <p className="text-sm font-medium text-black">A Note from {biz?.name ?? "Business"}</p>
-                {sellerProfile.packingSlipNote ? (
-                  <p className="text-sm mt-2 whitespace-pre-wrap text-black">{sellerProfile.packingSlipNote}</p>
-                ) : (
-                  <p className="text-sm mt-2 text-black">—</p>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <div className="flex-1 border border-black rounded p-2 pt-4 flex flex-col gap-0.5">
-                  <p className="text-xs font-bold text-black">Sellers Website</p>
-                  <p className="text-sm truncate text-black">{biz?.website ?? "—"}</p>
-                </div>
-                <div className="flex-1 border border-black rounded p-2 pt-4 flex flex-col gap-0.5">
-                  <p className="text-xs font-bold text-black">Sellers Email</p>
-                  <p className="text-sm truncate text-black">{biz?.email ?? "—"}</p>
-                </div>
-              </div>
+          </header>
+
+          <p className="text-xs text-black mb-2">{packingSlipOrderMetaLine(group)}</p>
+          <div className="border-t border-black" />
+
+          <div className="grid grid-cols-2 gap-8 my-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-black mb-1">
+                Return address
+              </p>
+              <pre className="text-xs whitespace-pre-wrap font-sans text-black">{returnAddress}</pre>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-black mb-1">Ship to</p>
+              <pre className="text-xs whitespace-pre-wrap font-sans text-black">
+                {shipToBlock(group.buyer, group.orders[0].shippingAddress) || "—"}
+              </pre>
             </div>
           </div>
 
-          <div className="border-t-2 border-black my-4" />
+          <div className="border-t border-black" />
 
-          {/* Return Address | Shipping Address - titles same line, content aligned, left-aligned, symmetrical */}
-          <div className="grid grid-cols-2 gap-6 mb-4 [&>div]:min-h-[5rem] [&>div]:border-2 [&>div]:border-black [&>div]:rounded [&>div]:p-4 [&>div]:pt-7">
-            <div>
-              <p className="text-xs font-semibold uppercase text-black mb-2">RETURN ADDRESS</p>
-              <pre className="text-sm whitespace-pre-wrap font-sans text-black">{returnAddress || "—"}</pre>
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase text-black mb-2">SHIPPING ADDRESS</p>
-              <pre className="text-sm whitespace-pre-wrap font-sans text-black">{shipToBlock(group.buyer, group.orders[0].shippingAddress) || "—"}</pre>
-            </div>
-          </div>
-
-          <div className="border-t-2 border-black my-4" />
-
-          {/* Item details: full-width table; Shipping Cost & Total below */}
-          <div className="mb-4 flex-1 flex flex-col">
-            <table className="w-full border-collapse text-sm">
+          <div className="mb-3 flex-1 flex flex-col">
+            <table className="w-full border-collapse text-xs">
               <thead>
-                <tr className="border-b-2 border-black">
-                  <th className="text-left py-2 font-semibold w-20 text-black">Quantity</th>
-                  <th className="text-left py-2 font-semibold text-black">Item Name</th>
-                  <th className="text-right py-2 font-semibold w-24 text-black">Price Per Item</th>
+                <tr className="border-b border-black">
+                  <th className="text-left py-1.5 font-semibold w-10 text-black">Qty</th>
+                  <th className="text-left py-1.5 font-semibold text-black">Item</th>
+                  <th className="text-right py-1.5 font-semibold w-20 text-black">Unit price</th>
+                  <th className="text-right py-1.5 font-semibold w-20 text-black">Line total</th>
                 </tr>
               </thead>
               <tbody>
                 {group.combinedItems.map((oi) => (
-                  <tr key={oi.id} className="border-b border-black">
-                    <td className="py-2 text-black">{oi.quantity}</td>
-                    <td className="py-2 text-black">{oi.storeItem.title}</td>
-                    <td className="text-right py-2 text-black">${(oi.priceCentsAtPurchase / 100).toFixed(2)}</td>
+                  <tr key={oi.id} className="border-b border-black/40">
+                    <td className="py-1.5 text-black align-top">{oi.quantity}</td>
+                    <td className="py-1.5 text-black">{oi.storeItem.title}</td>
+                    <td className="text-right py-1.5 text-black align-top">
+                      ${(oi.priceCentsAtPurchase / 100).toFixed(2)}
+                    </td>
+                    <td className="text-right py-1.5 text-black align-top">
+                      ${((oi.priceCentsAtPurchase * oi.quantity) / 100).toFixed(2)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <div className="flex gap-4 mt-3 justify-end">
-              <div className="border-2 border-black rounded p-2 min-w-[7rem] text-right">
-                <p className="text-xs font-semibold text-black">Shipping Cost</p>
-                <p className="text-sm font-medium text-black mt-2">${(group.shippingCostCents / 100).toFixed(2)}</p>
-              </div>
-              {(group as { taxCents?: number }).taxCents ? (
-                <div className="border-2 border-black rounded p-2 min-w-[7rem] text-right">
-                  <p className="text-xs font-semibold text-black">Tax</p>
-                  <p className="text-sm font-medium text-black mt-2">${(((group as { taxCents: number }).taxCents) / 100).toFixed(2)}</p>
+
+            <div className="ml-auto mt-3 w-52 text-xs">
+              {packingSlipTotalRows(group).map((row) => (
+                <div
+                  key={row.label}
+                  className={`flex justify-between ${
+                    row.emphasis ? "border-t border-black pt-1.5 mt-1.5 font-bold text-sm" : "py-0.5"
+                  } text-black`}
+                >
+                  <span>{row.label}</span>
+                  <span>{row.value}</span>
                 </div>
-              ) : null}
-              <div className="border-2 border-black rounded p-2 min-w-[7rem] text-right">
-                <p className="text-xs font-semibold text-black">Total</p>
-                <p className="text-sm font-bold text-black mt-2">${(group.totalCents / 100).toFixed(2)}</p>
-              </div>
+              ))}
             </div>
           </div>
 
           <div className="flex-1" />
 
-          {group.orders.length > 1 && (
-            <p className="text-xs text-black mb-2">
-              Combined orders: {group.orders.map((o) => `#${o.id.slice(-8).toUpperCase()}`).join(", ")}
-            </p>
-          )}
-
-          {/* Footer: line just above thank you message */}
-          <div className="border-t-2 border-black text-center pt-4 pb-4">
-            <p className="text-lg font-semibold text-black">Thank you for Supporting Locally Owned Businesses!</p>
-            <p className="text-sm text-black mt-1">{PACKING_SLIP_FOOTER}</p>
-          </div>
+          <footer className="border-t border-black text-center pt-2 pb-1">
+            <p className="text-xs text-black">{PACKING_SLIP_THANKS}</p>
+            <p className="text-[10px] text-black mt-0.5">{PACKING_SLIP_FOOTER}</p>
+          </footer>
         </div>
       ))}
       <style jsx global>{`
@@ -232,7 +231,7 @@ export function PackingSlipPrint({
         }
         @media print {
           @page {
-            margin: 0.25in;
+            margin: 0.5in;
             size: letter;
           }
           html, body {
@@ -267,18 +266,15 @@ export function PackingSlipPrint({
             margin: 0 !important;
             padding: 0 !important;
           }
-          .packing-slip-container {
-            min-height: 100vh;
-          }
           .packing-slip {
             width: 100% !important;
             max-width: none !important;
             margin: 0 !important;
-            padding: 0.25in !important;
-            min-height: 100vh;
+            padding: 0 !important;
+            min-height: calc(11in - 1in);
             box-sizing: border-box;
             page-break-after: always;
-            font-size: 14pt;
+            font-size: 11pt;
             color: #000;
           }
           .packing-slip * {

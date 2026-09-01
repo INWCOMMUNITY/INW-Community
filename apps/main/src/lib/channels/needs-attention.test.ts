@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  attentionFingerprint,
   classifyListingNeedsAttention,
   classifyShopNeedsAttention,
   ebayAttentionFieldsFromCategoryAspects,
   ebayAttentionSpecificNames,
+  isAttentionDismissed,
   isEtsyOriginSyncError,
   isEtsyPostalSyncError,
+  withAttentionDismissed,
 } from "./needs-attention";
 
 const item = {
@@ -92,6 +95,18 @@ describe("classifyListingNeedsAttention", () => {
     });
     expect(result?.action).toBe("fill");
     expect(result?.fields.map((f) => f.key)).toEqual(["aspect:Type"]);
+  });
+
+  it("asks for Type and Brand from the listed-specifics error", () => {
+    const result = classifyListingNeedsAttention({
+      provider: "ebay",
+      syncError:
+        "Listing details didn't update on eBay: Missing required eBay item specifics: Type, Brand. Fill them in under eBay Listing Requirements.",
+      item,
+    });
+    expect(result?.action).toBe("fill");
+    expect(result?.fields.map((f) => f.key)).toEqual(["aspect:Type", "aspect:Brand"]);
+    expect(result?.summary).toMatch(/Type and Brand/i);
   });
 
   it("asks for Type and Brand when category specifics could not load", () => {
@@ -184,5 +199,25 @@ describe("error matchers", () => {
   it("detects Etsy origin and postal failures", () => {
     expect(isEtsyOriginSyncError("Cannot update 'when_made' without 'who_made'")).toBe(true);
     expect(isEtsyPostalSyncError("Postal Code is required. min/max delivery days")).toBe(true);
+  });
+});
+
+describe("attention dismissal", () => {
+  it("hides the same request and shows a new error again", () => {
+    const first = attentionFingerprint({
+      action: "fill",
+      fields: [{ key: "aspect:Type" }, { key: "aspect:Brand" }],
+      summary: "eBay needs Type and Brand for this category. Pick the values eBay lists.",
+      syncError: "Missing required eBay item specifics: Type, Brand.",
+    });
+    const stored = withAttentionDismissed({}, first);
+    expect(isAttentionDismissed(stored, first)).toBe(true);
+    const later = attentionFingerprint({
+      action: "fill",
+      fields: [{ key: "aspect:Material" }],
+      summary: "eBay needs Material before this listing can go live.",
+      syncError: "Missing required eBay item specifics: Material.",
+    });
+    expect(isAttentionDismissed(stored, later)).toBe(false);
   });
 });

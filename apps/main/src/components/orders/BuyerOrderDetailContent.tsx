@@ -20,6 +20,7 @@ import {
   canCancelBuyerOrder,
   canRequestBuyerRefund,
   formatBuyerOrderDate,
+  buyerOrderGrandTotalCents,
   formatBuyerPrice,
   trackingStatusLabel,
   type BuyerStoreOrder,
@@ -138,7 +139,7 @@ export function BuyerOrderDetailContent() {
           <p className="opacity-80 mt-1">{formatBuyerOrderDate(order.createdAt)}</p>
         </div>
         <div className="text-right">
-          <p className="text-xl font-bold">{formatBuyerPrice(order.totalCents)}</p>
+          <p className="text-xl font-bold">{formatBuyerPrice(buyerOrderGrandTotalCents(order))}</p>
           <span
             className="inline-block mt-1 px-2 py-0.5 rounded text-sm font-medium"
             style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
@@ -242,7 +243,7 @@ export function BuyerOrderDetailContent() {
         ) : null}
         <div className="flex justify-between font-semibold pt-1">
           <span>Total</span>
-          <span>{formatBuyerPrice(order.totalCents)}</span>
+          <span>{formatBuyerPrice(buyerOrderGrandTotalCents(order))}</span>
         </div>
       </section>
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  BULK_DESTINATION_COPY,
+  MANAGE_LISTINGS_UNCHECK_NOTE,
   assignmentsFromGrid,
   columnChecked,
   hasUnsyncInw,
@@ -7,6 +9,7 @@ import {
   isProviderCellEnabled,
   planBulkDestinations,
   setGridColumn,
+  summarizeBulkDestinations,
   type BulkDestinationGridItem,
   type ItemLinkState,
 } from "./store-item-bulk-destinations";
@@ -124,6 +127,62 @@ describe("planBulkDestinations", () => {
     ]);
     expect(plan.unpublish).toEqual([{ itemId: "a", providers: ["ebay"] }]);
     expect(plan.deleteInw).toEqual(["a"]);
+  });
+});
+
+describe("Manage Listings copy", () => {
+  it("warns that unchecking a store deletes the third-party listing", () => {
+    expect(MANAGE_LISTINGS_UNCHECK_NOTE).toMatch(/deletes that listing/i);
+    expect(BULK_DESTINATION_COPY.sync.body).toMatch(/delete that listing/i);
+  });
+
+  it("summarizes unpublished stores as deleted, not merely removed", () => {
+    const summary = summarizeBulkDestinations("sync", {
+      published: 0,
+      unpublished: 1,
+      ended: 0,
+      deleted: 0,
+      unsyncedInw: 1,
+      failed: 0,
+      skipped: 0,
+    });
+    expect(summary.title).toBe("Taken Down");
+    expect(summary.message).toMatch(/Deleted 1 listing from a connected store/);
+    expect(summary.message).toMatch(/gone there — not just unsynced/);
+    expect(summary.message).toMatch(/quantity tracking is off/);
+    expect(summary.message).not.toMatch(/Removed from stores/);
+    expect(summary.message).not.toMatch(/Stopped INW quantity tracking/);
+  });
+
+  it("celebrates a clean list-on-store", () => {
+    const summary = summarizeBulkDestinations("sync", {
+      published: 2,
+      unpublished: 0,
+      ended: 0,
+      deleted: 0,
+      unsyncedInw: 0,
+      failed: 0,
+      skipped: 0,
+    });
+    expect(summary.title).toBe("You're Live");
+    expect(summary.message).toMatch(/They're live/);
+  });
+
+  it("says when a change failed instead of a bland Failed count", () => {
+    const summary = summarizeBulkDestinations("sync", {
+      published: 0,
+      unpublished: 0,
+      ended: 0,
+      deleted: 0,
+      unsyncedInw: 0,
+      failed: 1,
+      skipped: 0,
+      results: [{ status: "failed", detail: "eBay: Missing Brand" }],
+    });
+    expect(summary.ok).toBe(false);
+    expect(summary.title).toBe("Couldn't Finish That");
+    expect(summary.message).toMatch(/didn't go through/);
+    expect(summary.message).toContain("eBay: Missing Brand");
   });
 });
 

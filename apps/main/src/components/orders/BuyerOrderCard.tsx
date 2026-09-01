@@ -14,6 +14,7 @@ import {
   canCancelBuyerOrder,
   canRequestBuyerRefund,
   formatBuyerOrderDate,
+  buyerOrderGrandTotalCents,
   formatBuyerPrice,
   type BuyerStoreOrder,
 } from "@/lib/buyer-orders";
@@ -92,7 +93,7 @@ export function BuyerOrderCard({
               </p>
             </div>
             <div className="text-right shrink-0">
-              <p className="font-bold">{formatBuyerPrice(order.totalCents)}</p>
+              <p className="font-bold">{formatBuyerPrice(buyerOrderGrandTotalCents(order))}</p>
               <span
                 className="inline-block mt-1 px-2 py-0.5 rounded text-xs font-medium"
                 style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}

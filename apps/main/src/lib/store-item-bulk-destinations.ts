@@ -26,13 +26,16 @@ export type GridRowState = {
 export const UNSYNC_INW_NOTE =
   "Unchecking INW takes this item off our storefront and stops us from matching stock with your other shops. Listings you leave checked stay up, but we will not update their quantities — the same item could sell twice.";
 
+export const MANAGE_LISTINGS_UNCHECK_NOTE =
+  "Unchecking a connected store (eBay, Etsy, Shopify, or Wix) deletes that listing on that store. It is removed there, not just unsynced from INW.";
+
 export const BULK_DESTINATION_COPY: Record<
   BulkDestinationAction,
   { title: string; body: string; apply: string }
 > = {
   sync: {
     title: "Where these items are listed",
-    body: "Check the stores that should stay listed. Uncheck a store to unsync and take that listing down. INW is your storefront — unchecking it takes the item off INW but leaves other shops as they are.",
+    body: "Check the stores that should stay listed. Uncheck a connected store to delete that listing on that third-party shop. INW is your storefront — unchecking it takes the item off INW but leaves other shops as they are.",
     apply: "Save Listings",
   },
   end: {
@@ -206,26 +209,89 @@ export type BulkDestinationsResultCounts = {
   results?: { status: string; detail?: string }[];
 };
 
+export function bulkDestinationFailTitle(action: BulkDestinationAction): string {
+  if (action === "sync") return "Couldn't Finish That";
+  if (action === "end") return "Couldn't End Those Listings";
+  return "Couldn't Delete Those Listings";
+}
+
+function listingCount(n: number, word = "listing"): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
 export function summarizeBulkDestinations(
   action: BulkDestinationAction,
   result: BulkDestinationsResultCounts
 ): { title: string; message: string; ok: boolean } {
-  const title =
-    action === "sync" ? "Manage Listings" : action === "end" ? "End Listings" : "Delete listings";
-  const lines = [
-    result.published ? `Listed: ${result.published}` : null,
-    result.unpublished ? `Removed from stores: ${result.unpublished}` : null,
-    result.ended ? `Ended on INW: ${result.ended}` : null,
-    result.unsyncedInw ? `Stopped INW quantity tracking: ${result.unsyncedInw}` : null,
-    result.deleted ? `Deleted from INW: ${result.deleted}` : null,
-    result.failed ? `Failed: ${result.failed}` : null,
-    result.skipped ? `Skipped: ${result.skipped}` : null,
-  ].filter(Boolean);
+  const ok = result.failed === 0;
+  const parts: string[] = [];
+
+  if (result.published) {
+    parts.push(
+      result.published === 1
+        ? "Listed 1 item on a new store. It's live."
+        : `Listed ${result.published} items on new stores. They're live.`
+    );
+  }
+  if (result.unpublished) {
+    parts.push(
+      result.unpublished === 1
+        ? "Deleted 1 listing from a connected store. It's gone there — not just unsynced."
+        : `Deleted ${result.unpublished} listings from connected stores. They're gone there — not just unsynced.`
+    );
+  }
+  if (result.ended) {
+    parts.push(
+      `Ended ${listingCount(result.ended)} on INW. You can Relist; we drop the INW record after 14 days.`
+    );
+  }
+  if (result.unsyncedInw) {
+    parts.push(
+      result.unsyncedInw === 1
+        ? "INW quantity tracking is off for 1 item. Shops you left checked stay up — they can still sell, so watch for doubles."
+        : `INW quantity tracking is off for ${result.unsyncedInw} items. Shops you left checked stay up — they can still sell, so watch for doubles.`
+    );
+  }
+  if (result.deleted) {
+    parts.push(`Permanently deleted ${listingCount(result.deleted)} from INW. That record is gone.`);
+  }
+  if (result.skipped) {
+    parts.push(`Skipped ${listingCount(result.skipped, "item")} — nothing we could change there.`);
+  }
+  if (result.failed) {
+    parts.push(
+      result.failed === 1 ? "1 change didn't go through." : `${result.failed} changes didn't go through.`
+    );
+  }
+
   const failedDetails = (result.results ?? [])
     .filter((r) => r.status === "failed")
     .map((r) => r.detail)
     .filter(Boolean)
     .slice(0, 4);
-  const message = [...lines, ...failedDetails].join("\n") || "No changes.";
-  return { title, message, ok: result.failed === 0 };
+
+  const message =
+    [...parts, ...failedDetails].join("\n\n") ||
+    "Nothing needed changing. Your checkboxes already matched what's live.";
+
+  let title: string;
+  if (!ok) {
+    title = bulkDestinationFailTitle(action);
+  } else if (parts.length === 0) {
+    title = "Nothing To Change";
+  } else if (result.unpublished > 0 && result.published === 0) {
+    title = "Taken Down";
+  } else if (result.published > 0 && result.unpublished === 0 && result.unsyncedInw === 0) {
+    title = "You're Live";
+  } else if (result.unsyncedInw > 0 && result.published === 0 && result.unpublished === 0) {
+    title = "INW Tracking Off";
+  } else if (action === "end") {
+    title = "Pulled From INW";
+  } else if (action === "delete") {
+    title = "Gone For Good";
+  } else {
+    title = "Listings Updated";
+  }
+
+  return { title, message, ok };
 }

@@ -29,10 +29,10 @@ export function alertChannelSyncFailures(
 
   const title =
     action === "deleted"
-      ? "Removed from INW"
+      ? "Removed From INW"
       : action === "removed"
-        ? "Could not remove from store"
-        : "Saved on INW";
+        ? "Could Not Remove From Stores"
+        : "Saved On INW";
   const message =
     action === "removed"
       ? `Could not remove this listing from ${failed.length === 1 ? "the connected store" : "some connected stores"}. It is still linked in INW so you will not create a duplicate:\n\n${lines.join("\n\n")}`
@@ -56,19 +56,19 @@ export function alertChannelPublishResult(channelSync: ChannelSyncRow[] | undefi
   });
 
   if (rows.length === 0) {
-    Alert.alert("Could not list", "Could not list on the selected store. Check Sync Stores and try again.");
+    Alert.alert("That Store Didn't Take It", "Could not list on the selected store. Check Sync Stores and try again.");
     return;
   }
   if (failed.length === 0) {
-    Alert.alert("Listed", `Listed on ${successLines.join(", ")}.`);
+    Alert.alert("You're Live", `Listed on ${successLines.join(", ")}. Shoppers can find it there now.`);
     return;
   }
   if (succeeded.length > 0) {
     Alert.alert(
-      "Partially listed",
+      failed.length === 1 ? "Almost — One Store Said No" : "Almost — Some Stores Said No",
       `Listed on ${successLines.join(", ")}.\n\nCould not list on others:\n\n${failureLines.join("\n\n")}`
     );
     return;
   }
-  Alert.alert("Could not list", failureLines.join("\n\n"));
+  Alert.alert("That Store Said No", failureLines.join("\n\n"));
 }

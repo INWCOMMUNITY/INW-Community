@@ -35,12 +35,16 @@ type ListOnChannelCategoryModalProps = {
   steps: ListOnCategoryStep[];
   onClose: () => void;
   onComplete: (assignments: ListOnCategoryAssignment[]) => Promise<void> | void;
+  heading?: string;
+  completeLabel?: string;
 };
 
 export function ListOnChannelCategoryModal({
   steps,
   onClose,
   onComplete,
+  heading,
+  completeLabel,
 }: ListOnChannelCategoryModalProps) {
   const [index, setIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -118,33 +122,18 @@ export function ListOnChannelCategoryModal({
         const list = data.aspects ?? [];
         const rateLimited =
           Boolean(data.rateLimited) || isEbayRateLimitError(data.error ?? data.warning ?? "");
-        if ((!res.ok || (list.length === 0 && data.warning)) && rateLimited) {
+        if (!res.ok || list.length === 0) {
           const fallback = ebayListOnFallbackAspects();
           setCategoryAspects(fallback);
           setAspects(
             ebayAspectRowsForListOnPopup(fallback, parseStoredAspects(step.item.aspects), step.item.title)
           );
           setAspectsError(null);
-          setAspectsNotice(data.warning ?? data.error ?? "eBay is busy right now. Enter Type and Brand below, then list.");
-          return;
-        }
-        if (!res.ok) {
-          setCategoryAspects([]);
-          setAspects([]);
-          setAspectsNotice(null);
-          setAspectsError(
-            data.error ??
-              (res.status === 503
-                ? "eBay item specifics are not configured on this server."
-                : "Could not load eBay item specifics for this category.")
+          setAspectsNotice(
+            rateLimited
+              ? data.warning ?? data.error ?? "eBay is busy right now. Enter Type and Brand below, then list."
+              : data.warning ?? data.error ?? null
           );
-          return;
-        }
-        if (list.length === 0 && data.warning) {
-          setCategoryAspects([]);
-          setAspects([]);
-          setAspectsNotice(null);
-          setAspectsError(data.warning);
           return;
         }
         setCategoryAspects(list);
@@ -156,9 +145,13 @@ export function ListOnChannelCategoryModal({
       })
       .catch(() => {
         if (cancelled) return;
-        setCategoryAspects([]);
-        setAspects([]);
-        setAspectsError("Could not load eBay item specifics for this category.");
+        const fallback = ebayListOnFallbackAspects();
+        setCategoryAspects(fallback);
+        setAspects(
+          ebayAspectRowsForListOnPopup(fallback, parseStoredAspects(step.item.aspects), step.item.title)
+        );
+        setAspectsError(null);
+        setAspectsNotice("Could not load eBay's full list. Enter Type and Brand below.");
       })
       .finally(() => {
         if (!cancelled) setAspectsLoading(false);
@@ -175,7 +168,7 @@ export function ListOnChannelCategoryModal({
   const canContinue =
     Boolean(categoryId) &&
     !aspectsLoading &&
-    !aspectsError &&
+    (categoryAspects.length > 0 || !aspectsError) &&
     missingEbayAspects.length === 0 &&
     (step?.provider !== "etsy" ||
       !showEtsyDetails ||
@@ -238,7 +231,7 @@ export function ListOnChannelCategoryModal({
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>
             <h3 className="text-base font-bold" style={{ color: "var(--color-heading)" }}>
-              Select {providerLabel} category
+              {heading ?? `Select ${providerLabel} category`}
             </h3>
             {progressLabel ? <p className="text-xs text-gray-500 mt-0.5">{progressLabel}</p> : null}
           </div>
@@ -345,7 +338,7 @@ export function ListOnChannelCategoryModal({
             Cancel
           </button>
           <button type="button" className="btn text-sm" disabled={submitting || !canContinue} onClick={() => void goNext()}>
-            {submitting ? "Listing…" : isLast ? "List" : "Next"}
+            {submitting ? "Saving…" : isLast ? completeLabel ?? "List" : "Next"}
           </button>
         </div>
       </div>

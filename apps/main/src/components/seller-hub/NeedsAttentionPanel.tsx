@@ -1,8 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ETSY_WHEN_MADE_OPTIONS, ETSY_WHO_MADE_OPTIONS } from "@/lib/etsy-listing-options";
+import { ListOnChannelCategoryModal } from "@/components/store-item/ListOnChannelCategoryModal";
+import {
+  isEbaySpecificsAttentionItem,
+  listOnStepFromEbayAttentionItem,
+  type ListOnCategoryAssignment,
+  type ListOnCategoryStep,
+} from "@/lib/list-on-channel-category";
 
 type Field = {
   key: string;
@@ -19,11 +26,36 @@ type Item = {
   storeItemId: string | null;
   title: string;
   photo: string | null;
+  photos?: string[];
+  ebayCategoryId?: number | null;
+  aspects?: unknown;
   provider: string;
   summary: string;
+  syncError?: string | null;
   fields: Field[];
   action: "fill" | "ebay_condition" | "retry_only";
 };
+
+function ebaySpecificsSummary(item: Item): string {
+  const names = item.fields.filter((field) => field.key.startsWith("aspect:")).map((field) => field.label);
+  if (names.length > 0) {
+    return `eBay needs ${names.join(", ")} for this listing. Pick the values eBay lists.`;
+  }
+  return "eBay needs item specifics for this listing. Pick the values eBay lists.";
+}
+
+function attentionToEbayStep(item: Item): ListOnCategoryStep | null {
+  if (!item.storeItemId) return null;
+  return listOnStepFromEbayAttentionItem({
+    storeItemId: item.storeItemId,
+    title: item.title,
+    photo: item.photo,
+    photos: item.photos,
+    ebayCategoryId: item.ebayCategoryId,
+    aspects: item.aspects,
+    fields: item.fields,
+  });
+}
 
 const PROVIDER_NAMES: Record<string, string> = {
   etsy: "Etsy",
@@ -180,9 +212,13 @@ function FieldInputs({
 function AttentionCard({
   item,
   onSaved,
+  onOpenEbaySpecifics,
+  onDismiss,
 }: {
   item: Item;
   onSaved: (items: Item[]) => void;
+  onOpenEbaySpecifics?: (item: Item) => void;
+  onDismiss: (item: Item) => void;
 }) {
   const [values, setValues] = useState<Record<string, string | boolean | number | null>>(() => {
     const next: Record<string, string | boolean | number | null> = {};
@@ -237,20 +273,41 @@ function AttentionCard({
   };
 
   return (
-    <div className="rounded-xl border-2 border-amber-200 bg-amber-50/40 p-4 mb-4">
+    <div className="relative rounded-xl border-2 border-amber-200 bg-amber-50/40 p-4 mb-4 pr-12">
+      <button
+        type="button"
+        aria-label="Dismiss this request"
+        className="absolute top-3 right-3 flex h-8 w-8 items-center justify-center rounded-full text-gray-500 hover:bg-amber-100 hover:text-gray-800"
+        onClick={() => onDismiss(item)}
+      >
+        <span className="text-xl leading-none" aria-hidden>
+          ×
+        </span>
+      </button>
       <p className="text-xs font-bold uppercase tracking-wide text-[var(--color-primary)]">
         {PROVIDER_NAMES[item.provider] ?? item.provider}
       </p>
       <h3 className="font-semibold text-gray-900 mt-1">{item.title}</h3>
-      <p className="text-sm text-gray-700 mt-2">{item.summary}</p>
+      <p className="text-sm text-gray-700 mt-2">
+        {isEbaySpecificsAttentionItem(item) ? ebaySpecificsSummary(item) : item.summary}
+      </p>
       <div className="mt-3">
-        {item.action !== "retry_only" && item.action !== "ebay_condition" ? (
+        {!isEbaySpecificsAttentionItem(item) && item.action !== "retry_only" && item.action !== "ebay_condition" ? (
           <FieldInputs item={item} values={values} setValues={setValues} />
         ) : null}
       </div>
       {message ? <p className="text-sm text-amber-900 mb-2">{message}</p> : null}
       <div className="flex flex-col gap-2">
-        {item.action === "ebay_condition" && item.storeItemId ? (
+        {isEbaySpecificsAttentionItem(item) && onOpenEbaySpecifics ? (
+          <button
+            type="button"
+            onClick={() => onOpenEbaySpecifics(item)}
+            className="rounded-lg py-2.5 text-sm font-semibold text-white"
+            style={{ backgroundColor: "var(--color-primary)" }}
+          >
+            Choose eBay values
+          </button>
+        ) : item.action === "ebay_condition" && item.storeItemId ? (
           <Link
             href={`/seller-hub/store/${item.storeItemId}?fixEbayCondition=1`}
             className="inline-flex items-center justify-center rounded-lg py-2.5 text-sm font-semibold text-white"
@@ -296,6 +353,97 @@ export function NeedsAttentionPanel({
 }) {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
+  const [ebaySteps, setEbaySteps] = useState<ListOnCategoryStep[] | null>(null);
+  const dismissedEbayKey = useRef<string | null>(null);
+
+  function ebayAttentionItems(list: Item[]) {
+    return list.filter(isEbaySpecificsAttentionItem);
+  }
+
+  function ebayQueueKey(list: Item[]) {
+    return ebayAttentionItems(list)
+      .map((item) => item.id)
+      .join(",");
+  }
+
+  function openEbayPopup(list: Item[]) {
+    const steps = ebayAttentionItems(list)
+      .map(attentionToEbayStep)
+      .filter((step): step is ListOnCategoryStep => step != null);
+    if (steps.length === 0) return;
+    setEbaySteps(steps);
+  }
+
+  async function saveEbayAssignments(assignments: ListOnCategoryAssignment[]) {
+    let nextItems = items;
+    for (const assignment of assignments) {
+      const item = nextItems.find((row) => row.storeItemId === assignment.storeItemId);
+      if (!item) continue;
+      const aspects: Record<string, string> = {};
+      for (const row of assignment.aspects ?? []) {
+        if (row.name.trim() && row.value.trim()) aspects[row.name.trim()] = row.value.trim();
+      }
+      const res = await fetch("/api/seller/needs-attention", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: item.id,
+          kind: item.kind,
+          fields: {
+            ...(assignment.ebayCategoryId ? { ebayCategoryId: assignment.ebayCategoryId } : {}),
+            ...(Object.keys(aspects).length > 0 ? { aspects } : {}),
+          },
+          retry: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as { error?: string }).error ?? "Could not save eBay values.");
+      }
+      nextItems = (data as { items: Item[] }).items ?? nextItems;
+      const err = (data as { retryResult?: { error?: string } }).retryResult?.error;
+      if (err) throw new Error(err);
+    }
+    setItems(nextItems);
+    onCountChange?.(nextItems.length);
+    dismissedEbayKey.current = ebayQueueKey(nextItems);
+    setEbaySteps(null);
+  }
+
+  async function dismissItem(item: Item) {
+    const previous = items;
+    const next = items.filter((row) => row.id !== item.id);
+    setItems(next);
+    onCountChange?.(next.length);
+    if (item.storeItemId && ebaySteps?.some((step) => step.item.id === item.storeItemId)) {
+      dismissedEbayKey.current = ebayQueueKey(next);
+      setEbaySteps(null);
+    }
+    try {
+      const res = await fetch("/api/seller/needs-attention", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: item.id, kind: item.kind, dismiss: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setItems(previous);
+        onCountChange?.(previous.length);
+        return;
+      }
+      const listed = (data as { items?: Item[] }).items;
+      if (Array.isArray(listed)) {
+        setItems(listed);
+        onCountChange?.(listed.length);
+        dismissedEbayKey.current = ebayQueueKey(listed);
+      }
+    } catch {
+      setItems(previous);
+      onCountChange?.(previous.length);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -316,6 +464,13 @@ export function NeedsAttentionPanel({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (loading) return;
+    const key = ebayQueueKey(items);
+    if (!key || dismissedEbayKey.current === key) return;
+    openEbayPopup(items);
+  }, [items, loading]);
 
   if (loading) {
     return <p className="text-gray-500 text-center py-8">Loading listings that need attention…</p>;
@@ -343,8 +498,27 @@ export function NeedsAttentionPanel({
             setItems(next);
             onCountChange?.(next.length);
           }}
+          onOpenEbaySpecifics={(target) => {
+            const step = attentionToEbayStep(target);
+            if (step) setEbaySteps([step]);
+          }}
+          onDismiss={(target) => {
+            void dismissItem(target);
+          }}
         />
       ))}
+      {ebaySteps && ebaySteps.length > 0 ? (
+        <ListOnChannelCategoryModal
+          steps={ebaySteps}
+          heading="eBay listing details"
+          completeLabel="Save"
+          onClose={() => {
+            dismissedEbayKey.current = ebayQueueKey(items);
+            setEbaySteps(null);
+          }}
+          onComplete={saveEbayAssignments}
+        />
+      ) : null}
     </div>
   );
 }
