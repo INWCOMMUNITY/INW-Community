@@ -218,7 +218,7 @@ export type BulkDestinationsResultCounts = {
   unsyncedInw: number;
   failed: number;
   skipped: number;
-  results?: { status: string; detail?: string }[];
+  results?: { itemId: string; status: string; detail?: string }[];
 };
 
 export function bulkDestinationFailTitle(action: BulkDestinationAction): string {
