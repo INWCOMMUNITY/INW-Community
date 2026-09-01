@@ -13,6 +13,18 @@ export function wixLinkMissingFromLiveCatalog(
   return !liveIds.has(externalListingId.trim());
 }
 
+/**
+ * First finished catalog wins — including an empty shop.
+ * Do not keep calling other Wix APIs after v1 returns 0 products; those
+ * fallbacks still list deleted items and keep the green Wix tag on.
+ */
+export function shouldUseWixCatalogResult(result: {
+  ids: string[];
+  truncated: boolean;
+}): boolean {
+  return !result.truncated || result.ids.length > 0;
+}
+
 async function queryV3Ids(
   accessToken: string,
   opts: WixRequestOpts
@@ -95,7 +107,7 @@ export async function listLiveWixProductIds(
   for (const run of attempts) {
     try {
       const result = await run();
-      if (result.ids.length > 0) return result;
+      if (shouldUseWixCatalogResult(result)) return result;
       empty = result;
     } catch (e) {
       console.warn("[wix] live id list failed", { error: e instanceof Error ? e.message : String(e) });
