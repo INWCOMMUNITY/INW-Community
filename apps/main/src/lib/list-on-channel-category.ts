@@ -77,8 +77,22 @@ export function itemNeedsListOnCategoryStep(
   return itemNeedsEbayCategory(item) || itemNeedsEbayListingDetails(item);
 }
 
+/** Always open the first-time eBay category + Type/Brand popup. Stored values are prefilled. */
+export function shouldOpenListOnCategoryStep(
+  item: ListOnCategoryItem,
+  provider: ListOnCategoryProvider
+): boolean {
+  if (provider === "ebay") return true;
+  return itemNeedsListOnCategoryStep(item, provider);
+}
+
 export function isMissingEbayItemSpecificsError(message: string | null | undefined): boolean {
-  return /Missing required eBay item specifics/i.test(message ?? "");
+  const text = (message ?? "").replace(/\u00a0/g, " ");
+  return (
+    /Missing required eBay item specifics/i.test(text) ||
+    /The item specific\s+.+\s+is missing/i.test(text) ||
+    /eBay needs (Type|Brand)/i.test(text)
+  );
 }
 
 /** Steps to collect missing Etsy/eBay categories (and Etsy who/when) before listing. */
@@ -92,7 +106,7 @@ export function buildListOnCategoryQueue(
     for (const item of items) {
       const linked = new Set((item.channelLinks ?? []).map((l) => l.provider));
       if (linked.has(provider)) continue;
-      if (itemNeedsListOnCategoryStep(item, provider)) {
+      if (shouldOpenListOnCategoryStep(item, provider)) {
         steps.push({ item, provider });
       }
     }
@@ -110,13 +124,8 @@ export function buildListOnCategoryQueueFromDesired(
     const desired = (desiredProvidersByItemId[item.id] ?? []).filter(isListOnCategoryProvider);
     const linked = new Set((item.channelLinks ?? []).map((l) => l.provider));
     for (const provider of desired) {
-      if (linked.has(provider)) {
-        if (provider === "ebay" && itemNeedsEbayListingDetails(item)) {
-          steps.push({ item, provider });
-        }
-        continue;
-      }
-      if (itemNeedsListOnCategoryStep(item, provider)) {
+      if (linked.has(provider) && provider !== "ebay") continue;
+      if (shouldOpenListOnCategoryStep(item, provider)) {
         steps.push({ item, provider });
       }
     }

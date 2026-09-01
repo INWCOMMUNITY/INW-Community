@@ -3,6 +3,11 @@ import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-s
 import type { SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
 import { generateEbayVariationMigrationSku, isValidEbayInventorySku } from "./migrate-prep";
+import {
+  aspectsToEbayProductAspects,
+  parseStoredAspects,
+  type ListingAspect,
+} from "@/lib/listing-limits";
 
 export function shouldUseInventoryItemGroup(item: SyncStoreItem): boolean {
   const axes = normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[] | null;
@@ -13,14 +18,40 @@ export function buildInventoryItemGroupKey(item: SyncStoreItem): string {
   return `inw-group-${getEffectiveSku(item)}`.slice(0, 50);
 }
 
+/** Shared Type/Brand (and other non-variation specifics) on the group — required before publish. */
+export function commonAspectsForInventoryItemGroup(
+  rows: ListingAspect[],
+  variationName: string
+): Record<string, string[]> {
+  const aspects = aspectsToEbayProductAspects(rows);
+  const vary = variationName.trim().toLowerCase();
+  for (const key of Object.keys(aspects)) {
+    if (key.trim().toLowerCase() === vary) delete aspects[key];
+  }
+  const brandNameKey = Object.keys(aspects).find((key) => key.trim().toLowerCase() === "brand name");
+  if (
+    brandNameKey &&
+    aspects[brandNameKey]?.some((value) => value.trim()) &&
+    !aspects.Brand?.some((value) => value.trim())
+  ) {
+    aspects.Brand = aspects[brandNameKey];
+  }
+  return aspects;
+}
+
 export function buildInventoryItemGroupBody(
   item: SyncStoreItem,
-  variantSkus: string[]
+  variantSkus: string[],
+  aspectRows?: ListingAspect[]
 ): Record<string, unknown> {
   const axes = normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[];
   const primary = axes[0]!;
   const values = primary.options.map((option) => option.value);
-  return {
+  const aspects = commonAspectsForInventoryItemGroup(
+    aspectRows ?? parseStoredAspects(item.aspects),
+    primary.name
+  );
+  const body: Record<string, unknown> = {
     inventoryItemGroupKey: buildInventoryItemGroupKey(item),
     variantSKUs: variantSkus,
     title: item.title,
@@ -31,6 +62,8 @@ export function buildInventoryItemGroupBody(
     },
     imageUrls: item.photos.slice(0, 12),
   };
+  if (Object.keys(aspects).length > 0) body.aspects = aspects;
+  return body;
 }
 
 export async function createOrReplaceInventoryItemGroup(

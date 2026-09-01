@@ -29,7 +29,7 @@ import { ListOnChannelCategoryModal } from "@/components/store-item/ListOnChanne
 import {
   isListOnCategoryProvider,
   isMissingEbayItemSpecificsError,
-  itemNeedsListOnCategoryStep,
+  shouldOpenListOnCategoryStep,
   type ListOnCategoryAssignment,
   type ListOnCategoryProvider,
 } from "@/lib/list-on-channel-category";
@@ -215,7 +215,7 @@ export function MyItemsRowMenu({
   }
 
   async function publishTo(provider: ChannelProviderId) {
-    if (isListOnCategoryProvider(provider) && itemNeedsListOnCategoryStep(item, provider)) {
+    if (isListOnCategoryProvider(provider) && shouldOpenListOnCategoryStep(item, provider)) {
       setCategoryProvider(provider);
       return;
     }
@@ -376,7 +376,7 @@ export function MyItemsRowMenu({
               onClick={() => void markSold(linked)}
               className="rounded-lg px-4 py-2 text-sm font-semibold text-white bg-red-700 hover:bg-red-800 disabled:opacity-50"
             >
-              {linked.length === 1 ? `Remove from ${CHANNEL_PROVIDER_LABELS[linked[0]] ?? linked[0]}` : "Remove from all"}
+              {linked.length === 1 ? `Remove from ${CHANNEL_PROVIDER_LABELS[linked[0]] ?? linked[0]}` : "Remove from All"}
             </button>
             <button type="button" disabled={acting} onClick={() => setSoldPrompt(false)} className="text-sm text-gray-600 py-2">
               Cancel
@@ -404,7 +404,7 @@ export function MyItemsRowMenu({
                 className={menuRowClass}
                 style={{ color: "var(--color-heading)" }}
               >
-                View order
+                View Order
               </Link>
             )}
             <Link
@@ -421,7 +421,7 @@ export function MyItemsRowMenu({
               className={menuRowClass}
               style={{ color: "var(--color-heading)" }}
             >
-              View listing
+              View Listing
             </Link>
             <button
               type="button"
@@ -433,12 +433,12 @@ export function MyItemsRowMenu({
               className={menuRowClass}
               style={{ color: "var(--color-heading)" }}
             >
-              View history
+              View History
             </button>
             <MenuDivider />
             {(tab === "ended" || tab === "sold") && (
               <button type="button" disabled={acting} onClick={() => void relistItem()} className={`${menuRowClass} text-green-800`}>
-                Relist item
+                Relist Item
               </button>
             )}
             {listable.map((provider) => (
@@ -450,7 +450,7 @@ export function MyItemsRowMenu({
                 className={menuRowClass}
                 style={{ color: "var(--color-heading)" }}
               >
-                List on {CHANNEL_PROVIDER_LABELS[provider] ?? provider}
+                List On {CHANNEL_PROVIDER_LABELS[provider] ?? provider}
               </button>
             ))}
             {listBlocked.map((c) => {
@@ -468,7 +468,7 @@ export function MyItemsRowMenu({
                   title={reason}
                 >
                   <span>
-                    List on {CHANNEL_PROVIDER_LABELS[provider] ?? provider}
+                    List On {CHANNEL_PROVIDER_LABELS[provider] ?? provider}
                     <span className="block text-xs font-normal text-gray-500">{reason}</span>
                   </span>
                 </button>
@@ -498,7 +498,7 @@ export function MyItemsRowMenu({
                 }}
                 className={`${menuRowClass} text-green-800`}
               >
-                Mark sold
+                Mark Sold
               </button>
             )}
             {tab === "active" && (
@@ -515,7 +515,7 @@ export function MyItemsRowMenu({
                 className={menuRowClass}
                 style={{ color: "var(--color-heading)" }}
               >
-                End listing
+                End Listing
               </button>
             )}
             <MenuDivider />

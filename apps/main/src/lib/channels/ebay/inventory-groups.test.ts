@@ -100,6 +100,21 @@ describe("inventory item groups", () => {
     expect(body).not.toHaveProperty("aspects");
   });
 
+  it("puts shared Type/Brand on the group so eBay can publish variations", () => {
+    const body = buildInventoryItemGroupBody(
+      {
+        ...variantItem,
+        aspects: [
+          { name: "Type", value: "T-Shirt" },
+          { name: "Brand", value: "Unbranded" },
+          { name: "Size", value: "S" },
+        ],
+      },
+      ["SKU1S", "SKU1M"]
+    );
+    expect(body.aspects).toEqual({ Type: ["T-Shirt"], Brand: ["Unbranded"] });
+  });
+
   it("pins a single variation aspect on an inventory PUT", () => {
     const row = buildVariantInventoryRows(variantItem)[0]!;
     const body = withVariationAspect(

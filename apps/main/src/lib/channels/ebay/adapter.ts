@@ -1243,7 +1243,7 @@ async function upsertListing(
       }
       await createOrReplaceInventoryItemGroup(
         conn.accessToken,
-        buildInventoryItemGroupBody(syncItem, variantSkus)
+        buildInventoryItemGroupBody(syncItem, variantSkus, pushAspects)
       );
       const shouldPublishGroup =
         cfg.canPublish && item.status === "active" && item.quantity > 0 && !hadOfferAtStart;

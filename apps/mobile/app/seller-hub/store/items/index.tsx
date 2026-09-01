@@ -22,7 +22,7 @@ import { ListOnChannelCategoryModal } from "@/components/channels/ListOnChannelC
 import {
   isListOnCategoryProvider,
   isMissingEbayItemSpecificsError,
-  itemNeedsListOnCategoryStep,
+  shouldOpenListOnCategoryStep,
   type ListOnCategoryAssignment,
   type ListOnCategoryProvider,
 } from "@/lib/list-on-channel-category";
@@ -425,7 +425,7 @@ export default function MyItemsScreen() {
           onPress: () => void markAsSold(id),
         },
         {
-          text: linked.length === 1 ? `Remove from ${CHANNEL_PROVIDER_LABEL[linked[0]]}` : "Remove from all",
+          text: linked.length === 1 ? `Remove from ${CHANNEL_PROVIDER_LABEL[linked[0]]}` : "Remove from All",
           style: "destructive",
           onPress: () => void markAsSold(id, linked),
         },
@@ -538,7 +538,7 @@ export default function MyItemsScreen() {
 
   const publishToChannel = (storeItemId: string, provider: ChannelProviderId) => {
     const item = items.find((i) => i.id === storeItemId);
-    if (item && isListOnCategoryProvider(provider) && itemNeedsListOnCategoryStep(item, provider)) {
+    if (item && isListOnCategoryProvider(provider) && shouldOpenListOnCategoryStep(item, provider)) {
       setMenuItemId(null);
       setCategoryItemId(storeItemId);
       setCategoryProvider(provider);
@@ -802,7 +802,7 @@ export default function MyItemsScreen() {
                       (router.push as (href: string) => void)(`/seller-hub/orders/${item.soldOrderId}`)
                     }
                   >
-                    <Text style={styles.viewOrderLink}>View order</Text>
+                    <Text style={styles.viewOrderLink}>View Order</Text>
                   </Pressable>
                 )}
                 {item.channelLinks?.filter((link) => !link.remoteDeletedProvider).map((link) => {
@@ -902,7 +902,7 @@ export default function MyItemsScreen() {
                   if (orderId) (router.push as (href: string) => void)(`/seller-hub/orders/${orderId}`);
                 }}
               >
-                <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>View order</Text>
+                <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>View Order</Text>
               </Pressable>
             )}
             {itemsTab === "sold" && menuItemId && (
@@ -910,7 +910,7 @@ export default function MyItemsScreen() {
                 style={styles.menuOption}
                 onPress={() => relistItem(menuItemId)}
               >
-                <Text style={styles.menuOptionTextGreen}>Relist item</Text>
+                <Text style={styles.menuOptionTextGreen}>Relist Item</Text>
               </Pressable>
             )}
             {menuItemId &&
@@ -926,7 +926,7 @@ export default function MyItemsScreen() {
                         openListing(menuItem);
                       }}
                     >
-                      <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>View listing</Text>
+                      <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>View Listing</Text>
                     </Pressable>
                     {listableProvidersForItem(menuItem).map((provider) => (
                       <Pressable
@@ -935,7 +935,7 @@ export default function MyItemsScreen() {
                         onPress={() => publishToChannel(menuItemId, provider)}
                       >
                         <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>
-                          List on {CHANNEL_PROVIDER_LABEL[provider]}
+                          List On {CHANNEL_PROVIDER_LABEL[provider]}
                         </Text>
                       </Pressable>
                     ))}
@@ -951,7 +951,7 @@ export default function MyItemsScreen() {
                           onPress={() => Alert.alert(`List on ${CHANNEL_PROVIDER_LABEL[c.provider]}`, reason)}
                         >
                           <Text style={styles.menuOptionTextDisabled}>
-                            List on {CHANNEL_PROVIDER_LABEL[c.provider]}
+                            List On {CHANNEL_PROVIDER_LABEL[c.provider]}
                           </Text>
                           <Text style={styles.menuOptionHint}>{reason}</Text>
                         </Pressable>
@@ -1000,7 +1000,7 @@ export default function MyItemsScreen() {
                   if (menuItemId) confirmMarkAsSold(menuItemId);
                 }}
               >
-                <Text style={styles.menuOptionTextGreen}>Mark sold</Text>
+                <Text style={styles.menuOptionTextGreen}>Mark Sold</Text>
               </Pressable>
             )}
             {itemsTab === "active" && (
@@ -1008,7 +1008,7 @@ export default function MyItemsScreen() {
                 style={styles.menuOption}
                 onPress={() => menuItemId && endListing(menuItemId)}
               >
-                <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>End listing</Text>
+                <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>End Listing</Text>
               </Pressable>
             )}
             <Pressable

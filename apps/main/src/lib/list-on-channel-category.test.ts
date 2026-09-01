@@ -73,6 +73,22 @@ describe("buildListOnCategoryQueue", () => {
     expect(steps.every((s) => s.provider === "ebay")).toBe(true);
   });
 
+  it("always queues eBay even when a previous try already saved Type and Brand", () => {
+    const steps = buildListOnCategoryQueue(
+      [
+        item({
+          ebayCategoryId: 261605,
+          aspects: [
+            { name: "Type", value: "Clock" },
+            { name: "Brand", value: "Unbranded" },
+          ],
+        }),
+      ],
+      ["ebay"]
+    );
+    expect(steps.map((s) => s.item.id)).toEqual(["item-1"]);
+  });
+
   it("skips items already linked to that store", () => {
     const steps = buildListOnCategoryQueue(
       [item({ id: "a", channelLinks: [{ provider: "etsy" }] })],
@@ -113,7 +129,7 @@ describe("buildListOnCategoryQueueFromDesired", () => {
     expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["a:ebay"]);
   });
 
-  it("does not queue already-linked eBay when Type and Brand are set", () => {
+  it("still queues already-linked eBay so the first-time picker can run again", () => {
     const steps = buildListOnCategoryQueueFromDesired(
       [
         item({
@@ -128,7 +144,7 @@ describe("buildListOnCategoryQueueFromDesired", () => {
       ],
       { a: ["ebay"] }
     );
-    expect(steps).toEqual([]);
+    expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["a:ebay"]);
   });
 });
 
@@ -220,5 +236,10 @@ describe("isMissingEbayItemSpecificsError", () => {
       )
     ).toBe(true);
     expect(isMissingEbayItemSpecificsError("Could not list on Etsy.")).toBe(false);
+    expect(
+      isMissingEbayItemSpecificsError(
+        "Listing details didn't update on eBay: [#25002] The item specific Type is missing. — eBay needs Type on this listing."
+      )
+    ).toBe(true);
   });
 });
