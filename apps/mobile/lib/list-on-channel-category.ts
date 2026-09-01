@@ -77,7 +77,7 @@ export function itemNeedsListOnCategoryStep(
   return itemNeedsEbayCategory(item) || itemNeedsEbayListingDetails(item);
 }
 
-/** Always open the first-time eBay category + Type/Brand popup. Stored values are prefilled. */
+/** Open the eBay category + Type/Brand popup for first-time List on eBay. Stored values are prefilled. */
 export function shouldOpenListOnCategoryStep(
   item: ListOnCategoryItem,
   provider: ListOnCategoryProvider
@@ -120,7 +120,7 @@ export function buildListOnCategoryQueue(
   return steps;
 }
 
-/** Per-item desired stores (Manage Listings). Queues adds that still need a category or eBay specifics. */
+/** Per-item desired stores (Manage Listings). Only new adds need the category popup. */
 export function buildListOnCategoryQueueFromDesired(
   items: ListOnCategoryItem[],
   desiredProvidersByItemId: Record<string, string[]>
@@ -130,7 +130,7 @@ export function buildListOnCategoryQueueFromDesired(
     const desired = (desiredProvidersByItemId[item.id] ?? []).filter(isListOnCategoryProvider);
     const linked = new Set((item.channelLinks ?? []).map((l) => l.provider));
     for (const provider of desired) {
-      if (linked.has(provider) && provider !== "ebay") continue;
+      if (linked.has(provider)) continue;
       if (shouldOpenListOnCategoryStep(item, provider)) {
         steps.push({ item, provider });
       }

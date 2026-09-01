@@ -157,6 +157,9 @@ export async function applyBulkDestinations(input: {
       }
     }
 
+    // Force-update only after the picker collected new Type/Brand for an already-live
+    // listing (Needs Attention / missing-specifics retry). Unchanged Manage Listings
+    // checkboxes do not produce an assignment, so those listings are left alone.
     const ebayAssignment = input.categoryAssignments?.find((row) => row.storeItemId === item.id);
     const alreadyLinkedEbay =
       item.channelLinks.some((link) => link.provider === "ebay") && !toAdd.includes("ebay");

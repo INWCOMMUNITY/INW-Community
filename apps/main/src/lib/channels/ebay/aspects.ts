@@ -52,6 +52,68 @@ export function clearEbayCategoryTreeIdCache(): void {
   cachedTreeId = null;
 }
 
+const TAXONOMY_COOLDOWN_MS = 60_000;
+const SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+let taxonomyCoolDownUntil = 0;
+const categorySearchCache = new Map<string, { categories: EbayCategorySuggestion[]; at: number }>();
+
+export const EBAY_CATEGORY_SEARCH_BUSY_NOTICE =
+  "eBay is busy right now. Wait a minute and search again.";
+
+export function markEbayTaxonomyRateLimited(): void {
+  taxonomyCoolDownUntil = Date.now() + TAXONOMY_COOLDOWN_MS;
+}
+
+export function isEbayTaxonomyCoolingDown(): boolean {
+  return Date.now() < taxonomyCoolDownUntil;
+}
+
+export function clearEbayTaxonomyCooldown(): void {
+  taxonomyCoolDownUntil = 0;
+}
+
+export function clearEbayCategorySearchCache(): void {
+  categorySearchCache.clear();
+}
+
+function searchCacheKey(query: string): string {
+  return query.trim().toLowerCase();
+}
+
+export function cacheEbayCategorySearch(query: string, categories: EbayCategorySuggestion[]): void {
+  const key = searchCacheKey(query);
+  if (!key) return;
+  categorySearchCache.set(key, { categories, at: Date.now() });
+}
+
+export function getCachedEbayCategorySearch(query: string): EbayCategorySuggestion[] | null {
+  const entry = categorySearchCache.get(searchCacheKey(query));
+  if (!entry) return null;
+  if (Date.now() - entry.at > SEARCH_CACHE_TTL_MS) return null;
+  return entry.categories;
+}
+
+function suggestionsFromTaxonomyResponse(res: {
+  categorySuggestions?: {
+    category?: { categoryId?: string; categoryName?: string };
+    categoryTreeNodeAncestors?: { categoryName?: string }[];
+  }[];
+}): EbayCategorySuggestion[] {
+  const out: EbayCategorySuggestion[] = [];
+  for (const s of res.categorySuggestions ?? []) {
+    const id = s.category?.categoryId;
+    const name = s.category?.categoryName;
+    if (!id || !name) continue;
+    const ancestors = (s.categoryTreeNodeAncestors ?? [])
+      .map((a) => a.categoryName)
+      .filter((n): n is string => Boolean(n))
+      .reverse();
+    const path = [...ancestors, name].join(" > ");
+    out.push({ categoryId: id, categoryName: name, categoryPath: path });
+  }
+  return out;
+}
+
 /**
  * US tree id is always "0". Do not call get_default_category_tree_id —
  * that Taxonomy request is easy to 429 and does not change for EBAY_US.
@@ -71,35 +133,42 @@ export async function searchEbayCategories(query: string): Promise<EbayCategoryS
   const q = query.trim();
   if (!q) return [];
   requireEbayTaxonomyConfig();
-  const treeId = await getDefaultCategoryTreeId();
-  const res = await withEbayApplicationTokenRetry((accessToken) =>
-    ebayGet<{
-      categorySuggestions?: {
-        category?: { categoryId?: string; categoryName?: string };
-        categoryTreeNodeAncestors?: { categoryName?: string }[];
-      }[];
-    }>(
-      accessToken,
-      `${EBAY_TAXONOMY_BASE}/category_tree/${encodeURIComponent(
-        treeId
-      )}/get_category_suggestions?q=${encodeURIComponent(q)}`
-    )
-  );
-
-  const out: EbayCategorySuggestion[] = [];
-  for (const s of res.categorySuggestions ?? []) {
-    const id = s.category?.categoryId;
-    const name = s.category?.categoryName;
-    if (!id || !name) continue;
-    // Ancestors come back leaf-first; reverse to read root → leaf.
-    const ancestors = (s.categoryTreeNodeAncestors ?? [])
-      .map((a) => a.categoryName)
-      .filter((n): n is string => Boolean(n))
-      .reverse();
-    const path = [...ancestors, name].join(" > ");
-    out.push({ categoryId: id, categoryName: name, categoryPath: path });
+  const cached = getCachedEbayCategorySearch(q);
+  if (cached && isEbayTaxonomyCoolingDown()) return cached;
+  if (isEbayTaxonomyCoolingDown() && !cached) {
+    throw new EbayApiError(
+      "[#2001 · ACCESS · REQUEST · HTTP 429] The request limit has been reached for the resource.",
+      429,
+      { errors: [{ errorId: 2001, message: "The request limit has been reached for the resource." }] },
+      "/commerce/taxonomy/v1/get_category_suggestions"
+    );
   }
-  return out;
+
+  const treeId = await getDefaultCategoryTreeId();
+  try {
+    const res = await withEbayApplicationTokenRetry((accessToken) =>
+      ebayGet<{
+        categorySuggestions?: {
+          category?: { categoryId?: string; categoryName?: string };
+          categoryTreeNodeAncestors?: { categoryName?: string }[];
+        }[];
+      }>(
+        accessToken,
+        `${EBAY_TAXONOMY_BASE}/category_tree/${encodeURIComponent(
+          treeId
+        )}/get_category_suggestions?q=${encodeURIComponent(q)}`
+      )
+    );
+    const out = suggestionsFromTaxonomyResponse(res);
+    cacheEbayCategorySearch(q, out);
+    return out;
+  } catch (e) {
+    if (isEbayRateLimitError(e)) {
+      markEbayTaxonomyRateLimited();
+      if (cached) return cached;
+    }
+    throw e;
+  }
 }
 
 type AspectApiResponse = {
@@ -330,6 +399,13 @@ export async function getItemAspectsForCategory(
     }
   }
 
+  if (isEbayTaxonomyCoolingDown()) {
+    if (metadataAspects) return rememberAspects(id, treeId, metadataAspects);
+    if (fresh?.length) return fresh;
+    if (persisted?.length) return persisted;
+    return [];
+  }
+
   try {
     const res = await fetchItemAspectsForCategory(id, treeId);
     const aspects = parseAspectApiResponse(res);
@@ -339,6 +415,7 @@ export async function getItemAspectsForCategory(
     if (persisted?.length) return persisted;
     return aspects;
   } catch (e) {
+    if (isEbayRateLimitError(e)) markEbayTaxonomyRateLimited();
     if (metadataAspects) return rememberAspects(id, treeId, metadataAspects);
     const cached = fresh ?? getCachedCategoryAspects(id, treeId, { allowStale: true }) ?? persisted;
     if (cached && shouldUseAspectCacheFallback(e)) {

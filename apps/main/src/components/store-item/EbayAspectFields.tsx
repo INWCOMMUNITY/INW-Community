@@ -58,7 +58,9 @@ export function EbayAspectFields({
       <div>
         <p className={listingLabelClass}>Item specifics</p>
         <p className={listingHintClass}>
-          Pick the value eBay lists for this category. Required fields are marked with *.
+          {categoryAspects.some((aspect) => aspect.suggestedValues.length > 0)
+            ? "Pick the value eBay lists for this category. Required fields are marked with *."
+            : "Enter Type and Brand. Required fields are marked with *."}
         </p>
       </div>
       {aspects.map((row, index) => {

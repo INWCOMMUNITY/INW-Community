@@ -485,7 +485,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       })
         .then(async (r) => {
           const ct = r.headers.get("content-type") ?? "";
-          let data: { categories?: EbayCategorySuggestion[]; error?: string } = {};
+          let data: { categories?: EbayCategorySuggestion[]; error?: string; warning?: string; rateLimited?: boolean } =
+            {};
           if (ct.includes("application/json")) {
             data = await r.json();
           }
@@ -494,16 +495,17 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
             setEbayCategoryResults([]);
             setEbayCategorySearchError(
               data.error ??
+                data.warning ??
                 (r.status === 503
                   ? "eBay category search is not configured on this server."
-                  : r.status >= 500
-                    ? "Category search is temporarily unavailable. Try again in a moment."
-                    : "Category search failed. Try again or contact support.")
+                  : "eBay is busy right now. Wait a minute and search again.")
             );
             return;
           }
-          setEbayCategorySearchError(null);
           setEbayCategoryResults(data.categories ?? []);
+          setEbayCategorySearchError(
+            data.warning ?? (data.rateLimited ? "eBay is busy right now. Wait a minute and search again." : null)
+          );
         })
         .catch(() => {
           if (!cancelled) {

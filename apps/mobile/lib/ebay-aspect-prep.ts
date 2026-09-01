@@ -545,9 +545,9 @@ export function ebayListOnFallbackAspects(): CategoryAspectSchema[] {
     {
       name: "Brand",
       required: true,
-      mode: "SELECTION_ONLY",
+      mode: "FREE_TEXT",
       cardinality: "SINGLE",
-      suggestedValues: [...BRAND_DEFAULTS],
+      suggestedValues: [],
     },
   ];
 }
@@ -555,6 +555,9 @@ export function ebayListOnFallbackAspects(): CategoryAspectSchema[] {
 export function ebayAspectUsesDropdown(aspect: Pick<CategoryAspectSchema, "suggestedValues"> | undefined): boolean {
   return Boolean(aspect?.suggestedValues?.length);
 }
+
+export const EBAY_LIST_ON_RATE_LIMIT_NOTICE =
+  "eBay is busy right now. Enter Type and Brand below, then list.";
 
 function pickSuggestedValue(aspect: CategoryAspectSchema, want: string[]): string | null {
   for (const candidate of want) {

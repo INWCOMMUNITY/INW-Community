@@ -29,7 +29,9 @@ import {
   type ListOnCategoryStep,
 } from "@/lib/list-on-channel-category";
 import {
+  EBAY_LIST_ON_RATE_LIMIT_NOTICE,
   ebayAspectUsesDropdown,
+  ebayListOnFallbackAspects,
   isOftenRequiredEbayAspectName,
   missingEbayAspectsForListOn,
   prepareAspectRowsForForm,
@@ -168,28 +170,29 @@ export function ListOnChannelCategoryModal({
       .then((data) => {
         if (cancelled) return;
         const list = data.aspects ?? [];
-        setCategoryAspects(list);
+        const schema = list.length > 0 ? list : ebayListOnFallbackAspects();
+        setCategoryAspects(schema);
         setAspects((prev) =>
-          list.length > 0
-            ? preserveEbayAspectValues(
-                prepareAspectRowsForForm(list, parseItemAspects(step.item.aspects), step.item.title),
-                prev
-              )
-            : []
+          preserveEbayAspectValues(
+            prepareAspectRowsForForm(schema, parseItemAspects(step.item.aspects), step.item.title),
+            prev
+          )
         );
         setAspectsError(
-          list.length > 0
-            ? null
-            : data.warning ??
-                data.error ??
-                "eBay did not return official values for this category. Change the category and try again."
+          list.length > 0 ? data.warning ?? null : data.warning ?? data.error ?? EBAY_LIST_ON_RATE_LIMIT_NOTICE
         );
       })
       .catch(() => {
         if (cancelled) return;
-        setCategoryAspects([]);
-        setAspects([]);
-        setAspectsError("Could not load eBay's official values. Change the category or try again.");
+        const fallback = ebayListOnFallbackAspects();
+        setCategoryAspects(fallback);
+        setAspects((prev) =>
+          preserveEbayAspectValues(
+            prepareAspectRowsForForm(fallback, parseItemAspects(step.item.aspects), step.item.title),
+            prev
+          )
+        );
+        setAspectsError(EBAY_LIST_ON_RATE_LIMIT_NOTICE);
       })
       .finally(() => {
         if (!cancelled) setAspectsLoading(false);
@@ -220,6 +223,8 @@ export function ListOnChannelCategoryModal({
           categoryName?: string;
           categoryPath?: string;
         }>;
+        warning?: string;
+        rateLimited?: boolean;
       }>(path)
         .then((data) => {
           if (cancelled) return;
@@ -237,11 +242,15 @@ export function ListOnChannelCategoryModal({
             })
             .filter((c): c is CategoryChoice => c != null);
           setResults(mapped);
+          setSearchError(
+            data.warning ??
+              (data.rateLimited ? "eBay is busy right now. Wait a minute and search again." : null)
+          );
         })
         .catch((e: { error?: string }) => {
           if (!cancelled) {
             setResults([]);
-            setSearchError(e?.error ?? "Category search failed.");
+            setSearchError(e?.error ?? "eBay is busy right now. Wait a minute and search again.");
           }
         })
         .finally(() => {
@@ -373,8 +382,8 @@ export function ListOnChannelCategoryModal({
                   Fill in the details eBay requires for this category. Required fields are marked with *.
                 </Text>
                 {aspectsLoading ? <ActivityIndicator color={theme.colors.primary} /> : null}
-                {aspectsError ? <Text style={styles.error}>{aspectsError}</Text> : null}
-                {!aspectsLoading && !aspectsError && aspects.length === 0 ? (
+                {aspectsError ? <Text style={styles.hint}>{aspectsError}</Text> : null}
+                {!aspectsLoading && aspects.length === 0 ? (
                   <Text style={styles.hint}>This category has no required item specifics.</Text>
                 ) : null}
                 {aspects.map((row, index) => {

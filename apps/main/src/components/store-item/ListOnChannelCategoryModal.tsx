@@ -18,6 +18,8 @@ import {
   type EtsyWhoMade,
 } from "@/lib/etsy-listing-options";
 import {
+  EBAY_LIST_ON_RATE_LIMIT_NOTICE,
+  ebayListOnFallbackAspects,
   missingEbayAspectsForListOn,
   prepareAspectRowsForForm,
   preserveEbayAspectValues,
@@ -101,12 +103,14 @@ export function ListOnChannelCategoryModal({
       setCategoryAspects([]);
       setAspects([]);
       setAspectsError(null);
+      setAspectsNotice(null);
       setAspectsLoading(false);
       return;
     }
     let cancelled = false;
     setAspectsLoading(true);
     setAspectsError(null);
+    setAspectsNotice(null);
     fetch(
       `/api/channels/ebay/category-aspects?categoryId=${encodeURIComponent(categoryId)}&storeItemId=${encodeURIComponent(step.item.id)}`,
       { credentials: "include" }
@@ -122,14 +126,13 @@ export function ListOnChannelCategoryModal({
         const list = data.aspects ?? [];
         const rateLimited =
           Boolean(data.rateLimited) || isEbayRateLimitError(data.error ?? data.warning ?? "");
-        setCategoryAspects(list);
+        const schema = list.length > 0 ? list : ebayListOnFallbackAspects();
+        setCategoryAspects(schema);
         setAspects((prev) =>
-          list.length > 0
-            ? preserveEbayAspectValues(
-                prepareAspectRowsForForm(list, parseStoredAspects(step.item.aspects), step.item.title),
-                prev
-              )
-            : []
+          preserveEbayAspectValues(
+            prepareAspectRowsForForm(schema, parseStoredAspects(step.item.aspects), step.item.title),
+            prev
+          )
         );
         setAspectsError(null);
         setAspectsNotice(
@@ -137,19 +140,21 @@ export function ListOnChannelCategoryModal({
             ? rateLimited
               ? data.warning ?? null
               : null
-            : data.warning ??
-                data.error ??
-                (rateLimited
-                  ? "eBay is busy. Change the category or try again so we can load official values."
-                  : "eBay did not return official values for this category. Change the category and try again.")
+            : data.warning ?? data.error ?? EBAY_LIST_ON_RATE_LIMIT_NOTICE
         );
       })
       .catch(() => {
         if (cancelled) return;
-        setCategoryAspects([]);
-        setAspects([]);
+        const fallback = ebayListOnFallbackAspects();
+        setCategoryAspects(fallback);
+        setAspects((prev) =>
+          preserveEbayAspectValues(
+            prepareAspectRowsForForm(fallback, parseStoredAspects(step.item.aspects), step.item.title),
+            prev
+          )
+        );
         setAspectsError(null);
-        setAspectsNotice("Could not load eBay's official values. Change the category or try again.");
+        setAspectsNotice(EBAY_LIST_ON_RATE_LIMIT_NOTICE);
       })
       .finally(() => {
         if (!cancelled) setAspectsLoading(false);

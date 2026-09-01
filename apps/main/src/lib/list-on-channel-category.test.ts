@@ -115,21 +115,7 @@ describe("buildListOnCategoryQueueFromDesired", () => {
     expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["a:ebay"]);
   });
 
-  it("queues already-linked eBay when Type or Brand is still missing", () => {
-    const steps = buildListOnCategoryQueueFromDesired(
-      [
-        item({
-          id: "a",
-          ebayCategoryId: 11450,
-          channelLinks: [{ provider: "ebay" }],
-        }),
-      ],
-      { a: ["ebay"] }
-    );
-    expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["a:ebay"]);
-  });
-
-  it("still queues already-linked eBay so the first-time picker can run again", () => {
+  it("does not queue already-linked eBay when that store stays checked", () => {
     const steps = buildListOnCategoryQueueFromDesired(
       [
         item({
@@ -144,7 +130,36 @@ describe("buildListOnCategoryQueueFromDesired", () => {
       ],
       { a: ["ebay"] }
     );
-    expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["a:ebay"]);
+    expect(steps).toEqual([]);
+  });
+
+  it("does not queue already-linked eBay even when Type or Brand is still missing", () => {
+    const steps = buildListOnCategoryQueueFromDesired(
+      [
+        item({
+          id: "a",
+          ebayCategoryId: 11450,
+          channelLinks: [{ provider: "ebay" }],
+        }),
+      ],
+      { a: ["ebay"] }
+    );
+    expect(steps).toEqual([]);
+  });
+
+  it("only queues items that are adding eBay, not ones already listed there", () => {
+    const steps = buildListOnCategoryQueueFromDesired(
+      [
+        item({
+          id: "already",
+          ebayCategoryId: 261605,
+          channelLinks: [{ provider: "ebay" }],
+        }),
+        item({ id: "new", ebayCategoryId: null, channelLinks: [{ provider: "etsy" }] }),
+      ],
+      { already: ["ebay"], new: ["etsy", "ebay"] }
+    );
+    expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["new:ebay"]);
   });
 });
 

@@ -498,9 +498,11 @@ describe("fillDefaultEbayAspects", () => {
 });
 
 describe("ebayListOnFallbackAspects", () => {
-  it("offers official no-brand values when taxonomy is unavailable", () => {
+  it("offers Type and Brand as text fields when taxonomy is unavailable", () => {
     const brand = ebayListOnFallbackAspects().find((aspect) => aspect.name === "Brand");
-    expect(brand?.suggestedValues).toEqual(["Unbranded", "Does Not Apply"]);
+    expect(brand?.mode).toBe("FREE_TEXT");
+    expect(brand?.suggestedValues).toEqual([]);
+    expect(ebayAspectUsesDropdown(brand)).toBe(false);
   });
 });
 
@@ -570,10 +572,16 @@ describe("ebayAspectRowsForListOnPopup", () => {
     expect(rows.some((row) => row.name === "Brand")).toBe(true);
   });
 
-  it("shows Brand as a dropdown when taxonomy is unavailable", () => {
+  it("shows Type and Brand text fields when the official list is empty", () => {
+    const rows = prepareAspectRowsForForm(ebayListOnFallbackAspects(), [], "Vintage Bear Clock");
+    expect(rows.map((row) => row.name)).toEqual(["Type", "Brand"]);
+    expect(ebayAspectUsesDropdown(ebayListOnFallbackAspects()[0])).toBe(false);
+  });
+
+  it("shows Brand as a text field when taxonomy is unavailable", () => {
     const brand = ebayListOnFallbackAspects().find((row) => row.name === "Brand");
-    expect(ebayAspectUsesDropdown(brand)).toBe(true);
-    expect(brand?.mode).toBe("SELECTION_ONLY");
+    expect(ebayAspectUsesDropdown(brand)).toBe(false);
+    expect(brand?.mode).toBe("FREE_TEXT");
   });
 
   it("does not treat a taxonomy outage as a missing item specific when Type and Brand are set", () => {

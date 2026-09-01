@@ -58,11 +58,13 @@ export function ChannelCategorySearchField({
               categoryPath?: string;
             }>;
             error?: string;
+            warning?: string;
+            rateLimited?: boolean;
           } = await r.json().catch(() => ({}));
           if (cancelled) return;
           if (!r.ok) {
             setResults([]);
-            setError(data.error ?? `${label} category search failed.`);
+            setError(data.error ?? data.warning ?? `${label} is busy. Wait a minute and search again.`);
             return;
           }
           const mapped: ChannelCategoryChoice[] = (data.categories ?? [])
@@ -79,7 +81,7 @@ export function ChannelCategorySearchField({
             })
             .filter((c): c is ChannelCategoryChoice => c != null);
           setResults(mapped);
-          setError(null);
+          setError(data.warning ?? (data.rateLimited ? `${label} is busy. Wait a minute and search again.` : null));
         })
         .catch(() => {
           if (!cancelled) {

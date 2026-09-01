@@ -1087,7 +1087,7 @@ export function isOftenRequiredEbayAspectName(name: string): boolean {
   return PUBLISH_OFTEN_REQUIRED.has(name.trim().toLowerCase());
 }
 
-/** Type/Brand fields when eBay Taxonomy is rate-limited so sellers can still list. */
+/** Type/Brand text fields when eBay's official list cannot load. */
 export function ebayListOnFallbackAspects(): CategoryAspectSchema[] {
   return [
     {
@@ -1100,9 +1100,9 @@ export function ebayListOnFallbackAspects(): CategoryAspectSchema[] {
     {
       name: "Brand",
       required: true,
-      mode: "SELECTION_ONLY",
+      mode: "FREE_TEXT",
       cardinality: "SINGLE",
-      suggestedValues: [...BRAND_DEFAULTS],
+      suggestedValues: [],
     },
   ];
 }

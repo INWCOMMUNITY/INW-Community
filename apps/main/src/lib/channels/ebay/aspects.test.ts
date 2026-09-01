@@ -12,12 +12,17 @@ vi.mock("database", () => ({
 import { EbayApiError } from "./errors";
 import {
   cacheCategoryAspects,
+  cacheEbayCategorySearch,
   clearCategoryAspectCache,
+  clearEbayCategorySearchCache,
   clearEbayCategoryTreeIdCache,
+  clearEbayTaxonomyCooldown,
   getCachedCategoryAspects,
   getDefaultCategoryTreeId,
   getItemAspectsForCategory,
+  markEbayTaxonomyRateLimited,
   parseAspectApiResponse,
+  searchEbayCategories,
 } from "./aspects";
 import * as oauth from "./oauth";
 import * as client from "./client";
@@ -47,6 +52,8 @@ describe("aspect cache fallback", () => {
   afterEach(() => {
     clearCategoryAspectCache();
     clearEbayCategoryTreeIdCache();
+    clearEbayTaxonomyCooldown();
+    clearEbayCategorySearchCache();
     vi.restoreAllMocks();
   });
 
@@ -186,6 +193,46 @@ describe("aspect cache fallback", () => {
     const rows = await getItemAspectsForCategory("261605", { sellerAccessToken: "seller-token" });
     expect(rows.find((row) => row.name === "Brand")?.suggestedValues).toEqual(["Howard Miller", "Seiko"]);
     expect(String(ebayGet.mock.calls[1]?.[1])).toMatch(/get_item_aspects_for_category/);
+  });
+});
+
+describe("searchEbayCategories", () => {
+  afterEach(() => {
+    clearEbayTaxonomyCooldown();
+    clearEbayCategorySearchCache();
+    clearEbayCategoryTreeIdCache();
+    vi.restoreAllMocks();
+  });
+
+  it("serves a cached search when Taxonomy is rate-limited", async () => {
+    cacheEbayCategorySearch("clock", [
+      { categoryId: "261605", categoryName: "Clocks", categoryPath: "Collectibles > Clocks" },
+    ]);
+    vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
+    vi.spyOn(oauth, "withEbayApplicationTokenRetry").mockImplementation(async (fn) => fn("token"));
+    const ebayGet = vi.spyOn(client, "ebayGet").mockRejectedValueOnce(
+      new EbayApiError(
+        "[#2001 · ACCESS · REQUEST · HTTP 429] The request limit has been reached for the resource.",
+        429,
+        { errors: [{ errorId: 2001, message: "The request limit has been reached for the resource." }] },
+        "/taxonomy"
+      )
+    );
+
+    await expect(searchEbayCategories("clock")).resolves.toEqual([
+      { categoryId: "261605", categoryName: "Clocks", categoryPath: "Collectibles > Clocks" },
+    ]);
+    expect(ebayGet).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call Taxonomy again while cooling down after a 429", async () => {
+    cacheEbayCategorySearch("clock", [{ categoryId: "1", categoryName: "Clocks" }]);
+    markEbayTaxonomyRateLimited();
+    vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
+    const ebayGet = vi.spyOn(client, "ebayGet");
+
+    await expect(searchEbayCategories("clock")).resolves.toEqual([{ categoryId: "1", categoryName: "Clocks" }]);
+    expect(ebayGet).not.toHaveBeenCalled();
   });
 });
 
