@@ -158,6 +158,15 @@ async function ebayRequest<T>(
     );
   }
   if (isRetryableStatus(res.status) && attempt < 2) {
+    if (res.status === 429) {
+      const retryAfter = parseRetryAfterMs(res.headers.get("retry-after") ?? res.headers.get("Retry-After"));
+      // No Retry-After (or a long one) is a quota limit — retrying burns the remaining budget.
+      if (retryAfter == null || retryAfter > 10_000) {
+        const body = await parseBody(res);
+        lastEbayWarnings = [];
+        throw new EbayApiError(formatEbayApiErrorMessage(body, res.status, path), res.status, body, path);
+      }
+    }
     await new Promise((r) => setTimeout(r, retryDelayMs(res, attempt)));
     return ebayRequest<T>(accessToken, path, init, attempt + 1);
   }

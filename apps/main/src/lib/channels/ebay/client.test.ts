@@ -76,6 +76,22 @@ describe("ebayGet warnings and retries", () => {
     }
   });
 
+  it("does not retry a 429 without Retry-After", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          errors: [{ errorId: 2001, message: "The request limit has been reached for the resource." }],
+        }),
+        { status: 429, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(ebayGet("token", "/commerce/taxonomy/v1/category_tree/0")).rejects.toBeInstanceOf(
+      EbayApiError
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("honors Retry-After on 429 then succeeds", async () => {
     const fetchMock = vi
       .fn()

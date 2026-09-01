@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireEbayTaxonomyConfig, searchEbayCategories } from "@/lib/channels/ebay/aspects";
-import { describeEbayThrownError } from "@/lib/channels/ebay/errors";
+import { describeChannelSyncError, describeEbayThrownError } from "@/lib/channels/ebay/errors";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
     const categories = await searchEbayCategories(q);
     return NextResponse.json({ categories });
   } catch (e) {
-    const errMsg = describeEbayThrownError(e);
+    const errMsg = describeChannelSyncError("ebay", e);
     return NextResponse.json({ error: errMsg }, { status: 502 });
   }
 }

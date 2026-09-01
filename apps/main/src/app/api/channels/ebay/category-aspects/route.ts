@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getItemAspectsForCategory, requireEbayTaxonomyConfig } from "@/lib/channels/ebay/aspects";
 import { filterSellerVisibleCategoryAspects } from "@/lib/channels/ebay/aspect-prep";
-import { describeEbayThrownError, EbayApiError } from "@/lib/channels/ebay/errors";
+import { describeChannelSyncError, describeEbayThrownError, EbayApiError } from "@/lib/channels/ebay/errors";
 import { prisma } from "database";
 import { isImportedEbayLink } from "@/lib/channels/ebay/listing-origin";
 
@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
       /invalid access token|unauthorized|#1001/i.test(describeEbayThrownError(e));
     const error = authRejected
       ? "eBay category lookup failed — application credentials were rejected. Check EBAY_CLIENT_ID and EBAY_CLIENT_SECRET (Production keyset)."
-      : describeEbayThrownError(e);
+      : describeChannelSyncError("ebay", e);
     console.warn("[ebay] category-aspects falling back to empty list", {
       categoryId,
       error,

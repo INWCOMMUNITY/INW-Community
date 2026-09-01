@@ -9,11 +9,10 @@
 import { ebayGet } from "./client";
 import {
   EBAY_TAXONOMY_BASE,
-  EBAY_TAXONOMY_MARKETPLACE_ID,
   EBAY_US_CATEGORY_TREE_ID,
   isEbayConfigured,
 } from "./config";
-import { EbayApiError } from "./errors";
+import { EbayApiError, isEbayRateLimitError } from "./errors";
 import { withEbayApplicationTokenRetry } from "./oauth";
 
 /** Taxonomy uses app credentials (client_credentials), not the seller OAuth token. */
@@ -51,31 +50,17 @@ export function clearEbayCategoryTreeIdCache(): void {
 }
 
 /**
- * US tree id is always "0". Live lookup is best-effort — a 404/401 on
- * get_default_category_tree_id must not 502 the listing edit page.
+ * US tree id is always "0". Do not call get_default_category_tree_id —
+ * that Taxonomy request is easy to 429 and does not change for EBAY_US.
  */
 export async function getDefaultCategoryTreeId(): Promise<string> {
   const now = Date.now();
   if (cachedTreeId && now - cachedTreeId.at < 6 * 60 * 60 * 1000) {
     return cachedTreeId.id;
   }
-  const treeUrl = `${EBAY_TAXONOMY_BASE}/get_default_category_tree_id?marketplace_id=${EBAY_TAXONOMY_MARKETPLACE_ID}`;
-  try {
-    const res = await withEbayApplicationTokenRetry((accessToken) =>
-      ebayGet<{ categoryTreeId?: string }>(accessToken, treeUrl)
-    );
-    const id = res.categoryTreeId?.trim();
-    if (id) {
-      cachedTreeId = { id, at: now };
-      return id;
-    }
-  } catch (e) {
-    console.warn("[ebay] getDefaultCategoryTreeId failed; using US tree id 0", {
-      error: e instanceof Error ? e.message : String(e),
-    });
-  }
+  // US tree is always "0". Skip the live lookup so Taxonomy 429s are not wasted here.
   cachedTreeId = { id: EBAY_US_CATEGORY_TREE_ID, at: now };
-  return EBAY_US_CATEGORY_TREE_ID;
+  return cachedTreeId.id;
 }
 
 /** Live leaf-category suggestions for a free-text query (the category picker). */
@@ -170,10 +155,12 @@ export function cacheCategoryAspects(
 
 export function getCachedCategoryAspects(
   categoryId: string,
-  treeId: string
+  treeId: string,
+  opts?: { allowStale?: boolean }
 ): EbayCategoryAspect[] | null {
   const entry = aspectCache.get(aspectCacheKey(treeId, categoryId));
-  if (!entry || Date.now() - entry.at > ASPECT_CACHE_TTL_MS) return null;
+  if (!entry) return null;
+  if (!opts?.allowStale && Date.now() - entry.at > ASPECT_CACHE_TTL_MS) return null;
   return entry.aspects;
 }
 
@@ -182,8 +169,9 @@ export function clearCategoryAspectCache(): void {
 }
 
 function shouldUseAspectCacheFallback(error: unknown): boolean {
+  if (isEbayRateLimitError(error)) return true;
   if (error instanceof EbayApiError) {
-    return error.status === 401 || error.status >= 500;
+    return error.status === 401 || error.status === 429 || error.status >= 500;
   }
   return false;
 }
@@ -211,6 +199,8 @@ export async function getItemAspectsForCategory(categoryId: string): Promise<Eba
   if (!id) return [];
   requireEbayTaxonomyConfig();
   const treeId = await getDefaultCategoryTreeId();
+  const fresh = getCachedCategoryAspects(id, treeId);
+  if (fresh) return fresh;
 
   try {
     const res = await fetchItemAspectsForCategory(id, treeId);
@@ -218,7 +208,7 @@ export async function getItemAspectsForCategory(categoryId: string): Promise<Eba
     cacheCategoryAspects(id, treeId, aspects);
     return aspects;
   } catch (e) {
-    const cached = getCachedCategoryAspects(id, treeId);
+    const cached = getCachedCategoryAspects(id, treeId, { allowStale: true });
     if (cached && shouldUseAspectCacheFallback(e)) {
       console.warn("[ebay] getItemAspectsForCategory: serving cached aspects", {
         categoryId: id,

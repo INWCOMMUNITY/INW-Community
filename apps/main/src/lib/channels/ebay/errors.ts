@@ -221,6 +221,11 @@ const ERROR_CODE_ACTIONS: Record<number, EbayErrorAction> = {
     action: "refresh_token",
     retryable: true,
   },
+  2001: {
+    message: "Request limit reached",
+    action: "retry",
+    retryable: true,
+  },
   1002: {
     message: "Missing access token",
     action: "reauthorize",
@@ -365,8 +370,17 @@ export function needsReauthorization(body: unknown): boolean {
   });
 }
 
+export function isEbayRateLimitError(e: unknown): boolean {
+  if (e instanceof EbayApiError && e.status === 429) return true;
+  const msg = e instanceof Error ? e.message : String(e ?? "");
+  return /#2001\b|HTTP 429|request limit has been reached/i.test(msg);
+}
+
 /** Actionable hint for common eBay error patterns (import UI, sync stores). */
 export function ebayErrorActionHint(reason: string): string | undefined {
+  if (isEbayRateLimitError(reason) || /#2001\b|HTTP 429|request limit has been reached/i.test(reason)) {
+    return "eBay is temporarily limiting requests. Wait a minute and try again. You do not need to change the listing.";
+  }
   // Check for specific error codes first
   if (/\b1001\b|Invalid access token/i.test(reason)) {
     return "eBay access token expired. Sync will retry after refreshing; if this persists, disconnect and reconnect eBay in Sync Stores.";
@@ -454,6 +468,12 @@ export function ebayErrorActionHint(reason: string): string | undefined {
 
 export function describeChannelSyncError(provider: string, e: unknown): string {
   if (provider === "ebay") {
+    if (isEbayRateLimitError(e)) {
+      return (
+        ebayErrorActionHint(describeEbayThrownError(e)) ??
+        "eBay is temporarily limiting requests. Wait a minute and try again."
+      );
+    }
     const msg = describeEbayThrownError(e);
     if (/inventory verify|bulk_update_price_quantity|availableQuantity/i.test(msg)) {
       const hint = ebayErrorActionHint(msg);

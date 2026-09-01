@@ -155,6 +155,15 @@ describe("ebay picture errors", () => {
     expect(ebayErrorActionHint(msg)).not.toMatch(/GTC listing/i);
   });
 
+  it("explains eBay #2001 request-limit 429s without asking to edit the listing", () => {
+    const msg =
+      "[#2001 · ACCESS · REQUEST · HTTP 429] The request limit has been reached for the resource.";
+    expect(ebayErrorActionHint(msg)).toMatch(/Wait a minute and try again/i);
+    expect(ebayErrorActionHint(msg)).toMatch(/do not need to change/i);
+    expect(describeChannelSyncError("ebay", new Error(msg))).toMatch(/Wait a minute and try again/i);
+    expect(describeChannelSyncError("ebay", new Error(msg))).not.toMatch(/#2001/);
+  });
+
   it("hints to retry after an eBay migrate timeout", () => {
     expect(ebayErrorActionHint("eBay request timed out after 20s")).toMatch(/Try importing/i);
   });

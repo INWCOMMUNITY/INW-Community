@@ -40,6 +40,52 @@ describe("aspect cache fallback", () => {
     vi.restoreAllMocks();
   });
 
+  it("returns cached aspects without calling Taxonomy", async () => {
+    cacheCategoryAspects("41087", "0", [
+      {
+        name: "Type",
+        required: false,
+        mode: "SELECTION_ONLY",
+        cardinality: "SINGLE",
+        suggestedValues: ["Clock"],
+      },
+    ]);
+    vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
+    const ebayGet = vi.spyOn(client, "ebayGet");
+    const rows = await getItemAspectsForCategory("41087");
+    expect(rows[0]?.name).toBe("Type");
+    expect(ebayGet).not.toHaveBeenCalled();
+  });
+
+  it("serves stale cached aspects when Taxonomy returns 429", async () => {
+    const now = Date.now();
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(now);
+    cacheCategoryAspects("41087", "0", [
+      {
+        name: "Brand",
+        required: false,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+    ]);
+    dateNow.mockReturnValue(now + 8 * 24 * 60 * 60 * 1000);
+
+    vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
+    vi.spyOn(oauth, "withEbayApplicationTokenRetry").mockImplementation(async (fn) => fn("token"));
+    vi.spyOn(client, "ebayGet").mockRejectedValueOnce(
+      new EbayApiError(
+        "[#2001 · ACCESS · REQUEST · HTTP 429] The request limit has been reached for the resource.",
+        429,
+        { errors: [{ errorId: 2001, message: "The request limit has been reached for the resource." }] },
+        "/taxonomy"
+      )
+    );
+
+    const rows = await getItemAspectsForCategory("41087");
+    expect(rows[0]?.name).toBe("Brand");
+  });
+
   it("serves cached aspects when Taxonomy returns 401", async () => {
     cacheCategoryAspects("41087", "0", [
       {
@@ -75,11 +121,9 @@ describe("getDefaultCategoryTreeId", () => {
     vi.restoreAllMocks();
   });
 
-  it("falls back to US tree id 0 when get_default_category_tree_id 404s", async () => {
-    vi.spyOn(oauth, "withEbayApplicationTokenRetry").mockImplementation(async (fn) => fn("token"));
-    vi.spyOn(client, "ebayGet").mockRejectedValueOnce(
-      new EbayApiError("not found", 404, null, "/get_default_category_tree_id")
-    );
+  it("returns the US tree id without a live Taxonomy lookup", async () => {
+    const ebayGet = vi.spyOn(client, "ebayGet");
     await expect(getDefaultCategoryTreeId()).resolves.toBe("0");
+    expect(ebayGet).not.toHaveBeenCalled();
   });
 });
