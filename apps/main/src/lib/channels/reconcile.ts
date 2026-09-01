@@ -8,6 +8,7 @@ import type { ChannelProvider } from "./types";
 import { describeChannelSyncError } from "./ebay/errors";
 import { ensureEbayPlatformNotifications } from "./ebay/notifications-setup";
 import { pullEbayUpdatesForConnection } from "./ebay/pull-ebay-updates";
+import { flagGoneWixListingsForConnection } from "./wix/flag-remote-deleted";
 import { logSyncEvent } from "./sync-log";
 import { findChannelLinkForSale } from "./sale-link";
 import { maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
@@ -237,6 +238,14 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
     // Do not run GetMyeBaySelling catalog/meta after a live GetItem pull.
     // That seller-list + Inventory overlay can rewrite the listing back to a lagged title/price.
   } else {
+    if (c.provider === "wix") {
+      try {
+        const flagged = await flagGoneWixListingsForConnection(c);
+        catalogRemoved += flagged.removed;
+      } catch (e) {
+        console.error("[channels] Wix delete check failed", { id: c.id, error: String(e) });
+      }
+    }
     try {
       const catalog = await reconcileConnectionInboundCatalog(c);
       catalogUpdated += catalog.updated;

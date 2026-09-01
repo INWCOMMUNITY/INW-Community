@@ -190,7 +190,10 @@ export async function recoverPausedChannelConnections(): Promise<{ recovered: nu
     return { recovered: 0, failed: 0 };
   }
   const paused = await prisma.channelConnection.findMany({
-    where: { status: "error", refreshTokenEncrypted: { not: null } },
+    where: {
+      status: "error",
+      OR: [{ refreshTokenEncrypted: { not: null } }, { provider: "wix" }],
+    },
   });
   let recovered = 0;
   let failed = 0;
@@ -200,7 +203,12 @@ export async function recoverPausedChannelConnections(): Promise<{ recovered: nu
     }
     const pause = readPauseConfig(c.config);
     try {
-      await refreshAccessTokenSerialized(c as ConnectionRow);
+      if (c.provider === "wix") {
+        const ctx = await getConnectionContext(c as ConnectionRow);
+        if (!ctx) throw new Error("Wix access token remint failed");
+      } else {
+        await refreshAccessTokenSerialized(c as ConnectionRow);
+      }
       await prisma.channelConnection
         .update({
           where: { id: c.id },

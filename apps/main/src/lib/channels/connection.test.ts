@@ -160,6 +160,28 @@ describe("withConnectionAuthRetry", () => {
     expect(mockAdapter.refreshAccessToken).toHaveBeenCalledOnce();
   });
 
+  it("recovers a paused Wix connection by reminting instead of requiring a refresh token", async () => {
+    mockRemintWix.mockImplementation(async (ctx: { accessToken: string }) => {
+      ctx.accessToken = "wix-fresh";
+      return true;
+    });
+    const wixPaused = {
+      ...staleConn,
+      provider: "wix",
+      refreshTokenEncrypted: null,
+      tokenExpiresAt: new Date(Date.now() - 60_000),
+      status: "error",
+      config: { instanceId: "inst-1" },
+    };
+    mockPrisma.channelConnection.findMany.mockResolvedValue([wixPaused]);
+    mockPrisma.channelConnection.findUnique.mockResolvedValue(wixPaused);
+    const { recoverPausedChannelConnections } = await import("./connection");
+    const result = await recoverPausedChannelConnections();
+    expect(result.recovered).toBe(1);
+    expect(mockRemintWix).toHaveBeenCalled();
+    expect(mockAdapter.refreshAccessToken).not.toHaveBeenCalled();
+  });
+
   it("remints an expired Wix app token instead of requiring a refresh token", async () => {
     mockRemintWix.mockImplementation(async (ctx: { accessToken: string }) => {
       ctx.accessToken = "wix-fresh";
