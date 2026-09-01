@@ -116,10 +116,9 @@ export function ListOnChannelCategoryModal({
     if (step.provider === "etsy" && step.item.etsyTaxonomyId) {
       setCategoryId(String(step.item.etsyTaxonomyId));
       setCategoryLabel("");
-    } else if (step.provider === "ebay" && step.item.ebayCategoryId) {
-      setCategoryId(String(step.item.ebayCategoryId));
-      setCategoryLabel("");
     } else {
+      // Do not prefill a stored eBay category: that immediately fetches
+      // category aspects (Taxonomy) and burns the same 429 budget as search.
       setCategoryId("");
       setCategoryLabel("");
     }

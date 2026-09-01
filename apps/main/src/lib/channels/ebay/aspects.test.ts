@@ -197,8 +197,16 @@ describe("searchEbayCategories", () => {
     expect(ebayGet).not.toHaveBeenCalled();
   });
 
-  it("still asks eBay for a new category search while cooling down", async () => {
+  it("does not call Taxonomy for an uncached search while cooling down", async () => {
     markEbayTaxonomyRateLimited();
+    vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
+    const ebayGet = vi.spyOn(client, "ebayGet");
+
+    await expect(searchEbayCategories("coin")).rejects.toMatchObject({ status: 429 });
+    expect(ebayGet).not.toHaveBeenCalled();
+  });
+
+  it("asks eBay for a new category search when not cooling down", async () => {
     vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
     vi.spyOn(oauth, "withEbayApplicationTokenRetry").mockImplementation(async (fn) => fn("token"));
     const ebayGet = vi.spyOn(client, "ebayGet").mockResolvedValueOnce({
@@ -209,6 +217,45 @@ describe("searchEbayCategories", () => {
       { categoryId: "39477", categoryName: "Coins", categoryPath: "Coins" },
     ]);
     expect(ebayGet).toHaveBeenCalledTimes(1);
+  });
+
+  it("serves a persisted search without calling Taxonomy", async () => {
+    const { prisma } = await import("database");
+    vi.mocked(prisma.siteSetting.findUnique).mockImplementation(async (args) => {
+      const key = (args as { where?: { key?: string } })?.where?.key;
+      if (key === "ebay_cat_search:clock") {
+        return {
+          value: {
+            categories: [{ categoryId: "261605", categoryName: "Clocks", categoryPath: "Collectibles > Clocks" }],
+            at: Date.now(),
+          },
+        } as never;
+      }
+      return null;
+    });
+    vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
+    const ebayGet = vi.spyOn(client, "ebayGet");
+
+    await expect(searchEbayCategories("clock")).resolves.toEqual([
+      { categoryId: "261605", categoryName: "Clocks", categoryPath: "Collectibles > Clocks" },
+    ]);
+    expect(ebayGet).not.toHaveBeenCalled();
+  });
+
+  it("hydrates cooldown from siteSetting and skips Taxonomy", async () => {
+    const { prisma } = await import("database");
+    vi.mocked(prisma.siteSetting.findUnique).mockImplementation(async (args) => {
+      const key = (args as { where?: { key?: string } })?.where?.key;
+      if (key === "ebay_taxonomy_cooldown_until") {
+        return { value: { until: Date.now() + 60_000 } } as never;
+      }
+      return null;
+    });
+    vi.spyOn(config, "isEbayConfigured").mockReturnValue(true);
+    const ebayGet = vi.spyOn(client, "ebayGet");
+
+    await expect(searchEbayCategories("cl")).rejects.toMatchObject({ status: 429 });
+    expect(ebayGet).not.toHaveBeenCalled();
   });
 });
 

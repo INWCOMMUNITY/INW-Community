@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("database", () => ({
   prisma: {
     channelCategoryMapping: { findFirst: vi.fn().mockResolvedValue(null) },
+    siteSetting: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      upsert: vi.fn().mockResolvedValue({}),
+    },
   },
 }));
 

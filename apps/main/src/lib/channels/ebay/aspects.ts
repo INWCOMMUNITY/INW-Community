@@ -52,7 +52,9 @@ export function clearEbayCategoryTreeIdCache(): void {
 
 const TAXONOMY_COOLDOWN_MS = 60_000;
 const SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const TAXONOMY_COOLDOWN_SETTING = "ebay_taxonomy_cooldown_until";
 let taxonomyCoolDownUntil = 0;
+let taxonomyCooldownHydrated = false;
 const categorySearchCache = new Map<string, { categories: EbayCategorySuggestion[]; at: number }>();
 
 export const EBAY_CATEGORY_SEARCH_BUSY_NOTICE =
@@ -60,6 +62,13 @@ export const EBAY_CATEGORY_SEARCH_BUSY_NOTICE =
 
 export function markEbayTaxonomyRateLimited(): void {
   taxonomyCoolDownUntil = Date.now() + TAXONOMY_COOLDOWN_MS;
+  void prisma.siteSetting
+    .upsert({
+      where: { key: TAXONOMY_COOLDOWN_SETTING },
+      create: { key: TAXONOMY_COOLDOWN_SETTING, value: { until: taxonomyCoolDownUntil } },
+      update: { value: { until: taxonomyCoolDownUntil } },
+    })
+    .catch(() => {});
 }
 
 export function isEbayTaxonomyCoolingDown(): boolean {
@@ -68,6 +77,71 @@ export function isEbayTaxonomyCoolingDown(): boolean {
 
 export function clearEbayTaxonomyCooldown(): void {
   taxonomyCoolDownUntil = 0;
+  taxonomyCooldownHydrated = false;
+}
+
+async function hydrateTaxonomyCooldownFromDb(): Promise<void> {
+  if (taxonomyCooldownHydrated) return;
+  taxonomyCooldownHydrated = true;
+  try {
+    const row = await prisma.siteSetting.findUnique({ where: { key: TAXONOMY_COOLDOWN_SETTING } });
+    const until =
+      row?.value && typeof row.value === "object" && "until" in row.value
+        ? Number((row.value as { until?: unknown }).until)
+        : 0;
+    if (Number.isFinite(until) && until > taxonomyCoolDownUntil) {
+      taxonomyCoolDownUntil = until;
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Load the shared Taxonomy 429 cooldown from siteSetting (survives Vercel isolates). */
+export async function hydrateEbayTaxonomyCooldown(): Promise<void> {
+  await hydrateTaxonomyCooldownFromDb();
+}
+
+function persistedSearchKey(query: string): string {
+  return `ebay_cat_search:${searchCacheKey(query)}`;
+}
+
+async function readPersistedEbayCategorySearch(query: string): Promise<EbayCategorySuggestion[] | null> {
+  try {
+    const row = await prisma.siteSetting.findUnique({ where: { key: persistedSearchKey(query) } });
+    const rec = row?.value;
+    if (!rec || typeof rec !== "object" || !("categories" in rec) || !("at" in rec)) return null;
+    const at = Number((rec as { at?: unknown }).at);
+    if (!Number.isFinite(at) || Date.now() - at > SEARCH_CACHE_TTL_MS) return null;
+    const categories = (rec as { categories?: unknown }).categories;
+    if (!Array.isArray(categories) || categories.length === 0) return null;
+    const out: EbayCategorySuggestion[] = [];
+    for (const item of categories) {
+      if (!item || typeof item !== "object") continue;
+      const rowItem = item as { categoryId?: unknown; categoryName?: unknown; categoryPath?: unknown };
+      if (typeof rowItem.categoryId !== "string" || typeof rowItem.categoryName !== "string") continue;
+      out.push({
+        categoryId: rowItem.categoryId,
+        categoryName: rowItem.categoryName,
+        categoryPath: typeof rowItem.categoryPath === "string" ? rowItem.categoryPath : undefined,
+      });
+    }
+    return out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedEbayCategorySearch(query: string, categories: EbayCategorySuggestion[]): void {
+  const key = persistedSearchKey(query);
+  if (!key.endsWith(searchCacheKey(query)) || categories.length === 0) return;
+  void prisma.siteSetting
+    .upsert({
+      where: { key },
+      create: { key, value: { categories, at: Date.now() } },
+      update: { value: { categories, at: Date.now() } },
+    })
+    .catch(() => {});
 }
 
 export function clearEbayCategorySearchCache(): void {
@@ -131,6 +205,7 @@ export async function searchEbayCategories(query: string): Promise<EbayCategoryS
   const q = query.trim();
   if (!q) return [];
   requireEbayTaxonomyConfig();
+  await hydrateTaxonomyCooldownFromDb();
   const cached = getCachedEbayCategorySearch(q);
   const coolingDown = isEbayTaxonomyCoolingDown();
   // #region agent log
@@ -165,6 +240,49 @@ export async function searchEbayCategories(query: string): Promise<EbayCategoryS
     return cached;
   }
 
+  const persisted = await readPersistedEbayCategorySearch(q);
+  if (persisted) {
+    cacheEbayCategorySearch(q, persisted);
+    // #region agent log
+    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
+      body: JSON.stringify({
+        sessionId: "7a4ccb",
+        hypothesisId: "G",
+        location: "aspects.ts:searchEbayCategories",
+        message: "category search persist hit",
+        data: { q, coolingDown, resultCount: persisted.length },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    return persisted;
+  }
+
+  if (coolingDown) {
+    // #region agent log
+    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
+      body: JSON.stringify({
+        sessionId: "7a4ccb",
+        hypothesisId: "H",
+        location: "aspects.ts:searchEbayCategories",
+        message: "category search skipped live Taxonomy (cooldown)",
+        data: { q, coolingDown: true },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    throw new EbayApiError(
+      "[#2001 · HTTP 429] The request limit has been reached for the resource.",
+      429,
+      { errors: [{ errorId: 2001, message: "The request limit has been reached for the resource." }] },
+      "/taxonomy/cooldown"
+    );
+  }
+
   const treeId = await getDefaultCategoryTreeId();
   try {
     const res = await withEbayApplicationTokenRetry((accessToken) =>
@@ -182,6 +300,7 @@ export async function searchEbayCategories(query: string): Promise<EbayCategoryS
     );
     const out = suggestionsFromTaxonomyResponse(res);
     cacheEbayCategorySearch(q, out);
+    writePersistedEbayCategorySearch(q, out);
     // #region agent log
     fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
       method: "POST",
@@ -416,6 +535,7 @@ export async function getItemAspectsForCategory(
   const id = categoryId.trim();
   if (!id) return [];
   requireEbayTaxonomyConfig();
+  await hydrateTaxonomyCooldownFromDb();
   const treeId = await getDefaultCategoryTreeId();
   const fresh = getCachedCategoryAspects(id, treeId);
   if (fresh?.length) return fresh;

@@ -7,7 +7,12 @@ import { prisma } from "database";
 import { ebayGet } from "./client";
 import { EbayApiError, isEbayRateLimitError } from "./errors";
 import { EBAY_API_BASE, EBAY_TAXONOMY_BASE } from "./config";
-import { getDefaultCategoryTreeId, isEbayTaxonomyCoolingDown, markEbayTaxonomyRateLimited } from "./aspects";
+import {
+  getDefaultCategoryTreeId,
+  hydrateEbayTaxonomyCooldown,
+  isEbayTaxonomyCoolingDown,
+  markEbayTaxonomyRateLimited,
+} from "./aspects";
 import { withEbayApplicationTokenRetry } from "./oauth";
 
 type TaxonomySubtreeNode = {
@@ -85,6 +90,7 @@ export async function getEbayCategoryPathFromId(
     return leaf;
   }
 
+  await hydrateEbayTaxonomyCooldown();
   if (isEbayTaxonomyCoolingDown()) {
     return leaf;
   }
