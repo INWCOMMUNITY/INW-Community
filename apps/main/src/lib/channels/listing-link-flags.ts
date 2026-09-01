@@ -250,7 +250,7 @@ export function shouldSkipEndedEbayOutbound(
   provider: string,
   conflictDetails: unknown
 ): boolean {
-  if (isRemoteDeletedPending(conflictDetails)) return true;
+  if (readRemoteDeletedNotice(conflictDetails)) return true;
   return provider === "ebay" && isEbayListingEnded(conflictDetails);
 }
 

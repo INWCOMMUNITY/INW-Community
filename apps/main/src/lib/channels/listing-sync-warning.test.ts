@@ -49,6 +49,25 @@ describe("listingChannelSyncWarning", () => {
 });
 
 describe("withListingChannelSyncWarning", () => {
+  it("keeps the shop tag hidden after Keep on INW (dismissed remote delete)", () => {
+    const mapped = withListingChannelSyncWarning({
+      provider: "wix",
+      syncStatus: "synced",
+      syncEnabled: true,
+      externalListingId: "prod-1",
+      syncError: null,
+      conflictDetails: {
+        remoteDeleted: {
+          provider: "wix",
+          detectedAt: "2026-08-31T00:00:00.000Z",
+          dismissedAt: "2026-08-31T01:00:00.000Z",
+        },
+      },
+      connection: { status: "active" },
+    });
+    expect(mapped.remoteDeletedProvider).toBe("wix");
+  });
+
   it("exposes the deleted shop so listing tags can hide immediately", () => {
     const mapped = withListingChannelSyncWarning({
       provider: "wix",

@@ -1,5 +1,5 @@
 import { CHANNEL_PROVIDER_LABELS } from "./provider-ui";
-import { isRemoteDeletedPending, readRemoteDeletedNotice } from "./listing-link-flags";
+import { readRemoteDeletedNotice } from "./listing-link-flags";
 
 export const SELLER_CHANNEL_LINK_SELECT = {
   provider: true,
@@ -44,10 +44,9 @@ export function withListingChannelSyncWarning(link: {
 }) {
   const connectionStatus = link.connection?.status ?? "active";
   const notice = readRemoteDeletedNotice(link.conflictDetails);
-  const remoteDeletedProvider =
-    notice && !notice.dismissedAt && isRemoteDeletedPending(link.conflictDetails)
-      ? notice.provider
-      : null;
+  // Hide the shop tag after a remote delete, including after "Keep on INW".
+  // Pending-only hid the tag until Keep, then the green Wix pill came back.
+  const remoteDeletedProvider = notice ? notice.provider : null;
   return {
     provider: link.provider,
     syncStatus: link.syncStatus,

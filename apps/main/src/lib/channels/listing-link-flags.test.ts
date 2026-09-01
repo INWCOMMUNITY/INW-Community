@@ -37,6 +37,9 @@ describe("ended eBay outbound skip", () => {
     expect(shouldSkipEndedEbayOutbound("etsy", details)).toBe(false);
     expect(shouldSkipEndedEbayOutbound("ebay", {})).toBe(false);
     expect(shouldSkipEndedEbayOutbound("wix", withRemoteDeletedPending({}, "wix"))).toBe(true);
+    expect(shouldSkipEndedEbayOutbound("wix", withRemoteDeletedDismissed(withRemoteDeletedPending({}, "wix")))).toBe(
+      true
+    );
     expect(shouldSkipEndedEbayOutbound("wix", {})).toBe(false);
   });
 });
