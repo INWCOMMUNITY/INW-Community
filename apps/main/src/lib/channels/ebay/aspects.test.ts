@@ -1,4 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("database", () => ({
+  prisma: {
+    siteSetting: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      upsert: vi.fn().mockResolvedValue({}),
+    },
+  },
+}));
+
 import { EbayApiError } from "./errors";
 import {
   cacheCategoryAspects,

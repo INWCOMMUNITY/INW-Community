@@ -6,6 +6,7 @@
  * and fill in the item specifics eBay requires for that category before we push.
  */
 
+import { prisma } from "database";
 import { ebayGet } from "./client";
 import {
   EBAY_TAXONOMY_BASE,
@@ -194,6 +195,72 @@ async function fetchItemAspectsForCategory(
   );
 }
 
+function persistedAspectsKey(treeId: string, categoryId: string): string {
+  return `ebay_aspects:${treeId}:${categoryId}`;
+}
+
+function parsePersistedAspects(value: unknown): { aspects: EbayCategoryAspect[]; at: number } | null {
+  if (!value || typeof value !== "object") return null;
+  const rec = value as { aspects?: unknown; at?: unknown };
+  if (!Array.isArray(rec.aspects)) return null;
+  const aspects: EbayCategoryAspect[] = [];
+  for (const row of rec.aspects) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as Partial<EbayCategoryAspect>;
+    if (typeof item.name !== "string" || !item.name.trim()) continue;
+    aspects.push({
+      name: item.name,
+      required: Boolean(item.required),
+      mode: item.mode === "SELECTION_ONLY" ? "SELECTION_ONLY" : "FREE_TEXT",
+      cardinality: item.cardinality === "MULTI" ? "MULTI" : "SINGLE",
+      suggestedValues: Array.isArray(item.suggestedValues)
+        ? item.suggestedValues.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+        : [],
+    });
+  }
+  if (aspects.length === 0) return null;
+  return { aspects, at: typeof rec.at === "number" ? rec.at : 0 };
+}
+
+async function readPersistedCategoryAspects(
+  categoryId: string,
+  treeId: string,
+  allowStale: boolean
+): Promise<EbayCategoryAspect[] | null> {
+  try {
+    const row = await prisma.siteSetting.findUnique({
+      where: { key: persistedAspectsKey(treeId, categoryId) },
+    });
+    const parsed = parsePersistedAspects(row?.value);
+    if (!parsed) return null;
+    if (!allowStale && Date.now() - parsed.at > ASPECT_CACHE_TTL_MS) return null;
+    return parsed.aspects;
+  } catch {
+    return null;
+  }
+}
+
+async function writePersistedCategoryAspects(
+  categoryId: string,
+  treeId: string,
+  aspects: EbayCategoryAspect[]
+): Promise<void> {
+  const key = persistedAspectsKey(treeId, categoryId);
+  const value = { aspects, at: Date.now() };
+  try {
+    await prisma.siteSetting.upsert({
+      where: { key },
+      create: { key, value },
+      update: { value },
+    });
+  } catch (e) {
+    console.warn("[ebay] persist category aspects failed", {
+      categoryId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
 export async function getItemAspectsForCategory(categoryId: string): Promise<EbayCategoryAspect[]> {
   const id = categoryId.trim();
   if (!id) return [];
@@ -202,10 +269,17 @@ export async function getItemAspectsForCategory(categoryId: string): Promise<Eba
   const fresh = getCachedCategoryAspects(id, treeId);
   if (fresh) return fresh;
 
+  const persisted = await readPersistedCategoryAspects(id, treeId, false);
+  if (persisted) {
+    cacheCategoryAspects(id, treeId, persisted);
+    return persisted;
+  }
+
   try {
     const res = await fetchItemAspectsForCategory(id, treeId);
     const aspects = parseAspectApiResponse(res);
     cacheCategoryAspects(id, treeId, aspects);
+    void writePersistedCategoryAspects(id, treeId, aspects);
     return aspects;
   } catch (e) {
     const cached = getCachedCategoryAspects(id, treeId, { allowStale: true });
@@ -215,6 +289,11 @@ export async function getItemAspectsForCategory(categoryId: string): Promise<Eba
         error: e instanceof Error ? e.message : String(e),
       });
       return cached;
+    }
+    const stalePersisted = await readPersistedCategoryAspects(id, treeId, true);
+    if (stalePersisted && shouldUseAspectCacheFallback(e)) {
+      cacheCategoryAspects(id, treeId, stalePersisted);
+      return stalePersisted;
     }
     throw e;
   }

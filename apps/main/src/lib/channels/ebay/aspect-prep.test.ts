@@ -12,6 +12,7 @@ import {
   liveInventoryWireGradesCorrupted,
   passthroughUsePreparedInventoryAspects,
   ebayAspectRowsForListOnPopup,
+  ebayListOnFallbackAspects,
 } from "./aspect-prep";
 
 const nickelTaxonomy: EbayCategoryAspect[] = [
@@ -457,6 +458,12 @@ describe("ebayAspectRowsForListOnPopup", () => {
       },
     ];
     const rows = ebayAspectRowsForListOnPopup(schema, [], "Random object");
+    expect(rows.some((row) => row.name === "Type")).toBe(true);
+    expect(rows.some((row) => row.name === "Brand")).toBe(true);
+  });
+
+  it("fallback schema still collects Type and Brand", () => {
+    const rows = ebayAspectRowsForListOnPopup(ebayListOnFallbackAspects(), [], "Random object");
     expect(rows.some((row) => row.name === "Type")).toBe(true);
     expect(rows.some((row) => row.name === "Brand")).toBe(true);
   });

@@ -79,6 +79,12 @@ export function isMissingEbayItemSpecificsError(message: string | null | undefin
   return /Missing required eBay item specifics/i.test(message ?? "");
 }
 
+export function isEbayRateLimitError(message: string | null | undefined): boolean {
+  return /#2001\b|HTTP 429|request limit has been reached|temporarily limiting requests|busy right now/i.test(
+    message ?? ""
+  );
+}
+
 /** Steps to collect missing Etsy/eBay categories (and Etsy who/when) before listing. */
 export function buildListOnCategoryQueue(
   items: ListOnCategoryItem[],

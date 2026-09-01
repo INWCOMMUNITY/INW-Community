@@ -473,6 +473,25 @@ export function isOftenRequiredEbayAspectName(name: string): boolean {
   return PUBLISH_OFTEN_REQUIRED.has(name.trim().toLowerCase());
 }
 
+export function ebayListOnFallbackAspects(): CategoryAspectSchema[] {
+  return [
+    {
+      name: "Type",
+      required: true,
+      mode: "FREE_TEXT",
+      cardinality: "SINGLE",
+      suggestedValues: [],
+    },
+    {
+      name: "Brand",
+      required: true,
+      mode: "FREE_TEXT",
+      cardinality: "SINGLE",
+      suggestedValues: [...BRAND_DEFAULTS],
+    },
+  ];
+}
+
 function pickSuggestedValue(aspect: CategoryAspectSchema, want: string[]): string | null {
   for (const candidate of want) {
     const hit = aspect.suggestedValues.find((s) => s.toLowerCase() === candidate.toLowerCase());

@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getItemAspectsForCategory, requireEbayTaxonomyConfig } from "@/lib/channels/ebay/aspects";
-import { filterSellerVisibleCategoryAspects } from "@/lib/channels/ebay/aspect-prep";
-import { describeChannelSyncError, describeEbayThrownError, EbayApiError } from "@/lib/channels/ebay/errors";
+import {
+  EBAY_LIST_ON_RATE_LIMIT_NOTICE,
+  ebayListOnFallbackAspects,
+  filterSellerVisibleCategoryAspects,
+} from "@/lib/channels/ebay/aspect-prep";
+import {
+  describeChannelSyncError,
+  describeEbayThrownError,
+  EbayApiError,
+  isEbayRateLimitError,
+} from "@/lib/channels/ebay/errors";
 import { prisma } from "database";
 import { isImportedEbayLink } from "@/lib/channels/ebay/listing-origin";
 
@@ -61,6 +70,14 @@ export async function GET(req: NextRequest) {
     }
     return NextResponse.json({ aspects, readOnly });
   } catch (e) {
+    if (isEbayRateLimitError(e)) {
+      return NextResponse.json({
+        aspects: filterSellerVisibleCategoryAspects(ebayListOnFallbackAspects()),
+        readOnly,
+        warning: EBAY_LIST_ON_RATE_LIMIT_NOTICE,
+        rateLimited: true,
+      });
+    }
     const authRejected =
       (e instanceof EbayApiError && e.status === 401) ||
       /invalid access token|unauthorized|#1001/i.test(describeEbayThrownError(e));

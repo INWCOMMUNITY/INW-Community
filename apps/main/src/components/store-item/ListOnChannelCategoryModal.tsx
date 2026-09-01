@@ -19,8 +19,10 @@ import {
 } from "@/lib/etsy-listing-options";
 import {
   ebayAspectRowsForListOnPopup,
+  ebayListOnFallbackAspects,
   missingEbayAspectsForListOn,
 } from "@/lib/channels/ebay/aspect-prep";
+import { isEbayRateLimitError } from "@/lib/channels/ebay/errors";
 import { parseStoredAspects, type ListingAspect } from "@/lib/listing-limits";
 import {
   itemNeedsEtsyListingDetails,
@@ -54,6 +56,7 @@ export function ListOnChannelCategoryModal({
   const [aspects, setAspects] = useState<ListingAspect[]>([]);
   const [aspectsLoading, setAspectsLoading] = useState(false);
   const [aspectsError, setAspectsError] = useState<string | null>(null);
+  const [aspectsNotice, setAspectsNotice] = useState<string | null>(null);
 
   useLockBodyScroll(true);
 
@@ -76,6 +79,7 @@ export function ListOnChannelCategoryModal({
     setCategoryAspects([]);
     setAspects([]);
     setAspectsError(null);
+    setAspectsNotice(null);
     setAspectsLoading(false);
     setError(null);
   }, [
@@ -104,12 +108,30 @@ export function ListOnChannelCategoryModal({
       { credentials: "include" }
     )
       .then(async (res) => {
-        const data: { aspects?: EbayCategoryAspectField[]; error?: string; warning?: string } =
-          await res.json().catch(() => ({}));
+        const data: {
+          aspects?: EbayCategoryAspectField[];
+          error?: string;
+          warning?: string;
+          rateLimited?: boolean;
+        } = await res.json().catch(() => ({}));
         if (cancelled) return;
+        const list = data.aspects ?? [];
+        const rateLimited =
+          Boolean(data.rateLimited) || isEbayRateLimitError(data.error ?? data.warning ?? "");
+        if ((!res.ok || (list.length === 0 && data.warning)) && rateLimited) {
+          const fallback = ebayListOnFallbackAspects();
+          setCategoryAspects(fallback);
+          setAspects(
+            ebayAspectRowsForListOnPopup(fallback, parseStoredAspects(step.item.aspects), step.item.title)
+          );
+          setAspectsError(null);
+          setAspectsNotice(data.warning ?? data.error ?? "eBay is busy right now. Enter Type and Brand below, then list.");
+          return;
+        }
         if (!res.ok) {
           setCategoryAspects([]);
           setAspects([]);
+          setAspectsNotice(null);
           setAspectsError(
             data.error ??
               (res.status === 503
@@ -118,10 +140,10 @@ export function ListOnChannelCategoryModal({
           );
           return;
         }
-        const list = data.aspects ?? [];
         if (list.length === 0 && data.warning) {
           setCategoryAspects([]);
           setAspects([]);
+          setAspectsNotice(null);
           setAspectsError(data.warning);
           return;
         }
@@ -129,6 +151,8 @@ export function ListOnChannelCategoryModal({
         setAspects(
           ebayAspectRowsForListOnPopup(list, parseStoredAspects(step.item.aspects), step.item.title)
         );
+        setAspectsError(null);
+        setAspectsNotice(data.rateLimited ? data.warning ?? null : null);
       })
       .catch(() => {
         if (cancelled) return;
@@ -249,9 +273,14 @@ export function ListOnChannelCategoryModal({
             setCategoryAspects([]);
             setAspects([]);
             setAspectsError(null);
+            setAspectsNotice(null);
           }}
           disabled={submitting}
         />
+
+        {step.provider === "ebay" && categoryId && aspectsNotice ? (
+          <p className={`${listingHintClass} mt-3`}>{aspectsNotice}</p>
+        ) : null}
 
         {step.provider === "ebay" && categoryId ? (
           <EbayAspectFields

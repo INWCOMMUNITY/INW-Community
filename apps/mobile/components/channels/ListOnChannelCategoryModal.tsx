@@ -23,6 +23,7 @@ import {
   type EtsyWhoMade,
 } from "@/lib/etsy-listing-options";
 import {
+  isEbayRateLimitError,
   itemNeedsEtsyListingDetails,
   mergeListOnCategoryAssignment,
   type ListOnCategoryAssignment,
@@ -30,6 +31,7 @@ import {
 } from "@/lib/list-on-channel-category";
 import {
   ebayAspectRowsForListOnPopup,
+  ebayListOnFallbackAspects,
   isOftenRequiredEbayAspectName,
   missingEbayAspectsForListOn,
   type CategoryAspectSchema,
@@ -147,12 +149,26 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
     let cancelled = false;
     setAspectsLoading(true);
     setAspectsError(null);
-    apiGet<{ aspects?: CategoryAspectSchema[]; error?: string; warning?: string }>(
+    apiGet<{
+      aspects?: CategoryAspectSchema[];
+      error?: string;
+      warning?: string;
+      rateLimited?: boolean;
+    }>(
       `/api/channels/ebay/category-aspects?categoryId=${encodeURIComponent(categoryId)}&storeItemId=${encodeURIComponent(step.item.id)}`
     )
       .then((data) => {
         if (cancelled) return;
         const list = data.aspects ?? [];
+        const rateLimited =
+          Boolean(data.rateLimited) || isEbayRateLimitError(data.error ?? data.warning ?? "");
+        if ((list.length === 0 && data.warning && rateLimited) || (rateLimited && list.length === 0)) {
+          const fallback = ebayListOnFallbackAspects();
+          setCategoryAspects(fallback);
+          setAspects(ebayAspectRowsForListOnPopup(fallback, parseItemAspects(step.item.aspects), step.item.title));
+          setAspectsError(null);
+          return;
+        }
         if (list.length === 0 && data.warning) {
           setCategoryAspects([]);
           setAspects([]);
@@ -161,9 +177,17 @@ export function ListOnChannelCategoryModal({ visible, steps, onClose, onComplete
         }
         setCategoryAspects(list);
         setAspects(ebayAspectRowsForListOnPopup(list, parseItemAspects(step.item.aspects), step.item.title));
+        setAspectsError(null);
       })
       .catch((e: { error?: string }) => {
         if (cancelled) return;
+        if (isEbayRateLimitError(e?.error)) {
+          const fallback = ebayListOnFallbackAspects();
+          setCategoryAspects(fallback);
+          setAspects(ebayAspectRowsForListOnPopup(fallback, parseItemAspects(step.item.aspects), step.item.title));
+          setAspectsError(null);
+          return;
+        }
         setCategoryAspects([]);
         setAspects([]);
         setAspectsError(e?.error ?? "Could not load eBay item specifics for this category.");
