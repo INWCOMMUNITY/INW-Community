@@ -42,24 +42,6 @@ export async function GET(req: NextRequest) {
     const categories = await searchEbayCategories(q);
     return NextResponse.json({ categories });
   } catch (e) {
-    // #region agent log
-    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
-      body: JSON.stringify({
-        sessionId: "7a4ccb",
-        hypothesisId: "C",
-        location: "categories/route.ts:GET",
-        message: "categories route catch",
-        data: {
-          q: req.nextUrl.searchParams.get("q")?.trim() ?? "",
-          rateLimited: isEbayRateLimitError(e),
-          msg: e instanceof Error ? e.message.slice(0, 180) : String(e).slice(0, 180),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     if (isEbayRateLimitError(e)) {
       return NextResponse.json({
         categories: [],

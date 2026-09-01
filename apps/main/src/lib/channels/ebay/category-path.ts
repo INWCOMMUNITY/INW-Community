@@ -73,20 +73,6 @@ export async function getEbayCategoryPathFromId(
   if (cached) return cached;
 
   if (ebayGetItemCategoryLabelIsUsable(leaf)) {
-    // #region agent log
-    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
-      body: JSON.stringify({
-        sessionId: "7a4ccb",
-        hypothesisId: "A",
-        location: "category-path.ts:getEbayCategoryPathFromId",
-        message: "skipped Taxonomy subtree walk",
-        data: { categoryId: id, reason: "getitem-label" },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     return leaf;
   }
 
@@ -94,21 +80,6 @@ export async function getEbayCategoryPathFromId(
   if (isEbayTaxonomyCoolingDown()) {
     return leaf;
   }
-
-  // #region agent log
-  fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
-    body: JSON.stringify({
-      sessionId: "7a4ccb",
-      hypothesisId: "A",
-      location: "category-path.ts:getEbayCategoryPathFromId",
-      message: "Taxonomy subtree walk starting",
-      data: { categoryId: id, hasLeafName: Boolean(leaf) },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 
   try {
     const treeId = await getDefaultCategoryTreeId();

@@ -75,24 +75,6 @@ export function ListOnChannelCategoryModal({
       setCategoryId("");
       setCategoryLabel("");
     }
-    // #region agent log
-    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
-      body: JSON.stringify({
-        sessionId: "7a4ccb",
-        hypothesisId: "F",
-        location: "ListOnChannelCategoryModal.tsx:init",
-        message: "list-on step init",
-        data: {
-          provider: step.provider,
-          storedEbayCategoryId: step.item.ebayCategoryId ?? null,
-          prefillsEbayCategory: false,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     setEtsyWhoMade(isEtsyWhoMade(step.item.etsyWhoMade) ? step.item.etsyWhoMade : "i_did");
     setEtsyWhenMade(normalizeEtsyWhenMade(step.item.etsyWhenMade) ?? "made_to_order");
     setCategoryAspects([]);

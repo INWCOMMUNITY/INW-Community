@@ -207,74 +207,15 @@ export async function searchEbayCategories(query: string): Promise<EbayCategoryS
   requireEbayTaxonomyConfig();
   await hydrateTaxonomyCooldownFromDb();
   const cached = getCachedEbayCategorySearch(q);
-  const coolingDown = isEbayTaxonomyCoolingDown();
-  // #region agent log
-  fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
-    body: JSON.stringify({
-      sessionId: "7a4ccb",
-      hypothesisId: "C",
-      location: "aspects.ts:searchEbayCategories",
-      message: "category search start",
-      data: { q, coolingDown, hasCache: Boolean(cached), cacheCount: cached?.length ?? 0 },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-  if (cached) {
-    // #region agent log
-    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
-      body: JSON.stringify({
-        sessionId: "7a4ccb",
-        hypothesisId: "C",
-        location: "aspects.ts:searchEbayCategories",
-        message: "category search cache hit",
-        data: { q, coolingDown, cacheCount: cached.length },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-    return cached;
-  }
+  if (cached) return cached;
 
   const persisted = await readPersistedEbayCategorySearch(q);
   if (persisted) {
     cacheEbayCategorySearch(q, persisted);
-    // #region agent log
-    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
-      body: JSON.stringify({
-        sessionId: "7a4ccb",
-        hypothesisId: "G",
-        location: "aspects.ts:searchEbayCategories",
-        message: "category search persist hit",
-        data: { q, coolingDown, resultCount: persisted.length },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     return persisted;
   }
 
-  if (coolingDown) {
-    // #region agent log
-    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
-      body: JSON.stringify({
-        sessionId: "7a4ccb",
-        hypothesisId: "H",
-        location: "aspects.ts:searchEbayCategories",
-        message: "category search skipped live Taxonomy (cooldown)",
-        data: { q, coolingDown: true },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
+  if (isEbayTaxonomyCoolingDown()) {
     throw new EbayApiError(
       "[#2001 · HTTP 429] The request limit has been reached for the resource.",
       429,
@@ -301,44 +242,8 @@ export async function searchEbayCategories(query: string): Promise<EbayCategoryS
     const out = suggestionsFromTaxonomyResponse(res);
     cacheEbayCategorySearch(q, out);
     writePersistedEbayCategorySearch(q, out);
-    // #region agent log
-    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
-      body: JSON.stringify({
-        sessionId: "7a4ccb",
-        hypothesisId: "C",
-        location: "aspects.ts:searchEbayCategories",
-        message: "category search ok",
-        data: { q, resultCount: out.length },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     return out;
   } catch (e) {
-    const status = e instanceof EbayApiError ? e.status : 0;
-    const errPath = e instanceof EbayApiError ? e.path ?? "" : "";
-    // #region agent log
-    fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
-      body: JSON.stringify({
-        sessionId: "7a4ccb",
-        hypothesisId: "C",
-        location: "aspects.ts:searchEbayCategories",
-        message: "category search failed",
-        data: {
-          q,
-          status,
-          errPath: errPath.replace(/https?:\/\/[^/]+/, ""),
-          rateLimited: isEbayRateLimitError(e),
-          msg: e instanceof Error ? e.message.slice(0, 180) : String(e).slice(0, 180),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     if (isEbayRateLimitError(e)) {
       markEbayTaxonomyRateLimited();
       if (cached) return cached;
@@ -554,21 +459,6 @@ export async function getItemAspectsForCategory(
       ?? (await readPersistedCategoryAspects(id, treeId, true));
     return stale ?? [];
   }
-
-  // #region agent log
-  fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
-    body: JSON.stringify({
-      sessionId: "7a4ccb",
-      hypothesisId: "B",
-      location: "aspects.ts:getItemAspectsForCategory",
-      message: "falling through to Taxonomy aspects",
-      data: { categoryId: id, coolingDown: false },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 
   try {
     const res = await fetchItemAspectsForCategory(id, treeId);

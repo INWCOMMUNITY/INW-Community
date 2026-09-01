@@ -62,28 +62,6 @@ export function ChannelCategorySearchField({
             rateLimited?: boolean;
           } = await r.json().catch(() => ({}));
           if (cancelled) return;
-          // #region agent log
-          fetch("http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a4ccb" },
-            body: JSON.stringify({
-              sessionId: "7a4ccb",
-              hypothesisId: "E",
-              location: "ChannelCategorySearchField.tsx",
-              message: "category search response",
-              data: {
-                provider,
-                q,
-                httpStatus: r.status,
-                resultCount: (data.categories ?? []).length,
-                rateLimited: Boolean(data.rateLimited),
-                warning: data.warning ?? null,
-                error: data.error ?? null,
-              },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
           if (!r.ok) {
             setResults([]);
             setError(data.error ?? data.warning ?? `${label} is busy. Wait a minute and search again.`);
