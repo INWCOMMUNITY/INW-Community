@@ -1,3 +1,4 @@
+import { prisma } from "database";
 import { patchChannelConnectionConfig } from "../connection";
 import { getBaseUrl } from "@/lib/get-base-url";
 import { enableCommerceNotifications } from "./commerce-notifications";
@@ -20,15 +21,42 @@ export type EbayNotificationConfigPatch = {
 export function readEbayWebhookReceipt(config: unknown): {
   lastEbayWebhookAt: string | null;
   lastEbayWebhookEvent: string | null;
+  lastEbayWebhookHitAt: string | null;
+  lastEbayWebhookHitReason: string | null;
 } {
   if (!config || typeof config !== "object" || Array.isArray(config)) {
-    return { lastEbayWebhookAt: null, lastEbayWebhookEvent: null };
+    return {
+      lastEbayWebhookAt: null,
+      lastEbayWebhookEvent: null,
+      lastEbayWebhookHitAt: null,
+      lastEbayWebhookHitReason: null,
+    };
   }
   const c = config as Record<string, unknown>;
   return {
     lastEbayWebhookAt: typeof c.lastEbayWebhookAt === "string" ? c.lastEbayWebhookAt : null,
     lastEbayWebhookEvent: typeof c.lastEbayWebhookEvent === "string" ? c.lastEbayWebhookEvent : null,
+    lastEbayWebhookHitAt: typeof c.lastEbayWebhookHitAt === "string" ? c.lastEbayWebhookHitAt : null,
+    lastEbayWebhookHitReason: typeof c.lastEbayWebhookHitReason === "string" ? c.lastEbayWebhookHitReason : null,
   };
+}
+
+/** Stamp every inbound POST, including 401s, so we can tell delivery from apply. */
+export async function recordEbayWebhookHit(reason: string): Promise<void> {
+  const conns = await prisma.channelConnection.findMany({
+    where: { provider: "ebay", status: { not: "disconnected" } },
+    select: { id: true },
+    take: 20,
+  });
+  const at = new Date().toISOString();
+  await Promise.all(
+    conns.map((c) =>
+      patchChannelConnectionConfig(c.id, {
+        lastEbayWebhookHitAt: at,
+        lastEbayWebhookHitReason: reason,
+      }).catch(() => {})
+    )
+  );
 }
 
 export async function recordEbayWebhookReceipt(

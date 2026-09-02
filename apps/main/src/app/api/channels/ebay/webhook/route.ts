@@ -22,7 +22,10 @@ import {
   isEbaySaleNotification,
   parseEbayNotificationBody,
 } from "@/lib/channels/ebay/notification-parse";
-import { recordEbayWebhookReceipt } from "@/lib/channels/ebay/notifications-setup";
+import {
+  recordEbayWebhookHit,
+  recordEbayWebhookReceipt,
+} from "@/lib/channels/ebay/notifications-setup";
 import {
   logWebhookEvent,
   markWebhookProcessing,
@@ -51,14 +54,17 @@ async function findConnectionByEbayUserId(ebayUserId: string) {
  * XML postcard is only used when GetItem fails.
  */
 export async function POST(req: NextRequest) {
+  void recordEbayWebhookHit("post-received");
   let raw: string;
   try {
     raw = await req.text();
   } catch {
+    void recordEbayWebhookHit("invalid-body");
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
   if (!raw || raw.length < 2) {
+    void recordEbayWebhookHit("empty-body");
     return NextResponse.json({ error: "Empty or invalid body" }, { status: 400 });
   }
 
@@ -74,6 +80,9 @@ export async function POST(req: NextRequest) {
     // #region agent log
     fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3d848'},body:JSON.stringify({sessionId:'f3d848',hypothesisId:'A',location:'webhook/route.ts:reject',message:'ebay webhook rejected',data:{hasEnvSecret:Boolean(process.env.EBAY_WEBHOOK_SECRET?.trim()),hasQuerySecret:Boolean(req.nextUrl.searchParams.get('secret')),secretLensMatch:(process.env.EBAY_WEBHOOK_SECRET?.trim()?.length ?? 0)===(req.nextUrl.searchParams.get('secret')?.length ?? -1),parseable:parsed.parseable},timestamp:Date.now()})}).catch(()=>{});
     // #endregion
+    void recordEbayWebhookHit(
+      parsed.parseable ? "rejected-untrusted" : "rejected-unparseable"
+    );
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
   // #region agent log

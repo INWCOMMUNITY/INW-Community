@@ -75,7 +75,8 @@ export async function middleware(req: NextRequest) {
   // External webhooks must receive the request unchanged; do not add CORS or other logic here.
   if (
     pathname === "/api/stripe/webhook" ||
-    pathname === "/api/channels/ebay/account-deletion"
+    pathname === "/api/channels/ebay/account-deletion" ||
+    pathname === "/api/channels/ebay/webhook"
   ) {
     return NextResponse.next();
   }
@@ -151,6 +152,6 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!api/stripe/webhook|api/channels/ebay/account-deletion|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!api/stripe/webhook|api/channels/ebay/account-deletion|api/channels/ebay/webhook|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
