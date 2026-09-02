@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   EBAY_CRON_DIRTY_GETITEM_LIMIT,
   EBAY_CRON_GETITEM_LIMIT,
+  ebayApplyTrustsSingleSnapshot,
   ebaySellerListRowIsDirty,
   rotateEbayLinks,
 } from "./pull-ebay-updates";
-import { ebayNotificationPostcardWrites } from "./notification-parse";
+import {
+  ebayNotificationPostcardWrites,
+  ebayPostcardDiffersFromStoreItem,
+} from "./notification-parse";
 
 describe("EBAY_CRON_GETITEM_LIMIT", () => {
   it("is a small rotate backstop, not a catalog crawl", () => {
@@ -65,6 +69,14 @@ describe("rotateEbayLinks", () => {
   });
 });
 
+describe("ebayApplyTrustsSingleSnapshot", () => {
+  it("trusts webhook and dirty cron rows, not rotate", () => {
+    expect(ebayApplyTrustsSingleSnapshot("webhook")).toBe(true);
+    expect(ebayApplyTrustsSingleSnapshot("cron-dirty")).toBe(true);
+    expect(ebayApplyTrustsSingleSnapshot("cron")).toBe(false);
+  });
+});
+
 describe("xml postcard never writes qty or ended", () => {
   it("omits quantity even when the snapshot has stock", () => {
     const writes = ebayNotificationPostcardWrites({
@@ -75,5 +87,20 @@ describe("xml postcard never writes qty or ended", () => {
     });
     expect(writes).toEqual({ title: "Clock", priceCents: 1200 });
     expect(writes).not.toHaveProperty("quantity");
+  });
+
+  it("detects a postcard title/price that GetItem missed", () => {
+    expect(
+      ebayPostcardDiffersFromStoreItem(
+        { title: "Clock", priceCents: 1200 },
+        { title: "Clock v2", priceCents: 1200, quantity: 1, lastModified: null }
+      )
+    ).toBe(true);
+    expect(
+      ebayPostcardDiffersFromStoreItem(
+        { title: "Clock", priceCents: 1200 },
+        { title: "Clock", priceCents: 1200, quantity: 0, lastModified: null }
+      )
+    ).toBe(false);
   });
 });

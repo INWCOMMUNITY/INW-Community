@@ -15,9 +15,13 @@ import {
 import { resolveEbayLegacyListingId } from "./mapping";
 import {
   ebayNotificationPostcardWrites,
+  ebayPostcardDiffersFromStoreItem,
   type EbayNotificationPostcard,
 } from "./notification-parse";
-import { remoteTitleOrPriceDiffersFromStoreItem } from "../apply-remote-listing";
+import {
+  inboundDescriptionsMatch,
+  remoteTitleOrPriceDiffersFromStoreItem,
+} from "../apply-remote-listing";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { ebayAspectsFingerprint } from "./ebay-compat";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
@@ -252,12 +256,18 @@ export type EbayGetItemApplyDecision = {
   pendingHash?: string;
 };
 
-export type EbayGetItemApplySource = "webhook" | "cron";
+export type EbayGetItemApplySource = "webhook" | "cron" | "cron-dirty";
+
+/** Webhook pings and dirty seller-list rows are a second signal — do not await-confirm. */
+export function ebayApplyTrustsSingleSnapshot(source?: EbayGetItemApplySource): boolean {
+  return source === "webhook" || source === "cron-dirty";
+}
 
 /**
- * GetItem often omits LastModifiedTime (only StartTime/EndTime). Cron confirms a
+ * GetItem often omits LastModifiedTime (only StartTime/EndTime). Cron rotate confirms a
  * new snapshot on two consecutive looks when LastModified is missing. A verified
- * Platform Notification revise skips await-confirm but still ignores our own push echo.
+ * Platform Notification or a dirty GetMyeBaySelling row skips await-confirm but still
+ * ignores our own push echo.
  */
 export function ebayGetItemApplyDecision(args: {
   lastInboundAt: Date | null;
@@ -271,6 +281,8 @@ export function ebayGetItemApplyDecision(args: {
   remoteTitle: string | null;
   remotePriceCents: number | null;
   remoteQuantity: number | null;
+  inwDescription?: string | null;
+  remoteDescription?: string | null;
   pendingRemoteHash?: string | null;
   source?: EbayGetItemApplySource;
   now?: Date;
@@ -288,16 +300,24 @@ export function ebayGetItemApplyDecision(args: {
     priceCents: args.inwPriceCents,
     quantity: args.inwQuantity,
   });
+  const descriptionProvided =
+    args.inwDescription !== undefined || args.remoteDescription !== undefined;
+  const descriptionDiffers =
+    descriptionProvided && !inboundDescriptionsMatch(args.inwDescription, args.remoteDescription);
 
-  // Verified Platform Notification: apply a real field diff unless this is our own push echo.
-  if (args.source === "webhook") {
-    if (remoteHash === inwHash) {
+  // Verified ping or dirty seller-list row: apply a real field diff unless this is our push echo.
+  if (ebayApplyTrustsSingleSnapshot(args.source)) {
+    if (remoteHash === inwHash && !descriptionDiffers) {
       return { action: "skip", reason: "matches-inw" };
     }
     if (ebayGetItemIsPushEcho(args)) {
       return { action: "skip", reason: "echo-of-push" };
     }
-    return { action: "apply", reason: "webhook-revise", pendingHash: remoteHash };
+    return {
+      action: "apply",
+      reason: args.source === "cron-dirty" ? "dirty-revise" : "webhook-revise",
+      pendingHash: remoteHash,
+    };
   }
 
   if (args.ebayLastModified != null) {
@@ -338,6 +358,7 @@ export async function refreshEbayListingByItemId(
     skipContent?: boolean;
     force?: boolean;
     source?: EbayGetItemApplySource;
+    postcard?: EbayNotificationPostcard;
   }
 ): Promise<PullResult | null> {
   const link = await prisma.channelListingLink.findFirst({
@@ -407,6 +428,8 @@ export async function refreshEbayListingByItemId(
     remoteTitle: details.title,
     remotePriceCents: details.priceCents,
     remoteQuantity: details.quantity,
+    inwDescription: storeItem.description,
+    remoteDescription: details.description,
     pendingRemoteHash: readEbayPendingInboundHash(link.conflictDetails),
     source: opts?.source,
   });
@@ -523,6 +546,18 @@ export async function refreshEbayListingByItemId(
       getItemPriceCents: details.priceCents,
       getItemQuantity: details.quantity,
     });
+    if (
+      applyDecision.reason === "matches-inw" &&
+      opts?.source === "webhook" &&
+      opts.postcard &&
+      ebayPostcardDiffersFromStoreItem(storeItem, opts.postcard)
+    ) {
+      console.log("[ebay] refreshEbayListingByItemId: GetItem matched INW; applying webhook postcard", {
+        storeItemId: storeItem.id,
+        legacyItemId,
+      });
+      return applyEbayXmlPostcard({ itemId: legacyItemId, postcard: opts.postcard });
+    }
     return {
       storeItemId: storeItem.id,
       title: storeItem.title,
@@ -1058,7 +1093,7 @@ export async function pullEbayUpdatesForConnection(
         accessToken,
         legacyId,
         refreshedThisPass,
-        "cron",
+        "cron-dirty",
         "cron dirty GetItem"
       );
       accessToken = next.accessToken;

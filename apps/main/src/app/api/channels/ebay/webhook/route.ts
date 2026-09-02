@@ -188,7 +188,10 @@ export async function POST(req: NextRequest) {
 
     let result;
     try {
-      result = await refreshEbayListingByItemId(ctx.accessToken, itemId, { source: "webhook" });
+      result = await refreshEbayListingByItemId(ctx.accessToken, itemId, {
+        source: "webhook",
+        postcard: parsed.postcard,
+      });
       console.log("[ebay webhook] webhook apply", {
         itemId,
         eventType,

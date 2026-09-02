@@ -244,3 +244,14 @@ export function ebayNotificationPostcardWrites(postcard: EbayNotificationPostcar
   const priceCents = postcard.priceCents != null && postcard.priceCents > 0 ? postcard.priceCents : null;
   return { title, priceCents };
 }
+
+/** True when the SOAP/JSON postcard has a title or price INW does not already have. */
+export function ebayPostcardDiffersFromStoreItem(
+  item: { title: string; priceCents: number },
+  postcard: EbayNotificationPostcard
+): boolean {
+  const writes = ebayNotificationPostcardWrites(postcard);
+  if (writes.title && writes.title !== item.title) return true;
+  if (writes.priceCents != null && writes.priceCents !== item.priceCents) return true;
+  return false;
+}

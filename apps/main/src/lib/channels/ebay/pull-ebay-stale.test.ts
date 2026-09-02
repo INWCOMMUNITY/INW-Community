@@ -334,6 +334,28 @@ describe("ebayGetItemApplyDecision", () => {
     ).toMatchObject({ action: "apply", reason: "webhook-revise" });
   });
 
+  it("applies a dirty seller-list GetItem on the first cron look", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        remoteTitle: "Tachometer EBAY CRON TEST 6",
+        source: "cron-dirty",
+        now: new Date("2026-08-20T07:00:00.000Z"),
+      })
+    ).toMatchObject({ action: "apply", reason: "dirty-revise" });
+  });
+
+  it("applies a webhook description-only revise when title/price/qty already match", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        source: "webhook",
+        inwDescription: "Old body",
+        remoteDescription: "New body from eBay",
+      })
+    ).toMatchObject({ action: "apply", reason: "webhook-revise" });
+  });
+
   it("still skips a webhook GetItem that matches INW or is an echo of our push", () => {
     expect(ebayGetItemApplyDecision({ ...base, source: "webhook" })).toEqual({
       action: "skip",
