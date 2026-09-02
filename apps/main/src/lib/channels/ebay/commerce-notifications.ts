@@ -1,5 +1,6 @@
 import { ebayJson } from "./client";
 import { EBAY_APIZ_BASE } from "./config";
+import { ebayNotificationVerificationToken } from "./webhook";
 
 export type CommerceNotificationTopic =
   | "MARKETPLACE_ACCOUNT_DELETION"
@@ -36,7 +37,7 @@ export async function ensureCommerceNotificationDestination(
         status: "ENABLED",
         deliveryConfig: {
           endpoint: webhookUrl,
-          verificationToken: process.env.EBAY_NOTIFICATION_VERIFICATION_TOKEN?.trim() || undefined,
+          verificationToken: ebayNotificationVerificationToken() || undefined,
         },
       }
     );

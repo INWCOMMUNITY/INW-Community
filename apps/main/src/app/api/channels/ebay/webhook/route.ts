@@ -8,7 +8,14 @@ import {
   acknowledgeRecentSalesWithoutDecrement,
   reconcileConnectionSales,
 } from "@/lib/channels/reconcile";
-import { ebayWebhookEnvelopeIsTrusted, verifyEbayWebhook } from "@/lib/channels/ebay/webhook";
+import {
+  buildEbayWebhookUrl,
+  ebayCommerceChallengeResponse,
+  ebayNotificationVerificationToken,
+  ebayWebhookEnvelopeIsTrusted,
+  verifyEbayWebhook,
+} from "@/lib/channels/ebay/webhook";
+import { getBaseUrl } from "@/lib/get-base-url";
 import {
   isEbayClosedNotification,
   isEbayRelevantNotification,
@@ -248,12 +255,25 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * eBay may send GET requests to verify the endpoint.
+ * eBay Commerce Notification destination challenge.
+ * Must return SHA-256(challengeCode + verificationToken + registered endpoint).
  */
 export async function GET(req: NextRequest) {
   const challenge = req.nextUrl.searchParams.get("challenge_code");
   if (challenge) {
-    return NextResponse.json({ challengeResponse: challenge });
+    const token = ebayNotificationVerificationToken();
+    const endpoint = buildEbayWebhookUrl(getBaseUrl());
+    if (!token) {
+      // #region agent log
+      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3d848'},body:JSON.stringify({sessionId:'f3d848',hypothesisId:'F',location:'webhook/route.ts:challenge',message:'commerce challenge missing token',data:{hasChallenge:true},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      return NextResponse.json({ error: "Notification verification token is not configured" }, { status: 500 });
+    }
+    const challengeResponse = ebayCommerceChallengeResponse(challenge, token, endpoint);
+    // #region agent log
+    fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3d848'},body:JSON.stringify({sessionId:'f3d848',hypothesisId:'F',location:'webhook/route.ts:challenge',message:'commerce challenge hashed',data:{endpointHost:(()=>{try{return new URL(endpoint).host;}catch{return null;}})(),hasSecretQuery:endpoint.includes("secret=")},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    return NextResponse.json({ challengeResponse });
   }
 
   return NextResponse.json({

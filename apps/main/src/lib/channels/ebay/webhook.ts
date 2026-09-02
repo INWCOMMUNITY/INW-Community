@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
 
 const WEBHOOK_PATH = "/api/channels/ebay/webhook";
 
@@ -79,4 +79,27 @@ export function ebayWebhookEnvelopeIsTrusted(parsed: {
   ebayUserId: string | null;
 }): boolean {
   return parsed.parseable && Boolean(parsed.itemId || parsed.ebayUserId);
+}
+
+/** Same token we send when creating a Commerce Notification destination. */
+export function ebayNotificationVerificationToken(): string | null {
+  const dedicated = process.env.EBAY_NOTIFICATION_VERIFICATION_TOKEN?.trim();
+  if (dedicated) return dedicated;
+  return ebayWebhookSecret();
+}
+
+/**
+ * eBay Commerce destination challenge: SHA-256 hex of
+ * challengeCode + verificationToken + endpoint (that order, exact registered URL).
+ */
+export function ebayCommerceChallengeResponse(
+  challengeCode: string,
+  verificationToken: string,
+  endpoint: string
+): string {
+  return createHash("sha256")
+    .update(challengeCode)
+    .update(verificationToken)
+    .update(endpoint)
+    .digest("hex");
 }

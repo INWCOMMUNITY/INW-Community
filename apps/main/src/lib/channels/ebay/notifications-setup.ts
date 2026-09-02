@@ -103,12 +103,16 @@ export async function ensureEbayPlatformNotifications(args: {
     typeof config.notificationsWebhookUrl === "string" ? config.notificationsWebhookUrl : null;
   const storedLooksOk = config.notificationsEnabled === true && ebayWebhookUrlIsSecured(stored);
 
+  const commerceIds = config.commerceNotificationSubscriptionIds;
+  const hasCommerce =
+    Array.isArray(commerceIds) && commerceIds.some((id) => typeof id === "string" && id.trim());
+
   if (storedLooksOk) {
     const live = await getEbayNotificationPreferences(args.accessToken);
     if (!live.fetched) {
       return { repaired: false, success: true };
     }
-    if (live.subscribed && live.urlSecured) {
+    if (live.subscribed && live.urlSecured && hasCommerce) {
       return { repaired: false, success: true };
     }
   }

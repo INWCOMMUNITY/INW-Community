@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { createHash } from "crypto";
 import {
   buildEbayWebhookUrl,
+  ebayCommerceChallengeResponse,
   ebayWebhookEnvelopeIsTrusted,
   ebayWebhookUrlIsSecured,
   redactEbayWebhookUrl,
@@ -98,5 +100,18 @@ describe("ebayWebhookEnvelopeIsTrusted", () => {
     expect(
       ebayWebhookEnvelopeIsTrusted({ parseable: true, itemId: null, ebayUserId: null })
     ).toBe(false);
+  });
+});
+
+describe("ebayCommerceChallengeResponse", () => {
+  it("hashes challengeCode + token + endpoint in that order", () => {
+    const endpoint = "https://www.inwcommunity.com/api/channels/ebay/webhook?secret=abc";
+    expect(ebayCommerceChallengeResponse("challenge-1", "verify-token", endpoint)).toBe(
+      createHash("sha256")
+        .update("challenge-1")
+        .update("verify-token")
+        .update(endpoint)
+        .digest("hex")
+    );
   });
 });
