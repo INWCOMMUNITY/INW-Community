@@ -91,10 +91,9 @@ export async function subscribeEbayInboundNotifications(accessToken: string): Pr
 
   const notifResult = await subscribeToEbayNotifications(accessToken, webhookUrl);
   const commerceNotif = await enableCommerceNotifications(accessToken, webhookUrl).catch((e) => {
-    console.warn("[ebay] Commerce Notification API setup failed", {
-      error: e instanceof Error ? e.message : String(e),
-    });
-    return { destinationId: null, subscriptionIds: [] as string[] };
+    const error = e instanceof Error ? e.message.slice(0, 400) : String(e).slice(0, 400);
+    console.warn("[ebay] Commerce Notification API setup failed", { error });
+    return { destinationId: null, subscriptionIds: [] as string[], error };
   });
 
   const configPatch: EbayNotificationConfigPatch = {
