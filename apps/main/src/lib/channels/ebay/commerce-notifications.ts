@@ -1,6 +1,9 @@
 import { ebayJson } from "./client";
-import { EBAY_APIZ_BASE } from "./config";
 import { ebayNotificationVerificationToken } from "./webhook";
+
+/** Notification API is on api.ebay.com, not apiz (identity/media). Relative paths use EBAY_API_BASE. */
+const NOTIFICATION_DESTINATION = "/commerce/notification/v1/destination";
+const NOTIFICATION_SUBSCRIPTION = "/commerce/notification/v1/subscription";
 
 export type CommerceNotificationTopic =
   | "MARKETPLACE_ACCOUNT_DELETION"
@@ -30,7 +33,7 @@ export async function ensureCommerceNotificationDestination(
   try {
     const created = await ebayJson<DestinationResponse>(
       accessToken,
-      `${EBAY_APIZ_BASE}/commerce/notification/v1/destination`,
+      NOTIFICATION_DESTINATION,
       "POST",
       {
         name: "INW Commerce Notifications",
@@ -62,7 +65,7 @@ export async function subscribeCommerceNotificationTopics(
     try {
       const created = await ebayJson<SubscriptionResponse>(
         accessToken,
-        `${EBAY_APIZ_BASE}/commerce/notification/v1/subscription`,
+        NOTIFICATION_SUBSCRIPTION,
         "POST",
         {
           topicId: topic,
