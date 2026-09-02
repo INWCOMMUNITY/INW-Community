@@ -26,7 +26,7 @@ type SubscriptionResponse = {
 export async function ensureCommerceNotificationDestination(
   accessToken: string,
   webhookUrl: string
-): Promise<string | null> {
+): Promise<{ destinationId: string | null; error?: string }> {
   try {
     const created = await ebayJson<DestinationResponse>(
       accessToken,
@@ -41,12 +41,14 @@ export async function ensureCommerceNotificationDestination(
         },
       }
     );
-    return created.destinationId?.trim() || null;
+    const destinationId = created.destinationId?.trim() || null;
+    return destinationId
+      ? { destinationId }
+      : { destinationId: null, error: "destination-create-empty-id" };
   } catch (e) {
-    console.warn("[ebay] ensureCommerceNotificationDestination failed", {
-      error: e instanceof Error ? e.message : String(e),
-    });
-    return null;
+    const error = e instanceof Error ? e.message.slice(0, 400) : String(e).slice(0, 400);
+    console.warn("[ebay] ensureCommerceNotificationDestination failed", { error });
+    return { destinationId: null, error };
   }
 }
 
@@ -82,9 +84,19 @@ export async function subscribeCommerceNotificationTopics(
 export async function enableCommerceNotifications(
   accessToken: string,
   webhookUrl: string
-): Promise<{ destinationId: string | null; subscriptionIds: string[] }> {
-  const destinationId = await ensureCommerceNotificationDestination(accessToken, webhookUrl);
-  if (!destinationId) return { destinationId: null, subscriptionIds: [] };
-  const subscriptionIds = await subscribeCommerceNotificationTopics(accessToken, destinationId);
-  return { destinationId, subscriptionIds };
+): Promise<{ destinationId: string | null; subscriptionIds: string[]; error?: string }> {
+  const dest = await ensureCommerceNotificationDestination(accessToken, webhookUrl);
+  if (!dest.destinationId) {
+    return {
+      destinationId: null,
+      subscriptionIds: [],
+      error: dest.error || "destination-create-failed",
+    };
+  }
+  const subscriptionIds = await subscribeCommerceNotificationTopics(accessToken, dest.destinationId);
+  return {
+    destinationId: dest.destinationId,
+    subscriptionIds,
+    ...(subscriptionIds.length === 0 ? { error: "destination-ok-subscriptions-empty" } : {}),
+  };
 }

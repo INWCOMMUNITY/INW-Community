@@ -16,6 +16,7 @@ export type EbayNotificationConfigPatch = {
   notificationsError?: string;
   commerceNotificationsDestinationId: string | null;
   commerceNotificationSubscriptionIds: string[];
+  lastCommerceNotificationsError?: string | null;
 };
 
 export function readEbayWebhookReceipt(config: unknown): {
@@ -103,6 +104,7 @@ export async function subscribeEbayInboundNotifications(accessToken: string): Pr
     notificationsError: notifResult.error,
     commerceNotificationsDestinationId: commerceNotif.destinationId,
     commerceNotificationSubscriptionIds: commerceNotif.subscriptionIds,
+    lastCommerceNotificationsError: commerceNotif.error ?? null,
   };
 
   return {
