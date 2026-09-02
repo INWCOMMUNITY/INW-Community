@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   ebayGetItemIsStaleVersusInw,
   ebayGetItemApplyDecision,
+  ebayGetItemEndedDecision,
   isEbayInboundContentChange,
   ebayGetItemDetailsAreUsable,
   readEbayPendingInboundHash,
+  shouldApplyEbayInboundVariants,
   withEbayPendingInbound,
 } from "./pull-ebay-updates";
 
@@ -33,6 +35,43 @@ describe("isEbayInboundContentChange", () => {
     ).toBe(true);
     expect(inboundContentFanoutKind({ contentChange: true, soldOut: false })).toBe("content");
     expect(inboundContentFanoutKind({ contentChange: true, soldOut: true })).toBe("inventory");
+  });
+});
+
+describe("ebayGetItemEndedDecision", () => {
+  const now = new Date("2026-09-01T18:00:00.000Z");
+
+  it("does not unlink eBay when GetItem still reports stock", () => {
+    expect(
+      ebayGetItemEndedDecision({
+        listingEnded: true,
+        quantity: 2,
+        inwUpdatedAt: new Date("2026-08-01T00:00:00.000Z"),
+        now,
+      })
+    ).toBe("active");
+  });
+
+  it("does not unlink eBay right after an inbound title edit from another shop", () => {
+    expect(
+      ebayGetItemEndedDecision({
+        listingEnded: true,
+        quantity: 0,
+        inwUpdatedAt: new Date("2026-09-01T17:50:00.000Z"),
+        now,
+      })
+    ).toBe("active");
+  });
+
+  it("flags a listing that ended with no stock after the echo window", () => {
+    expect(
+      ebayGetItemEndedDecision({
+        listingEnded: true,
+        quantity: 0,
+        inwUpdatedAt: new Date("2026-08-01T00:00:00.000Z"),
+        now,
+      })
+    ).toBe("ended");
   });
 });
 
@@ -122,6 +161,19 @@ describe("ebayGetItemIsStaleVersusInw", () => {
         now,
       })
     ).toBe(false);
+  });
+
+  it("skips ItemListed LastModified a few seconds after our publish", () => {
+    const pushedAt = new Date("2026-08-20T05:06:00.000Z");
+    expect(
+      ebayGetItemIsStaleVersusInw({
+        lastInboundAt: null,
+        lastPushedAt: pushedAt,
+        inwUpdatedAt: pushedAt,
+        ebayLastModified: new Date("2026-08-20T05:06:12.000Z"),
+        now: new Date("2026-08-20T05:06:15.000Z"),
+      })
+    ).toBe(true);
   });
 
   it("skips GetItem that is only an echo of our own inventory push", () => {
@@ -269,6 +321,143 @@ describe("ebayGetItemApplyDecision", () => {
         pendingRemoteHash: "Tachometer LAGGED|4000|4",
       }).action
     ).toBe("pending");
+  });
+
+  it("applies a webhook revise without waiting for a second snapshot", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        remoteTitle: "Tachometer EBAY CRON TEST 6",
+        source: "webhook",
+        now: new Date("2026-08-20T07:00:00.000Z"),
+      })
+    ).toMatchObject({ action: "apply", reason: "webhook-revise" });
+  });
+
+  it("still skips a webhook GetItem that matches INW or is an echo of our push", () => {
+    expect(ebayGetItemApplyDecision({ ...base, source: "webhook" })).toEqual({
+      action: "skip",
+      reason: "matches-inw",
+    });
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastPushedAt: new Date("2026-08-20T06:56:21.000Z"),
+        remoteTitle: "Tachometer EBAY CRON TEST 6",
+        source: "webhook",
+        now: new Date("2026-08-20T06:56:30.000Z"),
+      })
+    ).toEqual({ action: "skip", reason: "echo-of-push" });
+  });
+
+  it("applies a webhook revise when LastModified looks stale versus INW but fields differ", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        ebayLastModified: new Date("2026-08-20T06:40:00.000Z"),
+        remoteTitle: "Tachometer LIVE FROM EBAY",
+        source: "webhook",
+        now: new Date("2026-08-20T07:00:00.000Z"),
+      })
+    ).toMatchObject({ action: "apply", reason: "webhook-revise" });
+  });
+
+  it("still skips a webhook LastModified that is only an echo of our push", () => {
+    const pushedAt = new Date("2026-08-20T06:56:21.000Z");
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastPushedAt: pushedAt,
+        ebayLastModified: new Date("2026-08-20T06:56:25.000Z"),
+        remoteTitle: "Tachometer EBAY CRON TEST 6",
+        source: "webhook",
+        now: new Date("2026-08-20T06:56:30.000Z"),
+      })
+    ).toEqual({ action: "skip", reason: "echo-of-push" });
+  });
+});
+
+describe("shouldApplyEbayInboundVariants", () => {
+  const local = [
+    {
+      name: "Size",
+      options: [
+        { value: "S", quantity: 4 },
+        { value: "M", quantity: 3 },
+        { value: "L", quantity: 2 },
+      ],
+    },
+  ];
+  const pushedAt = new Date("2026-08-20T05:06:00.000Z");
+
+  it("rejects a post-publish snapshot that dropped options", () => {
+    expect(
+      shouldApplyEbayInboundVariants({
+        localVariants: local,
+        remoteVariants: [
+          {
+            name: "Size",
+            options: [
+              { value: "S", quantity: 1 },
+              { value: "M", quantity: 1 },
+            ],
+          },
+        ],
+        lastPushedAt: pushedAt,
+        now: new Date("2026-08-20T05:10:00.000Z"),
+      })
+    ).toBe(false);
+  });
+
+  it("rejects all-qty-1 echo shortly after we pushed richer option stock", () => {
+    expect(
+      shouldApplyEbayInboundVariants({
+        localVariants: local,
+        remoteVariants: [
+          {
+            name: "Size",
+            options: [
+              { value: "S", quantity: 1 },
+              { value: "M", quantity: 1 },
+              { value: "L", quantity: 1 },
+            ],
+          },
+        ],
+        lastPushedAt: pushedAt,
+        now: new Date("2026-08-20T05:10:00.000Z"),
+      })
+    ).toBe(false);
+  });
+
+  it("applies a later eBay edit that matches INW options with real quantities", () => {
+    expect(
+      shouldApplyEbayInboundVariants({
+        localVariants: local,
+        remoteVariants: [
+          {
+            name: "Size",
+            options: [
+              { value: "S", quantity: 4 },
+              { value: "M", quantity: 2 },
+              { value: "L", quantity: 2 },
+            ],
+          },
+        ],
+        lastPushedAt: pushedAt,
+        now: new Date("2026-08-20T05:30:00.000Z"),
+      })
+    ).toBe(true);
+  });
+
+  it("applies remote variants when INW has none (import)", () => {
+    expect(
+      shouldApplyEbayInboundVariants({
+        localVariants: null,
+        remoteVariants: [
+          { name: "Size", options: [{ value: "S", quantity: 1 }, { value: "M", quantity: 2 }] },
+        ],
+      })
+    ).toBe(true);
   });
 });
 

@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { prisma } from "database";
-import { getConnectionContext } from "@/lib/channels/connection";
+import { getConnectionContext, patchChannelConnectionConfig } from "@/lib/channels/connection";
 import { getEbayNotificationPreferences } from "@/lib/channels/ebay/trading";
-import { subscribeEbayInboundNotifications } from "@/lib/channels/ebay/notifications-setup";
-import { redactEbayWebhookUrl } from "@/lib/channels/ebay/webhook";
+import {
+  readEbayWebhookReceipt,
+  subscribeEbayInboundNotifications,
+} from "@/lib/channels/ebay/notifications-setup";
+import { ebayWebhookUrlIsSecured, redactEbayWebhookUrl } from "@/lib/channels/ebay/webhook";
 
 export const dynamic = "force-dynamic";
 
@@ -32,11 +35,15 @@ export async function GET(req: NextRequest) {
   }
 
   const status = await getEbayNotificationPreferences(ctx.accessToken);
+  const receipt = readEbayWebhookReceipt(connection.config);
 
   return NextResponse.json({
     subscribed: status.subscribed,
     webhookUrl: status.webhookUrl ? redactEbayWebhookUrl(status.webhookUrl) : undefined,
+    urlSecured: status.urlSecured ?? ebayWebhookUrlIsSecured(status.webhookUrl),
     events: status.events,
+    lastEbayWebhookAt: receipt.lastEbayWebhookAt,
+    lastEbayWebhookEvent: receipt.lastEbayWebhookEvent,
   });
 }
 
@@ -72,16 +79,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const config = (connection.config as Record<string, unknown>) || {};
-  await prisma.channelConnection.update({
-    where: { id: connection.id },
-    data: {
-      config: {
-        ...config,
-        ...result.configPatch,
-      } as object,
-    },
-  });
+  await patchChannelConnectionConfig(
+    connection.id,
+    result.configPatch as Record<string, unknown>
+  );
 
   return NextResponse.json({
     success: true,

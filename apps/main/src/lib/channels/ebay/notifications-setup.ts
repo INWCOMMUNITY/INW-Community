@@ -1,7 +1,7 @@
-import { prisma } from "database";
+import { patchChannelConnectionConfig } from "../connection";
 import { getBaseUrl } from "@/lib/get-base-url";
 import { enableCommerceNotifications } from "./commerce-notifications";
-import { subscribeToEbayNotifications } from "./trading";
+import { getEbayNotificationPreferences, subscribeToEbayNotifications } from "./trading";
 import {
   buildEbayWebhookUrl,
   ebayWebhookUrlIsSecured,
@@ -16,6 +16,36 @@ export type EbayNotificationConfigPatch = {
   commerceNotificationsDestinationId: string | null;
   commerceNotificationSubscriptionIds: string[];
 };
+
+export function readEbayWebhookReceipt(config: unknown): {
+  lastEbayWebhookAt: string | null;
+  lastEbayWebhookEvent: string | null;
+} {
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    return { lastEbayWebhookAt: null, lastEbayWebhookEvent: null };
+  }
+  const c = config as Record<string, unknown>;
+  return {
+    lastEbayWebhookAt: typeof c.lastEbayWebhookAt === "string" ? c.lastEbayWebhookAt : null,
+    lastEbayWebhookEvent: typeof c.lastEbayWebhookEvent === "string" ? c.lastEbayWebhookEvent : null,
+  };
+}
+
+export async function recordEbayWebhookReceipt(
+  connectionId: string,
+  _currentConfig: unknown,
+  eventType: string | null
+): Promise<void> {
+  await patchChannelConnectionConfig(connectionId, {
+    lastEbayWebhookAt: new Date().toISOString(),
+    ...(eventType ? { lastEbayWebhookEvent: eventType } : {}),
+  }).catch((e) =>
+    console.warn("[ebay] recordEbayWebhookReceipt failed", {
+      connectionId,
+      error: e instanceof Error ? e.message : String(e),
+    })
+  );
+}
 
 export async function subscribeEbayInboundNotifications(accessToken: string): Promise<{
   success: boolean;
@@ -56,8 +86,8 @@ export async function subscribeEbayInboundNotifications(accessToken: string): Pr
 }
 
 /**
- * Re-register Platform Notifications when the stored URL is missing `?secret=`.
- * Safe to call from the channel cron — no-ops when already secured.
+ * Re-register Platform Notifications when the stored URL is missing `?secret=`
+ * or live eBay prefs show delivery disabled / an unsecured URL.
  */
 export async function ensureEbayPlatformNotifications(args: {
   connectionId: string;
@@ -71,20 +101,23 @@ export async function ensureEbayPlatformNotifications(args: {
   const config = (args.config ?? {}) as Record<string, unknown>;
   const stored =
     typeof config.notificationsWebhookUrl === "string" ? config.notificationsWebhookUrl : null;
-  if (config.notificationsEnabled === true && ebayWebhookUrlIsSecured(stored)) {
-    return { repaired: false, success: true };
+  const storedLooksOk = config.notificationsEnabled === true && ebayWebhookUrlIsSecured(stored);
+
+  if (storedLooksOk) {
+    const live = await getEbayNotificationPreferences(args.accessToken);
+    if (!live.fetched) {
+      return { repaired: false, success: true };
+    }
+    if (live.subscribed && live.urlSecured) {
+      return { repaired: false, success: true };
+    }
   }
 
   const result = await subscribeEbayInboundNotifications(args.accessToken);
-  await prisma.channelConnection.update({
-    where: { id: args.connectionId },
-    data: {
-      config: {
-        ...config,
-        ...result.configPatch,
-      } as object,
-    },
-  });
+  await patchChannelConnectionConfig(
+    args.connectionId,
+    result.configPatch as Record<string, unknown>
+  );
 
   if (result.success) {
     console.log("[ebay] repaired Platform Notifications URL", {

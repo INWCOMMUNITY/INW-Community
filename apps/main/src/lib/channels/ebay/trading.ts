@@ -22,7 +22,7 @@ import {
 import type { ListingAspect } from "@/lib/listing-limits";
 import { getEbayCategoryPathFromId } from "./category-path";
 import { resolveEbayLegacyListingId } from "./mapping";
-import { redactEbayWebhookUrl } from "./webhook";
+import { ebayWebhookUrlIsSecured, redactEbayWebhookUrl } from "./webhook";
 import {
   buildReviseItemSkuXml,
   buildReviseVariationSkusXml,
@@ -102,13 +102,13 @@ export function parseEbayGetItemAvailability(itemXml: string): {
   quantitySold: number;
   listingEnded: boolean;
 } {
-  const listingXml = itemXml.replace(/<Variations[\s\S]*?<\/Variations>/gi, "");
+  const listingXml = itemXml
+    .replace(/<Description[\s\S]*?<\/Description>/gi, "")
+    .replace(/<Variations[\s\S]*?<\/Variations>/gi, "");
   const sellingStatus = tag(listingXml, "SellingStatus") ?? "";
-  const listingStatus = (
-    tag(sellingStatus, "ListingStatus") ??
-    tag(listingXml, "ListingStatus") ??
-    ""
-  ).toLowerCase();
+  // Only SellingStatus.ListingStatus. A fallback scan of the whole Item XML can
+  // pick up "Ended" / "Completed" inside the HTML description and false-delete.
+  const listingStatus = (tag(sellingStatus, "ListingStatus") ?? "").toLowerCase();
   const quantitySold = Math.max(0, Number(tag(sellingStatus, "QuantitySold") ?? "0") || 0);
   const availableStr = tag(listingXml, "QuantityAvailable");
   const listedStr = tag(listingXml, "Quantity") ?? "";
@@ -1023,48 +1023,74 @@ export async function subscribeToEbayNotifications(
   }
 }
 
+async function fetchEbayNotificationPreferenceLevel(
+  accessToken: string,
+  level: "Application" | "User"
+): Promise<string | null> {
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<GetNotificationPreferencesRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <PreferenceLevel>${level}</PreferenceLevel>
+</GetNotificationPreferencesRequest>`;
+  const response = await callTrading(accessToken, "GetNotificationPreferences", xml);
+  const ack = tag(response, "Ack");
+  if (ack !== "Success" && ack !== "Warning") return null;
+  return response;
+}
+
+function enabledNotificationEvents(xml: string): string[] {
+  const enabledEvents: string[] = [];
+  for (const n of allTags(xml, "NotificationEnable")) {
+    const eventType = tag(n, "EventType");
+    const eventEnable = tag(n, "EventEnable");
+    if (eventType && eventEnable === "Enable") enabledEvents.push(eventType);
+  }
+  return enabledEvents;
+}
+
 /**
- * Check current notification subscription status.
+ * Check current notification subscription status (Application URL + User events).
  */
 export async function getEbayNotificationPreferences(
   accessToken: string
-): Promise<{ subscribed: boolean; webhookUrl?: string; events?: string[] }> {
-  const xml = `<?xml version="1.0" encoding="utf-8"?>
-<GetNotificationPreferencesRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-  <PreferenceLevel>Application</PreferenceLevel>
-</GetNotificationPreferencesRequest>`;
-
+): Promise<{
+  fetched: boolean;
+  subscribed: boolean;
+  webhookUrl?: string;
+  urlSecured?: boolean;
+  events?: string[];
+}> {
   try {
-    const response = await callTrading(accessToken, "GetNotificationPreferences", xml);
-    const ack = tag(response, "Ack");
+    const appXml = await fetchEbayNotificationPreferenceLevel(accessToken, "Application");
+    if (!appXml) return { fetched: false, subscribed: false };
 
-    if (ack !== "Success" && ack !== "Warning") {
-      return { subscribed: false };
-    }
-
-    const appPrefs = tag(response, "ApplicationDeliveryPreferences");
+    const appPrefs = tag(appXml, "ApplicationDeliveryPreferences");
     const appEnabled = appPrefs ? tag(appPrefs, "ApplicationEnable") : null;
     const appUrl = appPrefs ? tag(appPrefs, "ApplicationURL") : null;
 
-    // Extract enabled events
-    const enabledEvents: string[] = [];
-    const notifications = allTags(response, "NotificationEnable");
-    for (const n of notifications) {
-      const eventType = tag(n, "EventType");
-      const eventEnable = tag(n, "EventEnable");
-      if (eventType && eventEnable === "Enable") {
-        enabledEvents.push(eventType);
+    const events = enabledNotificationEvents(appXml);
+    try {
+      const userXml = await fetchEbayNotificationPreferenceLevel(accessToken, "User");
+      if (userXml) {
+        for (const event of enabledNotificationEvents(userXml)) {
+          if (!events.includes(event)) events.push(event);
+        }
       }
+    } catch (e) {
+      console.warn("[ebay] GetNotificationPreferences User level failed", {
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
 
     return {
+      fetched: true,
       subscribed: appEnabled === "Enable" && !!appUrl,
       webhookUrl: appUrl || undefined,
-      events: enabledEvents,
+      urlSecured: ebayWebhookUrlIsSecured(appUrl),
+      events,
     };
   } catch (e) {
     console.error("[ebay] getEbayNotificationPreferences: exception", { error: e });
-    return { subscribed: false };
+    return { fetched: false, subscribed: false };
   }
 }
 

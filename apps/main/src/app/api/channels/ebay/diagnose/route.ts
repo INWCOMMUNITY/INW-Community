@@ -10,6 +10,8 @@ import {
   readEbayConfig,
 } from "@/lib/channels/ebay/account";
 import { getRevisionStats } from "@/lib/channels/ebay/rate-limits";
+import { readEbayWebhookReceipt } from "@/lib/channels/ebay/notifications-setup";
+import { ebayWebhookUrlIsSecured } from "@/lib/channels/ebay/webhook";
 import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
 import { resetCorruptBaselinesForConnection } from "@/lib/channels/reset-corrupt-baselines";
 import { syncStoreItemSelect, toSyncStoreItem } from "@/lib/channels/store-item";
@@ -79,6 +81,12 @@ type DiagnosisResult = {
     lastPushedAt: string | null;
   }[];
   revisionStats?: { sku: string; count: number; date: string }[];
+  notifications?: {
+    enabled: boolean;
+    urlSecured: boolean;
+    lastEbayWebhookAt: string | null;
+    lastEbayWebhookEvent: string | null;
+  };
   repairAttempted?: boolean;
   repairResults?: { storeItemId: string; ok: boolean; error?: string }[];
   baselineReset?: { reset: number; linkIds: string[] };
@@ -462,6 +470,23 @@ export async function GET(req: NextRequest) {
     tokenError,
     links,
     revisionStats: revisionStats.length > 0 ? revisionStats : undefined,
+    notifications: (() => {
+      const receipt = readEbayWebhookReceipt(ctx.config);
+      const storedUrl =
+        ctx.config && typeof ctx.config === "object" && !Array.isArray(ctx.config)
+          ? (ctx.config as { notificationsWebhookUrl?: unknown }).notificationsWebhookUrl
+          : null;
+      const enabled =
+        ctx.config && typeof ctx.config === "object" && !Array.isArray(ctx.config)
+          ? (ctx.config as { notificationsEnabled?: unknown }).notificationsEnabled === true
+          : false;
+      return {
+        enabled,
+        urlSecured: typeof storedUrl === "string" && ebayWebhookUrlIsSecured(storedUrl),
+        lastEbayWebhookAt: receipt.lastEbayWebhookAt,
+        lastEbayWebhookEvent: receipt.lastEbayWebhookEvent,
+      };
+    })(),
     repairAttempted: repair,
     repairResults,
     baselineReset,

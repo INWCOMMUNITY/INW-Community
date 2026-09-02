@@ -49,6 +49,27 @@ export function mergeConnectionConfig(
   return { ...base, ...patch };
 }
 
+/** Read-latest merge so webhook and cron cannot wipe each other's config keys. */
+export async function patchChannelConnectionConfig(
+  connectionId: string,
+  patch: Record<string, unknown>,
+  removeKeys: string[] = []
+): Promise<void> {
+  const latest = await prisma.channelConnection.findUnique({
+    where: { id: connectionId },
+    select: { config: true },
+  });
+  const defined = Object.fromEntries(
+    Object.entries(patch).filter(([, value]) => value !== undefined)
+  );
+  const next = mergeConnectionConfig(latest?.config, defined);
+  for (const key of removeKeys) delete next[key];
+  await prisma.channelConnection.update({
+    where: { id: connectionId },
+    data: { config: next as Prisma.InputJsonValue },
+  });
+}
+
 function readRefreshingAt(config: unknown): number | null {
   if (!config || typeof config !== "object" || Array.isArray(config)) return null;
   const raw = (config as Record<string, unknown>).refreshingAt;

@@ -1,10 +1,23 @@
 import { prisma, Prisma } from "database";
-import { withConnectionAuthRetry, isChannelAuthError, refreshConnectionToken } from "../connection";
+import {
+  withConnectionAuthRetry,
+  isChannelAuthError,
+  refreshConnectionToken,
+  patchChannelConnectionConfig,
+} from "../connection";
 import {
   ebayGetItemMarksInwSoldOut,
   ebayGetItemQtyIsUnsoldZero,
+  enumerateEbayListings,
   fetchEbayItemDetails,
+  type EbayTradingListing,
 } from "./trading";
+import { resolveEbayLegacyListingId } from "./mapping";
+import {
+  ebayNotificationPostcardWrites,
+  type EbayNotificationPostcard,
+} from "./notification-parse";
+import { remoteTitleOrPriceDiffersFromStoreItem } from "../apply-remote-listing";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { ebayAspectsFingerprint } from "./ebay-compat";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
@@ -14,7 +27,9 @@ import { storeListingDescription } from "../import-listing";
 import { resolveInwCategoryFromEbayPath } from "../category-resolver";
 import { isValidPresetSubcategory } from "../repair-categories";
 import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "../sync-baseline";
-import { variantsFingerprint } from "../variant-sync";
+import { normalizeVariantsFromProvider, variantsFingerprint } from "../variant-sync";
+import { hasOptionQuantities } from "@/lib/store-item-variants";
+import type { EbayVariationAxis } from "./item-specifics";
 import { applyRemoteListingRemoved } from "../apply-remote-listing";
 import { syncInventoryToChannels } from "../sync-inventory";
 import { updateStoreItemOnChannels } from "../outbound";
@@ -61,11 +76,83 @@ function photosEqual(a: string[], b: string[]): boolean {
  */
 export const EBAY_INBOUND_ECHO_MS = 15 * 60 * 1000;
 
-/** How many GetItem calls one cron pass makes before rotating to the next listings. */
-export const EBAY_CRON_GETITEM_LIMIT = 40;
+/** How many GetItem calls one cron pass makes as a description/photo backstop. */
+export const EBAY_CRON_GETITEM_LIMIT = 5;
+
+/** Cap dirty-list GetItems so a mismatched seller list cannot crawl the whole shop. */
+export const EBAY_CRON_DIRTY_GETITEM_LIMIT = 20;
+
+/**
+ * After an Etsy/Wix inbound edit, GetItem can briefly look Ended (lag, HTML
+ * contamination, ActiveList miss). Do not unlink eBay in that window.
+ */
+export const EBAY_REMOTE_DELETED_ECHO_MS = 15 * 60 * 1000;
+
+/**
+ * Only treat a GetItem row as gone when ListingStatus is Ended/Completed,
+ * quantity is not still in stock, and we did not just write INW from another shop.
+ */
+export function ebayGetItemEndedDecision(args: {
+  listingEnded: boolean;
+  quantity: number | null;
+  inwUpdatedAt: Date | null;
+  lastPushedAt?: Date | null;
+  now?: Date;
+}): "active" | "ended" {
+  if (!args.listingEnded) return "active";
+  if (args.quantity != null && args.quantity > 0) return "active";
+  const nowMs = args.now?.getTime() ?? Date.now();
+  const inwAt = args.inwUpdatedAt?.getTime() ?? 0;
+  const pushedAt = args.lastPushedAt?.getTime() ?? 0;
+  if (inwAt > 0 && nowMs - inwAt < EBAY_REMOTE_DELETED_ECHO_MS) return "active";
+  if (pushedAt > 0 && nowMs - pushedAt < EBAY_REMOTE_DELETED_ECHO_MS) return "active";
+  return "ended";
+}
 
 /** Metadata-only GetItem writes must not start the echo window. */
 const EBAY_INBOUND_META_KEYS = new Set(["ebayCategoryId", "category", "subcategory"]);
+
+/**
+ * After INW publishes a variation group, GetItem often returns a degraded snapshot
+ * (qty 1 on every option, missing values). Applying that would wipe seller stock.
+ */
+export function shouldApplyEbayInboundVariants(args: {
+  localVariants: unknown;
+  remoteVariants: EbayVariationAxis[] | null | undefined;
+  lastPushedAt?: Date | null;
+  now?: Date;
+}): boolean {
+  const remote = args.remoteVariants;
+  if (!remote?.length || !remote[0]?.options.length) return false;
+
+  const local = normalizeVariantsFromProvider("ebay", args.localVariants);
+  if (!local?.length || !hasOptionQuantities(local)) return true;
+
+  const localPrimary = local[0]!;
+  const remotePrimary = remote[0]!;
+  const remoteValues = new Set(
+    remotePrimary.options.map((option) => option.value.trim().toLowerCase()).filter(Boolean)
+  );
+  const localHasMissingRemote = localPrimary.options.some((option) => {
+    const key = option.value.trim().toLowerCase();
+    return key.length > 0 && !remoteValues.has(key);
+  });
+  if (localHasMissingRemote) return false;
+
+  const remoteAllOne = remotePrimary.options.every((option) => option.quantity === 1);
+  const localHasNonOne = localPrimary.options.some((option) => option.quantity !== 1);
+  const pushedAt = args.lastPushedAt?.getTime();
+  const nowMs = args.now?.getTime() ?? Date.now();
+  if (
+    remoteAllOne &&
+    localHasNonOne &&
+    pushedAt != null &&
+    nowMs - pushedAt < EBAY_INBOUND_ECHO_MS
+  ) {
+    return false;
+  }
+  return true;
+}
 
 export function isEbayInboundContentChange(updateData: Record<string, unknown>): boolean {
   return Object.keys(updateData).some((key) => !EBAY_INBOUND_META_KEYS.has(key));
@@ -78,6 +165,22 @@ export function ebayGetItemDetailsAreUsable(details: {
   quantity: number | null;
 }): boolean {
   return details.title != null || details.priceCents != null || details.quantity != null;
+}
+
+/** True when GetItem LastModified (or "now" if missing) is an echo of our own push. */
+export function ebayGetItemIsPushEcho(args: {
+  lastPushedAt?: Date | null;
+  ebayLastModified?: Date | null;
+  now?: Date;
+}): boolean {
+  const pushedAt = args.lastPushedAt?.getTime();
+  if (pushedAt == null) return false;
+  const modifiedAt = args.ebayLastModified?.getTime();
+  if (modifiedAt != null) {
+    return modifiedAt >= pushedAt - 5_000 && modifiedAt <= pushedAt + SYNC_ECHO_SKEW_MS;
+  }
+  const nowMs = args.now?.getTime() ?? Date.now();
+  return nowMs - pushedAt < SYNC_ECHO_SKEW_MS;
 }
 
 export function ebayGetItemIsStaleVersusInw(args: {
@@ -98,13 +201,11 @@ export function ebayGetItemIsStaleVersusInw(args: {
   // After a successful pull or push, a replica with no LastModified is old news.
   if (modifiedAt == null) return true;
   // Our own content write echoes back with LastModified ≈ lastPushedAt.
+  // ItemListed / publish_by_group often stamps LastModified several seconds
+  // after we return — a 2s window let that snapshot overwrite INW with qty 1.
   // Do not use lastPushedAt as a floor — inventory qty pushes would then
   // hide real eBay revises that happened earlier in the same cron window.
-  if (
-    pushedAt != null &&
-    modifiedAt >= pushedAt - 5_000 &&
-    modifiedAt <= pushedAt + 2_000
-  ) {
+  if (ebayGetItemIsPushEcho(args)) {
     return true;
   }
   const floor = Math.max(inboundAt ?? 0, inwAt ?? 0, appliedRemoteAt ?? 0);
@@ -151,10 +252,12 @@ export type EbayGetItemApplyDecision = {
   pendingHash?: string;
 };
 
+export type EbayGetItemApplySource = "webhook" | "cron";
+
 /**
- * GetItem often omits LastModifiedTime (only StartTime/EndTime). Do not apply a
- * lagged replica after 15 minutes. Confirm a new snapshot on two consecutive crons
- * when LastModified is missing and INW has not been saved since the last inbound.
+ * GetItem often omits LastModifiedTime (only StartTime/EndTime). Cron confirms a
+ * new snapshot on two consecutive looks when LastModified is missing. A verified
+ * Platform Notification revise skips await-confirm but still ignores our own push echo.
  */
 export function ebayGetItemApplyDecision(args: {
   lastInboundAt: Date | null;
@@ -169,21 +272,11 @@ export function ebayGetItemApplyDecision(args: {
   remotePriceCents: number | null;
   remoteQuantity: number | null;
   pendingRemoteHash?: string | null;
+  source?: EbayGetItemApplySource;
   now?: Date;
 }): EbayGetItemApplyDecision {
   const inboundAt = args.lastInboundAt?.getTime() ?? null;
   const pushedAt = args.lastPushedAt?.getTime() ?? null;
-  const nowMs = args.now?.getTime() ?? Date.now();
-
-  if (args.ebayLastModified != null) {
-    return ebayGetItemIsStaleVersusInw(args)
-      ? { action: "skip", reason: "lastModified-not-newer" }
-      : { action: "apply", reason: "lastModified-newer" };
-  }
-
-  if (inboundAt == null && pushedAt == null) {
-    return { action: "apply", reason: "first-pull" };
-  }
 
   const remoteHash = ebayRemoteSnapshotHash({
     title: args.remoteTitle,
@@ -195,12 +288,34 @@ export function ebayGetItemApplyDecision(args: {
     priceCents: args.inwPriceCents,
     quantity: args.inwQuantity,
   });
+
+  // Verified Platform Notification: apply a real field diff unless this is our own push echo.
+  if (args.source === "webhook") {
+    if (remoteHash === inwHash) {
+      return { action: "skip", reason: "matches-inw" };
+    }
+    if (ebayGetItemIsPushEcho(args)) {
+      return { action: "skip", reason: "echo-of-push" };
+    }
+    return { action: "apply", reason: "webhook-revise", pendingHash: remoteHash };
+  }
+
+  if (args.ebayLastModified != null) {
+    return ebayGetItemIsStaleVersusInw(args)
+      ? { action: "skip", reason: "lastModified-not-newer" }
+      : { action: "apply", reason: "lastModified-newer" };
+  }
+
+  if (inboundAt == null && pushedAt == null) {
+    return { action: "apply", reason: "first-pull" };
+  }
+
   if (remoteHash === inwHash) {
     return { action: "skip", reason: "matches-inw" };
   }
 
   // Right after we pushed, GetItem may still show the previous listing.
-  if (pushedAt != null && nowMs - pushedAt < SYNC_ECHO_SKEW_MS) {
+  if (ebayGetItemIsPushEcho(args)) {
     return { action: "skip", reason: "echo-of-push" };
   }
 
@@ -222,6 +337,7 @@ export async function refreshEbayListingByItemId(
     skipQuantity?: boolean;
     skipContent?: boolean;
     force?: boolean;
+    source?: EbayGetItemApplySource;
   }
 ): Promise<PullResult | null> {
   const link = await prisma.channelListingLink.findFirst({
@@ -292,14 +408,27 @@ export async function refreshEbayListingByItemId(
     remotePriceCents: details.priceCents,
     remoteQuantity: details.quantity,
     pendingRemoteHash: readEbayPendingInboundHash(link.conflictDetails),
+    source: opts?.source,
   });
 
-  const stillActive =
-    opts?.activeListingIds != null
-      ? opts.activeListingIds.has(legacyItemId)
-      : !details.listingEnded;
+  const endedDecision = ebayGetItemEndedDecision({
+    listingEnded: details.listingEnded,
+    quantity: details.quantity,
+    inwUpdatedAt: storeItem.updatedAt,
+    lastPushedAt: link.lastPushedAt,
+  });
+  if (details.listingEnded && endedDecision === "active") {
+    console.warn("[ebay] refreshEbayListingByItemId: GetItem said ended but listing looks live — keep eBay linked", {
+      storeItemId: storeItem.id,
+      legacyItemId,
+      listingEnded: details.listingEnded,
+      quantity: details.quantity,
+      quantitySold: details.quantitySold,
+      forcedInactive: opts?.activeListingIds != null && !opts.activeListingIds.has(legacyItemId),
+    });
+  }
 
-  if (!stillActive || details.listingEnded) {
+  if (endedDecision === "ended") {
     if (!ebayGetItemMarksInwSoldOut(details)) {
       console.log("[ebay] refreshEbayListingByItemId: listing ended without a sale; keep INW listed", {
         storeItemId: storeItem.id,
@@ -307,7 +436,6 @@ export async function refreshEbayListingByItemId(
         listingEnded: details.listingEnded,
         quantitySold: details.quantitySold,
         quantity: details.quantity,
-        forcedInactive: opts?.activeListingIds != null && !stillActive,
       });
       const endedDetails = await persistEbayListingEnded(link.id, link.conflictDetails);
       if (storeItem.status !== "sold_out" && storeItem.status !== "inactive") {
@@ -385,6 +513,7 @@ export async function refreshEbayListingByItemId(
     console.log("[ebay] refreshEbayListingByItemId: skip GetItem", {
       storeItemId: storeItem.id,
       legacyItemId,
+      source: opts?.source ?? "cron",
       reason: applyDecision.reason,
       lastInboundAt: link.lastInboundAt?.toISOString() ?? null,
       lastPushedAt: link.lastPushedAt?.toISOString() ?? null,
@@ -483,6 +612,12 @@ export async function refreshEbayListingByItemId(
     );
   }
 
+  const applyRemoteVariants = shouldApplyEbayInboundVariants({
+    localVariants: storeItem.variants,
+    remoteVariants: details.variants,
+    lastPushedAt: link.lastPushedAt,
+  });
+
   if (!opts?.skipQuantity && remoteQty !== storeItem.quantity) {
     const unsoldZero = ebayGetItemQtyIsUnsoldZero({
       listingEnded: details.listingEnded,
@@ -496,6 +631,13 @@ export async function refreshEbayListingByItemId(
         remoteQty,
         quantitySold: details.quantitySold,
       });
+    } else if (details.variants?.length && !applyRemoteVariants) {
+      console.warn("[ebay] skip GetItem listing qty; variation snapshot looks like a post-publish echo", {
+        storeItemId: storeItem.id,
+        legacyItemId,
+        remoteQty,
+        inwQuantity: storeItem.quantity,
+      });
     } else {
       updateData.quantity = remoteQty;
       updateData.status = remoteQty > 0 ? "active" : "sold_out";
@@ -503,7 +645,7 @@ export async function refreshEbayListingByItemId(
     }
   }
 
-  if (!skipContent && details.variants && details.variants.length > 0) {
+  if (!skipContent && applyRemoteVariants && details.variants && details.variants.length > 0) {
     updateData.variants = details.variants as object;
     const sum = details.variants.reduce(
       (acc, axis) => acc + axis.options.reduce((s, o) => s + o.quantity, 0),
@@ -590,6 +732,7 @@ export async function refreshEbayListingByItemId(
     console.log("[ebay] refreshEbayListingByItemId: updated", {
       storeItemId: storeItem.id,
       legacyItemId,
+      source: opts?.source ?? "cron",
       changes,
       contentChange,
       fromEbay: {
@@ -634,23 +777,125 @@ export async function refreshEbayListingByItemId(
   };
 }
 
+/**
+ * Apply title/price only from a verified notification snapshot when GetItem failed.
+ * Never writes qty, photos, description, aspects, variations, or Ended.
+ */
+export async function applyEbayXmlPostcard(args: {
+  itemId: string;
+  postcard: EbayNotificationPostcard;
+}): Promise<PullResult | null> {
+  const writes = ebayNotificationPostcardWrites(args.postcard);
+  if (!writes.title && writes.priceCents == null) return null;
+
+  const link = await prisma.channelListingLink.findFirst({
+    where: {
+      provider: "ebay",
+      OR: [
+        { externalListingId: args.itemId },
+        { externalListingId: `inw${args.itemId}` },
+      ],
+    },
+    include: {
+      storeItem: {
+        select: {
+          id: true,
+          title: true,
+          priceCents: true,
+          quantity: true,
+          category: true,
+          subcategory: true,
+          secondaryCategory: true,
+          shippingCostCents: true,
+          variants: true,
+        },
+      },
+    },
+  });
+  if (!link?.storeItem) return null;
+
+  const updateData: Record<string, unknown> = {};
+  const changes: string[] = [];
+  if (writes.title && writes.title !== link.storeItem.title) {
+    updateData.title = writes.title.slice(0, 200);
+    changes.push("title");
+  }
+  if (writes.priceCents != null && writes.priceCents !== link.storeItem.priceCents) {
+    updateData.priceCents = writes.priceCents;
+    changes.push(`price ($${(writes.priceCents / 100).toFixed(2)})`);
+  }
+  if (Object.keys(updateData).length === 0) {
+    return {
+      storeItemId: link.storeItem.id,
+      title: link.storeItem.title,
+      updated: false,
+      changes: [],
+    };
+  }
+
+  const updatedItem = await prisma.storeItem.update({
+    where: { id: link.storeItem.id },
+    data: updateData,
+  });
+  const contentHash = syncContentHash(updatedItem);
+  const metaHash = syncMetaHash({
+    category: updatedItem.category,
+    subcategory: updatedItem.subcategory,
+    secondaryCategory: updatedItem.secondaryCategory,
+    shippingCostCents: updatedItem.shippingCostCents,
+    variants: updatedItem.variants,
+  });
+  await prisma.channelListingLink.update({
+    where: { id: link.id },
+    data: {
+      syncBaselineHash: contentHash,
+      syncBaselineMetaHash: metaHash,
+      syncBaselineVariantsHash: variantsFingerprint(updatedItem.variants),
+      syncBaselineQty: updatedItem.quantity,
+      syncBaselineAt: args.postcard.lastModified ?? new Date(),
+      lastInboundAt: new Date(),
+      syncStatus: "synced",
+      syncError: null,
+    },
+  });
+  console.log("[ebay] xml postcard", {
+    storeItemId: updatedItem.id,
+    itemId: args.itemId,
+    changes,
+  });
+  await updateStoreItemOnChannels(updatedItem.id, { skipProviders: ["ebay"] });
+  return {
+    storeItemId: updatedItem.id,
+    title: updatedItem.title,
+    updated: true,
+    changes,
+  };
+}
+
 function readEbayPullCursor(config: unknown): string | null {
   if (!config || typeof config !== "object" || Array.isArray(config)) return null;
   const v = (config as { ebayPullCursor?: unknown }).ebayPullCursor;
   return typeof v === "string" && v ? v : null;
 }
 
-function withEbayPullCursor(config: unknown, cursor: string | null): Prisma.InputJsonValue {
-  const base =
-    config && typeof config === "object" && !Array.isArray(config)
-      ? { ...(config as Record<string, unknown>) }
-      : {};
-  if (cursor) base.ebayPullCursor = cursor;
-  else delete base.ebayPullCursor;
-  return base as Prisma.InputJsonValue;
+async function persistEbayPullCursor(connectionId: string, cursor: string | null): Promise<void> {
+  if (cursor) {
+    await patchChannelConnectionConfig(connectionId, { ebayPullCursor: cursor });
+    return;
+  }
+  await patchChannelConnectionConfig(connectionId, {}, ["ebayPullCursor"]);
 }
 
-function rotateEbayLinks<T extends { id: string }>(
+/** GetMyeBaySelling title/price/qty vs INW — list is a dirty detector, not source of truth. */
+export function ebaySellerListRowIsDirty(
+  inw: { title: string; priceCents: number; quantity: number },
+  remote: { title: string; priceCents: number; quantity: number }
+): boolean {
+  if (remoteTitleOrPriceDiffersFromStoreItem(inw, remote)) return true;
+  return remote.quantity !== inw.quantity;
+}
+
+export function rotateEbayLinks<T extends { id: string }>(
   links: T[],
   cursor: string | null,
   limit: number
@@ -667,7 +912,66 @@ function rotateEbayLinks<T extends { id: string }>(
   return { batch, nextCursor: links[nextIndex]?.id ?? null };
 }
 
-/** Pull live GetItem data for linked eBay listings, rotating through the catalog. */
+function indexEbaySellerList(listings: EbayTradingListing[]): Map<string, EbayTradingListing> {
+  const byId = new Map<string, EbayTradingListing>();
+  for (const listing of listings) {
+    byId.set(listing.listingId, listing);
+    byId.set(`inw${listing.listingId}`, listing);
+    if (listing.sku?.trim()) byId.set(listing.sku.trim(), listing);
+  }
+  return byId;
+}
+
+async function refreshEbayListingWithAuthRetry(
+  connection: ConnectionRow,
+  accessToken: string,
+  legacyId: string,
+  refreshedThisPass: boolean,
+  source: EbayGetItemApplySource,
+  logKind: "cron dirty GetItem" | "cron rotate"
+): Promise<{ result: PullResult | null; accessToken: string; refreshedThisPass: boolean }> {
+  try {
+    const result = await refreshEbayListingByItemId(accessToken, legacyId, { source });
+    if (result) {
+      console.log(`[ebay] ${logKind}`, {
+        legacyId,
+        updated: result.updated,
+        changes: result.changes,
+        reason: result.updated ? "applied" : "no-write",
+      });
+    }
+    return { result, accessToken, refreshedThisPass };
+  } catch (e) {
+    console.error("[ebay] pullEbayUpdatesForConnection: failed to refresh", {
+      legacyId,
+      logKind,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    if (isChannelAuthError("ebay", e) && connection.refreshTokenEncrypted && !refreshedThisPass) {
+      try {
+        const nextToken = await refreshConnectionToken(connection.id, "ebay");
+        const result = await refreshEbayListingByItemId(nextToken, legacyId, { source });
+        if (result) {
+          console.log(`[ebay] ${logKind}`, {
+            legacyId,
+            updated: result.updated,
+            changes: result.changes,
+            reason: result.updated ? "applied" : "no-write",
+          });
+        }
+        return { result, accessToken: nextToken, refreshedThisPass: true };
+      } catch (retryErr) {
+        console.error("[ebay] pullEbayUpdatesForConnection: retry after token refresh failed", {
+          legacyId,
+          error: retryErr instanceof Error ? retryErr.message : String(retryErr),
+        });
+      }
+    }
+    return { result: null, accessToken, refreshedThisPass };
+  }
+}
+
+/** Hybrid inbound: cheap seller list finds dirty rows, then a small GetItem rotate. */
 export async function pullEbayUpdatesForConnection(
   connection: ConnectionRow
 ): Promise<{ updated: PullResult[]; checked: number }> {
@@ -684,6 +988,7 @@ export async function pullEbayUpdatesForConnection(
     select: {
       id: true,
       externalListingId: true,
+      storeItem: { select: { title: true, priceCents: true, quantity: true } },
     },
     orderBy: { id: "asc" },
   });
@@ -692,66 +997,106 @@ export async function pullEbayUpdatesForConnection(
     return { updated: [], checked: 0 };
   }
 
-  const { batch, nextCursor } = rotateEbayLinks(
-    links,
-    readEbayPullCursor(connection.config),
-    EBAY_CRON_GETITEM_LIMIT
-  );
-
   const pulled = await withConnectionAuthRetry(connection, async (ctx) => {
     let accessToken = ctx.accessToken;
-    const results: PullResult[] = [];
     let refreshedThisPass = false;
+    const results: PullResult[] = [];
+    const checkedIds = new Set<string>();
 
-    for (const link of batch) {
-      let legacyId = link.externalListingId;
-      const inwMatch = legacyId.match(/^inw(\d+)$/);
-      if (inwMatch) {
-        legacyId = inwMatch[1];
-      }
+    let sellerList: EbayTradingListing[] = [];
+    try {
+      sellerList = await enumerateEbayListings(accessToken, { skipPhotoEnrichment: true });
+    } catch (e) {
+      console.warn("[ebay] GetMyeBaySelling dirty scan failed; rotate-only this tick", {
+        connectionId: connection.id,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
 
-      try {
-        // GetItem is the live listing (same as the public item page). Do not gate on
-        // GetMyeBaySelling ActiveList — that seller-list call can lag minutes behind a revise.
-        const result = await refreshEbayListingByItemId(accessToken, legacyId);
-        if (result && result.updated) {
-          results.push(result);
-        }
-      } catch (e) {
-        console.error("[ebay] pullEbayUpdatesForConnection: failed to refresh", {
-          legacyId,
-          error: e instanceof Error ? e.message : String(e),
-        });
-        if (isChannelAuthError("ebay", e) && connection.refreshTokenEncrypted && !refreshedThisPass) {
-          try {
-            accessToken = await refreshConnectionToken(connection.id, "ebay");
-            refreshedThisPass = true;
-            const result = await refreshEbayListingByItemId(accessToken, legacyId);
-            if (result && result.updated) {
-              results.push(result);
-            }
-          } catch (retryErr) {
-            console.error("[ebay] pullEbayUpdatesForConnection: retry after token refresh failed", {
-              legacyId,
-              error: retryErr instanceof Error ? retryErr.message : String(retryErr),
-            });
+    const byRemote = indexEbaySellerList(sellerList);
+    const dirty: typeof links = [];
+    for (const link of links) {
+      const remote =
+        byRemote.get(link.externalListingId) ??
+        (resolveEbayLegacyListingId(link.externalListingId)
+          ? byRemote.get(resolveEbayLegacyListingId(link.externalListingId)!)
+          : undefined);
+      if (!remote) continue;
+      if (
+        ebaySellerListRowIsDirty(
+          {
+            title: link.storeItem.title,
+            priceCents: link.storeItem.priceCents,
+            quantity: link.storeItem.quantity,
+          },
+          {
+            title: remote.title,
+            priceCents: remote.priceCents,
+            quantity: remote.quantity,
           }
-        }
+        )
+      ) {
+        dirty.push(link);
       }
     }
 
+    const dirtyThisTick = dirty.slice(0, EBAY_CRON_DIRTY_GETITEM_LIMIT);
+    if (dirty.length > dirtyThisTick.length) {
+      console.warn("[ebay] dirty GetItem cap hit; leftover wait for next tick", {
+        connectionId: connection.id,
+        dirty: dirty.length,
+        capped: dirtyThisTick.length,
+      });
+    }
+
+    for (const link of dirtyThisTick) {
+      const legacyId =
+        resolveEbayLegacyListingId(link.externalListingId) ?? link.externalListingId.replace(/^inw/i, "");
+      checkedIds.add(link.id);
+      const next = await refreshEbayListingWithAuthRetry(
+        connection,
+        accessToken,
+        legacyId,
+        refreshedThisPass,
+        "cron",
+        "cron dirty GetItem"
+      );
+      accessToken = next.accessToken;
+      refreshedThisPass = next.refreshedThisPass;
+      if (next.result?.updated) results.push(next.result);
+    }
+
+    const { batch, nextCursor } = rotateEbayLinks(
+      links,
+      readEbayPullCursor(connection.config),
+      EBAY_CRON_GETITEM_LIMIT
+    );
+
+    for (const link of batch) {
+      if (checkedIds.has(link.id)) continue;
+      const legacyId =
+        resolveEbayLegacyListingId(link.externalListingId) ?? link.externalListingId.replace(/^inw/i, "");
+      checkedIds.add(link.id);
+      const next = await refreshEbayListingWithAuthRetry(
+        connection,
+        accessToken,
+        legacyId,
+        refreshedThisPass,
+        "cron",
+        "cron rotate"
+      );
+      accessToken = next.accessToken;
+      refreshedThisPass = next.refreshedThisPass;
+      if (next.result?.updated) results.push(next.result);
+    }
+
+    await persistEbayPullCursor(connection.id, nextCursor).catch(() => {});
+
     return {
       updated: results,
-      checked: batch.length,
+      checked: checkedIds.size,
     };
   });
-
-  await prisma.channelConnection
-    .update({
-      where: { id: connection.id },
-      data: { config: withEbayPullCursor(connection.config, nextCursor) },
-    })
-    .catch(() => {});
 
   return pulled;
 }
