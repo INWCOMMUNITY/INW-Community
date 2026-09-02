@@ -38,6 +38,7 @@ type Connection = {
   shopId: string | null;
   status: string;
   lastError: string | null;
+  photoHostNotice?: string | null;
   hasShippingProfile: boolean;
   readyToPublish: boolean | null;
   linkedListings: number;
@@ -526,6 +527,12 @@ export default function ChannelsScreen() {
                         </Text>
                       </View>
                     )}
+                    {p.provider === "ebay" && conn.photoHostNotice ? (
+                      <View style={styles.photoHostBanner}>
+                        <Ionicons name="image-outline" size={16} color="#b45309" />
+                        <Text style={styles.photoHostText}>{conn.photoHostNotice}</Text>
+                      </View>
+                    ) : null}
                     {p.provider === "etsy" && !conn.hasShippingProfile && (
                       <Text style={styles.warn}>
                         Add a shipping profile on Etsy so listings can publish live.
@@ -898,6 +905,20 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     color: "#c62828",
+  },
+  photoHostBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "#fff8e1",
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  photoHostText: {
+    flex: 1,
+    fontSize: 13,
+    color: "#b45309",
   },
   
   // Action buttons row

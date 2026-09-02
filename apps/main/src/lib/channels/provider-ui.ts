@@ -7,6 +7,8 @@ export type ChannelConnectionSummary = {
   shopId: string | null;
   status: string;
   lastError: string | null;
+  /** eBay already hosts listing photos; show on the store card, not per listing. */
+  photoHostNotice?: string | null;
   hasShippingProfile: boolean;
   readyToPublish: boolean | null;
   publishBlockReason?: string | null;

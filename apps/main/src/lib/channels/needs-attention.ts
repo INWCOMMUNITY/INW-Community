@@ -5,7 +5,11 @@
 
 import { prisma, Prisma } from "database";
 import { isEbayConditionSyncError } from "./ebay/conditions";
-import { isEbayTaxonomyLoadPlaceholder, parseMissingEbayItemSpecifics } from "./ebay/errors";
+import {
+  isEbayPhotoHostFamilySyncError,
+  isEbayTaxonomyLoadPlaceholder,
+  parseMissingEbayItemSpecifics,
+} from "./ebay/errors";
 import { mergeConflictDetails } from "./listing-link-flags";
 import {
   ebayAspectRowsForListOnPopup,
@@ -219,6 +223,10 @@ export function classifyListingNeedsAttention(args: {
         });
       }
     }
+  }
+
+  if (provider === "ebay" && isEbayPhotoHostFamilySyncError(syncError)) {
+    return null;
   }
 
   if (provider === "ebay" && isEbayConditionSyncError(syncError)) {

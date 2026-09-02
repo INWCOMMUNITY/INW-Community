@@ -380,6 +380,22 @@ export function isEbayRateLimitError(e: unknown): boolean {
   return /#2001\b|HTTP 429|request limit has been reached/i.test(msg);
 }
 
+/** eBay already hosts the photos (EPS). Not a listing problem — show on Sync Stores, not the item. */
+export function isEbayPhotoHostFamilySyncError(message: string | null | undefined): boolean {
+  const text = message ?? "";
+  return (
+    /#25014\b/i.test(text) ||
+    /mixture of self hosted and eps|self hosted and eps pictures/i.test(text) ||
+    /does not allow mixing those with INW photo URLs/i.test(text)
+  );
+}
+
+export function ebayPhotoHostFamilyShopSummary(listingCount: number): string {
+  const n = Math.max(1, listingCount);
+  const listings = n === 1 ? "1 listing" : `${n} listings`;
+  return `eBay is using its own copies of photos on ${listings}. You do not need to re-upload them — stock and other fields can still sync.`;
+}
+
 /** Actionable hint for common eBay error patterns (import UI, sync stores). */
 export function ebayErrorActionHint(reason: string): string | undefined {
   if (isEbayRateLimitError(reason) || /#2001\b|HTTP 429|request limit has been reached/i.test(reason)) {
@@ -392,7 +408,7 @@ export function ebayErrorActionHint(reason: string): string | undefined {
   if (/\b1100\b|Insufficient permissions/i.test(reason)) {
     return "Your eBay connection lacks required permissions. Disconnect and reconnect eBay to grant all needed scopes.";
   }
-  if (/mixture of self hosted and eps|self hosted and eps pictures/i.test(reason)) {
+  if (isEbayPhotoHostFamilySyncError(reason)) {
     return "eBay already has these photos as eBay-hosted images and does not allow mixing those with INW photo URLs. Other fields can still update; you do not need to re-upload the same pictures.";
   }
   if (/500 pixels|longest side|Picture Policy|resolution for provided picture/i.test(reason)) {

@@ -12,6 +12,7 @@ import {
   formatPassthroughPutNote,
   formatPushedAspectsSummary,
   inwPhotosChangedSinceLastEbayPush,
+  shouldPushInwPhotosToEbay,
   needsInventoryPut,
   overlayOfferAvailableQuantity,
   overlayPassthroughOffer,
@@ -343,6 +344,38 @@ describe("passthrough-push", () => {
     expect(inwPhotosChangedSinceLastEbayPush(inw, null)).toBe(false);
     expect(
       inwPhotosChangedSinceLastEbayPush(inw, ["https://blob.example.com/old.jpg"])
+    ).toBe(true);
+  });
+
+  it("shouldPushInwPhotosToEbay only after a seller photo edit on a live listing", () => {
+    const inw = ["https://blob.example.com/coin.jpg"];
+    expect(
+      shouldPushInwPhotosToEbay({
+        inwPhotos: inw,
+        lastPushedPhotos: inw,
+        listingAlreadyOnEbay: true,
+      })
+    ).toBe(false);
+    expect(
+      shouldPushInwPhotosToEbay({
+        inwPhotos: inw,
+        lastPushedPhotos: null,
+        listingAlreadyOnEbay: true,
+      })
+    ).toBe(false);
+    expect(
+      shouldPushInwPhotosToEbay({
+        inwPhotos: inw,
+        lastPushedPhotos: ["https://blob.example.com/old.jpg"],
+        listingAlreadyOnEbay: true,
+      })
+    ).toBe(true);
+    expect(
+      shouldPushInwPhotosToEbay({
+        inwPhotos: inw,
+        lastPushedPhotos: null,
+        listingAlreadyOnEbay: false,
+      })
     ).toBe(true);
   });
 
@@ -965,7 +998,7 @@ describe("passthrough-push", () => {
           error: "Availability not found for this SKU (#25604)",
         },
       ])
-    ).toBe(true);
+    ).toBe(false);
     expect(
       passthroughEndedQuantityOnly([
         { field: "quantity", ok: false, error: "Not allowed to revise an ended item" },

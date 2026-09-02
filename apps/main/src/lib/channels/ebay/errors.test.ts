@@ -4,6 +4,8 @@ import {
   describeChannelSyncError,
   describeEbayThrownError,
   ebayErrorActionHint,
+  ebayPhotoHostFamilyShopSummary,
+  isEbayPhotoHostFamilySyncError,
   extractEbayWarnings,
   formatEbayApiBody,
   formatEbayErrorDiagnostics,
@@ -122,6 +124,18 @@ describe("formatMigrateListingError", () => {
 });
 
 describe("ebay picture errors", () => {
+  it("treats #25014 mix messages as photo-host family errors", () => {
+    expect(
+      isEbayPhotoHostFamilySyncError(
+        "[#25014] A mixture of Self Hosted and EPS pictures are not allowed."
+      )
+    ).toBe(true);
+    expect(isEbayPhotoHostFamilySyncError("Missing Brand")).toBe(false);
+    expect(ebayPhotoHostFamilyShopSummary(1)).toMatch(/1 listing/);
+    expect(ebayPhotoHostFamilyShopSummary(3)).toMatch(/3 listings/);
+    expect(ebayPhotoHostFamilyShopSummary(2)).toMatch(/do not need to re-upload/i);
+  });
+
   it("hints about mixed eBay-hosted and INW URLs for #25014 instead of asking to re-upload", () => {
     const mix =
       "title: failed ([#25014 · API_INVENTORY · Request · HTTP 400] The eBay listing associated with the inventory item, or the unpublished offer has invalid pictures. A mixture of Self Hosted and EPS pictures are not allowed.)";
@@ -131,12 +145,13 @@ describe("ebay picture errors", () => {
     expect(describeChannelSyncError("ebay", new Error(mix))).toMatch(/do not need to re-upload/i);
   });
 
-  it("hints to fix photos for generic #25014 instead of a migrate-listing message", () => {
+  it("treats generic #25014 as a photo-host notice instead of a migrate-listing message", () => {
     const msg =
       "title: failed ([#25014 · API_INVENTORY · Request · HTTP 400] The eBay listing associated with the inventory item, or the unpublished offer has invalid pictures.)";
-    expect(ebayErrorActionHint(msg)).toMatch(/rejected the listing photos/i);
+    expect(ebayErrorActionHint(msg)).toMatch(/eBay-hosted/i);
+    expect(ebayErrorActionHint(msg)).toMatch(/do not need to re-upload/i);
     expect(ebayErrorActionHint(msg)).not.toMatch(/migrate this listing/i);
-    expect(describeChannelSyncError("ebay", new Error(msg))).toMatch(/mixed eBay-hosted/i);
+    expect(describeChannelSyncError("ebay", new Error(msg))).toMatch(/eBay-hosted/i);
   });
 
   it("hints about 500px Picture Policy instead of migrate-listing for #25002", () => {

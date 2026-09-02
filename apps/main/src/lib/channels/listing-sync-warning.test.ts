@@ -24,6 +24,19 @@ describe("listingChannelSyncWarning", () => {
     ).toMatch(/disconnected/i);
   });
 
+  it("hides eBay photo-host mix errors from the listing badge", () => {
+    expect(
+      listingChannelSyncWarning({
+        provider: "ebay",
+        syncStatus: "error",
+        syncEnabled: true,
+        syncError:
+          "[#25014] A mixture of Self Hosted and EPS pictures are not allowed. — eBay already has these photos as eBay-hosted images",
+        connectionStatus: "active",
+      })
+    ).toBeNull();
+  });
+
   it("keeps listing-specific errors after reconnect", () => {
     expect(
       listingChannelSyncWarning({

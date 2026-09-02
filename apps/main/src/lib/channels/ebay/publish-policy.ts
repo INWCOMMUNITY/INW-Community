@@ -38,6 +38,23 @@ export function shouldPublishEbayOffer(args: {
   return !ebayOfferIsPublished(args.offerStatus);
 }
 
+/**
+ * Content updates (Etsy title fan-out, INW edits) must never EndItem + republish.
+ * That path ended the live Trading listing and marked it deleted in Needs Attention
+ * while the same item was still for sale on eBay.
+ */
+export function shouldRepublishEbayOffer(args: {
+  operation: "create" | "update";
+  canPublish: boolean;
+  itemIsActive: boolean;
+  quantity: number;
+  offerId: string | null | undefined;
+  offerStatus?: string | null;
+}): boolean {
+  if (args.operation === "update") return false;
+  return shouldPublishEbayOffer(args);
+}
+
 /** Unpublished offers reject quantity 0 (#25004) and then block inventory Brand updates. */
 export function shouldWriteEbayOffer(args: {
   quantity: number;

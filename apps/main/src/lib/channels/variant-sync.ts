@@ -62,12 +62,17 @@ export function normalizeVariantsFromProvider(
         const obj = o as Record<string, unknown>;
         const value = String(obj.value ?? obj.label ?? obj.name ?? "").trim();
         if (!value) continue;
-        const qty =
+        const rawQty =
           typeof obj.quantity === "number"
-            ? Math.max(0, Math.round(obj.quantity))
-            : typeof obj.inventory_quantity === "number"
-              ? Math.max(0, Math.round(obj.inventory_quantity))
-              : 0;
+            ? obj.quantity
+            : typeof obj.quantity === "string" && obj.quantity.trim() !== ""
+              ? Number(obj.quantity)
+              : typeof obj.inventory_quantity === "number"
+                ? obj.inventory_quantity
+                : typeof obj.inventory_quantity === "string" && String(obj.inventory_quantity).trim() !== ""
+                  ? Number(obj.inventory_quantity)
+                  : NaN;
+        const qty = Number.isFinite(rawQty) ? Math.max(0, Math.round(rawQty)) : 0;
         const sku = readOptionSku(obj);
         options.push({ value, quantity: qty, ...(sku ? { sku } : {}) });
       } else if (o != null) {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
 import { isEbayConditionSyncError } from "@/lib/channels/ebay/conditions";
+import { isEbayPhotoHostFamilySyncError } from "@/lib/channels/ebay/errors";
 import { providerLabel } from "@/lib/channel-sync-feedback";
 
 function isEbayAspectSyncError(err: string | null | undefined): boolean {
@@ -78,6 +79,9 @@ function linkStatusLabel(link: ChannelLinkSummary): {
     return { tone: "gray", text: "Paused" };
   }
   if (link.syncStatus === "error") {
+    if (link.provider === "ebay" && isEbayPhotoHostFamilySyncError(link.syncError)) {
+      return { tone: "green", text: "Synced" };
+    }
     const err = formatLinkSyncError(link);
     return {
       tone: "red",

@@ -6,6 +6,21 @@ export type ChannelSyncRow = {
   error?: string;
 };
 
+function isEbayPhotoHostFamilySyncError(message: string | null | undefined): boolean {
+  const text = message ?? "";
+  return (
+    /#25014\b/i.test(text) ||
+    /mixture of self hosted and eps|self hosted and eps pictures/i.test(text) ||
+    /does not allow mixing those with INW photo URLs/i.test(text)
+  );
+}
+
+function isListingVisibleSyncFailure(row: ChannelSyncRow): boolean {
+  if (row.ok) return false;
+  if (row.provider === "ebay" && isEbayPhotoHostFamilySyncError(row.error)) return false;
+  return true;
+}
+
 const PROVIDER_LABEL: Record<string, string> = {
   wix: "Wix",
   etsy: "Etsy",
@@ -18,7 +33,7 @@ export function alertChannelSyncFailures(
   channelSync: ChannelSyncRow[] | undefined,
   action: "saved" | "deleted" | "removed"
 ): void {
-  const failed = (channelSync ?? []).filter((r) => !r.ok);
+  const failed = (channelSync ?? []).filter(isListingVisibleSyncFailure);
   if (failed.length === 0) return;
 
   const lines = failed.map((r) => {
@@ -46,8 +61,8 @@ export function alertChannelSyncFailures(
 /** Always show a result after List on {store} — success, failure, or empty. */
 export function alertChannelPublishResult(channelSync: ChannelSyncRow[] | undefined): void {
   const rows = channelSync ?? [];
-  const failed = rows.filter((r) => !r.ok);
-  const succeeded = rows.filter((r) => r.ok);
+  const failed = rows.filter(isListingVisibleSyncFailure);
+  const succeeded = rows.filter((r) => !isListingVisibleSyncFailure(r));
   const successLines = succeeded.map((r) => PROVIDER_LABEL[r.provider] ?? r.provider);
   const failureLines = failed.map((r) => {
     const label = PROVIDER_LABEL[r.provider] ?? r.provider;

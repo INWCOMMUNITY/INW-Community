@@ -356,6 +356,9 @@ export function ChannelsSyncContent() {
                           Add a shipping profile on Etsy so listings can publish live.
                         </p>
                       )}
+                      {p.provider === "ebay" && conn.photoHostNotice ? (
+                        <p className="text-amber-800 mt-2">{conn.photoHostNotice}</p>
+                      ) : null}
                       {p.provider === "ebay" && conn.readyToPublish === false && (
                         <p className="text-amber-800 mt-2">
                           Add eBay business policies (payment, return, shipping) and a merchant location

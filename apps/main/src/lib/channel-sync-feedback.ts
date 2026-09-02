@@ -1,8 +1,16 @@
+import { isEbayPhotoHostFamilySyncError } from "./channels/ebay/errors";
+
 export type ChannelSyncRow = {
   provider: string;
   ok: boolean;
   error?: string;
 };
+
+function isListingVisibleSyncFailure(row: ChannelSyncRow): boolean {
+  if (row.ok) return false;
+  if (row.provider === "ebay" && isEbayPhotoHostFamilySyncError(row.error)) return false;
+  return true;
+}
 
 const PROVIDER_LABEL: Record<string, string> = {
   wix: "Wix",
@@ -28,8 +36,8 @@ export function formatChannelSyncResults(
   intro: string;
 } {
   const rows = channelSync ?? [];
-  const failed = rows.filter((r) => !r.ok);
-  const succeeded = rows.filter((r) => r.ok);
+  const failed = rows.filter(isListingVisibleSyncFailure);
+  const succeeded = rows.filter((r) => !isListingVisibleSyncFailure(r));
   const successLines = succeeded.map((r) => providerLabel(r.provider));
   const failureLines = failed.map((r) => {
     const label = providerLabel(r.provider);

@@ -157,6 +157,16 @@ describe("classifyListingNeedsAttention", () => {
     expect(typeField?.options?.some((o) => o.value === "Wall Clock")).toBe(true);
   });
 
+  it("does not put eBay photo-host mix errors on the listing", () => {
+    const result = classifyListingNeedsAttention({
+      provider: "ebay",
+      syncError:
+        "[#25014 · API_INVENTORY · Request · HTTP 400] A mixture of Self Hosted and EPS pictures are not allowed.",
+      item,
+    });
+    expect(result).toBeNull();
+  });
+
   it("explains eBay variation SKU collisions as retry-only", () => {
     const result = classifyListingNeedsAttention({
       provider: "ebay",

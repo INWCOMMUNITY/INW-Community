@@ -15,7 +15,7 @@ import type {
   ChannelSyncResult,
   SyncStoreItem,
 } from "./types";
-import { describeChannelSyncError } from "./ebay/errors";
+import { describeChannelSyncError, isEbayPhotoHostFamilySyncError } from "./ebay/errors";
 import { enqueueRetry } from "./retry-queue";
 import { captureChannelSyncError } from "./sentry";
 import { syncInventoryToChannels } from "./sync-inventory";
@@ -225,6 +225,10 @@ export async function publishStoreItemToChannels(
           results.push({ provider, ok: true });
         } catch (e) {
           const msg = describeChannelSyncError(provider, e);
+          if (provider === "ebay" && isEbayPhotoHostFamilySyncError(msg)) {
+            results.push({ provider, ok: true });
+            continue;
+          }
           results.push({ provider, ok: false, error: msg });
         }
         continue;
@@ -550,6 +554,22 @@ export async function updateStoreItemOnChannels(
         continue;
       }
       const msg = describeChannelSyncError(provider, e);
+      if (provider === "ebay" && isEbayPhotoHostFamilySyncError(msg)) {
+        await prisma.channelListingLink
+          .update({
+            where: { id: link.id },
+            data: {
+              syncStatus: "synced",
+              syncError: msg,
+              lastPushedHash: hash,
+              lastPushedAt: new Date(),
+              lastPushedPhotos: item.photos,
+            },
+          })
+          .catch(() => {});
+        results.push({ provider, ok: true });
+        continue;
+      }
       console.error("[channels] updateListing failed", {
         storeItemId,
         provider: link.provider,

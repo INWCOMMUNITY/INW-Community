@@ -5,6 +5,9 @@ import {
   buildVariantInventoryRows,
   buildVariantInventorySkus,
   buildVariantSyncItem,
+  mergeGeneratedSkusIntoVariants,
+  pinInventoryItemGroupImageUrls,
+  applyInventoryItemGroupPhotoPolicy,
   shouldUseInventoryItemGroup,
   withVariationAspect,
 } from "./inventory-groups";
@@ -86,8 +89,33 @@ describe("inventory item groups", () => {
       buildVariantInventorySkus(imported, {
         parentSku: "inw403004607151",
         legacyListingId: "403004607151",
+        imported: true,
       })
     ).toEqual(["inw403004607151v1", "inw403004607151v2"]);
+  });
+
+  it("does not switch INW-created listings to migrate SKUs after a listing id exists", () => {
+    const created = { ...variantItem, sku: null, id: "itemabc" };
+    expect(
+      buildVariantInventorySkus(created, {
+        parentSku: "itemabc",
+        legacyListingId: "403004607151",
+        imported: false,
+      })
+    ).toEqual(["itemabcS", "itemabcM"]);
+  });
+
+  it("stamps generated SKUs onto option rows for later reuse", () => {
+    const rows = buildVariantInventoryRows(variantItem);
+    expect(mergeGeneratedSkusIntoVariants(variantItem.variants, rows)).toEqual([
+      {
+        name: "Size",
+        options: [
+          { value: "S", quantity: 1, sku: "SKU1S" },
+          { value: "M", quantity: 2, sku: "SKU1M" },
+        ],
+      },
+    ]);
   });
 
   it("includes variesBy so eBay gets variationInformation", () => {
@@ -98,6 +126,37 @@ describe("inventory item groups", () => {
     });
     expect(body.variantSKUs).toEqual(["SKU1S", "SKU1M"]);
     expect(body).not.toHaveProperty("aspects");
+  });
+
+  it("omits INW photos from a live group when the seller did not change them", () => {
+    const body = buildInventoryItemGroupBody(
+      { ...variantItem, photos: ["https://blob.vercel-storage.com/hat.jpg"] },
+      ["SKU1S", "SKU1M"]
+    );
+    expect(
+      applyInventoryItemGroupPhotoPolicy(
+        body,
+        ["https://i.ebayimg.com/images/g/xx/s-l1600.jpg"],
+        ["https://blob.vercel-storage.com/hat.jpg"],
+        false
+      ).imageUrls
+    ).toEqual(["https://i.ebayimg.com/images/g/xx/s-l1600.jpg"]);
+    expect(
+      applyInventoryItemGroupPhotoPolicy(body, [], ["https://blob.vercel-storage.com/hat.jpg"], false)
+    ).not.toHaveProperty("imageUrls");
+  });
+
+  it("pins live EPS on the group so a resync does not mix INW blob URLs", () => {
+    const body = buildInventoryItemGroupBody(
+      { ...variantItem, photos: ["https://blob.vercel-storage.com/hat.jpg"] },
+      ["SKU1S", "SKU1M"]
+    );
+    expect(body.imageUrls).toEqual(["https://blob.vercel-storage.com/hat.jpg"]);
+    expect(
+      pinInventoryItemGroupImageUrls(body, ["https://i.ebayimg.com/images/g/xx/s-l1600.jpg"], [
+        "https://blob.vercel-storage.com/hat.jpg",
+      ]).imageUrls
+    ).toEqual(["https://i.ebayimg.com/images/g/xx/s-l2000.jpg"]);
   });
 
   it("puts shared Type/Brand on the group so eBay can publish variations", () => {

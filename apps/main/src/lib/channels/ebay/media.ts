@@ -116,6 +116,32 @@ export function withInventoryProductImageUrls(
   return { ...body, product: { ...product, imageUrls } };
 }
 
+export function omitInventoryProductImageUrls(body: Record<string, unknown>): Record<string, unknown> {
+  const product =
+    body.product && typeof body.product === "object"
+      ? { ...(body.product as Record<string, unknown>) }
+      : {};
+  delete product.imageUrls;
+  return { ...body, product };
+}
+
+/**
+ * Existing eBay listings already have EPS copies. Sending INW blob URLs causes #25014.
+ * Only overlay INW photos when the seller changed them on the INW listing.
+ */
+export function applyEbayInventoryPhotoPolicy(
+  body: Record<string, unknown>,
+  args: { liveImageUrls: string[]; inwPhotos: string[]; pushInwPhotos: boolean }
+): Record<string, unknown> {
+  if (args.pushInwPhotos) {
+    const pinned = selectPassthroughInventoryImageUrls(args.liveImageUrls, args.inwPhotos);
+    return pinned.length > 0 ? withInventoryProductImageUrls(body, pinned) : body;
+  }
+  const live = normalizeInventoryImageUrls(args.liveImageUrls);
+  if (live.length > 0) return withInventoryProductImageUrls(body, live);
+  return omitInventoryProductImageUrls(body);
+}
+
 function urlsMatch(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((url, i) => url === b[i]);
@@ -199,16 +225,27 @@ export async function putInventoryWithPhotoRecovery<T>(args: {
   fallbackImageUrls?: string[];
   liveImageUrls?: string[];
   describeError?: (e: unknown) => string;
+  /** When false, never upload or fall back to INW blob URLs (existing listing, photos unchanged). */
+  allowInwPhotoUpload?: boolean;
 }): Promise<T> {
   const describe = args.describeError ?? ((e: unknown) => (e instanceof Error ? e.message : String(e)));
+  const allowInwPhotoUpload = args.allowInwPhotoUpload !== false;
   const liveEps = epsOnlyImageUrls(args.liveImageUrls ?? []);
   let urls = uniformHostFamilyImageUrls(readInventoryProductImageUrls(args.body));
   if (liveEps.length > 0 && urls.some((url) => !isEbayEpsImageUrl(url))) {
     urls = liveEps;
   }
-  let payload = urls.length > 0 ? withInventoryProductImageUrls(args.body, urls) : args.body;
+  if (!allowInwPhotoUpload && urls.some((url) => !isEbayEpsImageUrl(url))) {
+    urls = liveEps;
+  }
+  let payload =
+    urls.length > 0
+      ? withInventoryProductImageUrls(args.body, urls)
+      : allowInwPhotoUpload
+        ? args.body
+        : omitInventoryProductImageUrls(args.body);
 
-  if (urls.some((url) => !isEbayHostedImageUrl(url)) && liveEps.length === 0) {
+  if (allowInwPhotoUpload && urls.some((url) => !isEbayHostedImageUrl(url)) && liveEps.length === 0) {
     const hosted = await ensureEbayHostedPhotoUrls(args.accessToken, urls);
     if (hosted.length > 0) {
       const uniform = uniformHostFamilyImageUrls(hosted);
@@ -235,7 +272,7 @@ export async function putInventoryWithPhotoRecovery<T>(args: {
       throw e;
     }
 
-    if (liveEps.length === 0) {
+    if (liveEps.length === 0 && allowInwPhotoUpload) {
       const hosted = await ensureEbayHostedPhotoUrls(args.accessToken, current, { forceHost: true });
       const uniformHosted = uniformHostFamilyImageUrls(hosted);
       if (uniformHosted.length > 0 && !urlsMatch(uniformHosted, current)) {
@@ -247,7 +284,9 @@ export async function putInventoryWithPhotoRecovery<T>(args: {
       }
     }
 
-    const fallback = uniformHostFamilyImageUrls(args.fallbackImageUrls ?? []);
+    const fallback = allowInwPhotoUpload
+      ? uniformHostFamilyImageUrls(args.fallbackImageUrls ?? [])
+      : [];
     if (fallback.length === 0) throw e;
     if (liveEps.length > 0 && fallback.some((url) => !isEbayEpsImageUrl(url))) throw e;
 

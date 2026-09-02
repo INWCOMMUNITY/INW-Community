@@ -1,5 +1,6 @@
 import { CHANNEL_PROVIDER_LABELS } from "./provider-ui";
 import { readRemoteDeletedNotice } from "./listing-link-flags";
+import { isEbayPhotoHostFamilySyncError } from "./ebay/errors";
 
 export const SELLER_CHANNEL_LINK_SELECT = {
   provider: true,
@@ -27,6 +28,9 @@ export function listingChannelSyncWarning(link: {
   }
   if (!link.syncEnabled) return `${label} sync is paused.`;
   if (link.syncStatus === "error") {
+    if (link.provider === "ebay" && isEbayPhotoHostFamilySyncError(link.syncError)) {
+      return null;
+    }
     const detail = link.syncError?.trim();
     return detail ? `${label}: ${detail}` : `Not syncing to ${label}.`;
   }

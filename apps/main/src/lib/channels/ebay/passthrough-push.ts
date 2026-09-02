@@ -151,6 +151,16 @@ export function inwPhotosChangedSinceLastEbayPush(
   return !photosMatch(lastPushedPhotos, inwPhotos);
 }
 
+/** First publish can send photos. Later edits only send them when the seller changed the INW list. */
+export function shouldPushInwPhotosToEbay(args: {
+  inwPhotos: string[];
+  lastPushedPhotos: string[] | null | undefined;
+  listingAlreadyOnEbay: boolean;
+}): boolean {
+  if (!args.listingAlreadyOnEbay) return args.inwPhotos.length > 0;
+  return inwPhotosChangedSinceLastEbayPush(args.inwPhotos, args.lastPushedPhotos);
+}
+
 function liveProductImageUrls(live: LiveInventoryItem): string[] {
   const product =
     live.product && typeof live.product === "object"
@@ -235,6 +245,7 @@ export type PassthroughSyncPrefs = {
 /**
  * Merge live eBay drift with INW edits since lastPushedHash.
  * Live comparison alone misses title/description when HTML or CDN URLs differ cosmetically.
+ * Photos never follow live CDN vs INW blob drift — that mix is #25014. Only an INW photo edit pushes pictures.
  */
 export function resolvePassthroughChanges(
   live: PassthroughChangedFields,
@@ -243,7 +254,7 @@ export function resolvePassthroughChanges(
 ): PassthroughChangedFields {
   const title = prefs.syncTitles && (inwFields.title || live.title);
   const description = prefs.syncDescriptions && (inwFields.description || live.description);
-  const photos = prefs.syncPhotos && (inwFields.photos || live.photos);
+  const photos = prefs.syncPhotos && inwFields.photos;
   const price = prefs.syncPrices && (inwFields.price || live.price);
   const bestOffer = inwFields.bestOffer || live.bestOffer === true;
   return {

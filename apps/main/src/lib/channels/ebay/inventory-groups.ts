@@ -1,4 +1,5 @@
-import { ebayJson } from "./client";
+import { ebayGet, ebayJson } from "./client";
+import { selectPassthroughInventoryImageUrls } from "./media";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 import type { SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
@@ -60,10 +61,59 @@ export function buildInventoryItemGroupBody(
       specifications: [{ name: primary.name, values }],
       aspectsImageVariesBy: [primary.name],
     },
-    imageUrls: item.photos.slice(0, 12),
+    imageUrls: selectPassthroughInventoryImageUrls([], item.photos),
   };
   if (Object.keys(aspects).length > 0) body.aspects = aspects;
   return body;
+}
+
+export function readInventoryItemGroupImageUrls(
+  body: Record<string, unknown> | null | undefined
+): string[] {
+  if (!body || !Array.isArray(body.imageUrls)) return [];
+  return body.imageUrls.filter((url): url is string => typeof url === "string" && url.trim().length > 0);
+}
+
+/** Keep live EPS on a published group so a later PUT does not mix INW blob URLs (#25014). */
+export function pinInventoryItemGroupImageUrls(
+  body: Record<string, unknown>,
+  liveUrls: string[],
+  inwUrls: string[]
+): Record<string, unknown> {
+  const pinned = selectPassthroughInventoryImageUrls(liveUrls, inwUrls);
+  if (pinned.length === 0) return body;
+  return { ...body, imageUrls: pinned };
+}
+
+/** Resyncs keep live group photos unless the seller changed photos on INW. */
+export function applyInventoryItemGroupPhotoPolicy(
+  body: Record<string, unknown>,
+  liveUrls: string[],
+  inwUrls: string[],
+  pushInwPhotos: boolean
+): Record<string, unknown> {
+  if (pushInwPhotos) return pinInventoryItemGroupImageUrls(body, liveUrls, inwUrls);
+  const live = liveUrls.filter((url) => typeof url === "string" && url.trim().length > 0);
+  if (live.length > 0) return { ...body, imageUrls: live };
+  const next = { ...body };
+  delete next.imageUrls;
+  return next;
+}
+
+export async function fetchLiveInventoryItemGroup(
+  accessToken: string,
+  key: string
+): Promise<Record<string, unknown> | null> {
+  const trimmed = key.trim();
+  if (!trimmed) return null;
+  try {
+    return await ebayGet<Record<string, unknown>>(
+      accessToken,
+      `/sell/inventory/v1/inventory_item_group/${encodeURIComponent(trimmed)}`
+    );
+  } catch {
+    return null;
+  }
 }
 
 export async function createOrReplaceInventoryItemGroup(
@@ -108,6 +158,12 @@ export type BuildVariantInventoryRowsOptions = {
   parentSku?: string | null;
   /** eBay legacy Item ID — used so generated SKUs match migrate (`inw{listingId}vN`). */
   legacyListingId?: string | null;
+  /**
+   * Imported eBay listings keep migrate-style `inw{listingId}vN` SKUs.
+   * INW-created listings must not switch SKUs after the numeric Item ID exists —
+   * that creates new inventory rows (qty 1) and leaves the live group on the old SKUs.
+   */
+  imported?: boolean;
 };
 
 function optionSku(option: InwVariantAxis["options"][number]): string | null {
@@ -133,7 +189,7 @@ export function buildVariantInventoryRows(
   return primary.options.map((option, i) => {
     const existing = optionSku(option);
     let sku = existing && !used.has(existing) ? existing : "";
-    if (!sku && legacyId) {
+    if (!sku && options.imported && legacyId) {
       sku = generateEbayVariationMigrationSku(legacyId, i);
     }
     if (!sku || !isValidEbayInventorySku(sku) || used.has(sku)) {
@@ -152,6 +208,26 @@ export function buildVariantInventoryRows(
       value: option.value,
       quantity: Math.max(0, option.quantity),
       aspectName: primary.name,
+    };
+  });
+}
+
+/** Stamp generated eBay Inventory SKUs onto INW option rows so later syncs reuse them. */
+export function mergeGeneratedSkusIntoVariants(
+  variants: unknown,
+  rows: EbayVariantInventoryRow[]
+): InwVariantAxis[] | null {
+  const axes = normalizeVariantsFromProvider("ebay", variants) as InwVariantAxis[] | null;
+  if (!axes?.length) return null;
+  const skuByValue = new Map(rows.map((row) => [row.value.trim().toLowerCase(), row.sku]));
+  return axes.map((axis, index) => {
+    if (index !== 0) return axis;
+    return {
+      ...axis,
+      options: axis.options.map((option) => {
+        const sku = skuByValue.get(option.value.trim().toLowerCase()) ?? option.sku;
+        return sku ? { ...option, sku } : option;
+      }),
     };
   });
 }

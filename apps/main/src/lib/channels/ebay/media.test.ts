@@ -10,6 +10,7 @@ import {
   isEbayImageRelatedInventoryError,
   isEbayMixedHostPictureError,
   normalizeInventoryImageUrls,
+  applyEbayInventoryPhotoPolicy,
   putInventoryWithPhotoRecovery,
   sanitizeInventoryImageUrl,
   selectPassthroughInventoryImageUrls,
@@ -56,6 +57,22 @@ describe("putInventoryWithPhotoRecovery", () => {
   beforeEach(() => {
     mockedJson.mockReset();
     mockedGet.mockReset();
+  });
+
+  it("does not upload INW photos when the seller did not change them", async () => {
+    const put = vi.fn().mockResolvedValue(undefined);
+    await putInventoryWithPhotoRecovery({
+      accessToken: "t",
+      body: { product: { title: "X", imageUrls: ["https://blob.example.com/a.jpg"] } },
+      liveImageUrls: ["https://i.ebayimg.com/live.jpg"],
+      allowInwPhotoUpload: false,
+      fallbackImageUrls: ["https://blob.example.com/a.jpg"],
+      put,
+    });
+    expect(mockedJson).not.toHaveBeenCalled();
+    expect(
+      (put.mock.calls[0]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
+    ).toEqual(["https://i.ebayimg.com/live.jpg"]);
   });
 
   it("hosts non-eBay photos before the first PUT", async () => {
@@ -153,6 +170,34 @@ describe("putInventoryWithPhotoRecovery", () => {
     expect(
       (put.mock.calls[1]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
     ).toEqual(["https://i.ebayimg.com/inw.jpg"]);
+  });
+});
+
+describe("applyEbayInventoryPhotoPolicy", () => {
+  it("keeps live EPS and drops INW blobs when photos were not edited", () => {
+    const next = applyEbayInventoryPhotoPolicy(
+      { product: { title: "X", imageUrls: ["https://blob.example.com/a.jpg"] } },
+      {
+        liveImageUrls: ["https://i.ebayimg.com/live.jpg"],
+        inwPhotos: ["https://blob.example.com/a.jpg"],
+        pushInwPhotos: false,
+      }
+    );
+    expect((next.product as { imageUrls: string[] }).imageUrls).toEqual([
+      "https://i.ebayimg.com/live.jpg",
+    ]);
+  });
+
+  it("omits imageUrls when photos were not edited and eBay has none to pin", () => {
+    const next = applyEbayInventoryPhotoPolicy(
+      { product: { title: "X", imageUrls: ["https://blob.example.com/a.jpg"] } },
+      {
+        liveImageUrls: [],
+        inwPhotos: ["https://blob.example.com/a.jpg"],
+        pushInwPhotos: false,
+      }
+    );
+    expect(next.product).not.toHaveProperty("imageUrls");
   });
 });
 

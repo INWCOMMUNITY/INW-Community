@@ -5,6 +5,7 @@ import {
   readEbayOfferListingId,
   shouldDeleteUnpublishedZeroQuantityOffer,
   shouldPublishEbayOffer,
+  shouldRepublishEbayOffer,
   shouldWriteEbayOffer,
 } from "./publish-policy";
 
@@ -28,6 +29,29 @@ describe("publish-policy", () => {
         offerStatus: "PUBLISHED",
       })
     ).toBe(false);
+  });
+
+  it("does not EndItem+republish when revising an already-linked listing", () => {
+    expect(
+      shouldRepublishEbayOffer({
+        operation: "update",
+        canPublish: true,
+        itemIsActive: true,
+        quantity: 1,
+        offerId: "o1",
+        offerStatus: "UNPUBLISHED",
+      })
+    ).toBe(false);
+    expect(
+      shouldRepublishEbayOffer({
+        operation: "create",
+        canPublish: true,
+        itemIsActive: true,
+        quantity: 1,
+        offerId: "o1",
+        offerStatus: "UNPUBLISHED",
+      })
+    ).toBe(true);
   });
 
   it("publishes only unpublished offers", () => {
