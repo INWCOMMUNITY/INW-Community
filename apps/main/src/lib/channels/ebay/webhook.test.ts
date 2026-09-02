@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildEbayWebhookUrl,
+  ebayWebhookEnvelopeIsTrusted,
   ebayWebhookUrlIsSecured,
   redactEbayWebhookUrl,
   verifyEbayWebhook,
@@ -77,5 +78,25 @@ describe("verifyEbayWebhook", () => {
       nextUrl: { searchParams: { get: (k: string) => (k === "secret" ? "correct-secret" : null) } },
     };
     expect(verifyEbayWebhook(req)).toBe(true);
+  });
+});
+
+describe("ebayWebhookEnvelopeIsTrusted", () => {
+  it("accepts a parseable ping with item or seller id when the query secret is missing", () => {
+    expect(
+      ebayWebhookEnvelopeIsTrusted({ parseable: true, itemId: "394295737513", ebayUserId: null })
+    ).toBe(true);
+    expect(
+      ebayWebhookEnvelopeIsTrusted({ parseable: true, itemId: null, ebayUserId: "seller1" })
+    ).toBe(true);
+  });
+
+  it("rejects an empty or unparseable body", () => {
+    expect(
+      ebayWebhookEnvelopeIsTrusted({ parseable: false, itemId: "394295737513", ebayUserId: null })
+    ).toBe(false);
+    expect(
+      ebayWebhookEnvelopeIsTrusted({ parseable: true, itemId: null, ebayUserId: null })
+    ).toBe(false);
   });
 });
