@@ -2,33 +2,14 @@
 
 import React, { createContext, useContext, useEffect, useState, useMemo } from "react";
 import { apiGet } from "@/lib/api";
-import { theme as defaultTheme } from "@/lib/theme";
+import {
+  theme as defaultTheme,
+  mapDesignTokensToTheme,
+  resolveTheme,
+  type AppTheme,
+} from "@/lib/theme";
 
-export type AppTheme = typeof defaultTheme;
-
-/** Map API design token keys to our app theme structure */
-function mapDesignTokensToTheme(tokens: Record<string, string>): AppTheme {
-  return {
-    colors: {
-      primary: tokens.primaryColor ?? tokens.buttonColor ?? defaultTheme.colors.primary,
-      secondary: tokens.secondaryColor ?? defaultTheme.colors.secondary,
-      background: tokens.backgroundColor ?? defaultTheme.colors.background,
-      text: tokens.textColor ?? defaultTheme.colors.text,
-      heading: tokens.headingColor ?? defaultTheme.colors.heading,
-      cream: tokens.buttonHoverColor ?? tokens.sectionAltColor ?? defaultTheme.colors.cream,
-      creamAlt: tokens.sectionAltColor ?? tokens.buttonHoverColor ?? defaultTheme.colors.creamAlt,
-      buttonText: tokens.buttonTextColor ?? defaultTheme.colors.buttonText,
-      tabIconInactive: defaultTheme.colors.tabIconInactive,
-      placeholder: tokens.placeholderColor ?? defaultTheme.colors.placeholder,
-      labelMuted: defaultTheme.colors.labelMuted,
-    },
-    fonts: {
-      heading: defaultTheme.fonts.heading,
-      headingRegular: defaultTheme.fonts.headingRegular,
-      body: defaultTheme.fonts.body,
-    },
-  } as AppTheme;
-}
+export type { AppTheme };
 
 const ThemeContext = createContext<AppTheme>(defaultTheme);
 
@@ -54,5 +35,5 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
 export function useTheme(): AppTheme {
   const ctx = useContext(ThemeContext);
-  return ctx ?? defaultTheme;
+  return resolveTheme(ctx ?? defaultTheme);
 }

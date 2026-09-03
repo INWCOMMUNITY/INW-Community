@@ -240,8 +240,7 @@ export default function GroupsScreen() {
       }
     >
       <View style={styles.adminCallout}>
-        <View style={styles.adminCalloutTopBar} />
-        <Ionicons name="shield-checkmark" size={40} color={theme.colors.primary} style={styles.adminCalloutIcon} />
+        <Ionicons name="shield-checkmark" size={40} color="#fff" style={styles.adminCalloutIcon} />
         <Text style={styles.adminCalloutTitle}>Become a Group Admin</Text>
         <Text style={styles.adminCalloutBody}>
           Submit a request to start a group. Northwest Community reviews each request. If your request is not approved,
@@ -508,47 +507,39 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 40 },
   center: { paddingVertical: 48, alignItems: "center" },
   adminCallout: {
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
     borderRadius: 12,
-    backgroundColor: "#fff",
+    backgroundColor: "#5d4f40",
     overflow: "hidden",
     marginBottom: 16,
     alignItems: "center",
     paddingHorizontal: 20,
     paddingBottom: 20,
-    paddingTop: 0,
-  },
-  adminCalloutTopBar: {
-    alignSelf: "stretch",
-    height: 6,
-    backgroundColor: theme.colors.primary,
-    marginBottom: 16,
+    paddingTop: 20,
   },
   adminCalloutIcon: { marginBottom: 8 },
   adminCalloutTitle: {
     fontSize: 18,
     fontWeight: "700",
     fontFamily: theme.fonts.heading,
-    color: theme.colors.heading,
+    color: "#fff",
     textAlign: "center",
     marginBottom: 10,
   },
   adminCalloutBody: {
     fontSize: 14,
-    color: theme.colors.text,
+    color: "#fff",
     textAlign: "center",
     lineHeight: 22,
     marginBottom: 18,
     maxWidth: 400,
   },
   adminCalloutBtn: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: "#fff",
     paddingVertical: 12,
     paddingHorizontal: 28,
     borderRadius: 8,
   },
-  adminCalloutBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  adminCalloutBtnText: { color: "#5d4f40", fontWeight: "600", fontSize: 16 },
   searchRow: { marginBottom: 16 },
   searchInput: {
     alignSelf: "stretch",

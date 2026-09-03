@@ -10,8 +10,8 @@ import {
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, Linking } from 'react-native';
+import { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Pressable, Linking, NativeModules } from 'react-native';
 import { useRouter } from 'expo-router';
 import 'react-native-reanimated';
 
@@ -140,17 +140,23 @@ export default function RootLayout() {
     Fahkwang_700Bold,
     ...FontAwesome.font,
   });
+  const [fontsTimedOut, setFontsTimedOut] = useState(false);
 
-  // Expo Router uses Error Boundaries to catch errors in the navigation tree.
-  useEffect(() => {
-    if (error) throw error;
-  }, [error]);
+  const fontsReady = loaded || !!error || fontsTimedOut;
 
   useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
+    if (fontsReady) {
+      SplashScreen.hideAsync().catch(() => {});
     }
-  }, [loaded]);
+  }, [fontsReady]);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setFontsTimedOut(true);
+      SplashScreen.hideAsync().catch(() => {});
+    }, 4000);
+    return () => clearTimeout(timeout);
+  }, []);
 
   useEffect(() => {
     if (loaded) {
@@ -176,7 +182,7 @@ export default function RootLayout() {
     }).catch(() => {});
   }, [loaded]);
 
-  if (!loaded) {
+  if (!fontsReady) {
     return null;
   }
 
@@ -308,7 +314,13 @@ function ProfileViewLayout({ children }: { children: React.ReactNode }) {
 }
 
 const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '';
-const hasStripeKey = !!stripePublishableKey && !stripePublishableKey.includes('placeholder');
+const stripeNativeReady = Boolean(
+  (NativeModules as { StripeSdk?: unknown }).StripeSdk
+);
+const hasStripeKey =
+  !!stripePublishableKey &&
+  !stripePublishableKey.includes('placeholder') &&
+  stripeNativeReady;
 const stripeMerchantId = process.env.EXPO_PUBLIC_STRIPE_MERCHANT_IDENTIFIER ?? 'merchant.com.northwestcommunity';
 
 function RootLayoutNav() {
@@ -352,7 +364,7 @@ function RootLayoutNav() {
         <Stack.Screen name="subscribe" />
         <Stack.Screen name="manage-subscription" options={{ headerShown: false }} />
         <Stack.Screen name="community" options={{ headerShown: false }} />
-        <Stack.Screen name="feed/collections/[id]" options={{ headerShown: true, title: "New Listings" }} />
+        <Stack.Screen name="feed/collections/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="post" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'containedModal' }} />
       </Stack>

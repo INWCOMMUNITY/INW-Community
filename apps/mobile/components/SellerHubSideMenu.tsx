@@ -4,28 +4,14 @@
  * Returns, Analytics, etc.) stay in the matching group.
  */
 import { useEffect, useState } from "react";
-import {
-  Modal,
-  View,
-  Text,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Dimensions,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { theme } from "@/lib/theme";
+import { SideDrawer, SideDrawerSection, SideDrawerRow } from "@/components/ui";
 import { apiGet } from "@/lib/api";
 import { useProfileView } from "@/contexts/ProfileViewContext";
 
 const SOLD_ITEMS_VIEWED_KEY = "sellerHubSoldItemsViewedAt";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
-const NAV_HEADER_HEIGHT = 56;
 
 type NavItem = {
   href: string;
@@ -40,69 +26,9 @@ interface SellerHubSideMenuProps {
   onClose: () => void;
 }
 
-function AlertBadge() {
-  return (
-    <View style={styles.alertBadge}>
-      <Text style={styles.alertText}>!</Text>
-    </View>
-  );
-}
-
-function NavLink({
-  item,
-  onPress,
-}: {
-  item: NavItem;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.navLink, pressed && styles.navLinkPressed]}
-    >
-      <View style={styles.navLinkLeft}>
-        <View style={styles.navLinkIcon}>
-          <Ionicons name={item.icon} size={22} color={theme.colors.primary} />
-        </View>
-        <Text style={styles.navLinkText}>{item.label}</Text>
-      </View>
-      <View style={styles.navLinkRight}>
-        {item.alert ? <AlertBadge /> : null}
-        <Ionicons name="chevron-forward" size={18} color="#999" />
-      </View>
-    </Pressable>
-  );
-}
-
-function Section({
-  title,
-  items,
-  onItemPress,
-}: {
-  title: string;
-  items: NavItem[];
-  onItemPress: (item: NavItem) => void;
-}) {
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <View style={styles.divider} />
-      {items.map((item) => (
-        <NavLink
-          key={item.href + item.label}
-          item={item}
-          onPress={() => onItemPress(item)}
-        />
-      ))}
-    </View>
-  );
-}
-
 export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) {
   const router = useRouter();
   const { setProfileView } = useProfileView();
-  const insets = useSafeAreaInsets();
-  const drawerTop = insets.top + NAV_HEADER_HEIGHT;
   const [pendingShip, setPendingShip] = useState(0);
   const [pendingReturns, setPendingReturns] = useState(0);
   const [soldCount, setSoldCount] = useState(0);
@@ -207,151 +133,23 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
     router.push(item.href as never);
   };
 
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <View style={styles.container}>
-        <Pressable style={styles.backdrop} onPress={onClose} />
-        <View style={[styles.drawer, { top: drawerTop }]}>
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Seller Hub</Text>
-            <Pressable
-              onPress={onClose}
-              style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.7 }]}
-              hitSlop={12}
-            >
-              <Ionicons name="close" size={28} color={theme.colors.heading} />
-            </Pressable>
-          </View>
+  const renderItems = (items: NavItem[]) =>
+    items.map((item) => (
+      <SideDrawerRow
+        key={item.href + item.label}
+        icon={item.icon}
+        label={item.label}
+        badgeExclamation={item.alert}
+        onPress={() => handleItemPress(item)}
+      />
+    ));
 
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            <Section title="Listings" items={listingsItems} onItemPress={handleItemPress} />
-            <Section title="Orders" items={ordersItems} onItemPress={handleItemPress} />
-            <Section title="Store" items={storeItems} onItemPress={handleItemPress} />
-            <Section title="Money" items={moneyItems} onItemPress={handleItemPress} />
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
+  return (
+    <SideDrawer visible={visible} onClose={onClose} title="Seller Hub">
+      <SideDrawerSection title="Listings">{renderItems(listingsItems)}</SideDrawerSection>
+      <SideDrawerSection title="Orders">{renderItems(ordersItems)}</SideDrawerSection>
+      <SideDrawerSection title="Store">{renderItems(storeItems)}</SideDrawerSection>
+      <SideDrawerSection title="Money">{renderItems(moneyItems)}</SideDrawerSection>
+    </SideDrawer>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    flexDirection: "row",
-    justifyContent: "flex-end",
-  },
-  backdrop: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.4)",
-  },
-  drawer: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    width: DRAWER_WIDTH,
-    backgroundColor: "#fff",
-    borderLeftWidth: 2,
-    borderLeftColor: theme.colors.primary,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: theme.colors.heading,
-    fontFamily: theme.fonts.heading,
-  },
-  closeBtn: {
-    padding: 4,
-  },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 32,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: theme.colors.heading,
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: "#e0e0e0",
-    marginBottom: 12,
-  },
-  navLink: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-  navLinkPressed: {
-    opacity: 0.8,
-    backgroundColor: "#f5f5f5",
-  },
-  navLinkLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    minWidth: 0,
-  },
-  navLinkIcon: {
-    marginRight: 12,
-    width: 22,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  navLinkText: {
-    fontSize: 15,
-    color: "#444",
-    flex: 1,
-  },
-  navLinkRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  alertBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: theme.colors.secondary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  alertText: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: "#fff",
-  },
-});

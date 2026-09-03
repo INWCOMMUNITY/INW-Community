@@ -28,6 +28,20 @@ describe("parseEbayGetItemAvailability", () => {
     expect(parsed.quantity).toBe(1);
   });
 
+  it("does not treat ListingStatus text inside Description as ended", () => {
+    const xml = `
+      <Item>
+        <Description><![CDATA[<p>Previous ListingStatus: Completed</p><ListingStatus>Ended</ListingStatus>]]></Description>
+        <Quantity>2</Quantity>
+        <SellingStatus>
+          <ListingStatus>Active</ListingStatus>
+          <QuantitySold>0</QuantitySold>
+        </SellingStatus>
+      </Item>`;
+    expect(parseEbayGetItemAvailability(xml).listingEnded).toBe(false);
+    expect(parseEbayGetItemAvailability(xml).quantity).toBe(2);
+  });
+
   it("uses QuantityAvailable when present on the listing", () => {
     const xml = `
       <Item>

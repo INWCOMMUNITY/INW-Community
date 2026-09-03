@@ -38,7 +38,7 @@ export default async function NewStoreItemPage() {
           ← Back to My Items
         </Link>
         <h1 className="text-2xl sm:text-3xl font-bold mb-6 text-gray-900">
-          Sell Local: List an item for sale on our storefront
+          Sell Local: List an Item for sale on our storefront
         </h1>
         <StoreItemForm />
       </div>

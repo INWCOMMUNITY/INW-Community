@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IonIcon } from "@/components/IonIcon";
+import { formatListingPhotoSizeLabel } from "@/lib/upload-limits";
 import { listingHintClass } from "./listing-form-styles";
 
 type ListingPhotoGalleryProps = {
@@ -9,6 +10,7 @@ type ListingPhotoGalleryProps = {
   onPhotosChange: (photos: string[]) => void;
   onUploadFiles: (files: File[]) => Promise<void>;
   uploadingPhotos: boolean;
+  photoError?: string;
   showSyncHint?: boolean;
 };
 
@@ -17,6 +19,7 @@ export function ListingPhotoGallery({
   onPhotosChange,
   onUploadFiles,
   uploadingPhotos,
+  photoError,
   showSyncHint,
 }: ListingPhotoGalleryProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -156,7 +159,10 @@ export function ListingPhotoGallery({
         <p className="text-sm font-medium text-gray-800 mb-1">
           {photos.length > 0 ? "Add more photos" : "Add photos"}
         </p>
-        <p className="text-xs text-gray-500 mb-3">Drag and drop or choose from your device</p>
+        <p className="text-xs text-gray-500 mb-3">
+          Drag and drop or choose from your device. Up to {formatListingPhotoSizeLabel()} each;
+          large photos are resized automatically.
+        </p>
         <label className="inline-block cursor-pointer">
           <span className="action-pill action-pill-sm btn-pill-primary">
             {uploadingPhotos ? "Uploading…" : "Choose photos"}
@@ -164,7 +170,7 @@ export function ListingPhotoGallery({
           <input
             ref={inputRef}
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,image/*"
             multiple
             disabled={uploadingPhotos}
             onChange={(e) => {
@@ -174,6 +180,11 @@ export function ListingPhotoGallery({
             className="sr-only"
           />
         </label>
+        {photoError ? (
+          <p className="text-sm text-red-600 mt-3" role="alert">
+            {photoError}
+          </p>
+        ) : null}
       </div>
 
       {photos.length > 0 ? (

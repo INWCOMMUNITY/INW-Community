@@ -138,7 +138,7 @@ export async function GET(req: NextRequest) {
         where.status = "paid";
       }
       if (canceled) {
-        where.status = "canceled";
+        where.status = { in: ["canceled", "refunded", "cancelled"] };
       }
       if (shipped) {
         where.status = { in: ["shipped", "delivered"] };

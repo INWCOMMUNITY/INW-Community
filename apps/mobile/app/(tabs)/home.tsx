@@ -44,11 +44,14 @@ function resolveUrl(path: string | null | undefined): string | undefined {
   return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
+function homeCalendarName(label: string): string {
+  return label.replace(/\s*Calendar\s*/gi, " ").replace(/\n+/g, " ").replace(/\s+/g, " ").trim();
+}
+
 const logoSource = require("@/assets/images/nwc-logo-home.png");
 const logoAsset = Asset.fromModule(logoSource);
 
 const homeShortcutGap = 12;
-const homeShortcutWrapColor = "#c99d5f";
 
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
@@ -60,7 +63,7 @@ export default function HomeScreen() {
       logoAsset?.width && logoAsset?.height ? (width * logoAsset.height) / logoAsset.width : width;
 
     const s = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: theme.colors.feedBackground },
+  scroll: { flex: 1, backgroundColor: theme.colors.pageBackground },
   container: {
     padding: 24,
     paddingBottom: 40,
@@ -89,12 +92,10 @@ export default function HomeScreen() {
     width: "100%",
   },
   buttonCell: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.earth,
     paddingVertical: 14,
     paddingHorizontal: 12,
     borderRadius: 8,
-    borderWidth: 2,
-    borderColor: homeShortcutWrapColor,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -153,10 +154,8 @@ export default function HomeScreen() {
     gap: 6,
     paddingVertical: 12,
     paddingHorizontal: 6,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.earth,
     borderRadius: 8,
-    borderWidth: 2,
-    borderColor: "#000",
   },
   calendarsHomeActionBtnText: {
     color: theme.colors.buttonText,
@@ -285,12 +284,10 @@ export default function HomeScreen() {
   },
   nwcRequestButton: {
     marginTop: 16,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.earth,
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
-    borderWidth: 2,
-    borderColor: homeShortcutWrapColor,
   },
   nwcRequestButtonText: {
     color: theme.colors.buttonText,
@@ -312,13 +309,11 @@ export default function HomeScreen() {
   },
   subscribeHomeBtn: {
     marginTop: 16,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.earth,
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
     alignSelf: "center",
-    borderWidth: 2,
-    borderColor: homeShortcutWrapColor,
   },
   subscribeHomeBtnText: {
     color: theme.colors.buttonText,
@@ -424,6 +419,32 @@ export default function HomeScreen() {
               { width: homeShortcutCellWidth },
               pressed && styles.buttonPressed,
             ]}
+            onPress={() => (router.push as (href: string) => void)("/(tabs)/store")}
+            accessibilityRole="button"
+            accessibilityLabel="Storefront"
+          >
+            <Ionicons name="storefront-outline" size={22} color={theme.colors.buttonText} />
+            <Text style={styles.buttonText}>Storefront</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.buttonCell,
+              { width: homeShortcutCellWidth },
+              pressed && styles.buttonPressed,
+            ]}
+            onPress={() => (router.push as (href: string) => void)("/(tabs)/support-local")}
+            accessibilityRole="button"
+            accessibilityLabel="Directory"
+          >
+            <Ionicons name="business-outline" size={22} color={theme.colors.buttonText} />
+            <Text style={styles.buttonText}>Directory</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.buttonCell,
+              { width: homeShortcutCellWidth },
+              pressed && styles.buttonPressed,
+            ]}
             onPress={() => (router.push as (href: string) => void)("/calendars")}
           >
             <Ionicons name="calendar-outline" size={22} color={theme.colors.buttonText} />
@@ -493,7 +514,7 @@ export default function HomeScreen() {
                 />
                 <View style={styles.tileLabelWrap}>
                   <Text style={styles.tileLabel} numberOfLines={2}>
-                    {c.label}
+                    {homeCalendarName(c.label)}
                   </Text>
                 </View>
               </Pressable>

@@ -11,6 +11,7 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
+import { AppHeader } from "@/components/ui";
 import { AppImage } from "@/components/AppImage";
 import { buildProductPath } from "@/lib/product-referrer";
 
@@ -55,12 +56,11 @@ export default function ListingFeedCollectionScreen() {
 
   return (
     <View style={styles.screen}>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          title: title ?? "Collection",
-          headerBackTitle: "Feed",
-        }}
+      <Stack.Screen options={{ headerShown: false }} />
+      <AppHeader
+        title="New Listings"
+        onBack={() => router.back()}
+        backgroundColor={theme.colors.earth}
       />
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}
@@ -124,7 +124,7 @@ export default function ListingFeedCollectionScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: theme.colors.cream },
+  screen: { flex: 1, backgroundColor: theme.colors.pageBackground },
   content: { padding: 16 },
   title: {
     fontSize: 24,

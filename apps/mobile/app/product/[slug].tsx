@@ -528,7 +528,7 @@ export default function ProductScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={theme.colors.cream} />
+        <ActivityIndicator size="large" color={theme.colors.earth} />
       </View>
     );
   }
@@ -759,10 +759,22 @@ export default function ProductScreen() {
 
         <View style={styles.body}>
           <Text style={styles.title}>{item.title}</Text>
-          <View style={styles.conditionBadge}>
-            <Text style={styles.conditionBadgeText}>
-              {item.condition === "used" ? "Used" : "New"}
-            </Text>
+          <View style={styles.metaChipRow}>
+            <View style={styles.conditionBadge}>
+              <Text style={styles.conditionBadgeText}>
+                {item.condition === "used" ? "Used" : "New"}
+              </Text>
+            </View>
+            {item.category ? (
+              <View style={styles.categoryChip}>
+                <Text style={styles.categoryText}>{item.category}</Text>
+              </View>
+            ) : null}
+            {item.secondaryCategory ? (
+              <View style={styles.categoryChip}>
+                <Text style={styles.categoryText}>{item.secondaryCategory}</Text>
+              </View>
+            ) : null}
           </View>
           <View style={styles.priceRow}>
             <Text style={styles.price}>{formatPrice(item.priceCents)}</Text>
@@ -779,13 +791,13 @@ export default function ProductScreen() {
           <View style={styles.shippingPreviewRow}>
             {!item.shippingDisabled && item.shippingCostCents != null && item.shippingCostCents === 0 && (
               <View style={styles.shippingPreviewItem}>
-                <Ionicons name="cube-outline" size={16} color={theme.colors.primary} />
+                <Ionicons name="cube-outline" size={16} color={theme.colors.earth} />
                 <Text style={styles.shippingPreviewText}>Free Shipping</Text>
               </View>
             )}
             {!item.shippingDisabled && item.shippingCostCents != null && item.shippingCostCents > 0 && (
               <View style={styles.shippingPreviewItem}>
-                <Ionicons name="cube-outline" size={16} color={theme.colors.text} />
+                <Ionicons name="cube-outline" size={16} color={theme.colors.earth} />
                 <Text style={styles.shippingPreviewText}>
                   Shipping: ~{formatPrice(item.shippingCostCents)}
                 </Text>
@@ -793,13 +805,13 @@ export default function ProductScreen() {
             )}
             {!item.shippingDisabled && item.shippingCostCents == null && (
               <View style={styles.shippingPreviewItem}>
-                <Ionicons name="cube-outline" size={16} color={theme.colors.text} />
+                <Ionicons name="cube-outline" size={16} color={theme.colors.earth} />
                 <Text style={styles.shippingPreviewText}>Shipping calculated at checkout</Text>
               </View>
             )}
             {item.localDeliveryAvailable && (
               <View style={styles.shippingPreviewItem}>
-                <Ionicons name="car-outline" size={16} color={theme.colors.text} />
+                <Ionicons name="car-outline" size={16} color={theme.colors.earth} />
                 <Text style={styles.shippingPreviewText}>
                   Local Delivery{item.localDeliveryFeeCents != null && item.localDeliveryFeeCents > 0 ? `: ${formatPrice(item.localDeliveryFeeCents)}` : item.localDeliveryFeeCents === 0 ? ": Free" : ""}
                 </Text>
@@ -807,44 +819,31 @@ export default function ProductScreen() {
             )}
             {item.inStorePickupAvailable && (
               <View style={styles.shippingPreviewItem}>
-                <Ionicons name="storefront-outline" size={16} color={theme.colors.text} />
+                <Ionicons name="storefront-outline" size={16} color={theme.colors.earth} />
                 <Text style={styles.shippingPreviewText}>Local Pickup Available</Text>
               </View>
             )}
           </View>
 
-          <View style={styles.socialProofRow}>
-            {item.saveCount != null && item.saveCount > 0 && (
-              <View style={styles.saveCountRow}>
-                <Ionicons name="heart" size={14} color={theme.colors.primary} />
-                <Text style={styles.saveCountText}>
-                  {item.saveCount} {item.saveCount === 1 ? "person" : "people"} saved this
-                </Text>
-              </View>
-            )}
-            {!itemUnavailable && (
-              <Pressable
-                style={({ pressed }) => [styles.priceAlertBtn, pressed && { opacity: 0.8 }]}
-                onPress={() => setPriceAlertModalOpen(true)}
-              >
-                <Ionicons name="notifications-outline" size={16} color={theme.colors.primary} />
-                <Text style={styles.priceAlertBtnText}>Price Alert</Text>
-              </Pressable>
-            )}
-          </View>
-
-          {(item.category || item.secondaryCategory) ? (
-            <View style={styles.categoryChipsRow}>
-              {item.category ? (
-                <View style={styles.categoryChip}>
-                  <Text style={styles.categoryText}>{item.category}</Text>
+          {(item.saveCount != null && item.saveCount > 0) || !itemUnavailable ? (
+            <View style={styles.socialProofRow}>
+              {item.saveCount != null && item.saveCount > 0 && (
+                <View style={styles.saveCountRow}>
+                  <Ionicons name="heart" size={14} color={theme.colors.earth} />
+                  <Text style={styles.saveCountText}>
+                    {item.saveCount} {item.saveCount === 1 ? "person" : "people"} saved this
+                  </Text>
                 </View>
-              ) : null}
-              {item.secondaryCategory ? (
-                <View style={styles.categoryChip}>
-                  <Text style={styles.categoryText}>{item.secondaryCategory}</Text>
-                </View>
-              ) : null}
+              )}
+              {!itemUnavailable && (
+                <Pressable
+                  style={({ pressed }) => [styles.priceAlertBtn, pressed && { opacity: 0.8 }]}
+                  onPress={() => setPriceAlertModalOpen(true)}
+                >
+                  <Ionicons name="notifications-outline" size={16} color={theme.colors.earth} />
+                  <Text style={styles.priceAlertBtnText}>Price Alert</Text>
+                </Pressable>
+              )}
             </View>
           ) : null}
 
@@ -1595,63 +1594,81 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "700",
     color: "#000",
-    marginBottom: 8,
+    marginBottom: 10,
+  },
+  metaChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 14,
   },
   conditionBadge: {
-    alignSelf: "flex-start",
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: theme.colors.creamAlt,
-    marginBottom: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: theme.colors.earth,
   },
   conditionBadgeText: {
     fontSize: 13,
     fontWeight: "600",
-    color: theme.colors.heading,
+    color: "#fff",
+  },
+  categoryChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: theme.colors.cream,
+    borderWidth: 1,
+    borderColor: theme.colors.earth,
+  },
+  categoryText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.colors.earth,
   },
   priceRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 8,
+    alignItems: "baseline",
+    gap: 10,
+    marginBottom: 10,
   },
   price: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "700",
     color: "#000",
   },
   orBestOfferBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: theme.colors.creamAlt,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
   },
   orBestOfferText: {
     fontSize: 14,
     fontWeight: "600",
-    color: theme.colors.primary,
+    color: theme.colors.earth,
   },
   shippingPreviewRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    marginBottom: 12,
+    gap: 6,
+    marginBottom: 14,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#e6e0d6",
   },
   shippingPreviewItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 8,
   },
   shippingPreviewText: {
-    fontSize: 13,
+    fontSize: 14,
     color: theme.colors.text,
   },
   socialProofRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
+    gap: 10,
+    marginBottom: 16,
   },
   saveCountRow: {
     flexDirection: "row",
@@ -1670,29 +1687,13 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: theme.colors.primary,
+    borderColor: theme.colors.earth,
+    backgroundColor: theme.colors.cream,
   },
   priceAlertBtnText: {
     fontSize: 12,
-    fontWeight: "500",
-    color: theme.colors.primary,
-  },
-  categoryChipsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 16,
-  },
-  categoryChip: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: theme.colors.creamAlt,
-  },
-  categoryText: {
-    fontSize: 14,
-    color: theme.colors.heading,
+    fontWeight: "600",
+    color: theme.colors.earth,
   },
   section: {
     marginBottom: 20,
@@ -2070,9 +2071,9 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 14,
     borderRadius: 8,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.earth,
     borderWidth: 2,
-    borderColor: "#000",
+    borderColor: theme.colors.cream,
   },
   addBtnDisabled: {
     opacity: 0.7,

@@ -65,8 +65,8 @@ export function ItemChannelSyncBadges({
               ? "text-[11px] text-gray-600 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5"
               : "text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded px-2 py-0.5"
             : compact
-              ? "text-[11px] text-green-800 bg-green-50 border border-green-100 rounded-full px-2 py-0.5"
-              : "text-xs text-green-800 bg-green-50 border border-green-100 rounded px-2 py-0.5";
+              ? "text-[11px] font-semibold rounded-full px-2 py-0.5 border border-[var(--color-earth)] bg-[var(--color-section-alt)] text-[var(--color-earth)]"
+              : "text-xs font-semibold rounded px-2 py-0.5 border border-[var(--color-earth)] bg-[var(--color-section-alt)] text-[var(--color-earth)]";
 
         if (needsConditionFix) {
           return (

@@ -47,6 +47,8 @@ const FEED_FILTERS = [
 ] as const;
 
 const NEW_POSTS_POLL_INTERVAL = 60_000;
+/** Kept in scope so Metro HMR cannot crash on a stale StyleSheet ref. */
+const feedActionBtnBorder = theme.colors.earth;
 
 export default function CommunityScreen() {
   const feedListRef = useRef<FlatList<FeedPost>>(null);
@@ -120,12 +122,15 @@ export default function CommunityScreen() {
     onShareOpen: (postId) => setShareToChatPost({ id: postId }),
   });
 
-  // Warm the image cache for the first photo of each loaded post so they
-  // appear instantly as the user scrolls.
+  // Prefetch only the first screen of post photos so later pages do not
+  // compete with images the user can already see.
   useEffect(() => {
     if (posts.length === 0) return;
-    const firstPhotos = posts.map((p) => p.photos?.[0]).filter(Boolean) as string[];
-    prefetchImages(firstPhotos, { targetWidth: Dimensions.get("window").width });
+    const firstPhotos = posts
+      .slice(0, 6)
+      .map((p) => p.photos?.[0])
+      .filter(Boolean) as string[];
+    prefetchImages(firstPhotos, { targetWidth: Dimensions.get("window").width, quality: 60 });
   }, [posts]);
 
   const loadPendingFriendRequests = useCallback(() => {
@@ -583,7 +588,6 @@ export default function CommunityScreen() {
   );
 }
 
-const feedActionBtnBorder = "#c99d5f";
 
 const styles = StyleSheet.create({
   center: {
@@ -598,7 +602,7 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
-    backgroundColor: theme.colors.feedBackground,
+    backgroundColor: theme.colors.pageBackground,
   },
   scrollOverflowVisible: {
     overflow: "visible",
@@ -644,9 +648,9 @@ const styles = StyleSheet.create({
     paddingRight: 4,
   },
   headerSideBtn: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.earth,
     borderRadius: 6,
-    borderWidth: 2,
+    borderWidth: 0,
     borderColor: feedActionBtnBorder,
     minWidth: 52,
     paddingVertical: 8,
@@ -701,12 +705,10 @@ const styles = StyleSheet.create({
   },
   createPostBtn: {
     flex: 1,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.earth,
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 6,
-    borderWidth: 2,
-    borderColor: feedActionBtnBorder,
     alignItems: "center",
     justifyContent: "center",
   },

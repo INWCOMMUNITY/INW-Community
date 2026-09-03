@@ -209,7 +209,7 @@ function sourcePostBlocksLinkPreview(sourcePost: {
   );
 }
 
-const ACTION_ACCENT = "#c99d5f";
+const ACTION_ACCENT = theme.colors.earth;
 
 interface FeedPostCardProps {
   post: FeedPost;
@@ -1623,23 +1623,12 @@ export const FeedPostCard = memo(FeedPostCardInner, (prev, next) => {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#fff",
-    borderRadius: 0,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radii.card,
     overflow: "hidden",
-    marginBottom: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#000",
-    borderBottomColor: "#000",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 2,
-      },
-      android: { elevation: 1 },
-    }),
+    marginHorizontal: theme.spacing.lg,
+    marginBottom: theme.spacing.md,
+    ...theme.shadows.card,
   },
   cardFeedZoomLift: {
     overflow: "visible",

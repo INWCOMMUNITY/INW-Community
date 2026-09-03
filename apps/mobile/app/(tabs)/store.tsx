@@ -41,7 +41,7 @@ import {
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const HEADER_LIST_GAP = 16;
-const accentBorder = "#c99d5f";
+const accentBorder = theme.colors.earth;
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 interface StoreItem extends StoreItemData {
@@ -166,12 +166,15 @@ export default function StoreScreen() {
     [condition, search, category, subcategory, size, deliveryFilter, sortOption]
   );
 
-  // Warm the image cache for every grid item's first photo so thumbnails
-  // appear instantly as the user scrolls the storefront.
+  // Prefetch only the first screen of thumbs. Prefetching the full 100-item
+  // catalog starves the visible cards and makes the storefront feel stalled.
   useEffect(() => {
     if (items.length === 0) return;
-    const photos = items.map((it) => it.photos?.[0]).filter(Boolean) as string[];
-    prefetchImages(photos, { targetWidth: cardWidth, quality: 55 });
+    const photos = items
+      .slice(0, 12)
+      .map((it) => it.photos?.[0])
+      .filter(Boolean) as string[];
+    prefetchImages(photos, { targetWidth: cardWidth, quality: 50 });
   }, [items, cardWidth]);
 
   const loadMeta = useCallback(() => {
@@ -416,19 +419,23 @@ export default function StoreScreen() {
               </View>
             </View>
             <View style={styles.introBlock}>
-              <Text style={styles.introTitle}>INW Local Shopping</Text>
+              <Text style={styles.introTitle}>Shop Local</Text>
               <Text style={styles.introParagraph}>
                 Eastern Washington and North Idaho local goods. Shop local without losing the comfort of shopping from home!
               </Text>
             </View>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search storefront..."
-              placeholderTextColor={theme.colors.placeholder}
-              value={search}
-              onChangeText={setSearch}
-              autoCorrect={true}
-            />
+            <View style={styles.searchInputFrame}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search storefront..."
+                placeholderTextColor={theme.colors.placeholder}
+                value={search}
+                onChangeText={setSearch}
+                autoCorrect={true}
+                cursorColor={theme.colors.earth}
+                selectionColor={theme.colors.earth}
+              />
+            </View>
             <View style={styles.quickFilters}>
               <ScrollView
                 horizontal
@@ -654,8 +661,8 @@ export default function StoreScreen() {
                 setCarouselRefreshKey((k) => k + 1);
                 load(true);
               }}
-              tintColor={theme.colors.cream}
-              colors={[theme.colors.cream]}
+              tintColor={theme.colors.earth}
+              colors={[theme.colors.earth]}
             />
           }
           ListEmptyComponent={
@@ -706,13 +713,13 @@ export default function StoreScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f0e6",
+    backgroundColor: theme.colors.pageBackground,
   },
   center: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#f5f0e6",
+    backgroundColor: theme.colors.pageBackground,
   },
   headerWrap: {
     overflow: "hidden",
@@ -777,11 +784,18 @@ const styles = StyleSheet.create({
   segmentTextActive: {
     color: theme.colors.primary,
   },
+  searchInputFrame: {
+    width: "100%",
+    alignSelf: "stretch",
+    borderWidth: 2,
+    borderColor: theme.colors.cream,
+    borderRadius: 10,
+  },
   searchInput: {
     width: "100%",
     alignSelf: "stretch",
     backgroundColor: "#fff",
-    borderWidth: 2,
+    borderWidth: 4,
     borderColor: accentBorder,
     borderRadius: 8,
     paddingHorizontal: 12,
@@ -936,13 +950,13 @@ const styles = StyleSheet.create({
   list: {
     zIndex: 1,
     flex: 1,
-    backgroundColor: "#f5f0e6",
+    backgroundColor: theme.colors.pageBackground,
   },
   listContent: {
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 32,
-    backgroundColor: "#f5f0e6",
+    backgroundColor: theme.colors.pageBackground,
   },
   closeMatchNote: {
     fontSize: 13,
@@ -955,7 +969,7 @@ const styles = StyleSheet.create({
   carouselsContainer: {
     marginHorizontal: -16,
     marginBottom: 16,
-    backgroundColor: "#f5f0e6",
+    backgroundColor: theme.colors.pageBackground,
   },
   row: {
     gap: 12,

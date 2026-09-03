@@ -71,7 +71,7 @@ interface StoreOrder {
   localDeliveryDetails?: LocalDeliveryDetails | null;
   deliveryConfirmedAt?: string | null;
   deliveryBuyerConfirmedAt?: string | null;
-  buyer?: { firstName: string; lastName: string; email?: string };
+  buyer?: { id?: string; firstName: string; lastName: string; email?: string };
   items?: OrderItemType[];
 }
 
@@ -132,10 +132,12 @@ function ToShipFlowView({
   orders,
   onRefresh,
   refreshing,
+  onOrderRemoved,
 }: {
   orders: StoreOrder[];
   onRefresh: () => void;
   refreshing: boolean;
+  onOrderRemoved: (orderId: string) => void;
 }) {
   const router = useRouter();
   const [connected, setConnected] = useState<boolean | null>(null);
@@ -143,6 +145,9 @@ function ToShipFlowView({
   const [savingPackingSlip, setSavingPackingSlip] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(() => new Set());
   const [markingShippedId, setMarkingShippedId] = useState<string | null>(null);
+  const [shipMenuOrderId, setShipMenuOrderId] = useState<string | null>(null);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [messagingBuyerId, setMessagingBuyerId] = useState<string | null>(null);
 
   const selectedCount = selectedOrderIds.size;
   const selectedIdList = useMemo(() => Array.from(selectedOrderIds), [selectedOrderIds]);
@@ -244,7 +249,12 @@ function ToShipFlowView({
     }
   };
 
+  const menuOrder = shipMenuOrderId ? orders.find((o) => o.id === shipMenuOrderId) ?? null : null;
+  const menuBusy =
+    markingShippedId != null || cancelingId != null || messagingBuyerId != null;
+
   const confirmMarkShipped = (orderId: string) => {
+    setShipMenuOrderId(null);
     Alert.alert(
       "Mark as shipped?",
       "Use this if you already shipped without buying a label in the app. Reminders and badges update once marked.",
@@ -257,7 +267,12 @@ function ToShipFlowView({
             setError(null);
             try {
               await apiPatch(`/api/store-orders/${encodeURIComponent(orderId)}`, { status: "shipped" });
-              onRefresh();
+              onOrderRemoved(orderId);
+              setSelectedOrderIds((prev) => {
+                const next = new Set(prev);
+                next.delete(orderId);
+                return next;
+              });
             } catch (e: unknown) {
               const msg =
                 typeof e === "object" && e !== null && "error" in e && typeof (e as { error?: string }).error === "string"
@@ -272,6 +287,73 @@ function ToShipFlowView({
         },
       ]
     );
+  };
+
+  const confirmCancelAndRefund = (orderId: string) => {
+    const o = orders.find((x) => x.id === orderId);
+    const paidOnline = Boolean(o?.stripePaymentIntentId);
+    setShipMenuOrderId(null);
+    Alert.alert(
+      "Cancel & refund?",
+      paidOnline
+        ? "This cancels the whole order. The buyer will be refunded to their card and listing quantities will be restored. This cannot be undone."
+        : "This cancels the whole order and restores listing quantities. Confirm with the buyer if they already paid you in person.",
+      [
+        { text: "Not now", style: "cancel" },
+        {
+          text: "Cancel & refund",
+          style: "destructive",
+          onPress: async () => {
+            setCancelingId(orderId);
+            setError(null);
+            try {
+              await apiPost(`/api/store-orders/${encodeURIComponent(orderId)}/seller-cancel`, {});
+              onOrderRemoved(orderId);
+              setSelectedOrderIds((prev) => {
+                const next = new Set(prev);
+                next.delete(orderId);
+                return next;
+              });
+            } catch (e: unknown) {
+              const msg =
+                typeof e === "object" && e !== null && "error" in e && typeof (e as { error?: string }).error === "string"
+                  ? (e as { error: string }).error
+                  : "Could not cancel this order. Try again or contact support.";
+              setError(msg);
+              Alert.alert("Cancel & refund", msg);
+            } finally {
+              setCancelingId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const messageBuyer = async (order: StoreOrder) => {
+    const buyerId = order.buyer?.id;
+    setShipMenuOrderId(null);
+    if (!buyerId) {
+      Alert.alert("Message buyer", "This order has no buyer account to message.");
+      return;
+    }
+    setMessagingBuyerId(order.id);
+    try {
+      const conv = await apiPost<{ id: string }>("/api/direct-conversations", { addresseeId: buyerId });
+      if (conv?.id) {
+        router.push(`/messages/${conv.id}` as never);
+      } else {
+        Alert.alert("Message buyer", "Could not open the conversation.");
+      }
+    } catch (e: unknown) {
+      const msg =
+        typeof e === "object" && e !== null && "error" in e && typeof (e as { error?: string }).error === "string"
+          ? (e as { error: string }).error
+          : "Could not open the conversation.";
+      Alert.alert("Message buyer", msg);
+    } finally {
+      setMessagingBuyerId(null);
+    }
   };
 
   if (connected === null) {
@@ -290,7 +372,7 @@ function ToShipFlowView({
             ? "No orders need shipping. Labels are charged to your connected Shippo account."
             : "No orders are waiting to ship. Connect Shippo when you want to buy labels in the browser, or mark shipped from an order when you use your own postage."}
         </Text>
-        <Text style={styles.shipEmpty}>No orders to ship</Text>
+        <Text style={styles.shipEmpty}>No Orders To Ship</Text>
         {!connected ? (
           <Pressable
             style={({ pressed }) => [styles.shipBtn, { marginTop: 16 }, pressed && { opacity: 0.8 }]}
@@ -304,6 +386,7 @@ function ToShipFlowView({
   }
 
   return (
+    <>
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.shipContent}
@@ -372,7 +455,6 @@ function ToShipFlowView({
         const orderNum = order.orderNumber ?? order.id.slice(-8).toUpperCase();
         const checked = selectedOrderIds.has(order.id);
         const addr = formatShippingAddress(order.shippingAddress);
-        const showMarkShipped = isOrderEligibleForToShipQueue(order);
         return (
           <View key={order.id} style={styles.shipCard}>
             <View style={styles.shipRow}>
@@ -411,25 +493,106 @@ function ToShipFlowView({
                   {addr || "—"}
                 </Text>
                 <Text style={styles.shipTotal}>{formatSellerOrderTotal(order)}</Text>
-                {showMarkShipped ? (
+                {(order.items ?? []).length > 0 ? (
+                  <View style={styles.shipItemsList}>
+                    {(order.items ?? []).map((oi) => {
+                      const photoUrl = resolvePhotoUrl(oi.storeItem?.photos?.[0]);
+                      const itemBusy =
+                        markingShippedId === order.id ||
+                        cancelingId === order.id ||
+                        messagingBuyerId === order.id;
+                      return (
+                        <View key={oi.id} style={styles.shipItemRow}>
+                          {photoUrl ? (
+                            <Image source={{ uri: photoUrl }} style={styles.shipItemThumb} />
+                          ) : (
+                            <View style={[styles.shipItemThumb, styles.itemThumbPlaceholder]} />
+                          )}
+                          <Text style={styles.shipItemTitle}>
+                            {oi.storeItem?.title ?? "Item"}
+                            {oi.quantity > 1 ? ` × ${oi.quantity}` : ""}
+                          </Text>
+                          {itemBusy ? (
+                            <ActivityIndicator
+                              color={theme.colors.primary}
+                              size="small"
+                              style={styles.shipItemMenuSpinner}
+                            />
+                          ) : (
+                            <Pressable
+                              accessibilityLabel={`Order options for ${oi.storeItem?.title ?? "item"}`}
+                              hitSlop={10}
+                              style={({ pressed }) => [styles.shipItemMenuBtn, pressed && { opacity: 0.7 }]}
+                              onPress={() => setShipMenuOrderId(order.id)}
+                            >
+                              <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.heading} />
+                            </Pressable>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : (
                   <Pressable
-                    style={({ pressed }) => [styles.markShippedBtn, pressed && { opacity: 0.85 }]}
-                    onPress={() => confirmMarkShipped(order.id)}
-                    disabled={markingShippedId === order.id}
+                    accessibilityLabel="Order options"
+                    hitSlop={10}
+                    style={({ pressed }) => [styles.shipItemMenuBtn, { alignSelf: "flex-end" }, pressed && { opacity: 0.7 }]}
+                    onPress={() => setShipMenuOrderId(order.id)}
                   >
-                    {markingShippedId === order.id ? (
-                      <ActivityIndicator color={theme.colors.primary} size="small" />
-                    ) : (
-                      <Text style={styles.markShippedBtnText}>Mark as shipped (no label)</Text>
-                    )}
+                    <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.heading} />
                   </Pressable>
-                ) : null}
+                )}
               </View>
             </View>
           </View>
         );
       })}
     </ScrollView>
+    <Modal
+      visible={shipMenuOrderId != null}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setShipMenuOrderId(null)}
+    >
+      <Pressable style={styles.modalBackdrop} onPress={() => setShipMenuOrderId(null)}>
+        <View onStartShouldSetResponder={() => true} style={styles.modalSheet}>
+          {menuOrder && isOrderEligibleForToShipQueue(menuOrder) ? (
+            <Pressable
+              style={({ pressed }) => [styles.modalRowFirst, pressed && { opacity: 0.85 }]}
+              onPress={() => confirmMarkShipped(menuOrder.id)}
+              disabled={menuBusy}
+            >
+              <Text style={styles.modalRowText}>Mark as shipped</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            style={({ pressed }) => [styles.modalRowDanger, pressed && { opacity: 0.85 }]}
+            onPress={() => {
+              if (menuOrder) confirmCancelAndRefund(menuOrder.id);
+            }}
+            disabled={menuBusy}
+          >
+            <Text style={styles.modalRowDangerText}>Cancel & refund</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.modalRow, pressed && { opacity: 0.85 }]}
+            onPress={() => {
+              if (menuOrder) void messageBuyer(menuOrder);
+            }}
+            disabled={menuBusy}
+          >
+            <Text style={styles.modalRowText}>Message buyer</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.modalRow, pressed && { opacity: 0.85 }]}
+            onPress={() => setShipMenuOrderId(null)}
+          >
+            <Text style={styles.modalRowText}>Close</Text>
+          </Pressable>
+        </View>
+      </Pressable>
+    </Modal>
+    </>
   );
 }
 
@@ -473,7 +636,7 @@ function PickupsTabView({
   if (pickupOrders.length === 0) {
     return (
       <View style={styles.emptyTab}>
-        <Text style={styles.emptyText}>No pickup orders right now.</Text>
+        <Text style={styles.emptyText}>No Pickup Orders Right Now.</Text>
       </View>
     );
   }
@@ -668,7 +831,7 @@ function DeliveriesTabView({
   if (deliveryOrders.length === 0) {
     return (
       <View style={styles.emptyTab}>
-        <Text style={styles.emptyText}>No orders with local delivery.</Text>
+        <Text style={styles.emptyText}>No Orders With Local Delivery.</Text>
       </View>
     );
   }
@@ -883,7 +1046,7 @@ function HistoryTabView({
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyText}>
-              {subTab === "shipped" ? "No shipped orders." : "No canceled orders."}
+              {subTab === "shipped" ? "No Shipped Orders." : "No Canceled Orders."}
             </Text>
           </View>
         }
@@ -1030,6 +1193,7 @@ export default function OrdersScreen() {
 
   const handleOrderRemoved = useCallback((orderId: string) => {
     setAllOrders((prev) => prev.filter((o) => o.id !== orderId));
+    setShipOrders((prev) => prev.filter((o) => o.id !== orderId));
   }, []);
 
   const showInitialLoader =
@@ -1050,7 +1214,12 @@ export default function OrdersScreen() {
     <View style={styles.container}>
       <FulfillmentTabBar activeTab={tab} onTabChange={setTab} counts={tabCounts} />
       {tab === "ship" ? (
-        <ToShipFlowView orders={toShipOrders} onRefresh={handleRefresh} refreshing={refreshing} />
+        <ToShipFlowView
+          orders={toShipOrders}
+          onRefresh={handleRefresh}
+          refreshing={refreshing}
+          onOrderRemoved={handleOrderRemoved}
+        />
       ) : tab === "pickups" ? (
         <PickupsTabView
           orders={allOrders}
@@ -1187,9 +1356,15 @@ const styles = StyleSheet.create({
     borderTopColor: "#eee",
   },
   modalRowText: { fontSize: 16, textAlign: "center", color: theme.colors.heading },
+  modalRowFirst: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
   modalRowDanger: {
     paddingVertical: 16,
     paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
   },
   modalRowDangerText: { fontSize: 16, textAlign: "center", color: "#b91c1c", fontWeight: "600" },
   historySubTabRow: {
@@ -1255,6 +1430,12 @@ const styles = StyleSheet.create({
   shipBuyer: { fontSize: 15, fontWeight: "600", marginTop: 4, color: "#333" },
   shipAddr: { fontSize: 13, color: "#666", marginTop: 4, lineHeight: 18 },
   shipTotal: { fontSize: 15, fontWeight: "600", color: theme.colors.primary, marginTop: 6 },
+  shipItemsList: { marginTop: 10, gap: 8 },
+  shipItemRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  shipItemThumb: { width: 56, height: 56, borderRadius: 8, backgroundColor: "#eee" },
+  shipItemTitle: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: "600", color: "#333", lineHeight: 20 },
+  shipItemMenuBtn: { padding: 4, marginTop: -2, marginRight: -4 },
+  shipItemMenuSpinner: { marginTop: 4, marginRight: 2 },
   selectAllBtn: { alignSelf: "flex-start", marginBottom: 12 },
   selectAllText: { fontSize: 15, fontWeight: "600", color: theme.colors.primary },
   shipNote: {
@@ -1286,17 +1467,4 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   shipBtnOutlineText: { color: theme.colors.primary, fontWeight: "600" },
-  markShippedBtn: {
-    marginTop: 10,
-    alignSelf: "flex-start",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.colors.primary,
-    backgroundColor: "#fff",
-    minHeight: 40,
-    justifyContent: "center",
-  },
-  markShippedBtnText: { fontSize: 14, fontWeight: "600", color: theme.colors.primary },
 });

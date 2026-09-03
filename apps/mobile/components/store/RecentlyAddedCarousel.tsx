@@ -11,7 +11,7 @@ import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import { StoreItemCard, type StoreItemData } from "./StoreItemCard";
 
-const CARD_WIDTH = 140;
+const CARD_WIDTH = 160;
 const CARD_GAP = 12;
 
 interface RecentlyAddedCarouselProps {
@@ -83,7 +83,7 @@ export function RecentlyAddedCarousel({ onQuickAdd, refreshKey }: RecentlyAddedC
             item={item}
             width={CARD_WIDTH}
             variant="carousel"
-            showBadges={false}
+            showBadges
             onQuickAdd={onQuickAdd}
           />
         ))}
@@ -97,7 +97,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   loadingContainer: {
-    height: 200,
+    height: 240,
     alignItems: "center",
     justifyContent: "center",
   },

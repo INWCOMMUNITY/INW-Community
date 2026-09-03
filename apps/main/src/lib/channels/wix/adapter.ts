@@ -53,7 +53,7 @@ import {
   type WixV1Product,
 } from "./mapping";
 import { syncWixProductMedia } from "./media";
-import { shouldReplaceWixProductMedia } from "./media-import";
+import { shouldReplaceWixProductMediaOnUpdate } from "./media-import";
 import { claimChannelListingLink } from "../listing-link-claim";
 import { prisma } from "database";
 
@@ -798,6 +798,16 @@ export const wixAdapter: ChannelAdapter = {
     const productId = externalListingId;
     const attempts = wixRequestAttempts(conn);
     let lastErr: unknown;
+    const wixLink = await prisma.channelListingLink.findFirst({
+      where: { storeItemId: item.id, provider: "wix" },
+      select: { lastPushedPhotos: true },
+    });
+    const lastPushedPhotos = Array.isArray(wixLink?.lastPushedPhotos)
+      ? (wixLink.lastPushedPhotos as unknown[]).filter(
+          (url): url is string => typeof url === "string" && url.trim().length > 0
+        )
+      : [];
+    const replacePhotos = shouldReplaceWixProductMediaOnUpdate(item.photos, lastPushedPhotos);
 
     for (let pass = 0; pass < 2; pass++) {
       for (const opts of attempts) {
@@ -816,7 +826,7 @@ export const wixAdapter: ChannelAdapter = {
               opts
             );
             await applyWixCategoryAndOptions(conn, productId, item, opts, true);
-            if (shouldReplaceWixProductMedia(item.photos)) {
+            if (replacePhotos) {
               await syncWixProductMedia(conn, productId, item.photos, { replace: true });
             }
             if (!hasOptionQuantities(item.variants)) {
@@ -859,7 +869,7 @@ export const wixAdapter: ChannelAdapter = {
               opts,
               false
             );
-            if (shouldReplaceWixProductMedia(item.photos)) {
+            if (replacePhotos) {
               await syncWixProductMedia(conn, productId, item.photos, { replace: true }).catch(
                 (e) => {
                   console.warn("[wix] updateListing v3 media sync failed", {

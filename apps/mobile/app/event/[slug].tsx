@@ -742,10 +742,10 @@ export default function EventDetailScreen() {
                   <Text style={styles.rsvpOptionGoingText}>Add to My Calendar</Text>
                 </Pressable>
                 <Pressable
-                  style={({ pressed }) => [styles.rsvpOptionMaybe, pressed && styles.pressed]}
+                  style={({ pressed }) => [styles.calendarGoogleBtn, pressed && styles.pressed]}
                   onPress={() => void onOpenGoogleCalendar()}
                 >
-                  <Text style={styles.rsvpOptionMaybeText}>Open in Google Calendar</Text>
+                  <Text style={styles.calendarGoogleBtnText}>Open in Google Calendar</Text>
                 </Pressable>
               </>
             )}
@@ -1382,13 +1382,28 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     paddingVertical: 12,
     borderRadius: 8,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.earth,
     borderWidth: 2,
-    borderColor: "#000",
+    borderColor: theme.colors.cream,
   },
   calendarAddBtnText: {
     fontSize: 16,
     fontWeight: "600",
     color: "#fff",
+  },
+  calendarGoogleBtn: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.earth,
+  },
+  calendarGoogleBtnText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#fff",
+    fontFamily: theme.fonts.body,
   },
 });

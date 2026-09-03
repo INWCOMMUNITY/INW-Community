@@ -28,7 +28,6 @@ import {
 } from "@/lib/list-on-channel-category";
 import { isEbayConditionSyncError } from "@/lib/ebay-condition-sync";
 import { buildProductPath } from "@/lib/product-referrer";
-import { QualityScoreBadge } from "@/components/listing/QualityScoreBadge";
 import { BulkActionsBar } from "@/components/seller/BulkActionsBar";
 import { BulkDestinationGridModal } from "@/components/seller/BulkDestinationGridModal";
 import {
@@ -667,11 +666,16 @@ export default function MyItemsScreen() {
             style={[styles.tab, itemsTab === t && styles.tabActive]}
             onPress={() => setItemsTab(t)}
           >
-            <Text style={[styles.tabText, itemsTab === t && styles.tabTextActive]}>
+            <Text
+              style={[styles.tabText, itemsTab === t && styles.tabTextActive]}
+              numberOfLines={2}
+              adjustsFontSizeToFit
+              minimumFontScale={0.85}
+            >
               {t === "active"
                 ? "Active"
                 : t === "attention"
-                  ? "Needs Attention"
+                  ? "Attention"
                   : t === "ended"
                     ? "Ended"
                     : "Sold"}
@@ -781,7 +785,7 @@ export default function MyItemsScreen() {
                   accessibilityRole="link"
                   accessibilityLabel={`View ${item.title}`}
                 >
-                  <Text style={styles.cardTitle} numberOfLines={2}>
+                  <Text style={styles.cardTitle}>
                     {item.title}
                   </Text>
                 </Pressable>
@@ -791,11 +795,6 @@ export default function MyItemsScreen() {
                     ? ` · Sold on ${new Date(item.soldAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
                     : ` · ${item.quantity} in stock · ${statusLabel(item)}`}
                 </Text>
-                {itemsTab !== "sold" && (
-                  <View style={styles.qualityBadgeRow}>
-                    <QualityScoreBadge storeItemId={item.id} compact />
-                  </View>
-                )}
                 {itemsTab === "attention" ? (
                   <RemoteDeletedCard
                     item={item}
@@ -813,7 +812,8 @@ export default function MyItemsScreen() {
                     <Text style={styles.viewOrderLink}>View Order</Text>
                   </Pressable>
                 )}
-                {item.channelLinks?.filter((link) => !link.remoteDeletedProvider).map((link) => {
+                <View style={styles.channelTagRow}>
+                {(item.channelLinks ?? []).filter((link) => !link.remoteDeletedProvider).map((link) => {
                       const label =
                         CHANNEL_PROVIDER_LABEL[link.provider as ChannelProviderId] ??
                         link.provider;
@@ -827,22 +827,24 @@ export default function MyItemsScreen() {
                         link.provider === "ebay" &&
                         link.syncStatus === "error" &&
                         isEbayConditionSyncError(link.syncError);
+                      const tagText = warning
+                        ? `${isConnectionIssue ? "⚠ " : ""}${warning}`
+                        : isPaused
+                          ? `${label}: paused`
+                          : needsConditionFix
+                            ? `${label}: fix`
+                            : label;
                       const badge = (
                         <Text
                           style={[
-                            styles.syncBadge,
-                            warning && isConnectionIssue && styles.syncBadgeWarning,
-                            isError && styles.syncBadgeError,
-                            isPaused && styles.syncBadgePaused,
+                            styles.channelTag,
+                            warning && isConnectionIssue && styles.channelTagWarning,
+                            isError && styles.channelTagError,
+                            isPaused && styles.channelTagPaused,
                           ]}
-                          numberOfLines={3}
+                          numberOfLines={1}
                         >
-                          {warning
-                            ? `⚠ ${warning}`
-                            : isPaused
-                              ? `${label}: paused`
-                              : `Synced to ${label}`}
-                          {needsConditionFix ? " · Tap to fix condition" : ""}
+                          {tagText}
                         </Text>
                       );
                       if (needsConditionFix) {
@@ -854,6 +856,7 @@ export default function MyItemsScreen() {
                       }
                       return <View key={link.provider}>{badge}</View>;
                     })}
+                </View>
               </View>
               <Pressable
                 style={({ pressed }) => [
@@ -1111,14 +1114,21 @@ const styles = StyleSheet.create({
   tab: {
     flex: 1,
     paddingVertical: 12,
+    paddingHorizontal: 2,
     alignItems: "center",
   },
   tabActive: {
     borderBottomWidth: 2,
     borderBottomColor: theme.colors.primary,
   },
-  tabText: { fontSize: 11, color: "#666" },
-  tabTextActive: { fontWeight: "600", color: theme.colors.primary },
+  tabText: {
+    fontSize: 14,
+    lineHeight: 18,
+    color: "#666",
+    textAlign: "center",
+    fontWeight: "500",
+  },
+  tabTextActive: { fontWeight: "700", color: theme.colors.primary },
   hint: {
     fontSize: 14,
     color: "#666",
@@ -1210,7 +1220,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#f9f9f9",
     borderRadius: 8,
     marginBottom: 12,
-    alignItems: "center",
+    alignItems: "flex-start",
     borderWidth: 1,
     borderColor: "transparent",
   },
@@ -1218,17 +1228,45 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.creamAlt,
     borderColor: theme.colors.primary,
   },
-  thumb: { width: 48, height: 48, borderRadius: 8, marginLeft: 10 },
+  thumb: { width: 56, height: 56, borderRadius: 8, marginLeft: 10 },
   thumbPlaceholder: { backgroundColor: "#ddd" },
-  cardBody: { flex: 1, marginLeft: 12, justifyContent: "center" },
-  cardTitle: { fontSize: 16, fontWeight: "600", color: "#333" },
-  cardPrice: { fontSize: 12, color: "#666", marginTop: 4 },
-  qualityBadgeRow: { marginTop: 6 },
+  cardBody: { flex: 1, marginLeft: 12, minWidth: 0 },
+  cardTitle: { fontSize: 16, fontWeight: "600", color: "#333", lineHeight: 22 },
+  cardPrice: { fontSize: 13, color: "#666", marginTop: 4 },
   viewOrderLink: { fontSize: 12, color: theme.colors.primary, marginTop: 2, fontWeight: "600" },
-  syncBadge: { fontSize: 11, color: "#2e7d32", marginTop: 4, fontWeight: "600" },
-  syncBadgeError: { color: "#c62828" },
-  syncBadgeWarning: { color: "#b45309" },
-  syncBadgePaused: { color: "#b26a00" },
+  channelTagRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 8,
+  },
+  channelTag: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: theme.colors.earth,
+    backgroundColor: theme.colors.cream,
+    borderWidth: 1,
+    borderColor: theme.colors.earth,
+    borderRadius: 999,
+    overflow: "hidden",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  channelTagError: {
+    color: "#b91c1c",
+    backgroundColor: "#fef2f2",
+    borderColor: "#fecaca",
+  },
+  channelTagWarning: {
+    color: "#92400e",
+    backgroundColor: "#fffbeb",
+    borderColor: "#fde68a",
+  },
+  channelTagPaused: {
+    color: "#4b5563",
+    backgroundColor: "#f9fafb",
+    borderColor: "#e5e7eb",
+  },
   viewBtn: {
     paddingVertical: 8,
     paddingHorizontal: 10,

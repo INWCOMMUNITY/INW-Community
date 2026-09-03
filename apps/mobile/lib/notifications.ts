@@ -48,25 +48,29 @@ function shouldSuppressChatNotification(data: NotificationData | undefined): boo
 }
 
 /** Configure how notifications appear when app is in foreground */
-Notifications.setNotificationHandler({
-  handleNotification: async (notification) => {
-    const data = notification.request.content.data as NotificationData | undefined;
-    if (shouldSuppressChatNotification(data)) {
+try {
+  Notifications.setNotificationHandler({
+    handleNotification: async (notification) => {
+      const data = notification.request.content.data as NotificationData | undefined;
+      if (shouldSuppressChatNotification(data)) {
+        return {
+          shouldPlaySound: false,
+          shouldSetBadge: true,
+          shouldShowBanner: false,
+          shouldShowList: false,
+        };
+      }
       return {
-        shouldPlaySound: false,
+        shouldPlaySound: true,
         shouldSetBadge: true,
-        shouldShowBanner: false,
-        shouldShowList: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
       };
-    }
-    return {
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    };
-  },
-});
+    },
+  });
+} catch {
+  /* Expo Go / missing native module */
+}
 
 /**
  * Request permission and get Expo push token. Returns token or null if unavailable.

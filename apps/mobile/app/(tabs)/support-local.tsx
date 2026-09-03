@@ -38,7 +38,6 @@ const SHORT_LIST_MAX_ITEMS_FOR_SCROLL_COLLAPSE = 2;
 
 const CARD_GAP = 12;
 const CARD_PADDING = 16;
-const accentBorder = "#c99d5f";
 
 interface Business {
   id: string;
@@ -326,7 +325,7 @@ export default function SupportLocalScreen() {
   const styles = useMemo(
     () =>
       StyleSheet.create({
-        container: { flex: 1, backgroundColor: "#fff" },
+        container: { flex: 1, backgroundColor: theme.colors.pageBackground },
         headerWrap: {
           overflow: "hidden",
           zIndex: 10,
@@ -336,14 +335,14 @@ export default function SupportLocalScreen() {
           flex: 1,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: "#fff",
+          backgroundColor: theme.colors.pageBackground,
         },
         header: {
           padding: 16,
           paddingTop: 16,
           backgroundColor: theme.colors.primary,
           borderBottomWidth: 2,
-          borderBottomColor: "#000",
+          borderBottomColor: theme.colors.cream,
         },
         headerRegion: {
           fontSize: 14,
@@ -389,19 +388,19 @@ export default function SupportLocalScreen() {
           marginHorizontal: 20,
         },
         logoCircle: {
-          width: 92,
-          height: 92,
-          borderRadius: 46,
+          width: 132,
+          height: 132,
+          borderRadius: 66,
           overflow: "hidden",
           backgroundColor: "transparent",
           alignItems: "center",
           justifyContent: "center",
-          borderWidth: 1.2,
-          borderColor: "#000",
+          borderWidth: 2,
+          borderColor: theme.colors.earth,
         },
         headerLogo: {
-          width: 92,
-          height: 92,
+          width: 128,
+          height: 128,
           alignSelf: "center",
         },
         headerButton: {
@@ -411,7 +410,7 @@ export default function SupportLocalScreen() {
           borderRadius: 20,
           backgroundColor: "#fff",
           borderWidth: 2,
-          borderColor: accentBorder,
+          borderColor: theme.colors.earth,
           maxWidth: "100%",
           minWidth: 0,
           alignSelf: "stretch",
@@ -435,16 +434,21 @@ export default function SupportLocalScreen() {
           fontFamily: theme.fonts.heading,
           ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
         },
+        searchInputFrame: {
+          borderWidth: 2,
+          borderColor: theme.colors.cream,
+          borderRadius: 10,
+          marginBottom: 12,
+        },
         searchInput: {
           backgroundColor: "#fff",
-          borderWidth: 2,
-          borderColor: accentBorder,
-          borderRadius: 8,
+          borderWidth: 4,
+          borderColor: theme.colors.earth,
+          borderRadius: theme.radii.input,
           paddingHorizontal: 12,
           paddingVertical: 10,
           fontSize: 16,
           color: "#000",
-          marginBottom: 12,
         },
         filters: {
           marginHorizontal: -16,
@@ -463,32 +467,44 @@ export default function SupportLocalScreen() {
           paddingHorizontal: 12,
           paddingVertical: 6,
           borderRadius: 16,
-          backgroundColor: "rgba(255,255,255,0.3)",
+          backgroundColor: "rgba(93, 79, 64, 0.55)",
+          borderWidth: 2,
+          borderColor: theme.colors.cream,
         },
-        filterChipActive: { backgroundColor: "#fff" },
+        filterChipActive: { backgroundColor: "#fff", borderColor: theme.colors.cream },
         filterChipText: { fontSize: 14, color: "#fff" },
         filterChipTextActive: { color: theme.colors.primary },
         listContent: { padding: 16, paddingBottom: 32 },
         listRow: {
           flexDirection: "row",
           justifyContent: "space-between",
+          alignItems: "stretch",
+          gap: CARD_GAP,
           marginBottom: CARD_GAP,
         },
         card: {
           width: cardWidth,
+          maxWidth: cardWidth,
+          alignSelf: "stretch",
           alignItems: "stretch",
           padding: 0,
-          borderRadius: 8,
-          borderWidth: 2,
-          borderColor: "#000",
-          backgroundColor: "#fff",
+          borderRadius: theme.radii.card,
+          backgroundColor: theme.colors.surface,
           overflow: "hidden",
+          borderWidth: 2,
+          borderColor: theme.colors.earth,
+          ...theme.shadows.card,
         },
         cardPressed: { opacity: 0.8 },
         cardLogoContainer: {
           width: "100%",
           aspectRatio: 1,
           backgroundColor: "#f5f5f5",
+        },
+        cardLogoDivider: {
+          height: 2,
+          width: "100%",
+          backgroundColor: theme.colors.earth,
         },
         cardLogo: {
           width: "100%",
@@ -502,11 +518,12 @@ export default function SupportLocalScreen() {
           alignItems: "center",
           justifyContent: "center",
         },
-        cardInfo: { padding: 12 },
+        cardInfo: { padding: 12, flexGrow: 1 },
         cardTitle: {
           fontSize: 14,
           fontWeight: "600",
           color: theme.colors.heading,
+          lineHeight: 20,
         },
         cardDesc: {
           fontSize: 12,
@@ -524,10 +541,11 @@ export default function SupportLocalScreen() {
         },
         seeBusinessButton: {
           marginHorizontal: 12,
+          marginTop: "auto",
           marginBottom: 12,
           paddingVertical: 10,
           borderRadius: 8,
-          backgroundColor: theme.colors.primary,
+          backgroundColor: theme.colors.earth,
           alignItems: "center",
           justifyContent: "center",
         },
@@ -537,6 +555,23 @@ export default function SupportLocalScreen() {
           color: "#fff",
         },
         empty: { padding: 24, alignItems: "center" },
+        emptyIconWrap: {
+          width: 64,
+          height: 64,
+          borderRadius: 32,
+          backgroundColor: theme.colors.creamAlt,
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: 16,
+        },
+        emptyTitle: {
+          fontSize: 18,
+          fontWeight: "700",
+          color: theme.colors.heading,
+          fontFamily: theme.fonts.heading,
+          textAlign: "center",
+          marginBottom: 8,
+        },
         emptyText: { fontSize: 16, color: theme.colors.text, textAlign: "center", marginBottom: 16 },
         retryButton: {
           paddingHorizontal: 24,
@@ -574,8 +609,9 @@ export default function SupportLocalScreen() {
               </View>
             )}
           </View>
+          <View style={styles.cardLogoDivider} />
           <View style={styles.cardInfo}>
-            <Text style={styles.cardTitle} numberOfLines={1}>
+            <Text style={styles.cardTitle}>
               {item.name}
             </Text>
             {item.shortDescription ? (
@@ -626,8 +662,9 @@ export default function SupportLocalScreen() {
               </View>
             )}
           </View>
+          <View style={styles.cardLogoDivider} />
           <View style={styles.cardInfo}>
-            <Text style={styles.cardTitle} numberOfLines={1}>
+            <Text style={styles.cardTitle}>
               {item.name}
             </Text>
             {item.shortDescription ? (
@@ -710,14 +747,18 @@ export default function SupportLocalScreen() {
             <Ionicons name="chevron-down" size={20} color="#fff" />
           </View>
         </Pressable>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search & Filter"
-          placeholderTextColor={theme.colors.placeholder}
-          value={search}
-          onChangeText={setSearch}
-          autoCorrect={true}
-        />
+        <View style={styles.searchInputFrame}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search & Filter"
+            placeholderTextColor={theme.colors.placeholder}
+            value={search}
+            onChangeText={setSearch}
+            autoCorrect={true}
+            cursorColor={theme.colors.earth}
+            selectionColor={theme.colors.earth}
+          />
+        </View>
         <ScrollView
           horizontal
           directionalLockEnabled
@@ -733,7 +774,7 @@ export default function SupportLocalScreen() {
             onPress={() => setCity("")}
           >
             <Text style={[styles.filterChipText, !city && styles.filterChipTextActive]}>
-              All cities
+              All Cities
             </Text>
           </Pressable>
           {filteredCities.map((c) => (
@@ -762,7 +803,7 @@ export default function SupportLocalScreen() {
             style={[styles.filterChip, !category && styles.filterChipActive]}
             onPress={() => setCategory("")}
           >
-            <Text style={[styles.filterChipText, !category && styles.filterChipTextActive]}>All categories</Text>
+            <Text style={[styles.filterChipText, !category && styles.filterChipTextActive]}>All Categories</Text>
           </Pressable>
           {filteredCategories.map((c) => (
             <Pressable
@@ -816,8 +857,12 @@ export default function SupportLocalScreen() {
         </TouchableWithoutFeedback>
       ) : connectionError ? (
         <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-          <View style={{ flex: 1, backgroundColor: "#fff", justifyContent: "center" }}>
+          <View style={{ flex: 1, backgroundColor: theme.colors.pageBackground, justifyContent: "center" }}>
             <View style={styles.empty}>
+              <View style={styles.emptyIconWrap}>
+                <Ionicons name="cloud-offline-outline" size={28} color={theme.colors.primary} />
+              </View>
+              <Text style={styles.emptyTitle}>Couldn’t load directory</Text>
               <Text style={styles.emptyText}>{connectionError}</Text>
               <Pressable
                 style={({ pressed }) => [styles.retryButton, pressed && { opacity: 0.8 }]}
@@ -867,10 +912,22 @@ export default function SupportLocalScreen() {
           }
           ListEmptyComponent={
             <View style={styles.empty}>
+              <View style={styles.emptyIconWrap}>
+                <Ionicons
+                  name={viewMode === "directory" ? "storefront-outline" : "briefcase-outline"}
+                  size={28}
+                  color={theme.colors.primary}
+                />
+              </View>
+              <Text style={styles.emptyTitle}>
+                {viewMode === "directory" ? "No businesses found" : "No sellers found"}
+              </Text>
               <Text style={styles.emptyText}>
-                {viewMode === "directory"
-                  ? `No businesses found. ${search || category || subcategory || city ? "Try different filters." : ""}`
-                  : `No sellers found. ${search || category || subcategory || city ? "Try different filters." : ""}`}
+                {search || category || subcategory || city
+                  ? "Try different filters."
+                  : viewMode === "directory"
+                    ? "Check back soon for local businesses."
+                    : "Check back soon for local sellers."}
               </Text>
             </View>
           }

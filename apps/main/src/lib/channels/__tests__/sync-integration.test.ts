@@ -566,12 +566,18 @@ describe("error classification", () => {
     expect(classifyError(error)).toBe("transient");
   });
 
-  it("classifies ended eBay item and #25604 as permanent", async () => {
+  it("classifies ended eBay item as permanent and #25604 as a retryable miss", async () => {
     const { classifyError, isEbayEndedListingError } = await import("../error-classifier");
     expect(classifyError(new Error("Not allowed to revise an ended item"))).toBe("permanent");
-    expect(classifyError(new Error("Availability not found (#25604)"))).toBe("permanent");
+    expect(classifyError(new Error("Availability not found (#25604)"))).toBe("transient");
+    const http400 = new Error("Availability not found for this SKU (#25604)") as Error & {
+      status: number;
+    };
+    http400.status = 400;
+    expect(classifyError(http400)).toBe("transient");
     expect(isEbayEndedListingError("listing ended")).toBe(true);
     expect(isEbayEndedListingError("revise an ended listing")).toBe(true);
+    expect(isEbayEndedListingError("Availability not found for this SKU (#25604)")).toBe(false);
   });
 
   it("classifies eBay Picture Policy 500px errors as transient so URL upgrades can retry", async () => {

@@ -17,7 +17,7 @@ import { AppImage } from "@/components/AppImage";
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
-const CARD_WIDTH = 140;
+const CARD_WIDTH = 160;
 const CARD_GAP = 12;
 
 interface SellerSpotlight {

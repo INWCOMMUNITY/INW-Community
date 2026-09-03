@@ -1,5 +1,5 @@
 /** Single source of truth for Privacy Policy content. Used by privacy page, PDF API, and export script. */
-export const PRIVACY_LAST_UPDATED = "June 1, 2026";
+export const PRIVACY_LAST_UPDATED = "September 1, 2026";
 
 export const PRIVACY_BODY = `Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
 This Privacy Policy explains how we collect, use, store, and protect your information when you use our website at inwcommunity.com, our Northwest Community mobile app, community features, marketplace, coupons, subscriptions, events, or any related services.
@@ -67,7 +67,7 @@ Our website uses essential session and security cookies. We do not use third-par
 When you use our Northwest Community mobile app, we may also collect or process:
 ● Account credentials and authentication tokens stored on your device (secured storage)
 ● Device type and operating system (for compatibility)
-● Photos and images uploaded from your device (including logos, listing photos, business gallery images, and calendar/event images where supported), stored via our secure file storage. Per-file uploads are limited to 120MB; accepted formats include JPEG, PNG, WebP, GIF, and HEIC/HEIF on endpoints that support them. Business directory profiles may include up to 12 gallery photos in addition to a logo.
+● Photos and images uploaded from your device (including logos, listing photos, business gallery images, and calendar/event images where supported), stored via our secure file storage. Listing photos may be up to 250MB per file; other image uploads are limited to 120MB. Accepted formats include JPEG, PNG, WebP, GIF, and HEIC/HEIF on endpoints that support them. Business directory profiles may include up to 12 gallery photos in addition to a logo.
 ● If you use Add to calendar on an event in the mobile app, the app may ask permission to access your device calendar only so it can create an event you confirm. We do not read, sync, or upload your calendar contents to our servers for that feature.
 
 Push notifications: If you enable notifications on your device, a push token may be registered with Northwest Community (and with our push delivery provider) so we can send notices to your app. We use push notifications for service- and activity-related messages, such as order or account alerts, event invitations, responses to event invitations you sent, event reminders, and similar messages tied to your account. You may disable push notifications at any time in your device settings. We may remove tokens that are no longer valid (for example, after you turn off notifications or uninstall the app).

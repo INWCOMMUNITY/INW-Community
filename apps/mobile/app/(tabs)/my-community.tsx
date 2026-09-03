@@ -25,7 +25,7 @@ import { theme } from "@/lib/theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProfileView } from "@/contexts/ProfileViewContext";
 import { useCreatePost } from "@/contexts/CreatePostContext";
-import { useOpenSellerMenu, openBusinessQRRef } from "./_layout";
+import { useOpenSellerMenu } from "./_layout";
 import { CouponFormModal } from "@/components/CouponFormModal";
 import { PostEventForm } from "@/components/PostEventForm";
 import { apiGet, getToken } from "@/lib/api";
@@ -119,8 +119,6 @@ function SellerHubContent() {
   const { setProfileView } = useProfileView();
   const openSellerMenu = useOpenSellerMenu();
   const [pendingShip, setPendingShip] = useState(0);
-  const [pendingDeliveries, setPendingDeliveries] = useState(0);
-  const [pendingPickups, setPendingPickups] = useState(0);
   const [pendingReturns, setPendingReturns] = useState(0);
   const [payoutReady, setPayoutReady] = useState(false);
   const [sellerSetupComplete, setSellerSetupComplete] = useState(false);
@@ -132,15 +130,11 @@ function SellerHubContent() {
       if (hasSeller) {
         apiGet<{
           pendingShip?: number;
-          pendingDeliveries?: number;
-          pendingPickups?: number;
           pendingReturns?: number;
           payoutReady?: boolean;
         }>("/api/seller-hub/pending-actions")
           .then((data) => {
             setPendingShip(Number(data.pendingShip) || 0);
-            setPendingDeliveries(Number(data.pendingDeliveries) || 0);
-            setPendingPickups(Number(data.pendingPickups) || 0);
             setPendingReturns(Number(data.pendingReturns) || 0);
             setPayoutReady(Boolean(data.payoutReady));
           })
@@ -230,14 +224,11 @@ function SellerHubContent() {
       { label: "My Items", href: "/seller-hub/store/items", icon: "cube" },
       { label: "List Items", href: "/seller-hub/store/new", icon: "add-circle" },
       { label: "Fulfillment", href: "/seller-hub/orders", icon: "receipt" },
-      { label: "Storefront Info", href: "/seller-hub/store", icon: "storefront" },
       { label: "Manage Store", href: "/seller-hub/store/manage", icon: "list" },
-      { label: "Deliveries", href: "/seller-hub/orders?tab=deliveries", icon: "car-outline" },
-      { label: "Pick Up", href: "/seller-hub/orders?tab=pickups", icon: "hand-left-outline" },
       { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
+      { label: "Storefront Info", href: "/seller-hub/store", icon: "storefront" },
       { label: "Sync Stores", href: "/seller-hub/channels", icon: "sync-outline" },
       { label: "Analytics", href: "/seller-hub/analytics", icon: "analytics-outline" },
-      { label: "Activity Log", href: "/seller-hub/activity", icon: "time-outline" },
       { label: "Data Tools", href: "/seller-hub/data-tools", icon: "download-outline" },
       {
         label: sellerSetupComplete ? "Seller Variables" : "Before You Start",
@@ -251,12 +242,10 @@ function SellerHubContent() {
   const hubBadgeForLabel = useCallback(
     (label: string) => {
       if (label === "Fulfillment") return pendingShip > 0;
-      if (label === "Deliveries") return pendingDeliveries > 0;
-      if (label === "Pick Up") return pendingPickups > 0;
       if (label === "Payouts") return payoutReady;
       return false;
     },
-    [pendingDeliveries, pendingPickups, pendingShip, payoutReady]
+    [pendingShip, payoutReady]
   );
 
   return (
@@ -335,6 +324,7 @@ export default function MyCommunityScreen() {
   const showSellerHub = profileView === "seller_hub";
 
   const [couponModalVisible, setCouponModalVisible] = useState(false);
+  const [rewardModalVisible, setRewardModalVisible] = useState(false);
   const [eventModalVisible, setEventModalVisible] = useState(false);
   const [businesses, setBusinesses] = useState<MyBusiness[]>([]);
   const [activeBusinessId, setActiveBusinessId] = useState<string | null>(null);
@@ -453,26 +443,11 @@ export default function MyCommunityScreen() {
     setHubLogoLoadFailed(false);
   }, [hubHeroLogoUri]);
 
-  useFocusEffect(
-    useCallback(() => {
-      if (profileView !== "business_hub") {
-        openBusinessQRRef.current = null;
-        return;
-      }
-      openBusinessQRRef.current = () => {
-        if (businesses.length === 0) {
-          Alert.alert("No businesses", "Add a business first to show your QR code.");
-          return;
-        }
-        const b = activeBusiness;
-        if (!b) return;
-        setShowQRBusiness({ id: b.id, name: b.name });
-      };
-      return () => {
-        openBusinessQRRef.current = null;
-      };
-    }, [profileView, businesses, activeBusiness])
-  );
+  useEffect(() => {
+    if (!rewardModalVisible) return;
+    setRewardModalVisible(false);
+    Alert.alert("Rewards", "Create coupons and events from Business Hub to reward customers.");
+  }, [rewardModalVisible]);
 
   const openBusinessSetup = () => {
     (router.push as (href: string) => void)("/sponsor-business");
@@ -530,66 +505,12 @@ export default function MyCommunityScreen() {
     }
   };
 
-  const handleDownloadQR = async (businessId: string, slug: string) => {
-    const token = await getToken();
-    if (!token) {
-      Alert.alert("Sign in required", "Please sign in to download.");
-      return;
-    }
-    setDownloading(true);
-    try {
-      const url = `${API_BASE}/api/businesses/${businessId}/qr`;
-      const filename = `nwc-qr-${slug}.png`;
-      const cacheDir = FileSystem.cacheDirectory;
-      if (!cacheDir) {
-        throw new Error("File system not available on this device.");
-      }
-      const fileUri = `${cacheDir}${filename}`;
-
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error((err as { error?: string }).error ?? `Request failed (${res.status})`);
-      }
-      const arrayBuffer = await res.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
-      const base64 = uint8ArrayToBase64(bytes);
-
-      await FileSystem.writeAsStringAsync(fileUri, base64, {
-        encoding: "base64",
-      });
-
-      const shareable = await Sharing.isAvailableAsync();
-      if (shareable) {
-        await Sharing.shareAsync(fileUri, {
-          mimeType: "image/png",
-          dialogTitle: "Save QR Code",
-        });
-      } else {
-        const canOpen = await Linking.canOpenURL(fileUri);
-        if (canOpen) {
-          await Linking.openURL(fileUri);
-        } else {
-          Alert.alert("Downloaded", "File saved. Check your device storage.");
-        }
-      }
-    } catch (e) {
-      Alert.alert("Download failed", (e as Error).message ?? "Please try again.");
-    } finally {
-      setDownloading(false);
-    }
-  };
-
-  const promptDownload = (type: "qr" | "flyer") => {
+  const promptDownloadFlyer = () => {
     if (businesses.length === 0 || !activeBusiness) {
-      Alert.alert("No businesses", "Add a business first to download a QR code or flyer.");
+      Alert.alert("No businesses", "Add a business first to download a flyer.");
       return;
     }
-    type === "qr"
-      ? handleDownloadQR(activeBusiness.id, activeBusiness.slug)
-      : handleDownloadFlyer(activeBusiness.id, activeBusiness.slug);
+    handleDownloadFlyer(activeBusiness.id, activeBusiness.slug);
   };
 
   if (loading) {
@@ -782,27 +703,7 @@ export default function MyCommunityScreen() {
 
           {businesses.length > 0 && (
             <RNView style={styles.businessHubDownloadSection}>
-              <Text style={styles.downloadSectionTitle}>QR Code</Text>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.showQRButton,
-                  pressed && { opacity: 0.85 },
-                ]}
-                onPress={() => {
-                  if (activeBusiness) {
-                    setShowQRBusiness({ id: activeBusiness.id, name: activeBusiness.name });
-                  }
-                }}
-              >
-                <Ionicons name="qr-code" size={28} color="#fff" />
-                <Text style={styles.showQRButtonText}>Show My QR Code</Text>
-              </Pressable>
-              <Text style={styles.downloadHint}>
-                Show this QR code to customers so they can scan it and earn reward points for supporting
-                your business.
-              </Text>
-
-              <Text style={[styles.downloadSectionTitle, { marginTop: 20 }]}>Download</Text>
+              <Text style={styles.downloadSectionTitle}>Download</Text>
               <RNView style={styles.sellerHubGrid}>
                 <Pressable
                   style={({ pressed }) => [
@@ -810,25 +711,7 @@ export default function MyCommunityScreen() {
                     downloading && styles.downloadBtnDisabled,
                     pressed && styles.buttonPressed,
                   ]}
-                  onPress={() => promptDownload("qr")}
-                  disabled={downloading}
-                >
-                  {downloading ? (
-                    <ActivityIndicator size="small" color={theme.colors.primary} />
-                  ) : (
-                    <>
-                      <Ionicons name="qr-code" size={28} color={theme.colors.primary} />
-                      <ThemedText style={styles.sellerHubGridLabel}>QR Code</ThemedText>
-                    </>
-                  )}
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.sellerHubGridButton,
-                    downloading && styles.downloadBtnDisabled,
-                    pressed && styles.buttonPressed,
-                  ]}
-                  onPress={() => promptDownload("flyer")}
+                  onPress={promptDownloadFlyer}
                   disabled={downloading}
                 >
                   {downloading ? (
@@ -842,7 +725,7 @@ export default function MyCommunityScreen() {
                 </Pressable>
               </RNView>
               <Text style={styles.downloadHint}>
-                Download the QR or print the Flyer and hang it up in your storefront.
+                Print the flyer and hang it up in your storefront.
               </Text>
             </RNView>
           )}
@@ -952,7 +835,7 @@ export default function MyCommunityScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
       <View style={styles.greenSection}>
-        <View style={styles.profileTop}>
+        <RNView style={styles.profileTop}>
           <View style={styles.avatarWrap}>
             {member.profilePhotoUrl ? (
               <Image
@@ -1010,16 +893,7 @@ export default function MyCommunityScreen() {
               ) : null}
             </RNView>
           </RNView>
-          <View style={styles.profileDivider} />
-        </View>
-
-        <View style={styles.pointsRow}>
-          <View style={styles.smallBox}>
-            <ThemedText style={styles.smallBoxText} numberOfLines={1}>
-              {member.points ?? 0} points
-            </ThemedText>
-          </View>
-        </View>
+        </RNView>
 
         <Pressable
           style={({ pressed }) => [styles.postsBox, pressed && { opacity: 0.9 }]}
@@ -1113,7 +987,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#ffffff",
+    backgroundColor: theme.colors.pageBackground,
   },
   guestPromptTitle: {
     fontSize: 18,
@@ -1152,7 +1026,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: "#ffffff",
+    backgroundColor: theme.colors.pageBackground,
   },
   /** Plan / subscription gates: anchor CTA block toward bottom of tab (matches web hub gates). */
   planGateFill: {
@@ -1161,7 +1035,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: 32,
+    paddingBottom: 0,
   },
   placeholderContent: {
     flex: 1,
@@ -1175,15 +1049,23 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   greenSection: {
-    flex: 1,
-    padding: 20,
-    backgroundColor: "#ffffff",
-    paddingBottom: 24,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    backgroundColor: theme.colors.pageBackground,
   },
   profileTop: {
     alignItems: "center",
     marginBottom: 16,
     gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 16,
+    backgroundColor: "#fff",
+    borderWidth: 3,
+    borderColor: theme.colors.earth,
+    borderRadius: 12,
+    overflow: "hidden",
   },
   avatarWrap: {},
   avatar: {
@@ -1195,26 +1077,26 @@ const styles = StyleSheet.create({
     width: 140,
     height: 140,
     borderRadius: 70,
-    backgroundColor: "#fff",
+    backgroundColor: theme.colors.surface,
     borderWidth: 2,
-    borderColor: "#000",
+    borderColor: theme.colors.gold,
     alignItems: "center",
     justifyContent: "center",
   },
   avatarInitials: {
     fontSize: 44,
     fontWeight: "bold",
-    color: "#000",
+    color: theme.colors.heading,
   },
   nameText: {
     fontSize: 20,
     fontWeight: "600",
-    color: "#000",
+    color: theme.colors.heading,
     textAlign: "center",
   },
   cityText: {
     fontSize: 16,
-    color: "#000",
+    color: theme.colors.text,
     textAlign: "center",
     marginTop: -6,
   },
@@ -1228,28 +1110,26 @@ const styles = StyleSheet.create({
   },
   smallBox: {
     flex: 1,
-    backgroundColor: "#fff",
-    borderWidth: 2,
-    borderColor: "#000",
-    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radii.card,
     padding: 12,
     minHeight: 44,
     justifyContent: "center",
+    ...theme.shadows.card,
   },
   smallBoxText: {
     fontSize: 14,
-    color: "#000",
+    color: theme.colors.text,
   },
   badgesProfileRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#fff",
-    borderWidth: 2,
-    borderColor: "#000",
-    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radii.card,
     padding: 12,
     marginBottom: 12,
+    ...theme.shadows.card,
   },
   badgesProfileIcons: {
     flexDirection: "row",
@@ -1282,7 +1162,7 @@ const styles = StyleSheet.create({
   },
   bioText: {
     fontSize: 15,
-    color: "#000",
+    color: theme.colors.text,
     lineHeight: 22,
     textAlign: "center",
     width: 260,
@@ -1292,19 +1172,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#fff",
-    borderWidth: 2,
-    borderColor: "#000",
-    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radii.card,
     padding: 16,
     minHeight: 80,
-    /** Same vertical gap as pointsRow → badges row → posts (see `pointsRow`, `badgesProfileRow`). */
-    marginBottom: 12,
+    marginBottom: 0,
+    ...theme.shadows.card,
   },
   postsBoxText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#000",
+    color: theme.colors.heading,
   },
   profileBioActionRow: {
     flexDirection: "row",
@@ -1317,11 +1195,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.earth,
     paddingVertical: 10,
     paddingHorizontal: 8,
-    borderRadius: 4,
+    borderRadius: 8,
     minHeight: 44,
+    overflow: "hidden",
   },
   profileNotificationsButtonWrap: {
     flex: 1,
@@ -1362,8 +1241,10 @@ const styles = StyleSheet.create({
   },
   buttonPressed: { opacity: 0.8 },
   tanSection: {
+    flex: 1,
     backgroundColor: theme.colors.cream,
     padding: 16,
+    paddingHorizontal: 20,
     borderTopWidth: 1,
     borderTopColor: "#000",
   },
@@ -1430,45 +1311,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#fff",
   },
-  businessPickerOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    padding: 24,
-  },
-  businessPickerSheet: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 20,
-  },
-  businessPickerTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: theme.colors.heading,
-    marginBottom: 16,
-  },
-  businessPickerOption: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    borderRadius: 6,
-    marginBottom: 8,
-  },
-  businessPickerOptionText: {
-    fontSize: 16,
-    color: theme.colors.heading,
-    fontWeight: "500",
-  },
-  businessPickerCancel: {
-    paddingVertical: 14,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  businessPickerCancelText: {
-    fontSize: 16,
-    color: "#666",
-  },
   buttonRow: {
     flexDirection: "row",
     gap: 8,
@@ -1495,11 +1337,15 @@ const styles = StyleSheet.create({
     minHeight: 52,
     minWidth: 0,
     alignSelf: "stretch",
+    overflow: "hidden",
   },
   /** Matches flex behavior for both columns in a row (pair with tanButtonFriendWrap). */
   tanButtonSlot: {
     flex: 1,
     minWidth: 0,
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "transparent",
   },
   tanButtonFriendWrap: {
     flex: 1,
@@ -1507,6 +1353,8 @@ const styles = StyleSheet.create({
     position: "relative",
     overflow: "visible",
     zIndex: 0,
+    borderRadius: 8,
+    backgroundColor: "transparent",
   },
   /** Lift stacking when badge sits outside the button so it paints above the sibling tile. */
   tanButtonFriendWrapRaised: {
@@ -1824,10 +1672,10 @@ const styles = StyleSheet.create({
   sellerHubGridButton: {
     width: (SCREEN_WIDTH - 32 - 12) / 2, // screen - padding - gap
     minHeight: 100,
-    backgroundColor: "#fff",
+    backgroundColor: theme.colors.surface,
     borderWidth: 2,
     borderColor: theme.colors.primary,
-    borderRadius: 10,
+    borderRadius: theme.radii.card,
     padding: 16,
     flexDirection: "column",
     alignItems: "center",

@@ -20,11 +20,11 @@ const SITE_BASE = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
  */
 const ALLOWED_WIDTHS = [
   16, 32, 48, 64, 96, 128, 256, 384, 512, 640, 750, 828, 1080, 1200, 1920,
-  2048,
+  2560,
 ];
 
 /** Largest source width we will ever request (avoids huge optimizer work). */
-const MAX_WIDTH = 2048;
+const MAX_WIDTH = 1920;
 
 function snapWidth(width: number): number {
   for (const allowed of ALLOWED_WIDTHS) {

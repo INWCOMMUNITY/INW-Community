@@ -10,15 +10,11 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Dimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.85, 320);
-const NAV_HEADER_HEIGHT = 56;
+import { DRAWER_WIDTH, NAV_HEADER_HEIGHT } from "@/components/ui";
 
 export type DeliveryFilter = "" | "local" | "shipping";
 

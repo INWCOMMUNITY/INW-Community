@@ -76,7 +76,8 @@ export function StoreItemCard({
           <AppImage
             uri={photoUrl}
             targetWidth={width}
-            quality={55}
+            quality={50}
+            priority="high"
             style={styles.cardImage}
             resizeMode="contain"
           />
@@ -166,15 +167,11 @@ export function StoreItemCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radii.card,
     overflow: "hidden",
     maxWidth: "100%",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    ...theme.shadows.card,
   },
   cardPressed: {
     opacity: 0.85,
@@ -183,7 +180,7 @@ const styles = StyleSheet.create({
     width: "100%",
     alignSelf: "stretch",
     aspectRatio: 4 / 5,
-    backgroundColor: "#F8F8F3",
+    backgroundColor: theme.colors.cardImageWell,
     overflow: "hidden",
     position: "relative",
     padding: 8,

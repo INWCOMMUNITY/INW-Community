@@ -1,8 +1,7 @@
 import sharp from "sharp";
+import { LISTING_JPEG_QUALITY, LISTING_PHOTO_MAX_EDGE } from "./listing-photo-upload";
 
-/** Max longest edge for listing photos (storefront + channel staging). */
-export const LISTING_PHOTO_MAX_EDGE = 3200;
-export const LISTING_JPEG_QUALITY = 92;
+export { LISTING_JPEG_QUALITY, LISTING_PHOTO_MAX_EDGE };
 
 export async function optimizeListingPhoto(input: Buffer): Promise<Buffer> {
   return sharp(input)

@@ -39,6 +39,24 @@ export function shouldReplaceWixProductMedia(photos: string[]): boolean {
   return urls.some((url) => !isWixStaticPhotoUrl(url));
 }
 
+function photoListsMatch(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((url, i) => url === b[i]);
+}
+
+/** Title/price fan-out must not delete Wix media. Only replace after a seller photo edit on INW. */
+export function shouldReplaceWixProductMediaOnUpdate(
+  photos: string[],
+  lastPushedPhotos: string[] | null | undefined
+): boolean {
+  if (!shouldReplaceWixProductMedia(photos)) return false;
+  const last = Array.isArray(lastPushedPhotos)
+    ? lastPushedPhotos.filter((url) => typeof url === "string" && url.trim().length > 0)
+    : [];
+  if (last.length === 0) return false;
+  return !photoListsMatch(last, photos.filter((url) => typeof url === "string" && url.trim().length > 0));
+}
+
 function mimeTypeForPhotoUrl(url: string): string {
   const path = url.split("?")[0]?.toLowerCase() ?? "";
   if (path.endsWith(".png")) return "image/png";

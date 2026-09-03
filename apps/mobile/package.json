@@ -10,7 +10,7 @@
     "version:bump:major": "node scripts/bump-expo-version.mjs major",
     "convert-assets-to-png": "node scripts/convert-assets-to-png.mjs",
     "assets:normalize-pngs": "node scripts/normalize-pngs-for-android.mjs",
-    "start": "expo start --port 8082",
+    "start": "expo start --dev-client --port 8082",
     "start:tunnel": "expo start --tunnel --port 8082",
     "android": "expo run:android",
     "android:emulator": "expo run:android -- -PreactNativeArchitectures=x86_64",

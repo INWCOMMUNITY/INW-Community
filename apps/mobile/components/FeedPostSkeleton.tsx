@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Animated, StyleSheet, View } from "react-native";
+import { theme } from "@/lib/theme";
 
 const PULSE_DURATION = 900;
 
@@ -69,14 +70,12 @@ const BONE = "#e5e5e5";
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#fff",
-    borderRadius: 0,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radii.card,
     overflow: "hidden",
-    marginBottom: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#000",
-    borderBottomColor: "#000",
+    marginHorizontal: theme.spacing.lg,
+    marginBottom: theme.spacing.md,
+    ...theme.shadows.card,
   },
   header: {
     flexDirection: "row",

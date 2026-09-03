@@ -32,6 +32,9 @@ const CALENDAR_IMAGES: Record<CalendarType, number> = {
   real_estate: require("@/assets/images/calendars/real_estate.png"),
 };
 
+/** Same park hero used on the website calendars landing page. */
+export const CALENDARS_HERO = require("@/assets/images/calendars/calendars-hero-park.jpg");
+
 export function getCalendarImage(type: CalendarType): number {
   return CALENDAR_IMAGES[type];
 }

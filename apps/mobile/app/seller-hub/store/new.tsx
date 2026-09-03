@@ -27,7 +27,12 @@ import {
   switchTrackColor,
 } from "@/lib/theme";
 import { useTheme } from "@/contexts/ThemeContext";
-import { apiGet, apiPost, apiPatch, apiUploadFile, getToken } from "@/lib/api";
+import { apiGet, apiPost, apiPatch, getToken } from "@/lib/api";
+import {
+  formatListingPhotoSizeLabel,
+  MAX_LISTING_PHOTO_BYTES,
+  uploadListingPhotoFile,
+} from "@/lib/upload-listing-photo";
 import {
   formatShippingOptionPackageSummary,
   shippingOptionNeedsMeasurements,
@@ -51,6 +56,7 @@ import {
 } from "@/components/listing/ListingOptionsEditor";
 import { TemplateSelector, type ListingTemplate } from "@/components/listing/TemplateSelector";
 import { CategorySuggestions } from "@/components/listing/CategorySuggestions";
+import { SelectField } from "@/components/listing/SelectField";
 import { CollapsibleSection } from "@/components/listing/CollapsibleSection";
 import { EbayItemDetailsSection } from "@/components/listing/EbayItemDetailsSection";
 import { EtsyListingRequirementsSection, type EtsyCategorySuggestion } from "@/components/listing/EtsyListingRequirementsSection";
@@ -129,8 +135,6 @@ type ShippingOptionChoice = {
 };
 
 const PLACEHOLDER_COLOR = "#888888";
-/** Must stay in sync with server [/api/upload] max size for listing photos. */
-const MAX_LISTING_PHOTO_BYTES = 160 * 1024 * 1024;
 
 export default function ListItemScreen() {
   const theme = useTheme();
@@ -924,17 +928,15 @@ export default function ListItemScreen() {
           asset.fileSize > MAX_LISTING_PHOTO_BYTES
         ) {
           setPhotoError(
-            `Each photo must be under ${MAX_LISTING_PHOTO_BYTES / (1024 * 1024)}MB. Skip very large originals or compress them.`
+            `Each photo must be under ${formatListingPhotoSizeLabel()}. Skip very large originals or compress them.`
           );
           continue;
         }
-        const formData = new FormData();
-        formData.append("file", {
-          uri: asset.uri,
-          type: asset.mimeType ?? "image/jpeg",
-          name: `photo-${i}.jpg`,
-        } as unknown as Blob);
-        const { url } = await apiUploadFile("/api/upload", formData);
+        const { url } = await uploadListingPhotoFile({
+          localUri: asset.uri,
+          mimeType: asset.mimeType ?? "image/jpeg",
+          fileSize: asset.fileSize,
+        });
         urls.push(toFullUrl(url));
       }
       setPhotos((p) => {
@@ -1413,6 +1415,9 @@ export default function ListItemScreen() {
       )}
 
       <Text style={styles.label}>Photos *</Text>
+      <Text style={styles.hint}>
+        Up to {formatListingPhotoSizeLabel()} each. Large camera originals are resized automatically.
+      </Text>
       <View style={styles.photoRow}>
         {photos.map((url) => (
           <View key={url} style={styles.photoWrap}>
@@ -1799,40 +1804,38 @@ export default function ListItemScreen() {
                     Free
                   </Text>
                 </View>
-                <Text style={styles.label}>Shipping option (package)</Text>
-                <View style={styles.bizRow}>
-                  {shippingOptions.map((opt) => (
-                    <Pressable
-                      key={opt.id}
-                      style={[styles.bizBtn, shippingOptionId === opt.id && styles.bizBtnActive]}
-                      onPress={() => {
-                        setShippingOptionId(opt.id);
-                        if (offerFreeShippingOnInw) {
-                          setShippingFree(true);
-                          return;
-                        }
-                        if (opt.shippingCostCents != null) {
-                          setShippingCostDollars((opt.shippingCostCents / 100).toFixed(2));
-                          setShippingFree(opt.shippingCostCents === 0);
-                        }
-                      }}
-                    >
-                      <Text
-                        style={
-                          shippingOptionId === opt.id ? styles.bizBtnTextActive : styles.bizBtnText
-                        }
-                      >
-                      {opt.name}
-                      {opt.shippingCostCents != null
+                <SelectField
+                  label="Shipping option (package)"
+                  value={shippingOptionId}
+                  placeholder={
+                    shippingOptions.length === 0
+                      ? "Create a shipping option first"
+                      : "Select a shipping option"
+                  }
+                  options={shippingOptions.map((opt) => ({
+                    value: opt.id,
+                    label: `${opt.name}${
+                      opt.shippingCostCents != null
                         ? opt.shippingCostCents === 0
                           ? " · Free"
                           : ` · $${(opt.shippingCostCents / 100).toFixed(2)}`
-                        : ""}
-                      {shippingOptionNeedsMeasurements(opt) ? " *" : ""}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
+                        : ""
+                    }${shippingOptionNeedsMeasurements(opt) ? " *" : ""}`,
+                  }))}
+                  onChange={(id) => {
+                    setShippingOptionId(id);
+                    const opt = shippingOptions.find((o) => o.id === id);
+                    if (!opt) return;
+                    if (offerFreeShippingOnInw) {
+                      setShippingFree(true);
+                      return;
+                    }
+                    if (opt.shippingCostCents != null) {
+                      setShippingCostDollars((opt.shippingCostCents / 100).toFixed(2));
+                      setShippingFree(opt.shippingCostCents === 0);
+                    }
+                  }}
+                />
                 {(() => {
                   const selected = shippingOptions.find((o) => o.id === shippingOptionId);
                   if (!selected) {

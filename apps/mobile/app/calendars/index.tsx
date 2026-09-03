@@ -4,18 +4,18 @@ import {
   StyleSheet,
   Pressable,
   Image,
+  View as RNView,
   Dimensions,
   Text,
   ActivityIndicator,
 } from "react-native";
 import { View } from "@/components/Themed";
 import { theme } from "@/lib/theme";
-import { CALENDAR_TYPES, getCalendarImage, type CalendarType } from "@/lib/calendars";
+import { CALENDAR_TYPES, CALENDARS_HERO, getCalendarImage, type CalendarType } from "@/lib/calendars";
 import { fetchEvents, fetchEventsAllCalendars, type EventItem } from "@/lib/events-api";
 import { formatTime12h } from "@/lib/format-time";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { PopupModal } from "@/components/PopupModal";
 import { PostEventForm, type PostEventAsContext } from "@/components/PostEventForm";
 import { PostEventAsPickerModal } from "@/components/PostEventAsPickerModal";
@@ -222,30 +222,22 @@ export default function CalendarsScreen() {
       contentContainerStyle={styles.container}
     >
       <View style={styles.header} lightColor="#fff" darkColor="#fff">
-        <View style={styles.introBanner}>
-          <View style={styles.introPhotoRow} pointerEvents="none">
-            {CALENDAR_TYPES.map((c) => (
-              <Image
-                key={c.value}
-                source={getCalendarImage(c.value as CalendarType)}
-                style={styles.introPhoto}
-                resizeMode="cover"
-              />
-            ))}
-          </View>
-          <LinearGradient
-            colors={["rgba(62,67,47,0.12)", "rgba(62,67,47,0.88)"]}
-            style={StyleSheet.absoluteFill}
-            pointerEvents="none"
+        <RNView style={styles.introBanner}>
+          <Image
+            source={CALENDARS_HERO}
+            style={styles.introBannerImage}
+            resizeMode="cover"
           />
-          <View style={styles.introCopy}>
-            <Text style={styles.introEyebrow}>Spokane & Kootenai County</Text>
-            <Text style={styles.title}>Northwest{"\n"}Community Calendars</Text>
-            <Text style={styles.subtitle}>
-              Local events not run by NWC. See what&apos;s happening in our area!
-            </Text>
-          </View>
-        </View>
+          <RNView style={styles.introCopy}>
+            <RNView style={styles.introPanel}>
+              <Text style={styles.introEyebrow}>Spokane & Kootenai County</Text>
+              <Text style={styles.title}>Northwest Community Calendars</Text>
+              <Text style={styles.subtitle}>
+                Take a look at the events happening in Spokane & Kootenai County!
+              </Text>
+            </RNView>
+          </RNView>
+        </RNView>
         <View style={styles.calendarsActionRow}>
           <Pressable
             style={({ pressed }) => [styles.sideNavButton, styles.calendarPrimaryBtn, pressed && styles.buttonPressed]}
@@ -253,14 +245,14 @@ export default function CalendarsScreen() {
             accessibilityRole="button"
             accessibilityLabel="My events"
           >
-            <Ionicons name="calendar" size={18} color={theme.colors.buttonText} />
+            <Ionicons name="calendar" size={18} color="#fff" />
             <Text style={styles.calendarSideLabel}>My Events</Text>
           </Pressable>
           <Pressable
-            style={({ pressed }) => [styles.calendarPrimaryBtn, styles.postEventButton, pressed && styles.buttonPressed]}
+            style={({ pressed }) => [styles.postEventButton, pressed && styles.buttonPressed]}
             onPress={() => void openPostEventFlow()}
           >
-            <Ionicons name="add" size={22} color={theme.colors.buttonText} />
+            <Ionicons name="add" size={22} color="#fff" />
             <Text style={styles.postEventButtonText}>Post Event</Text>
           </Pressable>
           <Pressable
@@ -269,7 +261,7 @@ export default function CalendarsScreen() {
             accessibilityRole="button"
             accessibilityLabel="Event invites"
           >
-            <Ionicons name="megaphone" size={18} color={theme.colors.buttonText} />
+            <Ionicons name="megaphone" size={18} color="#fff" />
             <Text style={styles.calendarSideLabel}>Invites</Text>
           </Pressable>
         </View>
@@ -422,51 +414,54 @@ const styles = StyleSheet.create({
   },
   introBanner: {
     width: "100%",
-    minHeight: 188,
-    justifyContent: "flex-end",
+    height: 228,
+    justifyContent: "center",
+    alignItems: "center",
     overflow: "hidden",
+    backgroundColor: theme.colors.secondary,
   },
-  introPhotoRow: {
+  introBannerImage: {
     ...StyleSheet.absoluteFillObject,
-    flexDirection: "row",
-  },
-  introPhoto: {
-    flex: 1,
+    width: "100%",
     height: "100%",
   },
   introCopy: {
-    paddingHorizontal: 20,
-    paddingTop: 44,
-    paddingBottom: 20,
+    ...StyleSheet.absoluteFillObject,
+    paddingHorizontal: 16,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "transparent",
+  },
+  introPanel: {
+    alignItems: "center",
+    maxWidth: "92%",
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    backgroundColor: "rgba(62, 67, 47, 0.66)",
   },
   introEyebrow: {
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 1.4,
     textTransform: "uppercase",
-    color: theme.colors.cream,
+    color: "#FDEDCC",
+    marginBottom: 6,
     textAlign: "center",
-    marginBottom: 8,
-    textShadowColor: "rgba(0,0,0,0.35)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
   },
   title: {
-    fontSize: 26,
-    lineHeight: 32,
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: "bold",
     color: "#fff",
     fontFamily: theme.fonts.heading,
     textAlign: "center",
-    textShadowColor: "rgba(0,0,0,0.4)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 5,
   },
   subtitle: {
-    marginTop: 10,
+    marginTop: 8,
     fontSize: 14,
     lineHeight: 20,
-    color: "rgba(255,248,225,0.95)",
+    color: "rgba(253,237,204,0.95)",
     textAlign: "center",
   },
   calendarsActionRow: {
@@ -480,11 +475,10 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     alignSelf: "center",
   },
-  /** Solid green — Invites, Post Event, My Events (white icon + label); black border. */
   calendarPrimaryBtn: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.earth,
     borderWidth: 2,
-    borderColor: "#000",
+    borderColor: theme.colors.cream,
     borderRadius: 8,
   },
   sideNavButton: {
@@ -501,7 +495,7 @@ const styles = StyleSheet.create({
   calendarSideLabel: {
     fontSize: 11,
     fontWeight: "600",
-    color: theme.colors.buttonText,
+    color: "#fff",
     fontFamily: theme.fonts.heading,
     textAlign: "center",
   },
@@ -514,9 +508,13 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 18,
     minHeight: 80,
+    backgroundColor: theme.colors.earth,
+    borderWidth: 2,
+    borderColor: theme.colors.cream,
+    borderRadius: 8,
   },
   postEventButtonText: {
-    color: theme.colors.buttonText,
+    color: "#fff",
     fontSize: 16,
     fontWeight: "600",
     fontFamily: theme.fonts.heading,

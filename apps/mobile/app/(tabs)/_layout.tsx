@@ -52,8 +52,9 @@ export function useOpenSellerMenu() {
   return () => openSellerMenuRef.current?.();
 }
 
-/** Set from my-community when Business Hub is shown; header QR icon calls this. */
+/** Kept exported so Metro Fast Refresh does not break on a stale import. */
 export const openBusinessQRRef: { current: (() => void) | null } = { current: null };
+
 import { useTheme } from "@/contexts/ThemeContext";
 import { apiGet } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -64,6 +65,7 @@ import { ProfileSideMenu } from "@/components/ProfileSideMenu";
 import { AppNavMenu } from "@/components/AppNavMenu";
 import { CommunitySideMenu } from "@/components/CommunitySideMenu";
 import { useCreatePost } from "@/contexts/CreatePostContext";
+import { AppBadge } from "@/components/ui";
 
 function TabBarIcon(props: {
   name: React.ComponentProps<typeof Ionicons>["name"];
@@ -103,6 +105,7 @@ function HeaderSideSlot({
 }
 
 function ProfileHeaderTitle() {
+  const theme = useTheme();
   const { profileView, openSwitcher, showSwitcher } = useProfileView();
   const label =
     profileView === "business_hub"
@@ -113,7 +116,7 @@ function ProfileHeaderTitle() {
   const titleTextStyle = {
     fontSize: 18,
     fontWeight: "600" as const,
-    color: "#ffffff",
+    color: theme.colors.onPrimary,
     textAlign: "center" as const,
     ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
   };
@@ -136,7 +139,7 @@ function ProfileHeaderTitle() {
         {({ pressed }) => (
           <>
             <Text style={[titleTextStyle, { opacity: pressed ? 0.7 : 1 }]}>{label}</Text>
-            <Ionicons name="chevron-down" size={18} color="#ffffff" style={{ opacity: pressed ? 0.7 : 1 }} />
+            <Ionicons name="chevron-down" size={18} color={theme.colors.onPrimary} style={{ opacity: pressed ? 0.7 : 1 }} />
           </>
         )}
       </Pressable>
@@ -206,24 +209,7 @@ const ProfileTabButton = forwardRef<React.ElementRef<typeof PlatformPressable>, 
 );
 
 function HubAttentionBadge() {
-  const theme = useTheme();
-  return (
-    <View
-      style={{
-        minWidth: 24,
-        height: 24,
-        borderRadius: 12,
-        backgroundColor: theme.colors.cream,
-        borderWidth: 2,
-        borderColor: theme.colors.primary,
-        alignItems: "center",
-        justifyContent: "center",
-        paddingHorizontal: 6,
-      }}
-    >
-      <Text style={{ fontSize: 14, fontWeight: "800", color: theme.colors.primary }}>!</Text>
-    </View>
-  );
+  return <AppBadge exclamation />;
 }
 
 /** Flush with bottom of green header so the sheet reads as one dropdown from the bar. */
@@ -489,7 +475,7 @@ function TabLayoutInner() {
   const openSideMenu = (routeName: string) => {
     if (routeName === "my-community") {
       if (profileView === "seller_hub") setSideMenuType("seller");
-      else if (profileView === "business_hub") return; // Business Hub uses QR icon, no side menu
+      else if (profileView === "business_hub") setSideMenuType("business");
       else setSideMenuType("profile");
     } else if (routeName === "index") {
       setSideMenuType("community");
@@ -541,7 +527,7 @@ function TabLayoutInner() {
       screenOptions={({ route }) => ({
         tabBarActiveTintColor:
           Platform.OS === "ios" ? theme.colors.cream : theme.colors.primary,
-        tabBarInactiveTintColor: "#ffffff",
+        tabBarInactiveTintColor: theme.colors.onPrimary,
         // iOS draws a rounded "bubble" behind the active tab when this is set; use transparent + cream tint instead.
         tabBarActiveBackgroundColor:
           Platform.OS === "ios" ? "transparent" : theme.colors.cream,
@@ -561,12 +547,12 @@ function TabLayoutInner() {
         tabBarLabel: ({ color }) => <BottomTabBarLabel routeName={route.name} color={color} />,
         headerShown: useClientOnlyValue(false, true),
         headerStyle: { backgroundColor: theme.colors.primary },
-        headerTintColor: "#ffffff",
+        headerTintColor: theme.colors.onPrimary,
         headerTitleAlign: "center",
         headerTitleStyle: {
           fontSize: 18,
           fontWeight: "600",
-          color: "#ffffff",
+          color: theme.colors.onPrimary,
           textAlign: "center",
           ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
         },
@@ -595,7 +581,7 @@ function TabLayoutInner() {
                 style={({ pressed }) => ({ paddingVertical: 8, opacity: pressed ? 0.7 : 1 })}
                 onPress={() => router.push("/notifications" as import("expo-router").Href)}
               >
-                <Ionicons name="notifications" size={22} color="#FFFFFF" />
+                <Ionicons name="notifications" size={22} color={theme.colors.onPrimary} />
               </Pressable>
             );
           } else if (route.name === "my-community" || route.name === "index") {
@@ -611,7 +597,7 @@ function TabLayoutInner() {
                 onPress={() => router.push("/messages")}
               >
                 <View style={{ position: "relative" }}>
-                  <Ionicons name="mail" size={22} color="#ffffff" />
+                  <Ionicons name="mail" size={22} color={theme.colors.onPrimary} />
                   {unreadMessages > 0 && (
                     <View
                       style={{
@@ -621,7 +607,7 @@ function TabLayoutInner() {
                         minWidth: 14,
                         height: 14,
                         borderRadius: 7,
-                        backgroundColor: "#fff",
+                        backgroundColor: theme.colors.onPrimary,
                         justifyContent: "center",
                         alignItems: "center",
                         paddingHorizontal: 3,
@@ -655,19 +641,7 @@ function TabLayoutInner() {
                 style={({ pressed }) => ({ paddingVertical: 8, opacity: pressed ? 0.5 : 1 })}
                 onPress={() => router.push("/coupons" as import("expo-router").Href)}
               >
-                <Ionicons name="pricetag" size={24} color="#ffffff" />
-              </Pressable>
-            );
-          } else if (route.name === "my-community" && profileView === "business_hub") {
-            node = (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Business QR code"
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
-                style={({ pressed }) => ({ paddingVertical: 8, opacity: pressed ? 0.7 : 1 })}
-                onPress={() => openBusinessQRRef.current?.()}
-              >
-                <Ionicons name="qr-code" size={24} color="#ffffff" />
+                <Ionicons name="pricetag" size={24} color={theme.colors.onPrimary} />
               </Pressable>
             );
           } else {
@@ -679,7 +653,7 @@ function TabLayoutInner() {
                 style={({ pressed }) => ({ paddingVertical: 8, opacity: pressed ? 0.5 : 1 })}
                 onPress={() => openSideMenu(route.name)}
               >
-                <Ionicons name="menu" size={24} color="#ffffff" />
+                <Ionicons name="menu" size={24} color={theme.colors.onPrimary} />
               </Pressable>
             );
           }

@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
+import { AppHeader } from "@/components/ui";
 import { apiGet, apiPatch, API_BASE, getToken } from "@/lib/api";
 
 type ActivityNav =
@@ -496,21 +497,21 @@ export default function NotificationsScreen() {
 
   return (
     <View style={styles.root}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={12}>
-          <Ionicons name="arrow-back" size={24} color={theme.colors.heading} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Activity</Text>
-        <Pressable
-          onPress={() => (router.push as (h: string) => void)("/messages")}
-          style={styles.headerInboxBtn}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel="Inbox"
-        >
-          <Ionicons name="mail-outline" size={24} color={theme.colors.heading} />
-        </Pressable>
-      </View>
+      <AppHeader
+        title="Activity"
+        onBack={() => router.back()}
+        right={
+          <Pressable
+            onPress={() => (router.push as (h: string) => void)("/messages")}
+            style={styles.headerInboxBtn}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Inbox"
+          >
+            <Ionicons name="mail-outline" size={24} color={theme.colors.onPrimary} />
+          </Pressable>
+        }
+      />
 
       {loading ? (
         <View style={styles.center}>
@@ -667,23 +668,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 8,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  backBtn: { padding: 8, width: 40 },
   headerInboxBtn: { padding: 8, width: 40, alignItems: "center", justifyContent: "center" },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: theme.colors.heading,
-    fontFamily: theme.fonts.heading,
-  },
   center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
   errorText: { fontSize: 15, color: "#666", textAlign: "center", marginBottom: 16 },
   retryBtn: {

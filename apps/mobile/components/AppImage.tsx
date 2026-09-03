@@ -1,6 +1,7 @@
+import { useEffect, useState } from "react";
 import { Image, type ImageContentFit, type ImageProps } from "expo-image";
 import { type StyleProp, type ImageStyle } from "react-native";
-import { optimizedImageUri } from "@/lib/optimized-image";
+import { optimizedImageUri, toAbsoluteUri } from "@/lib/optimized-image";
 
 /**
  * App-wide image component. Wraps expo-image with caching + a placeholder +
@@ -65,14 +66,20 @@ export function AppImage({
   onError,
   pointerEvents,
 }: AppImageProps) {
+  const original = uri ? toAbsoluteUri(uri) : undefined;
   const optimized = optimizedImageUri(uri, {
     displayWidth: targetWidth,
     quality,
   });
+  const [sourceUri, setSourceUri] = useState(optimized);
+
+  useEffect(() => {
+    setSourceUri(optimized);
+  }, [optimized]);
 
   return (
     <Image
-      source={optimized ? { uri: optimized } : undefined}
+      source={sourceUri ? { uri: sourceUri } : undefined}
       style={[{ backgroundColor: placeholderColor }, style]}
       contentFit={RESIZE_TO_CONTENT_FIT[resizeMode]}
       cachePolicy="memory-disk"
@@ -83,7 +90,13 @@ export function AppImage({
       tintColor={tintColor}
       accessibilityLabel={accessibilityLabel}
       onLoad={onLoad}
-      onError={onError}
+      onError={(e) => {
+        if (sourceUri && original && sourceUri !== original) {
+          setSourceUri(original);
+          return;
+        }
+        onError?.(e);
+      }}
       pointerEvents={pointerEvents}
     />
   );

@@ -433,9 +433,6 @@ export async function refreshEbayListingByItemId(
     pendingRemoteHash: readEbayPendingInboundHash(link.conflictDetails),
     source: opts?.source,
   });
-  // #region agent log
-  fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3d848'},body:JSON.stringify({sessionId:'f3d848',hypothesisId:opts?.source==='webhook'?'C':'E',location:'pull-ebay-updates.ts:applyDecision',message:'ebay GetItem apply decision',data:{legacyItemId,source:opts?.source??'cron',action:applyDecision.action,reason:applyDecision.reason,inwTitle:storeItem.title,getItemTitle:details.title,inwPriceCents:storeItem.priceCents,getItemPriceCents:details.priceCents,inwQty:storeItem.quantity,getItemQty:details.quantity,hasLastModified:Boolean(details.remoteUpdatedAt),hasPostcard:Boolean(opts?.postcard)},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
 
   const endedDecision = ebayGetItemEndedDecision({
     listingEnded: details.listingEnded,
@@ -1078,9 +1075,6 @@ export async function pullEbayUpdatesForConnection(
       }
     }
 
-    // #region agent log
-    fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3d848'},body:JSON.stringify({sessionId:'f3d848',hypothesisId:'D',location:'pull-ebay-updates.ts:cronHybrid',message:'ebay cron dirty/rotate plan',data:{connectionId:connection.id,linkCount:links.length,sellerListCount:sellerList.length,dirtyCount:dirty.length,dirtyIds:dirty.slice(0,8).map((l)=>l.externalListingId),cursor:readEbayPullCursor(connection.config),rotateIds:rotateEbayLinks(links,readEbayPullCursor(connection.config),EBAY_CRON_GETITEM_LIMIT).batch.map((l)=>l.externalListingId)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     const dirtyThisTick = dirty.slice(0, EBAY_CRON_DIRTY_GETITEM_LIMIT);
     if (dirty.length > dirtyThisTick.length) {
       console.warn("[ebay] dirty GetItem cap hit; leftover wait for next tick", {

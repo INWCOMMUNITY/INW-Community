@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "August 25, 2026";
+export const TERMS_LAST_UPDATED = "September 1, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -32,7 +32,7 @@ Businesses and Sellers must:
 3. USER-GENERATED CONTENT (UGC) POLICY
 3.1 Your Content
 Users may post blogs, listings, messages, feed posts, group posts, and event information.
-Uploads (such as images for listings, logos, business gallery photos, or calendar/event photos) are subject to technical limits posted in the app or on the website, including a maximum of 120MB per file and, for business profiles, up to 12 gallery photos in addition to a logo; accepted image types are JPEG, PNG, WebP, GIF, and HEIC/HEIF where our upload endpoints support them, unless we state otherwise.
+Uploads (such as images for listings, logos, business gallery photos, or calendar/event photos) are subject to technical limits posted in the app or on the website, including a maximum of 250MB per listing photo and 120MB per file for other image uploads, and, for business profiles, up to 12 gallery photos in addition to a logo; accepted image types are JPEG, PNG, WebP, GIF, and HEIC/HEIF where our upload endpoints support them, unless we state otherwise.
 By submitting content, you grant NWC a non-exclusive, worldwide, royalty-free license to:
 ● Display, distribute, share, and promote your content
 ● Modify content only for formatting or minor grammatical corrections. You retain ownership of your content.

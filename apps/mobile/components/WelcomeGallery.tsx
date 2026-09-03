@@ -64,14 +64,6 @@ const SLIDES: Slide[] = [
       "One of the biggest hurdles to supporting local is how convenient online shopping has become. Shop for goods right here on our storefront, so you can shop online while still shopping local.",
   },
   {
-    key: "rewards",
-    title: "Northwest Community Rewards",
-    image: require("../assets/images/welcome/slide-5.png"),
-    body:
-      "Support local businesses with our rewards system. Use the in-app camera to scan QR codes from businesses in the directory and earn points. Redeem points for free prizes, and score in the Top 10 to win something awesome.",
-    caption: "Another part of the app that's still growing, so stay tuned!",
-  },
-  {
     key: "coupons",
     title: "Coupons",
     image: require("../assets/images/welcome/slide-6.png"),
@@ -79,6 +71,13 @@ const SLIDES: Slide[] = [
       "This app is fully set up for a coupon book. The more businesses that join and offer coupons, the more we can give back to the community with discounts to local shops.",
     caption:
       "Once the book has enough coupons, residents can pay $1-$15 a month for access, the price is up to the community.",
+  },
+  {
+    key: "invest",
+    title: "Invest in the Inland Northwest",
+    image: require("../assets/images/welcome/slide-5.png"),
+    body:
+      "The biggest goal with this app is to incentivise the people of this area to keep our money local. Minimize the amount of money getting sent out of state to corporate companies with endless capital. Support the little guys in our area, and keep the money circulating locally.",
   },
   {
     key: "join",
@@ -151,7 +150,7 @@ export function WelcomeGallery({ visible, isSignedIn, onClose, onSignUp }: Welco
           <View style={styles.slideContent}>
             {item.showLogo && (
               <View style={styles.logoWrap}>
-                <Image source={NWC_LOGO} style={styles.logo} resizeMode="contain" />
+                <Image source={NWC_LOGO} style={styles.logo} resizeMode="cover" />
               </View>
             )}
             <Text style={styles.title}>{item.title}</Text>
@@ -294,16 +293,18 @@ const styles = StyleSheet.create({
     width: 84,
     height: 84,
     borderRadius: 42,
+    overflow: "hidden",
     borderWidth: 2,
     borderColor: theme.colors.primary,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 14,
-    backgroundColor: "#fff",
+    backgroundColor: "transparent",
   },
   logo: {
-    width: 64,
-    height: 64,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
   },
   title: {
     fontSize: 20,
@@ -350,10 +351,10 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: "#d6d6d6",
+    backgroundColor: "#c9b8a4",
   },
   dotActive: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.earth,
     width: 20,
   },
   primaryBtn: {
@@ -361,7 +362,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.earth,
     paddingVertical: 14,
     borderRadius: 12,
   },

@@ -55,8 +55,6 @@ const PERMANENT_PATTERNS = [
   /listing ended/i,
   /ended item/i,
   /revise an ended/i,
-  /#25604\b/,
-  /availability not found/i,
   /listing removed/i,
   /invalid sku/i,
   /sku not found/i,
@@ -179,6 +177,10 @@ export function classifyError(error: unknown): ErrorClassification {
   if (/all_caps|sequential capital/i.test(errorStr)) {
     return "transient";
   }
+  // Inventory #25604 is a SKU/availability miss, not proof the live listing ended.
+  if (/#25604\b|availability not found/i.test(errorStr)) {
+    return "transient";
+  }
 
   const statusCode = extractStatusCode(error);
   if (statusCode !== null && STATUS_CLASSIFICATIONS[statusCode]) {
@@ -221,9 +223,7 @@ export function isPermanentError(error: unknown): boolean {
 }
 
 export function isEbayEndedListingError(error: unknown): boolean {
-  return /ended item|listing ended|revise an ended|#25604\b|availability not found/i.test(
-    errorToString(error)
-  );
+  return /ended item|listing ended|revise an ended/i.test(errorToString(error));
 }
 
 /**

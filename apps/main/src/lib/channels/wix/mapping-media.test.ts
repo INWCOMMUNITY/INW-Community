@@ -3,6 +3,7 @@ import { buildWixV1AddProductMediaPayload } from "./media";
 import {
   shouldPassThroughListingPhotoToWix,
   shouldReplaceWixProductMedia,
+  shouldReplaceWixProductMediaOnUpdate,
   type WixProductMediaRef,
 } from "./media-import";
 import {
@@ -160,6 +161,17 @@ describe("Wix listing photo import quality", () => {
     ).toBe(false);
     expect(
       shouldReplaceWixProductMedia(["https://abc.public.blob.vercel-storage.com/hat.jpg"])
+    ).toBe(true);
+  });
+
+  it("does not replace Wix media on update unless INW photos changed", () => {
+    const inw = ["https://abc.public.blob.vercel-storage.com/hat.jpg"];
+    expect(shouldReplaceWixProductMediaOnUpdate(inw, inw)).toBe(false);
+    expect(shouldReplaceWixProductMediaOnUpdate(inw, null)).toBe(false);
+    expect(
+      shouldReplaceWixProductMediaOnUpdate(inw, [
+        "https://abc.public.blob.vercel-storage.com/old.jpg",
+      ])
     ).toBe(true);
   });
 });

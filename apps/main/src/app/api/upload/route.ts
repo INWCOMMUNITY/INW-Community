@@ -9,9 +9,10 @@ import path from "path";
 import fs from "fs/promises";
 import { padBusinessLogoToSquareJpeg } from "@/lib/business-logo-square";
 import { optimizeListingPhoto } from "@/lib/listing-photo-optimize";
+import { listingPhotoEffectiveMime, MAX_LISTING_PHOTO_BYTES } from "@/lib/listing-photo-upload";
+import { formatListingPhotoSizeLabel } from "@/lib/upload-limits";
 
-const MAX_SIZE = 120 * 1024 * 1024; // 120MB (business / listing uploads via this route)
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -40,11 +41,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
 
-  if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: "File too large (max 120MB)" }, { status: 400 });
+  if (file.size > MAX_LISTING_PHOTO_BYTES) {
+    return NextResponse.json(
+      { error: `File too large (max ${formatListingPhotoSizeLabel()})` },
+      { status: 400 }
+    );
   }
-  if (!ALLOWED_TYPES.includes(file.type)) {
-    return NextResponse.json({ error: "Invalid file type. Use JPEG, PNG, WebP, or GIF." }, { status: 400 });
+  const normalizedType = listingPhotoEffectiveMime(file.type, file.name);
+  if (!normalizedType) {
+    return NextResponse.json(
+      { error: "Invalid file type. Use JPEG, PNG, WebP, GIF, or HEIC." },
+      { status: 400 }
+    );
   }
 
   const purposeRaw = formData.get("purpose");
@@ -52,7 +60,7 @@ export async function POST(req: NextRequest) {
     typeof purposeRaw === "string" && purposeRaw.trim() === "business-logo";
 
   let outExt = path.extname(file.name) || ".jpg";
-  let contentType = file.type;
+  let contentType = normalizedType;
   let uploadBuffer: Buffer | null = null;
 
   const rawBuffer = Buffer.from(await file.arrayBuffer());
@@ -66,7 +74,7 @@ export async function POST(req: NextRequest) {
       console.error("[upload] business-logo letterbox failed, storing original", e);
       uploadBuffer = rawBuffer;
       outExt = path.extname(file.name) || ".jpg";
-      contentType = file.type;
+      contentType = normalizedType;
     }
   } else {
     try {

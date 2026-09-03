@@ -13,6 +13,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
+import { AppHeader } from "@/components/ui";
 import { apiGet, apiPatch } from "@/lib/api";
 import { resolveMediaUrl, firstStorePhotoUrl } from "@/lib/resolve-media-url";
 import { useAuth } from "@/contexts/AuthContext";
@@ -296,28 +297,28 @@ export default function MessagesInboxScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-        </Pressable>
-        <Text style={styles.headerTitle}>Messages</Text>
-        <View style={styles.headerActions}>
-          {tab === "groups" && (
+      <AppHeader
+        title="Messages"
+        onBack={() => router.back()}
+        right={
+          <View style={styles.headerActions}>
+            {tab === "groups" && (
+              <Pressable
+                onPress={() => router.push("/messages/new-group")}
+                style={({ pressed }) => [styles.newBtn, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name="people-outline" size={22} color={theme.colors.onPrimary} />
+              </Pressable>
+            )}
             <Pressable
-              onPress={() => router.push("/messages/new-group")}
+              onPress={() => router.push("/messages/new")}
               style={({ pressed }) => [styles.newBtn, pressed && { opacity: 0.7 }]}
             >
-              <Ionicons name="people-outline" size={22} color="#fff" />
+              <Ionicons name="create-outline" size={24} color={theme.colors.onPrimary} />
             </Pressable>
-          )}
-          <Pressable
-            onPress={() => router.push("/messages/new")}
-            style={({ pressed }) => [styles.newBtn, pressed && { opacity: 0.7 }]}
-          >
-            <Ionicons name="create-outline" size={24} color="#fff" />
-          </Pressable>
-        </View>
-      </View>
+          </View>
+        }
+      />
 
       <View style={styles.tabs}>
         <Pressable
@@ -604,24 +605,6 @@ export default function MessagesInboxScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingTop: 48,
-    backgroundColor: theme.colors.primary,
-    borderBottomWidth: 2,
-    borderBottomColor: "#000",
-  },
-  backBtn: { padding: 8, marginLeft: -8 },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#fff",
-    fontFamily: theme.fonts.heading,
-  },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 4 },
   newBtn: { padding: 8 },
   tabs: {

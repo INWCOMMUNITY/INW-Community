@@ -16,17 +16,17 @@ const COPY: Record<
   },
   pickups: {
     icon: "hand-left-outline",
-    title: "No pickup orders",
+    title: "No Pickup Orders",
     body: "Orders with in-store pickup will show up here when buyers choose pickup at checkout.",
   },
   deliveries: {
     icon: "car-outline",
-    title: "No local deliveries",
+    title: "No Local Deliveries",
     body: "Orders with local delivery will appear here when you need to deliver to the buyer.",
   },
   history: {
     icon: "time-outline",
-    title: "No history yet",
+    title: "No History Yet",
     body: "Shipped and canceled orders will appear here.",
   },
 };

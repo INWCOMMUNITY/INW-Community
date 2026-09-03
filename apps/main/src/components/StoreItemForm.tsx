@@ -74,6 +74,12 @@ import {
   isEtsyWhoMade,
   normalizeEtsyWhenMade,
 } from "@/lib/etsy-listing-options";
+import { listingPhotoEffectiveMime } from "@/lib/listing-photo-upload";
+import {
+  formatListingPhotoSizeLabel,
+  MAX_LISTING_PHOTO_BYTES,
+  uploadListingPhoto,
+} from "@/lib/upload-listing-photo-browser";
 import { EbayListingRequirementsSection } from "@/components/store-item/EbayListingRequirementsSection";
 import {
   EtsyListingRequirementsSection,
@@ -283,6 +289,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [feedShareDone, setFeedShareDone] = useState(false);
   const [feedShareError, setFeedShareError] = useState<string | null>(null);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [photoError, setPhotoError] = useState("");
   const [hasChannelConnections, setHasChannelConnections] = useState(false);
   const [channelConnections, setChannelConnections] = useState<ChannelConnectionSummary[]>([]);
   const [listOnProviders, setListOnProviders] = useState<ChannelProviderId[]>([]);
@@ -645,18 +652,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     }
   }, [showEbayRequirements, ebayCategoryId, loadCategoryAspects]);
 
-  async function uploadFile(file: File): Promise<string> {
-    const formData = new FormData();
-    formData.append("file", file);
-    const res = await fetch("/api/upload", { method: "POST", body: formData });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error ?? "Upload failed");
-    const url = data.url;
-    if (!url) throw new Error("No URL returned");
-    if (url.startsWith("/")) return `${window.location.origin}${url}`;
-    return url;
-  }
-
   function mergeUploadedUrls(prev: string[], urls: string[]) {
     const next = [...prev];
     for (const url of urls) {
@@ -668,28 +663,50 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   async function handlePhotosUpload(files: File[]) {
     if (!files.length) return;
     setUploadingPhotos(true);
+    setPhotoError("");
     setError("");
-    const urls: string[] = [];
-    const optimisticUrls: string[] = files.map((f) => URL.createObjectURL(f));
-    setPhotos((prev) => mergeUploadedUrls(prev, optimisticUrls));
-    try {
-      for (const file of files) {
-        urls.push(await uploadFile(file));
+
+    const accepted: { file: File; preview: string }[] = [];
+    const issues: string[] = [];
+    for (const file of files) {
+      if (file.size > MAX_LISTING_PHOTO_BYTES) {
+        issues.push(`${file.name || "Photo"} is over ${formatListingPhotoSizeLabel()}.`);
+        continue;
       }
-      setPhotos((prev) => {
-        const withoutOptimistic = prev.filter((u) => !optimisticUrls.includes(u));
-        return mergeUploadedUrls(withoutOptimistic, urls);
-      });
-    } catch (err) {
-      setPhotos((prev) => prev.filter((u) => !optimisticUrls.includes(u)));
-      if (urls.length > 0) {
-        setPhotos((prev) => mergeUploadedUrls(prev, urls));
+      if (!listingPhotoEffectiveMime(file.type, file.name)) {
+        issues.push(`${file.name || "Photo"} is not a supported image type.`);
+        continue;
       }
-      setError(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      optimisticUrls.forEach((u) => URL.revokeObjectURL(u));
-      setUploadingPhotos(false);
+      accepted.push({ file, preview: URL.createObjectURL(file) });
     }
+
+    if (accepted.length) {
+      setPhotos((prev) => mergeUploadedUrls(prev, accepted.map((a) => a.preview)));
+    }
+
+    for (const item of accepted) {
+      try {
+        const url = await uploadListingPhoto(item.file);
+        setPhotos((prev) => {
+          const withoutPreview = prev.filter((u) => u !== item.preview);
+          return mergeUploadedUrls(withoutPreview, [url]);
+        });
+      } catch (err) {
+        setPhotos((prev) => prev.filter((u) => u !== item.preview));
+        issues.push(err instanceof Error ? err.message : "Upload failed");
+      }
+      window.setTimeout(() => URL.revokeObjectURL(item.preview), 1500);
+    }
+
+    if (issues.length) {
+      const message =
+        issues.length === 1
+          ? issues[0]
+          : `${issues[0]} (${issues.length} photos had issues)`;
+      setPhotoError(message);
+      setError(message);
+    }
+    setUploadingPhotos(false);
   }
 
 
@@ -1133,6 +1150,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                   onPhotosChange={setPhotos}
                   onUploadFiles={handlePhotosUpload}
                   uploadingPhotos={uploadingPhotos}
+                  photoError={photoError}
                   showSyncHint={showSyncHints}
                 />
               </ListingFormSection>
