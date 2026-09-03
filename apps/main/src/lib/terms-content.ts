@@ -244,10 +244,10 @@ NWC remains impartial in promotions, except for two acknowledged personal affili
 ● DJ's Coins & Collectibles
 
 8.5 Payment, Billing, Plan Changes & Cancellation
-● The following subscription plans and prices apply (monthly, as offered in Stripe):
-● $10/month (Resident/Subscriber)
-● $10/month (Business)
-● $20/month (Seller)
+● The following subscription plans and prices apply (monthly or yearly, as offered in Stripe):
+● $1–$15/month (Resident/Subscriber, pay what you can)
+● $10/month or $100/year (Business)
+● $20/month or $200/year (Seller)
 ● Price changes: NWC may update published plan prices. When we lower a monthly rate, unused time in the current billing period is typically credited by Stripe (proration) and applied to the next invoice, which can reduce or skip that charge. Members who already have a yearly subscription keep that billing until it ends or they change plans.
 ● Payment information is required at signup. Automatic renewal continues until canceled.
 ● Managing your membership: You may update your payment method, view invoices, cancel, and (where we offer it) switch between eligible paid plans using the subscription management options in the mobile app and/or Stripe's customer billing portal, or by contacting NWC via phone or email.

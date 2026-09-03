@@ -53,7 +53,7 @@ export function InfoPageSignupBanner({
       />
       <div className="relative z-10 mx-6 md:mx-12 py-12 md:py-16 px-10 md:px-16 rounded-lg text-center bg-white/80 shadow-lg max-w-xl">
         <h2
-          className="text-xl md:text-3xl font-bold mb-6 whitespace-nowrap overflow-hidden text-ellipsis max-w-full"
+          className="text-xl md:text-3xl font-bold mb-6 max-w-full"
           style={{ color: "var(--color-heading)", fontFamily: "var(--font-heading)" }}
         >
           {heading}

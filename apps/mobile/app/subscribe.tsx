@@ -25,12 +25,12 @@ const PLANS = [
     price: "$1-$15/mo",
     icon: "leaf" as const,
     description:
-      "Support Northwest Community and get 2× points, access to coupons, exclusive events, and more. From $1/mo (pay what you can).",
+      "Support Northwest Community and unlock the coupon book, exclusive groups, scavenger hunt hints, and community events. From $1/mo (pay what you can).",
     features: [
-      "2x Community Points on all purchases",
-      "Access to exclusive coupons",
-      "Community events & calendar",
-      "Support local businesses",
+      "Member coupon book",
+      "Exclusive community groups",
+      "Scavenger hunt hints",
+      "Community events",
     ],
     webPath: "/support-nwc#resident-pwyc",
   },
@@ -38,15 +38,15 @@ const PLANS = [
     id: "sponsor",
     name: "Business",
     price: "$10/mo",
+    priceYearly: "$100/yr",
     icon: "storefront" as const,
     description:
-      "List your local business on the NWC directory. Includes a full business page, coupons, rewards, events, and all Subscriber benefits.",
+      "List your local business on the NWC directory. Includes a full business page, coupons, events, and all Subscriber benefits.",
     features: [
       "Everything in Subscribe",
       "Full business profile page",
-      "Create coupons & rewards",
+      "Create coupons",
       "Post events on the calendar",
-      "QR code for customer points",
       "Business Hub management",
     ],
     webPath: "/support-nwc#sponsor",
@@ -55,6 +55,7 @@ const PLANS = [
     id: "seller",
     name: "Seller",
     price: "$20/mo",
+    priceYearly: "$200/yr",
     icon: "cart" as const,
     description:
       "Sell products on the NWC Storefront. Includes a full online store, shipping management, and all Business plan benefits.",
@@ -63,8 +64,7 @@ const PLANS = [
       "Online storefront with listings",
       "Shipping & fulfillment tools",
       "Seller Hub management",
-      "Local delivery & pickup options",
-      "Sales analytics & payouts",
+      "NWC does not take a cut of sales",
     ],
     webPath: "/support-nwc#seller",
   },
@@ -87,6 +87,7 @@ export default function SubscribeScreen() {
   const { member, loading: authLoading } = useAuth();
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [residentTier, setResidentTier] = useState(10);
+  const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">("monthly");
 
   const startCheckout = async (
     planId: string,
@@ -172,13 +173,37 @@ export default function SubscribeScreen() {
           />
         </View>
         <Text style={styles.intro}>
-          Choose a plan to support Northwest Community and unlock features for you and local businesses.
+          Choose a plan to support Northwest Community and unlock features for you and local businesses. All paid plans include the member coupon book.
         </Text>
+        <View style={styles.intervalPill}>
+          <Pressable
+            onPress={() => setBillingInterval("monthly")}
+            style={[styles.intervalPillBtn, billingInterval === "monthly" && styles.intervalPillBtnActive]}
+          >
+            <Text style={[styles.intervalPillText, billingInterval === "monthly" && styles.intervalPillTextActive]}>
+              Monthly
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setBillingInterval("yearly")}
+            style={[styles.intervalPillBtn, billingInterval === "yearly" && styles.intervalPillBtnActive]}
+          >
+            <Text style={[styles.intervalPillText, billingInterval === "yearly" && styles.intervalPillTextActive]}>
+              Yearly
+            </Text>
+          </Pressable>
+        </View>
 
         {PLANS.map((plan) => {
           const hasPlan = member?.subscriptions?.some(
             (s) => s.plan === plan.id
           );
+          const displayPrice =
+            plan.id === "subscribe"
+              ? plan.price
+              : billingInterval === "yearly" && plan.priceYearly
+                ? plan.priceYearly
+                : plan.price;
           return (
             <View
               key={plan.id}
@@ -187,7 +212,7 @@ export default function SubscribeScreen() {
               <View style={styles.planHeader}>
                 <Ionicons name={plan.icon} size={24} color={theme.colors.primary} />
                 <Text style={styles.planName}>{plan.name}</Text>
-                <Text style={styles.planPrice}>{plan.price}</Text>
+                <Text style={styles.planPrice}>{displayPrice}</Text>
               </View>
               <Text style={styles.planDesc}>{plan.description}</Text>
               <View style={styles.featureList}>
@@ -219,6 +244,9 @@ export default function SubscribeScreen() {
                   </Pressable>
                   {plan.id === "subscribe" ? (
                     <View style={styles.tierWrap}>
+                      {billingInterval === "yearly" ? (
+                        <Text style={styles.tierLabel}>Residents bill monthly</Text>
+                      ) : null}
                       <Text style={styles.tierLabel}>Pay what you can</Text>
                       <View style={styles.tierRow}>
                         <Pressable
@@ -256,6 +284,8 @@ export default function SubscribeScreen() {
                     onPress={() => {
                       if (plan.id === "subscribe") {
                         startCheckout(plan.id, "monthly", residentTier);
+                      } else if (billingInterval === "yearly") {
+                        startCheckout(plan.id, "yearly");
                       } else if (plan.id === "sponsor") {
                         router.push(
                           (member ? "/signup-business?start=business" : "/signup-business") as import("expo-router").Href
@@ -311,7 +341,32 @@ const styles = StyleSheet.create({
     color: "#666",
     textAlign: "center",
     lineHeight: 24,
-    marginBottom: 24,
+    marginBottom: 16,
+  },
+  intervalPill: {
+    flexDirection: "row",
+    alignSelf: "center",
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: 999,
+    padding: 3,
+    marginBottom: 20,
+  },
+  intervalPillBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 18,
+    borderRadius: 999,
+  },
+  intervalPillBtnActive: {
+    backgroundColor: theme.colors.primary,
+  },
+  intervalPillText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.primary,
+  },
+  intervalPillTextActive: {
+    color: "#fff",
   },
   planCard: {
     borderWidth: 2,

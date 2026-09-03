@@ -30,6 +30,7 @@ export async function resolveFirstActiveYearlySponsorSellerPrice(
   }
 
   const triedPriceIds: string[] = [];
+  let retrieveFailures = 0;
   for (const candidate of candidates) {
     triedPriceIds.push(candidate);
     try {
@@ -51,6 +52,7 @@ export async function resolveFirstActiveYearlySponsorSellerPrice(
       }
       return { ok: true, priceId: candidate, price };
     } catch (e) {
+      retrieveFailures += 1;
       console.warn("[stripe/yearly] price retrieve failed", { planId, priceId: candidate, err: e });
     }
   }
@@ -60,9 +62,14 @@ export async function resolveFirstActiveYearlySponsorSellerPrice(
       ? "Clear or update the yearly Business Stripe price env if it is stale, then redeploy."
       : "Clear or update the yearly Seller Stripe price env if it is stale, then redeploy.";
 
+  const retrieveHint =
+    retrieveFailures === triedPriceIds.length
+      ? " Stripe could not load those prices — confirm STRIPE_SECRET_KEY is a current live key, then restart the dev server."
+      : "";
+
   return {
     ok: false,
-    error: `Yearly billing is unavailable: none of the configured annual Stripe prices are active. ${envHint} (Checked: ${triedPriceIds.join(", ")}.)`,
+    error: `Yearly billing is unavailable: none of the configured annual Stripe prices are active. ${envHint}${retrieveHint} (Checked: ${triedPriceIds.join(", ")}.)`,
     triedPriceIds,
   };
 }

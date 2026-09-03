@@ -18,13 +18,13 @@ export function InfoPageBenefitSections({ benefits }: InfoPageBenefitSectionsPro
         return (
           <section
             key={i}
-            className={`relative min-h-[330px] md:h-[500px] border-2 border-[var(--color-primary)] ${photoLeft ? "md:flex" : "md:flex md:flex-row-reverse"}`}
+            className={`relative min-h-[330px] md:h-[500px] md:overflow-hidden border-2 border-[var(--color-primary)] ${photoLeft ? "md:flex" : "md:flex md:flex-row-reverse"}`}
             style={{ backgroundColor: "#e5e3de" }}
           >
             {/* Photo: mobile = full bleed background; desktop = 50% side-by-side */}
             {benefit.imageSrc ? (
               <div
-                className={`absolute inset-0 md:static md:inset-auto md:w-1/2 md:h-full md:shrink-0 md:flex-shrink-0 md:border-[var(--color-primary)] ${photoLeft ? "md:border-r-2" : "md:border-l-2"}`}
+                className={`absolute inset-0 md:static md:inset-auto md:w-1/2 md:h-full md:min-h-0 md:shrink-0 md:flex-shrink-0 md:border-[var(--color-primary)] ${photoLeft ? "md:border-r-2" : "md:border-l-2"}`}
               >
                 <img
                   src={benefit.imageSrc}
@@ -35,7 +35,7 @@ export function InfoPageBenefitSections({ benefits }: InfoPageBenefitSectionsPro
             ) : null}
             {/* White box: mobile = centered overlay; desktop = 50% solid white, centered content */}
             <div
-              className="absolute left-[20%] top-[20%] w-[60%] h-[60%] md:static md:left-auto md:top-auto md:right-auto md:bottom-auto md:w-1/2 md:h-full md:flex-1 flex flex-col justify-center items-center p-4 md:p-[2.5in] text-center overflow-hidden rounded-lg md:rounded-none bg-white/70 md:bg-white"
+              className="absolute left-[20%] top-[20%] w-[60%] h-[60%] md:static md:left-auto md:top-auto md:right-auto md:bottom-auto md:w-1/2 md:h-full md:min-h-0 md:flex-1 flex flex-col justify-center items-center p-4 md:px-10 md:py-8 lg:px-16 text-center overflow-hidden rounded-lg md:rounded-none bg-white/70 md:bg-white"
             >
               <h3
                 className="text-sm md:text-xl font-bold mb-2 text-gray-900 w-full"

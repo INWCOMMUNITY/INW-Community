@@ -1,5 +1,3 @@
-import Link from "next/link";
-import { BillingIntervalCheckout } from "@/components/BillingIntervalCheckout";
 import { InfoPageContact } from "@/components/InfoPageContact";
 import { InfoPageHeader } from "@/components/InfoPageHeader";
 import { InfoPageBenefitSections } from "@/components/InfoPageBenefitSections";
@@ -12,7 +10,7 @@ const SELLER_BENEFITS = [
   { title: "Sell on Our Storefront", description: "List your products on the NWC online store. Shoppers can buy from you directly, and you get paid.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[1]), imageAlt: "NWC storefront" },
   { title: "No Percentage Cuts", description: "NWC does not take a percentage of your sales. You keep what you earn from items sold through our platform.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[2]), imageAlt: "Sell local" },
   { title: "Shop Local, Online", description: "Make it easy for people to support local from home. Your products reach customers who want to buy from Inland Northwest businesses.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[3]), imageAlt: "Support local" },
-  { title: "Full Access From Day One", description: "List your products and start selling on our storefront as soon as you sign up. No waiting period—get started right away.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[4]), imageAlt: "Northwest Community" },
+  { title: "Sync Item Listings with other 3rd Party Selling Platforms", description: "Sell on eBay, Wix, Etsy, or other 3rd party online shopping platforms? Easily sync your preexisting listings to our storefront to make tracking your inventory and sales as easy as pie! If you're local and sell on a different 3rd party, joining NWC won't be a whole extra hassle!", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[4]), imageAlt: "Northwest Community" },
 ];
 
 export default async function SellNWCPage() {
@@ -62,16 +60,6 @@ export default async function SellNWCPage() {
       />
 
       <InfoPageContact />
-      <section className="py-10 px-12 md:px-20 lg:px-24 text-center" style={{ padding: "var(--section-padding)" }}>
-        <div className="flex flex-wrap gap-4 justify-center">
-          <BillingIntervalCheckout planId="seller" className="btn">
-            Become a Seller
-          </BillingIntervalCheckout>
-          <Link href="/support-nwc" className="btn-sponsors-light inline-block">
-            Compare All Plans
-          </Link>
-        </div>
-      </section>
     </>
   );
 }

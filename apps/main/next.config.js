@@ -14,7 +14,7 @@ if (fs.existsSync(rootEnv)) {
     if (m) {
       const key = m[1].trim();
       const val = m[2].trim().replace(/^["']|["']$/g, "");
-      if (isDev && key === "DATABASE_URL") {
+      if (isDev && (key === "DATABASE_URL" || key.startsWith("STRIPE_"))) {
         process.env[key] = val;
       } else if (!process.env[key]) {
         process.env[key] = val;
