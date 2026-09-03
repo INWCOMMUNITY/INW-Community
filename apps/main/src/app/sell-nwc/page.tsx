@@ -59,13 +59,12 @@ export default async function SellNWCPage() {
         heading="Become a Seller"
         planId="seller"
         buttonLabel="Sign Up Now"
-        yearlyButtonLabel="Annual (Summer)"
       />
 
       <InfoPageContact />
       <section className="py-10 px-12 md:px-20 lg:px-24 text-center" style={{ padding: "var(--section-padding)" }}>
         <div className="flex flex-wrap gap-4 justify-center">
-          <BillingIntervalCheckout planId="seller" className="btn" yearlyButtonLabel="Annual (Summer)">
+          <BillingIntervalCheckout planId="seller" className="btn">
             Become a Seller
           </BillingIntervalCheckout>
           <Link href="/support-nwc" className="btn-sponsors-light inline-block">

@@ -1,8 +1,8 @@
 import Stripe from "stripe";
-import { prisma, type Plan } from "database";
+import { prisma } from "database";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 import { stripeSubscriptionStatusToDb } from "@/lib/stripe-subscription-db-status";
-import { planFromStripePriceId } from "@/lib/stripe-price-to-plan";
+import { resolveNwcPlanFromStripeSubscription } from "@/lib/stripe-price-to-plan";
 
 export type SyncStripeSubscriptionsResult = {
   synced: number;
@@ -51,16 +51,8 @@ async function upsertSubscriptionRow(
     }
   }
 
-  const rawPrice = sub.items.data[0]?.price;
-  const priceId = typeof rawPrice === "string" ? rawPrice : rawPrice?.id ?? null;
-  // Prefer line-item price (source of truth after Stripe applies changes); metadata can lag after scheduled downgrades.
-  let plan: Plan | null = planFromStripePriceId(priceId);
-  if (!plan) {
-    const metaPlan = sub.metadata?.planId?.trim();
-    if (metaPlan === "subscribe" || metaPlan === "sponsor" || metaPlan === "seller") {
-      plan = metaPlan as Plan;
-    }
-  }
+  // Live Stripe price is the source of truth; metadata is only a fallback.
+  const plan = resolveNwcPlanFromStripeSubscription(sub);
   if (!plan) {
     return 0;
   }

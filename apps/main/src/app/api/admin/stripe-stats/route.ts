@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { requireAdmin } from "@/lib/admin-auth";
-import { collectSubscribeStripePriceIds } from "@/lib/stripe-subscription-plan-env";
+import {
+  collectSellerStripePriceIds,
+  collectSponsorStripePriceIds,
+  collectSubscribeStripePriceIds,
+} from "@/lib/stripe-subscription-plan-env";
 
 const stripe =
   process.env.STRIPE_SECRET_KEY
@@ -13,14 +17,9 @@ const stripe =
 function subscriptionPriceIdsForStats(): string[] {
   return [
     ...collectSubscribeStripePriceIds(),
-    process.env.STRIPE_PRICE_SPONSOR?.trim(),
-    process.env.STRIPE_PRICE_SELLER?.trim(),
     process.env.STRIPE_PRICE_SUBSCRIBE_YEARLY?.trim(),
-    process.env.STRIPE_PRICE_BUSINESS_SUMMER_STARTUP_YEARLY?.trim(),
-    process.env.STRIPE_PRICE_SPONSOR_SUMMER_STARTUP_YEARLY?.trim(),
-    process.env.STRIPE_PRICE_SPONSOR_YEARLY?.trim(),
-    process.env.STRIPE_PRICE_SELLER_SUMMER_STARTUP_YEARLY?.trim(),
-    process.env.STRIPE_PRICE_SELLER_YEARLY?.trim(),
+    ...collectSponsorStripePriceIds(),
+    ...collectSellerStripePriceIds(),
   ].filter((x): x is string => Boolean(x));
 }
 

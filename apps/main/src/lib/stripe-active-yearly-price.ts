@@ -7,7 +7,7 @@ import {
 /**
  * For Business/Seller annual checkout: try each configured yearly price id in priority order
  * and use the first one Stripe reports as active + recurring. Skips archived ids so a stale
- * Summer env does not block checkout when legacy (or a later candidate) still points at an active price.
+ * A stale yearly env does not block checkout when a later candidate still points at an active price.
  */
 export async function resolveFirstActiveYearlySponsorSellerPrice(
   stripe: Stripe,
@@ -23,8 +23,8 @@ export async function resolveFirstActiveYearlySponsorSellerPrice(
       ok: false,
       error:
         planId === "sponsor"
-          ? "Annual Business (Summer Startup) is not configured. Set STRIPE_PRICE_BUSINESS_SUMMER_STARTUP_YEARLY to your active $100/year Stripe price id (optional alias: STRIPE_PRICE_SPONSOR_SUMMER_STARTUP_YEARLY)."
-          : "Annual Seller (Summer Startup) is not configured. Set STRIPE_PRICE_SELLER_SUMMER_STARTUP_YEARLY to your active $100/year Stripe price id.",
+          ? "Annual Business is not configured. Yearly checkout is no longer offered."
+          : "Annual Seller is not configured. Yearly checkout is no longer offered.",
       triedPriceIds: [],
     };
   }
@@ -57,8 +57,8 @@ export async function resolveFirstActiveYearlySponsorSellerPrice(
 
   const envHint =
     planId === "sponsor"
-      ? "Update STRIPE_PRICE_BUSINESS_SUMMER_STARTUP_YEARLY (Summer $100/yr) to an active recurring yearly price id in Stripe Dashboard → Products, or clear stale env values and redeploy."
-      : "Update STRIPE_PRICE_SELLER_SUMMER_STARTUP_YEARLY to an active recurring yearly price id in Stripe Dashboard → Products, or clear stale env values and redeploy.";
+      ? "Clear or update the yearly Business Stripe price env if it is stale, then redeploy."
+      : "Clear or update the yearly Seller Stripe price env if it is stale, then redeploy.";
 
   return {
     ok: false,

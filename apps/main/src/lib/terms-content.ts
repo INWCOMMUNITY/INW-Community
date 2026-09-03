@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "September 1, 2026";
+export const TERMS_LAST_UPDATED = "September 3, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -244,11 +244,11 @@ NWC remains impartial in promotions, except for two acknowledged personal affili
 ● DJ's Coins & Collectibles
 
 8.5 Payment, Billing, Plan Changes & Cancellation
-● The following subscription plans and prices apply (monthly or yearly, as offered in Stripe):
+● The following subscription plans and prices apply (monthly, as offered in Stripe):
 ● $10/month (Resident/Subscriber)
-● $25/month (Business)
-● $30/month (Seller)
-● Yearly subscriptions are available at equivalent annual rates (e.g., $100/year Resident, $250/year Business, $325/year Seller) when configured in Stripe.
+● $10/month (Business)
+● $20/month (Seller)
+● Price changes: NWC may update published plan prices. When we lower a monthly rate, unused time in the current billing period is typically credited by Stripe (proration) and applied to the next invoice, which can reduce or skip that charge. Members who already have a yearly subscription keep that billing until it ends or they change plans.
 ● Payment information is required at signup. Automatic renewal continues until canceled.
 ● Managing your membership: You may update your payment method, view invoices, cancel, and (where we offer it) switch between eligible paid plans using the subscription management options in the mobile app and/or Stripe's customer billing portal, or by contacting NWC via phone or email.
 ● Plan changes: When you switch from one paid NWC plan to another through our supported flow (for example, updating the same Stripe subscription to a different NWC price), we aim to charge only one membership for the same period—your saved payment method stays on file with Stripe, and any new recurring rate typically takes effect starting your next billing cycle (see checkout and portal disclosures for the exact behavior Stripe applies). You may receive access to the new plan's app and website features according to how NWC configures access after the change. Downgrades, upgrades, and billing timing remain subject to Stripe's subscription settings and any confirmation we show you at checkout or in the portal.

@@ -18,7 +18,7 @@ export function BillingIntervalCheckout({
   planId: string;
   children: React.ReactNode;
   className?: string;
-  /** Shown on the non-monthly option; defaults to Summer wording for Business/Seller. */
+  /** Shown on the non-monthly option when yearly billing is offered. */
   yearlyButtonLabel?: string;
 }) {
   const hasYearly = planHasYearlyBilling(planId);

@@ -4,12 +4,13 @@ import { useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { WIX_IMG } from "@/lib/wix-media";
+import { SUBSCRIPTION_PLAN_PRICES } from "@/lib/subscription-plan-prices";
 
 const PLANS = [
   {
     id: "subscribe",
     name: "Northwest Community Subscription",
-    price: 10,
+    price: SUBSCRIPTION_PLAN_PRICES.subscribe.monthlyUsd,
     interval: "month",
     description:
       "This plan helps support our business and what we do, as well as provides access to our coupons, access to exclusive groups, and gets you exclusive hints in our scavenger hunts!",
@@ -19,7 +20,7 @@ const PLANS = [
   {
     id: "sponsor",
     name: "Northwest Community Business",
-    price: 25,
+    price: SUBSCRIPTION_PLAN_PRICES.sponsor.monthlyUsd,
     interval: "month",
     description:
       "Join Northwest Community's Local Business Directory. Offer coupons, post events on our calendar, and gain visibility through the events NWC will put on.",
@@ -29,7 +30,7 @@ const PLANS = [
   {
     id: "seller",
     name: "Northwest Community Seller",
-    price: 40,
+    price: SUBSCRIPTION_PLAN_PRICES.seller.monthlyUsd,
     interval: "month",
     description:
       "Includes everything in the Business plan plus the Seller Hub: sell on our online storefront as a local business. List items personally and get paid, without NWC taking personal percentages from your sold items.",

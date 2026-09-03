@@ -23,7 +23,6 @@ const PLANS = [
     id: "subscribe",
     name: "Subscribe",
     price: "$1-$15/mo",
-    priceYearly: "",
     icon: "leaf" as const,
     description:
       "Support Northwest Community and get 2× points, access to coupons, exclusive events, and more. From $1/mo (pay what you can).",
@@ -38,8 +37,7 @@ const PLANS = [
   {
     id: "sponsor",
     name: "Business",
-    price: "$25/mo",
-    priceYearly: "$100/yr Summer",
+    price: "$10/mo",
     icon: "storefront" as const,
     description:
       "List your local business on the NWC directory. Includes a full business page, coupons, rewards, events, and all Subscriber benefits.",
@@ -56,8 +54,7 @@ const PLANS = [
   {
     id: "seller",
     name: "Seller",
-    price: "$30/mo",
-    priceYearly: "$100/yr Summer",
+    price: "$20/mo",
     icon: "cart" as const,
     description:
       "Sell products on the NWC Storefront. Includes a full online store, shipping management, and all Business plan benefits.",
@@ -280,26 +277,6 @@ export default function SubscribeScreen() {
                       </Text>
                     )}
                   </Pressable>
-                  {(plan.id === "sponsor" || plan.id === "seller") ? (
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.summerPromoBtn,
-                        pressed && { opacity: 0.85 },
-                        checkoutLoading !== null && styles.subscribeBtnDisabled,
-                      ]}
-                      onPress={() => startCheckout(plan.id, "yearly")}
-                      disabled={checkoutLoading !== null}
-                    >
-                      {checkoutLoading === checkoutLoadingKey(plan.id, "yearly") ? (
-                        <ActivityIndicator size="small" color={theme.colors.primary} />
-                      ) : (
-                        <>
-                          <Text style={styles.summerPromoTitle}>Summer Startup Promo</Text>
-                          <Text style={styles.summerPromoPrice}>$100/year</Text>
-                        </>
-                      )}
-                    </Pressable>
-                  ) : null}
                 </>
               )}
             </View>
@@ -467,27 +444,5 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 15,
     fontWeight: "600",
-  },
-  summerPromoBtn: {
-    marginTop: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    backgroundColor: "#fff",
-  },
-  summerPromoTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: theme.colors.heading,
-  },
-  summerPromoPrice: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: theme.colors.primary,
-    marginTop: 2,
   },
 });

@@ -4,9 +4,9 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { signIn } from "next-auth/react";
+import { SUBSCRIPTION_PLAN_PRICES } from "@/lib/subscription-plan-prices";
 
 type Step = "account" | "business" | "contact" | "checkout";
-type Interval = "monthly" | "yearly";
 
 const CATEGORY_OPTIONS = [
   "Restaurant",
@@ -19,9 +19,10 @@ const CATEGORY_OPTIONS = [
   "Other",
 ];
 
+const SELLER_MONTHLY = SUBSCRIPTION_PLAN_PRICES.seller.monthlyUsd;
+
 export default function SignupSellerPage() {
   const [step, setStep] = useState<Step>("account");
-  const [interval, setInterval] = useState<Interval>("monthly");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -179,7 +180,7 @@ export default function SignupSellerPage() {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId: "seller", interval, businessData }),
+        body: JSON.stringify({ planId: "seller", interval: "monthly", businessData }),
         credentials: "same-origin",
       });
       const data = await res.json().catch(() => ({}));
@@ -370,40 +371,11 @@ export default function SignupSellerPage() {
           <p className="text-lg text-gray-600 mb-6 text-center max-w-lg mx-auto leading-relaxed">
             The Seller subscription includes the Business plan plus access to sell on our online storefront. List items personally and get paid. You can cancel anytime.
           </p>
-          <div className="flex flex-col items-center gap-4 mb-6">
-            <div className="flex flex-col items-center gap-1 mb-2">
-              <p className="text-3xl md:text-4xl font-bold text-gray-900 text-center">
-                {interval === "monthly" ? "$30.00" : "$100.00"}
-                <span className="text-lg font-normal text-gray-600 ml-1">{interval === "monthly" ? "per month" : "per year"}</span>
-              </p>
-              {interval === "yearly" && (
-                <p className="text-base text-gray-500">Summer Startup Promo — about $8.33/mo billed annually</p>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setInterval("monthly")}
-                className={`px-6 py-3 rounded-lg text-base font-medium transition-colors ${
-                  interval === "monthly"
-                    ? "bg-[var(--color-primary)] text-white"
-                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                }`}
-              >
-                Monthly ($30)
-              </button>
-              <button
-                type="button"
-                onClick={() => setInterval("yearly")}
-                className={`px-6 py-3 rounded-lg text-base font-medium transition-colors ${
-                  interval === "yearly"
-                    ? "bg-[var(--color-primary)] text-white"
-                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                }`}
-              >
-                Annual (Summer $100)
-              </button>
-            </div>
+          <div className="flex flex-col items-center gap-1 mb-6">
+            <p className="text-3xl md:text-4xl font-bold text-gray-900 text-center">
+              ${SELLER_MONTHLY.toFixed(2)}
+              <span className="text-lg font-normal text-gray-600 ml-1">per month</span>
+            </p>
           </div>
           {error && <p className="text-red-600 text-sm">{error}</p>}
           <div className="flex gap-2">

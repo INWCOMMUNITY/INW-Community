@@ -182,7 +182,7 @@ export async function POST(req: NextRequest) {
       }
     }
     const yearlySponsorSeller = interval === "yearly" && (planId === "sponsor" || planId === "seller");
-    // Yearly Business/Seller prices come only from Summer (± optional legacy) envs resolved in Stripe next step.
+    // Yearly Business/Seller is no longer offered at checkout; leftover yearly env ids still resolve if requested.
     if (!priceId && !yearlySponsorSeller) {
       return jsonCheckout400(
         describeStripeSubscriptionConfigError(planId, interval),

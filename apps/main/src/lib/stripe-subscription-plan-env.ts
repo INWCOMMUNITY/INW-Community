@@ -77,23 +77,35 @@ export function collectSubscribeStripePriceIds(): string[] {
 
 export type StripePlanPriceConfig = { priceId: string; priceIdYearly?: string };
 
-/**
- * Ordered yearly Business price ids (checkout tries each until one is active in Stripe).
- * Production: set `STRIPE_PRICE_BUSINESS_SUMMER_STARTUP_YEARLY` only. Optional: sponsor-prefixed
- * summer alias, then legacy `STRIPE_PRICE_SPONSOR_YEARLY` if you still use it.
- */
-export function collectSponsorYearlyStripePriceCandidates(): string[] {
-  const order = [
-    process.env.STRIPE_PRICE_BUSINESS_SUMMER_STARTUP_YEARLY,
-    process.env.STRIPE_PRICE_SPONSOR_SUMMER_STARTUP_YEARLY,
-    process.env.STRIPE_PRICE_SPONSOR_YEARLY,
-  ];
+function uniquePriceIds(raw: Array<string | undefined>): string[] {
   const out: string[] = [];
-  for (const raw of order) {
-    const t = trimPriceId(raw);
+  for (const value of raw) {
+    const t = trimPriceId(value);
     if (t && !out.includes(t)) out.push(t);
   }
   return out;
+}
+
+/** Current + optional leftover monthly Business price ids. */
+export function collectSponsorMonthlyStripePriceIds(): string[] {
+  return uniquePriceIds([process.env.STRIPE_PRICE_SPONSOR, process.env.STRIPE_PRICE_SPONSOR_LEGACY]);
+}
+
+/** Current + optional leftover monthly Seller price ids. */
+export function collectSellerMonthlyStripePriceIds(): string[] {
+  return uniquePriceIds([process.env.STRIPE_PRICE_SELLER, process.env.STRIPE_PRICE_SELLER_LEGACY]);
+}
+
+/**
+ * Yearly Business price ids. New `STRIPE_PRICE_SPONSOR_YEARLY` first; leftover summer-named
+ * env vars still map existing annual subscribers if they were never renamed.
+ */
+export function collectSponsorYearlyStripePriceCandidates(): string[] {
+  return uniquePriceIds([
+    process.env.STRIPE_PRICE_SPONSOR_YEARLY,
+    process.env.STRIPE_PRICE_BUSINESS_SUMMER_STARTUP_YEARLY,
+    process.env.STRIPE_PRICE_SPONSOR_SUMMER_STARTUP_YEARLY,
+  ]);
 }
 
 /** First configured Business yearly price id (for static config / hints). Prefer {@link collectSponsorYearlyStripePriceCandidates} at checkout. */
@@ -101,15 +113,22 @@ export function resolveSponsorYearlyStripePriceId(): string {
   return collectSponsorYearlyStripePriceCandidates()[0] ?? "";
 }
 
-/** Ordered yearly Seller price ids. Production: `STRIPE_PRICE_SELLER_SUMMER_STARTUP_YEARLY` first; legacy yearly optional. */
+/** Yearly Seller price ids. New `STRIPE_PRICE_SELLER_YEARLY` first; leftover summer-named env optional. */
 export function collectSellerYearlyStripePriceCandidates(): string[] {
-  const order = [process.env.STRIPE_PRICE_SELLER_SUMMER_STARTUP_YEARLY, process.env.STRIPE_PRICE_SELLER_YEARLY];
-  const out: string[] = [];
-  for (const raw of order) {
-    const t = trimPriceId(raw);
-    if (t && !out.includes(t)) out.push(t);
-  }
-  return out;
+  return uniquePriceIds([
+    process.env.STRIPE_PRICE_SELLER_YEARLY,
+    process.env.STRIPE_PRICE_SELLER_SUMMER_STARTUP_YEARLY,
+  ]);
+}
+
+/** Every Business price id that should grant `sponsor` access (monthly + yearly). */
+export function collectSponsorStripePriceIds(): string[] {
+  return uniquePriceIds([...collectSponsorMonthlyStripePriceIds(), ...collectSponsorYearlyStripePriceCandidates()]);
+}
+
+/** Every Seller price id that should grant `seller` access (monthly + yearly). */
+export function collectSellerStripePriceIds(): string[] {
+  return uniquePriceIds([...collectSellerMonthlyStripePriceIds(), ...collectSellerYearlyStripePriceCandidates()]);
 }
 
 /** First configured Seller yearly price id. Prefer {@link collectSellerYearlyStripePriceCandidates} at checkout. */
@@ -162,9 +181,9 @@ export function describeStripeSubscriptionConfigError(planId: string, interval: 
       return "Resident yearly is not configured. Set STRIPE_PRICE_SUBSCRIBE_YEARLY, or choose monthly with STRIPE_PRICE_SUBSCRIBE or STRIPE_PRICE_SUBSCRIBE_TIER_01–15.";
     }
     if (id === "sponsor") {
-      return "Annual Business (Summer Startup) is not configured. Set STRIPE_PRICE_BUSINESS_SUMMER_STARTUP_YEARLY to your active $100/year Stripe price_ id. Optional: STRIPE_PRICE_SPONSOR_SUMMER_STARTUP_YEARLY if you use that name instead.";
+      return "Annual Business is not configured. Set STRIPE_PRICE_SPONSOR_YEARLY to your Business yearly Stripe price id.";
     }
-    return "Annual Seller (Summer Startup) is not configured. Set STRIPE_PRICE_SELLER_SUMMER_STARTUP_YEARLY to your active $100/year Stripe price_ id.";
+    return "Annual Seller is not configured. Set STRIPE_PRICE_SELLER_YEARLY to your Seller yearly Stripe price id.";
   }
   if (id === "subscribe") {
     return "Resident subscribe is not configured on the server. Set STRIPE_PRICE_SUBSCRIBE or STRIPE_PRICE_SUBSCRIBE_TIER_01 (…TIER_15) in the deployment environment to valid Stripe price_ ids.";

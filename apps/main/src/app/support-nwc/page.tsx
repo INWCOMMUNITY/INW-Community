@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { WIX_IMG } from "@/lib/wix-media";
@@ -18,10 +18,8 @@ type SupportPlanRow = {
   imagePath: string;
   benefitsHref: string;
   benefitsLabel: string;
-  /** Shown when Monthly is selected (subscribe = pay-what-you-can copy). */
+  /** Subscribe = pay-what-you-can copy; Business/Seller = monthly rate. */
   monthlyPriceLabel: string;
-  /** When set, Annual toggle applies; omitted for residents (monthly only). */
-  yearlyUsd?: number;
 };
 
 const PLANS: SupportPlanRow[] = [
@@ -39,7 +37,6 @@ const PLANS: SupportPlanRow[] = [
     id: "sponsor",
     name: "Northwest Community Business",
     monthlyPriceLabel: `$${SUBSCRIPTION_PLAN_PRICES.sponsor.monthlyUsd} / month`,
-    yearlyUsd: SUBSCRIPTION_PLAN_PRICES.sponsor.yearlyUsd,
     description:
       "Join the Local Business Directory, create offers for the coupon book, post events, and gain visibility. Includes the same member coupon book and 2× points on purchases and scans as other paid plans.",
     imagePath: "2bdd49_e16f54dfbbf44525bf5a7dca343a7e03~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_e16f54dfbbf44525bf5a7dca343a7e03~mv2.jpg",
@@ -50,7 +47,6 @@ const PLANS: SupportPlanRow[] = [
     id: "seller",
     name: "Northwest Community Seller",
     monthlyPriceLabel: `$${SUBSCRIPTION_PLAN_PRICES.seller.monthlyUsd} / month`,
-    yearlyUsd: SUBSCRIPTION_PLAN_PRICES.seller.yearlyUsd,
     description:
       "Seller Hub: sell new and used items on the storefront with Stripe payouts. Includes the member coupon book and 2× points on purchases and scans.",
     imagePath: "2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg/v1/fill/w_400,h_300,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/2bdd49_85a6f874c20a4f1db5abfb6f3d9b9bdb~mv2.jpg",
@@ -60,16 +56,10 @@ const PLANS: SupportPlanRow[] = [
 ];
 
 export default function SupportNWCInfoPage() {
-  const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
   const siteImages = useSiteImageUrls();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const billing = params.get("billing");
-    if (billing === "yearly" || billing === "annual") {
-      setInterval("yearly");
-    }
     const goResident = () => {
       if (window.location.hash === "#resident-pwyc") {
         document.getElementById("resident-pwyc")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -100,59 +90,15 @@ export default function SupportNWCInfoPage() {
               Northwest Community is a local hub for the Inland Northwest—Spokane, Kootenai County, and beyond. Choose the plan that fits you below. Each subscription supports our mission and comes with real benefits.
             </p>
 
-            <div className="flex flex-col items-center gap-2 mt-6">
-              <div className="flex justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setInterval("monthly")}
-                  className={`px-6 py-3 rounded-lg text-base font-medium transition-colors ${
-                    interval === "monthly"
-                      ? "bg-[var(--color-primary)] text-white"
-                      : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                  }`}
-                >
-                  Monthly
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setInterval("yearly")}
-                  className={`px-6 py-3 rounded-lg text-base font-medium transition-colors ${
-                    interval === "yearly"
-                      ? "bg-[var(--color-primary)] text-white"
-                      : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                  }`}
-                >
-                  Annual (Summer)
-                </button>
-              </div>
-              <p className="text-xs text-gray-600 max-w-xl">
-                Residents bill monthly (pay what you can). Annual is the Summer Startup Promo for Business and Seller ($100/yr).
-              </p>
-            </div>
-            <div className="mt-4 text-sm text-gray-700 max-w-2xl mx-auto">
+            <div className="mt-6 text-sm text-gray-700 max-w-2xl mx-auto">
               <p className="font-semibold mb-2" style={{ color: "var(--color-heading)" }}>
-                {interval === "monthly" ? "Monthly prices" : "Annual (Summer Startup — Business & Seller)"}
+                Monthly prices
               </p>
               <ul className="space-y-1 opacity-90">
                 {PLANS.map((plan) => (
                   <li key={plan.id}>
                     <span className="font-medium text-gray-900">{plan.name}:</span>{" "}
-                    {interval === "monthly" ? (
-                      <span className="text-gray-800">{plan.monthlyPriceLabel}</span>
-                    ) : plan.yearlyUsd != null ? (
-                      <>
-                        <span className="text-gray-900">${plan.yearlyUsd}</span>
-                        <span className="text-gray-600"> / year</span>
-                        <span className="text-gray-500">
-                          {" "}
-                          (Summer Startup — ${(plan.yearlyUsd / 12).toFixed(2)}/mo billed annually)
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-gray-600">
-                        Monthly pay-what-you-can only ($1–$15/mo at checkout).
-                      </span>
-                    )}
+                    <span className="text-gray-800">{plan.monthlyPriceLabel}</span>
                   </li>
                 ))}
               </ul>
@@ -176,26 +122,9 @@ export default function SupportNWCInfoPage() {
                 <div className="p-6 flex flex-col flex-1">
                   <h2 className="text-xl md:text-2xl font-bold mb-3 text-gray-900 text-center">{plan.name}</h2>
                   <div className="text-center mb-3">
-                    {interval === "monthly" ? (
-                      <p className="text-xl md:text-2xl font-bold mb-1 text-gray-900 leading-snug">
-                        {plan.monthlyPriceLabel}
-                      </p>
-                    ) : plan.yearlyUsd != null ? (
-                      <>
-                        <p className="text-3xl md:text-4xl font-bold mb-1 text-gray-900">
-                          ${plan.yearlyUsd}
-                          <span className="text-base md:text-lg font-normal opacity-80 text-gray-700"> / year</span>
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          Summer Startup Promo — ${(plan.yearlyUsd / 12).toFixed(2)}/mo billed annually
-                        </p>
-                      </>
-                    ) : (
-                      <p className="text-base text-gray-700 leading-relaxed">
-                        Residents stay on <span className="font-semibold">monthly</span> billing. Choose what you pay
-                        ($1–$15/mo) at checkout.
-                      </p>
-                    )}
+                    <p className="text-xl md:text-2xl font-bold mb-1 text-gray-900 leading-snug">
+                      {plan.monthlyPriceLabel}
+                    </p>
                   </div>
                   <p className="text-base mb-3 opacity-90 text-gray-900">{plan.description}</p>
                   <p className="text-xs opacity-70 mb-2 text-gray-700">Valid until canceled</p>
@@ -213,31 +142,12 @@ export default function SupportNWCInfoPage() {
                   ) : (
                     <CheckoutButton
                       planId={plan.id}
-                      interval={interval}
+                      interval="monthly"
                       className="btn w-full text-center inline-block"
                     >
-                      {interval === "yearly" && plan.yearlyUsd != null ? (
-                        <span className="inline-flex flex-col items-center gap-0.5 py-0.5 leading-tight">
-                          <span className="font-semibold">Summer Startup — ${plan.yearlyUsd}/yr</span>
-                          <span className="text-sm font-normal opacity-95">Checkout</span>
-                        </span>
-                      ) : (
-                        "Subscribe"
-                      )}
+                      Subscribe
                     </CheckoutButton>
                   )}
-                  {(plan.id === "sponsor" || plan.id === "seller") &&
-                  plan.yearlyUsd != null &&
-                  interval === "monthly" ? (
-                    <CheckoutButton
-                      planId={plan.id}
-                      interval="yearly"
-                      className="btn w-full text-center mt-2 inline-flex flex-col items-center justify-center gap-0.5 py-3 leading-tight"
-                    >
-                      <span className="font-semibold">Summer Startup Promo</span>
-                      <span className="text-sm font-normal opacity-95">${plan.yearlyUsd}/year</span>
-                    </CheckoutButton>
-                  ) : null}
                 </div>
               </div>
             ))}

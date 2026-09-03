@@ -12,7 +12,7 @@ import {
 import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconnect";
 import { normalizeSubcategoriesByPrimary } from "@/lib/business-categories";
 import { stripeSubscriptionStatusToDb } from "@/lib/stripe-subscription-db-status";
-import { planFromStripePriceId } from "@/lib/stripe-price-to-plan";
+import { resolveNwcPlanFromStripeSubscription } from "@/lib/stripe-price-to-plan";
 import { removeNwcMemberPerksAfterSubscriptionEnd } from "@/lib/nwc-subscription-perk-cleanup";
 import { migrateResaleItemsForSellerMember } from "@/lib/migrate-resale-items-for-seller-plan";
 import { orderIdsFromCheckoutSessionMetadata } from "@/lib/stripe-checkout-order-ids";
@@ -293,16 +293,8 @@ export async function POST(req: NextRequest) {
     if (memberId && subId && (!planId || !["subscribe", "sponsor", "seller"].includes(planId))) {
       try {
         const stripeSub = await stripe.subscriptions.retrieve(subId);
-        const mp = stripeSub.metadata?.planId?.trim();
-        if (mp === "subscribe" || mp === "sponsor" || mp === "seller") {
-          planId = mp;
-        }
-        if (!planId) {
-          const raw = stripeSub.items.data[0]?.price;
-          const priceId = typeof raw === "string" ? raw : raw?.id ?? null;
-          const p = planFromStripePriceId(priceId);
-          if (p) planId = p;
-        }
+        const p = resolveNwcPlanFromStripeSubscription(stripeSub);
+        if (p) planId = p;
       } catch (subErr) {
         console.error("[stripe/webhook] checkout.session.completed: retrieve subscription for planId failed", subErr);
       }
@@ -875,16 +867,7 @@ export async function POST(req: NextRequest) {
         try {
           const sub = await stripe.subscriptions.retrieve(subIdStr);
           const memberId = sub.metadata?.memberId?.trim();
-          let planId = sub.metadata?.planId?.trim() as "subscribe" | "sponsor" | "seller" | undefined;
-          if (planId && !["subscribe", "sponsor", "seller"].includes(planId)) {
-            planId = undefined;
-          }
-          if (!planId) {
-            const raw = sub.items.data[0]?.price;
-            const priceId = typeof raw === "string" ? raw : raw?.id ?? null;
-            const p = planFromStripePriceId(priceId);
-            if (p) planId = p;
-          }
+          const planId = resolveNwcPlanFromStripeSubscription(sub) ?? undefined;
           if (memberId && planId) {
             await prisma.subscription.create({
               data: {
@@ -940,14 +923,7 @@ export async function POST(req: NextRequest) {
       select: { memberId: true },
     });
 
-    const metaPlan = sub.metadata?.planId?.trim();
-    const rawPrice = sub.items.data[0]?.price;
-    const priceId = typeof rawPrice === "string" ? rawPrice : rawPrice?.id ?? null;
-    const planFromPrice = planFromStripePriceId(priceId);
-    const planResolved: Plan | undefined =
-      metaPlan === "subscribe" || metaPlan === "sponsor" || metaPlan === "seller"
-        ? (metaPlan as Plan)
-        : planFromPrice ?? undefined;
+    const planResolved: Plan | undefined = resolveNwcPlanFromStripeSubscription(sub) ?? undefined;
 
     const data: Prisma.SubscriptionUpdateManyMutationInput = {
       currentPeriodEnd: periodEnd,

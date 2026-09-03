@@ -5,7 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 import { NWC_PAID_PLAN_ACCESS_STATUSES } from "@/lib/nwc-paid-subscription";
 import { syncStripeSubscriptionsForMember } from "@/lib/sync-stripe-subscriptions-for-member";
-import { planFromStripePriceId } from "@/lib/stripe-price-to-plan";
+import { resolveNwcPlanFromStripeSubscription } from "@/lib/stripe-price-to-plan";
 import { nwcPlanRank } from "@/lib/nwc-plan-rank";
 import {
   getStripeSubscriptionPlanPriceIds,
@@ -35,13 +35,7 @@ function isAdminBypass(req: NextRequest): boolean {
 }
 
 function resolveCurrentPlan(sub: Stripe.Subscription): Plan | null {
-  const meta = sub.metadata?.planId?.trim();
-  if (meta === "subscribe" || meta === "sponsor" || meta === "seller") {
-    return meta as Plan;
-  }
-  const rawPrice = sub.items.data[0]?.price;
-  const priceId = typeof rawPrice === "string" ? rawPrice : rawPrice?.id ?? null;
-  return planFromStripePriceId(priceId);
+  return resolveNwcPlanFromStripeSubscription(sub);
 }
 
 async function releaseSubscriptionScheduleIfAny(subscriptionId: string): Promise<void> {

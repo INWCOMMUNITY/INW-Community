@@ -22,7 +22,7 @@ interface InfoPageSignupBannerProps {
   buttonHref?: string;
   /** e.g. "Sign Up Now" */
   buttonLabel: string;
-  /** Label for the annual option when the plan has yearly billing (e.g. Summer Startup). */
+  /** Label for the annual option when the plan has yearly billing. */
   yearlyButtonLabel?: string;
 }
 
