@@ -40,6 +40,15 @@ interface Shipment {
   trackingNumber?: string | null;
   labelUrl?: string | null;
   shippoOrderId?: string | null;
+  createdAt?: string;
+}
+
+const LABEL_REPRINT_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+function isWithinLabelReprintWindow(createdAt?: string | null): boolean {
+  if (!createdAt) return false;
+  const t = new Date(createdAt).getTime();
+  return !Number.isNaN(t) && Date.now() - t < LABEL_REPRINT_WINDOW_MS;
 }
 
 interface StoreOrder {
@@ -134,7 +143,10 @@ export default function OrderDetailScreen() {
   const showShippingLabels =
     !canceledOrRefunded &&
     (order.status === "paid" || order.status === "shipped" || order.status === "delivered");
-  const showPurchaseAnother = orderEligibleForAnotherShippoLabel(order);
+  const canReprint =
+    !!order.shipment?.shippoOrderId && isWithinLabelReprintWindow(order.shipment?.createdAt);
+  const showPurchaseAnother =
+    orderEligibleForAnotherShippoLabel(order) && !isWithinLabelReprintWindow(order.shipment?.createdAt);
 
   const openListing = (slug: string, listingType?: string) => {
     router.push(
@@ -199,7 +211,7 @@ export default function OrderDetailScreen() {
           )}
 
           <View style={styles.labelBtnRow}>
-            {order.shipment?.shippoOrderId ? (
+            {canReprint ? (
               <Pressable
                 style={({ pressed }) => [styles.labelBtn, pressed && { opacity: 0.8 }]}
                 onPress={() => openShippoLabelFullScreen("reprint")}
@@ -222,7 +234,7 @@ export default function OrderDetailScreen() {
                 onPress={() => openShippoLabelFullScreen("another")}
               >
                 <Ionicons name="cube-outline" size={18} color={theme.colors.primary} style={{ marginRight: 6 }} />
-                <Text style={styles.labelBtnSecondaryText}>Purchase another label</Text>
+                <Text style={styles.labelBtnSecondaryText}>Repurchase label</Text>
               </Pressable>
             ) : null}
           </View>

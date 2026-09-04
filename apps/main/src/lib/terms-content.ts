@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "September 3, 2026";
+export const TERMS_LAST_UPDATED = "September 4, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -178,7 +178,7 @@ Seller Hub may show first-party activity about your listings and storefront (for
 Sellers may save listing templates (draft titles, descriptions, photos, and similar fields) to reuse when creating items. Buyers may add items to a shopping cart before checkout. Cart contents and templates are stored with your account so those features work across the website and app.
 
 7.6 Refund Policy
-Upon request, the seller must issue refunds in accordance with its policy. Please include your return/refund policy in your Seller Profile (shipping and policies section). NWC is not responsible for the completion of refunds between the seller and buyer (See 7.4).
+Upon request, the seller must issue refunds in accordance with its policy. Please include your return/refund policy in your Seller Profile (shipping and policies section). For shipped storefront orders, a buyer may request a return after the order has shipped or been delivered. The seller reviews the request and may approve it (and optionally buy a prepaid return label through the seller’s connected Shippo account), decline it, or issue a courtesy refund without requiring the item back. When a return is required, the buyer’s refund is issued after the seller confirms they received the item. If the seller turns on “charge shipping for returns,” the Shippo return-label price is deducted from the refund amount; the seller still pays Shippo for that label. NWC is not responsible for the completion of the physical return or of refunds between the seller and buyer (See 7.4).
 
 7.7 Used Item Listings
 Sellers listing used items must accurately describe the item's condition. Make-offer negotiations on used items are between buyer and seller; NWC is not a party. The same prohibited items apply to all storefront listings. NWC may remove listings that violate these policies.

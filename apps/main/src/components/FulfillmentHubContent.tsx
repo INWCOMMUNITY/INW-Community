@@ -10,7 +10,7 @@ import { CollapsibleHelpSection } from "@/components/fulfillment/CollapsibleHelp
 import { DeliveryQueueSection, countPendingDeliveryOrders } from "@/components/fulfillment/DeliveryQueueSection";
 import { FulfillmentActionBar } from "@/components/fulfillment/FulfillmentActionBar";
 import { FulfillmentTabBar } from "@/components/fulfillment/FulfillmentTabBar";
-import { HistoryOrderSection } from "@/components/fulfillment/HistoryOrderSection";
+import { HistoryOrderSection, ShippedOrderSection } from "@/components/fulfillment/HistoryOrderSection";
 import { OrderCard } from "@/components/fulfillment/OrderCard";
 import { OrderEmptyState } from "@/components/fulfillment/OrderEmptyState";
 import { PickupQueueSection, countPickupOrders } from "@/components/fulfillment/PickupQueueSection";
@@ -31,7 +31,13 @@ const SHIPPO_BULK_CONTAINER_ID = "shippo-elements-bulk-storefront-orders";
 const SELECTION_STORAGE_KEY = "fulfillment-hub-ship-selection";
 
 function parseTabParam(value: string | null): FulfillmentTabKey {
-  if (value === "pickups" || value === "deliveries" || value === "history" || value === "ship") {
+  if (
+    value === "pickups" ||
+    value === "deliveries" ||
+    value === "history" ||
+    value === "ship" ||
+    value === "shipped"
+  ) {
     return value;
   }
   return "ship";
@@ -65,6 +71,7 @@ export function FulfillmentHubContent(props: {
   const [shipOrders, setShipOrders] = useState<FulfillmentStoreOrder[]>([]);
   const [allOrders, setAllOrders] = useState<FulfillmentStoreOrder[]>([]);
   const [shippedOrders, setShippedOrders] = useState<FulfillmentStoreOrder[]>([]);
+  const [deliveredOrders, setDeliveredOrders] = useState<FulfillmentStoreOrder[]>([]);
   const [canceledOrders, setCanceledOrders] = useState<FulfillmentStoreOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -206,19 +213,38 @@ export function FulfillmentHubContent(props: {
       );
     }
 
+    if (tab === "shipped") {
+      fetches.push(
+        fetchWithTimeout("/api/store-orders?mine=1&shipped=1")
+          .then(async (r) => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) {
+              setFetchError((data as { error?: string }).error ?? "Failed to load shipped orders.");
+              setShippedOrders([]);
+              return;
+            }
+            setShippedOrders(Array.isArray(data) ? data : []);
+          })
+          .catch((e) => {
+            setFetchError(loadErrorMessage(e, "Failed to load shipped orders."));
+            setShippedOrders([]);
+          })
+      );
+    }
+
     if (tab === "history") {
       fetches.push(
         Promise.all([
-          fetchWithTimeout("/api/store-orders?mine=1&shipped=1").then((r) => r.json()),
+          fetchWithTimeout("/api/store-orders?mine=1&delivered=1").then((r) => r.json()),
           fetchWithTimeout("/api/store-orders?mine=1&canceled=1").then((r) => r.json()),
         ])
-          .then(([shipped, canceled]) => {
-            setShippedOrders(Array.isArray(shipped) ? shipped : []);
+          .then(([delivered, canceled]) => {
+            setDeliveredOrders(Array.isArray(delivered) ? delivered : []);
             setCanceledOrders(Array.isArray(canceled) ? canceled : []);
           })
           .catch((e) => {
             setFetchError(loadErrorMessage(e, "Failed to load order history."));
-            setShippedOrders([]);
+            setDeliveredOrders([]);
             setCanceledOrders([]);
           })
       );
@@ -482,9 +508,14 @@ export function FulfillmentHubContent(props: {
             }
             onOrderRemoved={(orderId) => setAllOrders((prev) => prev.filter((o) => o.id !== orderId))}
           />
+        ) : tab === "shipped" ? (
+          <ShippedOrderSection
+            shippedOrders={shippedOrders}
+            ordersBasePath={props.ordersBasePath}
+          />
         ) : (
           <HistoryOrderSection
-            shippedOrders={shippedOrders}
+            deliveredOrders={deliveredOrders}
             canceledOrders={canceledOrders}
             ordersBasePath={props.ordersBasePath}
           />

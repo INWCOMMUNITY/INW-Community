@@ -200,7 +200,7 @@ function SellerOrderDetailInner() {
                       Reprint Label
                     </Link>
                   ) : null}
-                  {canReprint && order.shipment.labelUrl ? (
+                  {order.shipment.labelUrl ? (
                     <a
                       href={order.shipment.labelUrl}
                       target="_blank"
@@ -210,12 +210,12 @@ function SellerOrderDetailInner() {
                       Open label PDF
                     </a>
                   ) : null}
-                  {orderEligibleForAnotherShippoLabel(order) ? (
+                  {orderEligibleForAnotherShippoLabel(order) && !canReprint ? (
                     <Link
                       href={shippoLabelHref(order.id, "another")}
                       className="action-pill btn-pill-outline w-full justify-center text-sm"
                     >
-                      Purchase Another Label
+                      Repurchase Label
                     </Link>
                   ) : null}
                 </div>

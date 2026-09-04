@@ -2,7 +2,7 @@
  * Shared store-order fulfillment helpers for web, mobile, and API.
  */
 
-export type FulfillmentTabKey = "ship" | "pickups" | "deliveries" | "history";
+export type FulfillmentTabKey = "ship" | "pickups" | "deliveries" | "shipped" | "history";
 
 export type OrderLineItemSummary = {
   quantity: number;

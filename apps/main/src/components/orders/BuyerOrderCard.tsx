@@ -131,9 +131,15 @@ export function BuyerOrderCard({
             )}
           </ul>
 
-          {order.refundRequestedAt ? (
+          {order.storeReturn || order.refundRequestedAt ? (
             <p className="text-sm mt-3" style={{ color: "var(--color-primary)" }}>
-              Refund requested {formatBuyerOrderDate(order.refundRequestedAt)}. The seller will review.
+              {order.storeReturn?.status === "awaiting_return" || order.storeReturn?.status === "in_transit"
+                ? "Return in progress."
+                : order.storeReturn?.status === "declined"
+                  ? "Return declined."
+                  : order.storeReturn?.status === "refunded"
+                    ? "Refund issued."
+                    : "Return requested. The seller will review."}
             </p>
           ) : null}
 

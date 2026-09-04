@@ -23,9 +23,9 @@ const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 /** Keep in sync with `NW_APP_WEBVIEW_MSG_SHIPPO_LABEL_SUCCESS` in apps/main `nw-app-webview-bridge.ts`. */
 const NW_APP_MSG_SHIPPO_LABEL_SUCCESS = "nw_shippo_label_success";
 
-function parseMode(raw: string | string[] | undefined): "reprint" | "purchase" | "another" {
+function parseMode(raw: string | string[] | undefined): "reprint" | "purchase" | "another" | "return" {
   const s = Array.isArray(raw) ? raw[0] : raw;
-  if (s === "reprint" || s === "another") return s;
+  if (s === "reprint" || s === "another" || s === "return") return s;
   return "purchase";
 }
 

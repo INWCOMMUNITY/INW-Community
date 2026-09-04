@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  TextInput,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
@@ -18,22 +19,40 @@ import { apiGet, apiPost } from "@/lib/api";
 interface OrderItem {
   id: string;
   quantity: number;
-  priceCentsAtPurchase: number;
+  fulfillmentType?: string | null;
   storeItem: { id: string; title: string; slug: string; photos: string[] };
+}
+
+interface StoreReturn {
+  id: string;
+  status: string;
+  reason?: string | null;
+  chargeReturnShipping: boolean;
+  returnLabelCostCents: number;
 }
 
 interface StoreOrder {
   id: string;
   totalCents: number;
+  taxCents?: number;
   status: string;
   createdAt: string;
-  refundRequestedAt: string | null;
   buyer: { firstName: string; lastName: string; email: string };
   items: OrderItem[];
+  storeReturn?: StoreReturn | null;
+  returnShipment?: { labelUrl?: string | null; labelCostCents?: number } | null;
 }
 
 function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+function statusCopy(status?: string): string {
+  if (status === "requested") return "Buyer requested a return";
+  if (status === "awaiting_return") return "Approved — waiting for the item";
+  if (status === "in_transit") return "Return in transit";
+  if (status === "received") return "Received — refunding";
+  return status ?? "";
 }
 
 export default function ReturnsScreen() {
@@ -41,15 +60,14 @@ export default function ReturnsScreen() {
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [refunding, setRefunding] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [declineFor, setDeclineFor] = useState<string | null>(null);
+  const [declineReason, setDeclineReason] = useState("");
 
   const load = useCallback(() => {
-    apiGet<StoreOrder[]>("/api/store-orders?mine=1")
-      .then((data) => {
-        const arr = Array.isArray(data) ? data : [];
-        setOrders(arr.filter((o) => o.refundRequestedAt != null));
-      })
+    apiGet<StoreOrder[]>("/api/store-orders?mine=1&returns=1")
+      .then((data) => setOrders(Array.isArray(data) ? data : []))
       .catch(() => setOrders([]))
       .finally(() => {
         setLoading(false);
@@ -57,23 +75,22 @@ export default function ReturnsScreen() {
       });
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
-  const issueRefund = async (orderId: string) => {
-    setRefunding(orderId);
+  const act = async (orderId: string, path: string, body?: object) => {
+    setBusyId(orderId);
     setError(null);
     try {
-      const data = await apiPost<{ ok?: boolean; stripeFeeCents?: number | null }>(`/api/store-orders/${orderId}/refund`, {});
-      setOrders((prev) => prev.filter((o) => o.id !== orderId));
-      const feeCents = data?.stripeFeeCents;
-      if (typeof feeCents === "number" && feeCents > 0) {
-        Alert.alert("Refund issued", `Stripe fee retained: $${(feeCents / 100).toFixed(2)}`);
-      }
+      await apiPost(`/api/store-orders/${orderId}${path}`, body ?? {});
+      load();
     } catch (e: unknown) {
-      const err = e as { error?: string };
-      setError(err?.error ?? "Refund failed");
+      setError((e as { error?: string }).error ?? "Action failed");
     } finally {
-      setRefunding(null);
+      setBusyId(null);
     }
   };
 
@@ -89,108 +106,154 @@ export default function ReturnsScreen() {
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />
-      }
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
     >
-      <Text style={styles.title}>Return Requests</Text>
-      <Text style={styles.hint}>
-        Issue refunds for orders. Refunds are deducted from your My Funds balance.
+      <Text style={styles.intro}>
+        Approve a return, send a Shippo return label, then refund after you receive the item.
+        Courtesy refunds send money back now; the buyer keeps the item.
       </Text>
-
-      {error && <Text style={styles.err}>{error}</Text>}
-
+      {error ? <Text style={styles.error}>{error}</Text> : null}
       {orders.length === 0 ? (
-        <Text style={styles.empty}>No return requests at this time.</Text>
+        <Text style={styles.empty}>No open return requests.</Text>
       ) : (
         orders.map((order) => {
-          const buyerName = `${order.buyer?.firstName ?? ""} ${order.buyer?.lastName ?? ""}`.trim() || "Buyer";
+          const ret = order.storeReturn;
+          const busy = busyId === order.id;
+          const hasShip = order.items.some((i) => (i.fulfillmentType ?? "ship") === "ship");
           return (
             <View key={order.id} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View>
-                  <Text style={styles.buyer}>{buyerName}</Text>
-                  <Text style={styles.email}>{order.buyer?.email}</Text>
-                  <Text style={styles.date}>{new Date(order.createdAt).toLocaleString()}</Text>
+              <Text style={styles.buyer}>
+                {order.buyer.firstName} {order.buyer.lastName}
+              </Text>
+              <Text style={styles.meta}>{statusCopy(ret?.status)}</Text>
+              {ret?.reason ? <Text style={styles.meta}>Reason: {ret.reason}</Text> : null}
+              <Text style={styles.total}>{formatPrice(order.totalCents + (order.taxCents ?? 0))}</Text>
+              {order.items.map((oi) => (
+                <View key={oi.id} style={styles.itemRow}>
+                  {oi.storeItem.photos[0] ? (
+                    <Image source={{ uri: oi.storeItem.photos[0] }} style={styles.thumb} />
+                  ) : null}
+                  <Text style={styles.itemTitle}>
+                    {oi.storeItem.title} × {oi.quantity}
+                  </Text>
                 </View>
-                <View style={styles.totalRow}>
-                  <Text style={styles.total}>{formatPrice(order.totalCents)}</Text>
-                  <Text style={styles.badge}>{order.status}</Text>
+              ))}
+              {ret?.status === "requested" ? (
+                <View style={styles.actions}>
+                  <Pressable style={styles.btn} disabled={busy} onPress={() => act(order.id, "/returns/approve")}>
+                    <Text style={styles.btnText}>{busy ? "Working…" : "Approve return"}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.btnOutline}
+                    disabled={busy}
+                    onPress={() => {
+                      setDeclineFor(order.id);
+                      setDeclineReason("");
+                    }}
+                  >
+                    <Text style={styles.btnOutlineText}>Decline</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.btnOutline}
+                    disabled={busy}
+                    onPress={() =>
+                      Alert.alert("Courtesy refund", "Refund now and let the buyer keep the item?", [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Refund", onPress: () => act(order.id, "/refund", { requireReturn: false }) },
+                      ])
+                    }
+                  >
+                    <Text style={styles.btnOutlineText}>Courtesy refund</Text>
+                  </Pressable>
                 </View>
-              </View>
-              <View style={styles.items}>
-                <Text style={styles.itemsLabel}>Items</Text>
-                {order.items?.map((oi) => (
-                  <View key={oi.id} style={styles.itemRow}>
-                    {oi.storeItem?.photos?.[0] && (
-                      <Image source={{ uri: oi.storeItem.photos[0] }} style={styles.thumb} />
-                    )}
-                    <Text style={styles.itemText}>
-                      {oi.storeItem?.title} × {oi.quantity} — {formatPrice(oi.priceCentsAtPurchase * oi.quantity)}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-              <Pressable
-                style={({ pressed }) => [styles.refundBtn, pressed && { opacity: 0.8 }]}
-                onPress={() => issueRefund(order.id)}
-                disabled={refunding === order.id}
-              >
-                {refunding === order.id ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Text style={styles.refundBtnText}>Issue refund</Text>
-                )}
-              </Pressable>
+              ) : null}
+              {ret?.status === "awaiting_return" || ret?.status === "in_transit" ? (
+                <View style={styles.actions}>
+                  {hasShip && !order.returnShipment?.labelUrl ? (
+                    <Pressable
+                      style={styles.btn}
+                      onPress={() =>
+                        router.push(`/seller-hub/shippo-order/${order.id}?mode=return` as never)
+                      }
+                    >
+                      <Text style={styles.btnText}>Buy return label</Text>
+                    </Pressable>
+                  ) : null}
+                  <Pressable
+                    style={styles.btn}
+                    disabled={busy}
+                    onPress={() => act(order.id, "/returns/receive")}
+                  >
+                    <Text style={styles.btnText}>{busy ? "Refunding…" : "Mark received & refund"}</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+              {declineFor === order.id ? (
+                <View style={{ marginTop: 10 }}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Tell the buyer why"
+                    value={declineReason}
+                    onChangeText={setDeclineReason}
+                    multiline
+                  />
+                  <Pressable
+                    style={styles.btn}
+                    disabled={busy || !declineReason.trim()}
+                    onPress={() => {
+                      act(order.id, "/returns/decline", { reason: declineReason.trim() });
+                      setDeclineFor(null);
+                    }}
+                  >
+                    <Text style={styles.btnText}>Send decline</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </View>
           );
         })
       )}
-
-      <Pressable
-        style={({ pressed }) => [styles.link, pressed && { opacity: 0.8 }]}
-        onPress={() => (router.push as (href: string) => void)("/seller-hub/store/payouts")}
-      >
-        <Text style={styles.linkText}>View My Funds</Text>
-      </Pressable>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
-  content: { padding: 20, paddingBottom: 40 },
+  content: { padding: 16, paddingBottom: 40 },
   center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#fff" },
-  title: { fontSize: 20, fontWeight: "700", marginBottom: 8, color: theme.colors.heading },
-  hint: { fontSize: 14, color: "#666", marginBottom: 24 },
-  err: { color: "#c62828", marginBottom: 16, fontSize: 14 },
-  empty: { fontSize: 16, color: "#888" },
-  card: {
-    backgroundColor: "#f9f9f9",
+  intro: { fontSize: 14, color: theme.colors.text, marginBottom: 16, lineHeight: 20 },
+  empty: { fontSize: 15, color: "#888" },
+  error: { color: "#b91c1c", marginBottom: 12 },
+  card: { borderWidth: 1, borderColor: "#e5e5e5", borderRadius: 10, padding: 14, marginBottom: 14 },
+  buyer: { fontSize: 16, fontWeight: "700" },
+  meta: { fontSize: 13, color: "#555", marginTop: 4 },
+  total: { fontSize: 16, fontWeight: "700", marginTop: 8 },
+  itemRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
+  thumb: { width: 36, height: 36, borderRadius: 6 },
+  itemTitle: { flex: 1, fontSize: 13 },
+  actions: { marginTop: 12, gap: 8 },
+  btn: {
+    backgroundColor: theme.colors.primary,
     borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
-  },
-  cardHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12 },
-  buyer: { fontSize: 16, fontWeight: "600", color: "#333" },
-  email: { fontSize: 14, color: "#666" },
-  date: { fontSize: 12, color: "#888", marginTop: 4 },
-  totalRow: { alignItems: "flex-end" },
-  total: { fontSize: 18, fontWeight: "700", color: "#333" },
-  badge: { fontSize: 12, backgroundColor: theme.colors.creamAlt, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, marginTop: 4, color: theme.colors.primary },
-  items: { borderTopWidth: 1, borderTopColor: "#eee", paddingTop: 12 },
-  itemsLabel: { fontSize: 14, fontWeight: "600", marginBottom: 8 },
-  itemRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
-  thumb: { width: 40, height: 40, borderRadius: 4, marginRight: 8 },
-  itemText: { fontSize: 14, color: "#333", flex: 1 },
-  refundBtn: {
-    marginTop: 16,
-    backgroundColor: "#c62828",
     paddingVertical: 10,
-    borderRadius: 8,
     alignItems: "center",
   },
-  refundBtnText: { color: "#fff", fontWeight: "600" },
-  link: { marginTop: 8 },
-  linkText: { fontSize: 14, color: theme.colors.primary, fontWeight: "600" },
+  btnText: { color: "#fff", fontWeight: "600" },
+  btnOutline: {
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  btnOutlineText: { color: theme.colors.primary, fontWeight: "600" },
+  input: {
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    padding: 10,
+    minHeight: 70,
+    marginBottom: 8,
+    textAlignVertical: "top",
+  },
 });

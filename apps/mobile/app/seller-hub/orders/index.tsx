@@ -35,7 +35,15 @@ import {
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
-type HistorySubTab = "shipped" | "canceled";
+type HistorySubTab = "delivered" | "canceled";
+
+const LABEL_REPRINT_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+function isWithinLabelReprintWindow(createdAt?: string | null): boolean {
+  if (!createdAt) return false;
+  const t = new Date(createdAt).getTime();
+  return !Number.isNaN(t) && Date.now() - t < LABEL_REPRINT_WINDOW_MS;
+}
 
 interface OrderItemType {
   id: string;
@@ -63,7 +71,14 @@ interface StoreOrder {
   orderNumber?: string;
   orderKind?: string;
   shippingAddress?: unknown;
-  shipment?: { id?: string } | null;
+  shipment?: {
+    id?: string;
+    carrier?: string;
+    trackingNumber?: string | null;
+    labelUrl?: string | null;
+    shippoOrderId?: string | null;
+    createdAt?: string;
+  } | null;
   shippedWithOrderId?: string | null;
   stripePaymentIntentId?: string | null;
   pickupSellerConfirmedAt?: string | null;
@@ -76,7 +91,13 @@ interface StoreOrder {
 }
 
 function parseTabParam(value: string | undefined): FulfillmentTabKey {
-  if (value === "pickups" || value === "deliveries" || value === "history" || value === "ship") {
+  if (
+    value === "pickups" ||
+    value === "deliveries" ||
+    value === "history" ||
+    value === "ship" ||
+    value === "shipped"
+  ) {
     return value;
   }
   return "ship";
@@ -1004,26 +1025,119 @@ function DeliveriesTabView({
   );
 }
 
-function HistoryTabView({
+function ShippedTabView({
   shippedOrders,
-  canceledOrders,
   onRefresh,
   refreshing,
 }: {
   shippedOrders: StoreOrder[];
+  onRefresh: () => void;
+  refreshing: boolean;
+}) {
+  const router = useRouter();
+  return (
+    <View style={styles.container}>
+      <FlatList
+        data={shippedOrders}
+        keyExtractor={(o) => o.id}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        contentContainerStyle={styles.list}
+        ListEmptyComponent={
+          <View style={styles.empty}>
+            <Text style={styles.emptyText}>No shipped orders.</Text>
+          </View>
+        }
+        renderItem={({ item }) => {
+          const firstItem = item.items?.[0]?.storeItem;
+          const photoUrl = firstItem?.photos?.[0] ? resolvePhotoUrl(firstItem.photos[0]) : undefined;
+          const orderNum = item.orderNumber ?? item.id.slice(-8).toUpperCase();
+          const canReprint =
+            !!item.shipment?.shippoOrderId && isWithinLabelReprintWindow(item.shipment?.createdAt);
+          const canRepurchase =
+            !!item.shipment && !isWithinLabelReprintWindow(item.shipment?.createdAt);
+          return (
+            <View style={styles.card}>
+              <Pressable
+                style={({ pressed }) => [pressed && { opacity: 0.9 }]}
+                onPress={() => router.push(`/seller-hub/orders/${item.id}` as never)}
+              >
+                <View style={styles.cardInner}>
+                  {photoUrl ? (
+                    <Image source={{ uri: photoUrl }} style={styles.cardThumb} />
+                  ) : (
+                    <View style={[styles.cardThumb, styles.cardThumbPlaceholder]} />
+                  )}
+                  <View style={styles.cardBody}>
+                    <View style={styles.cardRow}>
+                      <Text style={styles.orderId}>#{orderNum}</Text>
+                      <Text style={styles.status}>{getOrderStatusLabel(item.status)}</Text>
+                    </View>
+                    <Text style={styles.buyer}>
+                      {item.buyer ? `${item.buyer.firstName} ${item.buyer.lastName}` : "—"}
+                    </Text>
+                    <Text style={styles.date}>{formatDate(item.createdAt)}</Text>
+                    <Text style={styles.total}>{formatSellerOrderTotal(item)}</Text>
+                  </View>
+                </View>
+              </Pressable>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+                {item.shipment?.labelUrl ? (
+                  <Pressable
+                    onPress={() => router.push(`/seller-hub/orders/${item.id}` as never)}
+                    style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, backgroundColor: "#eee" }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: "600" }}>Open PDF</Text>
+                  </Pressable>
+                ) : null}
+                {canReprint ? (
+                  <Pressable
+                    onPress={() =>
+                      router.push(`/seller-hub/shippo-order/${item.id}?mode=reprint` as never)
+                    }
+                    style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, backgroundColor: theme.colors.primary }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: "600", color: "#fff" }}>Reprint</Text>
+                  </Pressable>
+                ) : null}
+                {canRepurchase ? (
+                  <Pressable
+                    onPress={() =>
+                      router.push(`/seller-hub/shippo-order/${item.id}?mode=another` as never)
+                    }
+                    style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, backgroundColor: theme.colors.primary }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: "600", color: "#fff" }}>Repurchase</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          );
+        }}
+      />
+    </View>
+  );
+}
+
+function HistoryTabView({
+  deliveredOrders,
+  canceledOrders,
+  onRefresh,
+  refreshing,
+}: {
+  deliveredOrders: StoreOrder[];
   canceledOrders: StoreOrder[];
   onRefresh: () => void;
   refreshing: boolean;
 }) {
   const router = useRouter();
-  const [subTab, setSubTab] = useState<HistorySubTab>("shipped");
-  const orders = subTab === "shipped" ? shippedOrders : canceledOrders;
+  const [subTab, setSubTab] = useState<HistorySubTab>("delivered");
+  const orders = subTab === "delivered" ? deliveredOrders : canceledOrders;
 
   return (
     <View style={styles.container}>
       <View style={styles.historySubTabRow}>
-        {(["shipped", "canceled"] as const).map((key) => {
-          const count = key === "shipped" ? shippedOrders.length : canceledOrders.length;
+        {(["delivered", "canceled"] as const).map((key) => {
+          const count = key === "delivered" ? deliveredOrders.length : canceledOrders.length;
           const active = subTab === key;
           return (
             <Pressable
@@ -1032,7 +1146,7 @@ function HistoryTabView({
               onPress={() => setSubTab(key)}
             >
               <Text style={[styles.historySubTabText, active && styles.historySubTabTextActive]}>
-                {key === "shipped" ? "Shipped" : "Canceled"} ({count})
+                {key === "delivered" ? "Delivered" : "Canceled"} ({count})
               </Text>
             </Pressable>
           );
@@ -1046,7 +1160,7 @@ function HistoryTabView({
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyText}>
-              {subTab === "shipped" ? "No Shipped Orders." : "No Canceled Orders."}
+              {subTab === "delivered" ? "No delivered orders." : "No canceled orders."}
             </Text>
           </View>
         }
@@ -1095,6 +1209,7 @@ export default function OrdersScreen() {
   const [shipOrders, setShipOrders] = useState<StoreOrder[]>([]);
   const [allOrders, setAllOrders] = useState<StoreOrder[]>([]);
   const [shippedOrders, setShippedOrders] = useState<StoreOrder[]>([]);
+  const [deliveredOrders, setDeliveredOrders] = useState<StoreOrder[]>([]);
   const [canceledOrders, setCanceledOrders] = useState<StoreOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -1107,12 +1222,13 @@ export default function OrdersScreen() {
   const tabCounts = useMemo(
     () => ({
       ship: toShipOrders.length,
+      shipped: shippedOrders.length,
       pickups: filterOrdersForPickupTab(allOrders).filter((o) => !o.pickupSellerConfirmedAt).length,
       deliveries: filterOrdersForDeliveryTab(allOrders).filter(
         (o) => !(o.deliveryConfirmedAt && o.deliveryBuyerConfirmedAt)
       ).length,
     }),
-    [toShipOrders.length, allOrders]
+    [toShipOrders.length, allOrders, shippedOrders.length]
   );
 
   const setTab = useCallback(
@@ -1153,18 +1269,26 @@ export default function OrdersScreen() {
       );
     }
 
+    if (tab === "shipped") {
+      fetches.push(
+        apiGet<StoreOrder[] | { error: string }>("/api/store-orders?mine=1&shipped=1")
+          .then((data) => setShippedOrders(Array.isArray(data) ? data : []))
+          .catch(() => setShippedOrders([]))
+      );
+    }
+
     if (tab === "history") {
       fetches.push(
         Promise.all([
-          apiGet<StoreOrder[]>("/api/store-orders?mine=1&shipped=1"),
+          apiGet<StoreOrder[]>("/api/store-orders?mine=1&delivered=1"),
           apiGet<StoreOrder[]>("/api/store-orders?mine=1&canceled=1"),
         ])
-          .then(([shipped, canceled]) => {
-            setShippedOrders(Array.isArray(shipped) ? shipped : []);
+          .then(([delivered, canceled]) => {
+            setDeliveredOrders(Array.isArray(delivered) ? delivered : []);
             setCanceledOrders(Array.isArray(canceled) ? canceled : []);
           })
           .catch(() => {
-            setShippedOrders([]);
+            setDeliveredOrders([]);
             setCanceledOrders([]);
           })
       );
@@ -1200,7 +1324,8 @@ export default function OrdersScreen() {
     loading &&
     ((tab === "ship" && shipOrders.length === 0) ||
       ((tab === "pickups" || tab === "deliveries") && allOrders.length === 0) ||
-      (tab === "history" && shippedOrders.length === 0 && canceledOrders.length === 0));
+      (tab === "shipped" && shippedOrders.length === 0) ||
+      (tab === "history" && deliveredOrders.length === 0 && canceledOrders.length === 0));
 
   if (showInitialLoader) {
     return (
@@ -1235,9 +1360,15 @@ export default function OrdersScreen() {
           onOrderUpdated={handleOrderUpdated}
           onOrderRemoved={handleOrderRemoved}
         />
+      ) : tab === "shipped" ? (
+        <ShippedTabView
+          shippedOrders={shippedOrders}
+          onRefresh={handleRefresh}
+          refreshing={refreshing}
+        />
       ) : (
         <HistoryTabView
-          shippedOrders={shippedOrders}
+          deliveredOrders={deliveredOrders}
           canceledOrders={canceledOrders}
           onRefresh={handleRefresh}
           refreshing={refreshing}

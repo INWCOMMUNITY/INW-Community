@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
+import { pickCurrentOutboundShipment } from "@/lib/store-order-shipments";
 
 export const dynamic = "force-dynamic";
 
@@ -47,13 +48,13 @@ export async function GET(req: NextRequest) {
       where: { sellerId: userId, status: "paid" },
       select: {
         shippedWithOrderId: true,
-        shipment: { select: { id: true } },
+        shipments: { select: { id: true, kind: true, supersededAt: true, createdAt: true } },
         items: { select: { fulfillmentType: true } },
       },
     });
     const needsShipment = paidOrdersSeller.filter(
       (o) =>
-        !o.shipment?.id &&
+        !pickCurrentOutboundShipment(o.shipments) &&
         !o.shippedWithOrderId &&
         orderHasShippedLine(o.items)
     ).length;

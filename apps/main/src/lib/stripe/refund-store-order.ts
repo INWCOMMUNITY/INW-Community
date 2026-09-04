@@ -3,9 +3,15 @@ import { prisma } from "database";
 import { restockOrderLinesAfterReturn } from "@/lib/store-item-restock";
 import { syncInventoryToChannelsAfterSale } from "@/lib/channels/sync-inventory";
 import { computeSellerTransferCents } from "@/lib/storefront-payout";
+import {
+  fullRefundChargeCents,
+  returnRefundAmountCents,
+  sellerLedgerDebitForReturnCents,
+  sellerTransferReversalCents,
+} from "@/lib/store-return";
 
 export function refundAmountCents(order: { totalCents: number; taxCents?: number | null }): number {
-  return Math.max(0, order.totalCents + (order.taxCents ?? 0));
+  return fullRefundChargeCents(order);
 }
 
 export function sellerLedgerDebitCents(order: {
@@ -15,8 +21,17 @@ export function sellerLedgerDebitCents(order: {
   return computeSellerTransferCents(order.totalCents, order.subtotalCents).sellerTransferCents;
 }
 
-async function reverseConnectTransfer(stripe: Stripe, transferId: string): Promise<void> {
+async function reverseConnectTransfer(
+  stripe: Stripe,
+  transferId: string,
+  amountCents?: number
+): Promise<void> {
   try {
+    if (amountCents != null && amountCents <= 0) return;
+    if (amountCents != null) {
+      await stripe.transfers.createReversal(transferId, { amount: amountCents });
+      return;
+    }
     await stripe.transfers.createReversal(transferId);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -48,9 +63,10 @@ type LedgerTx = {
 
 async function debitSellerLedgerForRefund(
   tx: LedgerTx,
-  order: { id: string; sellerId: string; totalCents: number; subtotalCents: number }
+  order: { id: string; sellerId: string; totalCents: number; subtotalCents: number },
+  debitCents?: number
 ): Promise<void> {
-  const debit = sellerLedgerDebitCents(order);
+  const debit = debitCents ?? sellerLedgerDebitCents(order);
   if (debit <= 0) return;
   await tx.sellerBalance.upsert({
     where: { memberId: order.sellerId },
@@ -74,7 +90,7 @@ async function debitSellerLedgerForRefund(
 
 /**
  * Refund a paid storefront order on the **platform** account (facilitator Checkout),
- * reverse the Connect transfer when present, restock, and flip sold_out → active.
+ * reverse the Connect transfer when present, optionally restock, and flip sold_out → active.
  */
 export async function refundPaidStorefrontOrder(args: {
   stripe: Stripe;
@@ -91,7 +107,15 @@ export async function refundPaidStorefrontOrder(args: {
   };
   reason?: string;
   note?: string | null;
-}): Promise<{ ok: true; refunded: true } | { ok: false; error: string; status: number }> {
+  /** Override Stripe refund amount. Defaults to full charge (item + tax). */
+  amountCents?: number;
+  /** Override Connect transfer reversal. Defaults to the full original transfer. */
+  transferReversalCents?: number;
+  /** Override My Funds debit. Defaults to the full original seller transfer. */
+  ledgerDebitCents?: number;
+  /** When false, buyer keeps the item (courtesy refund). Default true. */
+  restock?: boolean;
+}): Promise<{ ok: true; refunded: true; amountCents: number } | { ok: false; error: string; status: number }> {
   const { stripe, order } = args;
   if (order.status === "refunded") {
     return { ok: false, error: "Order already refunded", status: 400 };
@@ -100,9 +124,21 @@ export async function refundPaidStorefrontOrder(args: {
     return { ok: false, error: "Order has no payment to refund", status: 400 };
   }
 
+  const amount = args.amountCents ?? refundAmountCents(order);
+  if (amount <= 0) {
+    return { ok: false, error: "Refund amount must be greater than zero", status: 400 };
+  }
+
+  const originalTransfer = sellerLedgerDebitCents(order);
+  const reversalAmount = args.transferReversalCents ?? originalTransfer;
+
   if (order.stripeSellerTransferId) {
     try {
-      await reverseConnectTransfer(stripe, order.stripeSellerTransferId);
+      await reverseConnectTransfer(
+        stripe,
+        order.stripeSellerTransferId,
+        args.transferReversalCents != null ? reversalAmount : undefined
+      );
     } catch (e) {
       return {
         ok: false,
@@ -112,7 +148,6 @@ export async function refundPaidStorefrontOrder(args: {
     }
   }
 
-  const amount = refundAmountCents(order);
   try {
     await stripe.refunds.create({
       payment_intent: order.stripePaymentIntentId,
@@ -126,6 +161,7 @@ export async function refundPaidStorefrontOrder(args: {
     }
   }
 
+  const shouldRestock = args.restock !== false;
   await prisma.$transaction(async (tx) => {
     await tx.storeOrder.update({
       where: { id: order.id },
@@ -133,15 +169,49 @@ export async function refundPaidStorefrontOrder(args: {
         status: "refunded",
         cancelReason: args.reason,
         cancelNote: args.note ?? undefined,
-        inventoryRestoredAt: new Date(),
+        inventoryRestoredAt: shouldRestock ? new Date() : undefined,
       },
     });
-    await restockOrderLinesAfterReturn(tx, order.items);
-    await debitSellerLedgerForRefund(tx, order);
+    if (shouldRestock) {
+      await restockOrderLinesAfterReturn(tx, order.items);
+    }
+    await debitSellerLedgerForRefund(tx, order, args.ledgerDebitCents);
   });
 
-  await Promise.all(order.items.map((oi) => syncInventoryToChannelsAfterSale(oi.storeItemId)));
-  return { ok: true, refunded: true };
+  if (shouldRestock) {
+    await Promise.all(order.items.map((oi) => syncInventoryToChannelsAfterSale(oi.storeItemId)));
+  }
+  return { ok: true, refunded: true, amountCents: amount };
+}
+
+export function refundArgsFromReturnPolicy(order: {
+  totalCents: number;
+  subtotalCents: number;
+  taxCents?: number | null;
+}, policy: { chargeReturnShipping: boolean; returnLabelCostCents?: number | null }): {
+  amountCents: number;
+  transferReversalCents: number;
+  ledgerDebitCents: number;
+} {
+  const originalTransfer = sellerLedgerDebitCents(order);
+  return {
+    amountCents: returnRefundAmountCents({
+      totalCents: order.totalCents,
+      taxCents: order.taxCents,
+      chargeReturnShipping: policy.chargeReturnShipping,
+      returnLabelCostCents: policy.returnLabelCostCents,
+    }),
+    transferReversalCents: sellerTransferReversalCents({
+      originalTransferCents: originalTransfer,
+      chargeReturnShipping: policy.chargeReturnShipping,
+      returnLabelCostCents: policy.returnLabelCostCents,
+    }),
+    ledgerDebitCents: sellerLedgerDebitForReturnCents({
+      originalDebitCents: originalTransfer,
+      chargeReturnShipping: policy.chargeReturnShipping,
+      returnLabelCostCents: policy.returnLabelCostCents,
+    }),
+  };
 }
 
 /** Dashboard / charge.refunded / dispute: reverse Connect transfer, debit ledger, restock once. */

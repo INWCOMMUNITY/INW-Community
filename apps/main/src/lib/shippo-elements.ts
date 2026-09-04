@@ -34,10 +34,12 @@ export interface ShippoElementsLineItem {
 }
 
 export interface ShippoElementsOrderDetails {
+  address_from?: ShippoElementsAddress;
   address_to: ShippoElementsAddress;
   line_items: ShippoElementsLineItem[];
   order_number?: string;
   object_id?: string;
+  extra?: { is_return?: boolean };
 }
 
 function splitStreet1Street2(street: string, aptOrSuite: string): { street1: string; street2: string } {
@@ -202,6 +204,9 @@ export type BuildOrderDetailsOptions = {
    * may resume the prior order because `order_number` matches.
    */
   freshShippoOrder?: boolean;
+  /** Buyer → seller return label (swaps addresses). */
+  isReturn?: boolean;
+  sellerFromAddress?: ShippoElementsAddress | null;
 };
 
 /**
@@ -249,6 +254,9 @@ export function buildOrderDetailsFromOrder(
   let order_number: string;
   if (objectId?.trim()) {
     order_number = baseOrderNumber;
+  } else if (options?.isReturn) {
+    const safeBase = baseOrderNumber.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 26);
+    order_number = `${safeBase}-R${Date.now()}`.slice(0, 64);
   } else if (options?.freshShippoOrder) {
     const safeBase = baseOrderNumber.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 28);
     order_number = `${safeBase}-L${Date.now()}`.slice(0, 64);
@@ -256,17 +264,41 @@ export function buildOrderDetailsFromOrder(
     order_number = baseOrderNumber;
   }
 
+  const buyerAddress: ShippoElementsAddress = {
+    name,
+    street1: street1.slice(0, 35),
+    ...(street2 ? { street2: street2.slice(0, 35) } : {}),
+    city: addr.city.slice(0, 64),
+    state: addr.state.slice(0, 32),
+    zip: addr.zip,
+    country: "US",
+    ...(order.buyer.email?.trim() ? { email: order.buyer.email.trim().slice(0, 128) } : {}),
+  };
+
+  if (options?.isReturn) {
+    const sellerAddr = options.sellerFromAddress;
+    if (!sellerAddr?.street1?.trim() || !sellerAddr.city?.trim() || !sellerAddr.state?.trim() || !sellerAddr.zip?.trim()) {
+      return null;
+    }
+    return {
+      address_from: buyerAddress,
+      address_to: {
+        ...sellerAddr,
+        street1: sellerAddr.street1.slice(0, 35),
+        ...(sellerAddr.street2 ? { street2: sellerAddr.street2.slice(0, 35) } : {}),
+        city: sellerAddr.city.slice(0, 64),
+        state: sellerAddr.state.slice(0, 32),
+        zip: sellerAddr.zip,
+        country: sellerAddr.country || "US",
+      },
+      line_items,
+      order_number,
+      extra: { is_return: true },
+    };
+  }
+
   return {
-    address_to: {
-      name,
-      street1: street1.slice(0, 35),
-      ...(street2 ? { street2: street2.slice(0, 35) } : {}),
-      city: addr.city.slice(0, 64),
-      state: addr.state.slice(0, 32),
-      zip: addr.zip,
-      country: "US",
-      ...(order.buyer.email?.trim() ? { email: order.buyer.email.trim().slice(0, 128) } : {}),
-    },
+    address_to: buyerAddress,
     line_items,
     order_number,
     ...(objectId?.trim() ? { object_id: objectId.trim() } : {}),

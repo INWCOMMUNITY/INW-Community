@@ -45,6 +45,7 @@ const patchSchema = z.object({
   sellerLocalDeliveryPolicy: z.string().nullable().optional(),
   sellerPickupPolicy: z.string().nullable().optional(),
   sellerReturnPolicy: z.string().nullable().optional(),
+  chargeReturnShipping: z.boolean().optional(),
   offerShipping: z.boolean().optional(),
   offerLocalDelivery: z.boolean().optional(),
   offerLocalPickup: z.boolean().optional(),
@@ -77,6 +78,10 @@ export async function GET(req: NextRequest) {
       sellerLocalDeliveryPolicy: true,
       sellerPickupPolicy: true,
       sellerReturnPolicy: true,
+      chargeReturnShipping: true,
+      offerShipping: true,
+      offerLocalDelivery: true,
+      offerLocalPickup: true,
     },
   });
   if (!member) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -233,6 +238,9 @@ export async function PATCH(req: NextRequest) {
         }),
         ...(data.sellerReturnPolicy !== undefined && {
           sellerReturnPolicy: data.sellerReturnPolicy === null || data.sellerReturnPolicy === "" ? null : data.sellerReturnPolicy,
+        }),
+        ...(data.chargeReturnShipping !== undefined && {
+          chargeReturnShipping: data.chargeReturnShipping,
         }),
       },
     });

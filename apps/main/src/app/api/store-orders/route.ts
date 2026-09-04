@@ -3,6 +3,11 @@ import { prisma, type Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { prismaWhereActivePaidNwcPlan } from "@/lib/nwc-paid-subscription";
 import { orderHasShippedLine, orderHasPickupLine, orderHasLocalDeliveryLine } from "@/lib/store-order-fulfillment";
+import {
+  serializeOrderShipments,
+  storeOrderShipmentInclude,
+} from "@/lib/store-order-shipments";
+import { ACTIVE_STORE_RETURN_STATUSES } from "@/lib/store-return";
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,6 +24,8 @@ export async function GET(req: NextRequest) {
     const counts = searchParams.get("counts") === "1";
     const canceled = searchParams.get("canceled") === "1";
     const shipped = searchParams.get("shipped") === "1";
+    const delivered = searchParams.get("delivered") === "1";
+    const returnsOnly = searchParams.get("returns") === "1";
 
     if (buyer === "1") {
       const buyerToReceive = searchParams.get("to_receive") === "1";
@@ -46,21 +53,23 @@ export async function GET(req: NextRequest) {
               storeItem: { select: { id: true, title: true, slug: true, photos: true, listingType: true, shippingOption: { select: { weightOz: true, lengthIn: true, widthIn: true, heightIn: true } } } },
             },
           },
-          shipment: true,
+          ...storeOrderShipmentInclude,
         },
         orderBy: { createdAt: "desc" },
       });
       const ordersWithShipment = await Promise.all(
         orders.map(async (o) => {
-          if (o.shipment) return o;
+          const serialized = serializeOrderShipments(o);
+          if (serialized.shipment) return serialized;
           if (o.shippedWithOrderId) {
             const primaryOrder = await prisma.storeOrder.findUnique({
               where: { id: o.shippedWithOrderId },
-              include: { shipment: true },
+              include: storeOrderShipmentInclude,
             });
-            return { ...o, shipment: primaryOrder?.shipment ?? null };
+            const primary = primaryOrder ? serializeOrderShipments(primaryOrder) : null;
+            return { ...serialized, shipment: primary?.shipment ?? null };
           }
-          return o;
+          return serialized;
         })
       );
       return NextResponse.json(
@@ -88,7 +97,7 @@ export async function GET(req: NextRequest) {
           where: { sellerId: userId },
           select: {
             status: true,
-            shipment: { select: { id: true } },
+            shipments: { select: { id: true, kind: true, supersededAt: true, createdAt: true } },
             shippedWithOrderId: true,
             pickupSellerConfirmedAt: true,
             deliveryConfirmedAt: true,
@@ -108,12 +117,12 @@ export async function GET(req: NextRequest) {
             canceledCount++;
             continue;
           }
-          if (o.status === "shipped" || o.status === "delivered") {
+          if (o.status === "shipped") {
             shipped++;
           }
           if (
             o.status === "paid" &&
-            !o.shipment &&
+            !serializeOrderShipments(o).shipment &&
             !o.shippedWithOrderId &&
             orderHasShippedLine(o.items)
           ) {
@@ -133,7 +142,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ toShip, pickups, deliveries, shipped, canceled: canceledCount });
       }
 
-      const where: { sellerId: string; status?: string | { in: string[] } } = { sellerId: userId };
+      const where: Prisma.StoreOrderWhereInput = { sellerId: userId };
       if (needsShipment) {
         where.status = "paid";
       }
@@ -141,7 +150,13 @@ export async function GET(req: NextRequest) {
         where.status = { in: ["canceled", "refunded", "cancelled"] };
       }
       if (shipped) {
-        where.status = { in: ["shipped", "delivered"] };
+        where.status = "shipped";
+      }
+      if (delivered) {
+        where.status = "delivered";
+      }
+      if (returnsOnly) {
+        where.storeReturns = { some: { status: { in: [...ACTIVE_STORE_RETURN_STATUSES] } } };
       }
       const orders = await prisma.storeOrder.findMany({
         where,
@@ -152,19 +167,20 @@ export async function GET(req: NextRequest) {
               storeItem: { select: { id: true, title: true, slug: true, photos: true, description: true, listingType: true, shippingOption: { select: { weightOz: true, lengthIn: true, widthIn: true, heightIn: true } } } },
             },
           },
-          shipment: true,
+          ...storeOrderShipmentInclude,
         },
         orderBy: { createdAt: "desc" },
       });
+      const serialized = orders.map((o) => serializeOrderShipments(o));
       const filtered = needsShipment
-        ? orders.filter(
+        ? serialized.filter(
             (o) =>
               o.status === "paid" &&
               !o.shipment &&
               !o.shippedWithOrderId &&
               orderHasShippedLine(o.items)
           )
-        : orders;
+        : serialized;
       return NextResponse.json(
         filtered.map((o) => ({ ...o, orderNumber: o.id.slice(-8).toUpperCase() }))
       );

@@ -41,6 +41,8 @@ export async function POST(req: NextRequest) {
       where: {
         shippoTransactionId: { not: null },
         createdAt: { gte: since },
+        kind: { not: "return" },
+        supersededAt: null,
         order: { status: { in: ["paid", "shipped"] } },
         OR: [{ trackingStatus: null }, { trackingStatus: { not: "DELIVERED" } }],
       },

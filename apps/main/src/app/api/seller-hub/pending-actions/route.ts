@@ -4,6 +4,8 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 import { countNeedsAttention } from "@/lib/channels/needs-attention";
+import { whereNoCurrentOutboundShipment } from "@/lib/store-order-shipments";
+import { ACTIVE_STORE_RETURN_STATUSES } from "@/lib/store-return";
 
 const MIN_PAYOUT_CENTS = 100;
 
@@ -47,7 +49,7 @@ export async function GET(req: NextRequest) {
         where: {
           sellerId: userId,
           status: "paid",
-          shipment: null,
+          ...whereNoCurrentOutboundShipment,
           shippedWithOrderId: null,
         },
         select: { items: { select: { fulfillmentType: true } } },
@@ -71,11 +73,10 @@ export async function GET(req: NextRequest) {
       prisma.resaleOffer.count({
         where: { status: "pending", storeItem: { memberId: userId } },
       }),
-      prisma.storeOrder.count({
+      prisma.storeReturn.count({
         where: {
-          sellerId: userId,
-          refundRequestedAt: { not: null },
-          status: { not: "refunded" },
+          status: { in: [...ACTIVE_STORE_RETURN_STATUSES] },
+          order: { sellerId: userId },
         },
       }),
       prisma.member.findUnique({

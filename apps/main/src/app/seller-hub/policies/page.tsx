@@ -8,6 +8,7 @@ interface PolicyData {
   sellerLocalDeliveryPolicy?: string | null;
   sellerPickupPolicy?: string | null;
   sellerReturnPolicy?: string | null;
+  chargeReturnShipping?: boolean;
   offerShipping?: boolean;
   offerLocalDelivery?: boolean;
   offerLocalPickup?: boolean;
@@ -62,6 +63,7 @@ export default function PoliciesPage() {
   const [offerShipping, setOfferShipping] = useState(true);
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
   const [offerLocalPickup, setOfferLocalPickup] = useState(true);
+  const [chargeReturnShipping, setChargeReturnShipping] = useState(false);
 
   useEffect(() => {
     fetch("/api/me/policies", { credentials: "include" })
@@ -76,6 +78,7 @@ export default function PoliciesPage() {
         setOfferShipping(data?.offerShipping ?? true);
         setOfferLocalDelivery(data?.offerLocalDelivery ?? true);
         setOfferLocalPickup(data?.offerLocalPickup ?? true);
+        setChargeReturnShipping(data?.chargeReturnShipping ?? false);
       })
       .catch(() => setError("Failed to load policies."))
       .finally(() => setLoading(false));
@@ -99,6 +102,7 @@ export default function PoliciesPage() {
           offerShipping,
           offerLocalDelivery,
           offerLocalPickup,
+          chargeReturnShipping,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -171,6 +175,25 @@ export default function PoliciesPage() {
             />
           </div>
         ))}
+
+        <div className="space-y-2 rounded-lg border border-gray-200 p-4 bg-gray-50">
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="charge-return-shipping"
+              checked={chargeReturnShipping}
+              onChange={(e) => setChargeReturnShipping(e.target.checked)}
+              className="rounded border-gray-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)] accent-[var(--color-primary)]"
+            />
+            <label htmlFor="charge-return-shipping" className="text-sm font-medium text-gray-700">
+              Charge shipping for returns
+            </label>
+          </div>
+          <p className="text-sm text-gray-600">
+            When on, the Shippo return-label price is deducted from the buyer’s refund. You still pay
+            Shippo for the label; you keep that amount from the order instead of refunding it.
+          </p>
+        </div>
 
         {error && <p className="text-red-600 text-sm">{error}</p>}
 

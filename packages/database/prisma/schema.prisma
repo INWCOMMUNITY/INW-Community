@@ -31,6 +31,8 @@ model Member {
   sellerPickupPolicy         String? @map("seller_pickup_policy") @db.Text
   sellerShippingPolicy String? @map("seller_shipping_policy") @db.Text
   sellerReturnPolicy String? @map("seller_return_policy") @db.Text
+  /// When true, Shippo return-label cost is deducted from the buyer's refund.
+  chargeReturnShipping Boolean @default(false) @map("charge_return_shipping")
   acceptCashForPickupDelivery Boolean @default(true) @map("accept_cash_for_pickup_delivery")
   offerShipping              Boolean @default(true) @map("offer_shipping")
   /// Default new INW listings to free shipping (shippingCostCents = 0). Does not change eBay/Etsy rates.
@@ -1329,7 +1331,8 @@ model StoreOrder {
   buyer   Member     @relation("BuyerOrders", fields: [buyerId], references: [id], onDelete: Cascade)
   seller  Member     @relation("SellerOrders", fields: [sellerId], references: [id], onDelete: Cascade)
   items   OrderItem[]
-  shipment Shipment?
+  shipments Shipment[]
+  storeReturns StoreReturn[]
   packageWeightOz  Float?   @map("package_weight_oz")
   packageLengthIn  Float?   @map("package_length_in")
   packageWidthIn   Float?   @map("package_width_in")
@@ -1343,7 +1346,10 @@ model StoreOrder {
 
 model Shipment {
   id              String   @id @default(cuid())
-  orderId         String   @unique @map("order_id")
+  orderId         String   @map("order_id")
+  /// outbound | return | replacement
+  kind            String   @default("outbound")
+  supersededAt    DateTime? @map("superseded_at")
   carrier         String   // USPS, FedEx, UPS
   service         String   // e.g. Priority, Ground
   trackingNumber  String?  @map("tracking_number")
@@ -1362,6 +1368,40 @@ model Shipment {
   createdAt       DateTime @default(now()) @map("created_at")
 
   order StoreOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  storeReturn StoreReturn? @relation("StoreReturnShipment")
+
+  @@index([orderId, kind])
+  @@index([orderId, supersededAt])
+}
+
+/// Buyer/seller return workflow for a storefront order (one active return at a time).
+model StoreReturn {
+  id                   String    @id @default(cuid())
+  orderId              String    @map("order_id")
+  /// requested | awaiting_return | in_transit | received | refunded | declined | canceled
+  status               String    @default("requested")
+  reason               String?
+  note                 String?   @db.Text
+  requireReturn        Boolean   @default(true) @map("require_return")
+  /// Snapshot of seller chargeReturnShipping at approve time.
+  chargeReturnShipping Boolean   @default(false) @map("charge_return_shipping")
+  refundAmountCents    Int?      @map("refund_amount_cents")
+  returnLabelCostCents Int       @default(0) @map("return_label_cost_cents")
+  declineReason        String?   @map("decline_reason") @db.Text
+  requestedAt          DateTime  @default(now()) @map("requested_at")
+  approvedAt           DateTime? @map("approved_at")
+  receivedAt           DateTime? @map("received_at")
+  refundedAt           DateTime? @map("refunded_at")
+  declinedAt           DateTime? @map("declined_at")
+  returnShipmentId     String?   @unique @map("return_shipment_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  order          StoreOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  returnShipment Shipment?  @relation("StoreReturnShipment", fields: [returnShipmentId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, status])
+  @@index([status])
 }
 
 // Storefront order line items

@@ -61,6 +61,16 @@ export type BuyerStoreOrder = {
   createdAt: string;
   refundRequestedAt?: string | null;
   refundReason?: string | null;
+  storeReturn?: {
+    id?: string;
+    status: string;
+    reason?: string | null;
+    declineReason?: string | null;
+    chargeReturnShipping?: boolean;
+    returnLabelCostCents?: number | null;
+    refundAmountCents?: number | null;
+  } | null;
+  returnShipment?: BuyerShipment | null;
   cancelReason?: string | null;
   cancelNote?: string | null;
   isCashOrder?: boolean;
@@ -144,10 +154,16 @@ export function canCancelBuyerOrder(order: Pick<BuyerStoreOrder, "status">): boo
 }
 
 export function canRequestBuyerRefund(
-  order: Pick<BuyerStoreOrder, "status" | "refundRequestedAt" | "isCashOrder">
+  order: Pick<BuyerStoreOrder, "status" | "refundRequestedAt" | "isCashOrder" | "storeReturn">
 ): boolean {
-  if (order.isCashOrder || order.refundRequestedAt) return false;
-  return order.status === "shipped" || order.status === "delivered";
+  if (order.isCashOrder) return false;
+  if (order.status !== "shipped" && order.status !== "delivered") return false;
+  const ret = order.storeReturn;
+  if (ret && ["requested", "awaiting_return", "in_transit", "received", "refunded"].includes(ret.status)) {
+    return false;
+  }
+  if (!ret && order.refundRequestedAt) return false;
+  return true;
 }
 
 export function trackingStatusLabel(status: string | null | undefined): string | null {

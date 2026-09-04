@@ -1,5 +1,5 @@
-/** Shippo label PDF / widget re-access window after purchase (24 hours). */
-export const LABEL_REPRINT_WINDOW_MS = 24 * 60 * 60 * 1000;
+/** Shippo label PDF / widget re-access window after purchase (48 hours). */
+export const LABEL_REPRINT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 export function isWithinLabelReprintWindow(createdAt: string | Date | null | undefined): boolean {
   if (createdAt == null) return false;

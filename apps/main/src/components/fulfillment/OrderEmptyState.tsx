@@ -24,10 +24,15 @@ const COPY: Record<
     title: "No Local Deliveries",
     body: "Orders with local delivery will appear here when you need to deliver to the buyer.",
   },
+  shipped: {
+    icon: "cube-outline",
+    title: "No Shipped Orders",
+    body: "Orders in transit appear here. Reprint a label within 48 hours, or repurchase after that.",
+  },
   history: {
     icon: "time-outline",
     title: "No History Yet",
-    body: "Shipped and canceled orders will appear here.",
+    body: "Delivered, canceled, and refunded orders will appear here.",
   },
 };
 

@@ -7,6 +7,7 @@ const TABS: { key: FulfillmentTabKey; label: string; countKey?: keyof Fulfillmen
   { key: "ship", label: "Ship", countKey: "ship" },
   { key: "pickups", label: "Pickups", countKey: "pickups" },
   { key: "deliveries", label: "Deliveries", countKey: "deliveries" },
+  { key: "shipped", label: "Shipped", countKey: "shipped" },
   { key: "history", label: "History" },
 ];
 

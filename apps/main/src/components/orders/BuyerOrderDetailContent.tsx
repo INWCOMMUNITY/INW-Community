@@ -284,10 +284,35 @@ export function BuyerOrderDetailContent() {
         )}
       </section>
 
-      {order.refundRequestedAt ? (
+      {order.storeReturn || order.refundRequestedAt ? (
         <p className="text-sm mb-6" style={{ color: "var(--color-primary)" }}>
-          Refund requested {formatBuyerOrderDate(order.refundRequestedAt)}. The seller will review.
-          {order.refundReason ? <span className="block mt-1 opacity-90">Reason: {order.refundReason}</span> : null}
+          {order.storeReturn?.status === "requested" && "Return requested. The seller will review."}
+          {order.storeReturn?.status === "awaiting_return" && "Return approved. Ship the item back to the seller."}
+          {order.storeReturn?.status === "in_transit" && "Your return is in transit to the seller."}
+          {order.storeReturn?.status === "received" && "The seller received your return. Refund is processing."}
+          {order.storeReturn?.status === "refunded" && "Refund issued."}
+          {order.storeReturn?.status === "declined" &&
+            `The seller declined this return.${order.storeReturn.declineReason ? ` ${order.storeReturn.declineReason}` : ""}`}
+          {!order.storeReturn && order.refundRequestedAt
+            ? `Refund requested ${formatBuyerOrderDate(order.refundRequestedAt)}. The seller will review.`
+            : null}
+          {order.refundReason && !order.storeReturn ? (
+            <span className="block mt-1 opacity-90">Reason: {order.refundReason}</span>
+          ) : null}
+        </p>
+      ) : null}
+
+      {order.returnShipment?.labelUrl ? (
+        <p className="text-sm mb-6">
+          <a
+            href={order.returnShipment.labelUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium hover:underline"
+            style={{ color: "var(--color-link)" }}
+          >
+            Open return shipping label PDF
+          </a>
         </p>
       ) : null}
 

@@ -50,6 +50,12 @@ interface StoreOrder {
   deliveryBuyerConfirmedAt?: string | null;
   refundRequestedAt?: string | null;
   refundReason?: string | null;
+  storeReturn?: {
+    status: string;
+    reason?: string | null;
+    declineReason?: string | null;
+  } | null;
+  returnShipment?: { labelUrl?: string | null; trackingNumber?: string | null; carrier?: string } | null;
   cancelReason?: string | null;
   cancelNote?: string | null;
   isCashOrder?: boolean;
@@ -438,37 +444,64 @@ export default function MyOrderDetailScreen() {
         </View>
       )}
 
-      {order.refundRequestedAt && (
+      {(order.storeReturn || order.refundRequestedAt) && (
         <View style={styles.refundBanner}>
           <Ionicons name="information-circle" size={20} color="#92400e" />
           <Text style={styles.refundBannerText}>
-            Refund requested {new Date(order.refundRequestedAt).toLocaleDateString()}.
-            {order.refundReason ? ` Reason: ${order.refundReason}` : ""} The seller will review your request.
+            {order.storeReturn?.status === "requested" && "Return requested. The seller will review."}
+            {order.storeReturn?.status === "awaiting_return" && "Return approved. Ship the item back to the seller."}
+            {order.storeReturn?.status === "in_transit" && "Your return is in transit to the seller."}
+            {order.storeReturn?.status === "received" && "The seller received your return. Refund is processing."}
+            {order.storeReturn?.status === "refunded" && "Refund issued."}
+            {order.storeReturn?.status === "declined" &&
+              `The seller declined this return.${order.storeReturn.declineReason ? ` ${order.storeReturn.declineReason}` : ""}`}
+            {!order.storeReturn && order.refundRequestedAt
+              ? `Refund requested ${new Date(order.refundRequestedAt).toLocaleDateString()}. The seller will review.`
+              : null}
           </Text>
         </View>
       )}
 
+      {order.returnShipment?.labelUrl ? (
+        <View style={styles.section}>
+          <Text style={styles.label}>Return shipping label</Text>
+          <Pressable
+            style={({ pressed }) => [styles.trackBtn, pressed && { opacity: 0.8 }]}
+            onPress={() => Linking.openURL(order.returnShipment!.labelUrl!)}
+          >
+            <Ionicons name="document-outline" size={18} color="#fff" />
+            <Text style={styles.trackBtnText}>Open return label PDF</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       <View style={styles.actionsSection}>
-        {order.status === "paid" && !order.refundRequestedAt && (
-          <>
-            {!order.isCashOrder && (
-              <Pressable
-                style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}
-                onPress={() => setRefundModal(true)}
-                disabled={requestingRefund}
-              >
-                <Text style={styles.actionBtnText}>{requestingRefund ? "Submitting…" : "Request refund"}</Text>
-              </Pressable>
-            )}
-            <Pressable
-              style={({ pressed }) => [styles.actionBtnOutline, pressed && { opacity: 0.8 }]}
-              onPress={() => setCancelConfirm(true)}
-              disabled={canceling}
-            >
-              <Text style={styles.actionBtnOutlineText}>{canceling ? "Canceling…" : "Cancel order"}</Text>
-            </Pressable>
-          </>
+        {order.status === "paid" && (
+          <Pressable
+            style={({ pressed }) => [styles.actionBtnOutline, pressed && { opacity: 0.8 }]}
+            onPress={() => setCancelConfirm(true)}
+            disabled={canceling}
+          >
+            <Text style={styles.actionBtnOutlineText}>{canceling ? "Canceling…" : "Cancel order"}</Text>
+          </Pressable>
         )}
+        {(order.status === "shipped" || order.status === "delivered") &&
+          !order.isCashOrder &&
+          !(
+            order.storeReturn &&
+            ["requested", "awaiting_return", "in_transit", "received", "refunded"].includes(
+              order.storeReturn.status
+            )
+          ) &&
+          !(order.refundRequestedAt && !order.storeReturn) && (
+            <Pressable
+              style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}
+              onPress={() => setRefundModal(true)}
+              disabled={requestingRefund}
+            >
+              <Text style={styles.actionBtnText}>{requestingRefund ? "Submitting…" : "Request refund"}</Text>
+            </Pressable>
+          )}
         {order.items && order.items.length > 0 && order.items[0].storeItem?.slug && (
           <Pressable
             style={({ pressed }) => [styles.actionBtnOutline, pressed && { opacity: 0.8 }]}

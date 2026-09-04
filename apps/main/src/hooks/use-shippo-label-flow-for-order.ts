@@ -68,7 +68,7 @@ export interface StoreOrderForShippo extends OrderForElements {
   } | null;
 }
 
-export type NwAppShippoMode = "reprint" | "purchase" | "another";
+export type NwAppShippoMode = "reprint" | "purchase" | "another" | "return";
 
 function stripNwAppShippoDeepLinkParams(): void {
   if (typeof window === "undefined") return;
@@ -98,7 +98,11 @@ export function useShippoLabelFlowForOrder(options: {
   elementsLoading: boolean;
   elementsError: string | null;
   shippoModalOpen: boolean;
-  openElementsFlow: (opts?: { forReprint?: boolean; forceAdditionalLabel?: boolean }) => Promise<void>;
+  openElementsFlow: (opts?: {
+    forReprint?: boolean;
+    forceAdditionalLabel?: boolean;
+    forReturn?: boolean;
+  }) => Promise<void>;
   closeShippoModal: () => void;
 } {
   const { orderId, containerId, order, orderLoading, onLabelSaved } = options;
@@ -112,6 +116,7 @@ export function useShippoLabelFlowForOrder(options: {
   const lastShipToSnapshotRef = useRef<ReturnType<typeof resolvePostalShipToAddress>>(null);
   const labelFlowOrderIdRef = useRef<string>("");
   const labelSaveHandlingRef = useRef(false);
+  const labelKindRef = useRef<"outbound" | "return" | "replacement">("outbound");
   /** Drops stray Shippo events when bulk label flow or another page also registered listeners. */
   const singleFlowActiveRef = useRef(false);
   const onLabelSavedRef = useRef(onLabelSaved);
@@ -126,9 +131,9 @@ export function useShippoLabelFlowForOrder(options: {
   }, [containerId]);
 
   const openElementsFlow = useCallback(
-    async (flowOpts: { forReprint?: boolean; forceAdditionalLabel?: boolean } = {}) => {
+    async (flowOpts: { forReprint?: boolean; forceAdditionalLabel?: boolean; forReturn?: boolean } = {}) => {
       if (!order || !orderId) return;
-      const postalOk = flowOpts.forReprint || orderHasShippedLine(order.items);
+      const postalOk = flowOpts.forReprint || flowOpts.forReturn || orderHasShippedLine(order.items);
       if (!postalOk) {
         setElementsError(
           "This order has no items to ship by mail. Local delivery and pickup orders do not use Shippo labels."
@@ -139,15 +144,38 @@ export function useShippoLabelFlowForOrder(options: {
       const objectId = flowOpts.forReprint ? order.shipment?.shippoOrderId : undefined;
       const useFreshShippoOrder = flowOpts.forReprint
         ? false
-        : flowOpts.forceAdditionalLabel === true
+        : flowOpts.forceAdditionalLabel === true || flowOpts.forReturn === true
           ? true
           : Boolean(order.shipment) || order.status === "shipped";
+      labelKindRef.current = flowOpts.forReturn
+        ? "return"
+        : flowOpts.forceAdditionalLabel || (Boolean(order.shipment) && !flowOpts.forReprint)
+          ? "replacement"
+          : "outbound";
+
+      let sellerFromAddress: import("@/lib/shippo-elements").ShippoElementsAddress | null = null;
+      if (flowOpts.forReturn) {
+        const addrRes = await fetch("/api/shipping/return-address");
+        const addrData = await addrRes.json().catch(() => ({}));
+        if (!addrRes.ok) {
+          setElementsError(
+            (addrData as { error?: string }).error ?? "Could not load your return address from Shippo."
+          );
+          return;
+        }
+        sellerFromAddress = addrData as import("@/lib/shippo-elements").ShippoElementsAddress;
+      }
+
       const orderDetails = buildOrderDetailsFromOrder(order, objectId, {
         freshShippoOrder: useFreshShippoOrder,
+        isReturn: flowOpts.forReturn === true,
+        sellerFromAddress,
       });
       if (!orderDetails) {
         setElementsError(
-          "Could not read a postal ship-to for this order. Shippo uses the checkout shipping address saved on the order (not the local delivery drop-off form). If this order ships by mail, ensure checkout captured a full street, city, state, and ZIP."
+          flowOpts.forReturn
+            ? "Could not build a return label. Check the buyer’s shipping address and your Shippo ship-from address."
+            : "Could not read a postal ship-to for this order. Shippo uses the checkout shipping address saved on the order (not the local delivery drop-off form). If this order ships by mail, ensure checkout captured a full street, city, state, and ZIP."
         );
         return;
       }
@@ -214,6 +242,7 @@ export function useShippoLabelFlowForOrder(options: {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   orderId: saveOrderId,
+                  kind: labelKindRef.current,
                   ...payload,
                   ...(shippoOrderId ? { shippoOrderId } : {}),
                   ...(snap
@@ -295,7 +324,7 @@ export function useShippoLabelFlowForOrder(options: {
     const sp = new URLSearchParams(window.location.search);
     const mode = sp.get("nwAppShippo") ?? sp.get("labelAction");
     if (!mode) return;
-    if (mode !== "reprint" && mode !== "purchase" && mode !== "another") return;
+    if (mode !== "reprint" && mode !== "purchase" && mode !== "another" && mode !== "return") return;
 
     const run = openElementsFlowRef.current;
     const canReprintStatus =
@@ -325,6 +354,12 @@ export function useShippoLabelFlowForOrder(options: {
       if (!orderEligibleForAnotherShippoLabel(order)) return;
       stripNwAppShippoDeepLinkParams();
       void run({ forceAdditionalLabel: true });
+      return;
+    }
+    if (mode === "return") {
+      if (order.status === "canceled" || order.status === "refunded") return;
+      stripNwAppShippoDeepLinkParams();
+      void run({ forReturn: true });
     }
   }, [order, orderLoading, orderId]);
 
@@ -351,7 +386,7 @@ export function getNwAppShippoSkippedReason(
     }
     if (!order.shipment?.shippoOrderId) return "No Shippo order on file to reprint.";
     if (!order.shipment.createdAt || !isWithinLabelReprintWindow(order.shipment.createdAt)) {
-      return "Reprint is only available within 24 hours of purchasing the label.";
+      return "Reprint is only available within 48 hours of purchasing the label.";
     }
     return null;
   }
@@ -375,6 +410,12 @@ export function getNwAppShippoSkippedReason(
     }
     return null;
   }
+  if (mode === "return") {
+    if (order.status === "canceled" || order.status === "refunded") {
+      return "A return label cannot be purchased for a canceled or refunded order.";
+    }
+    return null;
+  }
   return null;
 }
 
@@ -383,6 +424,6 @@ export function readNwAppShippoModeFromWindow(): NwAppShippoMode | null {
   if (typeof window === "undefined") return null;
   const sp = new URLSearchParams(window.location.search);
   const m = sp.get("nwAppShippo") ?? sp.get("labelAction");
-  if (m === "reprint" || m === "purchase" || m === "another") return m;
+  if (m === "reprint" || m === "purchase" || m === "another" || m === "return") return m;
   return null;
 }

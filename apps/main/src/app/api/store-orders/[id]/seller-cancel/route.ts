@@ -27,7 +27,7 @@ export async function POST(
   const { id } = await params;
   const order = await prisma.storeOrder.findFirst({
     where: { id, sellerId: userId },
-    include: { items: true, shipment: { select: { id: true } } },
+    include: { items: true, shipments: { select: { id: true, kind: true, supersededAt: true, createdAt: true } } },
   });
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
@@ -38,7 +38,8 @@ export async function POST(
       { status: 400 }
     );
   }
-  if (order.shipment || order.shippedWithOrderId) {
+  const hasOutbound = order.shipments.some((s) => s.kind !== "return" && s.supersededAt == null);
+  if (hasOutbound || order.shippedWithOrderId) {
     return NextResponse.json(
       { error: "This order already has a shipment. Contact support if you need to cancel it." },
       { status: 400 }

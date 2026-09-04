@@ -7,6 +7,7 @@ const TABS: { key: FulfillmentTabKey; label: string }[] = [
   { key: "ship", label: "Ship" },
   { key: "pickups", label: "Pickups" },
   { key: "deliveries", label: "Deliveries" },
+  { key: "shipped", label: "Shipped" },
   { key: "history", label: "History" },
 ];
 

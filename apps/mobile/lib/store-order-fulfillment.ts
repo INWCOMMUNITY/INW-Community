@@ -1,6 +1,6 @@
 /** Keep in sync with packages/types/src/store-order-fulfillment.ts (Metro cannot resolve workspace `types`). */
 
-export type FulfillmentTabKey = "ship" | "pickups" | "deliveries" | "history";
+export type FulfillmentTabKey = "ship" | "pickups" | "deliveries" | "shipped" | "history";
 
 export type OrderLineItemSummary = {
   quantity: number;

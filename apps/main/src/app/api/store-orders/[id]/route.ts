@@ -11,6 +11,11 @@ import {
   resolveOrderShipToAddress,
   resolvePostalShipToAddress,
 } from "@/lib/shippo-elements";
+import {
+  pickCurrentOutboundShipment,
+  serializeOrderShipments,
+  storeOrderShipmentInclude,
+} from "@/lib/store-order-shipments";
 
 export async function GET(
   _req: NextRequest,
@@ -53,7 +58,7 @@ export async function GET(
             },
           },
         },
-        shipment: true,
+        ...storeOrderShipmentInclude,
       },
     });
     if (!order) {
@@ -67,20 +72,21 @@ export async function GET(
      * Combined shipment: label row may live on the primary only; ship-to JSON may also only exist there
      * (e.g. secondary paid lines with empty shippingAddress). Merge so Shippo always sees historical address.
      */
-    let orderForResponse = order;
+    let orderForResponse = serializeOrderShipments(order);
     if (order.shippedWithOrderId) {
       const primary = await prisma.storeOrder.findUnique({
         where: { id: order.shippedWithOrderId },
         select: {
           shippingAddress: true,
           localDeliveryDetails: true,
-          shipment: true,
+          shipments: true,
         },
       });
       if (primary) {
-        let next = { ...order };
-        if (!next.shipment && primary.shipment) {
-          next = { ...next, shipment: primary.shipment };
+        let next = { ...orderForResponse };
+        const primaryShipment = pickCurrentOutboundShipment(primary.shipments);
+        if (!next.shipment && primaryShipment) {
+          next = { ...next, shipment: primaryShipment };
         }
         // Shippo reads `shipping_address` only; secondary rows may have empty shipping but local delivery filled.
         if (resolvePostalShipToAddress(next) == null && primary.shippingAddress != null) {
@@ -142,7 +148,7 @@ export async function PATCH(
     where: { id },
     include: {
       items: { select: { fulfillmentType: true } },
-      shipment: { select: { trackingStatus: true, status: true } },
+      shipments: { select: { trackingStatus: true, status: true, kind: true, supersededAt: true, createdAt: true } },
     },
   });
   if (!existing) {
@@ -251,7 +257,7 @@ export async function PATCH(
   const autoStatus = nextStatusAfterFulfillmentConfirmations(
     merged,
     existing.items,
-    existing.shipment
+    pickCurrentOutboundShipment(existing.shipments)
   );
   if (autoStatus) {
     data.status = autoStatus;

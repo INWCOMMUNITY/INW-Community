@@ -254,14 +254,27 @@ export default function SellerShippoThinLabelPage() {
                   {elementsLoading ? "Opening…" : "Reprint Label"}
                 </button>
               )}
-            {orderEligibleForAnotherShippoLabel(order) && (
+            {orderEligibleForAnotherShippoLabel(order) &&
+              !(
+                order.shipment?.createdAt && isWithinLabelReprintWindow(order.shipment.createdAt)
+              ) && (
               <button
                 type="button"
                 onClick={() => void openElementsFlow({ forceAdditionalLabel: true })}
                 disabled={elementsLoading}
                 className="btn text-sm py-2 px-4 disabled:opacity-50 w-full sm:w-auto"
               >
-                {elementsLoading ? "Opening…" : "Purchase Another Label"}
+                {elementsLoading ? "Opening…" : "Repurchase Label"}
+              </button>
+            )}
+            {capturedNwAppShippo === "return" && (
+              <button
+                type="button"
+                onClick={() => void openElementsFlow({ forReturn: true })}
+                disabled={elementsLoading}
+                className="btn text-sm py-2 px-4 disabled:opacity-50 w-full sm:w-auto"
+              >
+                {elementsLoading ? "Opening…" : "Purchase Return Label"}
               </button>
             )}
           </div>

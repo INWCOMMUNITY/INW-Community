@@ -55,6 +55,19 @@ export async function persistShipmentTrackingStatus(args: {
     },
   });
 
+  if (shipment.kind === "return") {
+    const ret = await prisma.storeReturn.findFirst({
+      where: { returnShipmentId: shipment.id, status: { in: ["awaiting_return", "in_transit"] } },
+    });
+    if (ret && ret.status === "awaiting_return") {
+      await prisma.storeReturn.update({
+        where: { id: ret.id },
+        data: { status: "in_transit" },
+      });
+    }
+    return { updated: true, delivered: false, orderId: shipment.orderId };
+  }
+
   const next = nextStatusAfterFulfillmentConfirmations(
     shipment.order,
     shipment.order.items,

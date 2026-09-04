@@ -21,6 +21,7 @@ interface PolicyData {
   sellerLocalDeliveryPolicy?: string | null;
   sellerPickupPolicy?: string | null;
   sellerReturnPolicy?: string | null;
+  chargeReturnShipping?: boolean;
   offerShipping?: boolean;
   offerLocalDelivery?: boolean;
   offerLocalPickup?: boolean;
@@ -48,6 +49,7 @@ export default function PoliciesScreen() {
   const [offerShipping, setOfferShipping] = useState(true);
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
   const [offerLocalPickup, setOfferLocalPickup] = useState(true);
+  const [chargeReturnShipping, setChargeReturnShipping] = useState(false);
 
   useEffect(() => {
     apiGet<PolicyData>("/api/me")
@@ -61,6 +63,7 @@ export default function PoliciesScreen() {
         setOfferShipping(data?.offerShipping ?? true);
         setOfferLocalDelivery(data?.offerLocalDelivery ?? true);
         setOfferLocalPickup(data?.offerLocalPickup ?? true);
+        setChargeReturnShipping(data?.chargeReturnShipping ?? false);
       })
       .catch(() => setError("Failed to load policies."))
       .finally(() => setLoading(false));
@@ -79,6 +82,7 @@ export default function PoliciesScreen() {
         offerShipping,
         offerLocalDelivery,
         offerLocalPickup,
+        chargeReturnShipping,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -164,6 +168,23 @@ export default function PoliciesScreen() {
             />
           </View>
         ))}
+
+        <View style={styles.field}>
+          <View style={styles.checkboxRow}>
+            <Switch
+              value={chargeReturnShipping}
+              onValueChange={setChargeReturnShipping}
+              trackColor={switchTrackColor()}
+              thumbColor={switchThumbColor(chargeReturnShipping)}
+              ios_backgroundColor={switchIosBackgroundColor}
+            />
+            <Text style={styles.checkboxLabel}>Charge shipping for returns</Text>
+          </View>
+          <Text style={styles.intro}>
+            When on, the Shippo return-label price is deducted from the buyer’s refund. You still pay
+            Shippo for the label; you keep that amount from the order instead of refunding it.
+          </Text>
+        </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
