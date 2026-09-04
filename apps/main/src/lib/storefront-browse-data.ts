@@ -427,7 +427,7 @@ export async function getPublicBrowseCards(query: PublicBrowseQuery): Promise<Pu
     },
     orderBy,
     ...(needsWindow
-      ? { take: Math.min(listOffset + listLimit + 80, 250) }
+      ? { take: Math.min(listOffset + listLimit + 20, 80) }
       : { skip: listOffset, take: listLimit }),
   });
   items = items.filter(

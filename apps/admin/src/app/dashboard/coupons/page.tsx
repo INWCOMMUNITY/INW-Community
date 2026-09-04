@@ -1,10 +1,11 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 import { AdminCouponActions } from "./AdminCouponActions";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 interface Coupon {
   id: string;
@@ -21,9 +22,8 @@ export default function AdminCouponsPage() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    fetch(`${MAIN_URL}/api/admin/coupons`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    adminFetch(`${MAIN_URL}/api/admin/coupons`, {
+      })
       .then((r) => r.json())
       .then((data) => setCoupons(Array.isArray(data) ? data : []))
       .catch(() => setCoupons([]))

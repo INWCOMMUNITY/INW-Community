@@ -1,9 +1,10 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 interface StoreItem {
   id: string;
@@ -32,9 +33,8 @@ export default function AdminSellersPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
 
   function refetch() {
-    return fetch(`${MAIN_URL}/api/admin/sellers`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    return adminFetch(`${MAIN_URL}/api/admin/sellers`, {
+      })
       .then((r) => r.json())
       .then((data) => setSellers(Array.isArray(data) ? data : []))
       .catch(() => setSellers([]));
@@ -59,10 +59,9 @@ export default function AdminSellersPage() {
     if (!confirm("Delete this store item? This cannot be undone.")) return;
     setDeleting(itemId);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/store-items/${itemId}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/store-items/${itemId}`, {
         method: "DELETE",
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+        });
       if (res.ok) refetch();
     } finally {
       setDeleting(null);

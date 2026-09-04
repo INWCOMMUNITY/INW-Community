@@ -1,10 +1,10 @@
+import { serverAdminHeaders } from "@/lib/admin-fetch";
 import { prisma } from "database";
 import Link from "next/link";
 import { DashboardTodoList } from "./DashboardTodoList";
 import { DashboardQuote } from "./DashboardQuote";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.ADMIN_CODE ?? process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 function startOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -56,20 +56,20 @@ export default async function DashboardPage() {
       select: { quantity: true },
     }),
     fetch(`${MAIN_URL}/api/admin/stripe-stats`, {
-      headers: { "x-admin-code": ADMIN_CODE },
+      headers: serverAdminHeaders(),
       next: { revalidate: 60 },
     })
       .then((r) => r.json())
       .catch(() => ({ subscriptionRevenueThisMonthCents: 0 })),
     fetch(`${MAIN_URL}/api/admin/analytics`, {
-      headers: { "x-admin-code": ADMIN_CODE },
+      headers: serverAdminHeaders(),
       next: { revalidate: 60 },
     })
       .then((r) => r.json())
       .catch(() => ({ appOpensWeek: 0 })),
     prisma.groupCreationRequest.count({ where: { status: "pending" } }),
     fetch(`${MAIN_URL}/api/admin/analytics/feed`, {
-      headers: { "x-admin-code": ADMIN_CODE },
+      headers: serverAdminHeaders(),
       next: { revalidate: 60 },
     })
       .then((r) => r.json())

@@ -1,14 +1,14 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
 
 const adminHeaders = (): HeadersInit => ({
-  "x-admin-code": ADMIN_CODE,
   "Content-Type": "application/json",
 });
 
@@ -39,10 +39,10 @@ export function DashboardTodoList() {
   const [dismissing, setDismissing] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
-    const h = { headers: { "x-admin-code": ADMIN_CODE } };
+    const h = { };
     const [qRes, tRes] = await Promise.all([
-      fetch(`${MAIN_URL}/api/admin/todo-queue`, h),
-      fetch(`${MAIN_URL}/api/admin/todos`, h),
+      adminFetch(`${MAIN_URL}/api/admin/todo-queue`, h),
+      adminFetch(`${MAIN_URL}/api/admin/todos`, h),
     ]);
     const qData = qRes.ok ? await qRes.json() : [];
     const tData = tRes.ok ? await tRes.json() : [];
@@ -60,7 +60,7 @@ export function DashboardTodoList() {
     if (!text || adding) return;
     setAdding(true);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/todos`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/todos`, {
         method: "POST",
         headers: adminHeaders(),
         body: JSON.stringify({ text }),
@@ -80,7 +80,7 @@ export function DashboardTodoList() {
     if (dismissing) return;
     setDismissing(key);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/todo-queue/dismiss`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/todo-queue/dismiss`, {
         method: "POST",
         headers: adminHeaders(),
         body: JSON.stringify({ key }),
@@ -96,7 +96,7 @@ export function DashboardTodoList() {
 
   async function toggleComplete(id: string, completed: boolean) {
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/todos/${id}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/todos/${id}`, {
         method: "PATCH",
         headers: adminHeaders(),
         body: JSON.stringify({ completed }),
@@ -114,10 +114,9 @@ export function DashboardTodoList() {
 
   async function handleDelete(id: string) {
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/todos/${id}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/todos/${id}`, {
         method: "DELETE",
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+        });
       if (res.ok) {
         setTodos((prev) => prev.filter((t) => t.id !== id));
         router.refresh();

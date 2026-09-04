@@ -2,26 +2,35 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
+import { MAIN_SITE_URL, adminFetch } from "@/lib/admin-fetch";
 
 export default function AdminLoginPage() {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
   const router = useRouter();
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (code.trim() !== ADMIN_CODE) {
-      setError("Invalid code.");
-      return;
+    setPending(true);
+    try {
+      const res = await adminFetch(`${MAIN_SITE_URL}/api/admin/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code.trim() }),
+      });
+      if (!res.ok) {
+        setError(res.status === 401 ? "Invalid code." : "Could not sign in. Try again.");
+        return;
+      }
+      router.push("/dashboard");
+      router.refresh();
+    } catch {
+      setError("Could not reach the API. Check NEXT_PUBLIC_MAIN_SITE_URL.");
+    } finally {
+      setPending(false);
     }
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("nwc_admin", "1");
-    }
-    router.push("/dashboard");
-    router.refresh();
   }
 
   return (
@@ -42,8 +51,13 @@ export default function AdminLoginPage() {
             />
           </div>
           {error && <p className="text-red-600 text-sm">{error}</p>}
-          <button type="submit" className="w-full rounded px-4 py-2" style={{ backgroundColor: "#505542", color: "#fff" }}>
-            Log in
+          <button
+            type="submit"
+            disabled={pending}
+            className="w-full rounded px-4 py-2"
+            style={{ backgroundColor: "#505542", color: "#fff" }}
+          >
+            {pending ? "Signing in…" : "Log in"}
           </button>
         </form>
       </div>

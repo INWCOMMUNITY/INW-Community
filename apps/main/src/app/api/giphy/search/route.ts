@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
 
 const GIPHY_API_KEY =
   process.env.GIPHY_API_KEY ??
@@ -7,8 +8,12 @@ const GIPHY_API_KEY =
   "";
 
 export async function GET(req: NextRequest) {
+  const { allowed } = checkRateLimit(`giphy-search:${getClientIdentifier(req)}`, { max: 40 });
+  if (!allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
   if (!GIPHY_API_KEY) {
-    return NextResponse.json({ error: "GIPHY API key not configured" }, { status: 500 });
+    return NextResponse.json({ error: "GIF search is unavailable" }, { status: 503 });
   }
   const q = req.nextUrl.searchParams.get("q") ?? "";
   const offset = Math.min(parseInt(req.nextUrl.searchParams.get("offset") ?? "0", 10) || 0, 4999);
@@ -24,16 +29,10 @@ export async function GET(req: NextRequest) {
     );
     const data = await res.json();
     if (!res.ok) {
-      return NextResponse.json(
-        { error: data.meta?.msg ?? "GIPHY API error" },
-        { status: res.status }
-      );
+      return NextResponse.json({ error: "Failed to search GIFs" }, { status: 502 });
     }
     return NextResponse.json(data);
-  } catch (e) {
-    return NextResponse.json(
-      { error: (e as Error).message ?? "Failed to search GIFs" },
-      { status: 500 }
-    );
+  } catch {
+    return NextResponse.json({ error: "Failed to search GIFs" }, { status: 500 });
   }
 }

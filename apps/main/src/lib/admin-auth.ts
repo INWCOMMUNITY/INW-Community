@@ -1,14 +1,16 @@
 import type { NextRequest } from "next/server";
 import { getServerSession } from "@/lib/auth";
+import { adminCodeMatches, hasValidAdminSessionCookie } from "@/lib/admin-session";
 
 /**
- * Verify admin authentication via x-admin-code header OR valid admin session.
- * Accepts either ADMIN_CODE header (for scripts/cron / standalone admin) or a
- * session where isAdmin is true (same rules as `app/admin/layout.tsx`).
+ * Verify admin authentication via:
+ * 1. HttpOnly admin session cookie (standalone admin app after /api/admin/session)
+ * 2. x-admin-code matching server-only ADMIN_CODE (RSC / scripts — never a public env)
+ * 3. NextAuth session where isAdmin is true (embedded /admin)
  */
 export async function requireAdmin(req: NextRequest): Promise<boolean> {
-  const code = process.env.ADMIN_CODE?.trim();
-  if (code && req.headers.get("x-admin-code") === code) return true;
+  if (await hasValidAdminSessionCookie(req)) return true;
+  if (adminCodeMatches(req.headers.get("x-admin-code"))) return true;
 
   const adminEmail = process.env.ADMIN_EMAIL?.trim();
   if (!adminEmail) return false;

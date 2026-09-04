@@ -71,21 +71,53 @@ export async function GET(req: NextRequest) {
 
     const attachUnread = async (
       list: typeof filtered
-    ): Promise<(typeof filtered[number] & { unreadCount: number })[]> =>
-      Promise.all(
-        list.map(async (c) => {
-          const isA = c.memberAId === session.user.id;
-          const lastRead = isA ? c.memberALastReadAt : c.memberBLastReadAt;
-          const unreadCount = await prisma.directMessage.count({
-            where: {
-              conversationId: c.id,
-              senderId: { not: session.user.id },
-              ...(lastRead ? { createdAt: { gt: lastRead } } : {}),
-            },
-          });
-          return { ...c, unreadCount };
-        })
-      );
+    ): Promise<(typeof filtered[number] & { unreadCount: number })[]> => {
+      if (list.length === 0) return [];
+      const lastReadById = new Map<string, Date | null>();
+      for (const c of list) {
+        const isA = c.memberAId === session.user.id;
+        lastReadById.set(c.id, isA ? c.memberALastReadAt : c.memberBLastReadAt);
+      }
+      const withRead = list.filter((c) => lastReadById.get(c.id));
+      const withoutRead = list.filter((c) => !lastReadById.get(c.id));
+      const minRead = withRead.reduce<Date | null>((min, c) => {
+        const lr = lastReadById.get(c.id);
+        if (!lr) return min;
+        return !min || lr < min ? lr : min;
+      }, null);
+
+      const [recent, neverRead] = await Promise.all([
+        withRead.length > 0 && minRead
+          ? prisma.directMessage.findMany({
+              where: {
+                conversationId: { in: withRead.map((c) => c.id) },
+                senderId: { not: session.user.id },
+                createdAt: { gt: minRead },
+              },
+              select: { conversationId: true, createdAt: true },
+            })
+          : Promise.resolve([]),
+        withoutRead.length > 0
+          ? prisma.directMessage.groupBy({
+              by: ["conversationId"],
+              where: {
+                conversationId: { in: withoutRead.map((c) => c.id) },
+                senderId: { not: session.user.id },
+              },
+              _count: { _all: true },
+            })
+          : Promise.resolve([]),
+      ]);
+
+      const counts = new Map<string, number>();
+      for (const row of neverRead) counts.set(row.conversationId, row._count._all);
+      for (const row of recent) {
+        const lr = lastReadById.get(row.conversationId);
+        if (lr && row.createdAt <= lr) continue;
+        counts.set(row.conversationId, (counts.get(row.conversationId) ?? 0) + 1);
+      }
+      return list.map((c) => ({ ...c, unreadCount: counts.get(c.id) ?? 0 }));
+    };
 
     const [conversationsOut, requestsOut] = await Promise.all([
       attachUnread(acceptedList),

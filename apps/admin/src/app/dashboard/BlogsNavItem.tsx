@@ -1,11 +1,12 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { IonIcon } from "@/components/IonIcon";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 export function BlogsNavItem({
   href,
@@ -23,9 +24,8 @@ export function BlogsNavItem({
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
-    fetch(`${MAIN_URL}/api/admin/blogs/pending-count`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    adminFetch(`${MAIN_URL}/api/admin/blogs/pending-count`, {
+      })
       .then((r) => r.json())
       .then((data) => setPendingCount(data?.count ?? 0))
       .catch(() => {});

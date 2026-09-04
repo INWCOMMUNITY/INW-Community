@@ -1,10 +1,11 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 export function AdminBlogActions({ blogId, status }: { blogId: string; status: string }) {
   const router = useRouter();
@@ -14,11 +15,10 @@ export function AdminBlogActions({ blogId, status }: { blogId: string; status: s
   async function handleApprove() {
     setLoading(true);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/blogs/${blogId}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/blogs/${blogId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-code": ADMIN_CODE,
         },
         body: JSON.stringify({ status: "approved" }),
       });
@@ -32,11 +32,10 @@ export function AdminBlogActions({ blogId, status }: { blogId: string; status: s
     if (!confirm("Reject this blog? It will remain pending.")) return;
     setLoading(true);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/blogs/${blogId}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/blogs/${blogId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-code": ADMIN_CODE,
         },
         body: JSON.stringify({ status: "pending" }),
       });
@@ -50,10 +49,9 @@ export function AdminBlogActions({ blogId, status }: { blogId: string; status: s
     if (!confirm("Delete this blog?")) return;
     setLoading(true);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/blogs/${blogId}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/blogs/${blogId}`, {
         method: "DELETE",
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+        });
       if (res.ok) router.refresh();
     } finally {
       setLoading(false);

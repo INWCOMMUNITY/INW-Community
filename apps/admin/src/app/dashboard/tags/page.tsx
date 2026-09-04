@@ -1,9 +1,10 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect, useMemo } from "react";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 interface AdminTag {
   id: string;
@@ -24,9 +25,8 @@ export default function AdminTagsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${MAIN_URL}/api/admin/tags`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    adminFetch(`${MAIN_URL}/api/admin/tags`, {
+      })
       .then((r) => r.json())
       .then((data) => setTags(Array.isArray(data) ? data : []))
       .catch(() => setTags([]))
@@ -53,10 +53,9 @@ export default function AdminTagsPage() {
     if (!confirm(`Delete tag “${tag.name}”?${detail} This cannot be undone.`)) return;
     setDeletingId(tag.id);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/tags/${tag.id}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/tags/${tag.id}`, {
         method: "DELETE",
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+        });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setTags((prev) => prev.filter((t) => t.id !== tag.id));

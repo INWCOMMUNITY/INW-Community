@@ -75,6 +75,7 @@ const nextConfig = {
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
           { key: "X-XSS-Protection", value: "1; mode=block" },
           { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=()" },
           {
@@ -86,7 +87,7 @@ const nextConfig = {
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob: https: http:",
               "media-src 'self' data: blob: https: http:",
-              "connect-src 'self' https://api.stripe.com https://*.stripe.com https://static.wixstatic.com https://hooks.stripe.com https://api.goshippo.com https://goshippo.com https://*.goshippo.com https://blob.vercel-storage.com https://*.blob.vercel-storage.com https://vitals.vercel-insights.com https://va.vercel-scripts.com",
+              "connect-src 'self' https://api.stripe.com https://*.stripe.com https://static.wixstatic.com https://hooks.stripe.com https://api.goshippo.com https://goshippo.com https://*.goshippo.com https://blob.vercel-storage.com https://*.blob.vercel-storage.com https://vitals.vercel-insights.com https://va.vercel-scripts.com https://*.sentry.io https://*.ingest.sentry.io https://*.ingest.us.sentry.io wss: ws:",
               "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://js.goshippo.com https://*.goshippo.com https://goshippo.com",
             ].join("; "),
           },

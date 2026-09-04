@@ -1,9 +1,10 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useEffect, useState } from "react";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 interface FacilitatorRow {
   orderId: string;
@@ -40,9 +41,8 @@ export default function FacilitatorPayoutsPage() {
   useEffect(() => {
     setLoading(true);
     const params = missingOnly ? "?missingTransfer=1&limit=100" : "?limit=100";
-    fetch(`${MAIN_URL}/api/admin/facilitator-payouts${params}`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    adminFetch(`${MAIN_URL}/api/admin/facilitator-payouts${params}`, {
+      })
       .then((r) => r.json())
       .then((d) => {
         if (d.error) {

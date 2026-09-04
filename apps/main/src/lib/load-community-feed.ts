@@ -300,7 +300,7 @@ export async function loadCommunityFeed(opts: {
     postTags: { include: { tag: { select: { id: true, name: true, slug: true } } } },
   } as const;
 
-  const RANK_FETCH = 80;
+  const RANK_FETCH = Math.min(80, Math.max(limit * 2, 24));
   const boostedPosts = await prisma.post.findMany({
     where: { AND: [baseWhere, { OR: boostedOr }] },
     include: postInclude,

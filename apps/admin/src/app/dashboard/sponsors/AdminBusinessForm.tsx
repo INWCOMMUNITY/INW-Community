@@ -1,10 +1,11 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
 type HoursRecord = Partial<Record<(typeof DAYS)[number], string>>;
@@ -84,7 +85,6 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
 
   const adminHeaders = {
     "Content-Type": "application/json",
-    "x-admin-code": ADMIN_CODE,
   };
 
   /** Current owner may not appear in `sponsors` (e.g. subscription lapsed); still allow showing/editing. */
@@ -119,9 +119,8 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
     const formData = new FormData();
     formData.append("file", file);
     if (purpose) formData.append("purpose", purpose);
-    const res = await fetch(`${MAIN_URL}/api/admin/upload`, {
+    const res = await adminFetch(`${MAIN_URL}/api/admin/upload`, {
       method: "POST",
-      headers: { "x-admin-code": ADMIN_CODE },
       body: formData,
     });
     const data = await res.json().catch(() => ({}));
@@ -222,7 +221,7 @@ export function AdminBusinessForm({ sponsors, existing, onClose }: AdminBusiness
       };
       const url = existing ? `${MAIN_URL}/api/admin/businesses/${existing.id}` : `${MAIN_URL}/api/admin/businesses`;
       const method = existing ? "PATCH" : "POST";
-      const res = await fetch(url, {
+      const res = await adminFetch(url, {
         method,
         headers: adminHeaders,
         body: JSON.stringify(body),

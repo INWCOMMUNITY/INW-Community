@@ -1,5 +1,5 @@
 /** Single source of truth for Privacy Policy content. Used by privacy page, PDF API, and export script. */
-export const PRIVACY_LAST_UPDATED = "September 1, 2026";
+export const PRIVACY_LAST_UPDATED = "September 3, 2026";
 
 export const PRIVACY_BODY = `Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
 This Privacy Policy explains how we collect, use, store, and protect your information when you use our website at inwcommunity.com, our Northwest Community mobile app, community features, marketplace, coupons, subscriptions, events, or any related services.
@@ -25,6 +25,14 @@ You may provide information when you:
 ● Communicate with NWC staff
 ● Confirm your email address when you create an account (we email a short numeric verification code to the address you provide; you need access to that inbox to finish verifying)
 ● Request a password reset (we send a one-time link to the email address on your account; you can complete reset in our mobile app or on the website, and we limit how often a new reset email can be sent—about once every 30 days after a completed reset)
+● Send or accept friend requests, follow businesses or tags, save listings or other items, or create listing collections
+● Turn on a price-drop alert for a storefront item (we store which item and the optional target price you set, and we may email you when the price changes)
+● Type an address into checkout, profile, or validation fields (we send what you type to Google Places so we can suggest a complete address; we store an address when you save it to a profile or order, not every keystroke)
+● Search for a GIF while messaging (we send the search text to Giphy and store the GIF address you insert with the message)
+● Invite friends to a community event or RSVP (we store who was invited, who sent the invite, and the response—for example attending, maybe, or declined)
+● Add items to a shopping cart or save a seller listing template
+● Make or accept a price offer on a listing (we store the offer amount, status, and related chat)
+● Invite another member to help administer a community group (we store the invitation and may send a chat notice)
 
 This information may include:
 ● Full name
@@ -60,12 +68,17 @@ When you visit or use our website or app, we may automatically collect:
 ● Cookies and tracking data
 ● Log data
 ● Location data (region-level, not precise GPS)
+● First-party product analytics we record ourselves (for example page path, app-open, and basic web-performance timings such as web vitals), stored in our database so we can understand how the site and app are used and keep them working
+● Seller-facing activity events on public listings and storefronts (for example listing view, storefront view, cart add, and purchase), so a seller can see traffic on their own items in Seller Hub
+● Error reports and performance measurements sent to our monitoring providers (Sentry for application errors; Vercel Speed Insights for page-speed metrics)
+● Public preview metadata for links you or others post (title, description, and thumbnail fetched from the linked page so we can show a link card)
 
-Our website uses essential session and security cookies. We do not use third-party analytics or advertising pixels (such as Google Analytics or Meta Pixel).
+Our website uses essential session and security cookies, including the signed-in member session cookie (NextAuth) and, for authorized operators of the standalone admin dashboard only, an httpOnly admin session cookie set after a successful admin-code check. We do not use third-party advertising pixels (such as Google Analytics or Meta Pixel). We do use the first-party analytics and vendor performance/error tools listed above; those are not used to sell ads or build advertising profiles.
 
 1.3 Mobile App Data
 When you use our Northwest Community mobile app, we may also collect or process:
-● Account credentials and authentication tokens stored on your device (secured storage)
+● Account credentials and authentication tokens stored on your device (SecureStore on native apps; equivalent on-device storage on web builds of the app). Mobile session tokens are signed by our servers, last a limited time (typically up to 30 days, with a refresh window while you keep using the app), and are sent as a Bearer token when the app calls our APIs
+● Short-lived realtime tokens used only to connect your device to our live messaging service so chats can update without constantly reloading the page
 ● Device type and operating system (for compatibility)
 ● Photos and images uploaded from your device (including logos, listing photos, business gallery images, and calendar/event images where supported), stored via our secure file storage. Listing photos may be up to 250MB per file; other image uploads are limited to 120MB. Accepted formats include JPEG, PNG, WebP, GIF, and HEIC/HEIF on endpoints that support them. Business directory profiles may include up to 12 gallery photos in addition to a logo.
 ● If you use Add to calendar on an event in the mobile app, the app may ask permission to access your device calendar only so it can create an event you confirm. We do not read, sync, or upload your calendar contents to our servers for that feature.
@@ -107,6 +120,7 @@ We use the collected information for the following purposes:
 ● To enforce member-to-member blocks you create (for example, filtering feeds and certain interactions) and to review related safety reports
 ● To comply with legal obligations
 ● To calculate, collect, report, and remit sales tax where NWC acts as a marketplace facilitator, and to apply the Sales Tax Reserve described in our Terms of Service
+● To operate event invitations and RSVPs, shopping carts, seller listing templates, group admin invitations, and link previews described in this policy
 
 We do not sell your personal information to third parties.
 
@@ -117,13 +131,18 @@ NWC may share information only in the following circumstances:
 
 3.1 Service Providers
 We use third-party vendors such as:
-● Vercel (website hosting and file storage via Vercel Blob)
+● Vercel (website hosting, file storage via Vercel Blob, and Speed Insights page-speed measurement)
 ● Stripe (payment processing, subscriptions, billing portal, in-app subscription changes we initiate through Stripe, and related payment data)
 ● Expo push notification service (delivery of mobile push notifications when you enable them on your device)
-● Shippo (shipping labels for marketplace orders)
+● Shippo (shipping labels for marketplace orders, and address verification when you check out or save a shipping address)
 ● TaxJar or similar sales tax compliance providers (tax determination, reporting, and related processing for marketplace orders where NWC implements them), subject to their terms
 ● Etsy and other connected marketplaces (Etsy, eBay, Wix, and Shopify) when a seller chooses to sync listings, as described in section 3.5
 ● Resend (transactional email—for example signup email verification, password-reset links, order tracking, subscription or renewal-related messages, and other service emails described in this policy)
+● Sentry (application error monitoring; may include technical details such as browser or device type, URL, and a stack trace—not used for advertising)
+● Cloudinary (image optimization and delivery for some site images we host, including optional AI upscaling of those images)
+● Giphy (GIF search when you insert a GIF into a message)
+● Google Places (address suggestions when you type an address)
+● Our realtime messaging host (Socket.IO) so chats can update live
 ● Our database hosting provider (PostgreSQL)
 
 These providers may access only the user information necessary to perform services on our behalf and must follow strict confidentiality guidelines.
@@ -160,17 +179,23 @@ NWC and its service providers use cookies to:
 ● Recognize your device
 ● Improve site functionality
 ● Store session information
+● Keep you signed in (member session cookie)
+● Keep an authorized admin signed in to the standalone admin dashboard (httpOnly cookie; not set for ordinary members)
 
-We do not use third-party analytics cookies, advertising pixels, or behavioral tracking.
+We do not use third-party advertising cookies, advertising pixels, or behavioral advertising trackers.
+First-party analytics events described in section 1.2 are written to our own database (and, for speed and errors, to Vercel and Sentry). They are not sold and are not used to show you third-party ads.
 ● NWC does not guarantee compliance with browser-based "Do Not Track" (DNT) signals, and our website may not respond to such requests.
-You may disable cookies through your browser settings. Doing so may affect website functionality.
+You may disable cookies through your browser settings. Doing so may affect website functionality, including sign-in.
 
 5. HOW WE PROTECT YOUR INFORMATION
 We use industry-standard security measures to protect personal data, including:
 ● Encrypted payment processing (via Stripe)
-● Secure servers and HTTPS (via our hosting provider)
-● Access controls and authenticated sessions
-● Input sanitization and secure data handling
+● Secure servers and HTTPS (via our hosting provider), including HTTP Strict Transport Security (HSTS) so browsers prefer HTTPS
+● Access controls and authenticated sessions (signed session cookies and, for the mobile app, signed tokens)
+● HttpOnly cookies for member and admin sessions so ordinary page scripts cannot read those cookies
+● Encryption at rest for connected-marketplace and shipping credentials
+● Rate limiting on sign-in and other sensitive endpoints (best-effort in serverless environments)
+● Input sanitization (including HTML sanitization for user-generated rich text) and secure data handling
 
 However, no online system is 100% secure, and NWC cannot guarantee absolute security.
 ● Users transmit personal information at their own risk. NWC is not responsible for unauthorized access caused by factors outside our control, including insecure user devices, compromised user accounts, or unprotected internet connections.
@@ -243,9 +268,16 @@ Business subscribers and sellers agree that:
 
 NWC does not store seller-specific payment or financial data; payments are processed through Stripe and secure third-party systems.
 
-10. REPORTS, REFERRALS & REWARDS
+10. REPORTS, REFERRALS, SOCIAL FEATURES & REWARDS
 ● When you report content (e.g., political, hate, nudity, CSAM, CSAE, other), we store the report metadata (reporter, content type, reason, details) for moderation and safety purposes. See Section 8.2 for how CSAM and CSAE reports are handled.
 ● When you block another member (website or app, where available), we store the block relationship (such as identifiers for your account and the blocked member, and when the block was created) so we can hide their posts and limit certain interactions from your perspective. We may store a related report or log entry for staff review, including when a block action automatically creates a report in the app.
+● When you send or accept a friend request, or follow a business or tag, we store that relationship so we can show friends, suggestions, and a personalized feed.
+● When you save an item or create a listing collection, we store the collection and its items so you (and anyone you share the collection with) can view it.
+● When you subscribe to a price-drop alert, we store the alert and may email you when the listing price changes; you can remove the alert in the app or website.
+● When you invite someone to an event or RSVP, we store the invitation and response so hosts and invitees can see status, and we may send a chat or push notice.
+● When you add items to a cart or save a listing template, we store those records until you remove them, check out, or they expire (for example after a sold-out item is cleared from carts).
+● When you make or accept a price offer, we store the offer and related marketplace chat so both parties can complete or decline it.
+● Seller Hub analytics events described in section 1.2 are stored so sellers can review activity on their own listings.
 ● If you participate in our referral program, we store referral links and signup associations for badges and rewards.
 ● Points, redemptions, and reward data are stored to operate our rewards program.
 

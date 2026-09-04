@@ -1,10 +1,11 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 import Link from "next/link";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 const DEFAULT_POLICIES = [
   { slug: "terms", title: "Terms of Service" },
@@ -24,9 +25,8 @@ export function PolicyList() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${MAIN_URL}/api/admin/policies`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    adminFetch(`${MAIN_URL}/api/admin/policies`, {
+      })
       .then((r) => r.json())
       .then((data) => setPolicies(Array.isArray(data) ? data : []))
       .finally(() => setLoading(false));

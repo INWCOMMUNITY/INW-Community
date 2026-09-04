@@ -1,10 +1,11 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 interface Business {
   id: string;
@@ -21,9 +22,8 @@ export default function AdminBusinessesPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${MAIN_URL}/api/admin/businesses`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    adminFetch(`${MAIN_URL}/api/admin/businesses`, {
+      })
       .then((r) => r.json())
       .then((data) => setBusinesses(Array.isArray(data) ? data : []))
       .catch(() => setBusinesses([]))
@@ -34,10 +34,9 @@ export default function AdminBusinessesPage() {
     if (!confirm("Delete this business? This cannot be undone.")) return;
     setDeleting(businessId);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/businesses/${businessId}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/businesses/${businessId}`, {
         method: "DELETE",
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+        });
       if (res.ok) {
         setBusinesses((prev) => prev.filter((b) => b.id !== businessId));
         router.refresh();

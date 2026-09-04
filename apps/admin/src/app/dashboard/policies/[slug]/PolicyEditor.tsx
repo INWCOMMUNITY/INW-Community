@@ -1,11 +1,12 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 const TITLES: Record<string, string> = {
   terms: "Terms of Service",
@@ -21,9 +22,8 @@ export function PolicyEditor({ slug }: { slug: string }) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetch(`${MAIN_URL}/api/admin/policies/${slug}`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    adminFetch(`${MAIN_URL}/api/admin/policies/${slug}`, {
+      })
       .then((r) => r.json())
       .then((data) => {
         if (data?.title) setTitle(data.title);
@@ -36,9 +36,9 @@ export function PolicyEditor({ slug }: { slug: string }) {
   async function handleSave() {
     setSaving(true);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/policies/${slug}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/policies/${slug}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json", "x-admin-code": ADMIN_CODE },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, content }),
       });
       if (res.ok) router.push("/dashboard/policies");

@@ -1,10 +1,11 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 import { AdminMemberActions } from "./AdminMemberActions";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 interface Member {
   id: string;
@@ -24,9 +25,7 @@ export default function AdminMembersPage() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    fetch(`${MAIN_URL}/api/admin/members`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    adminFetch(`${MAIN_URL}/api/admin/members`)
       .then((r) => r.json())
       .then((data) => setMembers(Array.isArray(data) ? data : []))
       .catch(() => setMembers([]))

@@ -68,19 +68,6 @@ export function verifyEbayWebhook(req: { nextUrl: { searchParams: { get(k: strin
   }
 }
 
-/**
- * eBay Platform Notifications often POST to ApplicationURL with the query string
- * stripped, so `?secret=` never arrives. A parseable envelope with an item or
- * seller id is enough to continue; we still GetItem with our own token.
- */
-export function ebayWebhookEnvelopeIsTrusted(parsed: {
-  parseable: boolean;
-  itemId: string | null;
-  ebayUserId: string | null;
-}): boolean {
-  return parsed.parseable && Boolean(parsed.itemId || parsed.ebayUserId);
-}
-
 /** Same token we send when creating a Commerce Notification destination. */
 export function ebayNotificationVerificationToken(): string | null {
   const dedicated = process.env.EBAY_NOTIFICATION_VERIFICATION_TOKEN?.trim();

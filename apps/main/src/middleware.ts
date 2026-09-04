@@ -13,11 +13,7 @@ function getAdminOrigins(): string[] {
 
 // Allow mobile app (Expo web, dev client) to call /api/* from different origin (CORS).
 function getMobileOrigins(): string[] {
-  return [
-    "http://localhost:8082",
-    "http://127.0.0.1:8082",
-    "http://192.168.0.127:8082",
-  ];
+  return ["http://localhost:8082", "http://127.0.0.1:8082"];
 }
 
 // Rate limit store for login attempts (best-effort in serverless)
@@ -42,13 +38,13 @@ function checkLoginRateLimit(ip: string): boolean {
   return true;
 }
 
-function corsHeaders(req: NextRequest) {
+function corsHeaders(req: NextRequest): Record<string, string> | null {
   const origins = getAdminOrigins();
   const origin = req.headers.get("origin");
-  const allowOrigin =
-    origin && origins.includes(origin) ? origin : origins[0];
+  if (!origin || !origins.includes(origin)) return null;
   return {
-    "Access-Control-Allow-Origin": allowOrigin,
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, x-admin-code",
     "Access-Control-Max-Age": "86400",
@@ -97,12 +93,16 @@ export async function middleware(req: NextRequest) {
 
   // CORS for admin app (/api/admin only)
   if (pathname.startsWith("/api/admin")) {
-    const headers = { ...corsHeaders(req), "x-pathname": pathname };
+    const cors = corsHeaders(req);
     if (req.method === "OPTIONS") {
-      return new NextResponse(null, { status: 204, headers });
+      if (!cors) return new NextResponse(null, { status: 403 });
+      return new NextResponse(null, { status: 204, headers: { ...cors, "x-pathname": pathname } });
     }
     const res = NextResponse.next({ request: { headers: requestHeaders } });
-    Object.entries(headers).forEach(([k, v]) => res.headers.set(k, v));
+    res.headers.set("x-pathname", pathname);
+    if (cors) {
+      Object.entries(cors).forEach(([k, v]) => res.headers.set(k, v));
+    }
     return res;
   }
 

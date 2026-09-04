@@ -1,9 +1,10 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
 
 interface Report {
@@ -43,7 +44,7 @@ export default function ReportsPage() {
     const url = statusFilter
       ? `${MAIN_URL}/api/admin/reports?status=${statusFilter}`
       : `${MAIN_URL}/api/admin/reports`;
-    fetch(url, { headers: { "x-admin-code": ADMIN_CODE } })
+    adminFetch(url)
       .then((r) => r.json())
       .then((data) => setReports(Array.isArray(data) ? data : []))
       .catch(() => setReports([]))
@@ -52,11 +53,10 @@ export default function ReportsPage() {
 
   async function updateStatus(id: string, status: string) {
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/reports/${id}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/reports/${id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-code": ADMIN_CODE,
         },
         body: JSON.stringify({ status }),
       });
@@ -77,9 +77,8 @@ export default function ReportsPage() {
     setExpandedId(id);
     if (previews[id] !== undefined) return;
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/reports/${id}/content`, {
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+      const res = await adminFetch(`${MAIN_URL}/api/admin/reports/${id}/content`, {
+        });
       if (res.ok) {
         const data = await res.json();
         setPreviews((prev) => ({ ...prev, [id]: data }));
@@ -95,10 +94,9 @@ export default function ReportsPage() {
     if (!confirm("Are you sure you want to delete this content? This cannot be undone.")) return;
     setDeleting(id);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/reports/${id}/content`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/reports/${id}/content`, {
         method: "DELETE",
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+        });
       if (res.ok) {
         setReports((prev) => prev.map((r) => (r.id === id ? { ...r, status: "resolved" } : r)));
         setPreviews((prev) => ({ ...prev, [id]: null }));

@@ -12,7 +12,6 @@ import {
   buildEbayWebhookUrl,
   ebayCommerceChallengeResponse,
   ebayNotificationVerificationToken,
-  ebayWebhookEnvelopeIsTrusted,
   verifyEbayWebhook,
 } from "@/lib/channels/ebay/webhook";
 import { getBaseUrl } from "@/lib/get-base-url";
@@ -73,21 +72,14 @@ export async function POST(req: NextRequest) {
   const eventType = parsed.eventType;
   const ebayUserId = parsed.ebayUserId;
   const secretOk = verifyEbayWebhook(req);
-  const envelopeOk = ebayWebhookEnvelopeIsTrusted(parsed);
 
-  if (!secretOk && !envelopeOk) {
+  if (!secretOk) {
     console.warn("[ebay webhook] rejected: invalid or missing secret");
-    // #region agent log
-    fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3d848'},body:JSON.stringify({sessionId:'f3d848',hypothesisId:'A',location:'webhook/route.ts:reject',message:'ebay webhook rejected',data:{hasEnvSecret:Boolean(process.env.EBAY_WEBHOOK_SECRET?.trim()),hasQuerySecret:Boolean(req.nextUrl.searchParams.get('secret')),secretLensMatch:(process.env.EBAY_WEBHOOK_SECRET?.trim()?.length ?? 0)===(req.nextUrl.searchParams.get('secret')?.length ?? -1),parseable:parsed.parseable},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     void recordEbayWebhookHit(
       parsed.parseable ? "rejected-untrusted" : "rejected-unparseable"
     );
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
-  // #region agent log
-  fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3d848'},body:JSON.stringify({sessionId:'f3d848',hypothesisId:'A',location:'webhook/route.ts:accept',message:'ebay webhook accepted',data:{secretOk,envelopeOk,itemId,eventType,parseable:parsed.parseable},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
 
   console.log("[ebay webhook] received notification", {
     source: parsed.source,
@@ -139,9 +131,6 @@ export async function POST(req: NextRequest) {
 
   if (!connection) {
     console.log("[ebay webhook] no connection found for notification", { itemId, ebayUserId });
-    // #region agent log
-    fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3d848'},body:JSON.stringify({sessionId:'f3d848',hypothesisId:'B',location:'webhook/route.ts:unknown_seller',message:'ebay webhook no connection',data:{itemId,eventType,ebayUserId:ebayUserId?`${ebayUserId.slice(0,3)}…`:null,parseable:parsed.parseable,kind:parsed.kind,source:parsed.source},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     return NextResponse.json({ ok: true, skipped: "unknown_seller" });
   }
 
@@ -225,9 +214,6 @@ export async function POST(req: NextRequest) {
         updated: result?.updated ?? false,
         changes: result?.changes ?? [],
       });
-      // #region agent log
-      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3d848'},body:JSON.stringify({sessionId:'f3d848',hypothesisId:'C',location:'webhook/route.ts:apply',message:'ebay webhook apply result',data:{itemId,eventType,kind:parsed.kind,updated:result?.updated??false,changes:result?.changes??[],postcardTitle:parsed.postcard.title,hasPostcardPrice:parsed.postcard.priceCents!=null},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
     } catch (e) {
       console.warn("[ebay webhook] GetItem failed; trying xml postcard", {
         itemId,
@@ -273,15 +259,9 @@ export async function GET(req: NextRequest) {
     const token = ebayNotificationVerificationToken();
     const endpoint = buildEbayWebhookUrl(getBaseUrl());
     if (!token) {
-      // #region agent log
-      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3d848'},body:JSON.stringify({sessionId:'f3d848',hypothesisId:'F',location:'webhook/route.ts:challenge',message:'commerce challenge missing token',data:{hasChallenge:true},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       return NextResponse.json({ error: "Notification verification token is not configured" }, { status: 500 });
     }
     const challengeResponse = ebayCommerceChallengeResponse(challenge, token, endpoint);
-    // #region agent log
-    fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f3d848'},body:JSON.stringify({sessionId:'f3d848',hypothesisId:'F',location:'webhook/route.ts:challenge',message:'commerce challenge hashed',data:{endpointHost:(()=>{try{return new URL(endpoint).host;}catch{return null;}})(),hasSecretQuery:endpoint.includes("secret=")},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     return NextResponse.json({ challengeResponse });
   }
 

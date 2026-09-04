@@ -3,9 +3,18 @@ import { prisma } from "database";
 import bcrypt from "bcryptjs";
 import { issueMobileSessionForMemberId } from "@/lib/issue-mobile-session";
 import { memberHasAppAccess } from "@/lib/member-public-visibility";
+import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
   try {
+    const { allowed } = checkRateLimit(`mobile-signin:${getClientIdentifier(req)}`);
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "Too many login attempts. Please try again in a minute." },
+        { status: 429 }
+      );
+    }
+
     const body = await req.json();
     const { email, password } = body;
 
@@ -19,7 +28,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (!member) {
-      return NextResponse.json({ error: "EMAIL_NOT_FOUND" }, { status: 401 });
+      return NextResponse.json({ error: "INVALID_CREDENTIALS" }, { status: 401 });
     }
 
     if (member.status === "suspended") {
@@ -28,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     const ok = await bcrypt.compare(password, member.passwordHash);
     if (!ok) {
-      return NextResponse.json({ error: "INVALID_PASSWORD" }, { status: 401 });
+      return NextResponse.json({ error: "INVALID_CREDENTIALS" }, { status: 401 });
     }
 
     if (!(await memberHasAppAccess(member.id))) {

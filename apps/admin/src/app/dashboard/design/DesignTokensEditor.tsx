@@ -1,9 +1,10 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
 
 const TOKEN_KEYS = [
@@ -48,9 +49,8 @@ export function DesignTokensEditor() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetch(`${MAIN_URL}/api/admin/design-tokens`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    adminFetch(`${MAIN_URL}/api/admin/design-tokens`, {
+      })
       .then((r) => r.json())
       .then((data) => {
         if (data && typeof data === "object") {
@@ -63,9 +63,9 @@ export function DesignTokensEditor() {
   async function handleSave() {
     setSaving(true);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/design-tokens`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/design-tokens`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json", "x-admin-code": ADMIN_CODE },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(tokens),
       });
       if (res.ok) router.refresh();

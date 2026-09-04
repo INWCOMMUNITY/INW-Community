@@ -1,9 +1,10 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 export function AdminCouponActions({ couponId }: { couponId: string }) {
   const router = useRouter();
@@ -13,9 +14,9 @@ export function AdminCouponActions({ couponId }: { couponId: string }) {
     if (!confirm("Delete this coupon?")) return;
     setLoading(true);
     try {
-      const res = await fetch(
+      const res = await adminFetch(
         `${process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000"}/api/admin/coupons/${couponId}`,
-        { method: "DELETE", headers: { "x-admin-code": ADMIN_CODE } }
+        { method: "DELETE", }
       );
       if (res.ok) router.refresh();
     } finally {

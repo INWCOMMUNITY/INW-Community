@@ -76,12 +76,18 @@ export default function DashboardLayout({
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const ok = sessionStorage.getItem("nwc_admin") === "1";
-    if (!ok) {
-      router.replace("/");
-      return;
-    }
+    let cancelled = false;
+    const mainUrl = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
+    fetch(`${mainUrl}/api/admin/session`, { credentials: "include" })
+      .then((r) => {
+        if (!cancelled && !r.ok) router.replace("/");
+      })
+      .catch(() => {
+        if (!cancelled) router.replace("/");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   useEffect(() => {

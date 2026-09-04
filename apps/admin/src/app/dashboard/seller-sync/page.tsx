@@ -1,9 +1,10 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 interface SellerConnection {
   connectionId: string;
@@ -73,9 +74,8 @@ export default function SellerSyncPage() {
 
   async function fetchData() {
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/sync-health`, {
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+      const res = await adminFetch(`${MAIN_URL}/api/admin/sync-health`, {
+        });
       const json = await res.json();
       setData(json);
     } catch (e) {
@@ -92,11 +92,10 @@ export default function SellerSyncPage() {
   async function handleRetry(connectionId: string) {
     setRetrying(connectionId);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/sync-health`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/sync-health`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-code": ADMIN_CODE,
         },
         body: JSON.stringify({ connectionId }),
       });

@@ -1,8 +1,9 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect, useCallback } from "react";
 
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
 
 interface RequestRow {
@@ -30,9 +31,8 @@ export default function GroupCreationRequestsPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    fetch(`${MAIN_URL}/api/admin/group-creation-requests?status=pending`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    adminFetch(`${MAIN_URL}/api/admin/group-creation-requests?status=pending`, {
+      })
       .then((r) => r.json())
       .then((data) => setRequests(Array.isArray(data.requests) ? data.requests : []))
       .catch(() => setError("Failed to load"))
@@ -47,10 +47,9 @@ export default function GroupCreationRequestsPage() {
     setError("");
     setBusyId(id);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/group-creation-requests/${id}/approve`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/group-creation-requests/${id}/approve`, {
         method: "POST",
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+        });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setError(data.error ?? "Approve failed");
@@ -73,11 +72,10 @@ export default function GroupCreationRequestsPage() {
     setError("");
     setBusyId(id);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/group-creation-requests/${id}/deny`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/group-creation-requests/${id}/deny`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-code": ADMIN_CODE,
         },
         body: JSON.stringify({ reason }),
       });

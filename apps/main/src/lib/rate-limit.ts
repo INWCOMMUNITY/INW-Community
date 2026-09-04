@@ -6,18 +6,23 @@ const store = new Map<string, number[]>();
 const WINDOW_MS = 60 * 1000; // 1 minute
 const MAX_REQUESTS = 5;
 
-export function checkRateLimit(key: string): { allowed: boolean; remaining: number } {
+export function checkRateLimit(
+  key: string,
+  options?: { max?: number; windowMs?: number }
+): { allowed: boolean; remaining: number } {
   const now = Date.now();
-  const cutoff = now - WINDOW_MS;
+  const windowMs = options?.windowMs ?? WINDOW_MS;
+  const max = options?.max ?? MAX_REQUESTS;
+  const cutoff = now - windowMs;
   let timestamps = store.get(key) ?? [];
   timestamps = timestamps.filter((t) => t > cutoff);
   store.set(key, timestamps);
 
-  if (timestamps.length >= MAX_REQUESTS) {
+  if (timestamps.length >= max) {
     return { allowed: false, remaining: 0 };
   }
   timestamps.push(now);
-  return { allowed: true, remaining: MAX_REQUESTS - timestamps.length };
+  return { allowed: true, remaining: max - timestamps.length };
 }
 
 export function getClientIdentifier(req: Request): string {

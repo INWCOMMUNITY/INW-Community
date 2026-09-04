@@ -1,8 +1,9 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect, useCallback } from "react";
 
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
 
 interface Comment {
@@ -27,9 +28,7 @@ export default function CommentsPage() {
     try {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (search) params.set("search", search);
-      const res = await fetch(`${MAIN_URL}/api/admin/comments?${params}`, {
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+      const res = await adminFetch(`${MAIN_URL}/api/admin/comments?${params}`);
       const data = await res.json();
       setComments(data.comments ?? []);
       setTotal(data.total ?? 0);
@@ -48,9 +47,9 @@ export default function CommentsPage() {
     if (!confirm("Delete this comment permanently?")) return;
     setDeleting(id);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/comments`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/comments`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json", "x-admin-code": ADMIN_CODE },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ commentId: id }),
       });
       if (res.ok) {

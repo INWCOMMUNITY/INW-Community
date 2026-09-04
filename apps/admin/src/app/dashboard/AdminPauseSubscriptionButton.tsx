@@ -1,9 +1,10 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState } from "react";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 const PAUSE_CONFIRM =
   "Pause this subscription and stop billing immediately? Their business profile and Business Hub access will remain (admin-granted). This cannot be undone from here—they can subscribe again later.";
@@ -23,10 +24,9 @@ export function AdminPauseSubscriptionButton({
     if (!confirm(PAUSE_CONFIRM)) return;
     setLoading(true);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/members/${memberId}/pause-subscription`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/members/${memberId}/pause-subscription`, {
         method: "POST",
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+        });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         onSuccess?.();

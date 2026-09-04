@@ -105,7 +105,16 @@ Feed, group, and messaging information is not sold or shared, except in cases in
 Users should not share private, sensitive, or confidential information in posts or messages. NWC is not responsible for consequences arising from users voluntarily disclosing their own information.
 
 4.4 Community groups (creation requests)
-To limit spam and keep groups aligned with community standards, you create a new community group by submitting a request through the website or app. Northwest Community reviews requests and may approve or deny them. If your request is denied, we will send an email to your account address explaining the decision in reasonable detail. Approved groups and their admins remain subject to these Terms, moderation, and removal policies.
+To limit spam and keep groups aligned with community standards, you create a new community group by submitting a request through the website or app. Northwest Community reviews requests and may approve or deny them. If your request is denied, we will send an email to your account address explaining the decision in reasonable detail. Approved groups and their admins remain subject to these Terms, moderation, and removal policies. Group admins may invite another member to help administer a group; that invitation may appear as a chat notice.
+
+4.5 Live messaging and GIFs
+Direct, group, and marketplace offer chats may update in near real time through our messaging service. You may insert GIFs from third-party libraries we integrate (such as Giphy). Selected GIF addresses are stored with the message and shown to the other participants. Your GIF search text is sent to that provider to return results, as described in our Privacy Policy.
+
+4.6 Friends, saved items, collections, and price alerts
+Signed-in members may send and accept friend requests, save listings or other items, create listing collections to share on the feed, and (where offered) subscribe to a price-drop alert on a storefront item. Those features store the relationships and preferences you create so we can operate them. Unfriend, unsave, delete a collection, or turn off an alert using the controls we provide, or contact us if you need help.
+
+4.7 Link previews
+When a post or message includes a web link, we may fetch publicly available preview information (such as a title, description, and thumbnail) from that page so other members can see a card instead of only a raw URL. That fetch goes to the linked site; NWC is not responsible for that site's content or privacy practices.
 
 5. BLOG POLICY
 Anyone may submit a blog post.
@@ -161,6 +170,12 @@ NWC may provide publicly available business information to assist in dispute res
 
 7.5 Reporting Issues
 Sellers should report page errors or listing problems for timely support.
+
+7.5.1 Seller Hub analytics
+Seller Hub may show first-party activity about your listings and storefront (for example listing views, storefront visits, cart adds, and purchases). Those figures are generated from events our website and app record for that purpose. They are not a guarantee of traffic from any advertising network, and they may be incomplete if a visitor blocks scripts or a request fails.
+
+7.5.2 Listing templates and shopping cart
+Sellers may save listing templates (draft titles, descriptions, photos, and similar fields) to reuse when creating items. Buyers may add items to a shopping cart before checkout. Cart contents and templates are stored with your account so those features work across the website and app.
 
 7.6 Refund Policy
 Upon request, the seller must issue refunds in accordance with its policy. Please include your return/refund policy in your Seller Profile (shipping and policies section). NWC is not responsible for the completion of refunds between the seller and buyer (See 7.4).
@@ -280,6 +295,7 @@ Advertising visibility is not guaranteed, and performance levels may vary. NWC m
 ● NWC may deny events that are political or not community-oriented.
 ● Events with incomplete information may not be posted.
 ● Event limits per business may apply to maintain readability.
+● Signed-in members may invite friends to an event and may RSVP (for example attending, maybe, or declined). Invites may also appear as a chat message and, if you enabled push notifications, as a device notice. You can decline or ignore an invite. Hosts may see aggregate RSVP counts.
 
 8.9 Coupon policy for business subscribers
 Business subscribers offering coupons must honor them.
@@ -308,6 +324,8 @@ Unauthorized scraping, data-mining, automated harvesting, or downloading of NWC 
 
 11. MOBILE APP
 The Northwest Community mobile app is part of our services. These Terms apply to the use of the app. The same rules for content, conduct, and eligibility apply when using the app. Your account may be terminated or access revoked in accordance with Section 15.
+
+When you sign in on the app, we issue a signed session token stored in the device's secure storage (or equivalent on-device storage on web builds). That token lets the app call our APIs on your behalf until it expires, you sign out, or we revoke access. Keep your device locked and do not share the app with people who should not use your account.
 
 Before you browse the community feed on the website or in the mobile app for the first time on a given browser or device, we present a short introduction explaining that the feed contains user-generated content, that you may report objectionable material, and that signed-in members may block others, with links to this Terms of Service and our Privacy Policy. You must acknowledge that screen to continue to interactive feed features on that browser or device. That acknowledgment is stored locally on your device (for example in browser localStorage on the website or in on-device app storage in the mobile app) so you are not repeatedly prompted on the same device; we do not use it for advertising. When we materially update that introduction, we may use a new storage key so existing users see the summary again once; new accounts are also asked to acknowledge before using the feed.
 
@@ -368,7 +386,9 @@ NWC is not responsible for interruptions caused by third-party service providers
 Information provided on NWC, including blogs, posts, or community discussions, is for general informational purposes only and should not be considered professional advice (including legal, medical, financial, or business advice). Users should consult appropriate professionals before relying on any information from the platform.
 
 20. THIRD-PARTY SERVICES & POLICIES
-NWC uses third-party services including Stripe (payments and subscriptions), Shippo (shipping), TaxJar or similar providers (sales tax calculation and compliance workflows where NWC implements them), Etsy and other marketplaces (optional sales-channel sync, described below), and Vercel (hosting). NWC assumes no ownership of, and is not responsible for, the terms of service, privacy policies, or other policies of these third-party providers. By using NWC, you acknowledge that your use of these services is subject to each provider's respective policies. You agree to read and review those policies at your own discretion. NWC is not liable for any claims, issues, or disputes arising from your agreement with or use of third-party services.
+NWC uses third-party services including Stripe (payments and subscriptions), Shippo (shipping), TaxJar or similar providers (sales tax calculation and compliance workflows where NWC implements them), Etsy and other marketplaces (optional sales-channel sync, described below), Vercel (hosting, file storage, and optional Speed Insights performance measurement), Resend (transactional email), Sentry (error monitoring), Cloudinary (image optimization for some site images), Giphy (optional GIFs in messaging), Google Places (address suggestions when you type an address), and our realtime messaging host (Socket.IO). NWC assumes no ownership of, and is not responsible for, the terms of service, privacy policies, or other policies of these third-party providers. By using NWC, you acknowledge that your use of these services is subject to each provider's respective policies. You agree to read and review those policies at your own discretion. NWC is not liable for any claims, issues, or disputes arising from your agreement with or use of third-party services.
+
+Staff who operate the standalone admin dashboard sign in with a server-checked admin code. After a successful sign-in we set an httpOnly session cookie on our main site so the dashboard can call admin APIs without putting that code in the browser. Admin access is limited to authorized NWC operators.
 
 20.1 SALES CHANNEL SYNC (ETSY AND OTHER MARKETPLACES)
 Sellers may optionally connect a third-party marketplace account (such as Etsy, eBay, Wix, and Shopify) to sync listings with their NWC storefront. If you connect a marketplace, you authorize NWC to access that account on your behalf to create, update, and remove listings, read your listings and orders/receipts, and adjust inventory quantities. Inventory is pooled across connected stores: a sale on any connected store reduces the shared available quantity, and NWC will attempt to update the other connected stores accordingly. Syncing depends on the third party's APIs and may be delayed, incomplete, or temporarily unavailable; in rare cases an item may sell on more than one store before quantities update (for example, two buyers checkout on INW and on a connected marketplace within the same few minutes). You may set a safety buffer in Seller Hub sync preferences so connected stores advertise fewer units than INW actually has; that buffer reduces, but does not eliminate, the chance of a simultaneous sale. NWC is not responsible for oversells, undersells, duplicate orders, listing rejections, fees, account suspensions, or other issues arising from a connected marketplace, its policies, API delays, or this kind of overlapping sale. By connecting a marketplace, using sales-channel sync, or continuing to use NWC after reading these Terms, you accept that risk and agree that NWC has no obligation to refund, restock, or compensate you for such events. You remain responsible for complying with each marketplace's rules and for fulfilling or resolving any orders that result.

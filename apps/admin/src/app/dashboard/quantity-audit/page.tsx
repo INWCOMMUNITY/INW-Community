@@ -1,9 +1,10 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 interface AuditLogEntry {
   id: string;
@@ -74,9 +75,8 @@ export default function QuantityAuditPage() {
       if (dateFrom) params.set("dateFrom", new Date(dateFrom).toISOString());
       if (dateTo) params.set("dateTo", new Date(dateTo + "T23:59:59").toISOString());
 
-      const res = await fetch(`${MAIN_URL}/api/admin/quantity-audit?${params}`, {
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+      const res = await adminFetch(`${MAIN_URL}/api/admin/quantity-audit?${params}`, {
+        });
       const json = await res.json();
       setLogs(json.logs ?? []);
       setTotal(json.total ?? 0);
@@ -103,9 +103,8 @@ export default function QuantityAuditPage() {
       if (dateFrom) params.set("dateFrom", new Date(dateFrom).toISOString());
       if (dateTo) params.set("dateTo", new Date(dateTo + "T23:59:59").toISOString());
 
-      const res = await fetch(`${MAIN_URL}/api/admin/quantity-audit?${params}`, {
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+      const res = await adminFetch(`${MAIN_URL}/api/admin/quantity-audit?${params}`, {
+        });
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");

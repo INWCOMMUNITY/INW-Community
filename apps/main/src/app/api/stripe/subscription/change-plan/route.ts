@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { prisma, type Plan } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { requireAdmin } from "@/lib/admin-auth";
 import { resolveStripeCustomerIdForMember } from "@/lib/stripe-customer-for-member";
 import { NWC_PAID_PLAN_ACCESS_STATUSES } from "@/lib/nwc-paid-subscription";
 import { syncStripeSubscriptionsForMember } from "@/lib/sync-stripe-subscriptions-for-member";
@@ -28,10 +29,8 @@ function priceIdForPlan(planId: string, interval: BillingInterval): string | nul
   return resolveStripeSubscriptionPriceId(plans, planId, interval);
 }
 
-function isAdminBypass(req: NextRequest): boolean {
-  const code = req.headers.get("x-admin-code");
-  const expected = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
-  return !!code && code === expected;
+async function isAdminBypass(req: NextRequest): Promise<boolean> {
+  return requireAdmin(req);
 }
 
 function resolveCurrentPlan(sub: Stripe.Subscription): Plan | null {
@@ -87,7 +86,7 @@ export async function POST(req: NextRequest) {
   }
 
   const memberId = session.user.id;
-  const adminBypass = isAdminBypass(req);
+  const adminBypass = await isAdminBypass(req);
 
   if (!adminBypass) {
     const cutoff = new Date();

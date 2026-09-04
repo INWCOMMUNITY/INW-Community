@@ -1,10 +1,11 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 import { AdminBusinessForm } from "./AdminBusinessForm";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 interface Business {
   id: string;
@@ -32,9 +33,8 @@ export default function AdminSponsorsPage() {
   const [editingBusiness, setEditingBusiness] = useState<Record<string, unknown> | null>(null);
 
   function refetch() {
-    return fetch(`${MAIN_URL}/api/admin/sponsors`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    return adminFetch(`${MAIN_URL}/api/admin/sponsors`, {
+      })
       .then((r) => r.json())
       .then((data) => setSponsors(Array.isArray(data) ? data : []))
       .catch(() => setSponsors([]));
@@ -70,18 +70,16 @@ export default function AdminSponsorsPage() {
 
   async function handleDelete(businessId: string) {
     if (!confirm("Delete this business? This cannot be undone.")) return;
-    const res = await fetch(`${MAIN_URL}/api/admin/businesses/${businessId}`, {
+    const res = await adminFetch(`${MAIN_URL}/api/admin/businesses/${businessId}`, {
       method: "DELETE",
-      headers: { "x-admin-code": ADMIN_CODE },
-    });
+      });
     if (res.ok) refetch();
   }
 
   async function openEdit(businessId: string) {
     setShowAddForm(false);
-    const res = await fetch(`${MAIN_URL}/api/admin/businesses/${businessId}`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    });
+    const res = await adminFetch(`${MAIN_URL}/api/admin/businesses/${businessId}`, {
+      });
     const data = await res.json().catch(() => null);
     if (data) {
       setEditingBusiness(data);

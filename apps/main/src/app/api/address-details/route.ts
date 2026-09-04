@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,11 @@ function getComponent(components: Ac[], ...types: string[]): string {
  * Returns { street, city, state, zip } or { error }.
  */
 export async function GET(req: NextRequest) {
+  const { allowed } = checkRateLimit(`address-details:${getClientIdentifier(req)}`, { max: 30 });
+  if (!allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   const placeId = req.nextUrl.searchParams.get("placeId")?.trim();
   if (!placeId) {
     return NextResponse.json({ error: "placeId required" }, { status: 400 });

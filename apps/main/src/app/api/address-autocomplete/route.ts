@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,11 @@ const GOOGLE_PLACES_KEY = process.env.GOOGLE_PLACES_API_KEY ?? process.env.GOOGL
  * If no API key, returns { suggestions: [] } so the app can still use manual entry.
  */
 export async function GET(req: NextRequest) {
+  const { allowed } = checkRateLimit(`address-autocomplete:${getClientIdentifier(req)}`, { max: 40 });
+  if (!allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   const input = req.nextUrl.searchParams.get("input")?.trim();
   if (!input || input.length < 3) {
     return NextResponse.json({ suggestions: [] });

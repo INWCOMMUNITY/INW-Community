@@ -1,9 +1,10 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
 
 interface Business {
@@ -21,9 +22,8 @@ export default function PendingBusinessNamesPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch(`${MAIN_URL}/api/admin/businesses?pending=1`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    adminFetch(`${MAIN_URL}/api/admin/businesses?pending=1`, {
+      })
       .then((r) => r.json())
       .then((data) => setBusinesses(Array.isArray(data) ? data : []))
       .catch(() => setError("Failed to load"))
@@ -33,11 +33,10 @@ export default function PendingBusinessNamesPage() {
   async function handleAction(id: string, status: "approved" | "rejected") {
     setError("");
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/businesses/${id}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/businesses/${id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-code": ADMIN_CODE,
         },
         body: JSON.stringify({ nameApprovalStatus: status }),
       });

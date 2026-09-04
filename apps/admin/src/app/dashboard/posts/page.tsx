@@ -1,10 +1,11 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 interface Post {
   id: string;
@@ -26,9 +27,8 @@ export default function AdminPostsPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${MAIN_URL}/api/admin/posts`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    adminFetch(`${MAIN_URL}/api/admin/posts`, {
+      })
       .then((r) => r.json())
       .then((data) => setPosts(Array.isArray(data) ? data : []))
       .catch(() => setPosts([]))
@@ -39,10 +39,9 @@ export default function AdminPostsPage() {
     if (!confirm("Delete this post? This cannot be undone.")) return;
     setDeleting(postId);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/posts/${postId}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/posts/${postId}`, {
         method: "DELETE",
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+        });
       if (res.ok) {
         setPosts((prev) => prev.filter((p) => p.id !== postId));
         router.refresh();

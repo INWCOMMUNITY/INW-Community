@@ -1,9 +1,10 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 interface MappingStat {
   provider: string;
@@ -68,9 +69,8 @@ export default function CategoryMappingPage() {
     setLoading(true);
     try {
       const params = filterProvider ? `?provider=${filterProvider}` : "";
-      const res = await fetch(`${MAIN_URL}/api/admin/category-mapping${params}`, {
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+      const res = await adminFetch(`${MAIN_URL}/api/admin/category-mapping${params}`, {
+        });
       const json = await res.json();
       setStats(json.stats ?? []);
       setFeedback(json.recentFeedback ?? []);

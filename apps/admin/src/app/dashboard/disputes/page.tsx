@@ -1,9 +1,10 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 interface OrderItem {
   storeItem: { title: string; id: string };
@@ -30,9 +31,8 @@ export default function AdminDisputesPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${MAIN_URL}/api/admin/refunded-orders`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    adminFetch(`${MAIN_URL}/api/admin/refunded-orders`, {
+      })
       .then((r) => r.json())
       .then((data) => setOrders(Array.isArray(data) ? data : []))
       .catch(() => setOrders([]))

@@ -1,10 +1,11 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 interface BusinessInfo {
   name?: string;
@@ -32,9 +33,8 @@ export default function AdminBusinessInfoPage() {
   const [timeAway, setTimeAway] = useState<TimeAway>({});
 
   useEffect(() => {
-    fetch(`${MAIN_URL}/api/admin/site-settings`, {
-      headers: { "x-admin-code": ADMIN_CODE },
-    })
+    adminFetch(`${MAIN_URL}/api/admin/site-settings`, {
+      })
       .then((r) => r.json())
       .then((data) => {
         setPlatform((data.platform_business as BusinessInfo) ?? {});
@@ -48,9 +48,9 @@ export default function AdminBusinessInfoPage() {
   async function savePlatform() {
     setSaving("platform");
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/site-settings`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/site-settings`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", "x-admin-code": ADMIN_CODE },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: "platform_business", value: platform }),
       });
       if (res.ok) router.refresh();
@@ -62,9 +62,9 @@ export default function AdminBusinessInfoPage() {
   async function saveAdmin() {
     setSaving("admin");
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/site-settings`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/site-settings`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", "x-admin-code": ADMIN_CODE },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: "admin_business", value: admin }),
       });
       if (res.ok) router.refresh();
@@ -76,9 +76,9 @@ export default function AdminBusinessInfoPage() {
   async function saveTimeAway() {
     setSaving("time_away");
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/site-settings`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/site-settings`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", "x-admin-code": ADMIN_CODE },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: "time_away", value: timeAway }),
       });
       if (res.ok) router.refresh();

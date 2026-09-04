@@ -1,11 +1,12 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminPauseSubscriptionButton } from "../AdminPauseSubscriptionButton";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 export function AdminMemberActions({
   memberId,
@@ -37,11 +38,10 @@ export function AdminMemberActions({
     setLoading(true);
     setGiftError("");
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/members/${memberId}/points`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/members/${memberId}/points`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-code": ADMIN_CODE,
         },
         body: JSON.stringify({ points: pts }),
       });
@@ -63,11 +63,10 @@ export function AdminMemberActions({
       return;
     setLoading(true);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/members/${memberId}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/members/${memberId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-code": ADMIN_CODE,
         },
         body: JSON.stringify({ status: isSuspended ? "active" : "suspended" }),
       });
@@ -86,10 +85,9 @@ export function AdminMemberActions({
       return;
     setLoading(true);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/members/${memberId}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/members/${memberId}`, {
         method: "DELETE",
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+        });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         onDeleted?.();

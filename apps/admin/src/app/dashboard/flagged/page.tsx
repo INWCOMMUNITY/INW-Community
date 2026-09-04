@@ -1,10 +1,11 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 interface FlaggedItem {
   id: string;
@@ -27,7 +28,7 @@ export default function FlaggedPage() {
     const url = statusFilter
       ? `${MAIN_URL}/api/admin/flagged?status=${statusFilter}`
       : `${MAIN_URL}/api/admin/flagged`;
-    fetch(url, { headers: { "x-admin-code": ADMIN_CODE } })
+    adminFetch(url)
       .then((r) => r.json())
       .then((data) => setItems(Array.isArray(data) ? data : []))
       .catch(() => setItems([]))
@@ -36,11 +37,10 @@ export default function FlaggedPage() {
 
   async function updateStatus(id: string, status: string) {
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/flagged`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/flagged`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-code": ADMIN_CODE,
         },
         body: JSON.stringify({ id, status }),
       });

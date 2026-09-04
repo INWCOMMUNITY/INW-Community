@@ -1,9 +1,10 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState, useEffect } from "react";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 interface SiteImageItem {
   key: string;
@@ -20,13 +21,13 @@ export default function AdminSiteImagesPage() {
   const [uploading, setUploading] = useState<string | null>(null);
   const [resetting, setResetting] = useState<string | null>(null);
 
-  const headers = { "x-admin-code": ADMIN_CODE };
+  const headers = { };
 
   async function load() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/site-images`, { headers });
+      const res = await adminFetch(`${MAIN_URL}/api/admin/site-images`, { headers });
       if (!res.ok) throw new Error("Failed to load");
       const data = await res.json();
       setItems(data.items ?? []);
@@ -48,7 +49,7 @@ export default function AdminSiteImagesPage() {
       const form = new FormData();
       form.append("file", file);
       form.append("key", key);
-      const res = await fetch(`${MAIN_URL}/api/admin/site-images/upload`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/site-images/upload`, {
         method: "POST",
         headers,
         body: form,
@@ -67,7 +68,7 @@ export default function AdminSiteImagesPage() {
     setResetting(key);
     setError("");
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/site-images?key=${encodeURIComponent(key)}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/site-images?key=${encodeURIComponent(key)}`, {
         method: "DELETE",
         headers,
       });

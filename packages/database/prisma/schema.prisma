@@ -309,6 +309,8 @@ model Business {
   coupons  Coupon[]
   events   Event[]
   storeItems StoreItem[]
+
+  @@index([memberId])
 }
 
 model Coupon {
@@ -363,6 +365,9 @@ model Event {
   member   Member?   @relation(fields: [memberId], references: [id], onDelete: SetNull)
   business Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
   eventInvites EventInvite[]
+
+  @@index([date])
+  @@index([status, date])
 }
 
 model EventInvite {
@@ -837,6 +842,8 @@ model Post {
   @@index([authorId])
   @@index([groupId])
   @@index([createdAt])
+  @@index([authorId, createdAt])
+  @@index([groupId, createdAt])
   @@index([sourcePostId])
   @@index([sourceBlogId])
   @@index([sourceBusinessId])
@@ -988,6 +995,9 @@ model StoreItem {
   priceDropAlerts PriceDropAlert[]
 
   @@index([status, endedAt])
+  @@index([status, createdAt])
+  @@index([memberId, status])
+  @@index([category, status])
 }
 
 model MemberListingView {
@@ -1325,6 +1335,10 @@ model StoreOrder {
   packageWidthIn   Float?   @map("package_width_in")
   packageHeightIn Float?   @map("package_height_in")
   shippedWithOrderId String? @map("shipped_with_order_id") // When shipped as part of combined shipment
+
+  @@index([buyerId, createdAt])
+  @@index([sellerId, createdAt])
+  @@index([status, createdAt])
 }
 
 model Shipment {
@@ -1470,6 +1484,7 @@ model DirectMessage {
   reactions    DirectMessageReaction[]
 
   @@index([conversationId])
+  @@index([conversationId, createdAt])
   @@map("direct_message")
 }
 

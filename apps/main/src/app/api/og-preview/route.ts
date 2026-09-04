@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchOGPreview } from "@/lib/og-preview";
+import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
 
 const BLOCKED_HOST_PATTERNS = [
   /^localhost$/i,
@@ -22,6 +23,11 @@ function isBlockedUrl(urlStr: string): boolean {
 }
 
 export async function GET(req: NextRequest) {
+  const { allowed } = checkRateLimit(`og-preview:${getClientIdentifier(req)}`, { max: 20 });
+  if (!allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   const url = req.nextUrl.searchParams.get("url");
 
   if (!url) {

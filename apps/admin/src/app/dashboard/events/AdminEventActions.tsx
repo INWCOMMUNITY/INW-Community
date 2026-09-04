@@ -1,10 +1,11 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-fetch";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 export function AdminEventActions({ eventId }: { eventId: string; status: string }) {
   const router = useRouter();
@@ -14,10 +15,9 @@ export function AdminEventActions({ eventId }: { eventId: string; status: string
     if (!confirm("Delete this event?")) return;
     setLoading(true);
     try {
-      const res = await fetch(`${MAIN_URL}/api/admin/events/${eventId}`, {
+      const res = await adminFetch(`${MAIN_URL}/api/admin/events/${eventId}`, {
         method: "DELETE",
-        headers: { "x-admin-code": ADMIN_CODE },
-      });
+        });
       if (res.ok) router.refresh();
     } finally {
       setLoading(false);

@@ -1,9 +1,9 @@
+import { serverAdminHeaders } from "@/lib/admin-fetch";
 import { prisma } from "database";
 import Link from "next/link";
 import { AdminSubscriptionActions } from "./AdminSubscriptionActions";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
-const ADMIN_CODE = process.env.ADMIN_CODE ?? process.env.NEXT_PUBLIC_ADMIN_CODE ?? "NWC36481";
 
 export default async function AdminSubscriptionsPage() {
   const [subscriptions, stripeStats] = await Promise.all([
@@ -22,7 +22,7 @@ export default async function AdminSubscriptionsPage() {
       },
     }),
     fetch(`${MAIN_URL}/api/admin/stripe-stats`, {
-      headers: { "x-admin-code": ADMIN_CODE },
+      headers: serverAdminHeaders(),
       next: { revalidate: 60 },
     })
       .then((r) => r.json())

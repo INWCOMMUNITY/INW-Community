@@ -180,23 +180,13 @@ export default function SignInScreen() {
         setError(
           `Can't reach the server (${host}). Check your connection — try Wi‑Fi if on cellular, or another network. If Safari can open inwcommunity.com, the app may need an update.`
         );
-      } else if (err.status === 401 && msg === "EMAIL_NOT_FOUND") {
-        setErrorDetails(null);
-        setErrorPayload(null);
-        lastFailedEmailRef.current = email.trim();
-        setCredentialFailCount((c) => c + 1);
-        setEmailNotRecognized(true);
-        setError("");
       } else if (err.status === 401) {
         setErrorDetails(null);
         setErrorPayload(null);
         lastFailedEmailRef.current = email.trim();
         setCredentialFailCount((c) => c + 1);
-        if (msg === "INVALID_PASSWORD") {
-          setError("Incorrect password.");
-        } else {
-          setError("Invalid email or password.");
-        }
+        setEmailNotRecognized(false);
+        setError("Invalid email or password.");
       } else {
         setErrorDetails(`URL: ${signInUrl}\nError: ${msg || rawError}`);
         setErrorPayload(
