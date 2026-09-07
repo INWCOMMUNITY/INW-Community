@@ -77,7 +77,7 @@ export async function GET(
           const stripe = new Stripe(stripeSecretKey, {
             apiVersion: "2024-11-20.acacia" as "2023-10-16",
           });
-          const { syncStoreOrderRefundFromStripe } = await import("@/lib/store-order-refund-status");
+          const { syncStoreOrderRefundFromStripe } = await import("@/lib/store-order-refund-persist");
           await syncStoreOrderRefundFromStripe(stripe, order);
           const refreshed = await prisma.storeOrder.findUnique({
             where: { id: order.id },

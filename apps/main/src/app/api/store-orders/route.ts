@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
             const stripe = new Stripe(stripeSecretKey, {
               apiVersion: "2024-11-20.acacia" as "2023-10-16",
             });
-            const { syncStoreOrderRefundFromStripe } = await import("@/lib/store-order-refund-status");
+            const { syncStoreOrderRefundFromStripe } = await import("@/lib/store-order-refund-persist");
             await Promise.all(
               pendingSync.map((o) => syncStoreOrderRefundFromStripe(stripe, o).catch(() => undefined))
             );

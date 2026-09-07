@@ -642,9 +642,8 @@ export async function POST(req: NextRequest) {
         select: { id: true },
       });
       const { restockAfterExternalRefund } = await import("@/lib/stripe/refund-store-order");
-      const { latestRefundFromCharge, persistStoreOrderRefundFromStripe } = await import(
-        "@/lib/store-order-refund-status"
-      );
+      const { latestRefundFromCharge } = await import("@/lib/store-order-refund-status");
+      const { persistStoreOrderRefundFromStripe } = await import("@/lib/store-order-refund-persist");
       const refund = latestRefundFromCharge(charge);
       for (const o of orders) {
         if (refund) {
@@ -676,7 +675,7 @@ export async function POST(req: NextRequest) {
         where: { stripePaymentIntentId: piId },
         select: { id: true },
       });
-      const { persistStoreOrderRefundFromStripe } = await import("@/lib/store-order-refund-status");
+      const { persistStoreOrderRefundFromStripe } = await import("@/lib/store-order-refund-persist");
       for (const o of orders) {
         await persistStoreOrderRefundFromStripe(o.id, refund).catch((err) =>
           console.error("[stripe/webhook] persist refund.updated failed", {
