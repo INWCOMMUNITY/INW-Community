@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buyerRefundStatusNote,
+  latestRefundFromCharge,
+  orderNeedsRefundCompletionSync,
   storeOrderRefundPhase,
   storeOrderRefundStatusLabel,
   timestampsFromStripeRefund,
@@ -9,7 +11,7 @@ import {
 describe("storeOrderRefundPhase", () => {
   it("is initiated for a card refund that Stripe has not marked succeeded", () => {
     expect(storeOrderRefundPhase({ status: "refunded", isCashOrder: false })).toBe("initiated");
-    expect(storeOrderRefundStatusLabel({ status: "refunded" })).toBe("Refund initiated");
+    expect(storeOrderRefundStatusLabel({ status: "refunded" })).toBe("Refund Initiated");
   });
 
   it("is complete once refundCompletedAt is set", () => {
@@ -23,8 +25,8 @@ describe("storeOrderRefundPhase", () => {
       storeOrderRefundStatusLabel({
         status: "refunded",
         refundCompletedAt: "2026-09-06T12:00:00.000Z",
-      })
-    ).toBe("Refund complete");
+      }      )
+    ).toBe("Refund Complete");
   });
 
   it("does not treat cash cancels as refunds", () => {
@@ -40,7 +42,41 @@ describe("buyerRefundStatusNote", () => {
         status: "refunded",
         refundCompletedAt: "2026-09-06T12:00:00.000Z",
       })
-    ).toMatch(/Refund complete/);
+    ).toMatch(/Refund Complete/);
+  });
+});
+
+describe("orderNeedsRefundCompletionSync", () => {
+  it("asks Stripe for refunded orders that are not marked complete", () => {
+    expect(
+      orderNeedsRefundCompletionSync({
+        status: "refunded",
+        stripePaymentIntentId: "pi_1",
+        refundCompletedAt: null,
+      })
+    ).toBe(true);
+    expect(
+      orderNeedsRefundCompletionSync({
+        status: "refunded",
+        stripePaymentIntentId: "pi_1",
+        refundCompletedAt: "2026-09-06T12:00:00.000Z",
+      })
+    ).toBe(false);
+  });
+});
+
+describe("latestRefundFromCharge", () => {
+  it("prefers a succeeded refund on the charge", () => {
+    expect(
+      latestRefundFromCharge({
+        refunds: {
+          data: [
+            { id: "re_pending", status: "pending", created: 2 },
+            { id: "re_ok", status: "succeeded", created: 1 },
+          ],
+        },
+      })?.id
+    ).toBe("re_ok");
   });
 });
 

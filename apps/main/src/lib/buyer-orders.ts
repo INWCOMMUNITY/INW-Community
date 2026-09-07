@@ -160,7 +160,7 @@ export function buyerPaymentLabel(_order?: Pick<BuyerStoreOrder, "isCashOrder">)
 
 export { BUYER_CANCEL_CARD_HINT, BUYER_REFUND_TIMING_NOTE, buyerRefundStatusNote };
 
-export const BUYER_PENDING_REFUND_COPY = `Refund initiated. ${BUYER_REFUND_TIMING_NOTE}`;
+export const BUYER_PENDING_REFUND_COPY = `Refund Initiated. ${BUYER_REFUND_TIMING_NOTE}`;
 
 export function buyerHasPendingRefund(
   order: Pick<BuyerStoreOrder, "status" | "isCashOrder" | "refundInitiatedAt" | "refundCompletedAt">

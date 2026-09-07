@@ -6,7 +6,7 @@ export const BUYER_REFUND_TIMING_NOTE =
 export const BUYER_CANCEL_CARD_HINT =
   "This will cancel your order and initiate a refund to your original payment method. Most card refunds take 5–10 business days to appear on your statement.";
 
-export const BUYER_PENDING_REFUND_COPY = `Refund initiated. ${BUYER_REFUND_TIMING_NOTE}`;
+export const BUYER_PENDING_REFUND_COPY = `Refund Initiated. ${BUYER_REFUND_TIMING_NOTE}`;
 
 const ORDER_STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
@@ -14,7 +14,7 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
   shipped: "Shipped",
   delivered: "Delivered",
   canceled: "Canceled",
-  refunded: "Refund initiated",
+  refunded: "Refund Initiated",
 };
 
 export function getOrderStatusLabel(status: string): string {
@@ -40,8 +40,8 @@ export function getStoreOrderStatusLabel(order: {
   refundCompletedAt?: string | null;
 }): string {
   const phase = storeOrderRefundPhase(order);
-  if (phase === "complete") return "Refund complete";
-  if (phase === "initiated") return "Refund initiated";
+  if (phase === "complete") return "Refund Complete";
+  if (phase === "initiated") return "Refund Initiated";
   return getOrderStatusLabel(order.status);
 }
 
@@ -50,7 +50,7 @@ export function getBuyerOrderStatusLabel(
   order?: { isCashOrder?: boolean; refundInitiatedAt?: string | null; refundCompletedAt?: string | null }
 ): string {
   if (order) return getStoreOrderStatusLabel({ status, ...order });
-  if (status === "refunded") return "Refund initiated";
+  if (status === "refunded") return "Refund Initiated";
   return getOrderStatusLabel(status);
 }
 
@@ -61,8 +61,8 @@ export function buyerRefundStatusNote(order: {
   refundCompletedAt?: string | null;
 }): string | null {
   const phase = storeOrderRefundPhase(order);
-  if (phase === "complete") return `Refund complete. ${BUYER_REFUND_TIMING_NOTE}`;
-  if (phase === "initiated") return `Refund initiated. ${BUYER_REFUND_TIMING_NOTE}`;
+  if (phase === "complete") return `Refund Complete. ${BUYER_REFUND_TIMING_NOTE}`;
+  if (phase === "initiated") return `Refund Initiated. ${BUYER_REFUND_TIMING_NOTE}`;
   return null;
 }
 
@@ -82,7 +82,7 @@ export function sellerRefundStatusNote(order: {
   refundCompletedAt?: string | null;
 }): string | null {
   const phase = storeOrderRefundPhase(order);
-  if (phase === "complete") return "Refund complete. Stripe has processed the buyer’s refund.";
-  if (phase === "initiated") return `Refund initiated. ${BUYER_REFUND_TIMING_NOTE}`;
+  if (phase === "complete") return "Refund Complete. Stripe has processed the buyer’s refund.";
+  if (phase === "initiated") return `Refund Initiated. ${BUYER_REFUND_TIMING_NOTE}`;
   return null;
 }

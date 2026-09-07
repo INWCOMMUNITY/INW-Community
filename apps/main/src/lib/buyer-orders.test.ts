@@ -105,13 +105,13 @@ describe("trackingStatusLabel", () => {
 describe("buyerFulfillmentHeadline", () => {
   it("shows pending refund after a card refund, not that the bank already posted it", () => {
     expect(buyerFulfillmentHeadline(order({ id: "1", status: "refunded", isCashOrder: false }))).toBe(
-      "Refund initiated"
+      "Refund Initiated"
     );
     expect(
       buyerFulfillmentHeadline(
         order({ id: "1b", status: "refunded", isCashOrder: false, refundCompletedAt: "2026-09-06T12:00:00.000Z" })
       )
-    ).toBe("Refund complete");
+    ).toBe("Refund Complete");
     expect(buyerFulfillmentHeadline(order({ id: "2", status: "canceled", isCashOrder: true }))).toBe(
       "Canceled"
     );

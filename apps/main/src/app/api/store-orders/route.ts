@@ -73,38 +73,8 @@ export async function GET(req: NextRequest) {
           return serialized;
         })
       );
-      const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-      if (stripeSecretKey?.startsWith("sk_")) {
-        const pendingSync = ordersWithShipment
-          .filter((o) => o.status === "refunded" && !o.refundCompletedAt && o.stripePaymentIntentId)
-          .slice(0, 5);
-        if (pendingSync.length > 0) {
-          try {
-            const Stripe = (await import("stripe")).default;
-            const stripe = new Stripe(stripeSecretKey, {
-              apiVersion: "2024-11-20.acacia" as "2023-10-16",
-            });
-            const { syncStoreOrderRefundFromStripe } = await import("@/lib/store-order-refund-persist");
-            await Promise.all(
-              pendingSync.map((o) => syncStoreOrderRefundFromStripe(stripe, o).catch(() => undefined))
-            );
-            const refreshed = await prisma.storeOrder.findMany({
-              where: { id: { in: pendingSync.map((o) => o.id) } },
-              select: { id: true, refundInitiatedAt: true, refundCompletedAt: true },
-            });
-            const byId = new Map(refreshed.map((r) => [r.id, r]));
-            for (const o of ordersWithShipment) {
-              const r = byId.get(o.id);
-              if (r) {
-                o.refundInitiatedAt = r.refundInitiatedAt;
-                o.refundCompletedAt = r.refundCompletedAt;
-              }
-            }
-          } catch {
-            // List still works if Stripe is unavailable.
-          }
-        }
-      }
+      const { applyStripeRefundCompletionToOrders } = await import("@/lib/store-order-refund-persist");
+      await applyStripeRefundCompletionToOrders(ordersWithShipment);
 
       return NextResponse.json(
         ordersWithShipment.map((o) => {
@@ -216,6 +186,10 @@ export async function GET(req: NextRequest) {
               orderHasShippedLine(o.items)
           )
         : serialized;
+      if (canceled || !needsShipment) {
+        const { applyStripeRefundCompletionToOrders } = await import("@/lib/store-order-refund-persist");
+        await applyStripeRefundCompletionToOrders(filtered);
+      }
       return NextResponse.json(
         filtered.map((o) => ({ ...o, orderNumber: o.id.slice(-8).toUpperCase() }))
       );

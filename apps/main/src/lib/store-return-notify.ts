@@ -38,7 +38,7 @@ export function notifyBuyerReturnDeclined(buyerId: string, orderId: string, reas
 
 export function notifyBuyerRefundIssued(buyerId: string, orderId: string): void {
   sendPushNotification(buyerId, {
-    title: "Refund initiated",
+    title: "Refund Initiated",
     body: "Your refund is on the way. It can take several business days to appear on your statement.",
     data: { screen: "my-orders", orderId },
     category: "commerce",

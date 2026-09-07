@@ -9,7 +9,7 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
   shipped: "Shipped",
   delivered: "Delivered",
   canceled: "Canceled",
-  refunded: "Refund initiated",
+  refunded: "Refund Initiated",
 };
 
 export function getOrderStatusLabel(status: string): string {

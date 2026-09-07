@@ -104,7 +104,7 @@ export function storeReturnBuyerLabel(status: string | null | undefined): string
   if (status === "awaiting_return") return "Return approved. Ship the item back to the seller.";
   if (status === "in_transit") return "Return in transit to the seller.";
   if (status === "received") return "Seller received your return. Refund is being processed.";
-  if (status === "refunded") return "Refund initiated. It can take several business days to appear on your statement.";
+  if (status === "refunded") return "Refund Initiated. It can take several business days to appear on your statement.";
   if (status === "declined") return "The seller declined this return request.";
   if (status === "canceled") return "This return was canceled.";
   return null;

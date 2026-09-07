@@ -23,18 +23,32 @@ export function storeOrderRefundPhase(order: StoreOrderRefundFields): StoreOrder
 
 export function storeOrderRefundStatusLabel(order: StoreOrderRefundFields): string | null {
   const phase = storeOrderRefundPhase(order);
-  if (phase === "complete") return "Refund complete";
-  if (phase === "initiated") return "Refund initiated";
+  if (phase === "complete") return "Refund Complete";
+  if (phase === "initiated") return "Refund Initiated";
   return null;
+}
+
+/** True when we should ask Stripe whether an in-progress refund has succeeded. */
+export function orderNeedsRefundCompletionSync(order: {
+  status?: string;
+  stripePaymentIntentId?: string | null;
+  stripeRefundId?: string | null;
+  refundInitiatedAt?: Date | string | null;
+  refundCompletedAt?: Date | string | null;
+}): boolean {
+  if (order.refundCompletedAt || !order.stripePaymentIntentId) return false;
+  return (
+    order.status === "refunded" || Boolean(order.refundInitiatedAt) || Boolean(order.stripeRefundId)
+  );
 }
 
 export function buyerRefundStatusNote(order: StoreOrderRefundFields): string | null {
   const phase = storeOrderRefundPhase(order);
   if (phase === "complete") {
-    return `Refund complete. ${BUYER_REFUND_TIMING_NOTE}`;
+    return `Refund Complete. ${BUYER_REFUND_TIMING_NOTE}`;
   }
   if (phase === "initiated") {
-    return `Refund initiated. ${BUYER_REFUND_TIMING_NOTE}`;
+    return `Refund Initiated. ${BUYER_REFUND_TIMING_NOTE}`;
   }
   return null;
 }
@@ -42,10 +56,10 @@ export function buyerRefundStatusNote(order: StoreOrderRefundFields): string | n
 export function sellerRefundStatusNote(order: StoreOrderRefundFields): string | null {
   const phase = storeOrderRefundPhase(order);
   if (phase === "complete") {
-    return "Refund complete. Stripe has processed the buyer’s refund.";
+    return "Refund Complete. Stripe has processed the buyer’s refund.";
   }
   if (phase === "initiated") {
-    return `Refund initiated. ${BUYER_REFUND_TIMING_NOTE}`;
+    return `Refund Initiated. ${BUYER_REFUND_TIMING_NOTE}`;
   }
   return null;
 }
@@ -72,5 +86,5 @@ export function latestRefundFromCharge(charge: {
 }): { id?: string; status?: string | null; created?: number } | null {
   const list = charge.refunds?.data;
   if (!list?.length) return null;
-  return list[0] ?? null;
+  return list.find((r) => r.status === "succeeded") ?? list[0] ?? null;
 }
