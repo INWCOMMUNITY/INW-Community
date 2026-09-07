@@ -1,5 +1,5 @@
 /** Single source of truth for Privacy Policy content. Used by privacy page, PDF API, and export script. */
-export const PRIVACY_LAST_UPDATED = "September 3, 2026";
+export const PRIVACY_LAST_UPDATED = "September 7, 2026";
 
 export const PRIVACY_BODY = `Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company") is committed to protecting your privacy.
 This Privacy Policy explains how we collect, use, store, and protect your information when you use our website at inwcommunity.com, our Northwest Community mobile app, community features, marketplace, coupons, subscriptions, events, or any related services.
@@ -42,7 +42,7 @@ This information may include:
 ● Business address
 ● Address
 ● Business logos
-● Payment details (processed securely through Stripe)
+● Payment details (processed securely through Stripe). Storefront checkout is card-only; NWC does not collect cash payments for marketplace orders.
 ● Subscription and billing records for paid plans (for example, resident, business, or seller subscriptions): we store the information needed to provide access to paid features (such as plan type, subscription status, and renewal timing) and identifiers that Stripe associates with your account. Full payment card numbers are not stored on our servers; they are handled by Stripe.
 ● Blog submissions, feed posts, comments, direct messages, group conversations, listings, event information
 ● NWC Requests and Support & contact: we store your name, email address, and message. On the mobile app you may also enter a short subject line. You may optionally provide a phone number so our team can follow up by call or text as well as by email. These submissions are saved in our administrative systems for support and follow-up.

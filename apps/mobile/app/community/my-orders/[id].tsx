@@ -19,7 +19,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { formatShippingAddress } from "@/lib/format-address";
-import { getOrderStatusLabel } from "@/lib/order-status";
+import {
+  BUYER_CANCEL_CARD_HINT,
+  BUYER_PENDING_REFUND_COPY,
+  buyerHasPendingRefund,
+  buyerRefundStatusNote,
+  getBuyerOrderStatusLabel,
+} from "@/lib/order-status";
 import { buildProductPath } from "@/lib/product-referrer";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -59,6 +65,9 @@ interface StoreOrder {
   cancelReason?: string | null;
   cancelNote?: string | null;
   isCashOrder?: boolean;
+  sellerAcceptsReturns?: boolean;
+  refundInitiatedAt?: string | null;
+  refundCompletedAt?: string | null;
   orderNumber?: string;
   paymentLabel?: string;
   buyer?: { firstName: string; lastName: string; email?: string | null };
@@ -210,7 +219,10 @@ export default function MyOrderDetailScreen() {
       setCancelOther("");
       setCancelNote("");
       load();
-      Alert.alert("Order canceled", res?.refunded ? "Your order was canceled and a refund will be processed." : "Your order was canceled.");
+      Alert.alert(
+        "Order canceled",
+        res?.refunded ? BUYER_PENDING_REFUND_COPY : "Your order was canceled. No refund is involved."
+      );
     } catch (e) {
       const err = e as { error?: string };
       Alert.alert("Error", err.error ?? "Failed to cancel order.");
@@ -269,7 +281,7 @@ export default function MyOrderDetailScreen() {
     order?.items?.some((i) => (i.fulfillmentType ?? "") === "local_delivery") ?? false;
   const orderNumberDisplay = order?.orderNumber ?? order?.id.slice(-8).toUpperCase();
   const paymentLabelText =
-    order?.paymentLabel ?? (order?.isCashOrder ? "Cash due" : "Paid Online");
+    order?.paymentLabel ?? "Paid Online";
 
   return viewMode === "loading" ? (
     <View style={styles.center}>
@@ -300,10 +312,10 @@ export default function MyOrderDetailScreen() {
 
       <View style={styles.section}>
         <Text style={styles.label}>Status</Text>
-        <Text style={[styles.value, styles.statusCapitalize]}>{getOrderStatusLabel(order.status)}</Text>
+        <Text style={[styles.value, styles.statusCapitalize]}>{getBuyerOrderStatusLabel(order.status, order)}</Text>
       </View>
 
-      {order.status === "canceled" && (order.cancelReason ?? order.cancelNote) && (
+      {(order.status === "canceled" || order.status === "refunded") && (order.cancelReason ?? order.cancelNote) && (
         <View style={styles.cancelReasonSection}>
           <Text style={styles.cancelReasonText}>
             {[order.cancelReason, order.cancelNote].filter(Boolean).join(order.cancelReason && order.cancelNote ? " — " : "")}
@@ -313,12 +325,9 @@ export default function MyOrderDetailScreen() {
 
       <View style={styles.section}>
         <Text style={styles.label}>Payment</Text>
-        <Text style={[styles.value, order.isCashOrder && { color: "#92400e" }]}>
+        <Text style={styles.value}>
           {paymentLabelText}
         </Text>
-        {order.isCashOrder && (
-          <Text style={styles.paymentHint}>Pay when you pick up or receive delivery. No payment button needed.</Text>
-        )}
       </View>
 
       <View style={styles.section}>
@@ -444,7 +453,12 @@ export default function MyOrderDetailScreen() {
         </View>
       )}
 
-      {(order.storeReturn || order.refundRequestedAt) && (
+      {buyerHasPendingRefund(order) ? (
+        <View style={styles.refundBanner}>
+          <Ionicons name="information-circle" size={20} color="#92400e" />
+          <Text style={styles.refundBannerText}>{buyerRefundStatusNote(order) ?? BUYER_PENDING_REFUND_COPY}</Text>
+        </View>
+      ) : (order.storeReturn || order.refundRequestedAt) ? (
         <View style={styles.refundBanner}>
           <Ionicons name="information-circle" size={20} color="#92400e" />
           <Text style={styles.refundBannerText}>
@@ -452,7 +466,7 @@ export default function MyOrderDetailScreen() {
             {order.storeReturn?.status === "awaiting_return" && "Return approved. Ship the item back to the seller."}
             {order.storeReturn?.status === "in_transit" && "Your return is in transit to the seller."}
             {order.storeReturn?.status === "received" && "The seller received your return. Refund is processing."}
-            {order.storeReturn?.status === "refunded" && "Refund issued."}
+            {order.storeReturn?.status === "refunded" && BUYER_PENDING_REFUND_COPY}
             {order.storeReturn?.status === "declined" &&
               `The seller declined this return.${order.storeReturn.declineReason ? ` ${order.storeReturn.declineReason}` : ""}`}
             {!order.storeReturn && order.refundRequestedAt
@@ -460,7 +474,7 @@ export default function MyOrderDetailScreen() {
               : null}
           </Text>
         </View>
-      )}
+      ) : null}
 
       {order.returnShipment?.labelUrl ? (
         <View style={styles.section}>
@@ -487,6 +501,7 @@ export default function MyOrderDetailScreen() {
         )}
         {(order.status === "shipped" || order.status === "delivered") &&
           !order.isCashOrder &&
+          order.sellerAcceptsReturns !== false &&
           !(
             order.storeReturn &&
             ["requested", "awaiting_return", "in_transit", "received", "refunded"].includes(
@@ -574,9 +589,7 @@ export default function MyOrderDetailScreen() {
           <View style={styles.modalPanel} onStartShouldSetResponder={() => true}>
             <Text style={styles.modalTitle}>Cancel order</Text>
             <Text style={styles.cancelHint}>
-              {order.isCashOrder
-                ? "This order was paid in cash. Canceling will release the items back to the seller. No refund is involved."
-                : "This will cancel your order and refund the amount to your original payment method."}
+              {BUYER_CANCEL_CARD_HINT}
             </Text>
             <Text style={styles.modalLabel}>Reason (optional)</Text>
             <ScrollView style={styles.reasonScroll} nestedScrollEnabled>

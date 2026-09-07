@@ -31,9 +31,10 @@ model Member {
   sellerPickupPolicy         String? @map("seller_pickup_policy") @db.Text
   sellerShippingPolicy String? @map("seller_shipping_policy") @db.Text
   sellerReturnPolicy String? @map("seller_return_policy") @db.Text
+  /// When false, buyers cannot request a return after shipment.
+  acceptReturns Boolean @default(true) @map("accept_returns")
   /// When true, Shippo return-label cost is deducted from the buyer's refund.
   chargeReturnShipping Boolean @default(false) @map("charge_return_shipping")
-  acceptCashForPickupDelivery Boolean @default(true) @map("accept_cash_for_pickup_delivery")
   offerShipping              Boolean @default(true) @map("offer_shipping")
   /// Default new INW listings to free shipping (shippingCostCents = 0). Does not change eBay/Etsy rates.
   offerFreeShippingOnInw     Boolean @default(false) @map("offer_free_shipping_on_inw")
@@ -1320,11 +1321,14 @@ model StoreOrder {
   pickupBuyerConfirmedAt  DateTime? @map("pickup_buyer_confirmed_at")
   stripePaymentIntentId   String?  @map("stripe_payment_intent_id")
   stripeCheckoutSessionId String?  @map("stripe_checkout_session_id")
+  stripeRefundId          String?  @map("stripe_refund_id")
   refundRequestedAt       DateTime? @map("refund_requested_at")
   refundReason            String?   @map("refund_reason")
+  refundInitiatedAt       DateTime? @map("refund_initiated_at")
+  refundCompletedAt       DateTime? @map("refund_completed_at")
   cancelReason            String?   @map("cancel_reason") // Changed my mind | Didn't mean to order | Order Arrived Damaged | Wrong Item Delivered | Other
   cancelNote              String?   @map("cancel_note") @db.Text // Optional note for seller
-  inventoryRestoredAt     DateTime? @map("inventory_restored_at") // When seller re-listed items from a canceled cash order
+  inventoryRestoredAt     DateTime? @map("inventory_restored_at") // When inventory was restored after a cancel
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
 

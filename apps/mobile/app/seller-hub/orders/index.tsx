@@ -20,7 +20,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, getToken, apiPatch, apiPost } from "@/lib/api";
-import { getOrderStatusLabel } from "@/lib/order-status";
+import { getStoreOrderStatusLabel } from "@/lib/order-status";
 import { formatShippingAddress } from "@/lib/format-address";
 import { buildHubWebUrl } from "@/lib/seller-hub-web-url";
 import { FulfillmentTabBar } from "@/components/fulfillment/FulfillmentTabBar";
@@ -81,6 +81,8 @@ interface StoreOrder {
   } | null;
   shippedWithOrderId?: string | null;
   stripePaymentIntentId?: string | null;
+  refundInitiatedAt?: string | null;
+  refundCompletedAt?: string | null;
   pickupSellerConfirmedAt?: string | null;
   pickupBuyerConfirmedAt?: string | null;
   localDeliveryDetails?: LocalDeliveryDetails | null;
@@ -311,14 +313,10 @@ function ToShipFlowView({
   };
 
   const confirmCancelAndRefund = (orderId: string) => {
-    const o = orders.find((x) => x.id === orderId);
-    const paidOnline = Boolean(o?.stripePaymentIntentId);
     setShipMenuOrderId(null);
     Alert.alert(
       "Cancel & refund?",
-      paidOnline
-        ? "This cancels the whole order. The buyer will be refunded to their card and listing quantities will be restored. This cannot be undone."
-        : "This cancels the whole order and restores listing quantities. Confirm with the buyer if they already paid you in person.",
+      "This cancels the whole order. The buyer will be refunded to their card and listing quantities will be restored. This cannot be undone.",
       [
         { text: "Not now", style: "cancel" },
         {
@@ -681,7 +679,7 @@ function PickupsTabView({
           style={({ pressed }) => [styles.cardRow, pressed && { opacity: 0.85 }]}
         >
           <Text style={styles.orderId}>#{orderNum}</Text>
-          <Text style={styles.status}>{getOrderStatusLabel(item.status)}</Text>
+          <Text style={styles.status}>{getStoreOrderStatusLabel(item)}</Text>
         </Pressable>
         <Text style={styles.buyer}>
           {item.buyer ? `${item.buyer.firstName} ${item.buyer.lastName}` : "—"}
@@ -816,13 +814,9 @@ function DeliveriesTabView({
   };
 
   const cancelLocalDelivery = (orderId: string) => {
-    const o = deliveryOrders.find((x) => x.id === orderId);
-    const paidOnline = Boolean(o?.stripePaymentIntentId);
     Alert.alert(
       "Cancel this delivery?",
-      paidOnline
-        ? "The buyer will be refunded to their card and listing quantities will be restored. This cannot be undone."
-        : "The cash order will be canceled and quantities restored. Confirm with the buyer if they already paid you in person.",
+      "The buyer will be refunded to their card and listing quantities will be restored. This cannot be undone.",
       [
         { text: "Not now", style: "cancel" },
         {
@@ -952,7 +946,7 @@ function DeliveriesTabView({
                   ) : !o.deliveryConfirmedAt ? (
                     <Text style={styles.cannotMarkYet}>
                       {o.status === "pending"
-                        ? "This order is not paid yet. After the buyer pays (online or cash), you can mark it delivered here."
+                        ? "This order is not paid yet. After the buyer pays online, you can mark it delivered here."
                         : "This order can't be marked delivered in its current state."}
                     </Text>
                   ) : (
@@ -1070,7 +1064,7 @@ function ShippedTabView({
                   <View style={styles.cardBody}>
                     <View style={styles.cardRow}>
                       <Text style={styles.orderId}>#{orderNum}</Text>
-                      <Text style={styles.status}>{getOrderStatusLabel(item.status)}</Text>
+                      <Text style={styles.status}>{getStoreOrderStatusLabel(item)}</Text>
                     </View>
                     <Text style={styles.buyer}>
                       {item.buyer ? `${item.buyer.firstName} ${item.buyer.lastName}` : "—"}
@@ -1182,7 +1176,7 @@ function HistoryTabView({
                 <View style={styles.cardBody}>
                   <View style={styles.cardRow}>
                     <Text style={styles.orderId}>#{orderNum}</Text>
-                    <Text style={styles.status}>{getOrderStatusLabel(item.status)}</Text>
+                    <Text style={styles.status}>{getStoreOrderStatusLabel(item)}</Text>
                   </View>
                   <Text style={styles.buyer}>
                     {item.buyer ? `${item.buyer.firstName} ${item.buyer.lastName}` : "—"}

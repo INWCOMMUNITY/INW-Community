@@ -31,6 +31,7 @@ export async function POST(
     where: { id, buyerId: session.user.id },
     include: {
       buyer: { select: { firstName: true, lastName: true } },
+      seller: { select: { acceptReturns: true } },
       storeReturns: { orderBy: { createdAt: "desc" }, take: 1 },
     },
   });
@@ -45,12 +46,19 @@ export async function POST(
     status: order.status,
     isCashOrder: !order.stripePaymentIntentId,
     stripePaymentIntentId: order.stripePaymentIntentId,
+    sellerAcceptsReturns: order.seller.acceptReturns,
     storeReturn: latest,
     refundRequestedAt: latest ? null : order.refundRequestedAt,
   })) {
+    if (order.seller.acceptReturns === false) {
+      return NextResponse.json(
+        { error: "This seller does not accept returns." },
+        { status: 400 }
+      );
+    }
     if (!order.stripePaymentIntentId) {
       return NextResponse.json(
-        { error: "Cash orders cannot request a refund. You can cancel the order instead." },
+        { error: "This order has no card payment to refund." },
         { status: 400 }
       );
     }

@@ -17,6 +17,9 @@ import {
   buyerSellerName,
   buyerShopSlug,
   buyerTrackingHref,
+  buyerHasPendingRefund,
+  buyerRefundStatusNote,
+  BUYER_PENDING_REFUND_COPY,
   canCancelBuyerOrder,
   canRequestBuyerRefund,
   formatBuyerOrderDate,
@@ -151,12 +154,9 @@ export function BuyerOrderDetailContent() {
 
       <section className="mb-6">
         <p className="text-xs uppercase tracking-wide opacity-70 mb-1">Payment</p>
-        <p className="font-medium" style={{ color: order.isCashOrder ? "#92400e" : undefined }}>
+        <p className="font-medium">
           {buyerPaymentLabel(order)}
         </p>
-        {order.isCashOrder ? (
-          <p className="text-sm opacity-80 mt-1">Pay the seller when you pick up or receive delivery.</p>
-        ) : null}
       </section>
 
       <section className="mb-6">
@@ -284,13 +284,17 @@ export function BuyerOrderDetailContent() {
         )}
       </section>
 
-      {order.storeReturn || order.refundRequestedAt ? (
+      {buyerHasPendingRefund(order) ? (
+        <p className="text-sm mb-6" style={{ color: "var(--color-primary)" }}>
+          {buyerRefundStatusNote(order) ?? BUYER_PENDING_REFUND_COPY}
+        </p>
+      ) : order.storeReturn || order.refundRequestedAt ? (
         <p className="text-sm mb-6" style={{ color: "var(--color-primary)" }}>
           {order.storeReturn?.status === "requested" && "Return requested. The seller will review."}
           {order.storeReturn?.status === "awaiting_return" && "Return approved. Ship the item back to the seller."}
           {order.storeReturn?.status === "in_transit" && "Your return is in transit to the seller."}
           {order.storeReturn?.status === "received" && "The seller received your return. Refund is processing."}
-          {order.storeReturn?.status === "refunded" && "Refund issued."}
+          {order.storeReturn?.status === "refunded" && BUYER_PENDING_REFUND_COPY}
           {order.storeReturn?.status === "declined" &&
             `The seller declined this return.${order.storeReturn.declineReason ? ` ${order.storeReturn.declineReason}` : ""}`}
           {!order.storeReturn && order.refundRequestedAt
@@ -316,7 +320,7 @@ export function BuyerOrderDetailContent() {
         </p>
       ) : null}
 
-      {order.status === "canceled" && (order.cancelReason || order.cancelNote) ? (
+      {(order.status === "canceled" || order.status === "refunded") && (order.cancelReason || order.cancelNote) ? (
         <p className="text-sm mb-6 opacity-80">
           {[order.cancelReason, order.cancelNote].filter(Boolean).join(" — ")}
         </p>

@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
               id: true,
               firstName: true,
               lastName: true,
+              acceptReturns: true,
               businesses: { take: 1, select: { name: true, slug: true } },
             },
           },
@@ -72,12 +73,46 @@ export async function GET(req: NextRequest) {
           return serialized;
         })
       );
+      const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+      if (stripeSecretKey?.startsWith("sk_")) {
+        const pendingSync = ordersWithShipment
+          .filter((o) => o.status === "refunded" && !o.refundCompletedAt && o.stripePaymentIntentId)
+          .slice(0, 5);
+        if (pendingSync.length > 0) {
+          try {
+            const Stripe = (await import("stripe")).default;
+            const stripe = new Stripe(stripeSecretKey, {
+              apiVersion: "2024-11-20.acacia" as "2023-10-16",
+            });
+            const { syncStoreOrderRefundFromStripe } = await import("@/lib/store-order-refund-status");
+            await Promise.all(
+              pendingSync.map((o) => syncStoreOrderRefundFromStripe(stripe, o).catch(() => undefined))
+            );
+            const refreshed = await prisma.storeOrder.findMany({
+              where: { id: { in: pendingSync.map((o) => o.id) } },
+              select: { id: true, refundInitiatedAt: true, refundCompletedAt: true },
+            });
+            const byId = new Map(refreshed.map((r) => [r.id, r]));
+            for (const o of ordersWithShipment) {
+              const r = byId.get(o.id);
+              if (r) {
+                o.refundInitiatedAt = r.refundInitiatedAt;
+                o.refundCompletedAt = r.refundCompletedAt;
+              }
+            }
+          } catch {
+            // List still works if Stripe is unavailable.
+          }
+        }
+      }
+
       return NextResponse.json(
         ordersWithShipment.map((o) => {
           const { stripePaymentIntentId, ...rest } = o;
           return {
             ...rest,
             isCashOrder: !stripePaymentIntentId,
+            sellerAcceptsReturns: o.seller.acceptReturns !== false,
             orderNumber: o.id.slice(-8).toUpperCase(),
           };
         })

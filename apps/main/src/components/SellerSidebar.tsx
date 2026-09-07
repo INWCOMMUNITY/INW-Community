@@ -55,7 +55,6 @@ export function SellerSidebar({ mobile }: { mobile?: boolean } = {}) {
     { href: "/seller-hub/offers", label: "New Offers", alert: false },
     { href: "/seller-hub/messages", label: "My Messages", alert: false },
     { href: "/seller-hub/store/returns", label: "Return Requests", alert: pendingReturns > 0 },
-    { href: "/seller-hub/store/cancellations", label: "Cancellations", alert: false },
   ];
 
   function AlertIcon() {

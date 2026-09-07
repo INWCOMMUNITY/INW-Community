@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buyerFulfillmentHeadline,
+  buyerHasPendingRefund,
   buyerItemTitle,
   buyerOrderTitle,
   buyerPaymentLabel,
@@ -69,7 +70,7 @@ describe("buyer order display", () => {
   });
 
   it("uses one payment label", () => {
-    expect(buyerPaymentLabel({ isCashOrder: true })).toBe("Cash due");
+    expect(buyerPaymentLabel({ isCashOrder: true })).toBe("Paid Online");
     expect(buyerPaymentLabel({ isCashOrder: false })).toBe("Paid Online");
   });
 });
@@ -82,6 +83,9 @@ describe("cancel vs refund", () => {
     expect(canRequestBuyerRefund({ status: "shipped", isCashOrder: false })).toBe(true);
     expect(canRequestBuyerRefund({ status: "delivered", isCashOrder: false })).toBe(true);
     expect(canRequestBuyerRefund({ status: "shipped", isCashOrder: true })).toBe(false);
+    expect(canRequestBuyerRefund({ status: "shipped", isCashOrder: false, sellerAcceptsReturns: false })).toBe(
+      false
+    );
     expect(
       canRequestBuyerRefund({ status: "shipped", isCashOrder: false, refundRequestedAt: "2026-08-12" })
     ).toBe(false);
@@ -99,6 +103,23 @@ describe("trackingStatusLabel", () => {
 });
 
 describe("buyerFulfillmentHeadline", () => {
+  it("shows pending refund after a card refund, not that the bank already posted it", () => {
+    expect(buyerFulfillmentHeadline(order({ id: "1", status: "refunded", isCashOrder: false }))).toBe(
+      "Refund initiated"
+    );
+    expect(
+      buyerFulfillmentHeadline(
+        order({ id: "1b", status: "refunded", isCashOrder: false, refundCompletedAt: "2026-09-06T12:00:00.000Z" })
+      )
+    ).toBe("Refund complete");
+    expect(buyerFulfillmentHeadline(order({ id: "2", status: "canceled", isCashOrder: true }))).toBe(
+      "Canceled"
+    );
+    expect(buyerHasPendingRefund({ status: "refunded", isCashOrder: false })).toBe(true);
+    expect(buyerHasPendingRefund({ status: "canceled", isCashOrder: false })).toBe(false);
+    expect(buyerHasPendingRefund({ status: "canceled", isCashOrder: true })).toBe(false);
+  });
+
   it("says awaiting shipment when paid with no label", () => {
     expect(
       buyerFulfillmentHeadline(

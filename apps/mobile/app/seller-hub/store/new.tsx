@@ -118,7 +118,6 @@ interface PoliciesResponse {
   offerShipping?: boolean;
   offerLocalDelivery?: boolean;
   offerLocalPickup?: boolean;
-  acceptCashForPickupDelivery?: boolean;
 }
 
 type ShippingOptionChoice = {

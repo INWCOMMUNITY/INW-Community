@@ -99,7 +99,6 @@ export function SellerHubTopNav() {
       ? [{ href: "/seller-hub/orders?tab=deliveries", label: "Deliveries", icon: "bicycle-outline" }]
       : []),
     { href: "/seller-hub/offers", label: "Offers", icon: "pricetag-outline" },
-    { href: "/seller-hub/store/cancellations", label: "Cancellations", icon: "close-circle-outline" },
   ];
 
   const storeChildren: Child[] = [

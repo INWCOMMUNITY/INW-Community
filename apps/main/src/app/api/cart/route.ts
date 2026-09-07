@@ -83,7 +83,6 @@ export async function GET(req: NextRequest) {
           localDeliveryTerms: true,
           member: {
             select: {
-              acceptCashForPickupDelivery: true,
               sellerLocalDeliveryPolicy: true,
               sellerPickupPolicy: true,
               stripeConnectAccountId: true,

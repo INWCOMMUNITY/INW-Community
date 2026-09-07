@@ -94,7 +94,7 @@ export async function POST(
     title: "Order update",
     body: isCashOrder
       ? "The seller canceled your storefront order. Check My orders for details."
-      : "The seller canceled your storefront order and issued a refund. Check My orders for details.",
+      : "The seller canceled your storefront order and initiated a refund. It can take several business days to appear on your statement.",
     data: { screen: "my-orders", orderId: order.id },
     category: "commerce",
   }).catch(() => {});

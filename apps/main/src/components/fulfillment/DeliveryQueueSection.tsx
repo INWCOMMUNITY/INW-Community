@@ -77,11 +77,8 @@ export function DeliveryQueueSection({
 
   async function cancelLocalDelivery(orderId: string) {
     const o = deliveryOrders.find((x) => x.id === orderId);
-    const paidOnline = Boolean(o?.stripePaymentIntentId);
     const ok = window.confirm(
-      paidOnline
-        ? "Cancel this delivery? The buyer will be refunded to their card and inventory will be restored."
-        : "Cancel this cash delivery order? Inventory will be restored. Confirm with the buyer if they already paid you in person."
+      "Cancel this delivery? The buyer will be refunded to their card and inventory will be restored."
     );
     if (!ok) return;
     setMenuOpenId(null);

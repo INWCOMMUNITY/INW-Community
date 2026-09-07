@@ -71,6 +71,9 @@ describe("return status", () => {
   it("allows a buyer request after ship, and again after a decline", () => {
     expect(buyerCanRequestRefund({ status: "paid", isCashOrder: false })).toBe(false);
     expect(buyerCanRequestRefund({ status: "shipped", isCashOrder: false })).toBe(true);
+    expect(buyerCanRequestRefund({ status: "shipped", isCashOrder: false, sellerAcceptsReturns: false })).toBe(
+      false
+    );
     expect(
       buyerCanRequestRefund({
         status: "shipped",

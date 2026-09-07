@@ -133,7 +133,9 @@ export async function POST(
   const { sendPushNotification } = await import("@/lib/send-push-notification");
   sendPushNotification(order.buyerId, {
     title: "Order update",
-    body: "The seller canceled local delivery for your storefront order. Check My orders for details.",
+    body: isCashOrder
+      ? "The seller canceled local delivery for your storefront order. Check My orders for details."
+      : "The seller canceled local delivery and initiated a refund. It can take several business days to appear on your statement.",
     data: { screen: "my-orders", orderId: order.id },
     category: "commerce",
   }).catch(() => {});

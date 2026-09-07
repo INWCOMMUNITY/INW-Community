@@ -6,7 +6,8 @@ import { useParams, useSearchParams } from "next/navigation";
 import { OrderCardItemRows } from "@/components/fulfillment/OrderCard";
 import type { FulfillmentStoreOrder } from "@/components/fulfillment/types";
 import { formatShippingAddress } from "@/lib/format-address";
-import { getOrderStatusLabel } from "@/lib/order-status";
+import { getStoreOrderStatusLabel } from "@/lib/order-status";
+import { sellerRefundStatusNote } from "@/lib/store-order-refund-status";
 import { isWithinLabelReprintWindow } from "@/lib/shippo-label-reprint";
 import {
   formatSellerOrderTotal,
@@ -125,7 +126,7 @@ function SellerOrderDetailInner() {
                   className="inline-block px-2 py-0.5 rounded text-sm"
                   style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
                 >
-                  {getOrderStatusLabel(order.status)}
+                  {getStoreOrderStatusLabel(order)}
                 </span>
                 <span className="inline-block px-2 py-0.5 rounded text-sm bg-gray-100 text-gray-700">
                   {paymentLabel}
@@ -136,6 +137,9 @@ function SellerOrderDetailInner() {
                   </span>
                 ) : null}
               </div>
+              {sellerRefundStatusNote(order) ? (
+                <p className="text-sm text-gray-600 mt-3">{sellerRefundStatusNote(order)}</p>
+              ) : null}
             </div>
 
             {order.shippingAddress != null && typeof order.shippingAddress === "object" ? (

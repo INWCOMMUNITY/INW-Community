@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { formatShippingAddress } from "@/lib/format-address";
-import { getOrderStatusLabel } from "@/lib/order-status";
+import { getStoreOrderStatusLabel } from "@/lib/order-status";
 import {
   formatSellerOrderTotal,
   isOrderEligibleForToShipQueue,
@@ -137,8 +137,8 @@ export function OrderCard({
               className="inline-block px-2 py-0.5 rounded text-xs font-medium"
               style={{
                 backgroundColor:
-                  paymentLabel === "Cash due" ? "#fef3c7" : "var(--color-section-alt)",
-                color: paymentLabel === "Cash due" ? "#92400e" : "var(--color-primary)",
+                  "var(--color-section-alt)",
+                color: "var(--color-primary)",
               }}
             >
               {paymentLabel}
@@ -151,7 +151,7 @@ export function OrderCard({
                 className="inline-block px-2 py-0.5 rounded text-xs font-medium"
                 style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}
               >
-                {getOrderStatusLabel(order.status)}
+                {getStoreOrderStatusLabel(order)}
               </span>
             ) : null}
           </div>

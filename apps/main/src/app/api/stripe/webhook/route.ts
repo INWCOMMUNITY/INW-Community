@@ -642,9 +642,44 @@ export async function POST(req: NextRequest) {
         select: { id: true },
       });
       const { restockAfterExternalRefund } = await import("@/lib/stripe/refund-store-order");
+      const { latestRefundFromCharge, persistStoreOrderRefundFromStripe } = await import(
+        "@/lib/store-order-refund-status"
+      );
+      const refund = latestRefundFromCharge(charge);
       for (const o of orders) {
+        if (refund) {
+          await persistStoreOrderRefundFromStripe(o.id, refund).catch((err) =>
+            console.error("[stripe/webhook] persist refund status failed", {
+              orderId: o.id,
+              error: String(err),
+            })
+          );
+        }
         await restockAfterExternalRefund(o.id, stripe).catch((err) =>
           console.error("[stripe/webhook] restock after refund/dispute failed", {
+            orderId: o.id,
+            error: String(err),
+          })
+        );
+      }
+    }
+  }
+
+  if (event.type === "refund.updated" || event.type === "refund.failed") {
+    const refund = event.data.object as Stripe.Refund;
+    const piId =
+      typeof refund.payment_intent === "string"
+        ? refund.payment_intent
+        : refund.payment_intent?.id;
+    if (piId) {
+      const orders = await prisma.storeOrder.findMany({
+        where: { stripePaymentIntentId: piId },
+        select: { id: true },
+      });
+      const { persistStoreOrderRefundFromStripe } = await import("@/lib/store-order-refund-status");
+      for (const o of orders) {
+        await persistStoreOrderRefundFromStripe(o.id, refund).catch((err) =>
+          console.error("[stripe/webhook] persist refund.updated failed", {
             orderId: o.id,
             error: String(err),
           })

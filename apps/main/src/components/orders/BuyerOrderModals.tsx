@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import {
   BUYER_ORDER_REASONS,
+  BUYER_CANCEL_CARD_HINT,
+  BUYER_PENDING_REFUND_COPY,
   buyerItemPhoto,
   buyerItemTitle,
   buyerPaymentLabel,
@@ -35,6 +37,7 @@ export function BuyerOrderModals({
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const order = modal?.order ?? null;
   const modalKey = modal ? `${modal.kind}:${modal.order.id}` : "";
@@ -44,6 +47,7 @@ export function BuyerOrderModals({
     setOtherReason("");
     setNote("");
     setError(null);
+    setSuccessMessage(null);
   }, [modalKey]);
 
   function resetAndClose() {
@@ -52,6 +56,7 @@ export function BuyerOrderModals({
     setOtherReason("");
     setNote("");
     setError(null);
+    setSuccessMessage(null);
     onClose();
   }
 
@@ -82,15 +87,18 @@ export function BuyerOrderModals({
         setError((data as { error?: string }).error ?? "Failed to cancel order.");
         return;
       }
+      const refunded = (data as { refunded?: boolean }).refunded === true;
       onOrderPatched(order.id, {
-        status: (data as { refunded?: boolean }).refunded ? "refunded" : "canceled",
+        status: refunded ? "refunded" : "canceled",
         cancelReason: reason,
         cancelNote: note || null,
       });
       setReason("");
       setOtherReason("");
       setNote("");
-      onClose();
+      setSuccessMessage(
+        refunded ? BUYER_PENDING_REFUND_COPY : "Your order was canceled. No refund is involved."
+      );
     } catch {
       setError("Failed to cancel order.");
     } finally {
@@ -263,13 +271,27 @@ export function BuyerOrderModals({
         style={{ backgroundColor: "var(--color-background)", borderColor: "var(--color-primary)" }}
       >
         <h3 className="text-lg font-bold mb-3" style={{ color: "var(--color-heading)" }}>
-          {isCancel ? "Cancel order" : "Request refund"}
+          {successMessage ? (isCancel ? "Order canceled" : "Request sent") : isCancel ? "Cancel order" : "Request refund"}
         </h3>
+        {successMessage ? (
+          <>
+            <p className="text-sm mb-4" style={{ color: "var(--color-primary)" }}>
+              {successMessage}
+            </p>
+            <button
+              type="button"
+              onClick={resetAndClose}
+              className="btn w-full text-white hover:text-white"
+              style={{ backgroundColor: "var(--color-primary)" }}
+            >
+              Close
+            </button>
+          </>
+        ) : (
+          <>
         <p className="text-sm mb-4 opacity-80">
           {isCancel
-            ? order.isCashOrder
-              ? "This order was paid in cash. Canceling will release the items back to the seller. No refund is involved."
-              : "This will cancel your order and refund the amount to your original payment method."
+            ? BUYER_CANCEL_CARD_HINT
             : "The seller will review your request. Please provide a reason."}
         </p>
         <p className="text-sm font-medium mb-2">Reason (required)</p>
@@ -322,7 +344,7 @@ export function BuyerOrderModals({
             style={{ borderColor: "var(--color-primary)", color: "var(--color-primary)" }}
             disabled={submitting}
           >
-            {isCancel ? "Keep order" : "Cancel"}
+            {isCancel ? "Keep Order" : "Cancel"}
           </button>
           <button
             type="button"
@@ -331,9 +353,11 @@ export function BuyerOrderModals({
             className="btn text-white hover:text-white"
             style={{ backgroundColor: "var(--color-primary)" }}
           >
-            {submitting ? (isCancel ? "Processing…" : "Submitting…") : isCancel ? "Cancel order" : "Submit request"}
+            {submitting ? (isCancel ? "Processing…" : "Submitting…") : isCancel ? "Cancel Order" : "Submit request"}
           </button>
         </div>
+          </>
+        )}
       </div>
     </div>
   );

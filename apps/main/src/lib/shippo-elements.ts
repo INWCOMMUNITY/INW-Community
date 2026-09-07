@@ -61,7 +61,7 @@ export interface OrderForElements {
   id: string;
   orderNumber?: string;
   shippingAddress: unknown;
-  /** Local delivery / cash-checkout orders may only have ship-to here (shippingAddress null). */
+  /** Local delivery / pickup orders may only have ship-to here (shippingAddress null). */
   localDeliveryDetails?: unknown;
   buyer: { firstName: string; lastName: string; email?: string };
   items: Array<{

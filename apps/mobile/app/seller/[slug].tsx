@@ -72,6 +72,7 @@ interface SellerStorefront {
   sellerPickupPolicy: string | null;
   sellerShippingPolicy: string | null;
   sellerReturnPolicy: string | null;
+  acceptReturns?: boolean;
   offerShipping: boolean;
   offerLocalDelivery: boolean;
   offerLocalPickup: boolean;
@@ -268,7 +269,8 @@ export default function SellerStorefrontScreen() {
   const addressDisplay = [seller.address, seller.city].filter(Boolean).join(", ");
   const hasHours = seller.hoursOfOperation && Object.keys(seller.hoursOfOperation).length > 0;
   const hasPolicies = seller.sellerShippingPolicy || seller.sellerLocalDeliveryPolicy || 
-                      seller.sellerPickupPolicy || seller.sellerReturnPolicy;
+                      seller.sellerPickupPolicy || seller.sellerReturnPolicy ||
+                      seller.acceptReturns === false;
   const hasSocial = seller.facebookUrl || seller.instagramUrl || seller.tiktokUrl;
 
   const renderProductsTab = () => (
@@ -586,13 +588,17 @@ export default function SellerStorefrontScreen() {
               <Text style={styles.policyText}>{seller.sellerPickupPolicy}</Text>
             </View>
           )}
-          {seller.sellerReturnPolicy && (
+          {(seller.acceptReturns === false || seller.sellerReturnPolicy) && (
             <View style={styles.policyCard}>
               <View style={styles.policyHeader}>
                 <Ionicons name="refresh-outline" size={20} color={theme.colors.primary} />
                 <Text style={styles.policyTitle}>Return Policy</Text>
               </View>
-              <Text style={styles.policyText}>{seller.sellerReturnPolicy}</Text>
+              <Text style={styles.policyText}>
+                {seller.acceptReturns === false
+                  ? seller.sellerReturnPolicy?.trim() || "This seller does not accept returns."
+                  : seller.sellerReturnPolicy}
+              </Text>
             </View>
           )}
         </View>

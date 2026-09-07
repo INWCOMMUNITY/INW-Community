@@ -8,6 +8,7 @@ interface PolicyData {
   sellerLocalDeliveryPolicy?: string | null;
   sellerPickupPolicy?: string | null;
   sellerReturnPolicy?: string | null;
+  acceptReturns?: boolean;
   chargeReturnShipping?: boolean;
   offerShipping?: boolean;
   offerLocalDelivery?: boolean;
@@ -42,11 +43,6 @@ const POLICY_FIELDS: {
     offerKey: "offerLocalPickup",
     offerLabel: "Do you offer local pickup?",
   },
-  {
-    key: "sellerReturnPolicy",
-    label: "Refund Policy",
-    placeholder: "e.g. Returns within 14 days, unused items only.",
-  },
 ];
 
 export default function PoliciesPage() {
@@ -63,6 +59,7 @@ export default function PoliciesPage() {
   const [offerShipping, setOfferShipping] = useState(true);
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
   const [offerLocalPickup, setOfferLocalPickup] = useState(true);
+  const [acceptReturns, setAcceptReturns] = useState(true);
   const [chargeReturnShipping, setChargeReturnShipping] = useState(false);
 
   useEffect(() => {
@@ -78,6 +75,7 @@ export default function PoliciesPage() {
         setOfferShipping(data?.offerShipping ?? true);
         setOfferLocalDelivery(data?.offerLocalDelivery ?? true);
         setOfferLocalPickup(data?.offerLocalPickup ?? true);
+        setAcceptReturns(data?.acceptReturns !== false);
         setChargeReturnShipping(data?.chargeReturnShipping ?? false);
       })
       .catch(() => setError("Failed to load policies."))
@@ -102,6 +100,7 @@ export default function PoliciesPage() {
           offerShipping,
           offerLocalDelivery,
           offerLocalPickup,
+          acceptReturns,
           chargeReturnShipping,
         }),
       });
@@ -131,7 +130,7 @@ export default function PoliciesPage() {
     <div className="w-full max-w-2xl mx-auto min-w-0">
       <h1 className="text-2xl font-bold mb-2">Policies</h1>
       <p className="text-gray-600 mb-6">
-        Set your delivery, pick-up, shipping, and refund policies. These apply to your resale and store listings.
+        Set shipping, pickup, delivery, and refund policies here. Buyers see these on your storefront.
       </p>
 
       <form onSubmit={handleSave} className="space-y-6">
@@ -176,16 +175,48 @@ export default function PoliciesPage() {
           </div>
         ))}
 
-        <div className="space-y-2 rounded-lg border border-gray-200 p-4 bg-gray-50">
+        <div className="space-y-4 rounded-lg border border-gray-200 p-4 bg-gray-50">
+          <h2 className="text-lg font-semibold text-gray-900">Returns & refunds</h2>
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="accept-returns"
+              checked={acceptReturns}
+              onChange={(e) => setAcceptReturns(e.target.checked)}
+              className="rounded border-gray-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)] accent-[var(--color-primary)]"
+            />
+            <label htmlFor="accept-returns" className="text-sm font-medium text-gray-700">
+              Accept returns
+            </label>
+          </div>
+          <p className="text-sm text-gray-600">
+            When off, buyers cannot request a return after an order ships. You can still cancel and
+            refund an order before it ships.
+          </p>
+          <label htmlFor="sellerReturnPolicy" className="block text-sm font-medium text-gray-700">
+            Refund policy
+          </label>
+          <textarea
+            id="sellerReturnPolicy"
+            value={values.sellerReturnPolicy}
+            onChange={(e) => setValues((v) => ({ ...v, sellerReturnPolicy: e.target.value }))}
+            placeholder="e.g. Returns within 14 days, unused items only."
+            rows={4}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 placeholder-gray-500 min-w-0"
+          />
           <div className="flex items-center gap-3">
             <input
               type="checkbox"
               id="charge-return-shipping"
               checked={chargeReturnShipping}
               onChange={(e) => setChargeReturnShipping(e.target.checked)}
+              disabled={!acceptReturns}
               className="rounded border-gray-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)] accent-[var(--color-primary)]"
             />
-            <label htmlFor="charge-return-shipping" className="text-sm font-medium text-gray-700">
+            <label
+              htmlFor="charge-return-shipping"
+              className={`text-sm font-medium ${acceptReturns ? "text-gray-700" : "text-gray-400"}`}
+            >
               Charge shipping for returns
             </label>
           </div>

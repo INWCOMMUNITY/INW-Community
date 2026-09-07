@@ -9,6 +9,7 @@ import {
   sellerLedgerDebitForReturnCents,
   sellerTransferReversalCents,
 } from "@/lib/store-return";
+import { timestampsFromStripeRefund } from "@/lib/store-order-refund-status";
 
 export function refundAmountCents(order: { totalCents: number; taxCents?: number | null }): number {
   return fullRefundChargeCents(order);
@@ -148,8 +149,9 @@ export async function refundPaidStorefrontOrder(args: {
     }
   }
 
+  let stripeRefund: { id?: string; status?: string | null; created?: number } | null = null;
   try {
-    await stripe.refunds.create({
+    stripeRefund = await stripe.refunds.create({
       payment_intent: order.stripePaymentIntentId,
       amount,
       reason: "requested_by_customer",
@@ -159,7 +161,20 @@ export async function refundPaidStorefrontOrder(args: {
     if (!/already been refunded|charge already refunded/i.test(msg)) {
       return { ok: false, error: msg, status: 500 };
     }
+    try {
+      const existing = await stripe.refunds.list({
+        payment_intent: order.stripePaymentIntentId,
+        limit: 1,
+      });
+      stripeRefund = existing.data[0] ?? null;
+    } catch {
+      stripeRefund = null;
+    }
   }
+
+  const refundTimes = stripeRefund
+    ? timestampsFromStripeRefund(stripeRefund)
+    : { stripeRefundId: undefined, refundInitiatedAt: new Date(), refundCompletedAt: null };
 
   const shouldRestock = args.restock !== false;
   await prisma.$transaction(async (tx) => {
@@ -170,6 +185,9 @@ export async function refundPaidStorefrontOrder(args: {
         cancelReason: args.reason,
         cancelNote: args.note ?? undefined,
         inventoryRestoredAt: shouldRestock ? new Date() : undefined,
+        stripeRefundId: refundTimes.stripeRefundId,
+        refundInitiatedAt: refundTimes.refundInitiatedAt,
+        refundCompletedAt: refundTimes.refundCompletedAt ?? undefined,
       },
     });
     if (shouldRestock) {
@@ -240,6 +258,7 @@ export async function restockAfterExternalRefund(
         status: "refunded",
         inventoryRestoredAt: new Date(),
         cancelReason: order.cancelReason ?? "Refunded in Stripe",
+        refundInitiatedAt: order.refundInitiatedAt ?? new Date(),
       },
     });
     await restockOrderLinesAfterReturn(tx, order.items);

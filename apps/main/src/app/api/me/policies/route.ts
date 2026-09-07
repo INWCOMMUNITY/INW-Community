@@ -21,8 +21,8 @@ export async function GET(req: NextRequest) {
         sellerLocalDeliveryPolicy: true,
         sellerPickupPolicy: true,
         sellerReturnPolicy: true,
+        acceptReturns: true,
         chargeReturnShipping: true,
-        acceptCashForPickupDelivery: true,
       },
     });
     if (!member) {
@@ -48,11 +48,11 @@ export async function GET(req: NextRequest) {
       sellerLocalDeliveryPolicy: member.sellerLocalDeliveryPolicy ?? "",
       sellerPickupPolicy: member.sellerPickupPolicy ?? "",
       sellerReturnPolicy: member.sellerReturnPolicy ?? "",
+      acceptReturns: member.acceptReturns !== false,
       chargeReturnShipping: member.chargeReturnShipping === true,
       offerShipping,
       offerLocalDelivery,
       offerLocalPickup,
-      acceptCashForPickupDelivery: member.acceptCashForPickupDelivery !== false,
     });
   } catch (e) {
     const err = e as Error;

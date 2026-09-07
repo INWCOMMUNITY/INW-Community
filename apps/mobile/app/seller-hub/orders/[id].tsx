@@ -15,6 +15,7 @@ import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
 import { formatShippingAddress } from "@/lib/format-address";
 import { buildProductPath } from "@/lib/product-referrer";
+import { getStoreOrderStatusLabel, sellerRefundStatusNote } from "@/lib/order-status";
 import {
   orderEligibleForAnotherShippoLabel,
   orderHasShippedLine,
@@ -56,6 +57,9 @@ interface StoreOrder {
   status: string;
   totalCents: number;
   createdAt: string;
+  refundInitiatedAt?: string | null;
+  refundCompletedAt?: string | null;
+  stripePaymentIntentId?: string | null;
   shippingAddress?: unknown;
   buyer?: { firstName: string; lastName: string; email: string };
   items?: OrderItem[];
@@ -167,6 +171,14 @@ export default function OrderDetailScreen() {
       <View style={styles.section}>
         <Text style={styles.label}>Time Placed</Text>
         <Text style={styles.value}>{formatDate(order.createdAt)}</Text>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.label}>Status</Text>
+        <Text style={styles.value}>{getStoreOrderStatusLabel(order)}</Text>
+        {sellerRefundStatusNote(order) ? (
+          <Text style={styles.valueHint}>{sellerRefundStatusNote(order)}</Text>
+        ) : null}
       </View>
 
       <View style={styles.section}>

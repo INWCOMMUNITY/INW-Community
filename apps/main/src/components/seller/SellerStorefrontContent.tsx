@@ -53,6 +53,7 @@ export type SellerStorefrontData = {
   sellerLocalDeliveryPolicy: string | null;
   sellerPickupPolicy: string | null;
   sellerReturnPolicy: string | null;
+  acceptReturns?: boolean;
   storeItems: SellerStoreItem[];
 };
 
@@ -98,7 +99,8 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
     seller.sellerShippingPolicy ||
     seller.sellerLocalDeliveryPolicy ||
     seller.sellerPickupPolicy ||
-    seller.sellerReturnPolicy;
+    seller.sellerReturnPolicy ||
+    seller.acceptReturns === false;
   const hasSocial = seller.facebookUrl || seller.instagramUrl || seller.tiktokUrl;
 
   useEffect(() => {
@@ -607,7 +609,13 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
               {seller.sellerPickupPolicy ? (
                 <PolicyCard icon="storefront-outline" title="Pickup Policy" text={seller.sellerPickupPolicy} />
               ) : null}
-              {seller.sellerReturnPolicy ? (
+              {seller.acceptReturns === false ? (
+                <PolicyCard
+                  icon="refresh-outline"
+                  title="Return Policy"
+                  text={seller.sellerReturnPolicy?.trim() || "This seller does not accept returns."}
+                />
+              ) : seller.sellerReturnPolicy ? (
                 <PolicyCard icon="refresh-outline" title="Return Policy" text={seller.sellerReturnPolicy} />
               ) : null}
             </div>

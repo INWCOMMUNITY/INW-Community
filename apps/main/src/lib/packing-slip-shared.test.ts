@@ -51,9 +51,9 @@ describe("packing slip labels", () => {
     expect(formatPackingSlipOrderRef("clxyzabc1234wxyz")).toBe("#1234WXYZ");
   });
 
-  it("labels payment from Stripe vs cash vs reward", () => {
+  it("labels payment from Stripe vs reward", () => {
     expect(packingSlipPaymentLabel([{ stripePaymentIntentId: "pi_1" }], 100)).toBe("Paid");
-    expect(packingSlipPaymentLabel([{}], 100)).toBe("Cash due");
+    expect(packingSlipPaymentLabel([{}], 100)).toBe("Paid");
     expect(
       packingSlipPaymentLabel([{ orderKind: "reward_redemption" }], 0)
     ).toBe("Reward");

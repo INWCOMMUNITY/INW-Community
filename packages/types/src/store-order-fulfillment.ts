@@ -20,6 +20,8 @@ export type StoreOrderSummary = {
   subtotalCents?: number;
   shippingCostCents?: number;
   stripePaymentIntentId?: string | null;
+  refundInitiatedAt?: string | Date | null;
+  refundCompletedAt?: string | Date | null;
   shippingAddress?: unknown;
   createdAt: string;
   buyer?: { firstName?: string; lastName?: string; email?: string };
@@ -86,9 +88,9 @@ export function sellerOrderPaymentLabel(order: {
   stripePaymentIntentId?: string | null;
   orderKind?: string;
   totalCents?: number;
-}): "Paid Online" | "Cash due" | "Reward" {
+}): "Paid Online" | "Reward" {
   if (order.orderKind === "reward_redemption" && (order.totalCents ?? 0) === 0) return "Reward";
-  return order.stripePaymentIntentId ? "Paid Online" : "Cash due";
+  return "Paid Online";
 }
 
 export function orderFulfillmentBadge(order: { items?: { fulfillmentType?: string | null }[] }): string {

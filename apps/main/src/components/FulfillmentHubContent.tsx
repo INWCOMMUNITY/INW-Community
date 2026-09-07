@@ -79,6 +79,8 @@ export function FulfillmentHubContent(props: {
   const [sellerProfile, setSellerProfile] = useState<SellerProfileForSlips | null>(null);
   const [shippingConnected, setShippingConnected] = useState<boolean | null>(null);
   const [markingShippedId, setMarkingShippedId] = useState<string | null>(null);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [shipActionError, setShipActionError] = useState<string | null>(null);
   const autoBulkStartedRef = useRef(false);
   const runBulkFlowRef = useRef<(ids: string[]) => void>(() => {});
@@ -386,6 +388,32 @@ export function FulfillmentHubContent(props: {
     }
   }
 
+  async function cancelAndRefund(order: FulfillmentStoreOrder) {
+    const ok = window.confirm(
+      "Cancel this order and refund the buyer? Listing quantities will be restored. This cannot be undone."
+    );
+    if (!ok) return;
+    setMenuOpenId(null);
+    setCancelingId(order.id);
+    setShipActionError(null);
+    try {
+      const res = await fetch(`/api/store-orders/${order.id}/seller-cancel`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setShipActionError(getErrorMessage(data.error, "Could not cancel this order."));
+        return;
+      }
+      setShipOrders((prev) => prev.filter((o) => o.id !== order.id));
+      setSelectedOrderIds((prev) => {
+        const next = new Set(prev);
+        next.delete(order.id);
+        return next;
+      });
+    } finally {
+      setCancelingId(null);
+    }
+  }
+
   const showStickyBar = tab === "ship" && selectedOrderIds.size > 0;
 
   return (
@@ -449,6 +477,51 @@ export function FulfillmentHubContent(props: {
                       onToggleSelect={toggleOrderSelection}
                       onMarkShipped={markShipped}
                       markingShipped={markingShippedId === order.id}
+                      menu={
+                        <div className="relative">
+                          <button
+                            type="button"
+                            className="w-9 h-9 rounded border border-gray-300 text-lg leading-none text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                            aria-label="Order options"
+                            disabled={cancelingId === order.id}
+                            onClick={() => setMenuOpenId((id) => (id === order.id ? null : order.id))}
+                          >
+                            ⋮
+                          </button>
+                          {menuOpenId === order.id ? (
+                            <>
+                              <button
+                                type="button"
+                                className="fixed inset-0 z-40 cursor-default"
+                                aria-label="Close menu"
+                                onClick={() => setMenuOpenId(null)}
+                              />
+                              <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-52 text-sm">
+                                <Link
+                                  href={`${props.ordersBasePath}/${order.id}`}
+                                  className="block px-3 py-2 hover:bg-gray-50"
+                                  style={{ color: "var(--color-link)" }}
+                                  onClick={() => setMenuOpenId(null)}
+                                >
+                                  View order
+                                </Link>
+                                <button
+                                  type="button"
+                                  className="block w-full text-left px-3 py-2 hover:bg-red-50 text-red-700 font-medium disabled:opacity-50"
+                                  disabled={cancelingId === order.id}
+                                  onClick={() => void cancelAndRefund(order)}
+                                >
+                                  {cancelingId === order.id
+                                    ? "Canceling…"
+                                    : order.stripePaymentIntentId
+                                      ? "Cancel & refund"
+                                      : "Cancel order"}
+                                </button>
+                              </div>
+                            </>
+                          ) : null}
+                        </div>
+                      }
                     />
                   </li>
                 ))}

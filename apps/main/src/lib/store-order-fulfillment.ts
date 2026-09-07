@@ -17,8 +17,8 @@ export {
 import { orderHasShippedLine } from "types";
 import { isShippoTrackingDelivered } from "@/lib/shippo-tracking-status";
 
-export function orderPaymentLabel(order: { stripePaymentIntentId?: string | null }): "Paid Online" | "Cash due" {
-  return order.stripePaymentIntentId ? "Paid Online" : "Cash due";
+export function orderPaymentLabel(_order: { stripePaymentIntentId?: string | null }): "Paid Online" {
+  return "Paid Online";
 }
 
 export function isPickupFullyConfirmed(order: {

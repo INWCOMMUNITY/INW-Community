@@ -38,6 +38,7 @@ export async function GET(
             id: true,
             firstName: true,
             lastName: true,
+            acceptReturns: true,
             businesses: { take: 1, select: { name: true, slug: true } },
           },
         },
@@ -66,6 +67,31 @@ export async function GET(
     }
     if (order.sellerId !== userId && order.buyerId !== userId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    if (order.status === "refunded" && !order.refundCompletedAt && order.stripePaymentIntentId) {
+      const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+      if (stripeSecretKey?.startsWith("sk_")) {
+        try {
+          const Stripe = (await import("stripe")).default;
+          const stripe = new Stripe(stripeSecretKey, {
+            apiVersion: "2024-11-20.acacia" as "2023-10-16",
+          });
+          const { syncStoreOrderRefundFromStripe } = await import("@/lib/store-order-refund-status");
+          await syncStoreOrderRefundFromStripe(stripe, order);
+          const refreshed = await prisma.storeOrder.findUnique({
+            where: { id: order.id },
+            select: { refundInitiatedAt: true, refundCompletedAt: true, stripeRefundId: true },
+          });
+          if (refreshed) {
+            order.refundInitiatedAt = refreshed.refundInitiatedAt;
+            order.refundCompletedAt = refreshed.refundCompletedAt;
+            order.stripeRefundId = refreshed.stripeRefundId;
+          }
+        } catch (err) {
+          console.error("[store-orders GET] refund sync failed", err);
+        }
+      }
     }
 
     /**
@@ -117,6 +143,7 @@ export async function GET(
       return NextResponse.json({
         ...rest,
         isCashOrder: !stripePaymentIntentId,
+        sellerAcceptsReturns: order.seller.acceptReturns !== false,
         orderNumber: orderForResponse.id.slice(-8).toUpperCase(),
         paymentLabel,
       });

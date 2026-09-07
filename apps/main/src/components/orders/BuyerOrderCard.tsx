@@ -11,6 +11,9 @@ import {
   buyerPaymentLabel,
   buyerSellerName,
   buyerTrackingHref,
+  buyerHasPendingRefund,
+  buyerRefundStatusNote,
+  BUYER_PENDING_REFUND_COPY,
   canCancelBuyerOrder,
   canRequestBuyerRefund,
   formatBuyerOrderDate,
@@ -102,7 +105,7 @@ export function BuyerOrderCard({
               </span>
               <p
                 className="text-xs mt-1 font-medium"
-                style={{ color: order.isCashOrder ? "#92400e" : "var(--color-primary)" }}
+                style={{ color: "var(--color-primary)" }}
               >
                 {buyerPaymentLabel(order)}
               </p>
@@ -131,14 +134,18 @@ export function BuyerOrderCard({
             )}
           </ul>
 
-          {order.storeReturn || order.refundRequestedAt ? (
+          {buyerHasPendingRefund(order) ? (
+            <p className="text-sm mt-3" style={{ color: "var(--color-primary)" }}>
+              {buyerRefundStatusNote(order) ?? BUYER_PENDING_REFUND_COPY}
+            </p>
+          ) : order.storeReturn || order.refundRequestedAt ? (
             <p className="text-sm mt-3" style={{ color: "var(--color-primary)" }}>
               {order.storeReturn?.status === "awaiting_return" || order.storeReturn?.status === "in_transit"
                 ? "Return in progress."
                 : order.storeReturn?.status === "declined"
                   ? "Return declined."
                   : order.storeReturn?.status === "refunded"
-                    ? "Refund issued."
+                    ? BUYER_PENDING_REFUND_COPY
                     : "Return requested. The seller will review."}
             </p>
           ) : null}

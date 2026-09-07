@@ -105,8 +105,7 @@ export function packingSlipPaymentLabel(
   ) {
     return "Reward";
   }
-  if (orders.some((o) => o.stripePaymentIntentId)) return "Paid";
-  return "Cash due";
+  return "Paid";
 }
 
 export function packingSlipOrderMetaLine(group: PackingSlipGroup): string {

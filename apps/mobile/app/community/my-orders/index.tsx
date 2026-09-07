@@ -14,7 +14,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet } from "@/lib/api";
-import { getOrderStatusLabel } from "@/lib/order-status";
+import { buyerHasPendingRefund, buyerRefundStatusNote, getBuyerOrderStatusLabel } from "@/lib/order-status";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -43,6 +43,8 @@ interface StoreOrder {
   status: string;
   createdAt: string;
   isCashOrder?: boolean;
+  refundInitiatedAt?: string | null;
+  refundCompletedAt?: string | null;
   seller: {
     firstName: string;
     lastName: string;
@@ -185,12 +187,13 @@ export default function MyOrdersScreen() {
                     <Text style={styles.date}>{formatDate(item.createdAt)}</Text>
                     <Text style={styles.total}>{formatPrice(item.totalCents + (item.taxCents ?? 0))}</Text>
                     <View style={styles.statusBadge}>
-                      <Text style={styles.statusText}>{getOrderStatusLabel(item.status)}</Text>
+                      <Text style={styles.statusText}>{getBuyerOrderStatusLabel(item.status, item)}</Text>
                     </View>
-                    <View style={[styles.paymentTag, item.isCashOrder && styles.paymentTagCashBg]}>
-                      <Text style={[styles.paymentTagText, item.isCashOrder && styles.paymentTagCash]}>
-                        {item.isCashOrder ? "Awaiting Payment: Cash" : "Paid: Online NWC"}
-                      </Text>
+                    {buyerHasPendingRefund(item) ? (
+                      <Text style={styles.pendingRefund}>{buyerRefundStatusNote(item)}</Text>
+                    ) : null}
+                    <View style={styles.paymentTag}>
+                      <Text style={styles.paymentTagText}>Paid: Online NWC</Text>
                     </View>
                   </View>
                   <Ionicons name="chevron-forward" size={22} color="#999" />
@@ -260,8 +263,7 @@ const styles = StyleSheet.create({
   total: { fontSize: 16, fontWeight: "600", color: theme.colors.primary, marginTop: 4 },
   statusBadge: { marginTop: 4, alignSelf: "flex-start" },
   statusText: { fontSize: 12, color: "#666", textTransform: "capitalize" },
+  pendingRefund: { fontSize: 12, color: "#92400e", marginTop: 4 },
   paymentTag: { marginTop: 4, alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.06)" },
-  paymentTagCashBg: { backgroundColor: "#fef3c7" },
   paymentTagText: { fontSize: 11, color: theme.colors.primary, fontWeight: "600" },
-  paymentTagCash: { color: "#92400e" },
 });

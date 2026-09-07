@@ -1,4 +1,10 @@
-import { getOrderStatusLabel } from "@/lib/order-status";
+import { getOrderStatusLabel, getStoreOrderStatusLabel } from "@/lib/order-status";
+import {
+  BUYER_CANCEL_CARD_HINT,
+  BUYER_REFUND_TIMING_NOTE,
+  buyerRefundStatusNote,
+  storeOrderRefundPhase,
+} from "@/lib/store-order-refund-status";
 import {
   getTrackingUrl,
   orderHasLocalDeliveryLine,
@@ -74,6 +80,9 @@ export type BuyerStoreOrder = {
   cancelReason?: string | null;
   cancelNote?: string | null;
   isCashOrder?: boolean;
+  sellerAcceptsReturns?: boolean;
+  refundInitiatedAt?: string | null;
+  refundCompletedAt?: string | null;
   pickupSellerConfirmedAt?: string | null;
   pickupBuyerConfirmedAt?: string | null;
   deliveryConfirmedAt?: string | null;
@@ -145,8 +154,18 @@ export function buyerCoverPhoto(order: BuyerStoreOrder): string | undefined {
   return undefined;
 }
 
-export function buyerPaymentLabel(order: Pick<BuyerStoreOrder, "isCashOrder">): string {
-  return order.isCashOrder ? "Cash due" : "Paid Online";
+export function buyerPaymentLabel(_order?: Pick<BuyerStoreOrder, "isCashOrder">): string {
+  return "Paid Online";
+}
+
+export { BUYER_CANCEL_CARD_HINT, BUYER_REFUND_TIMING_NOTE, buyerRefundStatusNote };
+
+export const BUYER_PENDING_REFUND_COPY = `Refund initiated. ${BUYER_REFUND_TIMING_NOTE}`;
+
+export function buyerHasPendingRefund(
+  order: Pick<BuyerStoreOrder, "status" | "isCashOrder" | "refundInitiatedAt" | "refundCompletedAt">
+): boolean {
+  return storeOrderRefundPhase(order) != null;
 }
 
 export function canCancelBuyerOrder(order: Pick<BuyerStoreOrder, "status">): boolean {
@@ -154,8 +173,12 @@ export function canCancelBuyerOrder(order: Pick<BuyerStoreOrder, "status">): boo
 }
 
 export function canRequestBuyerRefund(
-  order: Pick<BuyerStoreOrder, "status" | "refundRequestedAt" | "isCashOrder" | "storeReturn">
+  order: Pick<
+    BuyerStoreOrder,
+    "status" | "refundRequestedAt" | "isCashOrder" | "storeReturn" | "sellerAcceptsReturns"
+  >
 ): boolean {
+  if (order.sellerAcceptsReturns === false) return false;
   if (order.isCashOrder) return false;
   if (order.status !== "shipped" && order.status !== "delivered") return false;
   const ret = order.storeReturn;
@@ -184,8 +207,9 @@ export function buyerTrackingHref(shipment: BuyerShipment | null | undefined): s
 }
 
 export function buyerFulfillmentHeadline(order: BuyerStoreOrder): string {
-  if (order.status === "canceled") return "Canceled";
-  if (order.status === "refunded") return "Refunded";
+  const refundLabel = getStoreOrderStatusLabel(order);
+  if (order.status === "canceled" && storeOrderRefundPhase(order) == null) return "Canceled";
+  if (order.status === "refunded" || storeOrderRefundPhase(order)) return refundLabel;
   if (order.status === "delivered") return "Delivered";
 
   const items = order.items ?? [];
