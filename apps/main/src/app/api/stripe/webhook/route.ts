@@ -665,7 +665,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (event.type === "refund.updated" || event.type === "refund.failed") {
+  if (event.type === "refund.updated") {
     const refund = event.data.object as Stripe.Refund;
     const piId =
       typeof refund.payment_intent === "string"
