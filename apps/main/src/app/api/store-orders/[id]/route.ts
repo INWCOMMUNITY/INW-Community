@@ -16,6 +16,7 @@ import {
   serializeOrderShipments,
   storeOrderShipmentInclude,
 } from "@/lib/store-order-shipments";
+import { buyerReturnPolicyFields } from "@/lib/store-return";
 
 export async function GET(
   _req: NextRequest,
@@ -39,6 +40,8 @@ export async function GET(
             firstName: true,
             lastName: true,
             acceptReturns: true,
+            acceptReturnsDays: true,
+            chargeReturnShipping: true,
             businesses: { take: 1, select: { name: true, slug: true } },
           },
         },
@@ -121,7 +124,7 @@ export async function GET(
       return NextResponse.json({
         ...rest,
         isCashOrder: !stripePaymentIntentId,
-        sellerAcceptsReturns: order.seller.acceptReturns !== false,
+        ...buyerReturnPolicyFields(order.seller, orderForResponse),
         orderNumber: orderForResponse.id.slice(-8).toUpperCase(),
         paymentLabel,
       });

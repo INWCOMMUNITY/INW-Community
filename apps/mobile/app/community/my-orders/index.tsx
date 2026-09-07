@@ -8,6 +8,7 @@ import {
   Pressable,
   Image,
   RefreshControl,
+  Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
@@ -51,6 +52,8 @@ interface StoreOrder {
     businesses: { name: string; slug: string }[];
   };
   items: OrderItem[];
+  storeReturn?: { status?: string } | null;
+  returnShipment?: { labelUrl?: string | null } | null;
 }
 
 function formatPrice(cents: number): string {
@@ -192,6 +195,18 @@ export default function MyOrdersScreen() {
                     {buyerHasPendingRefund(item) ? (
                       <Text style={styles.pendingRefund}>{buyerRefundStatusNote(item)}</Text>
                     ) : null}
+                    {item.returnShipment?.labelUrl ? (
+                      <Pressable
+                        onPress={() => {
+                          const url = item.returnShipment?.labelUrl;
+                          if (url) void Linking.openURL(url);
+                        }}
+                      >
+                        <Text style={styles.printLabel}>Print return label now</Text>
+                      </Pressable>
+                    ) : item.storeReturn?.status === "awaiting_return" ? (
+                      <Text style={styles.pendingRefund}>Return approved. Waiting for the return label.</Text>
+                    ) : null}
                     <View style={styles.paymentTag}>
                       <Text style={styles.paymentTagText}>Paid: Online NWC</Text>
                     </View>
@@ -264,6 +279,7 @@ const styles = StyleSheet.create({
   statusBadge: { marginTop: 4, alignSelf: "flex-start" },
   statusText: { fontSize: 12, color: "#666", textTransform: "capitalize" },
   pendingRefund: { fontSize: 12, color: "#92400e", marginTop: 4 },
+  printLabel: { fontSize: 13, color: theme.colors.primary, fontWeight: "700", marginTop: 6 },
   paymentTag: { marginTop: 4, alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: "rgba(0,0,0,0.06)" },
   paymentTagText: { fontSize: 11, color: theme.colors.primary, fontWeight: "600" },
 });

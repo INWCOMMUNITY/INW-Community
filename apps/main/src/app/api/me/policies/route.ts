@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { clampAcceptReturnsDays } from "@/lib/store-return";
 
 /**
  * GET /api/me/policies
@@ -22,6 +23,7 @@ export async function GET(req: NextRequest) {
         sellerPickupPolicy: true,
         sellerReturnPolicy: true,
         acceptReturns: true,
+        acceptReturnsDays: true,
         chargeReturnShipping: true,
       },
     });
@@ -49,6 +51,7 @@ export async function GET(req: NextRequest) {
       sellerPickupPolicy: member.sellerPickupPolicy ?? "",
       sellerReturnPolicy: member.sellerReturnPolicy ?? "",
       acceptReturns: member.acceptReturns !== false,
+      acceptReturnsDays: clampAcceptReturnsDays(member.acceptReturnsDays),
       chargeReturnShipping: member.chargeReturnShipping === true,
       offerShipping,
       offerLocalDelivery,

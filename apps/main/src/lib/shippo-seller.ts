@@ -65,6 +65,9 @@ export async function getSellerShippoCredential(memberId: string): Promise<Selle
 /** Shippo v2 Address Book item (address may use address_line_1 or address_line1, etc.) */
 export type ShippoV2AddressResult = {
   id: string;
+  is_default?: boolean;
+  default_sender?: boolean;
+  is_default_sender?: boolean;
   address?: {
     name?: string;
     organization?: string;
@@ -209,7 +212,12 @@ export async function getSellerFromAddressWithDiagnostic(
     throw new Error(msg);
   }
   const results = data?.results ?? [];
-  for (const item of results) {
+  const ranked = [...results].sort((a, b) => {
+    const score = (item: ShippoV2AddressResult) =>
+      item.is_default || item.default_sender || item.is_default_sender ? 1 : 0;
+    return score(b) - score(a);
+  });
+  for (const item of ranked) {
     if (!item?.address) continue;
     const mapped = mapV2AddressToShipment(item.address, "Seller");
     if (mapped) return { fromAddress: mapped, addressCount: results.length };

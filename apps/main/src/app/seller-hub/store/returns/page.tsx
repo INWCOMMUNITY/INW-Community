@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { returnRefundAmountCents, storeReturnBuyerLabel } from "@/lib/store-return";
+import { useRouter } from "next/navigation";
+import { orderCanBuyReturnLabel, returnRefundAmountCents, storeReturnBuyerLabel } from "@/lib/store-return";
 
 interface OrderItem {
   id: string;
@@ -40,6 +41,7 @@ function formatPrice(cents: number): string {
 }
 
 export default function RequestedReturnsPage() {
+  const router = useRouter();
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -48,6 +50,24 @@ export default function RequestedReturnsPage() {
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [declineFor, setDeclineFor] = useState<string | null>(null);
   const [declineReason, setDeclineReason] = useState("");
+  const [sendLabelOrder, setSendLabelOrder] = useState<StoreOrder | null>(null);
+
+  const openReturnLabel = useCallback(
+    (orderId: string) => {
+      setSendLabelOrder(null);
+      router.push(`/seller-hub/orders/shippo/${orderId}?labelAction=return`);
+    },
+    [router]
+  );
+
+  useEffect(() => {
+    if (!sendLabelOrder) return;
+    const orderId = sendLabelOrder.id;
+    const t = window.setTimeout(() => {
+      openReturnLabel(orderId);
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [sendLabelOrder, openReturnLabel]);
 
   function load() {
     setFetchError(null);
@@ -92,6 +112,12 @@ export default function RequestedReturnsPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setActionError((data as { error?: string }).error ?? "Action failed");
+        return;
+      }
+      const approvedOrder = orders.find((o) => o.id === orderId);
+      if (path === "/returns/approve" && approvedOrder && orderCanBuyReturnLabel(approvedOrder)) {
+        setSendLabelOrder(approvedOrder);
+        load();
         return;
       }
       setActionSuccess("Updated.");
@@ -226,12 +252,12 @@ export default function RequestedReturnsPage() {
                   ) : null}
                   {ret?.status === "awaiting_return" || ret?.status === "in_transit" ? (
                     <>
-                      {order.items.some((i) => (i.fulfillmentType ?? "ship") === "ship") && !order.returnShipment?.labelUrl ? (
+                      {orderCanBuyReturnLabel(order) ? (
                         <Link
                           href={`/seller-hub/orders/shippo/${order.id}?labelAction=return`}
                           className="btn text-sm py-2 px-3 inline-block"
                         >
-                          Buy return label
+                          Send Buyer Return Label
                         </Link>
                       ) : null}
                       {order.returnShipment?.labelUrl ? (
@@ -286,6 +312,41 @@ export default function RequestedReturnsPage() {
       <Link href="/seller-hub/store/payouts" className="inline-block mt-6 text-primary-600 hover:underline">
         View My Funds →
       </Link>
+
+      {sendLabelOrder ? (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="send-return-label-title"
+        >
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg">
+            <h3 id="send-return-label-title" className="text-lg font-bold mb-2">
+              Send Buyer Return Label
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Opening Shippo with the buyer’s checkout address as the sender and your Shippo ship-from
+              as the return destination — the same as a regular shipment, reversed.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn text-sm py-2 px-3"
+                onClick={() => openReturnLabel(sendLabelOrder.id)}
+              >
+                Send Buyer Return Label
+              </button>
+              <button
+                type="button"
+                className="text-sm py-2 px-3 border rounded-lg"
+                onClick={() => setSendLabelOrder(null)}
+              >
+                Later
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -73,6 +73,8 @@ interface SellerStorefront {
   sellerShippingPolicy: string | null;
   sellerReturnPolicy: string | null;
   acceptReturns?: boolean;
+  acceptReturnsDays?: number;
+  chargeReturnShipping?: boolean;
   offerShipping: boolean;
   offerLocalDelivery: boolean;
   offerLocalPickup: boolean;
@@ -270,7 +272,8 @@ export default function SellerStorefrontScreen() {
   const hasHours = seller.hoursOfOperation && Object.keys(seller.hoursOfOperation).length > 0;
   const hasPolicies = seller.sellerShippingPolicy || seller.sellerLocalDeliveryPolicy || 
                       seller.sellerPickupPolicy || seller.sellerReturnPolicy ||
-                      seller.acceptReturns === false;
+                      seller.acceptReturns === false || seller.chargeReturnShipping ||
+                      seller.acceptReturnsDays != null;
   const hasSocial = seller.facebookUrl || seller.instagramUrl || seller.tiktokUrl;
 
   const renderProductsTab = () => (
@@ -588,7 +591,10 @@ export default function SellerStorefrontScreen() {
               <Text style={styles.policyText}>{seller.sellerPickupPolicy}</Text>
             </View>
           )}
-          {(seller.acceptReturns === false || seller.sellerReturnPolicy) && (
+          {(seller.acceptReturns === false ||
+            seller.sellerReturnPolicy ||
+            seller.chargeReturnShipping ||
+            seller.acceptReturnsDays != null) && (
             <View style={styles.policyCard}>
               <View style={styles.policyHeader}>
                 <Ionicons name="refresh-outline" size={20} color={theme.colors.primary} />
@@ -597,7 +603,15 @@ export default function SellerStorefrontScreen() {
               <Text style={styles.policyText}>
                 {seller.acceptReturns === false
                   ? seller.sellerReturnPolicy?.trim() || "This seller does not accept returns."
-                  : seller.sellerReturnPolicy}
+                  : [
+                      `Returns within ${seller.acceptReturnsDays ?? 30} days of delivery or pickup.`,
+                      seller.chargeReturnShipping
+                        ? "Return shipping may be deducted from your refund."
+                        : null,
+                      seller.sellerReturnPolicy?.trim() || null,
+                    ]
+                      .filter(Boolean)
+                      .join("\n\n")}
               </Text>
             </View>
           )}

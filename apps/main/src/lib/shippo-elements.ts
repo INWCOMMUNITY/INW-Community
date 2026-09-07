@@ -218,7 +218,9 @@ export function buildOrderDetailsFromOrder(
   objectId?: string | null,
   options?: BuildOrderDetailsOptions
 ): ShippoElementsOrderDetails | null {
-  const addr = resolvePostalShipToAddress(order);
+  const addr = options?.isReturn
+    ? resolvePostalShipToAddress(order) ?? resolveOrderShipToAddress(order)
+    : resolvePostalShipToAddress(order);
   if (!addr) return null;
   const { street1, street2 } = splitStreet1Street2(addr.street, addr.aptOrSuite);
   const name = `${order.buyer.firstName} ${order.buyer.lastName}`.trim() || "Recipient";

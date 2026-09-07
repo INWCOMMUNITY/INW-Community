@@ -22,6 +22,7 @@ interface PolicyData {
   sellerPickupPolicy?: string | null;
   sellerReturnPolicy?: string | null;
   acceptReturns?: boolean;
+  acceptReturnsDays?: number;
   chargeReturnShipping?: boolean;
   offerShipping?: boolean;
   offerLocalDelivery?: boolean;
@@ -50,6 +51,7 @@ export default function PoliciesScreen() {
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
   const [offerLocalPickup, setOfferLocalPickup] = useState(true);
   const [acceptReturns, setAcceptReturns] = useState(true);
+  const [acceptReturnsDays, setAcceptReturnsDays] = useState("30");
   const [chargeReturnShipping, setChargeReturnShipping] = useState(false);
 
   useEffect(() => {
@@ -65,6 +67,7 @@ export default function PoliciesScreen() {
         setOfferLocalDelivery(data?.offerLocalDelivery ?? true);
         setOfferLocalPickup(data?.offerLocalPickup ?? true);
         setAcceptReturns(data?.acceptReturns !== false);
+        setAcceptReturnsDays(String(data?.acceptReturnsDays ?? 30));
         setChargeReturnShipping(data?.chargeReturnShipping ?? false);
       })
       .catch(() => setError("Failed to load policies."))
@@ -85,6 +88,7 @@ export default function PoliciesScreen() {
         offerLocalDelivery,
         offerLocalPickup,
         acceptReturns,
+        acceptReturnsDays: Math.min(365, Math.max(1, Number(acceptReturnsDays) || 30)),
         chargeReturnShipping,
       });
       setSaved(true);
@@ -173,7 +177,7 @@ export default function PoliciesScreen() {
         ))}
 
         <View style={styles.field}>
-          <Text style={styles.label}>Returns & refunds</Text>
+          <Text style={styles.label}>Returns & Refunds</Text>
           <View style={styles.checkboxRow}>
             <Switch
               value={acceptReturns}
@@ -188,6 +192,18 @@ export default function PoliciesScreen() {
             When off, buyers cannot request a return after an order ships. You can still cancel and
             refund an order before it ships.
           </Text>
+          <Text style={[styles.label, !acceptReturns && styles.checkboxLabelDisabled]}>
+            Accept returns for (days after delivery or pickup)
+          </Text>
+          <TextInput
+            style={[styles.input, styles.daysInput, !acceptReturns && styles.inputDisabled]}
+            value={acceptReturnsDays}
+            onChangeText={(t) => setAcceptReturnsDays(t.replace(/[^0-9]/g, ""))}
+            keyboardType="number-pad"
+            editable={acceptReturns}
+            placeholder="30"
+            placeholderTextColor={theme.colors.placeholder}
+          />
           <Text style={styles.label}>Refund policy</Text>
           <TextInput
             style={styles.input}
@@ -313,6 +329,8 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     minHeight: 100,
   },
+  daysInput: { minHeight: 48, marginBottom: 12 },
+  inputDisabled: { opacity: 0.5 },
   error: {
     fontSize: 14,
     color: "#c00",

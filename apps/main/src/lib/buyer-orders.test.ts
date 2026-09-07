@@ -89,6 +89,13 @@ describe("cancel vs refund", () => {
     expect(
       canRequestBuyerRefund({ status: "shipped", isCashOrder: false, refundRequestedAt: "2026-08-12" })
     ).toBe(false);
+    expect(
+      canRequestBuyerRefund({
+        status: "delivered",
+        isCashOrder: false,
+        returnWindowEndsAt: "2020-01-01T00:00:00.000Z",
+      })
+    ).toBe(false);
   });
 });
 

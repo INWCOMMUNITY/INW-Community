@@ -24,6 +24,8 @@ import {
   BUYER_PENDING_REFUND_COPY,
   buyerHasPendingRefund,
   buyerRefundStatusNote,
+  BUYER_RETURN_SHIPPING_WARNING,
+  canRequestMobileBuyerRefund,
   getBuyerOrderStatusLabel,
 } from "@/lib/order-status";
 import { buildProductPath } from "@/lib/product-referrer";
@@ -66,6 +68,9 @@ interface StoreOrder {
   cancelNote?: string | null;
   isCashOrder?: boolean;
   sellerAcceptsReturns?: boolean;
+  sellerAcceptsReturnsDays?: number;
+  sellerChargeReturnShipping?: boolean;
+  returnWindowEndsAt?: string | null;
   refundInitiatedAt?: string | null;
   refundCompletedAt?: string | null;
   orderNumber?: string;
@@ -134,6 +139,7 @@ export default function MyOrderDetailScreen() {
   const [refundOther, setRefundOther] = useState("");
   const [refundNote, setRefundNote] = useState("");
   const [requestingRefund, setRequestingRefund] = useState(false);
+  const [ackReturnShipping, setAckReturnShipping] = useState(false);
   const [cancelConfirm, setCancelConfirm] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelOther, setCancelOther] = useState("");
@@ -184,6 +190,13 @@ export default function MyOrderDetailScreen() {
       Alert.alert("Provide details", "Please provide details for \"Other\".");
       return;
     }
+    if (order?.sellerChargeReturnShipping && !ackReturnShipping) {
+      Alert.alert(
+        "Return shipping",
+        "Please confirm you understand return shipping may be deducted from your refund."
+      );
+      return;
+    }
     setRequestingRefund(true);
     try {
       await apiPost(`/api/store-orders/${orderId}/request-refund`, {
@@ -195,6 +208,7 @@ export default function MyOrderDetailScreen() {
       setRefundReason("");
       setRefundOther("");
       setRefundNote("");
+      setAckReturnShipping(false);
       load();
       Alert.alert("Request sent", "Your refund request was submitted. The seller will review it.");
     } catch (e) {
@@ -203,7 +217,7 @@ export default function MyOrderDetailScreen() {
     } finally {
       setRequestingRefund(false);
     }
-  }, [orderId, refundReason, refundOther, refundNote, load]);
+  }, [orderId, order?.sellerChargeReturnShipping, ackReturnShipping, refundReason, refundOther, refundNote, load]);
 
   const cancelOrder = useCallback(async () => {
     if (!orderId) return;
@@ -463,7 +477,10 @@ export default function MyOrderDetailScreen() {
           <Ionicons name="information-circle" size={20} color="#92400e" />
           <Text style={styles.refundBannerText}>
             {order.storeReturn?.status === "requested" && "Return requested. The seller will review."}
-            {order.storeReturn?.status === "awaiting_return" && "Return approved. Ship the item back to the seller."}
+            {order.storeReturn?.status === "awaiting_return" &&
+              (order.returnShipment?.labelUrl
+                ? "Your return has been approved. Print your return label now."
+                : "Return approved. A return label will appear on this order when the seller sends it.")}
             {order.storeReturn?.status === "in_transit" && "Your return is in transit to the seller."}
             {order.storeReturn?.status === "received" && "The seller received your return. Refund is processing."}
             {order.storeReturn?.status === "refunded" && BUYER_PENDING_REFUND_COPY}
@@ -484,7 +501,7 @@ export default function MyOrderDetailScreen() {
             onPress={() => Linking.openURL(order.returnShipment!.labelUrl!)}
           >
             <Ionicons name="document-outline" size={18} color="#fff" />
-            <Text style={styles.trackBtnText}>Open return label PDF</Text>
+            <Text style={styles.trackBtnText}>Print return label now</Text>
           </Pressable>
         </View>
       ) : null}
@@ -499,16 +516,7 @@ export default function MyOrderDetailScreen() {
             <Text style={styles.actionBtnOutlineText}>{canceling ? "Canceling…" : "Cancel order"}</Text>
           </Pressable>
         )}
-        {(order.status === "shipped" || order.status === "delivered") &&
-          !order.isCashOrder &&
-          order.sellerAcceptsReturns !== false &&
-          !(
-            order.storeReturn &&
-            ["requested", "awaiting_return", "in_transit", "received", "refunded"].includes(
-              order.storeReturn.status
-            )
-          ) &&
-          !(order.refundRequestedAt && !order.storeReturn) && (
+        {canRequestMobileBuyerRefund(order) && (
             <Pressable
               style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}
               onPress={() => setRefundModal(true)}
@@ -539,6 +547,16 @@ export default function MyOrderDetailScreen() {
         <Pressable style={styles.modalBackdrop} onPress={() => !requestingRefund && setRefundModal(false)}>
           <View style={styles.modalPanel} onStartShouldSetResponder={() => true}>
             <Text style={styles.modalTitle}>Request refund</Text>
+            {order.sellerChargeReturnShipping ? (
+              <Pressable style={styles.ackRow} onPress={() => setAckReturnShipping((v) => !v)}>
+                <Ionicons
+                  name={ackReturnShipping ? "checkbox" : "square-outline"}
+                  size={22}
+                  color={theme.colors.primary}
+                />
+                <Text style={styles.ackText}>{BUYER_RETURN_SHIPPING_WARNING}</Text>
+              </Pressable>
+            ) : null}
             <Text style={styles.modalLabel}>Reason</Text>
             <ScrollView style={styles.reasonScroll} nestedScrollEnabled>
               {REFUND_REASONS.map((r) => (
@@ -986,6 +1004,8 @@ const styles = StyleSheet.create({
     maxHeight: "80%",
   },
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 16, color: "#333" },
+  ackRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 12 },
+  ackText: { flex: 1, fontSize: 13, color: "#444", lineHeight: 18 },
   modalLabel: { fontSize: 14, fontWeight: "600", color: "#333", marginBottom: 8, marginTop: 12 },
   cancelHint: { fontSize: 14, color: "#666", marginBottom: 12 },
   reasonScroll: { maxHeight: 160, marginBottom: 8 },

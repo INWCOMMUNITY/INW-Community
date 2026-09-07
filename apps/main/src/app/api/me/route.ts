@@ -46,6 +46,7 @@ const patchSchema = z.object({
   sellerPickupPolicy: z.string().nullable().optional(),
   sellerReturnPolicy: z.string().nullable().optional(),
   acceptReturns: z.boolean().optional(),
+  acceptReturnsDays: z.number().int().min(1).max(365).optional(),
   chargeReturnShipping: z.boolean().optional(),
   offerShipping: z.boolean().optional(),
   offerLocalDelivery: z.boolean().optional(),
@@ -79,6 +80,7 @@ export async function GET(req: NextRequest) {
       sellerPickupPolicy: true,
       sellerReturnPolicy: true,
       acceptReturns: true,
+      acceptReturnsDays: true,
       chargeReturnShipping: true,
       offerShipping: true,
       offerLocalDelivery: true,
@@ -242,6 +244,9 @@ export async function PATCH(req: NextRequest) {
         }),
         ...(data.acceptReturns !== undefined && {
           acceptReturns: data.acceptReturns,
+        }),
+        ...(data.acceptReturnsDays !== undefined && {
+          acceptReturnsDays: data.acceptReturnsDays,
         }),
         ...(data.chargeReturnShipping !== undefined && {
           chargeReturnShipping: data.chargeReturnShipping,

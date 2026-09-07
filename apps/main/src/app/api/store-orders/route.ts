@@ -7,7 +7,7 @@ import {
   serializeOrderShipments,
   storeOrderShipmentInclude,
 } from "@/lib/store-order-shipments";
-import { ACTIVE_STORE_RETURN_STATUSES } from "@/lib/store-return";
+import { ACTIVE_STORE_RETURN_STATUSES, buyerReturnPolicyFields } from "@/lib/store-return";
 
 export async function GET(req: NextRequest) {
   try {
@@ -46,6 +46,8 @@ export async function GET(req: NextRequest) {
               firstName: true,
               lastName: true,
               acceptReturns: true,
+              acceptReturnsDays: true,
+              chargeReturnShipping: true,
               businesses: { take: 1, select: { name: true, slug: true } },
             },
           },
@@ -82,7 +84,7 @@ export async function GET(req: NextRequest) {
           return {
             ...rest,
             isCashOrder: !stripePaymentIntentId,
-            sellerAcceptsReturns: o.seller.acceptReturns !== false,
+            ...buyerReturnPolicyFields(o.seller, o),
             orderNumber: o.id.slice(-8).toUpperCase(),
           };
         })

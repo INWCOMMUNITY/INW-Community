@@ -75,6 +75,34 @@ export function buyerHasPendingRefund(order: {
   return storeOrderRefundPhase(order) != null;
 }
 
+export const BUYER_RETURN_SHIPPING_WARNING =
+  "This seller charges return shipping. The Shippo return-label price will be deducted from your refund once the seller buys the label. The exact amount is set at that time.";
+
+export function canRequestMobileBuyerRefund(order: {
+  status: string;
+  isCashOrder?: boolean;
+  sellerAcceptsReturns?: boolean;
+  returnWindowEndsAt?: string | null;
+  refundRequestedAt?: string | null;
+  storeReturn?: { status: string } | null;
+}): boolean {
+  if (order.sellerAcceptsReturns === false) return false;
+  if (order.isCashOrder) return false;
+  if (order.status !== "shipped" && order.status !== "delivered") return false;
+  if (
+    order.storeReturn &&
+    ["requested", "awaiting_return", "in_transit", "received", "refunded"].includes(order.storeReturn.status)
+  ) {
+    return false;
+  }
+  if (!order.storeReturn && order.refundRequestedAt) return false;
+  if (order.returnWindowEndsAt) {
+    const end = new Date(order.returnWindowEndsAt);
+    if (!Number.isNaN(end.getTime()) && Date.now() > end.getTime()) return false;
+  }
+  return true;
+}
+
 export function sellerRefundStatusNote(order: {
   status: string;
   isCashOrder?: boolean;

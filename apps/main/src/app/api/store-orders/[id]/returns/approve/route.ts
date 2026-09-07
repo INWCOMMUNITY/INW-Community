@@ -30,6 +30,7 @@ export async function POST(
     include: {
       storeReturns: { orderBy: { createdAt: "desc" }, take: 1 },
       seller: { select: { chargeReturnShipping: true } },
+      items: { select: { fulfillmentType: true } },
     },
   });
   if (!order) {
@@ -74,6 +75,9 @@ export async function POST(
         return created;
       });
 
-  notifyBuyerReturnApproved(order.buyerId, order.id);
-  return NextResponse.json({ ok: true, storeReturn: updated });
+  const canBuyReturnLabel = order.items.some((i) => (i.fulfillmentType ?? "ship") === "ship");
+  if (!canBuyReturnLabel) {
+    notifyBuyerReturnApproved(order.buyerId, order.id);
+  }
+  return NextResponse.json({ ok: true, storeReturn: updated, canBuyReturnLabel });
 }

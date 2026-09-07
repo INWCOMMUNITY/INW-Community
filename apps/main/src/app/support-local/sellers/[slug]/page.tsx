@@ -29,6 +29,8 @@ const getSellerStorefrontBusiness = cache(async (slug: string) => {
           sellerShippingPolicy: true,
           sellerReturnPolicy: true,
           acceptReturns: true,
+          acceptReturnsDays: true,
+          chargeReturnShipping: true,
           offerShipping: true,
           offerLocalDelivery: true,
           offerLocalPickup: true,
@@ -133,6 +135,8 @@ export default async function SellerStorefrontPage({
     sellerPickupPolicy: business.member.sellerPickupPolicy,
     sellerReturnPolicy: business.member.sellerReturnPolicy,
     acceptReturns: business.member.acceptReturns !== false,
+    acceptReturnsDays: business.member.acceptReturnsDays ?? 30,
+    chargeReturnShipping: business.member.chargeReturnShipping === true,
     storeItems: storeItems.map((item) => ({
       id: item.id,
       title: item.title,

@@ -193,16 +193,18 @@ export default function SellerShippoThinLabelPage() {
       ) : null}
 
       <h1 className="text-xl font-bold mb-1" style={{ color: "var(--color-heading)" }}>
-        Buy shipping label
+        {capturedNwAppShippo === "return" ? "Send Buyer Return Label" : "Buy shipping label"}
       </h1>
       <p className="text-sm text-gray-600 mb-1">
         Order #{orderLabel}
         {buyerLine ? ` · ${buyerLine}` : ""}
       </p>
       <p className="text-sm text-gray-500 mb-4">
-        {embeddedNwAppChrome
-          ? "Choose a carrier and complete purchase in Shippo below. Use the arrow to close when finished."
-          : "Opens the label tool on this page: choose a carrier, pay with your Shippo account, then print or download. Tap Close when you are done."}
+        {capturedNwAppShippo === "return"
+          ? "Shippo opens with the buyer’s checkout address as the sender and your default ship-from as the destination. Choose a carrier and buy the label on your Shippo account."
+          : embeddedNwAppChrome
+            ? "Choose a carrier and complete purchase in Shippo below. Use the arrow to close when finished."
+            : "Opens the label tool on this page: choose a carrier, pay with your Shippo account, then print or download. Tap Close when you are done."}
       </p>
 
       {autoOpenBlockedReason && capturedNwAppShippo ? (
@@ -274,7 +276,7 @@ export default function SellerShippoThinLabelPage() {
                 disabled={elementsLoading}
                 className="btn text-sm py-2 px-4 disabled:opacity-50 w-full sm:w-auto"
               >
-                {elementsLoading ? "Opening…" : "Purchase Return Label"}
+                {elementsLoading ? "Opening…" : "Send Buyer Return Label"}
               </button>
             )}
           </div>
@@ -285,7 +287,7 @@ export default function SellerShippoThinLabelPage() {
         open={shippoModalOpen}
         onClose={closeShippoModal}
         containerId={SHIPPO_CONTAINER_ID_THIN}
-        title="Shippo — Labels"
+        title={capturedNwAppShippo === "return" ? "Send Buyer Return Label" : "Shippo — Labels"}
         presentation="page"
       />
     </div>

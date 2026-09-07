@@ -162,11 +162,11 @@ Sellers are solely responsible for ensuring compliance with USPS, UPS, FedEx, an
 ● Sellers may link to their own storefronts freely.
 
 7.4 Disputes
-NWC is not a party to transactions.
-● Buyer-seller disputes must be handled between those parties.
-● If a website or app error or system issue causes the dispute, NWC will resolve it promptly.
-● If a dispute is communicated to NWC, NWC will provide appropriate business contact information to help the parties resolve the issue promptly.
-NWC may provide publicly available business information to assist in dispute resolution, but will not provide private personal information without a legal requirement.
+NWC is not a party to storefront sales. The contract for each order is between the buyer and the seller.
+● Buyers and sellers must first try to resolve disputes with each other using the order tools and the seller’s published policies.
+● If a website or app error or system issue causes the dispute, NWC will resolve that systems issue promptly.
+● If a dispute is communicated to NWC, NWC may provide appropriate public business contact information to help the parties resolve it. NWC will not provide private personal information without a legal requirement.
+● NWC may review reports of fraud, scams, or a seller willfully refusing the return or refund terms they published. NWC may contact the seller, hide or remove listings, hold or adjust payouts, suspend the account, or remove the seller from the platform. That enforcement is about platform abuse; it does not make NWC a party to the sale or a guarantor of the item.
 
 7.5 Reporting Issues
 Sellers should report page errors or listing problems for timely support.
@@ -178,7 +178,19 @@ Seller Hub may show first-party activity about your listings and storefront (for
 Sellers may save listing templates (draft titles, descriptions, photos, and similar fields) to reuse when creating items. Buyers may add items to a shopping cart before checkout. Cart contents and templates are stored with your account so those features work across the website and app.
 
 7.6 Refund Policy
-Storefront orders are paid by card only. NWC does not offer cash checkout or cash refunds. Upon request, the seller must issue refunds in accordance with its policy. Set your return and refund terms in Seller Hub Policies, including whether you accept returns and whether you charge shipping for returns. For storefront orders canceled before shipment, NWC initiates a refund to the original payment method right away. The order shows Refund Initiated, then Refund Complete after Stripe processes it. Most card refunds take 5–10 business days to appear on the buyer’s statement, depending on their bank. For shipped storefront orders, a buyer may request a return after the order has shipped or been delivered if the seller accepts returns. The seller reviews the request and may approve it (and optionally buy a prepaid return label through the seller’s connected Shippo account), decline it, or issue a courtesy refund without requiring the item back. When a return is required, the buyer’s refund is issued after the seller confirms they received the item. If the seller turns on “charge shipping for returns,” the Shippo return-label price is deducted from the refund amount; the seller still pays Shippo for that label. NWC is not responsible for the completion of the physical return or of refunds between the seller and buyer (See 7.4).
+Storefront orders are paid by card only. NWC does not offer cash checkout or cash refunds.
+
+7.6.1 Seller policies control after fulfillment
+Each seller sets return and refund terms in Seller Hub Policies: whether they accept returns, how many days after delivery or pickup a return may be requested, whether return shipping is deducted from the refund, and any written refund policy. Buyers must read those terms before buying and must follow them after buying. Buying a storefront item is at the buyer’s risk as to condition, fit, description accuracy, and the seller’s performance, except where an NWC website or app error clearly caused the problem (see 7.4).
+
+7.6.2 What the platform enforces
+NWC hides and rejects a return/refund request after shipment or delivery when that seller does not accept returns, or when the seller’s day window has ended. The window starts when the order is delivered, picked up, or marked received; if that never happens, it starts from the ship or handoff date. Pre-shipment cancel (while the order is still paid and unshipped) still initiates a refund to the original card even if the seller does not accept returns.
+
+7.6.3 How a return works when it is allowed
+The buyer requests a return in My Orders. If the seller charges return shipping, NWC tells the buyer before they submit; the Shippo return-label price may be deducted from the refund once the seller buys the label. After the seller approves a mailed return, NWC prompts them to buy a prepaid return label on their Shippo account (buyer checkout address as the sender, seller ship-from as the destination). The seller may instead decline or issue a courtesy refund without requiring the item back. When a return is required, the buyer’s refund is issued after the seller confirms they received the item. For card refunds canceled before shipment, NWC initiates a refund right away. The order shows Refund Initiated, then Refund Complete after Stripe processes it. Most card refunds take 5–10 business days to appear on the buyer’s statement.
+
+7.6.4 Seller duties and removal
+Sellers must follow the return and refund policy they publish. A seller who scams buyers, advertises returns they will not honor, or otherwise willfully violates their own storefront policy may be contacted by NWC and is at risk of listing removal, payout action, and removal from the platform (see 7.4). NWC is not responsible for completing the physical return or for money moving between buyer and seller except as described in this section and 7.4.
 
 7.7 Used Item Listings
 Sellers listing used items must accurately describe the item's condition. Make-offer negotiations on used items are between buyer and seller; NWC is not a party. The same prohibited items apply to all storefront listings. NWC may remove listings that violate these policies.

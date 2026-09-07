@@ -46,6 +46,50 @@ describe("Shippo package from listing options", () => {
     expect(details?.line_items[0]?.unit_weight).toBe("16");
   });
 
+  it("swaps buyer checkout address to seller ship-from on a return label", () => {
+    const details = buildOrderDetailsFromOrder(makeOrder(), null, {
+      isReturn: true,
+      sellerFromAddress: {
+        name: "Seller Shop",
+        street1: "200 Pine St",
+        city: "Spokane",
+        state: "WA",
+        zip: "99202",
+        country: "US",
+      },
+    });
+    expect(details?.address_from?.street1).toBe("1 Main St");
+    expect(details?.address_from?.name).toBe("Ada Lovelace");
+    expect(details?.address_to?.street1).toBe("200 Pine St");
+    expect(details?.address_to?.name).toBe("Seller Shop");
+    expect(details?.extra?.is_return).toBe(true);
+  });
+
+  it("uses local delivery address as the return sender when checkout shipping is missing", () => {
+    const details = buildOrderDetailsFromOrder(
+      makeOrder({
+        shippingAddress: null,
+        localDeliveryDetails: {
+          deliveryAddress: { street: "9 Oak Ave", city: "Spokane", state: "WA", zip: "99203" },
+        },
+      }),
+      null,
+      {
+        isReturn: true,
+        sellerFromAddress: {
+          name: "Seller Shop",
+          street1: "200 Pine St",
+          city: "Spokane",
+          state: "WA",
+          zip: "99202",
+          country: "US",
+        },
+      }
+    );
+    expect(details?.address_from?.street1).toBe("9 Oak Ave");
+    expect(details?.address_to?.street1).toBe("200 Pine St");
+  });
+
   it("sums weight by quantity and takes max dimensions for the starting parcel", () => {
     expect(parcelFromOrderItems(makeOrder())).toEqual({
       weightOz: 16,

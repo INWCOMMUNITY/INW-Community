@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   buyerCanRequestRefund,
+  clampAcceptReturnsDays,
   isActiveStoreReturnStatus,
   isAwaitingReturnStatus,
+  isReturnWindowOpen,
+  orderCanBuyReturnLabel,
   returnRefundAmountCents,
+  returnWindowEndsAt,
   sellerTransferReversalCents,
+  storeReturnBuyerLabel,
 } from "./store-return";
 
 describe("return refund math", () => {
@@ -88,5 +93,87 @@ describe("return status", () => {
         storeReturn: { status: "declined" },
       })
     ).toBe(true);
+  });
+
+  it("blocks requests after the seller return window", () => {
+    const delivered = new Date("2026-08-01T00:00:00.000Z");
+    const now = new Date("2026-09-15T00:00:00.000Z");
+    expect(
+      buyerCanRequestRefund(
+        {
+          status: "delivered",
+          isCashOrder: false,
+          sellerAcceptsReturns: true,
+          sellerAcceptsReturnsDays: 30,
+          deliveryConfirmedAt: delivered,
+          deliveryBuyerConfirmedAt: delivered,
+          items: [{ fulfillmentType: "local_delivery" }],
+        },
+        now
+      )
+    ).toBe(false);
+    expect(
+      buyerCanRequestRefund(
+        {
+          status: "delivered",
+          isCashOrder: false,
+          sellerAcceptsReturns: true,
+          sellerAcceptsReturnsDays: 30,
+          deliveryConfirmedAt: delivered,
+          deliveryBuyerConfirmedAt: delivered,
+          items: [{ fulfillmentType: "local_delivery" }],
+        },
+        new Date("2026-08-20T00:00:00.000Z")
+      )
+    ).toBe(true);
+  });
+
+  it("starts the pickup window from the later confirmation", () => {
+    const end = returnWindowEndsAt(
+      {
+        items: [{ fulfillmentType: "pickup" }],
+        pickupSellerConfirmedAt: "2026-09-01T00:00:00.000Z",
+        pickupBuyerConfirmedAt: "2026-09-03T00:00:00.000Z",
+      },
+      10
+    );
+    expect(end?.toISOString().startsWith("2026-09-13")).toBe(true);
+    expect(
+      isReturnWindowOpen(
+        {
+          items: [{ fulfillmentType: "pickup" }],
+          pickupSellerConfirmedAt: "2026-09-01T00:00:00.000Z",
+          pickupBuyerConfirmedAt: "2026-09-03T00:00:00.000Z",
+        },
+        10,
+        new Date("2026-09-20T00:00:00.000Z")
+      )
+    ).toBe(false);
+  });
+
+  it("points the buyer to print the label once it exists", () => {
+    expect(storeReturnBuyerLabel("awaiting_return")).toBe(
+      "Return approved. A return label will appear on this order when the seller sends it."
+    );
+    expect(storeReturnBuyerLabel("awaiting_return", { hasReturnLabel: true })).toBe(
+      "Your return has been approved. Print your return label now."
+    );
+  });
+
+  it("allows a return label only for mail orders without one yet", () => {
+    expect(orderCanBuyReturnLabel({ items: [{ fulfillmentType: "ship" }] })).toBe(true);
+    expect(orderCanBuyReturnLabel({ items: [{ fulfillmentType: "pickup" }] })).toBe(false);
+    expect(
+      orderCanBuyReturnLabel({
+        items: [{ fulfillmentType: "ship" }],
+        returnShipment: { labelUrl: "https://example.com/label.pdf" },
+      })
+    ).toBe(false);
+  });
+
+  it("clamps return-day settings", () => {
+    expect(clampAcceptReturnsDays(undefined)).toBe(30);
+    expect(clampAcceptReturnsDays(0)).toBe(1);
+    expect(clampAcceptReturnsDays(400)).toBe(365);
   });
 });

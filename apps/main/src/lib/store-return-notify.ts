@@ -12,7 +12,7 @@ export function notifySellerReturnRequested(sellerId: string, orderId: string, b
 export function notifyBuyerReturnApproved(buyerId: string, orderId: string): void {
   sendPushNotification(buyerId, {
     title: "Return approved",
-    body: "Your seller approved the return. Check your order for the return label and next steps.",
+    body: "Your seller approved the return. Check your order for next steps.",
     data: { screen: "my-orders", orderId },
     category: "commerce",
   }).catch(() => {});
@@ -20,8 +20,8 @@ export function notifyBuyerReturnApproved(buyerId: string, orderId: string): voi
 
 export function notifyBuyerReturnLabelReady(buyerId: string, orderId: string): void {
   sendPushNotification(buyerId, {
-    title: "Return shipping label ready",
-    body: "Your return label is on the order page. Print it and send the item back.",
+    title: "Your return has been approved",
+    body: "Your return has been approved, print return label now.",
     data: { screen: "my-orders", orderId },
     category: "commerce",
   }).catch(() => {});

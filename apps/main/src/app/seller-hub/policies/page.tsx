@@ -9,6 +9,7 @@ interface PolicyData {
   sellerPickupPolicy?: string | null;
   sellerReturnPolicy?: string | null;
   acceptReturns?: boolean;
+  acceptReturnsDays?: number;
   chargeReturnShipping?: boolean;
   offerShipping?: boolean;
   offerLocalDelivery?: boolean;
@@ -60,6 +61,7 @@ export default function PoliciesPage() {
   const [offerLocalDelivery, setOfferLocalDelivery] = useState(true);
   const [offerLocalPickup, setOfferLocalPickup] = useState(true);
   const [acceptReturns, setAcceptReturns] = useState(true);
+  const [acceptReturnsDays, setAcceptReturnsDays] = useState(30);
   const [chargeReturnShipping, setChargeReturnShipping] = useState(false);
 
   useEffect(() => {
@@ -76,6 +78,7 @@ export default function PoliciesPage() {
         setOfferLocalDelivery(data?.offerLocalDelivery ?? true);
         setOfferLocalPickup(data?.offerLocalPickup ?? true);
         setAcceptReturns(data?.acceptReturns !== false);
+        setAcceptReturnsDays(data?.acceptReturnsDays ?? 30);
         setChargeReturnShipping(data?.chargeReturnShipping ?? false);
       })
       .catch(() => setError("Failed to load policies."))
@@ -101,6 +104,7 @@ export default function PoliciesPage() {
           offerLocalDelivery,
           offerLocalPickup,
           acceptReturns,
+          acceptReturnsDays,
           chargeReturnShipping,
         }),
       });
@@ -176,7 +180,7 @@ export default function PoliciesPage() {
         ))}
 
         <div className="space-y-4 rounded-lg border border-gray-200 p-4 bg-gray-50">
-          <h2 className="text-lg font-semibold text-gray-900">Returns & refunds</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Returns & Refunds</h2>
           <div className="flex items-center gap-3">
             <input
               type="checkbox"
@@ -193,6 +197,24 @@ export default function PoliciesPage() {
             When off, buyers cannot request a return after an order ships. You can still cancel and
             refund an order before it ships.
           </p>
+          <label htmlFor="accept-returns-days" className={`block text-sm font-medium ${acceptReturns ? "text-gray-700" : "text-gray-400"}`}>
+            Accept returns for
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              id="accept-returns-days"
+              type="number"
+              min={1}
+              max={365}
+              value={acceptReturnsDays}
+              onChange={(e) => setAcceptReturnsDays(Math.min(365, Math.max(1, Number(e.target.value) || 1)))}
+              disabled={!acceptReturns}
+              className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-gray-900 disabled:bg-gray-100 disabled:text-gray-400"
+            />
+            <span className={`text-sm ${acceptReturns ? "text-gray-700" : "text-gray-400"}`}>
+              days after delivery or pickup
+            </span>
+          </div>
           <label htmlFor="sellerReturnPolicy" className="block text-sm font-medium text-gray-700">
             Refund policy
           </label>

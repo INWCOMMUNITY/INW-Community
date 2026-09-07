@@ -54,6 +54,8 @@ export type SellerStorefrontData = {
   sellerPickupPolicy: string | null;
   sellerReturnPolicy: string | null;
   acceptReturns?: boolean;
+  acceptReturnsDays?: number;
+  chargeReturnShipping?: boolean;
   storeItems: SellerStoreItem[];
 };
 
@@ -100,7 +102,9 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
     seller.sellerLocalDeliveryPolicy ||
     seller.sellerPickupPolicy ||
     seller.sellerReturnPolicy ||
-    seller.acceptReturns === false;
+    seller.acceptReturns === false ||
+    seller.acceptReturnsDays != null ||
+    seller.chargeReturnShipping;
   const hasSocial = seller.facebookUrl || seller.instagramUrl || seller.tiktokUrl;
 
   useEffect(() => {
@@ -609,14 +613,27 @@ export function SellerStorefrontContent({ seller }: { seller: SellerStorefrontDa
               {seller.sellerPickupPolicy ? (
                 <PolicyCard icon="storefront-outline" title="Pickup Policy" text={seller.sellerPickupPolicy} />
               ) : null}
-              {seller.acceptReturns === false ? (
+              {seller.acceptReturns === false ||
+              seller.sellerReturnPolicy ||
+              seller.acceptReturnsDays != null ||
+              seller.chargeReturnShipping ? (
                 <PolicyCard
                   icon="refresh-outline"
                   title="Return Policy"
-                  text={seller.sellerReturnPolicy?.trim() || "This seller does not accept returns."}
+                  text={
+                    seller.acceptReturns === false
+                      ? seller.sellerReturnPolicy?.trim() || "This seller does not accept returns."
+                      : [
+                          `Returns within ${seller.acceptReturnsDays ?? 30} days of delivery or pickup.`,
+                          seller.chargeReturnShipping
+                            ? "Return shipping may be deducted from your refund."
+                            : null,
+                          seller.sellerReturnPolicy?.trim() || null,
+                        ]
+                          .filter(Boolean)
+                          .join("\n\n")
+                  }
                 />
-              ) : seller.sellerReturnPolicy ? (
-                <PolicyCard icon="refresh-outline" title="Return Policy" text={seller.sellerReturnPolicy} />
               ) : null}
             </div>
           )

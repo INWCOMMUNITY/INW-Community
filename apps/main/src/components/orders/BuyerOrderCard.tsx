@@ -140,7 +140,11 @@ export function BuyerOrderCard({
             </p>
           ) : order.storeReturn || order.refundRequestedAt ? (
             <p className="text-sm mt-3" style={{ color: "var(--color-primary)" }}>
-              {order.storeReturn?.status === "awaiting_return" || order.storeReturn?.status === "in_transit"
+              {order.storeReturn?.status === "awaiting_return"
+                ? order.returnShipment?.labelUrl
+                  ? "Your return has been approved. Print your return label now."
+                  : "Return approved. Waiting for the return label."
+                : order.storeReturn?.status === "in_transit"
                 ? "Return in progress."
                 : order.storeReturn?.status === "declined"
                   ? "Return declined."
@@ -157,6 +161,16 @@ export function BuyerOrderCard({
             {trackingHref ? (
               <a href={trackingHref} target="_blank" rel="noopener noreferrer" className={outlineBtn}>
                 Track package
+              </a>
+            ) : null}
+            {order.returnShipment?.labelUrl ? (
+              <a
+                href={order.returnShipment.labelUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={outlineBtn}
+              >
+                Print return label now
               </a>
             ) : null}
             {showPickup && pickupItem ? (

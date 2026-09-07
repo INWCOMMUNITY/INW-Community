@@ -3,7 +3,8 @@ import { prisma } from "database";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { buyerCanRequestRefund, isActiveStoreReturnStatus } from "@/lib/store-return";
+import { buyerCanRequestRefund, isActiveStoreReturnStatus, isReturnWindowOpen } from "@/lib/store-return";
+import { pickCurrentOutboundShipment } from "@/lib/store-order-shipments";
 import { notifySellerReturnRequested } from "@/lib/store-return-notify";
 
 export const dynamic = "force-dynamic";
@@ -31,8 +32,10 @@ export async function POST(
     where: { id, buyerId: session.user.id },
     include: {
       buyer: { select: { firstName: true, lastName: true } },
-      seller: { select: { acceptReturns: true } },
+      seller: { select: { acceptReturns: true, acceptReturnsDays: true } },
       storeReturns: { orderBy: { createdAt: "desc" }, take: 1 },
+      items: { select: { fulfillmentType: true } },
+      shipments: { select: { createdAt: true, kind: true, supersededAt: true, trackingStatus: true } },
     },
   });
   if (!order) {
@@ -42,14 +45,24 @@ export async function POST(
     return NextResponse.json({ error: "Order already refunded" }, { status: 400 });
   }
   const latest = order.storeReturns[0] ?? null;
-  if (!buyerCanRequestRefund({
+  const outbound = pickCurrentOutboundShipment(order.shipments);
+  const refundCheck = {
     status: order.status,
     isCashOrder: !order.stripePaymentIntentId,
     stripePaymentIntentId: order.stripePaymentIntentId,
     sellerAcceptsReturns: order.seller.acceptReturns,
+    sellerAcceptsReturnsDays: order.seller.acceptReturnsDays,
     storeReturn: latest,
     refundRequestedAt: latest ? null : order.refundRequestedAt,
-  })) {
+    createdAt: order.createdAt,
+    items: order.items,
+    pickupSellerConfirmedAt: order.pickupSellerConfirmedAt,
+    pickupBuyerConfirmedAt: order.pickupBuyerConfirmedAt,
+    deliveryConfirmedAt: order.deliveryConfirmedAt,
+    deliveryBuyerConfirmedAt: order.deliveryBuyerConfirmedAt,
+    shipment: outbound,
+  };
+  if (!buyerCanRequestRefund(refundCheck)) {
     if (order.seller.acceptReturns === false) {
       return NextResponse.json(
         { error: "This seller does not accept returns." },
@@ -64,6 +77,12 @@ export async function POST(
     }
     if (latest && isActiveStoreReturnStatus(latest.status)) {
       return NextResponse.json({ error: "A return is already in progress" }, { status: 400 });
+    }
+    if (!isReturnWindowOpen(refundCheck, order.seller.acceptReturnsDays)) {
+      return NextResponse.json(
+        { error: "This seller’s return window has ended." },
+        { status: 400 }
+      );
     }
     return NextResponse.json(
       { error: "You can request a return after the order has shipped or been delivered." },

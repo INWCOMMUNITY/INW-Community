@@ -12,6 +12,7 @@ import {
   type BuyerOrderItem,
   type BuyerStoreOrder,
 } from "@/lib/buyer-orders";
+import { BUYER_RETURN_SHIPPING_WARNING } from "@/lib/store-return";
 
 export type BuyerOrderModal =
   | { kind: "cancel"; order: BuyerStoreOrder }
@@ -38,6 +39,7 @@ export function BuyerOrderModals({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [ackReturnShipping, setAckReturnShipping] = useState(false);
 
   const order = modal?.order ?? null;
   const modalKey = modal ? `${modal.kind}:${modal.order.id}` : "";
@@ -48,6 +50,7 @@ export function BuyerOrderModals({
     setNote("");
     setError(null);
     setSuccessMessage(null);
+    setAckReturnShipping(false);
   }, [modalKey]);
 
   function resetAndClose() {
@@ -57,6 +60,7 @@ export function BuyerOrderModals({
     setNote("");
     setError(null);
     setSuccessMessage(null);
+    setAckReturnShipping(false);
     onClose();
   }
 
@@ -114,6 +118,10 @@ export function BuyerOrderModals({
     }
     if (reason === "Other" && !otherReason.trim()) {
       setError('Please provide details for "Other".');
+      return;
+    }
+    if (order.sellerChargeReturnShipping && !ackReturnShipping) {
+      setError("Please confirm you understand return shipping may be deducted from your refund.");
       return;
     }
     setSubmitting(true);
@@ -294,6 +302,18 @@ export function BuyerOrderModals({
             ? BUYER_CANCEL_CARD_HINT
             : "The seller will review your request. Please provide a reason."}
         </p>
+        {!isCancel && order.sellerChargeReturnShipping ? (
+          <label className="flex items-start gap-2 mb-4 text-sm">
+            <input
+              type="checkbox"
+              checked={ackReturnShipping}
+              onChange={(e) => setAckReturnShipping(e.target.checked)}
+              className="mt-1"
+              disabled={submitting}
+            />
+            <span>{BUYER_RETURN_SHIPPING_WARNING}</span>
+          </label>
+        ) : null}
         <p className="text-sm font-medium mb-2">Reason (required)</p>
         <select
           value={reason}

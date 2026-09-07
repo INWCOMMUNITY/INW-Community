@@ -11,6 +11,7 @@ import {
   orderHasPickupLine,
   orderHasShippedLine,
 } from "@/lib/store-order-fulfillment";
+import { buyerCanRequestRefund } from "@/lib/store-return";
 
 export const BUYER_ORDER_TABS = [
   { key: "to_receive", label: "To Receive" },
@@ -81,6 +82,9 @@ export type BuyerStoreOrder = {
   cancelNote?: string | null;
   isCashOrder?: boolean;
   sellerAcceptsReturns?: boolean;
+  sellerAcceptsReturnsDays?: number | null;
+  sellerChargeReturnShipping?: boolean;
+  returnWindowEndsAt?: string | null;
   refundInitiatedAt?: string | null;
   refundCompletedAt?: string | null;
   pickupSellerConfirmedAt?: string | null;
@@ -175,18 +179,23 @@ export function canCancelBuyerOrder(order: Pick<BuyerStoreOrder, "status">): boo
 export function canRequestBuyerRefund(
   order: Pick<
     BuyerStoreOrder,
-    "status" | "refundRequestedAt" | "isCashOrder" | "storeReturn" | "sellerAcceptsReturns"
+    | "status"
+    | "refundRequestedAt"
+    | "isCashOrder"
+    | "storeReturn"
+    | "sellerAcceptsReturns"
+    | "sellerAcceptsReturnsDays"
+    | "returnWindowEndsAt"
+    | "createdAt"
+    | "items"
+    | "pickupSellerConfirmedAt"
+    | "pickupBuyerConfirmedAt"
+    | "deliveryConfirmedAt"
+    | "deliveryBuyerConfirmedAt"
+    | "shipment"
   >
 ): boolean {
-  if (order.sellerAcceptsReturns === false) return false;
-  if (order.isCashOrder) return false;
-  if (order.status !== "shipped" && order.status !== "delivered") return false;
-  const ret = order.storeReturn;
-  if (ret && ["requested", "awaiting_return", "in_transit", "received", "refunded"].includes(ret.status)) {
-    return false;
-  }
-  if (!ret && order.refundRequestedAt) return false;
-  return true;
+  return buyerCanRequestRefund(order);
 }
 
 export function trackingStatusLabel(status: string | null | undefined): string | null {

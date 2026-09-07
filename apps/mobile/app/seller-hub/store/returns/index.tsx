@@ -81,11 +81,22 @@ export default function ReturnsScreen() {
     }, [load])
   );
 
+  const openReturnLabel = (orderId: string) => {
+    router.push(`/seller-hub/shippo-order/${orderId}?mode=return` as never);
+  };
+
   const act = async (orderId: string, path: string, body?: object) => {
     setBusyId(orderId);
     setError(null);
     try {
       await apiPost(`/api/store-orders/${orderId}${path}`, body ?? {});
+      const approved = orders.find((o) => o.id === orderId);
+      const hasShip = approved?.items.some((i) => (i.fulfillmentType ?? "ship") === "ship");
+      if (path === "/returns/approve" && hasShip && !approved?.returnShipment?.labelUrl) {
+        load();
+        openReturnLabel(orderId);
+        return;
+      }
       load();
     } catch (e: unknown) {
       setError((e as { error?: string }).error ?? "Action failed");
@@ -176,7 +187,7 @@ export default function ReturnsScreen() {
                         router.push(`/seller-hub/shippo-order/${order.id}?mode=return` as never)
                       }
                     >
-                      <Text style={styles.btnText}>Buy return label</Text>
+                      <Text style={styles.btnText}>Send Buyer Return Label</Text>
                     </Pressable>
                   ) : null}
                   <Pressable

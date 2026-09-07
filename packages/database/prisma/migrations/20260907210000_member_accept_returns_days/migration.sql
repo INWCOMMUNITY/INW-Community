@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Member" ADD COLUMN IF NOT EXISTS "accept_returns_days" INTEGER NOT NULL DEFAULT 30;

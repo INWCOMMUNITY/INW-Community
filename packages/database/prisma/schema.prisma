@@ -33,6 +33,8 @@ model Member {
   sellerReturnPolicy String? @map("seller_return_policy") @db.Text
   /// When false, buyers cannot request a return after shipment.
   acceptReturns Boolean @default(true) @map("accept_returns")
+  /// Days after delivery/pickup that a buyer may request a return.
+  acceptReturnsDays Int @default(30) @map("accept_returns_days")
   /// When true, Shippo return-label cost is deducted from the buyer's refund.
   chargeReturnShipping Boolean @default(false) @map("charge_return_shipping")
   offerShipping              Boolean @default(true) @map("offer_shipping")

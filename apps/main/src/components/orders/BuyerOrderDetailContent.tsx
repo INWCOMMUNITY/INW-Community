@@ -291,7 +291,10 @@ export function BuyerOrderDetailContent() {
       ) : order.storeReturn || order.refundRequestedAt ? (
         <p className="text-sm mb-6" style={{ color: "var(--color-primary)" }}>
           {order.storeReturn?.status === "requested" && "Return requested. The seller will review."}
-          {order.storeReturn?.status === "awaiting_return" && "Return approved. Ship the item back to the seller."}
+          {order.storeReturn?.status === "awaiting_return" &&
+            (order.returnShipment?.labelUrl
+              ? "Your return has been approved. Print your return label now."
+              : "Return approved. A return label will appear on this order when the seller sends it.")}
           {order.storeReturn?.status === "in_transit" && "Your return is in transit to the seller."}
           {order.storeReturn?.status === "received" && "The seller received your return. Refund is processing."}
           {order.storeReturn?.status === "refunded" && BUYER_PENDING_REFUND_COPY}
@@ -315,7 +318,7 @@ export function BuyerOrderDetailContent() {
             className="font-medium hover:underline"
             style={{ color: "var(--color-link)" }}
           >
-            Open return shipping label PDF
+            Print return label now
           </a>
         </p>
       ) : null}
