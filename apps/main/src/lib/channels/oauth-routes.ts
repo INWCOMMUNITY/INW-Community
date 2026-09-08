@@ -8,6 +8,7 @@ import { signChannelOAuthState, verifyChannelOAuthState } from "./oauth-state";
 import { getAdapter } from "./registry";
 import { getOAuthProfile } from "./oauth-providers";
 import { normalizeShopDomain } from "./shopify/config";
+import { resolveShopifyCallbackShop } from "./shopify/oauth";
 import type { ChannelProvider } from "./types";
 
 const APP_DEEP_LINK_BASE = "inwcommunity://seller-hub/channels";
@@ -215,11 +216,31 @@ export async function channelCallbackGET(
     return redirectAfter(app, baseUrl, { channel_error: "invalid_shopify_hmac" });
   }
 
+  let shopifyShop = state.shop ?? null;
   if (provider === "shopify") {
-    const callbackShop = normalizeShopDomain(searchParams.get("shop") || "");
-    if (!state.shop || !callbackShop || callbackShop !== state.shop) {
-      return redirectAfter(app, baseUrl, { channel_error: "shop_mismatch" });
+    const resolved = resolveShopifyCallbackShop({
+      shopParam: searchParams.get("shop"),
+      hostParam: searchParams.get("host"),
+      stateShop: state.shop,
+    });
+    if (resolved.typed && resolved.callback && resolved.typed !== resolved.callback) {
+      console.warn("[shopify oauth] typed shop differed from callback; using Shopify shop", {
+        typed: resolved.typed,
+        callback: resolved.callback,
+      });
     }
+    if (!resolved.shop) {
+      console.error("[shopify oauth] shop_mismatch: no usable shop on callback", {
+        hasStateShop: Boolean(state.shop),
+        rawShop: searchParams.get("shop"),
+        hasHost: Boolean(searchParams.get("host")),
+      });
+      return redirectAfter(app, baseUrl, {
+        channel_error:
+          "Shopify did not return a store domain. Use your {store}.myshopify.com address (Admin → Settings) and try Connect again.",
+      });
+    }
+    shopifyShop = resolved.shop;
   }
 
   const adapter = getAdapter(provider);
@@ -230,10 +251,10 @@ export async function channelCallbackGET(
       code,
       codeVerifier: state.verifier,
       redirectUri,
-      shop: state.shop,
+      shop: shopifyShop ?? undefined,
     });
     const shop = await adapter.fetchShopInfo(tokens.accessToken, {
-      shop: state.shop,
+      shop: shopifyShop ?? undefined,
       userId: tokens.userId ?? undefined,
       apiKey: tokens.apiKey ?? undefined,
     });
@@ -285,6 +306,7 @@ export async function channelCallbackGET(
     return redirectAfter(app, baseUrl, { connected: provider });
   } catch (e) {
     const msg = e instanceof Error ? e.message : `${profile.label} connection failed`;
+    console.error(`[${provider} oauth] connection failed`, { error: msg, shop: shopifyShop });
     return redirectAfter(app, baseUrl, { channel_error: msg });
   }
 }

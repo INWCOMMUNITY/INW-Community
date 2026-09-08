@@ -42,22 +42,52 @@ export function isShopifyConfigured(): boolean {
   }
 }
 
+/** Shopify store slug: letters, numbers, hyphen, underscore. */
+const SHOP_SLUG = /^[a-z0-9][a-z0-9_-]*$/;
+
 /**
- * Normalize seller input to `{slug}.myshopify.com`. Accepts full host or store slug only.
+ * Normalize seller input or a Shopify callback `shop` to `{slug}.myshopify.com`.
+ * Accepts store slug, `*.myshopify.com`, or Admin URLs like `admin.shopify.com/store/{slug}`.
  * Returns null if the value cannot be parsed safely.
  */
 export function normalizeShopDomain(input: string): string | null {
   let raw = input.trim().toLowerCase();
   if (!raw) return null;
-  raw = raw.replace(/^https?:\/\//, "").split("/")[0] ?? "";
+
+  const adminStore = raw.match(
+    /(?:^https?:\/\/)?(?:www\.)?(?:admin\.)?shopify\.com\/store\/([a-z0-9][a-z0-9_-]*)/i
+  );
+  if (adminStore?.[1] && SHOP_SLUG.test(adminStore[1].toLowerCase())) {
+    return `${adminStore[1].toLowerCase()}.myshopify.com`;
+  }
+
+  raw = raw.replace(/^https?:\/\//, "");
+  raw = raw.split("/")[0] ?? "";
+  raw = raw.replace(/\.+$/, "");
+  if (raw.startsWith("www.")) raw = raw.slice(4);
   if (!raw) return null;
   if (raw.endsWith(".myshopify.com")) {
     const slug = raw.slice(0, -".myshopify.com".length);
-    if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) return null;
-    return raw;
+    if (!SHOP_SLUG.test(slug)) return null;
+    return `${slug}.myshopify.com`;
   }
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(raw)) return null;
+  if (!SHOP_SLUG.test(raw)) return null;
   return `${raw}.myshopify.com`;
+}
+
+/**
+ * Shopify OAuth `host` is base64 of `admin.shopify.com/store/{slug}` (or similar).
+ * Used when the `shop` query param is missing or not a myshopify domain.
+ */
+export function shopDomainFromHostParam(host: string | null | undefined): string | null {
+  if (!host?.trim()) return null;
+  try {
+    const decoded = Buffer.from(host.trim(), "base64").toString("utf8").trim();
+    if (!decoded) return null;
+    return normalizeShopDomain(decoded);
+  } catch {
+    return null;
+  }
 }
 
 export function shopAdminBase(shop: string, apiVersion: string): string {

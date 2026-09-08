@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import {
   getShopifyConfig,
   normalizeShopDomain,
+  shopDomainFromHostParam,
   SHOPIFY_SCOPES,
 } from "./config";
 import type { TokenResponse } from "../types";
@@ -70,6 +71,22 @@ export async function exchangeShopifyCode(args: {
 /** Non-expiring offline tokens do not refresh; reconnect if revoked. */
 export async function refreshShopifyToken(): Promise<TokenResponse> {
   throw new Error("Shopify offline token expired or was revoked. Reconnect your Shopify store.");
+}
+
+/**
+ * Shop used for token exchange after HMAC verification.
+ * Shopify's callback `shop` (or `host`) is authoritative — sellers often type a storefront
+ * name that does not match `{slug}.myshopify.com`, which used to fail as `shop_mismatch`.
+ */
+export function resolveShopifyCallbackShop(args: {
+  shopParam: string | null;
+  hostParam: string | null;
+  stateShop?: string | null;
+}): { shop: string | null; typed: string | null; callback: string | null } {
+  const typed = args.stateShop ? normalizeShopDomain(args.stateShop) : null;
+  const callback =
+    normalizeShopDomain(args.shopParam ?? "") || shopDomainFromHostParam(args.hostParam);
+  return { shop: callback || typed, typed, callback };
 }
 
 /**
