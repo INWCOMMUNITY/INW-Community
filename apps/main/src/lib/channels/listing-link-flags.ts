@@ -1,24 +1,17 @@
 import { prisma, Prisma } from "database";
+import {
+  conflictDetailsAsObject as asObject,
+  readRemoteDeletedNotice,
+  type RemoteDeletedNotice,
+} from "./listing-conflict-json";
 
 export type RemoteCatalogState =
   | "inactive"
   | "inactive_outside_catalog"
   | "linked_other_channel";
 
-function asObject(conflictDetails: unknown): Record<string, unknown> {
-  let value = conflictDetails;
-  if (typeof value === "string") {
-    try {
-      value = JSON.parse(value) as unknown;
-    } catch {
-      return {};
-    }
-  }
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return { ...(value as Record<string, unknown>) };
-  }
-  return {};
-}
+export { readRemoteDeletedNotice };
+export type { RemoteDeletedNotice };
 
 export function mergeConflictDetails(
   conflictDetails: unknown,
@@ -30,24 +23,6 @@ export function mergeConflictDetails(
     else base[key] = value;
   }
   return base as Prisma.InputJsonValue;
-}
-
-export type RemoteDeletedNotice = {
-  provider: string;
-  detectedAt: string;
-  dismissedAt?: string;
-};
-
-export function readRemoteDeletedNotice(conflictDetails: unknown): RemoteDeletedNotice | null {
-  const raw = asObject(conflictDetails).remoteDeleted;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const rec = raw as { provider?: unknown; detectedAt?: unknown; dismissedAt?: unknown };
-  if (typeof rec.provider !== "string" || !rec.provider.trim()) return null;
-  return {
-    provider: rec.provider.trim(),
-    detectedAt: typeof rec.detectedAt === "string" ? rec.detectedAt : "",
-    ...(typeof rec.dismissedAt === "string" && rec.dismissedAt ? { dismissedAt: rec.dismissedAt } : {}),
-  };
 }
 
 export function isRemoteDeletedPending(conflictDetails: unknown): boolean {

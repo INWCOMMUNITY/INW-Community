@@ -1,5 +1,5 @@
 import { CHANNEL_PROVIDER_LABELS } from "./provider-ui";
-import { readRemoteDeletedNotice } from "./listing-link-flags";
+import { readRemoteDeletedNotice } from "./listing-conflict-json";
 import { isEbayPhotoHostFamilySyncError } from "./ebay/errors";
 import {
   etsyVariesByAllProperties,
