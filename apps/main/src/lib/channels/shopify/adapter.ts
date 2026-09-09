@@ -31,6 +31,7 @@ import {
 import { normalizeVariantsFromProvider } from "../variant-sync";
 import { hasOptionQuantities } from "../../store-item-variants";
 import { isShopifySaleOrder } from "./sale-order";
+import { ensureShopifyWebhooks } from "./webhooks-subscribe";
 
 type ProductsResponse = { products?: ShopifyProduct[] };
 type ProductResponse = { product?: ShopifyProduct };
@@ -245,7 +246,28 @@ export const shopifyAdapter: ChannelAdapter = {
       const loc = (res?.locations ?? []).find((l) => l.active !== false) ?? res?.locations?.[0];
       if (loc?.id != null) locationId = String(loc.id);
     }
-    return { shop, locationId, apiVersion };
+    const webhooks = await ensureShopifyWebhooks({
+      accessToken,
+      shop,
+      apiVersion,
+    }).catch((e) => ({
+      address: null as string | null,
+      topics: [] as string[],
+      created: [] as string[],
+      error: e instanceof Error ? e.message : String(e),
+    }));
+    if (webhooks.error) {
+      console.warn("[shopify] webhook subscribe on connect failed", { shop, error: webhooks.error });
+    }
+    return {
+      shop,
+      locationId,
+      apiVersion,
+      shopifyWebhookAddress: webhooks.address,
+      shopifyWebhooksRegisteredAt: webhooks.error ? null : new Date().toISOString(),
+      shopifyWebhooksError: webhooks.error,
+      shopifyWebhookTopics: webhooks.topics,
+    };
   },
 
   async createListing(conn, item): Promise<CreateListingResult> {

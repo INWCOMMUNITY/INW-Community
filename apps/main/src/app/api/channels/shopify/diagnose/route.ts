@@ -3,7 +3,9 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { shopifyGet, setShopifyConnectionContext } from "@/lib/channels/shopify/client";
-import { SHOPIFY_DEFAULT_API_VERSION } from "@/lib/channels/shopify/config";
+import { readShopifyConfig, SHOPIFY_DEFAULT_API_VERSION } from "@/lib/channels/shopify/config";
+import { ensureShopifyWebhooks, shopifyWebhookCallbackUrl } from "@/lib/channels/shopify/webhooks-subscribe";
+import { patchChannelConnectionConfig } from "@/lib/channels/connection";
 import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
 import { resetCorruptBaselinesForConnection } from "@/lib/channels/reset-corrupt-baselines";
 import { getCircuitStatus } from "@/lib/channels/circuit-breaker";
@@ -44,6 +46,14 @@ type DiagnosisResult = {
     percentUsed: number;
     burstCount?: number;
     burstLimit?: number;
+  };
+  webhooks?: {
+    address: string | null;
+    topics: string[];
+    created: string[];
+    error: string | null;
+    lastWebhookAt?: string | null;
+    lastWebhookTopic?: string | null;
   };
   repairAttempted?: boolean;
   repairResults?: { storeItemId: string; ok: boolean; error?: string }[];
@@ -115,6 +125,45 @@ export async function GET(req: NextRequest) {
     tokenValid = true;
   } catch (e) {
     tokenError = e instanceof Error ? e.message : String(e);
+  }
+
+  let webhooks: DiagnosisResult["webhooks"];
+  if (tokenValid) {
+    const shopCfg = readShopifyConfig(
+      (ctx.config as Record<string, unknown> | null) ?? null,
+      ctx.externalShopId
+    );
+    const shopHost = shopCfg.shop || ctx.externalShopId;
+    if (!shopHost) {
+      webhooks = {
+        address: shopifyWebhookCallbackUrl(),
+        topics: [],
+        created: [],
+        error: "Missing shop domain on the connection.",
+      };
+    } else {
+      const result = await ensureShopifyWebhooks({
+        accessToken: ctx.accessToken,
+        shop: shopHost,
+        apiVersion: shopCfg.apiVersion || SHOPIFY_DEFAULT_API_VERSION,
+      });
+      const cfg = (ctx.config as Record<string, unknown> | null) ?? {};
+      webhooks = {
+        address: result.address ?? shopifyWebhookCallbackUrl(),
+        topics: result.topics,
+        created: result.created,
+        error: result.error,
+        lastWebhookAt: typeof cfg.lastShopifyWebhookAt === "string" ? cfg.lastShopifyWebhookAt : null,
+        lastWebhookTopic:
+          typeof cfg.lastShopifyWebhookTopic === "string" ? cfg.lastShopifyWebhookTopic : null,
+      };
+      await patchChannelConnectionConfig(ctx.id, {
+        shopifyWebhookAddress: result.address,
+        shopifyWebhooksRegisteredAt: result.error ? null : new Date().toISOString(),
+        shopifyWebhooksError: result.error,
+        shopifyWebhookTopics: result.topics,
+      }).catch(() => {});
+    }
   }
 
   // Reset corrupt baselines if requested
@@ -254,6 +303,11 @@ export async function GET(req: NextRequest) {
     verdict = "CIRCUIT_OPEN";
     summary = "Sync is temporarily paused due to repeated failures.";
     nextStep = "Wait for the circuit breaker to recover, or check the errors below and resolve any issues.";
+  } else if (webhooks?.error) {
+    verdict = "WEBHOOKS_ERROR";
+    summary = `Shopify is connected but webhook subscribe failed: ${webhooks.error}`;
+    nextStep =
+      "Confirm the app can create webhooks, then reload this diagnose URL. Listing edits will otherwise wait for the 5-minute cron.";
   } else if (linkRows.length === 0) {
     verdict = "NO_LINKS";
     summary = storeItemId
@@ -285,6 +339,7 @@ export async function GET(req: NextRequest) {
     recentErrors: recentErrors.length > 0 ? recentErrors : undefined,
     circuitBreaker,
     rateLimit,
+    webhooks,
     repairAttempted: repair,
     repairResults,
     baselineReset,

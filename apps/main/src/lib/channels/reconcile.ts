@@ -1,6 +1,6 @@
 import { prisma } from "database";
 import { getAdapter } from "./registry";
-import { getConnectionContext, withConnectionAuthRetry, markChannelConnectionFailure } from "./connection";
+import { getConnectionContext, withConnectionAuthRetry, markChannelConnectionFailure, patchChannelConnectionConfig } from "./connection";
 import { reconcileConnectionInboundListings } from "./reconcile-inbound";
 import { reconcileConnectionInboundCatalog } from "./reconcile-inbound-catalog";
 import { reconcileConnectionInboundMeta } from "./reconcile-inbound-meta";
@@ -9,6 +9,8 @@ import { describeChannelSyncError } from "./ebay/errors";
 import { ensureEbayPlatformNotifications } from "./ebay/notifications-setup";
 import { pullEbayUpdatesForConnection } from "./ebay/pull-ebay-updates";
 import { flagGoneWixListingsForConnection } from "./wix/flag-remote-deleted";
+import { ensureShopifyWebhooks } from "./shopify/webhooks-subscribe";
+import { readShopifyConfig } from "./shopify/config";
 import { logSyncEvent } from "./sync-log";
 import { findChannelLinkForSale } from "./sale-link";
 import { maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
@@ -210,6 +212,40 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
       }
     } catch (e) {
       console.warn("[channels] eBay notification repair failed", {
+        id: c.id,
+        error: String(e),
+      });
+    }
+  }
+
+  if (c.provider === "shopify") {
+    try {
+      const ctx = await getConnectionContext(c);
+      const shopCfg = readShopifyConfig(
+        (c.config as Record<string, unknown> | null) ?? null,
+        c.externalShopId
+      );
+      if (ctx && shopCfg.shop) {
+        const webhooks = await ensureShopifyWebhooks({
+          accessToken: ctx.accessToken,
+          shop: shopCfg.shop,
+          apiVersion: shopCfg.apiVersion,
+        });
+        await patchChannelConnectionConfig(c.id, {
+          shopifyWebhookAddress: webhooks.address,
+          shopifyWebhooksRegisteredAt: webhooks.error ? null : new Date().toISOString(),
+          shopifyWebhooksError: webhooks.error,
+          shopifyWebhookTopics: webhooks.topics,
+        });
+        if (webhooks.error) {
+          console.warn("[channels] Shopify webhook subscribe failed", {
+            id: c.id,
+            error: webhooks.error,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("[channels] Shopify webhook repair failed", {
         id: c.id,
         error: String(e),
       });

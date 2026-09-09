@@ -6,11 +6,12 @@ import {
   verifyShopifyWebhook,
 } from "@/lib/channels/shopify/webhook";
 import { reconcileConnectionSales } from "@/lib/channels/reconcile";
-import { reconcileConnectionInboundCatalog } from "@/lib/channels/reconcile-inbound-catalog";
 import { getConnectionContext } from "@/lib/channels/connection";
-import { getAdapter } from "@/lib/channels/registry";
-import { applyRemoteQuantityToStoreItem } from "@/lib/channels/apply-remote-listing";
-import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
+import {
+  applyShopifyInventoryWebhook,
+  applyShopifyProductWebhook,
+  stampShopifyWebhookReceipt,
+} from "@/lib/channels/shopify/apply-webhook";
 import {
   logWebhookEvent,
   markWebhookProcessing,
@@ -22,17 +23,16 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * Shopify webhook receiver.
- * Register in Partner Dashboard / Admin:
- * - orders/paid
- * - inventory_levels/update
- * - products/update
- * - products/delete
- * Delivery URL: https://yoursite.com/api/channels/shopify/webhook
+ * Shopify webhook receiver. Subscriptions are created on connect via Admin API
+ * (`ensureShopifyWebhooks`) for orders/paid, inventory_levels/update, products/update|delete.
  */
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
   if (!verifyShopifyWebhook(rawBody, req.headers)) {
+    console.warn("[shopify webhook] invalid hmac", {
+      topic: req.headers.get("x-shopify-topic"),
+      shop: req.headers.get("x-shopify-shop-domain"),
+    });
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
@@ -75,6 +75,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, skipped: "no_connection" });
     }
 
+    await stampShopifyWebhookReceipt(conn.id, topic);
+
     if (topic === "orders/paid") {
       await reconcileConnectionSales(conn);
       await markWebhookCompleted(webhookEventId);
@@ -82,62 +84,30 @@ export async function POST(req: NextRequest) {
     }
 
     if (topic === "products/update" || topic === "products/delete") {
-      await reconcileConnectionInboundCatalog(conn);
+      const result = await applyShopifyProductWebhook({
+        connection: conn,
+        topic,
+        payload,
+      });
+      console.log("[shopify webhook] product apply", { shop, topic, ...result });
       await markWebhookCompleted(webhookEventId);
-      return NextResponse.json({ ok: true, processed: true, topic });
+      return NextResponse.json({ ok: true, processed: result.applied, topic, ...result });
     }
 
     if (topic === "inventory_levels/update") {
-      const body = payload as {
-        inventory_item_id?: number;
-        available?: number;
-        location_id?: number;
-      } | null;
-      if (body?.inventory_item_id == null || typeof body.available !== "number") {
-        await reconcileConnectionInboundCatalog(conn);
-        await markWebhookCompleted(webhookEventId);
-        return NextResponse.json({ ok: true, processed: true, topic });
-      }
-
       const ctx = await getConnectionContext(conn);
       if (!ctx) {
         await markWebhookFailed(webhookEventId, "Connection context unavailable");
         return NextResponse.json({ ok: false, error: "Connection context unavailable" }, { status: 500 });
       }
-      const adapter = getAdapter("shopify");
-      if (!adapter.fetchProductQuantity) {
-        await reconcileConnectionInboundCatalog(conn);
-        await markWebhookCompleted(webhookEventId);
-        return NextResponse.json({ ok: true, processed: true, topic });
-      }
-
-      const links = await prisma.channelListingLink.findMany({
-        where: { connectionId: conn.id, provider: "shopify", syncEnabled: true },
-        select: { id: true, storeItemId: true, externalListingId: true },
+      const result = await applyShopifyInventoryWebhook({
+        connection: conn,
+        accessToken: ctx.accessToken,
+        payload,
       });
-
-      for (const link of links) {
-        const { quantity, known } = await adapter.fetchProductQuantity(
-          ctx,
-          link.externalListingId
-        );
-        if (!known) continue;
-        const changed = await applyRemoteQuantityToStoreItem(link.storeItemId, quantity, {
-          provider: "shopify",
-          memberId: conn.memberId,
-        });
-        if (changed) {
-          await prisma.channelListingLink.update({
-            where: { id: link.id },
-            data: {
-              syncBaselineQty: quantity,
-              syncBaselineAt: new Date(),
-              lastInboundAt: new Date(),
-            },
-          });
-          await syncInventoryToChannels(link.storeItemId, { skipProviders: ["shopify"] });
-        }
-      }
+      console.log("[shopify webhook] inventory apply", { shop, topic, ...result });
+      await markWebhookCompleted(webhookEventId);
+      return NextResponse.json({ ok: true, processed: result.applied, topic, ...result });
     }
 
     await markWebhookCompleted(webhookEventId);
