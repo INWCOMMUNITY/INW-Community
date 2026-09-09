@@ -124,6 +124,18 @@ export function matrixForStorage(
   return serializeVariantMatrix(filled);
 }
 
+/**
+ * True when applying `incoming` would drop option types or combinations INW already has
+ * (e.g. Etsy Color-only inventory overwriting Size × Color).
+ */
+export function remoteVariantMatrixIsWeaker(existing: unknown, incoming: unknown): boolean {
+  const inw = normalizeVariantMatrix(existing);
+  if (!inw || inw.axes.length === 0) return false;
+  const remote = normalizeVariantMatrix(incoming);
+  if (!remote || remote.axes.length === 0) return true;
+  return remote.axes.length < inw.axes.length;
+}
+
 /** Persist the combo matrix on import — never collapse to per-value totals. */
 export function variantsPayloadForImport(listing: {
   variants?: unknown;

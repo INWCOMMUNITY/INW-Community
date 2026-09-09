@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchSaleToVariantOption, validateVariantLimits, variantsPayloadForImport } from "./variant-sync";
+import { matchSaleToVariantOption, remoteVariantMatrixIsWeaker, validateVariantLimits, variantsPayloadForImport } from "./variant-sync";
 
 const matrix = {
   axes: [
@@ -85,6 +85,38 @@ describe("variantsPayloadForImport", () => {
 
   it("skips variants when the provider did not know them", () => {
     expect(variantsPayloadForImport({ variantsKnown: false, variants: { axes: [], skus: [] } })).toBeNull();
+  });
+});
+
+describe("remoteVariantMatrixIsWeaker", () => {
+  const sizeColor = {
+    axes: [
+      { name: "Size", values: ["S", "M"] },
+      { name: "Color", values: ["Navy"] },
+    ],
+    skus: [
+      { options: { Size: "S", Color: "Navy" }, quantity: 2 },
+      { options: { Size: "M", Color: "Navy" }, quantity: 1 },
+    ],
+  };
+  const colorOnly = {
+    axes: [{ name: "Color", values: ["Navy", "White"] }],
+    skus: [
+      { options: { Color: "Navy" }, quantity: 3 },
+      { options: { Color: "White" }, quantity: 1 },
+    ],
+  };
+
+  it("blocks Etsy Color-only inventory from replacing Size × Color", () => {
+    expect(remoteVariantMatrixIsWeaker(sizeColor, colorOnly)).toBe(true);
+  });
+
+  it("allows filling empty INW variants from remote", () => {
+    expect(remoteVariantMatrixIsWeaker(null, sizeColor)).toBe(false);
+  });
+
+  it("allows a same-shape remote update", () => {
+    expect(remoteVariantMatrixIsWeaker(sizeColor, sizeColor)).toBe(false);
   });
 });
 

@@ -1110,7 +1110,10 @@ export function etsyInventoryToVariants(products: unknown): VariantMatrix | null
     const skuCode = p.sku?.trim() || undefined;
     const options: Record<string, string> = {};
     for (const pv of p.property_values ?? []) {
-      const name = (pv.property_name ?? "Option").trim();
+      const named = (pv.property_name ?? "").trim();
+      const name =
+        named ||
+        (pv.property_id != null ? `Option ${pv.property_id}` : "");
       const val = pv.values?.[0]?.trim();
       if (!name || !val) continue;
       options[name] = val;

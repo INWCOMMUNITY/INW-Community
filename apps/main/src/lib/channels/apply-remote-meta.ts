@@ -2,6 +2,7 @@ import { prisma } from "database";
 import { resolveImportCategory } from "./import-listing";
 import {
   matrixForStorage,
+  remoteVariantMatrixIsWeaker,
   sumVariantQuantities,
   type InwVariantAxis,
 } from "./variant-sync";
@@ -119,6 +120,15 @@ export async function applyRemoteVariantAxesToStoreItem(
     select: { variants: true, quantity: true, status: true, inventoryTracking: true },
   });
   if (!item) return false;
+
+  if (remoteVariantMatrixIsWeaker(item.variants, matrix)) {
+    console.warn("[channels] skip inbound variants; remote matrix is weaker than INW", {
+      storeItemId,
+      remoteAxes: matrix.axes.map((a) => a.name),
+      remoteSkuCount: matrix.skus.length,
+    });
+    return false;
+  }
 
   const madeToOrder = isMadeToOrderTracking(item.inventoryTracking);
   const rawQty = sumVariantQuantities(matrix) || sumOptionQuantities(matrix);

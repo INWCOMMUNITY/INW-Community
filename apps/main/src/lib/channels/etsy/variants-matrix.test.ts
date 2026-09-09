@@ -33,6 +33,20 @@ describe("etsyInventoryToVariants", () => {
     expect(matrix?.axes).toHaveLength(2);
   });
 
+  it("keeps unnamed custom properties as separate axes", () => {
+    const matrix = etsyInventoryToVariants([
+      {
+        property_values: [
+          { property_id: 513, values: ["S"] },
+          { property_id: 200, property_name: "Color", values: ["Navy"] },
+        ],
+        offerings: [{ quantity: 1 }],
+      },
+    ]);
+    expect(matrix?.axes.map((a) => a.name).sort()).toEqual(["Color", "Option 513"]);
+    expect(matrix?.skus[0].options).toMatchObject({ Color: "Navy", "Option 513": "S" });
+  });
+
   it("imports a third variation property", () => {
     const matrix = etsyInventoryToVariants([
       {
