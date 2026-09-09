@@ -121,7 +121,7 @@ export async function GET(
         linkOrigin: link.linkOrigin,
       }))
     : item.channelLinks.map(({ connection: _connection, ...link }) => link);
-  const liveEbayLink = channelLinks.find(
+  const liveEbayLink = item.channelLinks.find(
     (l) => l.provider === "ebay" && channelLinkShowsOnItem(l)
   );
   const hasEbayLink = Boolean(liveEbayLink);

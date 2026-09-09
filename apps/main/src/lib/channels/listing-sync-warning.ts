@@ -28,18 +28,29 @@ export const SELLER_CHANNEL_LINK_SELECT = {
 
 /** Hide the shop pill unless this item is actually live on that shop. */
 export function channelLinkShowsOnItem(link: {
+  provider?: string;
   remoteDeletedProvider?: string | null;
   connectionStatus?: string | null;
   ebayListingEnded?: boolean;
   remoteCatalogState?: string | null;
+  conflictDetails?: unknown;
+  connection?: { status?: string } | null;
 }): boolean {
-  if (link.remoteDeletedProvider) return false;
-  if (link.connectionStatus === "disconnected") return false;
-  if (link.ebayListingEnded) return false;
+  const remoteDeletedProvider =
+    link.remoteDeletedProvider ??
+    readRemoteDeletedNotice(link.conflictDetails)?.provider ??
+    null;
+  if (remoteDeletedProvider) return false;
+  const connectionStatus = link.connectionStatus ?? link.connection?.status ?? null;
+  if (connectionStatus === "disconnected") return false;
+  const ebayListingEnded = link.ebayListingEnded ?? readEbayListingEnded(link.conflictDetails);
+  if (ebayListingEnded) return false;
+  const remoteCatalogState =
+    link.remoteCatalogState ?? readRemoteCatalogState(link.conflictDetails);
   if (
-    link.remoteCatalogState === "inactive" ||
-    link.remoteCatalogState === "inactive_outside_catalog" ||
-    link.remoteCatalogState === "linked_other_channel"
+    remoteCatalogState === "inactive" ||
+    remoteCatalogState === "inactive_outside_catalog" ||
+    remoteCatalogState === "linked_other_channel"
   ) {
     return false;
   }

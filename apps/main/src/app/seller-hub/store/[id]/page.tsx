@@ -103,9 +103,6 @@ export default async function EditStoreItemPage({
               lastPushedAt: l.lastPushedAt?.toISOString() ?? null,
               linkOrigin: l.linkOrigin,
             })),
-            hasEbayLink: item.channelLinks.some(
-              (l) => l.provider === "ebay" && channelLinkShowsOnItem(withListingChannelSyncWarning(l))
-            ),
             hasEbayImportLink: item.channelLinks.some(
               (l) =>
                 l.provider === "ebay" &&

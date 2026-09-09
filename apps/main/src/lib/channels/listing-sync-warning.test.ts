@@ -252,4 +252,28 @@ describe("withListingChannelSyncWarning", () => {
     expect(inactive.remoteCatalogState).toBe("inactive");
     expect(channelLinkShowsOnItem(inactive)).toBe(false);
   });
+
+  it("hides shop tags from Prisma-shaped links that only have conflictDetails", () => {
+    expect(
+      channelLinkShowsOnItem({
+        provider: "ebay",
+        conflictDetails: { ebayListingEnded: true },
+        connection: { status: "active" },
+      })
+    ).toBe(false);
+    expect(
+      channelLinkShowsOnItem({
+        provider: "etsy",
+        conflictDetails: { remoteCatalogState: "inactive" },
+        connection: { status: "active" },
+      })
+    ).toBe(false);
+    expect(
+      channelLinkShowsOnItem({
+        provider: "wix",
+        conflictDetails: null,
+        connection: { status: "disconnected" },
+      })
+    ).toBe(false);
+  });
 });
