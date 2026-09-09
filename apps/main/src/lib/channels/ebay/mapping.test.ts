@@ -36,6 +36,7 @@ describe("resolveEbayLegacyListingId", () => {
 
   it("rejects non-legacy ids", () => {
     expect(resolveEbayLegacyListingId("offer-abc")).toBeNull();
+    expect(resolveEbayLegacyListingId("cmt7vumcl000dxjujvgwe8dobRedSmall")).toBeNull();
   });
 });
 

@@ -44,6 +44,37 @@ describe("listingChannelSyncWarning", () => {
     expect(channelLinkShowsOnItem({ connectionStatus: "active" })).toBe(true);
   });
 
+  it("hides the eBay tag until the link has a live eBay Item ID", () => {
+    expect(
+      channelLinkShowsOnItem({
+        provider: "ebay",
+        externalListingId: "cmt7vumcl000dxjujvgwe8dobRedSmall",
+        connectionStatus: "active",
+      })
+    ).toBe(false);
+    expect(
+      channelLinkShowsOnItem({
+        provider: "ebay",
+        externalListingId: "cmt7vumcl000dxjujvgwe8dob",
+        connectionStatus: "active",
+      })
+    ).toBe(false);
+    expect(
+      channelLinkShowsOnItem({
+        provider: "ebay",
+        externalListingId: "407186363325",
+        connectionStatus: "active",
+      })
+    ).toBe(true);
+    expect(
+      channelLinkShowsOnItem({
+        provider: "ebay",
+        externalListingId: "inw407186363325",
+        connectionStatus: "active",
+      })
+    ).toBe(true);
+  });
+
   it("hides eBay photo-host mix errors from the listing badge", () => {
     expect(
       listingChannelSyncWarning({

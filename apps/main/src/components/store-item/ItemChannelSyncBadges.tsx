@@ -9,6 +9,7 @@ export type ItemChannelLink = {
   provider: string;
   syncStatus: string;
   syncEnabled: boolean;
+  externalListingId?: string | null;
   syncError?: string | null;
   connectionStatus?: string | null;
   syncWarning?: string | null;

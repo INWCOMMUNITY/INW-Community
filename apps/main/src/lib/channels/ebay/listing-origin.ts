@@ -11,6 +11,15 @@ export type EbayLinkOrigin = "import" | "inw_create";
 const IMPORTED_EBAY_SKU = /^inw\d+$/i;
 /** Numeric eBay legacy Item ID (older links stored this instead of inw SKU). */
 export const LEGACY_EBAY_ITEM_ID = /^\d{9,15}$/;
+const IMPORTED_EBAY_LIVE_SKU = /^inw\d{9,15}$/i;
+
+/** True when the channel link id is a live eBay listing, not an Inventory/variation SKU. */
+export function ebayExternalIdLooksLive(id: string | null | undefined): boolean {
+  const trimmed = (id ?? "").trim();
+  if (!trimmed) return false;
+  if (LEGACY_EBAY_ITEM_ID.test(trimmed)) return true;
+  return IMPORTED_EBAY_LIVE_SKU.test(trimmed);
+}
 
 export type EbayLinkOriginInput = {
   provider: string;

@@ -3,6 +3,7 @@ import {
   EBAY_CRON_DIRTY_GETITEM_LIMIT,
   EBAY_CRON_GETITEM_LIMIT,
   ebayApplyTrustsSingleSnapshot,
+  ebayItemIdForGetItem,
   ebaySellerListRowIsDirty,
   rotateEbayLinks,
 } from "./pull-ebay-updates";
@@ -19,6 +20,28 @@ describe("EBAY_CRON_GETITEM_LIMIT", () => {
   it("caps dirty GetItems below a full-shop crawl", () => {
     expect(EBAY_CRON_DIRTY_GETITEM_LIMIT).toBe(20);
     expect(EBAY_CRON_DIRTY_GETITEM_LIMIT).toBeGreaterThan(EBAY_CRON_GETITEM_LIMIT);
+  });
+});
+
+describe("ebayItemIdForGetItem", () => {
+  it("uses a numeric Item ID or inw SKU, never a variation SKU", () => {
+    expect(
+      ebayItemIdForGetItem({ externalListingId: "407186363325" })
+    ).toBe("407186363325");
+    expect(
+      ebayItemIdForGetItem({ externalListingId: "inw407186363325" })
+    ).toBe("407186363325");
+    expect(
+      ebayItemIdForGetItem({
+        externalListingId: "cmt7vumcl000dxjujvgwe8dobRedSmall",
+      })
+    ).toBeNull();
+    expect(
+      ebayItemIdForGetItem({
+        externalListingId: "cmt7vumcl000dxjujvgwe8dobRedSmall",
+        sellerListListingId: "407186363325",
+      })
+    ).toBe("407186363325");
   });
 });
 

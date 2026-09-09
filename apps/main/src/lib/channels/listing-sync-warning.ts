@@ -26,9 +26,17 @@ export const SELLER_CHANNEL_LINK_SELECT = {
   connection: { select: { status: true } },
 } as const;
 
+function ebayExternalIdLooksLive(id: string | null | undefined): boolean {
+  const trimmed = (id ?? "").trim();
+  if (!trimmed) return false;
+  if (/^\d{9,15}$/.test(trimmed)) return true;
+  return /^inw\d{9,15}$/i.test(trimmed);
+}
+
 /** Hide the shop pill unless this item is actually live on that shop. */
 export function channelLinkShowsOnItem(link: {
   provider?: string;
+  externalListingId?: string | null;
   remoteDeletedProvider?: string | null;
   connectionStatus?: string | null;
   ebayListingEnded?: boolean;
@@ -45,6 +53,13 @@ export function channelLinkShowsOnItem(link: {
   if (connectionStatus === "disconnected") return false;
   const ebayListingEnded = link.ebayListingEnded ?? readEbayListingEnded(link.conflictDetails);
   if (ebayListingEnded) return false;
+  if (
+    (link.provider ?? "").toLowerCase() === "ebay" &&
+    typeof link.externalListingId === "string" &&
+    !ebayExternalIdLooksLive(link.externalListingId)
+  ) {
+    return false;
+  }
   const remoteCatalogState =
     link.remoteCatalogState ?? readRemoteCatalogState(link.conflictDetails);
   if (

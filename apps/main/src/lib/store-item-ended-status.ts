@@ -5,6 +5,7 @@ export const ENDED_LISTING_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
 type ChannelLinkLike = {
   provider: string;
+  externalListingId?: string | null;
   remoteDeletedProvider?: string | null;
   connectionStatus?: string | null;
   ebayListingEnded?: boolean;

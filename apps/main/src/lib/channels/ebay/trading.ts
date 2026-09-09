@@ -250,8 +250,12 @@ export async function fetchEbayItemDetails(
   accessToken: string,
   listingId: string
 ): Promise<EbayItemDetails> {
+  const legacy = resolveEbayLegacyListingId(listingId);
+  if (!legacy) {
+    throw new Error(`GetItem requires an eBay Item ID (got ${listingId})`);
+  }
   try {
-    const xml = await callTrading(accessToken, "GetItem", buildGetItemXml(listingId));
+    const xml = await callTrading(accessToken, "GetItem", buildGetItemXml(legacy));
     
     // Log raw response size and check for errors
     console.log("[ebay] GetItem raw response", {

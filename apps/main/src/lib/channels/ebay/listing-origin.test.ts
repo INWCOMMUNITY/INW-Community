@@ -4,11 +4,18 @@ import {
   inferEbayLinkOrigin,
   isImportedEbayLink,
   isInwCreatedEbayLink,
+  ebayExternalIdLooksLive,
   resolveEbayInventorySku,
   resolveEbayPushSku,
 } from "./listing-origin";
 
 describe("listing-origin", () => {
+  it("treats numeric Item IDs and inw SKUs as live eBay listings", () => {
+    expect(ebayExternalIdLooksLive("407186363325")).toBe(true);
+    expect(ebayExternalIdLooksLive("inw407186363325")).toBe(true);
+    expect(ebayExternalIdLooksLive("cmt7vumcl000dxjujvgwe8dob")).toBe(false);
+    expect(ebayExternalIdLooksLive("cmt7vumcl000dxjujvgwe8dobRedSmall")).toBe(false);
+  });
   it("detects imported eBay link by inw SKU", () => {
     expect(
       isImportedEbayLink({ provider: "ebay", externalListingId: "inw403004607151" })

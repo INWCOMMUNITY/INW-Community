@@ -14,6 +14,7 @@ export type ListOnCategoryItem = {
   aspects?: { name: string; value: string }[] | unknown;
   channelLinks?: {
     provider: string;
+    externalListingId?: string | null;
     remoteDeletedProvider?: string | null;
     connectionStatus?: string | null;
     ebayListingEnded?: boolean;

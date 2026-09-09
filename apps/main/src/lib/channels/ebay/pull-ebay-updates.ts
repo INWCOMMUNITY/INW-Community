@@ -981,6 +981,35 @@ async function persistEbayPullCursor(connectionId: string, cursor: string | null
   await patchChannelConnectionConfig(connectionId, {}, ["ebayPullCursor"]);
 }
 
+/** GetItem only accepts numeric eBay Item IDs, never Inventory/variation SKUs. */
+export function ebayItemIdForGetItem(args: {
+  externalListingId: string;
+  sellerListListingId?: string | null;
+}): string | null {
+  return (
+    resolveEbayLegacyListingId(args.externalListingId) ??
+    (args.sellerListListingId
+      ? resolveEbayLegacyListingId(args.sellerListListingId)
+      : null)
+  );
+}
+
+function matchEbaySellerListRow(
+  link: { externalListingId: string; storeItem?: { id?: string } | null },
+  byRemote: Map<string, EbayTradingListing>
+): EbayTradingListing | undefined {
+  const keys = [
+    link.externalListingId,
+    resolveEbayLegacyListingId(link.externalListingId) ?? undefined,
+    link.storeItem?.id,
+  ].filter((key): key is string => Boolean(key));
+  for (const key of keys) {
+    const hit = byRemote.get(key);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
 /** GetMyeBaySelling title/price/qty vs INW — list is a dirty detector, not source of truth. */
 export function ebaySellerListRowIsDirty(
   inw: { title: string; priceCents: number; quantity: number },
@@ -1083,7 +1112,7 @@ export async function pullEbayUpdatesForConnection(
     select: {
       id: true,
       externalListingId: true,
-      storeItem: { select: { title: true, priceCents: true, quantity: true } },
+      storeItem: { select: { id: true, title: true, priceCents: true, quantity: true } },
     },
     orderBy: { id: "asc" },
   });
@@ -1111,11 +1140,7 @@ export async function pullEbayUpdatesForConnection(
     const byRemote = indexEbaySellerList(sellerList);
     const dirty: typeof links = [];
     for (const link of links) {
-      const remote =
-        byRemote.get(link.externalListingId) ??
-        (resolveEbayLegacyListingId(link.externalListingId)
-          ? byRemote.get(resolveEbayLegacyListingId(link.externalListingId)!)
-          : undefined);
+      const remote = matchEbaySellerListRow(link, byRemote);
       if (!remote) continue;
       if (
         ebaySellerListRowIsDirty(
@@ -1145,8 +1170,12 @@ export async function pullEbayUpdatesForConnection(
     }
 
     for (const link of dirtyThisTick) {
-      const legacyId =
-        resolveEbayLegacyListingId(link.externalListingId) ?? link.externalListingId.replace(/^inw/i, "");
+      const remote = matchEbaySellerListRow(link, byRemote);
+      const legacyId = ebayItemIdForGetItem({
+        externalListingId: link.externalListingId,
+        sellerListListingId: remote?.listingId,
+      });
+      if (!legacyId) continue;
       checkedIds.add(link.id);
       const next = await refreshEbayListingWithAuthRetry(
         connection,
@@ -1169,8 +1198,12 @@ export async function pullEbayUpdatesForConnection(
 
     for (const link of batch) {
       if (checkedIds.has(link.id)) continue;
-      const legacyId =
-        resolveEbayLegacyListingId(link.externalListingId) ?? link.externalListingId.replace(/^inw/i, "");
+      const remote = matchEbaySellerListRow(link, byRemote);
+      const legacyId = ebayItemIdForGetItem({
+        externalListingId: link.externalListingId,
+        sellerListListingId: remote?.listingId,
+      });
+      if (!legacyId) continue;
       checkedIds.add(link.id);
       const next = await refreshEbayListingWithAuthRetry(
         connection,

@@ -12,6 +12,7 @@ export type DestinationAssignment = {
 
 export type BulkDestinationChannelLink = {
   provider: string;
+  externalListingId?: string | null;
   remoteDeletedProvider?: string | null;
   connectionStatus?: string | null;
   ebayListingEnded?: boolean;
