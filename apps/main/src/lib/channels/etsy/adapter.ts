@@ -26,8 +26,10 @@ import {
   etsyListingToSummary,
 } from "./mapping";
 import { pushEtsyVariants, syncEtsyListingInventoryFromInw } from "./variants";
+import { syncEtsyVariationImagesFromItem } from "./variation-images";
 import { prisma } from "database";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
+import { channelTreatsItemInStock } from "@/lib/listing-variant-matrix";
 import { parseEtsyInboundEvent, verifyEtsyWebhook } from "./webhook";
 import { readLastPushedPhotos, syncEtsyListingPhotos } from "./photos";
 import {
@@ -240,6 +242,17 @@ export const etsyAdapter: ChannelAdapter = {
           variantWarning = e instanceof Error ? e.message : String(e);
           console.error("[etsy] variant push failed", { listingId, error: variantWarning });
         }
+        await syncEtsyVariationImagesFromItem({
+          accessToken: conn.accessToken,
+          shopId,
+          listingId,
+          item,
+        }).catch((e) => {
+          console.warn("[etsy] variation image sync failed", {
+            listingId,
+            error: String(e),
+          });
+        });
       } else {
         await this.updateInventory(conn, listingId, item.quantity, item).catch((e) =>
           console.error("[etsy] initial inventory set failed", { listingId, error: String(e) })
@@ -258,7 +271,7 @@ export const etsyAdapter: ChannelAdapter = {
             : "Created as an Etsy draft — add a shipping profile in Sync Stores to go live.",
         };
       }
-      if (item.status === "active" && item.quantity > 0) {
+      if (item.status === "active" && channelTreatsItemInStock(item)) {
         try {
           await etsyForm(conn.accessToken, `/shops/${shopId}/listings/${listingId}`, "PATCH", {
             state: "active",
@@ -406,6 +419,17 @@ export const etsyAdapter: ChannelAdapter = {
           lastPushedInwPhotos: readLastPushedPhotos(etsyLink?.lastPushedPhotos),
         }).catch((e) => {
           console.error("[etsy] photo sync failed", {
+            listingId: externalListingId,
+            error: String(e),
+          });
+        });
+        await syncEtsyVariationImagesFromItem({
+          accessToken: conn.accessToken,
+          shopId,
+          listingId: externalListingId,
+          item,
+        }).catch((e) => {
+          console.warn("[etsy] variation image sync failed", {
             listingId: externalListingId,
             error: String(e),
           });

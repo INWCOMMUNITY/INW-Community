@@ -168,7 +168,7 @@ function SellerOrderDetailInner() {
             {needsLabel ? (
               <div>
                 <p className="text-sm text-gray-600 mb-3">
-                  Purchase a label with your connected Shippo account, or mark shipped if you used your own carrier.
+                  Purchase a label with your connected Shippo account.
                 </p>
                 <Link
                   href={shippoLabelHref(order.id, "purchase")}

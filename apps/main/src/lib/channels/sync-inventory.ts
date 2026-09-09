@@ -4,6 +4,7 @@ import { getAdapter } from "./registry";
 import { withConnectionAuthRetry } from "./connection";
 import { assertSaneInventoryQty, clampSaneInventoryQty } from "./inventory-sanity";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
+import { isMadeToOrderTracking, MTO_CHANNEL_QUANTITY } from "@/lib/listing-variant-matrix";
 import type { ChannelProvider, ChannelSyncResult } from "./types";
 import { describeChannelSyncError } from "./ebay/errors";
 import { enqueueRetry } from "./retry-queue";
@@ -122,8 +123,12 @@ export async function syncInventoryToChannels(
       
       // Apply safety buffer: global + per-channel inventory offset
       const channelInventoryOffset = (connConfig.inventoryOffset as number) ?? 0;
-      const totalBuffer = globalSafetyBuffer + channelInventoryOffset;
-      const adjustedQty = Math.max(0, item.quantity - totalBuffer);
+      const totalBuffer = isMadeToOrderTracking(item.inventoryTracking)
+        ? 0
+        : globalSafetyBuffer + channelInventoryOffset;
+      const adjustedQty = isMadeToOrderTracking(item.inventoryTracking)
+        ? MTO_CHANNEL_QUANTITY
+        : Math.max(0, item.quantity - totalBuffer);
       const forceZeroForSoldOut = item.status === "sold_out" && adjustedQty === 0;
 
       // If syncZeroQuantity is disabled and qty is 0, skip pushing to channels

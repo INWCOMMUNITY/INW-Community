@@ -2,6 +2,7 @@ import type { ChannelConnectionContext, RemoteListingSummary, SyncStoreItem } fr
 import { listingDescriptionToPlainText } from "../rich-description";
 import { isEtsyWhoMade, normalizeEtsyWhenMade } from "@/lib/etsy-listing-options";
 import { listingPackageFromRemote } from "@/lib/shipping-options";
+import { channelQuantityForTracked, channelTreatsItemInStock } from "@/lib/listing-variant-matrix";
 
 /**
  * Map of Etsy taxonomy IDs to category names.
@@ -603,7 +604,7 @@ export function buildEtsyCreateFields(
     );
   }
   return {
-    quantity: Math.max(1, item.quantity),
+    quantity: Math.max(1, channelQuantityForTracked(item.quantity, item.inventoryTracking)),
     title: etsyTitle(item.title),
     description: etsyDescription(item),
     price: etsyPriceFromCents(item.priceCents),
@@ -630,7 +631,7 @@ export function buildEtsyUpdateFields(
     title: etsyTitle(item.title),
     description: etsyDescription(item),
     price: etsyPriceFromCents(item.priceCents),
-    state: item.status === "active" && item.quantity > 0 ? "active" : "inactive",
+    state: item.status === "active" && channelTreatsItemInStock(item) ? "active" : "inactive",
     ...(item.etsyTaxonomyId || overrides?.taxonomyId
       ? { taxonomy_id: (overrides?.taxonomyId ?? item.etsyTaxonomyId) as number }
       : {}),
@@ -642,6 +643,7 @@ export function buildEtsyUpdateFields(
 
 type EtsyListing = {
   listing_id: number;
+  state?: string;
   title?: string;
   description?: string;
   quantity?: number;

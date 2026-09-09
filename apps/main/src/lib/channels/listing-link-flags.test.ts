@@ -5,6 +5,7 @@ import {
   mergeConflictDetails,
   readRemoteCatalogState,
   shouldDropStaleChannelRetry,
+  shouldDropContentRetryAfterLaterWrite,
   shouldSkipEndedEbayOutbound,
   withEbayListingEnded,
   withRemoteCatalogState,
@@ -115,6 +116,30 @@ describe("stale retry drop", () => {
         conflictDetails: {},
         storeItemQuantity: 0,
         hasRecentSale: true,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("shouldDropContentRetryAfterLaterWrite", () => {
+  it("drops a content retry after a later successful push", () => {
+    expect(
+      shouldDropContentRetryAfterLaterWrite({
+        retryType: "content",
+        retryCreatedAt: new Date("2026-09-09T02:01:01.560Z"),
+        lastInboundAt: new Date("2026-09-09T01:35:31.464Z"),
+        lastPushedAt: new Date("2026-09-09T02:21:28.430Z"),
+      })
+    ).toBe(true);
+  });
+
+  it("keeps a content retry when neither inbound nor push happened after enqueue", () => {
+    expect(
+      shouldDropContentRetryAfterLaterWrite({
+        retryType: "content",
+        retryCreatedAt: new Date("2026-09-09T02:01:01.560Z"),
+        lastInboundAt: new Date("2026-09-09T01:35:31.464Z"),
+        lastPushedAt: new Date("2026-09-09T01:57:01.814Z"),
       })
     ).toBe(false);
   });

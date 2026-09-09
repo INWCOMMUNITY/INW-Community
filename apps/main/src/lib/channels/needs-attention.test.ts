@@ -157,14 +157,15 @@ describe("classifyListingNeedsAttention", () => {
     expect(typeField?.options?.some((o) => o.value === "Wall Clock")).toBe(true);
   });
 
-  it("does not put eBay photo-host mix errors on the listing", () => {
+  it("keeps eBay photo-host mix errors in Needs Attention as retry-only", () => {
     const result = classifyListingNeedsAttention({
       provider: "ebay",
       syncError:
         "[#25014 · API_INVENTORY · Request · HTTP 400] A mixture of Self Hosted and EPS pictures are not allowed.",
       item,
     });
-    expect(result).toBeNull();
+    expect(result?.action).toBe("retry_only");
+    expect(result?.summary).toMatch(/25014|mixture/i);
   });
 
   it("explains eBay variation SKU collisions as retry-only", () => {

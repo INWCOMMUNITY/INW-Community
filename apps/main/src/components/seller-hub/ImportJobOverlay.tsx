@@ -79,6 +79,9 @@ export function ImportResultTabs({
   onDone,
   onRetry,
   retrying,
+  reviewCount = 0,
+  onFixCategories,
+  fixingCategories,
 }: {
   imported: ImportResultImported[];
   skipped: ImportResultSkipped[];
@@ -88,6 +91,9 @@ export function ImportResultTabs({
   onDone: () => void;
   onRetry: (ids: string[]) => void;
   retrying?: boolean;
+  reviewCount?: number;
+  onFixCategories?: () => void;
+  fixingCategories?: boolean;
 }) {
   const retryable = skipped.filter((s) => s.retryable);
   return (
@@ -118,7 +124,22 @@ export function ImportResultTabs({
           imported.length === 0 ? (
             <p className="text-sm text-gray-600">No listings were added to INW.</p>
           ) : (
-            <ul className="space-y-3">
+            <>
+              {reviewCount > 0 ? (
+                <p className="mb-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  {imported.length - reviewCount > 0
+                    ? `${imported.length - reviewCount} auto-assigned to INW categories. `
+                    : null}
+                  {reviewCount} listing{reviewCount === 1 ? "" : "s"} need category review
+                  (low-confidence or title-based match).
+                </p>
+              ) : (
+                <p className="mb-3 text-sm text-gray-600">
+                  {imported.length} listing{imported.length === 1 ? "" : "s"} auto-assigned to INW
+                  categories.
+                </p>
+              )}
+              <ul className="space-y-3">
               {imported.map((row, i) => (
                 <li key={row.storeItemId ?? `${row.externalListingId}-${i}`} className="flex items-center gap-3">
                   {row.photo ? (
@@ -132,6 +153,7 @@ export function ImportResultTabs({
                 </li>
               ))}
             </ul>
+            </>
           )
         ) : skipped.length === 0 ? (
           <p className="text-sm text-gray-600">Everything imported cleanly.</p>
@@ -170,6 +192,16 @@ export function ImportResultTabs({
                 style={{ backgroundColor: "var(--color-primary)" }}
               >
                 Share to feed
+              </button>
+            ) : null}
+            {reviewCount > 0 && onFixCategories ? (
+              <button
+                type="button"
+                onClick={onFixCategories}
+                disabled={fixingCategories}
+                className="w-full rounded-lg border border-amber-300 bg-amber-50 py-3 font-semibold text-amber-900 disabled:opacity-50"
+              >
+                {fixingCategories ? "Fixing categories…" : "Fix category assignments"}
               </button>
             ) : null}
             <button

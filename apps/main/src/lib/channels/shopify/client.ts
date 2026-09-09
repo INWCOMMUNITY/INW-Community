@@ -141,3 +141,45 @@ export function shopifyDelete<T>(
 ): Promise<T> {
   return shopifyRequest<T>(accessToken, shop, apiVersion, path, { method: "DELETE" });
 }
+
+export type ShopifyGraphqlResponse<T> = {
+  data?: T;
+  errors?: { message?: string }[];
+};
+
+/**
+ * POST /admin/api/{version}/graphql.json
+ * Throws ShopifyApiError when HTTP fails or the payload contains GraphQL errors
+ * without usable data.
+ */
+export async function shopifyGraphql<T>(
+  accessToken: string,
+  shop: string,
+  apiVersion: string,
+  query: string,
+  variables?: Record<string, unknown>
+): Promise<T> {
+  const body = await shopifyRequest<ShopifyGraphqlResponse<T>>(
+    accessToken,
+    shop,
+    apiVersion,
+    "/graphql.json",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(variables ? { query, variables } : { query }),
+    }
+  );
+  const gqlErrors = body.errors?.map((e) => e.message).filter(Boolean) ?? [];
+  if (!body.data) {
+    throw new ShopifyApiError(
+      gqlErrors[0] || "Shopify GraphQL returned no data.",
+      200,
+      body
+    );
+  }
+  if (gqlErrors.length > 0) {
+    console.warn("[shopify] graphql user-facing errors", { errors: gqlErrors.slice(0, 3) });
+  }
+  return body.data;
+}

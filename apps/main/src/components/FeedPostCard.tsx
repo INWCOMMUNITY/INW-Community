@@ -11,12 +11,18 @@ import { PollCard } from "@/components/feed/PollCard";
 import { LinkPreviewCard } from "@/components/feed/LinkPreviewCard";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import { extractFirstUrl } from "@/lib/extract-urls";
+import { browsePriceLabel } from "@/lib/listing-variant-matrix";
 import { buildProductHref } from "@/lib/product-referrer";
 import { buildBusinessHref } from "@/lib/business-referrer";
 import { buildEventHref } from "@/lib/event-referrer";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
 import { feedBusinessAuthorHref, feedPostShowsAsBusiness } from "@/lib/feed-post-business-author";
 const TRUNCATE_LENGTH = 200;
+
+function listingCardPriceText(priceCents: number, variants?: unknown): string {
+  const p = browsePriceLabel(priceCents, variants);
+  return `${p.from ? "From " : ""}$${(p.cents / 100).toFixed(2)}`;
+}
 
 function taggedBusinessListSeparator(index: number, total: number): string {
   if (index === 0) return "";
@@ -83,7 +89,7 @@ type SourcePost = {
   sourceBusiness?: { id: string; name: string; slug: string; shortDescription: string | null; logoUrl: string | null } | null;
   sourceCoupon?: { id: string; name: string; discount: string; code: string; business: { name: string; slug: string } } | null;
   sourceReward?: { id: string; title: string; pointsRequired: number; business: { name: string; slug: string } } | null;
-  sourceStoreItem?: { id: string; title: string; slug: string; photos: string[]; priceCents: number } | null;
+  sourceStoreItem?: { id: string; title: string; slug: string; photos: string[]; priceCents: number; variants?: unknown } | null;
   sourceListingCollection?: { id: string; title: string; itemCount: number; previewPhotos: string[] } | null;
   sourceEvent?: SourceEvent | null;
 };
@@ -145,7 +151,7 @@ interface FeedPostCardProps {
     sourceBusiness?: { id: string; name: string; slug: string; shortDescription: string | null; logoUrl: string | null } | null;
     sourceCoupon?: { id: string; name: string; discount: string; code: string; business: { name: string; slug: string } } | null;
     sourceReward?: { id: string; title: string; pointsRequired: number; business: { name: string; slug: string } } | null;
-    sourceStoreItem?: { id: string; title: string; slug: string; photos: string[]; priceCents: number } | null;
+    sourceStoreItem?: { id: string; title: string; slug: string; photos: string[]; priceCents: number; variants?: unknown } | null;
     sourceListingCollection?: { id: string; title: string; itemCount: number; previewPhotos: string[] } | null;
     sourceEvent?: SourceEvent | null;
     sourcePost?: SourcePost | null;
@@ -645,7 +651,9 @@ export function FeedPostCard({
                 )}
                 <div>
                   <h3 className="font-bold">{post.sourceStoreItem.title}</h3>
-                  <p className="text-sm text-gray-600">${(post.sourceStoreItem.priceCents / 100).toFixed(2)}</p>
+                  <p className="text-sm text-gray-600">
+                    {listingCardPriceText(post.sourceStoreItem.priceCents, post.sourceStoreItem.variants)}
+                  </p>
                 </div>
               </div>
             </Link>
@@ -816,7 +824,12 @@ export function FeedPostCard({
                     )}
                     <div>
                       <h3 className="font-bold text-sm">{post.sourcePost.sourceStoreItem.title}</h3>
-                      <p className="text-xs text-gray-600">${(post.sourcePost.sourceStoreItem.priceCents / 100).toFixed(2)}</p>
+                      <p className="text-xs text-gray-600">
+                        {listingCardPriceText(
+                          post.sourcePost.sourceStoreItem.priceCents,
+                          post.sourcePost.sourceStoreItem.variants
+                        )}
+                      </p>
                     </div>
                   </div>
                 </Link>

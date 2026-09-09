@@ -167,7 +167,6 @@ function ToShipFlowView({
   const [error, setError] = useState<string | null>(null);
   const [savingPackingSlip, setSavingPackingSlip] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(() => new Set());
-  const [markingShippedId, setMarkingShippedId] = useState<string | null>(null);
   const [shipMenuOrderId, setShipMenuOrderId] = useState<string | null>(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [messagingBuyerId, setMessagingBuyerId] = useState<string | null>(null);
@@ -273,44 +272,7 @@ function ToShipFlowView({
   };
 
   const menuOrder = shipMenuOrderId ? orders.find((o) => o.id === shipMenuOrderId) ?? null : null;
-  const menuBusy =
-    markingShippedId != null || cancelingId != null || messagingBuyerId != null;
-
-  const confirmMarkShipped = (orderId: string) => {
-    setShipMenuOrderId(null);
-    Alert.alert(
-      "Mark as shipped?",
-      "Use this if you already shipped without buying a label in the app. Reminders and badges update once marked.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Mark shipped",
-          onPress: async () => {
-            setMarkingShippedId(orderId);
-            setError(null);
-            try {
-              await apiPatch(`/api/store-orders/${encodeURIComponent(orderId)}`, { status: "shipped" });
-              onOrderRemoved(orderId);
-              setSelectedOrderIds((prev) => {
-                const next = new Set(prev);
-                next.delete(orderId);
-                return next;
-              });
-            } catch (e: unknown) {
-              const msg =
-                typeof e === "object" && e !== null && "error" in e && typeof (e as { error?: string }).error === "string"
-                  ? (e as { error: string }).error
-                  : "Could not mark shipped. Try again.";
-              setError(msg);
-              Alert.alert("Mark shipped", msg);
-            } finally {
-              setMarkingShippedId(null);
-            }
-          },
-        },
-      ]
-    );
-  };
+  const menuBusy = cancelingId != null || messagingBuyerId != null;
 
   const confirmCancelAndRefund = (orderId: string) => {
     setShipMenuOrderId(null);
@@ -389,7 +351,7 @@ function ToShipFlowView({
         <Text style={styles.shipHint}>
           {connected
             ? "No orders need shipping. Labels are charged to your connected Shippo account."
-            : "No orders are waiting to ship. Connect Shippo when you want to buy labels in the browser, or mark shipped from an order when you use your own postage."}
+            : "No orders are waiting to ship. Connect Shippo when you want to buy labels in the browser."}
         </Text>
         <Text style={styles.shipEmpty}>No Orders To Ship</Text>
         {!connected ? (
@@ -415,7 +377,7 @@ function ToShipFlowView({
       <Text style={styles.shipHint}>
         {connected
           ? "Select orders for this run, then purchase labels (full-screen Shippo in the browser). Same-buyer orders are combined into one purchase per buyer."
-          : "Mark shipped if you used your own carrier — that clears app reminders without buying a label here. Connect Shippo below when you want in-browser labels and packing slips."}
+          : "Connect Shippo below to buy labels and print packing slips in the browser."}
       </Text>
       {connected ? (
         <>
@@ -516,10 +478,7 @@ function ToShipFlowView({
                   <View style={styles.shipItemsList}>
                     {(order.items ?? []).map((oi) => {
                       const photoUrl = resolvePhotoUrl(oi.storeItem?.photos?.[0]);
-                      const itemBusy =
-                        markingShippedId === order.id ||
-                        cancelingId === order.id ||
-                        messagingBuyerId === order.id;
+                      const itemBusy = cancelingId === order.id || messagingBuyerId === order.id;
                       return (
                         <View key={oi.id} style={styles.shipItemRow}>
                           {photoUrl ? (
@@ -575,17 +534,8 @@ function ToShipFlowView({
     >
       <Pressable style={styles.modalBackdrop} onPress={() => setShipMenuOrderId(null)}>
         <View onStartShouldSetResponder={() => true} style={styles.modalSheet}>
-          {menuOrder && isOrderEligibleForToShipQueue(menuOrder) ? (
-            <Pressable
-              style={({ pressed }) => [styles.modalRowFirst, pressed && { opacity: 0.85 }]}
-              onPress={() => confirmMarkShipped(menuOrder.id)}
-              disabled={menuBusy}
-            >
-              <Text style={styles.modalRowText}>Mark as shipped</Text>
-            </Pressable>
-          ) : null}
           <Pressable
-            style={({ pressed }) => [styles.modalRowDanger, pressed && { opacity: 0.85 }]}
+            style={({ pressed }) => [styles.modalRowFirst, pressed && { opacity: 0.85 }]}
             onPress={() => {
               if (menuOrder) confirmCancelAndRefund(menuOrder.id);
             }}

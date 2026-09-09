@@ -3,6 +3,7 @@ import { getAdapter } from "./registry";
 import { getActiveConnectionsForMember, withConnectionAuthRetry } from "./connection";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
 import {
+  inwSavedAfterChannelPush,
   storeItemContentHash,
   shouldBlockOutboundOverwrite,
   syncContentHash,
@@ -49,6 +50,17 @@ async function loadSyncItem(storeItemId: string): Promise<SyncStoreItem | null> 
     select: syncStoreItemSelect,
   });
   return row ? toSyncStoreItem(row) : null;
+}
+
+async function loadSyncItemWithUpdatedAt(
+  storeItemId: string
+): Promise<{ item: SyncStoreItem; updatedAt: Date } | null> {
+  const row = await prisma.storeItem.findUnique({
+    where: { id: storeItemId },
+    select: { ...syncStoreItemSelect, updatedAt: true },
+  });
+  if (!row) return null;
+  return { item: toSyncStoreItem(row), updatedAt: row.updatedAt };
 }
 
 /**
@@ -372,8 +384,9 @@ export async function updateStoreItemOnChannels(
   });
   const results: ChannelSyncResult[] = [];
   if (links.length === 0) return results;
-  const item = await loadSyncItem(storeItemId);
-  if (!item) return results;
+  const loaded = await loadSyncItemWithUpdatedAt(storeItemId);
+  if (!loaded) return results;
+  const { item, updatedAt: inwUpdatedAt } = loaded;
   const hash = contentHash(item);
 
   // Load member sync preferences
@@ -395,8 +408,16 @@ export async function updateStoreItemOnChannels(
 
   for (const link of links) {
     const provider = link.provider as ChannelProvider;
-    if (skip.has(provider)) continue;
+    if (skip.has(provider)) {
+      // #region agent log
+      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'A',location:'outbound.ts:skipProviders',message:'link skipped via skipProviders',data:{storeItemId,provider,skip:options.skipProviders??[]},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      continue;
+    }
     if (shouldSkipEndedEbayOutbound(provider, link.conflictDetails)) {
+      // #region agent log
+      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'A',location:'outbound.ts:ended',message:'eBay outbound skipped as ended',data:{storeItemId,provider},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       results.push({ provider, ok: true });
       continue;
     }
@@ -406,8 +427,17 @@ export async function updateStoreItemOnChannels(
       link.syncBaselineQty !== item.quantity ||
       (link.syncBaselineVariantsHash ?? "") !== varFp;
     const contentUnchanged = link.lastPushedHash === hash;
+    const savedAfterThisChannel = inwSavedAfterChannelPush({
+      inwUpdatedAt,
+      lastPushedAt: link.lastPushedAt,
+    });
 
-    if (contentUnchanged && !inventoryDrift && !options.force) continue;
+    if (contentUnchanged && !inventoryDrift && !options.force && !savedAfterThisChannel) {
+      // #region agent log
+      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'A',location:'outbound.ts:hash-skip',message:'content push skipped as unchanged',data:{storeItemId,provider,contentUnchanged,inventoryDrift,savedAfterThisChannel,force:!!options.force,inwUpdatedAt:inwUpdatedAt.toISOString(),lastPushedAt:link.lastPushedAt?.toISOString()??null,hashPrefix:hash.slice(0,10),lastHashPrefix:(link.lastPushedHash??'').slice(0,10),titleLen:item.title.length},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      continue;
+    }
 
     // Quantity / variant stock changed but title/price/etc. unchanged — push inventory only.
     // After a sale, lastPushedHash also changes (it includes qty/status). Still stay on
@@ -567,6 +597,9 @@ export async function updateStoreItemOnChannels(
         results.push({ provider, ok: true });
         continue;
       }
+      // #region agent log
+      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'D',location:'outbound.ts:updateListing-ok',message:'updateListing returned without throw',data:{storeItemId,provider,titleLen:item.title.length},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       await prisma.channelListingLink.update({
         where: { id: link.id },
         data: {
@@ -591,6 +624,9 @@ export async function updateStoreItemOnChannels(
         continue;
       }
       const msg = describeChannelSyncError(provider, e);
+      // #region agent log
+      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'D',location:'outbound.ts:updateListing-fail',message:'updateListing threw',data:{storeItemId,provider,error:msg.slice(0,240)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       if (provider === "ebay" && isEbayPhotoHostFamilySyncError(msg)) {
         const stampPush = ebayPhotoHostErrorShouldStampContentPush(msg);
         await prisma.channelListingLink

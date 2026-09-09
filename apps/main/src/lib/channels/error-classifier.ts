@@ -173,6 +173,11 @@ export function classifyError(error: unknown): ErrorClassification {
   if (/Picture Policy|500 pixels on the longest side|resolution for provided picture/i.test(errorStr)) {
     return "transient";
   }
+  // Inventory #25014 mixed EPS/self-hosted photos — next PUT pins live EPS.
+  // HTTP 400 must not mark this permanent or the 5-minute retry never runs.
+  if (/#25014\b|mixture of self hosted and eps|self hosted and eps pictures/i.test(errorStr)) {
+    return "transient";
+  }
   // Etsy all_caps titles are auto-softened on the next outbound push.
   if (/all_caps|sequential capital/i.test(errorStr)) {
     return "transient";
@@ -243,6 +248,7 @@ export function shouldCountTowardCircuit(error: unknown): boolean {
   if (/inventory verify failed/i.test(msg)) return false;
   if (/all_caps|sequential capital/i.test(msg)) return false;
   if (/Picture Policy|500 pixels on the longest side/i.test(msg)) return false;
+  if (/#25014\b|mixture of self hosted and eps|self hosted and eps pictures/i.test(msg)) return false;
   if (/when_made|who_made|is_supply|Postal Code is required/i.test(msg)) return false;
 
   const status = extractStatusCode(error);

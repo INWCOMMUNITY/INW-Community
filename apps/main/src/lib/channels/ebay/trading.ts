@@ -17,7 +17,6 @@ import {
   parseEbayLastModified,
   parseEbayPrimaryCategory,
   parseEbayVariations,
-  type EbayVariationAxis,
 } from "./item-specifics";
 import type { ListingAspect } from "@/lib/listing-limits";
 import { getEbayCategoryPathFromId } from "./category-path";
@@ -84,7 +83,7 @@ export type EbayItemDetails = {
   remoteUpdatedAt: Date | null;
   quantity: number | null;
   priceCents: number | null;
-  variants: EbayVariationAxis[] | null;
+  variants: unknown;
   listingEnded: boolean;
   /** Units sold on this listing (SellingStatus.QuantitySold). */
   quantitySold: number;

@@ -226,8 +226,13 @@ export async function PATCH(
       data.pickupSellerConfirmedAt = new Date();
     }
     if (body.status) {
-      const validStatuses = ["shipped", "delivered"];
-      if (!validStatuses.includes(body.status)) {
+      if (body.status === "shipped") {
+        return NextResponse.json(
+          { error: "Orders are marked shipped when you buy a shipping label." },
+          { status: 400 }
+        );
+      }
+      if (body.status !== "delivered") {
         return NextResponse.json({ error: "Invalid status" }, { status: 400 });
       }
       if (!orderHasShippedLine(existing.items)) {
@@ -236,23 +241,13 @@ export async function PATCH(
           { status: 400 }
         );
       }
-      if (body.status === "shipped") {
-        if (prevStatus !== "paid") {
-          return NextResponse.json(
-            { error: "Order must be paid before it can be marked shipped." },
-            { status: 400 }
-          );
-        }
-        data.status = "shipped";
-      } else if (body.status === "delivered") {
-        if (prevStatus !== "shipped") {
-          return NextResponse.json(
-            { error: "Order must be shipped before it can be marked delivered." },
-            { status: 400 }
-          );
-        }
-        data.status = "delivered";
+      if (prevStatus !== "shipped") {
+        return NextResponse.json(
+          { error: "Order must be shipped before it can be marked delivered." },
+          { status: 400 }
+        );
       }
+      data.status = "delivered";
     }
   }
 

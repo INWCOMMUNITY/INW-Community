@@ -2,12 +2,14 @@ import { prisma } from "database";
 import { ebayGet } from "./ebay/client";
 import { EBAY_TAXONOMY_BASE, EBAY_TAXONOMY_MARKETPLACE_ID } from "./ebay/config";
 import { searchEtsyCategories } from "./etsy/taxonomy-search";
+import { shopifyProductTypeForInw } from "./category-suggest";
 import type { ChannelConnectionContext, ChannelProvider } from "./types";
 
 export type CategoryMapEntry = {
   etsyTaxonomyId?: number;
   ebayCategoryId?: string;
   shopifyProductType?: string;
+  shopifyTaxonomyGid?: string;
   wixCollectionId?: string;
   wixCollectionName?: string;
 };
@@ -125,7 +127,7 @@ export async function resolveProviderCategoryId(
     if (id) entry.ebayCategoryId = id;
   }
   if (provider === "shopify") {
-    entry.shopifyProductType = label;
+    entry.shopifyProductType = shopifyProductTypeForInw(label) ?? label;
   }
   if (provider === "wix") {
     entry.wixCollectionName = label;

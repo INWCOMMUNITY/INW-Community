@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
 import { isEbayConditionSyncError } from "@/lib/channels/ebay/conditions";
+import { channelLinkShowsOnItem } from "@/lib/channels/listing-sync-warning";
 
 export type ItemChannelLink = {
   provider: string;
@@ -23,7 +24,7 @@ export function ItemChannelSyncBadges({
   storeItemId: string;
   compact?: boolean;
 }) {
-  const visibleLinks = (links ?? []).filter((link) => !link.remoteDeletedProvider);
+  const visibleLinks = (links ?? []).filter(channelLinkShowsOnItem);
   if (!visibleLinks.length) return null;
 
   return (
@@ -31,8 +32,7 @@ export function ItemChannelSyncBadges({
       {visibleLinks.map((link) => {
         const label = CHANNEL_PROVIDER_LABELS[link.provider] ?? link.provider;
         const warning = link.syncWarning?.trim() || null;
-        const isConnectionIssue =
-          link.connectionStatus === "error" || link.connectionStatus === "disconnected";
+        const isConnectionIssue = link.connectionStatus === "error";
         const isError = Boolean(warning) && !isConnectionIssue;
         const isPaused = !warning && !link.syncEnabled;
         const needsConditionFix =

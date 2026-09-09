@@ -26,9 +26,12 @@ import {
   buildShopifyCreateBody,
   buildShopifyUpdateBody,
   shopifyProductToSummary,
+  quantityForShopifyRemoteVariant,
   type ShopifyProduct,
 } from "./mapping";
-import { normalizeVariantsFromProvider } from "../variant-sync";
+import { fetchShopifyCollectionCategoryMaps } from "./collections";
+import { fetchShopifyProductTaxonomyMaps } from "./inbound-taxonomy";
+import { applyShopifyCategory } from "./taxonomy";
 import { hasOptionQuantities } from "../../store-item-variants";
 import { isShopifySaleOrder } from "./sale-order";
 import { ensureShopifyWebhooks } from "./webhooks-subscribe";
@@ -177,22 +180,9 @@ async function syncShopifyVariantInventory(
     await syncProductInventory(conn, productId, item.quantity, { strict: true });
     return;
   }
-  const axes = normalizeVariantsFromProvider("shopify", item.variants);
   for (const v of existing.variants) {
     if (v.inventory_item_id == null) continue;
-    let qty = item.quantity;
-    if (axes && axes.length > 0 && v.option1) {
-      for (const axis of axes) {
-        const match = axis.options.find(
-          (o) =>
-            o.value === v.option1 || o.value === v.option2 || o.value === v.option3
-        );
-        if (match) {
-          qty = match.quantity;
-          break;
-        }
-      }
-    }
+    const qty = quantityForShopifyRemoteVariant(item, existing, v);
     await setInventoryAbsolute(
       conn.accessToken,
       cfg.shop,
@@ -290,14 +280,9 @@ export const shopifyAdapter: ChannelAdapter = {
       const product = res.product;
       const variants = product?.variants ?? [];
       if (variants.length > 1) {
-        const axes = normalizeVariantsFromProvider("shopify", item.variants);
         for (const v of variants) {
           if (v.inventory_item_id == null) continue;
-          let qty = item.quantity;
-          if (axes && axes.length > 0) {
-            const match = axes.flatMap((a) => a.options).find((o) => o.value === v.option1 || o.value === v.option2 || o.value === v.option3);
-            if (match) qty = match.quantity;
-          }
+          const qty = quantityForShopifyRemoteVariant(item, product ?? {}, v);
           await setInventoryAbsolute(
             conn.accessToken,
             cfg.shop,
@@ -313,6 +298,12 @@ export const shopifyAdapter: ChannelAdapter = {
         });
       }
     }
+    await applyShopifyCategory(conn, pid, item).catch((e) => {
+      console.warn("[shopify] post-create category apply failed", {
+        productId: pid,
+        error: String(e),
+      });
+    });
     return { externalListingId: pid, externalShopId: cfg.shop };
   },
 
@@ -334,6 +325,12 @@ export const shopifyAdapter: ChannelAdapter = {
     } else {
       await syncProductInventory(conn, externalListingId, item.quantity);
     }
+    await applyShopifyCategory(conn, externalListingId, item).catch((e) => {
+      console.warn("[shopify] post-update category apply failed", {
+        productId: externalListingId,
+        error: String(e),
+      });
+    });
   },
 
   async deleteListing(conn, externalListingId): Promise<void> {
@@ -407,6 +404,14 @@ export const shopifyAdapter: ChannelAdapter = {
     const cfg = connCfg(conn);
     if (!cfg.shop) return [];
     const summaries: RemoteListingSummary[] = [];
+    const [collectionByProductId, taxonomyByProductId] = await Promise.all([
+      fetchShopifyCollectionCategoryMaps(conn.accessToken, cfg.shop, cfg.apiVersion).catch(
+        () => new Map<string, string>()
+      ),
+      fetchShopifyProductTaxonomyMaps(conn.accessToken, cfg.shop, cfg.apiVersion).catch(
+        () => new Map()
+      ),
+    ]);
     // Active only — draft/archived treated as removed by baseline reconciler.
     let path: string | null = "/products.json?limit=250&status=active";
     for (let page = 0; page < 20 && path; page += 1) {
@@ -418,7 +423,10 @@ export const shopifyAdapter: ChannelAdapter = {
         currentPath
       );
       for (const p of pageRes.data.products ?? []) {
-        const s = shopifyProductToSummary(p);
+        const pid = p.id != null ? String(p.id) : null;
+        const collectionName = pid ? collectionByProductId.get(pid) ?? null : null;
+        const taxonomy = pid ? taxonomyByProductId.get(pid) ?? null : null;
+        const s = shopifyProductToSummary(p, collectionName, taxonomy);
         if (s.externalListingId) summaries.push(s);
       }
       path = pageRes.nextUrl;

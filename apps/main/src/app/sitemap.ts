@@ -1,5 +1,6 @@
 import { MetadataRoute } from "next";
 import { prisma } from "database";
+import { withPublicStockWhere } from "@/lib/store-item-public-access";
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://www.inwcommunity.com";
 
@@ -49,10 +50,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {  const
 
   try {
     // Active store items
-    const storeItems = await prisma.storeItem.findMany({    where: {
+    const storeItems = await prisma.storeItem.findMany({    where: withPublicStockWhere({
       status: "active",
-      quantity: { gt: 0 },
-    },
+    }),
     select: {
       slug: true,
       updatedAt: true,

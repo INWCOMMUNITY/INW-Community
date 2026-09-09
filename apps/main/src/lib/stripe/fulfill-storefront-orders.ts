@@ -349,7 +349,7 @@ export async function fulfillStoreOrdersFromCheckoutSession(
         }
         const updated = await prisma.storeItem.findUnique({
           where: { id: oi.storeItemId },
-          select: { quantity: true, variants: true },
+          select: { quantity: true, variants: true, inventoryTracking: true },
         });
         if (updated && shouldMarkStoreItemSoldOut(updated)) {
           allSoldOutIds.add(oi.storeItemId);

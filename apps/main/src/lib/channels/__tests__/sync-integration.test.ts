@@ -588,6 +588,15 @@ describe("error classification", () => {
     (err as Error & { status: number }).status = 400;
     expect(classifyError(err)).toBe("transient");
   });
+
+  it("classifies eBay #25014 mixed-photo HTTP 400 as transient so EPS pin can retry", async () => {
+    const { classifyError } = await import("../error-classifier");
+    const err = new Error(
+      "Inventory push failed: [#25014 · API_INVENTORY · Request · HTTP 400] The eBay listing associated with the inventory item, or the unpublished offer has invalid pictures. A mixture of Self Hosted and EPS pictures are not allowed."
+    );
+    (err as Error & { status: number }).status = 400;
+    expect(classifyError(err)).toBe("transient");
+  });
 });
 
 describe("circuit breaker", () => {

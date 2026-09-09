@@ -6,6 +6,7 @@ import { BusinessDetailContent, type BusinessDetailData } from "@/components/bus
 import { authOptions } from "@/lib/auth";
 import { photosExcludingLogo } from "@/lib/business-photos";
 import { extractBusinessDisplayCity } from "@/lib/city-utils";
+import { withPublicStockWhere } from "@/lib/store-item-public-access";
 
 function isCuid(s: string): boolean {
   return /^c[a-z0-9]{24}$/i.test(s);
@@ -49,11 +50,10 @@ export default async function BusinessDetailPage({
   if (!business) notFound();
 
   const activeProductCount = await prisma.storeItem.count({
-    where: {
+    where: withPublicStockWhere({
       OR: [{ memberId: business.memberId }, { businessId: business.id }],
       status: "active",
-      quantity: { gt: 0 },
-    },
+    }),
   });
 
   const session = await getServerSession(authOptions);

@@ -1,11 +1,7 @@
 import { prisma } from "database";
+import { resolveImportCategory } from "./import-listing";
 import {
-  resolveInwCategoryWithSubcategory,
-  resolveInwCategoryFromEbayPath,
-  resolveInwCategoryFromEtsyTaxonomy,
-} from "./category-resolver";
-import {
-  normalizeVariantsFromProvider,
+  matrixForStorage,
   sumVariantQuantities,
   type InwVariantAxis,
 } from "./variant-sync";
@@ -13,34 +9,37 @@ import { sumOptionQuantities } from "@/lib/store-item-variants";
 import { clampSaneInventoryQty } from "./inventory-sanity";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
+import { isMadeToOrderTracking } from "@/lib/listing-variant-matrix";
 
-/** Apply category + subcategory from a remote listing using enhanced preset matching. */
+/** Apply category + subcategory from a remote listing using the shared import resolver. */
 export async function applyRemoteCategoryToStoreItem(
   storeItemId: string,
   remote: RemoteListingSummary,
   provider: ChannelProvider
 ): Promise<boolean> {
-  const remoteLabel = remote.category?.trim();
-  if (!remoteLabel) return false;
-
-  // Get the item's title for keyword-based subcategory inference
   const item = await prisma.storeItem.findUnique({
     where: { id: storeItemId },
     select: { title: true, category: true, subcategory: true, etsyTaxonomyId: true, ebayCategoryId: true },
   });
   if (!item) return false;
 
-  // Use enhanced resolver that always assigns subcategory when possible
-  const resolved =
-    provider === "ebay"
-      ? await resolveInwCategoryFromEbayPath(remoteLabel, item.title)
-      : provider === "etsy" && remote.remoteCategoryId
-        ? await resolveInwCategoryFromEtsyTaxonomy(Number(remote.remoteCategoryId), remoteLabel, item.title)
-        : await resolveInwCategoryWithSubcategory(remoteLabel, remote.subcategory, { provider, title: item.title });
-  if (!resolved) return false;
+  const remoteCategoryId =
+    remote.remoteCategoryId?.trim() ||
+    (provider === "etsy" && item.etsyTaxonomyId != null ? String(item.etsyTaxonomyId) : null) ||
+    (provider === "ebay" && item.ebayCategoryId != null ? String(item.ebayCategoryId) : null);
 
-  const nextCategory = resolved.category;
-  const nextSub = resolved.subcategory;
+  const assignment = await resolveImportCategory({
+    provider,
+    remoteLabel: remote.category?.trim() || null,
+    remoteSubLabel: remote.subcategory?.trim() || null,
+    title: item.title,
+    description: remote.description,
+    remoteCategoryId,
+  });
+  if (!assignment?.category) return false;
+
+  const nextCategory = assignment.category;
+  const nextSub = assignment.subcategory;
   const categorySame = (item.category ?? "") === nextCategory;
   const subSame = (item.subcategory ?? "") === (nextSub ?? "");
 
@@ -105,34 +104,49 @@ export async function applyRemoteShippingToStoreItem(
 }
 
 /**
- * Write normalized INW variant axes (per-option quantities) to a StoreItem and recompute the
- * aggregate quantity. Shared by the meta reconcile and the Wix inventory webhook fast path.
+ * Write normalized INW variant matrix to a StoreItem and recompute the aggregate quantity.
+ * Shared by the meta reconcile and the Wix inventory webhook fast path.
  */
 export async function applyRemoteVariantAxesToStoreItem(
   storeItemId: string,
-  axes: InwVariantAxis[] | null
+  axes: InwVariantAxis[] | null | unknown
 ): Promise<boolean> {
-  if (!axes || axes.length === 0) return false;
+  const matrix = matrixForStorage(axes);
+  if (!matrix || matrix.axes.length === 0) return false;
 
   const item = await prisma.storeItem.findUnique({
     where: { id: storeItemId },
-    select: { variants: true, quantity: true, status: true },
+    select: { variants: true, quantity: true, status: true, inventoryTracking: true },
   });
   if (!item) return false;
 
-  const rawQty = sumVariantQuantities(axes) || sumOptionQuantities(axes);
-  const nextQty = clampSaneInventoryQty(rawQty);
-  if (nextQty == null) {
+  const madeToOrder = isMadeToOrderTracking(item.inventoryTracking);
+  const rawQty = sumVariantQuantities(matrix) || sumOptionQuantities(matrix);
+  const nextQty = madeToOrder ? item.quantity : clampSaneInventoryQty(rawQty);
+  if (!madeToOrder && nextQty == null) {
     console.warn("[channels] rejected absurd inbound variant quantity", { storeItemId, rawQty });
     return false;
   }
-  const variantsJson = axes as unknown;
+  if (madeToOrder && rawQty === 0) {
+    // Keep MTO listings from being sold out by a channel placeholder of 0.
+    const variantsJson = matrix as unknown;
+    const sameVariants = JSON.stringify(item.variants) === JSON.stringify(variantsJson);
+    if (sameVariants) return false;
+    await prisma.storeItem.update({
+      where: { id: storeItemId },
+      data: { variants: variantsJson as object },
+    });
+    return true;
+  }
+
+  const variantsJson = matrix as unknown;
   const sameVariants = JSON.stringify(item.variants) === JSON.stringify(variantsJson);
   if (sameVariants && item.quantity === nextQty) return false;
 
-  // Keep status in sync with stock: restock reactivates a sold-out listing; zero stock sells it out.
-  const nextStatus =
-    nextQty > 0
+  const qty = nextQty ?? item.quantity;
+  const nextStatus = madeToOrder
+    ? item.status
+    : qty > 0
       ? item.status === "sold_out"
         ? "active"
         : item.status
@@ -140,20 +154,19 @@ export async function applyRemoteVariantAxesToStoreItem(
 
   await prisma.storeItem.update({
     where: { id: storeItemId },
-    data: { variants: variantsJson as object, quantity: nextQty, status: nextStatus },
+    data: { variants: variantsJson as object, quantity: qty, status: nextStatus },
   });
   return true;
 }
 
-/** Pull remote product options into INW variants JSON (per-option quantities). */
+/** Pull remote product options into INW variants JSON (per-combination quantities). */
 export async function applyRemoteVariantsToStoreItem(
   storeItemId: string,
   remote: RemoteListingSummary,
-  provider: ChannelProvider
+  _provider: ChannelProvider
 ): Promise<boolean> {
   if (remote.variantsKnown === false || !remote.variants) return false;
-  const normalized = normalizeVariantsFromProvider(provider, remote.variants);
-  return applyRemoteVariantAxesToStoreItem(storeItemId, normalized);
+  return applyRemoteVariantAxesToStoreItem(storeItemId, remote.variants);
 }
 
 /** Apply remote item specifics (aspects) to a StoreItem when the channel provided them. */

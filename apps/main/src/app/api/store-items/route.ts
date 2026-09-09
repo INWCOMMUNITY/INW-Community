@@ -4,7 +4,13 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { containsProhibitedCategory, formatModerationErrorMessage, validateText } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
-import { validateInwVariantsForSave } from "@/lib/channels/variant-sync";
+import { matrixForStorage, validateInwVariantsForSave } from "@/lib/channels/variant-sync";
+import {
+  INVENTORY_TRACKING_MADE_TO_ORDER,
+  isMadeToOrderTracking,
+  MTO_CHANNEL_QUANTITY,
+  parseInventoryTracking,
+} from "@/lib/listing-variant-matrix";
 import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
 import { LISTING_SKU_MAX, normalizeListingSku } from "@/lib/listing-sku";
 import { findConflictingStoreItemSku } from "@/lib/listing-sku-db";
@@ -277,7 +283,8 @@ const bodySchema = z.object({
   subcategory: z.string().nullable().optional(),
   priceCents: z.coerce.number().int().min(1, "Price must be at least 1 cent"),
   variants: z.unknown().nullable().optional(),
-  quantity: z.coerce.number().int().min(1, "Quantity must be at least 1 to list.").default(1),
+  quantity: z.coerce.number().int().min(0).optional(),
+  inventoryTracking: z.enum(["tracked", "made_to_order"]).optional(),
   status: z.enum(["active", "sold_out", "inactive"]).default("active"),
   condition: z.enum(["new", "used"]).default("new"),
   shippingCostCents: z.coerce.number().int().min(0).nullable().optional(),
@@ -459,29 +466,36 @@ export async function POST(req: NextRequest) {
   try {
     const slug = uniqueSlug(slugify(data.title));
     const priceCents = Number(data.priceCents);
+    const inventoryTracking = parseInventoryTracking(data.inventoryTracking);
+    const madeToOrder = isMadeToOrderTracking(inventoryTracking);
     if (data.variants != null) {
-      const variantErr = validateInwVariantsForSave(data.variants);
+      const variantErr = validateInwVariantsForSave(data.variants, {
+        linkedProviders: data.channelProviders,
+      });
       if (variantErr) {
         return NextResponse.json({ error: variantErr }, { status: 400 });
       }
     }
-    const useOptionQuantities = hasOptionQuantities(data.variants);
-    const quantity = useOptionQuantities
-      ? sumOptionQuantities(data.variants)
-      : Number(data.quantity);
+    const storedVariants = data.variants == null ? null : matrixForStorage(data.variants);
+    const useOptionQuantities = hasOptionQuantities(storedVariants ?? data.variants);
+    let quantity = madeToOrder
+      ? MTO_CHANNEL_QUANTITY
+      : useOptionQuantities
+        ? sumOptionQuantities(storedVariants ?? data.variants)
+        : Number(data.quantity ?? 1);
     if (!Number.isInteger(priceCents) || priceCents < 1) {
       return NextResponse.json(
         { error: "Price must be at least 1 cent." },
         { status: 400 }
       );
     }
-    if (!useOptionQuantities && (!Number.isInteger(quantity) || quantity < 1)) {
+    if (!madeToOrder && !useOptionQuantities && (!Number.isInteger(quantity) || quantity < 1)) {
       return NextResponse.json(
         { error: "Quantity must be at least 1." },
         { status: 400 }
       );
     }
-    if (useOptionQuantities && quantity < 1) {
+    if (!madeToOrder && useOptionQuantities && quantity < 1) {
       return NextResponse.json(
         { error: "Add at least one option with quantity 1 or more." },
         { status: 400 }
@@ -540,9 +554,10 @@ export async function POST(req: NextRequest) {
         secondaryCategory: secondaryNorm,
         subcategory: data.subcategory?.trim() || null,
         priceCents,
-        variants: data.variants === null ? Prisma.JsonNull : (data.variants as object),
+        variants: storedVariants ? (storedVariants as object) : Prisma.JsonNull,
         aspects: aspectsForStorage.length > 0 ? (aspectsForStorage as object) : Prisma.JsonNull,
         quantity,
+        inventoryTracking,
         ...storeItemStatusWrite(data.status),
         shippingCostCents,
         shippingOptionId,
@@ -563,7 +578,9 @@ export async function POST(req: NextRequest) {
               : false,
         minOfferCents: data.minOfferCents ?? null,
         etsyWhoMade: data.etsyWhoMade?.trim() || null,
-        etsyWhenMade: data.etsyWhenMade?.trim() || null,
+        etsyWhenMade:
+          data.etsyWhenMade?.trim() ||
+          (madeToOrder ? INVENTORY_TRACKING_MADE_TO_ORDER : null),
         etsyIsSupply: data.etsyIsSupply ?? null,
         etsyTaxonomyId: data.etsyTaxonomyId ?? null,
         ebayCategoryId: data.ebayCategoryId ?? null,

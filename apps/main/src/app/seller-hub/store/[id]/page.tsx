@@ -76,6 +76,7 @@ export default async function EditStoreItemPage({
             priceCents: item.priceCents,
             variants: item.variants,
             quantity: item.quantity,
+            inventoryTracking: item.inventoryTracking,
             status: item.status,
             condition: (item as { condition?: "new" | "used" }).condition ?? "new",
             shippingCostCents: item.shippingCostCents,

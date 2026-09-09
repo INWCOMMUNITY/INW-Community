@@ -14,7 +14,12 @@ const mockPrisma = {
     findFirst: vi.fn().mockResolvedValue(null),
     findMany: vi.fn().mockResolvedValue([]),
     create: vi.fn(),
+    update: vi.fn().mockResolvedValue({}),
     delete: vi.fn(),
+  },
+  channelCategoryMapping: {
+    findMany: vi.fn().mockResolvedValue([]),
+    count: vi.fn().mockResolvedValue(1),
   },
   memberSyncPreferences: {
     findUnique: vi.fn().mockResolvedValue(null),
@@ -26,7 +31,11 @@ const mockPrisma = {
 
 vi.mock("database", () => ({
   prisma: mockPrisma,
-  Prisma: { JsonNull: null },
+  Prisma: {
+    JsonNull: null,
+    PrismaClientKnownRequestError: class PrismaClientKnownRequestError extends Error {},
+    PrismaClientValidationError: class PrismaClientValidationError extends Error {},
+  },
 }));
 
 vi.mock("@/lib/shipping-options", () => ({
@@ -42,13 +51,17 @@ describe("importRemoteListing SKU attach", () => {
     );
     mockPrisma.storeItem.findFirst.mockResolvedValue(null);
     mockPrisma.storeItem.findMany.mockResolvedValue([]);
+    mockPrisma.storeItem.update.mockResolvedValue({});
+    mockPrisma.channelCategoryMapping.findMany.mockResolvedValue([]);
+    mockPrisma.channelCategoryMapping.count.mockResolvedValue(1);
   });
 
   it("attaches to an existing item when remote sku is the StoreItem id", async () => {
     const { importRemoteListing } = await import("./import-listing");
     mockPrisma.storeItem.findFirst.mockResolvedValueOnce({
       id: "cmt8zc266000dw2tzrmx9rie1",
-      category: "Games",
+      category: "Clothing",
+      subcategory: "Tops & Tees",
       channelLinks: [],
     });
 
@@ -76,6 +89,7 @@ describe("importRemoteListing SKU attach", () => {
       needsCategoryReview: false,
     });
     expect(mockPrisma.storeItem.create).not.toHaveBeenCalled();
+    expect(mockPrisma.storeItem.update).not.toHaveBeenCalled();
     expect(mockPrisma.channelListingLink.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -90,7 +104,7 @@ describe("importRemoteListing SKU attach", () => {
   it("attaches to the unique unlinked sku match", async () => {
     const { importRemoteListing } = await import("./import-listing");
     mockPrisma.storeItem.findMany.mockResolvedValueOnce([
-      { id: "item-sku", category: null, channelLinks: [] },
+      { id: "item-sku", category: null, subcategory: null, channelLinks: [] },
     ]);
 
     const result = await importRemoteListing({
@@ -99,7 +113,7 @@ describe("importRemoteListing SKU attach", () => {
       provider: "wix",
       listing: {
         externalListingId: "wix-2",
-        title: "Library of Coins",
+        title: "Handmade lavender soap bar",
         sku: "COIN-001",
         description: null,
         photos: ["https://example.com/p.jpg"],
@@ -116,6 +130,14 @@ describe("importRemoteListing SKU attach", () => {
       expect(result.needsCategoryReview).toBe(true);
     }
     expect(mockPrisma.storeItem.create).not.toHaveBeenCalled();
+    expect(mockPrisma.storeItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "item-sku" },
+        data: expect.objectContaining({
+          category: expect.any(String),
+        }),
+      })
+    );
     expect(mockPrisma.channelListingLink.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({

@@ -25,6 +25,8 @@ export type SyncStoreItem = {
   priceCents: number;
   quantity: number;
   variants: unknown;
+  /** tracked | made_to_order */
+  inventoryTracking?: string | null;
   status: string;
   /** new | used (used for eBay condition mapping). */
   condition: string | null;

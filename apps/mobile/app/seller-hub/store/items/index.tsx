@@ -813,14 +813,17 @@ export default function MyItemsScreen() {
                   </Pressable>
                 )}
                 <View style={styles.channelTagRow}>
-                {(item.channelLinks ?? []).filter((link) => !link.remoteDeletedProvider).map((link) => {
+                {(item.channelLinks ?? [])
+                  .filter(
+                    (link) =>
+                      !link.remoteDeletedProvider && link.connectionStatus !== "disconnected"
+                  )
+                  .map((link) => {
                       const label =
                         CHANNEL_PROVIDER_LABEL[link.provider as ChannelProviderId] ??
                         link.provider;
                       const warning = link.syncWarning?.trim() || null;
-                      const isConnectionIssue =
-                        link.connectionStatus === "error" ||
-                        link.connectionStatus === "disconnected";
+                      const isConnectionIssue = link.connectionStatus === "error";
                       const isError = Boolean(warning) && !isConnectionIssue;
                       const isPaused = !warning && !link.syncEnabled;
                       const needsConditionFix =

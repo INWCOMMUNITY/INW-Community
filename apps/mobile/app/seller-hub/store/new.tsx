@@ -44,16 +44,23 @@ import {
   type ChannelConnectionSummary,
   type ChannelProviderId,
 } from "@/lib/channel-connections";
+import { listingVariantChannelWarnings } from "@/lib/listing-variant-channel-warnings";
 import { ChannelListOnCheckboxes } from "@/components/channels/ChannelListOnCheckboxes";
 import { getDraft, saveDraft, deleteDraft, type StoreItemDraft } from "@/lib/drafts";
 import {
   ListingOptionsEditor,
   buildVariantsPayload,
   parseVariantsToEditor,
-  sumOptionRows,
+  sumEnabledSkus,
   type InventoryMode,
-  type OptionRow,
+  type EditorSkuRow,
 } from "@/components/listing/ListingOptionsEditor";
+import {
+  parseInventoryTracking,
+  rebuildMatrixFromAxes,
+  type InventoryTracking,
+  type VariantAxisDef,
+} from "@/lib/listing-variant-matrix";
 import { TemplateSelector, type ListingTemplate } from "@/components/listing/TemplateSelector";
 import { CategorySuggestions } from "@/components/listing/CategorySuggestions";
 import { SelectField } from "@/components/listing/SelectField";
@@ -195,9 +202,9 @@ export default function ListItemScreen() {
   const [inStorePickupAvailable, setInStorePickupAvailable] = useState(false);
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [inventoryMode, setInventoryMode] = useState<InventoryMode>("simple");
-  const [optionName, setOptionName] = useState("Size");
-  const [optionRows, setOptionRows] = useState<OptionRow[]>([]);
-  const [legacyMultiAxisNotice, setLegacyMultiAxisNotice] = useState(false);
+  const [inventoryTracking, setInventoryTracking] = useState<InventoryTracking>("tracked");
+  const [variantAxes, setVariantAxes] = useState<VariantAxisDef[]>([]);
+  const [variantSkus, setVariantSkus] = useState<EditorSkuRow[]>([]);
   const [acceptOffers, setAcceptOffers] = useState(true);
   // Channel sync (Etsy). Only shown when the seller has connected an Etsy shop.
   const [etsyConnected, setEtsyConnected] = useState(false);
@@ -235,6 +242,7 @@ export default function ListItemScreen() {
   const [feedShareDone, setFeedShareDone] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
   const [hasEbayLink, setHasEbayLink] = useState(false);
+  const [linkedChannelProviders, setLinkedChannelProviders] = useState<string[]>([]);
   const [isEbayImportedListing, setIsEbayImportedListing] = useState(false);
   const [refreshingFromEbay, setRefreshingFromEbay] = useState(false);
   const isExitingRef = useRef(false);
@@ -242,6 +250,23 @@ export default function ListItemScreen() {
 
   const listingOnEtsy = editId ? etsyConnected : listOnProviders.includes("etsy");
   const listingOnEbay = editId ? ebayConnected || hasEbayLink : listOnProviders.includes("ebay");
+
+  const variantChannelNotes = useMemo(
+    () =>
+      listingVariantChannelWarnings({
+        variants: buildVariantsPayload(inventoryMode, variantAxes, variantSkus),
+        inventoryTracking,
+        linkedProviders: Array.from(new Set([...listOnProviders, ...linkedChannelProviders])),
+      }),
+    [
+      inventoryMode,
+      variantAxes,
+      variantSkus,
+      inventoryTracking,
+      listOnProviders,
+      linkedChannelProviders,
+    ]
+  );
 
   const filteredStoreCategories = useMemo(() => {
     const q = categorySearch.trim().toLowerCase();
@@ -268,8 +293,8 @@ export default function ListItemScreen() {
 
   const hasVariantsWithOptions =
     inventoryMode === "options" &&
-    optionName.trim().length > 0 &&
-    optionRows.some((o) => o.value.trim());
+    variantAxes.some((a) => a.name.trim() && a.values.length > 0) &&
+    variantSkus.some((s) => s.enabled);
   const hasContent =
     !!title.trim() ||
     !!description.trim() ||
@@ -278,8 +303,8 @@ export default function ListItemScreen() {
     !!secondaryCategory.trim() ||
     !!priceCents ||
     (inventoryMode === "simple" && quantity !== "1" && !!quantity) ||
-    (hasVariantsWithOptions && sumOptionRows(optionRows) > 0) ||
-    optionRows.length > 0 ||
+    (hasVariantsWithOptions && sumEnabledSkus(variantSkus) > 0) ||
+    variantSkus.length > 0 ||
     !!shippingCostDollars ||
     !!shippingPolicy.trim() ||
     !!localDeliveryTerms.trim() ||
@@ -313,7 +338,8 @@ export default function ListItemScreen() {
       pickupTerms,
       useSellerProfilePickup,
       businessId,
-      variants: buildVariantsPayload(inventoryMode, optionName, optionRows) ?? [],
+      variants: buildVariantsPayload(inventoryMode, variantAxes, variantSkus) ?? [],
+      inventoryTracking,
     });
     if (draftId) await deleteDraft(draftId);
     router.back();
@@ -343,8 +369,9 @@ export default function ListItemScreen() {
     useSellerProfilePickup,
     businessId,
     inventoryMode,
-    optionName,
-    optionRows,
+    variantAxes,
+    variantSkus,
+    inventoryTracking,
     draftId,
     router,
   ]);
@@ -373,6 +400,7 @@ export default function ListItemScreen() {
         pickupTerms: string | null;
         businessId: string | null;
         variants: unknown;
+        inventoryTracking?: string | null;
         condition?: "new" | "used";
         acceptOffers?: boolean;
         useSellerProfileShipping?: boolean;
@@ -388,6 +416,7 @@ export default function ListItemScreen() {
         hasEbayLink?: boolean;
         hasEbayImportLink?: boolean;
         ebayLinkOrigin?: "import" | "inw_create" | null;
+        channelLinks?: { provider?: string | null }[] | null;
       }>(`/api/store-items/${editId}`)
         .then((item) => {
           setTitle(item.title ?? "");
@@ -420,9 +449,9 @@ export default function ListItemScreen() {
           setBusinessId(item.businessId ?? null);
           const parsed = parseVariantsToEditor(item.variants);
           setInventoryMode(parsed.mode);
-          setOptionName(parsed.optionName);
-          setOptionRows(parsed.optionRows);
-          setLegacyMultiAxisNotice(parsed.hadMultipleAxes);
+          setVariantAxes(parsed.axes);
+          setVariantSkus(parsed.skus);
+          setInventoryTracking(parseInventoryTracking(item.inventoryTracking));
           if (item.condition === "used" || item.condition === "new") setCondition(item.condition);
           if (typeof item.acceptOffers === "boolean") setAcceptOffers(item.acceptOffers);
           if (isEtsyWhoMade(item.etsyWhoMade)) {
@@ -445,6 +474,13 @@ export default function ListItemScreen() {
           if (item.useSellerProfileLocalDelivery !== undefined) setUseSellerProfileLocalDelivery(item.useSellerProfileLocalDelivery);
           if (item.useSellerProfilePickup !== undefined) setUseSellerProfilePickup(item.useSellerProfilePickup);
           if (item.hasEbayLink) setHasEbayLink(true);
+          if (Array.isArray(item.channelLinks)) {
+            setLinkedChannelProviders(
+              item.channelLinks
+                .map((l) => (typeof l.provider === "string" ? l.provider : ""))
+                .filter(Boolean)
+            );
+          }
           setIsEbayImportedListing(
             Boolean(item.hasEbayImportLink || item.ebayLinkOrigin === "import")
           );
@@ -483,9 +519,9 @@ export default function ListItemScreen() {
           setBusinessId(draft.businessId);
           const parsed = parseVariantsToEditor(draft.variants);
           setInventoryMode(parsed.mode);
-          setOptionName(parsed.optionName);
-          setOptionRows(parsed.optionRows);
-          setLegacyMultiAxisNotice(parsed.hadMultipleAxes);
+          setVariantAxes(parsed.axes);
+          setVariantSkus(parsed.skus);
+          setInventoryTracking(parseInventoryTracking(draft.inventoryTracking));
         }
         setLoadedDraft(true);
       });
@@ -989,28 +1025,18 @@ export default function ListItemScreen() {
       setError("Price must be at least $0.01");
       return;
     }
-    if (!hasVariantsWithOptions && (!qty || qty < 1)) {
+    if (!hasVariantsWithOptions && inventoryTracking !== "made_to_order" && (!qty || qty < 1)) {
       setError("Quantity must be at least 1");
       return;
     }
     if (hasVariantsWithOptions) {
-      if (!optionName.trim()) {
-        setError("Option type is required (e.g. Size).");
+      if (variantAxes.some((a) => !a.name.trim() || a.values.length === 0)) {
+        setError("Each option type needs a name and at least one value.");
         return;
       }
-      const dup = optionRows.some(
-        (o, i) =>
-          optionRows.findIndex(
-            (x) => x.value.trim().toLowerCase() === o.value.trim().toLowerCase()
-          ) !== i
-      );
-      if (dup) {
-        setError("Each option value must be unique.");
-        return;
-      }
-      const totalOptionQty = sumOptionRows(optionRows);
-      if (totalOptionQty < 1) {
-        setError("Add at least one option with quantity 1 or more.");
+      const totalOptionQty = sumEnabledSkus(variantSkus);
+      if (inventoryTracking !== "made_to_order" && totalOptionQty < 1) {
+        setError("Add at least one combination with quantity 1 or more.");
         return;
       }
     }
@@ -1085,10 +1111,14 @@ export default function ListItemScreen() {
       return;
     }
 
-    const variantPayload = buildVariantsPayload(inventoryMode, optionName, optionRows);
+    const variantPayload = buildVariantsPayload(inventoryMode, variantAxes, variantSkus);
 
     const payloadQuantity =
-      variantPayload != null ? sumOptionRows(optionRows) : qty;
+      inventoryTracking === "made_to_order"
+        ? qty || 1
+        : variantPayload != null
+          ? sumEnabledSkus(variantSkus)
+          : qty;
 
     setError(null);
     setPhotoError(null);
@@ -1124,6 +1154,8 @@ export default function ListItemScreen() {
       subcategory: subcategory.trim() || null,
       priceCents: price,
       quantity: payloadQuantity,
+      inventoryTracking,
+      variants: variantPayload,
       condition,
       shippingDisabled,
       localDeliveryAvailable,
@@ -1154,7 +1186,7 @@ export default function ListItemScreen() {
         ...basePayload,
         ...(etsyConnected || ebayConnected
           ? {
-              syncToChannels: etsyConnected ? syncToEtsy : true,
+              syncToChannels: true,
               ...(listingOnEtsy
                 ? { etsyWhoMade, etsyWhenMade, etsyIsSupply, etsyTaxonomyId: Number(etsyTaxonomyId.trim()) }
                 : {}),
@@ -1270,9 +1302,15 @@ export default function ListItemScreen() {
     }
     if (template.variantsTemplate?.axes?.length) {
       setInventoryMode("options");
-      const firstAxis = template.variantsTemplate.axes[0];
-      setOptionName(firstAxis.name || "Size");
-      setOptionRows(firstAxis.options.map((opt) => ({ value: opt, qty: "0", priceCentsOverride: "" })));
+      const axes = template.variantsTemplate.axes
+        .map((axis) => ({
+          name: axis.name || "Option",
+          values: axis.values ?? axis.options ?? [],
+        }))
+        .filter((a) => a.name && a.values.length > 0);
+      const rebuilt = rebuildMatrixFromAxes(axes, []);
+      setVariantAxes(rebuilt.axes);
+      setVariantSkus(rebuilt.skus.map((s) => ({ ...s, enabled: true })));
     }
     Alert.alert("Template Applied", `Settings from "${template.name}" have been applied.`);
   }, [loadCategoryAspects, shippingOptions]);
@@ -1558,14 +1596,19 @@ export default function ListItemScreen() {
       <ListingOptionsEditor
         mode={inventoryMode}
         onModeChange={setInventoryMode}
-        optionName={optionName}
-        onOptionNameChange={setOptionName}
-        optionRows={optionRows}
-        onOptionRowsChange={setOptionRows}
+        axes={variantAxes}
+        skus={variantSkus}
+        onMatrixChange={(nextAxes, nextSkus) => {
+          setVariantAxes(nextAxes);
+          setVariantSkus(nextSkus);
+        }}
         simpleQuantity={quantity}
         onSimpleQuantityChange={setQuantity}
+        inventoryTracking={inventoryTracking}
+        onInventoryTrackingChange={setInventoryTracking}
+        galleryPhotos={photos}
         placeholderColor={placeholderColor}
-        legacyMultiAxisNotice={legacyMultiAxisNotice}
+        channelNotes={variantChannelNotes}
       />
 
       {/* Category suggestions based on title - only show when no category selected yet */}

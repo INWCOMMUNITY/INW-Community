@@ -5,6 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
+import { importRemoteListing } from "@/lib/channels/import-listing";
 import { withSkipMeta } from "@/lib/channels/import-skip";
 import {
   importPostBodySchema,
@@ -16,13 +17,6 @@ import {
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
-function uniqueSlug(base: string): string {
-  return `${base || "shopify-item"}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
 
 async function loadRemoteWithLinkState(userId: string) {
   const ctx = await getMemberConnectionContext(userId, "shopify");
@@ -138,89 +132,33 @@ export async function POST(req: NextRequest) {
 
   for (const listing of loaded.listings) {
     await notifyImportJobStart(jobId, listing.title);
-    const productId = listing.externalListingId;
-
-    const existing = await prisma.channelListingLink.findUnique({
-      where: { provider_externalListingId: { provider: "shopify", externalListingId: productId } },
+    const result = await importRemoteListing({
+      memberId: userId,
+      connectionId: ctx.id,
+      provider: "shopify",
+      listing,
+      externalShopId: ctx.externalShopId,
+      postToFeed: false,
     });
-    if (existing) {
-      const row = withSkipMeta({
-        externalListingId: productId,
-        title: listing.title,
-        photo: listing.photos?.[0],
-        step: "dedupe",
-        reason: "already_linked",
-      });
-      skipped.push(row);
-      await notifyImportJobSkip(jobId, row);
-      continue;
-    }
-    if (listing.priceCents < 1) {
-      const row = withSkipMeta({
-        externalListingId: productId,
-        title: listing.title,
-        photo: listing.photos?.[0],
-        step: "validation",
-        reason: "invalid_price",
-      });
-      skipped.push(row);
-      await notifyImportJobSkip(jobId, row);
-      continue;
-    }
-
-    try {
-      const created = await prisma.$transaction(async (tx) => {
-        const storeItem = await tx.storeItem.create({
-          data: {
-            memberId: userId,
-            title: listing.title.slice(0, 200),
-            description: listing.description,
-            photos: listing.photos,
-            priceCents: listing.priceCents,
-            quantity: Math.max(0, listing.quantity),
-            status: listing.quantity > 0 ? "active" : "sold_out",
-            condition: "used",
-            listingType: "new",
-            acceptOffers: false,
-            slug: uniqueSlug(slugify(listing.title)),
-            category: listing.category?.slice(0, 200) ?? null,
-            subcategory: listing.subcategory?.slice(0, 200) ?? null,
-          },
-        });
-        await tx.channelListingLink.create({
-          data: {
-            storeItemId: storeItem.id,
-            connectionId: ctx.id,
-            provider: "shopify",
-            externalListingId: productId,
-            externalShopId: ctx.externalShopId,
-            syncEnabled: true,
-            syncStatus: "synced",
-            lastPushedAt: new Date(),
-            lastInboundAt: new Date(),
-          },
-        });
-        return storeItem;
-      });
+    if (result.ok) {
       const row = {
-        externalListingId: productId,
-        storeItemId: created.id,
+        externalListingId: result.externalListingId,
+        storeItemId: result.storeItemId,
         title: listing.title,
         photo: listing.photos?.[0],
       };
       imported.push(row);
       await notifyImportJobSuccess(jobId, row);
-      if (!created.category) {
+      if (result.needsCategoryReview) {
         uncategorizedCount++;
       }
-    } catch (e) {
-      console.error("[channels] shopify import failed", { externalListingId: productId, error: String(e) });
+    } else {
       const row = withSkipMeta({
-        externalListingId: productId,
+        externalListingId: result.externalListingId,
         title: listing.title,
         photo: listing.photos?.[0],
         step: "create",
-        reason: "create_failed",
+        reason: result.reason,
       });
       skipped.push(row);
       await notifyImportJobSkip(jobId, row);

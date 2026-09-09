@@ -2,10 +2,13 @@ import { CHANNEL_PROVIDER_LABELS } from "./provider-ui";
 import { readRemoteDeletedNotice } from "./listing-link-flags";
 import { isEbayPhotoHostFamilySyncError } from "./ebay/errors";
 import {
+  etsyVariesByAllProperties,
   isMadeToOrderTracking,
   MAX_ETSY_AXES,
-  MAX_SKU_ROWS_DEFAULT,
+  MAX_ETSY_SKUS_ALL_PROPERTIES,
   MAX_SKU_ROWS_EBAY,
+  MAX_SKU_ROWS_SHOPIFY,
+  matrixHasLinkedOptionPhotos,
   normalizeVariantMatrix,
 } from "@/lib/listing-variant-matrix";
 
@@ -19,6 +22,16 @@ export const SELLER_CHANNEL_LINK_SELECT = {
   connection: { select: { status: true } },
 } as const;
 
+/** Hide the shop pill after a remote delete or an intentional store disconnect. */
+export function channelLinkShowsOnItem(link: {
+  remoteDeletedProvider?: string | null;
+  connectionStatus?: string | null;
+}): boolean {
+  if (link.remoteDeletedProvider) return false;
+  if (link.connectionStatus === "disconnected") return false;
+  return true;
+}
+
 export function listingChannelSyncWarning(link: {
   provider: string;
   syncStatus: string;
@@ -27,9 +40,8 @@ export function listingChannelSyncWarning(link: {
   connectionStatus?: string | null;
 }): string | null {
   const label = CHANNEL_PROVIDER_LABELS[link.provider] ?? link.provider;
-  if (link.connectionStatus === "disconnected") {
-    return `Not syncing to ${label} — store disconnected. Reconnect in Sync Stores.`;
-  }
+  // Intentional store disconnect: do not nag reconnect on every listing.
+  if (link.connectionStatus === "disconnected") return null;
   if (link.connectionStatus === "error") {
     return `Not syncing to ${label} — reconnect in Sync Stores.`;
   }
@@ -90,18 +102,37 @@ export function listingVariantChannelWarnings(args: {
 
   if (providers.includes("etsy") && matrix && matrix.axes.length > MAX_ETSY_AXES) {
     out.push(
-      "Etsy supports at most 2 option types. Remove an option type or unsync Etsy before publishing."
+      `This item cannot be listed on Etsy — Etsy allows at most ${MAX_ETSY_AXES} option types. Remove an option type or unsync Etsy.`
     );
   }
-  if (providers.includes("shopify") && matrix && matrix.skus.length > MAX_SKU_ROWS_DEFAULT) {
-    out.push("Shopify supports at most 100 combinations. Reduce options or unsync Shopify.");
+  if (
+    providers.includes("etsy") &&
+    matrix &&
+    etsyVariesByAllProperties(matrix) &&
+    matrix.skus.length > MAX_ETSY_SKUS_ALL_PROPERTIES
+  ) {
+    out.push(
+      `This item cannot be listed on Etsy — when price, quantity, or SKU varies across all three option types, Etsy allows at most ${MAX_ETSY_SKUS_ALL_PROPERTIES} combinations.`
+    );
+  }
+  if (providers.includes("shopify") && matrix && matrix.skus.length > MAX_SKU_ROWS_SHOPIFY) {
+    out.push(
+      `This item cannot be listed on Shopify — Shopify (REST sync) supports at most ${MAX_SKU_ROWS_SHOPIFY} combinations. Reduce options or unsync Shopify.`
+    );
   }
   if (providers.includes("ebay") && matrix && matrix.skus.length > MAX_SKU_ROWS_EBAY) {
-    out.push("eBay supports at most 250 variations. Reduce combinations or unsync eBay.");
+    out.push(
+      `This item cannot be listed on eBay — eBay supports at most ${MAX_SKU_ROWS_EBAY} variations. Reduce combinations or unsync eBay.`
+    );
   }
   if (providers.includes("ebay") && matrix && matrix.axes.length > 1) {
     out.push(
       "eBay can only vary listing pictures by one option type (usually Color). Other combinations share those photos."
+    );
+  }
+  if (providers.includes("wix") && matrix && matrixHasLinkedOptionPhotos(matrix)) {
+    out.push(
+      "Wix will show the main gallery; color photos stay on INW and other shops."
     );
   }
   if (mto && providers.some((p) => p === "ebay" || p === "etsy")) {

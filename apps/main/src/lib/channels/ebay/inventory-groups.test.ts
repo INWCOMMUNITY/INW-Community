@@ -107,15 +107,13 @@ describe("inventory item groups", () => {
 
   it("stamps generated SKUs onto option rows for later reuse", () => {
     const rows = buildVariantInventoryRows(variantItem);
-    expect(mergeGeneratedSkusIntoVariants(variantItem.variants, rows)).toEqual([
-      {
-        name: "Size",
-        options: [
-          { value: "S", quantity: 1, sku: "SKU1S" },
-          { value: "M", quantity: 2, sku: "SKU1M" },
-        ],
-      },
-    ]);
+    expect(mergeGeneratedSkusIntoVariants(variantItem.variants, rows)).toEqual({
+      axes: [{ name: "Size", values: ["S", "M"] }],
+      skus: [
+        { options: { Size: "S" }, quantity: 1, sku: "SKU1S" },
+        { options: { Size: "M" }, quantity: 2, sku: "SKU1M" },
+      ],
+    });
   });
 
   it("includes variesBy so eBay gets variationInformation", () => {
@@ -136,13 +134,24 @@ describe("inventory item groups", () => {
     expect(
       applyInventoryItemGroupPhotoPolicy(
         body,
-        ["https://i.ebayimg.com/images/g/xx/s-l1600.jpg"],
+        [
+          "https://i.ebayimg.com/images/g/xx/s-l1600.jpg",
+          "https://blob.vercel-storage.com/hat.jpg",
+        ],
         ["https://blob.vercel-storage.com/hat.jpg"],
         false
       ).imageUrls
-    ).toEqual(["https://i.ebayimg.com/images/g/xx/s-l1600.jpg"]);
+    ).toEqual(["https://i.ebayimg.com/images/g/xx/s-l2000.jpg"]);
     expect(
       applyInventoryItemGroupPhotoPolicy(body, [], ["https://blob.vercel-storage.com/hat.jpg"], false)
+    ).not.toHaveProperty("imageUrls");
+    expect(
+      applyInventoryItemGroupPhotoPolicy(
+        body,
+        ["https://blob.vercel-storage.com/hat.jpg"],
+        ["https://blob.vercel-storage.com/hat.jpg"],
+        false
+      )
     ).not.toHaveProperty("imageUrls");
   });
 
@@ -187,5 +196,53 @@ describe("inventory item groups", () => {
     expect(buildVariantSyncItem(variantItem, row).variants).toEqual([
       { name: "Size", options: [{ value: "S", quantity: 1, sku: "SKU1S" }] },
     ]);
+  });
+
+  it("pushes every Size × Color axis on the inventory item group", () => {
+    const matrixItem = {
+      ...variantItem,
+      variants: {
+        axes: [
+          { name: "Size", values: ["S", "M"] },
+          { name: "Color", values: ["Navy", "White"] },
+        ],
+        skus: [
+          { options: { Size: "S", Color: "Navy" }, quantity: 1 },
+          { options: { Size: "S", Color: "White" }, quantity: 2 },
+          { options: { Size: "M", Color: "Navy" }, quantity: 3 },
+          { options: { Size: "M", Color: "White" }, quantity: 4 },
+        ],
+      },
+    };
+    const body = buildInventoryItemGroupBody(matrixItem, ["A", "B", "C", "D"]);
+    expect(body.variesBy).toEqual({
+      specifications: [
+        { name: "Size", values: ["S", "M"] },
+        { name: "Color", values: ["Navy", "White"] },
+      ],
+      aspectsImageVariesBy: ["Color"],
+    });
+    expect(buildVariantInventoryRows(matrixItem)).toHaveLength(4);
+  });
+
+  it("uses imageAxis for aspectsImageVariesBy", () => {
+    const body = buildInventoryItemGroupBody(
+      {
+        ...variantItem,
+        variants: {
+          axes: [
+            { name: "Size", values: ["S", "M"] },
+            { name: "Color", values: ["Navy", "White"] },
+          ],
+          imageAxis: "Size",
+          skus: [
+            { options: { Size: "S", Color: "Navy" }, quantity: 1, photos: ["https://cdn.example/s.jpg"] },
+            { options: { Size: "M", Color: "Navy" }, quantity: 1 },
+          ],
+        },
+      },
+      ["A", "B"]
+    );
+    expect((body.variesBy as { aspectsImageVariesBy: string[] }).aspectsImageVariesBy).toEqual(["Size"]);
   });
 });

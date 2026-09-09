@@ -1,6 +1,8 @@
 import { cache } from "react";
 import { prisma, Prisma } from "database";
 import { listingDisplayPhotos } from "@/lib/listing-display-photo";
+import { withPublicStockWhere } from "@/lib/store-item-public-access";
+import { listingVariantDisplayAxes } from "@/lib/store-item-variants";
 import { listingDescriptionPreview } from "@/lib/channels/rich-description";
 import { sortByStorefrontSearchRelevance } from "@/lib/storefront-search";
 
@@ -12,19 +14,12 @@ export const META_CACHE_HEADERS = {
   "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
 };
 
-type VariantEntry = { name?: string; options?: string[] | { value: string; quantity: number }[] };
-
 export function getSizesFromVariants(variants: unknown): string[] {
-  if (!variants || !Array.isArray(variants)) return [];
+  const axes = listingVariantDisplayAxes(variants);
   const sizes: string[] = [];
-  for (const v of variants as VariantEntry[]) {
-    const name = (v?.name ?? "").trim().toLowerCase();
-    if (name !== "size" || !Array.isArray(v?.options)) continue;
-    for (const opt of v.options) {
-      if (opt == null) continue;
-      const val = typeof opt === "object" && "value" in opt ? (opt as { value: string }).value : opt;
-      if (String(val).trim()) sizes.push(String(val).trim());
-    }
+  for (const v of axes) {
+    if (v.name.trim().toLowerCase() !== "size") continue;
+    sizes.push(...v.options);
   }
   return sizes;
 }
@@ -56,6 +51,7 @@ const publicBrowseCardSelect = {
   subcategory: true,
   priceCents: true,
   quantity: true,
+  variants: true,
   member: { select: { sellerTimeAway: true } },
   business: { select: { name: true, slug: true } },
 } satisfies Prisma.StoreItemSelect;
@@ -75,6 +71,7 @@ export function toPublicBrowseCard(item: {
   subcategory: string | null;
   priceCents: number;
   quantity: number;
+  variants?: unknown;
   business: { name: string; slug: string } | null;
 }) {
   const preview = listingDescriptionPreview(item.description);
@@ -88,6 +85,7 @@ export function toPublicBrowseCard(item: {
     subcategory: item.subcategory,
     priceCents: item.priceCents,
     quantity: item.quantity,
+    variants: item.variants ?? null,
     business: item.business,
   };
 }
@@ -182,13 +180,12 @@ export async function getStorefrontBrowseMeta(condition?: "new" | "used" | null)
 
   const [browseItems, variantItems] = await Promise.all([
     prisma.storeItem.findMany({
-      where: {
+      where: withPublicStockWhere({
         status: "active",
-        quantity: { gt: 0 },
         ...listingWhere,
         ...sellerCanReceivePayment,
         AND: [publicBrowseCategoryWhere],
-      },
+      }),
       select: {
         category: true,
         subcategory: true,
@@ -198,14 +195,13 @@ export async function getStorefrontBrowseMeta(condition?: "new" | "used" | null)
       },
     }),
     prisma.storeItem.findMany({
-      where: {
+      where: withPublicStockWhere({
         status: "active",
-        quantity: { gt: 0 },
         variants: { not: Prisma.JsonNull },
         ...listingWhere,
         AND: [publicBrowseCategoryWhere],
         ...sellerCanReceivePayment,
-      },
+      }),
       select: { variants: true, slug: true, member: { select: { sellerTimeAway: true } } },
     }),
   ]);
@@ -233,13 +229,12 @@ export async function getFeaturedBrowseCards(limit = 20): Promise<PublicBrowseCa
   const cached = ttlGet(featuredCardsCache.get(limit), BROWSE_TTL_MS);
   if (cached) return cached;
   let items = await prisma.storeItem.findMany({
-    where: {
+    where: withPublicStockWhere({
       featured: true,
       status: "active",
-      quantity: { gt: 0 },
       ...sellerCanReceivePayment,
       AND: [publicBrowseCategoryWhere],
-    },
+    }),
     select: publicBrowseCardSelect,
     orderBy: { createdAt: "desc" },
     take: limit,
@@ -254,12 +249,11 @@ export async function getFeaturedBrowseCards(limit = 20): Promise<PublicBrowseCa
 
 export async function getRecentBrowseCards(limit = 10): Promise<PublicBrowseCard[]> {
   let items = await prisma.storeItem.findMany({
-    where: {
+    where: withPublicStockWhere({
       status: "active",
-      quantity: { gt: 0 },
       ...sellerCanReceivePayment,
       AND: [publicBrowseCategoryWhere],
-    },
+    }),
     select: publicBrowseCardSelect,
     orderBy: { createdAt: "desc" },
     take: limit,
@@ -277,11 +271,10 @@ export async function getSellerSpotlight(limit = 12): Promise<SpotlightSeller[]>
     where: {
       stripeConnectAccountId: { not: null },
       storeItemsSold: {
-        some: {
+        some: withPublicStockWhere({
           status: "active",
-          quantity: { gt: 0 },
           AND: [publicBrowseCategoryWhere],
-        },
+        }),
       },
     },
     select: {
@@ -297,7 +290,7 @@ export async function getSellerSpotlight(limit = 12): Promise<SpotlightSeller[]>
       _count: {
         select: {
           storeItemsSold: {
-            where: { status: "active", quantity: { gt: 0 } },
+            where: withPublicStockWhere({ status: "active" }),
           },
         },
       },
@@ -404,9 +397,8 @@ export async function getPublicBrowseCards(query: PublicBrowseQuery): Promise<Pu
   const needsWindow = Boolean(search) || Boolean(size);
 
   let items = await prisma.storeItem.findMany({
-    where: {
+    where: withPublicStockWhere({
       status: "active",
-      quantity: { gt: 0 },
       ...listingWhere,
       ...sellerCanReceivePayment,
       AND: listAndConditions,
@@ -420,7 +412,7 @@ export async function getPublicBrowseCards(query: PublicBrowseQuery): Promise<Pu
       ...(maxPriceCents !== null && !Number.isNaN(maxPriceCents)
         ? { priceCents: { ...(minPriceCents !== null ? { gte: minPriceCents } : {}), lte: maxPriceCents } }
         : {}),
-    },
+    }),
     select: {
       ...(size ? publicBrowseSelectWithVariants : publicBrowseCardSelect),
       ...(search ? { createdAt: true, secondaryCategory: true } : {}),
@@ -450,12 +442,11 @@ export async function getPublicBrowseCards(query: PublicBrowseQuery): Promise<Pu
 export async function getPublicBrowseCardsByIds(ids: string[]): Promise<PublicBrowseCard[]> {
   if (ids.length === 0) return [];
   const items = await prisma.storeItem.findMany({
-    where: {
+    where: withPublicStockWhere({
       id: { in: ids },
       status: "active",
-      quantity: { gt: 0 },
       ...sellerCanReceivePayment,
-    },
+    }),
     select: publicBrowseCardSelect,
     orderBy: { createdAt: "desc" },
   });

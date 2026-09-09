@@ -3,6 +3,7 @@ import {
   resolveInwCategoryFromRemote,
   resolveInwCategoryWithSubcategory,
   canonicalizeSubcategory,
+  suggestCategoriesFromContent,
 } from "./category-resolver";
 import {
   ebayCategoryPathCandidatesWithMeta,
@@ -179,14 +180,14 @@ describe("resolveInwCategoryFromRemote — eBay hierarchical path priority", () 
     expect(r?.subcategory).toBe("Nursery Furniture");
   });
 
-  it("maps Video Games under Consumer Electronics correctly", () => {
+  it("maps Video Games under Video Games & Consoles", () => {
     const r = resolveInwCategoryFromRemote(
       "Video Games & Consoles > Video Games",
       null,
       { provider: "ebay" }
     );
-    expect(r?.category).toBe("Books, Movies & Music");
-    expect(r?.subcategory).toBe("Video Games");
+    expect(r?.category).toBe("Video Games & Consoles");
+    expect(r?.subcategory).toBe("Games (physical)");
   });
 });
 
@@ -355,5 +356,109 @@ describe("resolveInwCategoryWithSubcategory — eBay import paths", () => {
     });
     expect(r?.category).toBe("Business & Industrial");
     expect(r?.subcategory).toBe("Other Business & Industrial");
+  });
+});
+
+describe("resolveInwCategoryFromRemote — Video Games & Food & Drink", () => {
+  it("maps eBay food & beverages to Food & Drink", () => {
+    const r = resolveInwCategoryFromRemote("Home & Garden > Food & Beverages", null, {
+      provider: "ebay",
+    });
+    expect(r?.category).toBe("Food & Drink");
+  });
+
+  it("maps Shopify Games product type to Video Games & Consoles", () => {
+    const r = resolveInwCategoryFromRemote("Games", null, { provider: "shopify" });
+    expect(r?.category).toBe("Video Games & Consoles");
+    expect(r?.subcategory).toBe("Games (physical)");
+  });
+
+  it("maps Shopify Standard Product Taxonomy paths to Clothing", () => {
+    const r = resolveInwCategoryFromRemote(
+      "Apparel & Accessories > Clothing > Clothing Tops > T-Shirts",
+      "T-Shirts",
+      { provider: "shopify" }
+    );
+    expect(r?.category).toBe("Clothing");
+    expect(r?.subcategory).toBe("Tops & Tees");
+    expect(r?.matchedPreset).toBe(true);
+  });
+
+  it("keeps Etsy Games on Toys & Games", () => {
+    const r = resolveInwCategoryFromRemote("Games", null, { provider: "etsy" });
+    expect(r?.category).toBe("Toys & Games");
+  });
+
+  it("maps Etsy Food & Drink to the Food & Drink top-level", () => {
+    const r = resolveInwCategoryFromRemote("Food & Drink", null, { provider: "etsy" });
+    expect(r?.category).toBe("Food & Drink");
+  });
+
+  it("maps eBay tools & workshop equipment to Tools & Home Improvement", () => {
+    const r = resolveInwCategoryFromRemote(
+      "Home & Garden > Tools & Workshop Equipment > Hand Tools",
+      null,
+      { provider: "ebay" }
+    );
+    expect(r?.category).toBe("Tools & Home Improvement");
+    expect(r?.subcategory).toBe("Hand Tools");
+  });
+
+  it("maps eBay Travel > Luggage to Luggage & Travel", () => {
+    const r = resolveInwCategoryFromRemote("Travel > Luggage", null, { provider: "ebay" });
+    expect(r?.category).toBe("Luggage & Travel");
+    expect(r?.subcategory).toBe("Suitcases & Luggage");
+  });
+
+  it("maps Shopify kitchen product type to Home & Kitchen", () => {
+    const r = resolveInwCategoryFromRemote("Kitchen", null, { provider: "shopify" });
+    expect(r?.category).toBe("Home & Kitchen");
+  });
+
+  it("maps Shopify vitamins product type to Health & Personal Care", () => {
+    const r = resolveInwCategoryFromRemote("Vitamins", null, { provider: "shopify" });
+    expect(r?.category).toBe("Health & Personal Care");
+    expect(r?.subcategory).toBe("Vitamins & Supplements");
+  });
+
+  it("maps Etsy Kitchen & Dining to Home & Kitchen", () => {
+    const r = resolveInwCategoryFromRemote("Kitchen & Dining", null, { provider: "etsy" });
+    expect(r?.category).toBe("Home & Kitchen");
+  });
+
+  it("maps Etsy Outdoor & Garden to Home & Garden", () => {
+    const r = resolveInwCategoryFromRemote("Outdoor & Garden", null, { provider: "etsy" });
+    expect(r?.category).toBe("Home & Garden");
+  });
+
+  it("returns null for an unmapped closest-preset label instead of storing it raw", () => {
+    const r = resolveInwCategoryFromRemote("Qxyzzy Blorpt Drop", null, { provider: "wix" });
+    expect(r).toBeNull();
+  });
+});
+
+describe("suggestCategoriesFromContent — remaining tops", () => {
+  it("ranks a cordless drill under Tools & Home Improvement", () => {
+    const suggestions = suggestCategoriesFromContent("Cordless drill");
+    expect(suggestions[0]?.category).toBe("Tools & Home Improvement");
+  });
+
+  it("ranks a garden planter under Home & Garden", () => {
+    const suggestions = suggestCategoriesFromContent("Garden planter");
+    expect(suggestions[0]?.category).toBe("Home & Garden");
+  });
+
+  it("ranks an acoustic guitar under Musical Instruments", () => {
+    const suggestions = suggestCategoriesFromContent("Acoustic guitar");
+    expect(suggestions[0]?.category).toBe("Musical Instruments");
+  });
+});
+
+describe("suggestCategoriesFromContent — video games titles", () => {
+  it("does not send PlayStation 5 game to Toys or Books", () => {
+    const suggestions = suggestCategoriesFromContent("PlayStation 5 game");
+    expect(suggestions[0]?.category).toBe("Video Games & Consoles");
+    expect(suggestions.some((s) => s.category === "Toys & Games")).toBe(false);
+    expect(suggestions.some((s) => s.category === "Books, Movies & Music")).toBe(false);
   });
 });

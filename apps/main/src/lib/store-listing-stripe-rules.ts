@@ -1,5 +1,6 @@
 import { prisma } from "database";
 import { inactiveStoreItemData } from "@/lib/store-item-ended-status";
+import { isMadeToOrderTracking } from "@/lib/listing-variant-matrix";
 
 /**
  * A listing is publicly sellable on the storefront only when Connect is on the owning member.
@@ -15,12 +16,16 @@ export async function memberHasStripeConnectForStorefront(memberId: string): Pro
 
 /** After update fields merged with existing row: would this row appear on public browse (same gates as GET /api/store-items)? */
 export function wouldBePubliclyBrowsableLive(
-  existing: { status: string; quantity: number },
-  patch: { status?: string; quantity?: number }
+  existing: { status: string; quantity: number; inventoryTracking?: string | null },
+  patch: { status?: string; quantity?: number; inventoryTracking?: string | null }
 ): boolean {
   const status = patch.status !== undefined ? patch.status : existing.status;
   const quantity = patch.quantity !== undefined ? patch.quantity : existing.quantity;
-  return status === "active" && quantity > 0;
+  const tracking =
+    patch.inventoryTracking !== undefined ? patch.inventoryTracking : existing.inventoryTracking;
+  if (status !== "active") return false;
+  if (isMadeToOrderTracking(tracking)) return true;
+  return quantity > 0;
 }
 
 /**

@@ -9,7 +9,7 @@ import { migrateEbayListings, fetchEbayItemDetails } from "@/lib/channels/ebay/t
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { fetchAndCacheEbayInventoryAspects } from "@/lib/channels/ebay/inventory-aspects-cache";
 import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
-import { storeListingDescription, resolveImportCategory } from "@/lib/channels/import-listing";
+import { storeListingDescription, resolveImportCategory, importCategoryNeedsReview } from "@/lib/channels/import-listing";
 import { seedCategoryMappingFromImport } from "@/lib/channels/category-resolver";
 import { needsCategoryRepair } from "@/lib/channels/repair-categories";
 import { splitEbayCategoryPath } from "@/lib/channels/ebay-category-aliases";
@@ -512,6 +512,9 @@ export async function POST(req: NextRequest) {
               source: categoryAssignment.source,
             },
           });
+          if (importCategoryNeedsReview(categoryAssignment)) {
+            uncategorizedCount++;
+          }
           await attachEbayListingShippingOption({
             memberId: userId,
             storeItemId: existing.storeItem.id,
@@ -624,7 +627,7 @@ export async function POST(req: NextRequest) {
           acceptOffers: details.acceptOffers,
           minOfferCents: details.minOfferCents,
           slug: uniqueSlug(slugify(listing.title)),
-          category: finalResolvedCat?.category ?? ebayCategoryPath?.slice(0, 200) ?? null,
+          category: finalResolvedCat?.category ?? null,
           subcategory: finalResolvedCat?.subcategory ?? null,
           ...(aspectsForStorage.length > 0 ? { aspects: aspectsForStorage as object } : {}),
           ...(importedVariants && importedVariants.length > 0
@@ -719,7 +722,7 @@ export async function POST(req: NextRequest) {
             }
           : {}),
       });
-      if (!finalResolvedCat?.category) {
+      if (importCategoryNeedsReview(categoryAssignment)) {
         uncategorizedCount++;
       }
     } catch (e) {

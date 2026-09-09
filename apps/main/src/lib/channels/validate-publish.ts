@@ -14,6 +14,9 @@ import { publishBlockReason } from "./connection-publish";
 import { getItemAspectsForCategory } from "./ebay/aspects";
 import { formatAspectValidationErrors, prepareAspectsForEbayCategory } from "./ebay/aspect-prep";
 import { parseStoredAspects } from "../listing-limits";
+import { channelTreatsItemInStock } from "@/lib/listing-variant-matrix";
+import { listingVariantChannelWarnings } from "./listing-sync-warning";
+import { validateVariantLimits } from "./variant-sync";
 
 export interface ValidationError {
   field: string;
@@ -131,8 +134,20 @@ export async function validateForProvider(
 
   // Quantity validation
   const quantity = item.quantity;
-  if (quantity === undefined || quantity === null || quantity < 1) {
+  if (!channelTreatsItemInStock({ quantity, inventoryTracking: item.inventoryTracking })) {
     errors.push({ field: "quantity", message: "Quantity must be at least 1", severity: "error" });
+  }
+
+  const variantLimit = validateVariantLimits(provider, item.variants);
+  if (variantLimit) {
+    errors.push({ field: "variants", message: variantLimit, severity: "error" });
+  }
+  for (const note of listingVariantChannelWarnings({
+    variants: item.variants,
+    inventoryTracking: item.inventoryTracking,
+    linkedProviders: [provider],
+  })) {
+    warnings.push({ field: "variants", message: note, severity: "warning" });
   }
 
   // Description length validation
@@ -458,7 +473,7 @@ export function validateForProviderQuick(
   }
 
   // Quantity
-  if (!item.quantity || item.quantity < 1) {
+  if (!channelTreatsItemInStock(item)) {
     errors.push({ field: "quantity", message: "Quantity is required", severity: "error" });
   }
 

@@ -3,6 +3,7 @@ import {
   buildWixV1OptionsCreateBody,
   isWixCollectionAlreadyExistsError,
   wixV1NeedsOptionStructureRebuild,
+  wixV1ProductToVariants,
 } from "./collections";
 import type { SyncStoreItem } from "../types";
 
@@ -58,6 +59,43 @@ describe("Wix Catalog v1 option structure", () => {
     expect(body.product.manageVariants).toBe(true);
     expect(body.product.productOptions?.[0]?.name).toBe("size");
     expect(body.product.variants).toHaveLength(4);
+  });
+
+  it("imports Size and Color as separate axes instead of M / Red labels", () => {
+    const matrix = wixV1ProductToVariants({
+      productOptions: [
+        { name: "Size", choices: [{ description: "M" }, { description: "L" }] },
+        { name: "Color", choices: [{ description: "Red" }, { description: "Blue" }] },
+      ],
+      variants: [
+        {
+          id: "1",
+          choices: { Size: "M", Color: "Red" },
+          stock: { quantity: 3 },
+          priceData: { price: 12 },
+        },
+        {
+          id: "2",
+          choices: { Size: "L", Color: "Blue" },
+          stock: { quantity: 1 },
+        },
+      ],
+    });
+    expect(matrix).toMatchObject({
+      axes: [
+        { name: "Size", values: ["M", "L"] },
+        { name: "Color", values: ["Red", "Blue"] },
+      ],
+    });
+    expect(JSON.stringify(matrix)).not.toMatch(/M \/ Red/);
+  });
+
+  it("creates untracked stock for made-to-order listings", () => {
+    const body = buildWixV1OptionsCreateBody({
+      ...sizeItem,
+      inventoryTracking: "made_to_order",
+    }) as { product: { variants: { stock: { trackInventory?: boolean } }[] } };
+    expect(body.product.variants[0].stock.trackInventory).toBe(false);
   });
 
   it("rebuilds when the only variant is a dummy with empty choices", () => {

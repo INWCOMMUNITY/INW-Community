@@ -30,6 +30,7 @@ type ImportApiResponse = {
   jobId?: string;
   imported?: ImportResultImported[];
   skipped?: ImportResultSkipped[];
+  uncategorizedCount?: number;
 };
 
 type ImportJobStatus = {
@@ -72,6 +73,8 @@ export function ChannelImportContent() {
   const [resultImported, setResultImported] = useState<ImportResultImported[]>([]);
   const [resultSkipped, setResultSkipped] = useState<ImportResultSkipped[]>([]);
   const [resultTab, setResultTab] = useState<"on-inw" | "attention">("on-inw");
+  const [reviewCount, setReviewCount] = useState(0);
+  const [fixingCategories, setFixingCategories] = useState(false);
 
   const importable = useMemo(
     () => listings.filter((l) => !l.alreadyLinked),
@@ -190,6 +193,7 @@ export function ChannelImportContent() {
 
     const batchImported: ImportResultImported[] = [];
     const batchSkipped: ImportResultSkipped[] = [];
+    let batchReviewCount = 0;
 
     const poll = window.setInterval(() => {
       void fetch(`/api/channels/import-job/${jobId}`, { credentials: "include" })
@@ -225,6 +229,7 @@ export function ChannelImportContent() {
           } else {
             batchImported.push(...(data.imported ?? []));
             batchSkipped.push(...(data.skipped ?? []));
+            batchReviewCount += data.uncategorizedCount ?? 0;
           }
         } catch (e) {
           const timedOut = e instanceof DOMException && e.name === "AbortError";
@@ -257,6 +262,7 @@ export function ChannelImportContent() {
 
       setResultImported(nextImported);
       setResultSkipped(nextSkipped);
+      setReviewCount(merge ? reviewCount + batchReviewCount : batchReviewCount);
       setResultTab(
         nextImported.length === 0 && nextSkipped.length > 0 ? "attention" : "on-inw"
       );
@@ -440,6 +446,23 @@ export function ChannelImportContent() {
                 skipped={resultSkipped}
                 tab={resultTab}
                 onTab={setResultTab}
+                reviewCount={reviewCount}
+                fixingCategories={fixingCategories}
+                onFixCategories={() => {
+                  void (async () => {
+                    setFixingCategories(true);
+                    try {
+                      await fetch("/api/channels/repair-categories", {
+                        method: "POST",
+                        credentials: "include",
+                        headers: { "Content-Type": "application/json" },
+                        body: "{}",
+                      });
+                    } finally {
+                      setFixingCategories(false);
+                    }
+                  })();
+                }}
                 onShare={() => {
                   const ids = resultImported
                     .map((row) => row.storeItemId)

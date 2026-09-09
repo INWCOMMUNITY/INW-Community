@@ -347,7 +347,7 @@ describe("passthrough-push", () => {
     ).toBe(true);
   });
 
-  it("shouldPushInwPhotosToEbay only after a seller photo edit on a live listing", () => {
+  it("shouldPushInwPhotosToEbay never overlays INW photos onto a live eBay listing", () => {
     const inw = ["https://blob.example.com/coin.jpg"];
     expect(
       shouldPushInwPhotosToEbay({
@@ -369,7 +369,7 @@ describe("passthrough-push", () => {
         lastPushedPhotos: ["https://blob.example.com/old.jpg"],
         listingAlreadyOnEbay: true,
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldPushInwPhotosToEbay({
         inwPhotos: inw,
@@ -494,6 +494,29 @@ describe("passthrough-push", () => {
     });
     expect(changed.description).toBe(true);
     expect(changed.title).toBe(false);
+    expect(changed.photos).toBe(false);
+    expect(needsInventoryPut(changed)).toBe(false);
+  });
+
+  it("resolvePassthroughChanges never pushes INW photos onto a live eBay listing", () => {
+    const changed = resolvePassthroughChanges(
+      {
+        title: false,
+        photos: true,
+        description: false,
+        quantity: false,
+        price: false,
+        content: false,
+      },
+      { title: false, description: false, photos: true, price: false },
+      {
+        syncTitles: true,
+        syncDescriptions: true,
+        syncPhotos: true,
+        syncPrices: true,
+      }
+    );
+    expect(changed.photos).toBe(false);
     expect(needsInventoryPut(changed)).toBe(false);
   });
 

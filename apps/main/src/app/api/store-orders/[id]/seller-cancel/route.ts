@@ -10,7 +10,7 @@ import { refundPaidStorefrontOrder } from "@/lib/stripe/refund-store-order";
 export const dynamic = "force-dynamic";
 
 /**
- * Seller cancels a paid to-ship order before it is marked shipped.
+ * Seller cancels a paid to-ship order before a shipping label is purchased.
  * Cash / reward: cancel + inventory restore.
  * Card: Stripe refund + seller balance deduction + inventory restore.
  */

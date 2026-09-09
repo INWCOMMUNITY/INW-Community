@@ -128,14 +128,69 @@ describe("parseEbayVariations", () => {
     </Variation>
   </Variations>
 </Item>`;
-    expect(parseEbayVariations(xml)).toEqual([
-      {
-        name: "Size",
-        options: [
-          { value: "S", quantity: 2, sku: "REDSHIRT" },
-          { value: "M", quantity: 1, sku: "BLUESHIRT" },
-        ],
-      },
-    ]);
+    expect(parseEbayVariations(xml)).toEqual({
+      axes: [{ name: "Size", values: ["S", "M"] }],
+      skus: [
+        { options: { Size: "S" }, quantity: 2, sku: "REDSHIRT" },
+        { options: { Size: "M" }, quantity: 1, sku: "BLUESHIRT" },
+      ],
+    });
+  });
+
+  it("keeps Size and Color on each variation SKU", () => {
+    const xml = `
+<Item>
+  <Variations>
+    <Variation>
+      <SKU>NVY-S</SKU>
+      <Quantity>4</Quantity>
+      <VariationSpecifics>
+        <NameValueList><Name>Size</Name><Value>S</Value></NameValueList>
+        <NameValueList><Name>Color</Name><Value>Navy</Value></NameValueList>
+      </VariationSpecifics>
+    </Variation>
+    <Variation>
+      <SKU>WHT-M</SKU>
+      <Quantity>1</Quantity>
+      <VariationSpecifics>
+        <NameValueList><Name>Size</Name><Value>M</Value></NameValueList>
+        <NameValueList><Name>Color</Name><Value>White</Value></NameValueList>
+      </VariationSpecifics>
+    </Variation>
+  </Variations>
+</Item>`;
+    expect(parseEbayVariations(xml)).toEqual({
+      axes: [
+        { name: "Size", values: ["S", "M"] },
+        { name: "Color", values: ["Navy", "White"] },
+      ],
+      skus: [
+        { options: { Size: "S", Color: "Navy" }, quantity: 4, sku: "NVY-S" },
+        { options: { Size: "M", Color: "White" }, quantity: 1, sku: "WHT-M" },
+      ],
+    });
+  });
+
+  it("imports variation StartPrice onto priceCents", () => {
+    const xml = `
+<Item>
+  <Variations>
+    <Variation>
+      <SKU>NVY-S</SKU>
+      <Quantity>4</Quantity>
+      <StartPrice>24.50</StartPrice>
+      <VariationSpecifics>
+        <NameValueList><Name>Size</Name><Value>S</Value></NameValueList>
+        <NameValueList><Name>Color</Name><Value>Navy</Value></NameValueList>
+      </VariationSpecifics>
+    </Variation>
+  </Variations>
+</Item>`;
+    expect(parseEbayVariations(xml)?.skus[0]).toMatchObject({
+      options: { Size: "S", Color: "Navy" },
+      quantity: 4,
+      sku: "NVY-S",
+      priceCents: 2450,
+    });
   });
 });

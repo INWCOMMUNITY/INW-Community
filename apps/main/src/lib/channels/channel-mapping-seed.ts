@@ -195,12 +195,13 @@ function dedupeSeedRows(rows: ChannelCategoryMappingRow[]): ChannelCategoryMappi
 
 /** Build all seed rows from alias tables + full Etsy/eBay taxonomy plans. */
 export async function buildChannelCategoryMappingSeedRows(): Promise<ChannelCategoryMappingRow[]> {
-  const { etsy: etsyAliases, wix: wixAliases } = getCategoryAliasTablesForSeed();
+  const { etsy: etsyAliases, wix: wixAliases, shopify: shopifyAliases } = getCategoryAliasTablesForSeed();
 
   const rows: ChannelCategoryMappingRow[] = [
     ...rowsFromAliasTable("ebay", EBAY_CATEGORY_ALIASES),
     ...rowsFromAliasTable("etsy", etsyAliases),
     ...rowsFromAliasTable("wix", wixAliases),
+    ...rowsFromAliasTable("shopify", shopifyAliases),
     ...buildEtsySellerHelpPathRows(),
     ...buildEbayReferenceRows(),
     ...buildEtsyTaxonomyIdRows(),

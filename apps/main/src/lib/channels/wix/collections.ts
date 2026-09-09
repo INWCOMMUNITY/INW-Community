@@ -1,6 +1,13 @@
 import type { SyncStoreItem } from "../types";
 import { assertSaneInventoryQty } from "../inventory-sanity";
-import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
+import { normalizeVariantsFromProvider, variantsToMatrix, type InwVariantAxis } from "../variant-sync";
+import {
+  channelQuantityForTracked,
+  isMadeToOrderTracking,
+  optionsEqual,
+  skuSelectionKey,
+  type VariantMatrix,
+} from "@/lib/listing-variant-matrix";
 import { wixGet, wixJson, type WixRequestOpts } from "./client";
 import type { WixV1Product } from "./mapping";
 
@@ -42,92 +49,81 @@ function wixVariantChoiceMap(row: WixV1VariantRow): Record<string, string> {
   return {};
 }
 
-function setOptionQty(
-  options: Map<string, number>,
-  selected: string,
-  qty: number
-): void {
-  const want = selected.trim().toLowerCase();
-  if (!want) return;
-  for (const [val] of options) {
-    if (val.toLowerCase() === want) {
-      options.set(val, qty);
-      return;
-    }
-  }
-  options.set(selected.trim(), qty);
-}
-
-/** Extract INW variant axes from a classic v1 Wix product (query or GET). */
-export function wixV1ProductToVariants(product: WixV1Product): InwVariantAxis[] | null {
+/** Extract INW variant matrix from a classic v1 Wix product (query or GET). */
+export function wixV1ProductToVariants(product: WixV1Product): VariantMatrix | InwVariantAxis[] | null {
   const rows = product.variants?.filter((v) => v.id) ?? [];
   const productOptions =
     product.productOptions?.filter((po) => po.name?.trim() && (po.choices?.length ?? 0) > 0) ?? [];
 
   if (rows.length === 0 && productOptions.length === 0) return null;
 
-  // One option type (Size, Color, …): map each variant row to that option's quantity.
-  if (productOptions.length === 1) {
-    const po = productOptions[0];
-    const axisName = po.name!.trim();
-    const qtyByValue = new Map<string, number>();
-    for (const c of po.choices ?? []) {
-      const val = String(c.description ?? c.value ?? "").trim();
-      if (val) qtyByValue.set(val, 0);
-    }
-    for (const row of rows) {
-      const map = wixVariantChoiceMap(row);
-      const selected = map[axisName] ?? Object.values(map)[0];
-      if (!selected) continue;
-      const qty = Math.max(0, row.stock?.quantity ?? 0);
-      setOptionQty(qtyByValue, selected, qty);
-    }
-    const options = [...qtyByValue.entries()].map(([value, quantity]) => ({ value, quantity }));
-    return options.length > 0 ? [{ name: axisName, options }] : null;
-  }
+  const axes = productOptions.map((po) => ({
+    name: po.name!.trim(),
+    values: (po.choices ?? [])
+      .map((c) => String(c.description ?? c.value ?? "").trim())
+      .filter(Boolean),
+  })).filter((a) => a.name && a.values.length > 0);
 
-  // Multiple option types: one INW axis with combined labels ("M / Red").
-  if (rows.length > 0) {
-    const comboQty = new Map<string, number>();
+  if (axes.length === 0 && rows.length > 0) {
+    const comboQty = new Map<string, { options: Record<string, string>; quantity: number }>();
     for (const row of rows) {
       const map = wixVariantChoiceMap(row);
-      const parts = Object.entries(map)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([, v]) => v);
-      const label = parts.join(" / ");
-      if (!label) continue;
-      comboQty.set(label, Math.max(0, row.stock?.quantity ?? 0));
+      if (Object.keys(map).length === 0) continue;
+      comboQty.set(JSON.stringify(map), {
+        options: map,
+        quantity: Math.max(0, row.stock?.quantity ?? 0),
+      });
     }
     if (comboQty.size === 0) return null;
-    const axisName =
-      productOptions.length > 1
-        ? productOptions
-            .map((o) => o.name?.trim())
-            .filter(Boolean)
-            .join(" & ")
-        : "Variant";
-    return [
-      {
-        name: axisName.slice(0, 80) || "Variant",
-        options: [...comboQty.entries()].map(([value, quantity]) => ({ value, quantity })),
-      },
-    ];
+    const names = [...new Set([...comboQty.values()].flatMap((c) => Object.keys(c.options)))];
+    const valuesByName = new Map<string, string[]>();
+    for (const name of names) {
+      const vals: string[] = [];
+      for (const c of comboQty.values()) {
+        const v = c.options[name];
+        if (v && !vals.some((x) => x.toLowerCase() === v.toLowerCase())) vals.push(v);
+      }
+      valuesByName.set(name, vals);
+    }
+    return {
+      axes: names.map((name) => ({ name, values: valuesByName.get(name) ?? [] })),
+      skus: [...comboQty.values()],
+    };
   }
 
-  // Options defined but no variant rows returned — import structure without qty.
-  if (productOptions.length > 0) {
-    return productOptions.map((po) => ({
-      name: po.name!.trim(),
-      options: (po.choices ?? [])
-        .map((c) => ({
-          value: String(c.description ?? c.value ?? "").trim(),
-          quantity: 0,
-        }))
-        .filter((o) => o.value),
-    }));
-  }
+  if (axes.length === 0) return null;
+  const skus = rows.map((row) => {
+    const map = wixVariantChoiceMap(row);
+    const options: Record<string, string> = {};
+    for (const axis of axes) {
+      const val = map[axis.name] ?? Object.values(map).find((v) =>
+        axis.values.some((x) => x.toLowerCase() === v.toLowerCase())
+      );
+      if (val) options[axis.name] = val;
+    }
+    const price = row.priceData?.price;
+    const priceCents =
+      typeof price === "number" && Number.isFinite(price) ? Math.round(price * 100) : undefined;
+    return {
+      options,
+      quantity: Math.max(0, row.stock?.quantity ?? 0),
+      ...(priceCents && priceCents > 0 ? { priceCents } : {}),
+    };
+  }).filter((s) => Object.keys(s.options).length > 0);
 
-  return null;
+  return { axes, skus };
+}
+
+function wixTrackInventory(item: SyncStoreItem): boolean {
+  return !isMadeToOrderTracking(item.inventoryTracking);
+}
+
+function wixVariantStock(item: SyncStoreItem, qty: number): Record<string, unknown> {
+  if (!wixTrackInventory(item)) {
+    return { trackInventory: false, inStock: true };
+  }
+  const quantity = channelQuantityForTracked(qty, item.inventoryTracking);
+  return { trackInventory: true, quantity, inStock: quantity > 0 };
 }
 
 /** Merge Stores v2 inventory quantities onto v1 product variant rows (in place). */
@@ -340,76 +336,86 @@ export async function assignWixProductCollection(
 
 /** Build v1 productOptions + variants for products that do not yet have variant rows. */
 export function buildWixV1OptionsCreateBody(item: SyncStoreItem): Record<string, unknown> | null {
-  const axes = normalizeVariantsFromProvider("wix", item.variants) as InwVariantAxis[] | null;
-  if (!axes || axes.length === 0) return null;
+  const matrix = variantsToMatrix(item.variants);
+  if (!matrix || matrix.axes.length === 0 || matrix.skus.length === 0) {
+    const axes = normalizeVariantsFromProvider("wix", item.variants) as InwVariantAxis[] | null;
+    if (!axes || axes.length === 0) return null;
+    const productOptions = axes.map((axis) => ({
+      name: axis.name,
+      choices: axis.options.map((o) => ({ value: o.value, description: o.value })),
+    }));
+    const variants = axes[0].options.map((o) => ({
+      choices: { [axes[0].name]: o.value },
+      stock: wixVariantStock(item, o.quantity),
+      priceData: { price: Math.max(0, item.priceCents) / 100 },
+    }));
+    return { product: { manageVariants: true, productOptions, variants } };
+  }
 
-  const primary = axes[0];
-  const productOptions = [
-    {
-      name: primary.name,
-      choices: primary.options.map((o) => ({ value: o.value, description: o.value })),
+  const productOptions = matrix.axes.map((axis) => ({
+    name: axis.name,
+    choices: axis.values.map((value) => ({ value, description: value })),
+  }));
+  const variants = matrix.skus.map((sku) => ({
+    choices: sku.options,
+    stock: wixVariantStock(item, sku.quantity),
+    priceData: {
+      price: Math.max(0, sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents) / 100,
     },
-  ];
-  const variants = primary.options.map((o) => ({
-    choices: { [primary.name]: o.value },
-    stock: { trackInventory: true, quantity: o.quantity, inStock: o.quantity > 0 },
-    priceData: { price: Math.max(0, item.priceCents) / 100 },
   }));
 
   return { product: { manageVariants: true, productOptions, variants } };
 }
 
-function inwPrimaryAxis(item: SyncStoreItem): InwVariantAxis | null {
-  const axes = normalizeVariantsFromProvider("wix", item.variants) as InwVariantAxis[] | null;
-  return axes?.[0] ?? null;
+function inwMatrix(item: SyncStoreItem): VariantMatrix | null {
+  return variantsToMatrix(item.variants);
 }
 
-/** True when INW option name + value set matches Wix productOptions (single axis). */
+function axisValuesMatch(a: string[], b: string[]): boolean {
+  const left = new Set(a.map((v) => v.trim().toLowerCase()).filter(Boolean));
+  const right = new Set(b.map((v) => v.trim().toLowerCase()).filter(Boolean));
+  if (left.size !== right.size) return false;
+  for (const v of left) {
+    if (!right.has(v)) return false;
+  }
+  return true;
+}
+
+/** True when INW option names + values match Wix productOptions. */
 export function wixOptionStructureMatches(
   item: SyncStoreItem,
   existing: WixV1Product | null | undefined
 ): boolean {
-  const primary = inwPrimaryAxis(item);
-  if (!primary || !existing) return false;
+  const matrix = inwMatrix(item);
+  if (!matrix || !existing) return false;
 
-  const inwValues = new Set(
-    primary.options.map((o) => o.value.trim().toLowerCase()).filter(Boolean)
-  );
-  const existingRows = existing.variants?.filter((v) => v.id) ?? [];
   const wixOptions =
     existing.productOptions?.filter((po) => po.name?.trim() && (po.choices?.length ?? 0) > 0) ?? [];
-
-  if (wixOptions.length === 1) {
-    const wixOpt = wixOptions[0];
-    const wixName = wixOpt.name?.trim().toLowerCase() ?? "";
-    if (wixName && wixName !== primary.name.trim().toLowerCase()) return false;
-    const wixValues = new Set(
-      (wixOpt.choices ?? [])
-        .map((c) => String(c.description ?? c.value ?? "").trim().toLowerCase())
-        .filter(Boolean)
-    );
-    if (inwValues.size !== wixValues.size) return false;
-    for (const v of inwValues) {
-      if (!wixValues.has(v)) return false;
-    }
-    return true;
+  if (wixOptions.length === matrix.axes.length && wixOptions.length > 0) {
+    return matrix.axes.every((axis) => {
+      const wixOpt = wixOptions.find((po) => po.name?.trim().toLowerCase() === axis.name.trim().toLowerCase());
+      if (!wixOpt) return false;
+      const wixValues = (wixOpt.choices ?? [])
+        .map((c) => String(c.description ?? c.value ?? "").trim())
+        .filter(Boolean);
+      return axisValuesMatch(axis.values, wixValues);
+    });
   }
 
-  if (existingRows.length > 0) {
-    const wixValues = new Set<string>();
-    for (const row of existingRows) {
-      for (const v of Object.values(wixVariantChoiceMap(row))) {
-        if (v.trim()) wixValues.add(v.trim().toLowerCase());
-      }
-    }
-    if (inwValues.size !== wixValues.size) return false;
-    for (const v of inwValues) {
-      if (!wixValues.has(v)) return false;
-    }
-    return true;
+  const existingRows = existing.variants?.filter((v) => v.id) ?? [];
+  if (existingRows.length === 0) return false;
+  const inwKeys = new Set(matrix.skus.map((s) => skuSelectionKey(s.options)));
+  const wixKeys = new Set<string>();
+  for (const row of existingRows) {
+    const map = wixVariantChoiceMap(row);
+    if (Object.keys(map).length === 0) continue;
+    wixKeys.add(skuSelectionKey(map));
   }
-
-  return false;
+  if (inwKeys.size !== wixKeys.size) return false;
+  for (const k of inwKeys) {
+    if (!wixKeys.has(k)) return false;
+  }
+  return true;
 }
 
 /** True when Wix still has a dummy/default variant (no choice values) and options need to be created. */
@@ -429,52 +435,32 @@ export function buildWixV1ExistingVariantsPatchBody(
   item: SyncStoreItem,
   existing: WixV1Product
 ): Record<string, unknown> | null {
-  const primary = inwPrimaryAxis(item);
-  if (!primary) return null;
+  const matrix = inwMatrix(item);
+  if (!matrix) return null;
 
-  const qtyByValue = new Map(
-    primary.options.map((o) => [o.value.trim().toLowerCase(), Math.max(0, o.quantity)])
-  );
-  const price = Math.max(0, item.priceCents) / 100;
   const rows = existing.variants?.filter((v) => v.id) ?? [];
   if (rows.length === 0) return null;
 
   const variants: Record<string, unknown>[] = [];
   for (const row of rows) {
     const map = wixVariantChoiceMap(row);
-    const axisKey =
-      Object.keys(map).find((k) => k.toLowerCase() === primary.name.trim().toLowerCase()) ??
-      Object.keys(map)[0];
-    const selected = axisKey ? map[axisKey] : Object.values(map)[0];
-    const mapped = selected ? qtyByValue.get(selected.trim().toLowerCase()) : undefined;
-    // Preserve the variant's current Wix stock when we can't map it, rather than zeroing it.
-    const qty = mapped ?? Math.max(0, row.stock?.quantity ?? 0);
+    const sku = matrix.skus.find((s) => optionsEqual(s.options, map));
+    const qty = sku ? sku.quantity : Math.max(0, row.stock?.quantity ?? 0);
+    const price =
+      Math.max(0, sku?.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents) / 100;
     variants.push({
       id: row.id,
-      stock: { trackInventory: true, quantity: qty, inStock: qty > 0 },
+      stock: wixVariantStock(item, qty),
       priceData: { price },
     });
   }
   return variants.length > 0 ? { product: { variants } } : null;
 }
 
-/** INW option value -> quantity (lowercased keys) for the listing's single axis. */
-function inwQtyByValue(item: SyncStoreItem): { axisName: string; qty: Map<string, number> } | null {
-  const primary = inwPrimaryAxis(item);
-  if (!primary) return null;
-  return {
-    axisName: primary.name.trim().toLowerCase(),
-    qty: new Map(primary.options.map((o) => [o.value.trim().toLowerCase(), Math.max(0, o.quantity)])),
-  };
-}
-
-/** The option value a v1 product variant row represents (for the listing's axis). */
-function v1VariantSelectedValue(row: WixV1VariantRow, axisNameLower: string): string | null {
-  const map = wixVariantChoiceMap(row);
-  const axisKey =
-    Object.keys(map).find((k) => k.toLowerCase() === axisNameLower) ?? Object.keys(map)[0];
-  const selected = axisKey ? map[axisKey] : Object.values(map)[0];
-  return selected ? selected.trim().toLowerCase() : null;
+function inwSkuQtyByChoiceKey(item: SyncStoreItem): Map<string, number> | null {
+  const matrix = inwMatrix(item);
+  if (!matrix || matrix.skus.length === 0) return null;
+  return new Map(matrix.skus.map((s) => [skuSelectionKey(s.options), Math.max(0, s.quantity)]));
 }
 
 type V2InventoryItem = {
@@ -503,8 +489,8 @@ export async function pushWixV1PerOptionInventory(
   item: SyncStoreItem,
   opts: WixRequestOpts
 ): Promise<boolean> {
-  const inw = inwQtyByValue(item);
-  if (!inw) return false;
+  const qtyByKey = inwSkuQtyByChoiceKey(item);
+  if (!qtyByKey) return false;
 
   const fetchInventory = () =>
     wixGet<{ inventoryItem?: V2InventoryItem }>(
@@ -542,30 +528,28 @@ export async function pushWixV1PerOptionInventory(
     }
   }
 
+  const track = wixTrackInventory(item);
   const variants: { variantId: string; quantity: number; inStock: boolean }[] = [];
   let resolved = 0;
   for (const row of rows) {
     const variantId = row.id as string;
-    const value = v1VariantSelectedValue(row, inw.axisName);
-    const mapped = value != null ? inw.qty.get(value) : undefined;
+    const map = wixVariantChoiceMap(row);
+    const mapped = qtyByKey.get(skuSelectionKey(map));
     if (mapped == null) {
-      // Unknown mapping: preserve whatever Wix currently has (never zero by accident).
       const current = v2QtyById.get(variantId) ?? Math.max(0, row.stock?.quantity ?? 0);
       variants.push({ variantId, quantity: current, inStock: current > 0 });
       continue;
     }
     resolved += 1;
-    const qty = assertSaneInventoryQty(mapped, "pushWixV1PerOptionInventory");
-    variants.push({ variantId, quantity: qty, inStock: qty > 0 });
+    const qty = track ? assertSaneInventoryQty(mapped, "pushWixV1PerOptionInventory") : 0;
+    variants.push({ variantId, quantity: qty, inStock: track ? qty > 0 : true });
   }
 
-  // Could not map any variant to an INW option -> structure mismatch; do not wipe Wix to zeros.
   if (resolved === 0) {
-    console.warn("[wix] pushWixV1PerOptionInventory: no variant matched an INW option value", {
+    console.warn("[wix] pushWixV1PerOptionInventory: no variant matched an INW combination", {
       productId,
-      axis: inw.axisName,
-      inwValues: [...inw.qty.keys()],
-      wixValues: rows.map((r) => v1VariantSelectedValue(r, inw.axisName)),
+      inwKeys: [...qtyByKey.keys()],
+      wixKeys: rows.map((r) => skuSelectionKey(wixVariantChoiceMap(r))),
     });
     return false;
   }
@@ -578,7 +562,7 @@ export async function pushWixV1PerOptionInventory(
       inventoryItem: {
         ...(inv?.inventoryItem?.id ? { id: inv.inventoryItem.id } : {}),
         productId,
-        trackQuantity: true,
+        trackQuantity: track,
         variants,
       },
     },
@@ -623,8 +607,8 @@ export async function pushWixV1OptionsUpdate(
   item: SyncStoreItem,
   opts: WixRequestOpts
 ): Promise<boolean> {
-  const primary = inwPrimaryAxis(item);
-  if (!primary) return false;
+  const matrix = inwMatrix(item);
+  if (!matrix) return false;
 
   const product = await fetchWixV1Product(accessToken, productId, opts);
   const existingRows = product?.variants?.filter((v) => v.id) ?? [];

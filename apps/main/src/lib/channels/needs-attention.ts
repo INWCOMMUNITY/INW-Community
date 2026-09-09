@@ -6,7 +6,6 @@
 import { prisma, Prisma } from "database";
 import { isEbayConditionSyncError } from "./ebay/conditions";
 import {
-  isEbayPhotoHostFamilySyncError,
   isEbayTaxonomyLoadPlaceholder,
   parseMissingEbayItemSpecifics,
 } from "./ebay/errors";
@@ -223,10 +222,6 @@ export function classifyListingNeedsAttention(args: {
         });
       }
     }
-  }
-
-  if (provider === "ebay" && isEbayPhotoHostFamilySyncError(syncError)) {
-    return null;
   }
 
   if (provider === "ebay" && isEbayConditionSyncError(syncError)) {

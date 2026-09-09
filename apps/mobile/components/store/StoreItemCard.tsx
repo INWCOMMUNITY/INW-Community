@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 import { AppImage } from "@/components/AppImage";
 import { buildProductPath, type ProductReferrer } from "@/lib/product-referrer";
+import { browsePriceLabel } from "@/lib/product-variants";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -17,6 +18,7 @@ export interface StoreItemData {
   secondaryCategory?: string | null;
   priceCents: number;
   quantity: number;
+  variants?: unknown;
   shippingDisabled?: boolean;
   localDeliveryAvailable?: boolean;
   inStorePickupAvailable?: boolean;
@@ -131,7 +133,12 @@ export function StoreItemCard({
       <Text style={styles.cardTitle} numberOfLines={2}>
         {item.title}
       </Text>
-      <Text style={styles.cardPrice}>{formatPrice(item.priceCents)}</Text>
+      <Text style={styles.cardPrice}>
+        {(() => {
+          const label = browsePriceLabel(item.priceCents, item.variants);
+          return `${label.from ? "From " : ""}${formatPrice(label.cents)}`;
+        })()}
+      </Text>
 
       {(item.category || item.secondaryCategory) && (
         <View style={styles.categoryChipsRow}>

@@ -6,6 +6,7 @@
 import { prisma } from "database";
 import { sendPushNotification } from "./send-push-notification";
 import { logSellerActivity } from "./seller-activity-log";
+import { isMadeToOrderTracking } from "@/lib/listing-variant-matrix";
 
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
 
@@ -15,6 +16,7 @@ interface StoreItemForLowStock {
   title: string;
   quantity: number;
   lowStockThreshold: number | null;
+  inventoryTracking?: string | null;
 }
 
 /**
@@ -29,6 +31,10 @@ export async function checkLowStock(
 ): Promise<{ triggered: boolean; threshold: number }> {
   const threshold = item.lowStockThreshold ?? DEFAULT_LOW_STOCK_THRESHOLD;
   const currentQty = item.quantity;
+
+  if (isMadeToOrderTracking(item.inventoryTracking)) {
+    return { triggered: false, threshold };
+  }
 
   // Don't alert if already at or below threshold before the change
   if (previousQuantity !== undefined && previousQuantity <= threshold) {
@@ -62,6 +68,7 @@ export async function checkLowStockById(
       title: true,
       quantity: true,
       lowStockThreshold: true,
+      inventoryTracking: true,
     },
   });
 
@@ -119,6 +126,7 @@ export async function checkLowStockBatch(
       title: true,
       quantity: true,
       lowStockThreshold: true,
+      inventoryTracking: true,
     },
   });
 
@@ -154,6 +162,7 @@ export async function getLowStockItems(memberId: string): Promise<
     where: {
       memberId,
       status: "active",
+      inventoryTracking: { not: "made_to_order" },
       quantity: { gt: 0 },
     },
     select: {
@@ -161,6 +170,7 @@ export async function getLowStockItems(memberId: string): Promise<
       title: true,
       quantity: true,
       lowStockThreshold: true,
+      inventoryTracking: true,
     },
   });
 

@@ -4,6 +4,7 @@ import { parseSubcategoriesByPrimary } from "@/lib/business-categories";
 import { photosExcludingLogo } from "@/lib/business-photos";
 import { extractBusinessDisplayCity } from "@/lib/city-utils";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
+import { withPublicStockWhere } from "@/lib/store-item-public-access";
 
 export const dynamic = "force-dynamic";
 
@@ -68,11 +69,10 @@ export async function GET(
 
     // Fetch store items by memberId (seller) - items may or may not have businessId set
     const storeItems = await prisma.storeItem.findMany({
-      where: {
+      where: withPublicStockWhere({
         memberId: business.memberId,
         status: "active",
-        quantity: { gt: 0 },
-      },
+      }),
       select: {
         id: true,
         title: true,
@@ -81,6 +81,7 @@ export async function GET(
         photos: true,
         category: true,
         priceCents: true,
+        variants: true,
         quantity: true,
       },
       orderBy: { createdAt: "desc" },

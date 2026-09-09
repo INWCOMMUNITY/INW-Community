@@ -6,7 +6,6 @@ import { formatShippingAddress } from "@/lib/format-address";
 import { getStoreOrderStatusLabel } from "@/lib/order-status";
 import {
   formatSellerOrderTotal,
-  isOrderEligibleForToShipQueue,
   orderFulfillmentBadge,
   sellerOrderPaymentLabel,
 } from "@/lib/store-order-fulfillment";
@@ -18,8 +17,6 @@ type OrderCardProps = {
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: (orderId: string) => void;
-  onMarkShipped?: (orderId: string) => void;
-  markingShipped?: boolean;
   showStatus?: boolean;
   menu?: React.ReactNode;
   trailing?: React.ReactNode;
@@ -31,8 +28,6 @@ export function OrderCard({
   selectable,
   selected,
   onToggleSelect,
-  onMarkShipped,
-  markingShipped,
   showStatus,
   menu,
   trailing,
@@ -45,7 +40,6 @@ export function OrderCard({
     .map((i) => `${i.storeItem?.title ?? "Item"} × ${i.quantity}`)
     .join(" · ");
   const paymentLabel = sellerOrderPaymentLabel(order);
-  const canMarkShipped = isOrderEligibleForToShipQueue(order) && onMarkShipped;
   const stop = (e: MouseEvent) => e.stopPropagation();
 
   return (
@@ -155,20 +149,6 @@ export function OrderCard({
               </span>
             ) : null}
           </div>
-
-          {canMarkShipped ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                stop(e);
-                onMarkShipped(order.id);
-              }}
-              disabled={markingShipped}
-              className="mt-3 text-sm font-medium px-3 py-1.5 rounded-lg border border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-section-alt)] disabled:opacity-50"
-            >
-              {markingShipped ? "Saving…" : "Mark shipped (no label)"}
-            </button>
-          ) : null}
 
           {trailing ? <div onClick={stop}>{trailing}</div> : null}
         </div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { STORE_CATEGORIES, slugifyStoreCategory } from "@/lib/store-categories";
+import { withPublicStockWhere } from "@/lib/store-item-public-access";
 
 export const dynamic = "force-dynamic";
 
@@ -37,12 +38,11 @@ export async function GET(
   }
 
   const items = await prisma.storeItem.findMany({
-    where: {
+    where: withPublicStockWhere({
       OR: [{ category: category.name }, { secondaryCategory: category.name }],
       status: "active",
-      quantity: { gt: 0 },
       member: { stripeConnectAccountId: { not: null } },
-    },
+    }),
     select: {
       id: true,
       title: true,
@@ -53,6 +53,7 @@ export async function GET(
       secondaryCategory: true,
       priceCents: true,
       quantity: true,
+      variants: true,
       shippingDisabled: true,
       localDeliveryAvailable: true,
       inStorePickupAvailable: true,
@@ -65,12 +66,11 @@ export async function GET(
 
   const featuredSellers = await prisma.storeItem.groupBy({
     by: ["memberId"],
-    where: {
+    where: withPublicStockWhere({
       OR: [{ category: category.name }, { secondaryCategory: category.name }],
       status: "active",
-      quantity: { gt: 0 },
       member: { stripeConnectAccountId: { not: null } },
-    },
+    }),
     _count: { id: true },
     orderBy: { _count: { id: "desc" } },
     take: 5,
@@ -108,13 +108,12 @@ export async function GET(
 
   const subcategories = await prisma.storeItem
     .findMany({
-      where: {
+      where: withPublicStockWhere({
         category: category.name,
         subcategory: { not: null },
         status: "active",
-        quantity: { gt: 0 },
         member: { stripeConnectAccountId: { not: null } },
-      },
+      }),
       select: { subcategory: true },
       distinct: ["subcategory"],
     })

@@ -78,7 +78,6 @@ export function FulfillmentHubContent(props: {
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [sellerProfile, setSellerProfile] = useState<SellerProfileForSlips | null>(null);
   const [shippingConnected, setShippingConnected] = useState<boolean | null>(null);
-  const [markingShippedId, setMarkingShippedId] = useState<string | null>(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [shipActionError, setShipActionError] = useState<string | null>(null);
@@ -362,32 +361,6 @@ export function FulfillmentHubContent(props: {
     window.print();
   };
 
-  async function markShipped(orderId: string) {
-    if (!window.confirm("Mark this order as shipped without buying a label here?")) return;
-    setMarkingShippedId(orderId);
-    setShipActionError(null);
-    try {
-      const res = await fetch(`/api/store-orders/${orderId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "shipped" }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setShipActionError(getErrorMessage(data.error, "Could not mark shipped."));
-        return;
-      }
-      setShipOrders((prev) => prev.filter((o) => o.id !== orderId));
-      setSelectedOrderIds((prev) => {
-        const next = new Set(prev);
-        next.delete(orderId);
-        return next;
-      });
-    } finally {
-      setMarkingShippedId(null);
-    }
-  }
-
   async function cancelAndRefund(order: FulfillmentStoreOrder) {
     const ok = window.confirm(
       "Cancel this order and refund the buyer? Listing quantities will be restored. This cannot be undone."
@@ -475,8 +448,6 @@ export function FulfillmentHubContent(props: {
                       selectable={shippingConnected === true}
                       selected={selectedOrderIds.has(order.id)}
                       onToggleSelect={toggleOrderSelection}
-                      onMarkShipped={markShipped}
-                      markingShipped={markingShippedId === order.id}
                       menu={
                         <div className="relative">
                           <button

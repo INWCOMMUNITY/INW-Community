@@ -75,6 +75,34 @@ const INW_TO_EBAY_CATEGORIES: Record<string, { id: string; path: string }[]> = {
     { id: "11232", path: "DVDs & Blu-ray Discs" },
     { id: "11233", path: "Music" },
   ],
+  "Food & Drink": [
+    { id: "14308", path: "Home & Garden > Food & Beverages" },
+  ],
+  "Food & Drink > Baked Goods": [
+    { id: "14308", path: "Home & Garden > Food & Beverages" },
+  ],
+  "Food & Drink > Pantry & Packaged": [
+    { id: "14308", path: "Home & Garden > Food & Beverages" },
+  ],
+  "Video Games & Consoles": [
+    { id: "1249", path: "Video Games & Consoles" },
+    { id: "139973", path: "Video Games & Consoles > Video Games" },
+  ],
+  "Video Games & Consoles > Games (physical)": [
+    { id: "139973", path: "Video Games & Consoles > Video Games" },
+  ],
+  "Video Games & Consoles > Consoles": [
+    { id: "139971", path: "Video Games & Consoles > Video Game Consoles" },
+  ],
+  "Video Games & Consoles > Controllers & Accessories": [
+    { id: "171833", path: "Video Games & Consoles > Video Game Accessories" },
+  ],
+  "Video Games & Consoles > Handhelds": [
+    { id: "139971", path: "Video Games & Consoles > Video Game Consoles" },
+  ],
+  "Video Games & Consoles > Strategy Guides": [
+    { id: "38583", path: "Video Games & Consoles > Strategy Guides & Cheats" },
+  ],
   Clothing: [
     { id: "11450", path: "Clothing, Shoes & Accessories > Women's Clothing" },
     { id: "1059", path: "Clothing, Shoes & Accessories > Men's Clothing" },
@@ -106,7 +134,37 @@ const INW_TO_EBAY_CATEGORIES: Record<string, { id: string; path: string }[]> = {
   ],
   "Paper & Party Supplies": [
     { id: "94", path: "Crafts > Scrapbooking & Paper Crafts" },
-    { id: "15032", path: "Home & Garden > Greeting Cards & Party Supply" },
+    { id: "170083", path: "Home & Garden > Greeting Cards & Party Supply" },
+  ],
+  "Health & Personal Care": [
+    { id: "26395", path: "Health & Beauty" },
+  ],
+  "Health & Personal Care > Vitamins & Supplements": [
+    { id: "26395", path: "Health & Beauty" },
+  ],
+  "Home & Garden": [
+    { id: "20697", path: "Home & Garden > Yard, Garden & Outdoor Living" },
+    { id: "11700", path: "Home & Garden" },
+  ],
+  "Luggage & Travel": [
+    { id: "3252", path: "Travel" },
+  ],
+  "Musical Instruments": [
+    { id: "619", path: "Musical Instruments & Gear" },
+  ],
+  "Musical Instruments > Guitars & Bass": [
+    { id: "619", path: "Musical Instruments & Gear" },
+  ],
+  "Office & School Supplies": [
+    { id: "25388", path: "Business & Industrial > Office" },
+    { id: "12576", path: "Business & Industrial" },
+  ],
+  "Tools & Home Improvement": [
+    { id: "20710", path: "Home & Garden > Tools & Workshop Equipment" },
+    { id: "631", path: "Home & Garden > Home Improvement" },
+  ],
+  "Vehicles & Parts": [
+    { id: "6000", path: "eBay Motors" },
   ],
   "Pet Supplies": [
     { id: "1281", path: "Pet Supplies" },
@@ -264,6 +322,68 @@ const INW_TO_ETSY_TAXONOMY: Record<string, { id: number; path: string }[]> = {
   "Toys & Games": [
     { id: 89, path: "Toys & Games" },
   ],
+  "Video Games & Consoles": [
+    { id: 615, path: "Books, Films & Music > Video Games" },
+    { id: 625, path: "Electronics & Accessories > Gaming" },
+  ],
+  "Video Games & Consoles > Games (physical)": [
+    { id: 615, path: "Books, Films & Music > Video Games" },
+  ],
+  "Video Games & Consoles > Controllers & Accessories": [
+    { id: 625, path: "Electronics & Accessories > Gaming" },
+  ],
+  "Food & Drink": [
+    { id: 456, path: "Home & Living > Food & Drink" },
+  ],
+  "Food & Drink > Baked Goods": [
+    { id: 456, path: "Home & Living > Food & Drink" },
+  ],
+  Furniture: [
+    { id: 435, path: "Home & Living > Furniture" },
+  ],
+  "Furniture > Living Room": [
+    { id: 436, path: "Home & Living > Furniture > Living Room Furniture" },
+  ],
+  "Furniture > Bedroom": [
+    { id: 437, path: "Home & Living > Furniture > Bedroom Furniture" },
+  ],
+  "Furniture > Office Furniture": [
+    { id: 438, path: "Home & Living > Furniture > Office Furniture" },
+  ],
+  "Furniture > Dining Room": [
+    { id: 439, path: "Home & Living > Furniture > Dining Room Furniture" },
+  ],
+  "Furniture > Outdoor Furniture": [
+    { id: 440, path: "Home & Living > Furniture > Outdoor Furniture" },
+  ],
+  "Home & Garden": [
+    { id: 432, path: "Home & Living > Outdoor & Garden" },
+  ],
+  "Home & Kitchen": [
+    { id: 430, path: "Home & Living > Kitchen & Dining" },
+  ],
+  "Home & Kitchen > Cookware & Bakeware": [
+    { id: 461, path: "Home & Living > Kitchen & Dining > Cookware" },
+  ],
+  "Home & Kitchen > Dining & Serving": [
+    { id: 463, path: "Home & Living > Kitchen & Dining > Dining & Serving" },
+  ],
+  "Luggage & Travel": [
+    { id: 311, path: "Bags & Purses > Luggage & Travel" },
+  ],
+  "Office & School Supplies": [
+    { id: 455, path: "Home & Living > Office" },
+  ],
+  "Health & Personal Care": [
+    { id: 79, path: "Bath & Beauty" },
+  ],
+  "Tools & Home Improvement": [
+    { id: 458, path: "Home & Living > Home Improvement" },
+    { id: 355, path: "Craft Supplies & Tools > Tools & Equipment" },
+  ],
+  "Baby & Kids > Baby Clothing": [
+    { id: 380, path: "Clothing > Baby Clothing" },
+  ],
   Wedding: [
     { id: 90, path: "Weddings" },
   ],
@@ -283,17 +403,51 @@ const INW_TO_SHOPIFY_PRODUCT_TYPES: Record<string, string[]> = {
   "Craft Supplies & Tools": ["Craft Supplies", "DIY", "Tools"],
   "Electronics & Accessories": ["Electronics", "Tech Accessories", "Gadgets"],
   Furniture: ["Furniture", "Home", "Living Room"],
+  "Food & Drink": ["Food & Drink", "Grocery", "Pantry"],
+  "Food & Drink > Baked Goods": ["Bakery", "Baked Goods"],
+  "Food & Drink > Jams, Honey & Preserves": ["Honey", "Jams"],
+  "Food & Drink > Coffee & Tea": ["Coffee & Tea", "Coffee"],
+  "Food & Drink > Spices & Seasonings": ["Spices", "Seasonings"],
+  "Food & Drink > Candy & Chocolate": ["Candy", "Chocolate"],
+  "Food & Drink > Pantry & Packaged": ["Grocery", "Pantry"],
+  "Video Games & Consoles > Games (physical)": ["Video Games", "Games"],
+  "Video Games & Consoles > Consoles": ["Consoles", "Gaming"],
+  "Video Games & Consoles > Controllers & Accessories": ["Gaming Accessories", "Controllers"],
+  "Health & Personal Care": ["Health", "Personal Care", "Wellness"],
+  "Home & Kitchen > Cookware & Bakeware": ["Cookware", "Kitchen"],
+  "Luggage & Travel > Suitcases & Luggage": ["Luggage", "Suitcases"],
   "Home & Living": ["Home Decor", "Home & Living", "Housewares"],
+  "Home & Garden": ["Garden", "Outdoor", "Home & Garden"],
   "Home & Kitchen": ["Kitchen", "Kitchenware", "Home"],
   "Jewelry & Watches": ["Jewelry", "Watches", "Accessories"],
+  "Luggage & Travel": ["Luggage", "Travel", "Bags"],
+  "Musical Instruments": ["Musical Instruments", "Music", "Instruments"],
+  "Office & School Supplies": ["Office", "Stationery", "School Supplies"],
   "Paper & Party Supplies": ["Party Supplies", "Stationery", "Paper Goods"],
   "Pet Supplies": ["Pet Supplies", "Pets", "Animals"],
   Shoes: ["Shoes", "Footwear", "Fashion"],
   "Sports & Outdoors": ["Sports", "Outdoor", "Fitness"],
-  "Toys & Games": ["Toys", "Games", "Kids"],
+  "Tickets & Experiences": ["Tickets", "Experiences", "Events"],
+  "Tools & Home Improvement": ["Tools", "Hardware", "Home Improvement"],
+  "Toys & Games": ["Toys", "Board Games", "Kids"],
+  "Video Games & Consoles": ["Video Games", "Gaming", "Consoles"],
+  "Vehicles & Parts": ["Auto Parts", "Vehicles", "Automotive"],
   Wedding: ["Wedding", "Bridal", "Events"],
   "Baby & Kids": ["Baby", "Kids", "Children"],
+  "Business & Industrial": ["Industrial", "Business", "Commercial"],
 };
+
+/** Preferred Shopify product_type string for an INW preset. */
+export function shopifyProductTypeForInw(
+  category: string | null | undefined,
+  subcategory?: string | null
+): string | null {
+  const cat = category?.trim();
+  if (!cat) return null;
+  const full = subcategory?.trim() ? `${cat} > ${subcategory.trim()}` : cat;
+  const types = INW_TO_SHOPIFY_PRODUCT_TYPES[full] || INW_TO_SHOPIFY_PRODUCT_TYPES[cat];
+  return types?.[0] ?? cat;
+}
 
 /**
  * Suggest provider categories based on INW item data.
@@ -510,6 +664,17 @@ export function suggestInwCategoryFromTitle(title: string): {
     "Bags & Purses": ["bag", "purse", "handbag", "backpack", "wallet", "tote"],
     "Bath & Beauty": ["soap", "lotion", "skincare", "makeup", "cosmetic", "beauty", "fragrance", "perfume"],
     "Books, Movies & Music": ["book", "dvd", "cd", "vinyl", "record", "music", "movie", "film"],
+    "Video Games & Consoles": [
+      "video game",
+      "playstation",
+      "xbox",
+      "nintendo",
+      "ps5",
+      "ps4",
+      "game disc",
+      "switch oled",
+    ],
+    "Food & Drink": ["baked", "jam", "honey", "granola", "scone", "pantry", "spice blend"],
     Clothing: ["shirt", "dress", "pants", "jacket", "coat", "sweater", "blouse", "skirt", "jeans"],
     "Craft Supplies & Tools": ["craft", "supply", "yarn", "fabric", "bead", "tool", "diy"],
     "Electronics & Accessories": ["phone", "charger", "cable", "headphone", "speaker", "electronic", "tech"],
@@ -521,9 +686,18 @@ export function suggestInwCategoryFromTitle(title: string): {
     "Pet Supplies": ["pet", "dog", "cat", "collar", "leash", "toy pet"],
     Shoes: ["shoe", "boot", "sneaker", "sandal", "heel", "loafer"],
     "Sports & Outdoors": ["sport", "outdoor", "camping", "hiking", "fitness", "exercise", "gym"],
-    "Toys & Games": ["toy", "game", "puzzle", "doll", "action figure", "board game"],
+    "Toys & Games": ["toy", "puzzle", "doll", "action figure", "board game"],
     Wedding: ["wedding", "bridal", "bride", "engagement"],
     "Baby & Kids": ["baby", "toddler", "kids", "children", "infant", "nursery"],
+    "Health & Personal Care": ["vitamin", "supplement", "first aid", "wellness", "oral care"],
+    "Home & Garden": ["garden", "planter", "patio", "outdoor decor", "grilling", "bbq"],
+    "Luggage & Travel": ["suitcase", "luggage", "carry on", "travel bag", "packing cube"],
+    "Musical Instruments": ["guitar", "piano", "keyboard", "drum", "violin", "ukulele"],
+    "Office & School Supplies": ["stationery", "notebook", "binder", "desk organizer", "school supply"],
+    "Tickets & Experiences": ["ticket", "concert ticket", "event ticket", "gift experience"],
+    "Tools & Home Improvement": ["power tool", "hand tool", "drill", "wrench", "hardware"],
+    "Vehicles & Parts": ["auto part", "car part", "motorcycle part", "tire", "rim"],
+    "Business & Industrial": ["industrial", "lab equipment", "material handling", "safety equipment"],
   };
 
   for (const [category, keywords] of Object.entries(categoryKeywords)) {
@@ -586,8 +760,8 @@ export function getOutboundCategoryMapping(
   }
 
   if (provider === "shopify" || provider === "wix") {
-    const types = INW_TO_SHOPIFY_PRODUCT_TYPES[inwCategory];
-    return types?.[0] ? { categoryId: types[0], categoryPath: types[0] } : null;
+    const type = shopifyProductTypeForInw(inwCategory, inwSubcategory);
+    return type ? { categoryId: type, categoryPath: type } : null;
   }
 
   return null;

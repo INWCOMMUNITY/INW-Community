@@ -23,6 +23,7 @@ export type SellerStoreItem = {
   photos: string[];
   category: string | null;
   priceCents: number;
+  variants?: unknown;
 };
 
 export type SellerStorefrontData = {

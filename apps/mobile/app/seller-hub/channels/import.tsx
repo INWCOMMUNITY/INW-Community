@@ -56,6 +56,7 @@ type ImportApiResponse = {
   summary?: string;
   hint?: string;
   jobId?: string;
+  uncategorizedCount?: number;
 };
 
 type ImportJobStatus = {
@@ -105,6 +106,7 @@ export default function ChannelImportScreen() {
   const [resultImported, setResultImported] = useState<ImportResultImported[]>([]);
   const [resultSkipped, setResultSkipped] = useState<ImportResultSkipped[]>([]);
   const [resultTab, setResultTab] = useState<"on-inw" | "attention">("on-inw");
+  const [reviewCount, setReviewCount] = useState(0);
   const [unsyncingId, setUnsyncingId] = useState<string | null>(null);
   const [unsyncConfirm, setUnsyncConfirm] = useState<{ listingId: string; title: string } | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
@@ -304,6 +306,7 @@ export default function ChannelImportScreen() {
 
         const batchImported: ImportResultImported[] = [];
         const batchSkipped: ImportResultSkipped[] = [];
+        let batchReviewCount = 0;
 
         try {
           for (const id of listingIds) {
@@ -320,6 +323,7 @@ export default function ChannelImportScreen() {
               );
               batchImported.push(...(res.imported ?? []));
               batchSkipped.push(...(res.skipped ?? []));
+              batchReviewCount += res.uncategorizedCount ?? 0;
             } catch (e: unknown) {
               const err = e as { error?: string; message?: string };
               const reason = err?.error ?? err?.message ?? "Import failed. Try again.";
@@ -352,6 +356,7 @@ export default function ChannelImportScreen() {
 
           setResultImported(nextImported);
           setResultSkipped(nextSkipped);
+          setReviewCount(merge ? reviewCount + batchReviewCount : batchReviewCount);
           setResultTab(
             nextImported.length === 0 && nextSkipped.length > 0 ? "attention" : "on-inw"
           );
@@ -672,7 +677,13 @@ export default function ChannelImportScreen() {
                       resultImported.length === 0 ? (
                         <Text style={styles.modalMessage}>No listings were added to INW.</Text>
                       ) : (
-                        resultImported.map((row, i) => (
+                        <>
+                          <Text style={styles.modalMessage}>
+                            {reviewCount > 0
+                              ? `${Math.max(0, resultImported.length - reviewCount)} auto-assigned. ${reviewCount} need category review.`
+                              : `${resultImported.length} listing${resultImported.length === 1 ? "" : "s"} auto-assigned to INW categories.`}
+                          </Text>
+                          {resultImported.map((row, i) => (
                           <View key={row.storeItemId ?? `${row.externalListingId}-${i}`} style={styles.resultRow}>
                             {row.photo ? (
                               <Image source={{ uri: row.photo }} style={styles.resultThumb} />
@@ -683,7 +694,8 @@ export default function ChannelImportScreen() {
                               {row.title ?? "Listing"}
                             </Text>
                           </View>
-                        ))
+                        ))}
+                        </>
                       )
                     ) : resultSkipped.length === 0 ? (
                       <Text style={styles.modalMessage}>Everything imported cleanly.</Text>

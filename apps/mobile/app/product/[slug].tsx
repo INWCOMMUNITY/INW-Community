@@ -35,6 +35,8 @@ import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { AppImage } from "@/components/AppImage";
 import {
   getAvailableQuantityForSelection,
+  getSkuPhotos,
+  getSkuPriceCents,
   hasPerOptionQuantities,
   normalizeProductVariants,
   optionIsSoldOut,
@@ -64,6 +66,7 @@ interface StoreItem {
   secondaryCategory?: string | null;
   priceCents: number;
   quantity: number;
+  inventoryTracking?: string | null;
   variants?: unknown;
   shippingDisabled?: boolean;
   localDeliveryAvailable?: boolean;
@@ -197,8 +200,8 @@ export default function ProductScreen() {
   );
 
   const maxPurchasableQty = useMemo(() => {
-    if (!item) return 1;
-    return Math.max(1, getAvailableQuantityForSelection(item, selectedVariant));
+    if (!item) return 0;
+    return Math.max(0, getAvailableQuantityForSelection(item, selectedVariant));
   }, [item, selectedVariant]);
 
   const allOptionsSelected = useMemo(
@@ -553,7 +556,7 @@ export default function ProductScreen() {
     );
   }
 
-  const photos = item.photos ?? [];
+  const photos = getSkuPhotos(item, selectedVariant);
   const photoUrl = resolvePhotoUrl(photos[photoIndex]);
   const canShip = !item.shippingDisabled;
   const canLocalDelivery = !!item.localDeliveryAvailable;
@@ -777,7 +780,7 @@ export default function ProductScreen() {
             ) : null}
           </View>
           <View style={styles.priceRow}>
-            <Text style={styles.price}>{formatPrice(item.priceCents)}</Text>
+            <Text style={styles.price}>{formatPrice(getSkuPriceCents(item, selectedVariant))}</Text>
             {item.acceptOffers && !itemUnavailable && (
               <Pressable
                 style={({ pressed }) => [styles.orBestOfferBtn, pressed && { opacity: 0.8 }]}
@@ -855,7 +858,13 @@ export default function ProductScreen() {
                   <Text style={styles.variantLabel}>{v.name}:</Text>
                   <View style={styles.variantOptions}>
                     {v.options.map((opt) => {
-                      const soldOut = optionIsSoldOut(v, opt.value);
+                      const soldOut = optionIsSoldOut(
+                        v,
+                        opt.value,
+                        item.variants,
+                        item.inventoryTracking,
+                        selectedVariant
+                      );
                       const selected = selectedVariant[v.name] === opt.value;
                       return (
                         <Pressable

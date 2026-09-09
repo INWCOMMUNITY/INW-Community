@@ -10,10 +10,17 @@ import {
   hasOptionQuantities,
   sumOptionQuantities,
 } from "@/lib/store-item-variants";
+import { isMadeToOrderTracking } from "@/lib/listing-variant-matrix";
 
 export { ConcurrentModificationError, InsufficientStockError };
 
-type StoreItemRow = { id: string; variants: unknown; quantity: number; updatedAt: Date };
+type StoreItemRow = {
+  id: string;
+  variants: unknown;
+  quantity: number;
+  updatedAt: Date;
+  inventoryTracking?: string | null;
+};
 
 const MAX_RETRIES = 3;
 
@@ -31,6 +38,7 @@ export async function applyStoreItemDecrementAfterSale(
 ): Promise<void> {
   const sold = line.quantity;
   if (sold < 1) return;
+  if (isMadeToOrderTracking(storeItem.inventoryTracking)) return;
 
   let currentItem = storeItem;
   let attempt = 0;

@@ -72,7 +72,7 @@ export const STORE_CATEGORIES: StoreCategoryOption[] = [
     label: "Books, Movies & Music",
     subcategories: [
       "Books", "Comics & Graphic Novels", "Movies & TV", "Music (CDs, Vinyl, etc.)",
-      "Video Games", "Sheet Music & Scores", "Magazines & Periodicals", "Audiobooks",
+      "Sheet Music & Scores", "Magazines & Periodicals", "Audiobooks",
       "Zines", "Other Books, Movies & Music"
     ]
   },
@@ -117,6 +117,13 @@ export const STORE_CATEGORIES: StoreCategoryOption[] = [
     ]
   },
   {
+    label: "Food & Drink",
+    subcategories: [
+      "Baked Goods", "Jams, Honey & Preserves", "Coffee & Tea", "Spices & Seasonings",
+      "Candy & Chocolate", "Pantry & Packaged", "Other Food & Drink"
+    ]
+  },
+  {
     label: "Health & Personal Care",
     subcategories: [
       "Vitamins & Supplements", "First Aid & Medical", "Oral Care", "Personal Care Appliances",
@@ -128,7 +135,7 @@ export const STORE_CATEGORIES: StoreCategoryOption[] = [
     label: "Home & Living",
     subcategories: [
       "Home Decor", "Wall Decor", "Bedding", "Bathroom", "Lighting", "Home Storage",
-      "Cleaning & Laundry", "Spiritual & Religious", "Food & Drink (home)", "Candles & Holders",
+      "Cleaning & Laundry", "Spiritual & Religious", "Candles & Holders",
       "Clocks", "Curtains & Window Treatments", "Pillows", "Blankets & Throws", "Mirrors",
       "Frames & Displays", "Vases", "Linens & Textiles", "Home Fragrances", "Cleaning Supplies",
       "Spirituality & Religion", "Other Home & Living"
@@ -147,7 +154,7 @@ export const STORE_CATEGORIES: StoreCategoryOption[] = [
       "Cookware & Bakeware", "Kitchen Appliances", "Dining & Serving", "Drinkware & Bar",
       "Kitchen Storage", "Kitchen Decor", "Small Appliances", "Coffee & Tea", "Dinnerware",
       "Flatware", "Drinkware", "Kitchen Tools", "Food Storage", "Bar & Barware",
-      "Table Linens", "Food & Drink", "Other Home & Kitchen"
+      "Table Linens", "Other Home & Kitchen"
     ]
   },
   {
@@ -233,9 +240,16 @@ export const STORE_CATEGORIES: StoreCategoryOption[] = [
     label: "Toys & Games",
     subcategories: [
       "Action Figures & Collectibles", "Building & Construction", "Board Games & Puzzles",
-      "Dolls & Stuffed Animals", "Educational Toys", "Outdoor Play", "Video Games (physical)",
+      "Dolls & Stuffed Animals", "Educational Toys", "Outdoor Play",
       "Diecast & Toy Vehicles", "Model Trains", "RC & Drones", "Preschool Toys", "Pretend Play",
       "Puppets", "Musical Toys", "Ride-Ons", "Other Toys & Games"
+    ]
+  },
+  {
+    label: "Video Games & Consoles",
+    subcategories: [
+      "Games (physical)", "Consoles", "Controllers & Accessories", "Handhelds",
+      "PC Gaming", "Retro & Vintage", "Strategy Guides", "Other Video Games & Consoles"
     ]
   },
   {

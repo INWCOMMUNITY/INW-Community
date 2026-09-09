@@ -262,6 +262,10 @@ const ETSY_CATEGORY_ALIASES: Record<string, AliasHit> = {
   "camping & hiking": { category: "Sports & Outdoors", subcategory: "Camping & Hiking" },
   fitness: { category: "Sports & Outdoors", subcategory: "Fitness & Exercise" },
   yoga: { category: "Sports & Outdoors", subcategory: "Fitness & Exercise" },
+  "musical instruments": { category: "Musical Instruments", subcategory: null },
+  guitar: { category: "Musical Instruments", subcategory: "Guitars & Bass" },
+  suitcase: { category: "Luggage & Travel", subcategory: "Suitcases & Luggage" },
+  vitamins: { category: "Health & Personal Care", subcategory: "Vitamins & Supplements" },
 
   // ═══════════════════════════════════════════════════════════════════════════
   // EXPANDED ETSY CATEGORY ALIASES (Based on Etsy's Official Category List)
@@ -410,14 +414,20 @@ const ETSY_CATEGORY_ALIASES: Record<string, AliasHit> = {
   "wax melts": { category: "Home & Living", subcategory: "Home Fragrances" },
   "reed diffusers": { category: "Home & Living", subcategory: "Home Fragrances" },
   "room spray": { category: "Home & Living", subcategory: "Home Fragrances" },
-  "food & drink": { category: "Home & Kitchen", subcategory: "Food & Drink" },
-  "coffee & tea": { category: "Home & Kitchen", subcategory: "Food & Drink" },
-  "office supplies": { category: "Office & School Supplies", subcategory: null },
+  "food & drink": { category: "Food & Drink", subcategory: null },
+  "coffee & tea": { category: "Food & Drink", subcategory: "Coffee & Tea" },
+  bakery: { category: "Food & Drink", subcategory: "Baked Goods" },
+  "baked goods": { category: "Food & Drink", subcategory: "Baked Goods" },
+  honey: { category: "Food & Drink", subcategory: "Jams, Honey & Preserves" },
+  grocery: { category: "Food & Drink", subcategory: "Pantry & Packaged" },
+  "kitchen & dining": { category: "Home & Kitchen", subcategory: null },
+  "dining & serving": { category: "Home & Kitchen", subcategory: "Dining & Serving" },
+  "office supplies": { category: "Office & School Supplies", subcategory: "Office Supplies" },
   office: { category: "Office & School Supplies", subcategory: null },
   "home appliances": { category: "Home & Kitchen", subcategory: "Small Appliances" },
 
   // ── Kitchen & Dining Expanded ──
-  cookware: { category: "Home & Kitchen", subcategory: "Cookware" },
+  cookware: { category: "Home & Kitchen", subcategory: "Cookware & Bakeware" },
   drinkware: { category: "Home & Kitchen", subcategory: "Drinkware" },
   mugs: { category: "Home & Kitchen", subcategory: "Drinkware" },
   cups: { category: "Home & Kitchen", subcategory: "Drinkware" },
@@ -645,7 +655,13 @@ const ETSY_CATEGORY_ALIASES: Record<string, AliasHit> = {
   music: { category: "Books, Movies & Music", subcategory: "Music" },
   vinyl: { category: "Books, Movies & Music", subcategory: "Music" },
   records: { category: "Books, Movies & Music", subcategory: "Music" },
-  "video games": { category: "Books, Movies & Music", subcategory: "Video Games" },
+  "video games": { category: "Video Games & Consoles", subcategory: "Games (physical)" },
+  "video game": { category: "Video Games & Consoles", subcategory: "Games (physical)" },
+  nintendo: { category: "Video Games & Consoles", subcategory: "Games (physical)" },
+  playstation: { category: "Video Games & Consoles", subcategory: "Games (physical)" },
+  xbox: { category: "Video Games & Consoles", subcategory: "Games (physical)" },
+  consoles: { category: "Video Games & Consoles", subcategory: "Consoles" },
+  "video game consoles": { category: "Video Games & Consoles", subcategory: "Consoles" },
   audiobooks: { category: "Books, Movies & Music", subcategory: "Audiobooks" },
   zines: { category: "Books, Movies & Music", subcategory: "Zines" },
 };
@@ -674,6 +690,118 @@ const WIX_CATEGORY_ALIASES: Record<string, AliasHit> = {
   stationery: { category: "Office & School Supplies", subcategory: "Stationery" },
   party: { category: "Paper & Party Supplies", subcategory: "Party Decorations" },
   pets: { category: "Pet Supplies", subcategory: null },
+  furniture: { category: "Furniture", subcategory: null },
+  garden: { category: "Home & Garden", subcategory: "Outdoor & Gardening" },
+  kitchen: { category: "Home & Kitchen", subcategory: null },
+  tools: { category: "Tools & Home Improvement", subcategory: null },
+  automotive: { category: "Vehicles & Parts", subcategory: "Car & Truck Parts" },
+  auto: { category: "Vehicles & Parts", subcategory: "Car & Truck Parts" },
+  luggage: { category: "Luggage & Travel", subcategory: "Suitcases & Luggage" },
+  health: { category: "Health & Personal Care", subcategory: null },
+  office: { category: "Office & School Supplies", subcategory: "Office Supplies" },
+  "musical instruments": { category: "Musical Instruments", subcategory: null },
+};
+
+const SHOPIFY_CATEGORY_ALIASES: Record<string, AliasHit> = {
+  // Standard Product Taxonomy fullName prefixes (gid://shopify/TaxonomyCategory/…)
+  "home & garden": { category: "Home & Garden", subcategory: null },
+  "home and garden": { category: "Home & Garden", subcategory: null },
+  "home & garden > kitchen & dining": { category: "Home & Kitchen", subcategory: null },
+  "home and garden > kitchen and dining": { category: "Home & Kitchen", subcategory: null },
+  "home & garden > plants": { category: "Home & Garden", subcategory: "Plants & Seeds" },
+  "home and garden > plants": { category: "Home & Garden", subcategory: "Plants & Seeds" },
+  "sporting goods": { category: "Sports & Outdoors", subcategory: null },
+  "sporting goods > outdoor recreation": { category: "Sports & Outdoors", subcategory: "Outdoor Gear" },
+  "sporting goods > outdoor recreation > camping & hiking": {
+    category: "Sports & Outdoors",
+    subcategory: "Camping & Hiking",
+  },
+  "luggage & bags": { category: "Luggage & Travel", subcategory: null },
+  "luggage and bags": { category: "Luggage & Travel", subcategory: null },
+  "luggage & bags > luggage": { category: "Luggage & Travel", subcategory: "Suitcases & Luggage" },
+  "luggage and bags > luggage": { category: "Luggage & Travel", subcategory: "Suitcases & Luggage" },
+  "office supplies": { category: "Office & School Supplies", subcategory: "Office Supplies" },
+  "vehicles & parts": { category: "Vehicles & Parts", subcategory: null },
+  "vehicles and parts": { category: "Vehicles & Parts", subcategory: null },
+  media: { category: "Books, Movies & Music", subcategory: null },
+  "media > books": { category: "Books, Movies & Music", subcategory: "Books" },
+  hardware: { category: "Tools & Home Improvement", subcategory: null },
+  apparel: { category: "Clothing", subcategory: null },
+  fashion: { category: "Clothing", subcategory: null },
+  collectibles: { category: "Art & Collectibles", subcategory: null },
+  games: { category: "Video Games & Consoles", subcategory: "Games (physical)" },
+  game: { category: "Video Games & Consoles", subcategory: "Games (physical)" },
+  "video game": { category: "Video Games & Consoles", subcategory: "Games (physical)" },
+  "video games": { category: "Video Games & Consoles", subcategory: "Games (physical)" },
+  nintendo: { category: "Video Games & Consoles", subcategory: "Games (physical)" },
+  playstation: { category: "Video Games & Consoles", subcategory: "Games (physical)" },
+  xbox: { category: "Video Games & Consoles", subcategory: "Games (physical)" },
+  console: { category: "Video Games & Consoles", subcategory: "Consoles" },
+  consoles: { category: "Video Games & Consoles", subcategory: "Consoles" },
+  gaming: { category: "Video Games & Consoles", subcategory: null },
+  grocery: { category: "Food & Drink", subcategory: "Pantry & Packaged" },
+  food: { category: "Food & Drink", subcategory: null },
+  "food & drink": { category: "Food & Drink", subcategory: null },
+  bakery: { category: "Food & Drink", subcategory: "Baked Goods" },
+  "baked goods": { category: "Food & Drink", subcategory: "Baked Goods" },
+  honey: { category: "Food & Drink", subcategory: "Jams, Honey & Preserves" },
+  jam: { category: "Food & Drink", subcategory: "Jams, Honey & Preserves" },
+  candy: { category: "Food & Drink", subcategory: "Candy & Chocolate" },
+  chocolate: { category: "Food & Drink", subcategory: "Candy & Chocolate" },
+  housewares: { category: "Home & Living", subcategory: "Home Decor" },
+  "home decor": { category: "Home & Living", subcategory: "Home Decor" },
+  "home goods": { category: "Home & Living", subcategory: "Home Decor" },
+  kitchen: { category: "Home & Kitchen", subcategory: null },
+  kitchenware: { category: "Home & Kitchen", subcategory: null },
+  cookware: { category: "Home & Kitchen", subcategory: "Cookware & Bakeware" },
+  garden: { category: "Home & Garden", subcategory: "Outdoor & Gardening" },
+  outdoor: { category: "Home & Garden", subcategory: "Outdoor & Gardening" },
+  furniture: { category: "Furniture", subcategory: null },
+  jewelry: { category: "Jewelry & Watches", subcategory: null },
+  jewellery: { category: "Jewelry & Watches", subcategory: null },
+  watches: { category: "Jewelry & Watches", subcategory: "Watches" },
+  shoes: { category: "Shoes", subcategory: null },
+  footwear: { category: "Shoes", subcategory: null },
+  sneakers: { category: "Shoes", subcategory: "Athletic & Sneakers" },
+  sports: { category: "Sports & Outdoors", subcategory: null },
+  fitness: { category: "Sports & Outdoors", subcategory: "Fitness & Exercise" },
+  camping: { category: "Sports & Outdoors", subcategory: "Camping & Hiking" },
+  toys: { category: "Toys & Games", subcategory: null },
+  "board games": { category: "Toys & Games", subcategory: "Board Games & Puzzles" },
+  electronics: { category: "Electronics & Accessories", subcategory: null },
+  gadgets: { category: "Electronics & Accessories", subcategory: null },
+  beauty: { category: "Bath & Beauty", subcategory: null },
+  skincare: { category: "Bath & Beauty", subcategory: "Skin Care" },
+  health: { category: "Health & Personal Care", subcategory: null },
+  wellness: { category: "Health & Personal Care", subcategory: "Wellness & Fitness" },
+  vitamins: { category: "Health & Personal Care", subcategory: "Vitamins & Supplements" },
+  baby: { category: "Baby & Kids", subcategory: null },
+  kids: { category: "Baby & Kids", subcategory: null },
+  pets: { category: "Pet Supplies", subcategory: null },
+  "pet supplies": { category: "Pet Supplies", subcategory: null },
+  tools: { category: "Tools & Home Improvement", subcategory: null },
+  hardware: { category: "Tools & Home Improvement", subcategory: "Hardware" },
+  automotive: { category: "Vehicles & Parts", subcategory: "Car & Truck Parts" },
+  "auto parts": { category: "Vehicles & Parts", subcategory: "Car & Truck Parts" },
+  luggage: { category: "Luggage & Travel", subcategory: "Suitcases & Luggage" },
+  travel: { category: "Luggage & Travel", subcategory: null },
+  office: { category: "Office & School Supplies", subcategory: "Office Supplies" },
+  stationery: { category: "Office & School Supplies", subcategory: "Stationery" },
+  "musical instruments": { category: "Musical Instruments", subcategory: null },
+  guitar: { category: "Musical Instruments", subcategory: "Guitars & Bass" },
+  books: { category: "Books, Movies & Music", subcategory: "Books" },
+  media: { category: "Books, Movies & Music", subcategory: null },
+  wedding: { category: "Wedding", subcategory: null },
+  bridal: { category: "Wedding", subcategory: "Bridal & Gowns" },
+  "apparel & accessories": { category: "Clothing", subcategory: null },
+  "clothing tops": { category: "Clothing", subcategory: "Tops & Tees" },
+  "t shirts": { category: "Clothing", subcategory: "Tops & Tees" },
+  "arts & entertainment": { category: "Art & Collectibles", subcategory: null },
+  "food beverages & tobacco": { category: "Food & Drink", subcategory: null },
+  "health & beauty": { category: "Bath & Beauty", subcategory: null },
+  "animals & pet supplies": { category: "Pet Supplies", subcategory: null },
+  "baby & toddler": { category: "Baby & Kids", subcategory: null },
+  "cameras & optics": { category: "Electronics & Accessories", subcategory: null },
 };
 
 /** Labels that are never useful as Wix/Etsy category sources. */
@@ -696,6 +824,10 @@ const NOISE_CATEGORY_LABELS = new Set([
   "on sale",
   "featured",
   "shop all",
+  "frontpage",
+  "homepage",
+  "home page",
+  "catalog",
 ]);
 
 export type ResolvedInwCategory = {
@@ -712,8 +844,8 @@ export type ResolveCategoryOptions = {
   /** eBay category ID or Etsy taxonomy ID for DB mapping lookup. */
   remoteCategoryId?: string | null;
   /**
-   * When true (default for etsy/wix), always pick the closest INW preset above
-   * CLOSEST_PRESET_FLOOR instead of storing the raw remote label.
+   * When true (default for eBay/Etsy/Wix/Shopify), pick the closest INW preset
+   * above CLOSEST_PRESET_FLOOR instead of storing a raw marketplace label.
    */
   closestPreset?: boolean;
 };
@@ -920,7 +1052,9 @@ function aliasesForProvider(provider?: ChannelProvider): Record<string, AliasHit
   if (provider === "etsy") return ETSY_CATEGORY_ALIASES;
   if (provider === "wix") return WIX_CATEGORY_ALIASES;
   if (provider === "ebay") return EBAY_CATEGORY_ALIASES;
-  // Shopify / unknown: combine Etsy + eBay retail-ish aliases
+  if (provider === "shopify") {
+    return { ...ETSY_CATEGORY_ALIASES, ...EBAY_CATEGORY_ALIASES, ...SHOPIFY_CATEGORY_ALIASES };
+  }
   return { ...ETSY_CATEGORY_ALIASES, ...EBAY_CATEGORY_ALIASES };
 }
 
@@ -1091,8 +1225,8 @@ function shouldUseClosestPreset(
 /**
  * Map a remote category label to an INW shop category.
  * Provider-specific aliases run first, then fuzzy matching.
- * Etsy/Wix default to closest-preset mode so sync never invents orphan custom labels
- * when a reasonable INW match exists.
+ * Channel imports default to closest-preset mode so sync never stores raw
+ * marketplace labels when a reasonable INW match exists.
  */
 export function resolveInwCategoryFromRemote(
   remoteLabel: string | null | undefined,
@@ -1116,9 +1250,12 @@ export function resolveInwCategoryFromRemote(
 
   const aliases = aliasesForProvider(opts?.provider);
 
-  // eBay PrimaryCategory is usually "Root > Mid > Leaf" — use specificity scoring
-  // to pick the most specific matching alias instead of first-match-wins.
-  if (opts?.provider === "ebay" && label.includes(">")) {
+  // eBay PrimaryCategory and Shopify Standard Product Taxonomy are
+  // "Root > Mid > Leaf" — use specificity scoring instead of first-match-wins.
+  if (
+    (opts?.provider === "ebay" || opts?.provider === "shopify") &&
+    label.includes(">")
+  ) {
     const candidates = ebayCategoryPathCandidatesWithMeta(label);
     const matches: Array<{
       hit: ResolvedInwCategory;
@@ -1216,8 +1353,6 @@ export function resolveInwCategoryFromRemote(
     };
   }
 
-  // Strict fallback: keep remote label as custom (eBay default).
-  // Log unmapped categories to help identify gaps in aliases
   console.log("[category-resolver] unmapped category from remote", {
     provider: opts?.provider ?? "unknown",
     remoteLabel: label,
@@ -1226,6 +1361,9 @@ export function resolveInwCategoryFromRemote(
     bestMatchCategory: best?.category,
     closestPresetMode: closest,
   });
+
+  // Closest-preset mode (all channel imports): never persist a raw marketplace label.
+  if (closest) return null;
 
   return {
     category: label.slice(0, 200),
@@ -1284,7 +1422,6 @@ const CATEGORY_KEYWORDS: Record<string, { keywords: string[]; weight?: number }[
     { keywords: ["book", "novel", "paperback", "hardcover"], weight: 1.0 },
     { keywords: ["dvd", "blu-ray", "movie", "film"], weight: 0.95 },
     { keywords: ["cd", "vinyl", "record", "album"], weight: 0.95 },
-    { keywords: ["video game", "game disc"], weight: 0.9 },
     { keywords: ["comic", "manga", "graphic novel"], weight: 0.9 },
   ],
   "Clothing": [
@@ -1355,9 +1492,66 @@ const CATEGORY_KEYWORDS: Record<string, { keywords: string[]; weight?: number }[
   ],
   "Toys & Games": [
     { keywords: ["toy", "doll", "action figure"], weight: 1.0 },
-    { keywords: ["game", "board game", "puzzle"], weight: 0.95 },
+    { keywords: ["board game", "puzzle", "jigsaw"], weight: 0.95 },
     { keywords: ["plush", "stuffed animal", "teddy"], weight: 0.95 },
     { keywords: ["lego", "building blocks"], weight: 0.9 },
+  ],
+  "Video Games & Consoles": [
+    { keywords: ["video game", "game disc", "nintendo switch"], weight: 1.15 },
+    { keywords: ["playstation", "xbox", "nintendo", "ps5", "ps4"], weight: 1.1 },
+    { keywords: ["console", "controller", "handheld"], weight: 0.95 },
+  ],
+  "Food & Drink": [
+    { keywords: ["baked", "bakery", "cookie", "scone", "bread"], weight: 1.05 },
+    { keywords: ["honey", "jam", "preserve", "jelly"], weight: 1.05 },
+    { keywords: ["coffee beans", "loose leaf tea", "spice blend"], weight: 1.0 },
+    { keywords: ["candy", "chocolate", "pantry"], weight: 0.95 },
+  ],
+  "Health & Personal Care": [
+    { keywords: ["vitamin", "supplement", "multivitamin"], weight: 1.05 },
+    { keywords: ["first aid", "bandage", "medical"], weight: 1.0 },
+    { keywords: ["wellness", "oral care", "toothbrush"], weight: 0.9 },
+  ],
+  "Home & Garden": [
+    { keywords: ["garden", "planter", "seed", "soil"], weight: 1.05 },
+    { keywords: ["patio", "outdoor furniture", "grilling", "bbq"], weight: 1.0 },
+    { keywords: ["yard", "lawn", "hose"], weight: 0.9 },
+  ],
+  "Home & Kitchen": [
+    { keywords: ["cookware", "bakeware", "skillet", "saucepan"], weight: 1.05 },
+    { keywords: ["dinnerware", "flatware", "mug", "drinkware"], weight: 0.95 },
+    { keywords: ["kitchen tool", "cutting board", "utensil"], weight: 0.9 },
+  ],
+  "Luggage & Travel": [
+    { keywords: ["suitcase", "luggage", "carry-on", "carry on"], weight: 1.1 },
+    { keywords: ["travel bag", "packing cube", "toiletry bag"], weight: 0.95 },
+  ],
+  "Musical Instruments": [
+    { keywords: ["guitar", "bass guitar", "ukulele"], weight: 1.1 },
+    { keywords: ["piano", "keyboard", "synthesizer"], weight: 1.05 },
+    { keywords: ["drum", "violin", "trumpet", "saxophone"], weight: 1.0 },
+  ],
+  "Office & School Supplies": [
+    { keywords: ["stationery", "binder", "folder", "paperclip"], weight: 1.0 },
+    { keywords: ["desk organizer", "stapler", "school supply"], weight: 0.95 },
+  ],
+  "Tickets & Experiences": [
+    { keywords: ["concert ticket", "event ticket", "gift experience"], weight: 1.1 },
+    { keywords: ["voucher", "admission"], weight: 0.85 },
+  ],
+  "Tools & Home Improvement": [
+    { keywords: ["power tool", "drill", "saw", "sander"], weight: 1.1 },
+    { keywords: ["wrench", "hammer", "screwdriver", "hand tool"], weight: 1.0 },
+    { keywords: ["hardware", "plumbing", "electrical"], weight: 0.9 },
+  ],
+  "Vehicles & Parts": [
+    { keywords: ["auto part", "car part", "oem"], weight: 1.1 },
+    { keywords: ["motorcycle part", "atv"], weight: 1.05 },
+    { keywords: ["tire", "rim", "wheel"], weight: 0.95 },
+  ],
+  "Business & Industrial": [
+    { keywords: ["industrial", "warehouse", "pallet"], weight: 1.0 },
+    { keywords: ["lab equipment", "safety equipment"], weight: 0.95 },
   ],
   "Wedding": [
     { keywords: ["wedding", "bridal", "bride"], weight: 1.0 },
@@ -1601,13 +1795,22 @@ export async function resolveInwCategoryFromEtsyTaxonomy(
   title?: string | null
 ): Promise<ResolvedInwCategory | null> {
   const name = taxonomyName?.trim() || getEtsyTaxonomyName(taxonomyId);
-  if (!name) return null;
+  const remoteCategoryId = taxonomyId != null && Number.isFinite(taxonomyId) ? String(taxonomyId) : null;
 
-  // Use the enhanced resolver that always assigns subcategory
+  // ID-only listings still resolve via seeded channel_category_mapping rows.
+  if (!name) {
+    if (!remoteCategoryId && !title?.trim()) return null;
+    return resolveInwCategoryWithSubcategory(null, null, {
+      provider: "etsy",
+      title,
+      remoteCategoryId,
+    });
+  }
+
   return resolveInwCategoryWithSubcategory(name, null, {
     provider: "etsy",
     title,
-    remoteCategoryId: taxonomyId != null ? String(taxonomyId) : null,
+    remoteCategoryId,
   });
 }
 
@@ -1773,7 +1976,23 @@ function matchSubcategoryFromKeywords(category: string, text: string): string | 
       "Books": ["book", "novel", "paperback", "hardcover", "hardback", "fiction", "non-fiction"],
       "Movies & TV": ["dvd", "blu-ray", "movie", "film", "tv show", "series", "season"],
       "Music (CDs, Vinyl, etc.)": ["cd", "vinyl", "record", "album", "lp", "ep", "cassette"],
-      "Video Games": ["video game", "game disc", "playstation", "xbox", "nintendo", "ps4", "ps5"],
+    },
+    "Video Games & Consoles": {
+      "Games (physical)": ["video game", "game disc", "playstation", "xbox", "nintendo", "ps4", "ps5", "nintendo switch"],
+      Consoles: ["console", "playstation 5", "xbox series", "nintendo switch console"],
+      "Controllers & Accessories": ["controller", "gamepad", "dualsense", "dualshock"],
+      Handhelds: ["handheld", "nintendo switch lite", "steam deck", "game boy"],
+      "PC Gaming": ["pc gaming", "steam", "gaming pc"],
+      "Retro & Vintage": ["retro game", "vintage game", "nes", "snes", "n64", "gamecube"],
+      "Strategy Guides": ["strategy guide", "prima guide", "game guide"],
+    },
+    "Food & Drink": {
+      "Baked Goods": ["baked", "bakery", "cookie", "bread", "scone", "muffin", "pie"],
+      "Jams, Honey & Preserves": ["honey", "jam", "jelly", "preserve", "marmalade"],
+      "Coffee & Tea": ["coffee beans", "loose leaf", "tea blend"],
+      "Spices & Seasonings": ["spice", "seasoning", "rub", "herb mix"],
+      "Candy & Chocolate": ["candy", "chocolate", "fudge", "caramel"],
+      "Pantry & Packaged": ["pantry", "salsa", "sauce", "packaged food"],
     },
     "Art & Collectibles": {
       "Trading Cards": ["trading card", "pokemon", "yugioh", "baseball card", "sports card", "tcg", "ccg"],
@@ -1806,7 +2025,7 @@ function matchSubcategoryFromKeywords(category: string, text: string): string | 
     "Electronics & Accessories": {
       "Phones & Accessories": ["phone", "iphone", "samsung", "android", "phone case", "charger"],
       "Computers & Tablets": ["laptop", "tablet", "computer", "ipad", "macbook", "chromebook"],
-      "Gaming Consoles & Accessories": ["playstation", "xbox", "nintendo", "switch", "console", "controller"],
+      "Gaming Consoles & Accessories": ["gaming headset", "gaming mouse", "gaming keyboard", "pc gaming accessory"],
       "Cameras & Photo": ["camera", "dslr", "lens", "photography", "mirrorless", "gopro"],
       "Audio & Headphones": ["headphone", "earbuds", "speaker", "bluetooth", "audio", "soundbar"],
     },
@@ -1817,6 +2036,118 @@ function matchSubcategoryFromKeywords(category: string, text: string): string | 
       "Rings": ["ring", "band", "engagement", "wedding ring", "signet"],
       "Watches": ["watch", "wristwatch", "chronograph", "smartwatch", "timepiece"],
       "Fine Jewelry": ["diamond", "gold", "silver", "platinum", "gemstone", "sapphire", "ruby", "emerald"],
+    },
+    "Home & Living": {
+      "Home Decor": ["home decor", "decoration", "accent"],
+      Bedding: ["bedding", "duvet", "comforter", "sheet set"],
+      Bathroom: ["bath towel", "shower curtain", "bathroom"],
+      Lighting: ["lamp", "chandelier", "sconce", "light fixture"],
+      "Candles & Holders": ["candle", "candle holder", "taper"],
+      "Home Storage": ["storage bin", "organizer", "basket"],
+    },
+    "Home & Kitchen": {
+      "Cookware & Bakeware": ["cookware", "bakeware", "skillet", "saucepan", "baking sheet"],
+      "Dining & Serving": ["dinnerware", "serving platter", "salad bowl"],
+      "Drinkware & Bar": ["mug", "tumbler", "wine glass", "barware"],
+      "Small Appliances": ["toaster", "blender", "air fryer", "kettle"],
+      "Kitchen Tools": ["spatula", "whisk", "cutting board", "utensil"],
+    },
+    "Home & Garden": {
+      "Outdoor & Gardening": ["garden", "planter", "seed", "potting"],
+      "Yard & Patio": ["patio", "yard", "outdoor rug"],
+      "Grilling & BBQ": ["grill", "bbq", "barbecue", "smoker"],
+      "Plants & Seeds": ["plant", "seed packet", "succulent"],
+    },
+    Furniture: {
+      "Living Room": ["sofa", "couch", "loveseat", "coffee table"],
+      Bedroom: ["bed frame", "dresser", "nightstand", "headboard"],
+      "Dining Room": ["dining table", "dining chair"],
+      "Office Furniture": ["office chair", "desk", "filing cabinet"],
+      "Outdoor Furniture": ["patio set", "adirondack", "outdoor chair"],
+      "Rugs & Carpets": ["area rug", "carpet", "runner rug"],
+    },
+    "Pet Supplies": {
+      Dog: ["dog", "puppy", "canine"],
+      Cat: ["cat", "kitten", "feline"],
+      "Collars & Leashes": ["collar", "leash", "harness"],
+      "Toys & Treats": ["pet toy", "dog treat", "cat toy"],
+      "Fish & Aquarium": ["aquarium", "fish tank"],
+    },
+    Shoes: {
+      "Women's Shoes": ["women's shoe", "womens shoe", "ladies shoe"],
+      "Men's Shoes": ["men's shoe", "mens shoe"],
+      "Athletic & Sneakers": ["sneaker", "trainer", "running shoe"],
+      Boots: ["boot", "chelsea", "combat boot"],
+      "Sandals & Flats": ["sandal", "flip flop", "flat"],
+    },
+    "Sports & Outdoors": {
+      "Camping & Hiking": ["camping", "hiking", "tent", "sleeping bag"],
+      "Fitness & Exercise": ["fitness", "exercise", "yoga", "dumbbell"],
+      Cycling: ["bicycle", "cycling", "bike helmet"],
+      Golf: ["golf club", "golf ball", "putter"],
+      "Team Sports": ["basketball", "soccer", "football", "baseball bat"],
+    },
+    "Baby & Kids": {
+      "Baby Clothing": ["onesie", "romper", "baby clothes"],
+      "Kids Clothing": ["kids clothes", "children's clothing"],
+      "Strollers & Carriers": ["stroller", "baby carrier"],
+      Diapering: ["diaper", "wipe warmer"],
+      "Car Seats": ["car seat", "booster seat"],
+    },
+    "Bath & Beauty": {
+      "Skin Care": ["skincare", "moisturizer", "serum", "cleanser"],
+      "Hair Care": ["shampoo", "conditioner", "hair oil"],
+      "Makeup & Cosmetics": ["makeup", "lipstick", "mascara", "foundation"],
+      Fragrances: ["perfume", "cologne", "fragrance"],
+      "Soaps & Bath": ["soap", "bath bomb", "body wash"],
+    },
+    Accessories: {
+      "Hats & Caps": ["hat", "cap", "beanie", "fedora"],
+      "Scarves & Wraps": ["scarf", "wrap", "shawl"],
+      Belts: ["belt", "suspenders"],
+      "Sunglasses & Eyewear": ["sunglasses", "eyewear"],
+      "Hair Accessories": ["hair clip", "scrunchie", "headband"],
+    },
+    "Bags & Purses": {
+      Handbags: ["handbag", "purse"],
+      Backpacks: ["backpack", "rucksack"],
+      "Wallets & Card Holders": ["wallet", "card holder", "billfold"],
+      "Totes & Shopping Bags": ["tote", "shopping bag"],
+    },
+    "Luggage & Travel": {
+      "Suitcases & Luggage": ["suitcase", "luggage", "checked bag"],
+      "Travel Bags": ["duffel", "weekender", "travel bag"],
+      "Travel Accessories": ["packing cube", "luggage tag", "neck pillow"],
+    },
+    "Musical Instruments": {
+      "Guitars & Bass": ["guitar", "bass guitar", "ukulele"],
+      "Keyboards & Pianos": ["piano", "keyboard", "synthesizer"],
+      "Drums & Percussion": ["drum", "cymbal", "percussion"],
+      "Band & Orchestra": ["violin", "trumpet", "saxophone", "flute"],
+    },
+    "Office & School Supplies": {
+      Stationery: ["stationery", "notecard"],
+      "Pens & Writing": ["pen", "pencil", "marker"],
+      "Filing & Organization": ["binder", "folder", "file organizer"],
+      "Desk Accessories": ["desk organizer", "stapler", "paperweight"],
+    },
+    "Tools & Home Improvement": {
+      "Hand Tools": ["hammer", "wrench", "screwdriver", "pliers"],
+      "Power Tools": ["drill", "circular saw", "sander", "impact driver"],
+      Hardware: ["screw", "bolt", "hinge", "bracket"],
+      Plumbing: ["faucet", "pipe", "plumbing"],
+      Electrical: ["outlet", "switch plate", "wire"],
+    },
+    "Vehicles & Parts": {
+      "Car & Truck Parts": ["car part", "auto part", "truck part"],
+      "Motorcycle & ATV": ["motorcycle", "atv", "dirt bike"],
+      "Wheels, Tires & Rims": ["tire", "rim", "alloy wheel"],
+    },
+    Wedding: {
+      "Bridal & Gowns": ["wedding dress", "bridal gown"],
+      "Invitations & Paper": ["wedding invitation", "save the date"],
+      "Decor & Centerpieces": ["centerpiece", "wedding decor"],
+      Veils: ["veil", "bridal veil"],
     },
   };
 
@@ -1899,6 +2230,7 @@ export async function getCategoryMappingAnalytics(params: {
 export function getCategoryAliasTablesForSeed(): {
   etsy: Record<string, { category: string; subcategory: string | null }>;
   wix: Record<string, { category: string; subcategory: string | null }>;
+  shopify: Record<string, { category: string; subcategory: string | null }>;
 } {
-  return { etsy: ETSY_CATEGORY_ALIASES, wix: WIX_CATEGORY_ALIASES };
+  return { etsy: ETSY_CATEGORY_ALIASES, wix: WIX_CATEGORY_ALIASES, shopify: SHOPIFY_CATEGORY_ALIASES };
 }

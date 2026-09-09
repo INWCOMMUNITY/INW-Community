@@ -1,6 +1,10 @@
 import { ebayGet, ebayJson } from "./client";
-import { selectPassthroughInventoryImageUrls } from "./media";
-import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
+import {
+  liveEbayPhotoUrlsToPin,
+  selectPassthroughInventoryImageUrls,
+  uniformHostFamilyImageUrls,
+} from "./media";
+import { normalizeVariantsFromProvider, variantsToMatrix, type InwVariantAxis } from "../variant-sync";
 import type { SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
 import { generateEbayVariationMigrationSku, isValidEbayInventorySku } from "./migrate-prep";
@@ -9,8 +13,17 @@ import {
   parseStoredAspects,
   type ListingAspect,
 } from "@/lib/listing-limits";
+import {
+  channelQuantityForTracked,
+  pickImageVaryingAxisName,
+  stampSkuCodes,
+  isMadeToOrderTracking,
+  normalizeVariantMatrix,
+} from "@/lib/listing-variant-matrix";
 
 export function shouldUseInventoryItemGroup(item: SyncStoreItem): boolean {
+  const matrix = variantsToMatrix(item.variants);
+  if (matrix && matrix.skus.length > 1) return true;
   const axes = normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[] | null;
   return Boolean(axes && axes.length > 0 && axes[0]?.options.length > 1);
 }
@@ -22,12 +35,14 @@ export function buildInventoryItemGroupKey(item: SyncStoreItem): string {
 /** Shared Type/Brand (and other non-variation specifics) on the group — required before publish. */
 export function commonAspectsForInventoryItemGroup(
   rows: ListingAspect[],
-  variationName: string
+  variationNames: string | string[]
 ): Record<string, string[]> {
   const aspects = aspectsToEbayProductAspects(rows);
-  const vary = variationName.trim().toLowerCase();
+  const varySet = new Set(
+    (Array.isArray(variationNames) ? variationNames : [variationNames]).map((n) => n.trim().toLowerCase())
+  );
   for (const key of Object.keys(aspects)) {
-    if (key.trim().toLowerCase() === vary) delete aspects[key];
+    if (varySet.has(key.trim().toLowerCase())) delete aspects[key];
   }
   const brandNameKey = Object.keys(aspects).find((key) => key.trim().toLowerCase() === "brand name");
   if (
@@ -45,23 +60,37 @@ export function buildInventoryItemGroupBody(
   variantSkus: string[],
   aspectRows?: ListingAspect[]
 ): Record<string, unknown> {
-  const axes = normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[];
+  const matrix = variantsToMatrix(item.variants);
+  const axes = matrix?.axes?.length
+    ? matrix.axes.map((a) => ({ name: a.name, values: a.values }))
+    : (normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[]).map((a) => ({
+        name: a.name,
+        values: a.options.map((o) => o.value),
+      }));
   const primary = axes[0]!;
-  const values = primary.options.map((option) => option.value);
+  const imageAxis = matrix ? pickImageVaryingAxisName(matrix) : primary.name;
   const aspects = commonAspectsForInventoryItemGroup(
     aspectRows ?? parseStoredAspects(item.aspects),
-    primary.name
+    axes.map((a) => a.name)
   );
+  const imageAxisPhotos =
+    matrix?.axes
+      .find((a) => a.name === imageAxis)
+      ?.photosByValue
+      ? Object.values(
+          matrix.axes.find((a) => a.name === imageAxis)?.photosByValue ?? {}
+        ).flat()
+      : [];
   const body: Record<string, unknown> = {
     inventoryItemGroupKey: buildInventoryItemGroupKey(item),
     variantSKUs: variantSkus,
     title: item.title,
     description: item.description ?? item.title,
     variesBy: {
-      specifications: [{ name: primary.name, values }],
-      aspectsImageVariesBy: [primary.name],
+      specifications: axes.map((a) => ({ name: a.name, values: a.values })),
+      aspectsImageVariesBy: [imageAxis],
     },
-    imageUrls: selectPassthroughInventoryImageUrls([], item.photos),
+    imageUrls: selectPassthroughInventoryImageUrls([], [...imageAxisPhotos, ...item.photos]),
   };
   if (Object.keys(aspects).length > 0) body.aspects = aspects;
   return body;
@@ -85,7 +114,7 @@ export function pinInventoryItemGroupImageUrls(
   return { ...body, imageUrls: pinned };
 }
 
-/** Resyncs keep live group photos unless the seller changed photos on INW. */
+/** Resyncs keep live EPS group photos. Never send INW blobs onto a published group. */
 export function applyInventoryItemGroupPhotoPolicy(
   body: Record<string, unknown>,
   liveUrls: string[],
@@ -93,7 +122,7 @@ export function applyInventoryItemGroupPhotoPolicy(
   pushInwPhotos: boolean
 ): Record<string, unknown> {
   if (pushInwPhotos) return pinInventoryItemGroupImageUrls(body, liveUrls, inwUrls);
-  const live = liveUrls.filter((url) => typeof url === "string" && url.trim().length > 0);
+  const live = liveEbayPhotoUrlsToPin(liveUrls);
   if (live.length > 0) return { ...body, imageUrls: live };
   const next = { ...body };
   delete next.imageUrls;
@@ -122,11 +151,18 @@ export async function createOrReplaceInventoryItemGroup(
 ): Promise<void> {
   const key = String(body.inventoryItemGroupKey ?? "").trim();
   if (!key) throw new Error("inventoryItemGroupKey is required");
+  const rawUrls = Array.isArray(body.imageUrls)
+    ? body.imageUrls.filter((url): url is string => typeof url === "string" && url.trim().length > 0)
+    : [];
+  const imageUrls = uniformHostFamilyImageUrls(rawUrls);
+  const payload: Record<string, unknown> = { ...body };
+  if (imageUrls.length > 0) payload.imageUrls = imageUrls;
+  else delete payload.imageUrls;
   await ebayJson(
     accessToken,
     `/sell/inventory/v1/inventory_item_group/${encodeURIComponent(key)}`,
     "PUT",
-    body
+    payload
   );
 }
 
@@ -151,6 +187,9 @@ export type EbayVariantInventoryRow = {
   value: string;
   quantity: number;
   aspectName: string;
+  options: Record<string, string>;
+  priceCents?: number;
+  photos?: string[];
 };
 
 export type BuildVariantInventoryRowsOptions = {
@@ -181,19 +220,39 @@ export function buildVariantInventoryRows(
   item: SyncStoreItem,
   options: BuildVariantInventoryRowsOptions = {}
 ): EbayVariantInventoryRow[] {
+  const matrix = variantsToMatrix(item.variants);
   const axes = normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[];
   const primary = axes[0]!;
   const baseSku = alphanumericSku(options.parentSku?.trim() || getEffectiveSku(item), 36);
   const legacyId = options.legacyListingId?.trim() || "";
   const used = new Set<string>();
-  return primary.options.map((option, i) => {
-    const existing = optionSku(option);
+  const source =
+    matrix && matrix.skus.length > 0
+      ? matrix.skus.map((s) => ({
+          value: s.options[primary.name] ?? Object.values(s.options)[0] ?? "",
+          quantity: s.quantity,
+          sku: s.sku,
+          options: s.options,
+          priceCents: s.priceCents,
+          photos: s.photos,
+        }))
+      : primary.options.map((option) => ({
+          value: option.value,
+          quantity: option.quantity,
+          sku: option.sku,
+          options: { [primary.name]: option.value },
+          priceCents: undefined as number | undefined,
+          photos: undefined as string[] | undefined,
+        }));
+
+  return source.map((option, i) => {
+    const existing = option.sku?.trim() && isValidEbayInventorySku(option.sku) ? option.sku.trim() : null;
     let sku = existing && !used.has(existing) ? existing : "";
     if (!sku && options.imported && legacyId) {
       sku = generateEbayVariationMigrationSku(legacyId, i);
     }
     if (!sku || !isValidEbayInventorySku(sku) || used.has(sku)) {
-      const valuePart = alphanumericSku(option.value, 12);
+      const valuePart = alphanumericSku(Object.values(option.options).join(""), 12);
       sku = `${baseSku}${valuePart}`.slice(0, 50);
     }
     if (!sku || !isValidEbayInventorySku(sku) || used.has(sku)) {
@@ -206,17 +265,27 @@ export function buildVariantInventoryRows(
     return {
       sku,
       value: option.value,
-      quantity: Math.max(0, option.quantity),
+      quantity: channelQuantityForTracked(option.quantity, item.inventoryTracking),
       aspectName: primary.name,
+      options: option.options,
+      ...(option.priceCents != null ? { priceCents: option.priceCents } : {}),
+      ...(option.photos ? { photos: option.photos } : {}),
     };
   });
 }
 
-/** Stamp generated eBay Inventory SKUs onto INW option rows so later syncs reuse them. */
+/** Stamp generated eBay Inventory SKUs onto INW option/SKU rows so later syncs reuse them. */
 export function mergeGeneratedSkusIntoVariants(
   variants: unknown,
   rows: EbayVariantInventoryRow[]
-): InwVariantAxis[] | null {
+): unknown {
+  const matrix = normalizeVariantMatrix(variants);
+  if (matrix && matrix.skus.length > 0) {
+    return stampSkuCodes(
+      matrix,
+      rows.map((row) => ({ options: row.options, sku: row.sku }))
+    );
+  }
   const axes = normalizeVariantsFromProvider("ebay", variants) as InwVariantAxis[] | null;
   if (!axes?.length) return null;
   const skuByValue = new Map(rows.map((row) => [row.value.trim().toLowerCase(), row.sku]));
@@ -244,16 +313,18 @@ export function buildVariantSyncItem(
   item: SyncStoreItem,
   row: EbayVariantInventoryRow
 ): SyncStoreItem {
+  const qty = channelQuantityForTracked(row.quantity, item.inventoryTracking);
+  const optionEntries = Object.entries(row.options ?? { [row.aspectName]: row.value });
   return {
     ...item,
     sku: row.sku,
-    quantity: row.quantity,
-    variants: [
-      {
-        name: row.aspectName,
-        options: [{ value: row.value, quantity: row.quantity, sku: row.sku }],
-      },
-    ],
+    quantity: qty,
+    priceCents: row.priceCents && row.priceCents > 0 ? row.priceCents : item.priceCents,
+    photos: row.photos && row.photos.length > 0 ? row.photos : item.photos,
+    variants: optionEntries.map(([name, value]) => ({
+      name,
+      options: [{ value, quantity: qty, sku: row.sku }],
+    })),
   };
 }
 
@@ -270,7 +341,12 @@ export function withVariationAspect(
     product.aspects && typeof product.aspects === "object" && !Array.isArray(product.aspects)
       ? { ...(product.aspects as Record<string, unknown>) }
       : {};
-  aspects[row.aspectName] = [row.value];
+  const options = row.options && Object.keys(row.options).length > 0
+    ? row.options
+    : { [row.aspectName]: row.value };
+  for (const [name, value] of Object.entries(options)) {
+    aspects[name] = [value];
+  }
   product.aspects = aspects;
   return { ...body, product };
 }

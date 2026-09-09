@@ -33,7 +33,7 @@ export interface ListingTemplate {
   etsyIsSupply?: boolean | null;
   ebayCategoryId?: number | null;
   ebayAspects?: { name: string; value: string }[] | null;
-  variantsTemplate?: { axes?: { name: string; options: string[] }[] } | null;
+  variantsTemplate?: { axes?: { name: string; options?: string[]; values?: string[] }[] } | null;
   createdAt?: string;
   updatedAt?: string;
 }

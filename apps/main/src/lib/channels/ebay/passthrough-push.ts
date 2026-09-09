@@ -153,14 +153,17 @@ export function inwPhotosChangedSinceLastEbayPush(
   return !photosMatch(lastPushedPhotos, inwPhotos);
 }
 
-/** First publish can send photos. Later edits only send them when the seller changed the INW list. */
+/**
+ * First publish can send INW photo URLs. Live eBay listings already have EPS copies;
+ * sending INW blobs mixes host families (#25014) and Media API copies them again.
+ */
 export function shouldPushInwPhotosToEbay(args: {
   inwPhotos: string[];
   lastPushedPhotos: string[] | null | undefined;
   listingAlreadyOnEbay: boolean;
 }): boolean {
-  if (!args.listingAlreadyOnEbay) return args.inwPhotos.length > 0;
-  return inwPhotosChangedSinceLastEbayPush(args.inwPhotos, args.lastPushedPhotos);
+  if (args.listingAlreadyOnEbay) return false;
+  return args.inwPhotos.length > 0;
 }
 
 function liveProductImageUrls(live: LiveInventoryItem): string[] {
@@ -247,7 +250,8 @@ export type PassthroughSyncPrefs = {
 /**
  * Merge live eBay drift with INW edits since lastPushedHash.
  * Live comparison alone misses title/description when HTML or CDN URLs differ cosmetically.
- * Photos never follow live CDN vs INW blob drift — that mix is #25014. Only an INW photo edit pushes pictures.
+ * Photos never follow live CDN vs INW blob drift — that mix is #25014.
+ * Live listings keep eBay-hosted pictures; INW photo edits do not copy onto eBay.
  */
 export function resolvePassthroughChanges(
   live: PassthroughChangedFields,
@@ -256,7 +260,7 @@ export function resolvePassthroughChanges(
 ): PassthroughChangedFields {
   const title = prefs.syncTitles && (inwFields.title || live.title);
   const description = prefs.syncDescriptions && (inwFields.description || live.description);
-  const photos = prefs.syncPhotos && inwFields.photos;
+  const photos = false;
   const price = prefs.syncPrices && (inwFields.price || live.price);
   const bestOffer = inwFields.bestOffer || live.bestOffer === true;
   return {

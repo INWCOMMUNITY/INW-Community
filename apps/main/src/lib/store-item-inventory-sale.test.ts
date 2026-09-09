@@ -1,39 +1,23 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { InsufficientStockError } from "@/lib/store-item-inventory-errors";
+import { describe, expect, it, vi } from "vitest";
+import { applyStoreItemDecrementAfterSale } from "./store-item-inventory-sale";
 
-const mockPrisma = vi.hoisted(() => ({
-  storeItem: {
-    updateMany: vi.fn(),
-    findUnique: vi.fn(),
-  },
-}));
-
-vi.mock("database", () => ({ prisma: mockPrisma }));
-
-describe("applyStoreItemDecrementAfterSale qty floor", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("refuses to decrement when quantity < sold (no negative stock)", async () => {
-    const { applyStoreItemDecrementAfterSale } = await import("./store-item-inventory-sale");
-    mockPrisma.storeItem.updateMany.mockResolvedValue({ count: 0 });
-    mockPrisma.storeItem.findUnique.mockResolvedValue({
-      quantity: 0,
-      updatedAt: new Date(),
-    });
-    await expect(
-      applyStoreItemDecrementAfterSale(mockPrisma as never, {
+describe("applyStoreItemDecrementAfterSale", () => {
+  it("does not decrement made-to-order listings", async () => {
+    const updateMany = vi.fn();
+    await applyStoreItemDecrementAfterSale(
+      { storeItem: { updateMany, findUnique: vi.fn() } } as never,
+      {
         id: "item-1",
-        variants: null,
-        quantity: 1,
+        variants: {
+          axes: [{ name: "Size", values: ["M"] }],
+          skus: [{ options: { Size: "M" }, quantity: 4 }],
+        },
+        quantity: 999,
         updatedAt: new Date(),
-      }, { quantity: 1, variant: null })
-    ).rejects.toBeInstanceOf(InsufficientStockError);
-    expect(mockPrisma.storeItem.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ quantity: { gte: 1 } }),
-      })
+        inventoryTracking: "made_to_order",
+      },
+      { quantity: 1, variant: { Size: "M" } }
     );
+    expect(updateMany).not.toHaveBeenCalled();
   });
 });

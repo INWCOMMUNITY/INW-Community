@@ -4,7 +4,7 @@ import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
-import { getAvailableQuantity, hasMeaningfulVariantSelection, hasOptionQuantities } from "@/lib/store-item-variants";
+import { getAvailableQuantity, getSkuPriceCents, hasMeaningfulVariantSelection, hasOptionQuantities } from "@/lib/store-item-variants";
 import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
 import {
   validateLocalDeliveryDetails,
@@ -270,8 +270,9 @@ export async function POST(req: NextRequest) {
     for (const item of sellerItems) {
       const storeItem = itemMap.get(item.storeItemId)!;
       const cartRow = cartByStoreItem.get(item.storeItemId);
+      const listPriceCents = getSkuPriceCents(storeItem, item.variant);
       const { unitPriceCents: priceCents, resaleOfferId } = resolvedPriceForCartLine(
-        storeItem,
+        { priceCents: listPriceCents },
         cartRow,
         session.user.id
       );

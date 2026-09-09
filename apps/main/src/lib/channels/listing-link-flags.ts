@@ -246,6 +246,19 @@ export function inboundContentFanoutKind(args: {
   return null;
 }
 
+export function shouldDropContentRetryAfterLaterWrite(args: {
+  retryType: string;
+  retryCreatedAt: Date;
+  lastInboundAt: Date | null | undefined;
+  lastPushedAt: Date | null | undefined;
+}): boolean {
+  if (args.retryType !== "content") return false;
+  const created = args.retryCreatedAt.getTime();
+  if (args.lastInboundAt != null && args.lastInboundAt.getTime() > created) return true;
+  if (args.lastPushedAt != null && args.lastPushedAt.getTime() > created) return true;
+  return false;
+}
+
 export function shouldSkipEndedEbayOutbound(
   provider: string,
   conflictDetails: unknown

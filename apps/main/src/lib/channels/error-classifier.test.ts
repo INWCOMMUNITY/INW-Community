@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldCountTowardCircuit } from "./error-classifier";
+import { classifyError, shouldCountTowardCircuit } from "./error-classifier";
 
 describe("shouldCountTowardCircuit", () => {
   it("counts connection outages", () => {
@@ -26,5 +26,16 @@ describe("shouldCountTowardCircuit", () => {
       })
     ).toBe(false);
     expect(shouldCountTowardCircuit(new Error("invalid_grant"))).toBe(false);
+  });
+});
+
+describe("classifyError", () => {
+  it("treats eBay #25014 mixed-photo HTTP 400 as transient", () => {
+    const err = new Error(
+      "Inventory push failed: [#25014 · API_INVENTORY · Request · HTTP 400] A mixture of Self Hosted and EPS pictures are not allowed."
+    ) as Error & { status: number };
+    err.status = 400;
+    expect(classifyError(err)).toBe("transient");
+    expect(shouldCountTowardCircuit(err)).toBe(false);
   });
 });

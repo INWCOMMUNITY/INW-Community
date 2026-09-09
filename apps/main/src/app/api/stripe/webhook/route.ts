@@ -501,7 +501,7 @@ export async function POST(req: NextRequest) {
           }
           const updated = await prisma.storeItem.findUnique({
             where: { id: oi.storeItemId },
-            select: { quantity: true, variants: true },
+            select: { quantity: true, variants: true, inventoryTracking: true },
           });
           if (updated && shouldMarkStoreItemSoldOut(updated)) {
             await prisma.storeItem.update({
@@ -828,7 +828,7 @@ export async function POST(req: NextRequest) {
         }
         const updated = await prisma.storeItem.findUnique({
           where: { id: oi.storeItemId },
-          select: { quantity: true, variants: true },
+          select: { quantity: true, variants: true, inventoryTracking: true },
         });
         if (updated && shouldMarkStoreItemSoldOut(updated)) {
           soldOutStoreItemIds.add(oi.storeItemId);

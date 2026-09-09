@@ -7,6 +7,7 @@ import { extractBusinessDisplayCity } from "@/lib/city-utils";
 import { photosExcludingLogo } from "@/lib/business-photos";
 import { listingDisplayPhotos } from "@/lib/listing-display-photo";
 import { listingDescriptionPreview } from "@/lib/channels/rich-description";
+import { withPublicStockWhere } from "@/lib/store-item-public-access";
 import {
   SellerStorefrontContent,
   type SellerStorefrontData,
@@ -78,11 +79,10 @@ export default async function SellerStorefrontPage({
   if (!sellerSub) notFound();
 
   const storeItems = await prisma.storeItem.findMany({
-    where: {
+    where: withPublicStockWhere({
       memberId: business.memberId,
       status: "active",
-      quantity: { gt: 0 },
-    },
+    }),
     orderBy: { createdAt: "desc" },
     take: 48,
     select: {
@@ -92,6 +92,7 @@ export default async function SellerStorefrontPage({
       description: true,
       photos: true,
       category: true,
+      variants: true,
       priceCents: true,
     },
   });
@@ -145,6 +146,7 @@ export default async function SellerStorefrontPage({
       photos: listingDisplayPhotos(item.photos ?? [], "card", 2),
       category: item.category,
       priceCents: item.priceCents,
+      variants: item.variants,
     })),
   };
 

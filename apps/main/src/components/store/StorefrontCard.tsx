@@ -7,6 +7,7 @@ import { HeartSaveButton } from "@/components/HeartSaveButton";
 import { ShareButton } from "@/components/ShareButton";
 import { CARD_RADIUS, CARD_SHADOW } from "@/components/ui/card-styles";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
+import { browsePriceLabel } from "@/lib/listing-variant-matrix";
 
 export type StorefrontCardItem = {
   id: string;
@@ -15,6 +16,7 @@ export type StorefrontCardItem = {
   description?: string | null;
   photos: string[];
   priceCents: number;
+  variants?: unknown;
   business?: { name: string; slug: string } | null;
 };
 
@@ -35,6 +37,7 @@ export function StorefrontCard({
 }) {
   const [hoveredPhotoIndex, setHoveredPhotoIndex] = useState(0);
   const href = productHref ?? `${basePath}/${item.slug}`;
+  const priceLabel = browsePriceLabel(item.priceCents, item.variants);
   const rawPhoto = item.photos.length > 0 ? item.photos[hoveredPhotoIndex % item.photos.length] : null;
   const photoUrl = listingDisplayPhoto(rawPhoto, "card") ?? rawPhoto;
 
@@ -69,7 +72,7 @@ export function StorefrontCard({
           </div>
         )}
         <div className="absolute bottom-2 left-0 bg-[var(--color-primary)] text-white text-sm font-bold px-3 py-1 rounded-r-md shadow-md">
-          ${(item.priceCents / 100).toFixed(2)}
+          {priceLabel.from ? "From " : ""}${(priceLabel.cents / 100).toFixed(2)}
         </div>
       </Link>
       <div className="p-2.5">

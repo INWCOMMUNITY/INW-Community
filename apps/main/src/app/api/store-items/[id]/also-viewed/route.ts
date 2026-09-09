@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
+import { withPublicStockWhere } from "@/lib/store-item-public-access";
 
 export const dynamic = "force-dynamic";
 
@@ -55,12 +56,11 @@ export async function GET(
     const itemIds = otherViewedItems.map((o) => o.storeItemId);
     
     const items = await prisma.storeItem.findMany({
-      where: {
+      where: withPublicStockWhere({
         id: { in: itemIds },
         status: "active",
-        quantity: { gt: 0 },
         member: { stripeConnectAccountId: { not: null } },
-      },
+      }),
       select: {
         id: true,
         title: true,
@@ -70,6 +70,7 @@ export async function GET(
         secondaryCategory: true,
         priceCents: true,
         quantity: true,
+        variants: true,
         business: { select: { id: true, name: true, slug: true, logoUrl: true } },
       },
     });

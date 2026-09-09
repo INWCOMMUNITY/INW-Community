@@ -16,13 +16,13 @@ import { listingDescriptionForHtmlChannel } from "../rich-description";
 import { isPackageComplete } from "@/lib/package-weight";
 import { listingPackageFromRemote } from "@/lib/shipping-options";
 import { LEGACY_EBAY_ITEM_ID } from "./listing-origin";
+import { channelQuantityForTracked } from "@/lib/listing-variant-matrix";
+import { resolveEbayInventoryCondition } from "./conditions";
 
 /** cents -> "12.34" (eBay expects a string decimal price). */
 export function ebayPriceFromCents(cents: number): string {
   return (Math.max(0, Math.round(cents)) / 100).toFixed(2);
 }
-
-import { resolveEbayInventoryCondition } from "./conditions";
 
 /** Map INW condition to an eBay inventory condition enum. */
 export function ebayCondition(item: Pick<SyncStoreItem, "condition" | "ebayConditionEnum">): string {
@@ -51,8 +51,10 @@ export function buildEbayInventoryItem(
 
   let productAspects: Record<string, string[]> | undefined;
   if (axes && axes.length > 0) {
-    const primary = axes[0];
-    productAspects = { ...storedAspects, [primary.name]: primary.options.map((o) => o.value) };
+    productAspects = { ...storedAspects };
+    for (const axis of axes) {
+      productAspects[axis.name] = axis.options.map((o) => o.value);
+    }
   } else if (Object.keys(storedAspects).length > 0) {
     productAspects = storedAspects;
   }
@@ -72,7 +74,9 @@ export function buildEbayInventoryItem(
 
   const body: Record<string, unknown> = {
     availability: {
-      shipToLocationAvailability: { quantity: Math.max(0, item.quantity) },
+      shipToLocationAvailability: {
+        quantity: channelQuantityForTracked(item.quantity, item.inventoryTracking),
+      },
     },
     condition: ebayCondition(item),
     product,
@@ -117,7 +121,7 @@ export function buildEbayOffer(
     sku: sku || getEffectiveSku(item),
     marketplaceId: EBAY_MARKETPLACE_ID,
     format: "FIXED_PRICE",
-    availableQuantity: Math.max(0, item.quantity),
+    availableQuantity: channelQuantityForTracked(item.quantity, item.inventoryTracking),
     listingDescription: listingDescriptionForHtmlChannel(item.description, item.title).slice(
       0,
       500000

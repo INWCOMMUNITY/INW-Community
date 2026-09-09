@@ -2,7 +2,7 @@ import { cache } from "react";
 import { prisma } from "database";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
 import { listingDescriptionPreview } from "@/lib/channels/rich-description";
-import { includeUnavailableVisibleToViewer } from "@/lib/store-item-public-access";
+import { includeUnavailableVisibleToViewer, withPublicStockWhere } from "@/lib/store-item-public-access";
 
 const storeItemPublicSelect = {
   id: true,
@@ -17,6 +17,7 @@ const storeItemPublicSelect = {
   condition: true,
   priceCents: true,
   quantity: true,
+  inventoryTracking: true,
   variants: true,
   shippingCostCents: true,
   shippingPolicy: true,
@@ -65,6 +66,7 @@ export type StoreItemPublicPayload = {
   condition?: "new" | "used";
   priceCents: number;
   quantity: number;
+  inventoryTracking?: string | null;
   variants?: unknown;
   shippingCostCents: number | null;
   shippingPolicy: string | null;
@@ -125,12 +127,11 @@ export async function getStoreItemPublicPayload(
   opts?: { includeUnavailable?: boolean; viewerId?: string | null }
 ): Promise<StoreItemPublicPayload | null> {
   const includeUnavailable = opts?.includeUnavailable === true;
-  const slugWhere = {
+  const slugWhere = withPublicStockWhere({
     slug,
     status: "active" as const,
-    quantity: { gt: 0 } as const,
     member: { stripeConnectAccountId: { not: null } },
-  };
+  });
   const item = await prisma.storeItem.findFirst({
     where: slugWhere,
     select: storeItemPublicSelect,
@@ -189,6 +190,7 @@ export async function getStoreItemPublicPayload(
     condition: resolvedItem.condition as "new" | "used",
     priceCents: resolvedItem.priceCents,
     quantity: resolvedItem.quantity,
+    inventoryTracking: resolvedItem.inventoryTracking,
     variants: resolvedItem.variants,
     shippingCostCents: resolvedItem.shippingCostCents,
     shippingPolicy: resolvedItem.shippingPolicy,

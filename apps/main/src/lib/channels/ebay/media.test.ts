@@ -75,19 +75,18 @@ describe("putInventoryWithPhotoRecovery", () => {
     ).toEqual(["https://i.ebayimg.com/live.jpg"]);
   });
 
-  it("hosts non-eBay photos before the first PUT", async () => {
-    mockedJson.mockResolvedValue({ imageId: "img-1" });
-    mockedGet.mockResolvedValue({ imageUrl: "https://i.ebayimg.com/hosted.jpg" });
+  it("sends INW photo URLs on first create without copying them through Media API", async () => {
     const put = vi.fn().mockResolvedValue(undefined);
     await putInventoryWithPhotoRecovery({
       accessToken: "t",
       body: { product: { title: "X", imageUrls: ["https://blob.example.com/a.jpg"] } },
       put,
     });
+    expect(mockedJson).not.toHaveBeenCalled();
     expect(put).toHaveBeenCalledTimes(1);
     expect(
       (put.mock.calls[0]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
-    ).toEqual(["https://i.ebayimg.com/hosted.jpg"]);
+    ).toEqual(["https://blob.example.com/a.jpg"]);
   });
 
   it("drops self-hosted URLs from a mixed payload before PUT", async () => {
@@ -153,23 +152,18 @@ describe("putInventoryWithPhotoRecovery", () => {
     expect(put).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to INW photos when live picture hosting still fails", async () => {
-    mockedJson.mockResolvedValueOnce({ imageId: "img-2" });
-    mockedGet.mockResolvedValue({ imageUrl: "https://i.ebayimg.com/inw.jpg" });
-    const put = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("[#25014] invalid pictures"))
-      .mockResolvedValueOnce(undefined);
-    await putInventoryWithPhotoRecovery({
-      accessToken: "t",
-      body: { product: { title: "X", imageUrls: ["https://i.ebayimg.com/old.jpg"] } },
-      fallbackImageUrls: ["https://cdn.inw.example/item.jpg"],
-      put,
-    });
-    expect(put).toHaveBeenCalledTimes(2);
-    expect(
-      (put.mock.calls[1]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
-    ).toEqual(["https://i.ebayimg.com/inw.jpg"]);
+  it("does not Media-copy INW photos after #25014", async () => {
+    const put = vi.fn().mockRejectedValue(new Error("[#25014] invalid pictures"));
+    await expect(
+      putInventoryWithPhotoRecovery({
+        accessToken: "t",
+        body: { product: { title: "X", imageUrls: ["https://i.ebayimg.com/old.jpg"] } },
+        fallbackImageUrls: ["https://cdn.inw.example/item.jpg"],
+        put,
+      })
+    ).rejects.toThrow(/#25014/);
+    expect(mockedJson).not.toHaveBeenCalled();
+    expect(put).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -193,6 +187,18 @@ describe("applyEbayInventoryPhotoPolicy", () => {
       { product: { title: "X", imageUrls: ["https://blob.example.com/a.jpg"] } },
       {
         liveImageUrls: [],
+        inwPhotos: ["https://blob.example.com/a.jpg"],
+        pushInwPhotos: false,
+      }
+    );
+    expect(next.product).not.toHaveProperty("imageUrls");
+  });
+
+  it("omits self-hosted live URLs instead of re-sending INW blobs", () => {
+    const next = applyEbayInventoryPhotoPolicy(
+      { product: { title: "X", imageUrls: ["https://blob.example.com/a.jpg"] } },
+      {
+        liveImageUrls: ["https://blob.example.com/a.jpg"],
         inwPhotos: ["https://blob.example.com/a.jpg"],
         pushInwPhotos: false,
       }

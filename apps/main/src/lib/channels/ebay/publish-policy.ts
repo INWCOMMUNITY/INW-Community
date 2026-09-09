@@ -55,6 +55,22 @@ export function shouldRepublishEbayOffer(args: {
   return shouldPublishEbayOffer(args);
 }
 
+/**
+ * Variation groups use publish_by_group. That creates a new Item ID when Inventory
+ * has no offer for the parent SKU — even if INW already linked a live listing.
+ * Content updates must never take that path.
+ */
+export function shouldPublishEbayInventoryGroup(args: {
+  operation: "create" | "update";
+  canPublish: boolean;
+  itemIsActive: boolean;
+  inStock: boolean;
+  hadOfferAtStart: boolean;
+}): boolean {
+  if (args.operation === "update") return false;
+  return args.canPublish && args.itemIsActive && args.inStock && !args.hadOfferAtStart;
+}
+
 /** Unpublished offers reject quantity 0 (#25004) and then block inventory Brand updates. */
 export function shouldWriteEbayOffer(args: {
   quantity: number;

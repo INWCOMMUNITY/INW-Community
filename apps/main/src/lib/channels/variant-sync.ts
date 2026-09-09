@@ -1,5 +1,19 @@
 import { createHash } from "crypto";
 import type { ChannelProvider } from "./types";
+import {
+  MAX_ETSY_AXES,
+  MAX_ETSY_SKUS_ALL_PROPERTIES,
+  MAX_SKU_ROWS_SHOPIFY,
+  MAX_VARIANT_AXES,
+  etsyVariesByAllProperties,
+  matrixToLegacyAxes,
+  normalizeVariantMatrix,
+  serializeVariantMatrix,
+  skuSelectionKey,
+  sumMatrixQuantities,
+  validateVariantMatrixForSave,
+  type VariantMatrix,
+} from "@/lib/listing-variant-matrix";
 
 export type InwVariantOption = {
   value: string;
@@ -32,11 +46,7 @@ function isOptionWithQty(opt: unknown): opt is { value: string; quantity: number
   );
 }
 
-/** Normalize any provider variant payload to INW per-option-quantity format. */
-export function normalizeVariantsFromProvider(
-  _provider: ChannelProvider,
-  remoteVariants: unknown
-): InwVariantAxis[] | null {
+function parseLegacyAxes(remoteVariants: unknown): InwVariantAxis[] | null {
   if (!remoteVariants || !Array.isArray(remoteVariants) || remoteVariants.length === 0) {
     return null;
   }
@@ -85,9 +95,45 @@ export function normalizeVariantsFromProvider(
   return axes.length > 0 ? axes : null;
 }
 
+/** Normalize any provider variant payload to INW per-option-quantity axes (derived from the matrix). */
+export function normalizeVariantsFromProvider(
+  _provider: ChannelProvider,
+  remoteVariants: unknown
+): InwVariantAxis[] | null {
+  const matrix = normalizeVariantMatrix(remoteVariants);
+  if (matrix && matrix.axes.length > 0) {
+    return matrixToLegacyAxes(matrix);
+  }
+  return parseLegacyAxes(remoteVariants);
+}
+
+export function variantsToMatrix(remoteVariants: unknown): VariantMatrix | null {
+  return normalizeVariantMatrix(remoteVariants);
+}
+
+export function matrixForStorage(remoteVariants: unknown): VariantMatrix | null {
+  const matrix = normalizeVariantMatrix(remoteVariants);
+  return matrix ? serializeVariantMatrix(matrix) : null;
+}
+
 /** Stable fingerprint for baseline meta sync. */
 export function variantsFingerprint(variants: unknown): string {
-  const normalized = normalizeVariantsFromProvider("wix", variants);
+  const matrix = normalizeVariantMatrix(variants);
+  if (matrix && matrix.axes.length > 0) {
+    const compact = {
+      a: matrix.axes.map((ax) => ({ n: ax.name, v: [...ax.values].sort((x, y) => x.localeCompare(y)) })),
+      s: matrix.skus
+        .map((sku) => ({
+          o: sku.options,
+          q: sku.quantity,
+          p: sku.priceCents ?? null,
+          k: sku.sku ?? null,
+        }))
+        .sort((x, y) => JSON.stringify(x.o).localeCompare(JSON.stringify(y.o))),
+    };
+    return createHash("sha1").update(JSON.stringify(compact)).digest("hex");
+  }
+  const normalized = parseLegacyAxes(variants);
   if (!normalized) return "";
   const compact = normalized.map((a) => ({
     n: a.name,
@@ -98,92 +144,117 @@ export function variantsFingerprint(variants: unknown): string {
   return createHash("sha1").update(JSON.stringify(compact)).digest("hex");
 }
 
-/** Sum all option quantities. Accepts unknown JSON from Prisma / remote listings. */
-export function sumVariantQuantities(variants: unknown): number {
-  if (!Array.isArray(variants)) return 0;
+/** Sum SKU (or legacy option) quantities. */
+export function sumVariantQuantities(variants: InwVariantAxis[] | VariantMatrix | null | unknown): number {
+  const matrix = normalizeVariantMatrix(variants);
+  if (matrix) return sumMatrixQuantities(matrix);
+  if (!variants || !Array.isArray(variants)) return 0;
   let sum = 0;
-  for (const axis of variants) {
-    if (!axis || typeof axis !== "object" || !("options" in axis)) continue;
-    const options = (axis as InwVariantAxis).options;
-    if (!Array.isArray(options)) continue;
-    for (const o of options) {
-      if (o && typeof o === "object" && typeof o.quantity === "number") {
-        sum += Math.max(0, o.quantity);
-      }
-    }
+  for (const axis of variants as InwVariantAxis[]) {
+    if (!axis?.options) continue;
+    for (const o of axis.options) sum += Math.max(0, o.quantity ?? 0);
   }
   return sum;
 }
 
-/** Match a sale's variant map to INW option rows for decrement. */
+/** Match a sale's variant map to INW option names. */
 export function matchSaleToVariantOption(
   saleVariant: Record<string, string> | null | undefined,
   variants: unknown
 ): Record<string, string> | null {
   if (!saleVariant || typeof saleVariant !== "object") return null;
-  const normalized = normalizeVariantsFromProvider("wix", variants);
-  if (!normalized || normalized.length === 0) return null;
+  const matrix = normalizeVariantMatrix(variants);
+  const axes = matrix?.axes ?? parseLegacyAxes(variants) ?? [];
+  if (axes.length === 0) return null;
 
   const out: Record<string, string> = {};
-  for (const axis of normalized) {
+  for (const axis of axes) {
+    const axisName = "name" in axis ? axis.name : "";
     for (const key of Object.keys(saleVariant)) {
-      if (key.toLowerCase() !== axis.name.toLowerCase()) continue;
+      if (key.toLowerCase() !== axisName.toLowerCase()) continue;
       const val = saleVariant[key]?.trim();
-      if (val) out[axis.name] = val;
+      if (val) out[axisName] = val;
     }
   }
+
+  if (Object.keys(out).length === axes.length) return out;
+
+  const joined = Object.values(saleVariant)
+    .map((v) => String(v ?? "").trim())
+    .filter(Boolean)
+    .join(" / ");
+  if (joined && matrix) {
+    const slashParts = joined.split(/\s*\/\s*/).map((p) => p.trim()).filter(Boolean);
+    if (slashParts.length === axes.length) {
+      const guessed: Record<string, string> = {};
+      axes.forEach((axis, i) => {
+        guessed[axis.name] = slashParts[i]!;
+      });
+      const hit = matrix.skus.find((s) => skuSelectionKey(s.options) === skuSelectionKey(guessed));
+      if (hit) return hit.options;
+    }
+    const byValues = matchMatrixByOptionValues(matrix, Object.values(saleVariant));
+    if (byValues) return byValues;
+  }
+
   return Object.keys(out).length > 0 ? out : null;
 }
 
-/** Shopify allows max 3 option axes. */
+function matchMatrixByOptionValues(
+  matrix: VariantMatrix,
+  values: string[]
+): Record<string, string> | null {
+  const want = values.map((v) => v.trim().toLowerCase()).filter(Boolean);
+  if (want.length === 0) return null;
+  const hit = matrix.skus.find((sku) => {
+    const have = Object.values(sku.options).map((v) => v.trim().toLowerCase());
+    return want.every((w) => have.includes(w)) && have.length === want.length;
+  });
+  return hit?.options ?? null;
+}
+
+/** Per-channel variant limits. */
 export function validateVariantLimits(
   provider: ChannelProvider,
-  variants: InwVariantAxis[] | null
+  variants: InwVariantAxis[] | null | unknown
 ): string | null {
-  if (!variants) return null;
-  if (provider === "shopify" && variants.length > 3) {
+  const matrix = normalizeVariantMatrix(variants);
+  const axes = matrix?.axes ?? (Array.isArray(variants) ? (variants as InwVariantAxis[]) : null);
+  if (!axes || axes.length === 0) return null;
+  if (provider === "shopify" && axes.length > 3) {
     return "Shopify supports at most 3 product options.";
   }
-  for (const axis of variants) {
-    if (axis.options.length === 0) return `Option "${axis.name}" has no values.`;
-    if (provider === "shopify") {
-      const total = variants.reduce((n, a) => n * Math.max(1, a.options.length), 1);
-      if (total > 100) return "Shopify supports at most 100 variants per product.";
-    }
+  if (provider === "etsy" && axes.length > MAX_ETSY_AXES) {
+    return `Etsy supports at most ${MAX_ETSY_AXES} variation properties. Remove an option type or unsync Etsy.`;
+  }
+  const skuCount =
+    matrix?.skus.length ??
+    axes.reduce((n, a) => n * Math.max(1, "values" in a ? a.values.length : a.options?.length ?? 1), 1);
+  if (provider === "shopify" && skuCount > MAX_SKU_ROWS_SHOPIFY) {
+    return "Shopify supports at most 100 variants per product.";
+  }
+  if (provider === "etsy" && matrix && etsyVariesByAllProperties(matrix) && skuCount > MAX_ETSY_SKUS_ALL_PROPERTIES) {
+    return `Etsy supports at most ${MAX_ETSY_SKUS_ALL_PROPERTIES} combinations when price, quantity, or SKU varies on all option types.`;
+  }
+  if (provider === "ebay" && skuCount > 250) {
+    return "eBay supports at most 250 variations per listing.";
+  }
+  for (const axis of axes) {
+    const n = "values" in axis ? axis.values.length : axis.options?.length ?? 0;
+    const name = axis.name;
+    if (n === 0) return `Option "${name}" has no values.`;
   }
   return null;
 }
 
-const MAX_INW_OPTION_VALUES = 50;
-
-/** Validate INW canonical variants on seller save (single-axis cross-channel contract). */
-export function validateInwVariantsForSave(variants: unknown): string | null {
+/** Validate INW canonical variants on seller save (multi-axis matrix). */
+export function validateInwVariantsForSave(
+  variants: unknown,
+  opts?: { linkedProviders?: string[] | null }
+): string | null {
   if (variants == null) return null;
-  if (!Array.isArray(variants) || variants.length === 0) return null;
-
-  const normalized = normalizeVariantsFromProvider("wix", variants);
-  if (!normalized || normalized.length === 0) {
-    return "Invalid option format.";
-  }
-  if (normalized.length > 1) {
-    return "Linked channels support one option type (e.g. Size). Remove extra option groups.";
-  }
-
-  const axis = normalized[0];
-  if (!axis.name.trim()) return "Option type name is required (e.g. Size).";
-  if (axis.options.length === 0) return "Add at least one option value.";
-  if (axis.options.length > MAX_INW_OPTION_VALUES) {
-    return `At most ${MAX_INW_OPTION_VALUES} option values are allowed.`;
-  }
-
-  const seen = new Set<string>();
-  for (const o of axis.options) {
-    const key = o.value.trim().toLowerCase();
-    if (!key) return "Option values cannot be empty.";
-    if (seen.has(key)) return `Duplicate option value "${o.value}".`;
-    seen.add(key);
-  }
-  return null;
+  if (Array.isArray(variants) && variants.length === 0) return null;
+  return validateVariantMatrixForSave(variants, opts);
 }
 
 /** Build provider-specific variant payload stub — adapters extend with API details. */
@@ -194,3 +265,5 @@ export function buildProviderVariants(
   if (!inwVariants || inwVariants.length === 0) return null;
   return { provider, axes: inwVariants };
 }
+
+export { MAX_VARIANT_AXES };

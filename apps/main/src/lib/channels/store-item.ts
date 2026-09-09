@@ -10,6 +10,7 @@ export const syncStoreItemSelect = {
   photos: true,
   priceCents: true,
   quantity: true,
+  inventoryTracking: true,
   variants: true,
   status: true,
   condition: true,
@@ -48,6 +49,7 @@ type StoreItemLike = {
   photos: string[];
   priceCents: number;
   quantity: number;
+  inventoryTracking?: string | null;
   variants: unknown;
   status: string;
   condition: string | null;
@@ -85,6 +87,7 @@ export function toSyncStoreItem(item: StoreItemLike): SyncStoreItem {
     photos: resolveChannelPhotoUrls(Array.isArray(item.photos) ? item.photos : []),
     priceCents: item.priceCents,
     quantity: item.quantity,
+    inventoryTracking: item.inventoryTracking ?? "tracked",
     variants: item.variants,
     status: item.status,
     condition: item.condition,

@@ -6,6 +6,7 @@ import {
   seedCategoryMappingFromImport,
   suggestCategoriesFromContent,
   canonicalizeSubcategory,
+  CATEGORY_MATCH_THRESHOLD,
   type ResolvedInwCategory,
 } from "./category-resolver";
 import { STORE_CATEGORIES } from "@/lib/store-categories";
@@ -80,6 +81,45 @@ export type ImportCategoryAssignment = {
     | "enhanced";
 };
 
+/** Shopify often has empty product_type plus a marketing collection; prefer title then.
+ * Other providers also fall back to title when the remote label is custom or low-confidence.
+ */
+function shouldPreferTitleSuggestion(
+  _provider: ChannelProvider,
+  resolved: ResolvedInwCategory | null,
+  titleConfidence: number
+): boolean {
+  if (!resolved?.category) return true;
+  if (!isInwPresetCategory(resolved.category) || !resolved.matchedPreset) return true;
+  const remoteScore = resolved.score ?? 1;
+  return remoteScore < CATEGORY_MATCH_THRESHOLD && titleConfidence >= remoteScore;
+}
+
+function isInwPresetCategory(category: string | null | undefined): boolean {
+  const cat = category?.trim();
+  if (!cat) return false;
+  return STORE_CATEGORIES.some((c) => c.label === cat);
+}
+
+function storeItemNeedsCategoryRepair(item: {
+  category: string | null;
+  subcategory?: string | null;
+}): boolean {
+  if (!item.category?.trim()) return true;
+  if (!item.subcategory?.trim()) return true;
+  const preset = STORE_CATEGORIES.find((c) => c.label === item.category);
+  return !preset || !preset.subcategories.includes(item.subcategory!.trim());
+}
+
+/** True when import should flag the seller to review the auto-assigned category. */
+export function importCategoryNeedsReview(assignment: ImportCategoryAssignment | null): boolean {
+  if (!assignment?.category) return true;
+  if (!assignment.matchedPreset || !isInwPresetCategory(assignment.category)) return true;
+  if (assignment.source === "title_suggestion") return true;
+  if ((assignment.score ?? 1) < CATEGORY_MATCH_THRESHOLD) return true;
+  return false;
+}
+
 /**
  * Shared category pipeline for channel imports (eBay, Etsy, Wix, etc.).
  * Ensures preset categories, canonical subcategories, and title-based fallbacks.
@@ -126,7 +166,10 @@ export async function resolveImportCategory(args: {
     });
   }
 
-  if (resolvedCat?.category && !resolvedCat.subcategory && (provider === "ebay" || provider === "etsy")) {
+  if (
+    resolvedCat?.category &&
+    !resolvedCat.subcategory
+  ) {
     const enhanced = await resolveInwCategoryWithSubcategory(remoteLabel, remoteSubLabel, {
       provider,
       title,
@@ -134,21 +177,27 @@ export async function resolveImportCategory(args: {
     });
     if (enhanced?.subcategory) {
       resolvedCat = { ...resolvedCat, subcategory: enhanced.subcategory };
-      source = "enhanced";
+      if (source !== "title_suggestion") source = "enhanced";
     }
   }
 
-  if (!resolvedCat?.category && title) {
-    const suggestions = suggestCategoriesFromContent(title, description);
-    if (suggestions.length > 0 && suggestions[0].confidence >= 0.4) {
+  const plainDescription = listingDescriptionToPlainText(description);
+  if (title) {
+    const suggestions = suggestCategoriesFromContent(title, plainDescription);
+    const top = suggestions[0];
+    if (top && top.confidence >= 0.4 && shouldPreferTitleSuggestion(provider, resolvedCat, top.confidence)) {
       resolvedCat = {
-        category: suggestions[0].category,
-        subcategory: suggestions[0].subcategory,
+        category: top.category,
+        subcategory: top.subcategory,
         matchedPreset: true,
-        score: suggestions[0].confidence,
+        score: top.confidence,
       };
       source = "title_suggestion";
     }
+  }
+
+  if (resolvedCat && !isInwPresetCategory(resolvedCat.category)) {
+    resolvedCat = null;
   }
 
   if (!resolvedCat || !resolvedCat.category) return null;
@@ -171,12 +220,12 @@ export async function resolveImportCategory(args: {
         matchedPreset: true,
         score: enhanced.score ?? finalCat.score,
       };
-      source = "enhanced";
+      if (source !== "title_suggestion") source = "enhanced";
     } else {
       const otherSub = preset.subcategories.find((s) => s.toLowerCase().startsWith("other "));
       if (otherSub) {
         finalCat = { ...finalCat, subcategory: otherSub, matchedPreset: true };
-        source = "enhanced";
+        if (source !== "title_suggestion") source = "enhanced";
       }
     }
   }
@@ -249,7 +298,7 @@ async function resolveExistingLink(args: {
   const { memberId, connectionId, provider, productId, externalShopId } = args;
   const existing = await prisma.channelListingLink.findUnique({
     where: { provider_externalListingId: { provider, externalListingId: productId } },
-    include: { storeItem: { select: { memberId: true, category: true } } },
+    include: { storeItem: { select: { memberId: true, category: true, subcategory: true } } },
   });
   if (!existing) return null;
 
@@ -275,7 +324,10 @@ async function resolveExistingLink(args: {
       ok: true,
       storeItemId: existing.storeItemId,
       externalListingId: productId,
-      needsCategoryReview: !existing.storeItem.category,
+      needsCategoryReview: storeItemNeedsCategoryRepair({
+        category: existing.storeItem.category,
+        subcategory: existing.storeItem.subcategory,
+      }),
     };
   }
   return { ok: false, externalListingId: productId, reason: "already_linked" };
@@ -289,7 +341,7 @@ export async function findStoreItemForInboundSku(args: {
   memberId: string;
   provider: ChannelProvider;
   sku: string;
-}): Promise<{ id: string; category: string | null } | null> {
+}): Promise<{ id: string; category: string | null; subcategory: string | null } | null> {
   const sku = args.sku.trim();
   if (!sku) return null;
 
@@ -298,12 +350,13 @@ export async function findStoreItemForInboundSku(args: {
     select: {
       id: true,
       category: true,
+      subcategory: true,
       channelLinks: { where: { provider: args.provider }, select: { id: true } },
     },
   });
   if (byId) {
     if (byId.channelLinks.length > 0) return null;
-    return { id: byId.id, category: byId.category };
+    return { id: byId.id, category: byId.category, subcategory: byId.subcategory };
   }
 
   const bySku = await prisma.storeItem.findMany({
@@ -311,13 +364,14 @@ export async function findStoreItemForInboundSku(args: {
     select: {
       id: true,
       category: true,
+      subcategory: true,
       channelLinks: { where: { provider: args.provider }, select: { id: true } },
     },
     take: 3,
   });
   const unlinked = bySku.filter((row) => row.channelLinks.length === 0);
   if (unlinked.length !== 1) return null;
-  return { id: unlinked[0].id, category: unlinked[0].category };
+  return { id: unlinked[0].id, category: unlinked[0].category, subcategory: unlinked[0].subcategory };
 }
 
 /**
@@ -400,11 +454,32 @@ export async function importRemoteListing(args: {
         syncStatus: "synced",
         lastInboundAt: new Date(),
       });
+      let needsCategoryReview = storeItemNeedsCategoryRepair(skuMatch);
+      if (needsCategoryReview) {
+        const assignment = await resolveImportCategory({
+          provider,
+          remoteLabel: listing.category?.trim() || null,
+          remoteSubLabel: listing.subcategory?.trim() || null,
+          title: listing.title,
+          description: listing.description,
+          remoteCategoryId: listing.remoteCategoryId,
+        });
+        if (assignment && isInwPresetCategory(assignment.category)) {
+          await prisma.storeItem.update({
+            where: { id: skuMatch.id },
+            data: {
+              category: assignment.category,
+              subcategory: assignment.subcategory,
+            },
+          });
+          needsCategoryReview = importCategoryNeedsReview(assignment);
+        }
+      }
       return {
         ok: true,
         storeItemId: skuMatch.id,
         externalListingId: productId,
-        needsCategoryReview: !skuMatch.category,
+        needsCategoryReview,
       };
     }
   }
@@ -463,17 +538,6 @@ export async function importRemoteListing(args: {
         title: listing.title.slice(0, 50),
       });
     }
-
-    if (resolvedCat && !resolvedCat.matchedPreset) {
-      console.log("[channels] import using custom category (no preset match)", {
-        provider,
-        externalListingId: productId,
-        remoteCategory: listing.category,
-        remoteSubcategory: listing.subcategory,
-        resolvedCategory: resolvedCat.category,
-        resolvedSubcategory: resolvedCat.subcategory,
-      });
-    }
     const normalizedVariants: InwVariantAxis[] | null =
       listing.variantsKnown === true && Array.isArray(listing.variants)
         ? (listing.variants as InwVariantAxis[])
@@ -510,8 +574,8 @@ export async function importRemoteListing(args: {
         minOfferCents:
           listing.acceptOffersKnown === true ? (listing.minOfferCents ?? null) : null,
         slug: uniqueSlug(slugify(listing.title)),
-        category: resolvedCat?.category ?? listing.category?.slice(0, 200) ?? null,
-        subcategory: resolvedCat?.subcategory ?? listing.subcategory?.slice(0, 200) ?? null,
+        category: resolvedCat?.category ?? null,
+        subcategory: resolvedCat?.subcategory ?? null,
         shippingCostCents: shippingCents,
         variants: normalizedVariants ? (normalizedVariants as object) : undefined,
         ...(provider === "etsy" && listing.remoteCategoryId
@@ -617,8 +681,7 @@ export async function importRemoteListing(args: {
       });
     }
     
-    // Track if item needs category review (no category was assigned)
-    const needsCategoryReview = !resolvedCat?.category;
+    const needsCategoryReview = importCategoryNeedsReview(categoryAssignment);
     
     return {
       ok: true,

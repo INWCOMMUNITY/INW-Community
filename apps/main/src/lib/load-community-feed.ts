@@ -102,7 +102,7 @@ export async function loadCommunityFeed(opts: {
       sourceStoreItemIds.length > 0
         ? prisma.storeItem.findMany({
             where: { id: { in: sourceStoreItemIds } },
-            select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true, memberId: true },
+            select: { id: true, title: true, slug: true, photos: true, priceCents: true, variants: true, status: true, quantity: true, inventoryTracking: true, memberId: true },
           })
         : [],
       sourceEventIds.length > 0
@@ -447,7 +447,7 @@ export async function loadCommunityFeed(opts: {
     sourceStoreItemIds.length > 0
       ? prisma.storeItem.findMany({
           where: { id: { in: sourceStoreItemIds } },
-          select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true, memberId: true },
+          select: { id: true, title: true, slug: true, photos: true, priceCents: true, variants: true, status: true, quantity: true, inventoryTracking: true, memberId: true },
         })
       : [],
     sourceEventIds.length > 0
@@ -515,7 +515,7 @@ export async function loadCommunityFeed(opts: {
     sourcePostStoreItemIds.length > 0
       ? prisma.storeItem.findMany({
           where: { id: { in: sourcePostStoreItemIds } },
-          select: { id: true, title: true, slug: true, photos: true, priceCents: true, status: true, quantity: true, memberId: true },
+          select: { id: true, title: true, slug: true, photos: true, priceCents: true, variants: true, status: true, quantity: true, inventoryTracking: true, memberId: true },
         })
       : [],
     sourcePostEventIds.length > 0

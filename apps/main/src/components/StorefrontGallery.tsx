@@ -99,7 +99,7 @@ interface StoreItem {
   subcategory: string | null;
   priceCents: number;
   quantity: number;
-  variants?: { name: string; options: string[] }[];
+  variants?: unknown;
   member?: { firstName: string; lastName: string };
   business?: { name: string; slug: string } | null;
 }

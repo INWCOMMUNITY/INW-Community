@@ -9,7 +9,7 @@ import { getAdapter } from "./registry";
 import { shouldBlockSoldOutQtyRecovery } from "./sold-out-guard";
 import { fetchEbayItemDetails } from "./ebay/trading";
 import { splitEbayCategoryPath } from "./ebay-category-aliases";
-import type { ChannelProvider } from "./types";
+import type { ChannelProvider, RemoteListingSummary } from "./types";
 
 export function isValidPresetSubcategory(
   category: string | null | undefined,
@@ -43,15 +43,131 @@ export type CategoryRepairResult = {
   checked: number;
 };
 
+export const LEGACY_PRESET_CATEGORY_REMAPS = [
+  {
+    fromCategory: "Books, Movies & Music",
+    fromSubcategory: "Video Games",
+    toCategory: "Video Games & Consoles",
+    toSubcategory: "Games (physical)",
+  },
+  {
+    fromCategory: "Toys & Games",
+    fromSubcategory: "Video Games (physical)",
+    toCategory: "Video Games & Consoles",
+    toSubcategory: "Games (physical)",
+  },
+  {
+    fromCategory: "Home & Kitchen",
+    fromSubcategory: "Food & Drink",
+    toCategory: "Food & Drink",
+    toSubcategory: "Pantry & Packaged",
+  },
+  {
+    fromCategory: "Home & Living",
+    fromSubcategory: "Food & Drink (home)",
+    toCategory: "Food & Drink",
+    toSubcategory: "Other Food & Drink",
+  },
+] as const;
+
+export function applyLegacyPresetRemap(
+  category: string | null | undefined,
+  subcategory: string | null | undefined
+): { category: string; subcategory: string } | null {
+  const cat = category?.trim() ?? "";
+  const sub = subcategory?.trim() ?? "";
+  if (!cat || !sub) return null;
+  const hit = LEGACY_PRESET_CATEGORY_REMAPS.find(
+    (r) => r.fromCategory === cat && r.fromSubcategory === sub
+  );
+  return hit ? { category: hit.toCategory, subcategory: hit.toSubcategory } : null;
+}
+
+type RemoteListCache = Map<ChannelProvider, RemoteListingSummary[]>;
+
+async function remapLegacyPresetCategories(
+  memberId: string
+): Promise<CategoryRepairResult["repaired"]> {
+  const repaired: CategoryRepairResult["repaired"] = [];
+  for (const remap of LEGACY_PRESET_CATEGORY_REMAPS) {
+    const items = await prisma.storeItem.findMany({
+      where: {
+        memberId,
+        category: remap.fromCategory,
+        subcategory: remap.fromSubcategory,
+      },
+      select: { id: true },
+    });
+    if (items.length === 0) continue;
+    await prisma.storeItem.updateMany({
+      where: { id: { in: items.map((i) => i.id) } },
+      data: { category: remap.toCategory, subcategory: remap.toSubcategory },
+    });
+    for (const item of items) {
+      repaired.push({
+        storeItemId: item.id,
+        category: remap.toCategory,
+        subcategory: remap.toSubcategory,
+        qtyRecovered: false,
+      });
+    }
+  }
+  return repaired;
+}
+
+async function loadRemoteListingsCached(
+  cache: RemoteListCache,
+  memberId: string,
+  provider: ChannelProvider
+): Promise<RemoteListingSummary[]> {
+  const hit = cache.get(provider);
+  if (hit) return hit;
+  const ctx = await getMemberConnectionContext(memberId, provider);
+  if (!ctx) {
+    cache.set(provider, []);
+    return [];
+  }
+  try {
+    const list = await getAdapter(provider).listRemoteListings(ctx);
+    cache.set(provider, list);
+    return list;
+  } catch (e) {
+    console.warn("[repair-categories] listRemoteListings failed", { provider, error: e });
+    cache.set(provider, []);
+    return [];
+  }
+}
+
 async function resolveRemoteCategoryForLink(args: {
   memberId: string;
   provider: ChannelProvider;
   externalListingId: string;
   remoteCategoryLabel: string | null;
   remoteCategorySubLabel: string | null;
+  remoteCache: RemoteListCache;
 }): Promise<{ remoteLabel: string | null; remoteSubLabel: string | null }> {
   let remoteLabel = args.remoteCategoryLabel?.trim() || null;
   let remoteSubLabel = args.remoteCategorySubLabel?.trim() || null;
+
+  if (!remoteLabel) {
+    try {
+      const remoteList = await loadRemoteListingsCached(args.remoteCache, args.memberId, args.provider);
+      const remote =
+        args.provider === "ebay"
+          ? findEbayRemoteListing(remoteList, args.externalListingId)
+          : remoteList.find((r) => r.externalListingId === args.externalListingId);
+      if (remote?.category?.trim()) {
+        remoteLabel = remote.category.trim();
+        remoteSubLabel = remote.subcategory?.trim() || remoteSubLabel;
+      }
+    } catch (e) {
+      console.warn("[repair-categories] live listing category lookup failed", {
+        provider: args.provider,
+        externalListingId: args.externalListingId,
+        error: e,
+      });
+    }
+  }
 
   if (remoteLabel || args.provider !== "ebay") {
     return { remoteLabel, remoteSubLabel };
@@ -86,6 +202,9 @@ export async function repairMemberImportedCategories(
 ): Promise<CategoryRepairResult> {
   await ensureChannelCategoryMappingsSeeded();
 
+  const remapped = await remapLegacyPresetCategories(memberId);
+  const remappedIds = new Set(remapped.map((r) => r.storeItemId));
+
   const links = await prisma.channelListingLink.findMany({
     where: {
       storeItem: { memberId },
@@ -106,16 +225,15 @@ export async function repairMemberImportedCategories(
     },
   });
 
-  const repaired: CategoryRepairResult["repaired"] = [];
+  const repaired: CategoryRepairResult["repaired"] = remapped.filter(
+    (r) => !options?.storeItemIds?.length || options.storeItemIds.includes(r.storeItemId)
+  );
   const skipped: CategoryRepairResult["skipped"] = [];
-  const remoteCache = new Map<
-    ChannelProvider,
-    Awaited<ReturnType<ReturnType<typeof getAdapter>["listRemoteListings"]>>
-  >();
+  const remoteCache: RemoteListCache = new Map();
 
   for (const link of links) {
     const item = link.storeItem;
-    if (!item || !needsCategoryRepair(item)) continue;
+    if (!item || remappedIds.has(item.id) || !needsCategoryRepair(item)) continue;
 
     const provider = link.provider as ChannelProvider;
     const { remoteLabel, remoteSubLabel } = await resolveRemoteCategoryForLink({
@@ -124,6 +242,7 @@ export async function repairMemberImportedCategories(
       externalListingId: link.externalListingId,
       remoteCategoryLabel: link.remoteCategoryLabel,
       remoteCategorySubLabel: link.remoteCategorySubLabel,
+      remoteCache,
     });
 
     const assignment = await resolveImportCategory({
@@ -168,18 +287,11 @@ export async function repairMemberImportedCategories(
       const blockRecovery = await shouldBlockSoldOutQtyRecovery(item.id);
       if (!blockRecovery) {
         try {
-          let remoteList = remoteCache.get(provider);
-          if (!remoteList) {
-            const ctx = await getMemberConnectionContext(memberId, provider);
-            if (ctx) {
-              remoteList = await getAdapter(provider).listRemoteListings(ctx);
-              remoteCache.set(provider, remoteList);
-            }
-          }
+          const remoteList = await loadRemoteListingsCached(remoteCache, memberId, provider);
           const remote =
             provider === "ebay"
-              ? findEbayRemoteListing(remoteList ?? [], link.externalListingId)
-              : remoteList?.find((r) => r.externalListingId === link.externalListingId);
+              ? findEbayRemoteListing(remoteList, link.externalListingId)
+              : remoteList.find((r) => r.externalListingId === link.externalListingId);
           if (remote && remote.quantityKnown !== false && remote.quantity > 0) {
             qtyRecovered = await applyRemoteQuantityToStoreItem(item.id, remote.quantity, {
               provider,

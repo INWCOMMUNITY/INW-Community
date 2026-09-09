@@ -3,6 +3,7 @@ import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getSellerAnalyticsSource } from "@/lib/seller-analytics-source";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { listingHasPublicStock } from "@/lib/store-item-public-access";
 import { expireStaleResaleOffers } from "@/lib/expire-stale-resale-offers";
 import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
 import {
@@ -70,6 +71,7 @@ export async function GET(req: NextRequest) {
           photos: true,
           priceCents: true,
           quantity: true,
+          inventoryTracking: true,
           status: true,
           variants: true,
           memberId: true,
@@ -157,7 +159,7 @@ export async function POST(req: NextRequest) {
     where: { id: body.storeItemId, status: "active" },
     include: { member: { select: { stripeConnectAccountId: true, sellerLocalDeliveryPolicy: true } } },
   });
-  if (!storeItem || storeItem.quantity < 1) {
+  if (!storeItem || !listingHasPublicStock(storeItem)) {
     return NextResponse.json({ error: "Item not available" }, { status: 400 });
   }
   if (!storeItem.member?.stripeConnectAccountId?.trim()) {

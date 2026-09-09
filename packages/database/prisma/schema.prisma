@@ -949,11 +949,13 @@ model StoreItem {
   secondaryCategory   String?  @map("secondary_category")
   subcategory         String?  @map("subcategory")
   priceCents          Int      @map("price_cents")
-  variants            Json?    // [{ name: "Size", options: ["S","M","L"] }, ...]
+  variants            Json?    // matrix { axes, skus } or legacy [{ name, options }]
   /// Item specifics / product aspects: [{ name: "Brand", value: "Nike" }, ...].
   /// Maps to eBay product.aspects; ignored by Etsy/Wix/Shopify adapters.
   aspects             Json?    @map("aspects")
   quantity            Int      @default(0)
+  /// tracked | made_to_order — made_to_order does not require or decrement stock.
+  inventoryTracking   String   @default("tracked") @map("inventory_tracking")
   status              String   @default("active") // active | sold_out | inactive
   shippingCostCents   Int?     @map("shipping_cost_cents")
   shippingOptionId    String?  @map("shipping_option_id")

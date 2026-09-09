@@ -79,16 +79,27 @@ export async function POST(req: NextRequest, context: RouteContext) {
       );
     }
 
-    // Extract variants template (structure without values)
+    // Extract variants template (all option types, without SKU rows)
     let variantsTemplate: object | null = null;
     if (storeItem.variants && typeof storeItem.variants === "object") {
       const variants = storeItem.variants as Record<string, unknown>;
       if (Array.isArray(variants.axes)) {
         variantsTemplate = {
-          axes: (variants.axes as { name: string; options: string[] }[]).map((axis) => ({
-            name: axis.name,
-            options: axis.options || [],
+          axes: (variants.axes as { name?: string; values?: string[]; options?: string[] }[]).map((axis) => ({
+            name: axis.name ?? "",
+            values: axis.values ?? axis.options ?? [],
           })),
+        };
+      } else if (Array.isArray(storeItem.variants)) {
+        variantsTemplate = {
+          axes: (storeItem.variants as { name?: string; options?: { value?: string }[] | string[] }[]).map(
+            (axis) => ({
+              name: axis.name ?? "",
+              values: Array.isArray(axis.options)
+                ? axis.options.map((o) => (typeof o === "string" ? o : String(o?.value ?? ""))).filter(Boolean)
+                : [],
+            })
+          ),
         };
       }
     }

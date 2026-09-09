@@ -56,8 +56,10 @@ export function remoteContentDiffersFromStoreItem(
   },
   remote: RemoteListingSummary
 ): boolean {
+  const localTitle = normalizeTitleForCompare(item.title).slice(0, EBAY_TITLE_MAX);
+  const remoteTitle = normalizeTitleForCompare(remote.title).slice(0, EBAY_TITLE_MAX);
   return (
-    normalizeTitleForCompare(item.title) !== normalizeTitleForCompare(remote.title.slice(0, 200)) ||
+    localTitle !== remoteTitle ||
     item.priceCents !== remote.priceCents ||
     inboundListingPhotosDiffer(item.photos, remote.photos) ||
     !inboundDescriptionsMatch(item.description, remote.description)

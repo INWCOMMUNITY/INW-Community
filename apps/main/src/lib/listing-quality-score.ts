@@ -5,6 +5,7 @@
 
 import type { ChannelProvider } from "./channels/types";
 import { validateForProviders } from "./channels/validate-publish";
+import { normalizeVariantMatrix, pickImageVaryingAxisName } from "./listing-variant-matrix";
 
 export interface ScoreBreakdown {
   score: number;
@@ -54,7 +55,8 @@ export interface ListingData {
   shippingDisabled?: boolean;
   localDeliveryAvailable?: boolean;
   inStorePickupAvailable?: boolean;
-  variants?: unknown[] | null;
+  variants?: unknown;
+  inventoryTracking?: string | null;
   aspects?: unknown;
   etsyWhoMade?: string | null;
   etsyWhenMade?: string | null;
@@ -341,11 +343,13 @@ function scoreCompleteness(listing: ListingData): ScoreBreakdown {
     tips.push("Specify the item condition (new or used)");
   }
 
-  // Quantity (0-2 points)
-  if (listing.quantity && listing.quantity > 0) {
+  // Quantity / inventory mode (0-2 points)
+  if (listing.inventoryTracking === "made_to_order") {
+    score += 2;
+  } else if (listing.quantity && listing.quantity > 0) {
     score += 2;
   } else {
-    tips.push("Set quantity to at least 1");
+    tips.push("Set quantity to at least 1, or mark the listing as made to order");
   }
 
   // Fulfillment options (0-3 points)
@@ -365,16 +369,39 @@ function scoreCompleteness(listing: ListingData): ScoreBreakdown {
   }
 
   // Variants/Aspects (0-3 points)
-  const hasVariants = listing.variants && Array.isArray(listing.variants) && listing.variants.length > 0;
+  const matrix = normalizeVariantMatrix(listing.variants);
+  const hasVariants =
+    (matrix && matrix.axes.length > 0) ||
+    (Array.isArray(listing.variants) && listing.variants.length > 0);
   const hasAspects = listing.aspects && typeof listing.aspects === "object";
 
-  if (hasVariants || hasAspects) {
-    score += 3;
-  } else {
-    // Only suggest if it seems appropriate
-    if (listing.title && /\b(size|color|style)\b/i.test(listing.title)) {
-      tips.push("Consider adding variants if your item comes in different sizes or colors");
+  if (matrix && matrix.axes.length > 0 && matrix.skus.length > 0) {
+    const cartesian = matrix.axes.reduce((n, a) => n * Math.max(1, a.values.length), 1);
+    if (matrix.skus.length >= cartesian) {
+      score += 2;
+    } else {
+      score += 1;
+      tips.push("Enable remaining option combinations so every Size × Color is listed");
     }
+    const imageAxis = pickImageVaryingAxisName(matrix);
+    const imageAxisHasPhotos = matrix.skus.some(
+      (s) => s.photos && s.photos.length > 0 && s.options[imageAxis]
+    );
+    if (imageAxisHasPhotos) {
+      score += 1;
+    } else if (matrix.axes.length > 1) {
+      tips.push("Add photos for each Color (or the option buyers use to tell combinations apart)");
+    } else {
+      score += 1;
+    }
+  } else if (hasVariants || hasAspects) {
+    score += 3;
+  } else if (listing.title && /\b(size|color|style)\b/i.test(listing.title)) {
+    tips.push("Consider adding variants if your item comes in different sizes or colors");
+  }
+
+  if (!listing.inventoryTracking) {
+    tips.push("Choose Track inventory or Made to order so buyers know how stock works");
   }
 
   return { score: Math.min(score, max), max, tips };

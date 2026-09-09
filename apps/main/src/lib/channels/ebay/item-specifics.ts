@@ -15,6 +15,13 @@ import {
 } from "@/lib/listing-limits";
 import { conditionEnumFromId } from "./conditions";
 
+function parseEbayPriceToCents(raw: string | null): number | undefined {
+  if (!raw?.trim()) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.round(n * 100);
+}
+
 /**
  * Parse `<ItemSpecifics><NameValueList><Name>..</Name><Value>..</Value>..` into aspect rows.
  * A NameValueList may carry multiple <Value> tags (eBay MULTI); each becomes its own row.
@@ -127,49 +134,52 @@ export type EbayVariationAxis = {
   options: { value: string; quantity: number; sku?: string }[];
 };
 
-type ParsedVariationOption = { quantity: number; sku?: string };
-
 /**
- * Parse single-axis Variations from GetItem XML into INW-shaped variant axes.
- * Multi-axis listings collapse onto the first VariationSpecifics name.
+ * Parse Variations from GetItem XML into an INW variant matrix (all NameValueList values).
  */
-export function parseEbayVariations(itemXml: string): EbayVariationAxis[] | null {
+export function parseEbayVariations(itemXml: string): import("@/lib/listing-variant-matrix").VariantMatrix | null {
   const variationsBlock = tag(itemXml, "Variations");
   if (!variationsBlock) return null;
   const variationNodes = allTags(variationsBlock, "Variation");
   if (variationNodes.length === 0) return null;
 
-  const byAxis = new Map<string, Map<string, ParsedVariationOption>>();
+  const axisOrder: string[] = [];
+  const axisValues = new Map<string, string[]>();
+  const skus: import("@/lib/listing-variant-matrix").VariantSkuRow[] = [];
+
   for (const v of variationNodes) {
     const qtyStr = tag(v, "Quantity") ?? tag(v, "QuantityAvailable") ?? "0";
     const qty = Math.max(0, Number(qtyStr) || 0);
     const sku = tag(v, "SKU")?.trim() || undefined;
     const specifics = tag(v, "VariationSpecifics") ?? "";
     const nvls = allTags(specifics, "NameValueList");
-    const primary = nvls[0];
-    if (!primary) continue;
-    const name = decodeXmlEntities(tag(primary, "Name") ?? "Option").trim() || "Option";
-    const value = decodeXmlEntities(tag(primary, "Value") ?? "").trim();
-    if (!value) continue;
-    if (!byAxis.has(name)) byAxis.set(name, new Map());
-    const opts = byAxis.get(name)!;
-    const prev = opts.get(value);
-    opts.set(value, {
-      quantity: (prev?.quantity ?? 0) + qty,
-      sku: prev?.sku || sku,
+    const options: Record<string, string> = {};
+    for (const nvl of nvls) {
+      const name = decodeXmlEntities(tag(nvl, "Name") ?? "Option").trim() || "Option";
+      const value = decodeXmlEntities(tag(nvl, "Value") ?? "").trim();
+      if (!value) continue;
+      const axisName = name.slice(0, 80);
+      options[axisName] = value;
+      if (!axisValues.has(axisName)) {
+        axisOrder.push(axisName);
+        axisValues.set(axisName, []);
+      }
+      const list = axisValues.get(axisName)!;
+      if (!list.some((x) => x.toLowerCase() === value.toLowerCase())) list.push(value);
+    }
+    if (Object.keys(options).length === 0) continue;
+    const priceCents = parseEbayPriceToCents(tag(v, "StartPrice"));
+    skus.push({
+      options,
+      quantity: qty,
+      ...(sku ? { sku } : {}),
+      ...(priceCents != null ? { priceCents } : {}),
     });
   }
 
-  const axes: EbayVariationAxis[] = [];
-  for (const [name, opts] of byAxis) {
-    axes.push({
-      name: name.slice(0, 80),
-      options: [...opts.entries()].map(([value, row]) => ({
-        value,
-        quantity: row.quantity,
-        ...(row.sku ? { sku: row.sku } : {}),
-      })),
-    });
-  }
-  return axes.length > 0 ? axes : null;
+  if (skus.length === 0 || axisOrder.length === 0) return null;
+  return {
+    axes: axisOrder.map((name) => ({ name, values: axisValues.get(name) ?? [] })),
+    skus,
+  };
 }

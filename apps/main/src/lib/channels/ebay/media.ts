@@ -125,9 +125,14 @@ export function omitInventoryProductImageUrls(body: Record<string, unknown>): Re
   return { ...body, product };
 }
 
+/** EPS URLs already on eBay. Empty means omit imageUrls rather than send INW blobs. */
+export function liveEbayPhotoUrlsToPin(liveUrls: string[]): string[] {
+  return epsOnlyImageUrls(liveUrls);
+}
+
 /**
  * Existing eBay listings already have EPS copies. Sending INW blob URLs causes #25014.
- * Only overlay INW photos when the seller changed them on the INW listing.
+ * Keep live EPS, or omit pictures so eBay leaves the published gallery alone.
  */
 export function applyEbayInventoryPhotoPolicy(
   body: Record<string, unknown>,
@@ -137,7 +142,7 @@ export function applyEbayInventoryPhotoPolicy(
     const pinned = selectPassthroughInventoryImageUrls(args.liveImageUrls, args.inwPhotos);
     return pinned.length > 0 ? withInventoryProductImageUrls(body, pinned) : body;
   }
-  const live = uniformHostFamilyImageUrls(args.liveImageUrls);
+  const live = liveEbayPhotoUrlsToPin(args.liveImageUrls);
   if (live.length > 0) return withInventoryProductImageUrls(body, live);
   return omitInventoryProductImageUrls(body);
 }
@@ -239,20 +244,12 @@ export async function putInventoryWithPhotoRecovery<T>(args: {
   if (!allowInwPhotoUpload && urls.some((url) => !isEbayEpsImageUrl(url))) {
     urls = liveEps;
   }
-  let payload =
+  const payload =
     urls.length > 0
       ? withInventoryProductImageUrls(args.body, urls)
       : allowInwPhotoUpload
         ? args.body
         : omitInventoryProductImageUrls(args.body);
-
-  if (allowInwPhotoUpload && urls.some((url) => !isEbayHostedImageUrl(url)) && liveEps.length === 0) {
-    const hosted = await ensureEbayHostedPhotoUrls(args.accessToken, urls);
-    if (hosted.length > 0) {
-      const uniform = uniformHostFamilyImageUrls(hosted);
-      payload = withInventoryProductImageUrls(payload, uniform.length > 0 ? uniform : hosted);
-    }
-  }
 
   try {
     return await args.put(payload);
@@ -265,39 +262,9 @@ export async function putInventoryWithPhotoRecovery<T>(args: {
       try {
         return await args.put(withInventoryProductImageUrls(payload, liveEps));
       } catch (liveErr) {
-        e = liveErr;
+        throw liveErr;
       }
     }
-
-    if (isEbayMixedHostPictureError(describe(e)) && liveEps.length > 0) {
-      throw e;
-    }
-
-    if (liveEps.length === 0 && allowInwPhotoUpload) {
-      const hosted = await ensureEbayHostedPhotoUrls(args.accessToken, current, { forceHost: true });
-      const uniformHosted = uniformHostFamilyImageUrls(hosted);
-      if (uniformHosted.length > 0 && !urlsMatch(uniformHosted, current)) {
-        try {
-          return await args.put(withInventoryProductImageUrls(payload, uniformHosted));
-        } catch (hostedErr) {
-          e = hostedErr;
-        }
-      }
-    }
-
-    const fallback = allowInwPhotoUpload
-      ? uniformHostFamilyImageUrls(args.fallbackImageUrls ?? [])
-      : [];
-    if (fallback.length === 0) throw e;
-    if (liveEps.length > 0 && fallback.some((url) => !isEbayEpsImageUrl(url))) throw e;
-
-    const hostedFallback = await ensureEbayHostedPhotoUrls(args.accessToken, fallback, {
-      forceHost: true,
-    });
-    const retryUrls = uniformHostFamilyImageUrls(
-      hostedFallback.length > 0 ? hostedFallback : fallback
-    );
-    if (retryUrls.length === 0 || urlsMatch(retryUrls, current)) throw e;
-    return await args.put(withInventoryProductImageUrls(payload, retryUrls));
+    throw e;
   }
 }

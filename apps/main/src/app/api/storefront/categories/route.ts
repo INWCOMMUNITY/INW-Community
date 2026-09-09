@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { STORE_CATEGORIES, slugifyStoreCategory } from "@/lib/store-categories";
+import { withPublicStockWhere } from "@/lib/store-item-public-access";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 300; // 5 minute cache
@@ -16,14 +17,13 @@ type CategoryNode = {
   }[];
 };
 
-const activeItemWhere: Prisma.StoreItemWhereInput = {
+const activeItemWhere: Prisma.StoreItemWhereInput = withPublicStockWhere({
   status: "active",
-  quantity: { gt: 0 },
   AND: [
     { OR: [{ category: null }, { category: { not: "Test" } }] },
     { OR: [{ secondaryCategory: null }, { secondaryCategory: { not: "Test" } }] },
   ],
-};
+});
 
 /**
  * GET /api/storefront/categories

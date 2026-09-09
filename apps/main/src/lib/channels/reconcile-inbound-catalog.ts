@@ -21,7 +21,7 @@ import {
 } from "./sync-baseline";
 import { clampSaneInventoryQty } from "./inventory-sanity";
 import { variantsFingerprint } from "./variant-sync";
-import { CHANNEL_PROVIDERS, type ChannelProvider, type RemoteListingSummary } from "./types";
+import { type ChannelProvider, type RemoteListingSummary } from "./types";
 import { getChannelCapabilities } from "./capabilities";
 import { indexEbayRemoteListings, resolveEbayLegacyListingId } from "./ebay/mapping";
 import { refreshEbayListingByItemId } from "./ebay/pull-ebay-updates";
@@ -35,13 +35,20 @@ import {
   clearRemoteDeletedNoticeIfSet,
   isRemoteDeletedPending,
 } from "./listing-link-flags";
-import { isInboundCatalogContentEcho } from "./inbound-catalog-decision";
+import {
+  isInboundCatalogContentEcho,
+  isOwnChannelPushEcho,
+  remoteCatalogChangedSinceBaseline,
+  remoteListingDisagreesForSync,
+  shouldLogCatalogConflict,
+} from "./inbound-catalog-decision";
 import { wixProductIsGone } from "./wix/listing-exists";
 import {
   etsyLinkedListingNeedsHydrate,
   fetchEtsyListingForInbound,
 } from "./etsy/listing-exists";
 import {
+  inboundListingPhotosDiffer,
   inwHostedPhotosChangedSinceLastPush,
   marketplaceCdnPhotoRehostOnly,
   readStoredPhotoUrls,
@@ -78,6 +85,7 @@ type LinkRow = {
   syncBaselineHash: string | null;
   syncBaselineQty: number | null;
   syncBaselineAt: Date | null;
+  lastPushedAt: Date | null;
   lastPushedPhotos: unknown;
   conflictDetails: unknown;
   storeItem: {
@@ -215,6 +223,7 @@ export async function reconcileConnectionInboundCatalog(
       syncBaselineHash: true,
       syncBaselineQty: true,
       syncBaselineAt: true,
+      lastPushedAt: true,
       lastPushedPhotos: true,
       conflictDetails: true,
       storeItem: {
@@ -396,6 +405,28 @@ export async function reconcileConnectionInboundCatalog(
     remoteCount: remoteList.length,
   });
 
+  const freshBaselineRows = await prisma.channelListingLink.findMany({
+    where: { id: { in: links.map((l) => l.id) } },
+    select: {
+      id: true,
+      syncBaselineHash: true,
+      syncBaselineQty: true,
+      syncBaselineAt: true,
+      lastPushedAt: true,
+      lastPushedPhotos: true,
+    },
+  });
+  const freshById = new Map(freshBaselineRows.map((row) => [row.id, row]));
+  for (const link of links) {
+    const fresh = freshById.get(link.id);
+    if (!fresh) continue;
+    link.syncBaselineHash = fresh.syncBaselineHash;
+    link.syncBaselineQty = fresh.syncBaselineQty;
+    link.syncBaselineAt = fresh.syncBaselineAt;
+    link.lastPushedAt = fresh.lastPushedAt;
+    link.lastPushedPhotos = fresh.lastPushedPhotos;
+  }
+
   let updated = 0;
   let removed = 0;
 
@@ -468,21 +499,37 @@ export async function reconcileConnectionInboundCatalog(
     });
     const remoteHash = remoteListingContentHash(remote);
 
-    // Remote edited on the channel since we last agreed a baseline (timestamp + content hash).
+    const titleOrPriceDiffers = remoteTitleOrPriceDiffersFromStoreItem(item, remote);
+    const descriptionDiffers = !inboundDescriptionsMatch(item.description, remote.description);
+    const remoteDescriptionPresent = Boolean(remote.description?.trim());
+    const cdnPhotoRehostOnly = marketplaceCdnPhotoRehostOnly(item.photos, remote.photos ?? []);
+    const photosDiffer = inboundListingPhotosDiffer(item.photos, remote.photos ?? []);
+    const remoteContentActuallyDiffers = remoteContentDiffersFromStoreItem(item, remote);
+    const remoteDisagreesWithInw = remoteListingDisagreesForSync({
+      titleOrPriceDiffers,
+      descriptionDiffers,
+      remoteDescriptionPresent,
+      photosDiffer,
+      marketplaceCdnPhotoRehostOnly: cdnPhotoRehostOnly,
+    });
+    const ownPushEcho = isOwnChannelPushEcho({
+      lastPushedAt: link.lastPushedAt,
+      remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
+      inwUpdatedAt: item.updatedAt,
+    });
+
     const remoteTimestampNewer =
       remote.remoteUpdatedAt != null && remote.remoteUpdatedAt.getTime() > baseAt.getTime();
-    const remoteContentActuallyDiffers = remoteContentDiffersFromStoreItem(item, remote);
-    const remoteListEditVisible =
-      !inwContentChanged &&
-      (remoteTitleOrPriceDiffersFromStoreItem(item, remote) ||
-        (remote.remoteUpdatedAt == null &&
-          !inboundDescriptionsMatch(item.description, remote.description)));
-    // Etsy last_modified is honest. Count a newer save even when the photo fingerprint
-    // hash matches but title/price/description actually differ.
-    const remoteContentChanged =
-      (remoteTimestampNewer && remoteHash !== baseHash) ||
-      (provider === "etsy" && remoteTimestampNewer && remoteContentActuallyDiffers) ||
-      remoteListEditVisible;
+    const remoteContentChanged = remoteCatalogChangedSinceBaseline({
+      remoteTimestampNewer,
+      remoteHashDiffersFromBaseline: remoteHash !== baseHash,
+      remoteDisagreesWithInw,
+      titleOrPriceDiffers,
+      descriptionDiffers,
+      inwContentChanged,
+      isOwnPushEcho: ownPushEcho,
+      remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
+    });
 
     // INW was saved after the remote listing last changed, but Etsy/Wix still shows old data (push pending).
     const inwNewerThanRemote =
@@ -522,10 +569,10 @@ export async function reconcileConnectionInboundCatalog(
       inwContentChanged,
       remoteContentChanged,
       qtyDiffers,
-      titleOrPriceDiffers: remoteTitleOrPriceDiffersFromStoreItem(item, remote),
-      descriptionDiffers: !inboundDescriptionsMatch(item.description, remote.description),
+      titleOrPriceDiffers,
+      descriptionDiffers,
       remoteContentActuallyDiffers,
-      marketplaceCdnPhotoRehostOnly: marketplaceCdnPhotoRehostOnly(item.photos, remote.photos ?? []),
+      marketplaceCdnPhotoRehostOnly: cdnPhotoRehostOnly,
       inwHostedPhotosChangedSinceLastPush: inwHostedPhotosChangedSinceLastPush(
         item.photos,
         readStoredPhotoUrls(link.lastPushedPhotos)
@@ -539,8 +586,9 @@ export async function reconcileConnectionInboundCatalog(
     // save and never fan that edit out to the other linked stores.
     if (
       contentDecision === "push" &&
+      !ownPushEcho &&
       newerChannelEditShouldPull({
-        remoteContentDiffers: remoteContentActuallyDiffers,
+        remoteContentDiffers: remoteDisagreesWithInw,
         inwUpdatedAt: item.updatedAt,
         remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
         baselineAt: baseAt,
@@ -568,8 +616,9 @@ export async function reconcileConnectionInboundCatalog(
         inwContentChanged,
         remoteTimestampNewer,
         remoteContentActuallyDiffers,
+        remoteDisagreesWithInw,
         remoteContentChanged,
-        remoteListEditVisible,
+        ownPushEcho,
         staleRemoteNeedsPush,
         hashEcho,
         contentDecision,
@@ -592,9 +641,22 @@ export async function reconcileConnectionInboundCatalog(
     }
 
     if (contentDecision === "noop" && !qtyDiffers) {
+      if (inwContentChanged && !remoteDisagreesWithInw) {
+        console.log("[channels] INW edit already on channel — fanning out to other shops", {
+          storeItemId: link.storeItemId,
+          provider,
+        });
+        // #region agent log
+        fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'E',location:'reconcile-inbound-catalog.ts:fanout',message:'inbound noop fan-out to other shops',data:{storeItemId:link.storeItemId,provider,inwContentChanged,remoteDisagreesWithInw},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+        await updateStoreItemOnChannels(link.storeItemId, { skipProviders: [provider] });
+        await writeBaseline(link.id, link.storeItemId, remote, true);
+        continue;
+      }
       if (
         hashEcho ||
         staleRemoteNeedsPush ||
+        ownPushEcho ||
         inwHash !== baseHash ||
         link.syncBaselineHash == null ||
         link.syncBaselineAt == null
@@ -620,7 +682,13 @@ export async function reconcileConnectionInboundCatalog(
       inwQty: item.quantity,
     });
 
-    if (inwContentChanged && remoteContentChanged) {
+    if (shouldLogCatalogConflict({
+      inwContentChanged,
+      remoteContentChanged,
+      remoteDisagreesWithInw,
+      inwUpdatedAt: item.updatedAt,
+      remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
+    })) {
       if (contentDecision === "noop" && conflictResolution === "manual_review") {
         // Conflict queued for manual review - log but don't auto-resolve
         logSyncEvent(
@@ -776,9 +844,7 @@ export async function reconcileConnectionInboundCatalog(
     if (contentDecision === "push" && allowPush && !needsQtyRecovery) {
       attemptedPush = true;
       pushOk = channelSyncSucceeded(
-        await updateStoreItemOnChannels(link.storeItemId, {
-          skipProviders: CHANNEL_PROVIDERS.filter((p) => p !== provider),
-        }),
+        await updateStoreItemOnChannels(link.storeItemId),
         provider
       );
     } else if (contentDecision === "push" && needsQtyRecovery) {

@@ -8,7 +8,14 @@ import {
   hasOptionQuantities,
   sumOptionQuantities,
 } from "@/lib/store-item-variants";
-import { validateInwVariantsForSave } from "@/lib/channels/variant-sync";
+import { matrixForStorage, validateInwVariantsForSave } from "@/lib/channels/variant-sync";
+import {
+  INVENTORY_TRACKING_MADE_TO_ORDER,
+  INVENTORY_TRACKING_TRACKED,
+  isMadeToOrderTracking,
+  MTO_CHANNEL_QUANTITY,
+  parseInventoryTracking,
+} from "@/lib/listing-variant-matrix";
 import { logManualEditQuantityChange } from "@/lib/channels/quantity-audit";
 import { recordCategoryFeedback } from "@/lib/channels/category-resolver";
 import type { ChannelProvider } from "@/lib/channels/types";
@@ -38,7 +45,8 @@ const bodySchema = z.object({
   subcategory: z.string().nullable().optional(),
   priceCents: z.number().int().min(1).optional(),
   variants: z.unknown().nullable().optional(),
-  quantity: z.number().int().min(1, "Quantity must be at least 1 to list.").optional(),
+  quantity: z.number().int().min(0, "Quantity cannot be negative.").optional(),
+  inventoryTracking: z.enum(["tracked", "made_to_order"]).optional(),
   status: z.enum(["active", "sold_out", "inactive"]).optional(),
   condition: z.enum(["new", "used"]).optional(),
   shippingCostCents: z.number().int().min(0).nullable().optional(),
@@ -100,6 +108,7 @@ export async function GET(
       quantity: item.quantity,
       memberId: item.memberId,
       viewerId: userId,
+      inventoryTracking: item.inventoryTracking,
     })
   ) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -287,7 +296,13 @@ export async function PATCH(
   }
 
   if (data.variants !== undefined && data.variants !== null) {
-    const variantErr = validateInwVariantsForSave(data.variants);
+    const links = await prisma.channelListingLink.findMany({
+      where: { storeItemId: itemId },
+      select: { provider: true },
+    });
+    const variantErr = validateInwVariantsForSave(data.variants, {
+      linkedProviders: links.map((l) => l.provider),
+    });
     if (variantErr) {
       return NextResponse.json({ error: variantErr }, { status: 400 });
     }
@@ -325,15 +340,42 @@ export async function PATCH(
     update.secondaryCategory = !s || s === p ? null : s;
   }
   if (data.priceCents !== undefined) update.priceCents = data.priceCents;
+  const nextTracking =
+    data.inventoryTracking !== undefined
+      ? parseInventoryTracking(data.inventoryTracking)
+      : parseInventoryTracking(existing.inventoryTracking);
+  if (data.inventoryTracking !== undefined) {
+    update.inventoryTracking = nextTracking;
+    if (
+      isMadeToOrderTracking(nextTracking) &&
+      data.etsyWhenMade === undefined &&
+      (!existing.etsyWhenMade || existing.etsyWhenMade === INVENTORY_TRACKING_MADE_TO_ORDER)
+    ) {
+      update.etsyWhenMade = INVENTORY_TRACKING_MADE_TO_ORDER;
+    }
+    if (isMadeToOrderTracking(nextTracking)) {
+      update.quantity = MTO_CHANNEL_QUANTITY;
+    }
+  }
   if (data.variants !== undefined) {
-    update.variants = data.variants;
-    if (hasOptionQuantities(data.variants)) {
+    const stored = data.variants === null ? Prisma.JsonNull : matrixForStorage(data.variants);
+    update.variants = stored ?? Prisma.JsonNull;
+    if (isMadeToOrderTracking(nextTracking)) {
+      update.quantity = MTO_CHANNEL_QUANTITY;
+    } else if (hasOptionQuantities(data.variants)) {
       update.quantity = sumOptionQuantities(data.variants);
     }
   }
   if (data.quantity !== undefined) {
     const variantsForQuantity = data.variants !== undefined ? data.variants : existing.variants;
-    if (!hasOptionQuantities(variantsForQuantity)) update.quantity = data.quantity;
+    if (isMadeToOrderTracking(nextTracking)) {
+      update.quantity = MTO_CHANNEL_QUANTITY;
+    } else if (!hasOptionQuantities(variantsForQuantity)) {
+      if (data.quantity < 1) {
+        return NextResponse.json({ error: "Quantity must be at least 1 to list." }, { status: 400 });
+      }
+      update.quantity = data.quantity;
+    }
   }
   if (data.status !== undefined) {
     Object.assign(update, storeItemStatusWrite(data.status, existing.status));
@@ -517,6 +559,9 @@ export async function PATCH(
       channelSync = await unpublishStoreItemFromChannels(itemId, unpublishProviders);
     } else if (data.syncToChannels === false && existingLinks > 0) {
       // Skip push for this save only; keep links enabled for future edits.
+      // #region agent log
+      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'C',location:'store-items/[id]/route.ts:save-skip',message:'PATCH skipped channel push',data:{itemId,existingLinks,syncToChannels:false,status:item.status},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
     } else if (existingLinks > 0) {
       const { updateStoreItemOnChannels } = await import("@/lib/channels/outbound");
       const { syncInventoryToChannels } = await import("@/lib/channels/sync-inventory");
@@ -524,6 +569,9 @@ export async function PATCH(
       const contentResults = await updateStoreItemOnChannels(itemId);
       const inventoryResults = await syncInventoryToChannels(itemId);
       channelSync = mergeChannelSyncResults(contentResults, inventoryResults);
+      // #region agent log
+      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'C',location:'store-items/[id]/route.ts:save-push',message:'PATCH channel sync results',data:{itemId,existingLinks,titleLen:item.title?.length,contentProviders:contentResults.map((r)=>({provider:r.provider,ok:r.ok,error:r.error?.slice(0,180)})),merged:channelSync.map((r)=>({provider:r.provider,ok:r.ok,error:r.error?.slice(0,180)}))},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
     } else if (data.syncToChannels === true || (data.channelProviders?.length ?? 0) > 0) {
       const { publishStoreItemToChannels, resolvePublishProviders } = await import(
         "@/lib/channels/outbound"

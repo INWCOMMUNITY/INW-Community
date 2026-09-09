@@ -17,6 +17,7 @@ import {
   type MyStoreItem,
 } from "@/components/store-item/my-items-types";
 import { formatRemoteDeletedMessage } from "@/lib/channels/remote-deleted-copy";
+import { channelLinkShowsOnItem } from "@/lib/channels/listing-sync-warning";
 import { IonIcon } from "@/components/IonIcon";
 import {
   fetchChannelConnections,
@@ -233,7 +234,7 @@ export default function MyItemsPage() {
   const providerFilters = useMemo(() => {
     const fromItems = new Set(
       (items ?? []).flatMap((i) =>
-        (i.channelLinks ?? []).filter((l) => !l.remoteDeletedProvider).map((l) => l.provider)
+        (i.channelLinks ?? []).filter(channelLinkShowsOnItem).map((l) => l.provider)
       )
     );
     const fromConnections = connections.map((c) => c.provider);
@@ -256,7 +257,7 @@ export default function MyItemsPage() {
       }
       if (filter !== "all") {
         return (item.channelLinks ?? []).some(
-          (l) => l.provider === filter && !l.remoteDeletedProvider
+          (l) => l.provider === filter && channelLinkShowsOnItem(l)
         );
       }
       return true;

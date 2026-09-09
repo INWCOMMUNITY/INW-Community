@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { listingChannelSyncWarning, listingVariantChannelWarnings, withListingChannelSyncWarning } from "./listing-sync-warning";
+import {
+  channelLinkShowsOnItem,
+  listingChannelSyncWarning,
+  listingVariantChannelWarnings,
+  withListingChannelSyncWarning,
+} from "./listing-sync-warning";
 
 describe("listingChannelSyncWarning", () => {
   it("flags listings when the store connection is in error", () => {
@@ -13,7 +18,7 @@ describe("listingChannelSyncWarning", () => {
     ).toMatch(/reconnect/i);
   });
 
-  it("flags listings when the store is disconnected", () => {
+  it("does not flag listings after an intentional store disconnect", () => {
     expect(
       listingChannelSyncWarning({
         provider: "etsy",
@@ -21,7 +26,14 @@ describe("listingChannelSyncWarning", () => {
         syncEnabled: true,
         connectionStatus: "disconnected",
       })
-    ).toMatch(/disconnected/i);
+    ).toBeNull();
+  });
+
+  it("hides the shop tag after an intentional store disconnect", () => {
+    expect(
+      channelLinkShowsOnItem({ connectionStatus: "disconnected" })
+    ).toBe(false);
+    expect(channelLinkShowsOnItem({ connectionStatus: "active" })).toBe(true);
   });
 
   it("hides eBay photo-host mix errors from the listing badge", () => {
@@ -62,7 +74,7 @@ describe("listingChannelSyncWarning", () => {
 });
 
 describe("listingVariantChannelWarnings", () => {
-  it("warns when Etsy is linked to a three-axis listing", () => {
+  it("allows Etsy on a three-axis listing under the 400-combo cap", () => {
     const notes = listingVariantChannelWarnings({
       variants: {
         axes: [
@@ -74,7 +86,66 @@ describe("listingVariantChannelWarnings", () => {
       },
       linkedProviders: ["etsy"],
     });
-    expect(notes.join(" ")).toMatch(/2 option types/i);
+    expect(notes.join(" ")).not.toMatch(/cannot be listed on Etsy/i);
+  });
+
+  it("warns when Shopify is over 100 combinations", () => {
+    const sizes = Array.from({ length: 11 }, (_, i) => String(i));
+    const colors = Array.from({ length: 10 }, (_, i) => String(i));
+    const notes = listingVariantChannelWarnings({
+      variants: {
+        axes: [
+          { name: "Size", values: sizes },
+          { name: "Color", values: colors },
+        ],
+        skus: sizes.flatMap((s) =>
+          colors.map((c) => ({ options: { Size: s, Color: c }, quantity: 1 }))
+        ),
+      },
+      linkedProviders: ["shopify"],
+    });
+    expect(notes.join(" ")).toMatch(/cannot be listed on Shopify/i);
+  });
+
+  it("notes Wix does not carry per-color photos", () => {
+    const notes = listingVariantChannelWarnings({
+      variants: {
+        axes: [
+          {
+            name: "Color",
+            values: ["Navy"],
+            photosByValue: { Navy: ["https://cdn.example/navy.jpg"] },
+          },
+        ],
+        imageAxis: "Color",
+        skus: [{ options: { Color: "Navy" }, quantity: 1, photos: ["https://cdn.example/navy.jpg"] }],
+      },
+      linkedProviders: ["wix"],
+    });
+    expect(notes.join(" ")).toMatch(/Wix will show the main gallery/i);
+  });
+
+  it("blocks Etsy when price/qty/SKU vary on all three properties above 400 combinations", () => {
+    const a = Array.from({ length: 8 }, (_, i) => String(i));
+    const b = Array.from({ length: 8 }, (_, i) => String(i));
+    const c = Array.from({ length: 7 }, (_, i) => String(i));
+    const notes = listingVariantChannelWarnings({
+      variants: {
+        axes: [
+          { name: "Size", values: a },
+          { name: "Color", values: b },
+          { name: "Fit", values: c },
+        ],
+        pricesVary: true,
+        quantitiesVary: true,
+        skusVary: true,
+        skus: a.flatMap((x) =>
+          b.flatMap((y) => c.map((z) => ({ options: { Size: x, Color: y, Fit: z }, quantity: 1 })))
+        ),
+      },
+      linkedProviders: ["etsy"],
+    });
+    expect(notes.join(" ")).toMatch(/cannot be listed on Etsy/i);
   });
 
   it("notes MTO placeholder quantity on eBay", () => {
@@ -88,6 +159,19 @@ describe("listingVariantChannelWarnings", () => {
 });
 
 describe("withListingChannelSyncWarning", () => {
+  it("does not warn reconnect after an intentional store disconnect", () => {
+    const mapped = withListingChannelSyncWarning({
+      provider: "etsy",
+      syncStatus: "synced",
+      syncEnabled: true,
+      externalListingId: "123",
+      syncError: null,
+      connection: { status: "disconnected" },
+    });
+    expect(mapped.connectionStatus).toBe("disconnected");
+    expect(mapped.syncWarning).toBeNull();
+  });
+
   it("keeps the shop tag hidden after Keep on INW (dismissed remote delete)", () => {
     const mapped = withListingChannelSyncWarning({
       provider: "wix",

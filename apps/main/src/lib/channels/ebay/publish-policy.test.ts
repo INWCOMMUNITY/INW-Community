@@ -4,6 +4,7 @@ import {
   pickEbayOffer,
   readEbayOfferListingId,
   shouldDeleteUnpublishedZeroQuantityOffer,
+  shouldPublishEbayInventoryGroup,
   shouldPublishEbayOffer,
   shouldRepublishEbayOffer,
   shouldWriteEbayOffer,
@@ -42,6 +43,24 @@ describe("publish-policy", () => {
         offerStatus: "UNPUBLISHED",
       })
     ).toBe(false);
+    expect(
+      shouldPublishEbayInventoryGroup({
+        operation: "update",
+        canPublish: true,
+        itemIsActive: true,
+        inStock: true,
+        hadOfferAtStart: false,
+      })
+    ).toBe(false);
+    expect(
+      shouldPublishEbayInventoryGroup({
+        operation: "create",
+        canPublish: true,
+        itemIsActive: true,
+        inStock: true,
+        hadOfferAtStart: false,
+      })
+    ).toBe(true);
     expect(
       shouldRepublishEbayOffer({
         operation: "create",

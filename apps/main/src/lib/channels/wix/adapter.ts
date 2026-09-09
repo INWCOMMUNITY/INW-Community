@@ -27,6 +27,7 @@ import { isWixMetasiteContextError } from "./client";
 import { resolveProviderCategoryId } from "../category-map";
 import { assertSaneInventoryQty } from "../inventory-sanity";
 import { hasOptionQuantities, sumOptionQuantities } from "../../store-item-variants";
+import { isMadeToOrderTracking } from "@/lib/listing-variant-matrix";
 import {
   assignWixProductCollection,
   attachWixVariantsToSummary,
@@ -711,6 +712,8 @@ export const wixAdapter: ChannelAdapter = {
 
   async createListing(conn, item): Promise<CreateListingResult> {
     let mode = await prepareWixConn(conn);
+    // Catalog v3 create is single-variant; option listings stay on v1.
+    if (hasOptionQuantities(item.variants)) mode = "v1";
     let lastErr: unknown;
     let createdProductId: string | undefined;
 
@@ -745,7 +748,8 @@ export const wixAdapter: ChannelAdapter = {
           };
 
           const productId =
-            createdProductId ?? (mode === "v1" ? await createV1() : await createV3());
+            createdProductId ??
+            (mode === "v1" || hasOptionQuantities(item.variants) ? await createV1() : await createV3());
           if (!productId) {
             throw new Error("Wix did not return a product id for the created listing.");
           }
@@ -783,7 +787,7 @@ export const wixAdapter: ChannelAdapter = {
           if (await remintIfMetasiteError(conn, e, pass)) break;
           const corrected = await refreshCatalogVersionAfterMismatch(conn, e);
           if (corrected && pass === 0) {
-            mode = corrected;
+            mode = hasOptionQuantities(item.variants) ? "v1" : corrected;
             break;
           }
         }
@@ -795,6 +799,7 @@ export const wixAdapter: ChannelAdapter = {
 
   async updateListing(conn, externalListingId, item): Promise<void> {
     let mode = await prepareWixConn(conn);
+    if (hasOptionQuantities(item.variants)) mode = "v1";
     const productId = externalListingId;
     const attempts = wixRequestAttempts(conn);
     let lastErr: unknown;
@@ -915,7 +920,7 @@ export const wixAdapter: ChannelAdapter = {
           if (await remintIfMetasiteError(conn, e, pass)) break;
           const corrected = await refreshCatalogVersionAfterMismatch(conn, e);
           if (corrected && pass === 0) {
-            mode = corrected;
+            mode = hasOptionQuantities(item.variants) ? "v1" : corrected;
             break;
           }
         }
@@ -992,11 +997,56 @@ export const wixAdapter: ChannelAdapter = {
 
   async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {
     let mode = await prepareWixConn(conn);
+    if (hasOptionQuantities(item.variants)) mode = "v1";
     const attempts = wixInventoryRequestOpts(conn);
     const want = assertSaneInventoryQty(
       Math.max(0, Math.round(absoluteQuantity)),
       "wix.updateInventory"
     );
+    if (isMadeToOrderTracking(item.inventoryTracking)) {
+      const opts = attempts[0];
+      if (!opts) return;
+      if (mode === "v1" && hasOptionQuantities(item.variants)) {
+        const pushed = await pushWixV1PerOptionInventory(
+          conn.accessToken,
+          externalListingId,
+          item,
+          opts
+        );
+        if (!pushed) {
+          throw new WixApiError(
+            "Could not set made-to-order (untracked) inventory on Wix.",
+            502,
+            null
+          );
+        }
+        return;
+      }
+      if (mode === "v1") {
+        await wixJson(
+          conn.accessToken,
+          `/stores/v1/products/${encodeURIComponent(externalListingId)}`,
+          "PATCH",
+          { product: { stock: { trackInventory: false, inStock: true } } },
+          opts
+        );
+        return;
+      }
+      await wixJson(
+        conn.accessToken,
+        `/stores/v2/inventoryItems/product/${encodeURIComponent(externalListingId)}`,
+        "PATCH",
+        {
+          inventoryItem: {
+            productId: externalListingId,
+            trackQuantity: false,
+            variants: [{ variantId: WIX_DEFAULT_VARIANT_ID, quantity: 0, inStock: true }],
+          },
+        },
+        opts
+      );
+      return;
+    }
     const verifyWant = hasOptionQuantities(item.variants)
       ? sumOptionQuantities(item.variants)
       : want;
@@ -1079,7 +1129,7 @@ export const wixAdapter: ChannelAdapter = {
           if (await remintIfMetasiteError(conn, e, pass)) break;
           const corrected = await refreshCatalogVersionAfterMismatch(conn, e);
           if (corrected && pass === 0) {
-            mode = corrected;
+            mode = hasOptionQuantities(item.variants) ? "v1" : corrected;
             break;
           }
         }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   inwChangedSinceBaseline,
+  inwSavedAfterChannelPush,
   newerChannelEditShouldPull,
   resolveSyncDirection,
   shouldBlockOutboundOverwrite,
@@ -170,6 +171,35 @@ describe("shouldBlockOutboundOverwrite", () => {
         lastPushedAt,
       })
     ).toBe(false);
+  });
+});
+
+describe("inwSavedAfterChannelPush", () => {
+  it("is true when INW was saved after the last successful channel write", () => {
+    expect(
+      inwSavedAfterChannelPush({
+        inwUpdatedAt: new Date("2026-09-09T01:25:10.000Z"),
+        lastPushedAt: new Date("2026-09-09T01:20:00.000Z"),
+      })
+    ).toBe(true);
+  });
+
+  it("is false after a successful push that landed after the INW save", () => {
+    expect(
+      inwSavedAfterChannelPush({
+        inwUpdatedAt: new Date("2026-09-09T01:25:10.000Z"),
+        lastPushedAt: new Date("2026-09-09T01:25:20.000Z"),
+      })
+    ).toBe(false);
+  });
+
+  it("is true when this channel has never been pushed", () => {
+    expect(
+      inwSavedAfterChannelPush({
+        inwUpdatedAt: new Date("2026-09-09T01:25:10.000Z"),
+        lastPushedAt: null,
+      })
+    ).toBe(true);
   });
 });
 

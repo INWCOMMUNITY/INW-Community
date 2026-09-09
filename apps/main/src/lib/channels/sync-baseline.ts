@@ -152,6 +152,20 @@ export function newerChannelEditShouldPull(args: {
 }
 
 /**
+ * INW was saved after this channel's last successful content write.
+ * Hash equality is not enough to skip — lastPushedHash can be stamped without
+ * the marketplace listing actually receiving the new title/price.
+ */
+export function inwSavedAfterChannelPush(args: {
+  inwUpdatedAt: Date | null;
+  lastPushedAt: Date | null;
+}): boolean {
+  if (!args.inwUpdatedAt) return false;
+  if (!args.lastPushedAt) return true;
+  return args.inwUpdatedAt.getTime() > args.lastPushedAt.getTime();
+}
+
+/**
  * Last-write guard for outbound content pushes. If the live channel title differs
  * and that listing was saved after INW, do not PATCH the old INW title back.
  */

@@ -33,7 +33,7 @@ import { isValidPresetSubcategory } from "../repair-categories";
 import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "../sync-baseline";
 import { normalizeVariantsFromProvider, variantsFingerprint } from "../variant-sync";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
-import type { EbayVariationAxis } from "./item-specifics";
+import { normalizeVariantMatrix, serializeVariantMatrix, sumMatrixQuantities } from "@/lib/listing-variant-matrix";
 import { applyRemoteListingRemoved } from "../apply-remote-listing";
 import { syncInventoryToChannels } from "../sync-inventory";
 import { updateStoreItemOnChannels } from "../outbound";
@@ -43,6 +43,7 @@ import {
   persistEbayListingEnded,
   persistRemoteDeletedPending,
   clearRemoteDeletedNoticeIfSet,
+  shouldSkipEndedEbayOutbound,
 } from "../listing-link-flags";
 import { attachShippingOptionOnImport } from "@/lib/shipping-options";
 
@@ -122,11 +123,11 @@ const EBAY_INBOUND_META_KEYS = new Set(["ebayCategoryId", "category", "subcatego
  */
 export function shouldApplyEbayInboundVariants(args: {
   localVariants: unknown;
-  remoteVariants: EbayVariationAxis[] | null | undefined;
+  remoteVariants: unknown;
   lastPushedAt?: Date | null;
   now?: Date;
 }): boolean {
-  const remote = args.remoteVariants;
+  const remote = normalizeVariantsFromProvider("ebay", args.remoteVariants);
   if (!remote?.length || !remote[0]?.options.length) return false;
 
   const local = normalizeVariantsFromProvider("ebay", args.localVariants);
@@ -688,6 +689,9 @@ export async function refreshEbayListingByItemId(
     );
   }
 
+  const remoteVariantMatrix = normalizeVariantMatrix(details.variants);
+  const hasRemoteVariants = Boolean(remoteVariantMatrix && remoteVariantMatrix.skus.length > 0);
+
   const applyRemoteVariants = shouldApplyEbayInboundVariants({
     localVariants: storeItem.variants,
     remoteVariants: details.variants,
@@ -707,7 +711,7 @@ export async function refreshEbayListingByItemId(
         remoteQty,
         quantitySold: details.quantitySold,
       });
-    } else if (details.variants?.length && !applyRemoteVariants) {
+    } else if (hasRemoteVariants && !applyRemoteVariants) {
       console.warn("[ebay] skip GetItem listing qty; variation snapshot looks like a post-publish echo", {
         storeItemId: storeItem.id,
         legacyItemId,
@@ -721,12 +725,9 @@ export async function refreshEbayListingByItemId(
     }
   }
 
-  if (!skipContent && applyRemoteVariants && details.variants && details.variants.length > 0) {
-    updateData.variants = details.variants as object;
-    const sum = details.variants.reduce(
-      (acc, axis) => acc + axis.options.reduce((s, o) => s + o.quantity, 0),
-      0
-    );
+  if (!skipContent && applyRemoteVariants && remoteVariantMatrix && remoteVariantMatrix.skus.length > 0) {
+    updateData.variants = serializeVariantMatrix(remoteVariantMatrix);
+    const sum = sumMatrixQuantities(remoteVariantMatrix);
     // Prefer summed variant qty when variations are present (unless sale path skipped qty).
     if (!opts?.skipQuantity && sum !== storeItem.quantity) {
       const unsoldZero = ebayGetItemQtyIsUnsoldZero({
@@ -1193,4 +1194,62 @@ export async function pullEbayUpdatesForConnection(
   });
 
   return pulled;
+}
+
+/** Failed INW→eBay content pushes are not recovered by GetItem pull. Retry a few each cron. */
+export const EBAY_CRON_FAILED_OUTBOUND_LIMIT = 8;
+
+export function ebayCronShouldRetryOutbound(args: {
+  syncEnabled: boolean;
+  syncStatus: string;
+  ended: boolean;
+}): boolean {
+  return args.syncEnabled && !args.ended && args.syncStatus === "error";
+}
+
+/**
+ * GetItem pull never writes INW edits to eBay. When a save-time push failed
+ * (`syncStatus=error`), push that listing again on the 5-minute cron.
+ */
+export async function pushFailedEbayOutboundForConnection(
+  connectionId: string
+): Promise<{ attempted: number; storeItemIds: string[] }> {
+  const links = await prisma.channelListingLink.findMany({
+    where: {
+      connectionId,
+      provider: "ebay",
+      syncEnabled: true,
+      syncStatus: "error",
+    },
+    orderBy: { updatedAt: "desc" },
+    take: EBAY_CRON_FAILED_OUTBOUND_LIMIT,
+    select: { storeItemId: true, conflictDetails: true, syncError: true },
+  });
+  const storeItemIds: string[] = [];
+  for (const link of links) {
+    if (
+      !ebayCronShouldRetryOutbound({
+        syncEnabled: true,
+        syncStatus: "error",
+        ended: shouldSkipEndedEbayOutbound("ebay", link.conflictDetails),
+      })
+    ) {
+      continue;
+    }
+    // #region agent log
+    fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'post-fix',hypothesisId:'E',location:'pull-ebay-updates.ts:cron-outbound',message:'cron retrying failed eBay content push',data:{connectionId,storeItemId:link.storeItemId,errorPrefix:(link.syncError??'').slice(0,160)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    try {
+      await updateStoreItemOnChannels(link.storeItemId, {
+        skipProviders: ["etsy", "wix", "shopify"],
+      });
+      storeItemIds.push(link.storeItemId);
+    } catch (e) {
+      console.error("[ebay] cron failed-outbound push threw", {
+        storeItemId: link.storeItemId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+  return { attempted: storeItemIds.length, storeItemIds };
 }

@@ -3,6 +3,7 @@ import type { RemoteListingSummary, SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
 import { hasOptionQuantities } from "../../store-item-variants";
 import { listingDescriptionForHtmlChannel } from "../rich-description";
+import { isMadeToOrderTracking } from "@/lib/listing-variant-matrix";
 
 /** cents -> "12.34" (Wix expects a string decimal amount). */
 export function wixPriceFromCents(cents: number): string {
@@ -63,11 +64,13 @@ export function buildWixCreateBody(item: SyncStoreItem): Record<string, unknown>
         {
           sku: getEffectiveSku(item),
           price: { actualPrice: { amount: wixPriceFromCents(item.priceCents) } },
-          inventoryItem: {
-            trackQuantity: true,
-            quantity: Math.max(0, item.quantity),
-            inStock: item.quantity > 0,
-          },
+          inventoryItem: isMadeToOrderTracking(item.inventoryTracking)
+            ? { trackQuantity: false, inStock: true }
+            : {
+                trackQuantity: true,
+                quantity: Math.max(0, item.quantity),
+                inStock: item.quantity > 0,
+              },
           physicalProperties: {},
         },
       ],
@@ -285,7 +288,13 @@ export function wixV1ProductToSummary(
 }
 
 /** Stock fields for Catalog v1 products and variants (`trackInventory`, not v2's `trackQuantity`). */
-export function buildWixV1StockFields(quantity: number): Record<string, unknown> {
+export function buildWixV1StockFields(
+  quantity: number,
+  tracking?: string | null
+): Record<string, unknown> {
+  if (isMadeToOrderTracking(tracking)) {
+    return { trackInventory: false, inStock: true };
+  }
   const qty = Math.max(0, Math.round(quantity));
   return { trackInventory: true, quantity: qty, inStock: qty > 0 };
 }
@@ -312,7 +321,7 @@ export function buildWixV1CreateBody(item: SyncStoreItem): Record<string, unknow
     visible: true,
     sku: getEffectiveSku(item),
     priceData: { price: Math.max(0, item.priceCents) / 100 },
-    stock: buildWixV1StockFields(item.quantity),
+    stock: buildWixV1StockFields(item.quantity, item.inventoryTracking),
   };
   if (item.category?.trim()) product.ribbon = item.category.trim().slice(0, 40);
   const desc = (item.description ?? "").trim();
@@ -332,7 +341,7 @@ export function buildWixV1UpdateBody(
   existing?: WixV1Product | null
 ): Record<string, unknown> {
   const perOptionStock = hasOptionQuantities(item.variants);
-  const stock = buildWixV1StockFields(item.quantity);
+  const stock = buildWixV1StockFields(item.quantity, item.inventoryTracking);
   const price = Math.max(0, item.priceCents) / 100;
   const product: Record<string, unknown> = {
     name: item.title.slice(0, 80),

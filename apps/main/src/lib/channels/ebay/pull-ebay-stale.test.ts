@@ -9,6 +9,7 @@ import {
   readEbayPendingInboundHash,
   shouldApplyEbayInboundVariants,
   withEbayPendingInbound,
+  ebayCronShouldRetryOutbound,
 } from "./pull-ebay-updates";
 
 describe("isEbayInboundContentChange", () => {
@@ -535,6 +536,21 @@ describe("shouldApplyEbayInboundVariants", () => {
       })
     ).toBe(true);
   });
+
+  it("applies a matrix snapshot with combination prices", () => {
+    expect(
+      shouldApplyEbayInboundVariants({
+        localVariants: null,
+        remoteVariants: {
+          axes: [
+            { name: "Size", values: ["S"] },
+            { name: "Color", values: ["Navy"] },
+          ],
+          skus: [{ options: { Size: "S", Color: "Navy" }, quantity: 2, priceCents: 2450 }],
+        },
+      })
+    ).toBe(true);
+  });
 });
 
 describe("ebay pending inbound hash", () => {
@@ -543,5 +559,19 @@ describe("ebay pending inbound hash", () => {
     expect(readEbayPendingInboundHash(withPending)).toBe("a|1|1");
     expect((withPending as { other: number }).other).toBe(1);
     expect(readEbayPendingInboundHash(withEbayPendingInbound(withPending, null))).toBeNull();
+  });
+});
+
+describe("ebayCronShouldRetryOutbound", () => {
+  it("retries failed live listings and skips ended ones", () => {
+    expect(
+      ebayCronShouldRetryOutbound({ syncEnabled: true, syncStatus: "error", ended: false })
+    ).toBe(true);
+    expect(
+      ebayCronShouldRetryOutbound({ syncEnabled: true, syncStatus: "synced", ended: false })
+    ).toBe(false);
+    expect(
+      ebayCronShouldRetryOutbound({ syncEnabled: true, syncStatus: "error", ended: true })
+    ).toBe(false);
   });
 });

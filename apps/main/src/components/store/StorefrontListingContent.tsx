@@ -21,20 +21,18 @@ import {
 import { useStoreItemRelatedLists } from "@/hooks/use-store-item-related-lists";
 import {
   allVariantAxesSelected,
-  variantOptionLabels,
   hasOptionQuantities,
   getMaxPurchasableQuantity,
   optionIsSoldOut,
   getOptionQuantity,
+  listingVariantDisplayAxes,
+  getSkuPriceCents,
+  getSkuPhotos,
 } from "@/lib/store-item-variants";
+import { listingHasPublicStock } from "@/lib/store-item-public-access";
 import { ListingRichDescription } from "@/components/ListingRichDescription";
 import { parseStoredAspects } from "@/lib/listing-limits";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
-
-interface VariantOption {
-  name: string;
-  options: string[] | { value: string; quantity: number }[];
-}
 
 type FulfillmentType = "ship" | "local_delivery" | "pickup";
 
@@ -50,7 +48,8 @@ interface StoreItem {
   condition?: "new" | "used";
   priceCents: number;
   quantity: number;
-  variants?: VariantOption[] | null;
+  inventoryTracking?: string | null;
+  variants?: unknown;
   shippingCostCents: number | null;
   shippingPolicy: string | null;
   localDeliveryAvailable: boolean;
@@ -291,10 +290,19 @@ export function StorefrontListingContent({
 
   const { sellerItems, similarItems } = useStoreItemRelatedLists(item);
 
-  const hasVariants = item?.variants && item.variants.length > 0;
+  const displayAxes = listingVariantDisplayAxes(item?.variants);
+  const hasVariants = displayAxes.length > 0;
   const allVariantsSelected =
     !hasVariants || allVariantAxesSelected(item?.variants, selectedVariant);
   const perOptionStock = item ? hasOptionQuantities(item.variants) : false;
+  const displayPhotos = item ? getSkuPhotos(item, selectedVariant) : [];
+  const displayPriceCents = item ? getSkuPriceCents(item, selectedVariant) : 0;
+
+  useEffect(() => {
+    setSelectedPhotoIndex((i) =>
+      displayPhotos.length === 0 ? 0 : Math.min(i, displayPhotos.length - 1)
+    );
+  }, [displayPhotos]);
 
   const maxPurchasableQty = useMemo(() => {
     if (!item || itemUnavailable) return 0;
@@ -516,7 +524,7 @@ export function StorefrontListingContent({
     );
   }
 
-  const mainPhoto = item.photos[selectedPhotoIndex] ?? item.photos[0];
+  const mainPhoto = displayPhotos[selectedPhotoIndex] ?? displayPhotos[0];
   const heroPhoto = listingDisplayPhoto(mainPhoto, "hero") ?? mainPhoto;
 
   const jsonLd = {
@@ -528,10 +536,10 @@ export function StorefrontListingContent({
     sku: item.id,
     offers: {
       "@type": "Offer",
-      price: (item.priceCents / 100).toFixed(2),
+      price: (displayPriceCents / 100).toFixed(2),
       priceCurrency: "USD",
       availability:
-        itemUnavailable || item.quantity <= 0
+        itemUnavailable || !listingHasPublicStock(item)
           ? "https://schema.org/OutOfStock"
           : "https://schema.org/InStock",
       itemCondition:
@@ -583,7 +591,7 @@ export function StorefrontListingContent({
         )}
 
         {/* Photo lightbox: click through and zoom */}
-        {lightboxOpen && item.photos.length > 0 && (
+        {lightboxOpen && displayPhotos.length > 0 && (
           <div
             className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center"
             onClick={() => setLightboxOpen(false)}
@@ -603,13 +611,13 @@ export function StorefrontListingContent({
               >
                 ×
               </button>
-              {item.photos.length > 1 && (
+              {displayPhotos.length > 1 && (
                 <>
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setSelectedPhotoIndex((i) => (i <= 0 ? item.photos.length - 1 : i - 1));
+                      setSelectedPhotoIndex((i) => (i <= 0 ? displayPhotos.length - 1 : i - 1));
                       setLightboxZoom(1);
                       setLightboxPan({ x: 0, y: 0 });
                     }}
@@ -622,7 +630,7 @@ export function StorefrontListingContent({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setSelectedPhotoIndex((i) => (i >= item.photos.length - 1 ? 0 : i + 1));
+                      setSelectedPhotoIndex((i) => (i >= displayPhotos.length - 1 ? 0 : i + 1));
                       setLightboxZoom(1);
                       setLightboxPan({ x: 0, y: 0 });
                     }}
@@ -662,8 +670,8 @@ export function StorefrontListingContent({
                 }}
               >
                 <img
-                  src={item.photos[selectedPhotoIndex] ?? item.photos[0]}
-                  alt={`${item.title} ${selectedPhotoIndex + 1} of ${item.photos.length}`}
+                  src={displayPhotos[selectedPhotoIndex] ?? displayPhotos[0]}
+                  alt={`${item.title} ${selectedPhotoIndex + 1} of ${displayPhotos.length}`}
                   className="max-w-full max-h-[calc(95vh-5rem)] w-auto h-auto object-contain touch-none"
                   style={{
                     transform: `translate(${lightboxPan.x}px, ${lightboxPan.y}px) scale(${lightboxZoom})`,
@@ -703,9 +711,9 @@ export function StorefrontListingContent({
                 >
                   +
                 </button>
-                {item.photos.length > 1 && (
+                {displayPhotos.length > 1 && (
                   <span className="text-white/80 text-sm ml-2 border-l border-white/40 pl-2">
-                    {selectedPhotoIndex + 1} / {item.photos.length}
+                    {selectedPhotoIndex + 1} / {displayPhotos.length}
                   </span>
                 )}
               </div>
@@ -793,7 +801,7 @@ export function StorefrontListingContent({
               <button
                 type="button"
                 onClick={() => {
-                  if (item.photos.length > 0) {
+                  if (displayPhotos.length > 0) {
                     setLightboxZoom(1);
                     setLightboxPan({ x: 0, y: 0 });
                     setLightboxOpen(true);
@@ -814,9 +822,9 @@ export function StorefrontListingContent({
                 No image
               </div>
             )}
-            {item.photos.length > 1 && (
+            {displayPhotos.length > 1 && (
               <div className="flex gap-2 overflow-x-auto pb-2">
-                {item.photos.map((url, i) => (
+                {displayPhotos.map((url, i) => (
                   <button
                     key={`${url}-${i}`}
                     type="button"
@@ -872,7 +880,7 @@ export function StorefrontListingContent({
               )}
             </div>
             <p className="mt-3 text-3xl font-bold tracking-tight text-[var(--color-heading)]">
-              ${(item.priceCents / 100).toFixed(2)}
+              ${(displayPriceCents / 100).toFixed(2)}
             </p>
             {fulfillmentSummary && (
               <p className="mt-1 text-sm text-gray-500">{fulfillmentSummary}</p>
@@ -895,15 +903,26 @@ export function StorefrontListingContent({
                 <div className="mt-1 whitespace-pre-wrap text-gray-700">{item.pickupTerms ?? item.member?.sellerPickupPolicy}</div>
               </div>
             )}
-            {item.variants && item.variants.length > 0 && (
+            {displayAxes.length > 0 && (
               <div className="mt-6 space-y-3">
-                {item.variants.map((v, vi) => (
-                  <div key={vi}>
+                {displayAxes.map((v) => (
+                  <div key={v.name}>
                     <label className="block text-sm font-medium mb-1">{v.name} *</label>
                     <div className="flex flex-wrap gap-2">
-                      {variantOptionLabels(v).map((opt) => {
-                        const soldOut = optionIsSoldOut(item.variants, v.name, opt);
-                        const optQty = getOptionQuantity(item.variants, v.name, opt);
+                      {v.options.map((opt) => {
+                        const soldOut = optionIsSoldOut(
+                          item.variants,
+                          v.name,
+                          opt,
+                          item.inventoryTracking,
+                          selectedVariant
+                        );
+                        const optQty = getOptionQuantity(
+                          item.variants,
+                          v.name,
+                          opt,
+                          selectedVariant
+                        );
                         const lowStock =
                           perOptionStock &&
                           optQty != null &&

@@ -365,14 +365,14 @@ export async function getConnectionContext(
   } catch (e) {
     const errMsg =
       "Platform encryption key cannot decrypt this store's tokens. Do not reconnect — contact support.";
-    logSyncEvent(connection.memberId, connection.provider, "token_expired", errMsg);
     if (shouldBlockDevChannelTokenWrites()) {
-      console.error("[channels] decrypt failed; not pausing hosted connections from local dev", {
+      console.error("[channels] decrypt failed; not pausing hosted connections from local process", {
         connectionId: connection.id,
         provider: connection.provider,
       });
       return null;
     }
+    logSyncEvent(connection.memberId, connection.provider, "token_expired", errMsg);
     await markChannelConnectionFailure({
       connection,
       error: new Error(errMsg),

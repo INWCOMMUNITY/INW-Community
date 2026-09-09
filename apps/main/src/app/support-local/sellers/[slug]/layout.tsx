@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { prisma } from "database";
+import { withPublicStockWhere } from "@/lib/store-item-public-access";
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://www.inwcommunity.com";
 
@@ -32,11 +33,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 
   const activeProductCount = await prisma.storeItem.count({
-    where: {
+    where: withPublicStockWhere({
       OR: [{ memberId: business.memberId }, { businessId: business.id }],
       status: "active",
-      quantity: { gt: 0 },
-    },
+    }),
   });
 
   const hasProducts = activeProductCount > 0;

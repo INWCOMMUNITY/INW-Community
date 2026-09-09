@@ -1,10 +1,24 @@
 import { etsyGet, etsyJson } from "./client";
 import { etsyPriceFromCents } from "./mapping";
 import type { InwVariantAxis } from "../variant-sync";
-import { normalizeVariantsFromProvider, sumVariantQuantities } from "../variant-sync";
+import { normalizeVariantsFromProvider, sumVariantQuantities, variantsToMatrix } from "../variant-sync";
+import type { VariantMatrix, VariantSkuRow } from "@/lib/listing-variant-matrix";
+import {
+  channelQuantityForTracked,
+  inferMatrixVaryFlags,
+  isMadeToOrderTracking,
+  MAX_ETSY_AXES,
+  optionsEqual,
+} from "@/lib/listing-variant-matrix";
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
+
+export const ETSY_MAX_VARIATIONS_SUPPORTED = 3;
+
+export function etsyInventoryWritePath(listingId: string): string {
+  return `/listings/${listingId}/inventory?max_variations_supported=${ETSY_MAX_VARIATIONS_SUPPORTED}`;
+}
 
 type TaxonomyProperty = {
   property_id?: number;
@@ -87,6 +101,65 @@ function offeringPriceFloat(itemPriceCents: number): number {
   return Number(etsyPriceFromCents(itemPriceCents));
 }
 
+export function offeringPriceToCents(price: EtsyInventoryOffering["price"]): number | undefined {
+  if (typeof price === "number" && Number.isFinite(price) && price > 0) {
+    return Math.round(price * 100);
+  }
+  if (price && typeof price === "object") {
+    const amount = price.amount;
+    const divisor = price.divisor && price.divisor > 0 ? price.divisor : 100;
+    if (typeof amount === "number" && Number.isFinite(amount) && amount > 0) {
+      return Math.round((amount / divisor) * 100);
+    }
+  }
+  return undefined;
+}
+
+export function etsyProductOptionMap(product: EtsyInventoryProduct): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const pv of product.property_values ?? []) {
+    const name = (pv.property_name ?? "").trim();
+    const val = pv.values?.[0]?.trim();
+    if (name && val) out[name] = val;
+  }
+  return out;
+}
+
+export function findMatrixSkuForEtsyProduct(
+  matrix: VariantMatrix,
+  product: EtsyInventoryProduct
+): VariantSkuRow | null {
+  const map = etsyProductOptionMap(product);
+  if (Object.keys(map).length === 0) return null;
+  return matrix.skus.find((s) => optionsEqual(s.options, map)) ?? null;
+}
+
+function propertyIdsFromProducts(products: Record<string, unknown>[]): number[] {
+  const first = products[0] as { property_values?: { property_id?: number }[] } | undefined;
+  const ids: number[] = [];
+  for (const pv of first?.property_values ?? []) {
+    if (pv.property_id != null && !ids.includes(pv.property_id)) ids.push(pv.property_id);
+  }
+  return ids;
+}
+
+/** Etsy allows 0, 1, or all variation properties on *_on_property — never a subset of 2 on a 3-axis listing. */
+export function etsyOnPropertyFields(
+  matrix: VariantMatrix | null,
+  products: Record<string, unknown>[]
+): Pick<EtsyInventory, "price_on_property" | "quantity_on_property" | "sku_on_property"> {
+  const ids = propertyIdsFromProducts(products);
+  const flags = matrix
+    ? inferMatrixVaryFlags(matrix)
+    : { pricesVary: true, quantitiesVary: true, skusVary: true };
+  const allOrNone = (vary: boolean) => (vary && ids.length > 0 ? [...ids] : []);
+  return {
+    price_on_property: allOrNone(flags.pricesVary),
+    quantity_on_property: allOrNone(flags.quantitiesVary),
+    sku_on_property: allOrNone(flags.skusVary),
+  };
+}
+
 /** Lowercased option value -> quantity from all INW variant axes. */
 function inwOptionQuantityMap(variants: unknown): Map<string, number> {
   const map = new Map<string, number>();
@@ -154,8 +227,13 @@ function resolveProductQuantity(
   optionQtys: Map<string, number>,
   quantityOnProperty: number[],
   absoluteQuantity: number,
-  usePerOption: boolean
+  usePerOption: boolean,
+  matrix?: VariantMatrix | null
 ): number {
+  if (matrix) {
+    const sku = findMatrixSkuForEtsyProduct(matrix, product);
+    if (sku) return Math.max(0, sku.quantity);
+  }
   if (!usePerOption || optionQtys.size === 0) {
     return Math.max(0, absoluteQuantity);
   }
@@ -208,7 +286,7 @@ async function putEtsyInventoryIfValid(
   }
   await etsyJson(
     accessToken,
-    `/listings/${listingId}/inventory`,
+    etsyInventoryWritePath(listingId),
     "PUT",
     inventoryPutBody(inv, products, skuPropertyId)
   );
@@ -217,17 +295,15 @@ async function putEtsyInventoryIfValid(
 async function putEtsyVariantMatrix(
   accessToken: string,
   listingId: string,
-  body: { products: Record<string, unknown>[] }
+  body: { products: Record<string, unknown>[] },
+  matrix?: VariantMatrix | null
 ): Promise<void> {
-  const propId = (body.products[0] as { property_values?: { property_id?: number }[] })
-    ?.property_values?.[0]?.property_id;
-  const inv: EtsyInventory = {};
-  if (propId != null && body.products.length > 1) {
-    inv.quantity_on_property = [propId];
-    inv.price_on_property = [propId];
-    inv.sku_on_property = [propId];
-  }
-  await putEtsyInventoryIfValid(accessToken, listingId, inv, body.products, propId);
+  const onProps = etsyOnPropertyFields(matrix ?? null, body.products);
+  const inv: EtsyInventory = {
+    ...onProps,
+  };
+  const skuProp = onProps.sku_on_property?.[0];
+  await putEtsyInventoryIfValid(accessToken, listingId, inv, body.products, skuProp);
 }
 
 function rebuildExistingProduct(
@@ -235,14 +311,18 @@ function rebuildExistingProduct(
   quantity: number,
   item: SyncStoreItem,
   defaultReadinessStateId: number | null,
-  normalizedSku?: string
+  normalizedSku?: string,
+  matrix?: VariantMatrix | null
 ): Record<string, unknown> {
   const propValues = product.property_values ?? [];
+  const combo = matrix ? findMatrixSkuForEtsyProduct(matrix, product) : null;
+  const priceCents =
+    combo?.priceCents && combo.priceCents > 0 ? combo.priceCents : item.priceCents;
   const offerings = (product.offerings ?? []).map((o) => {
     const readinessStateId = o.readiness_state_id ?? defaultReadinessStateId;
     return {
       quantity,
-      price: offeringPriceFloat(item.priceCents),
+      price: offeringPriceFloat(priceCents),
       is_enabled: quantity > 0,
       ...(readinessStateId != null ? { readiness_state_id: readinessStateId } : {}),
     };
@@ -506,6 +586,7 @@ export async function syncEtsyListingInventoryFromInw(
   const products = inv.products ?? [];
   const optionQtys = inwOptionQuantityMap(item.variants);
   const perOption = hasOptionQuantities(item.variants) && optionQtys.size > 0;
+  const matrix = variantsToMatrix(item.variants);
 
   if (!perOption) {
     if (products.length === 0) return;
@@ -538,7 +619,7 @@ export async function syncEtsyListingInventoryFromInw(
     if (!body) {
       throw new Error("Could not create Etsy inventory from INW variant options.");
     }
-    await putEtsyVariantMatrix(accessToken, listingId, body);
+    await putEtsyVariantMatrix(accessToken, listingId, body, variantsToMatrix(item.variants));
     return;
   }
 
@@ -556,7 +637,7 @@ export async function syncEtsyListingInventoryFromInw(
     if (!body) {
       throw new Error("Could not build Etsy variant inventory from INW options.");
     }
-    await putEtsyVariantMatrix(accessToken, listingId, body);
+    await putEtsyVariantMatrix(accessToken, listingId, body, variantsToMatrix(item.variants));
     return;
   }
 
@@ -614,7 +695,8 @@ export async function syncEtsyListingInventoryFromInw(
       optionQtys,
       quantityOnProperty,
       absoluteQuantity,
-      true
+      true,
+      matrix
     );
     
     // If we're adding new options and existing products have SKUs,
@@ -634,7 +716,7 @@ export async function syncEtsyListingInventoryFromInw(
       }
     }
     
-    return rebuildExistingProduct(p, quantity, item, defaultReadinessStateId, normalizedSku);
+    return rebuildExistingProduct(p, quantity, item, defaultReadinessStateId, normalizedSku, matrix);
   });
 
   let newOptionsAdded = 0;
@@ -751,7 +833,7 @@ export async function enrichEtsyListingSummaryWithInventory(
     }
 
     const variants = etsyInventoryToVariants(products);
-    if (!variants || variants.length === 0) return;
+    if (!variants || variants.skus.length === 0) return;
     summary.variants = variants;
     summary.variantsKnown = true;
     const sum = sumVariantQuantities(variants);
@@ -767,15 +849,17 @@ export async function enrichEtsyListingSummaryWithInventory(
   }
 }
 
-/** Build Etsy inventory products from INW variant axes using taxonomy property definitions. */
+/** Build Etsy inventory products from INW variant SKUs using taxonomy property definitions. */
 export async function buildEtsyInventoryProducts(
   accessToken: string,
   taxonomyId: number,
   item: SyncStoreItem,
   defaultReadinessStateId?: number | null
 ): Promise<{ products: Record<string, unknown>[] } | null> {
+  const matrix = variantsToMatrix(item.variants);
   const axes = normalizeVariantsFromProvider("etsy", item.variants) as InwVariantAxis[] | null;
   if (!axes || axes.length === 0) {
+    const qty = channelQuantityForTracked(item.quantity, item.inventoryTracking);
     return {
       products: [
         {
@@ -783,7 +867,7 @@ export async function buildEtsyInventoryProducts(
           property_values: [],
           offerings: [
             buildOfferingPayload(
-              item.quantity,
+              qty,
               item.priceCents,
               defaultReadinessStateId ?? null,
               true
@@ -794,37 +878,83 @@ export async function buildEtsyInventoryProducts(
     };
   }
 
+  if (axes.length > MAX_ETSY_AXES) {
+    throw new Error(
+      `Etsy supports at most ${MAX_ETSY_AXES} variation properties. Remove an option type or unsync Etsy.`
+    );
+  }
+
   const properties = await fetchTaxonomyProperties(accessToken, taxonomyId);
   if (properties.length === 0) return null;
 
+  const limitedAxes = axes.slice(0, MAX_ETSY_AXES);
   const products: Record<string, unknown>[] = [];
-  const primaryAxis = axes[0];
-  const matchedProp = pickEtsyTaxonomyPropertyForAxis(
-    properties,
-    primaryAxis.name,
-    primaryAxis.options.map((o) => o.value)
-  );
-  if (!matchedProp?.property_id) {
-    throw new Error(
-      `Etsy category has no "${primaryAxis.name}" variation. Rename the option to match an Etsy property (for example Size) or choose a different Etsy category.`
+
+  if (matrix && matrix.skus.length > 0) {
+    for (const sku of matrix.skus) {
+      const property_values: Record<string, unknown>[] = [];
+      for (const axis of limitedAxes) {
+        const valueName = sku.options[axis.name];
+        if (!valueName) continue;
+        const prop = pickEtsyTaxonomyPropertyForAxis(properties, axis.name, [valueName]);
+        if (!prop?.property_id) {
+          throw new Error(
+            `Etsy category has no "${axis.name}" variation. Rename the option to match an Etsy property (for example Size) or choose a different Etsy category.`
+          );
+        }
+        const possible = prop.possible_values?.find(
+          (v) => v.name?.toLowerCase() === valueName.toLowerCase()
+        );
+        property_values.push({
+          property_id: prop.property_id,
+          property_name: prop.name || axis.name,
+          scale_id: prop.scales?.[0]?.scale_id ?? null,
+          value_ids: possible?.value_id ? [possible.value_id] : [],
+          values: [valueName],
+        });
+      }
+      if (property_values.length === 0) continue;
+      const qty = channelQuantityForTracked(sku.quantity, item.inventoryTracking);
+      const price = sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents;
+      const code = sku.sku?.trim() || `${getEffectiveSku(item)}-${Object.values(sku.options).join("-")}`.slice(0, 32);
+      products.push({
+        sku: code,
+        property_values,
+        offerings: [buildOfferingPayload(qty, price, defaultReadinessStateId ?? null)],
+      });
+    }
+  } else {
+    const primaryAxis = limitedAxes[0];
+    const matchedProp = pickEtsyTaxonomyPropertyForAxis(
+      properties,
+      primaryAxis.name,
+      primaryAxis.options.map((o) => o.value)
     );
-  }
-  for (const opt of primaryAxis.options) {
-    const row = await buildProductRowForOption(
-      accessToken,
-      taxonomyId,
-      item,
-      primaryAxis,
-      opt,
-      defaultReadinessStateId ?? null,
-      properties
-    );
-    if (row) products.push(row);
+    if (!matchedProp?.property_id) {
+      throw new Error(
+        `Etsy category has no "${primaryAxis.name}" variation. Rename the option to match an Etsy property (for example Size) or choose a different Etsy category.`
+      );
+    }
+    for (const opt of primaryAxis.options) {
+      const row = await buildProductRowForOption(
+        accessToken,
+        taxonomyId,
+        item,
+        primaryAxis,
+        {
+          ...opt,
+          quantity: channelQuantityForTracked(opt.quantity, item.inventoryTracking),
+        },
+        defaultReadinessStateId ?? null,
+        properties
+      );
+      if (row) products.push(row);
+    }
   }
 
   if (products.length === 0) {
     throw new Error(
-      `Could not map INW "${primaryAxis.name}" options onto Etsy. Check the Etsy category supports those values.`
+      `Could not map INW options onto Etsy. Check the Etsy category supports those values.`
     );
   }
   return { products };
@@ -855,51 +985,46 @@ export async function pushEtsyVariants(
     productCount: body.products.length,
     defaultReadinessStateId: readiness,
   });
-  await putEtsyVariantMatrix(accessToken, listingId, body);
+  await putEtsyVariantMatrix(accessToken, listingId, body, variantsToMatrix(item.variants));
 }
 
-/** Normalize Etsy inventory products to INW variant axes. */
-export function etsyInventoryToVariants(products: unknown): InwVariantAxis[] | null {
+/** Normalize Etsy inventory products to an INW variant matrix. */
+export function etsyInventoryToVariants(products: unknown): VariantMatrix | null {
   if (!Array.isArray(products) || products.length === 0) return null;
 
-  // One row per inventory product (variation SKU) — correct for quantity-on-property listings.
-  if (
-    products.length > 1 ||
-    ((products[0] as EtsyInventoryProduct).property_values?.length ?? 0) > 0
-  ) {
-    const byAxis = new Map<string, Map<string, number>>();
-    for (const p of products as EtsyInventoryProduct[]) {
-      const qty = Math.max(0, p.offerings?.[0]?.quantity ?? 0);
-      const pvs = p.property_values ?? [];
-      if (pvs.length === 0) continue;
-      const pv = pvs[0];
-      const name = (pv.property_name ?? "Option").trim();
-      const val = pv.values?.[0]?.trim();
-      if (!name || !val) continue;
-      const axis = byAxis.get(name) ?? new Map<string, number>();
-      axis.set(val, qty);
-      byAxis.set(name, axis);
-    }
-    if (byAxis.size === 0) return null;
-    return [...byAxis.entries()].map(([name, valueMap]) => ({
-      name,
-      options: [...valueMap.entries()].map(([value, quantity]) => ({ value, quantity })),
-    }));
-  }
+  const axisOrder: string[] = [];
+  const axisValues = new Map<string, string[]>();
+  const skus: VariantSkuRow[] = [];
 
-  const axisMap = new Map<string, { value: string; quantity: number }[]>();
   for (const p of products as EtsyInventoryProduct[]) {
     const qty = Math.max(0, p.offerings?.[0]?.quantity ?? 0);
+    const skuCode = p.sku?.trim() || undefined;
+    const options: Record<string, string> = {};
     for (const pv of p.property_values ?? []) {
       const name = (pv.property_name ?? "Option").trim();
       const val = pv.values?.[0]?.trim();
-      if (!val) continue;
-      const list = axisMap.get(name) ?? [];
-      list.push({ value: val, quantity: qty });
-      axisMap.set(name, list);
+      if (!name || !val) continue;
+      options[name] = val;
+      if (!axisValues.has(name)) {
+        axisOrder.push(name);
+        axisValues.set(name, []);
+      }
+      const list = axisValues.get(name)!;
+      if (!list.some((x) => x.toLowerCase() === val.toLowerCase())) list.push(val);
     }
+    if (Object.keys(options).length === 0) continue;
+    const priceCents = offeringPriceToCents(p.offerings?.[0]?.price);
+    skus.push({
+      options,
+      quantity: qty,
+      ...(skuCode ? { sku: skuCode } : {}),
+      ...(priceCents != null ? { priceCents } : {}),
+    });
   }
 
-  if (axisMap.size === 0) return null;
-  return [...axisMap.entries()].map(([name, options]) => ({ name, options }));
+  if (skus.length === 0 || axisOrder.length === 0) return null;
+  return {
+    axes: axisOrder.map((name) => ({ name, values: axisValues.get(name) ?? [] })),
+    skus,
+  };
 }

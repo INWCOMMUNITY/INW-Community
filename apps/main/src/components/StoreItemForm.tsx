@@ -5,7 +5,21 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getErrorMessage } from "@/lib/api-error";
 import { useLockBodyScroll } from "@/lib/scroll-lock";
-import { sumOptionQuantities } from "@/lib/store-item-variants";
+import {
+  INVENTORY_TRACKING_MADE_TO_ORDER,
+  parseInventoryTracking,
+  serializeVariantMatrix,
+  sumMatrixQuantities,
+  type InventoryTracking,
+  type VariantAxisDef,
+} from "@/lib/listing-variant-matrix";
+import { listingVariantChannelWarnings } from "@/lib/channels/listing-sync-warning";
+import {
+  initEditorFromVariants,
+  ListingVariantMatrixEditor,
+  serializeEditorMatrix,
+  type EditorSkuRow,
+} from "@/components/listing/ListingVariantMatrixEditor";
 import { buildProductHref } from "@/lib/product-referrer";
 import {
   defaultSelectedProviders,
@@ -119,6 +133,7 @@ interface StoreItemFormProps {
     priceCents: number;
     variants: unknown;
     quantity: number;
+    inventoryTracking?: string | null;
     status: string;
     condition?: "new" | "used";
     shippingCostCents: number | null;
@@ -223,29 +238,13 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     !existing?.shippingPolicy || existing.shippingPolicy === ""
   );
   const [sellerProfileShippingPolicy, setSellerProfileShippingPolicy] = useState("");
-  type VariantOption = { value: string; quantity: number };
-  const normalizeOptions = (opts: unknown): VariantOption[] => {
-    if (!Array.isArray(opts)) return [];
-    return opts.map((o) => {
-      if (typeof o === "object" && o != null && "value" in o && "quantity" in o) {
-        return { value: String((o as VariantOption).value), quantity: Number((o as VariantOption).quantity) || 0 };
-      }
-      return { value: String(o ?? ""), quantity: 1 };
-    });
-  };
-  const [variants, setVariants] = useState<{ name: string; options: VariantOption[] }[]>(() => {
-    const v = existing?.variants;
-    if (!Array.isArray(v)) return [];
-    return (v as { name?: string; options?: unknown[] }[]).map((item) => ({
-      name: item?.name ?? "",
-      options: normalizeOptions(item?.options),
-    }));
-  });
-  const [optionsEnabled, setOptionsEnabled] = useState(() => {
-    const v = existing?.variants;
-    if (!Array.isArray(v) || v.length === 0) return false;
-    return (v as { options?: unknown[] }[]).some((item) => Array.isArray(item?.options) && item.options.length > 0);
-  });
+  const [inventoryTracking, setInventoryTracking] = useState<InventoryTracking>(() =>
+    parseInventoryTracking(existing?.inventoryTracking)
+  );
+  const initialMatrix = initEditorFromVariants(existing?.variants);
+  const [optionsEnabled, setOptionsEnabled] = useState(initialMatrix.optionsEnabled);
+  const [variantAxes, setVariantAxes] = useState<VariantAxisDef[]>(initialMatrix.axes);
+  const [variantSkus, setVariantSkus] = useState<EditorSkuRow[]>(initialMatrix.skus);
   const [localDeliveryAvailable, setLocalDeliveryAvailable] = useState(
     existing?.localDeliveryAvailable ?? false
   );
@@ -723,14 +722,18 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       setError("Price must be at least $0.01");
       return null;
     }
-    const hasVariantsWithQty =
-      optionsEnabled && variants.some((v) => v.name.trim() && v.options.some((o) => o.quantity > 0));
-    if (!optionsEnabled && quantity < 1) {
+    const madeToOrder = inventoryTracking === INVENTORY_TRACKING_MADE_TO_ORDER;
+    const enabledSkus = serializeEditorMatrix(optionsEnabled, variantAxes, variantSkus);
+    if (!madeToOrder && !optionsEnabled && quantity < 1) {
       setError("Quantity must be at least 1 to list this item.");
       return null;
     }
-    if (optionsEnabled && !hasVariantsWithQty) {
-      setError("Add at least one option with quantity greater than 0, or turn off Enable Options and set Quantity.");
+    if (!madeToOrder && optionsEnabled && (!enabledSkus || enabledSkus.every((s) => s.quantity < 1))) {
+      setError("Add at least one combination with quantity greater than 0, or turn off options and set Quantity.");
+      return null;
+    }
+    if (optionsEnabled && variantAxes.length > 0 && !enabledSkus) {
+      setError("Enable at least one option combination, or turn off Enable options.");
       return null;
     }
     const effectiveShippingDisabled = !offerShipping || shippingDisabled;
@@ -808,13 +811,15 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       priceCents,
       status: "active",
       condition,
-      quantity:
-        optionsEnabled && variants.some((v) => v.name.trim() && v.options.some((o) => o.quantity > 0))
-          ? sumOptionQuantities(variants.filter((v) => v.name.trim() && v.options.length > 0))
+      inventoryTracking,
+      quantity: madeToOrder
+        ? quantity
+        : enabledSkus
+          ? sumMatrixQuantities({ axes: variantAxes, skus: enabledSkus })
           : quantity,
       variants:
-        optionsEnabled && variants.filter((v) => v.name.trim() && v.options.length > 0).length > 0
-          ? variants.filter((v) => v.name.trim() && v.options.length > 0)
+        optionsEnabled && enabledSkus
+          ? serializeVariantMatrix({ axes: variantAxes, skus: enabledSkus })
           : null,
       shippingCostCents: !effectiveShippingDisabled && shippingCostCents > 0 ? shippingCostCents : null,
       shippingOptionId: shippingOptionId || null,
@@ -1055,30 +1060,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     setShowSuccessModal(false);
     router.push("/seller-hub/store/new");
     router.refresh();
-  }
-
-  function addVariantOption(vi: number, value: string) {
-    if (!value.trim()) return;
-    setVariants((prev) => {
-      const next = prev.map((v) => ({ ...v, options: [...v.options] }));
-      if (!next[vi]) return prev;
-      next[vi] = { ...next[vi], options: [...next[vi].options, { value: value.trim(), quantity: 1 }] };
-      return next;
-    });
-  }
-  function setVariantOptionQuantity(vi: number, oi: number, quantity: number) {
-    setVariants((prev) => {
-      const next = prev.map((v) => ({ ...v, options: v.options.map((o) => ({ ...o })) }));
-      if (next[vi]?.options[oi] != null) next[vi].options[oi].quantity = Math.max(0, quantity);
-      return next;
-    });
-  }
-  function removeVariantOption(vi: number, oi: number) {
-    setVariants((prev) => {
-      const next = prev.map((v) => ({ ...v, options: [...v.options] }));
-      if (next[vi]) next[vi].options = next[vi].options.filter((_, i) => i !== oi);
-      return next;
-    });
   }
 
   function addAspectRow() {
@@ -1533,7 +1514,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       </ListingFormSection>
       )}
 
-      <ListingFormSection title="Pricing & inventory">
+      <ListingFormSection title="Pricing & Inventory">
       {/* 5. Price */}
       <div>
         <label className={listingLabelClass}>Price (USD) *</label>
@@ -1552,110 +1533,33 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       {/* 6. Options (Enable options + Quantity) — under Price */}
       <div className="space-y-4">
         <h3 className="text-sm font-semibold text-gray-900">Options (Size, Color, etc.)</h3>
-        <div className="flex items-center gap-2.5 mb-4">
-          <button
-            type="button"
-            role="checkbox"
-            aria-checked={optionsEnabled}
-            onClick={() => setOptionsEnabled((prev) => !prev)}
-            className="w-[22px] h-[22px] rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors"
-            style={
-              optionsEnabled
-                ? { backgroundColor: "var(--color-primary)", borderColor: "var(--color-primary)" }
-                : { borderColor: "#ccc" }
-            }
-          >
-            {optionsEnabled && <span className="text-white text-sm font-bold">✓</span>}
-          </button>
-          <span className="text-sm text-gray-900 font-medium">Enable Options</span>
-        </div>
-        {!optionsEnabled ? (
-          <>
-            <label className={listingLabelClass}>Quantity *</label>
-            <input
-              type="number"
-              min="0"
-              value={quantity}
-              onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 0)}
-              className={`${listingInputClass} max-w-xs`}
-              placeholder="1"
-            />
-            {showSyncHints ? <SyncFieldHint text={LISTING_SYNC_HINTS.quantity} /> : null}
-          </>
-        ) : (
-          <>
-            <p className="text-sm text-gray-500 mb-3">
-              Add option groups like Size with values and quantity per option (e.g. Small: 2, Medium: 5).
-            </p>
-            {variants.map((v, vi) => (
-              <div key={vi} className="rounded-lg p-3 mb-3 bg-gray-50 border border-gray-100">
-                <div className="flex gap-2 mb-2">
-                  <input
-                    type="text"
-                    value={v.name}
-                    onChange={(e) =>
-                      setVariants((prev) => {
-                        const next = prev.map((x) => ({ ...x }));
-                        if (next[vi]) next[vi].name = e.target.value;
-                        return next;
-                      })
-                    }
-                    placeholder="Option name (e.g. Size)"
-                    className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setVariants((prev) => prev.filter((_, i) => i !== vi))}
-                    className="text-red-600 text-sm hover:underline shrink-0"
-                  >
-                    Remove
-                  </button>
-                </div>
-                <p className="text-xs text-gray-500 mb-2">Option value and Quantity (e.g. Small: 3, Medium: 5)</p>
-                <div className="flex flex-wrap gap-2 items-center">
-                  {v.options.map((opt, oi) => (
-                    <span
-                      key={oi}
-                      className="inline-flex items-center gap-1 bg-white border border-gray-300 rounded px-2 py-1 text-sm"
-                    >
-                      <span>{opt.value}</span>
-                      <input
-                        type="number"
-                        min="0"
-                        className="w-12 border border-gray-300 rounded px-1 py-0.5 text-sm text-center"
-                        placeholder="0"
-                        value={opt.quantity === 0 ? "" : opt.quantity}
-                        onChange={(e) => {
-                          const n = parseInt(e.target.value.replace(/\D/g, ""), 10);
-                          setVariantOptionQuantity(vi, oi, Number.isNaN(n) ? 0 : n);
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeVariantOption(vi, oi)}
-                        className="text-red-500 hover:text-red-700 font-bold leading-none"
-                        aria-label="Remove"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                  <AddOptionInput
-                    onAdd={(val) => addVariantOption(vi, val)}
-                    placeholder="+ Add (e.g. Small)"
-                  />
-                </div>
-              </div>
-            ))}
-            <button
-              type="button"
-              onClick={() => setVariants((prev) => [...prev, { name: "", options: [] }])}
-              className="py-2 px-4 border border-gray-300 rounded-lg bg-white text-gray-800 font-semibold text-sm hover:bg-gray-50"
-            >
-              + Add option group
-            </button>
-          </>
-        )}
+        <ListingVariantMatrixEditor
+          inventoryTracking={inventoryTracking}
+          onInventoryTrackingChange={setInventoryTracking}
+          optionsEnabled={optionsEnabled}
+          onOptionsEnabledChange={setOptionsEnabled}
+          simpleQuantity={quantity}
+          onSimpleQuantityChange={setQuantity}
+          axes={variantAxes}
+          skus={variantSkus}
+          onChange={(nextAxes, nextSkus) => {
+            setVariantAxes(nextAxes);
+            setVariantSkus(nextSkus);
+          }}
+          galleryPhotos={photos}
+          channelNotes={listingVariantChannelWarnings({
+            variants:
+              optionsEnabled && variantSkus.some((s) => s.enabled)
+                ? serializeVariantMatrix({
+                    axes: variantAxes,
+                    skus: variantSkus.filter((s) => s.enabled),
+                  })
+                : null,
+            inventoryTracking,
+            linkedProviders: [...listOnProviders, ...channelLinks.map((l) => l.provider)],
+          })}
+        />
+        {showSyncHints ? <SyncFieldHint text={LISTING_SYNC_HINTS.quantity} /> : null}
       </div>
 
       {condition === "used" && (
@@ -2101,49 +2005,6 @@ function SuccessPhotoCollage({ urls }: { urls: string[] }) {
       {shown.map((src, i) => (
         <img key={`${src}-${i}`} src={src} alt="" className="w-full h-full object-cover" />
       ))}
-    </div>
-  );
-}
-
-function AddOptionInput({
-  onAdd,
-  placeholder,
-}: {
-  onAdd: (value: string) => void;
-  placeholder: string;
-}) {
-  const [val, setVal] = useState("");
-  return (
-    <div className="inline-flex items-center gap-1">
-      <input
-        type="text"
-        value={val}
-        onChange={(e) => setVal(e.target.value)}
-        placeholder={placeholder}
-        className="w-28 border rounded px-2 py-1 text-sm"
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            if (val.trim()) {
-              onAdd(val.trim());
-              setVal("");
-            }
-          }
-        }}
-      />
-      <button
-        type="button"
-        onClick={() => {
-          if (val.trim()) {
-            onAdd(val.trim());
-            setVal("");
-          }
-        }}
-        className="text-primary-600 font-bold text-lg leading-none px-1 hover:text-primary-700"
-        title="Add option"
-      >
-        +
-      </button>
     </div>
   );
 }

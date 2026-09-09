@@ -5,7 +5,7 @@ import { classifyError, type ErrorClassification } from "./error-classifier";
 import { logSyncEvent } from "./sync-log";
 import type { ChannelProvider } from "./types";
 import { shouldBlockSoldOutQtyRecovery } from "./sold-out-guard";
-import { readRemoteCatalogState, shouldDropStaleChannelRetry } from "./listing-link-flags";
+import { readRemoteCatalogState, shouldDropStaleChannelRetry, shouldDropContentRetryAfterLaterWrite } from "./listing-link-flags";
 
 const BACKOFF_SCHEDULE_MS = [
   30_000,        // 30s
@@ -154,10 +154,21 @@ export async function processRetryQueue(): Promise<{
     const connectionId = retry.link?.connection?.id;
 
     if (
-      retry.retryType === "content" &&
-      retry.link?.lastInboundAt != null &&
-      retry.link.lastInboundAt.getTime() > retry.createdAt.getTime()
+      shouldDropContentRetryAfterLaterWrite({
+        retryType: retry.retryType,
+        retryCreatedAt: retry.createdAt,
+        lastInboundAt: retry.link?.lastInboundAt,
+        lastPushedAt: retry.link?.lastPushedAt,
+      })
     ) {
+      if (retry.link?.lastPushedAt && retry.link.lastPushedAt.getTime() > retry.createdAt.getTime()) {
+        await prisma.channelListingLink
+          .update({
+            where: { id: retry.linkId },
+            data: { syncStatus: "synced", syncError: null },
+          })
+          .catch(() => {});
+      }
       await prisma.channelSyncRetry.delete({ where: { id: retry.id } });
       continue;
     }
