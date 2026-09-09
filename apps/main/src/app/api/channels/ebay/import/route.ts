@@ -14,7 +14,7 @@ import { seedCategoryMappingFromImport } from "@/lib/channels/category-resolver"
 import { needsCategoryRepair } from "@/lib/channels/repair-categories";
 import { splitEbayCategoryPath } from "@/lib/channels/ebay-category-aliases";
 import { syncContentHash, syncMetaHash } from "@/lib/channels/sync-baseline";
-import { variantsFingerprint, sumVariantQuantities } from "@/lib/channels/variant-sync";
+import { variantsFingerprint, sumVariantQuantities, matrixForStorage } from "@/lib/channels/variant-sync";
 import { describeEbayThrownError, ebayErrorActionHint } from "@/lib/channels/ebay/errors";
 import { resolveEbayLegacyListingId, indexEbayRemoteListings } from "@/lib/channels/ebay/mapping";
 import { attachShippingOptionOnImport, maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
@@ -584,9 +584,9 @@ export async function POST(req: NextRequest) {
     const remoteCategoryId = details.remoteCategoryId ?? listing.remoteCategoryId ?? null;
     const importedAspects = normalizeListingAspects(details.aspects);
     const aspectsForStorage = importedAspects;
-    const importedVariants = details.variants;
+    const importedVariants = matrixForStorage(details.variants);
     const importQty =
-      importedVariants && importedVariants.length > 0
+      importedVariants && importedVariants.skus.length > 0
         ? sumVariantQuantities(importedVariants)
         : Math.max(0, Math.round(Number(details.quantity ?? listing.quantity) || 0));
 
@@ -596,7 +596,7 @@ export async function POST(req: NextRequest) {
       aspectsCount: details.aspects.length,
       photosCount: details.photos.length,
       normalizedAspectsCount: aspectsForStorage.length,
-      variants: importedVariants?.length ?? 0,
+      variants: importedVariants?.skus.length ?? 0,
       ebayCategoryPath,
       categoryAssignment,
       resolvedCategory: finalResolvedCat?.category,
@@ -630,7 +630,7 @@ export async function POST(req: NextRequest) {
           category: finalResolvedCat?.category ?? null,
           subcategory: finalResolvedCat?.subcategory ?? null,
           ...(aspectsForStorage.length > 0 ? { aspects: aspectsForStorage as object } : {}),
-          ...(importedVariants && importedVariants.length > 0
+          ...(importedVariants && importedVariants.skus.length > 0
             ? { variants: importedVariants as object }
             : {}),
           ...(remoteCategoryId

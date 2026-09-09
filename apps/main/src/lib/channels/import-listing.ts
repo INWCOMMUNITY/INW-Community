@@ -177,7 +177,7 @@ export async function resolveImportCategory(args: {
     });
     if (enhanced?.subcategory) {
       resolvedCat = { ...resolvedCat, subcategory: enhanced.subcategory };
-      if (source !== "title_suggestion") source = "enhanced";
+      source = "enhanced";
     }
   }
 

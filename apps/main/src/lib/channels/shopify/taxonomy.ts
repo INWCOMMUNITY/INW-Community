@@ -252,7 +252,7 @@ export async function applyShopifyCategory(
           cfg.apiVersion,
           productGid,
           taxonomyGid,
-          productType
+          productType ?? undefined
         );
       }
     }

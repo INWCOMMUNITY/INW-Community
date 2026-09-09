@@ -74,7 +74,7 @@ export async function fetchShopifyProductTaxonomyMaps(
   let cursor: string | null = null;
   try {
     for (let page = 0; page < 20; page += 1) {
-      const data = await shopifyGraphql<ProductsCategoryData>(
+      const data: ProductsCategoryData = await shopifyGraphql<ProductsCategoryData>(
         accessToken,
         shop,
         apiVersion,
@@ -107,7 +107,7 @@ export async function fetchShopifyProductTaxonomyHint(
   if (!id) return null;
   const gid = id.startsWith("gid://") ? id : `gid://shopify/Product/${id}`;
   try {
-    const data = await shopifyGraphql<ProductCategoryData>(
+    const data: ProductCategoryData = await shopifyGraphql<ProductCategoryData>(
       accessToken,
       shop,
       apiVersion,

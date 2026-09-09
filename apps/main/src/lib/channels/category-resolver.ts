@@ -421,9 +421,7 @@ const ETSY_CATEGORY_ALIASES: Record<string, AliasHit> = {
   honey: { category: "Food & Drink", subcategory: "Jams, Honey & Preserves" },
   grocery: { category: "Food & Drink", subcategory: "Pantry & Packaged" },
   "kitchen & dining": { category: "Home & Kitchen", subcategory: null },
-  "dining & serving": { category: "Home & Kitchen", subcategory: "Dining & Serving" },
   "office supplies": { category: "Office & School Supplies", subcategory: "Office Supplies" },
-  office: { category: "Office & School Supplies", subcategory: null },
   "home appliances": { category: "Home & Kitchen", subcategory: "Small Appliances" },
 
   // ── Kitchen & Dining Expanded ──
@@ -725,7 +723,6 @@ const SHOPIFY_CATEGORY_ALIASES: Record<string, AliasHit> = {
   "vehicles and parts": { category: "Vehicles & Parts", subcategory: null },
   media: { category: "Books, Movies & Music", subcategory: null },
   "media > books": { category: "Books, Movies & Music", subcategory: "Books" },
-  hardware: { category: "Tools & Home Improvement", subcategory: null },
   apparel: { category: "Clothing", subcategory: null },
   fashion: { category: "Clothing", subcategory: null },
   collectibles: { category: "Art & Collectibles", subcategory: null },
@@ -790,7 +787,6 @@ const SHOPIFY_CATEGORY_ALIASES: Record<string, AliasHit> = {
   "musical instruments": { category: "Musical Instruments", subcategory: null },
   guitar: { category: "Musical Instruments", subcategory: "Guitars & Bass" },
   books: { category: "Books, Movies & Music", subcategory: "Books" },
-  media: { category: "Books, Movies & Music", subcategory: null },
   wedding: { category: "Wedding", subcategory: null },
   bridal: { category: "Wedding", subcategory: "Bridal & Gowns" },
   "apparel & accessories": { category: "Clothing", subcategory: null },
