@@ -50,7 +50,6 @@ export default async function EditStoreItemPage({
           linkOrigin: true,
         },
       },
-      },
     },
   });
   if (!item) {
