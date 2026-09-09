@@ -112,13 +112,14 @@ export async function syncInventoryToChannels(
       continue;
     }
 
-    let freshItem: Awaited<ReturnType<typeof prisma.storeItem.findUnique>> | null = null;
+    let storeItemStatus: string | undefined;
     try {
-      freshItem = await prisma.storeItem.findUnique({
+      const freshItem = await prisma.storeItem.findUnique({
         where: { id: storeItemId },
         select: syncStoreItemSelect,
       });
       if (!freshItem) continue;
+      storeItemStatus = freshItem.status;
       const adapter = getAdapter(provider);
       const item = toSyncStoreItem(freshItem);
       
@@ -187,7 +188,7 @@ export async function syncInventoryToChannels(
           linkId: link.id,
           conflictDetails: link.conflictDetails,
           provider,
-          storeItemStatus: freshItem?.status,
+          storeItemStatus,
         });
         logSyncEvent(
           link.connection.memberId,

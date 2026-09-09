@@ -491,9 +491,8 @@ export async function updateStoreItemOnChannels(
         continue;
       }
 
-      let freshItem: Awaited<ReturnType<typeof loadSyncItem>> | null = null;
       try {
-        freshItem = await loadSyncItem(storeItemId);
+        const freshItem = await loadSyncItem(storeItemId);
         if (!freshItem) continue;
         const channelInventoryOffset = (connConfig.inventoryOffset as number) ?? 0;
         const globalSafetyBuffer = syncPrefs?.safetyBuffer ?? 0;
@@ -522,7 +521,7 @@ export async function updateStoreItemOnChannels(
             linkId: link.id,
             conflictDetails: link.conflictDetails,
             provider,
-            storeItemStatus: freshItem?.status,
+            storeItemStatus: item.status,
           });
           results.push({ provider, ok: true });
           continue;
