@@ -134,6 +134,19 @@ describe("shouldApplyEbayInboundPhotos", () => {
     ).toBe(true);
   });
 
+  it("does not shrink an imported eBay gallery to a gallery-only GetItem snapshot", () => {
+    expect(
+      shouldApplyEbayInboundPhotos({
+        incoming: ["https://i.ebayimg.com/images/g/one/s-l2000.jpg"],
+        current: [
+          "https://i.ebayimg.com/images/g/one/s-l2000.jpg",
+          "https://i.ebayimg.com/images/g/two/s-l2000.jpg",
+          "https://i.ebayimg.com/images/g/three/s-l2000.jpg",
+        ],
+      })
+    ).toBe(false);
+  });
+
   it("does not apply foreign CDN-only photos even on force", () => {
     expect(
       shouldApplyEbayInboundPhotos({

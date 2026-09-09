@@ -104,15 +104,9 @@ export function planEtsyPhotoSync(args: {
   }
 
   // Wix/eBay CDN URLs on the StoreItem are re-hosts, not new photos. Uploading them
-  // appends copies onto the live Etsy listing (then delete-after often fails).
+  // appends copies onto the live Etsy listing. A shorter CDN set (gallery thumb
+  // after an eBay wipe) must not delete extra Etsy images.
   if (uploadable.length === 0) {
-    if (etsy.length > inw.length) {
-      return {
-        uploadUrls: [],
-        deleteBeforeUpload: [],
-        deleteAfterUpload: etsy.slice(inw.length).map((img) => img.listing_image_id),
-      };
-    }
     return empty;
   }
 

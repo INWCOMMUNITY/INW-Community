@@ -135,6 +135,20 @@ describe("putInventoryWithPhotoRecovery", () => {
     ).toEqual(["https://i.ebayimg.com/images/g/xx/s-l2000.jpg"]);
   });
 
+  it("pins live self-hosted URLs when photos were not edited and there is no EPS", async () => {
+    const put = vi.fn().mockResolvedValue(undefined);
+    await putInventoryWithPhotoRecovery({
+      accessToken: "t",
+      body: { product: { title: "X", imageUrls: ["https://blob.example.com/new.jpg"] } },
+      liveImageUrls: ["https://blob.example.com/live.jpg"],
+      allowInwPhotoUpload: false,
+      put,
+    });
+    expect(
+      (put.mock.calls[0]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
+    ).toEqual(["https://blob.example.com/live.jpg"]);
+  });
+
   it("does not send EPS URLs through Media API after #25014", async () => {
     const put = vi.fn().mockRejectedValue(
       new Error(
@@ -194,7 +208,7 @@ describe("applyEbayInventoryPhotoPolicy", () => {
     expect(next.product).not.toHaveProperty("imageUrls");
   });
 
-  it("omits self-hosted live URLs instead of re-sending INW blobs", () => {
+  it("pins live self-hosted URLs so Inventory PUT does not clear the gallery", () => {
     const next = applyEbayInventoryPhotoPolicy(
       { product: { title: "X", imageUrls: ["https://blob.example.com/a.jpg"] } },
       {
@@ -203,7 +217,9 @@ describe("applyEbayInventoryPhotoPolicy", () => {
         pushInwPhotos: false,
       }
     );
-    expect(next.product).not.toHaveProperty("imageUrls");
+    expect((next.product as { imageUrls: string[] }).imageUrls).toEqual([
+      "https://blob.example.com/a.jpg",
+    ]);
   });
 
   it("pins EPS-only when live imageUrls mix host families", () => {

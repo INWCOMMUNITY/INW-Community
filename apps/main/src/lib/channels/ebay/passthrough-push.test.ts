@@ -842,6 +842,21 @@ describe("passthrough-push", () => {
     expect(product.imageUrls).toEqual(["https://i.ebayimg.com/live.jpg"]);
   });
 
+  it("qty overlay keeps live self-hosted photos instead of omitting imageUrls", () => {
+    const body = buildPassthroughLiveOverlayBody(
+      {
+        condition: "USED_EXCELLENT",
+        product: {
+          title: "Old eBay title",
+          imageUrls: ["https://blob.vercel-storage.com/a.jpg"],
+        },
+      },
+      { quantity: 2, title: "Vintage Bear Clock" }
+    );
+    const product = body.product as Record<string, unknown>;
+    expect(product.imageUrls).toEqual(["https://blob.vercel-storage.com/a.jpg"]);
+  });
+
   it("photo-only inventory PUT still pins the INW title so a lagged Inventory GET cannot revert it", () => {
     const live = {
       condition: "LIKE_NEW",

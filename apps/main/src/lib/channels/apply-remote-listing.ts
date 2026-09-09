@@ -107,6 +107,8 @@ export async function applyRemoteContentToStoreItem(
     remote.priceCents < 1 && item.priceCents > 0 ? { ...remote, priceCents: item.priceCents } : remote;
 
   const inboundPhotos = selectInboundListingPhotos(item.photos, safeRemote.photos);
+  const photosToWrite =
+    inboundPhotos.length > 0 || item.photos.length === 0 ? inboundPhotos : item.photos;
   const differs = remoteContentDiffersFromStoreItem(item, safeRemote);
   const adoptedSku = skuToAdoptFromRemote({
     localSku: item.sku,
@@ -142,7 +144,7 @@ export async function applyRemoteContentToStoreItem(
         ? {
             title: safeRemote.title.slice(0, 200),
             description: storeListingDescription(safeRemote.description),
-            photos: inboundPhotos,
+            photos: photosToWrite,
             priceCents: safeRemote.priceCents,
           }
         : {}),

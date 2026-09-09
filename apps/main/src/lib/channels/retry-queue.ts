@@ -41,7 +41,9 @@ export async function enqueueRetry(
   error?: string,
   rawError?: unknown
 ): Promise<{ enqueued: boolean; classification: ErrorClassification }> {
-  const classification = classifyError(rawError ?? error);
+  const classification = classifyError(
+    [error, rawError instanceof Error ? rawError.message : "", rawError].filter(Boolean).join(" ")
+  );
 
   if (classification === "permanent") {
     const link = await prisma.channelListingLink.findUnique({
@@ -215,7 +217,7 @@ export async function processRetryQueue(): Promise<{
       succeeded++;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      const classification = classifyError(e);
+      const classification = classifyError(`${msg} ${e instanceof Error ? e.message : ""}`);
       const nextAttempt = retry.attempts + 1;
 
       if (classification === "permanent") {

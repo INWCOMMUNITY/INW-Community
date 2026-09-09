@@ -78,6 +78,8 @@ export function shouldApplyEbayInboundPhotos(args: {
 }): boolean {
   if (args.incoming.length === 0) return false;
   if (args.current.length === 0) return true;
+  // Gallery-only GetItem / omitted inventory imageUrls must not delete extra INW photos.
+  if (args.incoming.length < args.current.length) return false;
   const selected = selectInboundListingPhotos(args.current, args.incoming);
   const unchanged =
     selected.length === args.current.length && selected.every((url, i) => url === args.current[i]);

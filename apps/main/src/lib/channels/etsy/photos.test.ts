@@ -110,6 +110,19 @@ describe("planEtsyPhotoSync", () => {
     expect(plan.uploadUrls).toEqual([]);
   });
 
+  it("does not delete Etsy images when INW only has a shorter marketplace CDN set", () => {
+    const plan = planEtsyPhotoSync({
+      inwPhotos: ["https://i.ebayimg.com/images/g/one/s-l2000.jpg"],
+      etsyImages: etsy([1, 2, 3, 4, 5, 6]),
+      lastPushedInwPhotos: null,
+    });
+    expect(plan).toEqual({
+      uploadUrls: [],
+      deleteBeforeUpload: [],
+      deleteAfterUpload: [],
+    });
+  });
+
   it("uploads only the new tail when Etsy has fewer images and there is no snapshot", () => {
     const plan = planEtsyPhotoSync({
       inwPhotos: inw,

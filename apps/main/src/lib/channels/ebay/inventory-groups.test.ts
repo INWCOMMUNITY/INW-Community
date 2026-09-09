@@ -151,8 +151,8 @@ describe("inventory item groups", () => {
         ["https://blob.vercel-storage.com/hat.jpg"],
         ["https://blob.vercel-storage.com/hat.jpg"],
         false
-      )
-    ).not.toHaveProperty("imageUrls");
+      ).imageUrls
+    ).toEqual(["https://blob.vercel-storage.com/hat.jpg"]);
   });
 
   it("pins live EPS on the group so a resync does not mix INW blob URLs", () => {

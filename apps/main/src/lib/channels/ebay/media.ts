@@ -125,14 +125,21 @@ export function omitInventoryProductImageUrls(body: Record<string, unknown>): Re
   return { ...body, product };
 }
 
-/** EPS URLs already on eBay. Empty means omit imageUrls rather than send INW blobs. */
+/**
+ * Pictures already on the live inventory item. Inventory PUT is a full replace —
+ * omitting imageUrls deletes the published gallery. Prefer EPS so we never mix
+ * host families (#25014); otherwise pin the live self-hosted set as-is.
+ */
 export function liveEbayPhotoUrlsToPin(liveUrls: string[]): string[] {
-  return epsOnlyImageUrls(liveUrls);
+  const eps = epsOnlyImageUrls(liveUrls);
+  if (eps.length > 0) return eps;
+  return uniformHostFamilyImageUrls(liveUrls);
 }
 
 /**
- * Existing eBay listings already have EPS copies. Sending INW blob URLs causes #25014.
- * Keep live EPS, or omit pictures so eBay leaves the published gallery alone.
+ * Existing eBay listings already have pictures. Sending INW blob URLs onto an
+ * EPS listing causes #25014. Pin live pictures of one host family. Only omit
+ * imageUrls when live inventory truly has none — otherwise PUT would wipe them.
  */
 export function applyEbayInventoryPhotoPolicy(
   body: Record<string, unknown>,
@@ -236,20 +243,23 @@ export async function putInventoryWithPhotoRecovery<T>(args: {
 }): Promise<T> {
   const describe = args.describeError ?? ((e: unknown) => (e instanceof Error ? e.message : String(e)));
   const allowInwPhotoUpload = args.allowInwPhotoUpload !== false;
+  const liveUniform = uniformHostFamilyImageUrls(args.liveImageUrls ?? []);
   const liveEps = epsOnlyImageUrls(args.liveImageUrls ?? []);
   let urls = uniformHostFamilyImageUrls(readInventoryProductImageUrls(args.body));
   if (liveEps.length > 0 && urls.some((url) => !isEbayEpsImageUrl(url))) {
     urls = liveEps;
   }
   if (!allowInwPhotoUpload && urls.some((url) => !isEbayEpsImageUrl(url))) {
-    urls = liveEps;
+    urls = liveEps.length > 0 ? liveEps : liveUniform;
   }
   const payload =
     urls.length > 0
       ? withInventoryProductImageUrls(args.body, urls)
       : allowInwPhotoUpload
         ? args.body
-        : omitInventoryProductImageUrls(args.body);
+        : liveUniform.length > 0
+          ? withInventoryProductImageUrls(args.body, liveUniform)
+          : omitInventoryProductImageUrls(args.body);
 
   try {
     return await args.put(payload);

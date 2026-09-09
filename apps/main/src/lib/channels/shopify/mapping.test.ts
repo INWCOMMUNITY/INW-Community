@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildShopifyCreateBody, pickShopifyCategoryLabel, quantityForShopifyRemoteVariant, shopifyProductToVariants } from "./mapping";
+import {
+  buildShopifyCreateBody,
+  buildShopifyUpdateBody,
+  pickShopifyCategoryLabel,
+  quantityForShopifyRemoteVariant,
+  shopifyProductToVariants,
+  shopifyUpdateShouldReplaceImages,
+} from "./mapping";
 import type { SyncStoreItem } from "../types";
 
 const baseItem: SyncStoreItem = {
@@ -108,6 +115,29 @@ describe("buildShopifyCreateBody", () => {
       subcategory: "Games (physical)",
     }) as { product: { product_type?: string } };
     expect(body.product.product_type).toBe("Video Games");
+  });
+});
+
+describe("shopifyUpdateShouldReplaceImages", () => {
+  it("does not replace Shopify images with eBay CDN URLs", () => {
+    expect(shopifyUpdateShouldReplaceImages(["https://i.ebayimg.com/images/g/xx/s-l2000.jpg"])).toBe(
+      false
+    );
+    expect(
+      shopifyUpdateShouldReplaceImages(["https://abc.public.blob.vercel-storage.com/hat.jpg"])
+    ).toBe(true);
+  });
+
+  it("omits images from an update body when INW only has eBay CDNs", () => {
+    const body = buildShopifyUpdateBody(
+      {
+        ...baseItem,
+        variants: null,
+        photos: ["https://i.ebayimg.com/images/g/xx/s-l2000.jpg"],
+      },
+      "123"
+    ) as { product: { images?: { src: string }[] } };
+    expect(body.product.images).toBeUndefined();
   });
 });
 

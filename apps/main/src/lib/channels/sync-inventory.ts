@@ -6,7 +6,7 @@ import { assertSaneInventoryQty, clampSaneInventoryQty } from "./inventory-sanit
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
 import { isMadeToOrderTracking, MTO_CHANNEL_QUANTITY } from "@/lib/listing-variant-matrix";
 import type { ChannelProvider, ChannelSyncResult } from "./types";
-import { describeChannelSyncError } from "./ebay/errors";
+import { describeChannelSyncError, isEbayPhotoHostFamilySyncError } from "./ebay/errors";
 import { enqueueRetry } from "./retry-queue";
 import { logSyncEvent } from "./sync-log";
 import { captureChannelSyncError } from "./sentry";
@@ -187,6 +187,24 @@ export async function syncInventoryToChannels(
         continue;
       }
       const msg = describeChannelSyncError(provider, e);
+      if (provider === "ebay" && isEbayPhotoHostFamilySyncError(msg)) {
+        await prisma.channelListingLink
+          .update({
+            where: { id: link.id },
+            data: { syncStatus: "synced", syncError: null },
+          })
+          .catch(() => {});
+        await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);
+        logSyncEvent(
+          link.connection.memberId,
+          provider,
+          "push_inventory",
+          `eBay photos left unchanged`,
+          storeItemId
+        );
+        results.push({ provider, ok: true });
+        continue;
+      }
       console.error("[channels] inventory sync failed", {
         storeItemId,
         provider: link.provider,

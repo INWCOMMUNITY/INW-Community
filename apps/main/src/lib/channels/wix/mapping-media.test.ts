@@ -174,4 +174,13 @@ describe("Wix listing photo import quality", () => {
       ])
     ).toBe(true);
   });
+
+  it("does not replace Wix media with eBay CDN URLs after an inbound overwrite", () => {
+    expect(
+      shouldReplaceWixProductMediaOnUpdate(
+        ["https://i.ebayimg.com/images/g/one/s-l2000.jpg"],
+        ["https://abc.public.blob.vercel-storage.com/hat.jpg"]
+      )
+    ).toBe(false);
+  });
 });

@@ -48,6 +48,20 @@ describe("selectInboundListingPhotos", () => {
     expect(inboundListingPhotosDiffer(epsThumb, eps)).toBe(true);
   });
 
+  it("does not shrink an imported CDN gallery to a shorter GetItem snapshot", () => {
+    const six = [
+      "https://i.ebayimg.com/images/g/one/s-l2000.jpg",
+      "https://i.ebayimg.com/images/g/two/s-l2000.jpg",
+      "https://i.ebayimg.com/images/g/three/s-l2000.jpg",
+      "https://i.ebayimg.com/images/g/four/s-l2000.jpg",
+      "https://i.ebayimg.com/images/g/five/s-l2000.jpg",
+      "https://i.ebayimg.com/images/g/six/s-l2000.jpg",
+    ];
+    const galleryOnly = ["https://i.ebayimg.com/images/g/one/s-l2000.jpg"];
+    expect(selectInboundListingPhotos(six, galleryOnly)).toEqual(six);
+    expect(inboundListingPhotosDiffer(six, galleryOnly)).toBe(false);
+  });
+
   it("applies Etsy CDN updates for imported Etsy listings", () => {
     const next = ["https://i.etsystatic.com/1/il_fullxfull.2.jpg"];
     expect(selectInboundListingPhotos(etsy, next)).toEqual(next);

@@ -89,7 +89,7 @@ function pinSanitizedLiveImageUrls(product: Record<string, unknown>): void {
   if (!Array.isArray(product.imageUrls)) return;
   const urls = uniformHostFamilyImageUrls(product.imageUrls.map((u) => String(u)));
   if (urls.length > 0) product.imageUrls = urls;
-  else delete product.imageUrls;
+  // Inventory PUT is a full replace. Dropping imageUrls clears the published gallery.
 }
 
 /** PUT live inventory with only product.title changed — live aspects preserved. */

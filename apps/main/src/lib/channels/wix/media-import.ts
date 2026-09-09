@@ -1,6 +1,6 @@
 import { put } from "@vercel/blob";
 import { fetchListingPhotoSource, optimizeListingPhoto } from "@/lib/listing-photo-optimize";
-import { isInwHostedPhotoUrl } from "../photo-urls";
+import { isInwHostedPhotoUrl, isMarketplaceCdnPhotoUrl, marketplaceCdnFamily } from "../photo-urls";
 import { wixGet, wixJson, type WixRequestOpts } from "./client";
 
 type WixFileDescriptor = {
@@ -54,7 +54,16 @@ export function shouldReplaceWixProductMediaOnUpdate(
     ? lastPushedPhotos.filter((url) => typeof url === "string" && url.trim().length > 0)
     : [];
   if (last.length === 0) return false;
-  return !photoListsMatch(last, photos.filter((url) => typeof url === "string" && url.trim().length > 0));
+  const current = photos.filter((url) => typeof url === "string" && url.trim().length > 0);
+  // GetItem/eBay CDN overwrite is not a seller photo edit — replacing Wix media with
+  // ebayimg URLs can fail the import and wipe the gallery.
+  if (
+    current.every(isMarketplaceCdnPhotoUrl) &&
+    current.every((url) => marketplaceCdnFamily(url) !== "wix")
+  ) {
+    return false;
+  }
+  return !photoListsMatch(last, current);
 }
 
 function mimeTypeForPhotoUrl(url: string): string {

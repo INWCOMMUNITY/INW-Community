@@ -99,4 +99,21 @@ describe("remoteContentDiffersFromStoreItem photos", () => {
     };
     expect(remoteContentDiffersFromStoreItem(imported, remote())).toBe(true);
   });
+
+  it("does not treat a shorter eBay gallery snapshot as a photo edit", () => {
+    const imported = {
+      ...blobItem,
+      photos: [
+        "https://i.ebayimg.com/images/g/one/s-l2000.jpg",
+        "https://i.ebayimg.com/images/g/two/s-l2000.jpg",
+        "https://i.ebayimg.com/images/g/three/s-l2000.jpg",
+      ],
+    };
+    expect(
+      remoteContentDiffersFromStoreItem(
+        imported,
+        remote({ photos: ["https://i.ebayimg.com/images/g/one/s-l2000.jpg"] })
+      )
+    ).toBe(false);
+  });
 });

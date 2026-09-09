@@ -125,13 +125,16 @@ function photosEqualExact(a: string[], b: string[]): boolean {
 /**
  * Keep INW Blob/uploads photos when inbound sync only sees marketplace CDN
  * derivatives of the same listing. Imported listings (already on a CDN) still
- * take the remote set so fills/thumbs can upgrade to the largest derivative.
+ * take the remote set so same-count thumbs can upgrade to the largest derivative.
+ * Never shrink a non-empty gallery — GetItem often returns only a gallery thumb
+ * after an Inventory PUT omitted imageUrls.
  */
 export function selectInboundListingPhotos(local: string[], remote: string[]): string[] {
   const localPhotos = local.filter((url) => typeof url === "string" && url.trim().length > 0);
   const remotePhotos = remote.filter((url) => typeof url === "string" && url.trim().length > 0);
   if (remotePhotos.length === 0) return localPhotos;
   if (localPhotos.length === 0) return remotePhotos;
+  if (remotePhotos.length < localPhotos.length) return localPhotos;
   const localAllInw = localPhotos.every(isInwHostedPhotoUrl);
   const remoteAllMarketplace = remotePhotos.every(isMarketplaceCdnPhotoUrl);
   if (localAllInw && remoteAllMarketplace) return localPhotos;

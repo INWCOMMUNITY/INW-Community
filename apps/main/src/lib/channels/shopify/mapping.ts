@@ -3,6 +3,7 @@ import { getEffectiveSku } from "../types";
 import { normalizeVariantsFromProvider, variantsToMatrix, type InwVariantAxis } from "../variant-sync";
 import { listingDescriptionForHtmlChannel } from "../rich-description";
 import { shopifyProductTypeForInw } from "../category-suggest";
+import { isMarketplaceCdnPhotoUrl, marketplaceCdnFamily } from "../photo-urls";
 import { isShopifyNoiseCollectionTitle } from "./collections";
 import type { ShopifyProductTaxonomyHint } from "./inbound-taxonomy";
 import {
@@ -302,10 +303,21 @@ export function buildShopifyUpdateBody(
   }
 
   const photos = item.photos.slice(0, 10);
-  if (photos.length > 0) {
+  if (shopifyUpdateShouldReplaceImages(photos)) {
     product.images = photos.map((src) => ({ src }));
   }
   return { product };
+}
+
+/**
+ * Shopify product update replaces the image list. eBay/Etsy/Wix CDN URLs often
+ * fail to fetch and clear live Shopify photos — only push INW-hosted or Shopify URLs.
+ */
+export function shopifyUpdateShouldReplaceImages(photos: string[]): boolean {
+  const urls = photos.filter((url) => typeof url === "string" && url.trim().length > 0);
+  if (urls.length === 0) return false;
+  if (!urls.every(isMarketplaceCdnPhotoUrl)) return true;
+  return urls.some((url) => marketplaceCdnFamily(url) === "shopify");
 }
 
 /** Map Shopify options + variants to an INW variant matrix. */

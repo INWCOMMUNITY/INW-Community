@@ -37,5 +37,10 @@ describe("classifyError", () => {
     err.status = 400;
     expect(classifyError(err)).toBe("transient");
     expect(shouldCountTowardCircuit(err)).toBe(false);
+    expect(
+      classifyError(
+        "Permanent error (won't retry): [#25014 · API_INVENTORY · Request · HTTP 400] A mixture of Self Hosted and EPS pictures are not allowed."
+      )
+    ).toBe("transient");
   });
 });

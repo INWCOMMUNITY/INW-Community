@@ -93,7 +93,6 @@ export function buildWixUpdateBody(
   revision: string,
   variantId: string | null
 ): Record<string, unknown> {
-  const photos = item.photos.slice(0, 12);
   const variant: Record<string, unknown> = {
     sku: getEffectiveSku(item),
     price: { actualPrice: { amount: wixPriceFromCents(item.priceCents) } },
@@ -106,9 +105,6 @@ export function buildWixUpdateBody(
   };
   const desc = descriptionHtml(item);
   if (desc) product.plainDescription = desc;
-  if (photos.length > 0) {
-    product.media = { itemsInfo: { items: photos.map((url) => ({ url })) } };
-  }
   return { product };
 }
 
@@ -128,6 +124,13 @@ function firstMediaUrl(product: WixProduct): string[] {
 }
 
 /** Catalog v1 product shape (classic Editor / stores-reader). */
+export type WixV1MediaItem = {
+  id?: string;
+  url?: string;
+  thumbnail?: { url?: string };
+  image?: { url?: string };
+};
+
 export type WixV1Product = {
   id?: string;
   name?: string;
@@ -136,7 +139,7 @@ export type WixV1Product = {
   description?: string;
   price?: number;
   priceData?: { price?: number; currency?: string };
-  media?: { mainMedia?: { image?: { url?: string } }; items?: { image?: { url?: string } }[] };
+  media?: { mainMedia?: WixV1MediaItem; items?: WixV1MediaItem[] };
   stock?: { quantity?: number; trackInventory?: boolean; inStock?: boolean };
   variants?: {
     id?: string;
@@ -192,12 +195,33 @@ export function v1Photos(product: WixV1Product): string[] {
     const url = wixOriginalMediaUrl(raw);
     if (url && !urls.includes(url)) urls.push(url);
   };
-  push(product.media?.mainMedia?.image?.url);
+  const pushItem = (item?: WixV1MediaItem) => {
+    if (!item) return;
+    push(item.image?.url);
+    push(item.url);
+    push(item.thumbnail?.url);
+  };
+  pushItem(product.media?.mainMedia);
   for (const it of product.media?.items ?? []) {
-    push(it.image?.url);
+    pushItem(it);
   }
   push(product.variants?.[0]?.media?.image?.url);
   return urls;
+}
+
+/** Wix media item ids for targeted delete — never pass an empty list (that wipes the gallery). */
+export function v1MediaIds(product: WixV1Product | null | undefined): string[] {
+  if (!product?.media) return [];
+  const ids: string[] = [];
+  const push = (id?: string) => {
+    const trimmed = id?.trim();
+    if (trimmed && !ids.includes(trimmed)) ids.push(trimmed);
+  };
+  push(product.media.mainMedia?.id);
+  for (const it of product.media.items ?? []) {
+    push(it.id);
+  }
+  return ids;
 }
 
 function v1PriceCents(product: WixV1Product): number {
@@ -349,8 +373,6 @@ export function buildWixV1UpdateBody(
     sku: getEffectiveSku(item),
     priceData: { price },
   };
-  const media = buildWixV1MediaFromPhotos(item.photos);
-  if (media) product.media = media;
   const variantRows = existing?.variants?.filter((v) => v.id) ?? [];
   if (variantRows.length > 0) {
     product.variants = variantRows.map((v) => ({
