@@ -17,6 +17,7 @@ import {
   ebayPhotosAreHostFamilyMismatchOnly,
   normalizeInventoryImageUrls,
   selectPassthroughInventoryImageUrls,
+  uniformHostFamilyImageUrls,
 } from "./media";
 
 export type PassthroughChangedFields = {
@@ -86,8 +87,9 @@ export function buildPassthroughLiveOverlayBody(
 
 function pinSanitizedLiveImageUrls(product: Record<string, unknown>): void {
   if (!Array.isArray(product.imageUrls)) return;
-  const urls = normalizeInventoryImageUrls(product.imageUrls.map((u) => String(u)));
+  const urls = uniformHostFamilyImageUrls(product.imageUrls.map((u) => String(u)));
   if (urls.length > 0) product.imageUrls = urls;
+  else delete product.imageUrls;
 }
 
 /** PUT live inventory with only product.title changed — live aspects preserved. */

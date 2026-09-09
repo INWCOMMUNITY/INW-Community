@@ -199,6 +199,25 @@ describe("applyEbayInventoryPhotoPolicy", () => {
     );
     expect(next.product).not.toHaveProperty("imageUrls");
   });
+
+  it("pins EPS-only when live imageUrls mix host families", () => {
+    const next = applyEbayInventoryPhotoPolicy(
+      {
+        product: {
+          title: "X",
+          imageUrls: ["https://blob.example.com/a.jpg", "https://i.ebayimg.com/live.jpg"],
+        },
+      },
+      {
+        liveImageUrls: ["https://blob.example.com/a.jpg", "https://i.ebayimg.com/live.jpg"],
+        inwPhotos: ["https://blob.example.com/a.jpg"],
+        pushInwPhotos: false,
+      }
+    );
+    expect((next.product as { imageUrls: string[] }).imageUrls).toEqual([
+      "https://i.ebayimg.com/live.jpg",
+    ]);
+  });
 });
 
 describe("selectPassthroughInventoryImageUrls", () => {

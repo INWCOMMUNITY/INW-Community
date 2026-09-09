@@ -6,6 +6,7 @@ import {
   ebayErrorActionHint,
   ebayPhotoHostFamilyShopSummary,
   isEbayPhotoHostFamilySyncError,
+  ebayPhotoHostErrorShouldStampContentPush,
   extractEbayWarnings,
   formatEbayApiBody,
   formatEbayErrorDiagnostics,
@@ -134,6 +135,16 @@ describe("ebay picture errors", () => {
     expect(ebayPhotoHostFamilyShopSummary(1)).toMatch(/1 listing/);
     expect(ebayPhotoHostFamilyShopSummary(3)).toMatch(/3 listings/);
     expect(ebayPhotoHostFamilyShopSummary(2)).toMatch(/do not need to re-upload/i);
+    expect(
+      ebayPhotoHostErrorShouldStampContentPush(
+        "[#25014] A mixture of Self Hosted and EPS pictures are not allowed."
+      )
+    ).toBe(true);
+    expect(
+      ebayPhotoHostErrorShouldStampContentPush(
+        "title: failed ([#25014] A mixture of Self Hosted and EPS pictures are not allowed.)"
+      )
+    ).toBe(false);
   });
 
   it("hints about mixed eBay-hosted and INW URLs for #25014 instead of asking to re-upload", () => {

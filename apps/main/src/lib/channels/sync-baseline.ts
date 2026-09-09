@@ -105,6 +105,77 @@ export type SyncDirection = "push" | "pull" | "noop";
 export type ConflictResolution = "most_recent" | "inw_wins" | "manual_review";
 
 /**
+ * Hash mismatch vs baseline is not an INW edit. CDN/plaintext drift and hash
+ * formula changes can desync the stored baseline without a StoreItem save.
+ * Require a save after the last agreed baseline before treating INW as edited.
+ */
+export function inwChangedSinceBaseline(args: {
+  hashDiffers: boolean;
+  inwUpdatedAt: Date | null;
+  baselineAt: Date | null;
+}): boolean {
+  if (!args.hashDiffers) return false;
+  if (!args.inwUpdatedAt || !args.baselineAt) return args.hashDiffers;
+  return args.inwUpdatedAt.getTime() > args.baselineAt.getTime();
+}
+
+/**
+ * After an INW push the channel timestamp is newer than StoreItem.updatedAt.
+ * Do not treat that echo as a marketplace edit that should overwrite INW.
+ */
+export function isSyncEchoWindow(baselineAt: Date | null, nowMs: number = Date.now()): boolean {
+  return baselineAt != null && baselineAt.getTime() > nowMs;
+}
+
+/**
+ * True when the seller saved on the channel after the last INW save.
+ * Used to avoid inw_wins pushing a stale hub copy over a marketplace edit.
+ *
+ * Shop catalogs sometimes omit last_modified. If INW was not saved after the
+ * last agreed baseline, a differing remote listing is treated as a marketplace
+ * edit (unless we are still inside the post-push echo window).
+ */
+export function newerChannelEditShouldPull(args: {
+  remoteContentDiffers: boolean;
+  inwUpdatedAt: Date | null;
+  remoteUpdatedAt: Date | null;
+  baselineAt: Date | null;
+}): boolean {
+  if (!args.remoteContentDiffers) return false;
+  if (isSyncEchoWindow(args.baselineAt)) return false;
+  if (args.remoteUpdatedAt) {
+    if (!args.inwUpdatedAt) return true;
+    return args.remoteUpdatedAt.getTime() > args.inwUpdatedAt.getTime();
+  }
+  if (!args.inwUpdatedAt || !args.baselineAt) return true;
+  return args.inwUpdatedAt.getTime() <= args.baselineAt.getTime();
+}
+
+/**
+ * Last-write guard for outbound content pushes. If the live channel title differs
+ * and that listing was saved after INW, do not PATCH the old INW title back.
+ */
+export function shouldBlockOutboundOverwrite(args: {
+  titlesDiffer: boolean;
+  remoteUpdatedAt: Date | null;
+  inwUpdatedAt: Date | null;
+  lastPushedAt: Date | null;
+  nowMs?: number;
+}): boolean {
+  if (!args.titlesDiffer) return false;
+  const now = args.nowMs ?? Date.now();
+  if (args.lastPushedAt && now - args.lastPushedAt.getTime() < SYNC_ECHO_SKEW_MS) {
+    return false;
+  }
+  if (args.remoteUpdatedAt && args.inwUpdatedAt) {
+    return args.remoteUpdatedAt.getTime() > args.inwUpdatedAt.getTime();
+  }
+  if (!args.inwUpdatedAt) return true;
+  if (!args.lastPushedAt) return true;
+  return args.inwUpdatedAt.getTime() <= args.lastPushedAt.getTime();
+}
+
+/**
  * Decide direction for a single aspect (content or quantity).
  * - only INW changed   -> push (INW -> channel)
  * - only channel changed -> pull (channel -> INW)
@@ -121,7 +192,7 @@ export function resolveSyncDirection(args: {
   if (!inwChanged && !remoteChanged) return "noop";
   if (inwChanged && !remoteChanged) return "push";
   if (!inwChanged && remoteChanged) return "pull";
-  
+
   // Both sides changed - apply conflict resolution strategy
   switch (conflictResolution) {
     case "inw_wins":

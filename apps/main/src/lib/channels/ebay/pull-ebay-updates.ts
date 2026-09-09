@@ -187,6 +187,28 @@ export function ebayGetItemIsPushEcho(args: {
   return nowMs - pushedAt < SYNC_ECHO_SKEW_MS;
 }
 
+/**
+ * GetItem almost never includes LastModifiedTime. After an INW title save, eBay can
+ * still show the previous title (push echo, or a #25014 picture mix that blocked the PUT).
+ * Cron-dirty / confirmed-snapshot must not copy that lagged title back onto INW.
+ * A real eBay revise is allowed when LastModified is strictly newer than the INW save,
+ * or when INW has not been saved since we last applied eBay content (first import included).
+ */
+export function ebayGetItemShouldPreserveInwContent(args: {
+  inwUpdatedAt: Date | null;
+  lastInboundAt: Date | null;
+  lastPushedAt?: Date | null;
+  ebayLastModified?: Date | null;
+}): boolean {
+  const ebayAt = args.ebayLastModified?.getTime() ?? 0;
+  const inwAt = args.inwUpdatedAt?.getTime() ?? 0;
+  if (ebayAt > 0 && (inwAt === 0 || ebayAt > inwAt)) return false;
+  const inboundAt = args.lastInboundAt?.getTime() ?? 0;
+  const pushedAt = args.lastPushedAt?.getTime() ?? 0;
+  if (inboundAt === 0 && pushedAt === 0) return false;
+  return inwAt > inboundAt;
+}
+
 export function ebayGetItemIsStaleVersusInw(args: {
   lastInboundAt: Date | null;
   lastPushedAt?: Date | null;
@@ -304,6 +326,9 @@ export function ebayGetItemApplyDecision(args: {
     args.inwDescription !== undefined || args.remoteDescription !== undefined;
   const descriptionDiffers =
     descriptionProvided && !inboundDescriptionsMatch(args.inwDescription, args.remoteDescription);
+  const preserveInwContent = ebayGetItemShouldPreserveInwContent(args);
+  const qtyPriceMatch =
+    args.remotePriceCents === args.inwPriceCents && args.remoteQuantity === args.inwQuantity;
 
   // Verified ping or dirty seller-list row: apply a real field diff unless this is our push echo.
   if (ebayApplyTrustsSingleSnapshot(args.source)) {
@@ -312,6 +337,9 @@ export function ebayGetItemApplyDecision(args: {
     }
     if (ebayGetItemIsPushEcho(args)) {
       return { action: "skip", reason: "echo-of-push" };
+    }
+    if (preserveInwContent && qtyPriceMatch) {
+      return { action: "skip", reason: "inw-newer-than-ebay" };
     }
     return {
       action: "apply",
@@ -337,6 +365,10 @@ export function ebayGetItemApplyDecision(args: {
   // Right after we pushed, GetItem may still show the previous listing.
   if (ebayGetItemIsPushEcho(args)) {
     return { action: "skip", reason: "echo-of-push" };
+  }
+
+  if (preserveInwContent && qtyPriceMatch) {
+    return { action: "skip", reason: "inw-newer-than-ebay" };
   }
 
   if (args.pendingRemoteHash === remoteHash) {
@@ -433,6 +465,12 @@ export async function refreshEbayListingByItemId(
     pendingRemoteHash: readEbayPendingInboundHash(link.conflictDetails),
     source: opts?.source,
   });
+  const preserveInwContent = ebayGetItemShouldPreserveInwContent({
+    lastInboundAt: link.lastInboundAt,
+    lastPushedAt: link.lastPushedAt,
+    inwUpdatedAt: storeItem.updatedAt,
+    ebayLastModified: details.remoteUpdatedAt,
+  });
 
   const endedDecision = ebayGetItemEndedDecision({
     listingEnded: details.listingEnded,
@@ -440,16 +478,6 @@ export async function refreshEbayListingByItemId(
     inwUpdatedAt: storeItem.updatedAt,
     lastPushedAt: link.lastPushedAt,
   });
-  if (details.listingEnded && endedDecision === "active") {
-    console.warn("[ebay] refreshEbayListingByItemId: GetItem said ended but listing looks live — keep eBay linked", {
-      storeItemId: storeItem.id,
-      legacyItemId,
-      listingEnded: details.listingEnded,
-      quantity: details.quantity,
-      quantitySold: details.quantitySold,
-      forcedInactive: opts?.activeListingIds != null && !opts.activeListingIds.has(legacyItemId),
-    });
-  }
 
   if (endedDecision === "ended") {
     if (!ebayGetItemMarksInwSoldOut(details)) {
@@ -583,7 +611,20 @@ export async function refreshEbayListingByItemId(
 
   const changes: string[] = [];
   const updateData: Record<string, unknown> = {};
-  const skipContent = opts?.skipContent === true;
+  const skipContent = opts?.skipContent === true || preserveInwContent;
+
+  if (preserveInwContent && opts?.skipContent !== true) {
+    console.log("[ebay] refreshEbayListingByItemId: keep INW title/content; GetItem is not newer", {
+      storeItemId: storeItem.id,
+      legacyItemId,
+      source: opts?.source ?? "cron",
+      inwTitle: storeItem.title,
+      getItemTitle: details.title,
+      inwUpdatedAt: storeItem.updatedAt.toISOString(),
+      lastInboundAt: link.lastInboundAt?.toISOString() ?? null,
+      ebayLastModified: details.remoteUpdatedAt?.toISOString() ?? null,
+    });
+  }
 
   if (!skipContent && remoteTitle && remoteTitle !== storeItem.title) {
     updateData.title = remoteTitle;
@@ -732,7 +773,7 @@ export async function refreshEbayListingByItemId(
     });
 
     const contentChange = isEbayInboundContentChange(updateData);
-    if (contentChange) {
+    if (contentChange && !preserveInwContent) {
       const contentHash = syncContentHash(updatedItem);
       const metaHash = syncMetaHash({
         category: updatedItem.category,
@@ -753,6 +794,14 @@ export async function refreshEbayListingByItemId(
           lastInboundAt: new Date(),
           syncStatus: "synced",
           syncError: null,
+          conflictDetails: withEbayPendingInbound(conflictDetails, null),
+        },
+      });
+    } else if (preserveInwContent && typeof updateData.quantity === "number") {
+      await prisma.channelListingLink.update({
+        where: { id: link.id },
+        data: {
+          syncBaselineQty: updatedItem.quantity,
           conflictDetails: withEbayPendingInbound(conflictDetails, null),
         },
       });
@@ -843,15 +892,23 @@ export async function applyEbayXmlPostcard(args: {
           secondaryCategory: true,
           shippingCostCents: true,
           variants: true,
+          updatedAt: true,
         },
       },
     },
   });
   if (!link?.storeItem) return null;
 
+  const preserveInwContent = ebayGetItemShouldPreserveInwContent({
+    inwUpdatedAt: link.storeItem.updatedAt,
+    lastInboundAt: link.lastInboundAt,
+    lastPushedAt: link.lastPushedAt,
+    ebayLastModified: args.postcard.lastModified ?? null,
+  });
+
   const updateData: Record<string, unknown> = {};
   const changes: string[] = [];
-  if (writes.title && writes.title !== link.storeItem.title) {
+  if (writes.title && writes.title !== link.storeItem.title && !preserveInwContent) {
     updateData.title = writes.title.slice(0, 200);
     changes.push("title");
   }
@@ -872,27 +929,29 @@ export async function applyEbayXmlPostcard(args: {
     where: { id: link.storeItem.id },
     data: updateData,
   });
-  const contentHash = syncContentHash(updatedItem);
-  const metaHash = syncMetaHash({
-    category: updatedItem.category,
-    subcategory: updatedItem.subcategory,
-    secondaryCategory: updatedItem.secondaryCategory,
-    shippingCostCents: updatedItem.shippingCostCents,
-    variants: updatedItem.variants,
-  });
-  await prisma.channelListingLink.update({
-    where: { id: link.id },
-    data: {
-      syncBaselineHash: contentHash,
-      syncBaselineMetaHash: metaHash,
-      syncBaselineVariantsHash: variantsFingerprint(updatedItem.variants),
-      syncBaselineQty: updatedItem.quantity,
-      syncBaselineAt: args.postcard.lastModified ?? new Date(),
-      lastInboundAt: new Date(),
-      syncStatus: "synced",
-      syncError: null,
-    },
-  });
+  if (!preserveInwContent) {
+    const contentHash = syncContentHash(updatedItem);
+    const metaHash = syncMetaHash({
+      category: updatedItem.category,
+      subcategory: updatedItem.subcategory,
+      secondaryCategory: updatedItem.secondaryCategory,
+      shippingCostCents: updatedItem.shippingCostCents,
+      variants: updatedItem.variants,
+    });
+    await prisma.channelListingLink.update({
+      where: { id: link.id },
+      data: {
+        syncBaselineHash: contentHash,
+        syncBaselineMetaHash: metaHash,
+        syncBaselineVariantsHash: variantsFingerprint(updatedItem.variants),
+        syncBaselineQty: updatedItem.quantity,
+        syncBaselineAt: args.postcard.lastModified ?? new Date(),
+        lastInboundAt: new Date(),
+        syncStatus: "synced",
+        syncError: null,
+      },
+    });
+  }
   console.log("[ebay] xml postcard", {
     storeItemId: updatedItem.id,
     itemId: args.itemId,

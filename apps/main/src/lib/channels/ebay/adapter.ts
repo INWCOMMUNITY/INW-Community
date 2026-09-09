@@ -92,6 +92,7 @@ import {
   prepareEbaySyncAspects,
 } from "./sync-aspects";
 import { parseStoredAspects, aspectsToEbayProductAspects } from "@/lib/listing-limits";
+import { channelTreatsItemInStock } from "@/lib/listing-variant-matrix";
 import { hasOptionQuantities } from "../../store-item-variants";
 import {
   enumerateEbayListings,
@@ -613,6 +614,7 @@ async function upsertListing(
               sku,
               quantity,
               offerId,
+              title: item.title,
             });
             await persistRevisionCount(conn.id, sku, conn.config);
             bulkFields[0]!.ok = true;
@@ -692,7 +694,8 @@ async function upsertListing(
             accessToken: conn.accessToken,
             body: payload,
             liveImageUrls: readInventoryProductImageUrls(live),
-            fallbackImageUrls: item.photos,
+            fallbackImageUrls: putInventory ? item.photos : [],
+            allowInwPhotoUpload: putInventory,
             describeError: describeEbayThrownError,
             put: async (next) => {
               await ebayJson(
@@ -1334,7 +1337,7 @@ async function upsertListing(
         )
       );
       const shouldPublishGroup =
-        cfg.canPublish && item.status === "active" && item.quantity > 0 && !hadOfferAtStart;
+        cfg.canPublish && item.status === "active" && channelTreatsItemInStock(item) && !hadOfferAtStart;
       if (shouldPublishGroup) {
         if (!hadOfferAtStart) {
           try {
@@ -1833,9 +1836,10 @@ export const ebayAdapter: ChannelAdapter = {
 
       if (hasOptionQuantities(item.variants)) {
         const qtyItem = { ...item, quantity: Math.max(0, absoluteQuantity) };
+        const live = await fetchLiveInventoryItem(conn.accessToken, inventorySku);
+        const liveUrls = live ? readInventoryProductImageUrls(live) : [];
         let inventoryBody: Record<string, unknown>;
         if (isImported) {
-          const live = await fetchLiveInventoryItem(conn.accessToken, inventorySku);
           if (!live) {
             throw new Error("Could not fetch live eBay inventory for passthrough qty update");
           }
@@ -1844,20 +1848,28 @@ export const ebayAdapter: ChannelAdapter = {
             title: item.title,
           });
         } else {
-          const live = await fetchLiveInventoryItem(conn.accessToken, inventorySku);
-          const liveUrls = live ? readInventoryProductImageUrls(live) : [];
           inventoryBody = applyEbayInventoryPhotoPolicy(buildEbayInventoryItem(qtyItem), {
             liveImageUrls: liveUrls,
             inwPhotos: item.photos,
             pushInwPhotos: false,
           });
         }
-        await ebayJson(
-          conn.accessToken,
-          `/sell/inventory/v1/inventory_item/${encodeURIComponent(inventorySku)}`,
-          "PUT",
-          inventoryBody
-        );
+        await putInventoryWithPhotoRecovery({
+          accessToken: conn.accessToken,
+          body: inventoryBody,
+          liveImageUrls: liveUrls,
+          fallbackImageUrls: [],
+          allowInwPhotoUpload: false,
+          describeError: describeEbayThrownError,
+          put: async (next) => {
+            await ebayJson(
+              conn.accessToken,
+              `/sell/inventory/v1/inventory_item/${encodeURIComponent(inventorySku)}`,
+              "PUT",
+              next
+            );
+          },
+        });
         await persistRevisionCount(conn.id, inventorySku, conn.config);
         await verifyInventoryWrite(conn.accessToken, inventorySku, null);
         return;
@@ -1869,6 +1881,7 @@ export const ebayAdapter: ChannelAdapter = {
         sku: inventorySku,
         quantity,
         offerId: offer?.offerId,
+        title: item.title,
       });
       await persistRevisionCount(conn.id, inventorySku, conn.config);
 

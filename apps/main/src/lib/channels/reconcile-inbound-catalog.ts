@@ -11,6 +11,8 @@ import { getAdapter } from "./registry";
 import { updateStoreItemOnChannels } from "./outbound";
 import { channelSyncSucceeded, syncInventoryToChannels } from "./sync-inventory";
 import {
+  inwChangedSinceBaseline,
+  newerChannelEditShouldPull,
   resolveSyncDirection,
   syncContentHash,
   syncMetaHash,
@@ -35,6 +37,10 @@ import {
 } from "./listing-link-flags";
 import { isInboundCatalogContentEcho } from "./inbound-catalog-decision";
 import { wixProductIsGone } from "./wix/listing-exists";
+import {
+  etsyLinkedListingNeedsHydrate,
+  fetchEtsyListingForInbound,
+} from "./etsy/listing-exists";
 import {
   inwHostedPhotosChangedSinceLastPush,
   marketplaceCdnPhotoRehostOnly,
@@ -244,6 +250,7 @@ export async function reconcileConnectionInboundCatalog(
     console.log("[channels] fetched remote listings", { 
       provider, 
       count: remoteList.length,
+      withRemoteUpdatedAt: remoteList.filter((l) => l.remoteUpdatedAt != null).length,
       sample: remoteList.slice(0, 2).map(l => ({ id: l.externalListingId, title: l.title?.slice(0, 30) })),
     });
   } catch (e) {
@@ -291,6 +298,49 @@ export async function reconcileConnectionInboundCatalog(
     provider === "ebay"
       ? indexEbayRemoteListings(remoteList)
       : new Map(remoteList.map((r) => [r.externalListingId, r]));
+
+  const etsyGoneIds = new Set<string>();
+  if (provider === "etsy") {
+    let hydrated = 0;
+    let hydratedMissingFromList = 0;
+    for (const link of links) {
+      const existing = remoteById.get(link.externalListingId);
+      if (!etsyLinkedListingNeedsHydrate(existing)) continue;
+      try {
+        const fetched = await fetchEtsyListingForInbound(ctx.accessToken, link.externalListingId);
+        if (fetched.status === "gone") {
+          etsyGoneIds.add(link.externalListingId);
+          continue;
+        }
+        remoteById.set(link.externalListingId, fetched.summary);
+        remoteById.set(fetched.summary.externalListingId, fetched.summary);
+        hydrated += 1;
+        if (!existing) hydratedMissingFromList += 1;
+        console.log("[channels] etsy inbound hydrate", {
+          storeItemId: link.storeItemId,
+          externalListingId: link.externalListingId,
+          state: fetched.state,
+          wasMissingFromActiveList: !existing,
+          remoteUpdatedAt: fetched.summary.remoteUpdatedAt?.toISOString() ?? null,
+          title: fetched.summary.title.slice(0, 40),
+        });
+      } catch (e) {
+        console.warn("[channels] etsy inbound hydrate failed", {
+          storeItemId: link.storeItemId,
+          externalListingId: link.externalListingId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+    console.log("[channels] etsy inbound hydrate summary", {
+      connectionId: connection.id,
+      linked: links.length,
+      activeList: remoteList.length,
+      hydrated,
+      hydratedMissingFromList,
+      gone: etsyGoneIds.size,
+    });
+  }
 
   // GetMyeBaySelling / Inventory GET can lag minutes behind a revise. Overlay
   // live GetItem title/price/qty for linked listings before we decide pull vs push.
@@ -370,22 +420,11 @@ export async function reconcileConnectionInboundCatalog(
         continue;
       }
       if (provider === "etsy") {
-        const { etsyListingIsGone } = await import("./etsy/listing-exists");
-        const gone = await etsyListingIsGone(ctx.accessToken, link.externalListingId).catch(
-          () => false
-        );
-        if (!gone) {
-          const changed = await persistRemoteCatalogState({
-            linkId: link.id,
-            conflictDetails: link.conflictDetails,
-            state: "inactive_outside_catalog",
+        if (!etsyGoneIds.has(link.externalListingId)) {
+          console.warn("[channels] skip sell-out; Etsy listing hydrate inconclusive", {
+            storeItemId: link.storeItemId,
+            externalListingId: link.externalListingId,
           });
-          if (changed) {
-            console.warn("[channels] skip sell-out; Etsy listing still exists outside active catalog", {
-              storeItemId: link.storeItemId,
-              externalListingId: link.externalListingId,
-            });
-          }
           continue;
         }
       }
@@ -422,18 +461,28 @@ export async function reconcileConnectionInboundCatalog(
     const inwHash = syncContentHash(item);
     const baseHash = link.syncBaselineHash ?? inwHash;
     const baseAt = link.syncBaselineAt ?? remote.remoteUpdatedAt ?? new Date();
-    const inwContentChanged = inwHash !== baseHash;
+    const inwContentChanged = inwChangedSinceBaseline({
+      hashDiffers: inwHash !== baseHash,
+      inwUpdatedAt: item.updatedAt,
+      baselineAt: baseAt,
+    });
     const remoteHash = remoteListingContentHash(remote);
 
     // Remote edited on the channel since we last agreed a baseline (timestamp + content hash).
     const remoteTimestampNewer =
       remote.remoteUpdatedAt != null && remote.remoteUpdatedAt.getTime() > baseAt.getTime();
-    const remoteListEditVisible =
-      !inwContentChanged && remoteTitleOrPriceDiffersFromStoreItem(item, remote);
-    const remoteContentChanged =
-      (remoteTimestampNewer && remoteHash !== baseHash) || remoteListEditVisible;
-
     const remoteContentActuallyDiffers = remoteContentDiffersFromStoreItem(item, remote);
+    const remoteListEditVisible =
+      !inwContentChanged &&
+      (remoteTitleOrPriceDiffersFromStoreItem(item, remote) ||
+        (remote.remoteUpdatedAt == null &&
+          !inboundDescriptionsMatch(item.description, remote.description)));
+    // Etsy last_modified is honest. Count a newer save even when the photo fingerprint
+    // hash matches but title/price/description actually differ.
+    const remoteContentChanged =
+      (remoteTimestampNewer && remoteHash !== baseHash) ||
+      (provider === "etsy" && remoteTimestampNewer && remoteContentActuallyDiffers) ||
+      remoteListEditVisible;
 
     // INW was saved after the remote listing last changed, but Etsy/Wix still shows old data (push pending).
     const inwNewerThanRemote =
@@ -486,6 +535,26 @@ export async function reconcileConnectionInboundCatalog(
       contentDecision = "noop";
     }
 
+    // Stale INW baseline + inw_wins would push the hub copy over a newer Etsy/Wix
+    // save and never fan that edit out to the other linked stores.
+    if (
+      contentDecision === "push" &&
+      newerChannelEditShouldPull({
+        remoteContentDiffers: remoteContentActuallyDiffers,
+        inwUpdatedAt: item.updatedAt,
+        remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
+        baselineAt: baseAt,
+      })
+    ) {
+      console.log("[channels] pulling newer channel edit instead of inw_wins push", {
+        storeItemId: link.storeItemId,
+        provider,
+        remoteUpdatedAt: remote.remoteUpdatedAt?.toISOString(),
+        inwUpdatedAt: item.updatedAt.toISOString(),
+      });
+      contentDecision = "pull";
+    }
+
     // Debug logging for inbound sync - always log to understand what's happening
     const remoteTimestamp = remote.remoteUpdatedAt?.getTime() ?? 0;
     const baseTimestamp = baseAt?.getTime() ?? 0;
@@ -526,6 +595,7 @@ export async function reconcileConnectionInboundCatalog(
       if (
         hashEcho ||
         staleRemoteNeedsPush ||
+        inwHash !== baseHash ||
         link.syncBaselineHash == null ||
         link.syncBaselineAt == null
       ) {

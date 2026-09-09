@@ -9,6 +9,8 @@ import {
 } from "@/lib/store-order-shipments";
 import { ACTIVE_STORE_RETURN_STATUSES, buyerReturnPolicyFields } from "@/lib/store-return";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   try {
     const session = await getSessionForApi(req);

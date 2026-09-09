@@ -26,6 +26,11 @@ type SubscriptionResponse = {
 };
 
 /** Create or replace a Commerce Notification destination for the seller account. */
+export function isEbayCommerceNotificationPermissionError(error: string | null | undefined): boolean {
+  if (!error) return false;
+  return /#1100|HTTP 403|insufficient permissions/i.test(error);
+}
+
 export async function ensureCommerceNotificationDestination(
   accessToken: string,
   webhookUrl: string
@@ -50,7 +55,13 @@ export async function ensureCommerceNotificationDestination(
       : { destinationId: null, error: "destination-create-empty-id" };
   } catch (e) {
     const error = e instanceof Error ? e.message.slice(0, 400) : String(e).slice(0, 400);
-    console.warn("[ebay] ensureCommerceNotificationDestination failed", { error });
+    if (isEbayCommerceNotificationPermissionError(error)) {
+      console.log("[ebay] Commerce Notification API not granted for this token; Platform Notifications still used", {
+        error,
+      });
+    } else {
+      console.warn("[ebay] ensureCommerceNotificationDestination failed", { error });
+    }
     return { destinationId: null, error };
   }
 }

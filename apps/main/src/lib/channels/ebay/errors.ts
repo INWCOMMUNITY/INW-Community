@@ -390,6 +390,15 @@ export function isEbayPhotoHostFamilySyncError(message: string | null | undefine
   );
 }
 
+/**
+ * #25014 is photo-only. If that PUT also carried a title change, the title did not land.
+ * Stamping lastPushedHash would skip retries and let GetItem copy the old eBay title back onto INW.
+ */
+export function ebayPhotoHostErrorShouldStampContentPush(message: string | null | undefined): boolean {
+  if (!isEbayPhotoHostFamilySyncError(message)) return false;
+  return !/\btitle:\s*failed\b/i.test(message ?? "");
+}
+
 export function ebayPhotoHostFamilyShopSummary(listingCount: number): string {
   const n = Math.max(1, listingCount);
   const listings = n === 1 ? "1 listing" : `${n} listings`;

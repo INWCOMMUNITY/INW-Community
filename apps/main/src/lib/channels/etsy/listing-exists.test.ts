@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { etsyListingIsNotActive, etsyListingStateMeansGone } from "./listing-exists";
+import {
+  etsyLinkedListingNeedsHydrate,
+  etsyListingIsNotActive,
+  etsyListingStateMeansGone,
+} from "./listing-exists";
 
 describe("etsyListingStateMeansGone", () => {
   it("treats removed/expired/sold_out as gone", () => {
@@ -13,6 +17,22 @@ describe("etsyListingStateMeansGone", () => {
     expect(etsyListingStateMeansGone("draft")).toBe(false);
     expect(etsyListingStateMeansGone("inactive")).toBe(false);
     expect(etsyListingStateMeansGone(null)).toBe(false);
+  });
+});
+
+describe("etsyLinkedListingNeedsHydrate", () => {
+  it("hydrates listings missing from the active shop list", () => {
+    expect(etsyLinkedListingNeedsHydrate(undefined)).toBe(true);
+  });
+
+  it("hydrates list rows that have no last_modified timestamp", () => {
+    expect(etsyLinkedListingNeedsHydrate({ remoteUpdatedAt: null })).toBe(true);
+  });
+
+  it("skips list rows that already have last_modified", () => {
+    expect(
+      etsyLinkedListingNeedsHydrate({ remoteUpdatedAt: new Date("2026-09-08T17:40:26.798Z") })
+    ).toBe(false);
   });
 });
 

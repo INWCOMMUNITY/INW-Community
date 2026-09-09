@@ -5,6 +5,7 @@ import {
   fetchLiveInventoryItem,
   overlayOfferAvailableQuantity,
 } from "./passthrough-push";
+import { putInventoryWithPhotoRecovery, readInventoryProductImageUrls } from "./media";
 
 const BULK_QTY_PATH = "/sell/inventory/v1/bulk_update_price_quantity";
 
@@ -19,10 +20,11 @@ export async function pushEbayAbsoluteQuantity(args: {
   sku: string;
   quantity: number;
   offerId?: string | null;
+  title?: string | null;
 }): Promise<void> {
   const quantity = Math.max(0, Math.round(args.quantity));
   if (quantity <= 0) {
-    await pushEbayZeroQuantity(args.accessToken, args.sku, args.offerId);
+    await pushEbayZeroQuantity(args.accessToken, args.sku, args.offerId, args.title);
     return;
   }
 
@@ -42,7 +44,8 @@ export async function pushEbayAbsoluteQuantity(args: {
 async function pushEbayZeroQuantity(
   accessToken: string,
   sku: string,
-  offerId?: string | null
+  offerId?: string | null,
+  title?: string | null
 ): Promise<void> {
   let offerZeroed = false;
   if (offerId) {
@@ -51,7 +54,7 @@ async function pushEbayZeroQuantity(
   }
 
   try {
-    await pushEbayZeroInventoryQuantity(accessToken, sku);
+    await pushEbayZeroInventoryQuantity(accessToken, sku, title);
   } catch (e) {
     if (offerZeroed) {
       console.warn("[ebay] inventory qty 0 put failed after offer was zeroed", {
@@ -96,16 +99,32 @@ async function pushEbayZeroOfferQuantity(
   );
 }
 
-async function pushEbayZeroInventoryQuantity(accessToken: string, sku: string): Promise<void> {
+async function pushEbayZeroInventoryQuantity(
+  accessToken: string,
+  sku: string,
+  title?: string | null
+): Promise<void> {
   const live = await fetchLiveInventoryItem(accessToken, sku);
   if (live) {
-    const body = buildPassthroughLiveOverlayBody(live, { quantity: 0 });
-    await ebayJson(
+    const body = buildPassthroughLiveOverlayBody(live, {
+      quantity: 0,
+      ...(title ? { title } : {}),
+    });
+    await putInventoryWithPhotoRecovery({
       accessToken,
-      `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
-      "PUT",
-      body
-    );
+      body,
+      liveImageUrls: readInventoryProductImageUrls(live),
+      fallbackImageUrls: [],
+      allowInwPhotoUpload: false,
+      put: async (next) => {
+        await ebayJson(
+          accessToken,
+          `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+          "PUT",
+          next
+        );
+      },
+    });
     return;
   }
 

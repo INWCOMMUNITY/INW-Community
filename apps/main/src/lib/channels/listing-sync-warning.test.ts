@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { listingChannelSyncWarning, withListingChannelSyncWarning } from "./listing-sync-warning";
+import { listingChannelSyncWarning, listingVariantChannelWarnings, withListingChannelSyncWarning } from "./listing-sync-warning";
 
 describe("listingChannelSyncWarning", () => {
   it("flags listings when the store connection is in error", () => {
@@ -58,6 +58,32 @@ describe("listingChannelSyncWarning", () => {
         connectionStatus: "active",
       })
     ).toBeNull();
+  });
+});
+
+describe("listingVariantChannelWarnings", () => {
+  it("warns when Etsy is linked to a three-axis listing", () => {
+    const notes = listingVariantChannelWarnings({
+      variants: {
+        axes: [
+          { name: "Size", values: ["S"] },
+          { name: "Color", values: ["Navy"] },
+          { name: "Fit", values: ["Slim"] },
+        ],
+        skus: [{ options: { Size: "S", Color: "Navy", Fit: "Slim" }, quantity: 1 }],
+      },
+      linkedProviders: ["etsy"],
+    });
+    expect(notes.join(" ")).toMatch(/2 option types/i);
+  });
+
+  it("notes MTO placeholder quantity on eBay", () => {
+    const notes = listingVariantChannelWarnings({
+      variants: null,
+      inventoryTracking: "made_to_order",
+      linkedProviders: ["ebay"],
+    });
+    expect(notes.join(" ")).toMatch(/placeholder quantity/i);
   });
 });
 

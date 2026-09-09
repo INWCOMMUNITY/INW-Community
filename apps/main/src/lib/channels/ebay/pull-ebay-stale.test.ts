@@ -3,6 +3,7 @@ import {
   ebayGetItemIsStaleVersusInw,
   ebayGetItemApplyDecision,
   ebayGetItemEndedDecision,
+  ebayGetItemShouldPreserveInwContent,
   isEbayInboundContentChange,
   ebayGetItemDetailsAreUsable,
   readEbayPendingInboundHash,
@@ -270,7 +271,7 @@ describe("ebayGetItemApplyDecision", () => {
     expect(ebayGetItemApplyDecision(base)).toEqual({ action: "skip", reason: "matches-inw" });
   });
 
-  it("skips a lagged GetItem after the seller saved or we pushed until two matching snapshots", () => {
+  it("does not copy a lagged eBay title over an INW save when LastModified is missing", () => {
     expect(
       ebayGetItemApplyDecision({
         ...base,
@@ -281,7 +282,7 @@ describe("ebayGetItemApplyDecision", () => {
         inwTitle: "Tachometer",
         now: new Date("2026-08-20T07:10:00.000Z"),
       })
-    ).toMatchObject({ action: "pending", reason: "await-confirm" });
+    ).toEqual({ action: "skip", reason: "inw-newer-than-ebay" });
   });
 
   it("skips GetItem without LastModified during the push echo window", () => {
@@ -396,6 +397,59 @@ describe("ebayGetItemApplyDecision", () => {
         now: new Date("2026-08-20T06:56:30.000Z"),
       })
     ).toEqual({ action: "skip", reason: "echo-of-push" });
+  });
+
+  it("does not apply cron-dirty or confirmed snapshots of the old eBay title after an INW save", () => {
+    const inwNewer = {
+      ...base,
+      inwUpdatedAt: new Date("2026-08-20T07:10:00.000Z"),
+      inwTitle: "Vintage Bear Clock",
+      remoteTitle: "Vintage Bear Clock (Testing) Etsy Works 2?",
+    };
+    expect(ebayGetItemApplyDecision({ ...inwNewer, source: "cron-dirty" })).toEqual({
+      action: "skip",
+      reason: "inw-newer-than-ebay",
+    });
+    expect(
+      ebayGetItemApplyDecision({
+        ...inwNewer,
+        pendingRemoteHash: "Vintage Bear Clock (Testing) Etsy Works 2?|4000|4",
+      })
+    ).toEqual({ action: "skip", reason: "inw-newer-than-ebay" });
+  });
+});
+
+describe("ebayGetItemShouldPreserveInwContent", () => {
+  const inbound = new Date("2026-08-20T06:50:03.000Z");
+
+  it("adopts eBay content on the first pull", () => {
+    expect(
+      ebayGetItemShouldPreserveInwContent({
+        inwUpdatedAt: null,
+        lastInboundAt: null,
+        lastPushedAt: null,
+      })
+    ).toBe(false);
+  });
+
+  it("keeps a later INW save when GetItem has no LastModified", () => {
+    expect(
+      ebayGetItemShouldPreserveInwContent({
+        inwUpdatedAt: new Date("2026-08-20T07:10:00.000Z"),
+        lastInboundAt: inbound,
+        lastPushedAt: inbound,
+      })
+    ).toBe(true);
+  });
+
+  it("lets a newer eBay LastModified overwrite INW", () => {
+    expect(
+      ebayGetItemShouldPreserveInwContent({
+        inwUpdatedAt: inbound,
+        lastInboundAt: inbound,
+        ebayLastModified: new Date("2026-08-20T07:20:00.000Z"),
+      })
+    ).toBe(false);
   });
 });
 

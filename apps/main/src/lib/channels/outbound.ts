@@ -4,6 +4,7 @@ import { getActiveConnectionsForMember, withConnectionAuthRetry } from "./connec
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
 import {
   storeItemContentHash,
+  shouldBlockOutboundOverwrite,
   syncContentHash,
   syncMetaHash,
   SYNC_ECHO_SKEW_MS,
@@ -15,7 +16,7 @@ import type {
   ChannelSyncResult,
   SyncStoreItem,
 } from "./types";
-import { describeChannelSyncError, isEbayPhotoHostFamilySyncError } from "./ebay/errors";
+import { describeChannelSyncError, isEbayPhotoHostFamilySyncError, ebayPhotoHostErrorShouldStampContentPush } from "./ebay/errors";
 import { enqueueRetry } from "./retry-queue";
 import { captureChannelSyncError } from "./sentry";
 import { syncInventoryToChannels } from "./sync-inventory";
@@ -36,6 +37,7 @@ import {
   shouldSkipEndedEbayOutbound,
 } from "./listing-link-flags";
 import { claimChannelListingLink } from "./listing-link-claim";
+import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
 /** Content fingerprint so we can skip no-op pushes on update. */
 function contentHash(item: SyncStoreItem): string {
   return storeItemContentHash(item);
@@ -521,15 +523,50 @@ export async function updateStoreItemOnChannels(
     }
 
     try {
+      let skippedNewerRemote = false;
       await withConnectionAuthRetry(link.connection, async (ctx) => {
         const adapter = getAdapter(provider);
         
         // Apply per-channel price adjustment
         const priceAdjustmentPercent = (connConfig.priceAdjustmentPercent as number) ?? 0;
         const adjustedItem = applyPriceAdjustment(item, priceAdjustmentPercent);
+
+        if (provider === "etsy") {
+          const inwRow = await prisma.storeItem.findUnique({
+            where: { id: storeItemId },
+            select: { title: true, updatedAt: true },
+          });
+          const fetched = await fetchEtsyListingForInbound(ctx.accessToken, link.externalListingId);
+          if (
+            fetched.status === "ok" &&
+            inwRow &&
+            shouldBlockOutboundOverwrite({
+              titlesDiffer:
+                inwRow.title.trim().slice(0, 200) !== fetched.summary.title.trim().slice(0, 200),
+              inwUpdatedAt: inwRow.updatedAt,
+              remoteUpdatedAt: fetched.summary.remoteUpdatedAt,
+              lastPushedAt: link.lastPushedAt,
+            })
+          ) {
+            skippedNewerRemote = true;
+            console.warn("[channels] skip Etsy content push; live listing is newer than INW", {
+              storeItemId,
+              externalListingId: link.externalListingId,
+              inwTitle: inwRow.title.slice(0, 40),
+              remoteTitle: fetched.summary.title.slice(0, 40),
+              inwUpdatedAt: inwRow.updatedAt.toISOString(),
+              remoteUpdatedAt: fetched.summary.remoteUpdatedAt?.toISOString() ?? null,
+            });
+            return;
+          }
+        }
         
         await adapter.updateListing(ctx, link.externalListingId, adjustedItem);
       });
+      if (skippedNewerRemote) {
+        results.push({ provider, ok: true });
+        continue;
+      }
       await prisma.channelListingLink.update({
         where: { id: link.id },
         data: {
@@ -555,19 +592,25 @@ export async function updateStoreItemOnChannels(
       }
       const msg = describeChannelSyncError(provider, e);
       if (provider === "ebay" && isEbayPhotoHostFamilySyncError(msg)) {
+        const stampPush = ebayPhotoHostErrorShouldStampContentPush(msg);
         await prisma.channelListingLink
           .update({
             where: { id: link.id },
-            data: {
-              syncStatus: "synced",
-              syncError: msg,
-              lastPushedHash: hash,
-              lastPushedAt: new Date(),
-              lastPushedPhotos: item.photos,
-            },
+            data: stampPush
+              ? {
+                  syncStatus: "synced",
+                  syncError: msg,
+                  lastPushedHash: hash,
+                  lastPushedAt: new Date(),
+                  lastPushedPhotos: item.photos,
+                }
+              : {
+                  syncStatus: "error",
+                  syncError: msg,
+                },
           })
           .catch(() => {});
-        results.push({ provider, ok: true });
+        results.push({ provider, ok: stampPush, error: stampPush ? undefined : msg });
         continue;
       }
       console.error("[channels] updateListing failed", {

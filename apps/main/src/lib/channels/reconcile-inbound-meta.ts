@@ -12,6 +12,7 @@ import { indexEbayRemoteListings } from "./ebay/mapping";
 import { updateStoreItemOnChannels } from "./outbound";
 import { channelSyncSucceeded } from "./sync-inventory";
 import {
+  inwChangedSinceBaseline,
   resolveSyncDirection,
   syncContentHash,
   syncMetaHash,
@@ -19,22 +20,21 @@ import {
   type SyncDirection,
 } from "./sync-baseline";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
-import type { InwVariantAxis } from "./variant-sync";
 import { sumVariantQuantities, variantsFingerprint } from "./variant-sync";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
+import { isMadeToOrderTracking, normalizeVariantMatrix } from "@/lib/listing-variant-matrix";
 
 function inwMissingVariants(variants: unknown): boolean {
   if (variants == null) return true;
+  const matrix = normalizeVariantMatrix(variants);
+  if (matrix && matrix.axes.length > 0) return false;
   if (!Array.isArray(variants)) return true;
   return variants.length === 0;
 }
 
 function remoteVariantQtySum(remote: RemoteListingSummary): number {
-  if (!remote.variants || !Array.isArray(remote.variants)) return 0;
-  return (
-    sumVariantQuantities(remote.variants as InwVariantAxis[]) ||
-    sumOptionQuantities(remote.variants)
-  );
+  if (!remote.variants) return 0;
+  return sumVariantQuantities(remote.variants) || sumOptionQuantities(remote.variants);
 }
 
 function inwAllOptionQtyZero(variants: unknown): boolean {
@@ -79,6 +79,7 @@ type LinkRow = {
     variants: unknown;
     status: string;
     updatedAt: Date;
+    inventoryTracking?: string | null;
   };
 };
 
@@ -225,6 +226,7 @@ export async function reconcileConnectionInboundMeta(
           variants: true,
           status: true,
           updatedAt: true,
+          inventoryTracking: true,
         },
       },
     },
@@ -277,7 +279,11 @@ export async function reconcileConnectionInboundMeta(
     const inwMetaHash = syncMetaHash(item);
     const baseMetaHash = link.syncBaselineMetaHash ?? inwMetaHash;
     const baseAt = link.syncBaselineAt ?? remote.remoteUpdatedAt ?? new Date();
-    const inwMetaChanged = inwMetaHash !== baseMetaHash;
+    const inwMetaChanged = inwChangedSinceBaseline({
+      hashDiffers: inwMetaHash !== baseMetaHash,
+      inwUpdatedAt: item.updatedAt,
+      baselineAt: baseAt,
+    });
     const remoteMetaChanged =
       remote.remoteUpdatedAt != null && remote.remoteUpdatedAt.getTime() > baseAt.getTime();
     const metaDecision: SyncDirection = resolveSyncDirection({
@@ -295,7 +301,11 @@ export async function reconcileConnectionInboundMeta(
     const baseVarFp = link.syncBaselineVariantsHash ?? inwVarFp;
     const remoteVarFp =
       remote.variantsKnown === true ? variantsFingerprint(remote.variants) : null;
-    const inwVarChanged = inwVarFp !== baseVarFp;
+    const inwVarChanged = inwChangedSinceBaseline({
+      hashDiffers: inwVarFp !== baseVarFp,
+      inwUpdatedAt: item.updatedAt,
+      baselineAt: baseAt,
+    });
     const remoteVarChanged = remoteVarFp != null && remoteVarFp !== baseVarFp;
     const varDecision: SyncDirection = resolveSyncDirection({
       inwChanged: inwVarChanged,
@@ -320,8 +330,12 @@ export async function reconcileConnectionInboundMeta(
       pulled = cat || ship || asp || pulled;
     }
     if (varDecision === "pull") {
-      const vars = await applyRemoteVariantsToStoreItem(link.storeItemId, remote, provider);
-      pulled = vars || pulled;
+      const skipMtoZero =
+        isMadeToOrderTracking(item.inventoryTracking) && remoteVariantQtySum(remote) === 0;
+      if (!skipMtoZero) {
+        const vars = await applyRemoteVariantsToStoreItem(link.storeItemId, remote, provider);
+        pulled = vars || pulled;
+      }
     }
 
     let attemptedPush = false;

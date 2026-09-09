@@ -1,4 +1,6 @@
 import { etsyGet } from "./client";
+import { etsyListingToSummary } from "./mapping";
+import type { RemoteListingSummary } from "../types";
 
 /** Etsy states that mean the listing is no longer sellable on the shop. */
 export function etsyListingStateMeansGone(state: string | null | undefined): boolean {
@@ -14,6 +16,44 @@ export function etsyListingIsNotActive(state: string | null | undefined): boolea
 }
 
 /**
+ * Shop `state=active` lists omit inactive/draft rows and can lag a just-saved listing.
+ * Hydrate those linked rows (and any list row with no last_modified) via GET by id.
+ */
+export function etsyLinkedListingNeedsHydrate(
+  existing: { remoteUpdatedAt: Date | null } | undefined
+): boolean {
+  return existing == null || existing.remoteUpdatedAt == null;
+}
+
+export type EtsyInboundFetch =
+  | { status: "gone" }
+  | { status: "ok"; summary: RemoteListingSummary; state: string | null };
+
+/**
+ * Fetch one listing for inbound reconcile. Draft/inactive still exist — only
+ * 404 / removed / expired / sold_out are gone.
+ */
+export async function fetchEtsyListingForInbound(
+  accessToken: string,
+  listingId: string
+): Promise<EtsyInboundFetch> {
+  const id = listingId.trim().replace(/^inw/i, "");
+  if (!id) return { status: "gone" };
+  const listing = await etsyGet<Parameters<typeof etsyListingToSummary>[0]>(
+    accessToken,
+    `/listings/${encodeURIComponent(id)}?includes=Images`,
+    { notFoundOk: true }
+  );
+  if (!listing) return { status: "gone" };
+  if (etsyListingStateMeansGone(listing.state)) return { status: "gone" };
+  return {
+    status: "ok",
+    summary: etsyListingToSummary(listing),
+    state: listing.state ?? null,
+  };
+}
+
+/**
  * True when the listing is gone (404 or Etsy reports removed/expired/sold_out).
  * Active/draft/inactive still exist — do not sold-out INW from a partial active-only catalog.
  */
@@ -21,11 +61,6 @@ export async function etsyListingIsGone(
   accessToken: string,
   listingId: string
 ): Promise<boolean> {
-  const listing = await etsyGet<{ state?: string } | null>(
-    accessToken,
-    `/listings/${encodeURIComponent(listingId)}`,
-    { notFoundOk: true }
-  );
-  if (!listing) return true;
-  return etsyListingStateMeansGone(listing.state);
+  const fetched = await fetchEtsyListingForInbound(accessToken, listingId);
+  return fetched.status === "gone";
 }

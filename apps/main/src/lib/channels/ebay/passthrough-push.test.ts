@@ -803,6 +803,22 @@ describe("passthrough-push", () => {
     expect(product.aspects).toEqual({ Grade: ["MS 67"], "Numerical grade": ["67"] });
   });
 
+  it("qty overlay pins EPS-only when live inventory mixes self-hosted and EPS photos", () => {
+    const body = buildPassthroughLiveOverlayBody(
+      {
+        condition: "USED_EXCELLENT",
+        product: {
+          title: "Old eBay title",
+          imageUrls: ["https://blob.vercel-storage.com/a.jpg", "https://i.ebayimg.com/live.jpg"],
+        },
+      },
+      { quantity: 2, title: "Vintage Bear Clock" }
+    );
+    const product = body.product as Record<string, unknown>;
+    expect(product.title).toBe("Vintage Bear Clock");
+    expect(product.imageUrls).toEqual(["https://i.ebayimg.com/live.jpg"]);
+  });
+
   it("photo-only inventory PUT still pins the INW title so a lagged Inventory GET cannot revert it", () => {
     const live = {
       condition: "LIKE_NEW",

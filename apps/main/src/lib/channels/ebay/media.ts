@@ -137,7 +137,7 @@ export function applyEbayInventoryPhotoPolicy(
     const pinned = selectPassthroughInventoryImageUrls(args.liveImageUrls, args.inwPhotos);
     return pinned.length > 0 ? withInventoryProductImageUrls(body, pinned) : body;
   }
-  const live = normalizeInventoryImageUrls(args.liveImageUrls);
+  const live = uniformHostFamilyImageUrls(args.liveImageUrls);
   if (live.length > 0) return withInventoryProductImageUrls(body, live);
   return omitInventoryProductImageUrls(body);
 }
@@ -207,7 +207,8 @@ function epsOnlyImageUrls(urls: string[]): string[] {
   return normalizeInventoryImageUrls(urls.filter(isEbayEpsImageUrl));
 }
 
-function uniformHostFamilyImageUrls(urls: string[]): string[] {
+/** Drop mixed EPS + self-hosted URLs; prefer EPS so Inventory PUT does not return #25014. */
+export function uniformHostFamilyImageUrls(urls: string[]): string[] {
   const normalized = normalizeInventoryImageUrls(urls);
   if (!inventoryImageUrlsAreMixedHostFamily(normalized)) return normalized;
   const eps = epsOnlyImageUrls(normalized);
