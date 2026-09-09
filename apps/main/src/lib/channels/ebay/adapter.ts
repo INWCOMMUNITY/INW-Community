@@ -434,8 +434,13 @@ async function upsertListing(
       validationChecks.push({ name: "rate_limit", passed: true, severity: "warning" });
     }
 
-    const cat = await resolveProviderCategoryId(conn, "ebay", item.category);
-    let targetCategoryId = resolveCategoryId(item, cat.ebayCategoryId ?? null);
+    let targetCategoryId =
+      item.ebayCategoryId != null
+        ? String(item.ebayCategoryId)
+        : resolveCategoryId(
+            item,
+            (await resolveProviderCategoryId(conn, "ebay", item.category)).ebayCategoryId ?? null
+          );
     targetCategoryId = await resolveRemappedEbayCategoryId(targetCategoryId, {
       storeItemId: item.id,
       persist: true,
@@ -455,7 +460,7 @@ async function upsertListing(
       existingOfferCategoryId = typeof rawCategory === "string" ? rawCategory.trim() : null;
       existingOfferCategoryId = await resolveRemappedEbayCategoryId(existingOfferCategoryId, {
         storeItemId: item.id,
-        persist: true,
+        persist: item.ebayCategoryId == null,
         currentStoredId: item.ebayCategoryId,
         persistCategoryId: persistEbayCategoryId,
       });
@@ -1912,6 +1917,23 @@ export const ebayAdapter: ChannelAdapter = {
         linkOrigin: ebayLink?.linkOrigin,
       });
 
+      const offer = await findOffer(conn.accessToken, inventorySku).catch(() => null);
+      if (
+        offer?.status &&
+        shouldSkipEbayUnpublishedZeroQuantitySync({
+          quantity: Math.max(0, absoluteQuantity),
+          offerStatus: offer.status,
+        })
+      ) {
+        console.info("[ebay] skip unpublished zero-qty inventory update", {
+          storeItemId: item.id,
+          sku: inventorySku,
+          offerId: offer.offerId,
+          offerStatus: offer.status,
+        });
+        return;
+      }
+
       if (hasOptionQuantities(item.variants) && shouldUseInventoryItemGroup(item)) {
         let variantRows = buildVariantInventoryRows(item, {
           parentSku: inventorySku,
@@ -1935,7 +1957,6 @@ export const ebayAdapter: ChannelAdapter = {
 
       if (hasOptionQuantities(item.variants)) {
         const quantity = Math.max(0, absoluteQuantity);
-        const offer = await findOffer(conn.accessToken, inventorySku).catch(() => null);
         await pushEbayAbsoluteQuantity({
           accessToken: conn.accessToken,
           sku: inventorySku,
@@ -1954,7 +1975,6 @@ export const ebayAdapter: ChannelAdapter = {
         return;
       }
       const quantity = Math.max(0, absoluteQuantity);
-      const offer = await findOffer(conn.accessToken, inventorySku).catch(() => null);
       await pushEbayAbsoluteQuantity({
         accessToken: conn.accessToken,
         sku: inventorySku,

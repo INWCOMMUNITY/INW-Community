@@ -14,6 +14,7 @@ import {
   withRemoteDeletedCleared,
   withRemoteDeletedDismissed,
   withRemoteDeletedPending,
+  withRemoteListingGoneOnPush,
 } from "./listing-link-flags";
 
 describe("inboundContentFanoutKind", () => {
@@ -41,6 +42,11 @@ describe("ended eBay outbound skip", () => {
     expect(shouldSkipEndedEbayOutbound("wix", withRemoteDeletedDismissed(withRemoteDeletedPending({}, "wix")))).toBe(
       true
     );
+    expect(shouldSkipEndedEbayOutbound("wix", withRemoteCatalogState({}, "inactive"))).toBe(true);
+    expect(shouldSkipEndedEbayOutbound("shopify", withRemoteCatalogState({}, "inactive"))).toBe(
+      true
+    );
+    expect(shouldSkipEndedEbayOutbound("etsy", withRemoteCatalogState({}, "inactive"))).toBe(false);
     expect(shouldSkipEndedEbayOutbound("wix", {})).toBe(false);
   });
 });
@@ -119,6 +125,20 @@ describe("stale retry drop", () => {
       })
     ).toBe(false);
   });
+
+  it("drops eBay #25004 unpublished zero-qty retries", () => {
+    expect(
+      shouldDropStaleChannelRetry({
+        provider: "ebay",
+        retryType: "inventory",
+        conflictDetails: {},
+        storeItemQuantity: 0,
+        hasRecentSale: false,
+        lastError:
+          "[#25004 · API_INVENTORY · Request · HTTP 400] The unpublished offer has an invalid quantity. The quantity must be a valid number greater than 0.",
+      })
+    ).toBe(true);
+  });
 });
 
 describe("shouldDropContentRetryAfterLaterWrite", () => {
@@ -151,6 +171,22 @@ describe("ebayListingEnded flag", () => {
     expect(isEbayListingEnded(withEnded)).toBe(true);
     expect((withEnded as { other: number }).other).toBe(1);
     expect(isEbayListingEnded(withEbayListingEnded(withEnded, false))).toBe(false);
+  });
+});
+
+describe("withRemoteListingGoneOnPush", () => {
+  it("marks sold-out Wix misses inactive without Needs Attention", () => {
+    const next = withRemoteListingGoneOnPush({}, "wix", "sold_out");
+    expect(readRemoteCatalogState(next)).toBe("inactive");
+    expect(isRemoteDeletedPending(next)).toBe(false);
+    expect(shouldSkipEndedEbayOutbound("wix", next)).toBe(true);
+  });
+
+  it("flags a live Wix miss so the seller can keep or unsync", () => {
+    const next = withRemoteListingGoneOnPush({}, "wix", "active");
+    expect(readRemoteCatalogState(next)).toBe("inactive");
+    expect(isRemoteDeletedPending(next)).toBe(true);
+    expect(shouldSkipEndedEbayOutbound("wix", next)).toBe(true);
   });
 });
 

@@ -26,6 +26,7 @@ import {
 import { isWixMetasiteContextError } from "./client";
 import { resolveProviderCategoryId } from "../category-map";
 import { assertSaneInventoryQty } from "../inventory-sanity";
+import { isRemoteListingAlreadyGoneError } from "../error-classifier";
 import { hasOptionQuantities, sumOptionQuantities } from "../../store-item-variants";
 import { isMadeToOrderTracking } from "@/lib/listing-variant-matrix";
 import {
@@ -636,6 +637,7 @@ async function setInventoryAbsolute(
       attemptErrors.push(`${strategy.name}: no change`);
     } catch (e) {
       lastErr = e;
+      if (isRemoteListingAlreadyGoneError(e)) throw e;
       const msg = e instanceof WixApiError ? e.message : e instanceof Error ? e.message : String(e);
       attemptErrors.push(`${strategy.name}: ${msg}`);
       console.warn("[wix] setInventoryAbsolute failed", {

@@ -1,11 +1,16 @@
 import { prisma } from "database";
 import { syncInventoryToChannels } from "./sync-inventory";
 import { updateStoreItemOnChannels } from "./outbound";
-import { classifyError, type ErrorClassification } from "./error-classifier";
+import { classifyError, isRemoteListingAlreadyGoneError, type ErrorClassification } from "./error-classifier";
 import { logSyncEvent } from "./sync-log";
 import type { ChannelProvider } from "./types";
 import { shouldBlockSoldOutQtyRecovery } from "./sold-out-guard";
-import { readRemoteCatalogState, shouldDropStaleChannelRetry, shouldDropContentRetryAfterLaterWrite } from "./listing-link-flags";
+import {
+  persistRemoteListingGoneOnPush,
+  readRemoteCatalogState,
+  shouldDropStaleChannelRetry,
+  shouldDropContentRetryAfterLaterWrite,
+} from "./listing-link-flags";
 
 const BACKOFF_SCHEDULE_MS = [
   30_000,        // 30s
@@ -41,6 +46,26 @@ export async function enqueueRetry(
   error?: string,
   rawError?: unknown
 ): Promise<{ enqueued: boolean; classification: ErrorClassification }> {
+  if (isRemoteListingAlreadyGoneError(rawError ?? error)) {
+    const goneLink = await prisma.channelListingLink.findUnique({
+      where: { id: linkId },
+      select: {
+        id: true,
+        conflictDetails: true,
+        storeItem: { select: { status: true } },
+      },
+    });
+    if (goneLink) {
+      await persistRemoteListingGoneOnPush({
+        linkId: goneLink.id,
+        conflictDetails: goneLink.conflictDetails,
+        provider,
+        storeItemStatus: goneLink.storeItem.status,
+      });
+    }
+    return { enqueued: false, classification: "permanent" };
+  }
+
   const classification = classifyError(
     [error, rawError instanceof Error ? rawError.message : "", rawError].filter(Boolean).join(" ")
   );

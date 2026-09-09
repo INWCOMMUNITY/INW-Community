@@ -181,9 +181,9 @@ export function classifyError(error: unknown): ErrorClassification {
   if (/#25014\b|mixture of self hosted and eps|self hosted and eps pictures/i.test(errorStr)) {
     return "transient";
   }
-  // Unpublished sold-out drafts reject qty 0 (#25004). Skip and retry content later.
+  // Unpublished sold-out drafts reject qty 0 (#25004). Do not retry — skip at the adapter.
   if (/#25004\b|quantity must be a valid number greater than 0/i.test(errorStr)) {
-    return "transient";
+    return "permanent";
   }
   // Etsy all_caps titles are auto-softened on the next outbound push.
   if (/all_caps|sequential capital/i.test(errorStr)) {
@@ -245,8 +245,23 @@ export function isEbayEndedListingError(error: unknown): boolean {
 /** Unpublish can drop the INW link when the remote listing is already gone. */
 export function isRemoteListingAlreadyGoneError(error: unknown): boolean {
   if (isEbayEndedListingError(error)) return true;
-  if (extractStatusCode(error) === 404) return true;
+  const status = extractStatusCode(error);
+  if (status === 404 || status === 410) return true;
   const msg = errorToString(error);
+  // Wix often returns 400 + "Product with id {uuid} was not found" instead of 404.
+  if (
+    /product with id [a-z0-9-]+ was not found|product_not_found|product not found on wix/i.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+  if (
+    (status === 400 || status == null) &&
+    /product not found|product does not exist|already deleted|entity not found/i.test(msg)
+  ) {
+    return true;
+  }
   return /could not find the ebay listing to end|already been closed|already ended|has ended|listing has been deleted|item cannot be accessed|does not exist|this item cannot be accessed/i.test(
     msg
   );
@@ -270,6 +285,7 @@ export function shouldCountTowardCircuit(error: unknown): boolean {
   if (/all_caps|sequential capital/i.test(msg)) return false;
   if (/Picture Policy|500 pixels on the longest side/i.test(msg)) return false;
   if (/#25014\b|mixture of self hosted and eps|self hosted and eps pictures/i.test(msg)) return false;
+  if (/#25004\b|quantity must be a valid number greater than 0/i.test(msg)) return false;
   if (/when_made|who_made|is_supply|Postal Code is required/i.test(msg)) return false;
 
   const status = extractStatusCode(error);

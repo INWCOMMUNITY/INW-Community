@@ -75,8 +75,10 @@ export function ListOnChannelCategoryModal({
   const [assignmentsByItem, setAssignmentsByItem] = useState<Record<string, ListOnCategoryAssignment>>(
     {}
   );
-  const [categoryId, setCategoryId] = useState("");
-  const [categoryLabel, setCategoryLabel] = useState("");
+  const [ebayCategoryId, setEbayCategoryId] = useState("");
+  const [ebayCategoryLabel, setEbayCategoryLabel] = useState("");
+  const [etsyCategoryId, setEtsyCategoryId] = useState("");
+  const [etsyCategoryLabel, setEtsyCategoryLabel] = useState("");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CategoryChoice[]>([]);
   const [searching, setSearching] = useState(false);
@@ -89,6 +91,8 @@ export function ListOnChannelCategoryModal({
   const [aspectsError, setAspectsError] = useState<string | null>(null);
 
   const step = steps[index];
+  const categoryId = step?.provider === "etsy" ? etsyCategoryId : ebayCategoryId;
+  const categoryLabel = step?.provider === "etsy" ? etsyCategoryLabel : ebayCategoryLabel;
   const isLast = index === steps.length - 1;
   const providerLabel = step?.provider === "etsy" ? "Etsy" : "eBay";
   const showEtsyDetails = step?.provider === "etsy" && itemNeedsEtsyListingDetails(step.item);
@@ -113,14 +117,14 @@ export function ListOnChannelCategoryModal({
 
   useEffect(() => {
     if (!step) return;
+    setEbayCategoryId("");
+    setEbayCategoryLabel("");
     if (step.provider === "etsy" && step.item.etsyTaxonomyId) {
-      setCategoryId(String(step.item.etsyTaxonomyId));
-      setCategoryLabel("");
+      setEtsyCategoryId(String(step.item.etsyTaxonomyId));
+      setEtsyCategoryLabel("");
     } else {
-      // Do not prefill a stored eBay category: that immediately fetches
-      // category aspects (Taxonomy) and burns the same 429 budget as search.
-      setCategoryId("");
-      setCategoryLabel("");
+      setEtsyCategoryId("");
+      setEtsyCategoryLabel("");
     }
     setQuery("");
     setResults([]);
@@ -141,6 +145,24 @@ export function ListOnChannelCategoryModal({
     step?.item.etsyWhoMade,
     step?.item.etsyWhenMade,
   ]);
+
+  useEffect(() => {
+    if (!visible || !step || step.provider !== "etsy" || !etsyCategoryId || etsyCategoryLabel) return;
+    let cancelled = false;
+    apiGet<{ categories?: Array<{ categoryName?: string; categoryPath?: string }> }>(
+      `/api/channels/etsy/categories?id=${encodeURIComponent(etsyCategoryId)}`
+    )
+      .then((data) => {
+        if (cancelled) return;
+        const hit = data.categories?.[0];
+        const label = hit?.categoryPath || hit?.categoryName;
+        if (label) setEtsyCategoryLabel(label);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, step?.provider, etsyCategoryId, etsyCategoryLabel]);
 
   useEffect(() => {
     if (!visible || !step || step.provider !== "ebay" || !categoryId) {
@@ -318,12 +340,16 @@ export function ListOnChannelCategoryModal({
                   <Text style={styles.chipLabel} numberOfLines={2}>
                     {categoryLabel || `${providerLabel} category #${categoryId}`}
                   </Text>
-                  <Text style={styles.hint}>{providerLabel} category #{categoryId}</Text>
+                  <Text style={styles.hint}>
+                    Selected {providerLabel} category{categoryLabel ? `: ${categoryLabel}` : ""} ({categoryId})
+                  </Text>
                 </View>
                 <Pressable
                   onPress={() => {
-                    setCategoryId("");
-                    setCategoryLabel("");
+                    setEbayCategoryId("");
+                    setEbayCategoryLabel("");
+                    setEtsyCategoryId("");
+                    setEtsyCategoryLabel("");
                     setCategoryAspects([]);
                     setAspects([]);
                     setAspectsError(null);
@@ -351,8 +377,13 @@ export function ListOnChannelCategoryModal({
                     key={c.id}
                     style={styles.result}
                     onPress={() => {
-                      setCategoryId(c.id);
-                      setCategoryLabel(c.path || c.name);
+                      if (step.provider === "etsy") {
+                        setEtsyCategoryId(c.id);
+                        setEtsyCategoryLabel(c.path || c.name);
+                      } else {
+                        setEbayCategoryId(c.id);
+                        setEbayCategoryLabel(c.path || c.name);
+                      }
                       setQuery("");
                       setResults([]);
                     }}
@@ -371,7 +402,7 @@ export function ListOnChannelCategoryModal({
               <View style={{ marginTop: 12 }}>
                 <Text style={styles.fieldLabel}>Item specifics</Text>
                 <Text style={styles.hint}>
-                  Fill in the details eBay requires for this category. Required fields are marked with *.
+                  eBay requires these for this category. Required fields are marked with *.
                 </Text>
                 {aspectsLoading ? <ActivityIndicator color={theme.colors.primary} /> : null}
                 {aspectsError ? <Text style={styles.error}>{aspectsError}</Text> : null}
@@ -382,7 +413,9 @@ export function ListOnChannelCategoryModal({
                   const schema = categoryAspects.find(
                     (aspect) => aspect.name.trim().toLowerCase() === row.name.trim().toLowerCase()
                   );
-                  const required = Boolean(schema?.required) || isOftenRequiredEbayAspectName(row.name);
+        const required =
+          Boolean(schema?.required) ||
+          (Boolean(schema) && isOftenRequiredEbayAspectName(row.name));
                   const suggestions = schema?.suggestedValues ?? [];
                   const useDropdown = ebayAspectUsesDropdown(schema);
                   const isMulti = schema?.cardinality === "MULTI";

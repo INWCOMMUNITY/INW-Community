@@ -88,12 +88,12 @@ export function itemNeedsListOnCategoryStep(
   return itemNeedsEbayCategory(item) || itemNeedsEbayListingDetails(item);
 }
 
-/** Open the eBay category + Type/Brand popup for first-time List on eBay. Stored values are prefilled. */
+/** Open the category popup on first list so a stale Etsy taxonomy cannot be reused silently. */
 export function shouldOpenListOnCategoryStep(
   item: ListOnCategoryItem,
   provider: ListOnCategoryProvider
 ): boolean {
-  if (provider === "ebay") return true;
+  if (provider === "ebay" || provider === "etsy") return true;
   return itemNeedsListOnCategoryStep(item, provider);
 }
 

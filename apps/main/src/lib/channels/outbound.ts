@@ -31,9 +31,9 @@ import { logSyncEvent } from "./sync-log";
 import { formatProviderPublishError, validateForProvider } from "./validate-publish";
 import { shouldPushSoldOutInventoryOnly } from "./sold-out-guard";
 import { shouldBypassCircuitForInventoryPush } from "./circuit-inventory-bypass";
-import { isEbayEndedListingError, isRemoteListingAlreadyGoneError } from "./error-classifier";
+import { isRemoteListingAlreadyGoneError } from "./error-classifier";
 import {
-  persistEbayListingEnded,
+  persistRemoteListingGoneOnPush,
   readRemoteDeletedNotice,
   shouldSkipEndedEbayOutbound,
 } from "./listing-link-flags";
@@ -491,8 +491,9 @@ export async function updateStoreItemOnChannels(
         continue;
       }
 
+      let freshItem: Awaited<ReturnType<typeof loadSyncItem>> | null = null;
       try {
-        const freshItem = await loadSyncItem(storeItemId);
+        freshItem = await loadSyncItem(storeItemId);
         if (!freshItem) continue;
         const channelInventoryOffset = (connConfig.inventoryOffset as number) ?? 0;
         const globalSafetyBuffer = syncPrefs?.safetyBuffer ?? 0;
@@ -516,12 +517,17 @@ export async function updateStoreItemOnChannels(
         await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);
         results.push({ provider, ok: true });
       } catch (e) {
-        const msg = describeChannelSyncError(provider, e);
-        if (provider === "ebay" && isEbayEndedListingError(e)) {
-          await persistEbayListingEnded(link.id, link.conflictDetails);
+        if (isRemoteListingAlreadyGoneError(e)) {
+          await persistRemoteListingGoneOnPush({
+            linkId: link.id,
+            conflictDetails: link.conflictDetails,
+            provider,
+            storeItemStatus: freshItem?.status,
+          });
           results.push({ provider, ok: true });
           continue;
         }
+        const msg = describeChannelSyncError(provider, e);
         await prisma.channelListingLink
           .update({
             where: { id: link.id },
@@ -631,8 +637,13 @@ export async function updateStoreItemOnChannels(
       await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);
       results.push({ provider, ok: true });
     } catch (e) {
-      if (provider === "ebay" && isEbayEndedListingError(e)) {
-        await persistEbayListingEnded(link.id, link.conflictDetails);
+      if (isRemoteListingAlreadyGoneError(e)) {
+        await persistRemoteListingGoneOnPush({
+          linkId: link.id,
+          conflictDetails: link.conflictDetails,
+          provider,
+          storeItemStatus: item.status,
+        });
         results.push({ provider, ok: true });
         continue;
       }

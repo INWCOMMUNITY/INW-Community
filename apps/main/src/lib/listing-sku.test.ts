@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  clampEtsySku,
+  ETSY_SKU_MAX,
   isEbayMigrationSku,
   isGeneratedVariantOfItemId,
   LISTING_SKU_MAX,
@@ -55,6 +57,26 @@ describe("skuToAdoptFromRemote", () => {
         itemId: "cmt7vumcl000dxjujvgwe8dob",
       })
     ).toBeNull();
+  });
+});
+
+describe("clampEtsySku", () => {
+  it("keeps SKUs that already fit Etsy's 32-character cap", () => {
+    expect(clampEtsySku("HAT-42")).toBe("HAT-42");
+    expect(clampEtsySku("a".repeat(ETSY_SKU_MAX))).toHaveLength(ETSY_SKU_MAX);
+  });
+
+  it("maps long Size × Color SKUs to unique codes at or under 32 characters", () => {
+    const itemId = "cmt98fbq10001gm0yox25pnfg";
+    const sizes = ["Small", "Medium", "Large"];
+    const colors = ["Black", "Red", "Blue", "Green"];
+    const codes = sizes.flatMap((size) =>
+      colors.map((color) => clampEtsySku(`${itemId}${size}${color}`, `${itemId}:${size}:${color}`))
+    );
+    expect(codes).toHaveLength(12);
+    expect(new Set(codes).size).toBe(12);
+    expect(codes.every((code) => code.length <= ETSY_SKU_MAX)).toBe(true);
+    expect(codes.every((code) => /^[a-zA-Z0-9]+$/.test(code))).toBe(true);
   });
 });
 

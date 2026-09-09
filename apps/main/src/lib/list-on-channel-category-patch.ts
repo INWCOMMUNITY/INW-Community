@@ -28,8 +28,13 @@ export function storeItemPatchFromListOnCategoryAssignment(
       }))
     );
     if (incoming.length > 0) {
+      // Category assignment replaces leftover clothing specifics (Color/Department)
+      // instead of merging them into a newly picked leaf such as Desk Clocks.
+      const keepExisting = assignment.ebayCategoryId == null;
       const merged = new Map(
-        parseStoredAspects(existingAspects).map((row) => [row.name.toLowerCase(), row])
+        keepExisting
+          ? parseStoredAspects(existingAspects).map((row) => [row.name.toLowerCase(), row])
+          : []
       );
       for (const row of incoming) {
         merged.set(row.name.toLowerCase(), row);

@@ -65,6 +65,7 @@ export async function GET(req: NextRequest) {
     let aspects = filterSellerVisibleCategoryAspects(
       await getItemAspectsForCategory(categoryId, {
         sellerAccessToken: ebayCtx?.accessToken,
+        maxAgeMs: 10 * 60 * 1000,
       })
     );
     if (readOnly) {

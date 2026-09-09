@@ -105,6 +105,14 @@ describe("buildListOnCategoryQueue", () => {
     expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["a:etsy"]);
   });
 
+  it("always queues Etsy on first list even when taxonomy is already stored", () => {
+    const steps = buildListOnCategoryQueue(
+      [item({ etsyTaxonomyId: 1016 })],
+      ["etsy"]
+    );
+    expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["item-1:etsy"]);
+  });
+
   it("queues Etsy then eBay for the same item when both are missing", () => {
     const steps = buildListOnCategoryQueue([item()], ["etsy", "ebay"]);
     expect(steps.map((s) => s.provider)).toEqual(["etsy", "ebay"]);
@@ -120,7 +128,7 @@ describe("buildListOnCategoryQueueFromDesired", () => {
       ],
       { a: ["ebay"], b: ["etsy"] }
     );
-    expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["a:ebay"]);
+    expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["a:ebay", "b:etsy"]);
   });
 
   it("does not queue already-linked eBay when that store stays checked", () => {

@@ -2,10 +2,29 @@ import { describe, expect, it } from "vitest";
 import { storeItemPatchFromListOnCategoryAssignment } from "./list-on-channel-category-patch";
 
 describe("storeItemPatchFromListOnCategoryAssignment", () => {
-  it("keeps existing aspects and the official Brand value the seller picked", () => {
+  it("replaces leftover clothing specifics when the seller picks a new eBay category", () => {
     const patch = storeItemPatchFromListOnCategoryAssignment(
       {
         storeItemId: "a",
+        ebayCategoryId: 261605,
+        aspects: [
+          { name: "Type", value: "Clock" },
+          { name: "Brand", value: "Does Not Apply" },
+        ],
+      },
+      [{ name: "Color", value: "Red" }, { name: "Department", value: "Men" }]
+    );
+    expect(patch.aspects).toEqual([
+      { name: "Type", value: "Clock" },
+      { name: "Brand", value: "Does Not Apply" },
+    ]);
+  });
+
+  it("keeps existing aspects when only Etsy taxonomy is assigned", () => {
+    const patch = storeItemPatchFromListOnCategoryAssignment(
+      {
+        storeItemId: "a",
+        etsyTaxonomyId: 1016,
         aspects: [
           { name: "Type", value: "Clock" },
           { name: "Brand", value: "Does Not Apply" },

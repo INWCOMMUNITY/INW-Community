@@ -94,8 +94,15 @@ export async function prepareEbaySyncAspects(args: {
   const validation = validateRemappedAspects(prep.categoryAspects, prep.remappedAspects);
 
   if (validation.invalidSelectionValues.length > 0) {
+    console.error("[ebay] aspect validation failed", {
+      categoryId: args.categoryId,
+      aspectNames: validation.invalidSelectionValues.map((row) => row.name),
+      missingRequired: validation.missingRequired,
+    });
     throw new Error(
-      formatAspectValidationErrors(validation.missingRequired, validation.invalidSelectionValues)
+      formatAspectValidationErrors(validation.missingRequired, validation.invalidSelectionValues, {
+        id: args.categoryId,
+      })
     );
   }
 

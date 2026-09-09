@@ -73,6 +73,46 @@ describe("prepareAspectsForEbayCategory", () => {
     // Letter grade is eBay-only — not stored or shown to sellers
     expect(prep.remappedAspects.find((a) => a.name === "Letter grade")).toBeUndefined();
   });
+
+  it("drops leftover Department:Men instead of validating it against a clock category", () => {
+    const clockSchema: EbayCategoryAspect[] = [
+      {
+        name: "Type",
+        required: true,
+        mode: "SELECTION_ONLY",
+        cardinality: "SINGLE",
+        suggestedValues: ["Desk Clock", "Wall Clock"],
+      },
+      {
+        name: "Brand",
+        required: true,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+      {
+        name: "Department",
+        required: false,
+        mode: "SELECTION_ONLY",
+        cardinality: "SINGLE",
+        suggestedValues: ["Unisex Baby & Toddler", "Girls", "Boys", "Unisex Kids", "Teens"],
+      },
+    ];
+    const prep = prepareAspectsForEbayCategory(
+      clockSchema,
+      [
+        { name: "Type", value: "Desk Clock" },
+        { name: "Brand", value: "Unbranded" },
+        { name: "Department", value: "Men" },
+        { name: "Color", value: "Red" },
+      ],
+      "Vintage Bear Clock"
+    );
+    expect(prep.invalidSelectionValues).toEqual([]);
+    expect(prep.remappedAspects.find((row) => row.name === "Department")).toBeUndefined();
+    expect(prep.remappedAspects.find((row) => row.name === "Color")).toBeUndefined();
+    expect(prep.remappedAspects.find((row) => row.name === "Type")?.value).toBe("Desk Clock");
+  });
 });
 
 describe("ensureGradedCoinInventoryAspects", () => {
@@ -507,7 +547,7 @@ describe("ebayListOnFallbackAspects", () => {
 });
 
 describe("ebayAspectRowsForListOnPopup", () => {
-  it("shows required specifics and already-filled optional ones", () => {
+  it("shows required specifics only, not leftover optional Color", () => {
     const schema: EbayCategoryAspect[] = [
       {
         name: "Brand",
@@ -540,8 +580,54 @@ describe("ebayAspectRowsForListOnPopup", () => {
       "Blue widget"
     );
     expect(rows.some((row) => row.name === "Brand")).toBe(true);
-    expect(rows.find((row) => row.name === "Color")?.value).toBe("Blue");
+    expect(rows.some((row) => row.name === "Color")).toBe(false);
     expect(rows.some((row) => row.name === "Material")).toBe(false);
+  });
+
+  it("does not inject leftover Color or Department on a Desk Clocks schema", () => {
+    const schema: EbayCategoryAspect[] = [
+      {
+        name: "Type",
+        required: true,
+        mode: "SELECTION_ONLY",
+        cardinality: "SINGLE",
+        suggestedValues: ["Desk Clock", "Wall Clock"],
+      },
+      {
+        name: "Brand",
+        required: true,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+      {
+        name: "Color",
+        required: false,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+      {
+        name: "Department",
+        required: false,
+        mode: "SELECTION_ONLY",
+        cardinality: "SINGLE",
+        suggestedValues: ["Unisex Baby & Toddler", "Girls", "Boys", "Unisex Kids", "Teens"],
+      },
+    ];
+    const rows = ebayAspectRowsForListOnPopup(
+      schema,
+      [
+        { name: "Color", value: "Red" },
+        { name: "Department", value: "Men" },
+        { name: "Type", value: "Desk Clock" },
+      ],
+      "Vintage Bear Clock"
+    );
+    expect(rows.map((row) => row.name).sort()).toEqual(["Brand", "Type"]);
+    expect(rows.find((row) => row.name === "Type")?.value).toBe("Desk Clock");
+    expect(rows.some((row) => row.name === "Color")).toBe(false);
+    expect(rows.some((row) => row.name === "Department")).toBe(false);
   });
 
   it("includes Type even when taxonomy marks it optional", () => {

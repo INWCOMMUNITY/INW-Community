@@ -4,6 +4,7 @@ import { getAdapter } from "../registry";
 import {
   isRemoteDeletedPending,
   persistRemoteDeletedPending,
+  persistRemoteListingGoneOnPush,
 } from "../listing-link-flags";
 import type { ChannelConnectionContext } from "../types";
 import { setWixConnectionContext } from "./client";
@@ -24,10 +25,18 @@ export async function flagGoneWixLinks(
 ): Promise<number> {
   let removed = 0;
   for (const link of links) {
-    if (link.storeItem.status === "sold_out" || link.storeItem.status === "inactive") continue;
     if (isRemoteDeletedPending(link.conflictDetails)) continue;
     const gone = await wixProductIsGone(ctx, link.externalListingId);
     if (!gone) continue;
+    if (link.storeItem.status === "sold_out" || link.storeItem.status === "inactive") {
+      await persistRemoteListingGoneOnPush({
+        linkId: link.id,
+        conflictDetails: link.conflictDetails,
+        provider: "wix",
+        storeItemStatus: link.storeItem.status,
+      });
+      continue;
+    }
     const flagged = await persistRemoteDeletedPending({
       linkId: link.id,
       conflictDetails: link.conflictDetails,
@@ -53,8 +62,16 @@ async function flagMissingWixLinks(
   );
   let removed = 0;
   for (const link of missing) {
-    if (link.storeItem.status === "sold_out" || link.storeItem.status === "inactive") continue;
     if (isRemoteDeletedPending(link.conflictDetails)) continue;
+    if (link.storeItem.status === "sold_out" || link.storeItem.status === "inactive") {
+      await persistRemoteListingGoneOnPush({
+        linkId: link.id,
+        conflictDetails: link.conflictDetails,
+        provider: "wix",
+        storeItemStatus: link.storeItem.status,
+      });
+      continue;
+    }
     const flagged = await persistRemoteDeletedPending({
       linkId: link.id,
       conflictDetails: link.conflictDetails,

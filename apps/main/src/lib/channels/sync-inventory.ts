@@ -10,8 +10,8 @@ import { describeChannelSyncError, isEbayPhotoHostFamilySyncError } from "./ebay
 import { enqueueRetry } from "./retry-queue";
 import { logSyncEvent } from "./sync-log";
 import { captureChannelSyncError } from "./sentry";
-import { isEbayEndedListingError } from "./error-classifier";
-import { persistEbayListingEnded, shouldSkipEndedEbayOutbound } from "./listing-link-flags";
+import { isRemoteListingAlreadyGoneError } from "./error-classifier";
+import { persistRemoteListingGoneOnPush, shouldSkipEndedEbayOutbound } from "./listing-link-flags";
 import {
   isCircuitOpen,
   recordCircuitSuccess,
@@ -112,8 +112,9 @@ export async function syncInventoryToChannels(
       continue;
     }
 
+    let freshItem: Awaited<ReturnType<typeof prisma.storeItem.findUnique>> | null = null;
     try {
-      const freshItem = await prisma.storeItem.findUnique({
+      freshItem = await prisma.storeItem.findUnique({
         where: { id: storeItemId },
         select: syncStoreItemSelect,
       });
@@ -181,8 +182,20 @@ export async function syncInventoryToChannels(
       
       results.push({ provider, ok: true });
     } catch (e) {
-      if (link.provider === "ebay" && isEbayEndedListingError(e)) {
-        await persistEbayListingEnded(link.id, link.conflictDetails);
+      if (isRemoteListingAlreadyGoneError(e)) {
+        await persistRemoteListingGoneOnPush({
+          linkId: link.id,
+          conflictDetails: link.conflictDetails,
+          provider,
+          storeItemStatus: freshItem?.status,
+        });
+        logSyncEvent(
+          link.connection.memberId,
+          provider,
+          "push_inventory",
+          "remote listing already gone; skipped",
+          storeItemId
+        );
         results.push({ provider, ok: true });
         continue;
       }

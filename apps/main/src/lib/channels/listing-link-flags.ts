@@ -1,4 +1,5 @@
 import { prisma, Prisma } from "database";
+import { isEbayUnpublishedZeroQuantityError } from "./ebay/errors";
 import {
   conflictDetailsAsObject as asObject,
   readEbayListingEnded,
@@ -219,12 +220,66 @@ export function shouldDropContentRetryAfterLaterWrite(args: {
   return false;
 }
 
+export function withRemoteListingGoneOnPush(
+  conflictDetails: unknown,
+  provider: string,
+  storeItemStatus?: string | null
+): Prisma.InputJsonValue {
+  if (provider === "ebay") return withEbayListingEnded(conflictDetails, true);
+  const soldOrInactive =
+    storeItemStatus === "sold_out" || storeItemStatus === "inactive";
+  let next: unknown = conflictDetails;
+  // Active listings still need a Needs Attention prompt. Sold/inactive items
+  // would otherwise reappear there every time a deleted Wix product 404s.
+  if (!soldOrInactive) {
+    next = withRemoteDeletedPending(next, provider);
+  }
+  return withRemoteCatalogState(next, "inactive");
+}
+
+/**
+ * Stop retrying a remote listing that is already gone. eBay uses the ended flag;
+ * Wix/Shopify use catalog-inactive (and remoteDeleted when the INW item is still live).
+ */
+export async function persistRemoteListingGoneOnPush(args: {
+  linkId: string;
+  conflictDetails: unknown;
+  provider: string;
+  storeItemStatus?: string | null;
+}): Promise<void> {
+  if (args.provider === "ebay") {
+    await persistEbayListingEnded(args.linkId, args.conflictDetails);
+    return;
+  }
+  const next = withRemoteListingGoneOnPush(
+    args.conflictDetails,
+    args.provider,
+    args.storeItemStatus
+  );
+  await prisma.channelListingLink.update({
+    where: { id: args.linkId },
+    data: {
+      conflictDetails: next,
+      syncStatus: "synced",
+      syncError: null,
+    },
+  });
+  await prisma.channelSyncRetry
+    .deleteMany({ where: { linkId: args.linkId } })
+    .catch(() => {});
+}
+
 export function shouldSkipEndedEbayOutbound(
   provider: string,
   conflictDetails: unknown
 ): boolean {
   if (readRemoteDeletedNotice(conflictDetails)) return true;
-  return provider === "ebay" && isEbayListingEnded(conflictDetails);
+  if (provider === "ebay" && isEbayListingEnded(conflictDetails)) return true;
+  if (provider === "wix" || provider === "shopify") {
+    const state = readRemoteCatalogState(conflictDetails);
+    if (state === "inactive" || state === "inactive_outside_catalog") return true;
+  }
+  return false;
 }
 
 /** Flag a linked listing after a third-party delete webhook (by external product id). */
@@ -270,6 +325,7 @@ export function shouldDropStaleChannelRetry(args: {
   lastError?: string | null;
 }): boolean {
   if (shouldSkipEndedEbayOutbound(args.provider, args.conflictDetails)) return true;
+  if (args.provider === "ebay" && isEbayUnpublishedZeroQuantityError(args.lastError)) return true;
   if (args.provider !== "etsy" || args.retryType !== "inventory") return false;
   const state = readRemoteCatalogState(args.conflictDetails);
   if (state === "inactive" || state === "inactive_outside_catalog") return true;

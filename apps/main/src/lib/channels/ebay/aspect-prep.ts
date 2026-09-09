@@ -14,6 +14,8 @@ export type CategoryAspectSchema = {
   mode: EbayAspectMode;
   cardinality: "SINGLE" | "MULTI";
   suggestedValues: string[];
+  /** Taxonomy aspectUsage. Never treat RECOMMENDED as required — aspectRequired is the mandate. */
+  usage?: "RECOMMENDED" | "OPTIONAL";
 };
 
 /** Trading/import aliases → Taxonomy aspect name (case resolved against category schema). */
@@ -912,6 +914,14 @@ export function remapAspectsToTaxonomy(
     let finalValue = value;
     if (schema) {
       const normalized = normalizeSelectionValue(schema, value);
+      if (
+        schema.mode === "SELECTION_ONLY" &&
+        schema.suggestedValues.length > 0 &&
+        !schema.suggestedValues.some((allowed) => allowed.toLowerCase() === normalized.value.toLowerCase())
+      ) {
+        dropped.push(`${raw.name.trim()}:${value}`);
+        continue;
+      }
       finalValue = normalized.value;
       if (normalized.adjusted) {
         valueAdjustments.push({ name: canonicalName, from: value, to: finalValue });
@@ -1371,7 +1381,8 @@ export function validateRemappedAspects(
 
 export function formatAspectValidationErrors(
   missingRequired: string[],
-  invalidSelectionValues: ValidateRemappedAspectsResult["invalidSelectionValues"]
+  invalidSelectionValues: ValidateRemappedAspectsResult["invalidSelectionValues"],
+  category?: { id?: string | null; name?: string | null }
 ): string {
   const parts: string[] = [];
   if (missingRequired.length > 0) {
@@ -1382,7 +1393,31 @@ export function formatAspectValidationErrors(
       `"${inv.name}" value "${inv.value}" is not allowed. Choose from: ${inv.allowed.join(", ")}`
     );
   }
-  return parts.join(". ") + (parts.length ? ". Fill them in under eBay Listing Requirements." : "");
+  const categoryNote =
+    category?.id || category?.name
+      ? ` eBay category${category.name ? ` "${category.name}"` : ""}${category.id ? ` (${category.id})` : ""}.`
+      : "";
+  return parts.join(". ") + (parts.length ? `.${categoryNote} Fill them in under eBay Listing Requirements.` : "");
+}
+
+/** Drop SELECTION_ONLY values that are not on the target leaf (e.g. Department: Men on Desk Clocks). */
+export function dropInvalidSelectionValues(
+  categoryAspects: CategoryAspectSchema[],
+  aspects: ListingAspect[]
+): ListingAspect[] {
+  if (categoryAspects.length === 0) return aspects;
+  const byName = new Map(categoryAspects.map((schema) => [schema.name.toLowerCase(), schema]));
+  return normalizeListingAspects(
+    aspects.filter((row) => {
+      const schema = byName.get(row.name.trim().toLowerCase());
+      if (!schema || schema.mode !== "SELECTION_ONLY" || schema.suggestedValues.length === 0) {
+        return true;
+      }
+      return schema.suggestedValues.some(
+        (allowed) => allowed.toLowerCase() === row.value.trim().toLowerCase()
+      );
+    })
+  );
 }
 
 /**
@@ -1406,7 +1441,8 @@ export function prepareAspectsForEbayCategory(
   );
   const ensured = ensureGradedCoinInventoryAspects(categoryAspects, backfilled, expanded, title);
   const withDefaults = fillDefaultEbayAspects(categoryAspects, ensured, title);
-  const sellerVisible = filterSellerVisibleAspectRows(withDefaults);
+  const withoutInvalid = dropInvalidSelectionValues(categoryAspects, withDefaults);
+  const sellerVisible = filterSellerVisibleAspectRows(withoutInvalid);
   const sellerSchema = filterSellerVisibleCategoryAspects(categoryAspects);
   const validation = validateRemappedAspects(sellerSchema, sellerVisible);
   const missingRequired = [
@@ -1444,8 +1480,9 @@ export function prepareAspectRowsForForm(
   return filterSellerVisibleAspectRows(rows).slice(0, 30);
 }
 
-/** Required (and already-filled) item specifics for the List on eBay category popup.
- * Official eBay values only — do not invent Unbranded / No Brand. */
+/** Required item specifics for the List on eBay category popup.
+ * Official eBay values only — do not invent Unbranded / No Brand, and do not
+ * inject leftover optional Color/Department from a previous category. */
 export function ebayAspectRowsForListOnPopup(
   categoryAspects: CategoryAspectSchema[],
   aspects: ListingAspect[],
@@ -1478,15 +1515,16 @@ export function ebayAspectRowsForListOnPopup(
     return isBrandAspectName(schema.name) ? normalizeEbayBrandValue(raw) : raw;
   };
 
+  const popupRequired = (schema: CategoryAspectSchema): boolean =>
+    schema.required || isOftenRequiredEbayAspectName(schema.name);
+
   for (const schema of filterSellerVisibleCategoryAspects(categoryAspects)) {
-    const required = schema.required || isOftenRequiredEbayAspectName(schema.name);
-    const value = officialValue(schema);
-    if (!required && !value) continue;
-    rows.push({ name: schema.name, value });
+    if (!popupRequired(schema)) continue;
+    rows.push({ name: schema.name, value: officialValue(schema) });
     seen.add(schema.name.trim().toLowerCase());
   }
   for (const schema of filterSellerVisibleCategoryAspects(categoryAspects)) {
-    if (!schema.required && !isOftenRequiredEbayAspectName(schema.name)) continue;
+    if (!popupRequired(schema)) continue;
     const key = schema.name.trim().toLowerCase();
     if (seen.has(key)) continue;
     rows.push({ name: schema.name, value: "" });

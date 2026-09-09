@@ -151,8 +151,9 @@ export const etsyAdapter: ChannelAdapter = {
       const validationChecks: ValidationCheck[] = [];
       
       const taxonomyId =
-        item.etsyTaxonomyId ??
-        (await resolveProviderCategoryId(conn, "etsy", item.category)).etsyTaxonomyId;
+        item.etsyTaxonomyId != null
+          ? item.etsyTaxonomyId
+          : (await resolveProviderCategoryId(conn, "etsy", item.category)).etsyTaxonomyId;
       const shippingProfileId =
         item.package?.source === "etsy" && item.package.remoteProfileId
           ? item.package.remoteProfileId
@@ -348,8 +349,9 @@ export const etsyAdapter: ChannelAdapter = {
       const validationChecks: ValidationCheck[] = [];
 
       const taxonomyId =
-        item.etsyTaxonomyId ??
-        (await resolveProviderCategoryId(conn, "etsy", item.category)).etsyTaxonomyId;
+        item.etsyTaxonomyId != null
+          ? item.etsyTaxonomyId
+          : (await resolveProviderCategoryId(conn, "etsy", item.category)).etsyTaxonomyId;
       const shipping = await resolveEtsyShippingProfile(conn, item.shippingCostCents, {
         createIfMissing: false,
       });

@@ -50,8 +50,10 @@ export function ListOnChannelCategoryModal({
   const [assignmentsByItem, setAssignmentsByItem] = useState<Record<string, ListOnCategoryAssignment>>(
     {}
   );
-  const [categoryId, setCategoryId] = useState("");
-  const [categoryLabel, setCategoryLabel] = useState("");
+  const [ebayCategoryId, setEbayCategoryId] = useState("");
+  const [ebayCategoryLabel, setEbayCategoryLabel] = useState("");
+  const [etsyCategoryId, setEtsyCategoryId] = useState("");
+  const [etsyCategoryLabel, setEtsyCategoryLabel] = useState("");
   const [etsyWhoMade, setEtsyWhoMade] = useState<EtsyWhoMade>("i_did");
   const [etsyWhenMade, setEtsyWhenMade] = useState<EtsyWhenMade>("made_to_order");
   const [categoryAspects, setCategoryAspects] = useState<EbayCategoryAspectField[]>([]);
@@ -60,20 +62,23 @@ export function ListOnChannelCategoryModal({
   const [aspectsError, setAspectsError] = useState<string | null>(null);
   const [aspectsReload, setAspectsReload] = useState(0);
 
-  useLockBodyScroll(true);
-
   const step = steps[index];
+  const categoryId = step?.provider === "etsy" ? etsyCategoryId : ebayCategoryId;
+  const categoryLabel = step?.provider === "etsy" ? etsyCategoryLabel : ebayCategoryLabel;
+
+  useLockBodyScroll(true);
 
   useEffect(() => {
     if (!step) return;
+    setEbayCategoryId("");
+    setEbayCategoryLabel("");
     if (step.provider === "etsy" && step.item.etsyTaxonomyId) {
-      setCategoryId(String(step.item.etsyTaxonomyId));
-      setCategoryLabel("");
+      const id = String(step.item.etsyTaxonomyId);
+      setEtsyCategoryId(id);
+      setEtsyCategoryLabel("");
     } else {
-      // Do not prefill a stored eBay category: that immediately fetches
-      // /category-aspects (Taxonomy) and burns the same 429 budget as search.
-      setCategoryId("");
-      setCategoryLabel("");
+      setEtsyCategoryId("");
+      setEtsyCategoryLabel("");
     }
     setEtsyWhoMade(isEtsyWhoMade(step.item.etsyWhoMade) ? step.item.etsyWhoMade : "i_did");
     setEtsyWhenMade(normalizeEtsyWhenMade(step.item.etsyWhenMade) ?? "made_to_order");
@@ -91,6 +96,26 @@ export function ListOnChannelCategoryModal({
     step?.item.etsyWhoMade,
     step?.item.etsyWhenMade,
   ]);
+
+  useEffect(() => {
+    if (!step || step.provider !== "etsy" || !etsyCategoryId || etsyCategoryLabel) return;
+    let cancelled = false;
+    fetch(`/api/channels/etsy/categories?id=${encodeURIComponent(etsyCategoryId)}`, {
+      credentials: "include",
+    })
+      .then(async (res) => {
+        const data: { categories?: Array<{ categoryName?: string; categoryPath?: string }> } =
+          await res.json().catch(() => ({}));
+        if (cancelled) return;
+        const hit = data.categories?.[0];
+        const label = hit?.categoryPath || hit?.categoryName;
+        if (label) setEtsyCategoryLabel(label);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [step?.provider, etsyCategoryId, etsyCategoryLabel]);
 
   useEffect(() => {
     if (!step || step.provider !== "ebay" || !categoryId) {
@@ -233,18 +258,34 @@ export function ListOnChannelCategoryModal({
             ? "eBay needs a category and required item specifics before this item can be listed."
             : `${providerLabel} needs a category before this item can be listed.`}
         </p>
+        {categoryId ? (
+          <p className={`${listingHintClass} mb-3`}>
+            Selected {providerLabel} category
+            {categoryLabel ? `: ${categoryLabel}` : ""} ({categoryId})
+          </p>
+        ) : null}
 
         <ChannelCategorySearchField
           provider={step.provider}
           selectedId={categoryId}
           selectedLabel={categoryLabel}
           onSelect={(choice) => {
-            setCategoryId(choice.id);
-            setCategoryLabel(choice.path || choice.name);
+            if (step.provider === "etsy") {
+              setEtsyCategoryId(choice.id);
+              setEtsyCategoryLabel(choice.path || choice.name);
+            } else {
+              setEbayCategoryId(choice.id);
+              setEbayCategoryLabel(choice.path || choice.name);
+            }
           }}
           onClear={() => {
-            setCategoryId("");
-            setCategoryLabel("");
+            if (step.provider === "etsy") {
+              setEtsyCategoryId("");
+              setEtsyCategoryLabel("");
+            } else {
+              setEbayCategoryId("");
+              setEbayCategoryLabel("");
+            }
             setCategoryAspects([]);
             setAspects([]);
             setAspectsError(null);

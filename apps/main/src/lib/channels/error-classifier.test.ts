@@ -48,12 +48,12 @@ describe("classifyError", () => {
     ).toBe("transient");
   });
 
-  it("treats eBay #25004 unpublished zero-qty HTTP 400 as transient", () => {
+  it("treats eBay #25004 unpublished zero-qty HTTP 400 as permanent so it is not retried", () => {
     const err = new Error(
       "Inventory push failed: [#25004 · API_INVENTORY · Request · HTTP 400] The unpublished offer has an invalid quantity. The quantity must be a valid number greater than 0."
     ) as Error & { status: number };
     err.status = 400;
-    expect(classifyError(err)).toBe("transient");
+    expect(classifyError(err)).toBe("permanent");
     expect(shouldCountTowardCircuit(err)).toBe(false);
   });
 
@@ -92,6 +92,17 @@ describe("isRemoteListingAlreadyGoneError", () => {
     expect(isRemoteListingAlreadyGoneError("The auction has already been closed. (1047)")).toBe(
       true
     );
+    expect(
+      isRemoteListingAlreadyGoneError({
+        status: 400,
+        message: "Product with id e413cf2d-ee71-4b01-9a49-f7ac96c5d341 was not found",
+      })
+    ).toBe(true);
+    expect(
+      isRemoteListingAlreadyGoneError(
+        "Product with id e413cf2d-ee71-4b01-9a49-f7ac96c5d341 was not found"
+      )
+    ).toBe(true);
     expect(isRemoteListingAlreadyGoneError("Auth token is invalid.")).toBe(false);
   });
 });

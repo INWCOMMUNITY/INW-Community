@@ -31,6 +31,12 @@ describe("wixListingExistenceFromFetch", () => {
   it("treats Wix not-found error copy as gone", () => {
     expect(isWixNotFoundStatus(400, "Product not found")).toBe(true);
     expect(
+      isWixNotFoundStatus(
+        400,
+        "Product with id e413cf2d-ee71-4b01-9a49-f7ac96c5d341 was not found"
+      )
+    ).toBe(true);
+    expect(
       wixListingExistenceFromFetch({ status: 400, product: null, message: "PRODUCT_NOT_FOUND" })
     ).toBe("gone");
   });

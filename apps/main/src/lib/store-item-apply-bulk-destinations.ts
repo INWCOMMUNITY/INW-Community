@@ -1,4 +1,5 @@
 import { prisma, Prisma } from "database";
+import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
 import { CHANNEL_PROVIDERS, isChannelProvider, type ChannelProvider } from "@/lib/channels/types";
 import { readRemoteDeletedNotice } from "@/lib/channels/listing-link-flags";
 import {
@@ -32,6 +33,15 @@ export type BulkDestinationsResult = {
     providers?: Record<string, { ok: boolean; error?: string }>;
   }[];
 };
+
+export function formatFailedProviderDetails(
+  providerResults: Record<string, { ok: boolean; error?: string }>
+): string {
+  const lines = Object.entries(providerResults)
+    .filter(([, v]) => !v.ok)
+    .map(([p, v]) => `${CHANNEL_PROVIDER_LABELS[p] ?? p}: ${v.error ?? "failed"}`);
+  return lines.join("\n") || "Update failed";
+}
 
 function emptyResult(): BulkDestinationsResult {
   return {
@@ -229,10 +239,7 @@ export async function applyBulkDestinations(input: {
       result.results.push({
         itemId: item.id,
         status: "failed",
-        detail: Object.entries(providerResults)
-          .filter(([, v]) => !v.ok)
-          .map(([p, v]) => `${p}: ${v.error ?? "failed"}`)
-          .join("; ") || "Update failed",
+        detail: formatFailedProviderDetails(providerResults),
         providers: providerResults,
       });
       continue;

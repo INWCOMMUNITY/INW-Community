@@ -111,6 +111,32 @@ describe("remapAspectsToTaxonomy", () => {
     expect(result.aspects).toEqual([{ name: "Year", value: "1952" }]);
   });
 
+  it("drops invalid SELECTION_ONLY values instead of keeping Department:Men on a clock leaf", () => {
+    const clockSchema: EbayCategoryAspect[] = [
+      {
+        name: "Type",
+        required: true,
+        mode: "SELECTION_ONLY",
+        cardinality: "SINGLE",
+        suggestedValues: ["Desk Clock", "Wall Clock"],
+      },
+      {
+        name: "Department",
+        required: false,
+        mode: "SELECTION_ONLY",
+        cardinality: "SINGLE",
+        suggestedValues: ["Unisex Baby & Toddler", "Girls", "Boys", "Unisex Kids", "Teens"],
+      },
+    ];
+    const result = remapAspectsToTaxonomy(clockSchema, [
+      { name: "Type", value: "Desk Clock" },
+      { name: "Department", value: "Men" },
+    ]);
+    expect(result.aspects.find((row) => row.name === "Type")?.value).toBe("Desk Clock");
+    expect(result.aspects.find((row) => row.name === "Department")).toBeUndefined();
+    expect(result.dropped.some((name) => name.startsWith("Department:"))).toBe(true);
+  });
+
   it("normalizes SELECTION_ONLY values case-insensitively", () => {
     const result = remapAspectsToTaxonomy(nickelTaxonomy, [
       { name: "Certification", value: "ngc" },
@@ -167,6 +193,38 @@ describe("mergeAspectSources", () => {
         { name: "Year", value: "1952" },
       ])
     );
+  });
+
+  it("drops inventory keys that are not on the target category schema", () => {
+    const clockSchema: EbayCategoryAspect[] = [
+      {
+        name: "Type",
+        required: true,
+        mode: "SELECTION_ONLY",
+        cardinality: "SINGLE",
+        suggestedValues: ["Desk Clock"],
+      },
+      {
+        name: "Brand",
+        required: true,
+        mode: "FREE_TEXT",
+        cardinality: "SINGLE",
+        suggestedValues: [],
+      },
+    ];
+    const merged = mergeAspectSources(
+      [
+        { name: "Color", value: "Red" },
+        { name: "Department", value: "Men" },
+        { name: "Type", value: "Desk Clock" },
+      ],
+      [{ name: "Brand", value: "Unbranded" }],
+      clockSchema
+    );
+    expect(merged.find((row) => row.name === "Type")?.value).toBe("Desk Clock");
+    expect(merged.find((row) => row.name === "Brand")?.value).toBe("Unbranded");
+    expect(merged.some((row) => row.name === "Color")).toBe(false);
+    expect(merged.some((row) => row.name === "Department")).toBe(false);
   });
 });
 

@@ -41,6 +41,8 @@ export type EbayCategoryAspect = {
   /** "SINGLE" | "MULTI" — how many values eBay allows for this aspect. */
   cardinality: "SINGLE" | "MULTI";
   suggestedValues: string[];
+  /** Taxonomy aspectUsage. Never treat RECOMMENDED as required. */
+  usage?: "RECOMMENDED" | "OPTIONAL";
 };
 
 /** Resolve (and lightly cache per process) the default US category tree id. */
@@ -259,6 +261,7 @@ type AspectApiResponse = {
       aspectRequired?: boolean;
       aspectMode?: string; // FREE_TEXT | SELECTION_ONLY
       itemToAspectCardinality?: string; // SINGLE | MULTI
+      aspectUsage?: string; // REQUIRED | RECOMMENDED | OPTIONAL
     };
     aspectValues?: { localizedValue?: string }[];
   }[];
@@ -282,12 +285,15 @@ export function parseAspectApiResponse(res: AspectApiResponse): EbayCategoryAspe
     const suggestedValues = (a.aspectValues ?? [])
       .map((v) => v.localizedValue?.trim())
       .filter((v): v is string => Boolean(v));
+    const usageRaw = a.aspectConstraint?.aspectUsage?.trim().toUpperCase();
+    const usage = usageRaw === "OPTIONAL" || usageRaw === "RECOMMENDED" ? usageRaw : undefined;
     aspects.push({
       name,
       required: Boolean(a.aspectConstraint?.aspectRequired),
       mode,
       cardinality,
       suggestedValues,
+      ...(usage ? { usage } : {}),
     });
   }
 
@@ -309,11 +315,12 @@ export function cacheCategoryAspects(
 export function getCachedCategoryAspects(
   categoryId: string,
   treeId: string,
-  opts?: { allowStale?: boolean }
+  opts?: { allowStale?: boolean; maxAgeMs?: number }
 ): EbayCategoryAspect[] | null {
   const entry = aspectCache.get(aspectCacheKey(treeId, categoryId));
   if (!entry) return null;
-  if (!opts?.allowStale && Date.now() - entry.at > ASPECT_CACHE_TTL_MS) return null;
+  const maxAge = opts?.maxAgeMs ?? ASPECT_CACHE_TTL_MS;
+  if (!opts?.allowStale && Date.now() - entry.at > maxAge) return null;
   return entry.aspects;
 }
 
@@ -368,6 +375,7 @@ function parsePersistedAspects(value: unknown): { aspects: EbayCategoryAspect[];
       suggestedValues: Array.isArray(item.suggestedValues)
         ? item.suggestedValues.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
         : [],
+      ...(item.usage === "OPTIONAL" || item.usage === "RECOMMENDED" ? { usage: item.usage } : {}),
     });
   }
   if (aspects.length === 0) return null;
@@ -377,7 +385,8 @@ function parsePersistedAspects(value: unknown): { aspects: EbayCategoryAspect[];
 async function readPersistedCategoryAspects(
   categoryId: string,
   treeId: string,
-  allowStale: boolean
+  allowStale: boolean,
+  maxAgeMs?: number
 ): Promise<EbayCategoryAspect[] | null> {
   try {
     const row = await prisma.siteSetting.findUnique({
@@ -385,7 +394,7 @@ async function readPersistedCategoryAspects(
     });
     const parsed = parsePersistedAspects(row?.value);
     if (!parsed) return null;
-    if (!allowStale && Date.now() - parsed.at > ASPECT_CACHE_TTL_MS) return null;
+    if (!allowStale && Date.now() - parsed.at > (maxAgeMs ?? ASPECT_CACHE_TTL_MS)) return null;
     return parsed.aspects;
   } catch {
     return null;
@@ -416,6 +425,8 @@ async function writePersistedCategoryAspects(
 export type GetItemAspectsOptions = {
   /** Unused; Metadata uses the application token. Kept so callers do not break. */
   sellerAccessToken?: string | null;
+  /** Prefer a shorter cache for list-on popups so clothing leftovers are not reused. */
+  maxAgeMs?: number;
 };
 
 /** True when Type or Brand is missing, or eBay listed no official values for them. */
@@ -435,17 +446,18 @@ function rememberAspects(categoryId: string, treeId: string, aspects: EbayCatego
 
 export async function getItemAspectsForCategory(
   categoryId: string,
-  _opts?: GetItemAspectsOptions
+  opts?: GetItemAspectsOptions
 ): Promise<EbayCategoryAspect[]> {
   const id = categoryId.trim();
   if (!id) return [];
   requireEbayTaxonomyConfig();
   await hydrateTaxonomyCooldownFromDb();
   const treeId = await getDefaultCategoryTreeId();
-  const fresh = getCachedCategoryAspects(id, treeId);
+  const cacheOpts = opts?.maxAgeMs != null ? { maxAgeMs: opts.maxAgeMs } : undefined;
+  const fresh = getCachedCategoryAspects(id, treeId, cacheOpts);
   if (fresh?.length) return fresh;
 
-  const persisted = await readPersistedCategoryAspects(id, treeId, false);
+  const persisted = await readPersistedCategoryAspects(id, treeId, false, opts?.maxAgeMs);
   if (persisted?.length) {
     cacheCategoryAspects(id, treeId, persisted);
     return persisted;

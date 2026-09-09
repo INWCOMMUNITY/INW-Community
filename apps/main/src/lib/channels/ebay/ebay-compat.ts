@@ -11,6 +11,7 @@ import { getItemAspectsForCategory, type EbayCategoryAspect } from "./aspects";
 import { ebayGetInventoryItem } from "./client";
 import {
   backfillRequiredTaxonomyAspects,
+  dropInvalidSelectionValues,
   expandGradedCoinAspectsForTaxonomy,
   fillEmptyTaxonomyAspectsFromTitle,
   fillDefaultEbayAspects,
@@ -24,6 +25,7 @@ import {
   remapAspectsToTaxonomy,
   restoreOftenRequiredSellerAspects,
   validateRemappedAspects,
+  type CategoryAspectSchema,
   type RemapAspectsResult,
   type ValidateRemappedAspectsResult,
 } from "./aspect-prep";
@@ -42,6 +44,7 @@ export {
   validateRemappedAspects,
   filterSellerVisibleCategoryAspects,
   ensureGradedCoinInventoryAspects,
+  dropInvalidSelectionValues,
 } from "./aspect-prep";
 export type { RemapAspectsResult, ValidateRemappedAspectsResult } from "./aspect-prep";
 
@@ -106,7 +109,8 @@ export function inventoryAspectsToListingAspects(
  */
 export function mergeAspectSources(
   inventoryAspects: ListingAspect[],
-  inwAspects: ListingAspect[]
+  inwAspects: ListingAspect[],
+  categoryAspects?: CategoryAspectSchema[]
 ): ListingAspect[] {
   const map = new Map<string, ListingAspect>();
   for (const a of inventoryAspects) {
@@ -118,7 +122,12 @@ export function mergeAspectSources(
     if (!value) continue;
     map.set(key, { name: a.name, value });
   }
-  return normalizeListingAspects(Array.from(map.values()));
+  let merged = normalizeListingAspects(Array.from(map.values()));
+  if (categoryAspects && categoryAspects.length > 0) {
+    const allowed = new Set(categoryAspects.map((schema) => schema.name.toLowerCase()));
+    merged = merged.filter((row) => allowed.has(row.name.toLowerCase()));
+  }
+  return merged;
 }
 
 export async function fetchInventoryAspects(
@@ -140,10 +149,6 @@ export async function prepareOutboundAspects(args: {
   let aspects = parseStoredAspects(args.item.aspects);
   const beforeKey = JSON.stringify(aspects);
 
-  if (args.tradingAspects?.length) {
-    aspects = mergeAspectSources(args.tradingAspects, aspects);
-  }
-
   let categoryAspects: EbayCategoryAspect[] = [];
   if (args.categoryId?.trim()) {
     try {
@@ -156,13 +161,17 @@ export async function prepareOutboundAspects(args: {
     }
   }
 
+  if (args.tradingAspects?.length) {
+    aspects = mergeAspectSources(args.tradingAspects, aspects, categoryAspects);
+  }
+
   aspects = fillEmptyTaxonomyAspectsFromTitle(args.item.title, categoryAspects, aspects);
   aspects = expandGradedCoinAspectsForTaxonomy(categoryAspects, aspects);
 
   if (args.mergeFromInventory !== false && args.sku) {
     try {
       const inventoryAspects = await fetchInventoryAspects(args.accessToken, args.sku);
-      aspects = mergeAspectSources(inventoryAspects, aspects);
+      aspects = mergeAspectSources(inventoryAspects, aspects, categoryAspects);
     } catch {
       /* optional */
     }
@@ -182,17 +191,20 @@ export async function prepareOutboundAspects(args: {
     aspects,
     args.item.title ?? ""
   );
-  const remappedAspects = fillDefaultEbayAspects(
+  const remappedAspects = dropInvalidSelectionValues(
     categoryAspects,
-    ensureGradedCoinInventoryAspects(
+    fillDefaultEbayAspects(
       categoryAspects,
-      backfilled,
-      aspects,
-      args.item.title ?? ""
-    ),
-    args.item.title ?? "",
-    [args.item.category, args.item.subcategory, args.item.secondaryCategory].filter(
-      (v): v is string => Boolean(v?.trim())
+      ensureGradedCoinInventoryAspects(
+        categoryAspects,
+        backfilled,
+        aspects,
+        args.item.title ?? ""
+      ),
+      args.item.title ?? "",
+      [args.item.category, args.item.subcategory, args.item.secondaryCategory].filter(
+        (v): v is string => Boolean(v?.trim())
+      )
     )
   );
 
@@ -276,7 +288,11 @@ export async function validateListingForEbay(args: {
   );
 
   if (prep.missingRequired.length > 0 || prep.invalidSelectionValues.length > 0) {
-    errors.push(formatAspectValidationErrors(prep.missingRequired, prep.invalidSelectionValues));
+    errors.push(
+      formatAspectValidationErrors(prep.missingRequired, prep.invalidSelectionValues, {
+        id: categoryId,
+      })
+    );
   }
 
   return { valid: errors.length === 0, errors };

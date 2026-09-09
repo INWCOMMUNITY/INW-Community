@@ -46,6 +46,32 @@ describe("parseAspectApiResponse", () => {
     expect(rows[0]?.name).toBe("Required");
     expect(rows[0]?.mode).toBe("SELECTION_ONLY");
   });
+
+  it("does not treat RECOMMENDED usage as required", () => {
+    const rows = parseAspectApiResponse({
+      aspects: [
+        {
+          localizedAspectName: "Color",
+          aspectConstraint: {
+            aspectRequired: false,
+            aspectUsage: "RECOMMENDED",
+            aspectMode: "FREE_TEXT",
+          },
+        },
+        {
+          localizedAspectName: "Type",
+          aspectConstraint: {
+            aspectRequired: true,
+            aspectUsage: "RECOMMENDED",
+            aspectMode: "SELECTION_ONLY",
+          },
+        },
+      ],
+    });
+    expect(rows.find((row) => row.name === "Color")?.required).toBe(false);
+    expect(rows.find((row) => row.name === "Color")?.usage).toBe("RECOMMENDED");
+    expect(rows.find((row) => row.name === "Type")?.required).toBe(true);
+  });
 });
 
 describe("aspect cache fallback", () => {

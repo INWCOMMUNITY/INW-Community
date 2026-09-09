@@ -59,7 +59,7 @@ export function EbayAspectFields({
         <p className={listingLabelClass}>Item specifics</p>
         <p className={listingHintClass}>
           {categoryAspects.some((aspect) => aspect.suggestedValues.length > 0)
-            ? "Pick the value eBay lists for this category. Required fields are marked with *."
+            ? "eBay requires these for this category. Required fields are marked with *."
             : "Enter Type and Brand. Required fields are marked with *."}
         </p>
       </div>
@@ -67,7 +67,9 @@ export function EbayAspectFields({
         const schema = categoryAspects.find(
           (aspect) => aspect.name.trim().toLowerCase() === row.name.trim().toLowerCase()
         );
-        const required = Boolean(schema?.required) || isOftenRequiredEbayAspectName(row.name);
+        const required =
+          Boolean(schema?.required) ||
+          (Boolean(schema) && isOftenRequiredEbayAspectName(row.name));
         const suggestions = schema?.suggestedValues ?? [];
         const useDropdown = ebayAspectUsesDropdown(schema);
         const isSelectionOnly = schema?.mode === "SELECTION_ONLY" && suggestions.length > 0;

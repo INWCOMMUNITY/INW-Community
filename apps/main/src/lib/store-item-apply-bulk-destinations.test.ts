@@ -33,7 +33,7 @@ vi.mock("@/lib/seller-activity-log", () => ({
   logSellerActivity: vi.fn(),
 }));
 
-import { applyBulkDestinations } from "./store-item-apply-bulk-destinations";
+import { applyBulkDestinations, formatFailedProviderDetails } from "./store-item-apply-bulk-destinations";
 
 function ownedItem(overrides: Record<string, unknown> = {}) {
   return {
@@ -173,5 +173,19 @@ describe("applyBulkDestinations", () => {
     expect(unpublishStoreItemFromChannels).not.toHaveBeenCalled();
     expect(publishStoreItemToChannels).toHaveBeenCalledWith("a", "m1", { providers: ["wix"] });
     expect(result.published).toBe(1);
+  });
+});
+
+describe("formatFailedProviderDetails", () => {
+  it("splits eBay and Etsy failures onto labeled lines", () => {
+    expect(
+      formatFailedProviderDetails({
+        ebay: { ok: false, error: "Department value Men is not allowed." },
+        etsy: { ok: false, error: "SKU cannot be more than 32 characters." },
+        wix: { ok: true },
+      })
+    ).toBe(
+      "eBay: Department value Men is not allowed.\nEtsy: SKU cannot be more than 32 characters."
+    );
   });
 });

@@ -14,6 +14,28 @@ import {
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
+import { clampEtsySku } from "@/lib/listing-sku";
+
+function etsyInventorySku(sku: string | null | undefined, salt = ""): string | undefined {
+  const clamped = clampEtsySku(sku ?? "", salt);
+  return clamped || undefined;
+}
+
+function uniquifyEtsyProductSkus(products: Record<string, unknown>[]): void {
+  const used = new Set<string>();
+  products.forEach((product, index) => {
+    const raw = typeof product.sku === "string" ? product.sku : "";
+    if (!raw) return;
+    let sku = clampEtsySku(raw, String(index));
+    let n = 0;
+    while (used.has(sku) && n < 32) {
+      sku = clampEtsySku(`${raw}#${index}:${n}`, `${index}:${n}`);
+      n += 1;
+    }
+    product.sku = sku;
+    used.add(sku);
+  });
+}
 
 export const ETSY_MAX_VARIATIONS_SUPPORTED = 3;
 
@@ -489,7 +511,7 @@ function rebuildExistingProduct(
   });
   // Use normalized SKU if provided (for consistency when adding new variants)
   // Otherwise preserve original SKU if present
-  const sku = normalizedSku ?? product.sku;
+  const sku = etsyInventorySku(normalizedSku ?? product.sku, item.id);
   return {
     ...(sku ? { sku } : {}),
     property_values: propValues.map((pv) => ({
@@ -540,7 +562,7 @@ async function buildProductRowForOption(
   // Only add SKU if existing products have SKUs (or it's a fresh listing)
   const baseSku = getEffectiveSku(item);
   const sku = (!skuPattern || skuPattern.hasSkus)
-    ? `${baseSku}-${valueName}`.slice(0, 32)
+    ? etsyInventorySku(`${baseSku}-${valueName}`, `${item.id}:${valueName}`)
     : undefined;
 
   return {
@@ -693,12 +715,9 @@ function buildProductRowFromExistingProperty(
   let sku: string | undefined;
   if (skuPattern.hasSkus) {
     if (skuPattern.useValueSuffix) {
-      // Existing SKUs use pattern like "base-value"
-      sku = `${baseSku}-${valueName}`.slice(0, 32);
+      sku = etsyInventorySku(`${baseSku}-${valueName}`, `${item.id}:${valueName}`);
     } else {
-      // Existing SKUs are simple (just the item ID) - use same for new products
-      // But Etsy requires unique SKUs per product, so we need to add the value
-      sku = `${baseSku}-${valueName}`.slice(0, 32);
+      sku = etsyInventorySku(`${baseSku}-${valueName}`, `${item.id}:${valueName}`);
     }
   }
   // If no existing SKUs, don't set SKU (undefined will be omitted from payload)
@@ -862,13 +881,13 @@ export async function syncEtsyListingInventoryFromInw(
       const values = productValuesForQtyProperty(p, quantityOnProperty);
       const firstValue = values[0]?.trim();
       if (firstValue) {
-        normalizedSku = `${baseSku}-${firstValue}`.slice(0, 32);
+        normalizedSku = etsyInventorySku(`${baseSku}-${firstValue}`, `${item.id}:${firstValue}`);
       } else {
         // Fallback: extract suffix from original SKU or use index
         const originalSku = p.sku ?? "";
         const dashIdx = originalSku.lastIndexOf("-");
         const suffix = dashIdx > 0 ? originalSku.slice(dashIdx + 1) : `v${idx}`;
-        normalizedSku = `${baseSku}-${suffix}`.slice(0, 32);
+        normalizedSku = etsyInventorySku(`${baseSku}-${suffix}`, `${item.id}:${suffix}`);
       }
     }
     
@@ -944,6 +963,8 @@ export async function syncEtsyListingInventoryFromInw(
       });
     }
   }
+
+  uniquifyEtsyProductSkus(rebuilt);
 
   // When normalizing SKUs, link sku_on_property to every variation property (0 or all —
   // never a single ID on a 2-axis listing when quantity already uses both).
@@ -1036,7 +1057,7 @@ export async function buildEtsyInventoryProducts(
     return {
       products: [
         {
-          sku: getEffectiveSku(item),
+          sku: etsyInventorySku(getEffectiveSku(item), item.id),
           property_values: [],
           offerings: [
             buildOfferingPayload(
@@ -1082,7 +1103,10 @@ export async function buildEtsyInventoryProducts(
       if (property_values.length === 0) continue;
       const qty = channelQuantityForTracked(sku.quantity, item.inventoryTracking);
       const price = sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents;
-      const code = sku.sku?.trim() || `${getEffectiveSku(item)}-${Object.values(sku.options).join("-")}`.slice(0, 32);
+      const code = etsyInventorySku(
+        sku.sku?.trim() || `${getEffectiveSku(item)}-${Object.values(sku.options).join("-")}`,
+        `${item.id}:${Object.values(sku.options).join("|")}`
+      );
       products.push({
         sku: code,
         property_values,
@@ -1117,6 +1141,7 @@ export async function buildEtsyInventoryProducts(
       `Could not map INW options onto Etsy. Check the Etsy category supports those values.`
     );
   }
+  uniquifyEtsyProductSkus(products);
   return { products };
 }
 
