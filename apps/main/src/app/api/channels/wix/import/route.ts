@@ -5,6 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
+import { importedChannelLinkWhere } from "@/lib/channels/unsync-listing";
 import { importRemoteListing } from "@/lib/channels/import-listing";
 import { WixApiError } from "@/lib/channels/wix/client";
 import { withSkipMeta } from "@/lib/channels/import-skip";
@@ -32,7 +33,7 @@ async function loadRemoteWithLinkState(userId: string) {
   }
   const listings = await getAdapter("wix").listRemoteListings(ctx);
   const linked = await prisma.channelListingLink.findMany({
-    where: { provider: "wix", connectionId: ctx.id },
+    where: importedChannelLinkWhere(ctx.id, "wix"),
     select: { externalListingId: true },
   });
   const linkedSet = new Set(linked.map((l) => l.externalListingId));

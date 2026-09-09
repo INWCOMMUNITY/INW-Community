@@ -25,6 +25,10 @@ import {
 } from "./rich-description";
 import { attachShippingOptionOnImport } from "@/lib/shipping-options";
 import { claimChannelListingLink } from "./listing-link-claim";
+import {
+  forgetImportedStoreItemFromInw,
+  unsyncedInwLinkShouldBeForgotten,
+} from "./unsync-listing";
 import { sellerPrimaryBusinessForMember } from "@/lib/listing-feed-seller-business";
 
 function slugify(s: string): string {
@@ -297,13 +301,24 @@ async function resolveExistingLink(args: {
   const { memberId, connectionId, provider, productId, externalShopId } = args;
   const existing = await prisma.channelListingLink.findUnique({
     where: { provider_externalListingId: { provider, externalListingId: productId } },
-    include: { storeItem: { select: { memberId: true, category: true, subcategory: true } } },
+    include: { storeItem: { select: { memberId: true, category: true, subcategory: true, status: true } } },
   });
   if (!existing) return null;
 
   // Orphaned link (StoreItem gone): drop it and let the caller create a fresh item.
   if (!existing.storeItem) {
     await prisma.channelListingLink.delete({ where: { id: existing.id } }).catch(() => {});
+    return null;
+  }
+
+  if (
+    existing.storeItem.memberId === memberId &&
+    unsyncedInwLinkShouldBeForgotten({
+      storeItemStatus: existing.storeItem.status,
+      syncEnabled: existing.syncEnabled,
+    })
+  ) {
+    await forgetImportedStoreItemFromInw(existing.storeItemId);
     return null;
   }
 

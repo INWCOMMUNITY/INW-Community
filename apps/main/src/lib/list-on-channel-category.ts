@@ -1,4 +1,5 @@
 import { isEtsyWhoMade, normalizeEtsyWhenMade } from "@/lib/etsy-listing-options";
+import { channelLinkShowsOnItem } from "@/lib/channels/listing-sync-warning";
 
 export type ListOnCategoryProvider = "etsy" | "ebay";
 
@@ -11,13 +12,17 @@ export type ListOnCategoryItem = {
   etsyWhoMade?: string | null;
   etsyWhenMade?: string | null;
   aspects?: { name: string; value: string }[] | unknown;
-  channelLinks?: { provider: string; remoteDeletedProvider?: string | null }[];
+  channelLinks?: {
+    provider: string;
+    remoteDeletedProvider?: string | null;
+    connectionStatus?: string | null;
+    ebayListingEnded?: boolean;
+    remoteCatalogState?: string | null;
+  }[];
 };
 
 function liveLinkedProviders(item: ListOnCategoryItem): Set<string> {
-  return new Set(
-    (item.channelLinks ?? []).filter((l) => !l.remoteDeletedProvider).map((l) => l.provider)
-  );
+  return new Set((item.channelLinks ?? []).filter(channelLinkShowsOnItem).map((l) => l.provider));
 }
 
 export type ListOnCategoryStep = {

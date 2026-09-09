@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { classifyError, shouldCountTowardCircuit } from "./error-classifier";
+import {
+  classifyError,
+  isRemoteListingAlreadyGoneError,
+  shouldCountTowardCircuit,
+} from "./error-classifier";
 
 describe("shouldCountTowardCircuit", () => {
   it("counts connection outages", () => {
@@ -44,6 +48,15 @@ describe("classifyError", () => {
     ).toBe("transient");
   });
 
+  it("treats eBay #25004 unpublished zero-qty HTTP 400 as transient", () => {
+    const err = new Error(
+      "Inventory push failed: [#25004 · API_INVENTORY · Request · HTTP 400] The unpublished offer has an invalid quantity. The quantity must be a valid number greater than 0."
+    ) as Error & { status: number };
+    err.status = 400;
+    expect(classifyError(err)).toBe("transient");
+    expect(shouldCountTowardCircuit(err)).toBe(false);
+  });
+
   it("treats Shopify 422 currently being modified as transient", () => {
     const err = new Error(
       "This product is currently being modified. Please try again later."
@@ -56,5 +69,21 @@ describe("classifyError", () => {
         message: "Product is currently being modified — please try again later",
       })
     ).toBe("transient");
+  });
+});
+
+describe("isRemoteListingAlreadyGoneError", () => {
+  it("treats missing or already-ended remote listings as gone", () => {
+    expect(
+      isRemoteListingAlreadyGoneError(
+        "Could not find the eBay listing to end. Reconnect eBay in Sync Stores and try Remove again."
+      )
+    ).toBe(true);
+    expect(isRemoteListingAlreadyGoneError("listing ended")).toBe(true);
+    expect(isRemoteListingAlreadyGoneError({ status: 404, message: "Not Found" })).toBe(true);
+    expect(isRemoteListingAlreadyGoneError("The auction has already been closed. (1047)")).toBe(
+      true
+    );
+    expect(isRemoteListingAlreadyGoneError("Auth token is invalid.")).toBe(false);
   });
 });

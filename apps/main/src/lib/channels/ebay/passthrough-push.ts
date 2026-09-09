@@ -15,9 +15,9 @@ import { EBAY_CURRENCY } from "./config";
 import { ebayPriceFromCents } from "./mapping";
 import {
   ebayPhotosAreHostFamilyMismatchOnly,
+  liveEbayPhotoUrlsToPin,
   normalizeInventoryImageUrls,
   selectPassthroughInventoryImageUrls,
-  uniformHostFamilyImageUrls,
 } from "./media";
 
 export type PassthroughChangedFields = {
@@ -87,9 +87,9 @@ export function buildPassthroughLiveOverlayBody(
 
 function pinSanitizedLiveImageUrls(product: Record<string, unknown>): void {
   if (!Array.isArray(product.imageUrls)) return;
-  const urls = uniformHostFamilyImageUrls(product.imageUrls.map((u) => String(u)));
+  const urls = liveEbayPhotoUrlsToPin(product.imageUrls.map((u) => String(u)));
   if (urls.length > 0) product.imageUrls = urls;
-  // Inventory PUT is a full replace. Dropping imageUrls clears the published gallery.
+  else delete product.imageUrls;
 }
 
 /** PUT live inventory with only product.title changed — live aspects preserved. */

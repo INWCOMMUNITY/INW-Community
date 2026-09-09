@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isEbayMigrationSku,
+  isGeneratedVariantOfItemId,
   LISTING_SKU_MAX,
   normalizeListingSku,
   skuToAdoptFromRemote,
@@ -54,5 +55,20 @@ describe("skuToAdoptFromRemote", () => {
         itemId: "cmt7vumcl000dxjujvgwe8dob",
       })
     ).toBeNull();
+  });
+});
+
+describe("isGeneratedVariantOfItemId", () => {
+  const itemId = "cmt7vumcl000dxjujvgwe8dob";
+
+  it("detects hyphenated and stripped itemId-option SKUs", () => {
+    expect(isGeneratedVariantOfItemId(`${itemId}-Purple`, itemId)).toBe(true);
+    expect(isGeneratedVariantOfItemId(`${itemId}Purple`, itemId)).toBe(true);
+    expect(isGeneratedVariantOfItemId(itemId, itemId)).toBe(true);
+  });
+
+  it("leaves real seller SKUs alone", () => {
+    expect(isGeneratedVariantOfItemId("HAT-42", itemId)).toBe(false);
+    expect(isGeneratedVariantOfItemId("HAT42", itemId)).toBe(false);
   });
 });

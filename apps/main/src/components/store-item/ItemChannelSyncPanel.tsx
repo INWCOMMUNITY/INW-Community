@@ -6,6 +6,7 @@ import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
 import { isEbayConditionSyncError } from "@/lib/channels/ebay/conditions";
 import { isEbayPhotoHostFamilySyncError } from "@/lib/channels/ebay/errors";
 import { providerLabel } from "@/lib/channel-sync-feedback";
+import { channelLinkShowsOnItem } from "@/lib/channels/listing-sync-warning";
 
 function isEbayAspectSyncError(err: string | null | undefined): boolean {
   if (!err) return false;
@@ -32,6 +33,10 @@ export type ChannelLinkSummary = {
   lastPushedAt: string | null;
   externalListingId?: string | null;
   linkOrigin?: string | null;
+  connectionStatus?: string | null;
+  remoteDeletedProvider?: string | null;
+  ebayListingEnded?: boolean;
+  remoteCatalogState?: string | null;
 };
 
 type ItemChannelSyncPanelProps = {
@@ -136,6 +141,10 @@ export function ItemChannelSyncPanel({
           lastPushedAt: l.lastPushedAt ?? null,
           externalListingId: l.externalListingId ?? null,
           linkOrigin: l.linkOrigin ?? null,
+          connectionStatus: l.connectionStatus,
+          remoteDeletedProvider: l.remoteDeletedProvider,
+          ebayListingEnded: l.ebayListingEnded,
+          remoteCatalogState: l.remoteCatalogState,
         }));
         setLinks(mapped);
         onLinksUpdated?.(mapped);
@@ -301,13 +310,14 @@ export function ItemChannelSyncPanel({
     );
   }
 
-  const hasLinks = links.length > 0;
+  const visibleLinks = links.filter(channelLinkShowsOnItem);
+  const hasLinks = visibleLinks.length > 0;
 
   return (
     <div className="space-y-3">
       {hasLinks ? (
         <ul className="space-y-2">
-          {links.map((link) => {
+          {visibleLinks.map((link) => {
             const label = CHANNEL_PROVIDER_LABELS[link.provider] ?? providerLabel(link.provider);
             const { tone, text } = linkStatusLabel(link);
             const needsConditionFix =
@@ -356,7 +366,7 @@ export function ItemChannelSyncPanel({
           >
             {busyAction === "sync" ? "Syncing…" : "Sync now"}
           </button>
-          {links.some((l) => l.provider === "wix") ? (
+          {visibleLinks.some((l) => l.provider === "wix") ? (
             <a
               href={`/api/channels/wix/diagnose?storeItemId=${encodeURIComponent(storeItemId)}`}
               target="_blank"

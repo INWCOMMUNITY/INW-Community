@@ -13,7 +13,7 @@ import {
   type InventoryTracking,
   type VariantAxisDef,
 } from "@/lib/listing-variant-matrix";
-import { listingVariantChannelWarnings } from "@/lib/channels/listing-sync-warning";
+import { channelLinkShowsOnItem, listingVariantChannelWarnings } from "@/lib/channels/listing-sync-warning";
 import {
   initEditorFromVariants,
   ListingVariantMatrixEditor,
@@ -326,9 +326,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     ebayConn?.status === "error"
       ? ebayConn.lastError?.trim() || "Reconnect eBay in Sync Stores."
       : null;
-  const listingOnEtsy = existing ? etsyConnected : listOnProviders.includes("etsy");
+  const listingOnEtsy = existing
+    ? channelLinks.some((l) => l.provider === "etsy" && channelLinkShowsOnItem(l))
+    : listOnProviders.includes("etsy");
   const listingOnEbay = existing
-    ? ebayConnected || channelLinks.some((l) => l.provider === "ebay")
+    ? channelLinks.some((l) => l.provider === "ebay" && channelLinkShowsOnItem(l))
     : listOnProviders.includes("ebay");
   const showEtsyRequirements = listingOnEtsy;
   const showEbayRequirements = listingOnEbay;

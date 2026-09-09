@@ -45,6 +45,7 @@ import {
   type ChannelProviderId,
 } from "@/lib/channel-connections";
 import { listingVariantChannelWarnings } from "@/lib/listing-variant-channel-warnings";
+import { channelLinkShowsOnItem } from "@/lib/channel-link-visibility";
 import { ChannelListOnCheckboxes } from "@/components/channels/ChannelListOnCheckboxes";
 import { getDraft, saveDraft, deleteDraft, type StoreItemDraft } from "@/lib/drafts";
 import {
@@ -248,8 +249,10 @@ export default function ListItemScreen() {
   const isExitingRef = useRef(false);
   const submittedRef = useRef(false);
 
-  const listingOnEtsy = editId ? etsyConnected : listOnProviders.includes("etsy");
-  const listingOnEbay = editId ? ebayConnected || hasEbayLink : listOnProviders.includes("ebay");
+  const listingOnEtsy = editId
+    ? linkedChannelProviders.includes("etsy")
+    : listOnProviders.includes("etsy");
+  const listingOnEbay = editId ? hasEbayLink : listOnProviders.includes("ebay");
 
   const variantChannelNotes = useMemo(
     () =>
@@ -416,7 +419,13 @@ export default function ListItemScreen() {
         hasEbayLink?: boolean;
         hasEbayImportLink?: boolean;
         ebayLinkOrigin?: "import" | "inw_create" | null;
-        channelLinks?: { provider?: string | null }[] | null;
+        channelLinks?: {
+          provider?: string | null;
+          remoteDeletedProvider?: string | null;
+          connectionStatus?: string | null;
+          ebayListingEnded?: boolean;
+          remoteCatalogState?: string | null;
+        }[] | null;
       }>(`/api/store-items/${editId}`)
         .then((item) => {
           setTitle(item.title ?? "");
@@ -473,10 +482,11 @@ export default function ListItemScreen() {
           if (item.useSellerProfileShipping !== undefined) setUseSellerProfileShipping(item.useSellerProfileShipping);
           if (item.useSellerProfileLocalDelivery !== undefined) setUseSellerProfileLocalDelivery(item.useSellerProfileLocalDelivery);
           if (item.useSellerProfilePickup !== undefined) setUseSellerProfilePickup(item.useSellerProfilePickup);
-          if (item.hasEbayLink) setHasEbayLink(true);
+          setHasEbayLink(Boolean(item.hasEbayLink));
           if (Array.isArray(item.channelLinks)) {
             setLinkedChannelProviders(
               item.channelLinks
+                .filter((l) => channelLinkShowsOnItem(l))
                 .map((l) => (typeof l.provider === "string" ? l.provider : ""))
                 .filter(Boolean)
             );
@@ -2221,7 +2231,7 @@ export default function ListItemScreen() {
         </CollapsibleSection>
       )}
 
-      {editId && ebayConnected && (
+      {editId && hasEbayLink && (
         <CollapsibleSection
           title="eBay sync"
           subtitle={

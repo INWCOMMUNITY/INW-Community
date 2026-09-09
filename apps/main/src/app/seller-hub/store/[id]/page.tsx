@@ -5,6 +5,11 @@ import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { authOptions } from "@/lib/auth";
 import Link from "next/link";
 import { StoreItemForm } from "@/components/StoreItemForm";
+import {
+  channelLinkShowsOnItem,
+  SELLER_CHANNEL_LINK_SELECT,
+  withListingChannelSyncWarning,
+} from "@/lib/channels/listing-sync-warning";
 
 export default async function EditStoreItemPage({
   params,
@@ -40,14 +45,11 @@ export default async function EditStoreItemPage({
     include: {
       channelLinks: {
         select: {
-          provider: true,
-          syncStatus: true,
-          syncEnabled: true,
-          syncError: true,
+          ...SELLER_CHANNEL_LINK_SELECT,
           lastPushedAt: true,
-          externalListingId: true,
           linkOrigin: true,
         },
+      },
       },
     },
   });
@@ -98,21 +100,23 @@ export default async function EditStoreItemPage({
             etsyIsSupply: (item as { etsyIsSupply?: boolean | null }).etsyIsSupply ?? null,
             etsyTaxonomyId: (item as { etsyTaxonomyId?: number | null }).etsyTaxonomyId ?? null,
             channelLinks: item.channelLinks.map((l) => ({
-              provider: l.provider,
-              syncStatus: l.syncStatus,
-              syncEnabled: l.syncEnabled,
-              syncError: l.syncError,
+              ...withListingChannelSyncWarning(l),
               lastPushedAt: l.lastPushedAt?.toISOString() ?? null,
-              externalListingId: l.externalListingId,
               linkOrigin: l.linkOrigin,
             })),
+            hasEbayLink: item.channelLinks.some(
+              (l) => l.provider === "ebay" && channelLinkShowsOnItem(withListingChannelSyncWarning(l))
+            ),
             hasEbayImportLink: item.channelLinks.some(
               (l) =>
                 l.provider === "ebay" &&
+                channelLinkShowsOnItem(withListingChannelSyncWarning(l)) &&
                 (/^inw\d+$/i.test(l.externalListingId.trim()) || l.linkOrigin === "import")
             ),
             ebayLinkOrigin: (() => {
-              const ebay = item.channelLinks.find((l) => l.provider === "ebay");
+              const ebay = item.channelLinks.find(
+                (l) => l.provider === "ebay" && channelLinkShowsOnItem(withListingChannelSyncWarning(l))
+              );
               if (!ebay) return null;
               if (ebay.linkOrigin === "import" || /^inw\d+$/i.test(ebay.externalListingId.trim())) {
                 return "import" as const;

@@ -9,6 +9,10 @@ const { mockPrisma, publishStoreItemToChannels, unpublishStoreItemFromChannels }
     },
     channelListingLink: {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      deleteMany: vi.fn().mockResolvedValue({ count: 2 }),
+    },
+    post: {
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
   },
   publishStoreItemToChannels: vi.fn(),
@@ -105,21 +109,17 @@ describe("applyBulkDestinations", () => {
     expect(result.results[0].detail).toMatch(/not deleted/i);
   });
 
-  it("unsyncs INW by ending the storefront listing and disabling qty sync on leftover links", async () => {
+  it("unsyncs INW by dropping the import so the listing can be imported again", async () => {
     const result = await applyBulkDestinations({
       memberId: "m1",
       action: "sync",
       assignments: [{ storeItemId: "a", inw: false, providers: ["ebay", "wix"] }],
     });
     expect(unpublishStoreItemFromChannels).not.toHaveBeenCalled();
-    expect(mockPrisma.storeItem.update).toHaveBeenCalledWith({
-      where: { id: "a" },
-      data: { status: "inactive", endedAt: expect.any(Date) },
+    expect(mockPrisma.channelListingLink.deleteMany).toHaveBeenCalledWith({
+      where: { storeItemId: "a" },
     });
-    expect(mockPrisma.channelListingLink.updateMany).toHaveBeenCalledWith({
-      where: { storeItemId: "a", provider: { in: ["ebay", "wix"] } },
-      data: { syncEnabled: false },
-    });
+    expect(mockPrisma.storeItem.delete).toHaveBeenCalledWith({ where: { id: "a" } });
     expect(result.unsyncedInw).toBe(1);
   });
 

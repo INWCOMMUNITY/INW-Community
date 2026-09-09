@@ -125,6 +125,9 @@ describe("listing-origin", () => {
         linkOrigin: "inw_create",
       })
     ).toBe("HAT42");
+  });
+
+  it("does not use a Shopify itemId-option SKU as the parent Inventory SKU", () => {
     expect(
       resolveEbayPushSku({
         itemId: "cmt7vumcl000dxjujvgwe8dob",
@@ -132,7 +135,15 @@ describe("listing-origin", () => {
         externalListingId: "407186363325",
         linkOrigin: "inw_create",
       })
-    ).toBe("cmt7vumcl000dxjujvgwe8dobPurple");
+    ).toBe("cmt7vumcl000dxjujvgwe8dob");
+    expect(
+      resolveEbayPushSku({
+        itemId: "cmt7vumcl000dxjujvgwe8dob",
+        itemSku: "cmt7vumcl000dxjujvgwe8dobPurple",
+        externalListingId: "407186363325",
+        linkOrigin: "inw_create",
+      })
+    ).toBe("cmt7vumcl000dxjujvgwe8dob");
   });
 
   it("treats numeric legacy Item ID as import", () => {

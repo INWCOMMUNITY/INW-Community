@@ -32,3 +32,24 @@ export function readRemoteDeletedNotice(conflictDetails: unknown): RemoteDeleted
     ...(typeof rec.dismissedAt === "string" && rec.dismissedAt ? { dismissedAt: rec.dismissedAt } : {}),
   };
 }
+
+export type RemoteCatalogState =
+  | "inactive"
+  | "inactive_outside_catalog"
+  | "linked_other_channel";
+
+export function readEbayListingEnded(conflictDetails: unknown): boolean {
+  return conflictDetailsAsObject(conflictDetails).ebayListingEnded === true;
+}
+
+export function readRemoteCatalogState(conflictDetails: unknown): RemoteCatalogState | null {
+  const value = conflictDetailsAsObject(conflictDetails).remoteCatalogState;
+  if (
+    value === "inactive" ||
+    value === "inactive_outside_catalog" ||
+    value === "linked_other_channel"
+  ) {
+    return value;
+  }
+  return null;
+}

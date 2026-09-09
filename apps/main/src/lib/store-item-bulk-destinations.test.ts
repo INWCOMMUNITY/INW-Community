@@ -177,7 +177,7 @@ describe("Manage Listings copy", () => {
     expect(summary.title).toBe("Taken Down");
     expect(summary.message).toMatch(/Deleted 1 listing from a connected store/);
     expect(summary.message).toMatch(/gone there — not just unsynced/);
-    expect(summary.message).toMatch(/quantity tracking is off/);
+    expect(summary.message).toMatch(/no longer imported/);
     expect(summary.message).not.toMatch(/Removed from stores/);
     expect(summary.message).not.toMatch(/Stopped INW quantity tracking/);
   });

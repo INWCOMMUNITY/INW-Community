@@ -1,5 +1,6 @@
 import { isEbayConditionSyncError } from "@/lib/channels/ebay/conditions";
 import type { ItemChannelLink } from "@/components/store-item/ItemChannelSyncBadges";
+import { channelLinkShowsOnItem } from "@/lib/channels/listing-sync-warning";
 import { buildProductHref } from "@/lib/product-referrer";
 
 export type ItemsTab = "active" | "attention" | "ended" | "sold";
@@ -16,7 +17,7 @@ export function itemOtherLiveProviders(
   for (const link of item.channelLinks ?? []) {
     if (link.provider === deletedProvider) continue;
     if (!link.syncEnabled) continue;
-    if (link.remoteDeletedProvider) continue;
+    if (!channelLinkShowsOnItem(link)) continue;
     seen.add(link.provider);
   }
   return [...seen];

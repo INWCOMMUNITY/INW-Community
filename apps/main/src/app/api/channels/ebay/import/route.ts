@@ -5,6 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
+import { importedChannelLinkWhere } from "@/lib/channels/unsync-listing";
 import { migrateEbayListings, fetchEbayItemDetails } from "@/lib/channels/ebay/trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { fetchAndCacheEbayInventoryAspects } from "@/lib/channels/ebay/inventory-aspects-cache";
@@ -145,7 +146,7 @@ async function loadRemoteWithLinkState(userId: string) {
   const listings = await getAdapter("ebay").listRemoteListings(ctx);
 
   const linked = await prisma.channelListingLink.findMany({
-    where: { provider: "ebay", connectionId: ctx.id },
+    where: importedChannelLinkWhere(ctx.id, "ebay"),
     select: { externalListingId: true, storeItemId: true, storeItem: { select: { id: true, title: true } } },
   });
 

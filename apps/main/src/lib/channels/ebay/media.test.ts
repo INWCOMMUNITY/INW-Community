@@ -136,6 +136,20 @@ describe("putInventoryWithPhotoRecovery", () => {
     ).toEqual(["https://i.ebayimg.com/images/g/xx/s-l2000.jpg"]);
   });
 
+  it("does not send Shopify CDNs onto a live listing", async () => {
+    const put = vi.fn().mockResolvedValue(undefined);
+    await putInventoryWithPhotoRecovery({
+      accessToken: "t",
+      body: { product: { title: "X", imageUrls: ["https://cdn.shopify.com/s/files/1/bear.jpg"] } },
+      liveImageUrls: ["https://i.ebayimg.com/live.jpg"],
+      allowInwPhotoUpload: false,
+      put,
+    });
+    expect(
+      (put.mock.calls[0]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
+    ).toEqual(["https://i.ebayimg.com/live.jpg"]);
+  });
+
   it("pins live self-hosted URLs when photos were not edited and there is no EPS", async () => {
     const put = vi.fn().mockResolvedValue(undefined);
     await putInventoryWithPhotoRecovery({
@@ -241,19 +255,49 @@ describe("applyEbayInventoryPhotoPolicy", () => {
       "https://i.ebayimg.com/live.jpg",
     ]);
   });
+
+  it("does not pin Shopify CDNs as live photos", () => {
+    const next = applyEbayInventoryPhotoPolicy(
+      { product: { title: "X", imageUrls: ["https://cdn.shopify.com/s/files/1/bear.jpg"] } },
+      {
+        liveImageUrls: ["https://cdn.shopify.com/s/files/1/bear.jpg"],
+        inwPhotos: ["https://cdn.shopify.com/s/files/1/bear.jpg"],
+        pushInwPhotos: false,
+      }
+    );
+    expect(next.product).not.toHaveProperty("imageUrls");
+  });
 });
 
 describe("mergeLiveEbayPhotoUrls", () => {
-  it("prefers inventory EPS and falls back to GetItem EPS", () => {
+  it("prefers Trading EPS over polluted Inventory Shopify URLs", () => {
+    expect(
+      mergeLiveEbayPhotoUrls(
+        ["https://cdn.shopify.com/s/files/1/bear.jpg"],
+        ["https://i.ebayimg.com/trading.jpg"]
+      )
+    ).toEqual(["https://i.ebayimg.com/trading.jpg"]);
+  });
+
+  it("prefers inventory EPS when GetItem has none", () => {
     expect(
       mergeLiveEbayPhotoUrls(
         ["https://i.ebayimg.com/inventory.jpg"],
         ["https://i.ebayimg.com/trading.jpg"]
       )
+    ).toEqual(["https://i.ebayimg.com/trading.jpg"]);
+    expect(
+      mergeLiveEbayPhotoUrls(["https://i.ebayimg.com/inventory.jpg"], [])
     ).toEqual(["https://i.ebayimg.com/inventory.jpg"]);
     expect(
       mergeLiveEbayPhotoUrls([], ["https://i.ebayimg.com/trading.jpg"])
     ).toEqual(["https://i.ebayimg.com/trading.jpg"]);
+  });
+
+  it("does not pin Shopify CDNs as live eBay photos", () => {
+    expect(
+      mergeLiveEbayPhotoUrls(["https://cdn.shopify.com/s/files/1/bear.jpg"], [])
+    ).toEqual([]);
   });
 });
 
@@ -263,6 +307,15 @@ describe("selectPassthroughInventoryImageUrls", () => {
       selectPassthroughInventoryImageUrls(
         ["https://i.ebayimg.com/live.jpg"],
         ["https://blob.example.com/a.jpg"]
+      )
+    ).toEqual(["https://i.ebayimg.com/live.jpg"]);
+  });
+
+  it("keeps live EPS when INW photos are Shopify CDNs", () => {
+    expect(
+      selectPassthroughInventoryImageUrls(
+        ["https://i.ebayimg.com/live.jpg"],
+        ["https://cdn.shopify.com/s/files/1/bear.jpg"]
       )
     ).toEqual(["https://i.ebayimg.com/live.jpg"]);
   });

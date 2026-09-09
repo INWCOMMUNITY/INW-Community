@@ -5,6 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
+import { importedChannelLinkWhere } from "@/lib/channels/unsync-listing";
 import { importRemoteListing } from "@/lib/channels/import-listing";
 import { withSkipMeta } from "@/lib/channels/import-skip";
 import {
@@ -25,7 +26,7 @@ async function loadRemoteWithLinkState(userId: string) {
   }
   const listings = await getAdapter("shopify").listRemoteListings(ctx);
   const linked = await prisma.channelListingLink.findMany({
-    where: { provider: "shopify", connectionId: ctx.id },
+    where: importedChannelLinkWhere(ctx.id, "shopify"),
     select: { externalListingId: true },
   });
   const linkedSet = new Set(linked.map((l) => l.externalListingId));

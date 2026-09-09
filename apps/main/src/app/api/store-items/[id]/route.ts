@@ -28,6 +28,7 @@ import { isImportedEbayLink } from "@/lib/channels/ebay/listing-origin";
 import { Prisma } from "database";
 import { assertMemberShippingOption } from "@/lib/shipping-options";
 import {
+  channelLinkShowsOnItem,
   SELLER_CHANNEL_LINK_SELECT,
   withListingChannelSyncWarning,
 } from "@/lib/channels/listing-sync-warning";
@@ -120,10 +121,14 @@ export async function GET(
         linkOrigin: link.linkOrigin,
       }))
     : item.channelLinks.map(({ connection: _connection, ...link }) => link);
-  const hasEbayLink = item.channelLinks.some((l) => l.provider === "ebay");
+  const liveEbayLink = channelLinks.find(
+    (l) => l.provider === "ebay" && channelLinkShowsOnItem(l)
+  );
+  const hasEbayLink = Boolean(liveEbayLink);
   const ebayLink = item.channelLinks.find((l) => l.provider === "ebay");
   const hasEbayImportLink = Boolean(
-    ebayLink &&
+    liveEbayLink &&
+      ebayLink &&
       isImportedEbayLink({
         provider: "ebay",
         externalListingId: ebayLink.externalListingId,
@@ -131,11 +136,7 @@ export async function GET(
         linkOrigin: ebayLink.linkOrigin,
       })
   );
-  const ebayLinkOrigin = hasEbayImportLink
-    ? "import"
-    : ebayLink
-      ? "inw_create"
-      : null;
+  const ebayLinkOrigin = !hasEbayLink ? null : hasEbayImportLink ? "import" : "inw_create";
   return NextResponse.json({
     ...item,
     channelLinks,
@@ -563,9 +564,6 @@ export async function PATCH(
       channelSync = await unpublishStoreItemFromChannels(itemId, unpublishProviders);
     } else if (data.syncToChannels === false && existingLinks > 0) {
       // Skip push for this save only; keep links enabled for future edits.
-      // #region agent log
-      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'C',location:'store-items/[id]/route.ts:save-skip',message:'PATCH skipped channel push',data:{itemId,existingLinks,syncToChannels:false,status:item.status},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
     } else if (existingLinks > 0) {
       const { updateStoreItemOnChannels } = await import("@/lib/channels/outbound");
       const { syncInventoryToChannels } = await import("@/lib/channels/sync-inventory");
@@ -573,9 +571,6 @@ export async function PATCH(
       const contentResults = await updateStoreItemOnChannels(itemId);
       const inventoryResults = await syncInventoryToChannels(itemId);
       channelSync = mergeChannelSyncResults(contentResults, inventoryResults);
-      // #region agent log
-      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'C',location:'store-items/[id]/route.ts:save-push',message:'PATCH channel sync results',data:{itemId,existingLinks,titleLen:item.title?.length,contentProviders:contentResults.map((r)=>({provider:r.provider,ok:r.ok,error:r.error?.slice(0,180)})),merged:channelSync.map((r)=>({provider:r.provider,ok:r.ok,error:r.error?.slice(0,180)}))},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
     } else if (data.syncToChannels === true || (data.channelProviders?.length ?? 0) > 0) {
       const { publishStoreItemToChannels, resolvePublishProviders } = await import(
         "@/lib/channels/outbound"

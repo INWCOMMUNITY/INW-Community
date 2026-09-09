@@ -1,5 +1,9 @@
 import { CHANNEL_PROVIDER_LABELS } from "./provider-ui";
-import { readRemoteDeletedNotice } from "./listing-conflict-json";
+import {
+  readEbayListingEnded,
+  readRemoteCatalogState,
+  readRemoteDeletedNotice,
+} from "./listing-conflict-json";
 import { isEbayPhotoHostFamilySyncError } from "./ebay/errors";
 import {
   etsyVariesByAllProperties,
@@ -22,13 +26,23 @@ export const SELLER_CHANNEL_LINK_SELECT = {
   connection: { select: { status: true } },
 } as const;
 
-/** Hide the shop pill after a remote delete or an intentional store disconnect. */
+/** Hide the shop pill unless this item is actually live on that shop. */
 export function channelLinkShowsOnItem(link: {
   remoteDeletedProvider?: string | null;
   connectionStatus?: string | null;
+  ebayListingEnded?: boolean;
+  remoteCatalogState?: string | null;
 }): boolean {
   if (link.remoteDeletedProvider) return false;
   if (link.connectionStatus === "disconnected") return false;
+  if (link.ebayListingEnded) return false;
+  if (
+    link.remoteCatalogState === "inactive" ||
+    link.remoteCatalogState === "inactive_outside_catalog" ||
+    link.remoteCatalogState === "linked_other_channel"
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -70,6 +84,8 @@ export function withListingChannelSyncWarning(link: {
   // Hide the shop tag after a remote delete, including after "Keep on INW".
   // Pending-only hid the tag until Keep, then the green Wix pill came back.
   const remoteDeletedProvider = notice ? notice.provider : null;
+  const ebayListingEnded = readEbayListingEnded(link.conflictDetails);
+  const remoteCatalogState = readRemoteCatalogState(link.conflictDetails);
   return {
     provider: link.provider,
     syncStatus: link.syncStatus,
@@ -78,6 +94,8 @@ export function withListingChannelSyncWarning(link: {
     syncError: link.syncError ?? null,
     connectionStatus,
     remoteDeletedProvider,
+    ebayListingEnded,
+    remoteCatalogState,
     syncWarning: listingChannelSyncWarning({
       provider: link.provider,
       syncStatus: link.syncStatus,

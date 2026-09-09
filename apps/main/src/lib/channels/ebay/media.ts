@@ -1,5 +1,6 @@
 import { ebayGet, ebayJson } from "./client";
 import { EBAY_APIZ_BASE } from "./config";
+import { marketplaceCdnFamily } from "../photo-urls";
 import { upgradeEbayCdnPhotoUrl } from "./photos";
 
 const IMAGE_RELATED_ERROR = /#25014|#25015|image|photo|picture|hosted/i;
@@ -61,19 +62,17 @@ export function readStoredPhotoUrls(value: unknown): string[] | null {
 
 /**
  * Imported listings keep EPS pictures on the published eBay item.
- * Overlaying INW blob/Media URLs mixes host families and eBay returns #25014.
+ * Overlaying Shopify/INW URLs onto EPS causes #25014. Replacement EPS URLs
+ * are allowed. First publish (no live pin) can still send INW photos.
  */
 export function selectPassthroughInventoryImageUrls(liveUrls: string[], inwUrls: string[]): string[] {
-  const live = normalizeInventoryImageUrls(liveUrls);
+  const livePin = liveEbayPhotoUrlsToPin(liveUrls);
   const inw = normalizeInventoryImageUrls(inwUrls);
-  if (inw.length === 0) return live;
-  if (live.length === 0) return inw;
-  if (inventoryImageUrlsAreMixedHostFamily(inw)) {
-    return live.every(isEbayEpsImageUrl) ? live : inw.filter(isEbayEpsImageUrl);
+  if (livePin.some(isEbayEpsImageUrl)) {
+    if (inw.length > 0 && inw.every(isEbayEpsImageUrl)) return inw;
+    return livePin;
   }
-  const liveAllEps = live.every(isEbayEpsImageUrl);
-  const inwHasSelf = inw.some((url) => !isEbayEpsImageUrl(url));
-  if (liveAllEps && inwHasSelf) return live;
+  if (livePin.length > 0) return livePin;
   return inw;
 }
 
@@ -125,25 +124,35 @@ export function omitInventoryProductImageUrls(body: Record<string, unknown>): Re
   return { ...body, product };
 }
 
+/** Shopify/Etsy/Wix CDNs are not eBay pictures — sending them onto EPS causes #25014. */
+export function isForeignMarketplaceCdnPhotoUrl(url: string): boolean {
+  const family = marketplaceCdnFamily(url);
+  return family === "shopify" || family === "etsy" || family === "wix";
+}
+
 /**
  * Pictures already on the live inventory item. Inventory PUT is a full replace —
  * omitting imageUrls deletes the published gallery. Prefer EPS so we never mix
- * host families (#25014); otherwise pin the live self-hosted set as-is.
+ * host families (#25014). Never pin Shopify/Etsy/Wix CDNs.
  */
 export function liveEbayPhotoUrlsToPin(liveUrls: string[]): string[] {
   const eps = epsOnlyImageUrls(liveUrls);
   if (eps.length > 0) return eps;
-  return uniformHostFamilyImageUrls(liveUrls);
+  return uniformHostFamilyImageUrls(liveUrls).filter((url) => !isForeignMarketplaceCdnPhotoUrl(url));
 }
 
 /**
- * Parent SKU inventory GET is often empty on variation listings. Pin Trading
- * GetItem EPS so a later Inventory PUT does not omit imageUrls and wipe photos.
+ * Inventory GET can be polluted with Shopify CDNs after a bad PUT while Trading
+ * GetItem still has EPS. Always prefer Trading EPS so title/qty writes do not #25014.
  */
 export function mergeLiveEbayPhotoUrls(inventoryUrls: string[], tradingUrls: string[]): string[] {
-  const fromInventory = liveEbayPhotoUrlsToPin(inventoryUrls);
-  if (fromInventory.length > 0) return fromInventory;
-  return liveEbayPhotoUrlsToPin(tradingUrls);
+  const tradingEps = epsOnlyImageUrls(tradingUrls);
+  if (tradingEps.length > 0) return tradingEps;
+  const inventoryEps = epsOnlyImageUrls(inventoryUrls);
+  if (inventoryEps.length > 0) return inventoryEps;
+  const tradingPin = liveEbayPhotoUrlsToPin(tradingUrls);
+  if (tradingPin.length > 0) return tradingPin;
+  return liveEbayPhotoUrlsToPin(inventoryUrls);
 }
 
 /**
@@ -253,22 +262,21 @@ export async function putInventoryWithPhotoRecovery<T>(args: {
 }): Promise<T> {
   const describe = args.describeError ?? ((e: unknown) => (e instanceof Error ? e.message : String(e)));
   const allowInwPhotoUpload = args.allowInwPhotoUpload !== false;
-  const liveUniform = uniformHostFamilyImageUrls(args.liveImageUrls ?? []);
+  const livePinned = liveEbayPhotoUrlsToPin(args.liveImageUrls ?? []);
   const liveEps = epsOnlyImageUrls(args.liveImageUrls ?? []);
-  let urls = uniformHostFamilyImageUrls(readInventoryProductImageUrls(args.body));
-  if (liveEps.length > 0 && urls.some((url) => !isEbayEpsImageUrl(url))) {
+  let urls = liveEbayPhotoUrlsToPin(readInventoryProductImageUrls(args.body));
+  if (!allowInwPhotoUpload) {
+    urls = livePinned;
+  } else if (liveEps.length > 0 && (urls.length === 0 || urls.some((url) => !isEbayEpsImageUrl(url)))) {
     urls = liveEps;
-  }
-  if (!allowInwPhotoUpload && urls.some((url) => !isEbayEpsImageUrl(url))) {
-    urls = liveEps.length > 0 ? liveEps : liveUniform;
   }
   const payload =
     urls.length > 0
       ? withInventoryProductImageUrls(args.body, urls)
       : allowInwPhotoUpload
         ? args.body
-        : liveUniform.length > 0
-          ? withInventoryProductImageUrls(args.body, liveUniform)
+        : livePinned.length > 0
+          ? withInventoryProductImageUrls(args.body, livePinned)
           : omitInventoryProductImageUrls(args.body);
 
   try {

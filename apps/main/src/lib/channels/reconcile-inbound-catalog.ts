@@ -647,9 +647,6 @@ export async function reconcileConnectionInboundCatalog(
           storeItemId: link.storeItemId,
           provider,
         });
-        // #region agent log
-        fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'E',location:'reconcile-inbound-catalog.ts:fanout',message:'inbound noop fan-out to other shops',data:{storeItemId:link.storeItemId,provider,inwContentChanged,remoteDisagreesWithInw},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         await updateStoreItemOnChannels(link.storeItemId, { skipProviders: [provider] });
         await writeBaseline(link.id, link.storeItemId, remote, true);
         continue;

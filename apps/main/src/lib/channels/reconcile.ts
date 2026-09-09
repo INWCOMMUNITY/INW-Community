@@ -263,13 +263,7 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
     try {
       const ebayPull = await pullEbayUpdatesForConnection(c);
       catalogUpdated += ebayPull.updated.length;
-      // #region agent log
-      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'E',location:'reconcile.ts:ebay-cron',message:'eBay cron is GetItem pull only, no INW content push',data:{connectionId:c.id,checked:ebayPull.checked,updatedCount:ebayPull.updated.length},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       const ebayOutbound = await pushFailedEbayOutboundForConnection(c.id);
-      // #region agent log
-      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'post-fix',hypothesisId:'E',location:'reconcile.ts:ebay-cron-outbound',message:'eBay cron retried failed content pushes',data:{connectionId:c.id,attempted:ebayOutbound.attempted,storeItemIds:ebayOutbound.storeItemIds},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       console.log("[channels] eBay GetItem pull", {
         id: c.id,
         checked: ebayPull.checked,

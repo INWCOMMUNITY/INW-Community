@@ -5,6 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
+import { importedChannelLinkWhere } from "@/lib/channels/unsync-listing";
 import { importRemoteListing } from "@/lib/channels/import-listing";
 import { enrichEtsyListingSummaryWithInventory } from "@/lib/channels/etsy/variants";
 import { maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
@@ -33,7 +34,7 @@ async function loadRemoteWithLinkState(userId: string) {
     await enrichEtsyListingSummaryWithInventory(ctx.accessToken, l, ctx.externalShopId);
   }
   const linked = await prisma.channelListingLink.findMany({
-    where: { provider: "etsy", connectionId: ctx.id },
+    where: importedChannelLinkWhere(ctx.id, "etsy"),
     select: { externalListingId: true, storeItemId: true },
   });
   const linkedByExternalId = new Map(linked.map((l) => [l.externalListingId, l.storeItemId]));

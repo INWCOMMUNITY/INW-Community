@@ -1,16 +1,15 @@
 import { prisma, Prisma } from "database";
 import {
   conflictDetailsAsObject as asObject,
+  readEbayListingEnded,
+  readRemoteCatalogState,
   readRemoteDeletedNotice,
+  type RemoteCatalogState,
   type RemoteDeletedNotice,
 } from "./listing-conflict-json";
 
-export type RemoteCatalogState =
-  | "inactive"
-  | "inactive_outside_catalog"
-  | "linked_other_channel";
-
-export { readRemoteDeletedNotice };
+export type { RemoteCatalogState };
+export { readRemoteDeletedNotice, readRemoteCatalogState, readEbayListingEnded };
 export type { RemoteDeletedNotice };
 
 export function mergeConflictDetails(
@@ -95,7 +94,7 @@ export async function clearRemoteDeletedNoticeIfSet(
 }
 
 export function isEbayListingEnded(conflictDetails: unknown): boolean {
-  return asObject(conflictDetails).ebayListingEnded === true;
+  return readEbayListingEnded(conflictDetails);
 }
 
 export function withEbayListingEnded(
@@ -105,20 +104,6 @@ export function withEbayListingEnded(
   return mergeConflictDetails(conflictDetails, {
     ebayListingEnded: ended ? true : null,
   });
-}
-
-export function readRemoteCatalogState(
-  conflictDetails: unknown
-): RemoteCatalogState | null {
-  const value = asObject(conflictDetails).remoteCatalogState;
-  if (
-    value === "inactive" ||
-    value === "inactive_outside_catalog" ||
-    value === "linked_other_channel"
-  ) {
-    return value;
-  }
-  return null;
 }
 
 export function withRemoteCatalogState(

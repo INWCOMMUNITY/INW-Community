@@ -79,6 +79,14 @@ export function shouldSkipEbayInventoryContentPutAtZeroQty(quantity: number): bo
   return quantity <= 0;
 }
 
+/** Sold-out unpublished leftovers cannot take qty 0 — skip instead of failing the shop. */
+export function shouldSkipEbayUnpublishedZeroQuantitySync(args: {
+  quantity: number;
+  offerStatus?: string | null;
+}): boolean {
+  return args.quantity <= 0 && !ebayOfferIsPublished(args.offerStatus);
+}
+
 /** Unpublished offers reject quantity 0 (#25004) and then block inventory Brand updates. */
 export function shouldWriteEbayOffer(args: {
   quantity: number;

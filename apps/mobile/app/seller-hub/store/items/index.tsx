@@ -38,6 +38,7 @@ import {
   type ChannelConnectionSummary,
   type ChannelProviderId,
 } from "@/lib/channel-connections";
+import { channelLinkShowsOnItem } from "@/lib/channel-link-visibility";
 import {
   endOnInwConfirm,
   endOnInwResult,
@@ -57,6 +58,8 @@ interface ChannelLink {
   connectionStatus?: string | null;
   syncWarning?: string | null;
   remoteDeletedProvider?: string | null;
+  ebayListingEnded?: boolean;
+  remoteCatalogState?: string | null;
 }
 
 interface StoreItem {
@@ -137,7 +140,7 @@ function remoteDeletedCopy(item: StoreItem): { headline: string; body: string } 
   const deletedLabel = CHANNEL_PROVIDER_LABEL[deleted as ChannelProviderId] ?? deleted;
   const others = [...new Set(
     (item.channelLinks ?? [])
-      .filter((l) => l.provider !== deleted && l.syncEnabled && !l.remoteDeletedProvider)
+      .filter((l) => l.provider !== deleted && l.syncEnabled && channelLinkShowsOnItem(l))
       .map((l) => CHANNEL_PROVIDER_LABEL[l.provider as ChannelProviderId] ?? l.provider)
   )];
   const headline = `This listing was deleted on ${deletedLabel}.`;
@@ -377,7 +380,7 @@ export default function MyItemsScreen() {
     setMenuItemId(null);
     const item = items.find((i) => i.id === id);
     if (!item) return;
-    if ((item.channelLinks ?? []).some((l) => !l.remoteDeletedProvider)) {
+    if ((item.channelLinks ?? []).some(channelLinkShowsOnItem)) {
       setEndGridItem(item);
       return;
     }
@@ -411,7 +414,7 @@ export default function MyItemsScreen() {
     setMenuItemId(null);
     const item = items.find((i) => i.id === id);
     const linked = (item?.channelLinks ?? [])
-      .filter((l) => !l.remoteDeletedProvider)
+      .filter(channelLinkShowsOnItem)
       .map((l) => l.provider as ChannelProviderId);
     if (linked.length === 0) {
       void markAsSold(id);
@@ -518,7 +521,7 @@ export default function MyItemsScreen() {
   const listableProvidersForItem = (item: StoreItem): ChannelProviderId[] => {
     if (itemsTab === "sold") return [];
     const linked = new Set(
-      (item.channelLinks ?? []).filter((l) => !l.remoteDeletedProvider).map((l) => l.provider)
+      (item.channelLinks ?? []).filter(channelLinkShowsOnItem).map((l) => l.provider)
     );
     return channelConnections
       .filter(
@@ -533,7 +536,7 @@ export default function MyItemsScreen() {
   const blockedListConnectionsForItem = (item: StoreItem): ChannelConnectionSummary[] => {
     if (itemsTab === "sold") return [];
     const linked = new Set(
-      (item.channelLinks ?? []).filter((l) => !l.remoteDeletedProvider).map((l) => l.provider)
+      (item.channelLinks ?? []).filter(channelLinkShowsOnItem).map((l) => l.provider)
     );
     return channelConnections.filter(
       (c) =>
@@ -614,7 +617,7 @@ export default function MyItemsScreen() {
 
   const linkedProvidersForItem = (item: StoreItem): ChannelProviderId[] =>
     (item.channelLinks ?? [])
-      .filter((l) => !l.remoteDeletedProvider)
+      .filter(channelLinkShowsOnItem)
       .map((l) => l.provider as ChannelProviderId);
 
   const unpublishFromChannel = (storeItemId: string, provider: ChannelProviderId) => {
@@ -816,10 +819,7 @@ export default function MyItemsScreen() {
                 )}
                 <View style={styles.channelTagRow}>
                 {(item.channelLinks ?? [])
-                  .filter(
-                    (link) =>
-                      !link.remoteDeletedProvider && link.connectionStatus !== "disconnected"
-                  )
+                  .filter(channelLinkShowsOnItem)
                   .map((link) => {
                       const label =
                         CHANNEL_PROVIDER_LABEL[link.provider as ChannelProviderId] ??

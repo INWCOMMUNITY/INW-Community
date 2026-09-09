@@ -31,7 +31,7 @@ import { logSyncEvent } from "./sync-log";
 import { formatProviderPublishError, validateForProvider } from "./validate-publish";
 import { shouldPushSoldOutInventoryOnly } from "./sold-out-guard";
 import { shouldBypassCircuitForInventoryPush } from "./circuit-inventory-bypass";
-import { isEbayEndedListingError } from "./error-classifier";
+import { isEbayEndedListingError, isRemoteListingAlreadyGoneError } from "./error-classifier";
 import {
   persistEbayListingEnded,
   readRemoteDeletedNotice,
@@ -434,15 +434,9 @@ export async function updateStoreItemOnChannels(
   for (const link of links) {
     const provider = link.provider as ChannelProvider;
     if (skip.has(provider)) {
-      // #region agent log
-      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'A',location:'outbound.ts:skipProviders',message:'link skipped via skipProviders',data:{storeItemId,provider,skip:options.skipProviders??[]},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       continue;
     }
     if (shouldSkipEndedEbayOutbound(provider, link.conflictDetails)) {
-      // #region agent log
-      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'A',location:'outbound.ts:ended',message:'eBay outbound skipped as ended',data:{storeItemId,provider},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       results.push({ provider, ok: true });
       continue;
     }
@@ -458,9 +452,6 @@ export async function updateStoreItemOnChannels(
     });
 
     if (contentUnchanged && !inventoryDrift && !options.force && !savedAfterThisChannel) {
-      // #region agent log
-      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'A',location:'outbound.ts:hash-skip',message:'content push skipped as unchanged',data:{storeItemId,provider,contentUnchanged,inventoryDrift,savedAfterThisChannel,force:!!options.force,inwUpdatedAt:inwUpdatedAt.toISOString(),lastPushedAt:link.lastPushedAt?.toISOString()??null,hashPrefix:hash.slice(0,10),lastHashPrefix:(link.lastPushedHash??'').slice(0,10),titleLen:item.title.length},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       continue;
     }
 
@@ -622,9 +613,6 @@ export async function updateStoreItemOnChannels(
         results.push({ provider, ok: true });
         continue;
       }
-      // #region agent log
-      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'D',location:'outbound.ts:updateListing-ok',message:'updateListing returned without throw',data:{storeItemId,provider,titleLen:item.title.length},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       await prisma.channelListingLink.update({
         where: { id: link.id },
         data: {
@@ -649,9 +637,6 @@ export async function updateStoreItemOnChannels(
         continue;
       }
       const msg = describeChannelSyncError(provider, e);
-      // #region agent log
-      fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'pre-fix',hypothesisId:'D',location:'outbound.ts:updateListing-fail',message:'updateListing threw',data:{storeItemId,provider,error:msg.slice(0,240)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (provider === "ebay" && isEbayPhotoHostFamilySyncError(msg)) {
         const stampPush = ebayPhotoHostErrorShouldStampContentPush(msg);
         await prisma.channelListingLink
@@ -723,6 +708,11 @@ async function removeStoreItemFromChannelLinks(
       await prisma.channelListingLink.delete({ where: { id: link.id } }).catch(() => {});
       results.push({ provider, ok: true });
     } catch (e) {
+      if (isRemoteListingAlreadyGoneError(e)) {
+        await prisma.channelListingLink.delete({ where: { id: link.id } }).catch(() => {});
+        results.push({ provider, ok: true });
+        continue;
+      }
       const msg = describeChannelSyncError(provider, e);
       console.error("[channels] deleteListing failed", {
         storeItemId,

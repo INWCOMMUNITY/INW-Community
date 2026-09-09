@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyLiveEbayVariationSkus,
   buildInventoryItemGroupBody,
   buildInventoryItemGroupKey,
   buildVariantInventoryRows,
   buildVariantInventorySkus,
   buildVariantSyncItem,
+  inventoryItemGroupKeysToTry,
+  liveEbayVariantSkusForGroupPut,
   mergeGeneratedSkusIntoVariants,
   pinInventoryItemGroupImageUrls,
   applyInventoryItemGroupPhotoPolicy,
+  shouldPutEbayVariantInventoryOnLiveListing,
   shouldUseInventoryItemGroup,
   withVariationAspect,
 } from "./inventory-groups";
@@ -45,6 +49,87 @@ describe("inventory item groups", () => {
   it("builds stable group key and alphanumeric variant skus", () => {
     expect(buildInventoryItemGroupKey(variantItem)).toBe("inw-group-SKU-1");
     expect(buildVariantInventorySkus(variantItem)).toEqual(["SKU1S", "SKU1M"]);
+  });
+
+  it("uses item.id as the group key when StoreItem.sku is a generated variant of the id", () => {
+    expect(
+      buildInventoryItemGroupKey({
+        ...variantItem,
+        id: "cmt7vumcl000dxjujvgwe8dob",
+        sku: "cmt7vumcl000dxjujvgwe8dob-Purple",
+      })
+    ).toBe("inw-group-cmt7vumcl000dxjujvgwe8dob");
+    expect(
+      inventoryItemGroupKeysToTry(
+        {
+          ...variantItem,
+          id: "cmt7vumcl000dxjujvgwe8dob",
+          sku: "cmt7vumcl000dxjujvgwe8dob-Purple",
+        },
+        "cmt7vumcl000dxjujvgwe8dob"
+      )
+    ).toContain("inw-group-cmt7vumcl000dxjujvgwe8dob");
+  });
+
+  it("pins live GetItem variation SKUs over newly generated combo keys", () => {
+    const rows = buildVariantInventoryRows({
+      ...variantItem,
+      id: "itemabc",
+      sku: "itemabc",
+      variants: [
+        {
+          name: "Color",
+          options: [
+            { value: "Purple", quantity: 2 },
+            { value: "Red", quantity: 1 },
+          ],
+        },
+      ],
+    });
+    expect(rows.map((row) => row.sku)).toEqual(["itemabcPurple", "itemabcRed"]);
+    expect(
+      applyLiveEbayVariationSkus(rows, {
+        axes: [{ name: "Color", values: ["Purple", "Red"] }],
+        skus: [
+          { options: { Color: "Purple" }, quantity: 2, sku: "KEEPME" },
+          { options: { Color: "Red" }, quantity: 1, sku: "ALSOKEEP" },
+        ],
+      }).map((row) => row.sku)
+    ).toEqual(["KEEPME", "ALSOKEEP"]);
+  });
+
+  it("keeps live group membership on an already-linked listing", () => {
+    expect(
+      liveEbayVariantSkusForGroupPut({
+        listingAlreadyOnEbay: true,
+        liveGroupSkus: ["LIVEA", "LIVEB"],
+        mappedSkus: ["itemabcPurple", "itemabcRed"],
+      })
+    ).toEqual(["LIVEA", "LIVEB"]);
+    expect(
+      shouldPutEbayVariantInventoryOnLiveListing({
+        listingAlreadyOnEbay: true,
+        sku: "itemabcPurple",
+        liveKnownSkus: ["LIVEA", "LIVEB"],
+        pinnedPhotoCount: 3,
+      })
+    ).toBe(false);
+    expect(
+      shouldPutEbayVariantInventoryOnLiveListing({
+        listingAlreadyOnEbay: true,
+        sku: "LIVEA",
+        liveKnownSkus: ["LIVEA", "LIVEB"],
+        pinnedPhotoCount: 3,
+      })
+    ).toBe(true);
+    expect(
+      shouldPutEbayVariantInventoryOnLiveListing({
+        listingAlreadyOnEbay: true,
+        sku: "LIVEA",
+        liveKnownSkus: ["LIVEA"],
+        pinnedPhotoCount: 0,
+      })
+    ).toBe(false);
   });
 
   it("strips hyphens from size values so eBay Inventory accepts the SKU", () => {

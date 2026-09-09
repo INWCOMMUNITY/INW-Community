@@ -36,6 +36,14 @@ describe("listingChannelSyncWarning", () => {
     expect(channelLinkShowsOnItem({ connectionStatus: "active" })).toBe(true);
   });
 
+  it("hides the eBay tag when the listing is ended or inactive on that shop", () => {
+    expect(channelLinkShowsOnItem({ ebayListingEnded: true })).toBe(false);
+    expect(channelLinkShowsOnItem({ remoteCatalogState: "inactive" })).toBe(false);
+    expect(channelLinkShowsOnItem({ remoteCatalogState: "inactive_outside_catalog" })).toBe(false);
+    expect(channelLinkShowsOnItem({ remoteCatalogState: "linked_other_channel" })).toBe(false);
+    expect(channelLinkShowsOnItem({ connectionStatus: "active" })).toBe(true);
+  });
+
   it("hides eBay photo-host mix errors from the listing badge", () => {
     expect(
       listingChannelSyncWarning({
@@ -217,5 +225,31 @@ describe("withListingChannelSyncWarning", () => {
     expect(mapped.connectionStatus).toBe("error");
     expect(mapped.syncWarning).toMatch(/reconnect/i);
     expect(mapped).not.toHaveProperty("connection");
+  });
+
+  it("exposes ended eBay and inactive catalog so listing banners can hide", () => {
+    const ended = withListingChannelSyncWarning({
+      provider: "ebay",
+      syncStatus: "synced",
+      syncEnabled: true,
+      externalListingId: "123",
+      syncError: null,
+      conflictDetails: { ebayListingEnded: true },
+      connection: { status: "active" },
+    });
+    expect(ended.ebayListingEnded).toBe(true);
+    expect(channelLinkShowsOnItem(ended)).toBe(false);
+
+    const inactive = withListingChannelSyncWarning({
+      provider: "etsy",
+      syncStatus: "synced",
+      syncEnabled: true,
+      externalListingId: "456",
+      syncError: null,
+      conflictDetails: { remoteCatalogState: "inactive" },
+      connection: { status: "active" },
+    });
+    expect(inactive.remoteCatalogState).toBe("inactive");
+    expect(channelLinkShowsOnItem(inactive)).toBe(false);
   });
 });

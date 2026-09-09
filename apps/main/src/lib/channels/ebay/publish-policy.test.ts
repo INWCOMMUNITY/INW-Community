@@ -8,6 +8,7 @@ import {
   shouldPublishEbayOffer,
   shouldRepublishEbayOffer,
   shouldSkipEbayInventoryContentPutAtZeroQty,
+  shouldSkipEbayUnpublishedZeroQuantitySync,
   shouldWriteEbayOffer,
 } from "./publish-policy";
 
@@ -129,5 +130,23 @@ describe("publish-policy", () => {
     ).toBe(true);
     expect(shouldSkipEbayInventoryContentPutAtZeroQty(0)).toBe(true);
     expect(shouldSkipEbayInventoryContentPutAtZeroQty(1)).toBe(false);
+    expect(
+      shouldSkipEbayUnpublishedZeroQuantitySync({
+        quantity: 0,
+        offerStatus: "UNPUBLISHED",
+      })
+    ).toBe(true);
+    expect(
+      shouldSkipEbayUnpublishedZeroQuantitySync({
+        quantity: 0,
+        offerStatus: "PUBLISHED",
+      })
+    ).toBe(false);
+    expect(
+      shouldSkipEbayUnpublishedZeroQuantitySync({
+        quantity: 1,
+        offerStatus: "UNPUBLISHED",
+      })
+    ).toBe(false);
   });
 });

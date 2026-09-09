@@ -1,10 +1,18 @@
+import { channelLinkShowsOnItem } from "@/lib/channels/listing-sync-warning";
+
 /** Ended INW listings are removed from our records after this window. Third-party shops are not touched. */
 export const ENDED_LISTING_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
-type ChannelLinkLike = { provider: string; remoteDeletedProvider?: string | null };
+type ChannelLinkLike = {
+  provider: string;
+  remoteDeletedProvider?: string | null;
+  connectionStatus?: string | null;
+  ebayListingEnded?: boolean;
+  remoteCatalogState?: string | null;
+};
 
 function isLiveChannelLink(link: ChannelLinkLike): boolean {
-  return !link.remoteDeletedProvider;
+  return channelLinkShowsOnItem(link);
 }
 
 export function hasLinkedChannelListings(

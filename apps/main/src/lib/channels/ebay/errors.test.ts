@@ -6,6 +6,7 @@ import {
   ebayErrorActionHint,
   ebayPhotoHostFamilyShopSummary,
   isEbayPhotoHostFamilySyncError,
+  isEbayUnpublishedZeroQuantityError,
   ebayPhotoHostErrorShouldStampContentPush,
   extractEbayWarnings,
   formatEbayApiBody,
@@ -139,7 +140,12 @@ describe("ebay picture errors", () => {
       ebayPhotoHostErrorShouldStampContentPush(
         "[#25014] A mixture of Self Hosted and EPS pictures are not allowed."
       )
-    ).toBe(true);
+    ).toBe(false);
+    expect(
+      ebayPhotoHostErrorShouldStampContentPush(
+        "Inventory push failed: [#25014 · API_INVENTORY · Request · HTTP 400] A mixture of Self Hosted and EPS pictures are not allowed."
+      )
+    ).toBe(false);
     expect(
       ebayPhotoHostErrorShouldStampContentPush(
         "title: failed ([#25014] A mixture of Self Hosted and EPS pictures are not allowed.)"
@@ -216,6 +222,8 @@ describe("ebay picture errors", () => {
     expect(ebayErrorActionHint(msg)).toMatch(/quantity greater than 0/i);
     expect(ebayErrorActionHint(msg)).not.toMatch(/migrate this listing/i);
     expect(ebayErrorActionHint("eBay HTTP 400 — bad request")).toBeUndefined();
+    expect(isEbayUnpublishedZeroQuantityError(msg)).toBe(true);
+    expect(isEbayUnpublishedZeroQuantityError("Missing Brand")).toBe(false);
   });
 
   it("parses missing item specifics including NBSP from eBay", () => {

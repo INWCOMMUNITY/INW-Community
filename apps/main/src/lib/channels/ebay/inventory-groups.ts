@@ -7,7 +7,9 @@ import {
 import { normalizeVariantsFromProvider, variantsToMatrix, type InwVariantAxis } from "../variant-sync";
 import type { SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
-import { generateEbayVariationMigrationSku, isValidEbayInventorySku } from "./migrate-prep";
+import { generateEbayVariationMigrationSku, isValidEbayInventorySku, toEbayInventorySku } from "./migrate-prep";
+import { isGeneratedVariantOfItemId } from "@/lib/listing-sku";
+import { extractEbayInventoryAspects } from "./listing-origin";
 import {
   aspectsToEbayProductAspects,
   parseStoredAspects,
@@ -29,7 +31,54 @@ export function shouldUseInventoryItemGroup(item: SyncStoreItem): boolean {
 }
 
 export function buildInventoryItemGroupKey(item: SyncStoreItem): string {
-  return `inw-group-${getEffectiveSku(item)}`.slice(0, 50);
+  const raw = getEffectiveSku(item);
+  const stable = isGeneratedVariantOfItemId(raw, item.id) ? item.id : raw;
+  return `inw-group-${stable}`.slice(0, 50);
+}
+
+/** Group keys INW may have used as StoreItem.sku drifted onto a variant Custom Label. */
+export function inventoryItemGroupKeysToTry(
+  item: SyncStoreItem,
+  parentSku?: string | null
+): string[] {
+  const keys: string[] = [];
+  const push = (raw: string | null | undefined) => {
+    const value = raw?.trim();
+    if (!value) return;
+    keys.push(`inw-group-${value}`.slice(0, 50));
+    const stripped = toEbayInventorySku(value);
+    if (stripped && stripped !== value) keys.push(`inw-group-${stripped}`.slice(0, 50));
+  };
+  keys.push(buildInventoryItemGroupKey(item));
+  push(item.id);
+  push(parentSku);
+  push(item.sku);
+  return [...new Set(keys)];
+}
+
+export function readInventoryItemGroupVariantSkus(
+  body: Record<string, unknown> | null | undefined
+): string[] {
+  if (!body || !Array.isArray(body.variantSKUs)) return [];
+  return body.variantSKUs
+    .filter((sku): sku is string => typeof sku === "string" && sku.trim().length > 0)
+    .map((sku) => sku.trim());
+}
+
+export async function resolveLiveEbayInventoryItemGroup(
+  accessToken: string,
+  item: SyncStoreItem,
+  parentSku?: string | null
+): Promise<{ key: string; body: Record<string, unknown> | null }> {
+  const keys = inventoryItemGroupKeysToTry(item, parentSku);
+  for (const key of keys) {
+    const body = await fetchLiveInventoryItemGroup(accessToken, key);
+    if (body) {
+      const liveKey = String(body.inventoryItemGroupKey ?? key).trim() || key;
+      return { key: liveKey, body };
+    }
+  }
+  return { key: keys[0] ?? buildInventoryItemGroupKey(item), body: null };
 }
 
 /** Shared Type/Brand (and other non-variation specifics) on the group — required before publish. */
@@ -58,7 +107,8 @@ export function commonAspectsForInventoryItemGroup(
 export function buildInventoryItemGroupBody(
   item: SyncStoreItem,
   variantSkus: string[],
-  aspectRows?: ListingAspect[]
+  aspectRows?: ListingAspect[],
+  inventoryItemGroupKey?: string
 ): Record<string, unknown> {
   const matrix = variantsToMatrix(item.variants);
   const axes = matrix?.axes?.length
@@ -82,7 +132,7 @@ export function buildInventoryItemGroupBody(
         ).flat()
       : [];
   const body: Record<string, unknown> = {
-    inventoryItemGroupKey: buildInventoryItemGroupKey(item),
+    inventoryItemGroupKey: inventoryItemGroupKey?.trim() || buildInventoryItemGroupKey(item),
     variantSKUs: variantSkus,
     title: item.title,
     description: item.description ?? item.title,
@@ -205,10 +255,160 @@ export type BuildVariantInventoryRowsOptions = {
   imported?: boolean;
 };
 
-function optionSku(option: InwVariantAxis["options"][number]): string | null {
-  const sku = option.sku?.trim();
-  if (!sku || !isValidEbayInventorySku(sku)) return null;
-  return sku;
+export function variationOptionsMatch(
+  a: Record<string, string>,
+  b: Record<string, string>
+): boolean {
+  const keys = new Set(
+    [...Object.keys(a), ...Object.keys(b)].map((key) => key.trim().toLowerCase()).filter(Boolean)
+  );
+  if (keys.size === 0) return false;
+  for (const key of keys) {
+    const av =
+      Object.entries(a)
+        .find(([name]) => name.trim().toLowerCase() === key)?.[1]
+        ?.trim()
+        .toLowerCase() ?? "";
+    const bv =
+      Object.entries(b)
+        .find(([name]) => name.trim().toLowerCase() === key)?.[1]
+        ?.trim()
+        .toLowerCase() ?? "";
+    if (av !== bv) return false;
+  }
+  return true;
+}
+
+function ebayInventorySkuCandidate(raw: string | null | undefined): string | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  if (isValidEbayInventorySku(trimmed)) return trimmed;
+  const stripped = toEbayInventorySku(trimmed);
+  return stripped && isValidEbayInventorySku(stripped) ? stripped : null;
+}
+
+export function readLiveEbayInventorySkusFromVariants(liveVariants: unknown): string[] {
+  const matrix = variantsToMatrix(liveVariants);
+  if (!matrix?.skus.length) return [];
+  const out: string[] = [];
+  for (const skuRow of matrix.skus) {
+    const sku = ebayInventorySkuCandidate(skuRow.sku);
+    if (sku && !out.includes(sku)) out.push(sku);
+  }
+  return out;
+}
+
+function aspectOptionsForRow(
+  aspects: Record<string, string[]>,
+  rowOptions: Record<string, string>
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const name of Object.keys(rowOptions)) {
+    const hit = Object.entries(aspects).find(
+      ([key]) => key.trim().toLowerCase() === name.trim().toLowerCase()
+    );
+    const value = hit?.[1]?.find((entry) => String(entry).trim())?.toString().trim();
+    if (value) out[name] = value;
+  }
+  return out;
+}
+
+/** Prefer live GetItem Custom Labels over newly generated INW combo SKUs. */
+export function applyLiveEbayVariationSkus(
+  rows: EbayVariantInventoryRow[],
+  liveVariants: unknown
+): EbayVariantInventoryRow[] {
+  const matrix = variantsToMatrix(liveVariants);
+  if (!matrix?.skus.length) return rows;
+  const used = new Set<string>();
+  return rows.map((row) => {
+    const live = matrix.skus.find((skuRow) =>
+      variationOptionsMatch(skuRow.options ?? {}, row.options)
+    );
+    const sku = ebayInventorySkuCandidate(live?.sku);
+    if (!sku || used.has(sku)) return row;
+    used.add(sku);
+    return { ...row, sku };
+  });
+}
+
+/** If INW generated a SKU that is already on the live group (or a hyphen-stripped form), reuse it. */
+export function applyLiveEbayGroupSkus(
+  rows: EbayVariantInventoryRow[],
+  liveGroupSkus: string[]
+): EbayVariantInventoryRow[] {
+  if (liveGroupSkus.length === 0) return rows;
+  const liveSet = new Set(liveGroupSkus.map((sku) => sku.trim()).filter(Boolean));
+  return rows.map((row) => {
+    if (liveSet.has(row.sku)) return row;
+    const stripped = toEbayInventorySku(row.sku);
+    if (stripped && liveSet.has(stripped)) return { ...row, sku: stripped };
+    const match = liveGroupSkus.find((sku) => sku.trim().toLowerCase() === row.sku.toLowerCase());
+    if (match && isValidEbayInventorySku(match.trim())) return { ...row, sku: match.trim() };
+    return row;
+  });
+}
+
+export function applyLiveInventorySkuByAspects(
+  rows: EbayVariantInventoryRow[],
+  liveSku: string,
+  aspects: Record<string, string[]>
+): EbayVariantInventoryRow[] {
+  const sku = ebayInventorySkuCandidate(liveSku);
+  if (!sku) return rows;
+  let assigned = false;
+  return rows.map((row) => {
+    if (assigned || row.sku === sku) return row;
+    const liveOptions = aspectOptionsForRow(aspects, row.options);
+    if (!variationOptionsMatch(row.options, liveOptions)) return row;
+    assigned = true;
+    return { ...row, sku };
+  });
+}
+
+export async function alignVariantRowsToLiveEbayInventory(
+  accessToken: string,
+  rows: EbayVariantInventoryRow[],
+  liveGroupSkus: string[]
+): Promise<EbayVariantInventoryRow[]> {
+  let next = applyLiveEbayGroupSkus(rows, liveGroupSkus);
+  if (liveGroupSkus.length === 0) return next;
+  const matched = new Set(next.filter((row) => liveGroupSkus.includes(row.sku)).map((row) => row.sku));
+  const unmatchedLive = liveGroupSkus.filter((sku) => !matched.has(sku));
+  for (const liveSku of unmatchedLive) {
+    try {
+      const inventory = await ebayGet<Record<string, unknown>>(
+        accessToken,
+        `/sell/inventory/v1/inventory_item/${encodeURIComponent(liveSku)}`
+      );
+      const aspects = extractEbayInventoryAspects(inventory);
+      if (!aspects) continue;
+      next = applyLiveInventorySkuByAspects(next, liveSku, aspects);
+    } catch {
+      /* live SKU may be unpublished */
+    }
+  }
+  return next;
+}
+
+export function liveEbayVariantSkusForGroupPut(args: {
+  listingAlreadyOnEbay: boolean;
+  liveGroupSkus: string[];
+  mappedSkus: string[];
+}): string[] {
+  if (args.listingAlreadyOnEbay && args.liveGroupSkus.length > 0) return args.liveGroupSkus;
+  return args.mappedSkus;
+}
+
+export function shouldPutEbayVariantInventoryOnLiveListing(args: {
+  listingAlreadyOnEbay: boolean;
+  sku: string;
+  liveKnownSkus: string[];
+  pinnedPhotoCount: number;
+}): boolean {
+  if (args.listingAlreadyOnEbay && args.pinnedPhotoCount === 0) return false;
+  if (!args.listingAlreadyOnEbay || args.liveKnownSkus.length === 0) return true;
+  return args.liveKnownSkus.includes(args.sku);
 }
 
 /**

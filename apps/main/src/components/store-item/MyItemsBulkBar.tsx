@@ -6,6 +6,7 @@ import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
 import type { ChannelConnectionSummary } from "@/lib/channel-connections-client";
 import { listOnConnections } from "@/lib/channel-connections-client";
 import type { ItemsTab, MyStoreItem } from "@/components/store-item/my-items-types";
+import { channelLinkShowsOnItem } from "@/lib/channels/listing-sync-warning";
 import { ListOnChannelCategoryModal } from "@/components/store-item/ListOnChannelCategoryModal";
 import { BulkDestinationGridModal } from "@/components/store-item/BulkDestinationGridModal";
 import {
@@ -31,7 +32,7 @@ import {
 } from "@/lib/store-item-ended-status";
 
 function itemLinkedTo(item: MyStoreItem, provider: string): boolean {
-  return (item.channelLinks ?? []).some((l) => l.provider === provider && !l.remoteDeletedProvider);
+  return (item.channelLinks ?? []).some((l) => l.provider === provider && channelLinkShowsOnItem(l));
 }
 
 export function MyItemsBulkBar({

@@ -380,6 +380,12 @@ export function isEbayRateLimitError(e: unknown): boolean {
   return /#2001\b|HTTP 429|request limit has been reached/i.test(msg);
 }
 
+/** Unpublished / sold-out draft offers reject quantity 0 (#25004) and then block title PUTs. */
+export function isEbayUnpublishedZeroQuantityError(message: string | null | undefined): boolean {
+  const text = message ?? "";
+  return /#25004\b/i.test(text) || /quantity must be a valid number greater than 0/i.test(text);
+}
+
 /** eBay already hosts the photos (EPS). Not a listing problem — show on Sync Stores, not the item. */
 export function isEbayPhotoHostFamilySyncError(message: string | null | undefined): boolean {
   const text = message ?? "";
@@ -391,12 +397,13 @@ export function isEbayPhotoHostFamilySyncError(message: string | null | undefine
 }
 
 /**
- * #25014 is photo-only. If that PUT also carried a title change, the title did not land.
- * Stamping lastPushedHash would skip retries and let GetItem copy the old eBay title back onto INW.
+ * #25014 rejects the whole Inventory PUT, including title/price. Never stamp
+ * lastPushedHash or cron treats the failed write as done and eBay stays stale.
  */
-export function ebayPhotoHostErrorShouldStampContentPush(message: string | null | undefined): boolean {
-  if (!isEbayPhotoHostFamilySyncError(message)) return false;
-  return !/\btitle:\s*failed\b/i.test(message ?? "");
+export function ebayPhotoHostErrorShouldStampContentPush(
+  _message: string | null | undefined
+): boolean {
+  return false;
 }
 
 export function ebayPhotoHostFamilyShopSummary(listingCount: number): string {

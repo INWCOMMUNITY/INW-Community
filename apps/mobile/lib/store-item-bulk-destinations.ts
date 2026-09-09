@@ -1,4 +1,5 @@
 import { LIST_ON_PROVIDER_ORDER, type ChannelProviderId } from "@/lib/channel-connections";
+import { channelLinkShowsOnItem } from "@/lib/channel-link-visibility";
 
 export type ChannelProvider = ChannelProviderId;
 export type BulkDestinationAction = "sync" | "end" | "delete";
@@ -12,6 +13,9 @@ export type DestinationAssignment = {
 export type BulkDestinationChannelLink = {
   provider: string;
   remoteDeletedProvider?: string | null;
+  connectionStatus?: string | null;
+  ebayListingEnded?: boolean;
+  remoteCatalogState?: string | null;
 };
 
 export type BulkDestinationGridItem = {
@@ -35,13 +39,13 @@ function isChannelProvider(value: string): value is ChannelProvider {
 }
 
 export const UNSYNC_INW_NOTE =
-  "Unchecking INW takes this item off our storefront and stops us from matching stock with your other shops. Listings you leave checked stay up, but we will not update their quantities — the same item could sell twice.";
+  "Unchecking INW removes this item from our storefront and forgets the import. Listings you leave checked stay up on those shops. You can import them again from Sync Stores.";
 
 export const MANAGE_LISTINGS_UNCHECK_NOTE =
   "Unchecking a connected store (eBay, Etsy, Shopify, or Wix) deletes that listing on that store. It is removed there, not just unsynced from INW.";
 
 function isLiveChannelLink(link: BulkDestinationChannelLink): boolean {
-  return !link.remoteDeletedProvider;
+  return channelLinkShowsOnItem(link);
 }
 
 export function hasLinkedChannelListings(
@@ -120,7 +124,7 @@ export const BULK_DESTINATION_COPY: Record<
 > = {
   sync: {
     title: "Where these items are listed",
-    body: "Check the stores that should stay listed. Uncheck a connected store to delete that listing on that third-party shop. INW is your storefront — unchecking it takes the item off INW but leaves other shops as they are.",
+    body: "Check the stores that should stay listed. Uncheck a connected store to delete that listing on that third-party shop. INW is your storefront — unchecking it takes the item off INW and forgets the import so you can import it again later.",
     apply: "Save Listings",
   },
   end: {
@@ -270,8 +274,8 @@ export function summarizeBulkDestinations(
   if (result.unsyncedInw) {
     parts.push(
       result.unsyncedInw === 1
-        ? "INW quantity tracking is off for 1 item. Shops you left checked stay up — they can still sell, so watch for doubles."
-        : `INW quantity tracking is off for ${result.unsyncedInw} items. Shops you left checked stay up — they can still sell, so watch for doubles.`
+        ? "Removed 1 listing from INW. It is no longer imported — you can bring it back from Sync Stores → Import Listings. Shops you left checked stay up."
+        : `Removed ${result.unsyncedInw} listings from INW. They are no longer imported — you can bring them back from Sync Stores → Import Listings. Shops you left checked stay up.`
     );
   }
   if (result.deleted) {
@@ -306,7 +310,7 @@ export function summarizeBulkDestinations(
   } else if (result.published > 0 && result.unpublished === 0 && result.unsyncedInw === 0) {
     title = "You're Live";
   } else if (result.unsyncedInw > 0 && result.published === 0 && result.unpublished === 0) {
-    title = "INW Tracking Off";
+    title = "Removed From INW";
   } else if (action === "end") {
     title = "Pulled From INW";
   } else if (action === "delete") {

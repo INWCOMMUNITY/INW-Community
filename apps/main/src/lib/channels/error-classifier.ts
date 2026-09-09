@@ -181,6 +181,10 @@ export function classifyError(error: unknown): ErrorClassification {
   if (/#25014\b|mixture of self hosted and eps|self hosted and eps pictures/i.test(errorStr)) {
     return "transient";
   }
+  // Unpublished sold-out drafts reject qty 0 (#25004). Skip and retry content later.
+  if (/#25004\b|quantity must be a valid number greater than 0/i.test(errorStr)) {
+    return "transient";
+  }
   // Etsy all_caps titles are auto-softened on the next outbound push.
   if (/all_caps|sequential capital/i.test(errorStr)) {
     return "transient";
@@ -232,6 +236,16 @@ export function isPermanentError(error: unknown): boolean {
 
 export function isEbayEndedListingError(error: unknown): boolean {
   return /ended item|listing ended|revise an ended/i.test(errorToString(error));
+}
+
+/** Unpublish can drop the INW link when the remote listing is already gone. */
+export function isRemoteListingAlreadyGoneError(error: unknown): boolean {
+  if (isEbayEndedListingError(error)) return true;
+  if (extractStatusCode(error) === 404) return true;
+  const msg = errorToString(error);
+  return /could not find the ebay listing to end|already been closed|already ended|has ended|listing has been deleted|item cannot be accessed|does not exist|this item cannot be accessed/i.test(
+    msg
+  );
 }
 
 /**

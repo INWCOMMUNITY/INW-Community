@@ -3,6 +3,7 @@
  * Imported listings use passthrough sync (live eBay aspects are source of truth).
  */
 
+import { isGeneratedVariantOfItemId } from "@/lib/listing-sku";
 import { isValidEbayInventorySku, toEbayInventorySku } from "./migrate-prep";
 
 export type EbayLinkOrigin = "import" | "inw_create";
@@ -27,11 +28,19 @@ export function resolveEbayInventorySku(externalListingId: string): string {
   return trimmed;
 }
 
-function sellerSkuForEbayInventory(sku: string | null | undefined): string | null {
+function sellerSkuForEbayInventory(
+  sku: string | null | undefined,
+  itemId?: string | null
+): string | null {
   const trimmed = sku?.trim();
   if (!trimmed) return null;
+  const id = itemId?.trim();
+  // Shopify cartesian keys (`{itemId}-Purple`) must not become the parent Inventory SKU.
+  // Stripping the hyphen used to look up the Purple variation and rewrite the group.
+  if (id && isGeneratedVariantOfItemId(trimmed, id)) return null;
   const candidate = isValidEbayInventorySku(trimmed) ? trimmed : toEbayInventorySku(trimmed);
   if (!candidate || !isValidEbayInventorySku(candidate)) return null;
+  if (id && isGeneratedVariantOfItemId(candidate, id)) return null;
   if (IMPORTED_EBAY_SKU.test(candidate)) return null;
   // Digit-only Custom Labels of 8+ digits look like eBay Item IDs (the seller SKU
   // 51515151 was GetItem'd as a live listing and then #25002'd as a variation SKU).
@@ -50,13 +59,13 @@ export function resolveEbayPushSku(args: {
   linkOrigin?: string | null;
 }): string {
   if (args.linkOrigin === "inw_create") {
-    return sellerSkuForEbayInventory(args.itemSku) ?? args.itemId;
+    return sellerSkuForEbayInventory(args.itemSku, args.itemId) ?? args.itemId;
   }
   if (args.linkOrigin === "import") {
     return resolveEbayInventorySku(args.externalListingId);
   }
   if (!args.linkOrigin && args.externalListingId === args.itemId) {
-    return sellerSkuForEbayInventory(args.itemSku) ?? args.itemId;
+    return sellerSkuForEbayInventory(args.itemSku, args.itemId) ?? args.itemId;
   }
   return resolveEbayInventorySku(args.externalListingId);
 }

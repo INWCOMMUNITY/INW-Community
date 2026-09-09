@@ -1236,9 +1236,6 @@ export async function pushFailedEbayOutboundForConnection(
     ) {
       continue;
     }
-    // #region agent log
-    fetch('http://127.0.0.1:7258/ingest/d5ed32a3-508e-4e39-8711-9dcd44c7de36',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e1c2a'},body:JSON.stringify({sessionId:'8e1c2a',runId:'post-fix',hypothesisId:'E',location:'pull-ebay-updates.ts:cron-outbound',message:'cron retrying failed eBay content push',data:{connectionId,storeItemId:link.storeItemId,errorPrefix:(link.syncError??'').slice(0,160)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     try {
       await updateStoreItemOnChannels(link.storeItemId, {
         skipProviders: ["etsy", "wix", "shopify"],

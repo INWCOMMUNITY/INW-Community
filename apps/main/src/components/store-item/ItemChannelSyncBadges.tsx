@@ -13,6 +13,8 @@ export type ItemChannelLink = {
   connectionStatus?: string | null;
   syncWarning?: string | null;
   remoteDeletedProvider?: string | null;
+  ebayListingEnded?: boolean;
+  remoteCatalogState?: string | null;
 };
 
 export function ItemChannelSyncBadges({

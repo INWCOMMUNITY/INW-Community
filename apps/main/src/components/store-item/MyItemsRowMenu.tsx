@@ -25,6 +25,7 @@ import {
 } from "@/lib/channel-sync-feedback";
 import type { ChannelActionResult } from "@/components/store-item/ChannelActionResultModal";
 import { itemEditHref, itemListingHref, type ItemsTab, type MyStoreItem } from "@/components/store-item/my-items-types";
+import { channelLinkShowsOnItem } from "@/lib/channels/listing-sync-warning";
 import { ListOnChannelCategoryModal } from "@/components/store-item/ListOnChannelCategoryModal";
 import {
   isListOnCategoryProvider,
@@ -66,7 +67,7 @@ export function MyItemsRowMenu({
   useLockBodyScroll(true);
 
   const linked = (item.channelLinks ?? [])
-    .filter((l) => !l.remoteDeletedProvider)
+    .filter(channelLinkShowsOnItem)
     .map((l) => l.provider as ChannelProviderId);
   const linkedSet = new Set(linked);
   const listCandidates =

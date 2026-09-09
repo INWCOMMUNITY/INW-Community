@@ -15,6 +15,7 @@ import {
   type BulkDestinationAction,
   type DestinationAssignment,
 } from "@/lib/store-item-bulk-destinations";
+import { forgetImportedStoreItemFromInw } from "@/lib/channels/unsync-listing";
 
 export type BulkDestinationsResult = {
   published: number;
@@ -187,17 +188,7 @@ export async function applyBulkDestinations(input: {
     }
 
     if (unsyncInw.has(item.id) && !failed) {
-      const remaining = assignment.providers.filter(isChannelProvider);
-      await prisma.storeItem.update({
-        where: { id: item.id },
-        data: inactiveStoreItemData(),
-      });
-      if (remaining.length) {
-        await prisma.channelListingLink.updateMany({
-          where: { storeItemId: item.id, provider: { in: remaining } },
-          data: { syncEnabled: false },
-        });
-      }
+      await forgetImportedStoreItemFromInw(item.id);
       result.unsyncedInw++;
     } else if (activateInw.has(item.id) && !failed) {
       await prisma.storeItem.update({

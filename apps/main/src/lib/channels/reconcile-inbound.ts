@@ -4,6 +4,7 @@ import { getConnectionContext } from "./connection";
 import { importRemoteListing } from "./import-listing";
 import { getAdapter } from "./registry";
 import type { ChannelProvider } from "./types";
+import { importedChannelLinkWhere } from "./unsync-listing";
 
 type ConnectionRow = {
   id: string;
@@ -50,7 +51,7 @@ export async function reconcileConnectionInboundListings(
   }
 
   const linked = await prisma.channelListingLink.findMany({
-    where: { connectionId: connection.id, provider },
+    where: importedChannelLinkWhere(connection.id, provider),
     select: { externalListingId: true },
   });
   const linkedSet = new Set(linked.map((l) => l.externalListingId));
