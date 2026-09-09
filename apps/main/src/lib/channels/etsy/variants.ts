@@ -2,6 +2,7 @@ import { etsyGet, etsyJson } from "./client";
 import { etsyPriceFromCents } from "./mapping";
 import type { InwVariantAxis } from "../variant-sync";
 import { normalizeVariantsFromProvider, sumVariantQuantities, variantsToMatrix } from "../variant-sync";
+import { comboInventoryFailedMessage, shouldRebuildEtsyComboInventory } from "../combo-sync";
 import type { VariantMatrix, VariantSkuRow } from "@/lib/listing-variant-matrix";
 import {
   channelQuantityForTracked,
@@ -606,7 +607,7 @@ export async function syncEtsyListingInventoryFromInw(
   const quantityAxis = pickQuantityAxis(axes, inv);
   const taxonomyId = item.etsyTaxonomyId;
 
-  if (products.length === 0) {
+  async function rebuildFullEtsyInventory(reason: string): Promise<void> {
     if (taxonomyId == null) {
       throw new Error("Etsy requires a category before listing. Choose an Etsy category on the item.");
     }
@@ -619,25 +620,26 @@ export async function syncEtsyListingInventoryFromInw(
     if (!body) {
       throw new Error("Could not create Etsy inventory from INW variant options.");
     }
-    await putEtsyVariantMatrix(accessToken, listingId, body, variantsToMatrix(item.variants));
+    console.log("[etsy] rebuilding combo inventory", {
+      listingId,
+      reason,
+      existingProductCount: products.length,
+      skuCount: matrix?.skus.length ?? 0,
+    });
+    await putEtsyVariantMatrix(accessToken, listingId, body, matrix);
+    await verifyEtsyComboInventory(accessToken, listingId, item);
+  }
+
+  if (products.length === 0 || shouldRebuildEtsyComboInventory(matrix, products.length)) {
+    await rebuildFullEtsyInventory(
+      products.length === 0 ? "empty_remote" : "combo_mismatch"
+    );
     return;
   }
 
   // Single Etsy SKU but multiple INW options — replace inventory with full variant matrix.
   if (products.length <= 1 && quantityAxis.options.length > 1) {
-    if (taxonomyId == null) {
-      throw new Error("Etsy requires a category before listing. Choose an Etsy category on the item.");
-    }
-    const body = await buildEtsyInventoryProducts(
-      accessToken,
-      taxonomyId,
-      item,
-      defaultReadinessStateId
-    );
-    if (!body) {
-      throw new Error("Could not build Etsy variant inventory from INW options.");
-    }
-    await putEtsyVariantMatrix(accessToken, listingId, body, variantsToMatrix(item.variants));
+    await rebuildFullEtsyInventory("single_remote_multi_inw");
     return;
   }
 
@@ -818,7 +820,8 @@ export async function syncEtsyListingInventoryFromInw(
 /** Attach variant axes + quantities from Etsy inventory API to a listing summary. */
 export async function enrichEtsyListingSummaryWithInventory(
   accessToken: string,
-  summary: RemoteListingSummary
+  summary: RemoteListingSummary,
+  shopId?: string | null
 ): Promise<void> {
   if (!summary.externalListingId) return;
   try {
@@ -834,9 +837,27 @@ export async function enrichEtsyListingSummaryWithInventory(
 
     const variants = etsyInventoryToVariants(products);
     if (!variants || variants.skus.length === 0) return;
-    summary.variants = variants;
+    let stored = variants;
+    if (shopId) {
+      try {
+        const { attachEtsyVariationPhotosToMatrix } = await import("./variation-images");
+        stored = await attachEtsyVariationPhotosToMatrix({
+          accessToken,
+          shopId,
+          listingId: summary.externalListingId,
+          matrix: variants,
+          products,
+        });
+      } catch (e) {
+        console.warn("[etsy] variation photo import failed", {
+          listingId: summary.externalListingId,
+          error: String(e),
+        });
+      }
+    }
+    summary.variants = stored;
     summary.variantsKnown = true;
-    const sum = sumVariantQuantities(variants);
+    const sum = sumVariantQuantities(stored);
     if (sum > 0) {
       summary.quantity = sum;
       summary.quantityKnown = true;
@@ -986,6 +1007,21 @@ export async function pushEtsyVariants(
     defaultReadinessStateId: readiness,
   });
   await putEtsyVariantMatrix(accessToken, listingId, body, variantsToMatrix(item.variants));
+  await verifyEtsyComboInventory(accessToken, listingId, item);
+}
+
+export async function verifyEtsyComboInventory(
+  accessToken: string,
+  listingId: string,
+  item: SyncStoreItem
+): Promise<void> {
+  const matrix = variantsToMatrix(item.variants);
+  if (!matrix || matrix.axes.length < 2 || matrix.skus.length <= 1) return;
+  const inv = await etsyGet<EtsyInventory>(accessToken, `/listings/${listingId}/inventory`);
+  const remoteCount = inv.products?.length ?? 0;
+  if (remoteCount < matrix.skus.length) {
+    throw new Error(comboInventoryFailedMessage("etsy"));
+  }
 }
 
 /** Normalize Etsy inventory products to an INW variant matrix. */
@@ -1023,8 +1059,13 @@ export function etsyInventoryToVariants(products: unknown): VariantMatrix | null
   }
 
   if (skus.length === 0 || axisOrder.length === 0) return null;
+  const axes = axisOrder.map((name) => ({ name, values: axisValues.get(name) ?? [] }));
+  const flags = inferMatrixVaryFlags({ axes, skus });
   return {
-    axes: axisOrder.map((name) => ({ name, values: axisValues.get(name) ?? [] })),
+    axes,
     skus,
+    pricesVary: flags.pricesVary,
+    quantitiesVary: flags.quantitiesVary,
+    skusVary: flags.skusVary,
   };
 }

@@ -45,4 +45,14 @@ describe("skuToAdoptFromRemote", () => {
       })
     ).toBeNull();
   });
+
+  it("does not adopt Shopify-generated itemId-option SKUs as the parent SKU", () => {
+    expect(
+      skuToAdoptFromRemote({
+        localSku: null,
+        remoteSku: "cmt7vumcl000dxjujvgwe8dob-Purple",
+        itemId: "cmt7vumcl000dxjujvgwe8dob",
+      })
+    ).toBeNull();
+  });
 });

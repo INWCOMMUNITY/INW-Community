@@ -196,7 +196,7 @@ export async function reconcileConnectionInboundMeta(
       select: { externalListingId: true },
     })) {
       const r = remoteById.get(link.externalListingId);
-      if (r) await enrichEtsyListingSummaryWithInventory(ctx.accessToken, r);
+      if (r) await enrichEtsyListingSummaryWithInventory(ctx.accessToken, r, connection.externalShopId);
     }
   }
 

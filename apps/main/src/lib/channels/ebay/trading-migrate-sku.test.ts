@@ -6,6 +6,7 @@ import {
   generateEbayMigrationSku,
   generateEbayVariationMigrationSku,
   isValidEbayInventorySku,
+  toEbayInventorySku,
   listingHasValidMigrateSku,
   NOT_FIXED_PRICE_MIGRATE_ERROR,
   plannedParentSku,
@@ -46,6 +47,15 @@ describe("isValidEbayInventorySku", () => {
     expect(isValidEbayInventorySku("sku b")).toBe(false);
     expect(isValidEbayInventorySku("")).toBe(false);
     expect(isValidEbayInventorySku("a".repeat(51))).toBe(false);
+  });
+});
+
+describe("toEbayInventorySku", () => {
+  it("strips hyphens and spaces", () => {
+    expect(toEbayInventorySku("id-Purple")).toBe("idPurple");
+    expect(toEbayInventorySku("HAT-42")).toBe("HAT42");
+    expect(toEbayInventorySku("sku b")).toBe("skub");
+    expect(toEbayInventorySku("---")).toBeNull();
   });
 });
 

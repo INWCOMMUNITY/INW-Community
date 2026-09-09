@@ -43,4 +43,18 @@ describe("classifyError", () => {
       )
     ).toBe("transient");
   });
+
+  it("treats Shopify 422 currently being modified as transient", () => {
+    const err = new Error(
+      "This product is currently being modified. Please try again later."
+    ) as Error & { status: number };
+    err.status = 422;
+    expect(classifyError(err)).toBe("transient");
+    expect(
+      classifyError({
+        status: 422,
+        message: "Product is currently being modified — please try again later",
+      })
+    ).toBe("transient");
+  });
 });

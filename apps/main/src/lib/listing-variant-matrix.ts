@@ -225,9 +225,21 @@ export function resolveSkuPhotosFromAxes(
       Object.entries(options).find(([k]) => k.trim().toLowerCase() === axisName.trim().toLowerCase())?.[1];
     const fromAxis = photosByValueForLabel(axis?.photosByValue, value ?? "");
     if (fromAxis?.length) return fromAxis;
+    // Image axis is set: do not keep stale SKU thumbs after unlink or axis switch.
+    return undefined;
   }
   if (prevPhotos && prevPhotos.length > 0) return prevPhotos;
   return undefined;
+}
+
+/** Gallery thumbs in Manage variations — keep blob: URLs for unsaved uploads. */
+export function listingGalleryPhotoChoices(galleryPhotos: string[]): string[] {
+  return galleryPhotos.filter((u) => {
+    const url = u?.trim();
+    if (!url) return false;
+    if (url.startsWith("blob:") || url.startsWith("data:")) return true;
+    return url.startsWith("http://") || url.startsWith("https://") || url.startsWith("/");
+  });
 }
 
 export function optionsEqual(
@@ -769,4 +781,41 @@ export function stampSkuCodes(
     if (row && u.sku.trim()) row.sku = u.sku.trim();
   }
   return next;
+}
+
+function alphanumericSkuPart(raw: string, max = 50): string {
+  return raw.replace(/[^a-zA-Z0-9]/g, "").slice(0, max);
+}
+
+/**
+ * Fill blank combo SKUs with alphanumeric keys eBay accepts (no hyphens).
+ * Existing seller SKUs are left as typed.
+ */
+export function fillMissingAlphanumericComboSkus(
+  matrix: VariantMatrix,
+  itemId: string,
+  parentSku?: string | null
+): VariantMatrix {
+  const base =
+    alphanumericSkuPart(parentSku?.trim() || itemId, 36) || alphanumericSkuPart(itemId, 36);
+  if (!base || matrix.skus.length === 0) return matrix;
+  const used = new Set<string>();
+  for (const row of matrix.skus) {
+    const existing = row.sku?.trim();
+    if (existing) used.add(alphanumericSkuPart(existing, 50) || existing);
+  }
+  let filled = false;
+  const skus = matrix.skus.map((row, i) => {
+    if (row.sku?.trim()) return row;
+    const valuePart = alphanumericSkuPart(Object.values(row.options).join(""), 12);
+    let sku = `${base}${valuePart}`.slice(0, 50);
+    if (!sku || used.has(sku)) sku = `${base}v${i + 1}`.slice(0, 50);
+    if (!sku || used.has(sku)) sku = alphanumericSkuPart(`${itemId}v${i + 1}`, 50);
+    if (!sku) return row;
+    used.add(sku);
+    filled = true;
+    return { ...row, sku };
+  });
+  if (!filled) return matrix;
+  return { ...matrix, skus, skusVary: true };
 }

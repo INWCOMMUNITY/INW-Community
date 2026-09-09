@@ -13,10 +13,9 @@ import { STORE_CATEGORIES } from "@/lib/store-categories";
 import { splitEbayCategoryPath } from "./ebay-category-aliases";
 import { upsertChannelCategoryMappings } from "./channel-category-mapping";
 import {
-  normalizeVariantsFromProvider,
   sumVariantQuantities,
   variantsFingerprint,
-  type InwVariantAxis,
+  variantsPayloadForImport,
 } from "./variant-sync";
 import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
@@ -538,15 +537,10 @@ export async function importRemoteListing(args: {
         title: listing.title.slice(0, 50),
       });
     }
-    const normalizedVariants: InwVariantAxis[] | null =
-      listing.variantsKnown === true && Array.isArray(listing.variants)
-        ? (listing.variants as InwVariantAxis[])
-        : listing.variantsKnown !== false && listing.variants
-          ? normalizeVariantsFromProvider(provider, listing.variants)
-          : null;
+    const storedVariants = variantsPayloadForImport(listing);
     const importQty =
-      normalizedVariants && normalizedVariants.length > 0
-        ? sumVariantQuantities(normalizedVariants)
+      storedVariants && storedVariants.skus.length > 0
+        ? sumVariantQuantities(storedVariants)
         : listing.quantityKnown === false
           ? 0
           : Math.max(0, Math.round(Number(listing.quantity) || 0));
@@ -577,7 +571,7 @@ export async function importRemoteListing(args: {
         category: resolvedCat?.category ?? null,
         subcategory: resolvedCat?.subcategory ?? null,
         shippingCostCents: shippingCents,
-        variants: normalizedVariants ? (normalizedVariants as object) : undefined,
+        variants: storedVariants ? (storedVariants as object) : undefined,
         ...(provider === "etsy" && listing.remoteCategoryId
           ? { etsyTaxonomyId: Number(listing.remoteCategoryId) || undefined }
           : {}),

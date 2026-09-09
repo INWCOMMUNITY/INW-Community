@@ -134,6 +134,8 @@ export type ChannelSyncResult = {
   provider: ChannelProvider;
   ok: boolean;
   error?: string;
+  /** Remote listing exists even when ok is false (incomplete options). */
+  remoteListingExists?: boolean;
 };
 
 /** A sale detected via webhook or reconciliation poll. */

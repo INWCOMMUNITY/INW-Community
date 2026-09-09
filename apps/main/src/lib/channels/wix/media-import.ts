@@ -36,6 +36,8 @@ export function shouldPassThroughListingPhotoToWix(sourceUrl: string): boolean {
 export function shouldReplaceWixProductMedia(photos: string[]): boolean {
   const urls = photos.filter((url) => typeof url === "string" && url.trim().length > 0);
   if (urls.length === 0) return false;
+  if (urls.every(isWixStaticPhotoUrl)) return false;
+  if (urls.every(isMarketplaceCdnPhotoUrl)) return false;
   return urls.some((url) => !isWixStaticPhotoUrl(url));
 }
 

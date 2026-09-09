@@ -39,6 +39,7 @@ import {
 } from "./listing-link-flags";
 import { claimChannelListingLink } from "./listing-link-claim";
 import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
+import { isIncompleteChannelListingError } from "./combo-sync";
 /** Content fingerprint so we can skip no-op pushes on update. */
 function contentHash(item: SyncStoreItem): string {
   return storeItemContentHash(item);
@@ -333,6 +334,30 @@ export async function publishStoreItemToChannels(
       }
       results.push({ provider, ok: true });
     } catch (e) {
+      if (isIncompleteChannelListingError(e)) {
+        if (!e.rolledBack) {
+          await claimChannelListingLink({
+            storeItemId,
+            memberId,
+            connectionId: conn.id,
+            provider,
+            externalListingId: e.externalListingId,
+            externalShopId: conn.externalShopId,
+            ...(provider === "ebay" || provider === "wix" ? { linkOrigin: "inw_create" as const } : {}),
+            syncEnabled: true,
+            syncStatus: "error",
+            syncError: e.message.slice(0, 800),
+            lastPushedAt: new Date(),
+          }).catch(() => {});
+        }
+        results.push({
+          provider,
+          ok: false,
+          error: e.message,
+          remoteListingExists: !e.rolledBack,
+        });
+        continue;
+      }
       const msg = describeChannelSyncError(provider, e);
       console.error("[channels] createListing failed", {
         storeItemId,

@@ -245,11 +245,13 @@ export default function MyItemsScreen() {
 
   useFocusEffect(useCallback(() => {
     load();
-    apiPost("/api/channels/sync-on-view", {})
-      .catch(() => {})
-      .finally(() => {
-        load();
-      });
+    apiPost<{ summary?: { updated?: number; removed?: number } }>("/api/channels/sync-on-view", {})
+      .then((data) => {
+        if ((data?.summary?.updated ?? 0) > 0 || (data?.summary?.removed ?? 0) > 0) {
+          load();
+        }
+      })
+      .catch(() => {});
   }, [load]));
 
   useEffect(() => {

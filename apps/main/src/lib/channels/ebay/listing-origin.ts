@@ -3,7 +3,7 @@
  * Imported listings use passthrough sync (live eBay aspects are source of truth).
  */
 
-import { isValidEbayInventorySku } from "./migrate-prep";
+import { isValidEbayInventorySku, toEbayInventorySku } from "./migrate-prep";
 
 export type EbayLinkOrigin = "import" | "inw_create";
 
@@ -30,12 +30,13 @@ export function resolveEbayInventorySku(externalListingId: string): string {
 function sellerSkuForEbayInventory(sku: string | null | undefined): string | null {
   const trimmed = sku?.trim();
   if (!trimmed) return null;
-  if (!isValidEbayInventorySku(trimmed)) return null;
-  if (IMPORTED_EBAY_SKU.test(trimmed)) return null;
+  const candidate = isValidEbayInventorySku(trimmed) ? trimmed : toEbayInventorySku(trimmed);
+  if (!candidate || !isValidEbayInventorySku(candidate)) return null;
+  if (IMPORTED_EBAY_SKU.test(candidate)) return null;
   // Digit-only Custom Labels of 8+ digits look like eBay Item IDs (the seller SKU
   // 51515151 was GetItem'd as a live listing and then #25002'd as a variation SKU).
-  if (/^\d{8,}$/.test(trimmed)) return null;
-  return trimmed;
+  if (/^\d{8,}$/.test(candidate)) return null;
+  return candidate;
 }
 
 /**

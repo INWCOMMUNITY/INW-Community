@@ -38,6 +38,15 @@ export function ChannelSyncResultBanner({
           Listed on {result.successLines.join(", ")}. This item is saved on INW — do not list it again
           from scratch.
         </p>
+      ) : result.failed.some((r) => r.remoteListingExists) ? (
+        <p className={`${bodyClass} mb-2`}>
+          This listing already exists on{" "}
+          {result.failed
+            .filter((r) => r.remoteListingExists)
+            .map((r) => providerLabel(r.provider))
+            .join(", ")}
+          . Do not list it again from scratch. Combinations need a retry from Needs Attention.
+        </p>
       ) : (
         <p className={`${bodyClass} mb-2`}>
           Saved on INW. Retry the failed store(s) from this page so you do not create a duplicate listing.

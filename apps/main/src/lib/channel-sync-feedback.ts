@@ -4,6 +4,7 @@ export type ChannelSyncRow = {
   provider: string;
   ok: boolean;
   error?: string;
+  remoteListingExists?: boolean;
 };
 
 function isListingVisibleSyncFailure(row: ChannelSyncRow): boolean {
@@ -42,6 +43,11 @@ export function formatChannelSyncResults(
   const failureLines = failed.map((r) => {
     const label = providerLabel(r.provider);
     const detail = r.error?.trim();
+    if (r.remoteListingExists) {
+      return detail
+        ? `${label} already has this listing (do not list it again from scratch): ${detail.slice(0, 800)}`
+        : `${label} already has this listing. Combinations did not update — do not list it again from scratch.`;
+    }
     return detail ? `${label}: ${detail.slice(0, 800)}` : `${label}: sync failed`;
   });
 
@@ -58,7 +64,9 @@ export function formatChannelSyncResults(
           ? "Saved Successfully"
           : succeeded.length > 0
             ? "Partially Listed"
-            : "Saved On INW";
+            : failed.some((r) => r.remoteListingExists)
+              ? "Listed But Incomplete"
+              : "Saved On INW";
 
   const intro =
     action === "deleted"
@@ -128,6 +136,12 @@ export function buildPublishResultAlert(
       title:
         result.failureLines.length === 1 ? "Almost — One Store Said No" : "Almost — Some Stores Said No",
       message: `Listed on ${result.successLines.join(", ")}.\n\nCould not list on others:\n\n${result.failureLines.join("\n\n")}`,
+    };
+  }
+  if (rows.some((r) => !r.ok && r.remoteListingExists)) {
+    return {
+      title: "Listed But Incomplete",
+      message: result.failureLines.join("\n\n"),
     };
   }
   return {

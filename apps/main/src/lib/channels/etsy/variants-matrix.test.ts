@@ -5,6 +5,7 @@ import {
   etsyOnPropertyFields,
 } from "./variants";
 import { MAX_ETSY_AXES } from "@/lib/listing-variant-matrix";
+import { expectedComboSkuCount, shouldRebuildEtsyComboInventory } from "../combo-sync";
 import { validateVariantLimits } from "../variant-sync";
 
 describe("etsyInventoryToVariants", () => {
@@ -103,5 +104,25 @@ describe("etsy inventory writes", () => {
     );
     expect(none.price_on_property).toEqual([]);
     expect(none.quantity_on_property).toEqual([]);
+  });
+});
+
+describe("Etsy combo rebuild", () => {
+  it("rebuilds a Color-only listing when INW has Size × Color SKUs", () => {
+    const matrix = {
+      axes: [
+        { name: "Size", values: ["S", "M"] },
+        { name: "Color", values: ["Navy", "White"] },
+      ],
+      skus: [
+        { options: { Size: "S", Color: "Navy" }, quantity: 2 },
+        { options: { Size: "S", Color: "White" }, quantity: 1 },
+        { options: { Size: "M", Color: "Navy" }, quantity: 3 },
+        { options: { Size: "M", Color: "White" }, quantity: 0 },
+      ],
+    };
+    expect(shouldRebuildEtsyComboInventory(matrix, 2)).toBe(true);
+    expect(expectedComboSkuCount(matrix)).toBe(4);
+    expect(expectedComboSkuCount(matrix)).toBe(matrix.skus.length);
   });
 });

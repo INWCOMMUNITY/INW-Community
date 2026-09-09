@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { reconcileConnectionInboundCatalog } from "@/lib/channels/reconcile-inbound-catalog";
-import { reconcileConnectionInboundMeta } from "@/lib/channels/reconcile-inbound-meta";
 import { setEtsyConnectionContext } from "@/lib/channels/etsy/client";
 import { flagGoneWixListingsForConnection } from "@/lib/channels/wix/flag-remote-deleted";
 import { maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
@@ -10,7 +9,7 @@ import { maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const SYNC_COOLDOWN_MS = 30_000;
+const SYNC_COOLDOWN_MS = 120_000;
 const lastSyncByUser = new Map<string, number>();
 
 /**
@@ -18,7 +17,7 @@ const lastSyncByUser = new Map<string, number>();
  *
  * Lightweight sync when the seller opens My Items.
  * Wix deletes are always re-checked (no cooldown) so listing tags drop immediately.
- * Etsy catalog pulls stay on a 30-second cooldown.
+ * Etsy catalog pulls stay on a 2-minute cooldown. Full Etsy inventory/meta runs on the 5-minute cron, not here.
  */
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -80,12 +79,11 @@ export async function POST(req: NextRequest) {
     await maybeImportShippingOptionsOnSync(userId, "etsy").catch(() => {});
     try {
       const catalog = await reconcileConnectionInboundCatalog(conn);
-      const meta = await reconcileConnectionInboundMeta(conn);
       results.push({
         provider: conn.provider,
         catalogUpdated: catalog.updated,
-        metaUpdated: meta.updated,
-        removed: catalog.removed + meta.removed,
+        metaUpdated: 0,
+        removed: catalog.removed,
       });
     } catch (e) {
       console.error("[sync-on-view] sync failed", {

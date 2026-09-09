@@ -358,7 +358,11 @@ export async function PATCH(
     }
   }
   if (data.variants !== undefined) {
-    const stored = data.variants === null ? Prisma.JsonNull : matrixForStorage(data.variants);
+    const parentSku = data.sku !== undefined ? normalizeListingSku(data.sku) : existing.sku;
+    const stored =
+      data.variants === null
+        ? Prisma.JsonNull
+        : matrixForStorage(data.variants, { itemId, parentSku });
     update.variants = stored ?? Prisma.JsonNull;
     if (isMadeToOrderTracking(nextTracking)) {
       update.quantity = MTO_CHANNEL_QUANTITY;

@@ -5,6 +5,12 @@ export function isValidEbayInventorySku(sku: string): boolean {
   return /^[a-zA-Z0-9]{1,50}$/.test(sku.trim());
 }
 
+/** Drop hyphens/spaces so Shopify-style `id-Purple` can look up the eBay variation SKU. */
+export function toEbayInventorySku(raw: string | null | undefined): string | null {
+  const sku = (raw ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 50);
+  return sku.length > 0 ? sku : null;
+}
+
 /**
  * Backoff after a successful Revise before GetItem must show the SKU.
  * Immediate check plus ~8s of waits so eBay lag does not skip a stamped listing.

@@ -56,6 +56,7 @@ import {
 import { syncWixProductMedia } from "./media";
 import { shouldReplaceWixProductMediaOnUpdate } from "./media-import";
 import { claimChannelListingLink } from "../listing-link-claim";
+import { comboInventoryFailedMessage, IncompleteChannelListingError } from "../combo-sync";
 import { prisma } from "database";
 
 type ProductResponse = { product?: WixProduct };
@@ -684,7 +685,7 @@ async function applyWixCategoryAndOptions(
       const pushed = await pushWixV1PerOptionInventory(conn.accessToken, productId, item, opts);
       if (!pushed) {
         throw new WixApiError(
-          "Could not update per-option inventory on Wix (Catalog v1). Check that Manage inventory per variant is enabled.",
+          comboInventoryFailedMessage("wix"),
           502,
           null
         );
@@ -773,13 +774,35 @@ export const wixAdapter: ChannelAdapter = {
             await syncWixProductMedia(conn, productId, item.photos);
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
+            const comboMsg = /per-option inventory|variant mapping/i.test(msg)
+              ? comboInventoryFailedMessage("wix")
+              : msg;
             await prisma.channelListingLink
               .updateMany({
                 where: { storeItemId: item.id, provider: "wix" },
-                data: { syncStatus: "error", syncError: msg.slice(0, 800) },
+                data: { syncStatus: "error", syncError: comboMsg.slice(0, 800) },
               })
               .catch(() => {});
-            throw e;
+            let rolledBack = false;
+            try {
+              await this.deleteListing(conn, productId);
+              rolledBack = true;
+              await prisma.channelListingLink
+                .deleteMany({
+                  where: {
+                    storeItemId: item.id,
+                    provider: "wix",
+                    externalListingId: productId,
+                  },
+                })
+                .catch(() => {});
+            } catch (del) {
+              console.warn("[wix] rollback after incomplete create failed", {
+                productId,
+                error: String(del),
+              });
+            }
+            throw new IncompleteChannelListingError(comboMsg.slice(0, 800), productId, rolledBack);
           }
           return { externalListingId: productId, externalShopId: conn.externalShopId };
         } catch (e) {
@@ -1063,7 +1086,7 @@ export const wixAdapter: ChannelAdapter = {
             );
             if (!pushed) {
               throw new WixApiError(
-                "Could not update per-option inventory on Wix (Catalog v1). Check variant mapping in Sync Stores.",
+                comboInventoryFailedMessage("wix"),
                 502,
                 null
               );

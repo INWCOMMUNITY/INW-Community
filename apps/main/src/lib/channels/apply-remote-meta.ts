@@ -111,7 +111,7 @@ export async function applyRemoteVariantAxesToStoreItem(
   storeItemId: string,
   axes: InwVariantAxis[] | null | unknown
 ): Promise<boolean> {
-  const matrix = matrixForStorage(axes);
+    const matrix = matrixForStorage(axes, { itemId: storeItemId });
   if (!matrix || matrix.axes.length === 0) return false;
 
   const item = await prisma.storeItem.findUnique({

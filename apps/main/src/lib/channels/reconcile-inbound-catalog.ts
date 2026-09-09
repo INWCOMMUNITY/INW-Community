@@ -6,6 +6,7 @@ import {
   inboundDescriptionsMatch,
   remoteContentDiffersFromStoreItem,
   remoteTitleOrPriceDiffersFromStoreItem,
+  shouldApplyAggregateRemoteQuantity,
 } from "./apply-remote-listing";
 import { getAdapter } from "./registry";
 import { updateStoreItemOnChannels } from "./outbound";
@@ -740,7 +741,8 @@ export async function reconcileConnectionInboundCatalog(
       qtyDiffers && remoteQtyKnown && remote.quantity > 0 && currentQty === 0;
     const blockRecovery =
       staleZeroVsRemoteStock && (await shouldBlockSoldOutQtyRecovery(link.storeItemId));
-    const needsQtyRecovery = staleZeroVsRemoteStock && !blockRecovery;
+    const canApplyAggregateQty = shouldApplyAggregateRemoteQuantity(item.variants);
+    const needsQtyRecovery = staleZeroVsRemoteStock && !blockRecovery && canApplyAggregateQty;
 
     if (blockRecovery) {
       console.log("[channels] skipping qty recovery after sale or failed zero push", {
@@ -865,7 +867,7 @@ export async function reconcileConnectionInboundCatalog(
         link.syncBaselineQty != null && 
         remote.quantity !== link.syncBaselineQty;
       
-      if (remoteQtyChanged && !inwQtyChangedSinceBaseline && allowPull && !blockRecovery) {
+      if (remoteQtyChanged && !inwQtyChangedSinceBaseline && allowPull && !blockRecovery && canApplyAggregateQty) {
         // Remote changed, INW didn't - pull from remote
         console.log("[channels] pulling quantity from remote (qty-only change)", {
           storeItemId: link.storeItemId,

@@ -137,6 +137,16 @@ export function liveEbayPhotoUrlsToPin(liveUrls: string[]): string[] {
 }
 
 /**
+ * Parent SKU inventory GET is often empty on variation listings. Pin Trading
+ * GetItem EPS so a later Inventory PUT does not omit imageUrls and wipe photos.
+ */
+export function mergeLiveEbayPhotoUrls(inventoryUrls: string[], tradingUrls: string[]): string[] {
+  const fromInventory = liveEbayPhotoUrlsToPin(inventoryUrls);
+  if (fromInventory.length > 0) return fromInventory;
+  return liveEbayPhotoUrlsToPin(tradingUrls);
+}
+
+/**
  * Existing eBay listings already have pictures. Sending INW blob URLs onto an
  * EPS listing causes #25014. Pin live pictures of one host family. Only omit
  * imageUrls when live inventory truly has none — otherwise PUT would wipe them.

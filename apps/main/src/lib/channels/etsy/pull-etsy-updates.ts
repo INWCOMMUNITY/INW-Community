@@ -121,7 +121,7 @@ export async function refreshEtsyListingByStoreItemId(
     };
   }
 
-  await enrichEtsyListingSummaryWithInventory(ctx.accessToken, remote);
+  await enrichEtsyListingSummaryWithInventory(ctx.accessToken, remote, ctx.externalShopId);
 
   const storeItem = link.storeItem;
   const changes: string[] = [];

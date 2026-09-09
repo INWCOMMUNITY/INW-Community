@@ -33,6 +33,11 @@ import { fetchShopifyCollectionCategoryMaps } from "./collections";
 import { fetchShopifyProductTaxonomyMaps } from "./inbound-taxonomy";
 import { applyShopifyCategory } from "./taxonomy";
 import { hasOptionQuantities } from "../../store-item-variants";
+import {
+  comboInventoryFailedMessage,
+  expectedComboSkuCount,
+  IncompleteChannelListingError,
+} from "../combo-sync";
 import { isShopifySaleOrder } from "./sale-order";
 import { ensureShopifyWebhooks } from "./webhooks-subscribe";
 
@@ -276,35 +281,65 @@ export const shopifyAdapter: ChannelAdapter = {
       throw new Error("Shopify did not return a product id for the created listing.");
     }
     const pid = String(productId);
-    if (cfg.locationId) {
-      const product = res.product;
-      const variants = product?.variants ?? [];
-      if (variants.length > 1) {
-        for (const v of variants) {
-          if (v.inventory_item_id == null) continue;
-          const qty = quantityForShopifyRemoteVariant(item, product ?? {}, v);
-          await setInventoryAbsolute(
-            conn.accessToken,
-            cfg.shop,
-            cfg.apiVersion,
-            cfg.locationId,
-            v.inventory_item_id,
-            qty
-          ).catch(() => {});
+    const expectedCombos = expectedComboSkuCount(item.variants);
+    try {
+      if (cfg.locationId) {
+        const product = res.product;
+        const variants = product?.variants ?? [];
+        if (expectedCombos > 1 && variants.length < expectedCombos) {
+          throw new Error(comboInventoryFailedMessage("shopify"));
         }
-      } else {
-        await syncProductInventory(conn, pid, item.quantity).catch((e) => {
-          console.error("[shopify] post-create inventory sync failed", { productId: pid, error: String(e) });
-        });
+        if (variants.length > 1) {
+          for (const v of variants) {
+            if (v.inventory_item_id == null) continue;
+            const qty = quantityForShopifyRemoteVariant(item, product ?? {}, v);
+            await setInventoryAbsolute(
+              conn.accessToken,
+              cfg.shop,
+              cfg.apiVersion,
+              cfg.locationId,
+              v.inventory_item_id,
+              qty
+            );
+          }
+        } else {
+          await syncProductInventory(conn, pid, item.quantity);
+        }
       }
-    }
-    await applyShopifyCategory(conn, pid, item).catch((e) => {
-      console.warn("[shopify] post-create category apply failed", {
-        productId: pid,
-        error: String(e),
+      await applyShopifyCategory(conn, pid, item).catch((e) => {
+        console.warn("[shopify] post-create category apply failed", {
+          productId: pid,
+          error: String(e),
+        });
       });
-    });
-    return { externalListingId: pid, externalShopId: cfg.shop };
+      return { externalListingId: pid, externalShopId: cfg.shop };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      let rolledBack = false;
+      try {
+        await shopifyDelete(
+          conn.accessToken,
+          cfg.shop,
+          cfg.apiVersion,
+          `/products/${pid}.json`
+        );
+        rolledBack = true;
+      } catch (del) {
+        if (!(del instanceof ShopifyApiError && del.status === 404)) {
+          console.warn("[shopify] rollback after incomplete create failed", {
+            productId: pid,
+            error: String(del),
+          });
+        } else {
+          rolledBack = true;
+        }
+      }
+      throw new IncompleteChannelListingError(
+        msg.includes("combinations") ? msg : `${comboInventoryFailedMessage("shopify")} (${msg.slice(0, 200)})`,
+        pid,
+        rolledBack
+      );
+    }
   },
 
   async updateListing(conn, externalListingId, item): Promise<void> {
@@ -322,6 +357,13 @@ export const shopifyAdapter: ChannelAdapter = {
     );
     if (hasOptionQuantities(item.variants)) {
       await syncShopifyVariantInventory(conn, externalListingId, item);
+      const expected = expectedComboSkuCount(item.variants);
+      if (expected > 1) {
+        const after = await getProduct(conn.accessToken, cfg.shop, cfg.apiVersion, externalListingId);
+        if ((after?.variants?.length ?? 0) < expected) {
+          throw new Error(comboInventoryFailedMessage("shopify"));
+        }
+      }
     } else {
       await syncProductInventory(conn, externalListingId, item.quantity);
     }

@@ -79,6 +79,39 @@ describe("formatChannelSyncResults", () => {
     expect(result.failureLines[0]).toContain("eBay");
     expect(result.allOk).toBe(false);
   });
+
+  it("says the shop already has the listing when inventory is incomplete", () => {
+    const result = formatChannelSyncResults(
+      [
+        {
+          provider: "etsy",
+          ok: false,
+          remoteListingExists: true,
+          error: "INW combinations did not update on Etsy — quantities were not applied per Size × Color",
+        },
+      ],
+      "saved"
+    );
+    expect(result.title).toBe("Listed But Incomplete");
+    expect(result.failureLines[0]).toMatch(/already has this listing/i);
+    expect(result.failureLines.join(" ").toLowerCase()).not.toMatch(/wasn't listed|was not listed/);
+  });
+});
+
+describe("buildPublishResultAlert incomplete remote", () => {
+  it("does not tell the seller the item was not listed when a remote id exists", () => {
+    const alert = buildPublishResultAlert([
+      {
+        provider: "shopify",
+        ok: false,
+        remoteListingExists: true,
+        error: "INW combinations did not update on Shopify — quantities were not applied per Size × Color",
+      },
+    ]);
+    expect(alert.title).toBe("Listed But Incomplete");
+    expect(alert.message).toMatch(/already has this listing/i);
+    expect(alert.message.toLowerCase()).not.toMatch(/wasn't listed|could not list on the selected store/);
+  });
 });
 
 describe("buildSyncFailureMessage", () => {

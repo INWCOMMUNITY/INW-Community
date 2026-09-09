@@ -7,6 +7,7 @@ import {
   shouldPublishEbayInventoryGroup,
   shouldPublishEbayOffer,
   shouldRepublishEbayOffer,
+  shouldSkipEbayInventoryContentPutAtZeroQty,
   shouldWriteEbayOffer,
 } from "./publish-policy";
 
@@ -62,6 +63,16 @@ describe("publish-policy", () => {
       })
     ).toBe(true);
     expect(
+      shouldPublishEbayInventoryGroup({
+        operation: "create",
+        canPublish: true,
+        itemIsActive: true,
+        inStock: true,
+        hadOfferAtStart: false,
+        listingAlreadyLinked: true,
+      })
+    ).toBe(false);
+    expect(
       shouldRepublishEbayOffer({
         operation: "create",
         canPublish: true,
@@ -116,5 +127,7 @@ describe("publish-policy", () => {
         offerStatus: "UNPUBLISHED",
       })
     ).toBe(true);
+    expect(shouldSkipEbayInventoryContentPutAtZeroQty(0)).toBe(true);
+    expect(shouldSkipEbayInventoryContentPutAtZeroQty(1)).toBe(false);
   });
 });

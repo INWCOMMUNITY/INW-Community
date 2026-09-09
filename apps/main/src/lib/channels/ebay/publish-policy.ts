@@ -66,9 +66,17 @@ export function shouldPublishEbayInventoryGroup(args: {
   itemIsActive: boolean;
   inStock: boolean;
   hadOfferAtStart: boolean;
+  /** Live Trading Item ID on the channel link, even when findOffer(parentSku) misses. */
+  listingAlreadyLinked?: boolean;
 }): boolean {
   if (args.operation === "update") return false;
+  if (args.listingAlreadyLinked) return false;
   return args.canPublish && args.itemIsActive && args.inStock && !args.hadOfferAtStart;
+}
+
+/** Inventory PUT at qty 0 fails #25004 on unpublished / draft offers and then blocks title. */
+export function shouldSkipEbayInventoryContentPutAtZeroQty(quantity: number): boolean {
+  return quantity <= 0;
 }
 
 /** Unpublished offers reject quantity 0 (#25004) and then block inventory Brand updates. */

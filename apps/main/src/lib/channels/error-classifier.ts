@@ -169,6 +169,9 @@ function errorToString(error: unknown): string {
  */
 export function classifyError(error: unknown): ErrorClassification {
   const errorStr = errorToString(error);
+  if (/currently being modified|please try again later/i.test(errorStr)) {
+    return "transient";
+  }
   // Inventory #25002 picture-size failures are auto-fixed by sending full-size EPS URLs.
   if (/Picture Policy|500 pixels on the longest side|resolution for provided picture/i.test(errorStr)) {
     return "transient";

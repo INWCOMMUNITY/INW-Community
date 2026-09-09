@@ -225,9 +225,21 @@ export function resolveSkuPhotosFromAxes(
       Object.entries(options).find(([k]) => k.trim().toLowerCase() === axisName.trim().toLowerCase())?.[1];
     const fromAxis = photosByValueForLabel(axis?.photosByValue, value ?? "");
     if (fromAxis?.length) return fromAxis;
+    // Image axis is set: do not keep stale SKU thumbs after unlink or axis switch.
+    return undefined;
   }
   if (prevPhotos && prevPhotos.length > 0) return prevPhotos;
   return undefined;
+}
+
+/** Gallery thumbs in Manage variations — keep blob: URLs for unsaved uploads. */
+export function listingGalleryPhotoChoices(galleryPhotos: string[]): string[] {
+  return galleryPhotos.filter((u) => {
+    const url = u?.trim();
+    if (!url) return false;
+    if (url.startsWith("blob:") || url.startsWith("data:")) return true;
+    return url.startsWith("http://") || url.startsWith("https://") || url.startsWith("/");
+  });
 }
 
 export function optionsEqual(

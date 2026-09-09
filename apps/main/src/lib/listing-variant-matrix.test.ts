@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   browsePriceLabel,
   decrementMatrixSku,
+  fillMissingAlphanumericComboSkus,
   incrementMatrixSku,
+  listingGalleryPhotoChoices,
   normalizeVariantMatrix,
   rebuildMatrixFromAxes,
   serializeVariantMatrix,
@@ -68,6 +70,60 @@ describe("normalizeVariantMatrix", () => {
     expect(matrix?.imageAxis).toBe("Color");
     expect(matrix?.skus[0].photos).toEqual(["https://cdn.example/navy.jpg"]);
     expect(matrix?.skus[1].photos).toBeUndefined();
+  });
+
+  it("clears SKU photos when the image axis no longer has a matching link", () => {
+    const rebuilt = rebuildMatrixFromAxes(
+      [
+        { name: "Size", values: ["S"] },
+        { name: "Color", values: ["Navy"], photosByValue: {} },
+      ],
+      [
+        {
+          options: { Size: "S", Color: "Navy" },
+          quantity: 1,
+          photos: ["https://cdn.example/stale.jpg"],
+        },
+      ],
+      { imageAxis: "Color" }
+    );
+    expect(rebuilt.skus[0].photos).toBeUndefined();
+  });
+
+  it("keeps blob gallery URLs for Manage photos", () => {
+    expect(
+      listingGalleryPhotoChoices([
+        "https://cdn.example/navy.jpg",
+        "blob:http://localhost:3000/abc",
+        "  ",
+        "data:image/png;base64,aaa",
+      ])
+    ).toEqual([
+      "https://cdn.example/navy.jpg",
+      "blob:http://localhost:3000/abc",
+      "data:image/png;base64,aaa",
+    ]);
+  });
+
+  it("keeps applied photo links when a discarded manage draft is empty", () => {
+    const applied = normalizeVariantMatrix({
+      axes: [
+        { name: "Size", values: ["S"] },
+        {
+          name: "Color",
+          values: ["Navy"],
+          photosByValue: { Navy: ["https://cdn.example/navy.jpg"] },
+        },
+      ],
+      imageAxis: "Color",
+      skus: [{ options: { Size: "S", Color: "Navy" }, quantity: 1 }],
+    });
+    const discardedDraft: unknown[] = [];
+    expect(discardedDraft).toEqual([]);
+    expect(applied?.axes.find((a) => a.name === "Color")?.photosByValue?.Navy).toEqual([
+      "https://cdn.example/navy.jpg",
+    ]);
+    expect(applied?.skus[0].photos).toEqual(["https://cdn.example/navy.jpg"]);
   });
 });
 
@@ -219,5 +275,23 @@ describe("browsePriceLabel", () => {
         ],
       })
     ).toEqual({ cents: 2800, from: true });
+  });
+});
+
+describe("fillMissingAlphanumericComboSkus", () => {
+  it("stamps alphanumeric SKUs onto combo rows that have none", () => {
+    const filled = fillMissingAlphanumericComboSkus(
+      {
+        axes: [{ name: "Color", values: ["Purple", "Red"] }],
+        skus: [
+          { options: { Color: "Purple" }, quantity: 2 },
+          { options: { Color: "Red" }, quantity: 1, sku: "KEEPME" },
+        ],
+      },
+      "cmt7vumcl000dxjujvgwe8dob"
+    );
+    expect(filled.skus[0].sku).toBe("cmt7vumcl000dxjujvgwe8dobPurple");
+    expect(filled.skus[1].sku).toBe("KEEPME");
+    expect(filled.skus[0].sku).not.toContain("-");
   });
 });

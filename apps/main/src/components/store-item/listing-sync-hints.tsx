@@ -1,5 +1,8 @@
 export const LISTING_SYNC_HINTS = {
-  photos: "Pushes listing photos to connected stores when you save.",
+  photos:
+    "Pushes listing photos to Shopify, Etsy, and Wix when you save. eBay gets photos on the first publish only.",
+  photosEbay:
+    "Photos go to eBay on the first publish. After that, eBay keeps its own pictures. Saving here still updates title, price, and quantity on eBay.",
   title: "Pushes title and description to connected stores when you save.",
   sku: "Pushes this SKU to connected stores when you save. eBay needs letters and numbers only.",
   price: "Pushes price to connected stores when you save.",

@@ -116,6 +116,19 @@ describe("buildShopifyCreateBody", () => {
     }) as { product: { product_type?: string } };
     expect(body.product.product_type).toBe("Video Games");
   });
+
+  it("does not invent hyphenated SKUs when combo rows have none", () => {
+    const body = buildShopifyCreateBody({
+      ...baseItem,
+      sku: null,
+      variants: {
+        axes: [{ name: "Color", values: ["Purple"] }],
+        skus: [{ options: { Color: "Purple" }, quantity: 2 }],
+      },
+    }) as { product: { variants: { sku: string }[] } };
+    expect(body.product.variants[0].sku).toBe("item1Purple");
+    expect(body.product.variants[0].sku).not.toContain("-");
+  });
 });
 
 describe("shopifyUpdateShouldReplaceImages", () => {
@@ -126,6 +139,7 @@ describe("shopifyUpdateShouldReplaceImages", () => {
     expect(
       shopifyUpdateShouldReplaceImages(["https://abc.public.blob.vercel-storage.com/hat.jpg"])
     ).toBe(true);
+    expect(shopifyUpdateShouldReplaceImages(["https://cdn.shopify.com/s/files/1/a.jpg"])).toBe(false);
   });
 
   it("omits images from an update body when INW only has eBay CDNs", () => {
@@ -134,6 +148,18 @@ describe("shopifyUpdateShouldReplaceImages", () => {
         ...baseItem,
         variants: null,
         photos: ["https://i.ebayimg.com/images/g/xx/s-l2000.jpg"],
+      },
+      "123"
+    ) as { product: { images?: { src: string }[] } };
+    expect(body.product.images).toBeUndefined();
+  });
+
+  it("omits images from an update body when INW only has Shopify CDNs", () => {
+    const body = buildShopifyUpdateBody(
+      {
+        ...baseItem,
+        variants: null,
+        photos: ["https://cdn.shopify.com/s/files/1/clock.jpg"],
       },
       "123"
     ) as { product: { images?: { src: string }[] } };

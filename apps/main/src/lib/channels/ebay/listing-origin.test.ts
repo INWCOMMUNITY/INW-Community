@@ -116,7 +116,7 @@ describe("listing-origin", () => {
     ).toBe("cmt9br02u0001ogr5kqvvjwm3");
   });
 
-  it("keeps StoreItem id when the seller SKU is not eBay-safe", () => {
+  it("strips hyphens from a seller SKU before sending to eBay", () => {
     expect(
       resolveEbayPushSku({
         itemId: "cmsz85hpj0001ahwfa2pmvtun",
@@ -124,7 +124,15 @@ describe("listing-origin", () => {
         externalListingId: "403004607151",
         linkOrigin: "inw_create",
       })
-    ).toBe("cmsz85hpj0001ahwfa2pmvtun");
+    ).toBe("HAT42");
+    expect(
+      resolveEbayPushSku({
+        itemId: "cmt7vumcl000dxjujvgwe8dob",
+        itemSku: "cmt7vumcl000dxjujvgwe8dob-Purple",
+        externalListingId: "407186363325",
+        linkOrigin: "inw_create",
+      })
+    ).toBe("cmt7vumcl000dxjujvgwe8dobPurple");
   });
 
   it("treats numeric legacy Item ID as import", () => {

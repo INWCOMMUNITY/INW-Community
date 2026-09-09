@@ -6,6 +6,7 @@ import {
   MAX_SKU_ROWS_SHOPIFY,
   MAX_VARIANT_AXES,
   etsyVariesByAllProperties,
+  fillMissingAlphanumericComboSkus,
   matrixToLegacyAxes,
   normalizeVariantMatrix,
   serializeVariantMatrix,
@@ -111,9 +112,25 @@ export function variantsToMatrix(remoteVariants: unknown): VariantMatrix | null 
   return normalizeVariantMatrix(remoteVariants);
 }
 
-export function matrixForStorage(remoteVariants: unknown): VariantMatrix | null {
+export function matrixForStorage(
+  remoteVariants: unknown,
+  opts?: { itemId?: string; parentSku?: string | null }
+): VariantMatrix | null {
   const matrix = normalizeVariantMatrix(remoteVariants);
-  return matrix ? serializeVariantMatrix(matrix) : null;
+  if (!matrix) return null;
+  const filled = opts?.itemId
+    ? fillMissingAlphanumericComboSkus(matrix, opts.itemId, opts.parentSku)
+    : matrix;
+  return serializeVariantMatrix(filled);
+}
+
+/** Persist the combo matrix on import — never collapse to per-value totals. */
+export function variantsPayloadForImport(listing: {
+  variants?: unknown;
+  variantsKnown?: boolean;
+}): VariantMatrix | null {
+  if (listing.variantsKnown === false) return null;
+  return matrixForStorage(listing.variants);
 }
 
 /** Stable fingerprint for baseline meta sync. */

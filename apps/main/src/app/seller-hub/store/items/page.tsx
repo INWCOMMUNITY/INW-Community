@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { ItemChannelSyncBadges } from "@/components/store-item/ItemChannelSyncBadges";
 import { MyItemsRowMenu } from "@/components/store-item/MyItemsRowMenu";
@@ -101,7 +101,6 @@ export default function MyItemsPage() {
   const [menuItemId, setMenuItemId] = useState<string | null>(null);
   const [historyItemId, setHistoryItemId] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<ChannelActionResult | null>(null);
-  const [channelsChecked, setChannelsChecked] = useState(false);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -170,10 +169,12 @@ export default function MyItemsPage() {
     }
   }, [tab]);
 
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
   useEffect(() => {
-    if (!channelsChecked) return;
     void load();
-  }, [load, channelsChecked]);
+  }, [load]);
 
   useEffect(() => {
     setSelectedIds([]);
@@ -187,8 +188,17 @@ export default function MyItemsPage() {
   useEffect(() => {
     void fetchChannelConnections().then(setConnections).catch(() => setConnections([]));
     void fetch("/api/channels/sync-on-view", { method: "POST", credentials: "include" })
-      .catch(() => {})
-      .finally(() => setChannelsChecked(true));
+      .then(async (res) => {
+        const data = (await res.json().catch(() => ({}))) as {
+          summary?: { updated?: number; removed?: number };
+        };
+        const updated = data.summary?.updated ?? 0;
+        const removed = data.summary?.removed ?? 0;
+        if (updated > 0 || removed > 0) {
+          void loadRef.current({ silent: true });
+        }
+      })
+      .catch(() => {});
   }, []);
 
   async function handleRemoteDeleteDecision(itemId: string, action: "keep" | "delete_everywhere") {

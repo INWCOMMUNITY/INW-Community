@@ -11,6 +11,7 @@ import {
   isEbayMixedHostPictureError,
   normalizeInventoryImageUrls,
   applyEbayInventoryPhotoPolicy,
+  mergeLiveEbayPhotoUrls,
   putInventoryWithPhotoRecovery,
   sanitizeInventoryImageUrl,
   selectPassthroughInventoryImageUrls,
@@ -239,6 +240,20 @@ describe("applyEbayInventoryPhotoPolicy", () => {
     expect((next.product as { imageUrls: string[] }).imageUrls).toEqual([
       "https://i.ebayimg.com/live.jpg",
     ]);
+  });
+});
+
+describe("mergeLiveEbayPhotoUrls", () => {
+  it("prefers inventory EPS and falls back to GetItem EPS", () => {
+    expect(
+      mergeLiveEbayPhotoUrls(
+        ["https://i.ebayimg.com/inventory.jpg"],
+        ["https://i.ebayimg.com/trading.jpg"]
+      )
+    ).toEqual(["https://i.ebayimg.com/inventory.jpg"]);
+    expect(
+      mergeLiveEbayPhotoUrls([], ["https://i.ebayimg.com/trading.jpg"])
+    ).toEqual(["https://i.ebayimg.com/trading.jpg"]);
   });
 });
 

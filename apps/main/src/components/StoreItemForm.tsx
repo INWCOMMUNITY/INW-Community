@@ -1133,6 +1133,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                   uploadingPhotos={uploadingPhotos}
                   photoError={photoError}
                   showSyncHint={showSyncHints}
+                  listingOnEbay={listingOnEbay}
                 />
               </ListingFormSection>
 

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { IonIcon } from "@/components/IonIcon";
 import { formatListingPhotoSizeLabel } from "@/lib/upload-limits";
 import { listingHintClass } from "./listing-form-styles";
+import { LISTING_SYNC_HINTS, SyncFieldHint } from "./listing-sync-hints";
 
 type ListingPhotoGalleryProps = {
   photos: string[];
@@ -12,6 +13,7 @@ type ListingPhotoGalleryProps = {
   uploadingPhotos: boolean;
   photoError?: string;
   showSyncHint?: boolean;
+  listingOnEbay?: boolean;
 };
 
 export function ListingPhotoGallery({
@@ -21,6 +23,7 @@ export function ListingPhotoGallery({
   uploadingPhotos,
   photoError,
   showSyncHint,
+  listingOnEbay,
 }: ListingPhotoGalleryProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const thumbScrollRef = useRef<HTMLDivElement>(null);
@@ -295,7 +298,9 @@ export function ListingPhotoGallery({
       ) : null}
 
       {showSyncHint ? (
-        <p className="text-xs text-[var(--color-primary)]/80">Photos push to connected stores when you save.</p>
+        <SyncFieldHint
+          text={listingOnEbay ? LISTING_SYNC_HINTS.photosEbay : LISTING_SYNC_HINTS.photos}
+        />
       ) : null}
     </div>
   );

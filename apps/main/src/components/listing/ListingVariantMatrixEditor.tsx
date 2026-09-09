@@ -6,6 +6,7 @@ import {
   INVENTORY_TRACKING_TRACKED,
   MAX_VARIANT_AXES,
   inferMatrixVaryFlags,
+  listingGalleryPhotoChoices,
   normalizeVariantMatrix,
   optionsEqual,
   rebuildMatrixFromAxes,
@@ -105,11 +106,8 @@ export function ListingVariantMatrixEditor({
   const [quantitiesVary, setQuantitiesVary] = useState(true);
   const [skusVary, setSkusVary] = useState(inferred.skusVary);
   const [manageOpen, setManageOpen] = useState(false);
-  const [photosOpen, setPhotosOpen] = useState(false);
   const [draftAxes, setDraftAxes] = useState<VariantAxisDef[]>([]);
   const [draftNewValues, setDraftNewValues] = useState<Record<number, string>>({});
-  const [photoAxis, setPhotoAxis] = useState<string>("");
-  const [photosByValue, setPhotosByValue] = useState<Record<string, string[]>>({});
   const [bulkPrice, setBulkPrice] = useState("");
   const [bulkQty, setBulkQty] = useState("");
 
@@ -119,7 +117,7 @@ export function ListingVariantMatrixEditor({
   }, [skus]);
 
   const photoChoices = useMemo(
-    () => galleryPhotos.filter((u) => u && !u.startsWith("blob:")),
+    () => listingGalleryPhotoChoices(galleryPhotos),
     [galleryPhotos]
   );
 
@@ -161,34 +159,28 @@ export function ListingVariantMatrixEditor({
     setManageOpen(true);
   };
 
+  const closeManage = () => {
+    setManageOpen(false);
+    setDraftAxes([]);
+    setDraftNewValues({});
+  };
+
   const applyManage = () => {
     applyAxes(draftAxes);
-    setManageOpen(false);
+    closeManage();
   };
 
-  const openPhotos = (axisName?: string) => {
-    const named =
-      axisName ||
-      resolveImageAxisName({ axes, skus }) ||
-      axes.find((a) => a.name.toLowerCase() === "color")?.name ||
-      axes[0]?.name ||
-      "";
-    const axis = axes.find((a) => a.name === named);
-    setPhotoAxis(named);
-    setPhotosByValue({ ...(axis?.photosByValue ?? {}) });
-    setPhotosOpen(true);
-  };
-
-  const applyPhotos = () => {
-    const base = draftAxes.length ? draftAxes : axes;
-    const nextAxes = base.map((a) =>
-      a.name === photoAxis
-        ? { ...a, photosByValue: { ...photosByValue } }
-        : { ...a, photosByValue: undefined }
+  const toggleDraftPhoto = (axisIndex: number, value: string, url: string) => {
+    setDraftAxes((prev) =>
+      prev.map((a, i) => {
+        if (i !== axisIndex) return { ...a, photosByValue: undefined };
+        const current = a.photosByValue?.[value] ?? [];
+        const next = current.includes(url) ? current.filter((u) => u !== url) : [...current, url];
+        const photosByValue = { ...(a.photosByValue ?? {}), [value]: next };
+        if (next.length === 0) delete photosByValue[value];
+        return { ...a, photosByValue };
+      })
     );
-    setDraftAxes(nextAxes);
-    applyAxes(nextAxes);
-    setPhotosOpen(false);
   };
 
   const togglePriceVary = (next: boolean) => {
@@ -246,8 +238,8 @@ export function ListingVariantMatrixEditor({
     axes.length === 0
       ? "No options yet"
       : `${axes.map((a) => a.name || "Option").join(", ")} · ${enabledCount} combination${enabledCount === 1 ? "" : "s"}`;
-  const photoAxisLive = resolveImageAxisName({ axes, skus });
-  const photoAxisDef = draftAxes.find((a) => a.name === photoAxis) ?? axes.find((a) => a.name === photoAxis);
+  const photoAxisLive = resolveImageAxisName({ axes: draftAxes.length ? draftAxes : axes, skus });
+  const firstPhotoAxisIndex = draftAxes.findIndex((a) => a.values.length > 0);
 
   return (
     <div className="space-y-4">
@@ -315,17 +307,9 @@ export function ListingVariantMatrixEditor({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-gray-700">{summary}</p>
             <div className="flex flex-wrap gap-2">
-              {axes.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => openPhotos()}
-                  className="py-2 px-4 border border-gray-300 rounded-lg bg-white text-gray-800 font-semibold text-sm hover:bg-gray-50"
-                >
-                  Link photos
-                </button>
-              ) : null}
               <button
                 type="button"
+                accessKey="v"
                 onClick={openManage}
                 className="py-2 px-4 border border-gray-300 rounded-lg bg-white text-gray-800 font-semibold text-sm hover:bg-gray-50"
               >
@@ -487,7 +471,7 @@ export function ListingVariantMatrixEditor({
                   Add up to {MAX_VARIANT_AXES} option types. Apply generates every combination.
                 </p>
               </div>
-              <button type="button" className="text-gray-500" onClick={() => setManageOpen(false)}>
+              <button type="button" className="text-gray-500" onClick={closeManage}>
                 ✕
               </button>
             </div>
@@ -600,20 +584,47 @@ export function ListingVariantMatrixEditor({
                   </button>
                 </div>
                 {axis.values.length > 0 ? (
-                  <button
-                    type="button"
-                    className="mt-2 text-sm text-[var(--color-primary)] font-semibold"
-                    onClick={() => {
-                      applyAxes(draftAxes);
-                      const named = axis.name;
-                      const found = draftAxes.find((a) => a.name === named);
-                      setPhotoAxis(named);
-                      setPhotosByValue({ ...(found?.photosByValue ?? {}) });
-                      setPhotosOpen(true);
-                    }}
-                  >
-                    Link photos to {axis.name}
-                  </button>
+                  <div className="mt-3 space-y-2">
+                    <p className="text-sm font-semibold text-gray-800">
+                      Link photos to {axis.name || "this option"}
+                    </p>
+                    {photoChoices.length === 0 ? (
+                      <p className="text-xs text-gray-500">
+                        Add listing photos in the gallery first, then tap them here.
+                      </p>
+                    ) : (
+                      axis.values.map((value) => (
+                        <div key={value}>
+                          <p className="text-xs font-medium mb-1">{value}</p>
+                          <div className="flex flex-wrap gap-2">
+                            {photoChoices.map((url) => {
+                              const selected = (axis.photosByValue?.[value] ?? []).includes(url);
+                              return (
+                                <button
+                                  key={url}
+                                  type="button"
+                                  accessKey={
+                                    ai === firstPhotoAxisIndex &&
+                                    value === axis.values[0] &&
+                                    url === photoChoices[0]
+                                      ? "p"
+                                      : undefined
+                                  }
+                                  onClick={() => toggleDraftPhoto(ai, value, url)}
+                                  className={`w-12 h-12 rounded overflow-hidden border-2 ${
+                                    selected ? "border-[var(--color-primary)]" : "border-transparent"
+                                  }`}
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={url} alt="" className="w-full h-full object-cover" />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 ) : null}
               </div>
             ))}
@@ -666,7 +677,7 @@ export function ListingVariantMatrixEditor({
               <button
                 type="button"
                 className="px-4 py-2 text-sm"
-                onClick={() => setManageOpen(false)}
+                onClick={closeManage}
               >
                 Cancel
               </button>
@@ -676,93 +687,6 @@ export function ListingVariantMatrixEditor({
                 onClick={applyManage}
               >
                 Apply
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {photosOpen ? (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold">Link photos</h3>
-                <p className="text-sm text-gray-500">
-                  One option type can own photos (usually Color). Those photos copy onto every matching
-                  combination.
-                </p>
-              </div>
-              <button type="button" className="text-gray-500" onClick={() => setPhotosOpen(false)}>
-                ✕
-              </button>
-            </div>
-            {axes.length > 1 ? (
-              <label className="text-sm block">
-                Photo option
-                <select
-                  className="mt-1 block w-full border rounded px-2 py-1.5"
-                  value={photoAxis}
-                  onChange={(e) => {
-                    setPhotoAxis(e.target.value);
-                    const axis = axes.find((a) => a.name === e.target.value);
-                    setPhotosByValue({ ...(axis?.photosByValue ?? {}) });
-                  }}
-                >
-                  {axes.map((a) => (
-                    <option key={a.name} value={a.name}>
-                      {a.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-            {photoChoices.length === 0 ? (
-              <p className="text-sm text-gray-500">Add listing photos first, then link them here.</p>
-            ) : (
-              (photoAxisDef?.values ?? []).map((value) => (
-                <div key={value}>
-                  <p className="text-sm font-medium mb-1">{value}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {photoChoices.map((url) => {
-                      const selected = (photosByValue[value] ?? []).includes(url);
-                      return (
-                        <button
-                          key={url}
-                          type="button"
-                          onClick={() => {
-                            const current = photosByValue[value] ?? [];
-                            const next = selected
-                              ? current.filter((u) => u !== url)
-                              : [...current, url];
-                            setPhotosByValue((p) => ({
-                              ...p,
-                              [value]: next,
-                            }));
-                          }}
-                          className={`w-12 h-12 rounded overflow-hidden border-2 ${
-                            selected ? "border-[var(--color-primary)]" : "border-transparent"
-                          }`}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={url} alt="" className="w-full h-full object-cover" />
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))
-            )}
-            <div className="flex justify-end gap-2 pt-2">
-              <button type="button" className="px-4 py-2 text-sm" onClick={() => setPhotosOpen(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="px-4 py-2 text-sm font-semibold rounded-lg text-white bg-[var(--color-primary)]"
-                onClick={applyPhotos}
-              >
-                Save photos
               </button>
             </div>
           </div>

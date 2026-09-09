@@ -25,7 +25,6 @@ import {
   withListingChannelSyncWarning,
 } from "@/lib/channels/listing-sync-warning";
 import { listRemoteDeletedStoreItemIds } from "@/lib/channels/remote-deleted-attention";
-import { flagSellerWixDeletes } from "@/lib/channels/wix/flag-remote-deleted";
 import { getStoreItemPublicPayload } from "@/lib/get-store-item-public";
 import {
   BROWSE_CACHE_HEADERS,
@@ -132,12 +131,6 @@ export async function GET(req: NextRequest) {
     if (!sellerSub) {
       return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
     }
-    const wixCheck = await flagSellerWixDeletes(userId).catch((e) => {
-      console.warn("[store-items] Wix delete check failed", {
-        error: e instanceof Error ? e.message : String(e),
-      });
-      return { removed: 0, checked: false };
-    });
     if (searchParams.get("counts") === "1") {
       const [active, ended, sold, attentionIds] = await Promise.all([
         prisma.storeItem.count({ where: { memberId: userId, status: "active" } }),
@@ -150,7 +143,7 @@ export async function GET(req: NextRequest) {
         ended,
         sold,
         attention: attentionIds.length,
-        wixCheckFailed: !wixCheck.checked,
+        wixCheckFailed: false,
       });
     }
 
@@ -179,8 +172,20 @@ export async function GET(req: NextRequest) {
     }
     const items = await prisma.storeItem.findMany({
       where,
-      include: {
-        business: { select: { id: true, name: true, slug: true } },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        priceCents: true,
+        quantity: true,
+        status: true,
+        photos: true,
+        localDeliveryAvailable: true,
+        etsyTaxonomyId: true,
+        ebayCategoryId: true,
+        etsyWhoMade: true,
+        etsyWhenMade: true,
+        aspects: true,
         channelLinks: {
           select: SELLER_CHANNEL_LINK_SELECT,
         },
@@ -213,6 +218,7 @@ export async function GET(req: NextRequest) {
           const sold = lastOrderByItem.get(i.id);
           const mapped = {
             ...i,
+            photos: Array.isArray(i.photos) ? (i.photos as string[]).slice(0, 1) : [],
             channelLinks: i.channelLinks.map(withListingChannelSyncWarning),
           };
           return sold ? { ...mapped, soldOrderId: sold.orderId, soldAt: sold.soldAt } : mapped;
@@ -223,6 +229,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       items.map((i) => ({
         ...i,
+        photos: Array.isArray(i.photos) ? (i.photos as string[]).slice(0, 1) : [],
         channelLinks: i.channelLinks.map(withListingChannelSyncWarning),
       }))
     );
@@ -476,7 +483,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: variantErr }, { status: 400 });
       }
     }
-    const storedVariants = data.variants == null ? null : matrixForStorage(data.variants);
+    const storedVariants =
+      data.variants == null
+        ? null
+        : matrixForStorage(data.variants, { parentSku: normalizeListingSku(data.sku) });
     const useOptionQuantities = hasOptionQuantities(storedVariants ?? data.variants);
     let quantity = madeToOrder
       ? MTO_CHANNEL_QUANTITY
@@ -587,6 +597,16 @@ export async function POST(req: NextRequest) {
         slug,
       },
     });
+    if (item.variants != null) {
+      const restamped = matrixForStorage(item.variants, { itemId: item.id, parentSku: sku });
+      if (restamped) {
+        await prisma.storeItem.update({
+          where: { id: item.id },
+          data: { variants: restamped as object },
+        });
+        item.variants = restamped as typeof item.variants;
+      }
+    }
     // Log activity
     const { logSellerActivity } = await import("@/lib/seller-activity-log");
     logSellerActivity(userId, "item_created", "store_item", item.id, {

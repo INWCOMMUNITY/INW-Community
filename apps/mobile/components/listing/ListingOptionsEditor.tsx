@@ -16,6 +16,7 @@ import {
   INVENTORY_TRACKING_TRACKED,
   MAX_VARIANT_AXES,
   inferMatrixVaryFlags,
+  listingGalleryPhotoChoices,
   normalizeVariantMatrix,
   optionsEqual,
   rebuildMatrixFromAxes,
@@ -33,6 +34,11 @@ export type EditorSkuRow = VariantSkuRow & { enabled: boolean };
 
 const DEFAULT_OPTION_PRESETS = ["Size", "Color", "Material"];
 const PLACEHOLDER_COLOR = "#888888";
+
+/** Web keyboard shortcuts; ignored on native. */
+function webAccessKey(key: string): { accessKey?: string } {
+  return { accessKey: key };
+}
 
 export function parseVariantsToEditor(raw: unknown): {
   mode: InventoryMode;
@@ -135,11 +141,8 @@ export function ListingOptionsEditor({
   const [quantitiesVary, setQuantitiesVary] = useState(true);
   const [skusVary, setSkusVary] = useState(inferred.skusVary);
   const [manageOpen, setManageOpen] = useState(false);
-  const [photosOpen, setPhotosOpen] = useState(false);
   const [draftAxes, setDraftAxes] = useState<VariantAxisDef[]>([]);
   const [draftNewValues, setDraftNewValues] = useState<Record<number, string>>({});
-  const [photoAxis, setPhotoAxis] = useState("");
-  const [photosByValue, setPhotosByValue] = useState<Record<string, string[]>>({});
   const [bulkPrice, setBulkPrice] = useState("");
   const [bulkQty, setBulkQty] = useState("");
   const totalStock = sumEnabledSkus(skus);
@@ -149,7 +152,7 @@ export function ListingOptionsEditor({
     if (skus.some((s) => Boolean(s.sku?.trim()))) setSkusVary(true);
   }, [skus]);
   const photoChoices = useMemo(
-    () => galleryPhotos.filter((u) => u && !u.startsWith("blob:")),
+    () => listingGalleryPhotoChoices(galleryPhotos),
     [galleryPhotos]
   );
 
@@ -190,34 +193,28 @@ export function ListingOptionsEditor({
     setManageOpen(true);
   };
 
+  const closeManage = () => {
+    setManageOpen(false);
+    setDraftAxes([]);
+    setDraftNewValues({});
+  };
+
   const applyManage = () => {
     applyAxes(draftAxes);
-    setManageOpen(false);
+    closeManage();
   };
 
-  const openPhotos = (axisName?: string) => {
-    const named =
-      axisName ||
-      resolveImageAxisName({ axes, skus }) ||
-      axes.find((a) => a.name.toLowerCase() === "color")?.name ||
-      axes[0]?.name ||
-      "";
-    const axis = (draftAxes.length ? draftAxes : axes).find((a) => a.name === named);
-    setPhotoAxis(named);
-    setPhotosByValue({ ...(axis?.photosByValue ?? {}) });
-    setPhotosOpen(true);
-  };
-
-  const applyPhotos = () => {
-    const base = draftAxes.length ? draftAxes : axes;
-    const nextAxes = base.map((a) =>
-      a.name === photoAxis
-        ? { ...a, photosByValue: { ...photosByValue } }
-        : { ...a, photosByValue: undefined }
+  const toggleDraftPhoto = (axisIndex: number, value: string, url: string) => {
+    setDraftAxes((prev) =>
+      prev.map((a, i) => {
+        if (i !== axisIndex) return { ...a, photosByValue: undefined };
+        const current = a.photosByValue?.[value] ?? [];
+        const next = current.includes(url) ? current.filter((u) => u !== url) : [...current, url];
+        const photosByValue = { ...(a.photosByValue ?? {}), [value]: next };
+        if (next.length === 0) delete photosByValue[value];
+        return { ...a, photosByValue };
+      })
     );
-    setDraftAxes(nextAxes);
-    applyAxes(nextAxes);
-    setPhotosOpen(false);
   };
 
   const addDraftValue = (ai: number) => {
@@ -240,8 +237,8 @@ export function ListingOptionsEditor({
       : `${axes.map((a) => a.name || "Option").join(", ")} · ${enabledCount} combination${
           enabledCount === 1 ? "" : "s"
         }`;
-  const photoAxisDef =
-    draftAxes.find((a) => a.name === photoAxis) ?? axes.find((a) => a.name === photoAxis);
+  const photoAxisLive = resolveImageAxisName({ axes: draftAxes.length ? draftAxes : axes, skus });
+  const firstPhotoAxisIndex = draftAxes.findIndex((a) => a.values.length > 0);
 
   return (
     <View style={styles.section}>
@@ -309,12 +306,11 @@ export function ListingOptionsEditor({
         <>
           <Text style={styles.summary}>{summary}</Text>
           <View style={styles.modeRow}>
-            {axes.length > 0 ? (
-              <Pressable style={styles.modeBtn} onPress={() => openPhotos()}>
-                <Text style={styles.modeBtnText}>Link photos</Text>
-              </Pressable>
-            ) : null}
-            <Pressable style={[styles.modeBtn, styles.modeBtnActive]} onPress={openManage}>
+            <Pressable
+              style={[styles.modeBtn, styles.modeBtnActive]}
+              onPress={openManage}
+              {...webAccessKey("v")}
+            >
               <Text style={[styles.modeBtnText, styles.modeBtnTextActive]}>
                 {axes.length ? "Manage variations" : "Add options"}
               </Text>
@@ -471,7 +467,7 @@ export function ListingOptionsEditor({
             <ScrollView>
               <View style={styles.modalHeader}>
                 <Text style={styles.sectionTitle}>Manage variations</Text>
-                <Pressable onPress={() => setManageOpen(false)}>
+                <Pressable onPress={closeManage}>
                   <Text style={styles.removeText}>Close</Text>
                 </Pressable>
               </View>
@@ -564,14 +560,39 @@ export function ListingOptionsEditor({
                     </Pressable>
                   </View>
                   {axis.values.length > 0 ? (
-                    <Pressable
-                      onPress={() => {
-                        applyAxes(draftAxes);
-                        openPhotos(axis.name);
-                      }}
-                    >
-                      <Text style={styles.addBtnText}>Link photos to {axis.name}</Text>
-                    </Pressable>
+                    <View style={{ marginTop: 8 }}>
+                      <Text style={styles.label}>Link photos to {axis.name || "this option"}</Text>
+                      {photoChoices.length === 0 ? (
+                        <Text style={styles.hint}>
+                          Add listing photos in the gallery first, then tap them here.
+                        </Text>
+                      ) : (
+                        axis.values.map((value) => (
+                          <View key={value} style={{ marginBottom: 8 }}>
+                            <Text style={styles.hint}>{value}</Text>
+                            <View style={styles.photoRow}>
+                              {photoChoices.map((url) => {
+                                const selected = (axis.photosByValue?.[value] ?? []).includes(url);
+                                return (
+                                  <Pressable
+                                    key={url}
+                                    onPress={() => toggleDraftPhoto(ai, value, url)}
+                                    style={[styles.photoChip, selected && styles.photoChipOn]}
+                                    {...(ai === firstPhotoAxisIndex &&
+                                    value === axis.values[0] &&
+                                    url === photoChoices[0]
+                                      ? webAccessKey("p")
+                                      : {})}
+                                  >
+                                    <Image source={{ uri: url }} style={styles.photoChipImage} />
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          </View>
+                        ))
+                      )}
+                    </View>
                   ) : null}
                 </View>
               ))}
@@ -634,82 +655,11 @@ export function ListingOptionsEditor({
               >
                 <Text style={styles.label}>SKUs vary {skusVary ? "✓" : ""}</Text>
               </Pressable>
+              {photoAxisLive ? (
+                <Text style={styles.hint}>Photos are linked to {photoAxisLive}.</Text>
+              ) : null}
               <Pressable style={[styles.addBtn, styles.applyBtn]} onPress={applyManage}>
                 <Text style={styles.applyBtnText}>Apply</Text>
-              </Pressable>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={photosOpen} animationType="slide" transparent>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <ScrollView>
-              <View style={styles.modalHeader}>
-                <Text style={styles.sectionTitle}>Link photos</Text>
-                <Pressable onPress={() => setPhotosOpen(false)}>
-                  <Text style={styles.removeText}>Close</Text>
-                </Pressable>
-              </View>
-              <Text style={styles.hint}>
-                One option type can own photos (usually Color). Those photos copy onto every matching
-                combination.
-              </Text>
-              {axes.length > 1 ? (
-                <View style={styles.presetRow}>
-                  {axes.map((a) => (
-                    <Pressable
-                      key={a.name}
-                      style={[styles.presetChip, photoAxis === a.name && styles.presetChipActive]}
-                      onPress={() => {
-                        setPhotoAxis(a.name);
-                        setPhotosByValue({ ...(a.photosByValue ?? {}) });
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.presetChipText,
-                          photoAxis === a.name && styles.presetChipTextActive,
-                        ]}
-                      >
-                        {a.name}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              ) : null}
-              {photoChoices.length === 0 ? (
-                <Text style={styles.hint}>Add listing photos first, then link them here.</Text>
-              ) : (
-                (photoAxisDef?.values ?? []).map((value) => (
-                  <View key={value} style={styles.axisCard}>
-                    <Text style={styles.label}>{value}</Text>
-                    <View style={styles.photoRow}>
-                      {photoChoices.map((url) => {
-                        const selected = (photosByValue[value] ?? []).includes(url);
-                        return (
-                          <Pressable
-                            key={url}
-                            onPress={() => {
-                              const current = photosByValue[value] ?? [];
-                              const next = selected
-                                ? current.filter((u) => u !== url)
-                                : [...current, url];
-                              setPhotosByValue((p) => ({ ...p, [value]: next }));
-                            }}
-                            style={[styles.photoChip, selected && styles.photoChipOn]}
-                          >
-                            <Image source={{ uri: url }} style={styles.photoChipImage} />
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </View>
-                ))
-              )}
-              <Pressable style={[styles.addBtn, styles.applyBtn]} onPress={applyPhotos}>
-                <Text style={styles.applyBtnText}>Save photos</Text>
               </Pressable>
             </ScrollView>
           </View>

@@ -222,6 +222,12 @@ export function buildVariantInventoryRows(
 ): EbayVariantInventoryRow[] {
   const matrix = variantsToMatrix(item.variants);
   const axes = normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[];
+  if (!axes?.length) return [];
+  if ((!matrix || matrix.skus.length === 0) && axes.length >= 2) {
+    throw new Error(
+      "INW combinations are missing SKU rows. Save the listing with Size × Color quantities before listing on eBay."
+    );
+  }
   const primary = axes[0]!;
   const baseSku = alphanumericSku(options.parentSku?.trim() || getEffectiveSku(item), 36);
   const legacyId = options.legacyListingId?.trim() || "";

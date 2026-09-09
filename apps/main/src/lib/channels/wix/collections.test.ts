@@ -61,6 +61,21 @@ describe("Wix Catalog v1 option structure", () => {
     expect(body.product.variants).toHaveLength(4);
   });
 
+  it("does not collapse Size × Color onto the first axis", () => {
+    expect(
+      buildWixV1OptionsCreateBody({
+        ...sizeItem,
+        variants: {
+          axes: [
+            { name: "Size", values: ["S", "M"] },
+            { name: "Color", values: ["Navy"] },
+          ],
+          skus: [],
+        },
+      })
+    ).toBeNull();
+  });
+
   it("imports Size and Color as separate axes instead of M / Red labels", () => {
     const matrix = wixV1ProductToVariants({
       productOptions: [

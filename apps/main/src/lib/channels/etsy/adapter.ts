@@ -27,6 +27,7 @@ import {
 } from "./mapping";
 import { pushEtsyVariants, syncEtsyListingInventoryFromInw } from "./variants";
 import { syncEtsyVariationImagesFromItem } from "./variation-images";
+import { comboInventoryFailedMessage, IncompleteChannelListingError } from "../combo-sync";
 import { prisma } from "database";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
 import { channelTreatsItemInStock } from "@/lib/listing-variant-matrix";
@@ -228,7 +229,6 @@ export const etsyAdapter: ChannelAdapter = {
         throw error;
       }
 
-      let variantWarning: string | undefined;
       if (hasOptionQuantities(item.variants)) {
         try {
           await pushEtsyVariants(
@@ -239,8 +239,28 @@ export const etsyAdapter: ChannelAdapter = {
             readinessStateId
           );
         } catch (e) {
-          variantWarning = e instanceof Error ? e.message : String(e);
-          console.error("[etsy] variant push failed", { listingId, error: variantWarning });
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error("[etsy] variant push failed", { listingId, error: msg });
+          let rolledBack = false;
+          try {
+            await endEtsyListing({
+              accessToken: conn.accessToken,
+              shopId,
+              listingId,
+              connectionId: conn.id,
+            });
+            rolledBack = true;
+          } catch (endErr) {
+            console.warn("[etsy] rollback after incomplete options failed", {
+              listingId,
+              error: String(endErr),
+            });
+          }
+          throw new IncompleteChannelListingError(
+            `${comboInventoryFailedMessage("etsy")}${msg ? ` (${msg.slice(0, 200)})` : ""}`,
+            listingId,
+            rolledBack
+          );
         }
         await syncEtsyVariationImagesFromItem({
           accessToken: conn.accessToken,
@@ -266,9 +286,7 @@ export const etsyAdapter: ChannelAdapter = {
           externalListingId: listingId,
           externalShopId: shopId,
           live: false,
-          warning: variantWarning
-            ? `Listed on Etsy but options could not be pushed: ${variantWarning}`
-            : "Created as an Etsy draft — add a shipping profile in Sync Stores to go live.",
+          warning: "Created as an Etsy draft — add a shipping profile in Sync Stores to go live.",
         };
       }
       if (item.status === "active" && channelTreatsItemInStock(item)) {
@@ -284,9 +302,7 @@ export const etsyAdapter: ChannelAdapter = {
             externalListingId: listingId,
             externalShopId: shopId,
             live: false,
-            warning: variantWarning
-              ? `Listed on Etsy but options could not be pushed: ${variantWarning}`
-              : `Created as an Etsy draft — it could not go live. ${msg.slice(0, 180)}`,
+            warning: `Created as an Etsy draft — it could not go live. ${msg.slice(0, 180)}`,
           };
         }
       } else {
@@ -295,19 +311,7 @@ export const etsyAdapter: ChannelAdapter = {
           externalListingId: listingId,
           externalShopId: shopId,
           live: false,
-          warning: variantWarning
-            ? `Listed on Etsy but options could not be pushed: ${variantWarning}`
-            : "Created as an Etsy draft — it is not live yet.",
-        };
-      }
-
-      if (variantWarning) {
-        await completeTrace(trace, "success");
-        return {
-          externalListingId: listingId,
-          externalShopId: shopId,
-          live: false,
-          warning: `Listed on Etsy but options could not be pushed: ${variantWarning}`,
+          warning: "Created as an Etsy draft — it is not live yet.",
         };
       }
 

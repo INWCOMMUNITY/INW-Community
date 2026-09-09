@@ -340,6 +340,7 @@ export function buildWixV1OptionsCreateBody(item: SyncStoreItem): Record<string,
   if (!matrix || matrix.axes.length === 0 || matrix.skus.length === 0) {
     const axes = normalizeVariantsFromProvider("wix", item.variants) as InwVariantAxis[] | null;
     if (!axes || axes.length === 0) return null;
+    if (axes.length >= 2) return null;
     const productOptions = axes.map((axis) => ({
       name: axis.name,
       choices: axis.options.map((o) => ({ value: o.value, description: o.value })),

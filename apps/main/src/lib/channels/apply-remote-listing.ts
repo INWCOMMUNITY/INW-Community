@@ -4,6 +4,7 @@ import { EBAY_TITLE_MAX } from "@/lib/listing-limits";
 import { clampSaneInventoryQty } from "./inventory-sanity";
 import { storeListingDescription } from "./import-listing";
 import { inboundListingPhotosDiffer, selectInboundListingPhotos } from "./photo-urls";
+import { ensureInwHostedListingPhotos } from "@/lib/listing-photo-rehost";
 import { listingDescriptionToPlainText } from "./rich-description";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 import { logSyncPullQuantityChange } from "./quantity-audit";
@@ -107,15 +108,19 @@ export async function applyRemoteContentToStoreItem(
     remote.priceCents < 1 && item.priceCents > 0 ? { ...remote, priceCents: item.priceCents } : remote;
 
   const inboundPhotos = selectInboundListingPhotos(item.photos, safeRemote.photos);
-  const photosToWrite =
+  const selectedPhotos =
     inboundPhotos.length > 0 || item.photos.length === 0 ? inboundPhotos : item.photos;
+  const photosToWrite = await ensureInwHostedListingPhotos(selectedPhotos);
+  const hostedPhotosChanged =
+    photosToWrite.length !== item.photos.length ||
+    photosToWrite.some((url, i) => url !== item.photos[i]);
   const differs = remoteContentDiffersFromStoreItem(item, safeRemote);
   const adoptedSku = skuToAdoptFromRemote({
     localSku: item.sku,
     remoteSku: safeRemote.sku,
     itemId: storeItemId,
   });
-  if (!differs && !adoptedSku) {
+  if (!differs && !adoptedSku && !hostedPhotosChanged) {
     console.log("[channels] applyRemoteContent: no differences detected", {
       storeItemId,
       localTitle: item.title?.slice(0, 30),
@@ -147,7 +152,9 @@ export async function applyRemoteContentToStoreItem(
             photos: photosToWrite,
             priceCents: safeRemote.priceCents,
           }
-        : {}),
+        : hostedPhotosChanged
+          ? { photos: photosToWrite }
+          : {}),
       ...(adoptedSku ? { sku: adoptedSku } : {}),
     },
   });

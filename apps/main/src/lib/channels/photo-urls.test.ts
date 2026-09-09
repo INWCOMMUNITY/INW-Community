@@ -66,6 +66,11 @@ describe("selectInboundListingPhotos", () => {
     const next = ["https://i.etsystatic.com/1/il_fullxfull.2.jpg"];
     expect(selectInboundListingPhotos(etsy, next)).toEqual(next);
   });
+
+  it("does not replace a Shopify gallery with Etsy CDN URLs", () => {
+    const shopify = ["https://cdn.shopify.com/s/files/1/clock.jpg"];
+    expect(selectInboundListingPhotos(shopify, etsy)).toEqual(shopify);
+  });
 });
 
 describe("marketplaceCdnPhotoRehostOnly", () => {

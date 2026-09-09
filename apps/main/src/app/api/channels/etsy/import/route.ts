@@ -30,7 +30,7 @@ async function loadRemoteWithLinkState(userId: string) {
   }
   const listings = await getAdapter("etsy").listRemoteListings(ctx);
   for (const l of listings) {
-    await enrichEtsyListingSummaryWithInventory(ctx.accessToken, l);
+    await enrichEtsyListingSummaryWithInventory(ctx.accessToken, l, ctx.externalShopId);
   }
   const linked = await prisma.channelListingLink.findMany({
     where: { provider: "etsy", connectionId: ctx.id },
@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
     fetchAll: async () => {
       const listings = await getAdapter("etsy").listRemoteListings(ctx);
       for (const l of listings) {
-        await enrichEtsyListingSummaryWithInventory(ctx.accessToken, l);
+        await enrichEtsyListingSummaryWithInventory(ctx.accessToken, l, ctx.externalShopId);
       }
       return listings;
     },

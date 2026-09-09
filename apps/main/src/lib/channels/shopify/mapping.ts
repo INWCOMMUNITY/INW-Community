@@ -3,7 +3,7 @@ import { getEffectiveSku } from "../types";
 import { normalizeVariantsFromProvider, variantsToMatrix, type InwVariantAxis } from "../variant-sync";
 import { listingDescriptionForHtmlChannel } from "../rich-description";
 import { shopifyProductTypeForInw } from "../category-suggest";
-import { isMarketplaceCdnPhotoUrl, marketplaceCdnFamily } from "../photo-urls";
+import { isInwHostedPhotoUrl, isMarketplaceCdnPhotoUrl } from "../photo-urls";
 import { isShopifyNoiseCollectionTitle } from "./collections";
 import type { ShopifyProductTaxonomyHint } from "./inbound-taxonomy";
 import {
@@ -167,6 +167,13 @@ function shopifyImageIdForUrl(product: ShopifyProduct | null | undefined, url?: 
   return hit?.id;
 }
 
+function alphanumericShopifySku(baseSku: string, labels: string[]): string {
+  const base = baseSku.replace(/[^a-zA-Z0-9]/g, "").slice(0, 36);
+  const suffix = labels.filter(Boolean).join("").replace(/[^a-zA-Z0-9]/g, "").slice(0, 12);
+  const combined = `${base}${suffix}`.slice(0, 50);
+  return combined || base || baseSku.replace(/[^a-zA-Z0-9]/g, "").slice(0, 50);
+}
+
 function cartesianVariants(
   item: SyncStoreItem,
   axes: InwVariantAxis[],
@@ -177,9 +184,8 @@ function cartesianVariants(
     return matrix.skus.map((sku) => {
       const labels = matrix.axes.slice(0, 3).map((a) => sku.options[a.name] ?? "");
       const baseSku = getEffectiveSku(item);
-      const skuSuffix = labels.filter(Boolean).join("-").replace(/\s+/g, "_").slice(0, 40);
       const variant: Record<string, unknown> = {
-        sku: sku.sku?.trim() || (skuSuffix ? `${baseSku}-${skuSuffix}`.slice(0, 64) : baseSku),
+        sku: sku.sku?.trim() || alphanumericShopifySku(baseSku, labels),
         price: shopifyPriceFromCents(sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents),
         inventory_management: shopifyInventoryManagement(item),
         inventory_quantity: channelQuantityForTracked(sku.quantity, item.inventoryTracking),
@@ -192,6 +198,12 @@ function cartesianVariants(
       if (imageId != null) variant.image_id = imageId;
       return variant;
     });
+  }
+
+  if (axes.length >= 2) {
+    throw new Error(
+      "INW combinations are missing SKU rows. Save the listing with Size × Color quantities before listing on Shopify."
+    );
   }
 
   const limited = axes.slice(0, 3);
@@ -213,9 +225,8 @@ function cartesianVariants(
 
   return combos.map((c) => {
     const baseSku = getEffectiveSku(item);
-    const skuSuffix = c.labels.join("-").replace(/\s+/g, "_").slice(0, 40);
     const variant: Record<string, unknown> = {
-      sku: skuSuffix ? `${baseSku}-${skuSuffix}`.slice(0, 64) : baseSku,
+      sku: alphanumericShopifySku(baseSku, c.labels),
       price: shopifyPriceFromCents(item.priceCents),
       inventory_management: shopifyInventoryManagement(item),
       inventory_quantity: channelQuantityForTracked(c.qty, item.inventoryTracking),
@@ -310,14 +321,15 @@ export function buildShopifyUpdateBody(
 }
 
 /**
- * Shopify product update replaces the image list. eBay/Etsy/Wix CDN URLs often
- * fail to fetch and clear live Shopify photos — only push INW-hosted or Shopify URLs.
+ * Shopify product update replaces the image list. Sending `{ src: shopifyCdn }`
+ * without image ids recreates files and can 404 the live gallery. Only push
+ * INW-hosted blobs; never re-POST marketplace CDNs.
  */
 export function shopifyUpdateShouldReplaceImages(photos: string[]): boolean {
   const urls = photos.filter((url) => typeof url === "string" && url.trim().length > 0);
   if (urls.length === 0) return false;
-  if (!urls.every(isMarketplaceCdnPhotoUrl)) return true;
-  return urls.some((url) => marketplaceCdnFamily(url) === "shopify");
+  if (urls.every(isMarketplaceCdnPhotoUrl)) return false;
+  return urls.some(isInwHostedPhotoUrl);
 }
 
 /** Map Shopify options + variants to an INW variant matrix. */

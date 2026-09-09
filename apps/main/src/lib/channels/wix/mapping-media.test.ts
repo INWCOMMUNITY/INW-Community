@@ -162,6 +162,7 @@ describe("Wix listing photo import quality", () => {
     expect(
       shouldReplaceWixProductMedia(["https://abc.public.blob.vercel-storage.com/hat.jpg"])
     ).toBe(true);
+    expect(shouldReplaceWixProductMedia(["https://cdn.shopify.com/s/files/1/hat.jpg"])).toBe(false);
   });
 
   it("does not replace Wix media on update unless INW photos changed", () => {
