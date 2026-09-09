@@ -176,6 +176,46 @@ export function formatEbayErrorDiagnostics(e: unknown): Record<string, unknown> 
   return { message: String(e) };
 }
 
+/** GET /offer?sku=… or GET /offer/{id} on a variation listing often 400s this way. */
+export function isEbayOfferLookupMiss(error: unknown): boolean {
+  if (error instanceof EbayApiError && error.status === 404) return true;
+  const msg =
+    error instanceof EbayApiError
+      ? formatEbayApiBody(error.body, error.status, error.path)
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  if (/#25604\b/i.test(msg)) return true;
+  if (error instanceof EbayApiError && error.status === 400 && /offer not found/i.test(msg)) {
+    return true;
+  }
+  return false;
+}
+
+/** Inventory #25703 — SKU already belongs to a different inventory item group. */
+export function parseEbayInventorySkuInAnotherGroup(
+  error: unknown
+): { sku: string | null; groupId: string } | null {
+  const rows = error instanceof EbayApiError ? parseEbayErrorRows(error.body) : [];
+  for (const row of rows) {
+    if (row.errorId !== 25703) continue;
+    const params = row.parameters ?? [];
+    const byName = (want: string) =>
+      params.find((p) => p.name?.trim().toLowerCase() === want)?.value?.trim();
+    const groupId =
+      byName("groupid") ||
+      byName("inventoryitemgroupkey") ||
+      params.find((p) => /group/i.test(p.name ?? ""))?.value?.trim() ||
+      params[1]?.value?.trim();
+    const sku = byName("sku") || params[0]?.value?.trim() || null;
+    if (groupId) return { sku, groupId };
+  }
+  const msg = describeEbayThrownError(error);
+  const match = msg.match(/SKU:\s*(\S+)\s+groupId:\s*(\S+)/i);
+  if (match?.[2]) return { sku: match[1] ?? null, groupId: match[2].replace(/[.,]+$/, "") };
+  return null;
+}
+
 /** Best-effort detail for a thrown value (EbayApiError, Error, or unknown). */
 export function describeEbayThrownError(e: unknown): string {
   if (e instanceof EbayApiError) {

@@ -9,6 +9,7 @@ import {
   inventoryItemGroupKeysToTry,
   liveEbayVariantSkusForGroupPut,
   mergeGeneratedSkusIntoVariants,
+  pickLiveEbayInventoryItemGroup,
   pinInventoryItemGroupImageUrls,
   applyInventoryItemGroupPhotoPolicy,
   shouldPutEbayVariantInventoryOnLiveListing,
@@ -69,6 +70,43 @@ describe("inventory item groups", () => {
         "cmt7vumcl000dxjujvgwe8dob"
       )
     ).toContain("inw-group-cmt7vumcl000dxjujvgwe8dob");
+  });
+
+  it("still looks up leftover inw-group-{itemId}-Purple keys after StoreItem.sku is cleaned", () => {
+    expect(
+      inventoryItemGroupKeysToTry(
+        {
+          ...variantItem,
+          id: "cmt7vumcl000dxjujvgwe8dob",
+          sku: null,
+          variants: [
+            {
+              name: "Color",
+              options: [
+                { value: "Purple", quantity: 1 },
+                { value: "Green", quantity: 1 },
+              ],
+            },
+          ],
+        },
+        "cmt7vumcl000dxjujvgwe8dob"
+      )
+    ).toContain("inw-group-cmt7vumcl000dxjujvgwe8dob-Purple");
+  });
+
+  it("prefers the inventory group that already has variant SKUs", () => {
+    expect(
+      pickLiveEbayInventoryItemGroup(
+        [
+          { key: "inw-group-cmt7vumcl000dxjujvgwe8dob", body: { variantSKUs: [] } },
+          {
+            key: "inw-group-cmt7vumcl000dxjujvgwe8dob-Purple",
+            body: { variantSKUs: ["cmt7vumcl000dxjujvgwe8dobGreenLarge"] },
+          },
+        ],
+        "inw-group-cmt7vumcl000dxjujvgwe8dob"
+      ).key
+    ).toBe("inw-group-cmt7vumcl000dxjujvgwe8dob-Purple");
   });
 
   it("pins live GetItem variation SKUs over newly generated combo keys", () => {

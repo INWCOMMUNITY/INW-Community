@@ -57,6 +57,14 @@ describe("classifyError", () => {
     expect(shouldCountTowardCircuit(err)).toBe(false);
   });
 
+  it("treats eBay #25703 leftover variation-group HTTP 400 as transient", () => {
+    const err = new Error(
+      "[#25703 · API_INVENTORY · Request · HTTP 400] The following SKU is already a member of another group. SKU: abcGreenLarge groupId: inw-group-abc-Purple"
+    ) as Error & { status: number };
+    err.status = 400;
+    expect(classifyError(err)).toBe("transient");
+  });
+
   it("treats Shopify 422 currently being modified as transient", () => {
     const err = new Error(
       "This product is currently being modified. Please try again later."

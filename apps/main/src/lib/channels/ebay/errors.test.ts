@@ -12,7 +12,9 @@ import {
   formatEbayApiBody,
   formatEbayErrorDiagnostics,
   formatMigrateListingError,
+  parseEbayInventorySkuInAnotherGroup,
   parseMissingEbayItemSpecifics,
+  isEbayOfferLookupMiss,
 } from "./errors";
 
 describe("extractEbayWarnings", () => {
@@ -90,6 +92,40 @@ describe("describeEbayThrownError", () => {
     });
     expect(describeEbayThrownError(err)).toContain("#25718");
     expect(describeEbayThrownError(err)).toContain("Missing SKU");
+  });
+});
+
+describe("isEbayOfferLookupMiss", () => {
+  it("treats #25604 Offer not found as a missing offer, not a hard failure", () => {
+    const err = new EbayApiError("eBay API error (400)", 400, {
+      errors: [
+        {
+          errorId: 25604,
+          domain: "API_INVENTORY",
+          category: "REQUEST",
+          message: "Input error. Offer not found.",
+        },
+      ],
+    });
+    expect(isEbayOfferLookupMiss(err)).toBe(true);
+  });
+});
+
+describe("parseEbayInventorySkuInAnotherGroup", () => {
+  it("reads SKU and groupId from #25703", () => {
+    const err = new EbayApiError("eBay API error (400)", 400, {
+      errors: [
+        {
+          errorId: 25703,
+          longMessage:
+            "The following SKU is already a member of another group. SKU: cmt7vumcl000dxjujvgwe8dobGreenLarge groupId: inw-group-cmt7vumcl000dxjujvgwe8dob-Purple",
+        },
+      ],
+    });
+    expect(parseEbayInventorySkuInAnotherGroup(err)).toEqual({
+      sku: "cmt7vumcl000dxjujvgwe8dobGreenLarge",
+      groupId: "inw-group-cmt7vumcl000dxjujvgwe8dob-Purple",
+    });
   });
 });
 

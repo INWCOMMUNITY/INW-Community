@@ -13,6 +13,7 @@ import {
   describeEbayThrownError,
   formatEbayErrorDiagnostics,
   isEbayInventoryAspectValidationError,
+  isEbayOfferLookupMiss,
   isEbayUnpublishedZeroQuantityError,
 } from "./errors";
 import {
@@ -171,7 +172,7 @@ async function findOffer(accessToken: string, sku: string): Promise<EbayOffer | 
     );
     return pickEbayOffer(res.offers);
   } catch (e) {
-    if (e instanceof EbayApiError && e.status === 404) return null;
+    if (e instanceof EbayApiError && (e.status === 404 || isEbayOfferLookupMiss(e))) return null;
     throw e;
   }
 }
@@ -186,7 +187,7 @@ async function getOfferDetails(
       `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`
     );
   } catch (e) {
-    if (e instanceof EbayApiError && e.status === 404) return null;
+    if (e instanceof EbayApiError && (e.status === 404 || isEbayOfferLookupMiss(e))) return null;
     throw e;
   }
 }
@@ -1432,7 +1433,7 @@ async function upsertListing(
           }
         }
       }
-      const groupKey = liveGroup.key || buildInventoryItemGroupKey(syncItem);
+      let groupKey = liveGroup.key || buildInventoryItemGroupKey(syncItem);
       const groupPhotoUrls = mergeLiveEbayPhotoUrls(
         readInventoryItemGroupImageUrls(liveGroup.body).length > 0
           ? readInventoryItemGroupImageUrls(liveGroup.body)
@@ -1446,7 +1447,7 @@ async function upsertListing(
           groupKey,
         });
       } else {
-        await createOrReplaceInventoryItemGroup(
+        const writtenKey = await createOrReplaceInventoryItemGroup(
           conn.accessToken,
           applyInventoryItemGroupPhotoPolicy(
             buildInventoryItemGroupBody(syncItem, variantSkus, pushAspects, groupKey),
@@ -1455,6 +1456,14 @@ async function upsertListing(
             pushInwPhotos
           )
         );
+        if (writtenKey !== groupKey) {
+          console.info("[ebay] adopted existing inventory item group", {
+            storeItemId: item.id,
+            from: groupKey,
+            to: writtenKey,
+          });
+        }
+        groupKey = writtenKey;
       }
       const shouldPublishGroup = shouldPublishEbayInventoryGroup({
         operation,

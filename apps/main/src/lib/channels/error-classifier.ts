@@ -193,6 +193,10 @@ export function classifyError(error: unknown): ErrorClassification {
   if (/#25604\b|availability not found/i.test(errorStr)) {
     return "transient";
   }
+  // #25703: SKU still in a leftover variation group — retry after we adopt that group.
+  if (/#25703\b|already a member of another group/i.test(errorStr)) {
+    return "transient";
+  }
 
   const statusCode = extractStatusCode(error);
   if (statusCode !== null && STATUS_CLASSIFICATIONS[statusCode]) {

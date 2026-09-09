@@ -10,6 +10,7 @@ import { getEffectiveSku } from "../types";
 import { generateEbayVariationMigrationSku, isValidEbayInventorySku, toEbayInventorySku } from "./migrate-prep";
 import { isGeneratedVariantOfItemId } from "@/lib/listing-sku";
 import { extractEbayInventoryAspects } from "./listing-origin";
+import { parseEbayInventorySkuInAnotherGroup } from "./errors";
 import {
   aspectsToEbayProductAspects,
   parseStoredAspects,
@@ -36,6 +37,24 @@ export function buildInventoryItemGroupKey(item: SyncStoreItem): string {
   return `inw-group-${stable}`.slice(0, 50);
 }
 
+function variantOptionValues(item: SyncStoreItem): string[] {
+  const values = new Set<string>();
+  const matrix = variantsToMatrix(item.variants);
+  if (matrix) {
+    for (const axis of matrix.axes) {
+      for (const value of axis.values) {
+        if (value.trim()) values.add(value.trim());
+      }
+    }
+    for (const row of matrix.skus) {
+      for (const value of Object.values(row.options)) {
+        if (value.trim()) values.add(value.trim());
+      }
+    }
+  }
+  return [...values];
+}
+
 /** Group keys INW may have used as StoreItem.sku drifted onto a variant Custom Label. */
 export function inventoryItemGroupKeysToTry(
   item: SyncStoreItem,
@@ -53,7 +72,23 @@ export function inventoryItemGroupKeysToTry(
   push(item.id);
   push(parentSku);
   push(item.sku);
+  // Leftover Color-only groups were keyed `inw-group-{itemId}-Purple` even after
+  // StoreItem.sku was cleaned. Keep looking those up so Size × Color SKUs stay put.
+  for (const value of variantOptionValues(item)) {
+    push(`${item.id}-${value}`);
+    push(`${item.id}${value}`);
+  }
   return [...new Set(keys)];
+}
+
+export function pickLiveEbayInventoryItemGroup(
+  found: { key: string; body: Record<string, unknown> }[],
+  fallbackKey: string
+): { key: string; body: Record<string, unknown> | null } {
+  const withSkus = found.find((row) => readInventoryItemGroupVariantSkus(row.body).length > 0);
+  if (withSkus) return withSkus;
+  if (found[0]) return found[0];
+  return { key: fallbackKey, body: null };
 }
 
 export function readInventoryItemGroupVariantSkus(
@@ -71,14 +106,15 @@ export async function resolveLiveEbayInventoryItemGroup(
   parentSku?: string | null
 ): Promise<{ key: string; body: Record<string, unknown> | null }> {
   const keys = inventoryItemGroupKeysToTry(item, parentSku);
+  const found: { key: string; body: Record<string, unknown> }[] = [];
   for (const key of keys) {
     const body = await fetchLiveInventoryItemGroup(accessToken, key);
     if (body) {
       const liveKey = String(body.inventoryItemGroupKey ?? key).trim() || key;
-      return { key: liveKey, body };
+      found.push({ key: liveKey, body });
     }
   }
-  return { key: keys[0] ?? buildInventoryItemGroupKey(item), body: null };
+  return pickLiveEbayInventoryItemGroup(found, keys[0] ?? buildInventoryItemGroupKey(item));
 }
 
 /** Shared Type/Brand (and other non-variation specifics) on the group — required before publish. */
@@ -198,7 +234,7 @@ export async function fetchLiveInventoryItemGroup(
 export async function createOrReplaceInventoryItemGroup(
   accessToken: string,
   body: Record<string, unknown>
-): Promise<void> {
+): Promise<string> {
   const key = String(body.inventoryItemGroupKey ?? "").trim();
   if (!key) throw new Error("inventoryItemGroupKey is required");
   const rawUrls = Array.isArray(body.imageUrls)
@@ -208,12 +244,36 @@ export async function createOrReplaceInventoryItemGroup(
   const payload: Record<string, unknown> = { ...body };
   if (imageUrls.length > 0) payload.imageUrls = imageUrls;
   else delete payload.imageUrls;
-  await ebayJson(
-    accessToken,
-    `/sell/inventory/v1/inventory_item_group/${encodeURIComponent(key)}`,
-    "PUT",
-    payload
-  );
+  try {
+    await ebayJson(
+      accessToken,
+      `/sell/inventory/v1/inventory_item_group/${encodeURIComponent(key)}`,
+      "PUT",
+      payload
+    );
+    return key;
+  } catch (e) {
+    const other = parseEbayInventorySkuInAnotherGroup(e);
+    if (!other?.groupId || other.groupId === key) throw e;
+    const live = await fetchLiveInventoryItemGroup(accessToken, other.groupId);
+    const existingSkus = readInventoryItemGroupVariantSkus(live);
+    const ours = Array.isArray(payload.variantSKUs)
+      ? payload.variantSKUs.filter((sku): sku is string => typeof sku === "string" && sku.trim().length > 0)
+      : [];
+    const merged = [...new Set([...existingSkus, ...ours.map((sku) => sku.trim())])];
+    const adopted: Record<string, unknown> = {
+      ...payload,
+      inventoryItemGroupKey: other.groupId,
+      variantSKUs: merged,
+    };
+    await ebayJson(
+      accessToken,
+      `/sell/inventory/v1/inventory_item_group/${encodeURIComponent(other.groupId)}`,
+      "PUT",
+      adopted
+    );
+    return other.groupId;
+  }
 }
 
 export async function publishOfferByInventoryItemGroup(
