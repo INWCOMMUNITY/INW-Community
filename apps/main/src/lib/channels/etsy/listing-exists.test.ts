@@ -27,6 +27,7 @@ describe("etsyLinkedListingNeedsHydrate", () => {
 
   it("hydrates list rows that have no last_modified timestamp", () => {
     expect(etsyLinkedListingNeedsHydrate({ remoteUpdatedAt: null })).toBe(true);
+    expect(etsyLinkedListingNeedsHydrate({ remoteUpdatedAt: undefined })).toBe(true);
   });
 
   it("skips list rows that already have last_modified", () => {

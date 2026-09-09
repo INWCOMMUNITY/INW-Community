@@ -157,7 +157,7 @@ export function newerChannelEditShouldPull(args: {
  */
 export function shouldBlockOutboundOverwrite(args: {
   titlesDiffer: boolean;
-  remoteUpdatedAt: Date | null;
+  remoteUpdatedAt: Date | null | undefined;
   inwUpdatedAt: Date | null;
   lastPushedAt: Date | null;
   nowMs?: number;

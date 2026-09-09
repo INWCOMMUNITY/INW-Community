@@ -20,7 +20,7 @@ export function etsyListingIsNotActive(state: string | null | undefined): boolea
  * Hydrate those linked rows (and any list row with no last_modified) via GET by id.
  */
 export function etsyLinkedListingNeedsHydrate(
-  existing: { remoteUpdatedAt: Date | null } | undefined
+  existing: { remoteUpdatedAt?: Date | null } | null | undefined
 ): boolean {
   return existing == null || existing.remoteUpdatedAt == null;
 }
