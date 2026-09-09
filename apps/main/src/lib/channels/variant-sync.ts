@@ -98,12 +98,19 @@ export function variantsFingerprint(variants: unknown): string {
   return createHash("sha1").update(JSON.stringify(compact)).digest("hex");
 }
 
-/** Sum all option quantities. */
-export function sumVariantQuantities(variants: InwVariantAxis[] | null): number {
-  if (!variants) return 0;
+/** Sum all option quantities. Accepts unknown JSON from Prisma / remote listings. */
+export function sumVariantQuantities(variants: unknown): number {
+  if (!Array.isArray(variants)) return 0;
   let sum = 0;
   for (const axis of variants) {
-    for (const o of axis.options) sum += Math.max(0, o.quantity);
+    if (!axis || typeof axis !== "object" || !("options" in axis)) continue;
+    const options = (axis as InwVariantAxis).options;
+    if (!Array.isArray(options)) continue;
+    for (const o of options) {
+      if (o && typeof o === "object" && typeof o.quantity === "number") {
+        sum += Math.max(0, o.quantity);
+      }
+    }
   }
   return sum;
 }

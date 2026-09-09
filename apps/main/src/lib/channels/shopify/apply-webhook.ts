@@ -168,7 +168,9 @@ export async function applyShopifyInventoryWebhook(args: {
     available?: number;
     location_id?: number;
   } | null;
-  if (body?.inventory_item_id == null || typeof body.available !== "number") {
+  const inventoryItemId = body?.inventory_item_id;
+  const available = body?.available;
+  if (inventoryItemId == null || typeof available !== "number") {
     return { applied: false, skipped: "incomplete_payload" };
   }
 
@@ -179,7 +181,7 @@ export async function applyShopifyInventoryWebhook(args: {
   if (!cfg.shop) return { applied: false, skipped: "no_shop" };
   if (
     cfg.locationId &&
-    body.location_id != null &&
+    body?.location_id != null &&
     String(body.location_id) !== String(cfg.locationId)
   ) {
     return { applied: false, skipped: "other_location" };
@@ -203,14 +205,14 @@ export async function applyShopifyInventoryWebhook(args: {
     } catch {
       continue;
     }
-    const variant = (product?.variants ?? []).find((v) => v.inventory_item_id === body.inventory_item_id);
+    const variant = (product?.variants ?? []).find((v) => v.inventory_item_id === inventoryItemId);
     if (!variant || !product) continue;
 
     const remote = shopifyProductToSummary({
       ...product,
       variants: (product.variants ?? []).map((v) =>
-        v.inventory_item_id === body.inventory_item_id
-          ? { ...v, inventory_quantity: Math.max(0, Math.round(body.available)) }
+        v.inventory_item_id === inventoryItemId
+          ? { ...v, inventory_quantity: Math.max(0, Math.round(available)) }
           : v
       ),
     });

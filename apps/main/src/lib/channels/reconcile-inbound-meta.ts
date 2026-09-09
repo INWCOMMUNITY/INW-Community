@@ -22,7 +22,7 @@ import {
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 import { sumVariantQuantities, variantsFingerprint } from "./variant-sync";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
-import { isMadeToOrderTracking, normalizeVariantMatrix } from "@/lib/listing-variant-matrix";
+import { normalizeVariantMatrix } from "@/lib/listing-variant-matrix";
 
 function inwMissingVariants(variants: unknown): boolean {
   if (variants == null) return true;
@@ -79,7 +79,6 @@ type LinkRow = {
     variants: unknown;
     status: string;
     updatedAt: Date;
-    inventoryTracking?: string | null;
   };
 };
 
@@ -226,7 +225,6 @@ export async function reconcileConnectionInboundMeta(
           variants: true,
           status: true,
           updatedAt: true,
-          inventoryTracking: true,
         },
       },
     },
@@ -330,12 +328,8 @@ export async function reconcileConnectionInboundMeta(
       pulled = cat || ship || asp || pulled;
     }
     if (varDecision === "pull") {
-      const skipMtoZero =
-        isMadeToOrderTracking(item.inventoryTracking) && remoteVariantQtySum(remote) === 0;
-      if (!skipMtoZero) {
-        const vars = await applyRemoteVariantsToStoreItem(link.storeItemId, remote, provider);
-        pulled = vars || pulled;
-      }
+      const vars = await applyRemoteVariantsToStoreItem(link.storeItemId, remote, provider);
+      pulled = vars || pulled;
     }
 
     let attemptedPush = false;
