@@ -24,9 +24,32 @@ export function etsyInventoryWritePath(listingId: string): string {
 type TaxonomyProperty = {
   property_id?: number;
   name?: string;
+  display_name?: string;
+  supports_variations?: boolean;
   scales?: { scale_id?: number; display_name?: string }[];
   possible_values?: { value_id?: number; name?: string }[];
 };
+
+/** Etsy "Create your own" variation slots (same IDs the seller site uses). */
+export const ETSY_CUSTOM_VARIATION_PROPERTY_IDS = [513, 514, 516] as const;
+
+export type ResolvedEtsyVariationProperty = {
+  property_id: number;
+  property_name: string;
+  scale_id: number | null;
+  possible_values?: { value_id?: number; name?: string }[];
+  custom: boolean;
+};
+
+function taxonomyPropertyLabels(p: TaxonomyProperty): string[] {
+  return [p.name, p.display_name]
+    .map((s) => (s ?? "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function variationCapableTaxonomyProperties(props: TaxonomyProperty[]): TaxonomyProperty[] {
+  return props.filter((p) => p.supports_variations !== false);
+}
 
 /** Pick the taxonomy property that matches an INW option axis (e.g. Size). Never fall back to props[0]. */
 export function pickEtsyTaxonomyPropertyForAxis(
@@ -34,29 +57,36 @@ export function pickEtsyTaxonomyPropertyForAxis(
   axisName: string,
   optionValues: string[] = []
 ): TaxonomyProperty | undefined {
-  if (props.length === 0) return undefined;
+  const usable = variationCapableTaxonomyProperties(props);
+  if (usable.length === 0) return undefined;
   const want = axisName.trim().toLowerCase();
-  const exact = props.find((p) => (p.name ?? "").trim().toLowerCase() === want);
+  const exact = usable.find((p) => taxonomyPropertyLabels(p).includes(want));
   if (exact) return exact;
 
   const aliases = new Set<string>([want]);
   if (want === "size" || /\bsize\b/.test(want)) {
     aliases.add("size");
+    aliases.add("sizes");
     aliases.add("primary size");
     aliases.add("clothing size");
+    aliases.add("item size");
   }
-  const byAlias = props.find((p) => aliases.has((p.name ?? "").trim().toLowerCase()));
+  const byAlias = usable.find((p) => taxonomyPropertyLabels(p).some((n) => aliases.has(n)));
   if (byAlias) return byAlias;
 
-  const byIncludes = props.find((p) => {
-    const n = (p.name ?? "").trim().toLowerCase();
-    return n.includes(want) || (want.length >= 3 && n.length >= 3 && want.includes(n));
-  });
+  if (want === "size" || aliases.has("size")) {
+    const bySizeWord = usable.find((p) => taxonomyPropertyLabels(p).some((n) => /\bsize\b/.test(n)));
+    if (bySizeWord) return bySizeWord;
+  }
+
+  const byIncludes = usable.find((p) =>
+    taxonomyPropertyLabels(p).some((n) => n.includes(want) || (want.length >= 3 && n.length >= 3 && want.includes(n)))
+  );
   if (byIncludes) return byIncludes;
 
   const optionKeys = optionValues.map((v) => v.trim().toLowerCase()).filter(Boolean);
   if (optionKeys.length > 0) {
-    const covering = props.find((p) => {
+    const covering = usable.find((p) => {
       const names = new Set(
         (p.possible_values ?? []).map((v) => (v.name ?? "").trim().toLowerCase()).filter(Boolean)
       );
@@ -67,6 +97,73 @@ export function pickEtsyTaxonomyPropertyForAxis(
   }
 
   return undefined;
+}
+
+/**
+ * Map each INW option type to an Etsy variation property.
+ * Taxonomy matches (Size, Color, …) are preferred; otherwise use Create-your-own IDs 513/514/516.
+ */
+export function resolveEtsyVariationPropertiesForAxes(
+  props: TaxonomyProperty[],
+  axes: { name: string; values?: string[] }[]
+): ResolvedEtsyVariationProperty[] {
+  const usedIds = new Set<number>();
+  const out: ResolvedEtsyVariationProperty[] = [];
+  let customIdx = 0;
+
+  for (const axis of axes) {
+    const picked = pickEtsyTaxonomyPropertyForAxis(props, axis.name, axis.values ?? []);
+    if (picked?.property_id != null) {
+      usedIds.add(picked.property_id);
+      out.push({
+        property_id: picked.property_id,
+        property_name: (picked.name ?? picked.display_name ?? axis.name).trim() || axis.name,
+        scale_id: picked.scales?.[0]?.scale_id ?? null,
+        possible_values: picked.possible_values,
+        custom: false,
+      });
+      continue;
+    }
+
+    while (
+      customIdx < ETSY_CUSTOM_VARIATION_PROPERTY_IDS.length &&
+      usedIds.has(ETSY_CUSTOM_VARIATION_PROPERTY_IDS[customIdx])
+    ) {
+      customIdx += 1;
+    }
+    if (customIdx >= ETSY_CUSTOM_VARIATION_PROPERTY_IDS.length) {
+      throw new Error(
+        `Etsy allows at most ${ETSY_CUSTOM_VARIATION_PROPERTY_IDS.length} custom option types.`
+      );
+    }
+    const property_id = ETSY_CUSTOM_VARIATION_PROPERTY_IDS[customIdx];
+    customIdx += 1;
+    usedIds.add(property_id);
+    out.push({
+      property_id,
+      property_name: axis.name.trim() || "Option",
+      scale_id: null,
+      custom: true,
+    });
+  }
+
+  return out;
+}
+
+function etsyPropertyValuePayload(
+  resolved: ResolvedEtsyVariationProperty,
+  valueName: string
+): Record<string, unknown> {
+  const possible = resolved.possible_values?.find(
+    (v) => (v.name ?? "").trim().toLowerCase() === valueName.trim().toLowerCase()
+  );
+  return {
+    property_id: resolved.property_id,
+    property_name: resolved.property_name,
+    scale_id: resolved.scale_id,
+    value_ids: possible?.value_id ? [possible.value_id] : [],
+    values: [valueName],
+  };
 }
 
 type EtsyInventoryOffering = {
@@ -371,17 +468,12 @@ async function buildProductRowForOption(
   skuPattern?: { hasSkus: boolean; useValueSuffix: boolean }
 ): Promise<Record<string, unknown> | null> {
   const props = properties ?? (await fetchTaxonomyProperties(accessToken, taxonomyId));
-  const prop = pickEtsyTaxonomyPropertyForAxis(
-    props,
-    axis.name,
-    [opt.value]
-  );
-  if (!prop?.property_id) return null;
+  const resolved = resolveEtsyVariationPropertiesForAxes(props, [
+    { name: axis.name, values: [opt.value] },
+  ])[0];
+  if (!resolved) return null;
 
   const valueName = opt.value.trim();
-  const possible = prop.possible_values?.find(
-    (v) => v.name?.toLowerCase() === valueName.toLowerCase()
-  );
 
   // Only add SKU if existing products have SKUs (or it's a fresh listing)
   const baseSku = getEffectiveSku(item);
@@ -392,13 +484,7 @@ async function buildProductRowForOption(
   return {
     ...(sku ? { sku } : {}),
     property_values: [
-      {
-        property_id: prop.property_id,
-        property_name: prop.name || axis.name || "Option",
-        scale_id: prop.scales?.[0]?.scale_id ?? null,
-        value_ids: possible?.value_id ? [possible.value_id] : [],
-        values: [valueName],
-      },
+      etsyPropertyValuePayload(resolved, valueName),
     ],
     offerings: [buildOfferingPayload(opt.quantity, item.priceCents, defaultReadinessStateId)],
   };
@@ -906,33 +992,26 @@ export async function buildEtsyInventoryProducts(
   }
 
   const properties = await fetchTaxonomyProperties(accessToken, taxonomyId);
-  if (properties.length === 0) return null;
-
   const limitedAxes = axes.slice(0, MAX_ETSY_AXES);
+  const resolvedByAxis = resolveEtsyVariationPropertiesForAxes(
+    properties,
+    limitedAxes.map((axis) => ({
+      name: axis.name,
+      values: axis.options.map((o) => o.value),
+    }))
+  );
   const products: Record<string, unknown>[] = [];
 
   if (matrix && matrix.skus.length > 0) {
     for (const sku of matrix.skus) {
       const property_values: Record<string, unknown>[] = [];
-      for (const axis of limitedAxes) {
+      for (let ai = 0; ai < limitedAxes.length; ai++) {
+        const axis = limitedAxes[ai];
         const valueName = sku.options[axis.name];
         if (!valueName) continue;
-        const prop = pickEtsyTaxonomyPropertyForAxis(properties, axis.name, [valueName]);
-        if (!prop?.property_id) {
-          throw new Error(
-            `Etsy category has no "${axis.name}" variation. Rename the option to match an Etsy property (for example Size) or choose a different Etsy category.`
-          );
-        }
-        const possible = prop.possible_values?.find(
-          (v) => v.name?.toLowerCase() === valueName.toLowerCase()
-        );
-        property_values.push({
-          property_id: prop.property_id,
-          property_name: prop.name || axis.name,
-          scale_id: prop.scales?.[0]?.scale_id ?? null,
-          value_ids: possible?.value_id ? [possible.value_id] : [],
-          values: [valueName],
-        });
+        const resolved = resolvedByAxis[ai];
+        if (!resolved) continue;
+        property_values.push(etsyPropertyValuePayload(resolved, valueName));
       }
       if (property_values.length === 0) continue;
       const qty = channelQuantityForTracked(sku.quantity, item.inventoryTracking);
@@ -946,15 +1025,9 @@ export async function buildEtsyInventoryProducts(
     }
   } else {
     const primaryAxis = limitedAxes[0];
-    const matchedProp = pickEtsyTaxonomyPropertyForAxis(
-      properties,
-      primaryAxis.name,
-      primaryAxis.options.map((o) => o.value)
-    );
-    if (!matchedProp?.property_id) {
-      throw new Error(
-        `Etsy category has no "${primaryAxis.name}" variation. Rename the option to match an Etsy property (for example Size) or choose a different Etsy category.`
-      );
+    const matchedProp = resolvedByAxis[0];
+    if (!matchedProp) {
+      throw new Error(`Could not map INW options onto Etsy.`);
     }
     for (const opt of primaryAxis.options) {
       const row = await buildProductRowForOption(
