@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  etsyInventoryPutBody,
   etsyInventoryToVariants,
   etsyInventoryWritePath,
   etsyOnPropertyFields,
@@ -118,6 +119,74 @@ describe("etsy inventory writes", () => {
     );
     expect(none.price_on_property).toEqual([]);
     expect(none.quantity_on_property).toEqual([]);
+  });
+
+  it("sends sku_on_property as none or both Size × Color properties, never one", () => {
+    const products = [
+      {
+        property_values: [
+          { property_id: 100, property_name: "Size" },
+          { property_id: 200, property_name: "Color" },
+        ],
+      },
+    ];
+    const twoAxis = {
+      axes: [
+        { name: "Size", values: ["S"] },
+        { name: "Color", values: ["Navy"] },
+      ],
+      skus: [
+        {
+          options: { Size: "S", Color: "Navy" },
+          quantity: 2,
+          sku: "BASE-S-Navy",
+        },
+      ],
+      pricesVary: false,
+      quantitiesVary: true,
+      skusVary: true,
+    };
+    const on = etsyOnPropertyFields(twoAxis, products);
+    expect(on.quantity_on_property).toEqual([100, 200]);
+    expect(on.sku_on_property).toEqual([100, 200]);
+    expect(on.sku_on_property).not.toHaveLength(1);
+
+    const body = etsyInventoryPutBody(on, products);
+    expect(body.quantity_on_property).toEqual([100, 200]);
+    expect(body.sku_on_property).toEqual([100, 200]);
+    expect(body.sku_on_property).not.toHaveLength(1);
+
+    const noSku = etsyOnPropertyFields(
+      {
+        ...twoAxis,
+        skusVary: false,
+        skus: [{ options: { Size: "S", Color: "Navy" }, quantity: 2 }],
+      },
+      products
+    );
+    expect(noSku.quantity_on_property).toEqual([100, 200]);
+    expect(noSku.sku_on_property).toEqual([]);
+    expect(etsyInventoryPutBody(noSku, products).sku_on_property).toBeUndefined();
+  });
+
+  it("expands a 1-of-2 sku_on_property when quantity already uses both properties", () => {
+    const products = [
+      {
+        property_values: [
+          { property_id: 100, property_name: "Size" },
+          { property_id: 200, property_name: "Color" },
+        ],
+      },
+    ];
+    const body = etsyInventoryPutBody(
+      {
+        quantity_on_property: [100, 200],
+        sku_on_property: [100],
+      },
+      products
+    );
+    expect(body.quantity_on_property).toEqual([100, 200]);
+    expect(body.sku_on_property).toEqual([100, 200]);
   });
 });
 

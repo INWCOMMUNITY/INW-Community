@@ -241,7 +241,63 @@ function propertyIdsFromProducts(products: Record<string, unknown>[]): number[] 
   return ids;
 }
 
-/** Etsy allows 0, 1, or all variation properties on *_on_property — never a subset of 2 on a 3-axis listing. */
+/**
+ * Etsy inventory PUT: each `*_on_property` may be empty, a single property, or every
+ * variation property. If any field is linked to all N≥2 properties, every other field
+ * must be [] or the same full set — never a proper subset (HTTP 400).
+ */
+export function alignEtsyOnPropertyFields(
+  fields: {
+    price?: number[] | null;
+    quantity?: number[] | null;
+    sku?: number[] | null;
+    readiness?: number[] | null;
+  },
+  allIds: number[]
+): {
+  price_on_property: number[];
+  quantity_on_property: number[];
+  sku_on_property: number[];
+  readiness_state_on_property: number[];
+} {
+  const n = allIds.length;
+  const keep = (ids?: number[] | null) =>
+    (Array.isArray(ids) ? ids : []).filter((id) => allIds.includes(id));
+
+  let price = keep(fields.price);
+  let quantity = keep(fields.quantity);
+  let sku = keep(fields.sku);
+  let readiness = keep(fields.readiness);
+
+  if (n >= 2) {
+    const isAll = (ids: number[]) => ids.length === n;
+    const isZero = (ids: number[]) => ids.length === 0;
+    const coerce = (ids: number[]) => (isZero(ids) || isAll(ids) ? ids : [...allIds]);
+    const lists = () => [price, quantity, sku, readiness];
+
+    if (lists().some((ids) => ids.length > 1 && ids.length < n)) {
+      price = coerce(price);
+      quantity = coerce(quantity);
+      sku = coerce(sku);
+      readiness = coerce(readiness);
+    }
+    if (lists().some(isAll)) {
+      price = coerce(price);
+      quantity = coerce(quantity);
+      sku = coerce(sku);
+      readiness = coerce(readiness);
+    }
+  }
+
+  return {
+    price_on_property: price,
+    quantity_on_property: quantity,
+    sku_on_property: sku,
+    readiness_state_on_property: readiness,
+  };
+}
+
+/** Etsy allows 0, 1, or all variation properties on *_on_property — never a subset. */
 export function etsyOnPropertyFields(
   matrix: VariantMatrix | null,
   products: Record<string, unknown>[]
@@ -251,10 +307,18 @@ export function etsyOnPropertyFields(
     ? inferMatrixVaryFlags(matrix)
     : { pricesVary: true, quantitiesVary: true, skusVary: true };
   const allOrNone = (vary: boolean) => (vary && ids.length > 0 ? [...ids] : []);
+  const aligned = alignEtsyOnPropertyFields(
+    {
+      price: allOrNone(flags.pricesVary),
+      quantity: allOrNone(flags.quantitiesVary),
+      sku: allOrNone(flags.skusVary),
+    },
+    ids
+  );
   return {
-    price_on_property: allOrNone(flags.pricesVary),
-    quantity_on_property: allOrNone(flags.quantitiesVary),
-    sku_on_property: allOrNone(flags.skusVary),
+    price_on_property: aligned.price_on_property,
+    quantity_on_property: aligned.quantity_on_property,
+    sku_on_property: aligned.sku_on_property,
   };
 }
 
@@ -374,8 +438,7 @@ async function putEtsyInventoryIfValid(
   accessToken: string,
   listingId: string,
   inv: EtsyInventory,
-  products: Record<string, unknown>[],
-  skuPropertyId?: number
+  products: Record<string, unknown>[]
 ): Promise<void> {
   if (!inventoryHasEnabledOfferingWithStock(products)) {
     throw new Error(
@@ -386,7 +449,7 @@ async function putEtsyInventoryIfValid(
     accessToken,
     etsyInventoryWritePath(listingId),
     "PUT",
-    inventoryPutBody(inv, products, skuPropertyId)
+    etsyInventoryPutBody(inv, products)
   );
 }
 
@@ -400,8 +463,7 @@ async function putEtsyVariantMatrix(
   const inv: EtsyInventory = {
     ...onProps,
   };
-  const skuProp = onProps.sku_on_property?.[0];
-  await putEtsyInventoryIfValid(accessToken, listingId, inv, body.products, skuProp);
+  await putEtsyInventoryIfValid(accessToken, listingId, inv, body.products);
 }
 
 function rebuildExistingProduct(
@@ -490,22 +552,28 @@ async function buildProductRowForOption(
   };
 }
 
-function inventoryPutBody(
-  inv: EtsyInventory,
-  products: Record<string, unknown>[],
-  skuPropertyId?: number
+export function etsyInventoryPutBody(
+  inv: Pick<
+    EtsyInventory,
+    "price_on_property" | "quantity_on_property" | "sku_on_property" | "readiness_state_on_property"
+  >,
+  products: Record<string, unknown>[]
 ): Record<string, unknown> {
+  const aligned = alignEtsyOnPropertyFields(
+    {
+      price: inv.price_on_property,
+      quantity: inv.quantity_on_property,
+      sku: inv.sku_on_property,
+      readiness: inv.readiness_state_on_property,
+    },
+    propertyIdsFromProducts(products)
+  );
   const body: Record<string, unknown> = { products };
-  if (inv.price_on_property?.length) body.price_on_property = inv.price_on_property;
-  if (inv.quantity_on_property?.length) body.quantity_on_property = inv.quantity_on_property;
-  // Set sku_on_property explicitly when normalizing SKUs, else preserve existing
-  if (skuPropertyId != null) {
-    body.sku_on_property = [skuPropertyId];
-  } else if (inv.sku_on_property?.length) {
-    body.sku_on_property = inv.sku_on_property;
-  }
-  if (inv.readiness_state_on_property?.length) {
-    body.readiness_state_on_property = inv.readiness_state_on_property;
+  if (aligned.price_on_property.length) body.price_on_property = aligned.price_on_property;
+  if (aligned.quantity_on_property.length) body.quantity_on_property = aligned.quantity_on_property;
+  if (aligned.sku_on_property.length) body.sku_on_property = aligned.sku_on_property;
+  if (aligned.readiness_state_on_property.length) {
+    body.readiness_state_on_property = aligned.readiness_state_on_property;
   }
   return body;
 }
@@ -877,12 +945,16 @@ export async function syncEtsyListingInventoryFromInw(
     }
   }
 
-  // Determine the property ID to set for sku_on_property when normalizing.
-  // Prefer quantity_on_property; fall back to extracted property when taxonomy 404s.
-  const skuPropertyId =
-    needsSkuNormalization
-      ? quantityOnProperty[0] ?? fallbackProperty?.property_id
-      : undefined;
+  // When normalizing SKUs, link sku_on_property to every variation property (0 or all —
+  // never a single ID on a 2-axis listing when quantity already uses both).
+  const productPropertyIds = propertyIdsFromProducts(rebuilt);
+  const invForPut: EtsyInventory = {
+    ...inv,
+    sku_on_property:
+      needsSkuNormalization && productPropertyIds.length > 0
+        ? [...productPropertyIds]
+        : inv.sku_on_property,
+  };
 
   console.log("[etsy] syncEtsyListingInventoryFromInw", {
     listingId,
@@ -890,17 +962,11 @@ export async function syncEtsyListingInventoryFromInw(
     inwOptions: quantityAxis.options.length,
     newOptionsAdded,
     quantityOnProperty,
-    skuPropertyId,
+    skuOnProperty: invForPut.sku_on_property,
     usedFallback: fallbackProperty != null,
   });
 
-  await putEtsyInventoryIfValid(
-    accessToken,
-    listingId,
-    inv,
-    rebuilt,
-    skuPropertyId
-  );
+  await putEtsyInventoryIfValid(accessToken, listingId, invForPut, rebuilt);
 }
 
 /** Attach variant axes + quantities from Etsy inventory API to a listing summary. */
