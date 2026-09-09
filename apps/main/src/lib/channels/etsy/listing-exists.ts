@@ -33,13 +33,17 @@ export type EtsyInboundFetch =
  * Fetch one listing for inbound reconcile. Draft/inactive still exist — only
  * 404 / removed / expired / sold_out are gone.
  */
+type EtsyListingWithState = Parameters<typeof etsyListingToSummary>[0] & {
+  state?: string | null;
+};
+
 export async function fetchEtsyListingForInbound(
   accessToken: string,
   listingId: string
 ): Promise<EtsyInboundFetch> {
   const id = listingId.trim().replace(/^inw/i, "");
   if (!id) return { status: "gone" };
-  const listing = await etsyGet<Parameters<typeof etsyListingToSummary>[0]>(
+  const listing = await etsyGet<EtsyListingWithState>(
     accessToken,
     `/listings/${encodeURIComponent(id)}?includes=Images`,
     { notFoundOk: true }
