@@ -133,7 +133,19 @@ export function remoteVariantMatrixIsWeaker(existing: unknown, incoming: unknown
   if (!inw || inw.axes.length === 0) return false;
   const remote = normalizeVariantMatrix(incoming);
   if (!remote || remote.axes.length === 0) return true;
-  return remote.axes.length < inw.axes.length;
+  const inwArity = Math.max(
+    inw.axes.length,
+    ...inw.skus.map((s) => Object.keys(s.options).length),
+    0
+  );
+  const remoteArity = Math.max(
+    remote.axes.length,
+    ...remote.skus.map((s) => Object.keys(s.options).length),
+    0
+  );
+  if (remoteArity < inwArity) return true;
+  if (remote.axes.length < inw.axes.length) return true;
+  return false;
 }
 
 /** Persist the combo matrix on import — never collapse to per-value totals. */

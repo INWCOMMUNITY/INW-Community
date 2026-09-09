@@ -23,6 +23,7 @@ import type { ChannelProvider, RemoteListingSummary } from "./types";
 import { sumVariantQuantities, variantsFingerprint } from "./variant-sync";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { isMadeToOrderTracking, normalizeVariantMatrix } from "@/lib/listing-variant-matrix";
+import { isComboInventoryFailedError } from "./combo-sync";
 
 function inwMissingVariants(variants: unknown): boolean {
   if (variants == null) return true;
@@ -61,6 +62,7 @@ type LinkRow = {
   storeItemId: string;
   externalListingId: string;
   conflictDetails: unknown;
+  syncError: string | null;
   syncBaselineHash: string | null;
   syncBaselineMetaHash: string | null;
   syncBaselineVariantsHash: string | null;
@@ -207,6 +209,7 @@ export async function reconcileConnectionInboundMeta(
       storeItemId: true,
       externalListingId: true,
       conflictDetails: true,
+      syncError: true,
       syncBaselineHash: true,
       syncBaselineMetaHash: true,
       syncBaselineVariantsHash: true,
@@ -257,6 +260,7 @@ export async function reconcileConnectionInboundMeta(
     if (
       remote.variantsKnown &&
       remote.variants &&
+      !isComboInventoryFailedError(link.syncError) &&
       (inwMissingVariants(item.variants) ||
         (provider === "wix" &&
           inwAllOptionQtyZero(item.variants) &&
@@ -329,7 +333,7 @@ export async function reconcileConnectionInboundMeta(
       const asp = await applyRemoteAspectsToStoreItem(link.storeItemId, remote);
       pulled = cat || ship || asp || pulled;
     }
-    if (varDecision === "pull") {
+    if (varDecision === "pull" && !isComboInventoryFailedError(link.syncError)) {
       const skipMtoZero =
         isMadeToOrderTracking(item.inventoryTracking) && remoteVariantQtySum(remote) === 0;
       if (!skipMtoZero) {

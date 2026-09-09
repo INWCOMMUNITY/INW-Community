@@ -14,6 +14,7 @@ import { variantsFingerprint } from "../variant-sync";
 import { updateStoreItemOnChannels } from "../outbound";
 import { channelSyncSucceeded, syncInventoryToChannels } from "../sync-inventory";
 import { inboundContentFanoutKind } from "../listing-link-flags";
+import { isComboInventoryFailedError } from "../combo-sync";
 import { etsyGet, setEtsyConnectionContext } from "./client";
 import { etsyListingToSummary } from "./mapping";
 import type { RemoteListingSummary } from "../types";
@@ -167,7 +168,7 @@ export async function refreshEtsyListingByStoreItemId(
     changes.push("category");
   }
 
-  if (remote.variantsKnown && remote.variants) {
+  if (remote.variantsKnown && remote.variants && !isComboInventoryFailedError(link.syncError)) {
     const varsPulled = await applyRemoteVariantsToStoreItem(storeItemId, remote, "etsy");
     if (varsPulled) {
       updated = true;
@@ -195,6 +196,7 @@ export async function refreshEtsyListingByStoreItemId(
   if (!refreshedItem) return null;
 
   if (updated) {
+    const keepComboError = isComboInventoryFailedError(link.syncError);
     await prisma.channelListingLink.update({
       where: { id: link.id },
       data: {
@@ -204,8 +206,8 @@ export async function refreshEtsyListingByStoreItemId(
         syncBaselineQty: refreshedItem.quantity,
         syncBaselineAt: remote.remoteUpdatedAt ?? new Date(),
         lastInboundAt: new Date(),
-        syncStatus: "synced",
-        syncError: null,
+        syncStatus: keepComboError ? "error" : "synced",
+        syncError: keepComboError ? link.syncError : null,
       },
     });
 

@@ -34,6 +34,21 @@ describe("normalizeVariantMatrix", () => {
     expect(matrix?.skus[0].priceCents).toBe(2500);
   });
 
+  it("restores Size from combination rows when axes only list Color", () => {
+    const matrix = normalizeVariantMatrix({
+      axes: [{ name: "Color", values: ["Navy", "White"] }],
+      skus: [
+        { options: { Size: "S", Color: "Navy" }, quantity: 2 },
+        { options: { Size: "M", Color: "Navy" }, quantity: 1 },
+        { options: { Size: "S", Color: "White" }, quantity: 4 },
+      ],
+    });
+    expect(matrix?.axes.map((a) => a.name)).toEqual(["Color", "Size"]);
+    expect([...(matrix?.axes.find((a) => a.name === "Size")?.values ?? [])].sort()).toEqual(["M", "S"]);
+    expect(matrix?.skus.find((s) => s.options.Size === "S" && s.options.Color === "Navy")?.quantity).toBe(2);
+    expect(matrix?.skus.find((s) => s.options.Size === "M" && s.options.Color === "Navy")?.quantity).toBe(1);
+  });
+
   it("normalizes legacy single-axis JSON", () => {
     const matrix = normalizeVariantMatrix([
       {

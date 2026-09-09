@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   comboInventoryFailedMessage,
   expectedComboSkuCount,
+  isComboInventoryFailedError,
   shouldRebuildEtsyComboInventory,
 } from "./combo-sync";
 
@@ -31,5 +32,15 @@ describe("comboInventoryFailedMessage", () => {
   it("names the shop and Size × Color", () => {
     expect(comboInventoryFailedMessage("etsy")).toMatch(/Etsy/);
     expect(comboInventoryFailedMessage("etsy")).toMatch(/Size × Color/);
+  });
+
+  it("detects the combo inventory failure copy", () => {
+    expect(isComboInventoryFailedError(comboInventoryFailedMessage("etsy"))).toBe(true);
+    expect(
+      isComboInventoryFailedError(
+        "Etsy: INW combinations did not update on Etsy — quantities were not applied per Size × Color (sku_on_property)"
+      )
+    ).toBe(true);
+    expect(isComboInventoryFailedError("Invalid taxonomy")).toBe(false);
   });
 });

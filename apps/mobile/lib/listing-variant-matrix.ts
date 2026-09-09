@@ -391,16 +391,28 @@ function parseAxisFromUnknown(row: unknown): VariantAxisDef | null {
   };
 }
 
+function collectSkuOptions(rawOptions: Record<string, unknown>): Record<string, string> {
+  const options: Record<string, string> = {};
+  for (const [k, v] of Object.entries(rawOptions)) {
+    const name = String(k ?? "").trim();
+    const val = v != null ? String(v).trim() : "";
+    if (name && val) options[name] = val;
+  }
+  return options;
+}
+
 function parseSkuFromUnknown(row: unknown, axes: VariantAxisDef[]): VariantSkuRow | null {
   const rec = asRecord(row);
   if (!rec) return null;
   const rawOptions = asRecord(rec.options);
   if (!rawOptions) return null;
-  const options: Record<string, string> = {};
+  const collected = collectSkuOptions(rawOptions);
+  if (Object.keys(collected).length === 0) return null;
+  const options: Record<string, string> = { ...collected };
   for (const axis of axes) {
     const hit =
-      rawOptions[axis.name] ??
-      Object.entries(rawOptions).find(([k]) => k.trim().toLowerCase() === axis.name.toLowerCase())?.[1];
+      collected[axis.name] ??
+      Object.entries(collected).find(([k]) => k.trim().toLowerCase() === axis.name.toLowerCase())?.[1];
     const val = hit != null ? String(hit).trim() : "";
     if (!val) return null;
     options[axis.name] = val;
@@ -415,6 +427,41 @@ function parseSkuFromUnknown(row: unknown, axes: VariantAxisDef[]): VariantSkuRo
     ...(photos ? { photos } : {}),
     ...(sku ? { sku } : {}),
   };
+}
+
+/** Keep option types that still exist on SKU rows even if `axes` was collapsed (e.g. Color-only). */
+function inferAxesFromSkus(axes: VariantAxisDef[], skus: VariantSkuRow[]): VariantAxisDef[] {
+  const byName = new Map<string, VariantAxisDef>();
+  const order: string[] = [];
+  const add = (name: string, values: string[], photosByValue?: Record<string, string[]>) => {
+    const key = name.trim();
+    if (!key) return;
+    let axis = byName.get(key);
+    if (!axis) {
+      const existing = axes.find((a) => a.name.trim().toLowerCase() === key.toLowerCase());
+      axis = {
+        name: existing?.name ?? key,
+        values: [],
+        ...(existing?.photosByValue ? { photosByValue: { ...existing.photosByValue } } : {}),
+      };
+      order.push(axis.name);
+      byName.set(axis.name, axis);
+      if (axis.name !== key) byName.set(key, axis);
+    }
+    if (photosByValue) {
+      axis.photosByValue = { ...(axis.photosByValue ?? {}), ...photosByValue };
+    }
+    for (const v of values) {
+      const label = v.trim();
+      if (!label) continue;
+      if (!axis.values.some((x) => x.toLowerCase() === label.toLowerCase())) axis.values.push(label);
+    }
+  };
+  for (const a of axes) add(a.name, a.values, a.photosByValue);
+  for (const sku of skus) {
+    for (const [name, val] of Object.entries(sku.options)) add(name, [val]);
+  }
+  return order.map((n) => byName.get(n)).filter((a): a is VariantAxisDef => Boolean(a && a.values.length > 0));
 }
 
 function legacyArrayToMatrix(raw: unknown[]): VariantMatrix | null {
@@ -549,7 +596,8 @@ export function normalizeVariantMatrix(raw: unknown): VariantMatrix | null {
       // Axes defined but no SKU rows — still a valid structure (all combos omitted).
       return withMatrixMeta({ axes, skus }, obj);
     }
-    const withPhotos = applyAxisPhotosToMissingSkus({ axes, skus }, obj);
+    const inferredAxes = inferAxesFromSkus(axes, skus);
+    const withPhotos = applyAxisPhotosToMissingSkus({ axes: inferredAxes, skus }, obj);
     return withMatrixMeta(withPhotos, obj);
   }
 

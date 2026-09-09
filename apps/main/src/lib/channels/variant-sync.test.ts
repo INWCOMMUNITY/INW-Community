@@ -111,6 +111,21 @@ describe("remoteVariantMatrixIsWeaker", () => {
     expect(remoteVariantMatrixIsWeaker(sizeColor, colorOnly)).toBe(true);
   });
 
+  it("blocks Color-only remote when INW combination rows still have Size", () => {
+    expect(
+      remoteVariantMatrixIsWeaker(
+        {
+          axes: [{ name: "Color", values: ["Navy"] }],
+          skus: [
+            { options: { Size: "S", Color: "Navy" }, quantity: 2 },
+            { options: { Size: "M", Color: "Navy" }, quantity: 1 },
+          ],
+        },
+        colorOnly
+      )
+    ).toBe(true);
+  });
+
   it("allows filling empty INW variants from remote", () => {
     expect(remoteVariantMatrixIsWeaker(null, sizeColor)).toBe(false);
   });

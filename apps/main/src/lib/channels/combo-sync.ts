@@ -19,6 +19,11 @@ export function comboInventoryFailedMessage(provider: string): string {
   return `INW combinations did not update on ${label} — quantities were not applied per Size × Color`;
 }
 
+export function isComboInventoryFailedError(message: string | null | undefined): boolean {
+  const text = message ?? "";
+  return /INW combinations did not update/i.test(text) || /quantities were not applied per Size/i.test(text);
+}
+
 export function expectedComboSkuCount(variants: unknown): number {
   return variantsToMatrix(variants)?.skus.length ?? 0;
 }
