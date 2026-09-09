@@ -123,8 +123,14 @@ import {
 import { prisma } from "database";
 import { isEbayEndedListingError } from "../error-classifier";
 import { isEbayListingEnded, persistEbayListingEnded } from "../listing-link-flags";
-import { isImportedEbayLink, extractEbayInventoryAspects, resolveEbayPushSku } from "./listing-origin";
 import {
+  ebayExternalIdLooksLive,
+  extractEbayInventoryAspects,
+  isImportedEbayLink,
+  resolveEbayPushSku,
+} from "./listing-origin";
+import {
+  ebayOfferIsPublished,
   pickEbayOffer,
   readEbayOfferListingId,
   shouldDeleteUnpublishedZeroQuantityOffer,
@@ -380,7 +386,7 @@ async function upsertListing(
     externalListingId: linkExternalId,
     linkOrigin: ebayLink?.linkOrigin,
   });
-  const operation = linkedSku || ebayLink ? "update" : "create";
+  let operation: "create" | "update" = ebayExternalIdLooksLive(linkExternalId) ? "update" : "create";
   
   // Start trace for this sync operation
   const trace = startTrace(conn.memberId, "ebay", item.id, operation, {
@@ -449,8 +455,6 @@ async function upsertListing(
     });
 
     const existingOffer = await findOffer(conn.accessToken, sku);
-    const listingAlreadyLinked = Boolean(existingOffer?.offerId) || Boolean(resolveEbayLegacyListingId(linkExternalId));
-    const hadOfferAtStart = listingAlreadyLinked;
     let offerId = existingOffer?.offerId ?? null;
     let existingOfferCategoryId: string | null = null;
     let liveOffer: Record<string, unknown> | null = null;
@@ -465,6 +469,18 @@ async function upsertListing(
         persistCategoryId: persistEbayCategoryId,
       });
     }
+
+    const offerLooksPublished = ebayOfferIsPublished(
+      (typeof liveOffer?.status === "string" ? liveOffer.status : null) ?? existingOffer?.status
+    );
+    const liveListingId =
+      resolveEbayLegacyListingId(linkExternalId) ??
+      (offerLooksPublished
+        ? readEbayOfferListingId(liveOffer) ?? readEbayOfferListingId(existingOffer)
+        : null);
+    const listingAlreadyLinked = Boolean(liveListingId);
+    const hadOfferAtStart = listingAlreadyLinked;
+    operation = listingAlreadyLinked ? "update" : "create";
 
     const isImported = isImportedEbayLink({
       provider: "ebay",
@@ -1318,6 +1334,7 @@ async function upsertListing(
       });
       let liveVariantImageUrls = liveNativeImageUrls;
       let anyVariantHadOffer = false;
+      let publishedVariantListingId: string | null = null;
       for (const row of variantRows) {
         const variantItem = buildVariantSyncItem(syncItem, row);
         const liveVariant = await fetchLiveInventoryItem(conn.accessToken, row.sku);
@@ -1381,7 +1398,11 @@ async function upsertListing(
           });
         }
         const variantOffer = await findOffer(conn.accessToken, row.sku);
-        if (variantOffer?.offerId) anyVariantHadOffer = true;
+        const variantListingId = readEbayOfferListingId(variantOffer);
+        if (variantOffer?.offerId && ebayOfferIsPublished(variantOffer.status)) {
+          anyVariantHadOffer = true;
+          if (variantListingId) publishedVariantListingId ??= variantListingId;
+        }
         const variantOfferBody = buildEbayOffer(
           variantItem,
           cfg,
@@ -1525,7 +1546,7 @@ async function upsertListing(
       await pushVariantGroupQuantities(conn.accessToken, variantRows);
       await persistEbayVariantOptionSkus(item.id, item.variants, variantRows);
       await completeTrace(trace, "success");
-      return { sku: variantSkus[0] ?? sku };
+      return { sku: variantSkus[0] ?? sku, listingId: publishedVariantListingId ?? undefined };
     }
 
     async function pushInventoryWithConditionRetry() {
@@ -1799,8 +1820,16 @@ export const ebayAdapter: ChannelAdapter = {
     if (publishError) {
       throw new Error(publishError);
     }
+    if (!listingId) {
+      return {
+        externalListingId: sku,
+        externalShopId: conn.externalShopId,
+        live: false,
+        warning: "eBay saved a draft. It is not live on eBay yet.",
+      };
+    }
     return {
-      externalListingId: listingId || sku,
+      externalListingId: listingId,
       externalShopId: conn.externalShopId,
       live: true,
     };

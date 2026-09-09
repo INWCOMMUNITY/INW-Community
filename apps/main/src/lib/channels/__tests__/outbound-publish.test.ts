@@ -269,6 +269,72 @@ describe("publishStoreItemToChannels", () => {
     expect(mockPrisma.channelListingLink.create).toHaveBeenCalledOnce();
   });
 
+  it("does not treat an eBay SKU stub as already live", async () => {
+    const { publishStoreItemToChannels } = await import("../outbound");
+    mockPrisma.storeItem.findUnique.mockResolvedValueOnce(makeStoreItem());
+    mockGetActiveConnectionsForMember.mockResolvedValueOnce([
+      makeConn({
+        provider: "ebay",
+        config: {
+          canPublish: true,
+          fulfillmentPolicyId: "f",
+          paymentPolicyId: "p",
+          returnPolicyId: "r",
+          merchantLocationKey: "loc",
+        },
+      }),
+    ]);
+    mockPrisma.channelListingLink.findUnique
+      .mockResolvedValueOnce({
+        id: "link-stub",
+        provider: "ebay",
+        externalListingId: "cmt7vumcl000dxjujvgwe8dob",
+        syncStatus: "synced",
+      })
+      .mockResolvedValueOnce(null);
+    mockAdapter.createListing.mockResolvedValueOnce({
+      externalListingId: "407186363325",
+      externalShopId: "shop-1",
+      live: true,
+    });
+
+    const results = await publishStoreItemToChannels("item-1", "member-1", { providers: ["ebay"] });
+
+    expect(mockPrisma.channelListingLink.delete).toHaveBeenCalledWith({
+      where: { id: "link-stub" },
+    });
+    expect(mockAdapter.createListing).toHaveBeenCalledOnce();
+    expect(results).toEqual([{ provider: "ebay", ok: true }]);
+  });
+
+  it("keeps a live eBay Item ID as already listed", async () => {
+    const { publishStoreItemToChannels } = await import("../outbound");
+    mockPrisma.storeItem.findUnique.mockResolvedValueOnce(makeStoreItem());
+    mockGetActiveConnectionsForMember.mockResolvedValueOnce([
+      makeConn({
+        provider: "ebay",
+        config: {
+          canPublish: true,
+          fulfillmentPolicyId: "f",
+          paymentPolicyId: "p",
+          returnPolicyId: "r",
+          merchantLocationKey: "loc",
+        },
+      }),
+    ]);
+    mockPrisma.channelListingLink.findUnique.mockResolvedValueOnce({
+      id: "link-live",
+      provider: "ebay",
+      externalListingId: "407186363325",
+      syncStatus: "synced",
+    });
+
+    const results = await publishStoreItemToChannels("item-1", "member-1", { providers: ["ebay"] });
+
+    expect(results).toEqual([{ provider: "ebay", ok: true }]);
+    expect(mockAdapter.createListing).not.toHaveBeenCalled();
+  });
+
   it("creates an Etsy draft result when the connection has no shipping profile", async () => {
     const { publishStoreItemToChannels } = await import("../outbound");
     mockPrisma.storeItem.findUnique.mockResolvedValueOnce(makeStoreItem());

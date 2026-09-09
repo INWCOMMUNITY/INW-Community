@@ -141,7 +141,7 @@ describe("buildListOnCategoryQueueFromDesired", () => {
             { name: "Type", value: "Clock" },
             { name: "Brand", value: "Unbranded" },
           ],
-          channelLinks: [{ provider: "ebay" }],
+          channelLinks: [{ provider: "ebay", externalListingId: "407186363325" }],
         }),
       ],
       { a: ["ebay"] }
@@ -155,7 +155,7 @@ describe("buildListOnCategoryQueueFromDesired", () => {
         item({
           id: "a",
           ebayCategoryId: 11450,
-          channelLinks: [{ provider: "ebay" }],
+          channelLinks: [{ provider: "ebay", externalListingId: "407186363325" }],
         }),
       ],
       { a: ["ebay"] }
@@ -169,13 +169,31 @@ describe("buildListOnCategoryQueueFromDesired", () => {
         item({
           id: "already",
           ebayCategoryId: 261605,
-          channelLinks: [{ provider: "ebay" }],
+          channelLinks: [{ provider: "ebay", externalListingId: "407186363325" }],
         }),
         item({ id: "new", ebayCategoryId: null, channelLinks: [{ provider: "etsy" }] }),
       ],
       { already: ["ebay"], new: ["etsy", "ebay"] }
     );
     expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["new:ebay"]);
+  });
+
+  it("queues eBay when the leftover link is only a SKU, not a live Item ID", () => {
+    const steps = buildListOnCategoryQueueFromDesired(
+      [
+        item({
+          id: "a",
+          ebayCategoryId: 11450,
+          aspects: [
+            { name: "Type", value: "Clock" },
+            { name: "Brand", value: "Unbranded" },
+          ],
+          channelLinks: [{ provider: "ebay", externalListingId: "cmt7vumcl000dxjujvgwe8dob" }],
+        }),
+      ],
+      { a: ["ebay"] }
+    );
+    expect(steps.map((s) => `${s.item.id}:${s.provider}`)).toEqual(["a:ebay"]);
   });
 });
 

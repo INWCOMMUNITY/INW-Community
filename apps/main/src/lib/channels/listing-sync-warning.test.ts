@@ -48,6 +48,12 @@ describe("listingChannelSyncWarning", () => {
     expect(
       channelLinkShowsOnItem({
         provider: "ebay",
+        connectionStatus: "active",
+      })
+    ).toBe(false);
+    expect(
+      channelLinkShowsOnItem({
+        provider: "ebay",
         externalListingId: "cmt7vumcl000dxjujvgwe8dobRedSmall",
         connectionStatus: "active",
       })

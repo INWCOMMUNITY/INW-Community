@@ -20,7 +20,10 @@ function item(overrides: Partial<BulkDestinationGridItem> = {}): BulkDestination
     title: "Coin lot",
     photos: [],
     status: "active",
-    channelLinks: [{ provider: "ebay" }, { provider: "wix" }],
+    channelLinks: [
+      { provider: "ebay", externalListingId: "407186363325" },
+      { provider: "wix" },
+    ],
     ...overrides,
   };
 }
@@ -43,7 +46,7 @@ describe("initialGridRows", () => {
       [
         item({
           channelLinks: [
-            { provider: "ebay" },
+            { provider: "ebay", externalListingId: "407186363325" },
             { provider: "wix", remoteDeletedProvider: "wix" },
           ],
         }),
@@ -51,6 +54,19 @@ describe("initialGridRows", () => {
       [...columns]
     );
     expect(rows[0].providers).toEqual({ ebay: true, etsy: false, wix: false });
+  });
+
+  it("leaves an eBay SKU stub unchecked so Save can actually list it", () => {
+    const rows = initialGridRows(
+      "sync",
+      [
+        item({
+          channelLinks: [{ provider: "ebay", externalListingId: "cmt7vumcl000dxjujvgwe8dob" }],
+        }),
+      ],
+      [...columns]
+    );
+    expect(rows[0].providers).toEqual({ ebay: false, etsy: false, wix: false });
   });
 });
 
@@ -70,7 +86,7 @@ describe("isProviderCellEnabled", () => {
   it("does not treat a remotely deleted store as live on End or Delete", () => {
     const goneOnWix = item({
       channelLinks: [
-        { provider: "ebay" },
+        { provider: "ebay", externalListingId: "407186363325" },
         { provider: "wix", remoteDeletedProvider: "wix" },
       ],
     });

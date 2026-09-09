@@ -1,7 +1,7 @@
 import { prisma, Prisma } from "database";
 import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
 import { CHANNEL_PROVIDERS, isChannelProvider, type ChannelProvider } from "@/lib/channels/types";
-import { readRemoteDeletedNotice } from "@/lib/channels/listing-link-flags";
+import { channelLinkShowsOnItem } from "@/lib/channels/listing-sync-warning";
 import {
   publishStoreItemToChannels,
   unpublishStoreItemFromChannels,
@@ -96,7 +96,14 @@ export async function applyBulkDestinations(input: {
     select: {
       id: true,
       status: true,
-      channelLinks: { select: { provider: true, syncEnabled: true, conflictDetails: true } },
+      channelLinks: {
+        select: {
+          provider: true,
+          syncEnabled: true,
+          conflictDetails: true,
+          externalListingId: true,
+        },
+      },
     },
   });
   const ownedById = new Map(owned.map((item) => [item.id, item]));
@@ -111,7 +118,13 @@ export async function applyBulkDestinations(input: {
       id: item.id,
       status: item.status,
       linkedProviders: item.channelLinks
-        .filter((l) => !readRemoteDeletedNotice(l.conflictDetails))
+        .filter((l) =>
+          channelLinkShowsOnItem({
+            provider: l.provider,
+            externalListingId: l.externalListingId,
+            conflictDetails: l.conflictDetails,
+          })
+        )
         .map((l) => l.provider)
         .filter(isChannelProvider),
     })),
@@ -178,7 +191,13 @@ export async function applyBulkDestinations(input: {
     const ebayAssignment = input.categoryAssignments?.find((row) => row.storeItemId === item.id);
     const alreadyLinkedEbay =
       item.channelLinks.some(
-        (link) => link.provider === "ebay" && !readRemoteDeletedNotice(link.conflictDetails)
+        (link) =>
+          link.provider === "ebay" &&
+          channelLinkShowsOnItem({
+            provider: link.provider,
+            externalListingId: link.externalListingId,
+            conflictDetails: link.conflictDetails,
+          })
       ) && !toAdd.includes("ebay");
     if (input.action === "sync" && alreadyLinkedEbay && ebayAssignment && !failed) {
       try {

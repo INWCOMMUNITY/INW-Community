@@ -83,6 +83,16 @@ describe("publish-policy", () => {
         offerStatus: "UNPUBLISHED",
       })
     ).toBe(true);
+    expect(
+      shouldPublishEbayInventoryGroup({
+        operation: "create",
+        canPublish: true,
+        itemIsActive: true,
+        inStock: true,
+        hadOfferAtStart: false,
+        listingAlreadyLinked: false,
+      })
+    ).toBe(true);
   });
 
   it("publishes only unpublished offers", () => {

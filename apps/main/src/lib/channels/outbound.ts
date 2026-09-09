@@ -34,12 +34,12 @@ import { shouldBypassCircuitForInventoryPush } from "./circuit-inventory-bypass"
 import { isRemoteListingAlreadyGoneError } from "./error-classifier";
 import {
   persistRemoteListingGoneOnPush,
-  readRemoteDeletedNotice,
   shouldSkipEndedEbayOutbound,
 } from "./listing-link-flags";
 import { claimChannelListingLink } from "./listing-link-claim";
 import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
 import { isIncompleteChannelListingError } from "./combo-sync";
+import { channelLinkShowsOnItem } from "./listing-sync-warning";
 /** Content fingerprint so we can skip no-op pushes on update. */
 function contentHash(item: SyncStoreItem): string {
   return storeItemContentHash(item);
@@ -220,7 +220,15 @@ export async function publishStoreItemToChannels(
     const existing = await prisma.channelListingLink.findUnique({
       where: { storeItemId_provider: { storeItemId, provider } },
     });
-    if (existing && !readRemoteDeletedNotice(existing.conflictDetails)) {
+    const existingIsLive = Boolean(
+      existing &&
+        channelLinkShowsOnItem({
+          provider,
+          externalListingId: existing.externalListingId,
+          conflictDetails: existing.conflictDetails,
+        })
+    );
+    if (existing && existingIsLive) {
       if (existing.syncStatus === "error") {
         try {
           const connConfig = (conn.config ?? {}) as Record<string, unknown>;

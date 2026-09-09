@@ -36,7 +36,7 @@ describe("storeItemStatusWrite", () => {
 describe("hasLinkedChannelListings", () => {
   it("is true when any selected item is listed on a 3rd party", () => {
     expect(hasLinkedChannelListings([{ channelLinks: [{ provider: "wix" }] }])).toBe(true);
-    expect(hasLinkedChannelListings([{ channelLinks: [] }, { channelLinks: [{ provider: "ebay" }] }])).toBe(true);
+    expect(hasLinkedChannelListings([{ channelLinks: [] }, { channelLinks: [{ provider: "ebay", externalListingId: "407186363325" }] }])).toBe(true);
   });
 
   it("is false when listings are only on INW", () => {

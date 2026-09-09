@@ -19,7 +19,6 @@ export function channelLinkShowsOnItem(link: {
   if (link.ebayListingEnded) return false;
   if (
     (link.provider ?? "").toLowerCase() === "ebay" &&
-    typeof link.externalListingId === "string" &&
     !ebayExternalIdLooksLive(link.externalListingId)
   ) {
     return false;

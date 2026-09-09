@@ -40,8 +40,8 @@ function ownedItem(overrides: Record<string, unknown> = {}) {
     id: "a",
     status: "active",
     channelLinks: [
-      { provider: "ebay", syncEnabled: true, conflictDetails: {} },
-      { provider: "wix", syncEnabled: true, conflictDetails: {} },
+      { provider: "ebay", syncEnabled: true, conflictDetails: {}, externalListingId: "407186363325" },
+      { provider: "wix", syncEnabled: true, conflictDetails: {}, externalListingId: "wix-1" },
     ],
     ...overrides,
   };
@@ -127,7 +127,7 @@ describe("applyBulkDestinations", () => {
     mockPrisma.storeItem.findMany.mockResolvedValueOnce([
       ownedItem({
         channelLinks: [
-          { provider: "ebay", syncEnabled: true, conflictDetails: {} },
+          { provider: "ebay", syncEnabled: true, conflictDetails: {}, externalListingId: "407186363325" },
           {
             provider: "wix",
             syncEnabled: true,
@@ -153,7 +153,7 @@ describe("applyBulkDestinations", () => {
     mockPrisma.storeItem.findMany.mockResolvedValueOnce([
       ownedItem({
         channelLinks: [
-          { provider: "ebay", syncEnabled: true, conflictDetails: {} },
+          { provider: "ebay", syncEnabled: true, conflictDetails: {}, externalListingId: "407186363325" },
           {
             provider: "wix",
             syncEnabled: true,
@@ -172,6 +172,30 @@ describe("applyBulkDestinations", () => {
     });
     expect(unpublishStoreItemFromChannels).not.toHaveBeenCalled();
     expect(publishStoreItemToChannels).toHaveBeenCalledWith("a", "m1", { providers: ["wix"] });
+    expect(result.published).toBe(1);
+  });
+
+  it("publishes eBay when the leftover link is only a SKU, not a live Item ID", async () => {
+    mockPrisma.storeItem.findMany.mockResolvedValueOnce([
+      ownedItem({
+        channelLinks: [
+          {
+            provider: "ebay",
+            syncEnabled: true,
+            conflictDetails: {},
+            externalListingId: "cmt7vumcl000dxjujvgwe8dob",
+          },
+        ],
+      }),
+    ]);
+    publishStoreItemToChannels.mockResolvedValueOnce([{ provider: "ebay", ok: true }]);
+    const result = await applyBulkDestinations({
+      memberId: "m1",
+      action: "sync",
+      assignments: [{ storeItemId: "a", inw: true, providers: ["ebay"] }],
+    });
+    expect(unpublishStoreItemFromChannels).not.toHaveBeenCalled();
+    expect(publishStoreItemToChannels).toHaveBeenCalledWith("a", "m1", { providers: ["ebay"] });
     expect(result.published).toBe(1);
   });
 });
