@@ -741,7 +741,14 @@ export async function reconcileConnectionInboundCatalog(
       qtyDiffers && remoteQtyKnown && remote.quantity > 0 && currentQty === 0;
     const blockRecovery =
       staleZeroVsRemoteStock && (await shouldBlockSoldOutQtyRecovery(link.storeItemId));
-    const canApplyAggregateQty = shouldApplyAggregateRemoteQuantity(item.variants);
+    let canApplyAggregateQty = true;
+    if (staleZeroVsRemoteStock && !blockRecovery) {
+      const variantRow = await prisma.storeItem.findUnique({
+        where: { id: link.storeItemId },
+        select: { variants: true },
+      });
+      canApplyAggregateQty = shouldApplyAggregateRemoteQuantity(variantRow?.variants);
+    }
     const needsQtyRecovery = staleZeroVsRemoteStock && !blockRecovery && canApplyAggregateQty;
 
     if (blockRecovery) {
