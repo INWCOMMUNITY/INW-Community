@@ -544,7 +544,7 @@ export async function updateStoreItemOnChannels(
               titlesDiffer:
                 inwRow.title.trim().slice(0, 200) !== fetched.summary.title.trim().slice(0, 200),
               inwUpdatedAt: inwRow.updatedAt,
-              remoteUpdatedAt: fetched.summary.remoteUpdatedAt,
+              remoteUpdatedAt: fetched.summary.remoteUpdatedAt ?? null,
               lastPushedAt: link.lastPushedAt,
             })
           ) {
