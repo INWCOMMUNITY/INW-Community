@@ -15,6 +15,57 @@ const BULK_QTY_PATH = "/sell/inventory/v1/bulk_update_price_quantity";
  * PUT alone does not take them down. Sell-out writes the offer first (offer-only bulk,
  * then PUT offer), then the inventory record.
  */
+export const EBAY_BULK_PRICE_QUANTITY_MAX = 25;
+
+export type EbayVariantQuantityRow = {
+  sku: string;
+  quantity: number;
+  offerId?: string | null;
+  title?: string | null;
+};
+
+/**
+ * One Inventory bulk call for all in-stock variation SKUs (max 25).
+ * Sequential per-SKU bulk + offer lookup after publish_by_group exceeds Vercel 120s.
+ */
+export async function pushEbayVariantGroupQuantities(
+  accessToken: string,
+  rows: EbayVariantQuantityRow[]
+): Promise<void> {
+  const zeros: EbayVariantQuantityRow[] = [];
+  const positives: EbayVariantQuantityRow[] = [];
+  for (const row of rows) {
+    const quantity = Math.max(0, Math.round(row.quantity));
+    if (quantity <= 0) zeros.push({ ...row, quantity: 0 });
+    else positives.push({ ...row, quantity });
+  }
+  for (let i = 0; i < positives.length; i += EBAY_BULK_PRICE_QUANTITY_MAX) {
+    const chunk = positives.slice(i, i + EBAY_BULK_PRICE_QUANTITY_MAX);
+    const body = await ebayJson(accessToken, BULK_QTY_PATH, "POST", {
+      requests: chunk.map((row) => {
+        const request: Record<string, unknown> = {
+          sku: row.sku,
+          shipToLocationAvailability: { quantity: row.quantity },
+        };
+        if (row.offerId) {
+          request.offers = [{ offerId: row.offerId, availableQuantity: row.quantity }];
+        }
+        return request;
+      }),
+    });
+    assertBulkPriceQuantityOk(body, BULK_QTY_PATH);
+  }
+  for (const row of zeros) {
+    await pushEbayAbsoluteQuantity({
+      accessToken,
+      sku: row.sku,
+      quantity: 0,
+      offerId: row.offerId,
+      title: row.title,
+    });
+  }
+}
+
 export async function pushEbayAbsoluteQuantity(args: {
   accessToken: string;
   sku: string;

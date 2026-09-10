@@ -170,11 +170,29 @@ import {
 import { bestOfferStatesMatch, inwBestOfferState, readOfferBestOfferTerms } from "./best-offer";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
 import { detectStoreItemFieldChanges } from "../sync-baseline";
-import { pushEbayAbsoluteQuantity } from "./quantity";
+import { pushEbayAbsoluteQuantity, pushEbayVariantGroupQuantities } from "./quantity";
 import type { ListingAspect } from "@/lib/listing-limits";
 
 type EbayOffer = { offerId?: string; status?: string; listing?: { listingId?: string } };
 type OfferSearch = { offers?: EbayOffer[] };
+
+/** Keep a 12-SKU group off the serial round-trip path that blew past Vercel 120s. */
+const EBAY_VARIANT_IO_CONCURRENCY = 4;
+
+async function mapInChunks<T, R>(
+  items: T[],
+  size: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const out: R[] = [];
+  const n = Math.max(1, size);
+  for (let i = 0; i < items.length; i += n) {
+    const slice = items.slice(i, i + n);
+    const chunk = await Promise.all(slice.map((item, offset) => fn(item, i + offset)));
+    out.push(...chunk);
+  }
+  return out;
+}
 
 /** Find the first offer for a SKU (used to resolve offerId from the stored SKU). */
 async function findOffer(accessToken: string, sku: string): Promise<EbayOffer | null> {
@@ -228,25 +246,28 @@ async function persistEbayVariantOptionSkus(
 /** Live eBay stock is offer.availableQuantity — publish_by_group often leaves each variation at 1. */
 async function pushVariantGroupQuantities(
   accessToken: string,
-  rows: EbayVariantInventoryRow[]
+  rows: EbayVariantInventoryRow[],
+  offerIdsBySku?: Map<string, string>
 ): Promise<void> {
+  const withOffers: { sku: string; quantity: number; offerId?: string | null }[] = [];
   for (const row of rows) {
+    const known = offerIdsBySku?.get(row.sku);
+    if (known) {
+      withOffers.push({ sku: row.sku, quantity: row.quantity, offerId: known });
+      continue;
+    }
     try {
       const offer = await findOffer(accessToken, row.sku);
-      await pushEbayAbsoluteQuantity({
-        accessToken,
-        sku: row.sku,
-        quantity: row.quantity,
-        offerId: offer?.offerId ?? null,
-      });
+      withOffers.push({ sku: row.sku, quantity: row.quantity, offerId: offer?.offerId ?? null });
     } catch (e) {
-      console.warn("[ebay] variant quantity write failed", {
+      console.warn("[ebay] variant offer lookup for quantity failed", {
         sku: row.sku,
-        quantity: row.quantity,
         error: describeEbayThrownError(e),
       });
+      withOffers.push({ sku: row.sku, quantity: row.quantity, offerId: null });
     }
   }
+  await pushEbayVariantGroupQuantities(accessToken, withOffers);
 }
 
 async function publishOffer(accessToken: string, offerId: string): Promise<string | undefined> {
@@ -259,6 +280,11 @@ async function publishOffer(accessToken: string, offerId: string): Promise<strin
   return listingId && /^\d+$/.test(String(listingId).trim()) ? String(listingId).trim() : undefined;
 }
 
+const itemConditionPolicyByCategory = new Map<
+  string,
+  Awaited<ReturnType<typeof fetchItemConditionPolicy>>
+>();
+
 async function finalizeInventoryBody(
   accessToken: string,
   body: Record<string, unknown>,
@@ -267,12 +293,17 @@ async function finalizeInventoryBody(
     pushAspects: ListingAspect[];
     operation: "create" | "update";
     item: SyncStoreItem;
+    skipCatalog?: boolean;
   }
 ): Promise<Record<string, unknown>> {
   const productAspects = aspectsToEbayProductAspects(args.pushAspects);
-  if (args.categoryId) {
+  if (args.categoryId && args.operation === "create") {
     try {
-      const policy = await fetchItemConditionPolicy(accessToken, args.categoryId);
+      let policy = itemConditionPolicyByCategory.get(args.categoryId);
+      if (!policy) {
+        policy = await fetchItemConditionPolicy(accessToken, args.categoryId);
+        itemConditionPolicyByCategory.set(args.categoryId, policy);
+      }
       if (!policy.hasConditions) {
         delete body.condition;
       }
@@ -290,7 +321,7 @@ async function finalizeInventoryBody(
       });
     }
   }
-  if (args.operation === "create") {
+  if (args.operation === "create" && !args.skipCatalog) {
     body = await enrichInventoryBodyWithCatalogProduct({
       itemTitle: args.item.title,
       categoryId: args.categoryId,
@@ -1362,16 +1393,27 @@ async function upsertListing(
       >();
       let unpublishedVariantOffer = false;
       const variantHostedSources: string[][] = [];
-      for (const row of variantRows) {
+      const offerIdsBySku = new Map<string, string>();
+      const scanned = await mapInChunks(variantRows, EBAY_VARIANT_IO_CONCURRENCY, async (row) => {
         const liveVariant = await fetchLiveInventoryItem(conn.accessToken, row.sku);
         const liveUrls = mergeLiveEbayPhotoUrls(
           liveVariant ? readInventoryProductImageUrls(liveVariant) : [],
           liveTradingPhotoUrls
         );
         const variantOffer = await findOffer(conn.accessToken, row.sku);
-        if (variantOffer?.offerId) unpublishedVariantOffer = true;
-        liveBySku.set(row.sku, { live: liveVariant, urls: liveUrls, offer: variantOffer });
-        variantHostedSources.push(liveUrls);
+        return { sku: row.sku, liveVariant, liveUrls, variantOffer };
+      });
+      for (const rowScan of scanned) {
+        if (rowScan.variantOffer?.offerId) {
+          unpublishedVariantOffer = true;
+          offerIdsBySku.set(rowScan.sku, rowScan.variantOffer.offerId);
+        }
+        liveBySku.set(rowScan.sku, {
+          live: rowScan.liveVariant,
+          urls: rowScan.liveUrls,
+          offer: rowScan.variantOffer,
+        });
+        variantHostedSources.push(rowScan.liveUrls);
       }
       const photoPlan = resolveEbayVariantGroupPhotoPlan({
         listingAlreadyOnEbay,
@@ -1389,7 +1431,11 @@ async function upsertListing(
         !sendInwPhotos && hostedEbayGalleryUrls(liveVariantImageUrls).length > 0;
       let anyVariantHadOffer = false;
       let publishedVariantListingId: string | null = null;
-      for (const row of variantRows) {
+
+      const writeVariantRow = async (
+        row: EbayVariantInventoryRow,
+        opts: { omitPhotos: boolean; sendInwPhotos: boolean; refreshGallery: boolean; skipCatalog: boolean }
+      ) => {
         const variantItem = buildVariantSyncItem(syncItem, row);
         const cached = liveBySku.get(row.sku);
         const liveUrls = cached?.urls ?? [];
@@ -1399,6 +1445,7 @@ async function upsertListing(
           sendInwPhotos = false;
         }
         const variantLiveUrls = hostedLive.length > 0 ? hostedLive : liveVariantImageUrls;
+        const omitPhotos = opts.omitPhotos && hostedLive.length === 0;
         const putLiveVariant = shouldPutEbayVariantInventoryOnLiveListing({
           listingAlreadyOnEbay,
           sku: row.sku,
@@ -1414,7 +1461,6 @@ async function upsertListing(
             pinnedPhotoCount: variantLiveUrls.length,
           });
         } else {
-          const omitPhotos = photosCommitted && hostedLive.length === 0;
           let variantBody = withVariationAspect(
             await finalizeInventoryBody(
               conn.accessToken,
@@ -1424,6 +1470,7 @@ async function upsertListing(
                 pushAspects,
                 operation,
                 item: syncItem,
+                skipCatalog: opts.skipCatalog,
               }
             ),
             row
@@ -1433,12 +1480,12 @@ async function upsertListing(
             : applyEbayInventoryPhotoPolicy(variantBody, {
                 liveImageUrls: variantLiveUrls,
                 inwPhotos: inventoryItemGroupInwPhotoUrls(syncItem),
-                pushInwPhotos: sendInwPhotos,
+                pushInwPhotos: opts.sendInwPhotos,
               });
           console.info("[ebay] variant inventory photos", {
             storeItemId: item.id,
             sku: row.sku,
-            sendInwPhotos: omitPhotos ? false : sendInwPhotos,
+            sendInwPhotos: omitPhotos ? false : opts.sendInwPhotos,
             omitPhotos,
             liveCount: variantLiveUrls.length,
             hostedCount: hostedEbayGalleryUrls(variantLiveUrls).length,
@@ -1448,8 +1495,8 @@ async function upsertListing(
             accessToken: conn.accessToken,
             body: variantBody,
             liveImageUrls: omitPhotos ? [] : variantLiveUrls,
-            fallbackImageUrls: omitPhotos || !sendInwPhotos ? [] : inventoryItemGroupInwPhotoUrls(syncItem),
-            allowInwPhotoUpload: omitPhotos ? false : sendInwPhotos,
+            fallbackImageUrls: omitPhotos || !opts.sendInwPhotos ? [] : inventoryItemGroupInwPhotoUrls(syncItem),
+            allowInwPhotoUpload: omitPhotos ? false : opts.sendInwPhotos,
             describeError: describeEbayThrownError,
             put: async (next) => {
               await ebayJson(
@@ -1461,7 +1508,7 @@ async function upsertListing(
               await persistRevisionCount(conn.id, row.sku, conn.config);
             },
           });
-          if (!photosCommitted) {
+          if (opts.refreshGallery) {
             const refreshed = await fetchLiveInventoryItem(conn.accessToken, row.sku);
             const refreshedUrls = mergeLiveEbayPhotoUrls(
               refreshed ? readInventoryProductImageUrls(refreshed) : [],
@@ -1530,8 +1577,15 @@ async function upsertListing(
               "PUT",
               variantOfferBody
             );
+            offerIdsBySku.set(row.sku, variantOffer.offerId);
           } else if (!listingAlreadyOnEbay) {
-            await ebayJson(conn.accessToken, `/sell/inventory/v1/offer`, "POST", variantOfferBody);
+            const created = await ebayJson<{ offerId?: string }>(
+              conn.accessToken,
+              `/sell/inventory/v1/offer`,
+              "POST",
+              variantOfferBody
+            );
+            if (created.offerId) offerIdsBySku.set(row.sku, created.offerId);
           } else {
             console.info("[ebay] skip creating variant offer on live listing", {
               storeItemId: item.id,
@@ -1540,6 +1594,27 @@ async function upsertListing(
             });
           }
         }
+      };
+
+      const [firstRow, ...otherRows] = variantRows;
+      if (firstRow) {
+        const firstHosted = hostedEbayGalleryUrls(liveBySku.get(firstRow.sku)?.urls ?? []);
+        await writeVariantRow(firstRow, {
+          omitPhotos: photosCommitted && firstHosted.length === 0,
+          sendInwPhotos,
+          refreshGallery: !photosCommitted,
+          skipCatalog: false,
+        });
+      }
+      if (otherRows.length > 0) {
+        await mapInChunks(otherRows, EBAY_VARIANT_IO_CONCURRENCY, async (row) => {
+          await writeVariantRow(row, {
+            omitPhotos: photosCommitted,
+            sendInwPhotos: false,
+            refreshGallery: false,
+            skipCatalog: true,
+          });
+        });
       }
       let groupKey = liveGroup.key || buildInventoryItemGroupKey(syncItem);
       const groupPhotoUrls = mergeLiveEbayPhotoUrls(
@@ -1594,14 +1669,8 @@ async function upsertListing(
       if (shouldPublishGroup) {
         if (!hadOfferAtStart) {
           try {
-            const fees = await getListingFees(
-              conn.accessToken,
-              (
-                await Promise.all(
-                  variantSkus.map(async (variantSku) => (await findOffer(conn.accessToken, variantSku))?.offerId)
-                )
-              ).filter((id): id is string => Boolean(id))
-            );
+            const feeOfferIds = [...offerIdsBySku.values()];
+            const fees = await getListingFees(conn.accessToken, feeOfferIds);
             const blockReason = getListingFeeBlockReason(fees);
             if (blockReason) {
               await completeTrace(trace, "failed", new Error(blockReason));
@@ -1624,9 +1693,16 @@ async function upsertListing(
             await new Promise((r) => setTimeout(r, 800));
             return publishOfferByInventoryItemGroup(conn.accessToken, groupKey);
           });
-          // publish_by_group often lists each variation at qty 1; write real stock after publish.
-          await pushVariantGroupQuantities(conn.accessToken, variantRows);
           await persistEbayVariantOptionSkus(item.id, item.variants, variantRows);
+          try {
+            await pushVariantGroupQuantities(conn.accessToken, variantRows, offerIdsBySku);
+          } catch (qtyErr) {
+            console.warn("[ebay] variant quantity write after publish failed", {
+              storeItemId: item.id,
+              listingId: published?.listingId ?? null,
+              error: describeEbayThrownError(qtyErr),
+            });
+          }
           await completeTrace(trace, "success");
           return { sku: variantSkus[0] ?? sku, listingId: published?.listingId };
         } catch (e) {
@@ -1635,8 +1711,15 @@ async function upsertListing(
           return { sku: variantSkus[0] ?? sku, publishError: msg };
         }
       }
-      await pushVariantGroupQuantities(conn.accessToken, variantRows);
       await persistEbayVariantOptionSkus(item.id, item.variants, variantRows);
+      try {
+        await pushVariantGroupQuantities(conn.accessToken, variantRows, offerIdsBySku);
+      } catch (qtyErr) {
+        console.warn("[ebay] variant quantity write failed", {
+          storeItemId: item.id,
+          error: describeEbayThrownError(qtyErr),
+        });
+      }
       await completeTrace(trace, "success");
       return { sku: variantSkus[0] ?? sku, listingId: publishedVariantListingId ?? undefined };
     }

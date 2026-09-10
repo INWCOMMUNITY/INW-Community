@@ -7,8 +7,8 @@ import type { ChannelProvider } from "@/lib/channels/types";
 import { storeItemPatchFromListOnCategoryAssignment } from "@/lib/list-on-channel-category-patch";
 
 export const dynamic = "force-dynamic";
-/** Wix media import can take tens of seconds for multiple photos. */
-export const maxDuration = 120;
+/** Variation groups need sequential Inventory PUTs; 120s left the listing live on eBay with no INW link. */
+export const maxDuration = 300;
 
 const listingAspectSchema = z.object({
   name: z.string().min(1),

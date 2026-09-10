@@ -6,6 +6,7 @@ import type { SyncStoreItem } from "../types";
 import { inventoryPutLetterGradeIsNumeric } from "./aspect-prep";
 import { ebayGet } from "./client";
 import { EBAY_MARKETPLACE_ID } from "./config";
+import { isEbayRateLimitError } from "./errors";
 
 /** Inventory API ConditionEnum values keyed by eBay metadata condition ID. */
 export const EBAY_CONDITION_ID_TO_ENUM: Record<number, string> = {
@@ -493,15 +494,40 @@ async function fetchConditionPolicyRows(
   return policy?.itemConditions ?? [];
 }
 
+const itemConditionPolicyInflight = new Map<
+  string,
+  Promise<{ descriptors: EbayConditionDescriptorMeta[]; hasConditions: boolean }>
+>();
+
 export async function fetchItemConditionPolicy(
   accessToken: string,
   categoryId: string
 ): Promise<{ descriptors: EbayConditionDescriptorMeta[]; hasConditions: boolean }> {
-  const rows = await fetchConditionPolicyRows(accessToken, categoryId);
-  return {
-    descriptors: parseConditionDescriptorMetadata(rows),
-    hasConditions: rows.length > 0,
-  };
+  const id = categoryId.trim();
+  if (!id) return { descriptors: [], hasConditions: false };
+  const existing = itemConditionPolicyInflight.get(id);
+  if (existing) return existing;
+  const pending = (async () => {
+    try {
+      const rows = await fetchConditionPolicyRows(accessToken, id);
+      return {
+        descriptors: parseConditionDescriptorMetadata(rows),
+        hasConditions: rows.length > 0,
+      };
+    } catch (e) {
+      if (isEbayRateLimitError(e)) {
+        return { descriptors: [], hasConditions: true };
+      }
+      throw e;
+    }
+  })();
+  itemConditionPolicyInflight.set(id, pending);
+  try {
+    return await pending;
+  } catch (e) {
+    itemConditionPolicyInflight.delete(id);
+    throw e;
+  }
 }
 
 /** Fetch allowed item conditions for an eBay leaf category (Metadata API). */

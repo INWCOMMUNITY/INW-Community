@@ -11,7 +11,7 @@ import {
 } from "@/lib/channels/outbound";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const bodySchema = z.object({
   quantity: z.number().int().min(1).max(9999).optional(),

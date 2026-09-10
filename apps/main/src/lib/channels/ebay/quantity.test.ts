@@ -22,7 +22,7 @@ vi.mock("./passthrough-push", () => ({
   }),
 }));
 
-import { assertBulkPriceQuantityOk, pushEbayAbsoluteQuantity } from "./quantity";
+import { assertBulkPriceQuantityOk, pushEbayAbsoluteQuantity, pushEbayVariantGroupQuantities } from "./quantity";
 
 describe("pushEbayAbsoluteQuantity", () => {
   beforeEach(() => {
@@ -173,5 +173,40 @@ describe("pushEbayAbsoluteQuantity", () => {
 describe("assertBulkPriceQuantityOk", () => {
   it("ignores an empty success body", () => {
     expect(() => assertBulkPriceQuantityOk({}, "/sell/inventory/v1/bulk_update_price_quantity")).not.toThrow();
+  });
+});
+
+describe("pushEbayVariantGroupQuantities", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ebayJson.mockResolvedValue({});
+  });
+
+  it("writes every in-stock variation in one bulk_update_price_quantity call", async () => {
+    await pushEbayVariantGroupQuantities("t", [
+      { sku: "sku-a", quantity: 2, offerId: "offer-a" },
+      { sku: "sku-b", quantity: 5, offerId: "offer-b" },
+    ]);
+
+    expect(ebayJson).toHaveBeenCalledTimes(1);
+    expect(ebayJson).toHaveBeenCalledWith(
+      "t",
+      "/sell/inventory/v1/bulk_update_price_quantity",
+      "POST",
+      {
+        requests: [
+          {
+            sku: "sku-a",
+            shipToLocationAvailability: { quantity: 2 },
+            offers: [{ offerId: "offer-a", availableQuantity: 2 }],
+          },
+          {
+            sku: "sku-b",
+            shipToLocationAvailability: { quantity: 5 },
+            offers: [{ offerId: "offer-b", availableQuantity: 5 }],
+          },
+        ],
+      }
+    );
   });
 });

@@ -2289,6 +2289,11 @@ export default function ListItemScreen() {
           <Text style={styles.submitBtnText}>{editId ? "Update Item" : "List an Item"}</Text>
         )}
       </Pressable>
+      {submitting && listingOnEbay ? (
+        <Text style={styles.ebayWaitHint}>
+          eBay listings with sizes or colors can take up to a minute. Keep this screen open.
+        </Text>
+      ) : null}
     </ScrollView>
     </KeyboardAvoidingView>
     </View>
@@ -2526,4 +2531,10 @@ const styles = StyleSheet.create({
   },
   submitDisabled: { opacity: 0.7 },
   submitBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  ebayWaitHint: {
+    marginTop: 10,
+    fontSize: 13,
+    color: defaultTheme.colors.labelMuted,
+    textAlign: "center",
+  },
 });

@@ -555,9 +555,13 @@ export default function MyItemsScreen() {
       return;
     }
     const label = CHANNEL_PROVIDER_LABEL[provider] ?? provider;
+    const ebayVariantHint =
+      provider === "ebay"
+        ? " Listings with several sizes or colors can take up to a minute."
+        : "";
     Alert.alert(
       `List on ${label}?`,
-      `This will create a listing on your connected ${label} store and keep inventory in sync.`,
+      `This will create a listing on your connected ${label} store and keep inventory in sync.${ebayVariantHint}`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -882,7 +886,11 @@ export default function MyItemsScreen() {
                 onPress={() => openMenu(item.id)}
                 disabled={!!actingId}
               >
-                <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.heading} />
+                {actingId === item.id ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                ) : (
+                  <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.heading} />
+                )}
               </Pressable>
             </Pressable>
             );
