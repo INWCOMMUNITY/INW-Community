@@ -75,6 +75,28 @@ async function ensureShopifyLocationId(
   return locationId;
 }
 
+/**
+ * Live read of a Shopify product mapped to a RemoteListingSummary (title/price/qty/updated_at).
+ * Used by outbound overwrite guards so the hub cannot clobber a newer Shopify admin edit or
+ * revert a Shopify-side stock change (Shopify previously had no outbound guards).
+ */
+export async function fetchShopifyListingForInbound(
+  conn: ChannelConnectionContext,
+  externalListingId: string
+): Promise<{ status: "ok"; summary: RemoteListingSummary } | { status: "error" }> {
+  setShopifyConnectionContext(conn.id);
+  const cfg = connCfg(conn);
+  if (!cfg.shop) return { status: "error" };
+  const product = await getProduct(
+    conn.accessToken,
+    cfg.shop,
+    cfg.apiVersion,
+    externalListingId
+  ).catch(() => null);
+  if (!product) return { status: "error" };
+  return { status: "ok", summary: shopifyProductToSummary(product, null, null) };
+}
+
 async function getProduct(
   accessToken: string,
   shop: string,

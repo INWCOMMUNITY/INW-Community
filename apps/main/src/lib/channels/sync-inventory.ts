@@ -23,6 +23,7 @@ import { shouldBlockOutboundQtyOverwrite } from "./sync-baseline";
 import { fetchEbayItemDetails } from "./ebay/trading";
 import { resolveEbayLegacyListingId } from "./ebay/mapping";
 import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
+import { fetchShopifyListingForInbound } from "./shopify/adapter";
 
 /**
  * Push the StoreItem's current (authoritative) quantity out to every linked channel as an
@@ -166,7 +167,11 @@ export async function syncInventoryToChannels(
       const qtyGuardExact = totalBuffer === 0;
       const inwAtBaseline =
         link.syncBaselineQty != null && item.quantity === link.syncBaselineQty;
-      if (qtyGuardExact && inwAtBaseline && (provider === "ebay" || provider === "etsy")) {
+      if (
+        qtyGuardExact &&
+        inwAtBaseline &&
+        (provider === "ebay" || provider === "etsy" || provider === "shopify")
+      ) {
         const blocked = await withConnectionAuthRetry(link.connection, async (ctx) => {
           if (provider === "ebay") {
             const legacyId = resolveEbayLegacyListingId(link.externalListingId);
@@ -178,6 +183,23 @@ export async function syncInventoryToChannels(
               remoteQuantity: live.quantity,
               syncBaselineQty: link.syncBaselineQty,
               remoteUpdatedAt: live.remoteUpdatedAt ?? null,
+              inwUpdatedAt: freshItem.updatedAt,
+              lastPushedAt: link.lastPushedAt,
+            });
+          }
+          if (provider === "shopify") {
+            const fetched = await fetchShopifyListingForInbound(
+              ctx,
+              link.externalListingId
+            ).catch(() => null);
+            if (!fetched || fetched.status !== "ok" || fetched.summary.quantityKnown === false) {
+              return false;
+            }
+            return shouldBlockOutboundQtyOverwrite({
+              inwQuantity: item.quantity,
+              remoteQuantity: fetched.summary.quantity,
+              syncBaselineQty: link.syncBaselineQty,
+              remoteUpdatedAt: fetched.summary.remoteUpdatedAt ?? null,
               inwUpdatedAt: freshItem.updatedAt,
               lastPushedAt: link.lastPushedAt,
             });

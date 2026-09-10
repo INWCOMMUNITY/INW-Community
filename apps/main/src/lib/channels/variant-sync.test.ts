@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchSaleToVariantOption, remoteVariantMatrixIsWeaker, validateVariantLimits, variantsPayloadForImport } from "./variant-sync";
+import { matchSaleToVariantOption, remoteVariantMatrixIsWeaker, validateVariantLimits, variantsPayloadForImport, variantPricesFingerprint } from "./variant-sync";
 
 const matrix = {
   axes: [
@@ -11,6 +11,47 @@ const matrix = {
     { options: { Size: "M", Color: "Navy" }, quantity: 3 },
   ],
 };
+
+describe("variantPricesFingerprint", () => {
+  const priced = {
+    axes: [{ name: "Color", values: ["Red", "Blue"] }],
+    skus: [
+      { options: { Color: "Red" }, quantity: 2, priceCents: 1500 },
+      { options: { Color: "Blue" }, quantity: 4, priceCents: 2000 },
+    ],
+  };
+
+  it("returns empty string when there is no variant matrix", () => {
+    expect(variantPricesFingerprint(null)).toBe("");
+  });
+
+  it("is stable regardless of SKU order", () => {
+    const reordered = { axes: priced.axes, skus: [priced.skus[1], priced.skus[0]] };
+    expect(variantPricesFingerprint(priced)).toBe(variantPricesFingerprint(reordered));
+  });
+
+  it("ignores quantity changes", () => {
+    const qtyChanged = {
+      axes: priced.axes,
+      skus: [
+        { options: { Color: "Red" }, quantity: 99, priceCents: 1500 },
+        { options: { Color: "Blue" }, quantity: 0, priceCents: 2000 },
+      ],
+    };
+    expect(variantPricesFingerprint(qtyChanged)).toBe(variantPricesFingerprint(priced));
+  });
+
+  it("changes when a per-variation price changes", () => {
+    const priceChanged = {
+      axes: priced.axes,
+      skus: [
+        { options: { Color: "Red" }, quantity: 2, priceCents: 1500 },
+        { options: { Color: "Blue" }, quantity: 4, priceCents: 2500 },
+      ],
+    };
+    expect(variantPricesFingerprint(priceChanged)).not.toBe(variantPricesFingerprint(priced));
+  });
+});
 
 describe("matchSaleToVariantOption", () => {
   it("matches Shopify slash titles like S / Navy to the combination", () => {

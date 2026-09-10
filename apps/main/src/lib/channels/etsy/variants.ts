@@ -969,8 +969,20 @@ export async function syncEtsyListingInventoryFromInw(
   // When normalizing SKUs, link sku_on_property to every variation property (0 or all —
   // never a single ID on a 2-axis listing when quantity already uses both).
   const productPropertyIds = propertyIdsFromProducts(rebuilt);
+  // Turn ON per-variation pricing (and quantity) when INW's matrix varies those but the remote
+  // Etsy listing is still uniform (price_on_property empty). The offerings already carry per-SKU
+  // prices (rebuildExistingProduct), but Etsy ignores them unless price_on_property is set.
+  const desiredOnProps = etsyOnPropertyFields(matrix ?? null, rebuilt);
+  const desiredPriceOnProp = desiredOnProps.price_on_property ?? [];
+  const desiredQtyOnProp = desiredOnProps.quantity_on_property ?? [];
+  const enablingPriceOnProperty =
+    desiredPriceOnProp.length > 0 && (inv.price_on_property ?? []).length === 0;
   const invForPut: EtsyInventory = {
     ...inv,
+    price_on_property:
+      desiredPriceOnProp.length > 0 ? desiredPriceOnProp : inv.price_on_property,
+    quantity_on_property:
+      desiredQtyOnProp.length > 0 ? desiredQtyOnProp : inv.quantity_on_property,
     sku_on_property:
       needsSkuNormalization && productPropertyIds.length > 0
         ? [...productPropertyIds]
@@ -983,11 +995,26 @@ export async function syncEtsyListingInventoryFromInw(
     inwOptions: quantityAxis.options.length,
     newOptionsAdded,
     quantityOnProperty,
+    priceOnProperty: invForPut.price_on_property,
+    enablingPriceOnProperty,
     skuOnProperty: invForPut.sku_on_property,
     usedFallback: fallbackProperty != null,
   });
 
-  await putEtsyInventoryIfValid(accessToken, listingId, invForPut, rebuilt);
+  try {
+    await putEtsyInventoryIfValid(accessToken, listingId, invForPut, rebuilt);
+  } catch (err) {
+    // Etsy can reject flipping price mode in place; a full matrix rebuild sets it cleanly.
+    if (enablingPriceOnProperty) {
+      console.warn("[etsy] in-place price_on_property enable rejected; rebuilding full inventory", {
+        listingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await rebuildFullEtsyInventory("price_mode_mismatch");
+      return;
+    }
+    throw err;
+  }
 }
 
 /** Sum live offering quantities. Shop-list `listing.quantity` is often 0 while these are not. */

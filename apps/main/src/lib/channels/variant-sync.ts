@@ -185,6 +185,21 @@ export function variantsFingerprint(variants: unknown): string {
   return createHash("sha1").update(JSON.stringify(compact)).digest("hex");
 }
 
+/**
+ * Fingerprint of per-SKU PRICES only (options + priceCents), ignoring quantity and sku.
+ * Used to detect a per-variation price edit that leaves the listing-level price (and therefore
+ * `syncContentHash`) unchanged, so outbound can route it through a full listing push instead of
+ * the quantity-only inventory path (which drops per-variation prices for Shopify/eBay).
+ */
+export function variantPricesFingerprint(variants: unknown): string {
+  const matrix = normalizeVariantMatrix(variants);
+  if (!matrix || matrix.axes.length === 0) return "";
+  const compact = matrix.skus
+    .map((sku) => ({ o: sku.options, p: sku.priceCents ?? null }))
+    .sort((x, y) => JSON.stringify(x.o).localeCompare(JSON.stringify(y.o)));
+  return createHash("sha1").update(JSON.stringify(compact)).digest("hex");
+}
+
 /** Sum SKU (or legacy option) quantities. */
 export function sumVariantQuantities(variants: InwVariantAxis[] | VariantMatrix | null | unknown): number {
   const matrix = normalizeVariantMatrix(variants);

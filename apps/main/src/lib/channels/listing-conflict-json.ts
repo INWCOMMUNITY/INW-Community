@@ -61,6 +61,52 @@ export function withEbayLastSyncedTitle(
   return base;
 }
 
+/**
+ * Fingerprint of the per-variation prices we last successfully pushed to this channel.
+ * Lets outbound detect a per-variation price edit (listing-level price unchanged) and route it
+ * through a full listing push rather than the quantity-only inventory path.
+ */
+export function readLastPushedVariantPricesHash(conflictDetails: unknown): string | null {
+  const value = conflictDetailsAsObject(conflictDetails).lastPushedVariantPricesHash;
+  return typeof value === "string" && value ? value : null;
+}
+
+export function withLastPushedVariantPricesHash(
+  conflictDetails: unknown,
+  hash: string | null
+): Record<string, unknown> {
+  const base = conflictDetailsAsObject(conflictDetails);
+  if (hash && hash.trim()) base.lastPushedVariantPricesHash = hash;
+  else delete base.lastPushedVariantPricesHash;
+  return base;
+}
+
+/**
+ * Title + listing price we last successfully pushed to Etsy. Lets the outbound guard tell an
+ * INDEPENDENT seller edit on Etsy (live content moved off this baseline) apart from Etsy simply
+ * echoing our own prior push, so a fresh INW/fan-out edit is not blocked on timestamp alone.
+ */
+export function readEtsyLastSyncedContent(conflictDetails: unknown): {
+  title: string | null;
+  priceCents: number | null;
+} {
+  const obj = conflictDetailsAsObject(conflictDetails);
+  const title = typeof obj.etsyLastSyncedTitle === "string" ? obj.etsyLastSyncedTitle : null;
+  const priceCents =
+    typeof obj.etsyLastSyncedPriceCents === "number" ? obj.etsyLastSyncedPriceCents : null;
+  return { title, priceCents };
+}
+
+export function withEtsyLastSyncedContent(
+  conflictDetails: unknown,
+  args: { title: string | null; priceCents: number | null }
+): Record<string, unknown> {
+  const base = conflictDetailsAsObject(conflictDetails);
+  if (args.title != null) base.etsyLastSyncedTitle = args.title;
+  if (args.priceCents != null) base.etsyLastSyncedPriceCents = args.priceCents;
+  return base;
+}
+
 export function readRemoteCatalogState(conflictDetails: unknown): RemoteCatalogState | null {
   const value = conflictDetailsAsObject(conflictDetails).remoteCatalogState;
   if (

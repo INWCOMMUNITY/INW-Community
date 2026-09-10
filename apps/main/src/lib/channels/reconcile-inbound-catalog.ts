@@ -751,9 +751,13 @@ export async function reconcileConnectionInboundCatalog(
 
     // Stale INW baseline + inw_wins would push the hub copy over a newer Etsy/Wix
     // save and never fan that edit out to the other linked stores.
+    // Gate on remoteContentChanged: only pull when the remote genuinely moved off the
+    // agreed baseline (a real seller edit). A stale/lagged remote that merely disagrees
+    // with a fresh INW edit must NOT revert that edit (RC-F Etsy bounce-back).
     if (
       contentDecision === "push" &&
       !ownPushEcho &&
+      remoteContentChanged &&
       newerChannelEditShouldPull({
         remoteContentDiffers: remoteDisagreesWithInw,
         inwUpdatedAt: item.updatedAt,

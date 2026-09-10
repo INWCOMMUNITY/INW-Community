@@ -740,6 +740,16 @@ async function upsertListing(
         }
       }
 
+      // Multi-variation imported listings have one offer per variant SKU. Compute the rows once
+      // so both the content PUT and the per-variant offer price/description update can use them.
+      const variantRows = shouldUseInventoryItemGroup(item)
+        ? buildVariantInventoryRows(item, {
+            parentSku: sku,
+            legacyListingId,
+            imported: true,
+          })
+        : [];
+
       const pushInventoryContent = changed.title === true || putInventory;
       let inventoryContentPutOk = !pushInventoryContent;
 
@@ -793,13 +803,6 @@ async function upsertListing(
           legacyListingId: legacyListingId ?? null,
         });
         addRequest(trace, inventoryBody);
-        const variantRows = shouldUseInventoryItemGroup(item)
-          ? buildVariantInventoryRows(item, {
-              parentSku: sku,
-              legacyListingId,
-              imported: true,
-            })
-          : [];
         const putPassthroughInventory = async (
           payload: Record<string, unknown>,
           targetSku = sku
@@ -925,6 +928,88 @@ async function upsertListing(
         (changed.price || changed.description || changed.bestOffer) &&
         inventoryContentPutOk
       ) {
+        if (variantRows.length > 0) {
+          // Imported multi-variation listing: price/description/bestOffer live on EACH variant's
+          // own offer, not a single parent offer. Push the per-SKU price to every variant offer
+          // so varying prices actually reach eBay (they were previously dropped here).
+          let anyOfferPutFailed = false;
+          let attemptedAny = false;
+          let priceMismatch = false;
+          for (const row of variantRows) {
+            const variantItem = buildVariantSyncItem(item, row);
+            const vOffer = await findOffer(conn.accessToken, row.sku).catch(() => null);
+            if (!vOffer?.offerId) {
+              anyOfferPutFailed = true;
+              continue;
+            }
+            attemptedAny = true;
+            const vOfferDetails =
+              (await getOfferDetails(conn.accessToken, vOffer.offerId).catch(() => null)) ??
+              (vOffer as unknown as Record<string, unknown>);
+            const vOfferBody = overlayPassthroughOffer(vOfferDetails, variantItem, {
+              ...changed,
+              quantity: false,
+              title: false,
+              photos: false,
+            });
+            try {
+              await ebayJson(
+                conn.accessToken,
+                `/sell/inventory/v1/offer/${vOffer.offerId}`,
+                "PUT",
+                vOfferBody
+              );
+              await persistRevisionCount(conn.id, row.sku, conn.config);
+              if (changed.price) {
+                const refreshed = await getOfferDetails(conn.accessToken, vOffer.offerId).catch(
+                  () => null
+                );
+                const applied = readOfferPriceCents(refreshed);
+                if (applied != null && applied !== variantItem.priceCents) priceMismatch = true;
+              }
+            } catch (e) {
+              anyOfferPutFailed = true;
+              console.warn("[ebay] passthrough variant offer update failed", {
+                sku: row.sku,
+                error: describeEbayThrownError(e),
+              });
+            }
+          }
+          const offersOk = attemptedAny && !anyOfferPutFailed;
+          const priceOk = offersOk && !priceMismatch;
+          const failMsg = !attemptedAny
+            ? "No eBay variation offers found to update."
+            : anyOfferPutFailed
+              ? "One or more eBay variation offers failed to update."
+              : priceMismatch
+                ? "One or more eBay variation prices didn't update."
+                : undefined;
+          if (changed.price) {
+            fieldResults.push({ field: "price", ok: priceOk, error: priceOk ? undefined : failMsg });
+          }
+          if (changed.description) {
+            fieldResults.push({
+              field: "description",
+              ok: offersOk,
+              error: offersOk ? undefined : failMsg,
+            });
+          }
+          if (changed.bestOffer) {
+            fieldResults.push({
+              field: "bestOffer",
+              ok: offersOk,
+              error: offersOk ? undefined : failMsg,
+            });
+          }
+          console.log("[ebay] passthrough per-variation offer prices pushed", {
+            storeItemId: item.id,
+            sku,
+            variantCount: variantRows.length,
+            attemptedAny,
+            anyOfferPutFailed,
+            priceMismatch,
+          });
+        } else {
         if (!offerId) {
           const recovered = await findOffer(conn.accessToken, sku);
           offerId = recovered?.offerId ?? null;
@@ -998,6 +1083,7 @@ async function upsertListing(
             }
           }
           fieldResults.push(...offerFields);
+        }
         }
       } else if (
         (changed.price || changed.description || changed.bestOffer) &&

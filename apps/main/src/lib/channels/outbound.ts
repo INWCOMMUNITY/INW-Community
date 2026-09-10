@@ -1,4 +1,4 @@
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { getAdapter } from "./registry";
 import { getActiveConnectionsForMember, withConnectionAuthRetry, isChannelAuthError } from "./connection";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
@@ -12,7 +12,7 @@ import {
   syncMetaHash,
   SYNC_ECHO_SKEW_MS,
 } from "./sync-baseline";
-import { variantsFingerprint } from "./variant-sync";
+import { variantsFingerprint, variantPricesFingerprint } from "./variant-sync";
 import type {
   ChannelConnectionContext,
   ChannelProvider,
@@ -42,8 +42,15 @@ import { claimChannelListingLink } from "./listing-link-claim";
 import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
 import { inboundDescriptionsMatch } from "./apply-remote-listing";
 import { fetchEbayItemDetails } from "./ebay/trading";
+import { fetchShopifyListingForInbound } from "./shopify/adapter";
 import { resolveEbayLegacyListingId } from "./ebay/mapping";
-import { readEbayLastSyncedTitle } from "./listing-conflict-json";
+import {
+  readEbayLastSyncedTitle,
+  readLastPushedVariantPricesHash,
+  withLastPushedVariantPricesHash,
+  readEtsyLastSyncedContent,
+  withEtsyLastSyncedContent,
+} from "./listing-conflict-json";
 import { isIncompleteChannelListingError } from "./combo-sync";
 import { channelLinkShowsOnItem } from "./listing-sync-warning";
 /** Content fingerprint so we can skip no-op pushes on update. */
@@ -447,6 +454,15 @@ export async function updateStoreItemOnChannels(
       link.syncBaselineQty !== item.quantity ||
       (link.syncBaselineVariantsHash ?? "") !== varFp;
     const contentUnchanged = link.lastPushedHash === hash;
+    // Per-variation PRICE edits leave the listing-level price (and syncContentHash) unchanged,
+    // so they would route to the quantity-only inventory path and never reach Shopify/eBay.
+    // Detect them against the last-pushed per-SKU price fingerprint and force a full listing push.
+    // A null baseline (never recorded) with per-variation prices forces one full push so the
+    // per-SKU prices are established on every channel (Shopify/eBay), then it self-heals.
+    const currentPricesFp = variantPricesFingerprint(item.variants);
+    const lastPushedPricesFp = readLastPushedVariantPricesHash(link.conflictDetails);
+    const variantPricesChanged =
+      currentPricesFp !== "" && lastPushedPricesFp !== currentPricesFp;
     // Use hubUpdatedAt (the true source time, which is the remote edit time on an inbound
     // fan-out) consistently with the overwrite guard — otherwise the post-apply now() makes
     // this look "newer than the sibling" and re-pushes a stale copy over a newer sibling edit.
@@ -471,6 +487,7 @@ export async function updateStoreItemOnChannels(
     // updateInventory so we do not run eBay passthrough / Etsy content verify for qty 0.
     const inventoryOnly =
       !options.force &&
+      !variantPricesChanged &&
       shouldPushInventoryOnly({
         quantity: item.quantity,
         status: item.status,
@@ -479,6 +496,13 @@ export async function updateStoreItemOnChannels(
         syncBaselineHash: link.syncBaselineHash,
         contentHashNow: syncContentHash(item),
       });
+    if (variantPricesChanged) {
+      console.log("[channels] per-variation price change -> full listing push", {
+        storeItemId,
+        provider,
+        externalListingId: link.externalListingId,
+      });
+    }
 
     if (inventoryOnly) {
       const connConfig = (link.connection.config ?? {}) as Record<string, unknown>;
@@ -568,6 +592,35 @@ export async function updateStoreItemOnChannels(
             ) {
               skippedNewerRemoteQty = true;
               console.warn("[channels] skip Etsy inventory push; live stock is newer than INW", {
+                storeItemId,
+                externalListingId: link.externalListingId,
+                inwQty: freshItem.quantity,
+                remoteQty: fetched.summary.quantity,
+                syncBaselineQty: link.syncBaselineQty,
+                remoteUpdatedAt: fetched.summary.remoteUpdatedAt?.toISOString() ?? null,
+              });
+              return;
+            }
+          } else if (qtyGuardExact && provider === "shopify") {
+            const fetched = await fetchShopifyListingForInbound(
+              ctx,
+              link.externalListingId
+            ).catch(() => null);
+            if (
+              fetched &&
+              fetched.status === "ok" &&
+              fetched.summary.quantityKnown !== false &&
+              shouldBlockOutboundQtyOverwrite({
+                inwQuantity: freshItem.quantity,
+                remoteQuantity: fetched.summary.quantity,
+                syncBaselineQty: link.syncBaselineQty,
+                remoteUpdatedAt: fetched.summary.remoteUpdatedAt ?? null,
+                inwUpdatedAt: hubUpdatedAt,
+                lastPushedAt: link.lastPushedAt,
+              })
+            ) {
+              skippedNewerRemoteQty = true;
+              console.warn("[channels] skip Shopify inventory push; live stock is newer than INW", {
                 storeItemId,
                 externalListingId: link.externalListingId,
                 inwQty: freshItem.quantity,
@@ -685,7 +738,27 @@ export async function updateStoreItemOnChannels(
               fetched.summary.description?.trim() &&
                 !inboundDescriptionsMatch(item.description, fetched.summary.description)
             );
+            // Only treat the live Etsy listing as "newer" when it is a GENUINE independent
+            // seller edit — i.e. it moved off the content we last pushed. Etsy's
+            // last_modified_timestamp advances on our own push, so a pure timestamp compare
+            // would block legitimate INW/fan-out edits and then let the inbound cron pull the
+            // stale Etsy body back (RC-F bounce-back). When we have no recorded baseline yet,
+            // allow a push that carries genuinely new content (contentUnchanged === false).
+            const etsyBaseline = readEtsyLastSyncedContent(link.conflictDetails);
+            const haveEtsyBaseline =
+              etsyBaseline.title != null || etsyBaseline.priceCents != null;
+            const remoteTitleMovedOffBaseline =
+              etsyBaseline.title != null &&
+              etsyBaseline.title.trim().slice(0, 140) !==
+                fetched.summary.title.trim().slice(0, 140);
+            const remotePriceMovedOffBaseline =
+              etsyBaseline.priceCents != null &&
+              fetched.summary.priceCents !== etsyBaseline.priceCents;
+            const remoteIndependentlyEdited = haveEtsyBaseline
+              ? remoteTitleMovedOffBaseline || remotePriceMovedOffBaseline
+              : contentUnchanged;
             if (
+              remoteIndependentlyEdited &&
               shouldBlockOutboundOverwrite({
                 titlesDiffer,
                 pricesDiffer,
@@ -767,7 +840,45 @@ export async function updateStoreItemOnChannels(
             }
           }
         }
-        
+
+        if (provider === "shopify") {
+          // Shopify previously had NO outbound content guard, so hub fan-out could clobber a newer
+          // Shopify admin edit. Block only when the live Shopify listing genuinely differs and was
+          // updated after the hub source time — and only when INW is not itself pushing new content
+          // (contentUnchanged), mirroring the Etsy no-baseline fallback so real INW edits still win.
+          const fetched = await fetchShopifyListingForInbound(ctx, link.externalListingId).catch(
+            () => null
+          );
+          if (fetched && fetched.status === "ok") {
+            const titlesDiffer =
+              item.title.trim().slice(0, 255) !== fetched.summary.title.trim().slice(0, 255);
+            const pricesDiffer = item.priceCents !== fetched.summary.priceCents;
+            if (
+              contentUnchanged &&
+              shouldBlockOutboundOverwrite({
+                titlesDiffer,
+                pricesDiffer,
+                inwUpdatedAt: hubUpdatedAt,
+                remoteUpdatedAt: fetched.summary.remoteUpdatedAt ?? null,
+                lastPushedAt: link.lastPushedAt,
+              })
+            ) {
+              skippedNewerRemote = true;
+              console.warn("[channels] skip Shopify content push; live listing is newer than INW", {
+                storeItemId,
+                externalListingId: link.externalListingId,
+                inwTitle: item.title.slice(0, 40),
+                remoteTitle: fetched.summary.title.slice(0, 40),
+                inwPriceCents: item.priceCents,
+                remotePriceCents: fetched.summary.priceCents,
+                hubUpdatedAt: hubUpdatedAt.toISOString(),
+                remoteUpdatedAt: fetched.summary.remoteUpdatedAt?.toISOString() ?? null,
+              });
+              return;
+            }
+          }
+        }
+
         await adapter.updateListing(ctx, link.externalListingId, adjustedItem);
       });
       if (skippedNewerRemote) {
@@ -801,6 +912,15 @@ export async function updateStoreItemOnChannels(
           syncBaselineVariantsHash: variantsFingerprint(item.variants),
           syncBaselineQty: item.quantity,
           syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
+          conflictDetails: (provider === "etsy"
+            ? withEtsyLastSyncedContent(
+                withLastPushedVariantPricesHash(link.conflictDetails, currentPricesFp),
+                { title: item.title, priceCents: item.priceCents }
+              )
+            : withLastPushedVariantPricesHash(
+                link.conflictDetails,
+                currentPricesFp
+              )) as Prisma.InputJsonValue,
         },
       });
       await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);

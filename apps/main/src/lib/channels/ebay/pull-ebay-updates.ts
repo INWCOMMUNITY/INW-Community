@@ -367,6 +367,37 @@ export function withEbayPendingInbound(
 }
 
 /**
+ * Per-variation two-look/settle guard. GetItem StartPrice + Inventory API per-SKU stock can lag
+ * right after INW pushed a variation edit, so a single divergent snapshot must not immediately
+ * revert a just-applied per-SKU qty/price. We record the proposed variation snapshot and only
+ * apply it once a second consistent look confirms it (or the settle window has elapsed).
+ */
+export function readEbayPendingVariantInboundHash(conflictDetails: unknown): string | null {
+  if (!conflictDetails || typeof conflictDetails !== "object" || Array.isArray(conflictDetails)) {
+    return null;
+  }
+  const pending = (conflictDetails as { ebayPendingVariantInbound?: { hash?: unknown } })
+    .ebayPendingVariantInbound;
+  return typeof pending?.hash === "string" && pending.hash ? pending.hash : null;
+}
+
+export function withEbayPendingVariantInbound(
+  conflictDetails: unknown,
+  pending: EbayPendingInbound | null
+): Prisma.InputJsonValue {
+  const base =
+    conflictDetails && typeof conflictDetails === "object" && !Array.isArray(conflictDetails)
+      ? { ...(conflictDetails as Record<string, unknown>) }
+      : {};
+  if (pending) {
+    base.ebayPendingVariantInbound = pending;
+  } else {
+    delete base.ebayPendingVariantInbound;
+  }
+  return base as Prisma.InputJsonValue;
+}
+
+/**
  * Dirty-list gap guard.
  *
  * GetMyeBaySelling is only a dirty detector: when it shows a row's title/price/qty differs
@@ -1043,6 +1074,23 @@ export async function refreshEbayListingByItemId(
       unsoldZero,
     });
 
+    // Two-look/settle guard: a lagged Inventory/GetItem read right after INW pushed (or applied)
+    // a variation edit could show the pre-edit per-SKU values and revert them. Within the settle
+    // window (keyed off the most recent INW-side touch), require a second consistent look before
+    // applying a variation change.
+    const variantSnapshotHash = nextSerialized ? variantsFingerprint(nextSerialized) : null;
+    const lastInwTouch =
+      [link.lastPushedAt, link.lastInboundAt]
+        .filter((d): d is Date => d != null)
+        .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+    const inVariantSettle = ebayInPostInboundSettleWindow({ lastInboundAt: lastInwTouch });
+    const pendingVariantHash = readEbayPendingVariantInboundHash(conflictDetails);
+    const holdVariantForSettle =
+      matrixChanged &&
+      inVariantSettle &&
+      variantSnapshotHash != null &&
+      pendingVariantHash !== variantSnapshotHash;
+
     if (unsoldZero) {
       console.warn("[ebay] skip inventory variant qty 0 on an active listing with no QuantitySold", {
         storeItemId: storeItem.id,
@@ -1050,6 +1098,23 @@ export async function refreshEbayListingByItemId(
         sum,
         quantitySold: details.quantitySold,
       });
+    } else if (holdVariantForSettle) {
+      console.warn("[ebay] hold variation inbound; awaiting second consistent look (settle)", {
+        storeItemId: storeItem.id,
+        legacyItemId,
+        variantSnapshotHash,
+        lastInwTouch: lastInwTouch?.toISOString() ?? null,
+      });
+      conflictDetails = withEbayPendingVariantInbound(conflictDetails, {
+        hash: variantSnapshotHash as string,
+        seenAt: new Date().toISOString(),
+      });
+      await prisma.channelListingLink
+        .update({
+          where: { id: link.id },
+          data: { conflictDetails: conflictDetails as Prisma.InputJsonValue },
+        })
+        .catch(() => {});
     } else if (workingMatrix && nextSerialized && matrixChanged) {
       updateData.variants = nextSerialized;
       if (qtyPulled && sum !== storeItem.quantity) {
@@ -1060,6 +1125,8 @@ export async function refreshEbayListingByItemId(
         updateData.priceCents = nextListingPrice;
       }
       changes.push("variant prices/quantities");
+      // A confirmed snapshot was applied — clear any pending variation snapshot.
+      conflictDetails = withEbayPendingVariantInbound(conflictDetails, null);
     }
   }
 
