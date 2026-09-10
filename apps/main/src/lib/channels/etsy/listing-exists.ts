@@ -17,12 +17,72 @@ export function etsyListingIsNotActive(state: string | null | undefined): boolea
 
 /**
  * Shop `state=active` lists omit inactive/draft rows and can lag a just-saved listing.
- * Hydrate those linked rows (and any list row with no last_modified) via GET by id.
+ * Hydrate those linked rows, list qty 0 (untrusted), and title/qty disagreements.
+ * Shop-list `quantity` is often 0 for variation listings that still have offering stock.
  */
+export const ETSY_CRON_HYDRATE_LIMIT = 20;
+
+export function etsyShopListQuantityIsTrusted(args: {
+  quantity: number;
+  inventoryEnriched: boolean;
+}): boolean {
+  if (args.inventoryEnriched) return true;
+  return args.quantity > 0;
+}
+
+/** Combine listing.quantityKnown with shop-list zero distrust. */
+export function etsyRemoteQuantityIsKnown(args: {
+  quantity: number;
+  quantityKnown?: boolean;
+  inventoryEnriched: boolean;
+}): boolean {
+  if (args.quantityKnown === false) return false;
+  return etsyShopListQuantityIsTrusted({
+    quantity: args.quantity,
+    inventoryEnriched: args.inventoryEnriched,
+  });
+}
+
+/** Shop-list qty 0 is often a live variation listing. Do not PATCH Etsy to INW zero from it. */
+export function shouldSkipEtsyUntrustedZeroPush(args: {
+  inwQuantity: number;
+  remoteQtyKnown: boolean;
+}): boolean {
+  return args.inwQuantity <= 0 && !args.remoteQtyKnown;
+}
+
+/** Inactive/draft GET rows are not an active-shop quantity source (includes our sell-out deactivate). */
+export function etsyHydrateBelongsInActiveCatalog(state: string | null | undefined): boolean {
+  return !etsyListingIsNotActive(state);
+}
+
+/** Lower is first. Prefer missing-from-list and false shop-list zeros over other dirty rows. */
+export function etsyInboundHydratePriority(
+  remote: { quantity?: number } | null | undefined,
+  inwQuantity: number
+): number {
+  if (remote == null) return 0;
+  if ((remote.quantity ?? 0) <= 0 && inwQuantity > 0) return 1;
+  if ((remote.quantity ?? 0) <= 0) return 2;
+  return 3;
+}
+
 export function etsyLinkedListingNeedsHydrate(
-  existing: { remoteUpdatedAt?: Date | null } | null | undefined
+  existing:
+    | {
+        remoteUpdatedAt?: Date | null;
+        title?: string;
+        quantity?: number;
+      }
+    | null
+    | undefined,
+  inw?: { title: string; quantity: number }
 ): boolean {
-  return existing == null || existing.remoteUpdatedAt == null;
+  if (existing == null || existing.remoteUpdatedAt == null) return true;
+  if (!inw) return false;
+  if ((existing.quantity ?? 0) <= 0) return true;
+  if ((existing.title ?? "").trim().slice(0, 200) !== inw.title.trim().slice(0, 200)) return true;
+  return (existing.quantity ?? 0) !== inw.quantity;
 }
 
 export type EtsyInboundFetch =

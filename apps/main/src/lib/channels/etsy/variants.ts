@@ -990,13 +990,48 @@ export async function syncEtsyListingInventoryFromInw(
   await putEtsyInventoryIfValid(accessToken, listingId, invForPut, rebuilt);
 }
 
+/** Sum live offering quantities. Shop-list `listing.quantity` is often 0 while these are not. */
+export function etsyInventoryOfferingQuantity(
+  products: { offerings?: { quantity?: number | null }[] }[] | null | undefined
+): number {
+  let total = 0;
+  for (const p of products ?? []) {
+    for (const o of p.offerings ?? []) {
+      total += Math.max(0, o.quantity ?? 0);
+    }
+  }
+  return total;
+}
+
+function applyEtsyInventoryQuantityToSummary(
+  summary: RemoteListingSummary,
+  products: { offerings?: { quantity?: number | null }[] }[],
+  variantQty: number | null
+): void {
+  const offeringQty = etsyInventoryOfferingQuantity(products);
+  if (variantQty != null && variantQty > 0) {
+    summary.quantity = variantQty;
+    summary.quantityKnown = true;
+    return;
+  }
+  if (offeringQty > 0) {
+    summary.quantity = offeringQty;
+    summary.quantityKnown = true;
+    return;
+  }
+  if (products.length > 0) {
+    summary.quantity = 0;
+    summary.quantityKnown = true;
+  }
+}
+
 /** Attach variant axes + quantities from Etsy inventory API to a listing summary. */
 export async function enrichEtsyListingSummaryWithInventory(
   accessToken: string,
   summary: RemoteListingSummary,
   shopId?: string | null
-): Promise<void> {
-  if (!summary.externalListingId) return;
+): Promise<boolean> {
+  if (!summary.externalListingId) return false;
   try {
     const inv = await etsyGet<EtsyInventory>(
       accessToken,
@@ -1009,7 +1044,10 @@ export async function enrichEtsyListingSummaryWithInventory(
     }
 
     const variants = etsyInventoryToVariants(products);
-    if (!variants || variants.skus.length === 0) return;
+    if (!variants || variants.skus.length === 0) {
+      applyEtsyInventoryQuantityToSummary(summary, products, null);
+      return products.length > 0;
+    }
     let stored = variants;
     if (shopId) {
       try {
@@ -1030,16 +1068,14 @@ export async function enrichEtsyListingSummaryWithInventory(
     }
     summary.variants = stored;
     summary.variantsKnown = true;
-    const sum = sumVariantQuantities(stored);
-    if (sum > 0) {
-      summary.quantity = sum;
-      summary.quantityKnown = true;
-    }
+    applyEtsyInventoryQuantityToSummary(summary, products, sumVariantQuantities(stored));
+    return true;
   } catch (e) {
     console.warn("[etsy] enrich listing inventory failed", {
       listingId: summary.externalListingId,
       error: String(e),
     });
+    return false;
   }
 }
 

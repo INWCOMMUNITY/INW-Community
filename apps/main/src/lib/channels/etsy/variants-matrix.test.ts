@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  etsyInventoryOfferingQuantity,
   etsyInventoryPutBody,
   etsyInventoryToVariants,
   etsyInventoryWritePath,
@@ -32,6 +33,18 @@ describe("etsyInventoryToVariants", () => {
     expect(matrix?.skus[0].priceCents).toBe(2000);
     expect(matrix?.skus[0].options).toEqual({ Size: "S", Color: "Navy" });
     expect(matrix?.axes).toHaveLength(2);
+  });
+
+  it("skips inventory products that have no variation properties", () => {
+    expect(
+      etsyInventoryToVariants([
+        {
+          sku: "PLAIN",
+          property_values: [],
+          offerings: [{ quantity: 6 }],
+        },
+      ])
+    ).toBeNull();
   });
 
   it("keeps unnamed custom properties as separate axes", () => {
@@ -207,5 +220,16 @@ describe("Etsy combo rebuild", () => {
     expect(shouldRebuildEtsyComboInventory(matrix, 2)).toBe(true);
     expect(expectedComboSkuCount(matrix)).toBe(4);
     expect(expectedComboSkuCount(matrix)).toBe(matrix.skus.length);
+  });
+});
+
+describe("etsyInventoryOfferingQuantity", () => {
+  it("sums offering stock when listing.quantity is 0 and there are no variation axes", () => {
+    expect(
+      etsyInventoryOfferingQuantity([
+        { offerings: [{ quantity: 4 }, { quantity: 2 }] },
+        { offerings: [{ quantity: 0 }] },
+      ])
+    ).toBe(6);
   });
 });

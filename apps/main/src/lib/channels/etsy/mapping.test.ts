@@ -219,6 +219,14 @@ describe("etsyListingToSummary", () => {
     });
     expect(summary.photos).toEqual(["https://i.etsystatic.com/full.jpg"]);
   });
+
+  it("does not treat listing.quantity 0 as known stock", () => {
+    const zero = etsyListingToSummary({ listing_id: 1, title: "Mug", quantity: 0 });
+    expect(zero.quantity).toBe(0);
+    expect(zero.quantityKnown).toBe(false);
+    const live = etsyListingToSummary({ listing_id: 2, title: "Mug", quantity: 4 });
+    expect(live.quantityKnown).toBe(true);
+  });
 });
 
 describe("sanitizeEtsyTitle", () => {

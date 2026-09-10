@@ -17,6 +17,7 @@ import { inboundContentFanoutKind } from "../listing-link-flags";
 import { isComboInventoryFailedError } from "../combo-sync";
 import { etsyGet, setEtsyConnectionContext } from "./client";
 import { etsyListingToSummary } from "./mapping";
+import { etsyRemoteQuantityIsKnown } from "./listing-exists";
 import type { RemoteListingSummary } from "../types";
 
 type ConnectionRow = {
@@ -122,7 +123,16 @@ export async function refreshEtsyListingByStoreItemId(
     };
   }
 
-  await enrichEtsyListingSummaryWithInventory(ctx.accessToken, remote, ctx.externalShopId);
+  const inventoryLoaded = await enrichEtsyListingSummaryWithInventory(
+    ctx.accessToken,
+    remote,
+    ctx.externalShopId
+  );
+  const qtyKnown = etsyRemoteQuantityIsKnown({
+    quantity: remote.quantity,
+    quantityKnown: remote.quantityKnown,
+    inventoryEnriched: inventoryLoaded,
+  });
 
   const storeItem = link.storeItem;
   const changes: string[] = [];
@@ -136,7 +146,7 @@ export async function refreshEtsyListingByStoreItemId(
   if (remote.priceCents > 0 && remote.priceCents !== storeItem.priceCents) {
     changes.push(`price ($${(remote.priceCents / 100).toFixed(2)})`);
   }
-  if (remote.quantityKnown !== false && remote.quantity !== storeItem.quantity) {
+  if (qtyKnown && remote.quantity !== storeItem.quantity) {
     changes.push(`quantity (${remote.quantity})`);
   }
 
@@ -154,7 +164,7 @@ export async function refreshEtsyListingByStoreItemId(
     }
   }
 
-  if (remote.quantityKnown !== false && remote.quantity !== storeItem.quantity) {
+  if (qtyKnown && remote.quantity !== storeItem.quantity) {
     const qtyPulled = await applyRemoteQuantityToStoreItem(storeItemId, remote.quantity, {
       provider: "etsy",
       memberId,

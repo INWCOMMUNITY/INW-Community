@@ -29,7 +29,15 @@ export function isOwnChannelPushEcho(args: {
   remoteUpdatedAt: Date | null;
   inwUpdatedAt?: Date | null;
   nowMs?: number;
+  /** Title/price/qty actually differ — not a CDN/timestamp bounce. */
+  listingsDisagree?: boolean;
 }): boolean {
+  if (args.listingsDisagree) {
+    if (!args.lastPushedAt || !args.remoteUpdatedAt) return false;
+    return (
+      Math.abs(args.remoteUpdatedAt.getTime() - args.lastPushedAt.getTime()) < SYNC_ECHO_SKEW_MS
+    );
+  }
   if (args.lastPushedAt) {
     const now = args.nowMs ?? Date.now();
     if (now - args.lastPushedAt.getTime() < SYNC_ECHO_SKEW_MS) return true;

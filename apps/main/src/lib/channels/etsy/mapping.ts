@@ -694,7 +694,9 @@ export function etsyListingToSummary(listing: EtsyListing): RemoteListingSummary
     description: listing.description?.trim() || null,
     priceCents: priceCents > 0 ? priceCents : 0,
     quantity: typeof listing.quantity === "number" ? listing.quantity : 0,
-    quantityKnown: typeof listing.quantity === "number",
+    // Shop-list / GET listing.quantity is often 0 on variation listings that still
+    // have offering stock. Do not treat 0 as known until inventory enrich.
+    quantityKnown: typeof listing.quantity === "number" && listing.quantity > 0,
     photos,
     url: listing.url,
     category: categoryName,

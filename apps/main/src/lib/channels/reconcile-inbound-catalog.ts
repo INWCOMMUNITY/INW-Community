@@ -47,7 +47,13 @@ import { wixProductIsGone } from "./wix/listing-exists";
 import {
   etsyLinkedListingNeedsHydrate,
   fetchEtsyListingForInbound,
+  ETSY_CRON_HYDRATE_LIMIT,
+  etsyInboundHydratePriority,
+  etsyHydrateBelongsInActiveCatalog,
+  etsyRemoteQuantityIsKnown,
+  shouldSkipEtsyUntrustedZeroPush,
 } from "./etsy/listing-exists";
+import { enrichEtsyListingSummaryWithInventory } from "./etsy/variants";
 import {
   inboundListingPhotosDiffer,
   inwHostedPhotosChangedSinceLastPush,
@@ -310,17 +316,60 @@ export async function reconcileConnectionInboundCatalog(
       : new Map(remoteList.map((r) => [r.externalListingId, r]));
 
   const etsyGoneIds = new Set<string>();
+  const etsyInventoryEnriched = new Set<string>();
   if (provider === "etsy") {
     let hydrated = 0;
     let hydratedMissingFromList = 0;
-    for (const link of links) {
+    const hydrateLinks = links
+      .filter((link) =>
+        etsyLinkedListingNeedsHydrate(remoteById.get(link.externalListingId), {
+          title: link.storeItem.title,
+          quantity: link.storeItem.quantity,
+        })
+      )
+      .sort(
+        (a, b) =>
+          etsyInboundHydratePriority(
+            remoteById.get(a.externalListingId),
+            a.storeItem.quantity
+          ) -
+          etsyInboundHydratePriority(
+            remoteById.get(b.externalListingId),
+            b.storeItem.quantity
+          )
+      );
+    const hydrateThisTick = hydrateLinks.slice(0, ETSY_CRON_HYDRATE_LIMIT);
+    if (hydrateLinks.length > hydrateThisTick.length) {
+      console.warn("[channels] etsy inbound hydrate cap hit; leftover wait for next tick", {
+        connectionId: connection.id,
+        dirty: hydrateLinks.length,
+        capped: hydrateThisTick.length,
+      });
+    }
+    for (const link of hydrateThisTick) {
       const existing = remoteById.get(link.externalListingId);
-      if (!etsyLinkedListingNeedsHydrate(existing)) continue;
       try {
         const fetched = await fetchEtsyListingForInbound(ctx.accessToken, link.externalListingId);
         if (fetched.status === "gone") {
           etsyGoneIds.add(link.externalListingId);
           continue;
+        }
+        if (!etsyHydrateBelongsInActiveCatalog(fetched.state)) {
+          console.log("[channels] etsy inbound hydrate skipped; listing is not active", {
+            storeItemId: link.storeItemId,
+            externalListingId: link.externalListingId,
+            state: fetched.state,
+          });
+          continue;
+        }
+        const inventoryLoaded = await enrichEtsyListingSummaryWithInventory(
+          ctx.accessToken,
+          fetched.summary,
+          connection.externalShopId
+        );
+        if (inventoryLoaded) {
+          etsyInventoryEnriched.add(link.externalListingId);
+          etsyInventoryEnriched.add(fetched.summary.externalListingId);
         }
         remoteById.set(link.externalListingId, fetched.summary);
         remoteById.set(fetched.summary.externalListingId, fetched.summary);
@@ -333,6 +382,8 @@ export async function reconcileConnectionInboundCatalog(
           wasMissingFromActiveList: !existing,
           remoteUpdatedAt: fetched.summary.remoteUpdatedAt?.toISOString() ?? null,
           title: fetched.summary.title.slice(0, 40),
+          quantity: fetched.summary.quantity,
+          inventoryLoaded,
         });
       } catch (e) {
         console.warn("[channels] etsy inbound hydrate failed", {
@@ -488,7 +539,16 @@ export async function reconcileConnectionInboundCatalog(
     await clearRemoteDeletedNoticeIfSet(link.id, link.conflictDetails);
 
     const item = link.storeItem;
-    const remoteQtyKnown = remote.quantityKnown !== false;
+    const remoteQtyKnown =
+      provider === "etsy"
+        ? etsyRemoteQuantityIsKnown({
+            quantity: remote.quantity,
+            quantityKnown: remote.quantityKnown,
+            inventoryEnriched:
+              etsyInventoryEnriched.has(link.externalListingId) ||
+              etsyInventoryEnriched.has(remote.externalListingId),
+          })
+        : remote.quantityKnown !== false;
 
     const inwHash = syncContentHash(item);
     const baseHash = link.syncBaselineHash ?? inwHash;
@@ -517,6 +577,9 @@ export async function reconcileConnectionInboundCatalog(
       lastPushedAt: link.lastPushedAt,
       remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
       inwUpdatedAt: item.updatedAt,
+      listingsDisagree:
+        titleOrPriceDiffers ||
+        (remoteQtyKnown && remote.quantity !== item.quantity),
     });
 
     const remoteTimestampNewer =
@@ -580,6 +643,24 @@ export async function reconcileConnectionInboundCatalog(
       ),
     });
     if (hashEcho) {
+      contentDecision = "noop";
+    }
+
+    // Shop-list qty 0 is often a variation listing with live offering stock.
+    // Do not PATCH Etsy to INW zero until inventory GET has confirmed it.
+    if (
+      provider === "etsy" &&
+      contentDecision === "push" &&
+      shouldSkipEtsyUntrustedZeroPush({
+        inwQuantity: item.quantity,
+        remoteQtyKnown,
+      })
+    ) {
+      console.log("[channels] skip Etsy zero push; shop-list quantity is untrusted", {
+        storeItemId: link.storeItemId,
+        externalListingId: link.externalListingId,
+        listQty: remote.quantity,
+      });
       contentDecision = "noop";
     }
 
@@ -864,6 +945,12 @@ export async function reconcileConnectionInboundCatalog(
         syncDirection,
       });
     } else if (qtyDiffers && contentDecision !== "pull") {
+      const skipEtsyUntrustedZero =
+        provider === "etsy" &&
+        shouldSkipEtsyUntrustedZeroPush({
+          inwQuantity: item.quantity,
+          remoteQtyKnown,
+        });
       // Quantity differs but we didn't pull content - need to decide direction
       // If remote quantity changed (remote != baseline), pull from remote
       // If INW quantity changed (inw != baseline), push to remote
@@ -882,6 +969,11 @@ export async function reconcileConnectionInboundCatalog(
         pulledQuantity = await applyRemoteQuantityToStoreItem(link.storeItemId, remote.quantity, {
           provider,
           memberId: connection.memberId,
+        });
+      } else if (skipEtsyUntrustedZero) {
+        console.log("[channels] skip Etsy qty-only zero push; shop-list quantity is untrusted", {
+          storeItemId: link.storeItemId,
+          externalListingId: link.externalListingId,
         });
       } else if (allowPush && !needsQtyRecovery) {
         // INW changed or both changed — push, including zero when recovery is blocked.

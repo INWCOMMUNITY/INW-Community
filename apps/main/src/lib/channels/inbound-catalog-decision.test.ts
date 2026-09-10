@@ -76,6 +76,30 @@ describe("isOwnChannelPushEcho", () => {
     ).toBe(true);
   });
 
+  it("does not treat a real Etsy title/qty edit as a hub fan-out echo", () => {
+    expect(
+      isOwnChannelPushEcho({
+        lastPushedAt: new Date("2026-09-09T02:00:36.784Z"),
+        remoteUpdatedAt: new Date("2026-09-09T02:21:13.647Z"),
+        inwUpdatedAt: new Date("2026-09-09T02:21:11.335Z"),
+        nowMs: new Date("2026-09-09T02:21:20.056Z").getTime(),
+        listingsDisagree: true,
+      })
+    ).toBe(false);
+  });
+
+  it("still treats a lastUpdated bump right after our PATCH as an echo when titles differ", () => {
+    const lastPushedAt = new Date("2026-09-09T01:25:20.000Z");
+    expect(
+      isOwnChannelPushEcho({
+        lastPushedAt,
+        remoteUpdatedAt: new Date("2026-09-09T01:25:29.346Z"),
+        listingsDisagree: true,
+        nowMs: lastPushedAt.getTime() + 8_000,
+      })
+    ).toBe(true);
+  });
+
   it("is false when the last push was hours ago and INW was not just saved", () => {
     expect(
       isOwnChannelPushEcho({
