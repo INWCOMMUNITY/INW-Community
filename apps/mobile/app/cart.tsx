@@ -36,7 +36,8 @@ import {
   type StorefrontCheckoutPayload,
 } from "@/components/StorefrontNativeCheckoutButton";
 import { useAuth } from "@/contexts/AuthContext";
-import { OrderSuccessOverlay } from "@/components/OrderSuccessOverlay";
+import { OrderSuccessOverlay, type OrderSuccessItem } from "@/components/OrderSuccessOverlay";
+import { buildProductPath } from "@/lib/product-referrer";
 
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
@@ -178,6 +179,46 @@ function resolvePhotoUrl(path: string | undefined): string | undefined {
   return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
+function snapshotPurchaseItemsFromCart(cartItems: CartItem[]): OrderSuccessItem[] {
+  const seen = new Set<string>();
+  const out: OrderSuccessItem[] = [];
+  for (const item of cartItems) {
+    const id = item.storeItemId || item.storeItem.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      storeItemId: id,
+      slug: item.storeItem.slug,
+      title: item.storeItem.title,
+      photoUrl: resolvePhotoUrl(item.storeItem.photos?.[0]),
+    });
+  }
+  return out;
+}
+
+function mapSuccessSummaryItems(raw: unknown): OrderSuccessItem[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: OrderSuccessItem[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    const storeItemId = typeof r.storeItemId === "string" ? r.storeItemId : "";
+    const slug = typeof r.slug === "string" ? r.slug : "";
+    if (!storeItemId || seen.has(storeItemId)) continue;
+    seen.add(storeItemId);
+    const photo = typeof r.photo === "string" ? r.photo : undefined;
+    out.push({
+      storeItemId,
+      slug,
+      title: typeof r.title === "string" ? r.title : "",
+      photoUrl: resolvePhotoUrl(photo),
+      orderId: typeof r.orderId === "string" ? r.orderId : undefined,
+    });
+  }
+  return out;
+}
+
 /** Mirrors server `storeItemHasLocalDeliveryPolicy` in pickup-delivery-checkout.ts */
 function storeItemHasLocalDeliveryPolicy(storeItem: CartItemStoreItem): boolean {
   const t = storeItem.localDeliveryTerms ?? storeItem.member?.sellerLocalDeliveryPolicy;
@@ -205,6 +246,8 @@ export default function CartScreen() {
   const [error, setError] = useState("");
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [orderJustConfirmed, setOrderJustConfirmed] = useState(false);
+  const [confirmedPurchaseItems, setConfirmedPurchaseItems] = useState<OrderSuccessItem[]>([]);
+  const pendingPurchaseItemsRef = useRef<OrderSuccessItem[]>([]);
   const [shippingAddress, setShippingAddress] = useState({
     street: "",
     aptOrSuite: "",
@@ -521,19 +564,63 @@ export default function CartScreen() {
 
   /** Fulfill pending orders when Stripe redirects back (webhook safety net). */
   const finalizeCheckoutAfterPayment = useCallback(
-    async (sessionId: string | null, fulfilledOrderIds: string[]) => {
+    async (sessionId: string | null, fulfilledOrderIds: string[]): Promise<OrderSuccessItem[]> => {
       const params = new URLSearchParams();
       if (sessionId) params.set("session_id", sessionId);
       if (fulfilledOrderIds.length > 0) params.set("order_ids", fulfilledOrderIds.join(","));
-      if (!sessionId && fulfilledOrderIds.length === 0) return;
+      if (!sessionId && fulfilledOrderIds.length === 0) return [];
 
       try {
-        await apiGet<{ orderIds?: string[] }>(`/api/store-orders/success-summary?${params.toString()}`);
+        const data = await apiGet<{ orderIds?: string[]; items?: unknown }>(
+          `/api/store-orders/success-summary?${params.toString()}`
+        );
+        return mapSuccessSummaryItems(data.items);
       } catch (err) {
         console.warn("[cart] success-summary failed:", err);
+        return [];
       }
     },
     []
+  );
+
+  const rememberPurchaseItems = useCallback((list: CartItem[]) => {
+    pendingPurchaseItemsRef.current = snapshotPurchaseItemsFromCart(list);
+  }, []);
+
+  const completeCheckoutSuccess = useCallback(
+    async (sessionId: string | null, fulfilledOrderIds: string[]) => {
+      const apiItems = await finalizeCheckoutAfterPayment(sessionId, fulfilledOrderIds);
+      if (apiItems.length > 0) {
+        setConfirmedPurchaseItems(apiItems);
+      }
+      try {
+        await apiDelete("/api/cart");
+      } catch {
+        /* ignore */
+      }
+      await load(true);
+    },
+    [finalizeCheckoutAfterPayment, load]
+  );
+
+  const openPurchasedItem = useCallback(
+    (item?: OrderSuccessItem) => {
+      setOrderJustConfirmed(false);
+      const target = item ?? confirmedPurchaseItems[0];
+      if (target?.slug) {
+        router.push(
+          buildProductPath(
+            target.slug,
+            target.orderId
+              ? { type: "order", orderId: target.orderId, orderKind: "buyer" }
+              : { type: "storefront" }
+          ) as never
+        );
+        return;
+      }
+      router.push("/community/my-orders" as never);
+    },
+    [confirmedPurchaseItems, router]
   );
 
   const updateLocalDeliveryDetails = async (
@@ -776,6 +863,7 @@ export default function CartScreen() {
       const data = await apiPost<{ url?: string; error?: string }>("/api/stripe/storefront-checkout", stripeBody);
 
       if (data.url) {
+        rememberPurchaseItems(linesForStripe);
         setCheckoutUrl(data.url);
       } else {
         setError(data.error ?? "Checkout could not be started.");
@@ -796,20 +884,17 @@ export default function CartScreen() {
 
   const onCheckoutWebViewNav = (nav: { url: string }) => {
     if (nav.url.includes("order-success")) {
+      const cartSnapshot =
+        pendingPurchaseItemsRef.current.length > 0
+          ? pendingPurchaseItemsRef.current
+          : snapshotPurchaseItemsFromCart(items);
+      setConfirmedPurchaseItems(cartSnapshot);
+      setOrderJustConfirmed(true);
       setCheckoutUrl(null);
       const { orderIds: successOrderIds, sessionId: successSessionId } = parseOrderSuccessCheckoutParams(
         nav.url
       );
-      void (async () => {
-        await finalizeCheckoutAfterPayment(successSessionId, successOrderIds);
-        try {
-          await apiDelete("/api/cart");
-        } catch {
-          /* ignore */
-        }
-        await load(true);
-        setOrderJustConfirmed(true);
-      })();
+      void completeCheckoutSuccess(successSessionId, successOrderIds);
     }
     if (nav.url.includes("canceled=1")) {
       setCheckoutUrl(null);
@@ -838,10 +923,8 @@ export default function CartScreen() {
     <View style={styles.container}>
       <OrderSuccessOverlay
         visible={orderJustConfirmed}
-        onViewOrder={() => {
-          setOrderJustConfirmed(false);
-          router.push("/community/my-orders" as never);
-        }}
+        items={confirmedPurchaseItems}
+        onViewItem={openPurchasedItem}
         onKeepShopping={() => {
           setOrderJustConfirmed(false);
           router.push("/(tabs)/store" as never);
@@ -1145,7 +1228,10 @@ export default function CartScreen() {
                           })
                       : undefined
                   }
-                  onHostedCheckoutUrl={(url) => setCheckoutUrl(url)}
+                  onHostedCheckoutUrl={(url) => {
+                    rememberPurchaseItems(items);
+                    setCheckoutUrl(url);
+                  }}
                   onError={setError}
                   setCheckingOut={setCheckingOut}
                   disabled={!canCheckout || checkingOut}

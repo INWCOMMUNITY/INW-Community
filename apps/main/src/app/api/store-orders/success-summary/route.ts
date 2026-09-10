@@ -74,7 +74,17 @@ export async function GET(req: NextRequest) {
   const orders = orderIds.length
     ? await prisma.storeOrder.findMany({
         where: { id: { in: orderIds }, buyerId: session.user.id },
-        select: { id: true, status: true, cancelReason: true },
+        select: {
+          id: true,
+          status: true,
+          cancelReason: true,
+          items: {
+            select: {
+              storeItemId: true,
+              storeItem: { select: { slug: true, title: true, photos: true } },
+            },
+          },
+        },
       })
     : [];
 
@@ -82,5 +92,35 @@ export async function GET(req: NextRequest) {
     (o) => o.status === "canceled" && isSoldWhilePayingCancel(o.cancelReason)
   );
 
-  return NextResponse.json({ orderIds, orders, soldWhilePaying });
+  const paidOrders = orders.filter((o) => o.status !== "canceled");
+  const itemSource = paidOrders.length > 0 ? paidOrders : orders;
+  const seenItemIds = new Set<string>();
+  const items: Array<{
+    storeItemId: string;
+    slug: string;
+    title: string;
+    photo: string | null;
+    orderId: string;
+  }> = [];
+  for (const order of itemSource) {
+    for (const line of order.items) {
+      if (seenItemIds.has(line.storeItemId)) continue;
+      seenItemIds.add(line.storeItemId);
+      const photo = line.storeItem.photos.find((p) => typeof p === "string" && p.trim()) ?? null;
+      items.push({
+        storeItemId: line.storeItemId,
+        slug: line.storeItem.slug,
+        title: line.storeItem.title,
+        photo,
+        orderId: order.id,
+      });
+    }
+  }
+
+  return NextResponse.json({
+    orderIds,
+    orders: orders.map(({ id, status, cancelReason }) => ({ id, status, cancelReason })),
+    items,
+    soldWhilePaying,
+  });
 }
