@@ -2,7 +2,7 @@ import { prisma } from "database";
 import { getConnectionContext, withConnectionAuthRetry } from "./connection";
 import {
   applyRemoteContentToStoreItem,
-  applyRemoteQuantityToStoreItem,
+  applyRemoteStockFromChannel,
   inboundDescriptionsMatch,
   remoteContentDiffersFromStoreItem,
   remoteTitleOrPriceDiffersFromStoreItem,
@@ -41,6 +41,7 @@ import {
   isOwnChannelPushEcho,
   remoteCatalogChangedSinceBaseline,
   remoteListingDisagreesForSync,
+  remoteQtyOnlyShouldPull,
   shouldLogCatalogConflict,
 } from "./inbound-catalog-decision";
 import { wixProductIsGone } from "./wix/listing-exists";
@@ -325,6 +326,8 @@ export async function reconcileConnectionInboundCatalog(
         etsyLinkedListingNeedsHydrate(remoteById.get(link.externalListingId), {
           title: link.storeItem.title,
           quantity: link.storeItem.quantity,
+          updatedAt: link.storeItem.updatedAt,
+          baselineAt: link.syncBaselineAt,
         })
       )
       .sort(
@@ -827,7 +830,10 @@ export async function reconcileConnectionInboundCatalog(
       });
       canApplyAggregateQty = shouldApplyAggregateRemoteQuantity(variantRow?.variants);
     }
-    const needsQtyRecovery = staleZeroVsRemoteStock && !blockRecovery && canApplyAggregateQty;
+    const needsQtyRecovery =
+      staleZeroVsRemoteStock &&
+      !blockRecovery &&
+      (canApplyAggregateQty || (provider === "etsy" && Boolean(remote.variantsKnown)));
 
     if (blockRecovery) {
       console.log("[channels] skipping qty recovery after sale or failed zero push", {
@@ -845,7 +851,7 @@ export async function reconcileConnectionInboundCatalog(
         remoteQty: remote.quantity,
         inwQty: currentQty,
       });
-      pulledQuantity = await applyRemoteQuantityToStoreItem(link.storeItemId, remote.quantity, {
+      pulledQuantity = await applyRemoteStockFromChannel(link.storeItemId, remote, {
         provider,
         memberId: connection.memberId,
       });
@@ -911,7 +917,7 @@ export async function reconcileConnectionInboundCatalog(
             oldQty: item.quantity,
             newQty: remote.quantity,
           });
-          pulledQuantity = await applyRemoteQuantityToStoreItem(link.storeItemId, remote.quantity, {
+          pulledQuantity = await applyRemoteStockFromChannel(link.storeItemId, remote, {
             provider,
             memberId: connection.memberId,
           });
@@ -954,11 +960,20 @@ export async function reconcileConnectionInboundCatalog(
       // Quantity differs but we didn't pull content - need to decide direction
       // If remote quantity changed (remote != baseline), pull from remote
       // If INW quantity changed (inw != baseline), push to remote
-      const remoteQtyChanged = remoteQtyKnown && 
-        link.syncBaselineQty != null && 
-        remote.quantity !== link.syncBaselineQty;
+      const remoteQtyChanged = remoteQtyOnlyShouldPull({
+        remoteQtyKnown,
+        remoteQuantity: remote.quantity,
+        inwQuantity: item.quantity,
+        baselineQty: link.syncBaselineQty,
+        inwQtyChangedSinceBaseline,
+      });
       
-      if (remoteQtyChanged && !inwQtyChangedSinceBaseline && allowPull && !blockRecovery && canApplyAggregateQty) {
+      if (
+        remoteQtyChanged &&
+        allowPull &&
+        !blockRecovery &&
+        (canApplyAggregateQty || (provider === "etsy" && Boolean(remote.variantsKnown)))
+      ) {
         // Remote changed, INW didn't - pull from remote
         console.log("[channels] pulling quantity from remote (qty-only change)", {
           storeItemId: link.storeItemId,
@@ -966,7 +981,7 @@ export async function reconcileConnectionInboundCatalog(
           newQty: remote.quantity,
           baselineQty: link.syncBaselineQty,
         });
-        pulledQuantity = await applyRemoteQuantityToStoreItem(link.storeItemId, remote.quantity, {
+        pulledQuantity = await applyRemoteStockFromChannel(link.storeItemId, remote, {
           provider,
           memberId: connection.memberId,
         });

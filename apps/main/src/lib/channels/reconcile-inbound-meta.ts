@@ -7,6 +7,8 @@ import {
   applyRemoteVariantsToStoreItem,
   applyRemoteAspectsToStoreItem,
 } from "./apply-remote-meta";
+import { applyRemoteStockFromChannel } from "./apply-remote-listing";
+import { etsyRemoteQuantityIsKnown } from "./etsy/listing-exists";
 import { getAdapter } from "./registry";
 import { indexEbayRemoteListings } from "./ebay/mapping";
 import { updateStoreItemOnChannels } from "./outbound";
@@ -191,6 +193,7 @@ export async function reconcileConnectionInboundMeta(
     }
   }
 
+  const etsyInventoryEnriched = new Set<string>();
   if (provider === "etsy" && ctx) {
     const { enrichEtsyListingSummaryWithInventory } = await import("./etsy/variants");
     for (const link of await prisma.channelListingLink.findMany({
@@ -198,7 +201,16 @@ export async function reconcileConnectionInboundMeta(
       select: { externalListingId: true },
     })) {
       const r = remoteById.get(link.externalListingId);
-      if (r) await enrichEtsyListingSummaryWithInventory(ctx.accessToken, r, connection.externalShopId);
+      if (!r) continue;
+      const loaded = await enrichEtsyListingSummaryWithInventory(
+        ctx.accessToken,
+        r,
+        connection.externalShopId
+      );
+      if (loaded) {
+        etsyInventoryEnriched.add(link.externalListingId);
+        etsyInventoryEnriched.add(r.externalListingId);
+      }
     }
   }
 
@@ -318,7 +330,20 @@ export async function reconcileConnectionInboundMeta(
       remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
     });
 
-    if (metaDecision === "noop" && varDecision === "noop") {
+    const etsySimpleQtyPull =
+      provider === "etsy" &&
+      varDecision === "noop" &&
+      etsyRemoteQuantityIsKnown({
+        quantity: remote.quantity,
+        quantityKnown: remote.quantityKnown,
+        inventoryEnriched:
+          etsyInventoryEnriched.has(link.externalListingId) ||
+          etsyInventoryEnriched.has(remote.externalListingId),
+      }) &&
+      remote.quantity !== item.quantity &&
+      !hasOptionQuantities(item.variants);
+
+    if (metaDecision === "noop" && varDecision === "noop" && !etsySimpleQtyPull) {
       if (link.syncBaselineMetaHash == null || link.syncBaselineVariantsHash == null) {
         await writeBaseline(link.id, link.storeItemId, remote, false);
       }
@@ -340,6 +365,13 @@ export async function reconcileConnectionInboundMeta(
         const vars = await applyRemoteVariantsToStoreItem(link.storeItemId, remote, provider);
         pulled = vars || pulled;
       }
+    }
+    if (etsySimpleQtyPull) {
+      const qty = await applyRemoteStockFromChannel(link.storeItemId, remote, {
+        provider,
+        memberId: connection.memberId,
+      });
+      pulled = qty || pulled;
     }
 
     let attemptedPush = false;

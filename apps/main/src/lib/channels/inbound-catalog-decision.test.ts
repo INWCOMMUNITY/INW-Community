@@ -4,6 +4,7 @@ import {
   isOwnChannelPushEcho,
   remoteCatalogChangedSinceBaseline,
   remoteListingDisagreesForSync,
+  remoteQtyOnlyShouldPull,
   shouldLogCatalogConflict,
 } from "./inbound-catalog-decision";
 
@@ -200,6 +201,44 @@ describe("remoteListingDisagreesForSync", () => {
         remoteDescriptionPresent: false,
         photosDiffer: true,
         marketplaceCdnPhotoRehostOnly: true,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("remoteQtyOnlyShouldPull", () => {
+  it("pulls an Etsy qty edit when INW qty did not change", () => {
+    expect(
+      remoteQtyOnlyShouldPull({
+        remoteQtyKnown: true,
+        remoteQuantity: 6,
+        inwQuantity: 4,
+        baselineQty: 4,
+        inwQtyChangedSinceBaseline: false,
+      })
+    ).toBe(true);
+  });
+
+  it("pulls when there is no qty baseline instead of pushing INW over Etsy", () => {
+    expect(
+      remoteQtyOnlyShouldPull({
+        remoteQtyKnown: true,
+        remoteQuantity: 6,
+        inwQuantity: 4,
+        baselineQty: null,
+        inwQtyChangedSinceBaseline: false,
+      })
+    ).toBe(true);
+  });
+
+  it("does not pull when INW qty already moved", () => {
+    expect(
+      remoteQtyOnlyShouldPull({
+        remoteQtyKnown: true,
+        remoteQuantity: 6,
+        inwQuantity: 5,
+        baselineQty: 4,
+        inwQtyChangedSinceBaseline: true,
       })
     ).toBe(false);
   });

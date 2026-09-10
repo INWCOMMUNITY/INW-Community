@@ -68,6 +68,24 @@ describe("etsyLinkedListingNeedsHydrate", () => {
       )
     ).toBe(true);
   });
+
+  it("hydrates when last_modified is newer than the INW baseline even if shop-list qty matches", () => {
+    expect(
+      etsyLinkedListingNeedsHydrate(
+        {
+          remoteUpdatedAt: new Date("2026-09-09T18:40:00.000Z"),
+          title: "Clock",
+          quantity: 3,
+        },
+        {
+          title: "Clock",
+          quantity: 3,
+          updatedAt: new Date("2026-09-09T12:00:00.000Z"),
+          baselineAt: new Date("2026-09-09T12:00:00.000Z"),
+        }
+      )
+    ).toBe(true);
+  });
 });
 
 describe("etsyShopListQuantityIsTrusted", () => {

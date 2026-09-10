@@ -127,3 +127,21 @@ export function shouldLogCatalogConflict(args: {
   }
   return args.inwContentChanged && args.remoteContentChanged && args.remoteDisagreesWithInw;
 }
+
+/**
+ * Qty-only inbound: pull when the channel quantity moved and INW did not.
+ * A missing baseline must not fall through to pushing INW over a real Etsy edit.
+ */
+export function remoteQtyOnlyShouldPull(args: {
+  remoteQtyKnown: boolean;
+  remoteQuantity: number;
+  inwQuantity: number;
+  baselineQty: number | null;
+  inwQtyChangedSinceBaseline: boolean;
+}): boolean {
+  if (!args.remoteQtyKnown) return false;
+  if (args.remoteQuantity === args.inwQuantity) return false;
+  if (args.inwQtyChangedSinceBaseline) return false;
+  if (args.baselineQty == null) return true;
+  return args.remoteQuantity !== args.baselineQty;
+}

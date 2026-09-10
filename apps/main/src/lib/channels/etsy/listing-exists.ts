@@ -76,13 +76,22 @@ export function etsyLinkedListingNeedsHydrate(
       }
     | null
     | undefined,
-  inw?: { title: string; quantity: number }
+  inw?: {
+    title: string;
+    quantity: number;
+    updatedAt?: Date | null;
+    baselineAt?: Date | null;
+  }
 ): boolean {
   if (existing == null || existing.remoteUpdatedAt == null) return true;
   if (!inw) return false;
   if ((existing.quantity ?? 0) <= 0) return true;
   if ((existing.title ?? "").trim().slice(0, 200) !== inw.title.trim().slice(0, 200)) return true;
-  return (existing.quantity ?? 0) !== inw.quantity;
+  if ((existing.quantity ?? 0) !== inw.quantity) return true;
+  const remoteMs = existing.remoteUpdatedAt.getTime();
+  if (inw.baselineAt && remoteMs > inw.baselineAt.getTime()) return true;
+  if (inw.updatedAt && remoteMs > inw.updatedAt.getTime()) return true;
+  return false;
 }
 
 export type EtsyInboundFetch =

@@ -240,6 +240,27 @@ export async function applyRemoteQuantityToStoreItem(
   return true;
 }
 
+/**
+ * Pull channel stock onto INW. Variation listings must write option rows, not a single total.
+ */
+export async function applyRemoteStockFromChannel(
+  storeItemId: string,
+  remote: RemoteListingSummary,
+  auditContext: {
+    provider: ChannelProvider;
+    memberId: string;
+    externalEventId?: string;
+  }
+): Promise<boolean> {
+  if (remote.variantsKnown && remote.variants) {
+    const { applyRemoteVariantsToStoreItem } = await import("./apply-remote-meta");
+    const vars = await applyRemoteVariantsToStoreItem(storeItemId, remote, auditContext.provider);
+    if (vars) return true;
+  }
+  if (remote.quantityKnown === false) return false;
+  return applyRemoteQuantityToStoreItem(storeItemId, remote.quantity, auditContext);
+}
+
 /** @deprecated Prefer applyRemoteContentToStoreItem + applyRemoteQuantityToStoreItem */
 export async function applyRemoteListingToStoreItem(
   storeItemId: string,
