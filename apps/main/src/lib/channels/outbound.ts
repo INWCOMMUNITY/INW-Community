@@ -460,6 +460,13 @@ export async function updateStoreItemOnChannels(
     });
 
     if (contentUnchanged && !inventoryDrift && !options.force && !savedAfterThisChannel) {
+      if (provider === "ebay") {
+        console.info("[channels] skip eBay content push; hash unchanged and INW not newer than lastPushedAt", {
+          storeItemId,
+          lastPushedAt: link.lastPushedAt?.toISOString() ?? null,
+          inwUpdatedAt: inwUpdatedAt.toISOString(),
+        });
+      }
       continue;
     }
 
@@ -573,6 +580,13 @@ export async function updateStoreItemOnChannels(
         "Content push skipped - channel temporarily unavailable",
         storeItemId
       );
+      enqueueRetry(
+        link.id,
+        storeItemId,
+        provider,
+        "content",
+        "Channel sync temporarily paused due to repeated failures"
+      ).catch(() => {});
       results.push({
         provider,
         ok: false,

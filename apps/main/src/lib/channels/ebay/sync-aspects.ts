@@ -60,11 +60,13 @@ export async function prepareEbaySyncAspects(args: {
   offerId?: string | null;
   /** Pre-fetched GetItem aspects (skips Trading fetch when provided). */
   tradingAspects?: ListingAspect[];
+  /** Live revisions: do not treat Type/Brand / empty taxonomy as hard failures. */
+  enforceListOnRequirements?: boolean;
 }): Promise<PrepareEbaySyncAspectsResult> {
   const sku = args.sku ?? args.externalListingId ?? getEffectiveSku(args.item);
 
   let tradingAspects = args.tradingAspects ?? [];
-  if (tradingAspects.length === 0) {
+  if (tradingAspects.length === 0 && args.tradingAspects === undefined) {
     const legacyId =
       (await resolveSyncLegacyListingId(args.accessToken, {
         linkedSku: args.externalListingId,
@@ -89,11 +91,12 @@ export async function prepareEbaySyncAspects(args: {
     categoryId: args.categoryId,
     tradingAspects,
     mergeFromInventory: true,
+    enforceListOnRequirements: args.enforceListOnRequirements,
   });
 
   const validation = validateRemappedAspects(prep.categoryAspects, prep.remappedAspects);
 
-  if (validation.invalidSelectionValues.length > 0) {
+  if (validation.invalidSelectionValues.length > 0 && args.enforceListOnRequirements !== false) {
     console.error("[ebay] aspect validation failed", {
       categoryId: args.categoryId,
       aspectNames: validation.invalidSelectionValues.map((row) => row.name),

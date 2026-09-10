@@ -44,6 +44,14 @@ function errorMessage(body: unknown, status: number): string {
   return `Shopify API error (${status})`;
 }
 
+/** Shopify 422 while another write (webhook, admin, or our own PUT) still holds the product. */
+export function isShopifyConcurrentModification(status: number, message: string): boolean {
+  return (
+    status === 422 &&
+    /currently being modified|please try again later/i.test(message)
+  );
+}
+
 async function shopifyRequest<T>(
   accessToken: string,
   shop: string,
@@ -73,7 +81,14 @@ async function shopifyRequest<T>(
   }
   const body = await parseBody(res);
   if (!res.ok) {
-    throw new ShopifyApiError(errorMessage(body, res.status), res.status, body);
+    const msg = errorMessage(body, res.status);
+    if (isShopifyConcurrentModification(res.status, msg) && attempt < 3) {
+      const waitMs = 1500 * (attempt + 1);
+      console.warn("[shopify] product locked; retrying", { path, attempt: attempt + 1, waitMs });
+      await new Promise((r) => setTimeout(r, waitMs));
+      return shopifyRequest<T>(accessToken, shop, apiVersion, path, init, attempt + 1);
+    }
+    throw new ShopifyApiError(msg, res.status, body);
   }
   return body as T;
 }

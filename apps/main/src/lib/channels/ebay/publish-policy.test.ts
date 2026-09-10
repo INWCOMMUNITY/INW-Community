@@ -10,6 +10,8 @@ import {
   shouldSkipEbayInventoryContentPutAtZeroQty,
   shouldSkipEbayUnpublishedZeroQuantitySync,
   shouldWriteEbayOffer,
+  shouldBlockEbayUpdateForMissingAspects,
+  shouldFetchTradingItemOnUpsert,
 } from "./publish-policy";
 
 describe("publish-policy", () => {
@@ -158,5 +160,22 @@ describe("publish-policy", () => {
         offerStatus: "UNPUBLISHED",
       })
     ).toBe(false);
+  });
+
+  it("does not block live listing updates for missing Type/Brand", () => {
+    expect(shouldBlockEbayUpdateForMissingAspects(true)).toBe(false);
+    expect(shouldBlockEbayUpdateForMissingAspects(false)).toBe(true);
+  });
+
+  it("skips Trading GetItem on live simple updates", () => {
+    expect(
+      shouldFetchTradingItemOnUpsert({ listingAlreadyLinked: true, usesInventoryItemGroup: false })
+    ).toBe(false);
+    expect(
+      shouldFetchTradingItemOnUpsert({ listingAlreadyLinked: true, usesInventoryItemGroup: true })
+    ).toBe(true);
+    expect(
+      shouldFetchTradingItemOnUpsert({ listingAlreadyLinked: false, usesInventoryItemGroup: false })
+    ).toBe(true);
   });
 });

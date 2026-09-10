@@ -79,6 +79,23 @@ export function shouldSkipEbayInventoryContentPutAtZeroQty(quantity: number): bo
   return quantity <= 0;
 }
 
+/**
+ * Live INW→eBay edits must not fail publish-time aspect checks. The listing is
+ * already on eBay; missing Type/Brand after a Taxonomy cooldown would skip the PUT.
+ */
+export function shouldBlockEbayUpdateForMissingAspects(listingAlreadyLinked: boolean): boolean {
+  return !listingAlreadyLinked;
+}
+
+/** Trading GetItem on every save burns the 5k/day quota. Live simple listings use Inventory GET. */
+export function shouldFetchTradingItemOnUpsert(args: {
+  listingAlreadyLinked: boolean;
+  usesInventoryItemGroup: boolean;
+}): boolean {
+  if (!args.listingAlreadyLinked) return true;
+  return args.usesInventoryItemGroup;
+}
+
 /** Sold-out unpublished leftovers cannot take qty 0 — skip instead of failing the shop. */
 export function shouldSkipEbayUnpublishedZeroQuantitySync(args: {
   quantity: number;

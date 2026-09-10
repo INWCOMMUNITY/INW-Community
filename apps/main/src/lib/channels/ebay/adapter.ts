@@ -139,6 +139,8 @@ import {
   shouldSkipEbayInventoryContentPutAtZeroQty,
   shouldSkipEbayUnpublishedZeroQuantitySync,
   shouldWriteEbayOffer,
+  shouldBlockEbayUpdateForMissingAspects,
+  shouldFetchTradingItemOnUpsert,
 } from "./publish-policy";
 import { passthroughUsePreparedInventoryAspects } from "./aspect-prep";
 import {
@@ -1024,7 +1026,11 @@ async function upsertListing(
     let liveTradingPhotoUrls: string[] = [];
     let liveTradingVariants: unknown = null;
     let liveCategoryId: string | null = null;
-    if (legacyListingId) {
+    const fetchTradingDetails = shouldFetchTradingItemOnUpsert({
+      listingAlreadyLinked,
+      usesInventoryItemGroup: shouldUseInventoryItemGroup(item),
+    });
+    if (legacyListingId && fetchTradingDetails) {
       try {
         const liveDetails = await fetchEbayItemDetails(conn.accessToken, legacyListingId);
         liveTradingAspects = liveDetails.aspects;
@@ -1094,6 +1100,7 @@ async function upsertListing(
       sku,
       offerId,
       tradingAspects: liveTradingAspects,
+      enforceListOnRequirements: !listingAlreadyLinked,
     });
     syncItem = aspectPrep.item;
     const pushAspects = parseStoredAspects(syncItem.aspects);
@@ -1112,8 +1119,11 @@ async function upsertListing(
       })),
     });
 
-    // Validate aspects
-    if (aspectPrep.missingRequired.length > 0) {
+    // Validate aspects — list-on only. Live listings already passed eBay's checks.
+    if (
+      aspectPrep.missingRequired.length > 0 &&
+      shouldBlockEbayUpdateForMissingAspects(listingAlreadyLinked)
+    ) {
       const missingNames = aspectPrep.missingRequired.map((a) => 
         typeof a === "string" ? a : a.name
       );
@@ -1127,6 +1137,13 @@ async function upsertListing(
       const error = new Error(formatMissingEbayAspectsError(aspectPrep.missingRequired));
       await completeTrace(trace, "validation_failed", error);
       throw error;
+    }
+    if (listingAlreadyLinked && aspectPrep.missingRequired.length > 0) {
+      console.warn("[ebay] upsertListing continuing live update despite missing aspects", {
+        storeItemId: item.id,
+        sku,
+        missing: aspectPrep.missingRequired.map((a) => (typeof a === "string" ? a : a.name)),
+      });
     }
 
     if (aspectPrep.enriched) {

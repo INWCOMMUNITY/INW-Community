@@ -1241,35 +1241,94 @@ export function ebayCronShouldRetryOutbound(args: {
 }
 
 /**
- * GetItem pull never writes INW edits to eBay. When a save-time push failed
- * (`syncStatus=error`), push that listing again on the 5-minute cron.
+ * Save-time INW→eBay is the primary push. Cron also retries failed writes and
+ * listings the seller saved on INW after the last eBay push/pull (skipped or
+ * silently dropped at save time). Do not re-push a GetItem inbound echo.
+ */
+export function ebayCronShouldPushOutbound(args: {
+  syncEnabled: boolean;
+  syncStatus: string;
+  ended: boolean;
+  inwUpdatedAt: Date | null;
+  lastPushedAt: Date | null;
+  lastInboundAt: Date | null;
+}): boolean {
+  if (!args.syncEnabled || args.ended) return false;
+  if (args.syncStatus === "error") return true;
+  if (!args.inwUpdatedAt) return false;
+  const inw = args.inwUpdatedAt.getTime();
+  const pushed = args.lastPushedAt?.getTime() ?? 0;
+  const inbound = args.lastInboundAt?.getTime() ?? 0;
+  return inw > pushed && inw > inbound;
+}
+
+/**
+ * GetItem pull never writes INW edits to eBay. Retry failed save-time pushes
+ * and INW-newer live listings on the 5-minute cron.
  */
 export async function pushFailedEbayOutboundForConnection(
   connectionId: string
 ): Promise<{ attempted: number; storeItemIds: string[] }> {
-  const links = await prisma.channelListingLink.findMany({
-    where: {
-      connectionId,
-      provider: "ebay",
-      syncEnabled: true,
-      syncStatus: "error",
-    },
-    orderBy: { updatedAt: "desc" },
-    take: EBAY_CRON_FAILED_OUTBOUND_LIMIT,
-    select: { storeItemId: true, conflictDetails: true, syncError: true },
-  });
-  const storeItemIds: string[] = [];
-  for (const link of links) {
-    if (
-      !ebayCronShouldRetryOutbound({
+  const [errored, recent] = await Promise.all([
+    prisma.channelListingLink.findMany({
+      where: {
+        connectionId,
+        provider: "ebay",
         syncEnabled: true,
         syncStatus: "error",
-        ended: shouldSkipEndedEbayOutbound("ebay", link.conflictDetails),
-      })
-    ) {
-      continue;
-    }
+      },
+      orderBy: { updatedAt: "desc" },
+      take: EBAY_CRON_FAILED_OUTBOUND_LIMIT,
+      select: {
+        storeItemId: true,
+        conflictDetails: true,
+        syncError: true,
+        syncStatus: true,
+        lastPushedAt: true,
+        lastInboundAt: true,
+        storeItem: { select: { updatedAt: true } },
+      },
+    }),
+    prisma.channelListingLink.findMany({
+      where: {
+        connectionId,
+        provider: "ebay",
+        syncEnabled: true,
+      },
+      orderBy: { storeItem: { updatedAt: "desc" } },
+      take: EBAY_CRON_FAILED_OUTBOUND_LIMIT * 3,
+      select: {
+        storeItemId: true,
+        conflictDetails: true,
+        syncError: true,
+        syncStatus: true,
+        lastPushedAt: true,
+        lastInboundAt: true,
+        storeItem: { select: { updatedAt: true } },
+      },
+    }),
+  ]);
+  const seen = new Set<string>();
+  const links = [...errored, ...recent].filter((link) => {
+    if (seen.has(link.storeItemId)) return false;
+    seen.add(link.storeItemId);
+    return ebayCronShouldPushOutbound({
+      syncEnabled: true,
+      syncStatus: link.syncStatus,
+      ended: shouldSkipEndedEbayOutbound("ebay", link.conflictDetails),
+      inwUpdatedAt: link.storeItem.updatedAt,
+      lastPushedAt: link.lastPushedAt,
+      lastInboundAt: link.lastInboundAt,
+    });
+  }).slice(0, EBAY_CRON_FAILED_OUTBOUND_LIMIT);
+  const storeItemIds: string[] = [];
+  for (const link of links) {
     try {
+      console.log("[ebay] cron outbound push", {
+        storeItemId: link.storeItemId,
+        syncStatus: link.syncStatus,
+        syncError: link.syncError?.slice(0, 120) ?? null,
+      });
       await updateStoreItemOnChannels(link.storeItemId, {
         skipProviders: ["etsy", "wix", "shopify"],
       });

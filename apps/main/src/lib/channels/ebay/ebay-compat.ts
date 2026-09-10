@@ -138,6 +138,38 @@ export async function fetchInventoryAspects(
   return inventoryAspectsToListingAspects(item?.product?.aspects);
 }
 
+/**
+ * List-on treats Type/Brand and empty-taxonomy fallbacks as blocking.
+ * Live revisions must not — the listing is already on eBay, and Taxonomy 429
+ * cooldown would otherwise fail every INW title/price edit.
+ */
+export function assembleOutboundMissingRequired(args: {
+  categoryId: string | null | undefined;
+  categoryAspects: EbayCategoryAspect[];
+  remappedAspects: ListingAspect[];
+  validationMissing: string[];
+  enforceListOnRequirements: boolean;
+}): string[] {
+  if (!args.enforceListOnRequirements) return args.validationMissing;
+  let missingRequired = [
+    ...args.validationMissing,
+    ...missingOftenRequiredEbayAspects(args.categoryAspects, args.remappedAspects).filter(
+      (name) =>
+        !args.validationMissing.some((existing) => existing.toLowerCase() === name.toLowerCase())
+    ),
+  ];
+  if (args.categoryId?.trim() && args.categoryAspects.length === 0) {
+    const fallbackMissing = missingEbayAspectsForListOn(
+      ebayListOnFallbackAspects(),
+      args.remappedAspects
+    ).filter(
+      (name) => !missingRequired.some((existing) => existing.toLowerCase() === name.toLowerCase())
+    );
+    missingRequired = [...missingRequired, ...fallbackMissing];
+  }
+  return missingRequired;
+}
+
 export async function prepareOutboundAspects(args: {
   accessToken: string;
   sku: string;
@@ -145,6 +177,8 @@ export async function prepareOutboundAspects(args: {
   categoryId: string | null;
   tradingAspects?: ListingAspect[];
   mergeFromInventory?: boolean;
+  /** When false, skip Type/Brand and empty-taxonomy list-on blockers (live updates). */
+  enforceListOnRequirements?: boolean;
 }): Promise<OutboundAspectPrep> {
   let aspects = parseStoredAspects(args.item.aspects);
   const beforeKey = JSON.stringify(aspects);
@@ -210,22 +244,13 @@ export async function prepareOutboundAspects(args: {
 
   const validation = validateRemappedAspects(categoryAspects, remappedAspects);
   const enriched = JSON.stringify(aspects) !== beforeKey;
-
-  let missingRequired = [
-    ...validation.missingRequired,
-    ...missingOftenRequiredEbayAspects(categoryAspects, remappedAspects).filter(
-      (name) => !validation.missingRequired.some((existing) => existing.toLowerCase() === name.toLowerCase())
-    ),
-  ];
-  if (args.categoryId?.trim() && categoryAspects.length === 0) {
-    const fallbackMissing = missingEbayAspectsForListOn(
-      ebayListOnFallbackAspects(),
-      remappedAspects
-    ).filter(
-      (name) => !missingRequired.some((existing) => existing.toLowerCase() === name.toLowerCase())
-    );
-    missingRequired = [...missingRequired, ...fallbackMissing];
-  }
+  const missingRequired = assembleOutboundMissingRequired({
+    categoryId: args.categoryId,
+    categoryAspects,
+    remappedAspects,
+    validationMissing: validation.missingRequired,
+    enforceListOnRequirements: args.enforceListOnRequirements !== false,
+  });
 
   const nextItem: SyncStoreItem = {
     ...args.item,

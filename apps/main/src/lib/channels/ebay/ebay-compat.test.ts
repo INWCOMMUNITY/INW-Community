@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { EbayCategoryAspect } from "./aspects";
 import {
+  assembleOutboundMissingRequired,
   backfillRequiredTaxonomyAspects,
   fillEmptyTaxonomyAspectsFromTitle,
   expandGradedCoinAspectsForTaxonomy,
@@ -349,5 +350,31 @@ describe("validateRemappedAspects", () => {
     const validation = validateRemappedAspects(nickelTaxonomy, remapped.aspects);
     expect(validation.missingRequired.length).toBeGreaterThan(0);
     expect(validation.missingRequired).toContain("Letter grade");
+  });
+});
+
+describe("assembleOutboundMissingRequired", () => {
+  it("blocks Type/Brand on list-on when Taxonomy is empty", () => {
+    const missing = assembleOutboundMissingRequired({
+      categoryId: "261597",
+      categoryAspects: [],
+      remappedAspects: [{ name: "Brand", value: "Unbranded" }],
+      validationMissing: [],
+      enforceListOnRequirements: true,
+    });
+    expect(missing).toContain("Type");
+    expect(missing).not.toContain("Brand");
+  });
+
+  it("does not block Type/Brand on a live update when Taxonomy is empty", () => {
+    expect(
+      assembleOutboundMissingRequired({
+        categoryId: "261597",
+        categoryAspects: [],
+        remappedAspects: [],
+        validationMissing: [],
+        enforceListOnRequirements: false,
+      })
+    ).toEqual([]);
   });
 });

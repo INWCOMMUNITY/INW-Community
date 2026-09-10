@@ -10,6 +10,7 @@ import {
   shouldApplyEbayInboundVariants,
   withEbayPendingInbound,
   ebayCronShouldRetryOutbound,
+  ebayCronShouldPushOutbound,
 } from "./pull-ebay-updates";
 
 describe("isEbayInboundContentChange", () => {
@@ -572,6 +573,55 @@ describe("ebayCronShouldRetryOutbound", () => {
     ).toBe(false);
     expect(
       ebayCronShouldRetryOutbound({ syncEnabled: true, syncStatus: "error", ended: true })
+    ).toBe(false);
+  });
+});
+
+describe("ebayCronShouldPushOutbound", () => {
+  const inw = new Date("2026-09-09T18:00:00.000Z");
+  it("retries error rows and INW saves newer than both push and inbound", () => {
+    expect(
+      ebayCronShouldPushOutbound({
+        syncEnabled: true,
+        syncStatus: "error",
+        ended: false,
+        inwUpdatedAt: inw,
+        lastPushedAt: inw,
+        lastInboundAt: inw,
+      })
+    ).toBe(true);
+    expect(
+      ebayCronShouldPushOutbound({
+        syncEnabled: true,
+        syncStatus: "synced",
+        ended: false,
+        inwUpdatedAt: inw,
+        lastPushedAt: new Date("2026-09-09T17:00:00.000Z"),
+        lastInboundAt: new Date("2026-09-09T16:00:00.000Z"),
+      })
+    ).toBe(true);
+  });
+
+  it("does not re-push a GetItem inbound echo or a successful save-time push", () => {
+    expect(
+      ebayCronShouldPushOutbound({
+        syncEnabled: true,
+        syncStatus: "synced",
+        ended: false,
+        inwUpdatedAt: inw,
+        lastPushedAt: new Date("2026-09-09T17:00:00.000Z"),
+        lastInboundAt: inw,
+      })
+    ).toBe(false);
+    expect(
+      ebayCronShouldPushOutbound({
+        syncEnabled: true,
+        syncStatus: "synced",
+        ended: false,
+        inwUpdatedAt: inw,
+        lastPushedAt: new Date("2026-09-09T18:01:00.000Z"),
+        lastInboundAt: new Date("2026-09-09T17:00:00.000Z"),
+      })
     ).toBe(false);
   });
 });

@@ -268,6 +268,8 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
         id: c.id,
         checked: ebayPull.checked,
         updated: ebayPull.updated.map((u) => ({ storeItemId: u.storeItemId, changes: u.changes })),
+        outboundAttempted: ebayOutbound.attempted,
+        outboundStoreItemIds: ebayOutbound.storeItemIds,
       });
     } catch (e) {
       console.error("[channels] eBay GetItem pull failed", { id: c.id, error: String(e) });
