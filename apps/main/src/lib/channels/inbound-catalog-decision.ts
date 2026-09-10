@@ -1,4 +1,4 @@
-import { resolveSyncDirection, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
+import { isSyncEchoWindow, resolveSyncDirection, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
 
 /**
  * Inbound catalog should not rewrite a channel listing when the StoreItem hash drifted
@@ -144,6 +144,69 @@ export function remoteQtyOnlyShouldPull(args: {
   if (args.inwQtyChangedSinceBaseline) return false;
   if (args.baselineQty == null) return true;
   return args.remoteQuantity !== args.baselineQty;
+}
+
+/**
+ * Quantity last-write-wins. Mirrors {@link resolveSyncDirection}'s "most recent" arm but
+ * scoped to stock: pull the channel quantity when the channel was edited most recently.
+ *
+ * Unlike {@link remoteQtyOnlyShouldPull}, this does NOT treat any INW baseline drift as an
+ * INW edit. A sale on another channel (or a prior partial sync) drifts `syncBaselineQty`
+ * without being a newer INW quantity edit; the old helper read that drift as "INW changed"
+ * and pushed INW's stale quantity back over a real channel edit (the reported snap-back).
+ * When both sides differ from baseline we decide by recency using `remoteUpdatedAt` vs
+ * `inwUpdatedAt`, falling back to whether INW was edited after the agreed baseline.
+ */
+export function newerChannelQtyEditShouldPull(args: {
+  remoteQtyKnown: boolean;
+  remoteQuantity: number;
+  inwQuantity: number;
+  inwQtyChangedSinceBaseline: boolean;
+  inwUpdatedAt: Date | null;
+  remoteUpdatedAt: Date | null;
+  baselineAt: Date | null;
+}): boolean {
+  if (!args.remoteQtyKnown) return false;
+  if (args.remoteQuantity === args.inwQuantity) return false;
+  // Our own qty push echoing back within the settle window is not a channel edit.
+  if (isSyncEchoWindow(args.baselineAt)) return false;
+  // INW quantity has not moved since the last agreed baseline: only the channel changed,
+  // so the channel edit is the most recent — pull.
+  if (!args.inwQtyChangedSinceBaseline) return true;
+  // Both sides differ from baseline — most recent edit wins by timestamp.
+  if (args.remoteUpdatedAt) {
+    if (!args.inwUpdatedAt) return true;
+    return args.remoteUpdatedAt.getTime() > args.inwUpdatedAt.getTime();
+  }
+  // No channel timestamp: pull only if INW was not genuinely edited after the baseline.
+  if (!args.inwUpdatedAt || !args.baselineAt) return false;
+  return args.inwUpdatedAt.getTime() <= args.baselineAt.getTime();
+}
+
+/**
+ * Do not push INW quantity to the channel when we could not read the true remote quantity
+ * this tick (an Etsy variation listing not hydrated, or an untrusted shop-list zero) AND the
+ * remote listing may have been edited at/after our last agreed baseline. Pushing INW's stock
+ * here risks reverting a real seller edit we simply have not hydrated yet. The link is
+ * prioritized for hydration on a later tick, after which the direction resolves normally.
+ * If the remote timestamp proves INW is strictly newer, an INW push is safe (not held).
+ */
+export function shouldHoldQtyPushForUntrustedRemote(args: {
+  provider: string;
+  remoteQtyKnown: boolean;
+  remoteUpdatedAt: Date | null;
+  inwUpdatedAt: Date | null;
+}): boolean {
+  if (args.provider !== "etsy") return false;
+  if (args.remoteQtyKnown) return false;
+  if (
+    args.remoteUpdatedAt &&
+    args.inwUpdatedAt &&
+    args.inwUpdatedAt.getTime() > args.remoteUpdatedAt.getTime()
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /**

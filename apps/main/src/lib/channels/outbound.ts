@@ -7,6 +7,7 @@ import {
   storeItemContentHash,
   shouldBlockOutboundOverwrite,
   shouldBlockEbayOutboundOverwrite,
+  shouldBlockOutboundQtyOverwrite,
   syncContentHash,
   syncMetaHash,
   SYNC_ECHO_SKEW_MS,
@@ -510,10 +511,80 @@ export async function updateStoreItemOnChannels(
         const channelInventoryOffset = (connConfig.inventoryOffset as number) ?? 0;
         const globalSafetyBuffer = syncPrefs?.safetyBuffer ?? 0;
         const adjustedQty = Math.max(0, freshItem.quantity - globalSafetyBuffer - channelInventoryOffset);
-        await withConnectionAuthRetry(link.connection, (ctx) => {
+        // The sale-revert guard compares INW qty to the live channel qty directly, so it is
+        // only exact when no buffer/offset shifts the pushed value out of INW's space.
+        const qtyGuardExact = globalSafetyBuffer === 0 && channelInventoryOffset === 0;
+        let skippedNewerRemoteQty = false;
+        await withConnectionAuthRetry(link.connection, async (ctx) => {
           const adapter = getAdapter(provider);
+
+          // Sale-revert guard: never push INW's quantity when the live marketplace stock is
+          // the newer edit and INW is still at baseline (e.g. a buyer just purchased on the
+          // channel). Reuses a live read like the content-push path, but qty-only.
+          if (qtyGuardExact && provider === "ebay") {
+            const legacyId = resolveEbayLegacyListingId(link.externalListingId);
+            if (legacyId) {
+              const live = await fetchEbayItemDetails(ctx.accessToken, legacyId).catch(() => null);
+              if (
+                live &&
+                live.quantity != null &&
+                shouldBlockOutboundQtyOverwrite({
+                  inwQuantity: freshItem.quantity,
+                  remoteQuantity: live.quantity,
+                  syncBaselineQty: link.syncBaselineQty,
+                  remoteUpdatedAt: live.remoteUpdatedAt ?? null,
+                  inwUpdatedAt: hubUpdatedAt,
+                  lastPushedAt: link.lastPushedAt,
+                })
+              ) {
+                skippedNewerRemoteQty = true;
+                console.warn("[channels] skip eBay inventory push; live stock is newer than INW", {
+                  storeItemId,
+                  externalListingId: link.externalListingId,
+                  inwQty: freshItem.quantity,
+                  remoteQty: live.quantity,
+                  syncBaselineQty: link.syncBaselineQty,
+                });
+                return;
+              }
+            }
+          } else if (qtyGuardExact && provider === "etsy") {
+            const fetched = await fetchEtsyListingForInbound(
+              ctx.accessToken,
+              link.externalListingId
+            ).catch(() => null);
+            if (
+              fetched &&
+              fetched.status === "ok" &&
+              fetched.summary.quantityKnown !== false &&
+              shouldBlockOutboundQtyOverwrite({
+                inwQuantity: freshItem.quantity,
+                remoteQuantity: fetched.summary.quantity,
+                syncBaselineQty: link.syncBaselineQty,
+                remoteUpdatedAt: fetched.summary.remoteUpdatedAt ?? null,
+                inwUpdatedAt: hubUpdatedAt,
+                lastPushedAt: link.lastPushedAt,
+              })
+            ) {
+              skippedNewerRemoteQty = true;
+              console.warn("[channels] skip Etsy inventory push; live stock is newer than INW", {
+                storeItemId,
+                externalListingId: link.externalListingId,
+                inwQty: freshItem.quantity,
+                remoteQty: fetched.summary.quantity,
+                syncBaselineQty: link.syncBaselineQty,
+                remoteUpdatedAt: fetched.summary.remoteUpdatedAt?.toISOString() ?? null,
+              });
+              return;
+            }
+          }
+
           return adapter.updateInventory(ctx, link.externalListingId, adjustedQty, freshItem);
         });
+        if (skippedNewerRemoteQty) {
+          results.push({ provider, ok: true, skipped: "remote_newer" });
+          continue;
+        }
         await prisma.channelListingLink.update({
           where: { id: link.id },
           data: {

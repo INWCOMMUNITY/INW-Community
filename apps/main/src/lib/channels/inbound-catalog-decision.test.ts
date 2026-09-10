@@ -3,10 +3,12 @@ import {
   inboundRefreshShouldPull,
   isInboundCatalogContentEcho,
   isOwnChannelPushEcho,
+  newerChannelQtyEditShouldPull,
   remoteCatalogChangedSinceBaseline,
   remoteListingDisagreesForSync,
   remoteQtyOnlyShouldPull,
   shouldFlagWixRemoteDeleted,
+  shouldHoldQtyPushForUntrustedRemote,
   shouldLogCatalogConflict,
 } from "./inbound-catalog-decision";
 
@@ -253,6 +255,133 @@ describe("remoteQtyOnlyShouldPull", () => {
         inwQuantity: 49,
         baselineQty: 49,
         inwQtyChangedSinceBaseline: false,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("newerChannelQtyEditShouldPull", () => {
+  const older = new Date("2026-09-10T01:00:00.000Z");
+  const newer = new Date("2026-09-10T02:00:00.000Z");
+
+  it("pulls when only the channel moved (INW at baseline)", () => {
+    expect(
+      newerChannelQtyEditShouldPull({
+        remoteQtyKnown: true,
+        remoteQuantity: 6,
+        inwQuantity: 4,
+        inwQtyChangedSinceBaseline: false,
+        inwUpdatedAt: older,
+        remoteUpdatedAt: newer,
+        baselineAt: older,
+      })
+    ).toBe(true);
+  });
+
+  it("pulls the snap-back case: baseline drifted but the channel is the newer edit", () => {
+    // INW qty drifted from baseline (e.g. a sale elsewhere), yet Etsy was edited most recently.
+    // The old baseline-only rule pushed INW's stale qty back; recency must PULL instead.
+    expect(
+      newerChannelQtyEditShouldPull({
+        remoteQtyKnown: true,
+        remoteQuantity: 6,
+        inwQuantity: 5,
+        inwQtyChangedSinceBaseline: true,
+        inwUpdatedAt: older,
+        remoteUpdatedAt: newer,
+        baselineAt: older,
+      })
+    ).toBe(true);
+  });
+
+  it("does not pull when INW is the newer edit (both changed)", () => {
+    expect(
+      newerChannelQtyEditShouldPull({
+        remoteQtyKnown: true,
+        remoteQuantity: 6,
+        inwQuantity: 5,
+        inwQtyChangedSinceBaseline: true,
+        inwUpdatedAt: newer,
+        remoteUpdatedAt: older,
+        baselineAt: older,
+      })
+    ).toBe(false);
+  });
+
+  it("does not pull inside the settle window (our own push echo)", () => {
+    const future = new Date(Date.now() + 60_000);
+    expect(
+      newerChannelQtyEditShouldPull({
+        remoteQtyKnown: true,
+        remoteQuantity: 6,
+        inwQuantity: 4,
+        inwQtyChangedSinceBaseline: false,
+        inwUpdatedAt: older,
+        remoteUpdatedAt: newer,
+        baselineAt: future,
+      })
+    ).toBe(false);
+  });
+
+  it("does not pull when the remote quantity is unknown", () => {
+    expect(
+      newerChannelQtyEditShouldPull({
+        remoteQtyKnown: false,
+        remoteQuantity: 0,
+        inwQuantity: 4,
+        inwQtyChangedSinceBaseline: false,
+        inwUpdatedAt: older,
+        remoteUpdatedAt: newer,
+        baselineAt: older,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("shouldHoldQtyPushForUntrustedRemote", () => {
+  const older = new Date("2026-09-10T01:00:00.000Z");
+  const newer = new Date("2026-09-10T02:00:00.000Z");
+
+  it("holds an Etsy push when remote qty is unknown and not proven stale", () => {
+    expect(
+      shouldHoldQtyPushForUntrustedRemote({
+        provider: "etsy",
+        remoteQtyKnown: false,
+        remoteUpdatedAt: newer,
+        inwUpdatedAt: older,
+      })
+    ).toBe(true);
+  });
+
+  it("allows the push when the remote timestamp proves INW is strictly newer", () => {
+    expect(
+      shouldHoldQtyPushForUntrustedRemote({
+        provider: "etsy",
+        remoteQtyKnown: false,
+        remoteUpdatedAt: older,
+        inwUpdatedAt: newer,
+      })
+    ).toBe(false);
+  });
+
+  it("never holds when the remote quantity is trusted", () => {
+    expect(
+      shouldHoldQtyPushForUntrustedRemote({
+        provider: "etsy",
+        remoteQtyKnown: true,
+        remoteUpdatedAt: newer,
+        inwUpdatedAt: older,
+      })
+    ).toBe(false);
+  });
+
+  it("only applies to Etsy", () => {
+    expect(
+      shouldHoldQtyPushForUntrustedRemote({
+        provider: "ebay",
+        remoteQtyKnown: false,
+        remoteUpdatedAt: newer,
+        inwUpdatedAt: older,
       })
     ).toBe(false);
   });

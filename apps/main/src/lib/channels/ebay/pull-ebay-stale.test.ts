@@ -16,6 +16,8 @@ import {
   ebayDirtyInboundUnconfirmed,
   withEbayDirtyUnconfirmed,
   EBAY_DIRTY_UNCONFIRMED_TTL_MS,
+  ebayInPostInboundSettleWindow,
+  EBAY_POST_INBOUND_SETTLE_MS,
 } from "./pull-ebay-updates";
 
 describe("isEbayInboundContentChange", () => {
@@ -609,6 +611,67 @@ describe("ebayGetItemApplyDecision", () => {
     expect(
       ebayGetItemApplyDecision({ ...neverPulled, pendingRemoteHash: first.pendingHash })
     ).toMatchObject({ action: "apply", reason: "confirmed-snapshot" });
+  });
+
+  it("does not revert a just-applied value from a lagged rotate GetItem in the settle window", () => {
+    // We pulled the seller's eBay edit (title=New) into INW at 02:00. A rotate GetItem at 02:05
+    // still returns the PRE-edit title (Old); without a strictly-newer LastModifiedTime it must
+    // NOT snap the just-applied value back — require a second consistent look first.
+    const lagged = {
+      ...base,
+      lastInboundAt: new Date("2026-09-10T02:00:00.000Z"),
+      inwTitle: "New Seller Title",
+      remoteTitle: "Old Title",
+      lastSyncedTitle: "New Seller Title",
+      ebayLastModified: null as Date | null,
+      now: new Date("2026-09-10T02:05:00.000Z"),
+    };
+    const first = ebayGetItemApplyDecision(lagged);
+    expect(first).toMatchObject({ action: "pending", reason: "settle-await-confirm" });
+    // A second consistent look (still Old) confirms it is a genuine revert and applies.
+    expect(
+      ebayGetItemApplyDecision({ ...lagged, pendingRemoteHash: first.pendingHash })
+    ).toMatchObject({ action: "apply", reason: "remote-revise" });
+  });
+
+  it("applies an independent rotate revise immediately once past the settle window", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastInboundAt: new Date("2026-09-10T02:00:00.000Z"),
+        inwTitle: "New Seller Title",
+        remoteTitle: "Old Title",
+        lastSyncedTitle: "New Seller Title",
+        ebayLastModified: null,
+        now: new Date("2026-09-10T02:15:00.000Z"),
+      })
+    ).toMatchObject({ action: "apply", reason: "remote-revise" });
+  });
+});
+
+describe("ebayInPostInboundSettleWindow", () => {
+  const inbound = new Date("2026-09-10T02:00:00.000Z");
+
+  it("is true within the window after an inbound apply", () => {
+    expect(
+      ebayInPostInboundSettleWindow({
+        lastInboundAt: inbound,
+        now: new Date(inbound.getTime() + EBAY_POST_INBOUND_SETTLE_MS - 1),
+      })
+    ).toBe(true);
+  });
+
+  it("is false once the window elapses", () => {
+    expect(
+      ebayInPostInboundSettleWindow({
+        lastInboundAt: inbound,
+        now: new Date(inbound.getTime() + EBAY_POST_INBOUND_SETTLE_MS + 1),
+      })
+    ).toBe(false);
+  });
+
+  it("is false when the listing has never pulled", () => {
+    expect(ebayInPostInboundSettleWindow({ lastInboundAt: null })).toBe(false);
   });
 });
 

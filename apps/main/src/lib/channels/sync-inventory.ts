@@ -19,6 +19,10 @@ import {
   hydrateCircuitFromConfig,
 } from "./circuit-breaker";
 import { shouldBypassCircuitForInventoryPush } from "./circuit-inventory-bypass";
+import { shouldBlockOutboundQtyOverwrite } from "./sync-baseline";
+import { fetchEbayItemDetails } from "./ebay/trading";
+import { resolveEbayLegacyListingId } from "./ebay/mapping";
+import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
 
 /**
  * Push the StoreItem's current (authoritative) quantity out to every linked channel as an
@@ -116,7 +120,7 @@ export async function syncInventoryToChannels(
     try {
       const freshItem = await prisma.storeItem.findUnique({
         where: { id: storeItemId },
-        select: syncStoreItemSelect,
+        select: { ...syncStoreItemSelect, updatedAt: true },
       });
       if (!freshItem) continue;
       storeItemStatus = freshItem.status;
@@ -153,6 +157,60 @@ export async function syncInventoryToChannels(
       }
       
       const qty = assertSaneInventoryQty(adjustedQty, `syncInventory(${provider})`);
+
+      // Sale-revert guard. This absolute-qty push converges stock after a sale, so it must not
+      // block legitimate convergence (INW moved off baseline). It ONLY guards the suspicious
+      // case: INW is still at the last agreed baseline while the live channel stock has moved —
+      // a real sale/edit on the channel that INW has not pulled yet. A live read there prevents
+      // re-pushing INW's stale quantity and "un-selling" the item. Exact-compare only (no buffer).
+      const qtyGuardExact = totalBuffer === 0;
+      const inwAtBaseline =
+        link.syncBaselineQty != null && item.quantity === link.syncBaselineQty;
+      if (qtyGuardExact && inwAtBaseline && (provider === "ebay" || provider === "etsy")) {
+        const blocked = await withConnectionAuthRetry(link.connection, async (ctx) => {
+          if (provider === "ebay") {
+            const legacyId = resolveEbayLegacyListingId(link.externalListingId);
+            if (!legacyId) return false;
+            const live = await fetchEbayItemDetails(ctx.accessToken, legacyId).catch(() => null);
+            if (!live || live.quantity == null) return false;
+            return shouldBlockOutboundQtyOverwrite({
+              inwQuantity: item.quantity,
+              remoteQuantity: live.quantity,
+              syncBaselineQty: link.syncBaselineQty,
+              remoteUpdatedAt: live.remoteUpdatedAt ?? null,
+              inwUpdatedAt: freshItem.updatedAt,
+              lastPushedAt: link.lastPushedAt,
+            });
+          }
+          const fetched = await fetchEtsyListingForInbound(
+            ctx.accessToken,
+            link.externalListingId
+          ).catch(() => null);
+          if (!fetched || fetched.status !== "ok" || fetched.summary.quantityKnown === false) {
+            return false;
+          }
+          return shouldBlockOutboundQtyOverwrite({
+            inwQuantity: item.quantity,
+            remoteQuantity: fetched.summary.quantity,
+            syncBaselineQty: link.syncBaselineQty,
+            remoteUpdatedAt: fetched.summary.remoteUpdatedAt ?? null,
+            inwUpdatedAt: freshItem.updatedAt,
+            lastPushedAt: link.lastPushedAt,
+          });
+        });
+        if (blocked) {
+          console.warn("[channels] skip inventory push; live stock is newer than INW (at baseline)", {
+            storeItemId,
+            provider,
+            externalListingId: link.externalListingId,
+            inwQty: item.quantity,
+            syncBaselineQty: link.syncBaselineQty,
+          });
+          results.push({ provider, ok: true, skipped: "remote_newer" });
+          continue;
+        }
+      }
+
       await withConnectionAuthRetry(link.connection, (ctx) =>
         adapter.updateInventory(ctx, link.externalListingId, qty, item)
       );

@@ -67,15 +67,28 @@ export function etsyHydrateBelongsInActiveCatalog(state: string | null | undefin
   return !etsyListingIsNotActive(state);
 }
 
-/** Lower is first. Prefer missing-from-list and false shop-list zeros over other dirty rows. */
+/**
+ * Lower is first. Prefer missing-from-list and false shop-list zeros, then rows with a
+ * pending quantity decision — Etsy edited after our baseline, or shop-list qty diverges from
+ * INW — so `remoteQtyKnown` is resolved (via hydration) before the qty-direction branch runs
+ * and cannot fall through to pushing INW's stale quantity back over a real Etsy edit.
+ */
 export function etsyInboundHydratePriority(
-  remote: { quantity?: number } | null | undefined,
-  inwQuantity: number
+  remote: { quantity?: number; remoteUpdatedAt?: Date | null } | null | undefined,
+  inwQuantity: number,
+  inw?: { baselineAt?: Date | null }
 ): number {
   if (remote == null) return 0;
   if ((remote.quantity ?? 0) <= 0 && inwQuantity > 0) return 1;
-  if ((remote.quantity ?? 0) <= 0) return 2;
-  return 3;
+  const remoteEditedAfterBaseline = Boolean(
+    inw?.baselineAt &&
+      remote.remoteUpdatedAt &&
+      remote.remoteUpdatedAt.getTime() > inw.baselineAt.getTime()
+  );
+  if (remoteEditedAfterBaseline) return 2;
+  if ((remote.quantity ?? 0) !== inwQuantity) return 3;
+  if ((remote.quantity ?? 0) <= 0) return 4;
+  return 5;
 }
 
 export function etsyLinkedListingNeedsHydrate(

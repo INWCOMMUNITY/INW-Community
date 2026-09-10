@@ -5,6 +5,7 @@ import {
   newerChannelEditShouldPull,
   resolveSyncDirection,
   shouldBlockOutboundOverwrite,
+  shouldBlockOutboundQtyOverwrite,
   shouldBlockEbayOutboundOverwrite,
   syncContentHash,
   ebayRemoteLooksLikeIndependentRevise,
@@ -355,6 +356,77 @@ describe("shouldBlockEbayOutboundOverwrite", () => {
         nowMs,
       })
     ).toBe(true);
+  });
+});
+
+describe("shouldBlockOutboundQtyOverwrite", () => {
+  const older = new Date("2026-09-10T01:00:00.000Z");
+  const newer = new Date("2026-09-10T02:00:00.000Z");
+
+  it("blocks re-pushing INW's stale qty when eBay moved and INW is at baseline (no remote ts)", () => {
+    // The sale-revert exposure: buyer bought on eBay (qty 5 -> 4), INW still at baseline 5.
+    expect(
+      shouldBlockOutboundQtyOverwrite({
+        inwQuantity: 5,
+        remoteQuantity: 4,
+        syncBaselineQty: 5,
+        remoteUpdatedAt: null,
+        inwUpdatedAt: older,
+        lastPushedAt: older,
+      })
+    ).toBe(true);
+  });
+
+  it("allows the push when INW genuinely changed qty (INW off baseline)", () => {
+    expect(
+      shouldBlockOutboundQtyOverwrite({
+        inwQuantity: 3,
+        remoteQuantity: 5,
+        syncBaselineQty: 5,
+        remoteUpdatedAt: null,
+        inwUpdatedAt: newer,
+        lastPushedAt: older,
+      })
+    ).toBe(false);
+  });
+
+  it("blocks an Etsy push when the remote edit is newer than INW", () => {
+    expect(
+      shouldBlockOutboundQtyOverwrite({
+        inwQuantity: 5,
+        remoteQuantity: 4,
+        syncBaselineQty: 5,
+        remoteUpdatedAt: newer,
+        inwUpdatedAt: older,
+        lastPushedAt: older,
+      })
+    ).toBe(true);
+  });
+
+  it("does not block within the echo window after our own push", () => {
+    expect(
+      shouldBlockOutboundQtyOverwrite({
+        inwQuantity: 5,
+        remoteQuantity: 4,
+        syncBaselineQty: 5,
+        remoteUpdatedAt: null,
+        inwUpdatedAt: older,
+        lastPushedAt: new Date(),
+      })
+    ).toBe(false);
+  });
+
+  it("does not block when remote quantity matches INW", () => {
+    expect(
+      shouldBlockOutboundQtyOverwrite({
+        inwQuantity: 5,
+        remoteQuantity: 5,
+        syncBaselineQty: 5,
+        remoteUpdatedAt: newer,
+        inwUpdatedAt: older,
+        lastPushedAt: older,
+      })
+    ).toBe(false);
   });
 });
 

@@ -41,7 +41,8 @@ import {
   isOwnChannelPushEcho,
   remoteCatalogChangedSinceBaseline,
   remoteListingDisagreesForSync,
-  remoteQtyOnlyShouldPull,
+  newerChannelQtyEditShouldPull,
+  shouldHoldQtyPushForUntrustedRemote,
   shouldFlagWixRemoteDeleted,
   shouldLogCatalogConflict,
 } from "./inbound-catalog-decision";
@@ -373,11 +374,13 @@ export async function reconcileConnectionInboundCatalog(
         (a, b) =>
           etsyInboundHydratePriority(
             remoteById.get(a.externalListingId),
-            a.storeItem.quantity
+            a.storeItem.quantity,
+            { baselineAt: a.syncBaselineAt }
           ) -
           etsyInboundHydratePriority(
             remoteById.get(b.externalListingId),
-            b.storeItem.quantity
+            b.storeItem.quantity,
+            { baselineAt: b.syncBaselineAt }
           )
       );
     for (const link of hydrateLinks) etsyNeedsHydrateIds.add(link.externalListingId);
@@ -1069,24 +1072,50 @@ export async function reconcileConnectionInboundCatalog(
           inwQuantity: item.quantity,
           remoteQtyKnown,
         });
-      // Quantity differs but we didn't pull content - need to decide direction
-      // If remote quantity changed (remote != baseline), pull from remote
-      // If INW quantity changed (inw != baseline), push to remote
-      const remoteQtyChanged = remoteQtyOnlyShouldPull({
+      // Quantity differs but we didn't pull content — decide direction by RECENCY, not by
+      // "who drifted from baseline". A sale on another channel drifts INW's baseline qty
+      // without being a newer INW edit, so the old baseline-only rule pushed INW's stale
+      // quantity back over a real channel edit (the reported snap-back). Most-recent edit wins.
+      const remoteQtyChanged = newerChannelQtyEditShouldPull({
         remoteQtyKnown,
         remoteQuantity: remote.quantity,
         inwQuantity: item.quantity,
+        inwQtyChangedSinceBaseline,
+        inwUpdatedAt: item.updatedAt,
+        remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
+        baselineAt: link.syncBaselineAt ?? null,
+      });
+      // Never push INW's quantity to a channel whose true stock we could not read this tick
+      // and that may have been edited at/after our baseline — that would revert a real sale.
+      const holdUntrustedRemote = shouldHoldQtyPushForUntrustedRemote({
+        provider,
+        remoteQtyKnown,
+        remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
+        inwUpdatedAt: item.updatedAt,
+      });
+
+      console.log("[channels] qty-only sync decision", {
+        storeItemId: link.storeItemId,
+        externalListingId: link.externalListingId,
+        provider,
+        direction: remoteQtyChanged ? "pull" : holdUntrustedRemote ? "hold" : "push",
+        inwQty: item.quantity,
+        remoteQty: remoteQtyKnown ? remote.quantity : null,
+        remoteQtyKnown,
         baselineQty: link.syncBaselineQty,
         inwQtyChangedSinceBaseline,
+        inwUpdatedAt: item.updatedAt?.toISOString() ?? null,
+        remoteUpdatedAt: remote.remoteUpdatedAt?.toISOString() ?? null,
+        baselineAt: link.syncBaselineAt?.toISOString() ?? null,
       });
-      
+
       if (
         remoteQtyChanged &&
         allowPull &&
         !blockRecovery &&
         (canApplyAggregateQty || (provider === "etsy" && Boolean(remote.variantsKnown)))
       ) {
-        // Remote changed, INW didn't - pull from remote
+        // Remote is the most-recent edit - pull from remote
         console.log("[channels] pulling quantity from remote (qty-only change)", {
           storeItemId: link.storeItemId,
           oldQty: item.quantity,
@@ -1101,6 +1130,12 @@ export async function reconcileConnectionInboundCatalog(
         console.log("[channels] skip Etsy qty-only zero push; shop-list quantity is untrusted", {
           storeItemId: link.storeItemId,
           externalListingId: link.externalListingId,
+        });
+      } else if (holdUntrustedRemote) {
+        console.log("[channels] hold qty push; remote quantity untrusted and not proven stale", {
+          storeItemId: link.storeItemId,
+          externalListingId: link.externalListingId,
+          remoteUpdatedAt: remote.remoteUpdatedAt?.toISOString() ?? null,
         });
       } else if (allowPush && !needsQtyRecovery) {
         // INW changed or both changed — push, including zero when recovery is blocked.

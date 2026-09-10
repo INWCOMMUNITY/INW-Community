@@ -297,6 +297,57 @@ export function shouldBlockEbayOutboundOverwrite(args: {
 }
 
 /**
+ * Inventory-only outbound guard (quantity, no title).
+ *
+ * The inventory-only push path changes stock only, so it must NOT be blocked by a title
+ * revise — but it MUST refuse to push INW's quantity when the live marketplace quantity is
+ * the newer edit and INW is still at the last agreed baseline. That is the sale-revert
+ * exposure: a buyer purchases on eBay/Etsy, the channel decrements stock, and INW (still at
+ * the old baseline) would otherwise re-push the pre-sale quantity and "un-sell" the item.
+ *
+ * - INW quantity != baseline  → INW genuinely changed stock → allow the push.
+ * - INW == baseline, channel moved off baseline → channel is newer:
+ *     • with timestamps (Etsy): block when remote is not older than INW.
+ *     • without a remote timestamp (eBay GetItem): block (the live read already proves
+ *       the channel moved while INW sat at baseline).
+ */
+export function shouldBlockOutboundQtyOverwrite(args: {
+  inwQuantity: number;
+  remoteQuantity: number | null | undefined;
+  syncBaselineQty: number | null | undefined;
+  remoteUpdatedAt: Date | null | undefined;
+  inwUpdatedAt: Date | null;
+  lastPushedAt: Date | null;
+  nowMs?: number;
+}): boolean {
+  if (args.remoteQuantity == null) return false;
+  if (args.remoteQuantity === args.inwQuantity) return false;
+
+  const now = args.nowMs ?? Date.now();
+  // Within the echo window after our own push, a differing remote qty is our push settling.
+  if (args.lastPushedAt && now - args.lastPushedAt.getTime() < SYNC_ECHO_SKEW_MS) return false;
+
+  const baseline = args.syncBaselineQty;
+  if (baseline == null) {
+    // No agreed baseline: only block when a channel timestamp proves it is strictly newer.
+    if (args.remoteUpdatedAt && args.inwUpdatedAt) {
+      return args.remoteUpdatedAt.getTime() > args.inwUpdatedAt.getTime();
+    }
+    return false;
+  }
+
+  const inwMatchesBaseline = args.inwQuantity === baseline;
+  const remoteMatchesBaseline = args.remoteQuantity === baseline;
+  if (inwMatchesBaseline && !remoteMatchesBaseline) {
+    if (args.remoteUpdatedAt && args.inwUpdatedAt) {
+      return args.remoteUpdatedAt.getTime() >= args.inwUpdatedAt.getTime();
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
  * Decide direction for a single aspect (content or quantity).
  * - only INW changed   -> push (INW -> channel)
  * - only channel changed -> pull (channel -> INW)

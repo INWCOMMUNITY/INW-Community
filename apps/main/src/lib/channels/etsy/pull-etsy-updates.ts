@@ -17,7 +17,7 @@ import {
 import {
   inboundRefreshShouldPull,
   isOwnChannelPushEcho,
-  remoteQtyOnlyShouldPull,
+  newerChannelQtyEditShouldPull,
 } from "../inbound-catalog-decision";
 import { variantsFingerprint } from "../variant-sync";
 import { updateStoreItemOnChannels } from "../outbound";
@@ -195,13 +195,15 @@ export async function refreshEtsyListingByStoreItemId(
   const shouldPullQty =
     !ownPushEcho &&
     qtyKnown &&
-    remoteQtyOnlyShouldPull({
+    newerChannelQtyEditShouldPull({
       remoteQtyKnown: qtyKnown,
       remoteQuantity: remote.quantity,
       inwQuantity: storeItem.quantity,
-      baselineQty: link.syncBaselineQty,
       inwQtyChangedSinceBaseline:
         link.syncBaselineQty != null && link.syncBaselineQty !== storeItem.quantity,
+      inwUpdatedAt: storeItem.updatedAt,
+      remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
+      baselineAt: link.syncBaselineAt ?? null,
     });
 
   if (!shouldPullContent && !shouldPullQty) {

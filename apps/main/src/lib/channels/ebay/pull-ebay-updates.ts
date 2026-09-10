@@ -413,6 +413,29 @@ export function withEbayDirtyUnconfirmed(
   return base as Prisma.InputJsonValue;
 }
 
+/**
+ * Post-inbound settle window.
+ *
+ * eBay's GetItem (used on the cron *rotate* path) frequently lags a revise by several
+ * minutes and can return the PRE-edit snapshot right after we already applied a seller
+ * edit inbound (webhook / dirty pull). Without a strictly-newer LastModifiedTime that
+ * lagged snapshot looks like an "independent revise" and would snap the just-applied
+ * title/qty back to the old value (the reported eBay snap-back). Within this window, a
+ * rotate revise that is not proven newer must be confirmed by a second consistent look
+ * (pending → confirmed-snapshot) before we apply it. Dirty/webhook single-snapshot trust
+ * is unaffected — this only guards the two-look rotate path.
+ */
+export const EBAY_POST_INBOUND_SETTLE_MS = 10 * 60_000;
+
+export function ebayInPostInboundSettleWindow(args: {
+  lastInboundAt: Date | null;
+  now?: Date;
+}): boolean {
+  if (!args.lastInboundAt) return false;
+  const now = (args.now ?? new Date()).getTime();
+  return now - args.lastInboundAt.getTime() < EBAY_POST_INBOUND_SETTLE_MS;
+}
+
 export type EbayGetItemApplyDecision = {
   action: "apply" | "skip" | "pending";
   reason: string;
@@ -533,10 +556,26 @@ export function ebayGetItemApplyDecision(args: {
   }
 
   if (independentRevise) {
+    // Reaching here means eBay is NOT proven newer (no strictly-newer LastModifiedTime —
+    // that case already returned "lastModified-newer" above). If we just applied an inbound
+    // edit, a lagged rotate GetItem could be showing the pre-edit snapshot; require a second
+    // consistent look before reverting a just-applied value.
+    if (
+      ebayInPostInboundSettleWindow({ lastInboundAt: args.lastInboundAt, now: args.now }) &&
+      args.pendingRemoteHash !== remoteHash
+    ) {
+      return { action: "pending", reason: "settle-await-confirm", pendingHash: remoteHash };
+    }
     return { action: "apply", reason: "remote-revise", pendingHash: remoteHash };
   }
 
   if (descriptionDiffers && qtyPriceMatch) {
+    if (
+      ebayInPostInboundSettleWindow({ lastInboundAt: args.lastInboundAt, now: args.now }) &&
+      args.pendingRemoteHash !== remoteHash
+    ) {
+      return { action: "pending", reason: "settle-await-confirm", pendingHash: remoteHash };
+    }
     return { action: "apply", reason: "remote-revise", pendingHash: remoteHash };
   }
 

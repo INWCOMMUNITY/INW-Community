@@ -123,8 +123,20 @@ describe("etsyInboundHydratePriority", () => {
   it("hydrates missing rows and false shop-list zeros before other dirty links", () => {
     expect(etsyInboundHydratePriority(undefined, 4)).toBe(0);
     expect(etsyInboundHydratePriority({ quantity: 0 }, 4)).toBe(1);
-    expect(etsyInboundHydratePriority({ quantity: 0 }, 0)).toBe(2);
+    // Shop-list zero with no INW stock and no pending decision falls to the zero tier.
+    expect(etsyInboundHydratePriority({ quantity: 0 }, 0)).toBe(4);
+    // A quantity that diverges from INW is a pending decision — hydrate before generic dirty.
     expect(etsyInboundHydratePriority({ quantity: 3 }, 4)).toBe(3);
+    // A matching, unchanged row is lowest priority.
+    expect(etsyInboundHydratePriority({ quantity: 4 }, 4)).toBe(5);
+  });
+
+  it("prioritizes rows Etsy edited after our baseline (a pending qty decision)", () => {
+    const baselineAt = new Date("2026-09-10T01:00:00.000Z");
+    const newer = new Date("2026-09-10T02:00:00.000Z");
+    expect(
+      etsyInboundHydratePriority({ quantity: 4, remoteUpdatedAt: newer }, 4, { baselineAt })
+    ).toBe(2);
   });
 });
 
