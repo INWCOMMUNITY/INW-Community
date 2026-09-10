@@ -419,6 +419,45 @@ describe("ebayGetItemApplyDecision", () => {
       })
     ).toEqual({ action: "skip", reason: "inw-newer-than-ebay" });
   });
+
+  it("applies an eBay title revise on cron-dirty when this listing has never pulled", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastInboundAt: null,
+        lastPushedAt: new Date("2026-09-10T02:26:13.756Z"),
+        inwUpdatedAt: new Date("2026-09-10T02:30:26.884Z"),
+        inwTitle: "Vintage Bear Clock (Testing) S",
+        remoteTitle: "Vintage Bear Clock (Testing) Sync Ebay",
+        remotePriceCents: 200,
+        inwPriceCents: 200,
+        remoteQuantity: 49,
+        inwQuantity: 49,
+        source: "cron-dirty",
+        now: new Date("2026-09-10T02:30:30.201Z"),
+      })
+    ).toMatchObject({ action: "apply", reason: "dirty-revise" });
+  });
+
+  it("confirms a never-pulled eBay title revise on the second rotate look", () => {
+    const neverPulled = {
+      ...base,
+      lastInboundAt: null,
+      lastPushedAt: new Date("2026-09-10T02:26:13.756Z"),
+      inwUpdatedAt: new Date("2026-09-10T02:30:26.884Z"),
+      inwTitle: "Vintage Bear Clock (Testing) S",
+      remoteTitle: "Vintage Bear Clock (Testing) Sync Ebay",
+      remotePriceCents: 200,
+      inwPriceCents: 200,
+      remoteQuantity: 49,
+      inwQuantity: 49,
+    };
+    const first = ebayGetItemApplyDecision(neverPulled);
+    expect(first).toMatchObject({ action: "pending", reason: "await-confirm" });
+    expect(
+      ebayGetItemApplyDecision({ ...neverPulled, pendingRemoteHash: first.pendingHash })
+    ).toMatchObject({ action: "apply", reason: "confirmed-snapshot" });
+  });
 });
 
 describe("ebayGetItemShouldPreserveInwContent", () => {
@@ -430,6 +469,16 @@ describe("ebayGetItemShouldPreserveInwContent", () => {
         inwUpdatedAt: null,
         lastInboundAt: null,
         lastPushedAt: null,
+      })
+    ).toBe(false);
+  });
+
+  it("does not treat a never-pulled INW-created listing as newer than eBay", () => {
+    expect(
+      ebayGetItemShouldPreserveInwContent({
+        inwUpdatedAt: new Date("2026-09-10T02:30:26.884Z"),
+        lastInboundAt: null,
+        lastPushedAt: new Date("2026-09-10T02:26:13.756Z"),
       })
     ).toBe(false);
   });

@@ -191,9 +191,11 @@ export function ebayGetItemIsPushEcho(args: {
 /**
  * GetItem almost never includes LastModifiedTime. After an INW title save, eBay can
  * still show the previous title (push echo, or a #25014 picture mix that blocked the PUT).
- * Cron-dirty / confirmed-snapshot must not copy that lagged title back onto INW.
- * A real eBay revise is allowed when LastModified is strictly newer than the INW save,
- * or when INW has not been saved since we last applied eBay content (first import included).
+ * Cron-dirty / confirmed-snapshot must not copy that lagged title back onto INW once
+ * we have successfully pulled at least once. A listing that has never pulled
+ * (`lastInboundAt` null, including INW-created publishes) must still adopt a
+ * real field diff — echo is handled separately by `ebayGetItemIsPushEcho`.
+ * `lastPushedAt` is accepted for call-site symmetry; it is not used here.
  */
 export function ebayGetItemShouldPreserveInwContent(args: {
   inwUpdatedAt: Date | null;
@@ -205,8 +207,9 @@ export function ebayGetItemShouldPreserveInwContent(args: {
   const inwAt = args.inwUpdatedAt?.getTime() ?? 0;
   if (ebayAt > 0 && (inwAt === 0 || ebayAt > inwAt)) return false;
   const inboundAt = args.lastInboundAt?.getTime() ?? 0;
-  const pushedAt = args.lastPushedAt?.getTime() ?? 0;
-  if (inboundAt === 0 && pushedAt === 0) return false;
+  // Never successfully pulled from eBay. Missing LastModifiedTime must not hide a
+  // seller revise (INW-created listings stay lastInboundAt=null after publish).
+  if (inboundAt === 0) return false;
   return inwAt > inboundAt;
 }
 
