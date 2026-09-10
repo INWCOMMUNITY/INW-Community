@@ -5,7 +5,7 @@ import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-s
 import { EBAY_CURRENCY, EBAY_MARKETPLACE_ID, getEbayConfig } from "./config";
 import { applyBestOfferTermsToOfferBody } from "./best-offer";
 import type { EbayConnectionConfig } from "./account";
-import { sanitizeEbayPhotoUrlForInventoryPut } from "./photos";
+import { normalizeEbayPhotoUrl, sanitizeEbayPhotoUrlForInventoryPut } from "./photos";
 import {
   EBAY_TITLE_MAX,
   aspectsToEbayProductAspects,
