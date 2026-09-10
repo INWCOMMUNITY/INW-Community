@@ -9,6 +9,9 @@ import { waitForRateLimit } from "../rate-limit-tracker";
  * connection id through an AsyncLocalStorage scope (not a module-global like the Etsy client, so
  * concurrent connections in one cron invocation keep independent rate windows) and pace each
  * eBay HTTP call against that connection's sliding window.
+ *
+ * This module imports the Node-only `async_hooks`, so it must stay server-only: nothing that
+ * reaches a client bundle may import `ebay/client.ts` (see `ebay/condition-sync-error.ts`).
  */
 const store = new AsyncLocalStorage<{ connectionId: string }>();
 

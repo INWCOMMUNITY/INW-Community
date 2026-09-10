@@ -637,7 +637,4 @@ export function inwConditionFromEbayEnum(conditionEnum: string | null | undefine
   return "used";
 }
 
-export function isEbayConditionSyncError(message: string | null | undefined): boolean {
-  if (!message?.trim()) return false;
-  return /\b25021\b|invalid item condition|condition id is invalid/i.test(message);
-}
+export { isEbayConditionSyncError } from "./condition-sync-error";

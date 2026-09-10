@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
-import { isEbayConditionSyncError } from "@/lib/channels/ebay/conditions";
+import { isEbayConditionSyncError } from "@/lib/channels/ebay/condition-sync-error";
 import { providerLabel } from "@/lib/channel-sync-feedback";
 import { channelLinkShowsOnItem } from "@/lib/channels/listing-sync-warning";
 
