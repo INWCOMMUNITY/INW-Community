@@ -123,7 +123,9 @@ const EBAY_INBOUND_META_KEYS = new Set(["ebayCategoryId", "category", "subcatego
 
 /**
  * After INW publishes a variation group, GetItem often returns a degraded snapshot
- * (qty 1 on every option, missing values). Applying that would wipe seller stock.
+ * (qty 1 on every option, missing values). Applying that wipes seller stock and
+ * fans the wrong total out to Etsy/Shopify every cron tick. Never apply all-1s
+ * over real option quantities — a 15-minute window still flapped after it expired.
  */
 export function shouldApplyEbayInboundVariants(args: {
   localVariants: unknown;
@@ -150,16 +152,16 @@ export function shouldApplyEbayInboundVariants(args: {
 
   const remoteAllOne = remotePrimary.options.every((option) => option.quantity === 1);
   const localHasNonOne = localPrimary.options.some((option) => option.quantity !== 1);
-  const pushedAt = args.lastPushedAt?.getTime();
-  const nowMs = args.now?.getTime() ?? Date.now();
-  if (
-    remoteAllOne &&
-    localHasNonOne &&
-    pushedAt != null &&
-    nowMs - pushedAt < EBAY_INBOUND_ECHO_MS
-  ) {
-    return false;
-  }
+  if (remoteAllOne && localHasNonOne) return false;
+  return true;
+}
+
+/** GetItem listing Quantity is not per-option stock. Do not copy it onto variation listings. */
+export function ebayGetItemShouldApplyListingQuantity(args: {
+  localHasOptionQuantities: boolean;
+  applyRemoteVariants: boolean;
+}): boolean {
+  if (args.localHasOptionQuantities && !args.applyRemoteVariants) return false;
   return true;
 }
 
@@ -778,7 +780,14 @@ export async function refreshEbayListingByItemId(
     lastPushedAt: link.lastPushedAt,
   });
 
-  if (!opts?.skipQuantity && remoteQty !== storeItem.quantity) {
+  if (
+    !opts?.skipQuantity &&
+    remoteQty !== storeItem.quantity &&
+    ebayGetItemShouldApplyListingQuantity({
+      localHasOptionQuantities: hasOptionQuantities(storeItem.variants),
+      applyRemoteVariants,
+    })
+  ) {
     const unsoldZero = ebayGetItemQtyIsUnsoldZero({
       listingEnded: details.listingEnded,
       quantitySold: details.quantitySold,
@@ -791,18 +800,22 @@ export async function refreshEbayListingByItemId(
         remoteQty,
         quantitySold: details.quantitySold,
       });
-    } else if (hasRemoteVariants && !applyRemoteVariants) {
-      console.warn("[ebay] skip GetItem listing qty; variation snapshot looks like a post-publish echo", {
-        storeItemId: storeItem.id,
-        legacyItemId,
-        remoteQty,
-        inwQuantity: storeItem.quantity,
-      });
     } else {
       updateData.quantity = remoteQty;
       updateData.status = remoteQty > 0 ? "active" : "sold_out";
       changes.push(`quantity (${remoteQty})`);
     }
+  } else if (
+    !opts?.skipQuantity &&
+    remoteQty !== storeItem.quantity &&
+    hasOptionQuantities(storeItem.variants)
+  ) {
+    console.warn("[ebay] skip GetItem listing qty; INW uses per-option stock", {
+      storeItemId: storeItem.id,
+      legacyItemId,
+      remoteQty,
+      inwQuantity: storeItem.quantity,
+    });
   }
 
   if (!skipContent && applyRemoteVariants && remoteVariantMatrix && remoteVariantMatrix.skus.length > 0) {

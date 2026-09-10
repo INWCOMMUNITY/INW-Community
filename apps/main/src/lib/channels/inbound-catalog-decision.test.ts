@@ -242,4 +242,16 @@ describe("remoteQtyOnlyShouldPull", () => {
       })
     ).toBe(false);
   });
+
+  it("does not pull shop-list quantity that is not trusted", () => {
+    expect(
+      remoteQtyOnlyShouldPull({
+        remoteQtyKnown: false,
+        remoteQuantity: 0,
+        inwQuantity: 49,
+        baselineQty: 49,
+        inwQtyChangedSinceBaseline: false,
+      })
+    ).toBe(false);
+  });
 });

@@ -202,10 +202,11 @@ function titlesMatchForSync(a: string | null | undefined, b: string | null | und
 }
 
 /**
- * GetItem almost never includes LastModifiedTime. An eBay-only revise is when INW
- * still has the title we last synced and live eBay shows something else. If INW
- * already moved (seller save or another shop), a lagged GetItem is not an eBay
- * revise — do not copy the old live title back.
+ * GetItem almost never includes LastModifiedTime. Live eBay is an independent
+ * revise when it is neither INW nor the title we last synced. Requiring INW to
+ * still equal lastSynced let Etsy restamp INW and then skip (or overwrite) the
+ * eBay edit. A lagged GetItem after our own PUT still equals lastSynced, or is
+ * suppressed by the inbound lag window.
  */
 export function ebayRemoteLooksLikeIndependentRevise(args: {
   inwTitle: string;
@@ -217,8 +218,8 @@ export function ebayRemoteLooksLikeIndependentRevise(args: {
   if (!remote || remote === inw) return false;
   const synced = (args.lastSyncedTitle ?? "").trim();
   if (!synced) return false;
-  if (inw !== synced) return false;
-  return remote !== synced;
+  if (remote === synced) return false;
+  return true;
 }
 
 export function shouldBlockEbayOutboundOverwrite(args: {

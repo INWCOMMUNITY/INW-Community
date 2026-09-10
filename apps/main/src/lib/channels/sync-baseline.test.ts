@@ -218,14 +218,14 @@ describe("ebayRemoteLooksLikeIndependentRevise", () => {
     ).toBe(true);
   });
 
-  it("is false when INW already moved off the last synced title", () => {
+  it("is true when live eBay is a third title after another shop restamped INW", () => {
     expect(
       ebayRemoteLooksLikeIndependentRevise({
         inwTitle: "Vintage Bear Clock",
         lastSyncedTitle: "Vintage Bear Clock (Testing) S",
         remoteTitle: "Vintage Bear Clock (Testing) Sync Ebay",
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
@@ -272,6 +272,20 @@ describe("shouldBlockEbayOutboundOverwrite", () => {
         lastPushedAt,
         remoteUpdatedAt: null,
         inwMatchesLastPushedHash: true,
+        nowMs,
+      })
+    ).toBe(true);
+  });
+
+  it("blocks pushing an Etsy-stamped INW title over a live eBay revise", () => {
+    expect(
+      shouldBlockEbayOutboundOverwrite({
+        inwTitle: "Vintage Bear Clock",
+        remoteTitle: "Vintage Bear Clock (Testing) Sync Ebay",
+        lastSyncedTitle: "Vintage Bear Clock (Testing) S",
+        inwUpdatedAt,
+        lastPushedAt,
+        remoteUpdatedAt: null,
         nowMs,
       })
     ).toBe(true);

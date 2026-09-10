@@ -9,6 +9,7 @@ import {
   ebayGetItemDetailsAreUsable,
   readEbayPendingInboundHash,
   shouldApplyEbayInboundVariants,
+  ebayGetItemShouldApplyListingQuantity,
   withEbayPendingInbound,
   ebayCronShouldRetryOutbound,
   ebayCronShouldPushOutbound,
@@ -475,6 +476,25 @@ describe("ebayGetItemApplyDecision", () => {
     ).toMatchObject({ action: "apply", reason: "remote-revise" });
   });
 
+  it("applies a live eBay title after Etsy restamped INW so cron cannot skip the eBay edit", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastPushedAt: new Date("2026-09-10T01:00:00.000Z"),
+        lastInboundAt: new Date("2026-09-10T02:00:00.000Z"),
+        inwUpdatedAt: new Date("2026-09-10T02:30:26.884Z"),
+        inwTitle: "Vintage Bear Clock",
+        lastSyncedTitle: "Vintage Bear Clock (Testing) S",
+        remoteTitle: "Vintage Bear Clock (Testing) Sync Ebay",
+        remotePriceCents: 200,
+        inwPriceCents: 200,
+        remoteQuantity: 49,
+        inwQuantity: 49,
+        now: new Date("2026-09-10T02:30:30.201Z"),
+      })
+    ).toMatchObject({ action: "apply", reason: "remote-revise" });
+  });
+
   it("does not apply a lagged GetItem title after we just pushed the new INW title", () => {
     expect(
       ebayGetItemApplyDecision({
@@ -630,6 +650,26 @@ describe("shouldApplyEbayInboundVariants", () => {
     ).toBe(false);
   });
 
+  it("still rejects all-qty-1 GetItem hours later so cron cannot flap option stock", () => {
+    expect(
+      shouldApplyEbayInboundVariants({
+        localVariants: local,
+        remoteVariants: [
+          {
+            name: "Size",
+            options: [
+              { value: "S", quantity: 1 },
+              { value: "M", quantity: 1 },
+              { value: "L", quantity: 1 },
+            ],
+          },
+        ],
+        lastPushedAt: pushedAt,
+        now: new Date("2026-08-20T18:00:00.000Z"),
+      })
+    ).toBe(false);
+  });
+
   it("applies a later eBay edit that matches INW options with real quantities", () => {
     expect(
       shouldApplyEbayInboundVariants({
@@ -672,6 +712,26 @@ describe("shouldApplyEbayInboundVariants", () => {
           ],
           skus: [{ options: { Size: "S", Color: "Navy" }, quantity: 2, priceCents: 2450 }],
         },
+      })
+    ).toBe(true);
+  });
+});
+
+describe("ebayGetItemShouldApplyListingQuantity", () => {
+  it("does not copy GetItem listing Quantity onto per-option stock", () => {
+    expect(
+      ebayGetItemShouldApplyListingQuantity({
+        localHasOptionQuantities: true,
+        applyRemoteVariants: false,
+      })
+    ).toBe(false);
+  });
+
+  it("allows listing Quantity on a simple listing", () => {
+    expect(
+      ebayGetItemShouldApplyListingQuantity({
+        localHasOptionQuantities: false,
+        applyRemoteVariants: false,
       })
     ).toBe(true);
   });
