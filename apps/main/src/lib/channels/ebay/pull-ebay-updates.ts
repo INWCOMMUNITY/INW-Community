@@ -122,16 +122,20 @@ export function ebayGetItemEndedDecision(args: {
 const EBAY_INBOUND_META_KEYS = new Set(["ebayCategoryId", "category", "subcategory"]);
 
 /**
- * After INW publishes a variation group, GetItem often returns a degraded snapshot
- * (qty 1 on every option, missing values). Applying that wipes seller stock and
- * fans the wrong total out to Etsy/Shopify every cron tick. Never apply all-1s
- * over real option quantities — a 15-minute window still flapped after it expired.
+ * Decide whether to apply an eBay GetItem variant snapshot onto INW.
+ *
+ * GetItem (Trading API) per-option quantities are an unreliable snapshot for variation listings:
+ * after INW publishes a variation group eBay commonly returns degraded values — all-1s, mixed
+ * degraded (e.g. {S:1, M:1, L:5}), or missing options — and applying any of these wipes real
+ * seller stock and fans the wrong totals out to Etsy/Shopify every cron tick. eBay variation
+ * stock must come from the Inventory API / offering stock, never GetItem.
+ *
+ * Rule: if INW already tracks real per-option quantities, NEVER overwrite them from GetItem.
+ * Only adopt the GetItem variant structure when INW has no per-option stock to protect.
  */
 export function shouldApplyEbayInboundVariants(args: {
   localVariants: unknown;
   remoteVariants: unknown;
-  lastPushedAt?: Date | null;
-  now?: Date;
 }): boolean {
   const remote = normalizeVariantsFromProvider("ebay", args.remoteVariants);
   if (!remote?.length || !remote[0]?.options.length) return false;
@@ -139,21 +143,8 @@ export function shouldApplyEbayInboundVariants(args: {
   const local = normalizeVariantsFromProvider("ebay", args.localVariants);
   if (!local?.length || !hasOptionQuantities(local)) return true;
 
-  const localPrimary = local[0]!;
-  const remotePrimary = remote[0]!;
-  const remoteValues = new Set(
-    remotePrimary.options.map((option) => option.value.trim().toLowerCase()).filter(Boolean)
-  );
-  const localHasMissingRemote = localPrimary.options.some((option) => {
-    const key = option.value.trim().toLowerCase();
-    return key.length > 0 && !remoteValues.has(key);
-  });
-  if (localHasMissingRemote) return false;
-
-  const remoteAllOne = remotePrimary.options.every((option) => option.quantity === 1);
-  const localHasNonOne = localPrimary.options.some((option) => option.quantity !== 1);
-  if (remoteAllOne && localHasNonOne) return false;
-  return true;
+  // INW tracks real per-option stock — GetItem's per-option quantities are not trustworthy.
+  return false;
 }
 
 /** GetItem listing Quantity is not per-option stock. Do not copy it onto variation listings. */
@@ -170,10 +161,10 @@ export function isEbayInboundContentChange(updateData: Record<string, unknown>):
 }
 
 /**
- * GetItem can lag Inventory PUT by minutes. A live title that still differs from
- * the title we just stamped as last-synced is our own push, not an eBay revise.
+ * GetItem can lag Inventory PUT by minutes. lastSynced is only the title GetItem
+ * last confirmed — not the title we just PUT — so a lagged replica still equals
+ * lastSynced and is not treated as a seller revise.
  */
-export const EBAY_GETITEM_INBOUND_LAG_MS = 10 * 60 * 1000;
 
 /** Stamps lastInboundAt so preserve / outbound inw>inbound / retry-drop keep working. */
 export function ebayGetItemContentApplyLinkData(args: {
@@ -214,12 +205,7 @@ function ebayInboundLooksLikeIndependentRevise(args: {
   lastPushedAt?: Date | null;
   now?: Date;
 }): boolean {
-  if (!ebayRemoteLooksLikeIndependentRevise(args)) return false;
-  const pushedAt = args.lastPushedAt?.getTime();
-  if (pushedAt == null) return true;
-  const nowMs = args.now?.getTime() ?? Date.now();
-  if (nowMs - pushedAt < EBAY_GETITEM_INBOUND_LAG_MS) return false;
-  return true;
+  return ebayRemoteLooksLikeIndependentRevise(args);
 }
 
 /** Failed GetItem (expired token, empty envelope) must not skip, apply, or stamp lastInboundAt. */
@@ -331,6 +317,53 @@ export function withEbayPendingInbound(
     base.ebayPendingInbound = pending;
   } else {
     delete base.ebayPendingInbound;
+  }
+  return base as Prisma.InputJsonValue;
+}
+
+/**
+ * Dirty-list gap guard.
+ *
+ * GetMyeBaySelling is only a dirty detector: when it shows a row's title/price/qty differs
+ * from INW we do a live GetItem to learn the truth. If that GetItem is inconclusive (unusable
+ * details — eBay lag, partial response, transient error), we do NOT know who is newer. Pushing
+ * INW→eBay outbound in that window would clobber a real seller eBay edit we simply failed to
+ * read. So we stamp the link and refuse outbound until a *conclusive* GetItem resolves the row.
+ *
+ * The marker is set on an inconclusive cron-dirty GetItem and cleared the moment any conclusive
+ * GetItem (dirty, rotate, or webhook) resolves the row. A TTL is a safety net so a permanently
+ * unreadable listing cannot strand outbound forever.
+ */
+export const EBAY_DIRTY_UNCONFIRMED_TTL_MS = 20 * 60_000;
+
+export function readEbayDirtyUnconfirmedAt(conflictDetails: unknown): Date | null {
+  if (!conflictDetails || typeof conflictDetails !== "object" || Array.isArray(conflictDetails)) {
+    return null;
+  }
+  const raw = (conflictDetails as { ebayDirtyUnconfirmedAt?: unknown }).ebayDirtyUnconfirmedAt;
+  if (typeof raw !== "string" || !raw) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function ebayDirtyInboundUnconfirmed(conflictDetails: unknown, now: Date = new Date()): boolean {
+  const at = readEbayDirtyUnconfirmedAt(conflictDetails);
+  if (!at) return false;
+  return now.getTime() - at.getTime() < EBAY_DIRTY_UNCONFIRMED_TTL_MS;
+}
+
+export function withEbayDirtyUnconfirmed(
+  conflictDetails: unknown,
+  at: Date | null
+): Prisma.InputJsonValue {
+  const base =
+    conflictDetails && typeof conflictDetails === "object" && !Array.isArray(conflictDetails)
+      ? { ...(conflictDetails as Record<string, unknown>) }
+      : {};
+  if (at) {
+    base.ebayDirtyUnconfirmedAt = at.toISOString();
+  } else {
+    delete base.ebayDirtyUnconfirmedAt;
   }
   return base as Prisma.InputJsonValue;
 }
@@ -531,13 +564,32 @@ export async function refreshEbayListingByItemId(
     console.error("[ebay] refreshEbayListingByItemId: GetItem returned no listing fields", {
       storeItemId: storeItem.id,
       legacyItemId,
+      source: opts?.source,
     });
+    // A dirty-list row we could not read conclusively: block outbound so we don't clobber a
+    // real seller eBay edit we simply failed to fetch. Cleared on the next conclusive GetItem.
+    if (opts?.source === "cron-dirty" && !readEbayDirtyUnconfirmedAt(link.conflictDetails)) {
+      await prisma.channelListingLink
+        .update({
+          where: { id: link.id },
+          data: { conflictDetails: withEbayDirtyUnconfirmed(link.conflictDetails, new Date()) },
+        })
+        .catch(() => {});
+    }
     return {
       storeItemId: storeItem.id,
       title: storeItem.title,
       updated: false,
       changes: [],
     };
+  }
+  // Conclusive GetItem: we now have ground truth, so lift any dirty-unconfirmed outbound block.
+  if (readEbayDirtyUnconfirmedAt(link.conflictDetails)) {
+    const cleared = withEbayDirtyUnconfirmed(link.conflictDetails, null);
+    await prisma.channelListingLink
+      .update({ where: { id: link.id }, data: { conflictDetails: cleared } })
+      .catch(() => {});
+    link.conflictDetails = cleared as typeof link.conflictDetails;
   }
   const lastSyncedTitle = readEbayLastSyncedTitle(link.conflictDetails);
   const independentRevise = ebayInboundLooksLikeIndependentRevise({
@@ -804,7 +856,6 @@ export async function refreshEbayListingByItemId(
   const applyRemoteVariants = shouldApplyEbayInboundVariants({
     localVariants: storeItem.variants,
     remoteVariants: details.variants,
-    lastPushedAt: link.lastPushedAt,
   });
 
   if (
@@ -1374,8 +1425,12 @@ export function ebayCronShouldPushOutbound(args: {
   inwUpdatedAt: Date | null;
   lastPushedAt: Date | null;
   lastInboundAt: Date | null;
+  /** eBay diverged (dirty) but the live GetItem was inconclusive — do not clobber it. */
+  dirtyInboundUnconfirmed?: boolean;
 }): boolean {
   if (!args.syncEnabled || args.ended) return false;
+  // A dirty eBay row we could not read conclusively wins over an automatic INW re-push.
+  if (args.dirtyInboundUnconfirmed) return false;
   if (args.syncStatus === "error") return true;
   if (!args.inwUpdatedAt) return false;
   const inw = args.inwUpdatedAt.getTime();
@@ -1441,6 +1496,7 @@ export async function pushFailedEbayOutboundForConnection(
       inwUpdatedAt: link.storeItem.updatedAt,
       lastPushedAt: link.lastPushedAt,
       lastInboundAt: link.lastInboundAt,
+      dirtyInboundUnconfirmed: ebayDirtyInboundUnconfirmed(link.conflictDetails),
     });
   }).slice(0, EBAY_CRON_FAILED_OUTBOUND_LIMIT);
   const storeItemIds: string[] = [];

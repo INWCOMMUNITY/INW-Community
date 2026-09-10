@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  inboundRefreshShouldPull,
   isInboundCatalogContentEcho,
   isOwnChannelPushEcho,
   remoteCatalogChangedSinceBaseline,
   remoteListingDisagreesForSync,
   remoteQtyOnlyShouldPull,
+  shouldFlagWixRemoteDeleted,
   shouldLogCatalogConflict,
 } from "./inbound-catalog-decision";
 
@@ -251,6 +253,108 @@ describe("remoteQtyOnlyShouldPull", () => {
         inwQuantity: 49,
         baselineQty: 49,
         inwQtyChangedSinceBaseline: false,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("inboundRefreshShouldPull", () => {
+  const older = new Date("2026-09-09T01:00:00.000Z");
+  const newer = new Date("2026-09-09T02:00:00.000Z");
+
+  it("pulls when only the remote changed", () => {
+    expect(
+      inboundRefreshShouldPull({
+        inwContentChanged: false,
+        remoteContentChanged: true,
+        inwUpdatedAt: older,
+        remoteUpdatedAt: newer,
+        ownPushEcho: false,
+      })
+    ).toBe(true);
+  });
+
+  it("does not pull when it is our own push echoing back", () => {
+    expect(
+      inboundRefreshShouldPull({
+        inwContentChanged: false,
+        remoteContentChanged: true,
+        inwUpdatedAt: older,
+        remoteUpdatedAt: newer,
+        ownPushEcho: true,
+      })
+    ).toBe(false);
+  });
+
+  it("does not pull (clobber) when the Hub edit is newer and unpushed", () => {
+    expect(
+      inboundRefreshShouldPull({
+        inwContentChanged: true,
+        remoteContentChanged: false,
+        inwUpdatedAt: newer,
+        remoteUpdatedAt: older,
+        ownPushEcho: false,
+      })
+    ).toBe(false);
+  });
+
+  it("resolves a two-sided conflict by most-recent (remote newer -> pull)", () => {
+    expect(
+      inboundRefreshShouldPull({
+        inwContentChanged: true,
+        remoteContentChanged: true,
+        inwUpdatedAt: older,
+        remoteUpdatedAt: newer,
+        ownPushEcho: false,
+      })
+    ).toBe(true);
+  });
+});
+
+describe("shouldFlagWixRemoteDeleted", () => {
+  it("flags only when a per-product probe confirms the product is gone", () => {
+    expect(
+      shouldFlagWixRemoteDeleted({
+        confirmedGone: true,
+        alreadyPending: false,
+        storeItemStatus: "active",
+      })
+    ).toBe(true);
+  });
+
+  it("never flags on catalog absence alone (empty/truncated read)", () => {
+    expect(
+      shouldFlagWixRemoteDeleted({
+        confirmedGone: false,
+        alreadyPending: false,
+        storeItemStatus: "active",
+      })
+    ).toBe(false);
+  });
+
+  it("does not re-flag a listing already pending", () => {
+    expect(
+      shouldFlagWixRemoteDeleted({
+        confirmedGone: true,
+        alreadyPending: true,
+        storeItemStatus: "active",
+      })
+    ).toBe(false);
+  });
+
+  it("does not flag sold-out or inactive items (they take a different path)", () => {
+    expect(
+      shouldFlagWixRemoteDeleted({
+        confirmedGone: true,
+        alreadyPending: false,
+        storeItemStatus: "sold_out",
+      })
+    ).toBe(false);
+    expect(
+      shouldFlagWixRemoteDeleted({
+        confirmedGone: true,
+        alreadyPending: false,
+        storeItemStatus: "inactive",
       })
     ).toBe(false);
   });

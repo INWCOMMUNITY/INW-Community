@@ -1,4 +1,4 @@
-import { prisma, Prisma } from "database";
+import { prisma } from "database";
 import { getAdapter } from "./registry";
 import { getActiveConnectionsForMember, withConnectionAuthRetry, isChannelAuthError } from "./connection";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
@@ -30,7 +30,7 @@ import {
 } from "./circuit-breaker";
 import { logSyncEvent } from "./sync-log";
 import { formatProviderPublishError, validateForProvider } from "./validate-publish";
-import { shouldPushSoldOutInventoryOnly } from "./sold-out-guard";
+import { shouldPushInventoryOnly } from "./sold-out-guard";
 import { shouldBypassCircuitForInventoryPush } from "./circuit-inventory-bypass";
 import { isRemoteListingAlreadyGoneError } from "./error-classifier";
 import {
@@ -42,7 +42,7 @@ import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
 import { inboundDescriptionsMatch } from "./apply-remote-listing";
 import { fetchEbayItemDetails } from "./ebay/trading";
 import { resolveEbayLegacyListingId } from "./ebay/mapping";
-import { readEbayLastSyncedTitle, withEbayLastSyncedTitle } from "./listing-conflict-json";
+import { readEbayLastSyncedTitle } from "./listing-conflict-json";
 import { isIncompleteChannelListingError } from "./combo-sync";
 import { channelLinkShowsOnItem } from "./listing-sync-warning";
 /** Content fingerprint so we can skip no-op pushes on update. */
@@ -434,8 +434,13 @@ export async function updateStoreItemOnChannels(
   const memberId = links[0]?.connection?.memberId;
   const syncPrefs = memberId ? await loadSyncPreferences(memberId) : null;
   
-  // If sync is globally disabled, skip all channels
+  // If sync is globally disabled, skip all channels — but report each so the banner isn't false-green.
   if (syncPrefs && !syncPrefs.syncEnabled) {
+    for (const link of links) {
+      const provider = link.provider as ChannelProvider;
+      if (skip.has(provider)) continue;
+      results.push({ provider, ok: true, skipped: "sync_disabled" });
+    }
     return results;
   }
   
@@ -462,8 +467,11 @@ export async function updateStoreItemOnChannels(
       link.syncBaselineQty !== item.quantity ||
       (link.syncBaselineVariantsHash ?? "") !== varFp;
     const contentUnchanged = link.lastPushedHash === hash;
+    // Use hubUpdatedAt (the true source time, which is the remote edit time on an inbound
+    // fan-out) consistently with the overwrite guard — otherwise the post-apply now() makes
+    // this look "newer than the sibling" and re-pushes a stale copy over a newer sibling edit.
     const savedAfterThisChannel = inwSavedAfterChannelPush({
-      inwUpdatedAt,
+      inwUpdatedAt: hubUpdatedAt,
       lastPushedAt: link.lastPushedAt,
     });
 
@@ -483,7 +491,7 @@ export async function updateStoreItemOnChannels(
     // updateInventory so we do not run eBay passthrough / Etsy content verify for qty 0.
     const inventoryOnly =
       !options.force &&
-      shouldPushSoldOutInventoryOnly({
+      shouldPushInventoryOnly({
         quantity: item.quantity,
         status: item.status,
         contentUnchanged,
@@ -495,7 +503,10 @@ export async function updateStoreItemOnChannels(
     if (inventoryOnly) {
       const connConfig = (link.connection.config ?? {}) as Record<string, unknown>;
       const syncDirection = (connConfig.syncDirection as string) ?? "two_way";
-      if (syncDirection === "pull_only" || syncDirection === "paused") continue;
+      if (syncDirection === "pull_only" || syncDirection === "paused") {
+        results.push({ provider, ok: true, skipped: "paused" });
+        continue;
+      }
 
       hydrateCircuitFromConfig(link.connectionId, link.connection.config);
       if (
@@ -567,8 +578,9 @@ export async function updateStoreItemOnChannels(
     const connConfig = (link.connection.config ?? {}) as Record<string, unknown>;
     const syncDirection = (connConfig.syncDirection as string) ?? "two_way";
     
-    // Skip push if channel is set to pull_only or paused
+    // Skip push if channel is set to pull_only or paused — but report it so the banner is honest.
     if (syncDirection === "pull_only" || syncDirection === "paused") {
+      results.push({ provider, ok: true, skipped: "paused" });
       continue;
     }
 
@@ -720,7 +732,9 @@ export async function updateStoreItemOnChannels(
           enqueueRetry(link.id, storeItemId, provider, "content", msg).catch(() => {});
           results.push({ provider, ok: false, error: msg });
         } else {
-          results.push({ provider, ok: true });
+          // Last-write-wins kept the shop's newer copy. Not a push and not an error — report it
+          // as skipped so the UI doesn't show a false-green "synced".
+          results.push({ provider, ok: true, skipped: "remote_newer" });
         }
         continue;
       }
@@ -737,14 +751,6 @@ export async function updateStoreItemOnChannels(
           syncBaselineVariantsHash: variantsFingerprint(item.variants),
           syncBaselineQty: item.quantity,
           syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
-          ...(provider === "ebay"
-            ? {
-                conflictDetails: withEbayLastSyncedTitle(
-                  link.conflictDetails,
-                  item.title
-                ) as Prisma.InputJsonValue,
-              }
-            : {}),
         },
       });
       await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);

@@ -42,7 +42,7 @@ export function readEbayListingEnded(conflictDetails: unknown): boolean {
   return conflictDetailsAsObject(conflictDetails).ebayListingEnded === true;
 }
 
-/** Title we last pushed to or pulled from eBay. GetItem has no LastModifiedTime. */
+/** Title GetItem last confirmed. Do not stamp this on outbound PUT — GetItem can lag. */
 export function readEbayLastSyncedTitle(conflictDetails: unknown): string | null {
   const value = conflictDetailsAsObject(conflictDetails).ebayLastSyncedTitle;
   if (typeof value !== "string") return null;

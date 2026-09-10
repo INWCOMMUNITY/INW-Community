@@ -11,7 +11,11 @@ const mockPrisma = vi.hoisted(() => ({
 
 vi.mock("database", () => ({ prisma: mockPrisma }));
 
-import { isSoldOutQtyRecovery, shouldBlockSoldOutQtyRecovery, shouldPushSoldOutInventoryOnly } from "./sold-out-guard";
+import {
+  isSoldOutQtyRecovery,
+  shouldBlockSoldOutQtyRecovery,
+  shouldPushInventoryOnly,
+} from "./sold-out-guard";
 
 describe("isSoldOutQtyRecovery", () => {
   it("is recovery when INW is empty and the channel still has stock", () => {
@@ -47,10 +51,10 @@ describe("shouldBlockSoldOutQtyRecovery", () => {
   });
 });
 
-describe("shouldPushSoldOutInventoryOnly", () => {
+describe("shouldPushInventoryOnly", () => {
   it("uses inventory-only when qty changed but lastPushedHash still matches", () => {
     expect(
-      shouldPushSoldOutInventoryOnly({
+      shouldPushInventoryOnly({
         quantity: 0,
         status: "sold_out",
         contentUnchanged: true,
@@ -63,7 +67,7 @@ describe("shouldPushSoldOutInventoryOnly", () => {
 
   it("uses inventory-only after a sale when title/photos/price did not change", () => {
     expect(
-      shouldPushSoldOutInventoryOnly({
+      shouldPushInventoryOnly({
         quantity: 0,
         status: "sold_out",
         contentUnchanged: false,
@@ -74,15 +78,56 @@ describe("shouldPushSoldOutInventoryOnly", () => {
     ).toBe(true);
   });
 
+  it("uses inventory-only for a NON-sold-out qty change when content matches baseline", () => {
+    // 5 -> 4 decrement, listing still active: must NOT run a full content re-list every tick.
+    expect(
+      shouldPushInventoryOnly({
+        quantity: 4,
+        status: "active",
+        contentUnchanged: false, // full hash (incl. qty) differs
+        inventoryDrift: true,
+        syncBaselineHash: "same-content",
+        contentHashNow: "same-content", // content-only hash unchanged
+      })
+    ).toBe(true);
+  });
+
+  it("uses inventory-only even when qty baseline already caught up (stale lastPushedHash)", () => {
+    // After a sale the qty baseline was updated but lastPushedHash wasn't; content still matches.
+    expect(
+      shouldPushInventoryOnly({
+        quantity: 4,
+        status: "active",
+        contentUnchanged: false,
+        inventoryDrift: false,
+        syncBaselineHash: "same-content",
+        contentHashNow: "same-content",
+      })
+    ).toBe(true);
+  });
+
   it("does not skip content update when the seller edited title or photos", () => {
     expect(
-      shouldPushSoldOutInventoryOnly({
+      shouldPushInventoryOnly({
         quantity: 0,
         status: "sold_out",
         contentUnchanged: false,
         inventoryDrift: true,
         syncBaselineHash: "old-content",
         contentHashNow: "new-title",
+      })
+    ).toBe(false);
+  });
+
+  it("does a full push for a content change on an active item", () => {
+    expect(
+      shouldPushInventoryOnly({
+        quantity: 4,
+        status: "active",
+        contentUnchanged: false,
+        inventoryDrift: true,
+        syncBaselineHash: "old-content",
+        contentHashNow: "new-content",
       })
     ).toBe(false);
   });

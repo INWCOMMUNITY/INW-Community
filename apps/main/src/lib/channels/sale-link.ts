@@ -54,9 +54,21 @@ export function ebayFulfillmentLineToSale(
 ): RemoteSale | null {
   const sku = li.sku?.trim() || null;
   const legacyItemId = li.legacyItemId?.trim() || null;
-  if (!sku && !legacyItemId) return null;
+  const externalEventId = `order:${orderId}:line:${li.lineItemId}`;
+  // A line with neither SKU nor Item ID can't be attributed to a listing, but it must NOT be
+  // silently dropped — emit it with an empty listing id so reconcile can surface it to the
+  // seller (unmatched) instead of quietly overselling.
+  if (!sku && !legacyItemId) {
+    return {
+      externalEventId,
+      externalListingId: "",
+      quantitySold: Math.max(1, li.quantity ?? 1),
+      sku: null,
+      legacyItemId: null,
+    };
+  }
   return {
-    externalEventId: `order:${orderId}:line:${li.lineItemId}`,
+    externalEventId,
     externalListingId: sku || legacyItemId!,
     quantitySold: Math.max(1, li.quantity ?? 1),
     sku,

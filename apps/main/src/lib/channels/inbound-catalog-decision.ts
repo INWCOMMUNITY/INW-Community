@@ -1,4 +1,4 @@
-import { SYNC_ECHO_SKEW_MS } from "./sync-baseline";
+import { resolveSyncDirection, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
 
 /**
  * Inbound catalog should not rewrite a channel listing when the StoreItem hash drifted
@@ -144,4 +144,44 @@ export function remoteQtyOnlyShouldPull(args: {
   if (args.inwQtyChangedSinceBaseline) return false;
   if (args.baselineQty == null) return true;
   return args.remoteQuantity !== args.baselineQty;
+}
+
+/**
+ * Last-write-wins gate for a webhook / on-demand refresh pull (e.g. Etsy). Mirrors the cron's
+ * per-link decision so a refresh can't overwrite a newer un-pushed Hub edit or re-apply our own
+ * push echoing back. Pull only when the remote genuinely won and it isn't our echo.
+ */
+export function inboundRefreshShouldPull(args: {
+  inwContentChanged: boolean;
+  remoteContentChanged: boolean;
+  inwUpdatedAt: Date | null;
+  remoteUpdatedAt: Date | null;
+  ownPushEcho: boolean;
+}): boolean {
+  if (args.ownPushEcho) return false;
+  return (
+    resolveSyncDirection({
+      inwChanged: args.inwContentChanged,
+      remoteChanged: args.remoteContentChanged,
+      inwUpdatedAt: args.inwUpdatedAt,
+      remoteUpdatedAt: args.remoteUpdatedAt,
+    }) === "pull"
+  );
+}
+
+/**
+ * Wix must never flag a listing "remotely deleted" from catalog absence alone. An empty or
+ * truncated catalog read (transient glitch, page cap) would otherwise mass-flag every listing.
+ * Only flag when a per-product probe (`wixProductIsGone`) confirms the product is gone, the
+ * listing isn't already flagged, and the INW item is still live.
+ */
+export function shouldFlagWixRemoteDeleted(args: {
+  confirmedGone: boolean;
+  alreadyPending: boolean;
+  storeItemStatus: string;
+}): boolean {
+  if (!args.confirmedGone) return false;
+  if (args.alreadyPending) return false;
+  if (args.storeItemStatus === "sold_out" || args.storeItemStatus === "inactive") return false;
+  return true;
 }

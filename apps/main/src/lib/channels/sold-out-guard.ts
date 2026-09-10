@@ -31,11 +31,19 @@ export function isSoldOutQtyRecovery(
 }
 
 /**
- * After a sale, storeItemContentHash changes (it includes qty/status) so cron would
- * run a full content updateListing. That path verifies Etsy qty 0 and eBay bulk-qty 0,
- * both of which fail. Keep sell-out on updateInventory unless title/photos/price drifted.
+ * Decide when a channel push should be inventory-only (updateInventory) rather than a full
+ * content re-list (updateListing / eBay passthrough / Etsy verify).
+ *
+ * Root cause: `lastPushedHash` (storeItemContentHash) includes qty + status, so ANY quantity
+ * change — a sale, a restock, a sold-out — makes the full hash mismatch and cron would run a
+ * full content push on every tick (extra load, 429s, revert risk). But the CONTENT baseline
+ * (`syncBaselineHash` = syncContentHash: title/description/price/photos only) hasn't moved.
+ *
+ * So: when INW content still equals the agreed baseline, there is nothing to content-push — any
+ * difference is qty/status, so push inventory only. Only fall through to a full content push when
+ * the content genuinely drifted from the baseline.
  */
-export function shouldPushSoldOutInventoryOnly(args: {
+export function shouldPushInventoryOnly(args: {
   quantity: number;
   status: string;
   contentUnchanged: boolean;
@@ -44,8 +52,14 @@ export function shouldPushSoldOutInventoryOnly(args: {
   contentHashNow: string;
 }): boolean {
   if (args.contentUnchanged && args.inventoryDrift) return true;
+  // Content matches the agreed baseline -> qty/status-only change -> inventory-only, whether or
+  // not the item is sold out. This is the fix for the "full push after every qty change" loop.
+  if (args.syncBaselineHash && args.syncBaselineHash === args.contentHashNow) return true;
   const soldOut = args.status === "sold_out" || args.quantity <= 0;
   if (!soldOut || args.contentUnchanged) return false;
-  if (!args.syncBaselineHash) return true;
-  return args.syncBaselineHash === args.contentHashNow;
+  // Sold-out with no baseline yet: push inventory to take the listing down rather than re-list.
+  return !args.syncBaselineHash;
 }
+
+/** @deprecated Use {@link shouldPushInventoryOnly}. Kept as an alias during the rename. */
+export const shouldPushSoldOutInventoryOnly = shouldPushInventoryOnly;

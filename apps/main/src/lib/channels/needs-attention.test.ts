@@ -9,6 +9,12 @@ import {
   isEtsyOriginSyncError,
   isEtsyPostalSyncError,
   withAttentionDismissed,
+  transientSyncErrorSuppressed,
+  TRANSIENT_ATTENTION_GRACE_MS,
+  etsyProactiveFieldCardApplies,
+  isEbayListingEndedNotice,
+  isZeroPushSkippedNotice,
+  dismissShouldClearSyncError,
 } from "./needs-attention";
 
 const item = {
@@ -230,5 +236,177 @@ describe("attention dismissal", () => {
       syncError: "Missing required eBay item specifics: Material.",
     });
     expect(isAttentionDismissed(stored, later)).toBe(false);
+  });
+});
+
+describe("transientSyncErrorSuppressed", () => {
+  const now = new Date("2026-09-09T18:00:00.000Z");
+  const fresh = new Date(now.getTime() - 60_000);
+
+  it("hides a 429/rate-limit error while an auto-retry is still in flight", () => {
+    expect(
+      transientSyncErrorSuppressed({
+        syncError: "429 Too Many Requests: calls per second exceeded",
+        retries: [{ attempts: 1, maxAttempts: 5, createdAt: fresh }],
+        now,
+      })
+    ).toBe(true);
+  });
+
+  it("hides a 503 while retrying", () => {
+    expect(
+      transientSyncErrorSuppressed({
+        syncError: "503 Service Unavailable",
+        retries: [{ attempts: 2, maxAttempts: 5, createdAt: fresh }],
+        now,
+      })
+    ).toBe(true);
+  });
+
+  it("surfaces once the auto-retries are exhausted", () => {
+    expect(
+      transientSyncErrorSuppressed({
+        syncError: "503 Service Unavailable",
+        retries: [{ attempts: 5, maxAttempts: 5, createdAt: fresh }],
+        now,
+      })
+    ).toBe(false);
+  });
+
+  it("surfaces a transient error that has been stuck past the grace window", () => {
+    const stale = new Date(now.getTime() - TRANSIENT_ATTENTION_GRACE_MS - 60_000);
+    expect(
+      transientSyncErrorSuppressed({
+        syncError: "timeout",
+        retries: [{ attempts: 1, maxAttempts: 5, createdAt: stale }],
+        now,
+      })
+    ).toBe(false);
+  });
+
+  it("surfaces when there is no retry scheduled (nothing will auto-heal it)", () => {
+    expect(
+      transientSyncErrorSuppressed({
+        syncError: "429 Too Many Requests",
+        retries: [],
+        now,
+      })
+    ).toBe(false);
+  });
+
+  it("never suppresses a permanent/actionable error, even mid-retry", () => {
+    expect(
+      transientSyncErrorSuppressed({
+        syncError: "404 Not Found: invalid listing",
+        retries: [{ attempts: 0, maxAttempts: 5, createdAt: fresh }],
+        now,
+      })
+    ).toBe(false);
+  });
+
+  it("no-op when there is no error string", () => {
+    expect(transientSyncErrorSuppressed({ syncError: null, retries: [], now })).toBe(false);
+  });
+});
+
+describe("etsyProactiveFieldCardApplies", () => {
+  it("nags an ACTIVE listing missing who_made", () => {
+    expect(
+      etsyProactiveFieldCardApplies({
+        status: "active",
+        etsyWhoMade: null,
+        etsyWhenMade: "1980s",
+        etsyTaxonomyId: 891,
+      })
+    ).toBe(true);
+  });
+
+  it("nags an active listing missing a taxonomy id", () => {
+    expect(
+      etsyProactiveFieldCardApplies({
+        status: "active",
+        etsyWhoMade: "i_did",
+        etsyWhenMade: "1980s",
+        etsyTaxonomyId: null,
+      })
+    ).toBe(true);
+  });
+
+  it("does NOT nag a draft/inactive listing that will never publish", () => {
+    expect(
+      etsyProactiveFieldCardApplies({
+        status: "inactive",
+        etsyWhoMade: null,
+        etsyWhenMade: null,
+        etsyTaxonomyId: null,
+      })
+    ).toBe(false);
+  });
+
+  it("does NOT nag a sold-out listing (inventory sync needs no craft fields)", () => {
+    expect(
+      etsyProactiveFieldCardApplies({
+        status: "sold_out",
+        etsyWhoMade: null,
+        etsyWhenMade: null,
+        etsyTaxonomyId: null,
+      })
+    ).toBe(false);
+  });
+
+  it("does NOT nag an active listing that already has every required field", () => {
+    expect(
+      etsyProactiveFieldCardApplies({
+        status: "active",
+        etsyWhoMade: "i_did",
+        etsyWhenMade: "1980s",
+        etsyTaxonomyId: 891,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("previously-invisible informational states", () => {
+  it("surfaces an eBay-ended listing as a clear, actionable notice", () => {
+    expect(isEbayListingEndedNotice("eBay listing ended; inventory will not be revised")).toBe(true);
+    const res = classifyListingNeedsAttention({
+      provider: "ebay",
+      syncError: "eBay listing ended; inventory will not be revised",
+      item: { ...item, etsyTaxonomyId: null },
+    });
+    expect(res?.action).toBe("retry_only");
+    expect(res?.summary).toMatch(/ended/i);
+    expect(res?.summary).toMatch(/relist/i);
+  });
+
+  it("surfaces a zero-push-skipped item so the pill does not lie", () => {
+    expect(isZeroPushSkippedNotice("Zero push skipped (syncZeroQuantity disabled)")).toBe(true);
+    const res = classifyListingNeedsAttention({
+      provider: "shopify",
+      syncError: "Zero push skipped (syncZeroQuantity disabled)",
+      item,
+    });
+    expect(res?.action).toBe("retry_only");
+    expect(res?.summary).toMatch(/out of stock/i);
+  });
+
+  it("does not treat ordinary strings as notices", () => {
+    expect(isEbayListingEndedNotice("some other error")).toBe(false);
+    expect(isZeroPushSkippedNotice(null)).toBe(false);
+  });
+});
+
+describe("dismissShouldClearSyncError", () => {
+  it("clears the error when the condition already resolved (no card)", () => {
+    expect(dismissShouldClearSyncError(null)).toBe(true);
+  });
+
+  it("clears for a plain retry-only error or informational notice the seller acknowledged", () => {
+    expect(dismissShouldClearSyncError({ action: "retry_only" })).toBe(true);
+  });
+
+  it("does NOT clear a structured field error still genuinely blocking sync", () => {
+    expect(dismissShouldClearSyncError({ action: "fill" })).toBe(false);
+    expect(dismissShouldClearSyncError({ action: "ebay_condition" })).toBe(false);
   });
 });

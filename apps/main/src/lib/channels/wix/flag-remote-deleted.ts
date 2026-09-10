@@ -154,6 +154,42 @@ export async function flagGoneWixListingsForConnection(connection: {
   return { removed, checked: true };
 }
 
+/**
+ * Wix product-deleted webhook path. Verify the product is really gone before flagging — a
+ * spurious or mis-mapped webhook must not take a live listing down. Returns whether it flagged.
+ */
+export async function flagWixProductDeletedByWebhook(
+  connection: Parameters<typeof flagGoneWixListingsForConnection>[0],
+  productId: string
+): Promise<{ flagged: boolean; verified: boolean }> {
+  const id = productId.trim();
+  if (connection.provider !== "wix" || !id) return { flagged: false, verified: false };
+  setWixConnectionContext(connection.id);
+  const ctx = await getConnectionContext(connection);
+  if (!ctx) return { flagged: false, verified: false };
+  await remintWixAccessToken(ctx);
+  await ensureWixSiteId(ctx).catch(() => null);
+
+  const link = await prisma.channelListingLink.findFirst({
+    where: {
+      connectionId: connection.id,
+      provider: "wix",
+      syncEnabled: true,
+      externalListingId: id,
+    },
+    select: {
+      id: true,
+      externalListingId: true,
+      conflictDetails: true,
+      storeItem: { select: { status: true } },
+    },
+  });
+  if (!link) return { flagged: false, verified: false };
+
+  const removed = await flagGoneWixLinks(ctx, [link]);
+  return { flagged: removed > 0, verified: true };
+}
+
 export async function flagSellerWixDeletes(
   memberId: string
 ): Promise<{ removed: number; checked: boolean }> {

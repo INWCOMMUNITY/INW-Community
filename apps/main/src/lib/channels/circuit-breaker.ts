@@ -319,3 +319,13 @@ export function hydrateCircuitFromConfig(connectionId: string, config: unknown):
 export function getOpenCircuitsForMember(connectionIds: string[]): string[] {
   return connectionIds.filter((id) => isCircuitOpen(id));
 }
+
+/**
+ * Inbound reconcile decision: skip the heavy inbound pulls (catalog / meta / GetItem) for a
+ * connection whose circuit is open so we stop hammering a shop that is already failing. The
+ * circuit half-opens after the recovery timeout, so the very next tick will probe and recover.
+ * (Sales reconcile is intentionally NOT gated by this — a sale must never be missed.)
+ */
+export function inboundReconcileShouldPull(connectionId: string): boolean {
+  return !isCircuitOpen(connectionId);
+}

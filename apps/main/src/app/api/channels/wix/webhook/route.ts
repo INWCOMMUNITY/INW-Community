@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { pullWixInventoryForConnection } from "@/lib/channels/pull-wix-inventory";
 import { reconcileConnectionFull } from "@/lib/channels/reconcile-connection";
 import { findWixConnectionByInstanceId } from "@/lib/channels/wix/site";
-import { markRemoteDeletedByExternalId } from "@/lib/channels/listing-link-flags";
+import { flagWixProductDeletedByWebhook } from "@/lib/channels/wix/flag-remote-deleted";
 import {
   parseWixWebhook,
   wixWebhookIsInventoryEvent,
@@ -72,11 +72,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (isDeleted && productId) {
-      await markRemoteDeletedByExternalId({
-        connectionId: conn.id,
-        provider: "wix",
-        externalListingId: productId,
-      });
+      // Verify the product is really gone before flagging — a spurious delete event
+      // must not take a live listing down.
+      await flagWixProductDeletedByWebhook(conn, productId);
     }
 
     if (isInventory) {

@@ -382,7 +382,12 @@ export async function reconcileConnectionInboundMeta(
     }
 
     if (pulled && !attemptedPush) {
-      await updateStoreItemOnChannels(link.storeItemId, { skipProviders: [provider] });
+      // Fan a just-pulled remote edit out to siblings with the SOURCE timestamp, not the
+      // post-apply now(), so a sibling that already has a newer copy is not reverted.
+      await updateStoreItemOnChannels(link.storeItemId, {
+        skipProviders: [provider],
+        sourceUpdatedAt: remote.remoteUpdatedAt ?? undefined,
+      });
     }
 
     if (pulled) {

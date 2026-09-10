@@ -9,7 +9,16 @@ import {
   applyRemoteCategoryToStoreItem,
   applyRemoteVariantsToStoreItem,
 } from "../apply-remote-meta";
-import { syncContentHash, syncMetaHash } from "../sync-baseline";
+import {
+  inwChangedSinceBaseline,
+  syncContentHash,
+  syncMetaHash,
+} from "../sync-baseline";
+import {
+  inboundRefreshShouldPull,
+  isOwnChannelPushEcho,
+  remoteQtyOnlyShouldPull,
+} from "../inbound-catalog-decision";
 import { variantsFingerprint } from "../variant-sync";
 import { updateStoreItemOnChannels } from "../outbound";
 import { channelSyncSucceeded, syncInventoryToChannels } from "../sync-inventory";
@@ -93,6 +102,7 @@ export async function refreshEtsyListingByStoreItemId(
           category: true,
           subcategory: true,
           variants: true,
+          updatedAt: true,
         },
       },
     },
@@ -151,39 +161,95 @@ export async function refreshEtsyListingByStoreItemId(
   }
 
   let updated = false;
+  let pulledContent = false;
 
-  const pulledContent = await applyRemoteContentToStoreItem(storeItemId, remote);
-  if (pulledContent) {
-    updated = true;
-    if (!changes.includes("title") && remote.title !== storeItem.title) changes.push("title");
-    if (!changes.includes("description")) changes.push("description");
-    if (!changes.includes(`price ($${(remote.priceCents / 100).toFixed(2)})`)) {
-      if (remote.priceCents !== storeItem.priceCents) {
-        changes.push(`price ($${(remote.priceCents / 100).toFixed(2)})`);
+  // Last-write-wins gate: the webhook / on-demand refresh must not overwrite a newer un-pushed
+  // Hub edit, and must not re-apply INW's own push echoing back from Etsy. Mirror the cron guards.
+  const inwHash = syncContentHash(storeItem);
+  const remoteHash = syncContentHash({
+    title: (remote.title ?? "").slice(0, 200),
+    description: remote.description,
+    priceCents: remote.priceCents,
+    photos: remote.photos ?? [],
+  });
+  const baselineHash = link.syncBaselineHash;
+  const inwContentChanged = inwChangedSinceBaseline({
+    hashDiffers: baselineHash == null ? false : inwHash !== baselineHash,
+    inwUpdatedAt: storeItem.updatedAt,
+    baselineAt: link.syncBaselineAt,
+  });
+  const remoteContentChanged = baselineHash == null ? true : remoteHash !== baselineHash;
+  const ownPushEcho = isOwnChannelPushEcho({
+    lastPushedAt: link.lastPushedAt,
+    remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
+    inwUpdatedAt: storeItem.updatedAt,
+    listingsDisagree: remoteHash !== inwHash,
+  });
+  const shouldPullContent = inboundRefreshShouldPull({
+    inwContentChanged,
+    remoteContentChanged,
+    inwUpdatedAt: storeItem.updatedAt,
+    remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
+    ownPushEcho,
+  });
+  const shouldPullQty =
+    !ownPushEcho &&
+    qtyKnown &&
+    remoteQtyOnlyShouldPull({
+      remoteQtyKnown: qtyKnown,
+      remoteQuantity: remote.quantity,
+      inwQuantity: storeItem.quantity,
+      baselineQty: link.syncBaselineQty,
+      inwQtyChangedSinceBaseline:
+        link.syncBaselineQty != null && link.syncBaselineQty !== storeItem.quantity,
+    });
+
+  if (!shouldPullContent && !shouldPullQty) {
+    console.log("[etsy] refresh skipped; last-write-wins kept the Hub copy (INW newer or echo)", {
+      storeItemId,
+      inwContentChanged,
+      remoteContentChanged,
+      ownPushEcho,
+      remoteUpdatedAt: remote.remoteUpdatedAt?.toISOString() ?? null,
+      inwUpdatedAt: storeItem.updatedAt.toISOString(),
+    });
+    return { storeItemId, title: storeItem.title, updated: false, changes: [] };
+  }
+
+  if (shouldPullContent) {
+    pulledContent = await applyRemoteContentToStoreItem(storeItemId, remote);
+    if (pulledContent) {
+      updated = true;
+      if (!changes.includes("title") && remote.title !== storeItem.title) changes.push("title");
+      if (!changes.includes("description")) changes.push("description");
+      if (!changes.includes(`price ($${(remote.priceCents / 100).toFixed(2)})`)) {
+        if (remote.priceCents !== storeItem.priceCents) {
+          changes.push(`price ($${(remote.priceCents / 100).toFixed(2)})`);
+        }
+      }
+    }
+
+    const catPulled = await applyRemoteCategoryToStoreItem(storeItemId, remote, "etsy");
+    if (catPulled) {
+      updated = true;
+      changes.push("category");
+    }
+
+    if (remote.variantsKnown && remote.variants && !isComboInventoryFailedError(link.syncError)) {
+      const varsPulled = await applyRemoteVariantsToStoreItem(storeItemId, remote, "etsy");
+      if (varsPulled) {
+        updated = true;
+        changes.push("variants");
       }
     }
   }
 
-  if (qtyKnown && remote.quantity !== storeItem.quantity) {
+  if (shouldPullQty && remote.quantity !== storeItem.quantity) {
     const qtyPulled = await applyRemoteQuantityToStoreItem(storeItemId, remote.quantity, {
       provider: "etsy",
       memberId,
     });
     if (qtyPulled) updated = true;
-  }
-
-  const catPulled = await applyRemoteCategoryToStoreItem(storeItemId, remote, "etsy");
-  if (catPulled) {
-    updated = true;
-    changes.push("category");
-  }
-
-  if (remote.variantsKnown && remote.variants && !isComboInventoryFailedError(link.syncError)) {
-    const varsPulled = await applyRemoteVariantsToStoreItem(storeItemId, remote, "etsy");
-    if (varsPulled) {
-      updated = true;
-      changes.push("variants");
-    }
   }
 
   const refreshedItem = await prisma.storeItem.findUnique({

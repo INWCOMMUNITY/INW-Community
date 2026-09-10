@@ -385,6 +385,18 @@ describe("inwSavedAfterChannelPush", () => {
       })
     ).toBe(true);
   });
+
+  it("does not treat an inbound fan-out (source time older than lastPushedAt) as a newer save", () => {
+    // On a fan-out the caller passes the SOURCE (remote edit) time as inwUpdatedAt. When a sibling
+    // was pushed more recently than that source time, this must be false so we don't re-push a
+    // stale copy over the sibling's newer edit.
+    expect(
+      inwSavedAfterChannelPush({
+        inwUpdatedAt: new Date("2026-09-09T01:20:00.000Z"), // source/remote edit time
+        lastPushedAt: new Date("2026-09-09T01:25:00.000Z"), // sibling pushed later
+      })
+    ).toBe(false);
+  });
 });
 
 describe("resolveSyncDirection", () => {

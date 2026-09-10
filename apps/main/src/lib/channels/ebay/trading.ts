@@ -5,6 +5,7 @@ import {
   EBAY_TRADING_SITE_ID,
 } from "./config";
 import { ebayJson } from "./client";
+import { paceEbayCall } from "./rate-context";
 import { EbayApiError } from "./errors";
 import { describeEbayThrownError, extractBulkMigrateResponse, formatMigrateListingError } from "./errors";
 import { allTags, extractEbayItemPhotos, extractEbayItemPhotosForInventoryPut, tag } from "./photos";
@@ -174,6 +175,8 @@ function buildGetItemXml(listingId: string): string {
 }
 
 async function callTrading(accessToken: string, callName: string, xml: string): Promise<string> {
+  // Pace GetItem/GetMyeBaySelling against the bound connection's eBay rate window.
+  await paceEbayCall();
   const res = await fetch(TRADING_ENDPOINT, {
     ...EBAY_NO_STORE_FETCH,
     method: "POST",

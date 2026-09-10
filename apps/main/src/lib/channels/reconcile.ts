@@ -8,15 +8,83 @@ import type { ChannelProvider } from "./types";
 import { describeChannelSyncError } from "./ebay/errors";
 import { ensureEbayPlatformNotifications } from "./ebay/notifications-setup";
 import { pullEbayUpdatesForConnection, pushFailedEbayOutboundForConnection } from "./ebay/pull-ebay-updates";
+import { runWithEbayConnection } from "./ebay/rate-context";
 import { flagGoneWixListingsForConnection } from "./wix/flag-remote-deleted";
 import { ensureShopifyWebhooks } from "./shopify/webhooks-subscribe";
 import { readShopifyConfig } from "./shopify/config";
 import { logSyncEvent } from "./sync-log";
+import { hydrateCircuitFromConfig, inboundReconcileShouldPull } from "./circuit-breaker";
 import { findChannelLinkForSale } from "./sale-link";
 import { maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
 import { applyInboundChannelSale } from "./apply-channel-sale";
+import { CHANNEL_PROVIDER_LABELS } from "./provider-ui";
+import { logSellerActivity } from "@/lib/seller-activity-log";
+import { sendPushNotification } from "@/lib/send-push-notification";
+import type { RemoteSale } from "./types";
 
 const DEFAULT_LOOKBACK_MS = 1000 * 60 * 60 * 24 * 2; // 2 days
+
+function isUniqueViolation(e: unknown): boolean {
+  return Boolean(e && typeof e === "object" && "code" in e && (e as { code: string }).code === "P2002");
+}
+
+/**
+ * A remote sale that INW can't attribute to any listing (no matching link, or the eBay line had
+ * no SKU / Item ID) never decrements stock — a silent oversell risk. Surface it to the seller
+ * (push + activity log) exactly once, deduped on a separate `unmatched:` event key so the real
+ * sale event is left free to self-heal if the link shows up on a later cron.
+ */
+async function surfaceUnreconcilableSale(args: {
+  memberId: string;
+  provider: ChannelProvider;
+  sale: RemoteSale;
+}): Promise<void> {
+  const alertKey = `unmatched:${args.sale.externalEventId}`;
+  try {
+    await prisma.channelSyncEvent.create({
+      data: {
+        provider: args.provider,
+        externalEventId: alertKey,
+        type: "sale_unmatched",
+        storeItemId: null,
+        payload: {
+          quantitySold: args.sale.quantitySold,
+          externalListingId: args.sale.externalListingId || null,
+          sku: args.sale.sku ?? null,
+          legacyItemId: args.sale.legacyItemId ?? null,
+          unmatched: true,
+        },
+        appliedAt: new Date(),
+      },
+    });
+  } catch (e) {
+    if (isUniqueViolation(e)) return; // already alerted for this sale
+    console.error("[channels] failed to record unmatched-sale alert", {
+      provider: args.provider,
+      externalEventId: args.sale.externalEventId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return;
+  }
+
+  const label = CHANNEL_PROVIDER_LABELS[args.provider] ?? args.provider;
+  const ref =
+    args.sale.sku?.trim() ||
+    args.sale.legacyItemId?.trim() ||
+    args.sale.externalListingId?.trim() ||
+    "unknown item";
+  logSellerActivity(args.memberId, "sync_error", "channel_link", null, {
+    provider: args.provider,
+    quantity: args.sale.quantitySold,
+    errorMessage: `A ${label} sale (${ref}) could not be matched to an INW listing, so its stock was not reduced. Check inventory to avoid overselling.`,
+  });
+  sendPushNotification(args.memberId, {
+    title: `${label} sale needs attention`,
+    body: `A ${label} sale couldn't be matched to an INW listing, so INW didn't reduce its stock. Open to reconcile and avoid overselling.`,
+    data: { screen: "seller-hub" },
+    category: "commerce",
+  }).catch(() => {});
+}
 
 type ConnectionRow = {
   id: string;
@@ -86,6 +154,8 @@ export async function reconcileConnectionSales(
         "sale_unmatched",
         `Sale ${sale.externalEventId} listing=${sale.externalListingId} sku=${sale.sku ?? ""} legacy=${sale.legacyItemId ?? ""}`
       );
+      // Make it seller-visible (once) so an unattributable sale can't oversell silently.
+      await surfaceUnreconcilableSale({ memberId: connection.memberId, provider, sale });
       continue;
     }
 
@@ -259,11 +329,21 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
   } catch (e) {
     console.error("[channels] reconcile sales failed", { id: c.id, error: String(e) });
   }
+  // Don't hammer a shop whose circuit is already open — back off the heavy inbound pulls and let
+  // the circuit half-open on a later tick. Sales reconcile above is never gated by this.
+  hydrateCircuitFromConfig(c.id, c.config);
+  if (!inboundReconcileShouldPull(c.id)) {
+    console.warn("[channels] inbound pull skipped; circuit open", { id: c.id, provider: c.provider });
+    return { applied, imported, catalogUpdated, catalogRemoved, metaUpdated };
+  }
+
   if (c.provider === "ebay") {
     try {
-      const ebayPull = await pullEbayUpdatesForConnection(c);
+      const ebayPull = await runWithEbayConnection(c.id, () => pullEbayUpdatesForConnection(c));
       catalogUpdated += ebayPull.updated.length;
-      const ebayOutbound = await pushFailedEbayOutboundForConnection(c.id);
+      const ebayOutbound = await runWithEbayConnection(c.id, () =>
+        pushFailedEbayOutboundForConnection(c.id)
+      );
       console.log("[channels] eBay GetItem pull", {
         id: c.id,
         checked: ebayPull.checked,

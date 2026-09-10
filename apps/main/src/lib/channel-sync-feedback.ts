@@ -3,6 +3,8 @@ export type ChannelSyncRow = {
   ok: boolean;
   error?: string;
   remoteListingExists?: boolean;
+  /** Intentionally not pushed (paused/pull-only, sync disabled, or LWW kept the shop's copy). */
+  skipped?: string;
 };
 
 function isListingVisibleSyncFailure(row: ChannelSyncRow): boolean {
@@ -34,7 +36,9 @@ export function formatChannelSyncResults(
 } {
   const rows = channelSync ?? [];
   const failed = rows.filter(isListingVisibleSyncFailure);
-  const succeeded = rows.filter((r) => !isListingVisibleSyncFailure(r));
+  // A skipped row (paused/pull-only, sync disabled, LWW kept the shop's copy) was NOT pushed, so it
+  // must not be reported as "synced to X" — that is the false-green we are fixing.
+  const succeeded = rows.filter((r) => !isListingVisibleSyncFailure(r) && !r.skipped);
   const successLines = succeeded.map((r) => providerLabel(r.provider));
   const failureLines = failed.map((r) => {
     const label = providerLabel(r.provider);
@@ -111,7 +115,7 @@ export function buildPublishResultAlert(
 ): { title: string; message: string } {
   const rows = channelSync ?? [];
   const result = formatChannelSyncResults(rows, "saved");
-  if (rows.length === 0) {
+  if (rows.length === 0 || (result.failed.length === 0 && result.succeeded.length === 0)) {
     return {
       title: "That Store Didn't Take It",
       message: "Could not list on the selected store. Check Sync Stores and try again.",

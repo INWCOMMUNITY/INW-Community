@@ -12,6 +12,7 @@ import {
   formatEbayErrorRow,
   type EbayErrorRow,
 } from "./errors";
+import { paceEbayCall } from "./rate-context";
 
 export { EbayApiError } from "./errors";
 export { describeEbayThrownError, describeChannelSyncError, ebayErrorActionHint } from "./errors";
@@ -134,6 +135,8 @@ async function ebayRequest<T>(
   const url = path.startsWith("http") ? path : `${EBAY_API_BASE}${path}`;
   const { contentLanguage, headers: extraHeaders, timeoutMs: timeoutOverride, ...fetchInit } = init;
   const timeoutMs = fetchTimeoutMsForPath(path, timeoutOverride);
+  // Proactively pace against this connection's eBay rate window (no-op when no context is bound).
+  if (attempt === 0) await paceEbayCall();
   let res: Response;
   try {
     res = await fetchWithTimeout(

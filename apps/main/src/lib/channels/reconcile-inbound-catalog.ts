@@ -42,6 +42,7 @@ import {
   remoteCatalogChangedSinceBaseline,
   remoteListingDisagreesForSync,
   remoteQtyOnlyShouldPull,
+  shouldFlagWixRemoteDeleted,
   shouldLogCatalogConflict,
 } from "./inbound-catalog-decision";
 import { wixProductIsGone } from "./wix/listing-exists";
@@ -63,6 +64,12 @@ import {
   readStoredPhotoUrls,
 } from "./photo-urls";
 import { tryAcquireCronLock, releaseCronLock, INBOUND_CATALOG_LOCK_TTL_MS } from "@/lib/cron-job-lock";
+
+/**
+ * Max per-product "is it really gone?" probes to run in one tick when a Wix catalog read comes
+ * back empty. Bounds the cron budget; any remainder is deferred to the next tick.
+ */
+const WIX_EMPTY_CATALOG_VERIFY_CAP = 25;
 
 /** Content fingerprint for a remote catalog row (same fields as syncContentHash on StoreItem). */
 function remoteListingContentHash(remote: RemoteListingSummary): string {
@@ -280,9 +287,30 @@ export async function reconcileConnectionInboundCatalog(
   // Wix list returning [] after successful v1/v3 queries means the shop has no visible products.
   if (remoteList.length === 0) {
     if (provider === "wix") {
+      // An empty Wix read is usually a transient glitch or the wrong catalog version — NOT
+      // proof every listing was deleted. Never mass-flag: confirm each product is really gone
+      // with a per-product probe, and cap probes per tick so a large shop can't blow the budget.
       let removed = 0;
+      let probed = 0;
+      let deferred = 0;
       for (const link of links) {
+        if (isRemoteDeletedPending(link.conflictDetails)) continue;
         if (link.storeItem.status === "sold_out" || link.storeItem.status === "inactive") continue;
+        if (probed >= WIX_EMPTY_CATALOG_VERIFY_CAP) {
+          deferred += 1;
+          continue;
+        }
+        probed += 1;
+        const confirmedGone = await wixProductIsGone(ctx, link.externalListingId).catch(() => false);
+        if (
+          !shouldFlagWixRemoteDeleted({
+            confirmedGone,
+            alreadyPending: false,
+            storeItemStatus: link.storeItem.status,
+          })
+        ) {
+          continue;
+        }
         const flagged = await persistRemoteDeletedPending({
           linkId: link.id,
           conflictDetails: link.conflictDetails,
@@ -290,10 +318,12 @@ export async function reconcileConnectionInboundCatalog(
         });
         if (flagged) removed += 1;
       }
-      console.warn("[channels] inbound catalog empty — flagged Wix links as remotely deleted", {
+      console.warn("[channels] inbound catalog empty for Wix — flagged only per-product confirmed deletes", {
         connectionId: connection.id,
         links: links.length,
+        probed,
         removed,
+        deferred,
       });
       return { updated: 0, removed };
     }
@@ -514,6 +544,18 @@ export async function reconcileConnectionInboundCatalog(
       if (provider === "etsy") {
         if (!etsyGoneIds.has(link.externalListingId)) {
           console.warn("[channels] skip sell-out; Etsy listing hydrate inconclusive", {
+            storeItemId: link.storeItemId,
+            externalListingId: link.externalListingId,
+          });
+          continue;
+        }
+      }
+      if (provider === "wix") {
+        // Absence from the catalog list can mean a truncated page cap, not a delete.
+        // Only flag when a per-product probe confirms the product is really gone.
+        const confirmedGone = await wixProductIsGone(ctx, link.externalListingId).catch(() => false);
+        if (!confirmedGone) {
+          console.warn("[channels] skip Wix sell-out; product not confirmed gone (catalog may be truncated)", {
             storeItemId: link.storeItemId,
             externalListingId: link.externalListingId,
           });
@@ -747,18 +789,19 @@ export async function reconcileConnectionInboundCatalog(
 
     if (contentDecision === "noop" && !qtyDiffers) {
       if (inwContentChanged && !remoteDisagreesWithInw) {
-        if (provider === "shopify") {
-          console.log("[channels] skip Shopify catalog fan-out; INW already matches Shopify", {
-            storeItemId: link.storeItemId,
-          });
-          await writeBaseline(link.id, link.storeItemId, remote, true);
-          continue;
-        }
+        // Even when INW already matches THIS channel, a Shopify (or any) edit must still reach
+        // the OTHER shops — the save-time push can be partial. Fan out to non-provider siblings
+        // with the source timestamp (idempotent absolute values make a double-push safe).
         console.log("[channels] INW edit already on channel — fanning out to other shops", {
           storeItemId: link.storeItemId,
           provider,
         });
-        await updateStoreItemOnChannels(link.storeItemId, { skipProviders: [provider] });
+        await updateStoreItemOnChannels(link.storeItemId, {
+          skipProviders: [provider],
+          // Fan out with the SOURCE timestamp, not the post-apply now(), so siblings that
+          // already have a newer copy are not reverted.
+          sourceUpdatedAt: remote.remoteUpdatedAt ?? undefined,
+        });
         await writeBaseline(link.id, link.storeItemId, remote, true);
         continue;
       }
@@ -963,6 +1006,9 @@ export async function reconcileConnectionInboundCatalog(
     
     if (contentDecision === "push" && allowPush && !needsQtyRecovery) {
       attemptedPush = true;
+      // INW won the comparison here (INW is authoritative), so the hub's own updatedAt is the
+      // correct source time — do NOT override with the older remote timestamp or the outbound
+      // guard would suppress this legitimate push to the siblings.
       pushOk = channelSyncSucceeded(
         await updateStoreItemOnChannels(link.storeItemId),
         provider

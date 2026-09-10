@@ -552,10 +552,17 @@ export async function PATCH(
     title: item.title,
   });
 
-  // Keep linked sales channels (Etsy, etc.) in sync. Best-effort: never fail the save.
-  let channelSync: { provider: string; ok: boolean; error?: string }[] = [];
+  // Keep linked sales channels (Etsy, etc.) in sync. Best-effort: never fail the save, but if the
+  // channel push throws we must still tell the seller which channels did not sync (no false-green).
+  let channelSync: { provider: string; ok: boolean; error?: string; skipped?: string }[] = [];
+  const linkedProviders = (
+    await prisma.channelListingLink.findMany({
+      where: { storeItemId: itemId },
+      select: { provider: true },
+    })
+  ).map((l) => l.provider);
   try {
-    const existingLinks = await prisma.channelListingLink.count({ where: { storeItemId: itemId } });
+    const existingLinks = linkedProviders.length;
     const unpublishProviders = data.unpublishChannelProviders ?? [];
     if (data.status === "inactive") {
       // End listing is INW-only: leave eBay/Etsy/Wix/Shopify listings as they are.
@@ -588,6 +595,13 @@ export async function PATCH(
     }
   } catch (err) {
     console.error("[store-items] Channel update failed:", err);
+    // The save itself succeeded, but the channel push threw before returning per-provider results.
+    // Surface a failure row for every linked provider so the banner is honest instead of empty.
+    if (channelSync.length === 0 && linkedProviders.length > 0) {
+      const message =
+        err instanceof Error ? err.message : "Channel sync failed. Retry from the listing.";
+      channelSync = linkedProviders.map((provider) => ({ provider, ok: false, error: message }));
+    }
   }
 
   return NextResponse.json({ ...item, channelSync });

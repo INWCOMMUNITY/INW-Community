@@ -372,6 +372,29 @@ export function storeItemRowsToFeedEmbedMap(
   );
 }
 
+/**
+ * Zero every per-option / per-SKU quantity (used when clamping a listing to sold-out after an
+ * oversell). Returns the original value untouched when the listing doesn't use option quantities.
+ */
+export function zeroAllVariantQuantities(variants: unknown): VariantsJson {
+  if (isMatrixJson(variants)) {
+    const matrix = normalizeVariantMatrix(variants);
+    if (!matrix) return (variants as VariantsJson) ?? null;
+    const next = JSON.parse(JSON.stringify(matrix)) as VariantMatrix;
+    for (const sku of next.skus) sku.quantity = 0;
+    return next;
+  }
+  if (!variants || !Array.isArray(variants)) return (variants as VariantsJson) ?? null;
+  const next = JSON.parse(JSON.stringify(variants)) as VariantWithOptionQuantities[];
+  for (const v of next) {
+    if (!Array.isArray(v.options)) continue;
+    for (const o of v.options) {
+      if (isOptionWithQty(o)) o.quantity = 0;
+    }
+  }
+  return next;
+}
+
 /** Sum of all option / SKU quantities. Used to set storeItem.quantity when saving. */
 export function sumOptionQuantities(variants: unknown): number {
   if (isMatrixJson(variants)) {

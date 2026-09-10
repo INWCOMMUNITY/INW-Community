@@ -1,12 +1,17 @@
 import { prisma } from "database";
 import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
 import { InsufficientStockError } from "@/lib/store-item-inventory-errors";
-import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
+import {
+  hasOptionQuantities,
+  shouldMarkStoreItemSoldOut,
+  zeroAllVariantQuantities,
+} from "@/lib/store-item-variants";
 import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
 import { syncInventoryToChannels } from "./sync-inventory";
 import { logSaleQuantityChange } from "./quantity-audit";
 import { logSyncEvent } from "./sync-log";
 import { matchSaleToVariantOption } from "./variant-sync";
+import { CHANNEL_PROVIDER_LABELS } from "./provider-ui";
 import type { ChannelProvider, RemoteSale } from "./types";
 
 function isUniqueViolation(e: unknown): boolean {
@@ -19,6 +24,42 @@ export type ApplyInboundSaleResult =
   | "insufficient"
   | "claimed_unapplied"
   | "in_flight";
+
+/**
+ * Seller-facing copy for an oversell (a channel sold more than INW had in stock). Surfaced as a
+ * Needs Attention card so the seller can reconcile physical stock instead of it being silent.
+ */
+export function oversellAlertMessage(args: {
+  provider: ChannelProvider;
+  requested: number;
+  available: number;
+}): string {
+  const label = CHANNEL_PROVIDER_LABELS[args.provider] ?? args.provider;
+  return (
+    `Oversold on ${label}: a buyer purchased ${args.requested} but only ${args.available} ` +
+    `were in stock. INW marked this item sold out on every connected shop to stop further ` +
+    `overselling. Restock and update the quantity to relist it.`
+  );
+}
+
+/**
+ * Clamp a listing to sold-out after an oversell: zero the aggregate quantity (and every
+ * per-option/SKU quantity) and mark it sold_out so the sell-out fans out to all channels.
+ */
+async function clampStoreItemToSoldOut(storeItemId: string): Promise<void> {
+  const item = await prisma.storeItem.findUnique({
+    where: { id: storeItemId },
+    select: { variants: true },
+  });
+  const data: { quantity: number; status: string; variants?: object } = {
+    quantity: 0,
+    status: "sold_out",
+  };
+  if (item && hasOptionQuantities(item.variants)) {
+    data.variants = zeroAllVariantQuantities(item.variants) as object;
+  }
+  await prisma.storeItem.update({ where: { id: storeItemId }, data }).catch(() => {});
+}
 
 /** Fresh unapplied claims belong to another in-flight worker (webhook ∥ cron). */
 export const UNAPPLIED_CLAIM_STALE_MS = 2 * 60 * 1000;
@@ -96,28 +137,64 @@ export async function applyInboundChannelSale(args: {
     });
   } catch (e) {
     if (e instanceof InsufficientStockError) {
+      // Oversell: the channel sold more than INW had. Never silently burn it.
+      // Clamp INW to sold-out, fan the sell-out to every channel, and raise a
+      // seller-visible alert so they can reconcile physical stock. The event is
+      // terminally recorded (payload.oversell) so it can't loop and re-alert.
+      await clampStoreItemToSoldOut(storeItem.id);
+
+      const oversellAt = new Date();
       await prisma.channelSyncEvent
         .update({
           where: {
             provider_externalEventId: { provider, externalEventId: sale.externalEventId },
           },
           data: {
-            appliedAt: new Date(),
-            processedAt: new Date(),
+            appliedAt: oversellAt,
+            processedAt: oversellAt,
             payload: {
               quantitySold: sale.quantitySold,
               applied: true,
-              skipped: "insufficient_stock",
+              oversell: true,
+              requested: sale.quantitySold,
               available: e.available,
             },
           },
         })
         .catch(() => {});
+
+      logSaleQuantityChange({
+        storeItemId: storeItem.id,
+        memberId,
+        provider,
+        previousQty,
+        newQty: 0,
+        externalEventId: sale.externalEventId,
+        variantValue: saleVariant ? JSON.stringify(saleVariant) : undefined,
+      });
+
+      // Take the sibling listings down (absolute qty 0 / sold-out).
+      await syncInventoryToChannels(storeItem.id);
+      deleteFeedPostsForSoldItem(storeItem.id).catch(() => {});
+
+      // Raise the alert AFTER fan-out (which resets the link to synced) so it sticks.
+      const message = oversellAlertMessage({
+        provider,
+        requested: sale.quantitySold,
+        available: e.available,
+      });
+      await prisma.channelListingLink
+        .update({
+          where: { id: linkId },
+          data: { syncStatus: "error", syncError: message },
+        })
+        .catch(() => {});
+
       logSyncEvent(
         memberId,
         provider,
         "sale_insufficient",
-        `Sale ${sale.externalEventId}: requested ${sale.quantitySold}, available ${e.available}`,
+        `Sale ${sale.externalEventId}: requested ${sale.quantitySold}, available ${e.available}; clamped to sold-out`,
         storeItem.id
       );
       return "insufficient";

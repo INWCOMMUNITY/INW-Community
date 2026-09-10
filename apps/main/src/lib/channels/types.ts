@@ -136,6 +136,14 @@ export type ChannelSyncResult = {
   error?: string;
   /** Remote listing exists even when ok is false (incomplete options). */
   remoteListingExists?: boolean;
+  /**
+   * Set when nothing was pushed because the guard intentionally declined (not an error and not a
+   * completed push). Lets the UI avoid a false-green "synced" for a no-op.
+   * - `remote_newer`: the shop's live copy is newer than INW and last-write-wins kept it.
+   * - `paused`: this channel's sync direction is pull-only or paused, so nothing was pushed.
+   * - `sync_disabled`: the seller's content sync toggles are all off.
+   */
+  skipped?: "remote_newer" | "paused" | "sync_disabled";
 };
 
 /** A sale detected via webhook or reconciliation poll. */

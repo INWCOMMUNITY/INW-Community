@@ -4,6 +4,8 @@ export type ChannelSyncRow = {
   provider: string;
   ok: boolean;
   error?: string;
+  /** Intentionally not pushed (paused/pull-only, sync disabled, or LWW kept the shop's copy). */
+  skipped?: string;
 };
 
 function isListingVisibleSyncFailure(row: ChannelSyncRow): boolean {
@@ -51,7 +53,9 @@ export function alertChannelSyncFailures(
 export function alertChannelPublishResult(channelSync: ChannelSyncRow[] | undefined): void {
   const rows = channelSync ?? [];
   const failed = rows.filter(isListingVisibleSyncFailure);
-  const succeeded = rows.filter((r) => !isListingVisibleSyncFailure(r));
+  // Skipped rows (paused/pull-only, sync disabled, LWW kept the shop's copy) were not pushed, so
+  // they must not be reported as "Listed on X".
+  const succeeded = rows.filter((r) => !isListingVisibleSyncFailure(r) && !r.skipped);
   const successLines = succeeded.map((r) => PROVIDER_LABEL[r.provider] ?? r.provider);
   const failureLines = failed.map((r) => {
     const label = PROVIDER_LABEL[r.provider] ?? r.provider;
@@ -59,7 +63,7 @@ export function alertChannelPublishResult(channelSync: ChannelSyncRow[] | undefi
     return detail ? `${label}: ${detail.slice(0, 200)}` : `${label}: sync failed`;
   });
 
-  if (rows.length === 0) {
+  if (rows.length === 0 || (succeeded.length === 0 && failed.length === 0)) {
     Alert.alert("That Store Didn't Take It", "Could not list on the selected store. Check Sync Stores and try again.");
     return;
   }

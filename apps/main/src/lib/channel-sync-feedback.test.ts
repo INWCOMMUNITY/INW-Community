@@ -80,6 +80,33 @@ describe("formatChannelSyncResults", () => {
     expect(result.allOk).toBe(false);
   });
 
+  it("does NOT claim a skipped (paused) channel was synced", () => {
+    const result = formatChannelSyncResults(
+      [
+        { provider: "etsy", ok: true },
+        { provider: "ebay", ok: true, skipped: "paused" },
+        { provider: "wix", ok: true, skipped: "remote_newer" },
+      ],
+      "saved"
+    );
+    // Only Etsy actually pushed; eBay was paused and Wix was kept by last-write-wins.
+    expect(result.successLines).toEqual(["Etsy"]);
+    expect(result.failureLines).toEqual([]);
+    expect(result.allOk).toBe(true);
+  });
+
+  it("treats an all-skipped save as a no-op (no false 'synced')", () => {
+    const result = formatChannelSyncResults(
+      [
+        { provider: "ebay", ok: true, skipped: "paused" },
+        { provider: "etsy", ok: true, skipped: "sync_disabled" },
+      ],
+      "saved"
+    );
+    expect(result.successLines).toEqual([]);
+    expect(result.failureLines).toEqual([]);
+  });
+
   it("says the shop already has the listing when inventory is incomplete", () => {
     const result = formatChannelSyncResults(
       [

@@ -13,6 +13,9 @@ import {
   withEbayPendingInbound,
   ebayCronShouldRetryOutbound,
   ebayCronShouldPushOutbound,
+  ebayDirtyInboundUnconfirmed,
+  withEbayDirtyUnconfirmed,
+  EBAY_DIRTY_UNCONFIRMED_TTL_MS,
 } from "./pull-ebay-updates";
 
 describe("isEbayInboundContentChange", () => {
@@ -498,6 +501,7 @@ describe("ebayGetItemApplyDecision", () => {
     expect(
       ebayGetItemApplyDecision({
         ...base,
+        lastPushedAt: new Date("2026-09-10T02:26:13.756Z"),
         inwUpdatedAt: new Date("2026-09-10T02:30:26.884Z"),
         inwTitle: "Vintage Bear Clock (Testing) S",
         remoteTitle: "Vintage Bear Clock (Testing) Sync Ebay",
@@ -516,7 +520,7 @@ describe("ebayGetItemApplyDecision", () => {
     expect(
       ebayGetItemApplyDecision({
         ...base,
-        lastPushedAt: new Date("2026-09-10T01:00:00.000Z"),
+        lastPushedAt: new Date("2026-09-10T02:26:13.756Z"),
         inwUpdatedAt: new Date("2026-09-10T02:30:26.884Z"),
         inwTitle: "Vintage Bear Clock (Testing) S",
         remoteTitle: "Vintage Bear Clock (Testing) Sync Ebay",
@@ -557,7 +561,7 @@ describe("ebayGetItemApplyDecision", () => {
         lastInboundAt: new Date("2026-09-10T01:00:00.000Z"),
         inwUpdatedAt: new Date("2026-09-10T02:26:10.000Z"),
         inwTitle: "Vintage Bear Clock (Testing) Sync Ebay",
-        lastSyncedTitle: "Vintage Bear Clock (Testing) Sync Ebay",
+        lastSyncedTitle: "Vintage Bear Clock (Testing) S",
         remoteTitle: "Vintage Bear Clock (Testing) S",
         remotePriceCents: 200,
         inwPriceCents: 200,
@@ -663,8 +667,6 @@ describe("shouldApplyEbayInboundVariants", () => {
       ],
     },
   ];
-  const pushedAt = new Date("2026-08-20T05:06:00.000Z");
-
   it("rejects a post-publish snapshot that dropped options", () => {
     expect(
       shouldApplyEbayInboundVariants({
@@ -678,13 +680,11 @@ describe("shouldApplyEbayInboundVariants", () => {
             ],
           },
         ],
-        lastPushedAt: pushedAt,
-        now: new Date("2026-08-20T05:10:00.000Z"),
       })
     ).toBe(false);
   });
 
-  it("rejects all-qty-1 echo shortly after we pushed richer option stock", () => {
+  it("rejects all-qty-1 echo when we already track richer option stock", () => {
     expect(
       shouldApplyEbayInboundVariants({
         localVariants: local,
@@ -698,13 +698,12 @@ describe("shouldApplyEbayInboundVariants", () => {
             ],
           },
         ],
-        lastPushedAt: pushedAt,
-        now: new Date("2026-08-20T05:10:00.000Z"),
       })
     ).toBe(false);
   });
 
-  it("still rejects all-qty-1 GetItem hours later so cron cannot flap option stock", () => {
+  it("rejects a MIXED degraded snapshot (e.g. {S:1,M:1,L:5}) over real per-option stock", () => {
+    // Regression: the old all-1s-only guard let this through and wiped S/M to 1.
     expect(
       shouldApplyEbayInboundVariants({
         localVariants: local,
@@ -714,17 +713,17 @@ describe("shouldApplyEbayInboundVariants", () => {
             options: [
               { value: "S", quantity: 1 },
               { value: "M", quantity: 1 },
-              { value: "L", quantity: 1 },
+              { value: "L", quantity: 5 },
             ],
           },
         ],
-        lastPushedAt: pushedAt,
-        now: new Date("2026-08-20T18:00:00.000Z"),
       })
     ).toBe(false);
   });
 
-  it("applies a later eBay edit that matches INW options with real quantities", () => {
+  it("does NOT copy GetItem per-option qty even when values line up (Inventory API is source)", () => {
+    // GetItem per-option qty is never trustworthy for variation listings; eBay stock syncs
+    // via the Inventory API / offering stock, so we refuse to overwrite real local stock.
     expect(
       shouldApplyEbayInboundVariants({
         localVariants: local,
@@ -738,10 +737,8 @@ describe("shouldApplyEbayInboundVariants", () => {
             ],
           },
         ],
-        lastPushedAt: pushedAt,
-        now: new Date("2026-08-20T05:30:00.000Z"),
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("applies remote variants when INW has none (import)", () => {
@@ -860,5 +857,63 @@ describe("ebayCronShouldPushOutbound", () => {
         lastInboundAt: new Date("2026-09-09T17:00:00.000Z"),
       })
     ).toBe(false);
+  });
+
+  it("does NOT push when eBay is dirty but the live GetItem was inconclusive", () => {
+    // INW looks newer than both push and inbound (would normally push), but eBay diverged and
+    // we could not read it — pushing would clobber the seller's eBay edit.
+    expect(
+      ebayCronShouldPushOutbound({
+        syncEnabled: true,
+        syncStatus: "synced",
+        ended: false,
+        inwUpdatedAt: inw,
+        lastPushedAt: new Date("2026-09-09T16:00:00.000Z"),
+        lastInboundAt: new Date("2026-09-09T16:00:00.000Z"),
+        dirtyInboundUnconfirmed: true,
+      })
+    ).toBe(false);
+  });
+
+  it("does NOT retry even an error row while a dirty inbound is unconfirmed", () => {
+    expect(
+      ebayCronShouldPushOutbound({
+        syncEnabled: true,
+        syncStatus: "error",
+        ended: false,
+        inwUpdatedAt: inw,
+        lastPushedAt: inw,
+        lastInboundAt: inw,
+        dirtyInboundUnconfirmed: true,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("ebayDirtyInboundUnconfirmed", () => {
+  const now = new Date("2026-09-09T18:00:00.000Z");
+
+  it("is false when there is no marker", () => {
+    expect(ebayDirtyInboundUnconfirmed({}, now)).toBe(false);
+    expect(ebayDirtyInboundUnconfirmed(null, now)).toBe(false);
+  });
+
+  it("blocks outbound while the marker is fresh", () => {
+    const cd = withEbayDirtyUnconfirmed({}, new Date("2026-09-09T17:55:00.000Z"));
+    expect(ebayDirtyInboundUnconfirmed(cd, now)).toBe(true);
+  });
+
+  it("expires via the TTL so a permanently unreadable listing cannot strand outbound", () => {
+    const stale = new Date(now.getTime() - EBAY_DIRTY_UNCONFIRMED_TTL_MS - 1_000);
+    const cd = withEbayDirtyUnconfirmed({}, stale);
+    expect(ebayDirtyInboundUnconfirmed(cd, now)).toBe(false);
+  });
+
+  it("clears the marker when passed null (conclusive GetItem)", () => {
+    const set = withEbayDirtyUnconfirmed({ other: "keep" }, now) as Record<string, unknown>;
+    expect(set.ebayDirtyUnconfirmedAt).toBeDefined();
+    const cleared = withEbayDirtyUnconfirmed(set, null) as Record<string, unknown>;
+    expect(cleared.ebayDirtyUnconfirmedAt).toBeUndefined();
+    expect(cleared.other).toBe("keep");
   });
 });

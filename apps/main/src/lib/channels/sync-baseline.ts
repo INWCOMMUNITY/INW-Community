@@ -210,10 +210,10 @@ function descriptionsMatchForSync(
 
 /**
  * GetItem almost never includes LastModifiedTime. Live eBay is an independent
- * revise when it is neither INW nor the title we last synced. Requiring INW to
- * still equal lastSynced let Etsy restamp INW and then skip (or overwrite) the
- * eBay edit. A lagged GetItem after our own PUT still equals lastSynced, or is
- * suppressed by the inbound lag window.
+ * revise when it is neither INW nor the title GetItem last confirmed. Requiring
+ * INW to still equal lastSynced let Etsy restamp INW and then skip (or overwrite)
+ * the eBay edit. A lagged GetItem after our own PUT still equals lastSynced because
+ * outbound no longer pretends the PUT has already been confirmed.
  */
 export function ebayRemoteLooksLikeIndependentRevise(args: {
   inwTitle: string;

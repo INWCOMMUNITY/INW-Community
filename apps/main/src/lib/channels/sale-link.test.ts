@@ -70,9 +70,14 @@ describe("ebayFulfillmentLineToSale", () => {
     expect(sale?.legacyItemId).toBe("407161593624");
   });
 
-  it("drops lines with neither SKU nor legacy Item ID", () => {
-    expect(
-      ebayFulfillmentLineToSale("ord-1", { lineItemId: "li-1", quantity: 1 })
-    ).toBeNull();
+  it("surfaces lines with neither SKU nor legacy Item ID as unmatched (never silently dropped)", () => {
+    const sale = ebayFulfillmentLineToSale("ord-1", { lineItemId: "li-1", quantity: 1 });
+    expect(sale).not.toBeNull();
+    expect(sale?.externalListingId).toBe("");
+    expect(sale?.sku).toBeNull();
+    expect(sale?.legacyItemId).toBeNull();
+    expect(sale?.externalEventId).toBe("order:ord-1:line:li-1");
+    // No candidate ids -> won't match any link -> reconcile surfaces it to the seller.
+    expect(saleLinkCandidateIds(sale!)).toEqual([]);
   });
 });

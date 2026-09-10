@@ -8,6 +8,7 @@ import type {
   TokenResponse,
 } from "../types";
 import { ebayFulfillmentLineToSale } from "../sale-link";
+import { classifyEbayUpsertResult } from "./upsert-outcome";
 import { EbayApiError, ebayAction, ebayGet, ebayGetInventoryItem, ebayJson, takeEbayCallWarnings } from "./client";
 import {
   describeEbayThrownError,
@@ -397,7 +398,13 @@ async function enrichPassthroughInventoryPutBody(
  * migrated SKU differs from item.id; callers pass it via `linkedSku` so we target the
  * correct inventory item + offer on eBay rather than creating an orphan.
  */
-type UpsertResult = { sku: string; listingId?: string; publishError?: string };
+type UpsertResult = {
+  sku: string;
+  listingId?: string;
+  publishError?: string;
+  /** Publish/content succeeded but the post-publish variant quantity write failed. */
+  quantityError?: string;
+};
 
 async function upsertListing(
   conn: ChannelConnectionContext,
@@ -1694,17 +1701,19 @@ async function upsertListing(
             return publishOfferByInventoryItemGroup(conn.accessToken, groupKey);
           });
           await persistEbayVariantOptionSkus(item.id, item.variants, variantRows);
+          let quantityError: string | undefined;
           try {
             await pushVariantGroupQuantities(conn.accessToken, variantRows, offerIdsBySku);
           } catch (qtyErr) {
+            quantityError = describeEbayThrownError(qtyErr);
             console.warn("[ebay] variant quantity write after publish failed", {
               storeItemId: item.id,
               listingId: published?.listingId ?? null,
-              error: describeEbayThrownError(qtyErr),
+              error: quantityError,
             });
           }
-          await completeTrace(trace, "success");
-          return { sku: variantSkus[0] ?? sku, listingId: published?.listingId };
+          await completeTrace(trace, quantityError ? "failed" : "success");
+          return { sku: variantSkus[0] ?? sku, listingId: published?.listingId, quantityError };
         } catch (e) {
           const msg = describeEbayThrownError(e);
           await completeTrace(trace, "failed", e);
@@ -1712,16 +1721,22 @@ async function upsertListing(
         }
       }
       await persistEbayVariantOptionSkus(item.id, item.variants, variantRows);
+      let variantQuantityError: string | undefined;
       try {
         await pushVariantGroupQuantities(conn.accessToken, variantRows, offerIdsBySku);
       } catch (qtyErr) {
+        variantQuantityError = describeEbayThrownError(qtyErr);
         console.warn("[ebay] variant quantity write failed", {
           storeItemId: item.id,
-          error: describeEbayThrownError(qtyErr),
+          error: variantQuantityError,
         });
       }
-      await completeTrace(trace, "success");
-      return { sku: variantSkus[0] ?? sku, listingId: publishedVariantListingId ?? undefined };
+      await completeTrace(trace, variantQuantityError ? "failed" : "success");
+      return {
+        sku: variantSkus[0] ?? sku,
+        listingId: publishedVariantListingId ?? undefined,
+        quantityError: variantQuantityError,
+      };
     }
 
     async function pushInventoryWithConditionRetry() {
@@ -2005,7 +2020,7 @@ export const ebayAdapter: ChannelAdapter = {
     if (item.status !== "active" || item.quantity <= 0) {
       throw new Error("Item must be active with a quantity of at least 1 to list on eBay.");
     }
-    const { sku, listingId, publishError } = await upsertListing(conn, item);
+    const { sku, listingId, publishError, quantityError } = await upsertListing(conn, item);
     if (publishError) {
       throw new Error(publishError);
     }
@@ -2017,20 +2032,33 @@ export const ebayAdapter: ChannelAdapter = {
         warning: "eBay saved a draft. It is not live on eBay yet.",
       };
     }
+    // Listing is live; don't orphan it by throwing. Surface the qty failure as a warning so
+    // the link is created and the seller sees that quantities still need to sync.
     return {
       externalListingId: listingId,
       externalShopId: conn.externalShopId,
       live: true,
+      ...(quantityError
+        ? { warning: `eBay listing is live but the variation quantities failed to update: ${quantityError}` }
+        : {}),
     };
   },
 
   async updateListing(conn, externalListingId, item): Promise<void> {
-    const { publishError } = await upsertListing(conn, item, externalListingId);
-    if (publishError) {
-      if (isEbayConditionSyncError(publishError)) {
-        throw new Error(publishError);
+    const result = await upsertListing(conn, item, externalListingId);
+    const outcome = classifyEbayUpsertResult(result);
+    if (outcome.kind === "publish_error") {
+      if (isEbayConditionSyncError(outcome.message)) {
+        throw new Error(outcome.message);
       }
-      throw new Error(`eBay content updated but publish failed: ${publishError}`);
+      throw new Error(`eBay content updated but publish failed: ${outcome.message}`);
+    }
+    // A published listing whose variation quantities didn't write is NOT a success — surface it
+    // so it becomes a Needs Attention item and the retry queue re-attempts the quantity write.
+    if (outcome.kind === "quantity_error") {
+      throw new Error(
+        `eBay listing updated but variation quantities failed to sync: ${outcome.message}`
+      );
     }
   },
 

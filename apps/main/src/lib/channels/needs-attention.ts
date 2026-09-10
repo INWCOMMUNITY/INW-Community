@@ -5,6 +5,7 @@
 
 import { prisma, Prisma } from "database";
 import { isEbayConditionSyncError } from "./ebay/conditions";
+import { isTransientError } from "./error-classifier";
 import {
   isEbayTaxonomyLoadPlaceholder,
   parseMissingEbayItemSpecifics,
@@ -106,6 +107,18 @@ const ETSY_POSTAL_ERROR =
   /Postal Code is required|shipping-profiles|min\/max delivery days|INW \$0\.00/i;
 const ETSY_MARKETPLACE_ERROR = /invalid_marketplace|cannot sell this item on Etsy/i;
 const EBAY_VARIATION_SKU_ERROR = /variationInformation|#25002.*variation/i;
+// Informational states that used to write `syncError` without `syncStatus:"error"` — so no card
+// ever appeared and the sync pill silently went green. These are seller-visible facts, not tasks.
+const EBAY_ENDED_NOTICE = /eBay listing ended/i;
+const ZERO_PUSH_SKIPPED_NOTICE = /Zero push skipped/i;
+
+export function isEbayListingEndedNotice(error: string | null | undefined): boolean {
+  return EBAY_ENDED_NOTICE.test(error ?? "");
+}
+
+export function isZeroPushSkippedNotice(error: string | null | undefined): boolean {
+  return ZERO_PUSH_SKIPPED_NOTICE.test(error ?? "");
+}
 
 export function isEtsyOriginSyncError(error: string | null | undefined): boolean {
   return ETSY_ORIGIN_ERROR.test(error ?? "");
@@ -117,6 +130,32 @@ export function isEtsyPostalSyncError(error: string | null | undefined): boolean
 
 export function isEtsyMarketplaceSyncError(error: string | null | undefined): boolean {
   return ETSY_MARKETPLACE_ERROR.test(error ?? "");
+}
+
+/**
+ * A transient error (429 / 5xx / timeout / circuit-paused / rate limit) that the retry loop is
+ * still actively working through is NOT something the seller can act on — surfacing it as a
+ * Needs Attention card just bombards them with noise that clears itself. Hold it back until the
+ * failure is *sustained*: the auto-retries are exhausted, there is no retry in flight, or it has
+ * been stuck past a grace window. Permanent/auth errors are never suppressed — those need a human.
+ */
+export const TRANSIENT_ATTENTION_GRACE_MS = 45 * 60_000;
+
+export function transientSyncErrorSuppressed(args: {
+  syncError: string | null;
+  retries: { attempts: number; maxAttempts: number; createdAt: Date }[];
+  now?: Date;
+}): boolean {
+  if (!args.syncError?.trim()) return false;
+  if (!isTransientError(args.syncError)) return false;
+  const active = args.retries.filter((r) => r.attempts < r.maxAttempts);
+  if (active.length === 0) return false; // retries exhausted (or none scheduled) — this is now real
+  const now = args.now ?? new Date();
+  const firstSeen = Math.min(...args.retries.map((r) => r.createdAt.getTime()));
+  if (Number.isFinite(firstSeen) && now.getTime() - firstSeen >= TRANSIENT_ATTENTION_GRACE_MS) {
+    return false; // stuck too long to keep hiding — surface it
+  }
+  return true;
 }
 
 type ListingInput = {
@@ -131,6 +170,28 @@ type ListingInput = {
   ebayCategoryId?: number | null;
 };
 
+/**
+ * Etsy requires who_made / when_made / taxonomy only to *publish and keep a listing live*.
+ * We used to queue a card for every Etsy link missing those fields even if the listing was a
+ * draft/sold-out/inactive item that will never be pushed — pure noise. Only nag proactively for
+ * an `active` listing that genuinely needs to publish. A real Etsy rejection (a syncError) always
+ * surfaces regardless of this, via {@link classifyListingNeedsAttention}.
+ */
+export function etsyProactiveFieldCardApplies(item: {
+  status: string;
+  etsyWhoMade: string | null;
+  etsyWhenMade: string | null;
+  etsyTaxonomyId: number | null;
+}): boolean {
+  if (item.status !== "active") return false;
+  return (
+    !isEtsyWhoMade(item.etsyWhoMade) ||
+    normalizeEtsyWhenMade(item.etsyWhenMade) == null ||
+    item.etsyTaxonomyId == null ||
+    item.etsyTaxonomyId <= 0
+  );
+}
+
 /** Never treat the old “taxonomy could not load” sentence as an item-specific name. */
 export function ebayAttentionSpecificNames(syncError: string | null | undefined): string[] {
   const missing = parseMissingEbayItemSpecifics(syncError ?? "").filter(
@@ -139,6 +200,22 @@ export function ebayAttentionSpecificNames(syncError: string | null | undefined)
   if (missing.length > 0) return missing;
   if (isEbayTaxonomyLoadPlaceholder(syncError ?? "")) return ["Type", "Brand"];
   return [];
+}
+
+/**
+ * When the seller dismisses a listing card, decide whether to also clear the link's error state
+ * so the sync pill and health counts stop showing red — i.e. make dismiss reflect the real state.
+ *
+ * Clear when there is nothing left for the seller to fix: the condition already resolved (no card),
+ * or it is an informational/acknowledgeable notice or a plain retry-only error they chose to stop
+ * seeing. Do NOT clear structured field errors ("fill" / "ebay_condition") — those stay genuinely
+ * blocked until the fields are provided, so the pill must keep telling the truth.
+ */
+export function dismissShouldClearSyncError(
+  classified: { action: NeedsAttentionAction } | null
+): boolean {
+  if (!classified) return true;
+  return classified.action === "retry_only";
 }
 
 export function classifyListingNeedsAttention(args: {
@@ -265,6 +342,24 @@ export function classifyListingNeedsAttention(args: {
     return {
       summary:
         "eBay treated this as a variation listing. Retry sync so INW can push generated SKUs for each variation.",
+      fields: [],
+      action: "retry_only",
+    };
+  }
+
+  // Previously-invisible informational states: surface them plainly so the pill never lies.
+  if (isEbayListingEndedNotice(syncError)) {
+    return {
+      summary:
+        "This eBay listing has ended, so INW can no longer update its stock or details. Relist it on eBay, then retry sync to reconnect it.",
+      fields: [],
+      action: "retry_only",
+    };
+  }
+  if (isZeroPushSkippedNotice(syncError)) {
+    return {
+      summary:
+        "This item is out of stock. Your settings skip sending 0 to channels, so the channel listing may still show it as available. Turn on \u201Csync zero quantity\u201D or restock to update it.",
       fields: [],
       action: "retry_only",
     };
@@ -454,10 +549,14 @@ export async function listNeedsAttention(memberId: string): Promise<NeedsAttenti
         connection: { memberId, status: { not: "disconnected" } },
         OR: [
           { syncStatus: "error" },
+          // Informational states (eBay-ended, zero-push-skipped) write syncError but leave
+          // syncStatus "synced". Surface them so the seller sees the real state, not a green pill.
+          { syncStatus: { not: "error" }, syncError: { not: null } },
           { conflictResolution: "pending" },
           {
             provider: "etsy",
             storeItem: {
+              status: "active",
               OR: [{ etsyWhoMade: null }, { etsyWhenMade: null }, { etsyTaxonomyId: null }],
             },
           },
@@ -470,9 +569,11 @@ export async function listNeedsAttention(memberId: string): Promise<NeedsAttenti
         connectionId: true,
         syncError: true,
         conflictDetails: true,
+        retries: { select: { attempts: true, maxAttempts: true, createdAt: true } },
         storeItem: {
           select: {
             title: true,
+            status: true,
             photos: true,
             etsyWhoMade: true,
             etsyWhenMade: true,
@@ -510,6 +611,27 @@ export async function listNeedsAttention(memberId: string): Promise<NeedsAttenti
       item,
     });
     if (!classified) continue;
+    // A transient error still churning through auto-retries is noise, not a task for the seller.
+    if (
+      classified.action === "retry_only" &&
+      transientSyncErrorSuppressed({ syncError: link.syncError, retries: link.retries })
+    ) {
+      continue;
+    }
+    // Etsy field cards are proactive only for live listings that actually need to publish.
+    // A real rejection (non-empty syncError) always surfaces; drafts/inactive items do not nag.
+    if (
+      provider === "etsy" &&
+      !link.syncError?.trim() &&
+      !etsyProactiveFieldCardApplies({
+        status: item.status,
+        etsyWhoMade: item.etsyWhoMade,
+        etsyWhenMade: item.etsyWhenMade,
+        etsyTaxonomyId: item.etsyTaxonomyId,
+      })
+    ) {
+      continue;
+    }
     const fingerprint = attentionFingerprint({
       action: classified.action,
       fields: classified.fields,
@@ -619,6 +741,7 @@ export async function dismissNeedsAttention(
     select: {
       id: true,
       provider: true,
+      syncStatus: true,
       syncError: true,
       conflictDetails: true,
       storeItem: {
@@ -645,16 +768,24 @@ export async function dismissNeedsAttention(
     syncError: link.syncError,
     item: link.storeItem,
   });
-  if (!classified) return true;
-  const fingerprint = attentionFingerprint({
-    action: classified.action,
-    fields: classified.fields,
-    summary: classified.summary,
-    syncError: link.syncError,
-  });
-  await prisma.channelListingLink.update({
-    where: { id: link.id },
-    data: { conflictDetails: withAttentionDismissed(link.conflictDetails, fingerprint) },
-  });
+  const data: Prisma.ChannelListingLinkUpdateInput = {};
+  if (classified) {
+    const fingerprint = attentionFingerprint({
+      action: classified.action,
+      fields: classified.fields,
+      summary: classified.summary,
+      syncError: link.syncError,
+    });
+    data.conflictDetails = withAttentionDismissed(link.conflictDetails, fingerprint);
+  }
+  // Make dismiss reflect the real state: drop a lingering red error/notice for anything the seller
+  // can't fix with fields (resolved conditions, informational notices, plain retry-only errors).
+  if (dismissShouldClearSyncError(classified)) {
+    if (link.syncStatus === "error") data.syncStatus = "synced";
+    if (link.syncError) data.syncError = null;
+  }
+  if (Object.keys(data).length > 0) {
+    await prisma.channelListingLink.update({ where: { id: link.id }, data });
+  }
   return true;
 }

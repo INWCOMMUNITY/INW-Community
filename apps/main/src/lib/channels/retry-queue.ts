@@ -188,14 +188,15 @@ export async function processRetryQueue(): Promise<{
         lastPushedAt: retry.link?.lastPushedAt,
       })
     ) {
-      if (retry.link?.lastPushedAt && retry.link.lastPushedAt.getTime() > retry.createdAt.getTime()) {
-        await prisma.channelListingLink
-          .update({
-            where: { id: retry.linkId },
-            data: { syncStatus: "synced", syncError: null },
-          })
-          .catch(() => {});
-      }
+      // A newer write superseded this queued content retry: either we pushed again, or an inbound
+      // channel edit won under last-write-wins. Either way the state is resolved, so drop the stale
+      // retry AND clear the leftover error pill so it doesn't linger red forever.
+      await prisma.channelListingLink
+        .update({
+          where: { id: retry.linkId },
+          data: { syncStatus: "synced", syncError: null },
+        })
+        .catch(() => {});
       await prisma.channelSyncRetry.delete({ where: { id: retry.id } });
       continue;
     }
