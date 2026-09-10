@@ -78,6 +78,15 @@ describe("classifyError", () => {
       })
     ).toBe("transient");
   });
+
+  it("treats Shopify REST 2 calls/second as a retryable rate limit", () => {
+    const err = new Error("Exceeded 2 calls per second for api client") as Error & {
+      status: number;
+    };
+    err.status = 429;
+    expect(classifyError(err)).toBe("transient");
+    expect(classifyError("Exceeded 2 calls per second for api client")).toBe("transient");
+  });
 });
 
 describe("isRemoteListingAlreadyGoneError", () => {

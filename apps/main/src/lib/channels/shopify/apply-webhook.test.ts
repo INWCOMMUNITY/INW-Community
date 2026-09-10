@@ -20,16 +20,65 @@ describe("parseShopifyWebhookProduct", () => {
 });
 
 describe("shopifyWebhookShouldPull", () => {
-  const recentPush = new Date(Date.now() - 5_000);
+  const pushedAt = new Date("2026-09-10T02:26:13.756Z");
+  const nowMs = new Date("2026-09-10T02:26:18.000Z").getTime();
 
-  it("applies title or price edits immediately even right after an INW push", () => {
+  it("does not pull a title mismatch in the push echo window", () => {
     expect(
       shopifyWebhookShouldPull({
-        lastPushedAt: recentPush,
+        lastPushedAt: pushedAt,
+        inwUpdatedAt: pushedAt,
+        remoteUpdatedAt: pushedAt,
         titleOrPriceDiffers: true,
         descriptionDiffers: false,
         qtyDiffers: false,
         photosDiffer: false,
+        nowMs,
+      })
+    ).toBe(false);
+  });
+
+  it("does not pull a delayed Shopify webhook after INW already has a newer eBay/Etsy edit", () => {
+    expect(
+      shopifyWebhookShouldPull({
+        lastPushedAt: new Date("2026-09-10T02:00:00.000Z"),
+        inwUpdatedAt: new Date("2026-09-10T02:30:26.884Z"),
+        remoteUpdatedAt: new Date("2026-09-10T02:10:00.000Z"),
+        titleOrPriceDiffers: true,
+        descriptionDiffers: false,
+        qtyDiffers: false,
+        photosDiffer: false,
+        nowMs: new Date("2026-09-10T02:31:00.000Z").getTime(),
+      })
+    ).toBe(false);
+  });
+
+  it("does not pull when Shopify updated_at is older than INW", () => {
+    expect(
+      shopifyWebhookShouldPull({
+        lastPushedAt: new Date("2026-09-10T01:00:00.000Z"),
+        inwUpdatedAt: new Date("2026-09-10T02:30:00.000Z"),
+        remoteUpdatedAt: new Date("2026-09-10T02:00:00.000Z"),
+        titleOrPriceDiffers: true,
+        descriptionDiffers: false,
+        qtyDiffers: false,
+        photosDiffer: false,
+        nowMs: new Date("2026-09-10T02:35:00.000Z").getTime(),
+      })
+    ).toBe(false);
+  });
+
+  it("pulls a Shopify Admin title edit when updated_at is newer than INW", () => {
+    expect(
+      shopifyWebhookShouldPull({
+        lastPushedAt: new Date("2026-09-10T02:00:00.000Z"),
+        inwUpdatedAt: new Date("2026-09-10T02:00:00.000Z"),
+        remoteUpdatedAt: new Date("2026-09-10T02:30:00.000Z"),
+        titleOrPriceDiffers: true,
+        descriptionDiffers: false,
+        qtyDiffers: false,
+        photosDiffer: false,
+        nowMs: new Date("2026-09-10T02:31:00.000Z").getTime(),
       })
     ).toBe(true);
   });
@@ -37,11 +86,14 @@ describe("shopifyWebhookShouldPull", () => {
   it("ignores photo-only echoes of our own push", () => {
     expect(
       shopifyWebhookShouldPull({
-        lastPushedAt: recentPush,
+        lastPushedAt: pushedAt,
+        inwUpdatedAt: pushedAt,
+        remoteUpdatedAt: pushedAt,
         titleOrPriceDiffers: false,
         descriptionDiffers: false,
         qtyDiffers: false,
         photosDiffer: true,
+        nowMs,
       })
     ).toBe(false);
   });
@@ -49,11 +101,14 @@ describe("shopifyWebhookShouldPull", () => {
   it("pulls photo-only Shopify edits after the echo window", () => {
     expect(
       shopifyWebhookShouldPull({
-        lastPushedAt: new Date(Date.now() - 60_000),
+        lastPushedAt: new Date("2026-09-10T02:00:00.000Z"),
+        inwUpdatedAt: new Date("2026-09-10T02:00:00.000Z"),
+        remoteUpdatedAt: new Date("2026-09-10T02:30:00.000Z"),
         titleOrPriceDiffers: false,
         descriptionDiffers: false,
         qtyDiffers: false,
         photosDiffer: true,
+        nowMs: new Date("2026-09-10T02:31:00.000Z").getTime(),
       })
     ).toBe(true);
   });

@@ -166,17 +166,25 @@ export function inwSavedAfterChannelPush(args: {
 }
 
 /**
- * Last-write guard for outbound content pushes. If the live channel title differs
- * and that listing was saved after INW, do not PATCH the old INW title back.
+ * Last-write guard for outbound content pushes. If the live channel listing
+ * differs (title, price, or description) and that listing was saved after the
+ * hub timestamp, do not PATCH the old INW copy back.
+ *
+ * `inwUpdatedAt` should be the source shop's timestamp or pre-apply INW time —
+ * not a post-apply wall clock from Shopify/eBay fan-out restamping StoreItem.
  */
 export function shouldBlockOutboundOverwrite(args: {
   titlesDiffer: boolean;
+  pricesDiffer?: boolean;
+  descriptionsDiffer?: boolean;
   remoteUpdatedAt: Date | null | undefined;
   inwUpdatedAt: Date | null;
   lastPushedAt: Date | null;
   nowMs?: number;
 }): boolean {
-  if (!args.titlesDiffer) return false;
+  const contentDiffers =
+    args.titlesDiffer || Boolean(args.pricesDiffer) || Boolean(args.descriptionsDiffer);
+  if (!contentDiffers) return false;
   const now = args.nowMs ?? Date.now();
   if (args.lastPushedAt && now - args.lastPushedAt.getTime() < SYNC_ECHO_SKEW_MS) {
     return false;
@@ -187,6 +195,67 @@ export function shouldBlockOutboundOverwrite(args: {
   if (!args.inwUpdatedAt) return true;
   if (!args.lastPushedAt) return true;
   return args.inwUpdatedAt.getTime() <= args.lastPushedAt.getTime();
+}
+
+function titlesMatchForSync(a: string | null | undefined, b: string | null | undefined): boolean {
+  return (a ?? "").trim() === (b ?? "").trim();
+}
+
+/**
+ * GetItem almost never includes LastModifiedTime. An eBay-only revise is when INW
+ * still has the title we last synced and live eBay shows something else. If INW
+ * already moved (seller save or another shop), a lagged GetItem is not an eBay
+ * revise — do not copy the old live title back.
+ */
+export function ebayRemoteLooksLikeIndependentRevise(args: {
+  inwTitle: string;
+  remoteTitle: string | null | undefined;
+  lastSyncedTitle: string | null | undefined;
+}): boolean {
+  const remote = (args.remoteTitle ?? "").trim();
+  const inw = args.inwTitle.trim();
+  if (!remote || remote === inw) return false;
+  const synced = (args.lastSyncedTitle ?? "").trim();
+  if (!synced) return false;
+  if (inw !== synced) return false;
+  return remote !== synced;
+}
+
+export function shouldBlockEbayOutboundOverwrite(args: {
+  inwTitle: string;
+  remoteTitle: string | null | undefined;
+  lastSyncedTitle: string | null | undefined;
+  inwUpdatedAt: Date | null;
+  lastPushedAt: Date | null;
+  remoteUpdatedAt: Date | null | undefined;
+  inwMatchesLastPushedHash?: boolean;
+  nowMs?: number;
+}): boolean {
+  if (titlesMatchForSync(args.inwTitle, args.remoteTitle)) return false;
+  if (args.remoteUpdatedAt) {
+    return shouldBlockOutboundOverwrite({
+      titlesDiffer: true,
+      remoteUpdatedAt: args.remoteUpdatedAt,
+      inwUpdatedAt: args.inwUpdatedAt,
+      lastPushedAt: args.lastPushedAt,
+      nowMs: args.nowMs,
+    });
+  }
+  const now = args.nowMs ?? Date.now();
+  if (args.lastPushedAt && now - args.lastPushedAt.getTime() < SYNC_ECHO_SKEW_MS) {
+    return false;
+  }
+  if (ebayRemoteLooksLikeIndependentRevise(args)) return true;
+  // Unstamped links: INW still fingerprints as the last eBay push, so the live
+  // title change happened on eBay (often after another shop bumped updatedAt).
+  if (args.inwMatchesLastPushedHash) return true;
+  return shouldBlockOutboundOverwrite({
+    titlesDiffer: true,
+    remoteUpdatedAt: null,
+    inwUpdatedAt: args.inwUpdatedAt,
+    lastPushedAt: args.lastPushedAt,
+    nowMs: args.nowMs,
+  });
 }
 
 /**

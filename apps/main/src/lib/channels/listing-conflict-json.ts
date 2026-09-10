@@ -42,6 +42,25 @@ export function readEbayListingEnded(conflictDetails: unknown): boolean {
   return conflictDetailsAsObject(conflictDetails).ebayListingEnded === true;
 }
 
+/** Title we last pushed to or pulled from eBay. GetItem has no LastModifiedTime. */
+export function readEbayLastSyncedTitle(conflictDetails: unknown): string | null {
+  const value = conflictDetailsAsObject(conflictDetails).ebayLastSyncedTitle;
+  if (typeof value !== "string") return null;
+  const title = value.trim();
+  return title ? title : null;
+}
+
+export function withEbayLastSyncedTitle(
+  conflictDetails: unknown,
+  title: string | null
+): Record<string, unknown> {
+  const base = conflictDetailsAsObject(conflictDetails);
+  const trimmed = title?.trim().slice(0, 200) ?? "";
+  if (!trimmed) delete base.ebayLastSyncedTitle;
+  else base.ebayLastSyncedTitle = trimmed;
+  return base;
+}
+
 export function readRemoteCatalogState(conflictDetails: unknown): RemoteCatalogState | null {
   const value = conflictDetailsAsObject(conflictDetails).remoteCatalogState;
   if (

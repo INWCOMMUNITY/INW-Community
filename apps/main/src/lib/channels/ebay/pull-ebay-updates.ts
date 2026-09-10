@@ -28,9 +28,11 @@ import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
 import { normalizeEbayPhotoUrl, shouldApplyEbayInboundPhotos } from "./photos";
 import { selectInboundListingPhotos } from "../photo-urls";
 import { storeListingDescription } from "../import-listing";
-import { resolveInwCategoryFromEbayPath } from "../category-resolver";
-import { isValidPresetSubcategory } from "../repair-categories";
-import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "../sync-baseline";
+import {
+  readEbayLastSyncedTitle,
+  withEbayLastSyncedTitle,
+} from "../listing-conflict-json";
+import { ebayRemoteLooksLikeIndependentRevise, syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "../sync-baseline";
 import { normalizeVariantsFromProvider, variantsFingerprint } from "../variant-sync";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
 import { normalizeVariantMatrix, serializeVariantMatrix, sumMatrixQuantities } from "@/lib/listing-variant-matrix";
@@ -46,6 +48,8 @@ import {
   shouldSkipEndedEbayOutbound,
 } from "../listing-link-flags";
 import { attachShippingOptionOnImport } from "@/lib/shipping-options";
+import { resolveInwCategoryFromEbayPath } from "../category-resolver";
+import { isValidPresetSubcategory } from "../repair-categories";
 
 type ConnectionRow = {
   id: string;
@@ -161,6 +165,55 @@ export function shouldApplyEbayInboundVariants(args: {
 
 export function isEbayInboundContentChange(updateData: Record<string, unknown>): boolean {
   return Object.keys(updateData).some((key) => !EBAY_INBOUND_META_KEYS.has(key));
+}
+
+/**
+ * GetItem can lag Inventory PUT by minutes. A live title that still differs from
+ * the title we just stamped as last-synced is our own push, not an eBay revise.
+ */
+export const EBAY_GETITEM_INBOUND_LAG_MS = 10 * 60 * 1000;
+
+/** Stamps lastInboundAt so preserve / outbound inw>inbound / retry-drop keep working. */
+export function ebayGetItemContentApplyLinkData(args: {
+  contentHash: string;
+  metaHash: string;
+  variantsHash: string;
+  quantity: number;
+  remoteUpdatedAt: Date | null;
+  conflictDetails: unknown;
+  remoteTitle: string;
+  now?: Date;
+}) {
+  const now = args.now ?? new Date();
+  return {
+    syncBaselineHash: args.contentHash,
+    syncBaselineMetaHash: args.metaHash,
+    syncBaselineVariantsHash: args.variantsHash,
+    syncBaselineQty: args.quantity,
+    syncBaselineAt: args.remoteUpdatedAt ?? now,
+    lastInboundAt: now,
+    syncStatus: "synced" as const,
+    syncError: null,
+    conflictDetails: withEbayLastSyncedTitle(
+      withEbayPendingInbound(args.conflictDetails, null),
+      args.remoteTitle
+    ),
+  };
+}
+
+function ebayInboundLooksLikeIndependentRevise(args: {
+  inwTitle: string;
+  remoteTitle: string | null | undefined;
+  lastSyncedTitle: string | null | undefined;
+  lastPushedAt?: Date | null;
+  now?: Date;
+}): boolean {
+  if (!ebayRemoteLooksLikeIndependentRevise(args)) return false;
+  const pushedAt = args.lastPushedAt?.getTime();
+  if (pushedAt == null) return true;
+  const nowMs = args.now?.getTime() ?? Date.now();
+  if (nowMs - pushedAt < EBAY_GETITEM_INBOUND_LAG_MS) return false;
+  return true;
 }
 
 /** Failed GetItem (expired token, empty envelope) must not skip, apply, or stamp lastInboundAt. */
@@ -310,6 +363,7 @@ export function ebayGetItemApplyDecision(args: {
   inwDescription?: string | null;
   remoteDescription?: string | null;
   pendingRemoteHash?: string | null;
+  lastSyncedTitle?: string | null;
   source?: EbayGetItemApplySource;
   now?: Date;
 }): EbayGetItemApplyDecision {
@@ -331,6 +385,13 @@ export function ebayGetItemApplyDecision(args: {
   const descriptionDiffers =
     descriptionProvided && !inboundDescriptionsMatch(args.inwDescription, args.remoteDescription);
   const preserveInwContent = ebayGetItemShouldPreserveInwContent(args);
+  const independentRevise = ebayInboundLooksLikeIndependentRevise({
+    inwTitle: args.inwTitle,
+    remoteTitle: args.remoteTitle,
+    lastSyncedTitle: args.lastSyncedTitle,
+    lastPushedAt: args.lastPushedAt,
+    now: args.now,
+  });
   const qtyPriceMatch =
     args.remotePriceCents === args.inwPriceCents && args.remoteQuantity === args.inwQuantity;
 
@@ -342,7 +403,7 @@ export function ebayGetItemApplyDecision(args: {
     if (ebayGetItemIsPushEcho(args)) {
       return { action: "skip", reason: "echo-of-push" };
     }
-    if (preserveInwContent && qtyPriceMatch) {
+    if (preserveInwContent && qtyPriceMatch && !independentRevise) {
       return { action: "skip", reason: "inw-newer-than-ebay" };
     }
     return {
@@ -371,8 +432,12 @@ export function ebayGetItemApplyDecision(args: {
     return { action: "skip", reason: "echo-of-push" };
   }
 
-  if (preserveInwContent && qtyPriceMatch) {
+  if (preserveInwContent && qtyPriceMatch && !independentRevise) {
     return { action: "skip", reason: "inw-newer-than-ebay" };
+  }
+
+  if (independentRevise) {
+    return { action: "apply", reason: "remote-revise", pendingHash: remoteHash };
   }
 
   if (args.pendingRemoteHash === remoteHash) {
@@ -452,6 +517,13 @@ export async function refreshEbayListingByItemId(
       changes: [],
     };
   }
+  const lastSyncedTitle = readEbayLastSyncedTitle(link.conflictDetails);
+  const independentRevise = ebayInboundLooksLikeIndependentRevise({
+    inwTitle: storeItem.title,
+    remoteTitle: details.title,
+    lastSyncedTitle,
+    lastPushedAt: link.lastPushedAt,
+  });
   const applyDecision = ebayGetItemApplyDecision({
     lastInboundAt: link.lastInboundAt,
     lastPushedAt: link.lastPushedAt,
@@ -467,14 +539,17 @@ export async function refreshEbayListingByItemId(
     inwDescription: storeItem.description,
     remoteDescription: details.description,
     pendingRemoteHash: readEbayPendingInboundHash(link.conflictDetails),
+    lastSyncedTitle,
     source: opts?.source,
   });
-  const preserveInwContent = ebayGetItemShouldPreserveInwContent({
-    lastInboundAt: link.lastInboundAt,
-    lastPushedAt: link.lastPushedAt,
-    inwUpdatedAt: storeItem.updatedAt,
-    ebayLastModified: details.remoteUpdatedAt,
-  });
+  const preserveInwContent =
+    !independentRevise &&
+    ebayGetItemShouldPreserveInwContent({
+      lastInboundAt: link.lastInboundAt,
+      lastPushedAt: link.lastPushedAt,
+      inwUpdatedAt: storeItem.updatedAt,
+      ebayLastModified: details.remoteUpdatedAt,
+    });
 
   const endedDecision = ebayGetItemEndedDecision({
     listingEnded: details.listingEnded,
@@ -554,14 +629,16 @@ export async function refreshEbayListingByItemId(
           }),
         },
       });
-    } else if (
-      applyDecision.reason === "matches-inw" &&
-      readEbayPendingInboundHash(conflictDetails)
-    ) {
+    } else if (applyDecision.reason === "matches-inw") {
       await prisma.channelListingLink
         .update({
           where: { id: link.id },
-          data: { conflictDetails: withEbayPendingInbound(conflictDetails, null) },
+          data: {
+            conflictDetails: withEbayLastSyncedTitle(
+              withEbayPendingInbound(conflictDetails, null),
+              details.title ?? storeItem.title
+            ),
+          },
         })
         .catch(() => {});
     }
@@ -789,17 +866,15 @@ export async function refreshEbayListingByItemId(
 
       await prisma.channelListingLink.update({
         where: { id: link.id },
-        data: {
-          syncBaselineHash: contentHash,
-          syncBaselineMetaHash: metaHash,
-          syncBaselineVariantsHash: variantsFingerprint(updatedItem.variants),
-          syncBaselineQty: updatedItem.quantity,
-          syncBaselineAt: details.remoteUpdatedAt ?? new Date(),
-          lastInboundAt: new Date(),
-          syncStatus: "synced",
-          syncError: null,
-          conflictDetails: withEbayPendingInbound(conflictDetails, null),
-        },
+        data: ebayGetItemContentApplyLinkData({
+          contentHash,
+          metaHash,
+          variantsHash: variantsFingerprint(updatedItem.variants),
+          quantity: updatedItem.quantity,
+          remoteUpdatedAt: details.remoteUpdatedAt ?? null,
+          conflictDetails,
+          remoteTitle,
+        }),
       });
     } else if (preserveInwContent && typeof updateData.quantity === "number") {
       await prisma.channelListingLink.update({
@@ -840,7 +915,10 @@ export async function refreshEbayListingByItemId(
     if (fanout === "inventory") {
       await syncInventoryToChannels(storeItem.id, { skipProviders: ["ebay"] });
     } else if (fanout === "content") {
-      await updateStoreItemOnChannels(storeItem.id, { skipProviders: ["ebay"] });
+      await updateStoreItemOnChannels(storeItem.id, {
+        skipProviders: ["ebay"],
+        sourceUpdatedAt: details.remoteUpdatedAt ?? undefined,
+      });
     }
 
     return {
@@ -953,6 +1031,10 @@ export async function applyEbayXmlPostcard(args: {
         lastInboundAt: new Date(),
         syncStatus: "synced",
         syncError: null,
+        conflictDetails: withEbayLastSyncedTitle(
+          link.conflictDetails,
+          typeof writes.title === "string" ? writes.title : updatedItem.title
+        ),
       },
     });
   }
@@ -961,7 +1043,10 @@ export async function applyEbayXmlPostcard(args: {
     itemId: args.itemId,
     changes,
   });
-  await updateStoreItemOnChannels(updatedItem.id, { skipProviders: ["ebay"] });
+  await updateStoreItemOnChannels(updatedItem.id, {
+    skipProviders: ["ebay"],
+    sourceUpdatedAt: args.postcard.lastModified ?? undefined,
+  });
   return {
     storeItemId: updatedItem.id,
     title: updatedItem.title,

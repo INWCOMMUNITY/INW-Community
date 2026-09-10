@@ -759,7 +759,7 @@ describe("rate limit tracker", () => {
     expect(check.waitMs).toBeGreaterThan(0);
   });
 
-  it("tracks shopify burst limits", async () => {
+  it("tracks shopify request rate", async () => {
     const { getRateLimitStats, recordRequest, resetRateLimitTracking } = await import("../rate-limit-tracker");
     
     resetRateLimitTracking("shopify", "conn-1");
@@ -767,8 +767,9 @@ describe("rate limit tracker", () => {
     recordRequest("shopify", "conn-1");
     
     const stats = getRateLimitStats("shopify", "conn-1");
-    expect(stats.burstLimit).toBe(40);
-    expect(stats.burstCount).toBe(1);
+    expect(stats.limit).toBe(2);
+    expect(stats.currentRate).toBe(1);
+    expect(stats.burstLimit).toBeUndefined();
   });
 });
 

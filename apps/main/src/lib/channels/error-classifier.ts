@@ -13,6 +13,7 @@ const TRANSIENT_PATTERNS = [
   /\b429\b/i,
   /rate.?limit/i,
   /too many requests/i,
+  /calls per second/i,
   /\b5\d{2}\b/,
   /internal server error/i,
   /service unavailable/i,
@@ -292,7 +293,7 @@ export function shouldCountTowardCircuit(error: unknown): boolean {
   if (status === 429 || (status != null && status >= 500)) return true;
   if (status != null && status >= 400 && status < 500) return false;
 
-  if (/\b429\b|rate.?limit|too many requests/i.test(msg)) return true;
+  if (/\b429\b|rate.?limit|too many requests|calls per second/i.test(msg)) return true;
   if (/\b5\d{2}\b|internal server error|service unavailable|bad gateway|gateway timeout/i.test(msg)) {
     return true;
   }

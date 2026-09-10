@@ -22,6 +22,17 @@ export function etsyListingIsNotActive(state: string | null | undefined): boolea
  */
 export const ETSY_CRON_HYDRATE_LIMIT = 20;
 
+/**
+ * Shop-list rows can lag a just-saved listing. If this tick needed a GET but did
+ * not receive one (hydrate cap or failure), do not pull/push from the list row.
+ */
+export function etsyCatalogShouldNoopUnhydrated(args: {
+  needsHydrate: boolean;
+  hydratedThisTick: boolean;
+}): boolean {
+  return args.needsHydrate && !args.hydratedThisTick;
+}
+
 export function etsyShopListQuantityIsTrusted(args: {
   quantity: number;
   inventoryEnriched: boolean;

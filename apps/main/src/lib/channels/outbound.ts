@@ -1,11 +1,12 @@
 import { prisma } from "database";
 import { getAdapter } from "./registry";
-import { getActiveConnectionsForMember, withConnectionAuthRetry } from "./connection";
+import { getActiveConnectionsForMember, withConnectionAuthRetry, isChannelAuthError } from "./connection";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
 import {
   inwSavedAfterChannelPush,
   storeItemContentHash,
   shouldBlockOutboundOverwrite,
+  shouldBlockEbayOutboundOverwrite,
   syncContentHash,
   syncMetaHash,
   SYNC_ECHO_SKEW_MS,
@@ -38,6 +39,10 @@ import {
 } from "./listing-link-flags";
 import { claimChannelListingLink } from "./listing-link-claim";
 import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
+import { inboundDescriptionsMatch } from "./apply-remote-listing";
+import { fetchEbayItemDetails } from "./ebay/trading";
+import { resolveEbayLegacyListingId } from "./ebay/mapping";
+import { readEbayLastSyncedTitle, withEbayLastSyncedTitle } from "./listing-conflict-json";
 import { isIncompleteChannelListingError } from "./combo-sync";
 import { channelLinkShowsOnItem } from "./listing-sync-warning";
 /** Content fingerprint so we can skip no-op pushes on update. */
@@ -399,6 +404,12 @@ export type ChannelPushOptions = {
   skipProviders?: ChannelProvider[];
   /** Push even when lastPushedHash already matches (Needs Attention retry / shop ZIP). */
   force?: boolean;
+  /**
+   * Timestamp of the inbound source (Shopify updated_at, Etsy last_modified, eBay
+   * LastModified) or pre-apply INW. Outbound live-GET guards must not use a
+   * post-apply StoreItem.updatedAt restamp from fan-out.
+   */
+  sourceUpdatedAt?: Date | null;
 };
 
 /** Push content + inventory updates for an edited StoreItem to every linked channel. */
@@ -416,6 +427,7 @@ export async function updateStoreItemOnChannels(
   const loaded = await loadSyncItemWithUpdatedAt(storeItemId);
   if (!loaded) return results;
   const { item, updatedAt: inwUpdatedAt } = loaded;
+  const hubUpdatedAt = options.sourceUpdatedAt ?? inwUpdatedAt;
   const hash = contentHash(item);
 
   // Load member sync preferences
@@ -593,6 +605,7 @@ export async function updateStoreItemOnChannels(
 
     try {
       let skippedNewerRemote = false;
+      let liveTitleCheckFailed = false;
       await withConnectionAuthRetry(link.connection, async (ctx) => {
         const adapter = getAdapter(provider);
         
@@ -601,39 +614,107 @@ export async function updateStoreItemOnChannels(
         const adjustedItem = applyPriceAdjustment(item, priceAdjustmentPercent);
 
         if (provider === "etsy") {
-          const inwRow = await prisma.storeItem.findUnique({
-            where: { id: storeItemId },
-            select: { title: true, updatedAt: true },
-          });
           const fetched = await fetchEtsyListingForInbound(ctx.accessToken, link.externalListingId);
-          if (
-            fetched.status === "ok" &&
-            inwRow &&
-            shouldBlockOutboundOverwrite({
-              titlesDiffer:
-                inwRow.title.trim().slice(0, 200) !== fetched.summary.title.trim().slice(0, 200),
-              inwUpdatedAt: inwRow.updatedAt,
-              remoteUpdatedAt: fetched.summary.remoteUpdatedAt ?? null,
-              lastPushedAt: link.lastPushedAt,
-            })
-          ) {
-            skippedNewerRemote = true;
-            console.warn("[channels] skip Etsy content push; live listing is newer than INW", {
-              storeItemId,
-              externalListingId: link.externalListingId,
-              inwTitle: inwRow.title.slice(0, 40),
-              remoteTitle: fetched.summary.title.slice(0, 40),
-              inwUpdatedAt: inwRow.updatedAt.toISOString(),
-              remoteUpdatedAt: fetched.summary.remoteUpdatedAt?.toISOString() ?? null,
-            });
-            return;
+          if (fetched.status === "ok") {
+            const titlesDiffer =
+              item.title.trim().slice(0, 200) !== fetched.summary.title.trim().slice(0, 200);
+            const pricesDiffer = item.priceCents !== fetched.summary.priceCents;
+            const descriptionsDiffer = Boolean(
+              fetched.summary.description?.trim() &&
+                !inboundDescriptionsMatch(item.description, fetched.summary.description)
+            );
+            if (
+              shouldBlockOutboundOverwrite({
+                titlesDiffer,
+                pricesDiffer,
+                descriptionsDiffer,
+                inwUpdatedAt: hubUpdatedAt,
+                remoteUpdatedAt: fetched.summary.remoteUpdatedAt ?? null,
+                lastPushedAt: link.lastPushedAt,
+              })
+            ) {
+              skippedNewerRemote = true;
+              console.warn("[channels] skip Etsy content push; live listing is newer than INW", {
+                storeItemId,
+                externalListingId: link.externalListingId,
+                inwTitle: item.title.slice(0, 40),
+                remoteTitle: fetched.summary.title.slice(0, 40),
+                inwPriceCents: item.priceCents,
+                remotePriceCents: fetched.summary.priceCents,
+                hubUpdatedAt: hubUpdatedAt.toISOString(),
+                remoteUpdatedAt: fetched.summary.remoteUpdatedAt?.toISOString() ?? null,
+              });
+              return;
+            }
+          }
+        }
+
+        if (provider === "ebay") {
+          const legacyId = resolveEbayLegacyListingId(link.externalListingId);
+          if (legacyId) {
+            try {
+              const live = await fetchEbayItemDetails(ctx.accessToken, legacyId);
+              if (!live.title) {
+                skippedNewerRemote = true;
+                liveTitleCheckFailed = true;
+                console.warn("[channels] skip eBay content push; live-title GetItem returned no title", {
+                  storeItemId,
+                  externalListingId: link.externalListingId,
+                });
+                return;
+              }
+              if (
+                shouldBlockEbayOutboundOverwrite({
+                  inwTitle: item.title,
+                  remoteTitle: live.title,
+                  lastSyncedTitle: readEbayLastSyncedTitle(link.conflictDetails),
+                  inwUpdatedAt: hubUpdatedAt,
+                  lastPushedAt: link.lastPushedAt,
+                  remoteUpdatedAt: live.remoteUpdatedAt ?? null,
+                  inwMatchesLastPushedHash: Boolean(link.lastPushedHash && link.lastPushedHash === hash),
+                })
+              ) {
+                skippedNewerRemote = true;
+                console.warn("[channels] skip eBay content push; live listing is newer than INW", {
+                  storeItemId,
+                  externalListingId: link.externalListingId,
+                  inwTitle: item.title.slice(0, 40),
+                  remoteTitle: live.title.slice(0, 40),
+                  lastSyncedTitle: readEbayLastSyncedTitle(link.conflictDetails),
+                  inwUpdatedAt: hubUpdatedAt.toISOString(),
+                  remoteUpdatedAt: live.remoteUpdatedAt?.toISOString() ?? null,
+                });
+                return;
+              }
+            } catch (e) {
+              if (isChannelAuthError("ebay", e)) throw e;
+              skippedNewerRemote = true;
+              liveTitleCheckFailed = true;
+              console.warn("[channels] skip eBay content push; live-title check failed", {
+                storeItemId,
+                error: e instanceof Error ? e.message : String(e),
+              });
+              return;
+            }
           }
         }
         
         await adapter.updateListing(ctx, link.externalListingId, adjustedItem);
       });
       if (skippedNewerRemote) {
-        results.push({ provider, ok: true });
+        if (liveTitleCheckFailed) {
+          const msg = "eBay live listing check failed; skipped overwrite";
+          await prisma.channelListingLink
+            .update({
+              where: { id: link.id },
+              data: { syncStatus: "error", syncError: msg },
+            })
+            .catch(() => {});
+          enqueueRetry(link.id, storeItemId, provider, "content", msg).catch(() => {});
+          results.push({ provider, ok: false, error: msg });
+        } else {
+          results.push({ provider, ok: true });
+        }
         continue;
       }
       await prisma.channelListingLink.update({
@@ -649,6 +730,11 @@ export async function updateStoreItemOnChannels(
           syncBaselineVariantsHash: variantsFingerprint(item.variants),
           syncBaselineQty: item.quantity,
           syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
+          ...(provider === "ebay"
+            ? {
+                conflictDetails: withEbayLastSyncedTitle(link.conflictDetails, item.title),
+              }
+            : {}),
         },
       });
       await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);

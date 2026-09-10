@@ -12,7 +12,7 @@ import { syncInventoryToChannels } from "../sync-inventory";
 import { inboundListingPhotosDiffer } from "../photo-urls";
 import { SYNC_ECHO_SKEW_MS } from "../sync-baseline";
 import { patchChannelConnectionConfig } from "../connection";
-import { shopifyGet } from "./client";
+import { shopifyGet, setShopifyConnectionContext } from "./client";
 import { readShopifyConfig } from "./config";
 import { shopifyProductToSummary, type ShopifyProduct } from "./mapping";
 
@@ -35,21 +35,39 @@ export function parseShopifyWebhookProduct(payload: unknown): ShopifyProduct | n
   return null;
 }
 
-/** Pull Shopify-originated edits immediately. Ignore photo-only echoes of our own push. */
+/**
+ * Pull a real Shopify Admin edit. Do not pull delayed products/update echoes of
+ * our own push, or a stale Shopify payload after eBay/Etsy already updated INW.
+ * Title diffs used to always pull (even 5s after we PATCHed Shopify), which
+ * wrote the old Shopify title onto INW and fanned it out to eBay and Etsy.
+ */
 export function shopifyWebhookShouldPull(args: {
   lastPushedAt: Date | null;
+  inwUpdatedAt?: Date | null;
+  remoteUpdatedAt?: Date | null;
   titleOrPriceDiffers: boolean;
   descriptionDiffers: boolean;
   qtyDiffers: boolean;
   photosDiffer: boolean;
   nowMs?: number;
 }): boolean {
-  if (args.titleOrPriceDiffers || args.descriptionDiffers || args.qtyDiffers) return true;
-  if (!args.photosDiffer) return false;
+  const contentDiffers =
+    args.titleOrPriceDiffers || args.descriptionDiffers || args.qtyDiffers || args.photosDiffer;
+  if (!contentDiffers) return false;
+
   const now = args.nowMs ?? Date.now();
   const inEcho =
     args.lastPushedAt != null && now - args.lastPushedAt.getTime() < SYNC_ECHO_SKEW_MS;
-  return !inEcho;
+  const remoteAt = args.remoteUpdatedAt?.getTime() ?? 0;
+  const inwAt = args.inwUpdatedAt?.getTime() ?? 0;
+
+  if (inEcho) {
+    if (remoteAt > 0 && inwAt > 0 && remoteAt > inwAt + 2000) return true;
+    return false;
+  }
+
+  if (remoteAt > 0 && inwAt > 0 && remoteAt <= inwAt) return false;
+  return true;
 }
 
 function syncDirectionAllowsPull(config: unknown): boolean {
@@ -66,6 +84,7 @@ export async function applyShopifyProductWebhook(args: {
   payload: unknown;
 }): Promise<{ applied: boolean; skipped?: string }> {
   const { connection, topic, payload } = args;
+  setShopifyConnectionContext(connection.id);
   if (!syncDirectionAllowsPull(connection.config)) {
     return { applied: false, skipped: "sync_direction" };
   }
@@ -94,6 +113,7 @@ export async function applyShopifyProductWebhook(args: {
           priceCents: true,
           quantity: true,
           status: true,
+          updatedAt: true,
         },
       },
     },
@@ -120,6 +140,8 @@ export async function applyShopifyProductWebhook(args: {
   const item = link.storeItem;
   const shouldPull = shopifyWebhookShouldPull({
     lastPushedAt: link.lastPushedAt,
+    inwUpdatedAt: item.updatedAt,
+    remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
     titleOrPriceDiffers: remoteTitleOrPriceDiffersFromStoreItem(item, remote),
     descriptionDiffers: !inboundDescriptionsMatch(item.description, remote.description),
     qtyDiffers: remote.quantity !== item.quantity,
@@ -146,7 +168,10 @@ export async function applyShopifyProductWebhook(args: {
     data: { lastInboundAt: new Date() },
   });
   if (pulledContent || pulledCategory || pulledVariants) {
-    await updateStoreItemOnChannels(link.storeItemId, { skipProviders: ["shopify"] });
+    await updateStoreItemOnChannels(link.storeItemId, {
+      skipProviders: ["shopify"],
+      sourceUpdatedAt: remote.remoteUpdatedAt ?? undefined,
+    });
   }
   if (pulledQty || pulledVariants) {
     await syncInventoryToChannels(link.storeItemId, { skipProviders: ["shopify"] });
@@ -160,6 +185,7 @@ export async function applyShopifyInventoryWebhook(args: {
   payload: unknown;
 }): Promise<{ applied: boolean; skipped?: string }> {
   const { connection, accessToken, payload } = args;
+  setShopifyConnectionContext(connection.id);
   if (!syncDirectionAllowsPull(connection.config)) {
     return { applied: false, skipped: "sync_direction" };
   }
@@ -218,12 +244,14 @@ export async function applyShopifyInventoryWebhook(args: {
     });
     const item = await prisma.storeItem.findUnique({
       where: { id: link.storeItemId },
-      select: { title: true, description: true, photos: true, priceCents: true, quantity: true },
+      select: { title: true, description: true, photos: true, priceCents: true, quantity: true, updatedAt: true },
     });
     if (!item) return { applied: false, skipped: "item_missing" };
     if (
       !shopifyWebhookShouldPull({
         lastPushedAt: link.lastPushedAt,
+        inwUpdatedAt: item.updatedAt,
+        remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
         titleOrPriceDiffers: false,
         descriptionDiffers: false,
         qtyDiffers: remote.quantity !== item.quantity,

@@ -9,6 +9,7 @@ import type {
 } from "../types";
 import {
   ShopifyApiError,
+  setShopifyConnectionContext,
   shopifyDelete,
   shopifyGet,
   shopifyGetWithPagination,
@@ -266,6 +267,7 @@ export const shopifyAdapter: ChannelAdapter = {
   },
 
   async createListing(conn, item): Promise<CreateListingResult> {
+    setShopifyConnectionContext(conn.id);
     const cfg = connCfg(conn);
     if (!cfg.shop) throw new Error("Shopify connection is missing shop domain.");
     const res = await shopifyJson<ProductResponse>(
@@ -343,6 +345,7 @@ export const shopifyAdapter: ChannelAdapter = {
   },
 
   async updateListing(conn, externalListingId, item): Promise<void> {
+    setShopifyConnectionContext(conn.id);
     const cfg = connCfg(conn);
     if (!cfg.shop) return;
     const existing = await getProduct(conn.accessToken, cfg.shop, cfg.apiVersion, externalListingId);
@@ -376,6 +379,7 @@ export const shopifyAdapter: ChannelAdapter = {
   },
 
   async deleteListing(conn, externalListingId): Promise<void> {
+    setShopifyConnectionContext(conn.id);
     const cfg = connCfg(conn);
     if (!cfg.shop) {
       throw new Error("Shopify is missing a shop domain. Reconnect Shopify in Sync Stores.");
@@ -393,6 +397,7 @@ export const shopifyAdapter: ChannelAdapter = {
   },
 
   async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {
+    setShopifyConnectionContext(conn.id);
     if (hasOptionQuantities(item.variants)) {
       await syncShopifyVariantInventory(conn, externalListingId, item);
       return;
@@ -407,6 +412,7 @@ export const shopifyAdapter: ChannelAdapter = {
     conn,
     externalListingId
   ): Promise<{ quantity: number; known: boolean }> {
+    setShopifyConnectionContext(conn.id);
     const cfg = connCfg(conn);
     if (!cfg.shop || !cfg.locationId) return { quantity: 0, known: false };
     const product = await getProduct(
@@ -443,6 +449,7 @@ export const shopifyAdapter: ChannelAdapter = {
   },
 
   async listRemoteListings(conn): Promise<RemoteListingSummary[]> {
+    setShopifyConnectionContext(conn.id);
     const cfg = connCfg(conn);
     if (!cfg.shop) return [];
     const summaries: RemoteListingSummary[] = [];
@@ -477,6 +484,7 @@ export const shopifyAdapter: ChannelAdapter = {
   },
 
   async fetchRecentSales(conn, since): Promise<RemoteSale[]> {
+    setShopifyConnectionContext(conn.id);
     const cfg = connCfg(conn);
     if (!cfg.shop) return [];
     const sinceIso = since.toISOString();

@@ -8,6 +8,7 @@ import {
   etsyRemoteQuantityIsKnown,
   etsyShopListQuantityIsTrusted,
   shouldSkipEtsyUntrustedZeroPush,
+  etsyCatalogShouldNoopUnhydrated,
 } from "./listing-exists";
 
 describe("etsyListingStateMeansGone", () => {
@@ -148,5 +149,25 @@ describe("etsyHydrateBelongsInActiveCatalog", () => {
     expect(etsyHydrateBelongsInActiveCatalog(null)).toBe(true);
     expect(etsyHydrateBelongsInActiveCatalog("inactive")).toBe(false);
     expect(etsyHydrateBelongsInActiveCatalog("draft")).toBe(false);
+  });
+});
+
+describe("etsyCatalogShouldNoopUnhydrated", () => {
+  it("noops when hydrate was required but this tick did not GET the listing", () => {
+    expect(
+      etsyCatalogShouldNoopUnhydrated({ needsHydrate: true, hydratedThisTick: false })
+    ).toBe(true);
+  });
+
+  it("does not noop after a successful GET this tick", () => {
+    expect(
+      etsyCatalogShouldNoopUnhydrated({ needsHydrate: true, hydratedThisTick: true })
+    ).toBe(false);
+  });
+
+  it("does not noop matching shop-list rows that did not need hydrate", () => {
+    expect(
+      etsyCatalogShouldNoopUnhydrated({ needsHydrate: false, hydratedThisTick: false })
+    ).toBe(false);
   });
 });

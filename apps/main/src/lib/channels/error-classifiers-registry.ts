@@ -368,7 +368,7 @@ const GENERIC_CLASSIFIERS: TraceClassifier[] = [
   {
     id: "rate_limit_exceeded",
     provider: "*",
-    pattern: /\b429\b|rate.?limit|too many requests|quota.*exceeded/i,
+    pattern: /\b429\b|rate.?limit|too many requests|quota.*exceeded|calls per second/i,
     category: "rate_limit",
     analyze: (ctx) => {
       const providerName = ctx.provider.charAt(0).toUpperCase() + ctx.provider.slice(1);

@@ -4,6 +4,7 @@ import {
   ebayGetItemApplyDecision,
   ebayGetItemEndedDecision,
   ebayGetItemShouldPreserveInwContent,
+  ebayGetItemContentApplyLinkData,
   isEbayInboundContentChange,
   ebayGetItemDetailsAreUsable,
   readEbayPendingInboundHash,
@@ -25,6 +26,23 @@ describe("isEbayInboundContentChange", () => {
     expect(isEbayInboundContentChange({ title: "EBAY CRON TEST 4" })).toBe(true);
     expect(isEbayInboundContentChange({ priceCents: 4400, ebayCategoryId: 36059 })).toBe(true);
     expect(isEbayInboundContentChange({ quantity: 4 })).toBe(true);
+  });
+
+  it("stamps lastInboundAt and synced status on GetItem content apply", () => {
+    const now = new Date("2026-09-10T02:30:30.201Z");
+    const patch = ebayGetItemContentApplyLinkData({
+      contentHash: "abc",
+      metaHash: "def",
+      variantsHash: "ghi",
+      quantity: 4,
+      remoteUpdatedAt: null,
+      conflictDetails: {},
+      remoteTitle: "Vintage Bear Clock (Testing) Sync Ebay",
+      now,
+    });
+    expect(patch.lastInboundAt).toEqual(now);
+    expect(patch.syncStatus).toBe("synced");
+    expect(patch.syncError).toBeNull();
   });
 
   it("maps a GetItem title/photos/description apply to sibling content fan-out", async () => {
@@ -407,6 +425,7 @@ describe("ebayGetItemApplyDecision", () => {
       inwUpdatedAt: new Date("2026-08-20T07:10:00.000Z"),
       inwTitle: "Vintage Bear Clock",
       remoteTitle: "Vintage Bear Clock (Testing) Etsy Works 2?",
+      lastSyncedTitle: "Vintage Bear Clock (Testing) Etsy Works 2?",
     };
     expect(ebayGetItemApplyDecision({ ...inwNewer, source: "cron-dirty" })).toEqual({
       action: "skip",
@@ -416,6 +435,61 @@ describe("ebayGetItemApplyDecision", () => {
       ebayGetItemApplyDecision({
         ...inwNewer,
         pendingRemoteHash: "Vintage Bear Clock (Testing) Etsy Works 2?|4000|4",
+      })
+    ).toEqual({ action: "skip", reason: "inw-newer-than-ebay" });
+  });
+
+  it("applies a live eBay title that is not the last synced title even when INW looks newer", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        inwUpdatedAt: new Date("2026-09-10T02:30:26.884Z"),
+        inwTitle: "Vintage Bear Clock (Testing) S",
+        remoteTitle: "Vintage Bear Clock (Testing) Sync Ebay",
+        remotePriceCents: 200,
+        inwPriceCents: 200,
+        remoteQuantity: 49,
+        inwQuantity: 49,
+        lastSyncedTitle: "Vintage Bear Clock (Testing) S",
+        source: "cron-dirty",
+        now: new Date("2026-09-10T02:30:30.201Z"),
+      })
+    ).toMatchObject({ action: "apply", reason: "dirty-revise" });
+  });
+
+  it("applies an independent eBay title on rotate without waiting for a second snapshot", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastPushedAt: new Date("2026-09-10T01:00:00.000Z"),
+        inwUpdatedAt: new Date("2026-09-10T02:30:26.884Z"),
+        inwTitle: "Vintage Bear Clock (Testing) S",
+        remoteTitle: "Vintage Bear Clock (Testing) Sync Ebay",
+        remotePriceCents: 200,
+        inwPriceCents: 200,
+        remoteQuantity: 49,
+        inwQuantity: 49,
+        lastSyncedTitle: "Vintage Bear Clock (Testing) S",
+        now: new Date("2026-09-10T02:30:30.201Z"),
+      })
+    ).toMatchObject({ action: "apply", reason: "remote-revise" });
+  });
+
+  it("does not apply a lagged GetItem title after we just pushed the new INW title", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastPushedAt: new Date("2026-09-10T02:26:13.756Z"),
+        lastInboundAt: new Date("2026-09-10T01:00:00.000Z"),
+        inwUpdatedAt: new Date("2026-09-10T02:26:10.000Z"),
+        inwTitle: "Vintage Bear Clock (Testing) Sync Ebay",
+        lastSyncedTitle: "Vintage Bear Clock (Testing) Sync Ebay",
+        remoteTitle: "Vintage Bear Clock (Testing) S",
+        remotePriceCents: 200,
+        inwPriceCents: 200,
+        remoteQuantity: 49,
+        inwQuantity: 49,
+        now: new Date("2026-09-10T02:30:30.201Z"),
       })
     ).toEqual({ action: "skip", reason: "inw-newer-than-ebay" });
   });

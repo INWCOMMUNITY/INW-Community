@@ -47,6 +47,7 @@ import {
 import { wixProductIsGone } from "./wix/listing-exists";
 import {
   etsyLinkedListingNeedsHydrate,
+  etsyCatalogShouldNoopUnhydrated,
   fetchEtsyListingForInbound,
   ETSY_CRON_HYDRATE_LIMIT,
   etsyInboundHydratePriority,
@@ -318,6 +319,8 @@ export async function reconcileConnectionInboundCatalog(
 
   const etsyGoneIds = new Set<string>();
   const etsyInventoryEnriched = new Set<string>();
+  const etsyNeedsHydrateIds = new Set<string>();
+  const etsyHydratedThisTick = new Set<string>();
   if (provider === "etsy") {
     let hydrated = 0;
     let hydratedMissingFromList = 0;
@@ -341,6 +344,7 @@ export async function reconcileConnectionInboundCatalog(
             b.storeItem.quantity
           )
       );
+    for (const link of hydrateLinks) etsyNeedsHydrateIds.add(link.externalListingId);
     const hydrateThisTick = hydrateLinks.slice(0, ETSY_CRON_HYDRATE_LIMIT);
     if (hydrateLinks.length > hydrateThisTick.length) {
       console.warn("[channels] etsy inbound hydrate cap hit; leftover wait for next tick", {
@@ -376,6 +380,8 @@ export async function reconcileConnectionInboundCatalog(
         }
         remoteById.set(link.externalListingId, fetched.summary);
         remoteById.set(fetched.summary.externalListingId, fetched.summary);
+        etsyHydratedThisTick.add(link.externalListingId);
+        etsyHydratedThisTick.add(fetched.summary.externalListingId);
         hydrated += 1;
         if (!existing) hydratedMissingFromList += 1;
         console.log("[channels] etsy inbound hydrate", {
@@ -540,6 +546,20 @@ export async function reconcileConnectionInboundCatalog(
 
     await clearRemoteCatalogStateIfSet(link.id, link.conflictDetails);
     await clearRemoteDeletedNoticeIfSet(link.id, link.conflictDetails);
+
+    if (
+      provider === "etsy" &&
+      etsyCatalogShouldNoopUnhydrated({
+        needsHydrate: etsyNeedsHydrateIds.has(link.externalListingId),
+        hydratedThisTick: etsyHydratedThisTick.has(link.externalListingId),
+      })
+    ) {
+      console.warn("[channels] skip Etsy catalog apply; hydrate needed but this tick did not GET it", {
+        storeItemId: link.storeItemId,
+        externalListingId: link.externalListingId,
+      });
+      continue;
+    }
 
     const item = link.storeItem;
     const remoteQtyKnown =
@@ -727,6 +747,13 @@ export async function reconcileConnectionInboundCatalog(
 
     if (contentDecision === "noop" && !qtyDiffers) {
       if (inwContentChanged && !remoteDisagreesWithInw) {
+        if (provider === "shopify") {
+          console.log("[channels] skip Shopify catalog fan-out; INW already matches Shopify", {
+            storeItemId: link.storeItemId,
+          });
+          await writeBaseline(link.id, link.storeItemId, remote, true);
+          continue;
+        }
         console.log("[channels] INW edit already on channel — fanning out to other shops", {
           storeItemId: link.storeItemId,
           provider,
@@ -1002,7 +1029,10 @@ export async function reconcileConnectionInboundCatalog(
 
     // If we pulled content, push to other channels (not the one we pulled from)
     if (pulledContent && contentDecision !== "push") {
-      await updateStoreItemOnChannels(link.storeItemId, { skipProviders: [provider] });
+      await updateStoreItemOnChannels(link.storeItemId, {
+        skipProviders: [provider],
+        sourceUpdatedAt: remote.remoteUpdatedAt ?? undefined,
+      });
     }
     
     // If we pulled quantity, also push to other channels

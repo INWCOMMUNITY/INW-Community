@@ -314,7 +314,7 @@ const TRACE_CLASSIFIERS: TraceClassifier[] = [
   {
     id: "rate_limited",
     provider: "*",
-    pattern: /\b429\b|rate.?limit|too many requests/i,
+    pattern: /\b429\b|rate.?limit|too many requests|calls per second/i,
     category: "rate_limit",
     analyze: (ctx) => {
       return `Hit ${ctx.provider} API rate limit. Operation will retry automatically.`;
@@ -401,7 +401,7 @@ function categorizeErrorGeneric(message: string): string {
   if (/aspect|item.?specific|attribute/i.test(lower)) return "aspect_mismatch";
   if (/condition/i.test(lower)) return "condition_invalid";
   if (/auth|token|unauthorized|401/i.test(lower)) return "auth_expired";
-  if (/rate.?limit|429|too many/i.test(lower)) return "rate_limit";
+  if (/rate.?limit|429|too many|calls per second/i.test(lower)) return "rate_limit";
   if (/policy/i.test(lower)) return "policy_missing";
   if (/category|taxonomy/i.test(lower)) return "category_invalid";
   if (/shipping|fulfillment/i.test(lower)) return "shipping_missing";

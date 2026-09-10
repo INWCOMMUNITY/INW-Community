@@ -231,7 +231,10 @@ export async function refreshEtsyListingByStoreItemId(
     if (fanout === "inventory") {
       await syncInventoryToChannels(storeItemId, { skipProviders: ["etsy"] });
     } else if (fanout === "content") {
-      await updateStoreItemOnChannels(storeItemId, { skipProviders: ["etsy"] });
+      await updateStoreItemOnChannels(storeItemId, {
+        skipProviders: ["etsy"],
+        sourceUpdatedAt: remote.remoteUpdatedAt ?? undefined,
+      });
     }
     return {
       storeItemId,

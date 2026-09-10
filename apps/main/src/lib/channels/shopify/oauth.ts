@@ -5,6 +5,7 @@ import {
   shopDomainFromHostParam,
   SHOPIFY_SCOPES,
 } from "./config";
+import { shopifyGet } from "./client";
 import type { TokenResponse } from "../types";
 
 /** Build the per-shop OAuth authorize URL (offline access token; no grant_options[]=per-user). */
@@ -126,15 +127,15 @@ export async function fetchShopifyShopInfo(
   const normalized = normalizeShopDomain(shop);
   if (!normalized) throw new Error("Invalid Shopify shop domain.");
   const { apiVersion } = getShopifyConfig();
-  const res = await fetch(`https://${normalized}/admin/api/${apiVersion}/shop.json`, {
-    headers: {
-      "X-Shopify-Access-Token": accessToken,
-      Accept: "application/json",
-    },
-  });
-  const data = (await res.json().catch(() => null)) as { shop?: { name?: string } } | null;
-  if (!res.ok || !data?.shop) {
+  try {
+    const data = await shopifyGet<{ shop?: { name?: string } }>(
+      accessToken,
+      normalized,
+      apiVersion,
+      "/shop.json"
+    );
+    return { shopId: normalized, shopName: data.shop?.name ?? null };
+  } catch {
     return { shopId: normalized, shopName: null };
   }
-  return { shopId: normalized, shopName: data.shop.name ?? null };
 }

@@ -5,7 +5,9 @@ import {
   newerChannelEditShouldPull,
   resolveSyncDirection,
   shouldBlockOutboundOverwrite,
+  shouldBlockEbayOutboundOverwrite,
   syncContentHash,
+  ebayRemoteLooksLikeIndependentRevise,
 } from "./sync-baseline";
 
 describe("syncContentHash", () => {
@@ -171,6 +173,108 @@ describe("shouldBlockOutboundOverwrite", () => {
         lastPushedAt,
       })
     ).toBe(false);
+  });
+
+  it("blocks a price-only Etsy edit even when titles already match", () => {
+    expect(
+      shouldBlockOutboundOverwrite({
+        titlesDiffer: false,
+        pricesDiffer: true,
+        inwUpdatedAt,
+        remoteUpdatedAt: new Date("2026-09-08T17:40:26.798Z"),
+        lastPushedAt,
+      })
+    ).toBe(true);
+  });
+
+  it("uses the source-shop timestamp, not a post-apply INW restamp", () => {
+    expect(
+      shouldBlockOutboundOverwrite({
+        titlesDiffer: true,
+        inwUpdatedAt: new Date("2026-09-08T16:00:00.000Z"),
+        remoteUpdatedAt: new Date("2026-09-08T17:00:00.000Z"),
+        lastPushedAt,
+      })
+    ).toBe(true);
+    expect(
+      shouldBlockOutboundOverwrite({
+        titlesDiffer: true,
+        inwUpdatedAt: new Date("2026-09-08T17:05:00.000Z"),
+        remoteUpdatedAt: new Date("2026-09-08T17:00:00.000Z"),
+        lastPushedAt,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("ebayRemoteLooksLikeIndependentRevise", () => {
+  it("is true when INW still has the last synced title and live eBay differs", () => {
+    expect(
+      ebayRemoteLooksLikeIndependentRevise({
+        inwTitle: "Vintage Bear Clock (Testing) S",
+        lastSyncedTitle: "Vintage Bear Clock (Testing) S",
+        remoteTitle: "Vintage Bear Clock (Testing) Sync Ebay",
+      })
+    ).toBe(true);
+  });
+
+  it("is false when INW already moved off the last synced title", () => {
+    expect(
+      ebayRemoteLooksLikeIndependentRevise({
+        inwTitle: "Vintage Bear Clock",
+        lastSyncedTitle: "Vintage Bear Clock (Testing) S",
+        remoteTitle: "Vintage Bear Clock (Testing) Sync Ebay",
+      })
+    ).toBe(false);
+  });
+});
+
+describe("shouldBlockEbayOutboundOverwrite", () => {
+  const lastPushedAt = new Date("2026-09-10T02:26:13.756Z");
+  const inwUpdatedAt = new Date("2026-09-10T02:30:26.884Z");
+  const nowMs = new Date("2026-09-10T03:00:00.000Z").getTime();
+
+  it("blocks pushing INW over an eBay title that is not the last synced title", () => {
+    expect(
+      shouldBlockEbayOutboundOverwrite({
+        inwTitle: "Vintage Bear Clock (Testing) S",
+        remoteTitle: "Vintage Bear Clock (Testing) Sync Ebay",
+        lastSyncedTitle: "Vintage Bear Clock (Testing) S",
+        inwUpdatedAt,
+        lastPushedAt,
+        remoteUpdatedAt: null,
+        nowMs,
+      })
+    ).toBe(true);
+  });
+
+  it("allows an INW save when GetItem still shows the last synced title", () => {
+    expect(
+      shouldBlockEbayOutboundOverwrite({
+        inwTitle: "Vintage Bear Clock",
+        remoteTitle: "Vintage Bear Clock (Testing) S",
+        lastSyncedTitle: "Vintage Bear Clock (Testing) S",
+        inwUpdatedAt,
+        lastPushedAt,
+        remoteUpdatedAt: null,
+        nowMs,
+      })
+    ).toBe(false);
+  });
+
+  it("blocks when INW still matches the last push hash and live eBay title differs", () => {
+    expect(
+      shouldBlockEbayOutboundOverwrite({
+        inwTitle: "Vintage Bear Clock (Testing) S",
+        remoteTitle: "Vintage Bear Clock (Testing) Sync Ebay",
+        lastSyncedTitle: null,
+        inwUpdatedAt,
+        lastPushedAt,
+        remoteUpdatedAt: null,
+        inwMatchesLastPushedHash: true,
+        nowMs,
+      })
+    ).toBe(true);
   });
 });
 

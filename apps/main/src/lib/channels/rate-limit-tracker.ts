@@ -11,7 +11,8 @@ import type { ChannelProvider } from "./types";
  */
 const RATE_LIMITS: Record<ChannelProvider, { requestsPerSecond: number; burstLimit?: number }> = {
   etsy: { requestsPerSecond: 10 },
-  shopify: { requestsPerSecond: 2, burstLimit: 40 },
+  // Shopify REST leak rate is 2/s with a 40-request bucket — not 40/minute.
+  shopify: { requestsPerSecond: 2 },
   wix: { requestsPerSecond: 50 },
   ebay: { requestsPerSecond: 5 },
 };
@@ -132,25 +133,30 @@ export async function waitForRateLimit(
   provider: ChannelProvider,
   connectionId: string
 ): Promise<void> {
-  const check = checkRateLimit(provider, connectionId);
-  if (check.canProceed) {
-    recordRequest(provider, connectionId);
-    return;
-  }
+  const deadline = Date.now() + 8000;
+  while (true) {
+    const check = checkRateLimit(provider, connectionId);
+    if (check.canProceed) {
+      recordRequest(provider, connectionId);
+      return;
+    }
 
-  const waitMs = Math.min(check.waitMs, 5000);
-  await new Promise((resolve) => setTimeout(resolve, waitMs));
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      console.warn("[rate-limit] still rate limited after wait", {
+        provider,
+        connectionId,
+        currentRate: check.currentRate,
+        limit: check.limit,
+      });
+      recordRequest(provider, connectionId);
+      return;
+    }
 
-  const recheck = checkRateLimit(provider, connectionId);
-  if (!recheck.canProceed) {
-    console.warn("[rate-limit] still rate limited after wait", {
-      provider,
-      connectionId,
-      currentRate: recheck.currentRate,
-      limit: recheck.limit,
-    });
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(check.waitMs, remaining, 5000))
+    );
   }
-  recordRequest(provider, connectionId);
 }
 
 /**

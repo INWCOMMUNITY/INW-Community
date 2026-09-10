@@ -6,6 +6,7 @@ import { reconcileConnectionInboundCatalog } from "@/lib/channels/reconcile-inbo
 import { updateStoreItemOnChannels } from "@/lib/channels/outbound";
 import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
 import { setEtsyConnectionContext } from "@/lib/channels/etsy/client";
+import { setShopifyConnectionContext } from "@/lib/channels/shopify/client";
 import type { ChannelProvider } from "@/lib/channels/types";
 import {
   hydrateCircuitFromConfig,
@@ -92,6 +93,8 @@ export async function POST(req: NextRequest) {
     // Set connection context for rate limiting
     if (provider === "etsy") {
       setEtsyConnectionContext(conn.id);
+    } else if (provider === "shopify") {
+      setShopifyConnectionContext(conn.id);
     }
 
     try {
