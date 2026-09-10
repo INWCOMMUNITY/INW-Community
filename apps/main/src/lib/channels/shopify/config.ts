@@ -8,8 +8,20 @@ export const SHOPIFY_SCOPES = [
   "write_products",
   "read_inventory",
   "write_inventory",
+  // Needed to resolve/verify the inventory location on multi-location shops (GET /locations.json).
+  "read_locations",
   "read_orders",
 ];
+
+/** Choose the inventory location: prefer the first active, else the first returned. */
+export function pickShopifyLocationId(
+  locations: { id?: number | string | null; active?: boolean }[] | null | undefined
+): string | null {
+  const list = locations ?? [];
+  const active = list.find((l) => l.active !== false && l.id != null);
+  const chosen = active ?? list.find((l) => l.id != null);
+  return chosen?.id != null ? String(chosen.id) : null;
+}
 
 export type ShopifyAppConfig = {
   apiKey: string;

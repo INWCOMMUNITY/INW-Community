@@ -159,12 +159,23 @@ export async function GET(req: NextRequest) {
   });
   const webhooksCleaned = await cleanupOldWebhookEvents().catch(() => 0);
 
-  // Run full reconciliation
-  let syncResult = { connections: 0, applied: 0, imported: 0, catalogUpdated: 0, catalogRemoved: 0, metaUpdated: 0 };
+  // Run full reconciliation. Leave headroom under the 300s wall so we release the lock cleanly
+  // and defer any connections we couldn't reach to the next tick (durable resume cursor).
+  let syncResult = {
+    connections: 0,
+    applied: 0,
+    imported: 0,
+    catalogUpdated: 0,
+    catalogRemoved: 0,
+    metaUpdated: 0,
+    processed: 0,
+    timedOut: false,
+  };
   try {
     syncResult = await reconcileAllConnections({
       skipProviders: skipEtsy ? ["etsy"] : undefined,
       passStartedAt: lock.passStartedAt,
+      deadlineAt: startTime + 270_000,
     });
     console.log("[cron] sync completed", syncResult);
   } catch (e) {

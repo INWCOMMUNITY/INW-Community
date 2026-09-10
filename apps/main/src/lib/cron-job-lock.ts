@@ -105,6 +105,33 @@ export async function releaseCronLock(
     .catch(() => {});
 }
 
+/**
+ * Extend this holder's lease so a long single-connection catalog run (large shops can exceed
+ * INBOUND_CATALOG_LOCK_TTL_MS) is not stolen mid-flight by the next tick, which would overlap
+ * media writes. Only succeeds while we still hold the lock.
+ */
+export async function renewCronLock(
+  jobName: string,
+  holderId: string,
+  ttlMs: number
+): Promise<boolean> {
+  if (!holderId) return false;
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + ttlMs);
+  const renewed = await prisma.cronJobLock
+    .updateMany({
+      where: { jobName, holderId },
+      data: { expiresAt, updatedAt: now },
+    })
+    .catch(() => ({ count: 0 }));
+  return renewed.count === 1;
+}
+
+/** Renew the lease every `everyN` processed items (cheap, and well inside the TTL). */
+export function shouldRenewCronLock(processedCount: number, everyN = 25): boolean {
+  return processedCount > 0 && processedCount % everyN === 0;
+}
+
 export async function readCronLock(jobName: string) {
   return prisma.cronJobLock.findUnique({ where: { jobName } });
 }

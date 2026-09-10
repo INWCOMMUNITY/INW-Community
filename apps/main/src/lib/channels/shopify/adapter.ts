@@ -16,7 +16,8 @@ import {
   shopifyJson,
   type ShopifyGetResult,
 } from "./client";
-import { getShopifyConfig, readShopifyConfig } from "./config";
+import { getShopifyConfig, readShopifyConfig, pickShopifyLocationId } from "./config";
+import { patchChannelConnectionConfig } from "../connection";
 import {
   exchangeShopifyCode,
   fetchShopifyShopInfo,
@@ -47,6 +48,31 @@ type ProductResponse = { product?: ShopifyProduct };
 
 function connCfg(conn: ChannelConnectionContext) {
   return readShopifyConfig(conn.config, conn.externalShopId);
+}
+
+/**
+ * Resolve the inventory location. Uses the configured one when present, otherwise fetches it
+ * on demand (requires read_locations) and persists it so a connection that was created before
+ * the location could be resolved self-heals instead of silently no-op'ing every inventory push.
+ */
+async function ensureShopifyLocationId(
+  conn: ChannelConnectionContext,
+  cfg: { shop: string | null; apiVersion: string; locationId: string | null }
+): Promise<string | null> {
+  if (cfg.locationId) return cfg.locationId;
+  if (!cfg.shop) return null;
+  const res = await shopifyGet<{ locations?: { id?: number; active?: boolean }[] }>(
+    conn.accessToken,
+    cfg.shop,
+    cfg.apiVersion,
+    "/locations.json"
+  ).catch(() => null);
+  const locationId = pickShopifyLocationId(res?.locations);
+  if (locationId) {
+    cfg.locationId = locationId;
+    await patchChannelConnectionConfig(conn.id, { locationId }).catch(() => {});
+  }
+  return locationId;
 }
 
 async function getProduct(
@@ -126,7 +152,8 @@ async function syncProductInventory(
     if (opts?.strict) throw new Error("Shopify connection is missing shop domain.");
     return;
   }
-  if (!cfg.locationId) {
+  const locationId = await ensureShopifyLocationId(conn, cfg);
+  if (!locationId) {
     if (opts?.strict) {
       throw new Error(
         "Shopify inventory location is not configured. Reconnect or set SHOPIFY_DEFAULT_LOCATION_ID."
@@ -148,7 +175,7 @@ async function syncProductInventory(
     conn.accessToken,
     cfg.shop,
     cfg.apiVersion,
-    cfg.locationId,
+    locationId,
     inventoryItemId,
     qty
   );
@@ -159,7 +186,7 @@ async function syncProductInventory(
       cfg.shop,
       cfg.apiVersion,
       inventoryItemId,
-      cfg.locationId
+      locationId
     );
     if (actual != null && actual !== qty) {
       throw new Error(
@@ -176,7 +203,8 @@ async function syncShopifyVariantInventory(
 ): Promise<void> {
   const cfg = connCfg(conn);
   if (!cfg.shop) throw new Error("Shopify connection is missing shop domain.");
-  if (!cfg.locationId) {
+  const locationId = await ensureShopifyLocationId(conn, cfg);
+  if (!locationId) {
     throw new Error(
       "Shopify inventory location is not configured. Reconnect or set SHOPIFY_DEFAULT_LOCATION_ID."
     );
@@ -193,7 +221,7 @@ async function syncShopifyVariantInventory(
       conn.accessToken,
       cfg.shop,
       cfg.apiVersion,
-      cfg.locationId,
+      locationId,
       v.inventory_item_id,
       qty
     );
@@ -239,8 +267,7 @@ export const shopifyAdapter: ChannelAdapter = {
         apiVersion,
         "/locations.json"
       ).catch(() => null);
-      const loc = (res?.locations ?? []).find((l) => l.active !== false) ?? res?.locations?.[0];
-      if (loc?.id != null) locationId = String(loc.id);
+      locationId = pickShopifyLocationId(res?.locations);
     }
     const webhooks = await ensureShopifyWebhooks({
       accessToken,
@@ -414,7 +441,9 @@ export const shopifyAdapter: ChannelAdapter = {
   ): Promise<{ quantity: number; known: boolean }> {
     setShopifyConnectionContext(conn.id);
     const cfg = connCfg(conn);
-    if (!cfg.shop || !cfg.locationId) return { quantity: 0, known: false };
+    if (!cfg.shop) return { quantity: 0, known: false };
+    const locationId = await ensureShopifyLocationId(conn, cfg);
+    if (!locationId) return { quantity: 0, known: false };
     const product = await getProduct(
       conn.accessToken,
       cfg.shop,
@@ -435,7 +464,7 @@ export const shopifyAdapter: ChannelAdapter = {
         cfg.shop,
         cfg.apiVersion,
         v.inventory_item_id,
-        cfg.locationId
+        locationId
       );
       if (available != null) {
         total += available;

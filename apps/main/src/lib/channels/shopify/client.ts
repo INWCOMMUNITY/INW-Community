@@ -234,15 +234,12 @@ async function shopifyRequest<T>(
   path: string,
   init: RequestInit & { headers?: Record<string, string> } = {}
 ): Promise<T> {
+  // GraphQL still paces against the shop's rate window (waitForRateLimit + min interval) so it
+  // can't burst past Shopify's limits, but it stays OUT of the per-shop serialization chain:
+  // a GraphQL call made from inside an already-enqueued REST op would otherwise deadlock on the
+  // chain that is awaiting it.
   const run = () =>
-    shopifyAdminRequestLocked<T>(
-      accessToken,
-      shop,
-      apiVersion,
-      path,
-      init,
-      !isGraphqlPath(path)
-    );
+    shopifyAdminRequestLocked<T>(accessToken, shop, apiVersion, path, init, true);
   const result = isGraphqlPath(path) ? await run() : await enqueueShop(shop, run);
   return result.data;
 }

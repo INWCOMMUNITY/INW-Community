@@ -63,7 +63,13 @@ import {
   marketplaceCdnPhotoRehostOnly,
   readStoredPhotoUrls,
 } from "./photo-urls";
-import { tryAcquireCronLock, releaseCronLock, INBOUND_CATALOG_LOCK_TTL_MS } from "@/lib/cron-job-lock";
+import {
+  tryAcquireCronLock,
+  releaseCronLock,
+  renewCronLock,
+  shouldRenewCronLock,
+  INBOUND_CATALOG_LOCK_TTL_MS,
+} from "@/lib/cron-job-lock";
 
 /**
  * Max per-product "is it really gone?" probes to run in one tick when a Wix catalog read comes
@@ -521,7 +527,18 @@ export async function reconcileConnectionInboundCatalog(
   let updated = 0;
   let removed = 0;
 
+  let processedInLoop = 0;
   for (const link of links) {
+    // Keep our exclusive lease alive on large shops so the next tick can't steal it and overlap
+    // media writes mid-run.
+    if (shouldRenewCronLock(processedInLoop)) {
+      await renewCronLock(
+        `inbound-catalog:${connection.id}`,
+        lock.holderId,
+        INBOUND_CATALOG_LOCK_TTL_MS
+      );
+    }
+    processedInLoop++;
     const remote = remoteById.get(link.externalListingId);
 
     // Product no longer visible on the channel -> sell out on INW + push 0 to others.
@@ -850,21 +867,30 @@ export async function reconcileConnectionInboundCatalog(
           `Conflict detected: both INW and ${provider} changed. Queued for manual review. Remote updated ${remote.remoteUpdatedAt?.toISOString() ?? "unknown"}, INW updated ${item.updatedAt.toISOString()}.`,
           link.storeItemId
         );
-        // Update link to mark conflict
-        await prisma.channelListingLink.update({
-          where: { id: link.id },
-          data: {
-            lastConflictAt: new Date(),
-            conflictDetails: {
-              inwUpdatedAt: item.updatedAt.toISOString(),
-              remoteUpdatedAt: remote.remoteUpdatedAt?.toISOString() ?? null,
-              inwTitle: item.title,
-              remoteTitle: remote.title,
-              inwPriceCents: item.priceCents,
-              remotePriceCents: remote.priceCents,
+        // Mark the link pending so it surfaces in Needs Attention / sync health for the seller.
+        await prisma.channelListingLink
+          .update({
+            where: { id: link.id },
+            data: {
+              conflictResolution: "pending",
+              lastConflictAt: new Date(),
+              conflictDetails: {
+                inwUpdatedAt: item.updatedAt.toISOString(),
+                remoteUpdatedAt: remote.remoteUpdatedAt?.toISOString() ?? null,
+                inwTitle: item.title,
+                remoteTitle: remote.title,
+                inwPriceCents: item.priceCents,
+                remotePriceCents: remote.priceCents,
+              },
             },
-          },
-        }).catch(() => {});
+          })
+          .catch((e) =>
+            console.warn("[channels] failed to mark conflict pending", {
+              linkId: link.id,
+              provider,
+              error: String(e),
+            })
+          );
       } else {
         const winner = contentDecision === "pull" ? "remote" : "INW";
         logSyncEvent(
@@ -874,6 +900,19 @@ export async function reconcileConnectionInboundCatalog(
           `Kept ${winner} version (${conflictResolution}). Remote updated ${remote.remoteUpdatedAt?.toISOString() ?? "unknown"}, INW updated ${item.updatedAt.toISOString()}.`,
           link.storeItemId
         );
+        // Auto-resolved: clear any prior manual-review flag so it leaves Needs Attention.
+        await prisma.channelListingLink
+          .updateMany({
+            where: { id: link.id, conflictResolution: "pending" },
+            data: { conflictResolution: null },
+          })
+          .catch((e) =>
+            console.warn("[channels] failed to clear resolved conflict flag", {
+              linkId: link.id,
+              provider,
+              error: String(e),
+            })
+          );
       }
     }
 

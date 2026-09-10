@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { normalizeShopDomain, shopDomainFromHostParam } from "./config";
+import {
+  normalizeShopDomain,
+  shopDomainFromHostParam,
+  pickShopifyLocationId,
+  SHOPIFY_SCOPES,
+} from "./config";
 import { resolveShopifyCallbackShop } from "./oauth";
 
 describe("normalizeShopDomain", () => {
@@ -25,6 +30,33 @@ describe("shopDomainFromHostParam", () => {
   it("decodes Shopify host base64", () => {
     const host = Buffer.from("admin.shopify.com/store/cool-shop").toString("base64");
     expect(shopDomainFromHostParam(host)).toBe("cool-shop.myshopify.com");
+  });
+});
+
+describe("pickShopifyLocationId", () => {
+  it("prefers the first active location", () => {
+    expect(
+      pickShopifyLocationId([
+        { id: 1, active: false },
+        { id: 2, active: true },
+      ])
+    ).toBe("2");
+  });
+
+  it("falls back to the first location when none are marked active", () => {
+    expect(pickShopifyLocationId([{ id: 7 }, { id: 8 }])).toBe("7");
+  });
+
+  it("returns null for empty/missing input", () => {
+    expect(pickShopifyLocationId([])).toBeNull();
+    expect(pickShopifyLocationId(null)).toBeNull();
+    expect(pickShopifyLocationId([{ active: true }])).toBeNull();
+  });
+});
+
+describe("SHOPIFY_SCOPES", () => {
+  it("requests read_locations so multi-location inventory can be resolved", () => {
+    expect(SHOPIFY_SCOPES).toContain("read_locations");
   });
 });
 

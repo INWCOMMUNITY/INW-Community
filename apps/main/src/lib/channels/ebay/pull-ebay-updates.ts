@@ -77,14 +77,6 @@ function photosEqual(a: string[], b: string[]): boolean {
   return a.every((url, i) => url === b[i]);
 }
 
-/**
- * GetItem with no LastModified used to apply after this window and that
- * rewrote good cron pulls (TEST 2 ping-pong). Kept only for tests/callers
- * that still import it; apply now requires a newer LastModified or two
- * matching snapshots after our own push echo has expired.
- */
-export const EBAY_INBOUND_ECHO_MS = 15 * 60 * 1000;
-
 /** How many GetItem calls one cron pass makes as a description/photo backstop. */
 export const EBAY_CRON_GETITEM_LIMIT = 5;
 

@@ -24,6 +24,19 @@ import type { RemoteSale } from "./types";
 
 const DEFAULT_LOOKBACK_MS = 1000 * 60 * 60 * 24 * 2; // 2 days
 
+/**
+ * The cron has a hard 300s wall. Without an in-invocation budget a large fleet gets killed
+ * mid-batch (no clean lock release, partial work). We stop starting new batches once the budget
+ * is spent and rely on the durable resume cursor (connections are ordered by lastReconciledAt asc
+ * and filtered by passStartedAt, so the ones we didn't reach are picked first on the next tick).
+ */
+export function reconcileTimeBudgetExhausted(
+  deadlineAt: number | undefined,
+  now: number = Date.now()
+): boolean {
+  return typeof deadlineAt === "number" && now >= deadlineAt;
+}
+
 function isUniqueViolation(e: unknown): boolean {
   return Boolean(e && typeof e === "object" && "code" in e && (e as { code: string }).code === "P2002");
 }
@@ -401,6 +414,8 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
 export async function reconcileAllConnections(opts?: {
   skipProviders?: ChannelProvider[];
   passStartedAt?: Date;
+  /** Absolute epoch-ms after which no new connection batch is started (cron wall-clock budget). */
+  deadlineAt?: number;
 }): Promise<{
   connections: number;
   applied: number;
@@ -408,6 +423,8 @@ export async function reconcileAllConnections(opts?: {
   catalogUpdated: number;
   catalogRemoved: number;
   metaUpdated: number;
+  processed: number;
+  timedOut: boolean;
 }> {
   const skip = new Set(opts?.skipProviders ?? []);
   const passStartedAt = opts?.passStartedAt;
@@ -446,8 +463,18 @@ export async function reconcileAllConnections(opts?: {
   let catalogUpdated = 0;
   let catalogRemoved = 0;
   let metaUpdated = 0;
+  let processed = 0;
+  let timedOut = false;
 
   for (let i = 0; i < prioritized.length; i += RECONCILE_BATCH_SIZE) {
+    if (reconcileTimeBudgetExhausted(opts?.deadlineAt)) {
+      timedOut = true;
+      console.warn("[channels] reconcile time budget spent; deferring remaining connections", {
+        processed,
+        total: prioritized.length,
+      });
+      break;
+    }
     const batch = prioritized
       .slice(i, i + RECONCILE_BATCH_SIZE)
       .filter((c) => !skip.has(c.provider as ChannelProvider));
@@ -457,6 +484,7 @@ export async function reconcileAllConnections(opts?: {
     );
 
     for (const result of results) {
+      processed++;
       if (result.status === "fulfilled") {
         applied += result.value.applied;
         imported += result.value.imported;
@@ -467,7 +495,16 @@ export async function reconcileAllConnections(opts?: {
     }
   }
 
-  return { connections: conns.length, applied, imported, catalogUpdated, catalogRemoved, metaUpdated };
+  return {
+    connections: conns.length,
+    applied,
+    imported,
+    catalogUpdated,
+    catalogRemoved,
+    metaUpdated,
+    processed,
+    timedOut,
+  };
 }
 
 /** Reconcile a single member+provider connection (webhook low-latency trigger). */

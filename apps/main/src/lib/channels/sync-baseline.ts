@@ -335,7 +335,8 @@ export function resolveSyncDirection(args: {
 /**
  * After we push INW -> channel, the channel's updatedDate advances to ~now, which would look like
  * a remote edit on the next pass. Treat remote changes within this window after a push as our own echo.
- * Reduced from 120s to 45s since we now sync every ~30 seconds.
+ * Sized to cover the provider's write-visibility lag (webhooks/refresh can fire within seconds of a
+ * push) without masking a genuine remote edit that lands later.
  */
 export const SYNC_ECHO_SKEW_MS = 45_000;
 

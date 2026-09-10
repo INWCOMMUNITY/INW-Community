@@ -50,6 +50,7 @@ describe("importRemoteListing SKU attach", () => {
       ({ data }: { data: Record<string, unknown> }) => Promise.resolve({ id: "link-1", ...data })
     );
     mockPrisma.storeItem.findFirst.mockResolvedValue(null);
+    mockPrisma.storeItem.findUnique.mockResolvedValue(null);
     mockPrisma.storeItem.findMany.mockResolvedValue([]);
     mockPrisma.storeItem.update.mockResolvedValue({});
     mockPrisma.channelCategoryMapping.findMany.mockResolvedValue([]);
@@ -146,5 +147,83 @@ describe("importRemoteListing SKU attach", () => {
         }),
       })
     );
+  });
+
+  it("baselines the link to the item's content when attaching", async () => {
+    const { importRemoteListing } = await import("./import-listing");
+    mockPrisma.storeItem.findMany.mockResolvedValueOnce([
+      { id: "item-sku", category: "Clothing", subcategory: "Tops & Tees", channelLinks: [] },
+    ]);
+    mockPrisma.storeItem.findUnique.mockResolvedValueOnce({
+      id: "item-sku",
+      title: "Handmade lavender soap bar",
+      description: "nice",
+      photos: [],
+      priceCents: 1500,
+      quantity: 4,
+      category: "Clothing",
+      subcategory: "Tops & Tees",
+      secondaryCategory: null,
+      shippingCostCents: null,
+      variants: null,
+    });
+
+    await importRemoteListing({
+      memberId: "member-1",
+      connectionId: "conn-1",
+      provider: "wix",
+      listing: {
+        externalListingId: "wix-9",
+        title: "Handmade lavender soap bar",
+        sku: "COIN-777",
+        description: null,
+        photos: ["https://example.com/p.jpg"],
+        priceCents: 1500,
+        quantity: 4,
+        quantityKnown: true,
+      },
+      externalShopId: "shop-1",
+    });
+
+    expect(mockPrisma.storeItem.create).not.toHaveBeenCalled();
+    const createArg = mockPrisma.channelListingLink.create.mock.calls[0]?.[0] as {
+      data: Record<string, unknown>;
+    };
+    expect(createArg.data.syncBaselineHash).toEqual(expect.any(String));
+    expect(createArg.data.syncBaselineQty).toBe(4);
+    expect(createArg.data.lastPushedHash).toEqual(expect.any(String));
+  });
+
+  it("skips (does not mint) when the SKU maps to multiple unlinked items", async () => {
+    const { importRemoteListing } = await import("./import-listing");
+    mockPrisma.storeItem.findMany.mockResolvedValueOnce([
+      { id: "item-a", category: null, subcategory: null, channelLinks: [] },
+      { id: "item-b", category: null, subcategory: null, channelLinks: [] },
+    ]);
+
+    const result = await importRemoteListing({
+      memberId: "member-1",
+      connectionId: "conn-1",
+      provider: "wix",
+      listing: {
+        externalListingId: "wix-dup",
+        title: "Ambiguous SKU item",
+        sku: "DUP-1",
+        description: null,
+        photos: ["https://example.com/p.jpg"],
+        priceCents: 1500,
+        quantity: 1,
+        quantityKnown: true,
+      },
+      externalShopId: "shop-1",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      externalListingId: "wix-dup",
+      reason: "ambiguous_sku",
+    });
+    expect(mockPrisma.storeItem.create).not.toHaveBeenCalled();
+    expect(mockPrisma.channelListingLink.create).not.toHaveBeenCalled();
   });
 });

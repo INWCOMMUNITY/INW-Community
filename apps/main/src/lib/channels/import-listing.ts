@@ -17,7 +17,12 @@ import {
   variantsFingerprint,
   variantsPayloadForImport,
 } from "./variant-sync";
-import { syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
+import {
+  storeItemContentHash,
+  syncContentHash,
+  syncMetaHash,
+  SYNC_ECHO_SKEW_MS,
+} from "./sync-baseline";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 import {
   listingDescriptionToPlainText,
@@ -347,17 +352,75 @@ async function resolveExistingLink(args: {
   return { ok: false, externalListingId: productId, reason: "already_linked" };
 }
 
+type InboundSkuMatchRow = {
+  id: string;
+  category: string | null;
+  subcategory: string | null;
+  channelLinks: { id: string }[];
+};
+
+export type InboundSkuResolution =
+  | {
+      kind: "attach";
+      id: string;
+      category: string | null;
+      subcategory: string | null;
+      origin: "inw_create" | "import";
+    }
+  | { kind: "ambiguous"; count: number }
+  | { kind: "none" };
+
+/**
+ * Pure decision for an inbound SKU: attach to an id/unique-SKU match, flag it ambiguous (the
+ * member's SKU is not unique, so minting would create a duplicate item and split inventory), or
+ * fall through to mint. Kept pure so the branching is unit-tested without a DB.
+ */
+export function resolveInboundSkuMatch(args: {
+  sku: string;
+  byId: InboundSkuMatchRow | null;
+  bySku: InboundSkuMatchRow[];
+}): InboundSkuResolution {
+  const sku = args.sku.trim();
+  if (!sku) return { kind: "none" };
+
+  if (args.byId) {
+    if (args.byId.channelLinks.length > 0) return { kind: "none" };
+    return {
+      kind: "attach",
+      id: args.byId.id,
+      category: args.byId.category,
+      subcategory: args.byId.subcategory,
+      origin: "inw_create",
+    };
+  }
+
+  const unlinked = args.bySku.filter((row) => row.channelLinks.length === 0);
+  if (unlinked.length === 1) {
+    return {
+      kind: "attach",
+      id: unlinked[0].id,
+      category: unlinked[0].category,
+      subcategory: unlinked[0].subcategory,
+      origin: "import",
+    };
+  }
+  if (unlinked.length > 1) return { kind: "ambiguous", count: unlinked.length };
+  return { kind: "none" };
+}
+
 /**
  * If the remote SKU is an existing StoreItem id (or a unique member SKU) with no link for this
- * provider, attach the inbound listing there instead of minting a duplicate item.
+ * provider, attach the inbound listing there instead of minting a duplicate item. Returns an
+ * "ambiguous" result when the SKU maps to more than one unlinked item so the caller can skip
+ * rather than duplicate.
  */
 export async function findStoreItemForInboundSku(args: {
   memberId: string;
   provider: ChannelProvider;
   sku: string;
-}): Promise<{ id: string; category: string | null; subcategory: string | null } | null> {
+}): Promise<InboundSkuResolution> {
   const sku = args.sku.trim();
-  if (!sku) return null;
+  if (!sku) return { kind: "none" };
 
   const byId = await prisma.storeItem.findFirst({
     where: { id: sku, memberId: args.memberId },
@@ -368,24 +431,21 @@ export async function findStoreItemForInboundSku(args: {
       channelLinks: { where: { provider: args.provider }, select: { id: true } },
     },
   });
-  if (byId) {
-    if (byId.channelLinks.length > 0) return null;
-    return { id: byId.id, category: byId.category, subcategory: byId.subcategory };
-  }
 
-  const bySku = await prisma.storeItem.findMany({
-    where: { memberId: args.memberId, sku },
-    select: {
-      id: true,
-      category: true,
-      subcategory: true,
-      channelLinks: { where: { provider: args.provider }, select: { id: true } },
-    },
-    take: 3,
-  });
-  const unlinked = bySku.filter((row) => row.channelLinks.length === 0);
-  if (unlinked.length !== 1) return null;
-  return { id: unlinked[0].id, category: unlinked[0].category, subcategory: unlinked[0].subcategory };
+  const bySku = byId
+    ? []
+    : await prisma.storeItem.findMany({
+        where: { memberId: args.memberId, sku },
+        select: {
+          id: true,
+          category: true,
+          subcategory: true,
+          channelLinks: { where: { provider: args.provider }, select: { id: true } },
+        },
+        take: 3,
+      });
+
+  return resolveInboundSkuMatch({ sku, byId, bySku });
 }
 
 /**
@@ -455,7 +515,39 @@ export async function importRemoteListing(args: {
   const sku = listing.sku?.trim() || null;
   if (sku) {
     const skuMatch = await findStoreItemForInboundSku({ memberId, provider, sku });
-    if (skuMatch) {
+    if (skuMatch.kind === "ambiguous") {
+      // The member's SKU is not unique; minting would duplicate the item and split inventory.
+      // Skip rather than create a duplicate — the seller resolves the SKU collision.
+      console.warn("[channels] inbound SKU maps to multiple unlinked items; skipping to avoid duplicate", {
+        provider,
+        sku,
+        matches: skuMatch.count,
+        externalListingId: productId,
+      });
+      return { ok: false, externalListingId: productId, reason: "ambiguous_sku" };
+    }
+    if (skuMatch.kind === "attach") {
+      // Baseline the link to the item's current content so the next reconcile doesn't treat the
+      // freshly attached listing as content-changed (spurious push) or unbaselined (spurious pull).
+      const attachItem = await prisma.storeItem
+        .findUnique({ where: { id: skuMatch.id } })
+        .catch(() => null);
+      const baseline = attachItem
+        ? {
+            lastPushedHash: storeItemContentHash(attachItem),
+            syncBaselineHash: syncContentHash(attachItem),
+            syncBaselineMetaHash: syncMetaHash({
+              category: attachItem.category,
+              subcategory: attachItem.subcategory,
+              secondaryCategory: attachItem.secondaryCategory,
+              shippingCostCents: attachItem.shippingCostCents,
+              variants: attachItem.variants,
+            }),
+            syncBaselineVariantsHash: variantsFingerprint(attachItem.variants),
+            syncBaselineQty: attachItem.quantity,
+            syncBaselineAt: listing.remoteUpdatedAt ?? new Date(),
+          }
+        : {};
       await claimChannelListingLink({
         storeItemId: skuMatch.id,
         memberId,
@@ -463,10 +555,12 @@ export async function importRemoteListing(args: {
         provider,
         externalListingId: productId,
         externalShopId,
-        linkOrigin: sku === skuMatch.id ? "inw_create" : "import",
+        linkOrigin: skuMatch.origin,
         syncEnabled: true,
         syncStatus: "synced",
         lastInboundAt: new Date(),
+        lastPushedAt: new Date(),
+        ...baseline,
       });
       let needsCategoryReview = storeItemNeedsCategoryRepair(skuMatch);
       if (needsCategoryReview) {

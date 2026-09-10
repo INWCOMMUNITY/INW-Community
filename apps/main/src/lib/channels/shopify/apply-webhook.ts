@@ -15,6 +15,13 @@ import { patchChannelConnectionConfig } from "../connection";
 import { shopifyGet, setShopifyConnectionContext } from "./client";
 import { readShopifyConfig } from "./config";
 import { shopifyProductToSummary, type ShopifyProduct } from "./mapping";
+import {
+  SHOPIFY_INVENTORY_INDEX_KEY,
+  indexedProductIdForInventoryItem,
+  orderLinksByIndexedProduct,
+  readShopifyInventoryIndex,
+  withShopifyInventoryIndexEntry,
+} from "./inventory-index";
 
 type ConnectionRow = {
   id: string;
@@ -218,7 +225,12 @@ export async function applyShopifyInventoryWebhook(args: {
     select: { id: true, storeItemId: true, externalListingId: true, lastPushedAt: true },
   });
 
-  for (const link of links) {
+  // Resolve the owning product from the durable index so we don't scan every product (O(n) API
+  // calls). A stale/absent entry falls back to the scan, and we record the mapping on match.
+  const indexedProductId = indexedProductIdForInventoryItem(connection.config, inventoryItemId);
+  const orderedLinks = orderLinksByIndexedProduct(links, indexedProductId);
+
+  for (const link of orderedLinks) {
     let product: ShopifyProduct | null = null;
     try {
       const res = await shopifyGet<{ product?: ShopifyProduct }>(
@@ -233,6 +245,18 @@ export async function applyShopifyInventoryWebhook(args: {
     }
     const variant = (product?.variants ?? []).find((v) => v.inventory_item_id === inventoryItemId);
     if (!variant || !product) continue;
+
+    // Remember which product owns this inventory item so the next webhook is a single fetch.
+    if (link.externalListingId && indexedProductId !== link.externalListingId) {
+      const nextIndex = withShopifyInventoryIndexEntry(
+        readShopifyInventoryIndex(connection.config),
+        inventoryItemId,
+        link.externalListingId
+      );
+      await patchChannelConnectionConfig(connection.id, {
+        [SHOPIFY_INVENTORY_INDEX_KEY]: nextIndex,
+      }).catch(() => {});
+    }
 
     const remote = shopifyProductToSummary({
       ...product,

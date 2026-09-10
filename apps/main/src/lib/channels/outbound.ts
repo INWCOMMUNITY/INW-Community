@@ -119,27 +119,6 @@ async function loadSyncPreferences(memberId: string): Promise<SyncPrefs> {
   };
 }
 
-/**
- * Check if any content fields have changed based on sync preferences.
- * Returns true if the item should be pushed (has changes in enabled fields).
- */
-function hasEnabledContentChanges(
-  currentItem: SyncStoreItem,
-  previousHash: string | null,
-  syncPrefs: SyncPrefs
-): boolean {
-  // If no previous hash, always push (new or never synced)
-  if (!previousHash) return true;
-  
-  // If all content sync is disabled, no content changes should trigger a push
-  if (!syncPrefs.syncTitles && !syncPrefs.syncDescriptions && !syncPrefs.syncPhotos && !syncPrefs.syncPrices) {
-    return false;
-  }
-  
-  // Otherwise, we rely on the hash comparison which happens later
-  return true;
-}
-
 const SYNC_DISABLED_ERROR =
   "Sync is turned off in your store settings. Turn sync on in Sync Stores to list on connected stores.";
 

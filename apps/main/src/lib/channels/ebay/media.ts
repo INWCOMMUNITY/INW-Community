@@ -284,32 +284,6 @@ export async function uploadEbayImageFromUrl(
   }
 }
 
-/** Replace non-eBay image URLs with eBay-hosted URLs where possible. */
-export async function ensureEbayHostedPhotoUrls(
-  accessToken: string,
-  photoUrls: string[],
-  options?: { forceHost?: boolean }
-): Promise<string[]> {
-  const forceHost = options?.forceHost === true;
-  const out: string[] = [];
-  for (const raw of photoUrls) {
-    const url = sanitizeInventoryImageUrl(raw) ?? raw.trim();
-    if (!url) continue;
-    if (isEbayHostedImageUrl(url)) {
-      // Never send EPS through create_image_from_url — eBay returns HTTP 500 HTML.
-      out.push(url);
-      continue;
-    }
-    const hosted = await uploadEbayImageFromUrl(accessToken, url);
-    if (hosted) {
-      out.push(hosted);
-    } else if (!forceHost) {
-      out.push(url);
-    }
-  }
-  return out.slice(0, 12);
-}
-
 function epsFamilyImageUrls(urls: string[]): string[] {
   return normalizeInventoryImageUrls(urls.filter((url) => ebayInventoryPictureFamily(url) === "eps"));
 }
