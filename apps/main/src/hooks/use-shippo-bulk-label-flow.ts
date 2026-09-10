@@ -82,6 +82,7 @@ export interface StoreOrderForBulkLabel {
   shipment?: {
     shippoOrderId?: string | null;
     createdAt?: string;
+    labelUrl?: string | null;
   } | null;
   shippedWithOrderId?: string;
 }

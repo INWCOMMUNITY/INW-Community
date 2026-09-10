@@ -67,6 +67,7 @@ export interface StoreOrderForShippo extends OrderForElements {
   shipment?: {
     shippoOrderId?: string | null;
     createdAt?: string;
+    labelUrl?: string | null;
   } | null;
 }
 
