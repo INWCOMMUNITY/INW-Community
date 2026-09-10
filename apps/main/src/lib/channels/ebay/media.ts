@@ -1,9 +1,15 @@
 import { ebayGet, ebayJson } from "./client";
 import { EBAY_APIZ_BASE } from "./config";
 import { marketplaceCdnFamily } from "../photo-urls";
-import { upgradeEbayCdnPhotoUrl } from "./photos";
+import {
+  isEbayCdnGalleryPhotoUrl,
+  isEbayTrueEpsPictureUrl,
+  sanitizeEbayPhotoUrlForInventoryPut,
+} from "./photos";
 
 const IMAGE_RELATED_ERROR = /#25014|#25015|image|photo|picture|hosted/i;
+
+export type EbayInventoryPictureFamily = "eps" | "cdn" | "self";
 
 export function isEbayImageRelatedInventoryError(message: string | null | undefined): boolean {
   return IMAGE_RELATED_ERROR.test(message ?? "");
@@ -13,7 +19,7 @@ export function isEbayMixedHostPictureError(message: string | null | undefined):
   return /mixture of self hosted and eps|self hosted and eps pictures/i.test(message ?? "");
 }
 
-/** eBay Picture Services (EPS) CDN — cannot be mixed with self-hosted URLs on one listing. */
+/** eBay Picture Services host — cannot be mixed with seller/INW URLs on one listing. */
 export function isEbayEpsImageUrl(url: string): boolean {
   const raw = url.trim();
   if (!raw) return false;
@@ -35,24 +41,33 @@ export function isEbayHostedImageUrl(url: string): boolean {
   return isEbayEpsImageUrl(url);
 }
 
+export function ebayInventoryPictureFamily(url: string): EbayInventoryPictureFamily {
+  if (isEbayTrueEpsPictureUrl(url)) return "eps";
+  if (isEbayCdnGalleryPhotoUrl(url) || isEbayEpsImageUrl(url)) return "cdn";
+  return "self";
+}
+
 export function inventoryImageUrlsAreMixedHostFamily(urls: string[]): boolean {
   let hasEps = false;
+  let hasCdn = false;
   let hasSelf = false;
   for (const url of urls) {
-    if (isEbayEpsImageUrl(url)) hasEps = true;
+    const family = ebayInventoryPictureFamily(url);
+    if (family === "eps") hasEps = true;
+    else if (family === "cdn") hasCdn = true;
     else hasSelf = true;
-    if (hasEps && hasSelf) return true;
+    if ((hasEps && hasCdn) || (hasEps && hasSelf) || (hasCdn && hasSelf)) return true;
   }
   return false;
 }
 
 export function ebayPhotosAreHostFamilyMismatchOnly(live: string[], inw: string[]): boolean {
   if (live.length === 0 || inw.length === 0) return false;
-  const liveAllEps = live.every(isEbayEpsImageUrl);
-  const inwAllSelf = inw.every((url) => !isEbayEpsImageUrl(url));
-  const liveAllSelf = live.every((url) => !isEbayEpsImageUrl(url));
-  const inwAllEps = inw.every(isEbayEpsImageUrl);
-  return (liveAllEps && inwAllSelf) || (liveAllSelf && inwAllEps);
+  const liveHosted = live.every((url) => ebayInventoryPictureFamily(url) !== "self");
+  const inwSelf = inw.every((url) => ebayInventoryPictureFamily(url) === "self");
+  const liveSelf = live.every((url) => ebayInventoryPictureFamily(url) === "self");
+  const inwHosted = inw.every((url) => ebayInventoryPictureFamily(url) !== "self");
+  return (liveHosted && inwSelf) || (liveSelf && inwHosted);
 }
 
 export function readStoredPhotoUrls(value: unknown): string[] | null {
@@ -61,29 +76,19 @@ export function readStoredPhotoUrls(value: unknown): string[] | null {
 }
 
 /**
- * Imported listings keep EPS pictures on the published eBay item.
- * Overlaying Shopify/INW URLs onto EPS causes #25014. Replacement EPS URLs
- * are allowed. First publish (no live pin) can still send INW photos.
+ * Imported listings keep the live eBay gallery.
+ * Overlaying Shopify/INW URLs onto EPS causes #25014. First publish (no live pin)
+ * can still send INW photos.
  */
 export function selectPassthroughInventoryImageUrls(liveUrls: string[], inwUrls: string[]): string[] {
   const livePin = liveEbayPhotoUrlsToPin(liveUrls);
-  const inw = normalizeInventoryImageUrls(inwUrls);
-  if (livePin.some(isEbayEpsImageUrl)) {
-    if (inw.length > 0 && inw.every(isEbayEpsImageUrl)) return inw;
-    return livePin;
-  }
   if (livePin.length > 0) return livePin;
-  return inw;
+  return normalizeInventoryImageUrls(inwUrls);
 }
 
-/** HTTPS image URL for Inventory PUT. Upsize eBay thumbs so they meet the 500px Picture Policy. */
+/** HTTPS image URL for Inventory PUT. Same-family size bump only — never EPS→CDN rewrite. */
 export function sanitizeInventoryImageUrl(raw: string): string | null {
-  let url = raw.trim();
-  if (!url) return null;
-  if (url.startsWith("//")) url = `https:${url}`;
-  if (url.startsWith("http://")) url = `https://${url.slice("http://".length)}`;
-  if (!url.startsWith("https://")) return null;
-  return isEbayEpsImageUrl(url) ? upgradeEbayCdnPhotoUrl(url) : url;
+  return sanitizeEbayPhotoUrlForInventoryPut(raw);
 }
 
 export function normalizeInventoryImageUrls(urls: string[]): string[] {
@@ -93,6 +98,32 @@ export function normalizeInventoryImageUrls(urls: string[]): string[] {
     if (sanitized && !out.includes(sanitized)) out.push(sanitized);
   }
   return out.slice(0, 12);
+}
+
+function pickUniformPictureFamily(urls: string[]): string[] {
+  const unique = urls.slice(0, 12);
+  if (!inventoryImageUrlsAreMixedHostFamily(unique)) {
+    return unique.filter((url) => !isForeignMarketplaceCdnPhotoUrl(url));
+  }
+  const eps = unique.filter((url) => ebayInventoryPictureFamily(url) === "eps");
+  if (eps.length > 0) return eps;
+  const cdn = unique.filter((url) => ebayInventoryPictureFamily(url) === "cdn");
+  if (cdn.length > 0) return cdn;
+  return unique.filter((url) => !isForeignMarketplaceCdnPhotoUrl(url));
+}
+
+/** HTTPS-only live URLs with mixed families stripped — no size rewrite (#25014 retry). */
+export function rawLiveInventoryImageUrls(urls: string[]): string[] {
+  const httpsOnly: string[] = [];
+  for (const raw of urls) {
+    let url = raw.trim();
+    if (!url) continue;
+    if (url.startsWith("//")) url = `https:${url}`;
+    if (url.startsWith("http://")) url = `https://${url.slice("http://".length)}`;
+    if (!url.startsWith("https://")) continue;
+    if (!httpsOnly.includes(url)) httpsOnly.push(url);
+  }
+  return pickUniformPictureFamily(httpsOnly);
 }
 
 export function readInventoryProductImageUrls(body: Record<string, unknown>): string[] {
@@ -136,23 +167,19 @@ export function isForeignMarketplaceCdnPhotoUrl(url: string): boolean {
  * host families (#25014). Never pin Shopify/Etsy/Wix CDNs.
  */
 export function liveEbayPhotoUrlsToPin(liveUrls: string[]): string[] {
-  const eps = epsOnlyImageUrls(liveUrls);
+  const eps = epsFamilyImageUrls(liveUrls);
   if (eps.length > 0) return eps;
   return uniformHostFamilyImageUrls(liveUrls).filter((url) => !isForeignMarketplaceCdnPhotoUrl(url));
 }
 
 /**
- * Inventory GET can be polluted with Shopify CDNs after a bad PUT while Trading
- * GetItem still has EPS. Always prefer Trading EPS so title/qty writes do not #25014.
+ * Echo Inventory GET when it has a pin-able gallery. GetItem is only a fallback when
+ * inventory has no pictures — and those URLs must already be PUT-sanitized (no display rewrite).
  */
 export function mergeLiveEbayPhotoUrls(inventoryUrls: string[], tradingUrls: string[]): string[] {
-  const tradingEps = epsOnlyImageUrls(tradingUrls);
-  if (tradingEps.length > 0) return tradingEps;
-  const inventoryEps = epsOnlyImageUrls(inventoryUrls);
-  if (inventoryEps.length > 0) return inventoryEps;
-  const tradingPin = liveEbayPhotoUrlsToPin(tradingUrls);
-  if (tradingPin.length > 0) return tradingPin;
-  return liveEbayPhotoUrlsToPin(inventoryUrls);
+  const inventoryPin = liveEbayPhotoUrlsToPin(inventoryUrls);
+  if (inventoryPin.length > 0) return inventoryPin;
+  return liveEbayPhotoUrlsToPin(tradingUrls);
 }
 
 /**
@@ -234,21 +261,24 @@ export async function ensureEbayHostedPhotoUrls(
   return out.slice(0, 12);
 }
 
-function epsOnlyImageUrls(urls: string[]): string[] {
-  return normalizeInventoryImageUrls(urls.filter(isEbayEpsImageUrl));
+function epsFamilyImageUrls(urls: string[]): string[] {
+  return normalizeInventoryImageUrls(urls.filter((url) => ebayInventoryPictureFamily(url) === "eps"));
 }
 
-/** Drop mixed EPS + self-hosted URLs; prefer EPS so Inventory PUT does not return #25014. */
+/** Drop mixed EPS + CDN + self-hosted URLs; prefer EPS so Inventory PUT does not return #25014. */
 export function uniformHostFamilyImageUrls(urls: string[]): string[] {
   const normalized = normalizeInventoryImageUrls(urls);
   if (!inventoryImageUrlsAreMixedHostFamily(normalized)) return normalized;
-  const eps = epsOnlyImageUrls(normalized);
-  return eps.length > 0 ? eps : normalized.filter((url) => !isEbayEpsImageUrl(url));
+  const eps = normalized.filter((url) => ebayInventoryPictureFamily(url) === "eps");
+  if (eps.length > 0) return eps;
+  const cdn = normalized.filter((url) => ebayInventoryPictureFamily(url) === "cdn");
+  if (cdn.length > 0) return cdn;
+  return normalized.filter((url) => !isForeignMarketplaceCdnPhotoUrl(url));
 }
 
 /**
  * PUT inventory with photo recovery for #25014/#25015.
- * Never send mixed EPS + self-hosted URLs. On mix errors, pin live EPS instead of INW blobs.
+ * Never send mixed EPS + self-hosted URLs. On mix errors, pin raw live GET URLs.
  */
 export async function putInventoryWithPhotoRecovery<T>(args: {
   accessToken: string;
@@ -257,17 +287,21 @@ export async function putInventoryWithPhotoRecovery<T>(args: {
   fallbackImageUrls?: string[];
   liveImageUrls?: string[];
   describeError?: (e: unknown) => string;
-  /** When false, never upload or fall back to INW blob URLs (existing listing, photos unchanged). */
+  /** When true, first publish may send INW blob URLs. Default false for existing listings. */
   allowInwPhotoUpload?: boolean;
 }): Promise<T> {
   const describe = args.describeError ?? ((e: unknown) => (e instanceof Error ? e.message : String(e)));
-  const allowInwPhotoUpload = args.allowInwPhotoUpload !== false;
-  const livePinned = liveEbayPhotoUrlsToPin(args.liveImageUrls ?? []);
-  const liveEps = epsOnlyImageUrls(args.liveImageUrls ?? []);
+  const allowInwPhotoUpload = args.allowInwPhotoUpload === true;
+  const liveImageUrls = args.liveImageUrls ?? [];
+  const livePinned = liveEbayPhotoUrlsToPin(liveImageUrls);
+  const liveEps = epsFamilyImageUrls(liveImageUrls);
+  const rawLive = rawLiveInventoryImageUrls(liveImageUrls);
   let urls = liveEbayPhotoUrlsToPin(readInventoryProductImageUrls(args.body));
   if (!allowInwPhotoUpload) {
     urls = livePinned;
-  } else if (liveEps.length > 0 && (urls.length === 0 || urls.some((url) => !isEbayEpsImageUrl(url)))) {
+  } else if (livePinned.length > 0 && (urls.length === 0 || urls.some((url) => ebayInventoryPictureFamily(url) === "self"))) {
+    urls = livePinned;
+  } else if (liveEps.length > 0 && (urls.length === 0 || urls.some((url) => ebayInventoryPictureFamily(url) !== "eps"))) {
     urls = liveEps;
   }
   const payload =
@@ -286,6 +320,13 @@ export async function putInventoryWithPhotoRecovery<T>(args: {
     if (!isEbayImageRelatedInventoryError(message)) throw e;
 
     const current = normalizeInventoryImageUrls(readInventoryProductImageUrls(payload));
+    if (rawLive.length > 0 && !urlsMatch(rawLive, current)) {
+      try {
+        return await args.put(withInventoryProductImageUrls(payload, rawLive));
+      } catch (liveErr) {
+        throw liveErr;
+      }
+    }
     if (liveEps.length > 0 && !urlsMatch(liveEps, current)) {
       try {
         return await args.put(withInventoryProductImageUrls(payload, liveEps));

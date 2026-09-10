@@ -4,7 +4,6 @@ import {
   readRemoteCatalogState,
   readRemoteDeletedNotice,
 } from "./listing-conflict-json";
-import { isEbayPhotoHostFamilySyncError } from "./ebay/errors";
 import {
   etsyVariesByAllProperties,
   isMadeToOrderTracking,
@@ -86,9 +85,6 @@ export function listingChannelSyncWarning(link: {
   }
   if (!link.syncEnabled) return `${label} sync is paused.`;
   if (link.syncStatus === "error") {
-    if (link.provider === "ebay" && isEbayPhotoHostFamilySyncError(link.syncError)) {
-      return null;
-    }
     const detail = link.syncError?.trim();
     return detail ? `${label}: ${detail}` : `Not syncing to ${label}.`;
   }

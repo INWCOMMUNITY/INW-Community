@@ -377,6 +377,22 @@ describe("passthrough-push", () => {
         listingAlreadyOnEbay: false,
       })
     ).toBe(true);
+    expect(
+      shouldPushInwPhotosToEbay({
+        inwPhotos: inw,
+        lastPushedPhotos: null,
+        listingAlreadyOnEbay: false,
+        unpublishedOfferExists: true,
+      })
+    ).toBe(false);
+    expect(
+      shouldPushInwPhotosToEbay({
+        inwPhotos: inw,
+        lastPushedPhotos: null,
+        listingAlreadyOnEbay: false,
+        liveGalleryCount: 2,
+      })
+    ).toBe(false);
   });
 
   it("buildPassthroughInventoryBody pins live EPS instead of overlaying INW blobs", () => {
@@ -880,7 +896,7 @@ describe("passthrough-push", () => {
     );
     const product = body.product as Record<string, unknown>;
     expect(product.title).toBe("EBAY CRON TEST 3");
-    expect(product.imageUrls).toEqual(["https://i.ebayimg.com/new.jpg"]);
+    expect(product.imageUrls).toEqual(["https://i.ebayimg.com/old.jpg"]);
   });
 
   it("photo overlay keeps live EPS when INW still has original blob URLs", () => {
@@ -925,7 +941,7 @@ describe("passthrough-push", () => {
     expect(aspectMode).toBe("live_overlay");
     const product = body.product as Record<string, unknown>;
     expect(product.title).toBe("New Militaria Pin Title From INW");
-    expect(product.imageUrls).toEqual(["https://i.ebayimg.com/new.jpg"]);
+    expect(product.imageUrls).toEqual(["https://i.ebayimg.com/old.jpg"]);
     expect(product.aspects).toEqual({ Type: ["Pin"] });
   });
 

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { extractEbayItemPhotos, normalizeEbayPhotoUrl, shouldApplyEbayInboundPhotos } from "./photos";
+import {
+  extractEbayItemPhotos,
+  extractEbayItemPhotosForInventoryPut,
+  normalizeEbayPhotoUrl,
+  sanitizeEbayPhotoUrlForInventoryPut,
+  shouldApplyEbayInboundPhotos,
+} from "./photos";
 
 describe("normalizeEbayPhotoUrl", () => {
   it("upgrades http and protocol-relative URLs to https", () => {
@@ -59,6 +65,25 @@ describe("normalizeEbayPhotoUrl", () => {
   });
 });
 
+describe("sanitizeEbayPhotoUrlForInventoryPut", () => {
+  it("keeps EPS $_ URLs in the EPS family", () => {
+    expect(
+      sanitizeEbayPhotoUrlForInventoryPut(
+        "https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG?set_id=8800005007"
+      )
+    ).toBe("https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_57.JPG");
+  });
+
+  it("bumps only sub-500px CDN gallery thumbs", () => {
+    expect(sanitizeEbayPhotoUrlForInventoryPut("https://i.ebayimg.com/images/g/xx/s-l140.jpg")).toBe(
+      "https://i.ebayimg.com/images/g/xx/s-l1600.jpg"
+    );
+    expect(sanitizeEbayPhotoUrlForInventoryPut("https://i.ebayimg.com/images/g/xx/s-l1600.jpg")).toBe(
+      "https://i.ebayimg.com/images/g/xx/s-l1600.jpg"
+    );
+  });
+});
+
 describe("extractEbayItemPhotos", () => {
   it("reads PictureURL values", () => {
     const xml = `
@@ -105,6 +130,9 @@ describe("extractEbayItemPhotos", () => {
       </Item>`;
     expect(extractEbayItemPhotos(xml)).toEqual([
       "https://i.ebayimg.com/images/g/SHEAAeSw3vtqjNEh/s-l2000.jpg",
+    ]);
+    expect(extractEbayItemPhotosForInventoryPut(xml)).toEqual([
+      "https://i.ebayimg.com/00/s/MTYwMFgxNDcw/z/SHEAAeSw3vtqjNEh/$_57.JPG",
     ]);
   });
 });

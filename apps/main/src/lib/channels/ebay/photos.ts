@@ -45,6 +45,24 @@ function isEbayImageHost(url: string): boolean {
   }
 }
 
+function toHttpsUrl(raw: string): string | null {
+  let url = stripCdata(decodeXmlEntities(raw.trim()));
+  if (!url) return null;
+  if (url.startsWith("//")) url = `https:${url}`;
+  if (url.startsWith("http://")) url = `https://${url.slice("http://".length)}`;
+  if (!url.startsWith("https://")) return null;
+  return url;
+}
+
+/** True EPS picture records — `$_N` / `/z/{id}/` / `/00/s/`. Not `/images/g/` CDN copies. */
+export function isEbayTrueEpsPictureUrl(url: string): boolean {
+  return /\/\$_\d+\./i.test(url) || /\/z\/[^/?#]+/i.test(url) || /\/00\/s\//i.test(url);
+}
+
+export function isEbayCdnGalleryPhotoUrl(url: string): boolean {
+  return /\/(?:thumbs\/)?images\/g\//i.test(url);
+}
+
 /** Etsy/other marketplace CDNs that GetItem sometimes echoes as PictureURL. */
 export function isForeignMarketplacePhotoUrl(url: string): boolean {
   try {
@@ -111,42 +129,73 @@ export function upgradeEbayCdnPhotoUrl(url: string): string {
 
 /** Public https URL suitable for mobile/web Image components and StoreItem.photos. */
 export function normalizeEbayPhotoUrl(raw: string): string | null {
-  let url = stripCdata(decodeXmlEntities(raw.trim()));
+  const url = toHttpsUrl(raw);
   if (!url) return null;
-  if (url.startsWith("//")) url = `https:${url}`;
-  if (url.startsWith("http://")) url = `https://${url.slice("http://".length)}`;
-  if (!url.startsWith("https://")) return null;
   return upgradeEbayCdnPhotoUrl(url);
 }
 
-/** Extract photo URLs from a Trading API Item XML fragment. */
-export function extractEbayItemPhotos(itemXml: string): string[] {
-  const urls: string[] = [];
-  const push = (raw: string) => {
-    const normalized = normalizeEbayPhotoUrl(raw);
-    if (normalized && !urls.includes(normalized)) urls.push(normalized);
-  };
+/**
+ * Inventory PUT must not convert EPS `$_N` into `/images/g/…/s-l2000` — eBay treats that
+ * as mixing self-hosted CDN copies with EPS (#25014). Same-family size bump only.
+ */
+export function sanitizeEbayPhotoUrlForInventoryPut(raw: string): string | null {
+  const url = toHttpsUrl(raw);
+  if (!url) return null;
+  if (!isEbayImageHost(url)) return url;
 
+  let next = url.replace(/\/thumbs\/images\//i, "/images/");
+  if (isEbayTrueEpsPictureUrl(next)) {
+    next = next.replace(/\/\$_\d+\.(jpe?g|png|webp|gif)/gi, "/$_57.$1");
+    return next.replace(/\?.*$/, "");
+  }
+  next = next.replace(/\/s-l(\d+)/gi, (_match, size: string) => {
+    const n = Number(size);
+    return Number.isFinite(n) && n < 500 ? "/s-l1600" : `/s-l${size}`;
+  });
+  return next.replace(/\?.*$/, "");
+}
+
+function collectEbayItemPictureRawUrls(itemXml: string): string[] {
+  const raw: string[] = [];
+  const push = (value: string) => {
+    const trimmed = value.trim();
+    if (trimmed && !raw.includes(trimmed)) raw.push(trimmed);
+  };
   const pictureDetails = tag(itemXml, "PictureDetails");
   if (pictureDetails) {
     for (const url of allTags(pictureDetails, "PictureURL")) push(url);
     for (const url of allTags(pictureDetails, "ExternalPictureURL")) push(url);
   }
-
   const extended = tag(itemXml, "ExtendedPictureDetails");
   if (extended) {
     for (const url of allTags(extended, "PictureURL")) push(url);
   }
-
   for (const url of allTags(itemXml, "PictureURL")) push(url);
   for (const url of allTags(itemXml, "ExternalPictureURL")) push(url);
-
-  if (urls.length === 0) {
+  if (raw.length === 0) {
     const gallery = tag(pictureDetails ?? itemXml, "GalleryURL");
     if (gallery) push(gallery);
   }
+  return raw;
+}
 
+function mapEbayItemPhotos(itemXml: string, normalize: (raw: string) => string | null): string[] {
+  const urls: string[] = [];
+  for (const raw of collectEbayItemPictureRawUrls(itemXml)) {
+    const normalized = normalize(raw);
+    if (normalized && !urls.includes(normalized)) urls.push(normalized);
+  }
   return preferEbayHostedItemPhotos(urls).slice(0, 12);
+}
+
+/** Extract photo URLs from a Trading API Item XML fragment. */
+export function extractEbayItemPhotos(itemXml: string): string[] {
+  return mapEbayItemPhotos(itemXml, normalizeEbayPhotoUrl);
+}
+
+/** GetItem pictures for Inventory PUT — HTTPS + same-family size bump, no EPS→CDN rewrite. */
+export function extractEbayItemPhotosForInventoryPut(itemXml: string): string[] {
+  return mapEbayItemPhotos(itemXml, sanitizeEbayPhotoUrlForInventoryPut);
 }
 
 export { tag, allTags, decodeXmlEntities };

@@ -7,7 +7,7 @@ import {
 import { ebayJson } from "./client";
 import { EbayApiError } from "./errors";
 import { describeEbayThrownError, extractBulkMigrateResponse, formatMigrateListingError } from "./errors";
-import { allTags, extractEbayItemPhotos, tag } from "./photos";
+import { allTags, extractEbayItemPhotos, extractEbayItemPhotosForInventoryPut, tag } from "./photos";
 import {
   parseEbayBestOffer,
   parseEbayCondition,
@@ -75,8 +75,10 @@ export type EbayItemDetails = {
   remoteCategoryId: string | null;
   categoryName: string | null;
   description: string | null;
-  /** All photos from GetItem (gallery + PictureDetails). */
+  /** All photos from GetItem (gallery + PictureDetails), display-sized for INW. */
   photos: string[];
+  /** GetItem pictures safe to echo on Inventory PUT (no EPS→CDN rewrite). */
+  inventoryPinPhotos: string[];
   title: string | null;
   condition: "new" | "used" | null;
   conditionEnum: string | null;
@@ -292,6 +294,7 @@ export async function fetchEbayItemDetails(
       : categoryName;
     const aspects = parseEbayItemSpecifics(item);
     const photos = extractEbayItemPhotos(item);
+    const inventoryPinPhotos = extractEbayItemPhotosForInventoryPut(item);
 
     // Debug logging for import issues
     const gradeRelatedAspects = aspects.filter((a) =>
@@ -342,6 +345,7 @@ export async function fetchEbayItemDetails(
       categoryName: resolvedCategoryPath,
       description: parseEbayDescription(item),
       photos,
+      inventoryPinPhotos,
       title: titleRaw ? decodeXmlTitle(titleRaw) : null,
       condition: parseEbayCondition(item),
       conditionEnum: parseEbayConditionEnum(item),

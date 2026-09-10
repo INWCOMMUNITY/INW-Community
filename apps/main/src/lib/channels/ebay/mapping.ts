@@ -5,7 +5,7 @@ import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-s
 import { EBAY_CURRENCY, EBAY_MARKETPLACE_ID, getEbayConfig } from "./config";
 import { applyBestOfferTermsToOfferBody } from "./best-offer";
 import type { EbayConnectionConfig } from "./account";
-import { normalizeEbayPhotoUrl } from "./photos";
+import { sanitizeEbayPhotoUrlForInventoryPut } from "./photos";
 import {
   EBAY_TITLE_MAX,
   aspectsToEbayProductAspects,
@@ -45,7 +45,7 @@ export function buildEbayInventoryItem(
     description: listingDescriptionForHtmlChannel(item.description, title),
     imageUrls: item.photos
       .slice(0, 12)
-      .map((url) => normalizeEbayPhotoUrl(url) ?? url)
+      .map((url) => sanitizeEbayPhotoUrlForInventoryPut(url) ?? url)
       .filter((url) => url.startsWith("https://")),
   };
 

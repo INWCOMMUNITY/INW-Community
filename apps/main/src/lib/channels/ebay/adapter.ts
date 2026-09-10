@@ -578,7 +578,7 @@ async function upsertListing(
           try {
             const details = await fetchEbayItemDetails(conn.accessToken, legacyListingId);
             tradingAspects = aspectsToEbayProductAspects(parseStoredAspects(details.aspects));
-            tradingPhotoUrls = details.photos ?? [];
+            tradingPhotoUrls = details.inventoryPinPhotos ?? [];
           } catch (e) {
             console.warn("[ebay] passthrough GetItem trading aspects failed", {
               storeItemId: item.id,
@@ -1034,7 +1034,7 @@ async function upsertListing(
       try {
         const liveDetails = await fetchEbayItemDetails(conn.accessToken, legacyListingId);
         liveTradingAspects = liveDetails.aspects;
-        liveTradingPhotoUrls = liveDetails.photos ?? [];
+        liveTradingPhotoUrls = liveDetails.inventoryPinPhotos ?? [];
         liveTradingVariants = liveDetails.variants ?? null;
         liveCategoryId = liveDetails.remoteCategoryId;
       } catch (e) {
@@ -1222,6 +1222,8 @@ async function upsertListing(
       inwPhotos: item.photos,
       lastPushedPhotos,
       listingAlreadyOnEbay,
+      unpublishedOfferExists: Boolean(offerId),
+      liveGalleryCount: liveNativeImageUrls.length,
     });
 
     async function pushInventoryBody(body: Record<string, unknown>, traceCtx?: SyncTraceContext) {
@@ -1585,14 +1587,21 @@ async function upsertListing(
           syncConditionEnum: prepared.conditionEnum,
         });
         await pushInventoryBody(
-          await finalizeInventoryBody(
-            conn.accessToken,
-            buildEbayInventoryItem(syncItem, pushAspects),
+          applyEbayInventoryPhotoPolicy(
+            await finalizeInventoryBody(
+              conn.accessToken,
+              buildEbayInventoryItem(syncItem, pushAspects),
+              {
+                categoryId: aspectCategoryId,
+                pushAspects,
+                operation,
+                item: syncItem,
+              }
+            ),
             {
-              categoryId: aspectCategoryId,
-              pushAspects,
-              operation,
-              item: syncItem,
+              liveImageUrls: liveNativeImageUrls,
+              inwPhotos: syncItem.photos,
+              pushInwPhotos,
             }
           ),
           trace
@@ -1680,14 +1689,21 @@ async function upsertListing(
             syncConditionEnum: prepared.conditionEnum,
           });
           await pushInventoryBody(
-            await finalizeInventoryBody(
-              conn.accessToken,
-              buildEbayInventoryItem(syncItem, pushAspects),
+            applyEbayInventoryPhotoPolicy(
+              await finalizeInventoryBody(
+                conn.accessToken,
+                buildEbayInventoryItem(syncItem, pushAspects),
+                {
+                  categoryId: aspectCategoryId,
+                  pushAspects,
+                  operation,
+                  item: syncItem,
+                }
+              ),
               {
-                categoryId: aspectCategoryId,
-                pushAspects,
-                operation,
-                item: syncItem,
+                liveImageUrls: liveNativeImageUrls,
+                inwPhotos: syncItem.photos,
+                pushInwPhotos,
               }
             ),
             trace

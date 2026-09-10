@@ -6,19 +6,8 @@ export type ChannelSyncRow = {
   error?: string;
 };
 
-function isEbayPhotoHostFamilySyncError(message: string | null | undefined): boolean {
-  const text = message ?? "";
-  return (
-    /#25014\b/i.test(text) ||
-    /mixture of self hosted and eps|self hosted and eps pictures/i.test(text) ||
-    /does not allow mixing those with INW photo URLs/i.test(text)
-  );
-}
-
 function isListingVisibleSyncFailure(row: ChannelSyncRow): boolean {
-  if (row.ok) return false;
-  if (row.provider === "ebay" && isEbayPhotoHostFamilySyncError(row.error)) return false;
-  return true;
+  return !row.ok;
 }
 
 const PROVIDER_LABEL: Record<string, string> = {

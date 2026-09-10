@@ -161,8 +161,12 @@ export function shouldPushInwPhotosToEbay(args: {
   inwPhotos: string[];
   lastPushedPhotos: string[] | null | undefined;
   listingAlreadyOnEbay: boolean;
+  unpublishedOfferExists?: boolean;
+  liveGalleryCount?: number;
 }): boolean {
   if (args.listingAlreadyOnEbay) return false;
+  if (args.unpublishedOfferExists) return false;
+  if ((args.liveGalleryCount ?? 0) > 0) return false;
   return args.inwPhotos.length > 0;
 }
 

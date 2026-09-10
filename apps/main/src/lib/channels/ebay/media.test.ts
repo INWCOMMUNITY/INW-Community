@@ -33,12 +33,20 @@ describe("isEbayImageRelatedInventoryError", () => {
 });
 
 describe("sanitizeInventoryImageUrl", () => {
-  it("upgrades http and protocol-relative URLs without changing eBay CDN size", () => {
+  it("upgrades http and protocol-relative URLs and bumps small CDN thumbs only", () => {
     expect(sanitizeInventoryImageUrl("http://i.ebayimg.com/images/g/xx/s-l140.jpg")).toBe(
-      "https://i.ebayimg.com/images/g/xx/s-l2000.jpg"
+      "https://i.ebayimg.com/images/g/xx/s-l1600.jpg"
     );
     expect(sanitizeInventoryImageUrl("//cdn.example.com/a.jpg")).toBe("https://cdn.example.com/a.jpg");
     expect(sanitizeInventoryImageUrl("ftp://x")).toBeNull();
+  });
+
+  it("does not rewrite EPS $_ URLs into /images/g/s-l2000", () => {
+    expect(
+      sanitizeInventoryImageUrl(
+        "https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG?set_id=8800005007"
+      )
+    ).toBe("https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_57.JPG");
   });
 });
 
@@ -81,6 +89,7 @@ describe("putInventoryWithPhotoRecovery", () => {
     await putInventoryWithPhotoRecovery({
       accessToken: "t",
       body: { product: { title: "X", imageUrls: ["https://blob.example.com/a.jpg"] } },
+      allowInwPhotoUpload: true,
       put,
     });
     expect(mockedJson).not.toHaveBeenCalled();
@@ -101,6 +110,7 @@ describe("putInventoryWithPhotoRecovery", () => {
         },
       },
       put,
+      allowInwPhotoUpload: true,
     });
     expect(mockedJson).not.toHaveBeenCalled();
     expect(
@@ -123,7 +133,7 @@ describe("putInventoryWithPhotoRecovery", () => {
     ).toEqual(["https://i.ebayimg.com/live.jpg"]);
   });
 
-  it("upgrades live EPS thumbs to meet the 500px Picture Policy", async () => {
+  it("upgrades live CDN thumbs to meet the 500px Picture Policy without leaving the /images/g/ family", async () => {
     const put = vi.fn().mockResolvedValue(undefined);
     await putInventoryWithPhotoRecovery({
       accessToken: "t",
@@ -133,7 +143,23 @@ describe("putInventoryWithPhotoRecovery", () => {
     });
     expect(
       (put.mock.calls[0]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
-    ).toEqual(["https://i.ebayimg.com/images/g/xx/s-l2000.jpg"]);
+    ).toEqual(["https://i.ebayimg.com/images/g/xx/s-l1600.jpg"]);
+  });
+
+  it("pins live EPS $_ URLs instead of INW blobs or rewritten s-l2000 copies", async () => {
+    const put = vi.fn().mockResolvedValue(undefined);
+    await putInventoryWithPhotoRecovery({
+      accessToken: "t",
+      body: { product: { title: "X", imageUrls: ["https://blob.example.com/a.jpg"] } },
+      liveImageUrls: [
+        "https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG",
+      ],
+      allowInwPhotoUpload: false,
+      put,
+    });
+    expect(
+      (put.mock.calls[0]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
+    ).toEqual(["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_57.JPG"]);
   });
 
   it("does not send Shopify CDNs onto a live listing", async () => {
@@ -162,6 +188,27 @@ describe("putInventoryWithPhotoRecovery", () => {
     expect(
       (put.mock.calls[0]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
     ).toEqual(["https://blob.example.com/live.jpg"]);
+  });
+
+  it("retries #25014 with raw live GET URLs instead of rewritten CDN copies", async () => {
+    const put = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("[#25014] A mixture of Self Hosted and EPS pictures are not allowed."))
+      .mockResolvedValueOnce(undefined);
+    await putInventoryWithPhotoRecovery({
+      accessToken: "t",
+      body: { product: { title: "X", imageUrls: ["https://blob.example.com/a.jpg"] } },
+      liveImageUrls: ["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG"],
+      allowInwPhotoUpload: false,
+      put,
+    });
+    expect(put).toHaveBeenCalledTimes(2);
+    expect(
+      (put.mock.calls[0]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
+    ).toEqual(["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_57.JPG"]);
+    expect(
+      (put.mock.calls[1]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
+    ).toEqual(["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG"]);
   });
 
   it("does not send EPS URLs through Media API after #25014", async () => {
@@ -237,7 +284,7 @@ describe("applyEbayInventoryPhotoPolicy", () => {
     ]);
   });
 
-  it("pins EPS-only when live imageUrls mix host families", () => {
+  it("pins EPS-only when live imageUrls mix EPS, CDN, and INW blobs", () => {
     const next = applyEbayInventoryPhotoPolicy(
       {
         product: {
@@ -246,13 +293,17 @@ describe("applyEbayInventoryPhotoPolicy", () => {
         },
       },
       {
-        liveImageUrls: ["https://blob.example.com/a.jpg", "https://i.ebayimg.com/live.jpg"],
+        liveImageUrls: [
+          "https://blob.example.com/a.jpg",
+          "https://i.ebayimg.com/images/g/xx/s-l1600.jpg",
+          "https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG",
+        ],
         inwPhotos: ["https://blob.example.com/a.jpg"],
         pushInwPhotos: false,
       }
     );
     expect((next.product as { imageUrls: string[] }).imageUrls).toEqual([
-      "https://i.ebayimg.com/live.jpg",
+      "https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_57.JPG",
     ]);
   });
 
@@ -279,13 +330,13 @@ describe("mergeLiveEbayPhotoUrls", () => {
     ).toEqual(["https://i.ebayimg.com/trading.jpg"]);
   });
 
-  it("prefers inventory EPS when GetItem has none", () => {
+  it("echoes Inventory GET when it already has a gallery instead of rewritten GetItem URLs", () => {
     expect(
       mergeLiveEbayPhotoUrls(
-        ["https://i.ebayimg.com/inventory.jpg"],
-        ["https://i.ebayimg.com/trading.jpg"]
+        ["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG"],
+        ["https://i.ebayimg.com/images/g/pxcAAOSwis1hwW4V/s-l2000.jpg"]
       )
-    ).toEqual(["https://i.ebayimg.com/trading.jpg"]);
+    ).toEqual(["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_57.JPG"]);
     expect(
       mergeLiveEbayPhotoUrls(["https://i.ebayimg.com/inventory.jpg"], [])
     ).toEqual(["https://i.ebayimg.com/inventory.jpg"]);
@@ -318,6 +369,15 @@ describe("selectPassthroughInventoryImageUrls", () => {
         ["https://cdn.shopify.com/s/files/1/bear.jpg"]
       )
     ).toEqual(["https://i.ebayimg.com/live.jpg"]);
+  });
+
+  it("does not overlay INW s-l2000 copies when live inventory already has EPS", () => {
+    expect(
+      selectPassthroughInventoryImageUrls(
+        ["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG"],
+        ["https://i.ebayimg.com/images/g/pxcAAOSwis1hwW4V/s-l2000.jpg"]
+      )
+    ).toEqual(["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_57.JPG"]);
   });
 });
 

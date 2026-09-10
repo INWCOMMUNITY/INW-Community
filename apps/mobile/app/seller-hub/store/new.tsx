@@ -1240,12 +1240,17 @@ export default function ListItemScreen() {
           id?: string;
           channelSync?: { provider: string; ok: boolean; error?: string }[];
         }>("/api/store-items", payload);
-        if ((res.channelSync?.length ?? 0) > 0) {
-          alertChannelPublishResult(res.channelSync);
+        const channelSync = res.channelSync ?? [];
+        if (channelSync.length > 0) {
+          alertChannelPublishResult(channelSync);
         }
         setCreatedItemId(res.id ?? null);
         setFeedShareDone(false);
-        setShowListingSuccessModal(true);
+        if (channelSync.some((row) => !row.ok)) {
+          isExitingRef.current = false;
+        } else {
+          setShowListingSuccessModal(true);
+        }
       }
     } catch (e) {
       setError(

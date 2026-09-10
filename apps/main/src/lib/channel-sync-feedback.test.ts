@@ -28,7 +28,7 @@ describe("buildPublishResultAlert", () => {
     expect(alert.message).toContain("Brand");
   });
 
-  it("does not show eBay photo-host mix errors on the listing publish alert", () => {
+  it("shows eBay photo-host mix errors on the listing publish alert", () => {
     const alert = buildPublishResultAlert([
       {
         provider: "ebay",
@@ -37,9 +37,9 @@ describe("buildPublishResultAlert", () => {
           "title: failed ([#25014 · API_INVENTORY · Request · HTTP 400] The eBay listing associated with the inventory item, or the unpublished offer has invalid pictures. A mixture of Self Hosted and EPS pictures are not allowed.) — eBay already has these photos as eBay-hosted images and does not allow mixing those with INW photo URLs. Other fields can still update; you do not need to re-upload the same pictures.",
       },
     ]);
-    expect(alert.title).toBe("You're Live");
-    expect(alert.message).toMatch(/Listed on eBay/);
-    expect(alert.message).not.toContain("25014");
+    expect(alert.title).toBe("That Store Said No");
+    expect(alert.message).toContain("eBay");
+    expect(alert.message).toContain("25014");
   });
 
   it("keeps successes visible when one store fails", () => {

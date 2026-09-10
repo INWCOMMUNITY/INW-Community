@@ -264,7 +264,7 @@ describe("inventory item groups", () => {
         ["https://blob.vercel-storage.com/hat.jpg"],
         false
       ).imageUrls
-    ).toEqual(["https://i.ebayimg.com/images/g/xx/s-l2000.jpg"]);
+    ).toEqual(["https://i.ebayimg.com/images/g/xx/s-l1600.jpg"]);
     expect(
       applyInventoryItemGroupPhotoPolicy(body, [], ["https://blob.vercel-storage.com/hat.jpg"], false)
     ).not.toHaveProperty("imageUrls");
@@ -288,7 +288,7 @@ describe("inventory item groups", () => {
       pinInventoryItemGroupImageUrls(body, ["https://i.ebayimg.com/images/g/xx/s-l1600.jpg"], [
         "https://blob.vercel-storage.com/hat.jpg",
       ]).imageUrls
-    ).toEqual(["https://i.ebayimg.com/images/g/xx/s-l2000.jpg"]);
+    ).toEqual(["https://i.ebayimg.com/images/g/xx/s-l1600.jpg"]);
   });
 
   it("puts shared Type/Brand on the group so eBay can publish variations", () => {

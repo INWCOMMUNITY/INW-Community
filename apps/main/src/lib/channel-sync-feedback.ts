@@ -1,5 +1,3 @@
-import { isEbayPhotoHostFamilySyncError } from "./channels/ebay/errors";
-
 export type ChannelSyncRow = {
   provider: string;
   ok: boolean;
@@ -8,9 +6,7 @@ export type ChannelSyncRow = {
 };
 
 function isListingVisibleSyncFailure(row: ChannelSyncRow): boolean {
-  if (row.ok) return false;
-  if (row.provider === "ebay" && isEbayPhotoHostFamilySyncError(row.error)) return false;
-  return true;
+  return !row.ok;
 }
 
 const PROVIDER_LABEL: Record<string, string> = {
