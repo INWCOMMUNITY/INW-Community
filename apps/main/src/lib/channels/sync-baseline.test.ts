@@ -290,6 +290,72 @@ describe("shouldBlockEbayOutboundOverwrite", () => {
       })
     ).toBe(true);
   });
+
+  it("blocks a live eBay title revise even when LastModified is older than INW", () => {
+    expect(
+      shouldBlockEbayOutboundOverwrite({
+        inwTitle: "Vintage Bear Clock (Testing) S",
+        remoteTitle: "Vintage Bear Clock (Testing) Sync Ebay",
+        lastSyncedTitle: "Vintage Bear Clock (Testing) S",
+        inwUpdatedAt,
+        lastPushedAt,
+        remoteUpdatedAt: new Date("2026-09-10T01:00:00.000Z"),
+        nowMs,
+      })
+    ).toBe(true);
+  });
+
+  it("blocks pushing INW quantity over a seller qty revise on eBay", () => {
+    expect(
+      shouldBlockEbayOutboundOverwrite({
+        inwTitle: "Vintage Bear Clock (Testing) S",
+        remoteTitle: "Vintage Bear Clock (Testing) S",
+        lastSyncedTitle: "Vintage Bear Clock (Testing) S",
+        inwUpdatedAt,
+        lastPushedAt,
+        remoteUpdatedAt: null,
+        inwQuantity: 49,
+        remoteQuantity: 3,
+        syncBaselineQty: 49,
+        inwMatchesLastPushedHash: true,
+        nowMs,
+      })
+    ).toBe(true);
+  });
+
+  it("allows an INW qty save when live eBay still has the last baseline qty", () => {
+    expect(
+      shouldBlockEbayOutboundOverwrite({
+        inwTitle: "Vintage Bear Clock (Testing) S",
+        remoteTitle: "Vintage Bear Clock (Testing) S",
+        lastSyncedTitle: "Vintage Bear Clock (Testing) S",
+        inwUpdatedAt,
+        lastPushedAt,
+        remoteUpdatedAt: null,
+        inwQuantity: 3,
+        remoteQuantity: 49,
+        syncBaselineQty: 49,
+        nowMs,
+      })
+    ).toBe(false);
+  });
+
+  it("blocks pushing INW description over a seller body revise on eBay", () => {
+    expect(
+      shouldBlockEbayOutboundOverwrite({
+        inwTitle: "Vintage Bear Clock (Testing) S",
+        remoteTitle: "Vintage Bear Clock (Testing) S",
+        lastSyncedTitle: "Vintage Bear Clock (Testing) S",
+        inwUpdatedAt,
+        lastPushedAt,
+        remoteUpdatedAt: null,
+        inwDescription: "Old INW body",
+        remoteDescription: "Seller edited on eBay",
+        inwMatchesLastPushedHash: true,
+        nowMs,
+      })
+    ).toBe(true);
+  });
 });
 
 describe("inwSavedAfterChannelPush", () => {

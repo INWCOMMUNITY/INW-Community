@@ -201,6 +201,13 @@ function titlesMatchForSync(a: string | null | undefined, b: string | null | und
   return (a ?? "").trim() === (b ?? "").trim();
 }
 
+function descriptionsMatchForSync(
+  local: string | null | undefined,
+  remote: string | null | undefined
+): boolean {
+  return (listingDescriptionToPlainText(local) ?? "") === (listingDescriptionToPlainText(remote) ?? "");
+}
+
 /**
  * GetItem almost never includes LastModifiedTime. Live eBay is an independent
  * revise when it is neither INW nor the title we last synced. Requiring INW to
@@ -231,8 +238,43 @@ export function shouldBlockEbayOutboundOverwrite(args: {
   remoteUpdatedAt: Date | null | undefined;
   inwMatchesLastPushedHash?: boolean;
   nowMs?: number;
+  inwQuantity?: number;
+  remoteQuantity?: number | null;
+  syncBaselineQty?: number | null;
+  inwDescription?: string | null;
+  remoteDescription?: string | null;
 }): boolean {
-  if (titlesMatchForSync(args.inwTitle, args.remoteTitle)) return false;
+  const now = args.nowMs ?? Date.now();
+  if (args.lastPushedAt && now - args.lastPushedAt.getTime() < SYNC_ECHO_SKEW_MS) {
+    return false;
+  }
+
+  const titlesDiffer = !titlesMatchForSync(args.inwTitle, args.remoteTitle);
+  // Seller title revise must win even when GetItem LastModified is missing or older
+  // than an Etsy/Wix restamp of StoreItem.updatedAt.
+  if (titlesDiffer && ebayRemoteLooksLikeIndependentRevise(args)) return true;
+
+  const quantitiesDiffer =
+    args.remoteQuantity != null &&
+    args.inwQuantity != null &&
+    args.remoteQuantity !== args.inwQuantity;
+  if (quantitiesDiffer) {
+    const baseline = args.syncBaselineQty;
+    const inwMatchesBaseline = baseline == null || args.inwQuantity === baseline;
+    const liveMatchesBaseline = baseline == null || args.remoteQuantity === baseline;
+    // eBay moved, INW still at last agreed qty — do not push the old INW qty back.
+    if (inwMatchesBaseline && !liveMatchesBaseline) return true;
+    if (baseline == null && args.inwMatchesLastPushedHash) return true;
+  }
+
+  const descriptionsDiffer =
+    args.remoteDescription !== undefined &&
+    !descriptionsMatchForSync(args.inwDescription, args.remoteDescription);
+  // INW still fingerprints as the last eBay push, so the live body change is on eBay.
+  if (descriptionsDiffer && args.inwMatchesLastPushedHash) return true;
+
+  if (!titlesDiffer) return false;
+
   if (args.remoteUpdatedAt) {
     return shouldBlockOutboundOverwrite({
       titlesDiffer: true,
@@ -242,11 +284,6 @@ export function shouldBlockEbayOutboundOverwrite(args: {
       nowMs: args.nowMs,
     });
   }
-  const now = args.nowMs ?? Date.now();
-  if (args.lastPushedAt && now - args.lastPushedAt.getTime() < SYNC_ECHO_SKEW_MS) {
-    return false;
-  }
-  if (ebayRemoteLooksLikeIndependentRevise(args)) return true;
   // Unstamped links: INW still fingerprints as the last eBay push, so the live
   // title change happened on eBay (often after another shop bumped updatedAt).
   if (args.inwMatchesLastPushedHash) return true;

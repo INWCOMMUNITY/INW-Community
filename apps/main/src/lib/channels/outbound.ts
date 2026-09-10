@@ -672,6 +672,11 @@ export async function updateStoreItemOnChannels(
                   lastPushedAt: link.lastPushedAt,
                   remoteUpdatedAt: live.remoteUpdatedAt ?? null,
                   inwMatchesLastPushedHash: Boolean(link.lastPushedHash && link.lastPushedHash === hash),
+                  inwQuantity: item.quantity,
+                  remoteQuantity: live.quantity,
+                  syncBaselineQty: link.syncBaselineQty,
+                  inwDescription: item.description,
+                  remoteDescription: live.description,
                 })
               ) {
                 skippedNewerRemote = true;
@@ -683,6 +688,8 @@ export async function updateStoreItemOnChannels(
                   lastSyncedTitle: readEbayLastSyncedTitle(link.conflictDetails),
                   inwUpdatedAt: hubUpdatedAt.toISOString(),
                   remoteUpdatedAt: live.remoteUpdatedAt?.toISOString() ?? null,
+                  inwQuantity: item.quantity,
+                  remoteQuantity: live.quantity,
                 });
                 return;
               }

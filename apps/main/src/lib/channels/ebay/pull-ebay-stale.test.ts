@@ -46,6 +46,24 @@ describe("isEbayInboundContentChange", () => {
     expect(patch.syncError).toBeNull();
   });
 
+  it("does not rewrite last-synced title on a qty-only GetItem apply", () => {
+    const patch = ebayGetItemContentApplyLinkData({
+      contentHash: "abc",
+      metaHash: "def",
+      variantsHash: "ghi",
+      quantity: 3,
+      remoteUpdatedAt: null,
+      conflictDetails: { ebayLastSyncedTitle: "INW Title" },
+      remoteTitle: "Lagged eBay Title",
+      titleApplied: false,
+    });
+    expect(patch.lastInboundAt).toBeInstanceOf(Date);
+    expect(patch.syncBaselineQty).toBe(3);
+    expect(
+      (patch.conflictDetails as { ebayLastSyncedTitle?: string }).ebayLastSyncedTitle
+    ).toBe("INW Title");
+  });
+
   it("maps a GetItem title/photos/description apply to sibling content fan-out", async () => {
     const { inboundContentFanoutKind } = await import("../listing-link-flags");
     expect(
@@ -376,6 +394,42 @@ describe("ebayGetItemApplyDecision", () => {
         remoteDescription: "New body from eBay",
       })
     ).toMatchObject({ action: "apply", reason: "webhook-revise" });
+  });
+
+  it("applies a description-only eBay edit on rotate instead of skipping matches-inw", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        inwDescription: "Old body",
+        remoteDescription: "New body from eBay",
+      })
+    ).toMatchObject({ action: "apply", reason: "remote-revise" });
+  });
+
+  it("does not skip a description-only eBay edit as inw-newer", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastPushedAt: new Date("2026-08-20T06:56:21.000Z"),
+        inwUpdatedAt: new Date("2026-08-20T07:10:00.000Z"),
+        lastInboundAt: new Date("2026-08-20T06:50:03.000Z"),
+        inwDescription: "Old body",
+        remoteDescription: "New body from eBay",
+      })
+    ).toMatchObject({ action: "apply", reason: "remote-revise" });
+  });
+
+  it("applies a cron-dirty qty revise even when INW looks newer than last inbound", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastInboundAt: new Date("2026-08-20T06:50:03.000Z"),
+        inwUpdatedAt: new Date("2026-08-20T07:10:00.000Z"),
+        remoteQuantity: 2,
+        inwQuantity: 4,
+        source: "cron-dirty",
+      })
+    ).toMatchObject({ action: "apply", reason: "dirty-revise" });
   });
 
   it("still skips a webhook GetItem that matches INW or is an echo of our push", () => {
