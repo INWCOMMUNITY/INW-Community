@@ -78,12 +78,48 @@ export function readStoredPhotoUrls(value: unknown): string[] | null {
 /**
  * Imported listings keep the live eBay gallery.
  * Overlaying Shopify/INW URLs onto EPS causes #25014. First publish (no live pin)
- * can still send INW photos.
+ * sends INW photos only when the album mixes INW blobs with leftover eBay CDN URLs.
  */
+export function firstPublishInventoryImageUrls(urls: string[]): string[] {
+  const https = normalizeInventoryImageUrls(urls).filter((url) => !isForeignMarketplaceCdnPhotoUrl(url));
+  const self = https.filter((url) => ebayInventoryPictureFamily(url) === "self");
+  if (self.length > 0) return self.slice(0, 12);
+  return liveEbayPhotoUrlsToPin(https);
+}
+
 export function selectPassthroughInventoryImageUrls(liveUrls: string[], inwUrls: string[]): string[] {
   const livePin = liveEbayPhotoUrlsToPin(liveUrls);
   if (livePin.length > 0) return livePin;
-  return normalizeInventoryImageUrls(inwUrls);
+  return firstPublishInventoryImageUrls(inwUrls);
+}
+
+/** First non-empty eBay-hosted gallery (EPS or CDN), never INW blobs. */
+export function pickHostedEbayGallery(sources: string[][]): string[] {
+  for (const urls of sources) {
+    const hosted = hostedEbayGalleryUrls(urls);
+    if (hosted.length > 0) return hosted;
+  }
+  return [];
+}
+
+/**
+ * Variant-group create looks like a first publish on the parent SKU even when leftover
+ * variant inventory/offers already have EPS. Pin that gallery; do not send INW blobs.
+ */
+export function resolveEbayVariantGroupPhotoPlan(args: {
+  listingAlreadyOnEbay: boolean;
+  unpublishedOfferExists: boolean;
+  hostedLiveUrls: string[];
+  inwPhotos: string[];
+}): { sendInwPhotos: boolean; pinUrls: string[] } {
+  const pinUrls = hostedEbayGalleryUrls(args.hostedLiveUrls);
+  if (args.listingAlreadyOnEbay || args.unpublishedOfferExists || pinUrls.length > 0) {
+    return { sendInwPhotos: false, pinUrls };
+  }
+  return {
+    sendInwPhotos: args.inwPhotos.length > 0,
+    pinUrls: firstPublishInventoryImageUrls(args.inwPhotos),
+  };
 }
 
 /** HTTPS image URL for Inventory PUT. Same-family size bump only — never EPS→CDN rewrite. */
@@ -169,17 +205,30 @@ export function isForeignMarketplaceCdnPhotoUrl(url: string): boolean {
 export function liveEbayPhotoUrlsToPin(liveUrls: string[]): string[] {
   const eps = epsFamilyImageUrls(liveUrls);
   if (eps.length > 0) return eps;
-  return uniformHostFamilyImageUrls(liveUrls).filter((url) => !isForeignMarketplaceCdnPhotoUrl(url));
+  const hosted = uniformHostFamilyImageUrls(liveUrls).filter(
+    (url) => ebayInventoryPictureFamily(url) === "cdn" && !isForeignMarketplaceCdnPhotoUrl(url)
+  );
+  if (hosted.length > 0) return hosted;
+  return uniformHostFamilyImageUrls(liveUrls).filter(
+    (url) => ebayInventoryPictureFamily(url) === "self" && !isForeignMarketplaceCdnPhotoUrl(url)
+  );
+}
+
+/** eBay-hosted EPS or CDN gallery URLs — not INW blobs. */
+export function hostedEbayGalleryUrls(urls: string[]): string[] {
+  return liveEbayPhotoUrlsToPin(urls).filter((url) => ebayInventoryPictureFamily(url) !== "self");
 }
 
 /**
- * Echo Inventory GET when it has a pin-able gallery. GetItem is only a fallback when
- * inventory has no pictures — and those URLs must already be PUT-sanitized (no display rewrite).
+ * Echo Inventory GET when it has an eBay-hosted gallery. INW blobs in Inventory GET are not
+ * a pin-able gallery — GetItem EPS wins so we do not PUT self-hosted URLs onto EPS listings.
  */
 export function mergeLiveEbayPhotoUrls(inventoryUrls: string[], tradingUrls: string[]): string[] {
-  const inventoryPin = liveEbayPhotoUrlsToPin(inventoryUrls);
-  if (inventoryPin.length > 0) return inventoryPin;
-  return liveEbayPhotoUrlsToPin(tradingUrls);
+  const inventoryHosted = hostedEbayGalleryUrls(inventoryUrls);
+  if (inventoryHosted.length > 0) return inventoryHosted;
+  const tradingHosted = hostedEbayGalleryUrls(tradingUrls);
+  if (tradingHosted.length > 0) return tradingHosted;
+  return liveEbayPhotoUrlsToPin(inventoryUrls);
 }
 
 /**

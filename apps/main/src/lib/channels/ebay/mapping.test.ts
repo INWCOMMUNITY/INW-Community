@@ -180,4 +180,18 @@ describe("buildEbayInventoryItem", () => {
     );
     expect(body.packageWeightAndSize).toBeUndefined();
   });
+
+  it("on first create drops leftover eBay CDN URLs when INW blobs are present", () => {
+    const body = buildEbayInventoryItem(
+      makeInventoryItem({
+        photos: [
+          "https://blob.vercel-storage.com/clock.jpg",
+          "https://i.ebayimg.com/images/g/xx/s-l1600.jpg",
+        ],
+      })
+    );
+    expect((body.product as { imageUrls: string[] }).imageUrls).toEqual([
+      "https://blob.vercel-storage.com/clock.jpg",
+    ]);
+  });
 });

@@ -140,6 +140,24 @@ export function commonAspectsForInventoryItemGroup(
   return aspects;
 }
 
+/** Item photos plus per-option photos that will become the variation-group gallery. */
+export function inventoryItemGroupInwPhotoUrls(item: SyncStoreItem): string[] {
+  const matrix = variantsToMatrix(item.variants);
+  const axes = matrix?.axes?.length
+    ? matrix.axes.map((a) => ({ name: a.name, values: a.values }))
+    : (normalizeVariantsFromProvider("ebay", item.variants) as InwVariantAxis[] | null)?.map((a) => ({
+        name: a.name,
+        values: a.options.map((o) => o.value),
+      })) ?? [];
+  const primary = axes[0];
+  const imageAxis = matrix ? pickImageVaryingAxisName(matrix) : primary?.name;
+  const imageAxisPhotos =
+    imageAxis && matrix?.axes.find((a) => a.name === imageAxis)?.photosByValue
+      ? Object.values(matrix.axes.find((a) => a.name === imageAxis)?.photosByValue ?? {}).flat()
+      : [];
+  return [...imageAxisPhotos, ...item.photos];
+}
+
 export function buildInventoryItemGroupBody(
   item: SyncStoreItem,
   variantSkus: string[],
@@ -159,14 +177,6 @@ export function buildInventoryItemGroupBody(
     aspectRows ?? parseStoredAspects(item.aspects),
     axes.map((a) => a.name)
   );
-  const imageAxisPhotos =
-    matrix?.axes
-      .find((a) => a.name === imageAxis)
-      ?.photosByValue
-      ? Object.values(
-          matrix.axes.find((a) => a.name === imageAxis)?.photosByValue ?? {}
-        ).flat()
-      : [];
   const body: Record<string, unknown> = {
     inventoryItemGroupKey: inventoryItemGroupKey?.trim() || buildInventoryItemGroupKey(item),
     variantSKUs: variantSkus,
@@ -176,7 +186,7 @@ export function buildInventoryItemGroupBody(
       specifications: axes.map((a) => ({ name: a.name, values: a.values })),
       aspectsImageVariesBy: [imageAxis],
     },
-    imageUrls: selectPassthroughInventoryImageUrls([], [...imageAxisPhotos, ...item.photos]),
+    imageUrls: selectPassthroughInventoryImageUrls([], inventoryItemGroupInwPhotoUrls(item)),
   };
   if (Object.keys(aspects).length > 0) body.aspects = aspects;
   return body;

@@ -15,6 +15,9 @@ import {
   putInventoryWithPhotoRecovery,
   sanitizeInventoryImageUrl,
   selectPassthroughInventoryImageUrls,
+  firstPublishInventoryImageUrls,
+  resolveEbayVariantGroupPhotoPlan,
+  pickHostedEbayGallery,
 } from "./media";
 
 const mockedJson = vi.mocked(ebayJson);
@@ -46,7 +49,7 @@ describe("sanitizeInventoryImageUrl", () => {
       sanitizeInventoryImageUrl(
         "https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG?set_id=8800005007"
       )
-    ).toBe("https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_57.JPG");
+    ).toBe("https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG");
   });
 });
 
@@ -159,7 +162,7 @@ describe("putInventoryWithPhotoRecovery", () => {
     });
     expect(
       (put.mock.calls[0]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
-    ).toEqual(["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_57.JPG"]);
+    ).toEqual(["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG"]);
   });
 
   it("does not send Shopify CDNs onto a live listing", async () => {
@@ -190,7 +193,7 @@ describe("putInventoryWithPhotoRecovery", () => {
     ).toEqual(["https://blob.example.com/live.jpg"]);
   });
 
-  it("retries #25014 with raw live GET URLs instead of rewritten CDN copies", async () => {
+  it("retries #25014 with raw live GET URLs instead of a same-family size bump", async () => {
     const put = vi
       .fn()
       .mockRejectedValueOnce(new Error("[#25014] A mixture of Self Hosted and EPS pictures are not allowed."))
@@ -198,17 +201,17 @@ describe("putInventoryWithPhotoRecovery", () => {
     await putInventoryWithPhotoRecovery({
       accessToken: "t",
       body: { product: { title: "X", imageUrls: ["https://blob.example.com/a.jpg"] } },
-      liveImageUrls: ["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG"],
+      liveImageUrls: ["https://i.ebayimg.com/images/g/xx/s-l140.jpg"],
       allowInwPhotoUpload: false,
       put,
     });
     expect(put).toHaveBeenCalledTimes(2);
     expect(
       (put.mock.calls[0]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
-    ).toEqual(["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_57.JPG"]);
+    ).toEqual(["https://i.ebayimg.com/images/g/xx/s-l1600.jpg"]);
     expect(
       (put.mock.calls[1]?.[0] as { product: { imageUrls: string[] } }).product.imageUrls
-    ).toEqual(["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG"]);
+    ).toEqual(["https://i.ebayimg.com/images/g/xx/s-l140.jpg"]);
   });
 
   it("does not send EPS URLs through Media API after #25014", async () => {
@@ -303,7 +306,7 @@ describe("applyEbayInventoryPhotoPolicy", () => {
       }
     );
     expect((next.product as { imageUrls: string[] }).imageUrls).toEqual([
-      "https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_57.JPG",
+      "https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG",
     ]);
   });
 
@@ -336,7 +339,7 @@ describe("mergeLiveEbayPhotoUrls", () => {
         ["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG"],
         ["https://i.ebayimg.com/images/g/pxcAAOSwis1hwW4V/s-l2000.jpg"]
       )
-    ).toEqual(["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_57.JPG"]);
+    ).toEqual(["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG"]);
     expect(
       mergeLiveEbayPhotoUrls(["https://i.ebayimg.com/inventory.jpg"], [])
     ).toEqual(["https://i.ebayimg.com/inventory.jpg"]);
@@ -349,6 +352,15 @@ describe("mergeLiveEbayPhotoUrls", () => {
     expect(
       mergeLiveEbayPhotoUrls(["https://cdn.shopify.com/s/files/1/bear.jpg"], [])
     ).toEqual([]);
+  });
+
+  it("prefers Trading EPS over polluted Inventory INW blobs", () => {
+    expect(
+      mergeLiveEbayPhotoUrls(
+        ["https://blob.vercel-storage.com/clock.jpg"],
+        ["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG"]
+      )
+    ).toEqual(["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG"]);
   });
 });
 
@@ -377,7 +389,84 @@ describe("selectPassthroughInventoryImageUrls", () => {
         ["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG"],
         ["https://i.ebayimg.com/images/g/pxcAAOSwis1hwW4V/s-l2000.jpg"]
       )
-    ).toEqual(["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_57.JPG"]);
+    ).toEqual(["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG"]);
+  });
+
+  it("on first create keeps INW blobs when the album also has leftover eBay CDN URLs", () => {
+    expect(
+      selectPassthroughInventoryImageUrls(
+        [],
+        [
+          "https://blob.vercel-storage.com/clock.jpg",
+          "https://i.ebayimg.com/images/g/xx/s-l1600.jpg",
+        ]
+      )
+    ).toEqual(["https://blob.vercel-storage.com/clock.jpg"]);
+  });
+});
+
+describe("firstPublishInventoryImageUrls", () => {
+  it("prefers INW blobs over leftover eBay CDN URLs", () => {
+    expect(
+      firstPublishInventoryImageUrls([
+        "https://blob.vercel-storage.com/clock.jpg",
+        "https://i.ebayimg.com/images/g/xx/s-l1600.jpg",
+      ])
+    ).toEqual(["https://blob.vercel-storage.com/clock.jpg"]);
+  });
+
+  it("keeps a single eBay CDN family when there are no INW blobs", () => {
+    expect(
+      firstPublishInventoryImageUrls(["https://i.ebayimg.com/images/g/xx/s-l1600.jpg"])
+    ).toEqual(["https://i.ebayimg.com/images/g/xx/s-l1600.jpg"]);
+  });
+});
+
+describe("resolveEbayVariantGroupPhotoPlan", () => {
+  const inw = ["https://blob.vercel-storage.com/clock.jpg"];
+  const eps = ["https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG"];
+
+  it("pins leftover variant EPS even when the parent SKU looks like a first create", () => {
+    expect(
+      resolveEbayVariantGroupPhotoPlan({
+        listingAlreadyOnEbay: false,
+        unpublishedOfferExists: false,
+        hostedLiveUrls: eps,
+        inwPhotos: inw,
+      })
+    ).toEqual({ sendInwPhotos: false, pinUrls: eps });
+  });
+
+  it("does not send INW blobs when a leftover unpublished offer exists", () => {
+    expect(
+      resolveEbayVariantGroupPhotoPlan({
+        listingAlreadyOnEbay: false,
+        unpublishedOfferExists: true,
+        hostedLiveUrls: [],
+        inwPhotos: inw,
+      })
+    ).toEqual({ sendInwPhotos: false, pinUrls: [] });
+  });
+
+  it("sends one INW family on a true first publish", () => {
+    expect(
+      resolveEbayVariantGroupPhotoPlan({
+        listingAlreadyOnEbay: false,
+        unpublishedOfferExists: false,
+        hostedLiveUrls: [],
+        inwPhotos: [...inw, "https://i.ebayimg.com/images/g/xx/s-l1600.jpg"],
+      })
+    ).toEqual({ sendInwPhotos: true, pinUrls: inw });
+  });
+
+  it("pickHostedEbayGallery prefers the first hosted source", () => {
+    expect(
+      pickHostedEbayGallery([
+        ["https://blob.vercel-storage.com/clock.jpg"],
+        eps,
+        ["https://i.ebayimg.com/images/g/other/s-l1600.jpg"],
+      ])
+    ).toEqual(eps);
   });
 });
 

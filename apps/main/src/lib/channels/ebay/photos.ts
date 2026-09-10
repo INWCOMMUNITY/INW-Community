@@ -145,7 +145,8 @@ export function sanitizeEbayPhotoUrlForInventoryPut(raw: string): string | null 
 
   let next = url.replace(/\/thumbs\/images\//i, "/images/");
   if (isEbayTrueEpsPictureUrl(next)) {
-    next = next.replace(/\/\$_\d+\.(jpe?g|png|webp|gif)/gi, "/$_57.$1");
+    // Echo the live $_N record. Bumping $_12 → $_57 is a different picture URL
+    // and eBay treats it as mixing families with the existing EPS gallery (#25014).
     return next.replace(/\?.*$/, "");
   }
   next = next.replace(/\/s-l(\d+)/gi, (_match, size: string) => {

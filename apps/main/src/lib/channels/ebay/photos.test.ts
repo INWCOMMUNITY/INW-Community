@@ -71,7 +71,7 @@ describe("sanitizeEbayPhotoUrlForInventoryPut", () => {
       sanitizeEbayPhotoUrlForInventoryPut(
         "https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG?set_id=8800005007"
       )
-    ).toBe("https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_57.JPG");
+    ).toBe("https://i.ebayimg.com/00/s/MTYwMFgxNjAw/z/pxcAAOSwis1hwW4V/$_12.JPG");
   });
 
   it("bumps only sub-500px CDN gallery thumbs", () => {
@@ -132,7 +132,7 @@ describe("extractEbayItemPhotos", () => {
       "https://i.ebayimg.com/images/g/SHEAAeSw3vtqjNEh/s-l2000.jpg",
     ]);
     expect(extractEbayItemPhotosForInventoryPut(xml)).toEqual([
-      "https://i.ebayimg.com/00/s/MTYwMFgxNDcw/z/SHEAAeSw3vtqjNEh/$_57.JPG",
+      "https://i.ebayimg.com/00/s/MTYwMFgxNDcw/z/SHEAAeSw3vtqjNEh/$_1.JPG",
     ]);
   });
 });

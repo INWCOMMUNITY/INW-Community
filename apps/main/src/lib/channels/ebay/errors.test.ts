@@ -193,9 +193,11 @@ describe("ebay picture errors", () => {
     const mix =
       "title: failed ([#25014 · API_INVENTORY · Request · HTTP 400] The eBay listing associated with the inventory item, or the unpublished offer has invalid pictures. A mixture of Self Hosted and EPS pictures are not allowed.)";
     expect(ebayErrorActionHint(mix)).toMatch(/eBay-hosted/i);
+    expect(ebayErrorActionHint(mix)).toMatch(/did not land/i);
     expect(ebayErrorActionHint(mix)).toMatch(/do not need to re-upload/i);
+    expect(ebayErrorActionHint(mix)).not.toMatch(/Other fields can still update/i);
     expect(ebayErrorActionHint(mix)).not.toMatch(/Re-upload at least one/i);
-    expect(describeChannelSyncError("ebay", new Error(mix))).toMatch(/do not need to re-upload/i);
+    expect(describeChannelSyncError("ebay", new Error(mix))).toMatch(/did not land/i);
   });
 
   it("treats generic #25014 as a photo-host notice instead of a migrate-listing message", () => {

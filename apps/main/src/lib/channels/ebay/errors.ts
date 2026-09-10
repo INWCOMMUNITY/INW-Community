@@ -449,7 +449,7 @@ export function ebayPhotoHostErrorShouldStampContentPush(
 export function ebayPhotoHostFamilyShopSummary(listingCount: number): string {
   const n = Math.max(1, listingCount);
   const listings = n === 1 ? "1 listing" : `${n} listings`;
-  return `eBay is using its own copies of photos on ${listings}. You do not need to re-upload them — stock and other fields can still sync.`;
+  return `eBay is using its own copies of photos on ${listings}. You do not need to re-upload them. A mixed photo save is rejected in full, including title and quantity, until sync pins eBay's copies.`;
 }
 
 /** Actionable hint for common eBay error patterns (import UI, sync stores). */
@@ -465,7 +465,7 @@ export function ebayErrorActionHint(reason: string): string | undefined {
     return "Your eBay connection lacks required permissions. Disconnect and reconnect eBay to grant all needed scopes.";
   }
   if (isEbayPhotoHostFamilySyncError(reason)) {
-    return "eBay already has these photos as eBay-hosted images and does not allow mixing those with INW photo URLs. Other fields can still update; you do not need to re-upload the same pictures.";
+    return "eBay already has these photos as eBay-hosted images and does not allow mixing those with INW photo URLs. That rejection blocks the whole save — title and other fields in the same request did not land. You do not need to re-upload the pictures; retry and INW will send the copies eBay already has.";
   }
   if (/500 pixels|longest side|Picture Policy|resolution for provided picture/i.test(reason)) {
     return "eBay requires each photo to be at least 500 pixels on the longest side. Gallery thumbs cannot be used. If the listing already has full-size eBay photos, sync will send those; if a file itself is smaller than 500px, replace it and try again.";

@@ -368,4 +368,30 @@ describe("inventory item groups", () => {
     );
     expect((body.variesBy as { aspectsImageVariesBy: string[] }).aspectsImageVariesBy).toEqual(["Size"]);
   });
+
+  it("on first create keeps INW blobs when option photos mix leftover eBay CDN URLs", () => {
+    const body = buildInventoryItemGroupBody(
+      {
+        ...variantItem,
+        photos: ["https://blob.vercel-storage.com/clock.jpg"],
+        variants: {
+          axes: [
+            { name: "Size", values: ["S", "M"] },
+            { name: "Color", values: ["Red", "Blue"] },
+          ],
+          imageAxis: "Color",
+          skus: [
+            {
+              options: { Size: "S", Color: "Red" },
+              quantity: 1,
+              photos: ["https://i.ebayimg.com/images/g/xx/s-l1600.jpg"],
+            },
+            { options: { Size: "S", Color: "Blue" }, quantity: 1 },
+          ],
+        },
+      },
+      ["A", "B"]
+    );
+    expect(body.imageUrls).toEqual(["https://blob.vercel-storage.com/clock.jpg"]);
+  });
 });

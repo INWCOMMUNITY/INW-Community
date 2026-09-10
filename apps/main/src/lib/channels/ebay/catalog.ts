@@ -16,11 +16,24 @@ type CatalogSearchResponse = {
   }[];
 };
 
+/** Catalog API #1100 is account-wide; do not retry it on every variant SKU in one create. */
+let catalogSearchUnavailable = false;
+
+export function resetEbayCatalogSearchCache(): void {
+  catalogSearchUnavailable = false;
+}
+
+function isEbayCatalogPermissionError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /#1100\b|HTTP 403|Insufficient permissions/i.test(msg);
+}
+
 export async function searchCatalogProduct(args: {
   query: string;
   categoryId?: string | null;
   gtin?: string | null;
 }): Promise<EbayCatalogMatch | null> {
+  if (catalogSearchUnavailable) return null;
   const query = args.query.trim();
   const gtin = args.gtin?.trim();
   if (!query && !gtin) return null;
@@ -74,6 +87,7 @@ export async function enrichInventoryBodyWithCatalogProduct(args: {
     });
     return applyCatalogProductToInventoryBody(args.body, match);
   } catch (e) {
+    if (isEbayCatalogPermissionError(e)) catalogSearchUnavailable = true;
     console.warn("[ebay] catalog search failed; continuing without ePID", {
       categoryId: args.categoryId,
       error: e instanceof Error ? e.message : String(e),

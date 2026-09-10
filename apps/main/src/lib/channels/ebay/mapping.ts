@@ -6,6 +6,7 @@ import { EBAY_CURRENCY, EBAY_MARKETPLACE_ID, getEbayConfig } from "./config";
 import { applyBestOfferTermsToOfferBody } from "./best-offer";
 import type { EbayConnectionConfig } from "./account";
 import { normalizeEbayPhotoUrl, sanitizeEbayPhotoUrlForInventoryPut } from "./photos";
+import { firstPublishInventoryImageUrls } from "./media";
 import {
   EBAY_TITLE_MAX,
   aspectsToEbayProductAspects,
@@ -43,10 +44,12 @@ export function buildEbayInventoryItem(
   const product: Record<string, unknown> = {
     title,
     description: listingDescriptionForHtmlChannel(item.description, title),
-    imageUrls: item.photos
-      .slice(0, 12)
-      .map((url) => sanitizeEbayPhotoUrlForInventoryPut(url) ?? url)
-      .filter((url) => url.startsWith("https://")),
+    imageUrls: firstPublishInventoryImageUrls(
+      item.photos
+        .slice(0, 12)
+        .map((url) => sanitizeEbayPhotoUrlForInventoryPut(url) ?? url)
+        .filter((url) => url.startsWith("https://"))
+    ),
   };
 
   let productAspects: Record<string, string[]> | undefined;
