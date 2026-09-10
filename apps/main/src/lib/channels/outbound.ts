@@ -1,4 +1,4 @@
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { getAdapter } from "./registry";
 import { getActiveConnectionsForMember, withConnectionAuthRetry, isChannelAuthError } from "./connection";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
@@ -732,7 +732,10 @@ export async function updateStoreItemOnChannels(
           syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
           ...(provider === "ebay"
             ? {
-                conflictDetails: withEbayLastSyncedTitle(link.conflictDetails, item.title),
+                conflictDetails: withEbayLastSyncedTitle(
+                  link.conflictDetails,
+                  item.title
+                ) as Prisma.InputJsonValue,
               }
             : {}),
         },

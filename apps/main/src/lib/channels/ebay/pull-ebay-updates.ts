@@ -197,7 +197,7 @@ export function ebayGetItemContentApplyLinkData(args: {
     conflictDetails: withEbayLastSyncedTitle(
       withEbayPendingInbound(args.conflictDetails, null),
       args.remoteTitle
-    ),
+    ) as Prisma.InputJsonValue,
   };
 }
 
@@ -637,7 +637,7 @@ export async function refreshEbayListingByItemId(
             conflictDetails: withEbayLastSyncedTitle(
               withEbayPendingInbound(conflictDetails, null),
               details.title ?? storeItem.title
-            ),
+            ) as Prisma.InputJsonValue,
           },
         })
         .catch(() => {});
@@ -1034,7 +1034,7 @@ export async function applyEbayXmlPostcard(args: {
         conflictDetails: withEbayLastSyncedTitle(
           link.conflictDetails,
           typeof writes.title === "string" ? writes.title : updatedItem.title
-        ),
+        ) as Prisma.InputJsonValue,
       },
     });
   }
