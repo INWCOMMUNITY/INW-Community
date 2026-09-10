@@ -18,6 +18,7 @@ import {
   overlayPassthroughOffer,
   passthroughEndedQuantityOnly,
   passthroughSyncHasFailures,
+  readLiveInventoryAvailableQuantity,
   resolvePassthroughChanges,
 } from "./passthrough-push";
 import { storeItemContentHash } from "../sync-baseline";
@@ -1091,5 +1092,44 @@ describe("passthrough-push", () => {
     );
     expect(body).not.toHaveProperty("variations");
     expect((body.product as { title: string }).title).toBe(shirt.title);
+  });
+});
+
+describe("readLiveInventoryAvailableQuantity", () => {
+  it("reads shipToLocationAvailability.quantity", () => {
+    expect(
+      readLiveInventoryAvailableQuantity({
+        availability: { shipToLocationAvailability: { quantity: 7 } },
+      })
+    ).toBe(7);
+  });
+
+  it("clamps negatives to 0 and rounds numeric strings", () => {
+    expect(
+      readLiveInventoryAvailableQuantity({
+        availability: { shipToLocationAvailability: { quantity: "3" } },
+      })
+    ).toBe(3);
+    expect(
+      readLiveInventoryAvailableQuantity({
+        availability: { shipToLocationAvailability: { quantity: -2 } },
+      })
+    ).toBe(0);
+  });
+
+  it("returns null when absent, null, or non-finite", () => {
+    expect(readLiveInventoryAvailableQuantity(null)).toBeNull();
+    expect(readLiveInventoryAvailableQuantity({})).toBeNull();
+    expect(readLiveInventoryAvailableQuantity({ availability: {} })).toBeNull();
+    expect(
+      readLiveInventoryAvailableQuantity({
+        availability: { shipToLocationAvailability: {} },
+      })
+    ).toBeNull();
+    expect(
+      readLiveInventoryAvailableQuantity({
+        availability: { shipToLocationAvailability: { quantity: "abc" } },
+      })
+    ).toBeNull();
   });
 });

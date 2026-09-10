@@ -1,14 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyLiveInventoryQuantitiesToMatrix,
+  applyRemoteVariantPricesToMatrix,
   browsePriceLabel,
   decrementMatrixSku,
   fillMissingAlphanumericComboSkus,
   incrementMatrixSku,
   listingGalleryPhotoChoices,
+  minSkuPriceCents,
   normalizeVariantMatrix,
   rebuildMatrixFromAxes,
   serializeVariantMatrix,
+  sumMatrixQuantities,
   validateVariantMatrixForSave,
+  type VariantMatrix,
 } from "./listing-variant-matrix";
 import { validateInwVariantsForSave } from "./channels/variant-sync";
 import {
@@ -308,5 +313,119 @@ describe("fillMissingAlphanumericComboSkus", () => {
     expect(filled.skus[0].sku).toBe("cmt7vumcl000dxjujvgwe8dobPurple");
     expect(filled.skus[1].sku).toBe("KEEPME");
     expect(filled.skus[0].sku).not.toContain("-");
+  });
+});
+
+describe("applyLiveInventoryQuantitiesToMatrix", () => {
+  const base = (): VariantMatrix =>
+    normalizeVariantMatrix({
+      axes: [{ name: "Size", values: ["S", "M", "L"] }],
+      skus: [
+        { options: { Size: "S" }, quantity: 2, sku: "SKU-S" },
+        { options: { Size: "M" }, quantity: 3, sku: "SKU-M" },
+        { options: { Size: "L" }, quantity: 4, sku: "SKU-L" },
+      ],
+    })!;
+
+  it("overwrites quantities matched by SKU", () => {
+    const next = applyLiveInventoryQuantitiesToMatrix(base(), [
+      { sku: "SKU-S", options: { Size: "S" }, quantity: 0 },
+      { sku: "SKU-M", options: { Size: "M" }, quantity: 5 },
+      { sku: "SKU-L", options: { Size: "L" }, quantity: 4 },
+    ]);
+    expect(next.skus.map((s) => s.quantity)).toEqual([0, 5, 4]);
+    expect(sumMatrixQuantities(next)).toBe(9);
+  });
+
+  it("falls back to options match when SKU differs", () => {
+    const next = applyLiveInventoryQuantitiesToMatrix(base(), [
+      { sku: "OTHER", options: { Size: "M" }, quantity: 9 },
+    ]);
+    expect(next.skus.map((s) => s.quantity)).toEqual([2, 9, 4]);
+  });
+
+  it("preserves rows with no matching live read (never zeroes on missing read)", () => {
+    const next = applyLiveInventoryQuantitiesToMatrix(base(), [
+      { sku: "SKU-S", options: { Size: "S" }, quantity: 1 },
+    ]);
+    expect(next.skus.map((s) => s.quantity)).toEqual([1, 3, 4]);
+  });
+
+  it("ignores non-finite quantities and treats empty input as a no-op", () => {
+    const matrix = base();
+    expect(applyLiveInventoryQuantitiesToMatrix(matrix, [])).toBe(matrix);
+    const next = applyLiveInventoryQuantitiesToMatrix(matrix, [
+      { sku: "SKU-S", options: { Size: "S" }, quantity: Number.NaN },
+    ]);
+    expect(next.skus.map((s) => s.quantity)).toEqual([2, 3, 4]);
+  });
+
+  it("keeps axes/options/skus intact and clamps negatives", () => {
+    const next = applyLiveInventoryQuantitiesToMatrix(base(), [
+      { sku: "SKU-S", options: { Size: "S" }, quantity: -5 },
+    ]);
+    expect(next.axes).toEqual(base().axes);
+    expect(next.skus[0].sku).toBe("SKU-S");
+    expect(next.skus[0].options).toEqual({ Size: "S" });
+    expect(next.skus[0].quantity).toBe(0);
+  });
+});
+
+describe("applyRemoteVariantPricesToMatrix", () => {
+  const base = (): VariantMatrix =>
+    normalizeVariantMatrix({
+      axes: [{ name: "Color", values: ["Red", "Blue", "Green"] }],
+      skus: [
+        { options: { Color: "Red" }, quantity: 2, sku: "SKU-R", priceCents: 2500 },
+        { options: { Color: "Blue" }, quantity: 3, sku: "SKU-B", priceCents: 2500 },
+        { options: { Color: "Green" }, quantity: 4, sku: "SKU-G", priceCents: 2500 },
+      ],
+    })!;
+
+  it("overwrites only the edited SKU price and never collapses the others", () => {
+    const next = applyRemoteVariantPricesToMatrix(base(), [
+      { sku: "SKU-R", options: { Color: "Red" }, priceCents: 100 },
+    ]);
+    expect(next.skus.map((s) => s.priceCents)).toEqual([100, 2500, 2500]);
+    // Quantities and structure are preserved.
+    expect(next.skus.map((s) => s.quantity)).toEqual([2, 3, 4]);
+    expect(next.axes).toEqual(base().axes);
+    // Listing floor reflects the new minimum, not a collapse of every variation.
+    expect(minSkuPriceCents(next, 2500)).toBe(100);
+  });
+
+  it("falls back to options match when the SKU differs", () => {
+    const next = applyRemoteVariantPricesToMatrix(base(), [
+      { sku: "OTHER", options: { Color: "Blue" }, priceCents: 999 },
+    ]);
+    expect(next.skus.map((s) => s.priceCents)).toEqual([2500, 999, 2500]);
+  });
+
+  it("keeps existing prices for rows with no matching remote read", () => {
+    const next = applyRemoteVariantPricesToMatrix(base(), [
+      { sku: "SKU-R", options: { Color: "Red" }, priceCents: 100 },
+    ]);
+    expect(next.skus[1].priceCents).toBe(2500);
+    expect(next.skus[2].priceCents).toBe(2500);
+  });
+
+  it("ignores non-finite / non-positive prices and treats empty input as a no-op", () => {
+    const matrix = base();
+    expect(applyRemoteVariantPricesToMatrix(matrix, [])).toBe(matrix);
+    const next = applyRemoteVariantPricesToMatrix(matrix, [
+      { sku: "SKU-R", options: { Color: "Red" }, priceCents: Number.NaN },
+      { sku: "SKU-B", options: { Color: "Blue" }, priceCents: 0 },
+      { sku: "SKU-G", options: { Color: "Green" }, priceCents: -10 },
+    ]);
+    expect(next).toBe(matrix);
+  });
+
+  it("marks pricesVary so serialization preserves the learned per-SKU prices", () => {
+    const next = applyRemoteVariantPricesToMatrix(base(), [
+      { sku: "SKU-R", options: { Color: "Red" }, priceCents: 100 },
+    ]);
+    const serialized = serializeVariantMatrix(next);
+    expect(serialized.pricesVary).toBe(true);
+    expect(serialized.skus.map((s) => s.priceCents)).toEqual([100, 2500, 2500]);
   });
 });

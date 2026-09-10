@@ -35,7 +35,18 @@ import {
 import { ebayRemoteLooksLikeIndependentRevise, syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "../sync-baseline";
 import { normalizeVariantsFromProvider, variantsFingerprint } from "../variant-sync";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
-import { normalizeVariantMatrix, serializeVariantMatrix, sumMatrixQuantities } from "@/lib/listing-variant-matrix";
+import {
+  applyLiveInventoryQuantitiesToMatrix,
+  applyRemoteVariantPricesToMatrix,
+  minSkuPriceCents,
+  normalizeVariantMatrix,
+  serializeVariantMatrix,
+  sumMatrixQuantities,
+  type LiveVariantQuantity,
+  type RemoteVariantPrice,
+  type VariantMatrix,
+} from "@/lib/listing-variant-matrix";
+import { fetchLiveInventoryItem, readLiveInventoryAvailableQuantity } from "./passthrough-push";
 import { applyRemoteListingRemoved } from "../apply-remote-listing";
 import { syncInventoryToChannels } from "../sync-inventory";
 import { updateStoreItemOnChannels } from "../outbound";
@@ -137,6 +148,48 @@ export function shouldApplyEbayInboundVariants(args: {
 
   // INW tracks real per-option stock — GetItem's per-option quantities are not trustworthy.
   return false;
+}
+
+const EBAY_INVENTORY_READ_CONCURRENCY = 4;
+
+async function forEachInChunks<T>(
+  items: T[],
+  size: number,
+  fn: (item: T) => Promise<void>
+): Promise<void> {
+  const n = Math.max(1, size);
+  for (let i = 0; i < items.length; i += n) {
+    await Promise.all(items.slice(i, i + n).map((item) => fn(item)));
+  }
+}
+
+/**
+ * Trustworthy per-option stock for a variation listing comes from the Inventory API
+ * (`inventory_item.availability.shipToLocationAvailability.quantity`), NOT GetItem's
+ * per-option Quantity (which lags/degrades after INW publishes a variation group).
+ *
+ * Reads each INW variant SKU's live available quantity and applies it onto INW's matrix.
+ * Rows with no SKU or no successful read keep their existing INW quantity, so a failed
+ * read can never zero stock. Returns null when nothing readable was found.
+ */
+export async function pullEbayVariantQuantitiesFromInventory(
+  accessToken: string,
+  variants: unknown
+): Promise<VariantMatrix | null> {
+  const matrix = normalizeVariantMatrix(variants);
+  if (!matrix || matrix.skus.length === 0) return null;
+  const rows = matrix.skus.filter((row) => row.sku?.trim());
+  if (rows.length === 0) return null;
+
+  const live: LiveVariantQuantity[] = [];
+  await forEachInChunks(rows, EBAY_INVENTORY_READ_CONCURRENCY, async (row) => {
+    const sku = row.sku!.trim();
+    const liveItem = await fetchLiveInventoryItem(accessToken, sku);
+    const qty = readLiveInventoryAvailableQuantity(liveItem);
+    if (qty != null) live.push({ sku, options: row.options, quantity: qty });
+  });
+  if (live.length === 0) return null;
+  return applyLiveInventoryQuantitiesToMatrix(matrix, live);
 }
 
 /** GetItem listing Quantity is not per-option stock. Do not copy it onto variation listings. */
@@ -825,7 +878,19 @@ export async function refreshEbayListingByItemId(
     changes.push("description");
   }
 
-  if (!skipContent && remotePrice !== storeItem.priceCents) {
+  const remoteVariantMatrix = normalizeVariantMatrix(details.variants);
+
+  const applyRemoteVariants = shouldApplyEbayInboundVariants({
+    localVariants: storeItem.variants,
+    remoteVariants: details.variants,
+  });
+
+  // A per-option variation listing prices each SKU independently. eBay's listing-level
+  // CurrentPrice is the *lowest* variation price, so applying it standalone would collapse
+  // every INW variation to that price. Per-SKU prices are pulled below instead.
+  const inwIsPerOption = hasOptionQuantities(storeItem.variants) && !applyRemoteVariants;
+
+  if (!skipContent && !inwIsPerOption && remotePrice !== storeItem.priceCents) {
     updateData.priceCents = remotePrice;
     changes.push(`price ($${(remotePrice / 100).toFixed(2)})`);
   }
@@ -841,14 +906,6 @@ export async function refreshEbayListingByItemId(
       remoteMin != null ? `minOffer ($${(remoteMin / 100).toFixed(2)})` : "minOffer (none)"
     );
   }
-
-  const remoteVariantMatrix = normalizeVariantMatrix(details.variants);
-  const hasRemoteVariants = Boolean(remoteVariantMatrix && remoteVariantMatrix.skus.length > 0);
-
-  const applyRemoteVariants = shouldApplyEbayInboundVariants({
-    localVariants: storeItem.variants,
-    remoteVariants: details.variants,
-  });
 
   if (
     !opts?.skipQuantity &&
@@ -875,17 +932,96 @@ export async function refreshEbayListingByItemId(
       updateData.status = remoteQty > 0 ? "active" : "sold_out";
       changes.push(`quantity (${remoteQty})`);
     }
-  } else if (
-    !opts?.skipQuantity &&
-    remoteQty !== storeItem.quantity &&
-    hasOptionQuantities(storeItem.variants)
-  ) {
-    console.warn("[ebay] skip GetItem listing qty; INW uses per-option stock", {
+  } else if (inwIsPerOption) {
+    // Per-option variation listing. GetItem's listing-level qty/price are aggregates
+    // (summed/degraded qty, lowest variation price), so pull authoritative per-SKU
+    // stock from the Inventory API (only when the aggregate diverges) and per-SKU
+    // prices from GetItem StartPrice, then overlay both onto INW's matrix. This never
+    // collapses variation prices to the listing minimum.
+    const inwMatrix = normalizeVariantMatrix(storeItem.variants);
+    const remotePrices: RemoteVariantPrice[] =
+      remoteVariantMatrix?.skus
+        .filter((s) => s.priceCents != null && s.priceCents > 0)
+        .map((s) => ({
+          sku: s.sku ?? null,
+          options: s.options,
+          priceCents: s.priceCents as number,
+        })) ?? [];
+
+    const qtyDiverged = !opts?.skipQuantity && remoteQty !== storeItem.quantity;
+    let workingMatrix: VariantMatrix | null = inwMatrix;
+    let qtyPulled = false;
+    if (qtyDiverged && inwMatrix) {
+      const inventoryMatrix = await pullEbayVariantQuantitiesFromInventory(
+        accessToken,
+        storeItem.variants
+      );
+      if (inventoryMatrix) {
+        workingMatrix = inventoryMatrix;
+        qtyPulled = true;
+      } else {
+        console.warn("[ebay] skip GetItem listing qty; no readable inventory variant stock", {
+          storeItemId: storeItem.id,
+          legacyItemId,
+          remoteQty,
+          inwQuantity: storeItem.quantity,
+        });
+      }
+    }
+
+    if (workingMatrix && remotePrices.length > 0) {
+      workingMatrix = applyRemoteVariantPricesToMatrix(workingMatrix, remotePrices);
+    }
+
+    const currentSerialized = inwMatrix ? serializeVariantMatrix(inwMatrix) : null;
+    const nextSerialized = workingMatrix ? serializeVariantMatrix(workingMatrix) : null;
+    const matrixChanged =
+      JSON.stringify(nextSerialized) !== JSON.stringify(currentSerialized);
+    const sum = workingMatrix ? sumMatrixQuantities(workingMatrix) : storeItem.quantity;
+    const nextListingPrice = workingMatrix
+      ? minSkuPriceCents(workingMatrix, storeItem.priceCents)
+      : storeItem.priceCents;
+    const unsoldZero =
+      qtyPulled &&
+      ebayGetItemQtyIsUnsoldZero({
+        listingEnded: details.listingEnded,
+        quantitySold: details.quantitySold,
+        quantity: sum,
+      });
+
+    console.log("[ebay] variation price/qty inbound decision", {
       storeItemId: storeItem.id,
       legacyItemId,
-      remoteQty,
-      inwQuantity: storeItem.quantity,
+      remoteListingPrice: remotePrice,
+      remotePerSkuPriceCount: remotePrices.length,
+      inwHadPerSkuPrices: Boolean(inwMatrix?.skus.some((s) => s.priceCents != null && s.priceCents > 0)),
+      qtyDiverged,
+      qtyPulled,
+      matrixChanged,
+      sum,
+      nextListingPrice,
+      inwListingPrice: storeItem.priceCents,
+      unsoldZero,
     });
+
+    if (unsoldZero) {
+      console.warn("[ebay] skip inventory variant qty 0 on an active listing with no QuantitySold", {
+        storeItemId: storeItem.id,
+        legacyItemId,
+        sum,
+        quantitySold: details.quantitySold,
+      });
+    } else if (workingMatrix && nextSerialized && matrixChanged) {
+      updateData.variants = nextSerialized;
+      if (qtyPulled && sum !== storeItem.quantity) {
+        updateData.quantity = sum;
+        updateData.status = sum > 0 ? "active" : "sold_out";
+      }
+      if (nextListingPrice > 0 && nextListingPrice !== storeItem.priceCents) {
+        updateData.priceCents = nextListingPrice;
+      }
+      changes.push("variant prices/quantities");
+    }
   }
 
   if (!skipLaggedTitle && applyRemoteVariants && remoteVariantMatrix && remoteVariantMatrix.skus.length > 0) {

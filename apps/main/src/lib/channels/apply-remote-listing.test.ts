@@ -3,6 +3,7 @@ import {
   remoteContentDiffersFromStoreItem,
   remoteTitleOrPriceDiffersFromStoreItem,
   shouldApplyAggregateRemoteQuantity,
+  shouldApplyRemoteListingPrice,
 } from "./apply-remote-listing";
 import type { RemoteListingSummary } from "./types";
 
@@ -68,6 +69,26 @@ describe("shouldApplyAggregateRemoteQuantity", () => {
 
   it("allows qty when remote variant axes were actually read", () => {
     expect(shouldApplyAggregateRemoteQuantity(optionVariants, true)).toBe(true);
+  });
+});
+
+describe("shouldApplyRemoteListingPrice", () => {
+  const optionVariants = [
+    { name: "color", options: [{ value: "red", quantity: 5 }, { value: "blue", quantity: 5 }] },
+  ];
+
+  it("always adopts the remote price on simple (non-variant) listings", () => {
+    expect(shouldApplyRemoteListingPrice(null)).toBe(true);
+    expect(shouldApplyRemoteListingPrice(null, false)).toBe(true);
+  });
+
+  it("holds the listing price for a per-option item when variants are not hydrated (no collapse)", () => {
+    expect(shouldApplyRemoteListingPrice(optionVariants)).toBe(false);
+    expect(shouldApplyRemoteListingPrice(optionVariants, false)).toBe(false);
+  });
+
+  it("adopts the listing price for a per-option item once variants are hydrated", () => {
+    expect(shouldApplyRemoteListingPrice(optionVariants, true)).toBe(true);
   });
 });
 

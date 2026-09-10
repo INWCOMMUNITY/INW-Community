@@ -637,6 +637,95 @@ export function sumMatrixQuantities(matrix: VariantMatrix | null): number {
   return matrix.skus.reduce((n, s) => n + Math.max(0, s.quantity), 0);
 }
 
+export type LiveVariantQuantity = {
+  sku?: string | null;
+  options?: Record<string, string>;
+  quantity: number;
+};
+
+/**
+ * Overwrite per-option quantities in a matrix from authoritative live reads
+ * (e.g. eBay Inventory API). Each live entry is matched to a matrix row by SKU
+ * first, then by option selection. Matrix structure (axes, options, SKUs) is
+ * preserved; a row with no matching live read keeps its existing quantity so a
+ * failed/absent read never zeroes stock. Returns a new matrix; input is untouched.
+ */
+export function applyLiveInventoryQuantitiesToMatrix(
+  matrix: VariantMatrix,
+  liveQuantities: LiveVariantQuantity[]
+): VariantMatrix {
+  if (!liveQuantities.length) return matrix;
+  const bySku = new Map<string, number>();
+  const byOptions = new Map<string, number>();
+  for (const entry of liveQuantities) {
+    const n = Number(entry.quantity);
+    if (!Number.isFinite(n)) continue;
+    const qty = Math.max(0, Math.round(n));
+    const sku = entry.sku?.trim();
+    if (sku) bySku.set(sku, qty);
+    if (entry.options && Object.keys(entry.options).length > 0) {
+      byOptions.set(skuSelectionKey(entry.options), qty);
+    }
+  }
+  if (bySku.size === 0 && byOptions.size === 0) return matrix;
+  return {
+    ...matrix,
+    skus: matrix.skus.map((row) => {
+      const skuKey = row.sku?.trim();
+      const next =
+        (skuKey ? bySku.get(skuKey) : undefined) ?? byOptions.get(skuSelectionKey(row.options));
+      if (next == null) return row;
+      return { ...row, quantity: Math.max(0, next) };
+    }),
+  };
+}
+
+export type RemoteVariantPrice = {
+  sku?: string | null;
+  options?: Record<string, string>;
+  priceCents: number;
+};
+
+/**
+ * Overwrite per-option prices in a matrix from authoritative live reads
+ * (e.g. eBay GetItem per-variation StartPrice, Etsy per-offering price). Each
+ * remote entry is matched to a matrix row by SKU first, then by option selection.
+ * Matrix structure (axes, options, SKUs) and quantities are preserved; a row with
+ * no matching remote price keeps its existing price so a failed/absent read never
+ * collapses variation prices. `pricesVary` is set true so serialization keeps the
+ * per-SKU prices we just learned. Returns a new matrix; input is untouched.
+ */
+export function applyRemoteVariantPricesToMatrix(
+  matrix: VariantMatrix,
+  remotePrices: RemoteVariantPrice[]
+): VariantMatrix {
+  if (!remotePrices.length) return matrix;
+  const bySku = new Map<string, number>();
+  const byOptions = new Map<string, number>();
+  for (const entry of remotePrices) {
+    const n = Number(entry.priceCents);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    const price = Math.round(n);
+    const sku = entry.sku?.trim();
+    if (sku) bySku.set(sku, price);
+    if (entry.options && Object.keys(entry.options).length > 0) {
+      byOptions.set(skuSelectionKey(entry.options), price);
+    }
+  }
+  if (bySku.size === 0 && byOptions.size === 0) return matrix;
+  let applied = false;
+  const skus = matrix.skus.map((row) => {
+    const skuKey = row.sku?.trim();
+    const next =
+      (skuKey ? bySku.get(skuKey) : undefined) ?? byOptions.get(skuSelectionKey(row.options));
+    if (next == null) return row;
+    applied = true;
+    return { ...row, priceCents: Math.max(1, next) };
+  });
+  if (!applied) return matrix;
+  return { ...matrix, pricesVary: true, skus };
+}
+
 export function matrixHasSkuRows(matrix: VariantMatrix | null): boolean {
   return Boolean(matrix && matrix.skus.length > 0);
 }

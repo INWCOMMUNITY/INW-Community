@@ -178,14 +178,26 @@ function liveProductImageUrls(live: LiveInventoryItem): string[] {
   return Array.isArray(product.imageUrls) ? product.imageUrls.map((u) => String(u)) : [];
 }
 
-function liveQuantity(live: LiveInventoryItem): number | null {
+/**
+ * Authoritative current stock for an Inventory-API listing:
+ * `availability.shipToLocationAvailability.quantity`. Null when absent/non-finite
+ * so callers can distinguish "no read" from a real 0.
+ */
+export function readLiveInventoryAvailableQuantity(
+  live: LiveInventoryItem | null | undefined
+): number | null {
+  if (!live || typeof live !== "object") return null;
   const availability = live.availability;
   if (!availability || typeof availability !== "object") return null;
   const ship = (availability as { shipToLocationAvailability?: { quantity?: unknown } })
     .shipToLocationAvailability;
   if (ship?.quantity == null) return null;
   const n = Number(ship.quantity);
-  return Number.isFinite(n) ? n : null;
+  return Number.isFinite(n) ? Math.max(0, n) : null;
+}
+
+function liveQuantity(live: LiveInventoryItem): number | null {
+  return readLiveInventoryAvailableQuantity(live);
 }
 
 /** Read offer pricingSummary.price as integer cents for drift checks. */

@@ -114,7 +114,23 @@ export async function applyRemoteContentToStoreItem(
   const hostedPhotosChanged =
     photosToWrite.length !== item.photos.length ||
     photosToWrite.some((url, i) => url !== item.photos[i]);
-  const differs = remoteContentDiffersFromStoreItem(item, safeRemote);
+
+  // A per-option listing prices each SKU independently. The channel's listing-level
+  // price is the *lowest* variation price, so applying it standalone would collapse
+  // every INW variation to that price. Only adopt the listing price when the remote is
+  // variants-hydrated this tick (per-SKU prices are applied alongside via
+  // applyRemoteVariantsToStoreItem); otherwise keep INW's price until hydration.
+  const inwIsPerOption = hasOptionQuantities(item.variants);
+  const applyPrice = shouldApplyRemoteListingPrice(item.variants, safeRemote.variantsKnown);
+
+  const nonPriceDiffers =
+    normalizeTitleForCompare(item.title).slice(0, EBAY_TITLE_MAX) !==
+      normalizeTitleForCompare(safeRemote.title).slice(0, EBAY_TITLE_MAX) ||
+    inboundListingPhotosDiffer(item.photos, safeRemote.photos) ||
+    !inboundDescriptionsMatch(item.description, safeRemote.description);
+  const differs = applyPrice
+    ? remoteContentDiffersFromStoreItem(item, safeRemote)
+    : nonPriceDiffers;
   const adoptedSku = skuToAdoptFromRemote({
     localSku: item.sku,
     remoteSku: safeRemote.sku,
@@ -129,6 +145,8 @@ export async function applyRemoteContentToStoreItem(
       remotePrice: safeRemote.priceCents,
       localPhotos: item.photos?.length,
       remotePhotos: safeRemote.photos?.length,
+      inwIsPerOption,
+      applyPrice,
     });
     return false;
   }
@@ -136,7 +154,8 @@ export async function applyRemoteContentToStoreItem(
   console.log("[channels] applyRemoteContent: applying changes", {
     storeItemId,
     titleChanged: item.title !== safeRemote.title.slice(0, 200),
-    priceChanged: item.priceCents !== safeRemote.priceCents,
+    priceChanged: applyPrice && item.priceCents !== safeRemote.priceCents,
+    priceHeldForVariants: inwIsPerOption && !applyPrice && item.priceCents !== safeRemote.priceCents,
     photosChanged: inboundListingPhotosDiffer(item.photos, safeRemote.photos),
     oldPrice: item.priceCents,
     newPrice: safeRemote.priceCents,
@@ -150,7 +169,7 @@ export async function applyRemoteContentToStoreItem(
             title: safeRemote.title.slice(0, 200),
             description: storeListingDescription(safeRemote.description),
             photos: photosToWrite,
-            priceCents: safeRemote.priceCents,
+            ...(applyPrice ? { priceCents: safeRemote.priceCents } : {}),
           }
         : hostedPhotosChanged
           ? { photos: photosToWrite }
@@ -163,6 +182,21 @@ export async function applyRemoteContentToStoreItem(
 
 /** Apply quantity from Wix inventory webhooks or targeted pull (not catalog list defaults). */
 export function shouldApplyAggregateRemoteQuantity(
+  variants: unknown,
+  remoteVariantsKnown?: boolean
+): boolean {
+  if (!hasOptionQuantities(variants)) return true;
+  return remoteVariantsKnown === true;
+}
+
+/**
+ * A channel's listing-level price for a per-option item is the *lowest* variation price.
+ * Adopting it standalone collapses every INW variation to that price. Only apply the
+ * listing-level price when the remote is variants-hydrated this tick, so per-SKU prices
+ * are applied alongside (via applyRemoteVariantsToStoreItem). Simple (non-variant)
+ * listings always adopt the remote price.
+ */
+export function shouldApplyRemoteListingPrice(
   variants: unknown,
   remoteVariantsKnown?: boolean
 ): boolean {
