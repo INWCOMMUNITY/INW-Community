@@ -43,7 +43,7 @@ export function StorefrontCard({
 
   return (
     <div
-      className={`group border-2 border-[var(--color-primary)] ${CARD_RADIUS} ${CARD_SHADOW} overflow-hidden relative bg-white transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_20px_40px_rgba(80,85,66,0.15)]`}
+      className={`group h-full flex flex-col border-2 border-[var(--color-primary)] ${CARD_RADIUS} ${CARD_SHADOW} overflow-hidden relative bg-white transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_20px_40px_rgba(80,85,66,0.15)]`}
     >
       <Link
         href={href}
@@ -53,7 +53,7 @@ export function StorefrontCard({
           }
         }}
         onMouseLeave={() => setHoveredPhotoIndex(0)}
-        className="block aspect-square w-full relative bg-[#F8F8F3] p-2 border-b-2 border-[var(--color-primary)] overflow-hidden"
+        className="block aspect-square w-full relative bg-[#F8F8F3] p-2 border-b-2 border-[var(--color-primary)] overflow-hidden shrink-0"
       >
         {photoUrl ? (
           <img
@@ -75,27 +75,31 @@ export function StorefrontCard({
           {priceLabel.from ? "From " : ""}${(priceLabel.cents / 100).toFixed(2)}
         </div>
       </Link>
-      <div className="p-2.5">
-        <h2 className="text-sm font-bold leading-tight line-clamp-2">
+      <div className="p-2.5 flex flex-1 flex-col min-h-0">
+        <h2 className="text-sm font-bold leading-5 h-10 line-clamp-2">
           <Link href={href} className="hover:underline">
             {item.title}
           </Link>
         </h2>
-        {showBusiness && item.business ? (
-          <Link
-            href={`/support-local/sellers/${item.business.slug}`}
-            className="text-xs hover:underline block truncate"
-            style={{ color: "var(--color-link)" }}
-          >
-            {item.business.name}
-          </Link>
+        {showBusiness ? (
+          item.business ? (
+            <Link
+              href={`/support-local/sellers/${item.business.slug}`}
+              className="text-xs leading-4 h-4 mt-0.5 hover:underline block truncate"
+              style={{ color: "var(--color-link)" }}
+            >
+              {item.business.name}
+            </Link>
+          ) : (
+            <span className="block h-4 mt-0.5" aria-hidden>
+              {"\u00a0"}
+            </span>
+          )
         ) : null}
-        {item.description ? (
-          <p className="text-xs text-gray-600 mt-1 line-clamp-2">
-            {listingDescriptionPreview(item.description)}
-          </p>
-        ) : null}
-        <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-100">
+        <p className="text-xs leading-4 text-gray-600 mt-1 line-clamp-2 h-8">
+          {item.description ? listingDescriptionPreview(item.description) : "\u00a0"}
+        </p>
+        <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-100">
           <div className="flex gap-1.5">
             <HeartSaveButton
               type="store_item"

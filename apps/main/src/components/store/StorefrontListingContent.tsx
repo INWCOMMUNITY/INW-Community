@@ -1260,26 +1260,26 @@ className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] 
               >
                 ‹
               </button>
-              <div className="flex-1 min-w-0 grid grid-cols-2 gap-4 max-w-2xl mx-auto justify-items-center">
+              <div className="flex-1 min-w-0 grid grid-cols-2 gap-4 max-w-2xl mx-auto items-stretch justify-items-center">
                 {sellerItems
                   .slice(sellerScrollIndex * ITEMS_PER_SCROLL, sellerScrollIndex * ITEMS_PER_SCROLL + ITEMS_PER_SCROLL)
                   .map((other) => (
                     <Link
                       key={other.id}
                       href={listingHrefPreservingReferrer(other.slug, searchParams)}
-                      className="border-2 rounded-lg overflow-hidden hover:opacity-90 transition-opacity w-full max-w-[14rem] shrink-0"
+                      className="flex h-full flex-col border-2 rounded-lg overflow-hidden hover:opacity-90 transition-opacity w-full max-w-[14rem] shrink-0"
                       style={{ borderColor: "#C9A86C" }}
                     >
-                      <div className="aspect-square bg-[#F8F8F3] p-2">
+                      <div className="aspect-square bg-[#F8F8F3] p-2 shrink-0">
                         {other.photos[0] ? (
                           <img src={listingDisplayPhoto(other.photos[0], "card") ?? other.photos[0]} alt={other.title} className="w-full h-full object-contain" loading="lazy" decoding="async" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No image</div>
                         )}
                       </div>
-                      <div className="p-2">
-                        <p className="text-sm font-medium line-clamp-2">{other.title}</p>
-                        <p className="text-sm font-bold mt-0.5">${(other.priceCents / 100).toFixed(2)}</p>
+                      <div className="p-2 flex flex-1 flex-col">
+                        <p className="text-sm font-medium leading-5 h-10 line-clamp-2">{other.title}</p>
+                        <p className="text-sm font-bold mt-auto pt-0.5">${(other.priceCents / 100).toFixed(2)}</p>
                       </div>
                     </Link>
                   ))}
@@ -1338,26 +1338,26 @@ className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] 
             >
               ‹
             </button>
-            <div className="flex-1 min-w-0 grid grid-cols-2 gap-4 max-w-2xl mx-auto justify-items-center">
+            <div className="flex-1 min-w-0 grid grid-cols-2 gap-4 max-w-2xl mx-auto items-stretch justify-items-center">
               {similarItems
                 .slice(moreLikeThisScrollIndex * ITEMS_PER_SCROLL, moreLikeThisScrollIndex * ITEMS_PER_SCROLL + ITEMS_PER_SCROLL)
                 .map((other) => (
                     <Link
                       key={`morelike-${other.id}`}
                       href={listingHrefPreservingReferrer(other.slug, searchParams)}
-                    className="border-2 rounded-lg overflow-hidden hover:opacity-90 transition-opacity w-full max-w-[14rem] shrink-0"
+                    className="flex h-full flex-col border-2 rounded-lg overflow-hidden hover:opacity-90 transition-opacity w-full max-w-[14rem] shrink-0"
                     style={{ borderColor: "#C9A86C" }}
                   >
-                    <div className="aspect-square bg-[#F8F8F3] p-2">
+                    <div className="aspect-square bg-[#F8F8F3] p-2 shrink-0">
                       {other.photos[0] ? (
                         <img src={listingDisplayPhoto(other.photos[0], "card") ?? other.photos[0]} alt={other.title} className="w-full h-full object-contain" loading="lazy" decoding="async" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No image</div>
                       )}
                     </div>
-                    <div className="p-2">
-                      <p className="text-sm font-medium line-clamp-2">{other.title}</p>
-                      <p className="text-sm font-bold mt-0.5">${(other.priceCents / 100).toFixed(2)}</p>
+                    <div className="p-2 flex flex-1 flex-col">
+                      <p className="text-sm font-medium leading-5 h-10 line-clamp-2">{other.title}</p>
+                      <p className="text-sm font-bold mt-auto pt-0.5">${(other.priceCents / 100).toFixed(2)}</p>
                     </div>
                   </Link>
                 ))}

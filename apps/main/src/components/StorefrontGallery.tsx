@@ -610,11 +610,11 @@ export function StorefrontGallery({
       {closeMatchNote ? (
         <p className="text-sm text-gray-600 mb-4 italic text-center">{closeMatchNote}</p>
       ) : null}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6 items-stretch">
         {items.map((item, index) => (
           <div
             key={item.id}
-            className="animate-fadeInUp"
+            className="h-full animate-fadeInUp"
             style={{ animationDelay: `${Math.min(index, 24) * 40}ms` }}
           >
             <StorefrontCard item={item} savedIds={savedIds} basePath={basePath} eager={index < 8} />

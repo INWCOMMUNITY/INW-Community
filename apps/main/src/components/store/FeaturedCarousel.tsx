@@ -104,9 +104,9 @@ export function FeaturedCarousel({ initialItems }: { initialItems?: FeaturedItem
           <Link
             key={item.id}
             href={`/storefront/${item.slug}`}
-            className={`group shrink-0 w-[200px] sm:w-[240px] snap-start ${CARD_RADIUS} ${CARD_SHADOW} bg-white overflow-hidden transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_20px_40px_rgba(80,85,66,0.15)]`}
+            className={`group flex h-full shrink-0 w-[200px] sm:w-[240px] snap-start flex-col ${CARD_RADIUS} ${CARD_SHADOW} bg-white overflow-hidden transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_20px_40px_rgba(80,85,66,0.15)]`}
           >
-            <div className="aspect-[4/5] bg-[#f5f5f5] relative overflow-hidden">
+            <div className="aspect-[4/5] bg-[#f5f5f5] relative overflow-hidden shrink-0">
               {item.photos[0] ? (
                 <img
                   src={listingDisplayPhoto(item.photos[0], "card") ?? item.photos[0]}
@@ -126,11 +126,11 @@ export function FeaturedCarousel({ initialItems }: { initialItems?: FeaturedItem
                 ${(item.priceCents / 100).toFixed(2)}
               </div>
             </div>
-            <div className="p-3.5">
-              <h3 className="text-base font-medium leading-tight line-clamp-2">{item.title}</h3>
-              {item.business && (
-                <p className="text-sm text-gray-500 truncate mt-1">{item.business.name}</p>
-              )}
+            <div className="p-3.5 flex flex-1 flex-col">
+              <h3 className="text-base font-medium leading-5 h-10 line-clamp-2">{item.title}</h3>
+              <p className="text-sm leading-5 h-5 text-gray-500 truncate mt-1">
+                {item.business?.name ?? "\u00a0"}
+              </p>
             </div>
           </Link>
         ))}
