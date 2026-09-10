@@ -77,11 +77,14 @@ export function getTrackingUrl(carrier: string, trackingNumber: string): string 
   return `https://www.google.com/search?q=track+${encodeURIComponent(trackingNumber)}`;
 }
 
-export function formatSellerOrderTotal(order: Pick<StoreOrderSummary, "orderKind" | "totalCents">): string {
+export function formatSellerOrderTotal(
+  order: Pick<StoreOrderSummary, "orderKind" | "totalCents" | "taxCents">
+): string {
   if (order.orderKind === "reward_redemption" && order.totalCents === 0) {
     return "No charge to member (reward)";
   }
-  return `$${(order.totalCents / 100).toFixed(2)}`;
+  const grand = order.totalCents + (order.taxCents ?? 0);
+  return `$${(grand / 100).toFixed(2)}`;
 }
 
 export function sellerOrderPaymentLabel(order: {

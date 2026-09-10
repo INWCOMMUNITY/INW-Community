@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildOrderDetailsFromOrder, parcelFromOrderItems, type OrderForElements } from "./shippo-elements";
+import {
+  buildOrderDetailsFromOrder,
+  collectLabelUrlsFromTransactions,
+  parcelFromOrderItems,
+  uniqueHttpUrls,
+  type OrderForElements,
+} from "./shippo-elements";
 
 function makeOrder(overrides: Partial<OrderForElements> = {}): OrderForElements {
   return {
@@ -97,5 +103,27 @@ describe("Shippo package from listing options", () => {
       widthIn: 6,
       heightIn: 4,
     });
+  });
+});
+
+describe("label PDF URLs from Shippo transactions", () => {
+  it("collects unique http(s) label URLs and drops junk", () => {
+    expect(
+      collectLabelUrlsFromTransactions([
+        { label_url: "https://deliver.goshippo.com/a.pdf" },
+        { label_url: "https://deliver.goshippo.com/a.pdf" },
+        { label_url: "https://deliver.goshippo.com/b.pdf" },
+        { label_url: "javascript:alert(1)" },
+        { label_url: "  " },
+        {},
+      ])
+    ).toEqual(["https://deliver.goshippo.com/a.pdf", "https://deliver.goshippo.com/b.pdf"]);
+  });
+
+  it("keeps insertion order for uniqueHttpUrls", () => {
+    expect(uniqueHttpUrls(["https://z.example/1", null, "https://z.example/2", "https://z.example/1"])).toEqual([
+      "https://z.example/1",
+      "https://z.example/2",
+    ]);
   });
 });

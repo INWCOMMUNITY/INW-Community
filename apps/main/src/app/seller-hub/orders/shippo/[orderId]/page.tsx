@@ -4,8 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import Script from "next/script";
 import { useParams } from "next/navigation";
-import { ShippoElementsSurface } from "@/components/ShippoElementsModal";
-import { isWithinLabelReprintWindow } from "@/lib/shippo-label-reprint";
+import { ShippoElementsSurface, ShippoPrintLabelActions } from "@/components/ShippoElementsModal";
 import {
   useShippoLabelFlowForOrder,
   SHIPPO_EMBEDDABLE_URL,
@@ -93,6 +92,7 @@ export default function SellerShippoThinLabelPage() {
     elementsLoading,
     elementsError,
     shippoModalOpen,
+    purchasedLabelUrls,
     openElementsFlow,
     closeShippoModal,
   } = useShippoLabelFlowForOrder({
@@ -143,7 +143,7 @@ export default function SellerShippoThinLabelPage() {
       <div className="max-w-lg mx-auto px-4 py-8">
         <p className="text-red-700">Invalid order.</p>
         <Link href="/seller-hub/orders" className="text-sm text-gray-600 hover:underline mt-4 inline-block">
-          ← Back to orders
+          ← Back to Orders
         </Link>
       </div>
     );
@@ -161,7 +161,7 @@ export default function SellerShippoThinLabelPage() {
     return (
       <div className="max-w-lg mx-auto px-4 py-8">
         <Link href="/seller-hub/orders" className="text-sm text-gray-600 hover:underline mb-4 inline-block">
-          ← Back to orders
+          ← Back to Orders
         </Link>
         <div className="border rounded-lg p-6 bg-red-50">
           <p className="text-red-700">{fetchError ?? "Order not found."}</p>
@@ -180,20 +180,26 @@ export default function SellerShippoThinLabelPage() {
       {!embeddedNwAppChrome ? (
         <>
           <Link href="/seller-hub/orders" className="text-sm text-gray-600 hover:underline mb-2 inline-block">
-            ← Back to orders
+            ← Back to Orders
           </Link>
           <Link
             href={`/seller-hub/orders/${orderId}`}
             className="text-sm block mb-6 hover:underline"
             style={{ color: "var(--color-primary)" }}
           >
-            View full order details
+            View Order
           </Link>
         </>
       ) : null}
 
       <h1 className="text-xl font-bold mb-1" style={{ color: "var(--color-heading)" }}>
-        {capturedNwAppShippo === "return" ? "Send Buyer Return Label" : "Buy shipping label"}
+        {capturedNwAppShippo === "return"
+          ? "Send Buyer Return Label"
+          : capturedNwAppShippo === "reprint"
+            ? "Reprint Label"
+            : capturedNwAppShippo === "another" || (!capturedNwAppShippo && order.shipment)
+              ? "Repurchase Shipping Label"
+              : "Buy Shipping Label"}
       </h1>
       <p className="text-sm text-gray-600 mb-1">
         Order #{orderLabel}
@@ -226,13 +232,17 @@ export default function SellerShippoThinLabelPage() {
 
       {elementsError ? <p className="text-sm text-amber-700 mb-3">{elementsError}</p> : null}
 
-      {(() => {
-        const canLabelFlow =
-          order.status === "paid" ||
-          order.status === "shipped" ||
-          order.status === "delivered";
-        return (
-          <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2">
+            {order.shipment?.labelUrl ? (
+              <a
+                href={order.shipment.labelUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn text-sm py-2 px-4 w-full sm:w-auto"
+              >
+                Reprint Label
+              </a>
+            ) : null}
             {order.status === "paid" && !order.shipment && orderHasShippedLine(order.items) && (
               <button
                 type="button"
@@ -243,23 +253,7 @@ export default function SellerShippoThinLabelPage() {
                 {elementsLoading ? "Opening…" : "Purchase Label"}
               </button>
             )}
-            {canLabelFlow &&
-              order.shipment?.shippoOrderId &&
-              order.shipment.createdAt &&
-              isWithinLabelReprintWindow(order.shipment.createdAt) && (
-                <button
-                  type="button"
-                  onClick={() => void openElementsFlow({ forReprint: true })}
-                  disabled={elementsLoading}
-                  className="btn text-sm py-2 px-4 disabled:opacity-50 w-full sm:w-auto"
-                >
-                  {elementsLoading ? "Opening…" : "Reprint Label"}
-                </button>
-              )}
-            {orderEligibleForAnotherShippoLabel(order) &&
-              !(
-                order.shipment?.createdAt && isWithinLabelReprintWindow(order.shipment.createdAt)
-              ) && (
+            {orderEligibleForAnotherShippoLabel(order) && (
               <button
                 type="button"
                 onClick={() => void openElementsFlow({ forceAdditionalLabel: true })}
@@ -279,9 +273,7 @@ export default function SellerShippoThinLabelPage() {
                 {elementsLoading ? "Opening…" : "Send Buyer Return Label"}
               </button>
             )}
-          </div>
-        );
-      })()}
+      </div>
 
       <ShippoElementsSurface
         open={shippoModalOpen}
@@ -289,6 +281,7 @@ export default function SellerShippoThinLabelPage() {
         containerId={SHIPPO_CONTAINER_ID_THIN}
         title={capturedNwAppShippo === "return" ? "Send Buyer Return Label" : "Shippo — Labels"}
         presentation="page"
+        actions={<ShippoPrintLabelActions urls={purchasedLabelUrls} />}
       />
     </div>
   );

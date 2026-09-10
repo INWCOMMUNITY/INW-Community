@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { isWithinLabelReprintWindow } from "@/lib/shippo-label-reprint";
 import { getTrackingUrl } from "@/lib/store-order-fulfillment";
+import { orderEligibleForAnotherShippoLabel } from "types";
 import { OrderCard } from "./OrderCard";
 import { OrderEmptyState } from "./OrderEmptyState";
 import type { FulfillmentStoreOrder } from "./types";
 
-function shippoLabelPageHref(orderId: string, labelAction: "reprint" | "another") {
+function shippoLabelPageHref(orderId: string, labelAction: "another") {
   const q = new URLSearchParams({ labelAction });
   return `/seller-hub/orders/shippo/${orderId}?${q.toString()}`;
 }
@@ -25,9 +25,7 @@ function LabelActionsMenu({
   setMenuOpenId: (id: string | null) => void;
 }) {
   if (!order.shipment) return null;
-  const canReprint =
-    !!order.shipment.createdAt && isWithinLabelReprintWindow(order.shipment.createdAt);
-  const canRepurchase = !canReprint;
+  const canRepurchase = orderEligibleForAnotherShippoLabel(order);
 
   return (
     <div className="relative">
@@ -54,7 +52,7 @@ function LabelActionsMenu({
               style={{ color: "var(--color-link)" }}
               onClick={() => setMenuOpenId(null)}
             >
-              View order
+              View Order
             </Link>
             {order.shipment.labelUrl ? (
               <a
@@ -65,17 +63,8 @@ function LabelActionsMenu({
                 style={{ color: "var(--color-link)" }}
                 onClick={() => setMenuOpenId(null)}
               >
-                Open label PDF
+                Reprint Label
               </a>
-            ) : null}
-            {canReprint && order.shipment.shippoOrderId ? (
-              <Link
-                href={shippoLabelPageHref(order.id, "reprint")}
-                className="block px-3 py-2 hover:bg-gray-50 text-[var(--color-primary)]"
-                onClick={() => setMenuOpenId(null)}
-              >
-                Reprint label
-              </Link>
             ) : null}
             {canRepurchase ? (
               <Link
@@ -83,7 +72,7 @@ function LabelActionsMenu({
                 className="block px-3 py-2 hover:bg-gray-50 text-[var(--color-primary)]"
                 onClick={() => setMenuOpenId(null)}
               >
-                Repurchase label
+                Repurchase Label
               </Link>
             ) : null}
           </div>
@@ -121,19 +110,34 @@ export function ShippedOrderSection({
             ordersBasePath={ordersBasePath}
             showStatus
             trailing={
-              order.shipment?.trackingNumber ? (
-                <p className="text-sm mt-2">
-                  <a
-                    href={getTrackingUrl(order.shipment.carrier, order.shipment.trackingNumber)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="hover:underline"
-                    style={{ color: "var(--color-link)" }}
-                  >
-                    {order.shipment.carrier} {order.shipment.trackingNumber}
-                  </a>
-                </p>
-              ) : null
+              <>
+                {order.shipment?.labelUrl ? (
+                  <p className="text-sm mt-2">
+                    <a
+                      href={order.shipment.labelUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium hover:underline"
+                      style={{ color: "var(--color-link)" }}
+                    >
+                      Reprint Label
+                    </a>
+                  </p>
+                ) : null}
+                {order.shipment?.trackingNumber ? (
+                  <p className="text-sm mt-2">
+                    <a
+                      href={getTrackingUrl(order.shipment.carrier, order.shipment.trackingNumber)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:underline"
+                      style={{ color: "var(--color-link)" }}
+                    >
+                      {order.shipment.carrier} {order.shipment.trackingNumber}
+                    </a>
+                  </p>
+                ) : null}
+              </>
             }
             menu={
               <LabelActionsMenu

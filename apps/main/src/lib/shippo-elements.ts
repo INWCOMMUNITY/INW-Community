@@ -337,6 +337,48 @@ export interface ElementsTransactionPayload {
   };
 }
 
+/** Deduplicate http(s) URLs; drop blanks and non-http schemes. */
+export function uniqueHttpUrls(urls: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of urls) {
+    const url = raw?.trim();
+    if (!url || !/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    seen.add(url);
+    out.push(url);
+  }
+  return out;
+}
+
+export function collectLabelUrlsFromTransactions(txs: ElementsTransactionPayload[]): string[] {
+  return uniqueHttpUrls(txs.map((tx) => tx.label_url));
+}
+
+/**
+ * Open each label PDF in a new tab. Call from a click handler when possible;
+ * iframe callbacks are often treated as non-gestures and may be popup-blocked.
+ * Skip auto-open inside the Expo WebView so we do not navigate away from Shippo.
+ */
+export function openLabelPdfUrls(urls: string[]): { opened: string[]; blocked: string[] } {
+  const unique = uniqueHttpUrls(urls);
+  if (typeof window === "undefined") return { opened: [], blocked: unique };
+  const w = window as Window & { ReactNativeWebView?: unknown };
+  if (w.ReactNativeWebView) return { opened: [], blocked: unique };
+
+  const opened: string[] = [];
+  const blocked: string[] = [];
+  for (const url of unique) {
+    const popup = window.open(url, "_blank");
+    if (popup) {
+      popup.opener = null;
+      opened.push(url);
+    } else {
+      blocked.push(url);
+    }
+  }
+  return { opened, blocked };
+}
+
 /**
  * Normalize a transaction from LABEL_PURCHASED_SUCCESS to the shape expected by POST /api/shipping/label-from-elements.
  */

@@ -17,6 +17,8 @@ export function CollapsibleHelpSection({ shippingSetupHref }: CollapsibleHelpSec
     >
       <ul className="text-sm text-gray-600 space-y-2 list-disc pl-5">
         <li>Select orders on the Ship tab, then purchase labels in the full-screen Shippo tool.</li>
+        <li>After you buy a label, stay on the Shippo print screen and use Print Shipping Label. Closing takes you to Shipped orders.</li>
+        <li>Reprint Label opens the saved PDF. Repurchase Label starts a new purchase.</li>
         <li>Orders from the same buyer are combined into one Shippo checkout per buyer.</li>
         <li>Print packing slips from the action bar using the same selection.</li>
       </ul>

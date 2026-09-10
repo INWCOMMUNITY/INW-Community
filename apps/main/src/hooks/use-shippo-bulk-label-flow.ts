@@ -4,8 +4,11 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { flushSync } from "react-dom";
 import {
   buildOrderDetailsFromOrder,
+  collectLabelUrlsFromTransactions,
+  openLabelPdfUrls,
   resolvePostalShipToAddress,
   transactionToLabelFromElementsPayload,
+  uniqueHttpUrls,
   type ElementsTransactionPayload,
 } from "@/lib/shippo-elements";
 import { NWC_SHIPPO_ELEMENTS_THEME, type ShippoElementsTheme } from "@/lib/shippo-elements-theme";
@@ -120,17 +123,27 @@ function buildBulkOrderDetails(selectedOrders: StoreOrderForBulkLabel[]) {
   return orderDetailsArray.length === 1 ? orderDetailsArray[0] : orderDetailsArray;
 }
 
+export type ShippoLabelSessionResult = {
+  orderIds: string[];
+  labelUrls: string[];
+};
+
 export function useShippoBulkLabelFlow(options: {
   containerId: string;
   orders: StoreOrderForBulkLabel[];
   onAfterSave: () => void;
+  /** Fired after the last buyer group is saved. Shippo stays open so the seller can print. */
+  onSessionComplete?: (result: ShippoLabelSessionResult) => void;
+  /** Fired after the seller closes the Shippo surface (X or Shippo’s close). */
+  onDismiss?: () => void;
 }) {
-  const { containerId, orders, onAfterSave } = options;
+  const { containerId, orders, onAfterSave, onSessionComplete, onDismiss } = options;
 
   const [elementsLoading, setElementsLoading] = useState(false);
   const [elementsError, setElementsError] = useState<string | null>(null);
   const [shippoSurfaceOpen, setShippoSurfaceOpen] = useState(false);
   const [progressSubtitle, setProgressSubtitle] = useState<string | null>(null);
+  const [purchasedLabelUrls, setPurchasedLabelUrls] = useState<string[]>([]);
 
   const elementsListenersRef = useRef(false);
   const currentElementsOrderIdsRef = useRef<string[]>([]);
@@ -142,8 +155,15 @@ export function useShippoBulkLabelFlow(options: {
   const labelSuccessHandlingRef = useRef(false);
   /** Ignores stale `LABEL_PURCHASED_SUCCESS` when another flow/hook also registered on `window.shippo`. */
   const bulkFlowActiveRef = useRef(false);
+  const sessionCompleteRef = useRef(false);
+  const purchasedLabelUrlsRef = useRef<string[]>([]);
   const onAfterSaveRef = useRef(onAfterSave);
   onAfterSaveRef.current = onAfterSave;
+  const onSessionCompleteRef = useRef(onSessionComplete);
+  onSessionCompleteRef.current = onSessionComplete;
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+  const closeShippoSurfaceRef = useRef<() => void>(() => {});
 
   const containerIdRef = useRef(containerId);
   containerIdRef.current = containerId;
@@ -164,28 +184,35 @@ export function useShippoBulkLabelFlow(options: {
     const groups = buyerGroupsRef.current;
     const nextIdx = groupIndexRef.current + 1;
     if (nextIdx >= groups.length) {
-      notifyNwAppShippoLabelSuccess({ orderIds: sessionLabeledOrderIdsRef.current });
-      setProgressSubtitle(null);
+      sessionCompleteRef.current = true;
       bulkFlowActiveRef.current = false;
-      clearShippoElementsMount(containerIdRef.current);
-      setShippoSurfaceOpen(false);
-      buyerGroupsRef.current = [];
-      groupIndexRef.current = 0;
-      sessionLabeledOrderIdsRef.current = [];
+      setProgressSubtitle(
+        purchasedLabelUrlsRef.current.length > 0
+          ? "Label purchased — print it now, then close."
+          : "Label purchased. Close when you are done."
+      );
+      onSessionCompleteRef.current?.({
+        orderIds: sessionLabeledOrderIdsRef.current,
+        labelUrls: purchasedLabelUrlsRef.current,
+      });
       return;
     }
 
     const nextGroup = groups[nextIdx];
     const orderDetails = buildBulkOrderDetails(nextGroup);
     if (!orderDetails) {
-      setElementsError("Order(s) have no checkout shipping address for Shippo (postal slot).");
-      setProgressSubtitle(null);
+      sessionCompleteRef.current = true;
       bulkFlowActiveRef.current = false;
-      clearShippoElementsMount(containerIdRef.current);
-      setShippoSurfaceOpen(false);
-      buyerGroupsRef.current = [];
-      groupIndexRef.current = 0;
-      sessionLabeledOrderIdsRef.current = [];
+      setElementsError("Some labels were purchased, but the next buyer is missing a checkout shipping address.");
+      setProgressSubtitle(
+        purchasedLabelUrlsRef.current.length > 0
+          ? "Print the labels you bought, then close. Remaining orders need a shipping address."
+          : null
+      );
+      onSessionCompleteRef.current?.({
+        orderIds: sessionLabeledOrderIdsRef.current,
+        labelUrls: purchasedLabelUrlsRef.current,
+      });
       return;
     }
 
@@ -236,6 +263,9 @@ export function useShippoBulkLabelFlow(options: {
     buyerGroupsRef.current = groups;
     groupIndexRef.current = 0;
     sessionLabeledOrderIdsRef.current = [];
+    sessionCompleteRef.current = false;
+    purchasedLabelUrlsRef.current = [];
+    setPurchasedLabelUrls([]);
 
     const first = groups[0];
     const orderDetails = buildBulkOrderDetails(first);
@@ -293,6 +323,12 @@ export function useShippoBulkLabelFlow(options: {
           const labeledOrderIds = currentElementsOrderIdsRef.current;
           if (labeledOrderIds.length === 0 || txs.length === 0) return;
           labelSuccessHandlingRef.current = true;
+          const urlsFromTx = collectLabelUrlsFromTransactions(txs);
+          if (urlsFromTx.length > 0) {
+            const nextUrls = uniqueHttpUrls([...purchasedLabelUrlsRef.current, ...urlsFromTx]);
+            purchasedLabelUrlsRef.current = nextUrls;
+            setPurchasedLabelUrls(nextUrls);
+          }
           const firstTx = txs[0] as ElementsTransactionPayload;
           const payload = transactionToLabelFromElementsPayload(firstTx, {
             weightOz: DEFAULT_WEIGHT_OZ,
@@ -326,6 +362,17 @@ export function useShippoBulkLabelFlow(options: {
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok) {
+              const savedUrl =
+                typeof (data as { shipment?: { labelUrl?: string | null } }).shipment?.labelUrl === "string"
+                  ? (data as { shipment: { labelUrl: string } }).shipment.labelUrl
+                  : null;
+              if (savedUrl) {
+                const nextUrls = uniqueHttpUrls([...purchasedLabelUrlsRef.current, savedUrl]);
+                if (nextUrls.length !== purchasedLabelUrlsRef.current.length) {
+                  purchasedLabelUrlsRef.current = nextUrls;
+                  setPurchasedLabelUrls(nextUrls);
+                }
+              }
               let shippoNow =
                 typeof window !== "undefined" ? (window as { shippo?: ShippoElementsAPI }).shippo : null;
               shippoNow = shippoNow && isShippoReady(shippoNow) ? shippoNow : null;
@@ -335,16 +382,17 @@ export function useShippoBulkLabelFlow(options: {
               if (shippoNow && isShippoReady(shippoNow)) {
                 await advanceOrFinishRef.current(shippoNow, labeledOrderIds);
               } else {
-                setElementsError(
-                  "Label saved, but the app could not open the next step. Refresh this page and check your orders."
+                sessionCompleteRef.current = true;
+                setProgressSubtitle(
+                  purchasedLabelUrlsRef.current.length > 0
+                    ? "Label purchased — print it now, then close."
+                    : "Label saved. Refresh this page if the next step did not open."
                 );
+                onSessionCompleteRef.current?.({
+                  orderIds: [...sessionLabeledOrderIdsRef.current, ...labeledOrderIds],
+                  labelUrls: purchasedLabelUrlsRef.current,
+                });
                 bulkFlowActiveRef.current = false;
-                clearShippoElementsMount(containerIdRef.current);
-                setShippoSurfaceOpen(false);
-                setProgressSubtitle(null);
-                buyerGroupsRef.current = [];
-                groupIndexRef.current = 0;
-                sessionLabeledOrderIdsRef.current = [];
               }
             } else {
               setElementsError(
@@ -366,6 +414,9 @@ export function useShippoBulkLabelFlow(options: {
               ? String((err as { detail: string }).detail)
               : "Something went wrong.";
           setElementsError(msg);
+        });
+        shippo.on("CLOSE_BUTTON_CLICKED", () => {
+          closeShippoSurfaceRef.current();
         });
       }
 
@@ -393,14 +444,24 @@ export function useShippoBulkLabelFlow(options: {
   }, [orders]);
 
   const closeShippoSurface = useCallback(() => {
+    if (sessionCompleteRef.current && sessionLabeledOrderIdsRef.current.length > 0) {
+      notifyNwAppShippoLabelSuccess({ orderIds: sessionLabeledOrderIdsRef.current });
+    }
     bulkFlowActiveRef.current = false;
     labelSuccessHandlingRef.current = false;
+    sessionCompleteRef.current = false;
     clearShippoElementsMount(containerIdRef.current);
     setShippoSurfaceOpen(false);
     setProgressSubtitle(null);
     buyerGroupsRef.current = [];
     groupIndexRef.current = 0;
     sessionLabeledOrderIdsRef.current = [];
+    onDismissRef.current?.();
+  }, []);
+  closeShippoSurfaceRef.current = closeShippoSurface;
+
+  const printPurchasedLabels = useCallback(() => {
+    openLabelPdfUrls(purchasedLabelUrlsRef.current);
   }, []);
 
   return {
@@ -411,5 +472,7 @@ export function useShippoBulkLabelFlow(options: {
     closeShippoSurface,
     runBulkFlow,
     progressSubtitle,
+    purchasedLabelUrls,
+    printPurchasedLabels,
   };
 }

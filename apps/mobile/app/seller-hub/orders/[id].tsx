@@ -7,6 +7,7 @@ import {
   Pressable,
   ActivityIndicator,
   Image,
+  Linking,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
@@ -44,18 +45,11 @@ interface Shipment {
   createdAt?: string;
 }
 
-const LABEL_REPRINT_WINDOW_MS = 48 * 60 * 60 * 1000;
-
-function isWithinLabelReprintWindow(createdAt?: string | null): boolean {
-  if (!createdAt) return false;
-  const t = new Date(createdAt).getTime();
-  return !Number.isNaN(t) && Date.now() - t < LABEL_REPRINT_WINDOW_MS;
-}
-
 interface StoreOrder {
   id: string;
   status: string;
   totalCents: number;
+  taxCents?: number;
   createdAt: string;
   refundInitiatedAt?: string | null;
   refundCompletedAt?: string | null;
@@ -147,10 +141,8 @@ export default function OrderDetailScreen() {
   const showShippingLabels =
     !canceledOrRefunded &&
     (order.status === "paid" || order.status === "shipped" || order.status === "delivered");
-  const canReprint =
-    !!order.shipment?.shippoOrderId && isWithinLabelReprintWindow(order.shipment?.createdAt);
-  const showPurchaseAnother =
-    orderEligibleForAnotherShippoLabel(order) && !isWithinLabelReprintWindow(order.shipment?.createdAt);
+  const canReprint = !!order.shipment?.labelUrl;
+  const showPurchaseAnother = orderEligibleForAnotherShippoLabel(order);
 
   const openListing = (slug: string, listingType?: string) => {
     router.push(
@@ -162,7 +154,7 @@ export default function OrderDetailScreen() {
     );
   };
 
-  const openShippoLabelFullScreen = (mode: "reprint" | "purchase" | "another") => {
+  const openShippoLabelFullScreen = (mode: "purchase" | "another") => {
     router.push(`/seller-hub/shippo-order/${order.id}?mode=${mode}` as never);
   };
 
@@ -206,7 +198,7 @@ export default function OrderDetailScreen() {
           <Text style={styles.label}>Shipping & labels</Text>
           <Text style={styles.valueHint}>
             {showPurchaseAnother || order.shipment
-              ? "Buy another label to the same address, or reprint while the window is open. Shippo opens full screen."
+              ? "Reprint Label opens the PDF. Repurchase Label buys a new one. Shippo opens full screen."
               : "Opens a full-screen label screen; sign in with your connected Shippo account when prompted."}
           </Text>
 
@@ -226,10 +218,13 @@ export default function OrderDetailScreen() {
             {canReprint ? (
               <Pressable
                 style={({ pressed }) => [styles.labelBtn, pressed && { opacity: 0.8 }]}
-                onPress={() => openShippoLabelFullScreen("reprint")}
+                onPress={() => {
+                  const url = order.shipment?.labelUrl;
+                  if (url) void Linking.openURL(url);
+                }}
               >
                 <Ionicons name="print-outline" size={18} color="#fff" style={{ marginRight: 6 }} />
-                <Text style={styles.labelBtnText}>Reprint label</Text>
+                <Text style={styles.labelBtnText}>Reprint Label</Text>
               </Pressable>
             ) : null}
             {!order.shipment && order.status === "paid" && orderHasShippedLine(order.items) ? (
@@ -246,7 +241,7 @@ export default function OrderDetailScreen() {
                 onPress={() => openShippoLabelFullScreen("another")}
               >
                 <Ionicons name="cube-outline" size={18} color={theme.colors.primary} style={{ marginRight: 6 }} />
-                <Text style={styles.labelBtnSecondaryText}>Repurchase label</Text>
+                <Text style={styles.labelBtnSecondaryText}>Repurchase Label</Text>
               </Pressable>
             ) : null}
           </View>

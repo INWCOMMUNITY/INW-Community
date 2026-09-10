@@ -8,7 +8,6 @@ import type { FulfillmentStoreOrder } from "@/components/fulfillment/types";
 import { formatShippingAddress } from "@/lib/format-address";
 import { getStoreOrderStatusLabel } from "@/lib/order-status";
 import { sellerRefundStatusNote } from "@/lib/store-order-refund-status";
-import { isWithinLabelReprintWindow } from "@/lib/shippo-label-reprint";
 import {
   formatSellerOrderTotal,
   getTrackingUrl,
@@ -17,7 +16,7 @@ import {
 } from "@/lib/store-order-fulfillment";
 import { orderEligibleForAnotherShippoLabel } from "types";
 
-function shippoLabelHref(orderId: string, labelAction: "purchase" | "reprint" | "another") {
+function shippoLabelHref(orderId: string, labelAction: "purchase" | "another") {
   const q = new URLSearchParams({ labelAction });
   return `/seller-hub/orders/shippo/${orderId}?${q.toString()}`;
 }
@@ -89,7 +88,7 @@ function SellerOrderDetailInner() {
       <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
         <div className="max-w-[var(--max-width)] mx-auto">
           <Link href={backHref} className="text-sm text-gray-600 hover:underline mb-4 inline-block">
-            ← Back to Fulfillment
+            ← Back to Orders
           </Link>
           <div className="border rounded-lg p-6 bg-red-50">
             <p className="text-red-700">{fetchError ?? "Order not found."}</p>
@@ -102,14 +101,12 @@ function SellerOrderDetailInner() {
   const orderNum = order.orderNumber ?? order.id.slice(-8).toUpperCase();
   const paymentLabel = sellerOrderPaymentLabel(order);
   const needsLabel = order.status === "paid" && !order.shipment && orderHasShippedLine(order.items);
-  const canReprint =
-    order.shipment?.createdAt && isWithinLabelReprintWindow(order.shipment.createdAt);
 
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
       <div className="max-w-[var(--max-width)] mx-auto">
         <Link href={backHref} className="text-sm text-gray-600 hover:underline mb-4 inline-block">
-          ← Back to Fulfillment
+          ← Back to Orders
         </Link>
 
         <div className="grid lg:grid-cols-[1fr_320px] gap-6 items-start">
@@ -196,14 +193,6 @@ function SellerOrderDetailInner() {
                   </a>
                 ) : null}
                 <div className="flex flex-col gap-2">
-                  {canReprint && order.shipment.shippoOrderId ? (
-                    <Link
-                      href={shippoLabelHref(order.id, "reprint")}
-                      className="action-pill btn-pill-outline w-full justify-center text-sm"
-                    >
-                      Reprint Label
-                    </Link>
-                  ) : null}
                   {order.shipment.labelUrl ? (
                     <a
                       href={order.shipment.labelUrl}
@@ -211,10 +200,10 @@ function SellerOrderDetailInner() {
                       rel="noopener noreferrer"
                       className="action-pill btn-pill-outline w-full justify-center text-sm"
                     >
-                      Open label PDF
+                      Reprint Label
                     </a>
                   ) : null}
-                  {orderEligibleForAnotherShippoLabel(order) && !canReprint ? (
+                  {orderEligibleForAnotherShippoLabel(order) ? (
                     <Link
                       href={shippoLabelHref(order.id, "another")}
                       className="action-pill btn-pill-outline w-full justify-center text-sm"
@@ -237,7 +226,7 @@ function SellerOrderDetailInner() {
               className="text-sm font-medium hover:underline inline-block"
               style={{ color: "var(--color-link)" }}
             >
-              Back to hub
+              Back to Hub
             </Link>
           </aside>
         </div>

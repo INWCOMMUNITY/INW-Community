@@ -5,7 +5,7 @@ import Link from "next/link";
 import Script from "next/script";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { PackingSlipPrint } from "@/components/PackingSlipPrint";
-import { ShippoElementsSurface } from "@/components/ShippoElementsModal";
+import { ShippoElementsSurface, ShippoPrintLabelActions } from "@/components/ShippoElementsModal";
 import { CollapsibleHelpSection } from "@/components/fulfillment/CollapsibleHelpSection";
 import { DeliveryQueueSection, countPendingDeliveryOrders } from "@/components/fulfillment/DeliveryQueueSection";
 import { FulfillmentActionBar } from "@/components/fulfillment/FulfillmentActionBar";
@@ -81,6 +81,7 @@ export function FulfillmentHubContent(props: {
   const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [shipActionError, setShipActionError] = useState<string | null>(null);
+  const [pendingPrintUrls, setPendingPrintUrls] = useState<string[]>([]);
   const autoBulkStartedRef = useRef(false);
   const runBulkFlowRef = useRef<(ids: string[]) => void>(() => {});
 
@@ -136,22 +137,6 @@ export function FulfillmentHubContent(props: {
       .catch(() => {});
   }, []);
 
-  const {
-    elementsLoading,
-    elementsError,
-    setElementsError,
-    shippoSurfaceOpen,
-    closeShippoSurface,
-    runBulkFlow,
-    progressSubtitle,
-  } = useShippoBulkLabelFlow({
-    containerId: SHIPPO_BULK_CONTAINER_ID,
-    orders: ordersForBulk,
-    onAfterSave: refetchToShipSilent,
-  });
-
-  runBulkFlowRef.current = runBulkFlow;
-
   const setTab = useCallback(
     (next: FulfillmentTabKey) => {
       const sp = new URLSearchParams(searchParams?.toString() ?? "");
@@ -162,6 +147,28 @@ export function FulfillmentHubContent(props: {
     },
     [pathname, router, searchParams]
   );
+
+  const {
+    elementsLoading,
+    elementsError,
+    setElementsError,
+    shippoSurfaceOpen,
+    closeShippoSurface,
+    runBulkFlow,
+    progressSubtitle,
+    purchasedLabelUrls,
+  } = useShippoBulkLabelFlow({
+    containerId: SHIPPO_BULK_CONTAINER_ID,
+    orders: ordersForBulk,
+    onAfterSave: refetchToShipSilent,
+    onSessionComplete: ({ labelUrls }) => {
+      setPendingPrintUrls(labelUrls);
+      setSelectedOrderIds(new Set());
+      setTab("shipped");
+    },
+  });
+
+  runBulkFlowRef.current = runBulkFlow;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -406,6 +413,30 @@ export function FulfillmentHubContent(props: {
 
         <FulfillmentTabBar activeTab={tab} onTabChange={setTab} counts={displayCounts} />
 
+        {tab === "shipped" && pendingPrintUrls.length > 0 ? (
+          <div className="mb-4 p-3 rounded-lg border border-green-200 bg-green-50 text-green-900 text-sm">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <p className="font-medium">Label purchased. Print it now if a PDF window didn’t open.</p>
+              <button
+                type="button"
+                className="text-green-800 underline shrink-0"
+                onClick={() => setPendingPrintUrls([])}
+              >
+                Dismiss
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2 mt-2">
+              <ShippoPrintLabelActions urls={pendingPrintUrls} />
+            </div>
+          </div>
+        ) : null}
+
+        {elementsError ? (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-amber-800 text-sm">
+            {elementsError}
+          </div>
+        ) : null}
+
         {fetchError ? (
           <div className="border rounded-lg p-6 bg-red-50 mb-6">
             <p className="text-red-700">{fetchError}</p>
@@ -424,11 +455,11 @@ export function FulfillmentHubContent(props: {
           <p className="text-gray-500">Loading…</p>
         ) : tab === "ship" ? (
           <>
-            {(elementsError || shipActionError) && (
+            {shipActionError ? (
               <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-amber-800 text-sm">
-                {elementsError || shipActionError}
+                {shipActionError}
               </div>
-            )}
+            ) : null}
 
             <ShippoConnectionBanner
               connected={shippingConnected}
@@ -474,7 +505,7 @@ export function FulfillmentHubContent(props: {
                                   style={{ color: "var(--color-link)" }}
                                   onClick={() => setMenuOpenId(null)}
                                 >
-                                  View order
+                                  View Order
                                 </Link>
                                 <button
                                   type="button"
@@ -573,6 +604,7 @@ export function FulfillmentHubContent(props: {
         title="Shippo — Labels"
         presentation="page"
         subtitle={progressSubtitle}
+        actions={<ShippoPrintLabelActions urls={purchasedLabelUrls} />}
       />
     </section>
   );

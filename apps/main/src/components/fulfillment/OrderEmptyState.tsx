@@ -27,7 +27,7 @@ const COPY: Record<
   shipped: {
     icon: "cube-outline",
     title: "No Shipped Orders",
-    body: "Orders in transit appear here. Reprint a label within 48 hours, or repurchase after that.",
+    body: "Orders in transit appear here. Reprint Label opens the PDF. Repurchase Label buys a new one.",
   },
   history: {
     icon: "time-outline",

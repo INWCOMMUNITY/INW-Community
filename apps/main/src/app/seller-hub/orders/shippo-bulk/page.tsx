@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Link from "next/link";
 import Script from "next/script";
-import { ShippoElementsSurface } from "@/components/ShippoElementsModal";
+import { useRouter } from "next/navigation";
+import { ShippoElementsSurface, ShippoPrintLabelActions } from "@/components/ShippoElementsModal";
 import {
   useShippoBulkLabelFlow,
   SHIPPO_BULK_EMBEDDABLE_URL,
@@ -17,11 +18,13 @@ const CONTAINER_ID = "shippo-elements-bulk-direct";
  * App / deep-link entry: no storefront order list—load to-ship orders and open full-screen Shippo immediately.
  */
 export default function ShippoBulkDirectPage() {
+  const router = useRouter();
   const [orders, setOrders] = useState<StoreOrderForBulkLabel[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const autoStartedRef = useRef(false);
   const runBulkFlowRef = useRef<(ids: string[]) => void>(() => {});
+  const sessionCompleteRef = useRef(false);
 
   const refetchSilent = useCallback(() => {
     fetch("/api/store-orders?mine=1&needsShipment=1")
@@ -65,10 +68,19 @@ export default function ShippoBulkDirectPage() {
     closeShippoSurface,
     runBulkFlow,
     progressSubtitle,
+    purchasedLabelUrls,
   } = useShippoBulkLabelFlow({
     containerId: CONTAINER_ID,
     orders,
     onAfterSave: refetchSilent,
+    onSessionComplete: () => {
+      sessionCompleteRef.current = true;
+    },
+    onDismiss: () => {
+      if (sessionCompleteRef.current) {
+        router.push("/seller-hub/orders?tab=shipped");
+      }
+    },
   });
 
   runBulkFlowRef.current = runBulkFlow;
@@ -127,7 +139,7 @@ export default function ShippoBulkDirectPage() {
         <div className="max-w-md border rounded-lg p-6 bg-red-50 mb-4">
           <p className="text-red-700">{fetchError}</p>
           <Link href="/seller-hub/orders" className="btn text-sm mt-4 inline-block">
-            Back to orders
+            Back to Orders
           </Link>
         </div>
       )}
@@ -152,7 +164,7 @@ export default function ShippoBulkDirectPage() {
           {elementsError}
           <div className="mt-3">
             <Link href="/seller-hub/orders" className="underline font-medium" style={{ color: "var(--color-link)" }}>
-              Back to orders
+              Back to Orders
             </Link>
           </div>
         </div>
@@ -165,6 +177,7 @@ export default function ShippoBulkDirectPage() {
         title="Shippo — Labels"
         presentation="page"
         subtitle={progressSubtitle}
+        actions={<ShippoPrintLabelActions urls={purchasedLabelUrls} />}
       />
     </div>
   );

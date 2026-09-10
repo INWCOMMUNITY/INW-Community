@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isShippoTrackingDelivered } from "./shippo-tracking-status";
-import { nextStatusAfterFulfillmentConfirmations } from "./store-order-fulfillment";
+import { formatSellerOrderTotal, nextStatusAfterFulfillmentConfirmations } from "./store-order-fulfillment";
 import { isSoldWhilePayingCancel, SOLD_BEFORE_CHECKOUT_REASON } from "./store-order-cancel-reasons";
 
 describe("isShippoTrackingDelivered", () => {
@@ -40,5 +40,15 @@ describe("sold-while-paying copy", () => {
   it("detects the checkout race cancel reason", () => {
     expect(isSoldWhilePayingCancel(SOLD_BEFORE_CHECKOUT_REASON)).toBe(true);
     expect(isSoldWhilePayingCancel("Buyer canceled")).toBe(false);
+  });
+});
+
+describe("formatSellerOrderTotal", () => {
+  it("includes tax in the displayed total", () => {
+    expect(formatSellerOrderTotal({ totalCents: 100, taxCents: 8 })).toBe("$1.08");
+  });
+
+  it("treats missing tax as zero", () => {
+    expect(formatSellerOrderTotal({ totalCents: 100 })).toBe("$1.00");
   });
 });

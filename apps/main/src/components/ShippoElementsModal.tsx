@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useRef } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import { clearShippoElementsMount, watchShippoElementsHeight } from "@/lib/shippo-mount-utils";
 
 export type ShippoElementsPresentation = "modal" | "page";
@@ -14,6 +14,8 @@ type Props = {
   presentation: ShippoElementsPresentation;
   /** Shown under the title in page mode (e.g. buyer progress). */
   subtitle?: string | null;
+  /** Extra controls in the chrome (e.g. Print labels after purchase). */
+  actions?: ReactNode;
 };
 
 /**
@@ -26,6 +28,7 @@ export function ShippoElementsSurface({
   title = "Purchase Label",
   presentation,
   subtitle,
+  actions,
 }: Props) {
   const titleId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -79,6 +82,7 @@ export function ShippoElementsSurface({
           <p className="text-sm text-gray-500 mt-0.5 truncate">{subtitle}</p>
         ) : null}
       </div>
+      {actions ? <div className="flex items-center gap-2 shrink-0">{actions}</div> : null}
       <button
         type="button"
         onClick={onClose}
@@ -141,6 +145,25 @@ export function ShippoElementsSurface({
         />
       </div>
     </div>
+  );
+}
+
+export function ShippoPrintLabelActions({ urls }: { urls: string[] }) {
+  if (urls.length === 0) return null;
+  return (
+    <>
+      {urls.map((url, i) => (
+        <a
+          key={url}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn text-sm py-1.5 px-3"
+        >
+          {urls.length === 1 ? "Print label" : `Print ${i + 1}`}
+        </a>
+      ))}
+    </>
   );
 }
 

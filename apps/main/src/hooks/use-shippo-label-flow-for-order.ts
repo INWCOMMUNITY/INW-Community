@@ -4,6 +4,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { afterNextPaint, clearShippoElementsMount } from "@/lib/shippo-mount-utils";
 import { flushSync } from "react-dom";
 import {
+  collectLabelUrlsFromTransactions,
+  openLabelPdfUrls,
+  uniqueHttpUrls,
   buildOrderDetailsFromOrder,
   resolvePostalShipToAddress,
   transactionToLabelFromElementsPayload,
@@ -11,7 +14,6 @@ import {
   type OrderForElements,
 } from "@/lib/shippo-elements";
 import { NWC_SHIPPO_ELEMENTS_THEME, type ShippoElementsTheme } from "@/lib/shippo-elements-theme";
-import { isWithinLabelReprintWindow } from "@/lib/shippo-label-reprint";
 import { notifyNwAppShippoLabelSuccess } from "@/lib/nw-app-webview-bridge";
 import { orderEligibleForAnotherShippoLabel, orderHasShippedLine } from "types";
 
@@ -98,6 +100,8 @@ export function useShippoLabelFlowForOrder(options: {
   elementsLoading: boolean;
   elementsError: string | null;
   shippoModalOpen: boolean;
+  purchasedLabelUrls: string[];
+  printPurchasedLabels: () => void;
   openElementsFlow: (opts?: {
     forReprint?: boolean;
     forceAdditionalLabel?: boolean;
@@ -110,6 +114,7 @@ export function useShippoLabelFlowForOrder(options: {
   const [elementsLoading, setElementsLoading] = useState(false);
   const [elementsError, setElementsError] = useState<string | null>(null);
   const [shippoModalOpen, setShippoModalOpen] = useState(false);
+  const [purchasedLabelUrls, setPurchasedLabelUrls] = useState<string[]>([]);
   const elementsListenersRef = useRef(false);
   const shippoOrderIdFromCreatedRef = useRef<string | null>(null);
   /** Ship-to used for the open Shippo session; saved on the order when the label is recorded. */
@@ -119,6 +124,9 @@ export function useShippoLabelFlowForOrder(options: {
   const labelKindRef = useRef<"outbound" | "return" | "replacement">("outbound");
   /** Drops stray Shippo events when bulk label flow or another page also registered listeners. */
   const singleFlowActiveRef = useRef(false);
+  const labelSavedThisSessionRef = useRef(false);
+  const purchasedLabelUrlsRef = useRef<string[]>([]);
+  const closeShippoModalRef = useRef<() => void>(() => {});
   const onLabelSavedRef = useRef(onLabelSaved);
   onLabelSavedRef.current = onLabelSaved;
 
@@ -183,6 +191,9 @@ export function useShippoLabelFlowForOrder(options: {
       setElementsError(null);
       setElementsLoading(true);
       shippoOrderIdFromCreatedRef.current = null;
+      labelSavedThisSessionRef.current = false;
+      purchasedLabelUrlsRef.current = [];
+      setPurchasedLabelUrls([]);
       try {
         const tokenRes = await fetch("/api/shipping/elements-token");
         const tokenData = await tokenRes.json().catch(() => ({}));
@@ -226,6 +237,14 @@ export function useShippoLabelFlowForOrder(options: {
             const saveOrderId = labelFlowOrderIdRef.current;
             if (txs.length === 0 || !saveOrderId) return;
             labelSaveHandlingRef.current = true;
+            const urlsFromTx = collectLabelUrlsFromTransactions(txs);
+            if (urlsFromTx.length > 0) {
+              purchasedLabelUrlsRef.current = uniqueHttpUrls([
+                ...purchasedLabelUrlsRef.current,
+                ...urlsFromTx,
+              ]);
+              setPurchasedLabelUrls(purchasedLabelUrlsRef.current);
+            }
             const firstTx = txs[0];
             const payload = transactionToLabelFromElementsPayload(firstTx, {
               weightOz: 16,
@@ -262,8 +281,18 @@ export function useShippoLabelFlowForOrder(options: {
               });
               const saveData = await res.json().catch(() => ({}));
               if (res.ok) {
+                const savedUrl =
+                  typeof (saveData as { shipment?: { labelUrl?: string | null } }).shipment?.labelUrl ===
+                  "string"
+                    ? (saveData as { shipment: { labelUrl: string } }).shipment.labelUrl
+                    : null;
+                if (savedUrl) {
+                  const nextUrls = uniqueHttpUrls([...purchasedLabelUrlsRef.current, savedUrl]);
+                  purchasedLabelUrlsRef.current = nextUrls;
+                  setPurchasedLabelUrls(nextUrls);
+                }
+                labelSavedThisSessionRef.current = true;
                 onLabelSavedRef.current();
-                notifyNwAppShippoLabelSuccess({ orderId: saveOrderId });
               } else {
                 setElementsError(
                   typeof (saveData as { error?: string }).error === "string"
@@ -284,6 +313,9 @@ export function useShippoLabelFlowForOrder(options: {
                 ? String((err as { detail: string }).detail)
                 : "Something went wrong.";
             setElementsError(msg);
+          });
+          shippo.on("CLOSE_BUTTON_CLICKED", () => {
+            closeShippoModalRef.current();
           });
         }
         clearShippoElementsMount(containerId);
@@ -310,11 +342,20 @@ export function useShippoLabelFlowForOrder(options: {
   );
 
   const closeShippoModal = useCallback(() => {
+    if (labelSavedThisSessionRef.current && labelFlowOrderIdRef.current) {
+      notifyNwAppShippoLabelSuccess({ orderId: labelFlowOrderIdRef.current });
+      labelSavedThisSessionRef.current = false;
+    }
     singleFlowActiveRef.current = false;
     labelSaveHandlingRef.current = false;
     clearShippoElementsMount(containerId);
     setShippoModalOpen(false);
   }, [containerId]);
+  closeShippoModalRef.current = closeShippoModal;
+
+  const printPurchasedLabels = useCallback(() => {
+    openLabelPdfUrls(purchasedLabelUrlsRef.current);
+  }, []);
 
   const openElementsFlowRef = useRef(openElementsFlow);
   openElementsFlowRef.current = openElementsFlow;
@@ -327,20 +368,12 @@ export function useShippoLabelFlowForOrder(options: {
     if (mode !== "reprint" && mode !== "purchase" && mode !== "another" && mode !== "return") return;
 
     const run = openElementsFlowRef.current;
-    const canReprintStatus =
-      order.status === "paid" || order.status === "shipped" || order.status === "delivered";
 
     if (mode === "reprint") {
-      if (
-        !canReprintStatus ||
-        !order.shipment?.shippoOrderId ||
-        !order.shipment.createdAt ||
-        !isWithinLabelReprintWindow(order.shipment.createdAt)
-      ) {
-        return;
-      }
+      const url = order.shipment?.labelUrl?.trim();
+      if (!url || !/^https?:\/\//i.test(url)) return;
       stripNwAppShippoDeepLinkParams();
-      void run({ forReprint: true });
+      window.open(url, "_blank");
       return;
     }
     if (mode === "purchase") {
@@ -367,6 +400,8 @@ export function useShippoLabelFlowForOrder(options: {
     elementsLoading,
     elementsError,
     shippoModalOpen,
+    purchasedLabelUrls,
+    printPurchasedLabels,
     openElementsFlow,
     closeShippoModal,
   };
@@ -381,18 +416,14 @@ export function getNwAppShippoSkippedReason(
 ): string | null {
   if (!mode || !order) return null;
   if (mode === "reprint") {
-    if (order.status !== "paid" && order.status !== "shipped" && order.status !== "delivered") {
-      return "Reprint is only available for paid or shipped orders with a label on file.";
-    }
-    if (!order.shipment?.shippoOrderId) return "No Shippo order on file to reprint.";
-    if (!order.shipment.createdAt || !isWithinLabelReprintWindow(order.shipment.createdAt)) {
-      return "Reprint is only available within 48 hours of purchasing the label.";
+    if (!order.shipment?.labelUrl?.trim()) {
+      return "No label PDF on file to reprint. Use Repurchase Label to buy a new one.";
     }
     return null;
   }
   if (mode === "purchase") {
     if (order.status !== "paid") return "Order must be paid before purchasing a label.";
-    if (order.shipment) return "This order already has a shipment. Use “Purchase another label” from order details if needed.";
+    if (order.shipment) return "This order already has a shipment. Use Repurchase Label if you need another.";
     if (!orderHasShippedLine(order.items)) {
       return "This order has no items to ship by mail. Local delivery and pickup orders do not use Shippo labels.";
     }
@@ -401,12 +432,12 @@ export function getNwAppShippoSkippedReason(
   if (mode === "another") {
     if (!orderEligibleForAnotherShippoLabel(order)) {
       if (order.status === "paid" && !order.shipment) {
-        return "Purchase a first label from order details before purchasing another.";
+        return "Purchase a first label before using Repurchase Label.";
       }
       if (order.status === "delivered") {
         return "Labels cannot be purchased after the order is marked delivered.";
       }
-      return "Purchase another label is only for paid or shipped orders that already have a label.";
+      return "Repurchase Label is only for paid or shipped orders that already have a label.";
     }
     return null;
   }

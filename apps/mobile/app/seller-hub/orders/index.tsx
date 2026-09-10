@@ -37,14 +37,6 @@ const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
 type HistorySubTab = "delivered" | "canceled";
 
-const LABEL_REPRINT_WINDOW_MS = 48 * 60 * 60 * 1000;
-
-function isWithinLabelReprintWindow(createdAt?: string | null): boolean {
-  if (!createdAt) return false;
-  const t = new Date(createdAt).getTime();
-  return !Number.isNaN(t) && Date.now() - t < LABEL_REPRINT_WINDOW_MS;
-}
-
 interface OrderItemType {
   id: string;
   quantity: number;
@@ -67,6 +59,7 @@ interface StoreOrder {
   id: string;
   status: string;
   totalCents: number;
+  taxCents?: number;
   createdAt: string;
   orderNumber?: string;
   orderKind?: string;
@@ -995,10 +988,7 @@ function ShippedTabView({
           const firstItem = item.items?.[0]?.storeItem;
           const photoUrl = firstItem?.photos?.[0] ? resolvePhotoUrl(firstItem.photos[0]) : undefined;
           const orderNum = item.orderNumber ?? item.id.slice(-8).toUpperCase();
-          const canReprint =
-            !!item.shipment?.shippoOrderId && isWithinLabelReprintWindow(item.shipment?.createdAt);
-          const canRepurchase =
-            !!item.shipment && !isWithinLabelReprintWindow(item.shipment?.createdAt);
+          const canRepurchase = !!item.shipment;
           return (
             <View style={styles.card}>
               <Pressable
@@ -1027,20 +1017,13 @@ function ShippedTabView({
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
                 {item.shipment?.labelUrl ? (
                   <Pressable
-                    onPress={() => router.push(`/seller-hub/orders/${item.id}` as never)}
+                    onPress={() => {
+                      const url = item.shipment?.labelUrl;
+                      if (url) void Linking.openURL(url);
+                    }}
                     style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, backgroundColor: "#eee" }}
                   >
-                    <Text style={{ fontSize: 12, fontWeight: "600" }}>Open PDF</Text>
-                  </Pressable>
-                ) : null}
-                {canReprint ? (
-                  <Pressable
-                    onPress={() =>
-                      router.push(`/seller-hub/shippo-order/${item.id}?mode=reprint` as never)
-                    }
-                    style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, backgroundColor: theme.colors.primary }}
-                  >
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: "#fff" }}>Reprint</Text>
+                    <Text style={{ fontSize: 12, fontWeight: "600" }}>Reprint Label</Text>
                   </Pressable>
                 ) : null}
                 {canRepurchase ? (
@@ -1050,7 +1033,7 @@ function ShippedTabView({
                     }
                     style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, backgroundColor: theme.colors.primary }}
                   >
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: "#fff" }}>Repurchase</Text>
+                    <Text style={{ fontSize: 12, fontWeight: "600", color: "#fff" }}>Repurchase Label</Text>
                   </Pressable>
                 ) : null}
               </View>
