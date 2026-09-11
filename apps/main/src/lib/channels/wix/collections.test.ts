@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildWixV1OptionsCreateBody,
+  buildWixV1VariantsPriceUpdateBody,
   isWixCollectionAlreadyExistsError,
   wixV1NeedsOptionStructureRebuild,
   wixV1ProductToVariants,
@@ -175,5 +176,33 @@ describe("Wix Catalog v1 option structure", () => {
         ],
       })
     ).toBe(false);
+  });
+});
+
+describe("buildWixV1VariantsPriceUpdateBody", () => {
+  it("sends Catalog v1 /variants { variantIds, price } instead of product.variants.priceData", () => {
+    const item: SyncStoreItem = {
+      ...sizeItem,
+      priceCents: 1000,
+      variants: {
+        axes: [{ name: "Size", values: ["S", "M"] }],
+        skus: [
+          { options: { Size: "S" }, quantity: 2, priceCents: 1800 },
+          { options: { Size: "M" }, quantity: 3, priceCents: 2200 },
+        ],
+      },
+    };
+    const body = buildWixV1VariantsPriceUpdateBody(item, {
+      variants: [
+        { id: "guid-s", choices: { Size: "S" } },
+        { id: "guid-m", choices: { Size: "M" } },
+      ],
+    });
+    expect(body).toEqual({
+      variants: [
+        { variantIds: ["guid-s"], price: 18 },
+        { variantIds: ["guid-m"], price: 22 },
+      ],
+    });
   });
 });

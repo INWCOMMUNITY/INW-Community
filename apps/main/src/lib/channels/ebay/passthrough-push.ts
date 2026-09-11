@@ -39,6 +39,20 @@ export function needsInventoryPut(changed: PassthroughChangedFields): boolean {
   return changed.photos === true;
 }
 
+/**
+ * Variation listings price each SKU on its own offer. Listing CurrentPrice is the
+ * cheapest variation, so `changed.price` stays false when only a non-min SKU moved.
+ * Still PUT every variant offer when INW has per-SKU prices.
+ */
+export function passthroughShouldPushVariantOffers(args: {
+  changed: PassthroughChangedFields;
+  hasVariantRows: boolean;
+  hasSkuPrices: boolean;
+}): boolean {
+  if (args.changed.price || args.changed.description || args.changed.bestOffer) return true;
+  return args.hasVariantRows && args.hasSkuPrices;
+}
+
 /** Description lives on the offer for imported listings — omit from inventory product overlay. */
 function stripProductDescription(product: Record<string, unknown>): void {
   delete product.description;

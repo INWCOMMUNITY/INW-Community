@@ -482,6 +482,47 @@ export function buildWixV1ExistingVariantsPatchBody(
   return variants.length > 0 ? { product: { variants } } : null;
 }
 
+/**
+ * Catalog v1 stores per-SKU prices on `variant.priceData`, but product PATCH
+ * `product.variants[].priceData` is ignored. Prices must go through
+ * `PATCH /stores/v1/products/{id}/variants` as `{ variantIds, price }`.
+ */
+export function buildWixV1VariantsPriceUpdateBody(
+  item: SyncStoreItem,
+  existing: WixV1Product
+): Record<string, unknown> | null {
+  const matrix = inwMatrix(item);
+  if (!matrix) return null;
+  const rows = existing.variants?.filter((v) => v.id) ?? [];
+  if (rows.length === 0) return null;
+  const variants: { variantIds: string[]; price: number }[] = [];
+  for (const row of rows) {
+    const map = wixVariantChoiceMap(row);
+    const sku = matrix.skus.find((s) => optionsEqual(s.options, map));
+    const cents = sku?.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents;
+    variants.push({ variantIds: [row.id as string], price: Math.max(0, cents) / 100 });
+  }
+  return variants.length > 0 ? { variants } : null;
+}
+
+async function pushWixV1VariantPrices(
+  accessToken: string,
+  productId: string,
+  item: SyncStoreItem,
+  product: WixV1Product,
+  opts: WixRequestOpts
+): Promise<void> {
+  const body = buildWixV1VariantsPriceUpdateBody(item, product);
+  if (!body) return;
+  await wixJson(
+    accessToken,
+    `/stores/v1/products/${encodeURIComponent(productId)}/variants`,
+    "PATCH",
+    body,
+    opts
+  );
+}
+
 function inwSkuQtyByChoiceKey(item: SyncStoreItem): Map<string, number> | null {
   const matrix = inwMatrix(item);
   if (!matrix || matrix.skus.length === 0) return null;
@@ -641,15 +682,9 @@ export async function pushWixV1OptionsUpdate(
 
   if (existingRows.length > 0 && !needsRebuild) {
     if (wixOptionStructureMatches(item, product)) {
-      const patchBody = buildWixV1ExistingVariantsPatchBody(item, product!);
-      if (!patchBody) return false;
-      await wixJson(
-        accessToken,
-        `/stores/v1/products/${encodeURIComponent(productId)}`,
-        "PATCH",
-        patchBody,
-        opts
-      );
+      // Stock stays on Stores v2 (`pushWixV1PerOptionInventory`). Prices must use
+      // the dedicated variants endpoint — product PATCH never writes nested priceData.
+      await pushWixV1VariantPrices(accessToken, productId, item, product!, opts);
       return true;
     }
 
@@ -664,6 +699,8 @@ export async function pushWixV1OptionsUpdate(
       createBody,
       opts
     );
+    const refreshed = await fetchWixV1Product(accessToken, productId, opts);
+    if (refreshed) await pushWixV1VariantPrices(accessToken, productId, item, refreshed, opts);
     return true;
   }
 
@@ -680,6 +717,8 @@ export async function pushWixV1OptionsUpdate(
     createBody,
     opts
   );
+  const created = await fetchWixV1Product(accessToken, productId, opts);
+  if (created) await pushWixV1VariantPrices(accessToken, productId, item, created, opts);
   return true;
 }
 

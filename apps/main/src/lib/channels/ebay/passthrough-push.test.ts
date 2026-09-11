@@ -17,6 +17,7 @@ import {
   overlayOfferAvailableQuantity,
   overlayPassthroughOffer,
   passthroughEndedQuantityOnly,
+  passthroughShouldPushVariantOffers,
   passthroughSyncHasFailures,
   readLiveInventoryAvailableQuantity,
   resolvePassthroughChanges,
@@ -747,6 +748,37 @@ describe("passthrough-push", () => {
     );
     expect(changed.bestOffer).toBe(true);
     expect(changed.price).toBe(false);
+  });
+
+  it("pushes per-SKU offer prices when listing CurrentPrice is unchanged", () => {
+    const listingMinUnchanged = {
+      content: false,
+      quantity: false,
+      price: false,
+      description: false,
+      bestOffer: false,
+    };
+    expect(
+      passthroughShouldPushVariantOffers({
+        changed: listingMinUnchanged,
+        hasVariantRows: true,
+        hasSkuPrices: true,
+      })
+    ).toBe(true);
+    expect(
+      passthroughShouldPushVariantOffers({
+        changed: listingMinUnchanged,
+        hasVariantRows: true,
+        hasSkuPrices: false,
+      })
+    ).toBe(false);
+    expect(
+      overlayPassthroughOffer(
+        { pricingSummary: { price: { value: "10.00", currency: "USD" } } },
+        { ...coinItem, priceCents: 1800 },
+        { ...listingMinUnchanged, price: true }
+      ).pricingSummary
+    ).toEqual({ price: { value: "18.00", currency: "USD" } });
   });
 
   it("overlayPassthroughOffer applies bestOfferTerms from INW", () => {

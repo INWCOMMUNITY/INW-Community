@@ -540,8 +540,10 @@ export function ebayGetItemApplyDecision(args: {
     Boolean(args.remoteVariantPricesHash) &&
     args.remoteVariantPricesHash !== (args.inwVariantPricesHash ?? "");
   const listingFieldsMatch = remoteHash === inwHash && !descriptionDiffers && !variantPricesDiffer;
+  // SKU-price diffs must not disable this skip. Listing CurrentPrice is the cheapest
+  // variation, so a hub SKU edit looks like "eBay differs" while eBay is still older.
   const inwLooksNewer =
-    preserveInwContent && qtyPriceMatch && !independentRevise && !descriptionDiffers && !variantPricesDiffer;
+    preserveInwContent && qtyPriceMatch && !independentRevise && !descriptionDiffers;
 
   // Verified ping or dirty seller-list row: apply a real field diff unless this is our push echo.
   if (ebayApplyTrustsSingleSnapshot(args.source)) {

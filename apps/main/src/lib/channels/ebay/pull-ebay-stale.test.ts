@@ -330,6 +330,21 @@ describe("ebayGetItemApplyDecision", () => {
     ).toMatchObject({ action: "apply" });
   });
 
+  it("does not snap INW SKU prices back to lagged eBay StartPrices when INW is newer", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastPushedAt: new Date("2026-08-20T07:00:00.000Z"),
+        inwUpdatedAt: new Date("2026-08-20T07:00:00.000Z"),
+        lastInboundAt: inbound,
+        inwVariantPricesHash: "inw-sku-prices",
+        remoteVariantPricesHash: "ebay-sku-prices",
+        source: "webhook",
+        now: new Date("2026-08-20T07:10:00.000Z"),
+      })
+    ).toEqual({ action: "skip", reason: "inw-newer-than-ebay" });
+  });
+
   it("does not copy a lagged eBay title over an INW save when LastModified is missing", () => {
     expect(
       ebayGetItemApplyDecision({

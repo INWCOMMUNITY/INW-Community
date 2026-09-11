@@ -107,7 +107,7 @@ import {
   prepareEbaySyncAspects,
 } from "./sync-aspects";
 import { parseStoredAspects, aspectsToEbayProductAspects } from "@/lib/listing-limits";
-import { channelTreatsItemInStock } from "@/lib/listing-variant-matrix";
+import { channelTreatsItemInStock, matrixHasKnownSkuPrices } from "@/lib/listing-variant-matrix";
 import { hasOptionQuantities } from "../../store-item-variants";
 import {
   enumerateEbayListings,
@@ -162,6 +162,7 @@ import {
   overlayPassthroughOffer,
   passthroughAllAttemptedFailed,
   passthroughEndedQuantityOnly,
+  passthroughShouldPushVariantOffers,
   passthroughSyncHasFailures,
   readOfferPriceCents,
   resolvePassthroughChanges,
@@ -924,10 +925,12 @@ async function upsertListing(
         inventoryContentPutOk = contentPutOk;
       }
 
-      if (
-        (changed.price || changed.description || changed.bestOffer) &&
-        inventoryContentPutOk
-      ) {
+      const pushVariantOffers = passthroughShouldPushVariantOffers({
+        changed,
+        hasVariantRows: variantRows.length > 0,
+        hasSkuPrices: matrixHasKnownSkuPrices(item.variants),
+      });
+      if (pushVariantOffers && inventoryContentPutOk) {
         if (variantRows.length > 0) {
           // Imported multi-variation listing: price/description/bestOffer live on EACH variant's
           // own offer, not a single parent offer. Push the per-SKU price to every variant offer
@@ -935,6 +938,7 @@ async function upsertListing(
           let anyOfferPutFailed = false;
           let attemptedAny = false;
           let priceMismatch = false;
+          const overlayPrice = changed.price || matrixHasKnownSkuPrices(item.variants);
           for (const row of variantRows) {
             const variantItem = buildVariantSyncItem(item, row);
             const vOffer = await findOffer(conn.accessToken, row.sku).catch(() => null);
@@ -951,6 +955,7 @@ async function upsertListing(
               quantity: false,
               title: false,
               photos: false,
+              price: overlayPrice,
             });
             try {
               await ebayJson(
@@ -960,7 +965,7 @@ async function upsertListing(
                 vOfferBody
               );
               await persistRevisionCount(conn.id, row.sku, conn.config);
-              if (changed.price) {
+              if (overlayPrice) {
                 const refreshed = await getOfferDetails(conn.accessToken, vOffer.offerId).catch(
                   () => null
                 );
@@ -984,7 +989,7 @@ async function upsertListing(
               : priceMismatch
                 ? "One or more eBay variation prices didn't update."
                 : undefined;
-          if (changed.price) {
+          if (overlayPrice) {
             fieldResults.push({ field: "price", ok: priceOk, error: priceOk ? undefined : failMsg });
           }
           if (changed.description) {
@@ -1085,12 +1090,11 @@ async function upsertListing(
           fieldResults.push(...offerFields);
         }
         }
-      } else if (
-        (changed.price || changed.description || changed.bestOffer) &&
-        !inventoryContentPutOk
-      ) {
+      } else if (pushVariantOffers && !inventoryContentPutOk) {
         const blockedError = "Skipped eBay offer update because inventory content update failed.";
-        if (changed.price) fieldResults.push({ field: "price", ok: false, error: blockedError });
+        if (changed.price || matrixHasKnownSkuPrices(item.variants)) {
+          fieldResults.push({ field: "price", ok: false, error: blockedError });
+        }
         if (changed.description) {
           fieldResults.push({ field: "description", ok: false, error: blockedError });
         }
