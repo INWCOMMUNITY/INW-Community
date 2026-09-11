@@ -30,6 +30,7 @@ import { selectInboundListingPhotos } from "../photo-urls";
 import { storeListingDescription } from "../import-listing";
 import {
   readEbayLastSyncedTitle,
+  readLastPushedVariantPricesHash,
   withEbayLastSyncedTitle,
 } from "../listing-conflict-json";
 import { ebayRemoteLooksLikeIndependentRevise, syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "../sync-baseline";
@@ -508,6 +509,7 @@ export function ebayGetItemApplyDecision(args: {
   now?: Date;
   inwVariantPricesHash?: string | null;
   remoteVariantPricesHash?: string | null;
+  lastPushedVariantPricesHash?: string | null;
 }): EbayGetItemApplyDecision {
   const inboundAt = args.lastInboundAt?.getTime() ?? null;
   const pushedAt = args.lastPushedAt?.getTime() ?? null;
@@ -539,7 +541,17 @@ export function ebayGetItemApplyDecision(args: {
   const variantPricesDiffer =
     Boolean(args.remoteVariantPricesHash) &&
     args.remoteVariantPricesHash !== (args.inwVariantPricesHash ?? "");
-  const listingFieldsMatch = remoteHash === inwHash && !descriptionDiffers && !variantPricesDiffer;
+  const hubSkuPricesMatchLastPush =
+    Boolean(args.inwVariantPricesHash) &&
+    args.inwVariantPricesHash === (args.lastPushedVariantPricesHash ?? "");
+  const independentSkuPriceRevise =
+    variantPricesDiffer &&
+    (!hubSkuPricesMatchLastPush ||
+      (args.ebayLastModified != null &&
+        args.lastPushedAt != null &&
+        args.ebayLastModified.getTime() > args.lastPushedAt.getTime() + SYNC_ECHO_SKEW_MS));
+  const listingFieldsMatch =
+    remoteHash === inwHash && !descriptionDiffers && !independentSkuPriceRevise;
   // SKU-price diffs must not disable this skip. Listing CurrentPrice is the cheapest
   // variation, so a hub SKU edit looks like "eBay differs" while eBay is still older.
   const inwLooksNewer =
@@ -564,6 +576,15 @@ export function ebayGetItemApplyDecision(args: {
   }
 
   if (args.ebayLastModified != null && !ebayGetItemIsStaleVersusInw(args)) {
+    if (listingFieldsMatch) {
+      return { action: "skip", reason: "matches-inw" };
+    }
+    if (ebayGetItemIsPushEcho(args)) {
+      return { action: "skip", reason: "echo-of-push" };
+    }
+    if (inwLooksNewer) {
+      return { action: "skip", reason: "inw-newer-than-ebay" };
+    }
     return { action: "apply", reason: "lastModified-newer" };
   }
 
@@ -590,7 +611,7 @@ export function ebayGetItemApplyDecision(args: {
     ebayGetItemIsStaleVersusInw(args) &&
     qtyPriceMatch &&
     !descriptionDiffers &&
-    !variantPricesDiffer &&
+    !independentSkuPriceRevise &&
     !independentRevise
   ) {
     return { action: "skip", reason: "lastModified-not-newer" };
@@ -744,6 +765,7 @@ export async function refreshEbayListingByItemId(
     remoteVariantPricesHash: matrixHasKnownSkuPrices(details.variants)
       ? variantPricesFingerprint(details.variants)
       : null,
+    lastPushedVariantPricesHash: readLastPushedVariantPricesHash(link.conflictDetails),
   });
   const preserveInwContent =
     !independentRevise &&

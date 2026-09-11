@@ -387,11 +387,13 @@ export function buildWixV1UpdateBody(
   const perOptionStock = hasOptionQuantities(item.variants);
   const stock = buildWixV1StockFields(item.quantity, item.inventoryTracking);
   const price = Math.max(0, item.priceCents) / 100;
+  // Option products keep per-SKU prices on the variants endpoint. Sending listing
+  // priceData here copies $1 (or whatever the hub listing min is) onto every Wix row.
   const product: Record<string, unknown> = {
     name: item.title.slice(0, 80),
     description: (item.description ?? "").trim() || undefined,
     sku: getEffectiveSku(item),
-    priceData: { price },
+    ...(perOptionStock ? {} : { priceData: { price } }),
   };
   const variantRows = existing?.variants?.filter((v) => v.id) ?? [];
   if (variantRows.length > 0) {

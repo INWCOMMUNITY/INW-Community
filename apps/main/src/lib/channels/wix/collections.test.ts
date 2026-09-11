@@ -5,6 +5,7 @@ import {
   isWixCollectionAlreadyExistsError,
   wixV1NeedsOptionStructureRebuild,
   wixV1ProductToVariants,
+  wixV1VariantPricesMatchItem,
 } from "./collections";
 import type { SyncStoreItem } from "../types";
 
@@ -180,7 +181,7 @@ describe("Wix Catalog v1 option structure", () => {
 });
 
 describe("buildWixV1VariantsPriceUpdateBody", () => {
-  it("sends Catalog v1 /variants { variantIds, price } instead of product.variants.priceData", () => {
+  it("sends Catalog v1 /variants { choices, price } instead of product.variants.priceData", () => {
     const item: SyncStoreItem = {
       ...sizeItem,
       priceCents: 1000,
@@ -200,9 +201,61 @@ describe("buildWixV1VariantsPriceUpdateBody", () => {
     });
     expect(body).toEqual({
       variants: [
-        { variantIds: ["guid-s"], price: 18 },
-        { variantIds: ["guid-m"], price: 22 },
+        { choices: { Size: "S" }, price: 18 },
+        { choices: { Size: "M" }, price: 22 },
       ],
     });
+  });
+
+  it("falls back to variantIds when the Wix row has no choices", () => {
+    const item: SyncStoreItem = {
+      ...sizeItem,
+      priceCents: 1800,
+      variants: {
+        axes: [{ name: "Size", values: ["S"] }],
+        skus: [{ options: { Size: "S" }, quantity: 2, priceCents: 1800 }],
+      },
+    };
+    expect(
+      buildWixV1VariantsPriceUpdateBody(item, { variants: [{ id: "guid-s" }] })
+    ).toEqual({
+      variants: [{ variantIds: ["guid-s"], price: 18 }],
+    });
+  });
+});
+
+describe("wixV1VariantPricesMatchItem", () => {
+  const item: SyncStoreItem = {
+    ...sizeItem,
+    priceCents: 100,
+    variants: {
+      axes: [{ name: "Size", values: ["S", "M"] }],
+      skus: [
+        { options: { Size: "S" }, quantity: 2, priceCents: 1800 },
+        { options: { Size: "M" }, quantity: 3, priceCents: 2200 },
+      ],
+    },
+  };
+
+  it("rejects a product still sitting at listing $1 on every SKU", () => {
+    expect(
+      wixV1VariantPricesMatchItem(item, {
+        variants: [
+          { id: "guid-s", choices: { Size: "S" }, variant: { priceData: { price: 1 } } },
+          { id: "guid-m", choices: { Size: "M" }, variant: { priceData: { price: 1 } } },
+        ],
+      })
+    ).toBe(false);
+  });
+
+  it("accepts nested variant.priceData that matches INW", () => {
+    expect(
+      wixV1VariantPricesMatchItem(item, {
+        variants: [
+          { id: "guid-s", choices: { Size: "S" }, variant: { priceData: { price: 18 } } },
+          { id: "guid-m", choices: { Size: "M" }, variant: { priceData: { price: 22 } } },
+        ],
+      })
+    ).toBe(true);
   });
 });

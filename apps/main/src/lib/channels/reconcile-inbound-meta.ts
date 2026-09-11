@@ -22,10 +22,11 @@ import {
   type SyncDirection,
 } from "./sync-baseline";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
-import { sumVariantQuantities, remoteVariantsIndicateChange, variantsFingerprint } from "./variant-sync";
+import { sumVariantQuantities, remoteVariantsIndicateChange, remoteVariantPricesLookLikeListingFlatten, stalePushedVariantPricesShouldRepush, variantsFingerprint, variantPricesFingerprint } from "./variant-sync";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { isMadeToOrderTracking, matrixHasKnownSkuPrices, normalizeVariantMatrix } from "@/lib/listing-variant-matrix";
 import { isComboInventoryFailedError } from "./combo-sync";
+import { readLastPushedVariantPricesHash } from "./listing-conflict-json";
 
 function inwMissingVariants(variants: unknown): boolean {
   if (variants == null) return true;
@@ -316,17 +317,38 @@ export async function reconcileConnectionInboundMeta(
     // false) yields no remote change, so it stays push-only with no regression.
     const inwVarFp = variantsFingerprint(item.variants);
     const baseVarFp = link.syncBaselineVariantsHash ?? inwVarFp;
-    const inwVarChanged = inwChangedSinceBaseline({
+    let inwVarChanged = inwChangedSinceBaseline({
       hashDiffers: inwVarFp !== baseVarFp,
       inwUpdatedAt: item.updatedAt,
       baselineAt: baseAt,
     });
-    const remoteVarChanged = remoteVariantsIndicateChange({
+    let remoteVarChanged = remoteVariantsIndicateChange({
       remoteVariantsKnown: remote.variantsKnown === true,
       remoteVariants: remote.variants,
       inwVariants: item.variants,
       baselineVarHash: link.syncBaselineVariantsHash,
     });
+    // We stamped the hub fingerprint after outbound even when Wix/eBay never persisted
+    // per-SKU prices. Cron then sees the old $1 channel snapshot as a "remote edit" and
+    // pulls it over INW. If hub still matches last-pushed prices, re-push instead.
+    // Same when every remote SKU equals the listing price — that is the Wix product PATCH
+    // flatten, including the webhook that fires before lastPushedAt is written.
+    if (
+      stalePushedVariantPricesShouldRepush({
+        inwPriceFingerprint: variantPricesFingerprint(item.variants),
+        lastPushedPriceFingerprint: readLastPushedVariantPricesHash(link.conflictDetails),
+        remotePriceFingerprint: variantPricesFingerprint(remote.variants),
+        remotePricesKnown: matrixHasKnownSkuPrices(remote.variants),
+      }) ||
+      remoteVariantPricesLookLikeListingFlatten({
+        remoteVariants: remote.variants,
+        inwVariants: item.variants,
+        listingPriceCents: item.priceCents,
+      })
+    ) {
+      inwVarChanged = true;
+      remoteVarChanged = false;
+    }
     const varDecision: SyncDirection = resolveSyncDirection({
       inwChanged: inwVarChanged,
       remoteChanged: remoteVarChanged,

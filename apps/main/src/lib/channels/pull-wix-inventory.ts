@@ -8,6 +8,7 @@ import { syncContentHash, syncMetaHash } from "./sync-baseline";
 import { variantsFingerprint } from "./variant-sync";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
 import { clampSaneInventoryQty } from "./inventory-sanity";
+import { normalizeVariantMatrix, stripSkuPricesFromMatrix } from "@/lib/listing-variant-matrix";
 import type { ChannelProvider } from "./types";
 
 /** After a webhook-driven qty pull, record the agreed baseline so the cron doesn't re-fight it. */
@@ -103,7 +104,14 @@ export async function pullWixInventoryForConnection(
       if (hasOptionQuantities(link.storeItem.variants)) {
         const product = await fetchWixV1Product(ctx.accessToken, link.externalListingId, wixOpts);
         const axes = product ? wixV1ProductToVariants(product) : null;
-        changed = await applyRemoteVariantAxesToStoreItem(link.storeItemId, axes);
+        const qtyOnly = normalizeVariantMatrix(axes);
+        // Inventory webhooks must not write Wix product/listing prices onto INW SKUs.
+        // Catalog v1 often still has the listing $1 on every variant; applying it snaps
+        // INW (then eBay/Etsy) back after a successful hub price edit.
+        changed = await applyRemoteVariantAxesToStoreItem(
+          link.storeItemId,
+          qtyOnly ? stripSkuPricesFromMatrix(qtyOnly) : axes
+        );
       } else {
         const { quantity, known } = await adapter.fetchProductQuantity!(
           ctx,

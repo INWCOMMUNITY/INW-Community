@@ -30,6 +30,7 @@ import { etsyListingToSummary } from "./mapping";
 import { etsyRemoteQuantityIsKnown } from "./listing-exists";
 import type { RemoteListingSummary } from "../types";
 import { matrixHasKnownSkuPrices } from "@/lib/listing-variant-matrix";
+import { readLastPushedVariantPricesHash } from "../listing-conflict-json";
 
 type ConnectionRow = {
   id: string;
@@ -223,6 +224,7 @@ export async function refreshEtsyListingByStoreItemId(
     inwUpdatedAt: storeItem.updatedAt,
     remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
     ownPushEcho,
+    lastPushedPriceFingerprint: readLastPushedVariantPricesHash(link.conflictDetails),
   });
 
   if (!shouldPullContent && !shouldPullQty && !shouldPullPrices) {

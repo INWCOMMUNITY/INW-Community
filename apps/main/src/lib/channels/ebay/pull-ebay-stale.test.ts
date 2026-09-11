@@ -330,6 +330,18 @@ describe("ebayGetItemApplyDecision", () => {
     ).toMatchObject({ action: "apply" });
   });
 
+  it("does not copy lagged SKU prices when INW still matches the last push", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        inwVariantPricesHash: "inw-sku-prices",
+        remoteVariantPricesHash: "ebay-dollar-one",
+        lastPushedVariantPricesHash: "inw-sku-prices",
+        source: "webhook" as const,
+      })
+    ).toEqual({ action: "skip", reason: "matches-inw" });
+  });
+
   it("does not snap INW SKU prices back to lagged eBay StartPrices when INW is newer", () => {
     expect(
       ebayGetItemApplyDecision({

@@ -486,6 +486,15 @@ describe("inboundRefreshShouldPullVariantPrices", () => {
       })
     ).toBe(false);
   });
+
+  it("does not pull old channel SKU prices after we already pushed the current INW prices", () => {
+    expect(
+      inboundRefreshShouldPullVariantPrices({
+        ...base,
+        lastPushedPriceFingerprint: "inw-sku-prices",
+      })
+    ).toBe(false);
+  });
 });
 
 describe("shouldFlagWixRemoteDeleted", () => {

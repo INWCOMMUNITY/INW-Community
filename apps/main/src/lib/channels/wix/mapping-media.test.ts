@@ -225,8 +225,9 @@ describe("buildWixV1UpdateBody", () => {
         { id: "v-s", choices: { Size: "S" } },
         { id: "v-m", choices: { Size: "M" } },
       ],
-    }) as { product: { variants: Record<string, unknown>[] } };
+    }) as { product: { priceData?: unknown; variants: Record<string, unknown>[] } };
     expect(body.product.variants).toEqual([{ id: "v-s" }, { id: "v-m" }]);
+    expect(body.product.priceData).toBeUndefined();
     expect(body.product.variants[0].priceData).toBeUndefined();
     expect(body.product.variants[0].stock).toBeUndefined();
   });
@@ -235,7 +236,8 @@ describe("buildWixV1UpdateBody", () => {
     const body = buildWixV1UpdateBody(
       { ...optionItem, variants: null },
       { variants: [{ id: "default" }] }
-    ) as { product: { variants: { id: string; stock?: unknown; priceData?: { price: number } }[] } };
+    ) as { product: { priceData?: { price: number }; variants: { id: string; stock?: unknown; priceData?: { price: number } }[] } };
+    expect(body.product.priceData).toEqual({ price: 10 });
     expect(body.product.variants[0]).toMatchObject({
       id: "default",
       priceData: { price: 10 },

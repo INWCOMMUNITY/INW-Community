@@ -239,6 +239,48 @@ export function remoteVariantsIndicateChange(args: {
   return remoteFp !== "" && remoteFp !== baseFp;
 }
 
+/**
+ * Hub still has the per-SKU prices we last pushed, but the channel snapshot does not.
+ * That is a failed or lagged write — never a seller edit. Re-push; do not pull the old remote.
+ */
+export function stalePushedVariantPricesShouldRepush(args: {
+  inwPriceFingerprint: string;
+  lastPushedPriceFingerprint: string | null;
+  remotePriceFingerprint: string;
+  remotePricesKnown: boolean;
+}): boolean {
+  if (!args.remotePricesKnown) return false;
+  if (!args.inwPriceFingerprint || !args.lastPushedPriceFingerprint) return false;
+  if (args.lastPushedPriceFingerprint !== args.inwPriceFingerprint) return false;
+  return args.remotePriceFingerprint !== "" && args.remotePriceFingerprint !== args.inwPriceFingerprint;
+}
+
+/**
+ * Wix product PATCH with listing priceData copies that price onto every option row.
+ * The resulting "all SKUs = listing $1" snapshot is not a seller edit — re-push INW.
+ */
+export function remoteVariantPricesLookLikeListingFlatten(args: {
+  remoteVariants: unknown;
+  inwVariants: unknown;
+  listingPriceCents: number;
+}): boolean {
+  if (!matrixHasKnownSkuPrices(args.remoteVariants) || !matrixHasKnownSkuPrices(args.inwVariants)) {
+    return false;
+  }
+  if (variantPricesFingerprint(args.inwVariants) === variantPricesFingerprint(args.remoteVariants)) {
+    return false;
+  }
+  const remote = normalizeVariantMatrix(args.remoteVariants);
+  if (!remote || remote.skus.length < 2) return false;
+  const prices = remote.skus
+    .map((s) => s.priceCents)
+    .filter((p): p is number => typeof p === "number" && p > 0);
+  if (prices.length < 2) return false;
+  const first = prices[0];
+  if (!prices.every((p) => p === first)) return false;
+  return first === args.listingPriceCents;
+}
+
 /** Sum SKU (or legacy option) quantities. */
 export function sumVariantQuantities(variants: InwVariantAxis[] | VariantMatrix | null | unknown): number {
   const matrix = normalizeVariantMatrix(variants);

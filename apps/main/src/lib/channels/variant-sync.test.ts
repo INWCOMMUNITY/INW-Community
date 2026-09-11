@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchSaleToVariantOption, remoteVariantMatrixIsWeaker, remoteVariantsIndicateChange, validateVariantLimits, variantsPayloadForImport, variantPricesFingerprint, variantsFingerprint } from "./variant-sync";
+import { matchSaleToVariantOption, remoteVariantMatrixIsWeaker, remoteVariantsIndicateChange, remoteVariantPricesLookLikeListingFlatten, stalePushedVariantPricesShouldRepush, validateVariantLimits, variantsPayloadForImport, variantPricesFingerprint, variantsFingerprint } from "./variant-sync";
 
 const matrix = {
   axes: [
@@ -50,6 +50,92 @@ describe("variantPricesFingerprint", () => {
       ],
     };
     expect(variantPricesFingerprint(priceChanged)).not.toBe(variantPricesFingerprint(priced));
+  });
+});
+
+describe("stalePushedVariantPricesShouldRepush", () => {
+  it("re-pushes when INW still matches last-pushed SKU prices but the channel does not", () => {
+    expect(
+      stalePushedVariantPricesShouldRepush({
+        inwPriceFingerprint: "inw-18-22",
+        lastPushedPriceFingerprint: "inw-18-22",
+        remotePriceFingerprint: "wix-1-1",
+        remotePricesKnown: true,
+      })
+    ).toBe(true);
+  });
+
+  it("does not treat a seller channel edit as a failed push", () => {
+    expect(
+      stalePushedVariantPricesShouldRepush({
+        inwPriceFingerprint: "inw-18-22",
+        lastPushedPriceFingerprint: "inw-18-22",
+        remotePriceFingerprint: "inw-18-22",
+        remotePricesKnown: true,
+      })
+    ).toBe(false);
+    expect(
+      stalePushedVariantPricesShouldRepush({
+        inwPriceFingerprint: "inw-18-22",
+        lastPushedPriceFingerprint: "old-1-1",
+        remotePriceFingerprint: "wix-1-1",
+        remotePricesKnown: true,
+      })
+    ).toBe(false);
+  });
+
+  it("does not re-push when the remote snapshot has no SKU prices", () => {
+    expect(
+      stalePushedVariantPricesShouldRepush({
+        inwPriceFingerprint: "inw-18-22",
+        lastPushedPriceFingerprint: "inw-18-22",
+        remotePriceFingerprint: "",
+        remotePricesKnown: false,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("remoteVariantPricesLookLikeListingFlatten", () => {
+  const inw = {
+    axes: [{ name: "Size", values: ["S", "M"] }],
+    skus: [
+      { options: { Size: "S" }, quantity: 2, priceCents: 1800 },
+      { options: { Size: "M" }, quantity: 3, priceCents: 2200 },
+    ],
+  };
+  const flattened = {
+    axes: inw.axes,
+    skus: [
+      { options: { Size: "S" }, quantity: 2, priceCents: 100 },
+      { options: { Size: "M" }, quantity: 3, priceCents: 100 },
+    ],
+  };
+
+  it("detects every remote SKU sitting at the listing $1", () => {
+    expect(
+      remoteVariantPricesLookLikeListingFlatten({
+        remoteVariants: flattened,
+        inwVariants: inw,
+        listingPriceCents: 100,
+      })
+    ).toBe(true);
+  });
+
+  it("does not treat a real per-SKU remote edit as a flatten", () => {
+    expect(
+      remoteVariantPricesLookLikeListingFlatten({
+        remoteVariants: {
+          axes: inw.axes,
+          skus: [
+            { options: { Size: "S" }, quantity: 2, priceCents: 1900 },
+            { options: { Size: "M" }, quantity: 3, priceCents: 2200 },
+          ],
+        },
+        inwVariants: inw,
+        listingPriceCents: 100,
+      })
+    ).toBe(false);
   });
 });
 

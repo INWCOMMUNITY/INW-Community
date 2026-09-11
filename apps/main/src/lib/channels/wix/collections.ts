@@ -8,7 +8,7 @@ import {
   skuSelectionKey,
   type VariantMatrix,
 } from "@/lib/listing-variant-matrix";
-import { wixGet, wixJson, type WixRequestOpts } from "./client";
+import { wixGet, wixJson, WixApiError, type WixRequestOpts } from "./client";
 import type { WixV1Product } from "./mapping";
 
 type WixV1VariantRow = NonNullable<WixV1Product["variants"]>[number];
@@ -482,27 +482,57 @@ export function buildWixV1ExistingVariantsPatchBody(
   return variants.length > 0 ? { product: { variants } } : null;
 }
 
+type WixVariantPricePatch = {
+  choices?: Record<string, string>;
+  variantIds?: string[];
+  price: number;
+};
+
 /**
  * Catalog v1 stores per-SKU prices on `variant.priceData`, but product PATCH
  * `product.variants[].priceData` is ignored. Prices must go through
- * `PATCH /stores/v1/products/{id}/variants` as `{ variantIds, price }`.
+ * `PATCH /stores/v1/products/{id}/variants`. Wix docs: identify a row by
+ * `choices` or `variantIds`, never both.
  */
 export function buildWixV1VariantsPriceUpdateBody(
   item: SyncStoreItem,
   existing: WixV1Product
-): Record<string, unknown> | null {
+): { variants: WixVariantPricePatch[] } | null {
   const matrix = inwMatrix(item);
   if (!matrix) return null;
   const rows = existing.variants?.filter((v) => v.id) ?? [];
   if (rows.length === 0) return null;
-  const variants: { variantIds: string[]; price: number }[] = [];
+  const variants: WixVariantPricePatch[] = [];
   for (const row of rows) {
     const map = wixVariantChoiceMap(row);
     const sku = matrix.skus.find((s) => optionsEqual(s.options, map));
     const cents = sku?.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents;
-    variants.push({ variantIds: [row.id as string], price: Math.max(0, cents) / 100 });
+    const price = Math.max(0, cents) / 100;
+    if (Object.keys(map).length > 0) {
+      variants.push({ choices: map, price });
+    } else {
+      variants.push({ variantIds: [row.id as string], price });
+    }
   }
   return variants.length > 0 ? { variants } : null;
+}
+
+/** True when every INW SKU with a Wix row has the same price (1¢ tolerance). */
+export function wixV1VariantPricesMatchItem(item: SyncStoreItem, product: WixV1Product): boolean {
+  const matrix = inwMatrix(item);
+  if (!matrix || matrix.skus.length === 0) return true;
+  const rows = product.variants?.filter((v) => v.id) ?? [];
+  if (rows.length === 0) return false;
+  let matched = 0;
+  for (const sku of matrix.skus) {
+    const expected = sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents;
+    const row = rows.find((r) => optionsEqual(wixVariantChoiceMap(r), sku.options));
+    if (!row) continue;
+    matched += 1;
+    const got = wixV1VariantPriceCents(row);
+    if (got == null || Math.abs(got - expected) > 1) return false;
+  }
+  return matched > 0;
 }
 
 async function pushWixV1VariantPrices(
@@ -521,6 +551,14 @@ async function pushWixV1VariantPrices(
     body,
     opts
   );
+  const verified = await fetchWixV1Product(accessToken, productId, opts);
+  if (!verified || !wixV1VariantPricesMatchItem(item, verified)) {
+    throw new WixApiError(
+      "Wix did not persist per-option prices. Retry the listing update.",
+      502,
+      verified
+    );
+  }
 }
 
 function inwSkuQtyByChoiceKey(item: SyncStoreItem): Map<string, number> | null {

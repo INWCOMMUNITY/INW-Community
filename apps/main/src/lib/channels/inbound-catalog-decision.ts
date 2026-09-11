@@ -1,4 +1,5 @@
 import { isSyncEchoWindow, resolveSyncDirection, SYNC_ECHO_SKEW_MS } from "./sync-baseline";
+import { stalePushedVariantPricesShouldRepush } from "./variant-sync";
 
 /**
  * Inbound catalog should not rewrite a channel listing when the StoreItem hash drifted
@@ -244,10 +245,21 @@ export function inboundRefreshShouldPullVariantPrices(args: {
   inwUpdatedAt: Date | null;
   remoteUpdatedAt: Date | null;
   ownPushEcho: boolean;
+  lastPushedPriceFingerprint?: string | null;
 }): boolean {
   if (args.ownPushEcho) return false;
   if (!args.remotePricesKnown) return false;
   if (!args.remotePriceFingerprint || args.remotePriceFingerprint === args.inwPriceFingerprint) {
+    return false;
+  }
+  if (
+    stalePushedVariantPricesShouldRepush({
+      inwPriceFingerprint: args.inwPriceFingerprint,
+      lastPushedPriceFingerprint: args.lastPushedPriceFingerprint ?? null,
+      remotePriceFingerprint: args.remotePriceFingerprint,
+      remotePricesKnown: args.remotePricesKnown,
+    })
+  ) {
     return false;
   }
   return (
