@@ -10,6 +10,7 @@ import { eventInviteEventHasPassed } from "@/lib/event-invite-visible";
  * `POST /api/events/[id]/rsvp` updates an existing friend-invite row in place (inviter stays the friend),
  * so we must not require `inviterId === inviteeId` or those RSVPs would look “unsaved” on My Events.
  * Pending invites from others stay on Invites only (`GET /api/me/event-invites`).
+ * Includes past events (`hasPassed`) so My Events can show Upcoming / Past.
  */
 export async function GET(_req: NextRequest) {
   const session = await getSessionForApi(_req);
@@ -30,10 +31,7 @@ export async function GET(_req: NextRequest) {
     orderBy: { event: { date: "asc" } },
   });
 
-  const visible = rows.filter(
-    (row) =>
-      row.event.status === "approved" && !eventInviteEventHasPassed(row.event)
-  );
+  const visible = rows.filter((row) => row.event.status === "approved");
 
   const events = visible.map((row) => {
     const event = row.event;
@@ -56,9 +54,14 @@ export async function GET(_req: NextRequest) {
       rsvpStatus: row.status,
       title: event.title,
       slug: event.slug,
+      date: event.date,
       dateStr,
+      time: event.time,
+      endTime: event.endTime,
       timeStr,
       calendarLabel,
+      photos: event.photos ?? [],
+      hasPassed: eventInviteEventHasPassed(event),
       business: event.business,
     };
   });

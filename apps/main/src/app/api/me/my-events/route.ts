@@ -4,6 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { formatTime12h } from "@/lib/format-time";
 import { CALENDAR_TYPES } from "types";
 import { getEventInviteStatsByEventIds } from "@/lib/event-invite-stats";
+import { eventInviteEventHasPassed } from "@/lib/event-invite-visible";
 
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -49,6 +50,8 @@ export async function GET(req: NextRequest) {
       timeStr,
       calendarType: event.calendarType,
       calendarLabel,
+      photos: event.photos ?? [],
+      hasPassed: eventInviteEventHasPassed(event),
       business: event.business,
       inviteStats: statsMap.get(event.id)!,
     };
