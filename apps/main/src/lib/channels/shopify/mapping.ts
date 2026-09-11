@@ -11,6 +11,7 @@ import {
   isMadeToOrderTracking,
   optionsEqual,
   pickImageVaryingAxisName,
+  minSkuPriceCents,
   sumMatrixQuantities,
   type VariantMatrix,
   type VariantSkuRow,
@@ -156,6 +157,10 @@ export function quantityForShopifyRemoteVariant(
   if (matrix && names.length > 0) {
     const sku = findMatrixSkuForShopifyVariant(matrix, names, variant);
     if (sku) return channelQuantityForTracked(sku.quantity, item.inventoryTracking);
+    // Unmatched variant (orphan, name mismatch, etc.) — returning the aggregate
+    // item.quantity would massively overstock this variant. Return 0 so the
+    // variant shows out-of-stock until the seller reconciles it.
+    return 0;
   }
   return channelQuantityForTracked(item.quantity, item.inventoryTracking);
 }
@@ -296,9 +301,9 @@ export function buildShopifyUpdateBody(
     product.variants = built.map((v) => {
       const existingVar = existing?.variants?.find(
         (ev) =>
-          String(ev.option1 ?? "") === String(v.option1 ?? "") &&
-          String(ev.option2 ?? "") === String(v.option2 ?? "") &&
-          String(ev.option3 ?? "") === String(v.option3 ?? "")
+          String(ev.option1 ?? "").toLowerCase() === String(v.option1 ?? "").toLowerCase() &&
+          String(ev.option2 ?? "").toLowerCase() === String(v.option2 ?? "").toLowerCase() &&
+          String(ev.option3 ?? "").toLowerCase() === String(v.option3 ?? "").toLowerCase()
       );
       return existingVar?.id != null ? { ...v, id: existingVar.id } : v;
     });
@@ -408,7 +413,9 @@ export function shopifyProductToSummary(
     externalListingId: product.id != null ? String(product.id) : "",
     title: product.title || "Shopify product",
     description: product.body_html ?? null,
-    priceCents: shopifyPriceToCents(variant?.price),
+    priceCents: matrix
+      ? minSkuPriceCents(matrix, shopifyPriceToCents(variant?.price))
+      : shopifyPriceToCents(variant?.price),
     quantity: totalQty,
     quantityKnown: true,
     sku: variant?.sku?.trim() || null,

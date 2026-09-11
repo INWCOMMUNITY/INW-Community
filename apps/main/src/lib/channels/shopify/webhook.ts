@@ -30,6 +30,7 @@ export type ShopifyWebhookTopic =
   | "inventory_levels/update"
   | "products/update"
   | "products/delete"
+  | "app/uninstalled"
   | "unknown";
 
 export function shopifyWebhookTopic(headers: Headers): ShopifyWebhookTopic {
@@ -38,6 +39,7 @@ export function shopifyWebhookTopic(headers: Headers): ShopifyWebhookTopic {
   if (topic === "inventory_levels/update") return "inventory_levels/update";
   if (topic === "products/update") return "products/update";
   if (topic === "products/delete") return "products/delete";
+  if (topic === "app/uninstalled") return "app/uninstalled";
   return "unknown";
 }
 

@@ -1,6 +1,6 @@
 /** Shopify Partner App credentials + Admin API version. */
 
-export const SHOPIFY_DEFAULT_API_VERSION = "2024-10";
+export const SHOPIFY_DEFAULT_API_VERSION = "2026-07";
 
 /** Scopes for two-way product/inventory sync + order reconciliation. */
 export const SHOPIFY_SCOPES = [

@@ -17,6 +17,7 @@ import {
   markWebhookProcessing,
   markWebhookCompleted,
   markWebhookFailed,
+  isWebhookDuplicate,
 } from "@/lib/channels/webhook-event";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +39,7 @@ export async function POST(req: NextRequest) {
 
   const topic = shopifyWebhookTopic(req.headers);
   const shop = shopifyWebhookShopDomain(req.headers);
+  const shopifyWebhookId = req.headers.get("x-shopify-webhook-id") ?? undefined;
 
   let payload: unknown = null;
   try {
@@ -46,11 +48,18 @@ export async function POST(req: NextRequest) {
     payload = null;
   }
 
+  // Deduplicate: Shopify retries on 5xx, so check if we already processed
+  // this exact delivery (by x-shopify-webhook-id).
+  if (shopifyWebhookId && await isWebhookDuplicate("shopify", shopifyWebhookId)) {
+    console.log("[shopify webhook] duplicate delivery skipped", { topic, shop, shopifyWebhookId });
+    return NextResponse.json({ ok: true, skipped: "duplicate" });
+  }
+
   const webhookEventId = await logWebhookEvent(
     "shopify",
     topic ?? "unknown",
     payload,
-    shop ?? undefined
+    shopifyWebhookId ?? shop ?? undefined
   );
 
   try {
@@ -108,6 +117,21 @@ export async function POST(req: NextRequest) {
       console.log("[shopify webhook] inventory apply", { shop, topic, ...result });
       await markWebhookCompleted(webhookEventId);
       return NextResponse.json({ ok: true, processed: result.applied, topic, ...result });
+    }
+
+    if (topic === "app/uninstalled") {
+      console.warn("[shopify webhook] app uninstalled", { shop, connectionId: conn.id });
+      await prisma.channelConnection.update({
+        where: { id: conn.id },
+        data: {
+          status: "disconnected",
+          accessTokenEncrypted: null,
+          refreshTokenEncrypted: null,
+          lastError: "Shopify app was uninstalled by the store owner.",
+        },
+      });
+      await markWebhookCompleted(webhookEventId);
+      return NextResponse.json({ ok: true, processed: true, topic });
     }
 
     await markWebhookCompleted(webhookEventId);

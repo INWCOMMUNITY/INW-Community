@@ -7,6 +7,7 @@ export const SHOPIFY_WEBHOOK_TOPICS: Exclude<ShopifyWebhookTopic, "unknown">[] =
   "inventory_levels/update",
   "products/update",
   "products/delete",
+  "app/uninstalled",
 ];
 
 type ShopifyWebhookRow = {

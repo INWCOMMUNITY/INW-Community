@@ -33,6 +33,7 @@ import { logSyncEvent } from "./sync-log";
 import { formatProviderPublishError, validateForProvider } from "./validate-publish";
 import { shouldPushInventoryOnly } from "./sold-out-guard";
 import { shouldBypassCircuitForInventoryPush } from "./circuit-inventory-bypass";
+import { isMadeToOrderTracking, MTO_CHANNEL_QUANTITY } from "@/lib/listing-variant-matrix";
 import { isRemoteListingAlreadyGoneError } from "./error-classifier";
 import {
   persistRemoteListingGoneOnPush,
@@ -225,7 +226,12 @@ export async function publishStoreItemToChannels(
         try {
           const connConfig = (conn.config ?? {}) as Record<string, unknown>;
           const priceAdjustmentPercent = (connConfig.priceAdjustmentPercent as number) ?? 0;
-          const adjustedItem = applyPriceAdjustment(item, priceAdjustmentPercent);
+          const cio = (connConfig.inventoryOffset as number) ?? 0;
+          const gsb = syncPrefs?.safetyBuffer ?? 0;
+          const baq = isMadeToOrderTracking(item.inventoryTracking)
+            ? MTO_CHANNEL_QUANTITY
+            : Math.max(0, item.quantity - gsb - cio);
+          const adjustedItem = { ...applyPriceAdjustment(item, priceAdjustmentPercent), quantity: baq };
           await getAdapter(provider).updateListing(conn, existing.externalListingId, adjustedItem);
           await prisma.channelListingLink.update({
             where: { id: existing.id },
@@ -296,7 +302,12 @@ export async function publishStoreItemToChannels(
 
       const adapter = getAdapter(provider);
       const priceAdjustmentPercent = (connConfig.priceAdjustmentPercent as number) ?? 0;
-      const adjustedItem = applyPriceAdjustment(item, priceAdjustmentPercent);
+      const cio2 = (connConfig.inventoryOffset as number) ?? 0;
+      const gsb2 = syncPrefs?.safetyBuffer ?? 0;
+      const baq2 = isMadeToOrderTracking(item.inventoryTracking)
+        ? MTO_CHANNEL_QUANTITY
+        : Math.max(0, item.quantity - gsb2 - cio2);
+      const adjustedItem = { ...applyPriceAdjustment(item, priceAdjustmentPercent), quantity: baq2 };
 
       const result = await adapter.createListing(conn, adjustedItem);
       const live = result.live !== false;
@@ -724,9 +735,14 @@ export async function updateStoreItemOnChannels(
       await withConnectionAuthRetry(link.connection, async (ctx) => {
         const adapter = getAdapter(provider);
         
-        // Apply per-channel price adjustment
+        // Apply per-channel price adjustment + inventory buffer
         const priceAdjustmentPercent = (connConfig.priceAdjustmentPercent as number) ?? 0;
-        const adjustedItem = applyPriceAdjustment(item, priceAdjustmentPercent);
+        const channelInventoryOffset = (connConfig.inventoryOffset as number) ?? 0;
+        const globalSafetyBuffer = syncPrefs?.safetyBuffer ?? 0;
+        const bufferAdjustedQty = isMadeToOrderTracking(item.inventoryTracking)
+          ? MTO_CHANNEL_QUANTITY
+          : Math.max(0, item.quantity - globalSafetyBuffer - channelInventoryOffset);
+        const adjustedItem = { ...applyPriceAdjustment(item, priceAdjustmentPercent), quantity: bufferAdjustedQty };
 
         if (provider === "etsy") {
           const fetched = await fetchEtsyListingForInbound(ctx.accessToken, link.externalListingId);

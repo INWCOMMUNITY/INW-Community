@@ -11,10 +11,12 @@ import { updateStoreItemOnChannels } from "../outbound";
 import { syncInventoryToChannels } from "../sync-inventory";
 import { inboundListingPhotosDiffer } from "../photo-urls";
 import { SYNC_ECHO_SKEW_MS } from "../sync-baseline";
+import { readLastInventoryPushAt } from "../listing-conflict-json";
 import { patchChannelConnectionConfig } from "../connection";
 import { shopifyGet, setShopifyConnectionContext } from "./client";
 import { readShopifyConfig } from "./config";
 import { shopifyProductToSummary, type ShopifyProduct } from "./mapping";
+import { normalizeVariantMatrix, stripSkuPricesFromMatrix } from "@/lib/listing-variant-matrix";
 import {
   SHOPIFY_INVENTORY_INDEX_KEY,
   indexedProductIdForInventoryItem,
@@ -57,6 +59,11 @@ export function shopifyWebhookShouldPull(args: {
   qtyDiffers: boolean;
   photosDiffer: boolean;
   nowMs?: number;
+  /** Set true for inventory_levels/update webhooks. inventory_levels/update
+   *  does NOT advance product.updated_at, so remoteAt <= inwAt must not block
+   *  a genuine qty change — it would silently drop Shopify sales until the
+   *  next cron reconcile. */
+  isInventoryWebhook?: boolean;
 }): boolean {
   const contentDiffers =
     args.titleOrPriceDiffers || args.descriptionDiffers || args.qtyDiffers || args.photosDiffer;
@@ -72,6 +79,12 @@ export function shopifyWebhookShouldPull(args: {
     if (remoteAt > 0 && inwAt > 0 && remoteAt > inwAt + 2000) return true;
     return false;
   }
+
+  // For inventory_levels/update, qty changes are the payload's own timestamp
+  // (the available field), not product.updated_at.  A recent INW edit (title,
+  // price, etc.) makes inwAt fresh, but that must not block a real Shopify
+  // sale where qtyDiffers is true.
+  if (args.isInventoryWebhook && args.qtyDiffers) return true;
 
   if (remoteAt > 0 && inwAt > 0 && remoteAt <= inwAt) return false;
   return true;
@@ -156,6 +169,16 @@ export async function applyShopifyProductWebhook(args: {
   });
   if (!shouldPull) return { applied: false, skipped: "echo_or_unchanged" };
 
+  // Inventory-push echo guard.  syncInventoryToChannels deliberately does NOT
+  // stamp lastPushedAt (to preserve content-inbound floors for eBay/Etsy).
+  // That means the lastPushedAt check above misses echoes of our own inventory
+  // push.  Check the separate lastInventoryPushAt timestamp that the qty-only
+  // path writes into conflictDetails.
+  const lastInvPush = readLastInventoryPushAt(link.conflictDetails);
+  if (lastInvPush && Date.now() - lastInvPush.getTime() < SYNC_ECHO_SKEW_MS) {
+    return { applied: false, skipped: "inventory_push_echo" };
+  }
+
   const pulledContent = await applyRemoteContentToStoreItem(link.storeItemId, remote);
   const pulledVariants = await applyRemoteVariantsToStoreItem(link.storeItemId, remote, "shopify");
   const pulledCategory = await applyRemoteCategoryToStoreItem(link.storeItemId, remote, "shopify");
@@ -222,7 +245,7 @@ export async function applyShopifyInventoryWebhook(args: {
 
   const links = await prisma.channelListingLink.findMany({
     where: { connectionId: connection.id, provider: "shopify", syncEnabled: true },
-    select: { id: true, storeItemId: true, externalListingId: true, lastPushedAt: true },
+    select: { id: true, storeItemId: true, externalListingId: true, lastPushedAt: true, conflictDetails: true },
   });
 
   // Resolve the owning product from the durable index so we don't scan every product (O(n) API
@@ -266,6 +289,10 @@ export async function applyShopifyInventoryWebhook(args: {
           : v
       ),
     });
+    const qtyOnlyMatrix = normalizeVariantMatrix(remote.variants);
+    if (qtyOnlyMatrix) {
+      remote.variants = stripSkuPricesFromMatrix(qtyOnlyMatrix);
+    }
     const item = await prisma.storeItem.findUnique({
       where: { id: link.storeItemId },
       select: { title: true, description: true, photos: true, priceCents: true, quantity: true, updatedAt: true },
@@ -280,9 +307,16 @@ export async function applyShopifyInventoryWebhook(args: {
         descriptionDiffers: false,
         qtyDiffers: remote.quantity !== item.quantity,
         photosDiffer: false,
+        isInventoryWebhook: true,
       })
     ) {
       return { applied: false, skipped: "echo_or_unchanged" };
+    }
+
+    // Inventory-push echo guard (mirrors the one in applyShopifyProductWebhook).
+    const lastInvPush = readLastInventoryPushAt(link.conflictDetails);
+    if (lastInvPush && Date.now() - lastInvPush.getTime() < SYNC_ECHO_SKEW_MS) {
+      return { applied: false, skipped: "inventory_push_echo" };
     }
 
     const pulledVariants = await applyRemoteVariantsToStoreItem(link.storeItemId, remote, "shopify");
@@ -294,11 +328,19 @@ export async function applyShopifyInventoryWebhook(args: {
       });
     }
     if (!pulledVariants && !pulledQty) return { applied: false, skipped: "no_field_changes" };
+    // Re-read the fresh hub qty after the pull so the baseline uses the actual
+    // DB value.  remote.quantity is the buffer-adjusted value on Shopify, while
+    // every other baseline writer records raw hub qty.  Using the fresh row
+    // keeps the drift gate consistent across all paths.
+    const freshItem = await prisma.storeItem.findUnique({
+      where: { id: link.storeItemId },
+      select: { quantity: true },
+    });
     await prisma.channelListingLink.update({
       where: { id: link.id },
       data: {
         lastInboundAt: new Date(),
-        syncBaselineQty: remote.quantity,
+        syncBaselineQty: freshItem?.quantity ?? remote.quantity,
         syncBaselineAt: new Date(),
       },
     });

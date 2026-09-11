@@ -117,6 +117,26 @@ export async function findStaleWebhookEvents(limit = 50): Promise<
 }
 
 /**
+ * Check if a webhook with this external ID was already received (completed or processing).
+ * Returns true if it's a duplicate that should be skipped.
+ */
+export async function isWebhookDuplicate(
+  provider: ChannelProvider,
+  externalEventId: string
+): Promise<boolean> {
+  if (!externalEventId) return false;
+  const existing = await prisma.channelWebhookEvent.findFirst({
+    where: {
+      provider,
+      externalEventId,
+      status: { in: ["completed", "processing"] },
+    },
+    select: { id: true },
+  });
+  return existing != null;
+}
+
+/**
  * Clean up old completed/failed webhook events (older than 7 days).
  */
 export async function cleanupOldWebhookEvents(): Promise<number> {

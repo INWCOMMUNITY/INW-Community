@@ -5,6 +5,7 @@ import type { ChannelConnectionContext, ChannelProvider } from "./types";
 import { logSyncEvent } from "./sync-log";
 import { EbayApiError, needsTokenRefresh } from "./ebay/errors";
 import { EtsyApiError } from "./etsy/client";
+import { ShopifyApiError } from "./shopify/client";
 import {
   notifyChannelDisconnectIfNew,
   readDisconnectNotifiedAt,
@@ -213,7 +214,11 @@ export async function recoverPausedChannelConnections(): Promise<{ recovered: nu
   const paused = await prisma.channelConnection.findMany({
     where: {
       status: "error",
-      OR: [{ refreshTokenEncrypted: { not: null } }, { provider: "wix" }],
+      OR: [
+        { refreshTokenEncrypted: { not: null } },
+        { provider: "wix" },
+        { provider: "shopify" },
+      ],
     },
   });
   let recovered = 0;
@@ -284,8 +289,19 @@ export function isPermanentChannelAuthFailure(error: unknown): boolean {
 
 export function connectionNeedsReconnect(
   error: unknown,
-  hasRefreshToken: boolean
+  hasRefreshToken: boolean,
+  provider?: string
 ): boolean {
+  // Shopify uses non-expiring offline tokens with no refresh token.
+  // Only pause on actual auth failures (401/403), not transient errors
+  // like 503, timeouts, or rate limits — those recover on the next tick.
+  if (!hasRefreshToken && provider === "shopify") {
+    if (error instanceof ShopifyApiError) {
+      return error.status === 401 || error.status === 403;
+    }
+    const msg = error instanceof Error ? error.message : String(error);
+    return /unauthorized|forbidden|access.denied|token.*revoked|token.*expired|app.*uninstalled/i.test(msg);
+  }
   if (!hasRefreshToken) return true;
   return isPermanentChannelAuthFailure(error);
 }
@@ -297,7 +313,7 @@ export async function markChannelConnectionFailure(args: {
   lastError: string;
 }): Promise<{ paused: boolean }> {
   const { connection, error, lastError } = args;
-  if (!connectionNeedsReconnect(error, Boolean(connection.refreshTokenEncrypted))) {
+  if (!connectionNeedsReconnect(error, Boolean(connection.refreshTokenEncrypted), connection.provider)) {
     console.warn("[channels] transient channel error; not pausing connection", {
       connectionId: connection.id,
       provider: connection.provider,
@@ -557,6 +573,9 @@ export function isChannelAuthError(provider: ChannelProvider, e: unknown): boole
   }
   if (e instanceof EtsyApiError) {
     return e.status === 401;
+  }
+  if (e instanceof ShopifyApiError) {
+    return e.status === 401 || e.status === 403;
   }
   const msg = e instanceof Error ? e.message : String(e);
   if (provider === "ebay") {
