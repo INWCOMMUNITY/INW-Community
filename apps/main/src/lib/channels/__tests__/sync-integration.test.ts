@@ -178,7 +178,9 @@ const makeLink = (overrides: Record<string, unknown> = {}) => ({
   lastPushedAt: null,
   lastInboundAt: null,
   syncBaselineHash: null,
-  syncBaselineQty: 5,
+  // Default: link has never settled a qty baseline, so a push always happens. Tests that exercise
+  // the "already settled -> skip re-push" drift gate set syncBaselineQty explicitly.
+  syncBaselineQty: null,
   syncBaselineAt: null,
   syncBaselineMetaHash: null,
   syncBaselineVariantsHash: null,
@@ -295,6 +297,87 @@ describe("sync-inventory", () => {
 
     expect(results).toHaveLength(0);
     expect(mockAdapter.updateInventory).not.toHaveBeenCalled();
+  });
+
+  it("does NOT re-push when the channel already holds this exact qty (no drift)", async () => {
+    const { syncInventoryToChannels } = await import("../sync-inventory");
+
+    // Link already settled at qty 5 (last successful push), item unchanged at 5.
+    const link = makeLink({ syncBaselineQty: 5 });
+    mockPrisma.channelListingLink.findMany.mockResolvedValueOnce([link]);
+    mockPrisma.storeItem.findUnique.mockResolvedValueOnce(makeStoreItem({ quantity: 5 }));
+
+    const results = await syncInventoryToChannels("item-1");
+
+    expect(results).toHaveLength(1);
+    expect(results[0].ok).toBe(true);
+    expect(results[0].skipped).toBe("no_qty_drift");
+    // The whole point: no marketplace write on an unchanged qty (kills the every-tick storm and
+    // prevents clobbering a channel-side edit before inbound reconcile adopts it).
+    expect(mockAdapter.updateInventory).not.toHaveBeenCalled();
+  });
+
+  it("still pushes when INW qty drifted from the settled baseline (e.g. after a sale)", async () => {
+    const { syncInventoryToChannels } = await import("../sync-inventory");
+
+    // Baseline was 5; item moved to 3 (a real change) -> must converge the channel.
+    const link = makeLink({ syncBaselineQty: 5 });
+    mockPrisma.channelListingLink.findMany.mockResolvedValueOnce([link]);
+    mockPrisma.storeItem.findUnique.mockResolvedValueOnce(makeStoreItem({ quantity: 3 }));
+
+    const results = await syncInventoryToChannels("item-1");
+
+    expect(results).toHaveLength(1);
+    expect(results[0].ok).toBe(true);
+    expect(results[0].skipped).toBeUndefined();
+    expect(mockAdapter.updateInventory).toHaveBeenCalledOnce();
+    expect(mockAdapter.updateInventory).toHaveBeenCalledWith(
+      expect.anything(),
+      "ext-123",
+      3,
+      expect.anything()
+    );
+  });
+
+  it("does not clobber other channels when one link's failing retry re-runs the whole item", async () => {
+    // Reproduces the storm amplifier: a failing link's inventory retry calls
+    // syncInventoryToChannels(item), which used to re-push qty to EVERY channel. With the drift
+    // gate, channels already at baseline are skipped, so only the genuinely-drifted link is written.
+    const { syncInventoryToChannels } = await import("../sync-inventory");
+
+    const settledEbay = makeLink({
+      id: "link-ebay",
+      provider: "ebay",
+      externalListingId: "ebay-1",
+      syncBaselineQty: 5,
+    });
+    const driftedWix = makeLink({
+      id: "link-wix",
+      provider: "wix",
+      externalListingId: "wix-1",
+      syncBaselineQty: 0,
+    });
+    mockPrisma.channelListingLink.findMany.mockResolvedValueOnce([settledEbay, driftedWix]);
+    // One findUnique per link iteration (avoid a persistent mock that would leak into later tests).
+    mockPrisma.storeItem.findUnique
+      .mockResolvedValueOnce(makeStoreItem({ quantity: 5 }))
+      .mockResolvedValueOnce(makeStoreItem({ quantity: 5 }));
+
+    const results = await syncInventoryToChannels("item-1");
+
+    const ebay = results.find((r) => r.provider === "ebay");
+    const wix = results.find((r) => r.provider === "wix");
+    expect(ebay?.skipped).toBe("no_qty_drift");
+    expect(wix?.ok).toBe(true);
+    expect(wix?.skipped).toBeUndefined();
+    // eBay untouched (no snap-back); only the drifted Wix link written once.
+    expect(mockAdapter.updateInventory).toHaveBeenCalledOnce();
+    expect(mockAdapter.updateInventory).toHaveBeenCalledWith(
+      expect.anything(),
+      "wix-1",
+      5,
+      expect.anything()
+    );
   });
 });
 

@@ -3,7 +3,7 @@ import type { RemoteListingSummary, SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
 import { hasOptionQuantities } from "../../store-item-variants";
 import { listingDescriptionForHtmlChannel } from "../rich-description";
-import { isMadeToOrderTracking } from "@/lib/listing-variant-matrix";
+import { isMadeToOrderTracking, type VariantMatrix } from "@/lib/listing-variant-matrix";
 
 /** cents -> "12.34" (Wix expects a string decimal amount). */
 export function wixPriceFromCents(cents: number): string {
@@ -26,6 +26,21 @@ export type WixVariant = {
   id?: string;
   sku?: string;
   price?: { actualPrice?: { amount?: string } };
+  choices?: WixV3VariantChoice[];
+  optionChoices?: WixV3VariantChoice[];
+};
+
+export type WixV3VariantChoice = {
+  optionChoiceNames?: {
+    optionName?: string;
+    choiceName?: string;
+    name?: string;
+    value?: string;
+  };
+  optionName?: string;
+  choiceName?: string;
+  name?: string;
+  value?: string;
 };
 export type WixProduct = {
   id?: string;
@@ -144,13 +159,18 @@ export type WixV1Product = {
   variants?: {
     id?: string;
     sku?: string | null;
-    price?: number;
-    priceData?: { price?: number };
+    price?: number | string;
+    priceData?: { price?: number | string };
     stock?: { quantity?: number; inStock?: boolean; trackInventory?: boolean; trackQuantity?: boolean };
     media?: { image?: { url?: string } };
     /** v1 API: option name -> choice value (not an array). */
     choices?: Record<string, string> | { description?: string; value?: string }[];
-    variant?: { choices?: { description?: string }[] };
+    variant?: {
+      choices?: { description?: string }[];
+      sku?: string | null;
+      priceData?: { price?: number | string };
+      convertedPriceData?: { price?: number | string };
+    };
   }[];
   productOptions?: {
     name?: string;
@@ -377,8 +397,7 @@ export function buildWixV1UpdateBody(
   if (variantRows.length > 0) {
     product.variants = variantRows.map((v) => ({
       id: v.id,
-      ...(perOptionStock ? {} : { stock }),
-      priceData: { price },
+      ...(perOptionStock ? {} : { stock, priceData: { price } }),
     }));
   } else if (!perOptionStock) {
     product.stock = stock;
@@ -447,5 +466,56 @@ export function wixProductToSummary(
     remoteUpdatedAt: parseWixDate(product.updatedDate),
     category: categoryLabel,
     remoteCategoryId: product.categories?.[0]?.id ?? product.collectionIds?.[0] ?? null,
+  };
+}
+
+function wixV3ChoiceMap(variant: WixVariant): Record<string, string> {
+  const rows = [
+    ...(Array.isArray(variant.choices) ? variant.choices : []),
+    ...(Array.isArray(variant.optionChoices) ? variant.optionChoices : []),
+  ];
+  const out: Record<string, string> = {};
+  for (const row of rows) {
+    const names = row.optionChoiceNames;
+    const name = String(names?.optionName ?? names?.name ?? row.optionName ?? row.name ?? "").trim();
+    const value = String(
+      names?.choiceName ?? names?.value ?? row.choiceName ?? row.value ?? ""
+    ).trim();
+    if (name && value) out[name] = value;
+  }
+  return out;
+}
+
+/** Map Catalog v3 variantsInfo to an INW matrix (prices from actualPrice.amount). */
+export function wixV3ProductToVariants(product: WixProduct): VariantMatrix | null {
+  const rows = product.variantsInfo?.variants ?? [];
+  if (rows.length < 2) return null;
+  const skus: VariantMatrix["skus"] = [];
+  const axisOrder: string[] = [];
+  const axisValues = new Map<string, string[]>();
+  for (const row of rows) {
+    const options = wixV3ChoiceMap(row);
+    if (Object.keys(options).length === 0) continue;
+    const priceCents = wixPriceToCents(row.price?.actualPrice?.amount);
+    skus.push({
+      options,
+      quantity: 0,
+      ...(priceCents > 0 ? { priceCents } : {}),
+      ...(row.sku?.trim() ? { sku: row.sku.trim() } : {}),
+    });
+    for (const [name, value] of Object.entries(options)) {
+      if (!axisValues.has(name)) {
+        axisOrder.push(name);
+        axisValues.set(name, []);
+      }
+      const list = axisValues.get(name)!;
+      if (!list.some((v) => v.toLowerCase() === value.toLowerCase())) list.push(value);
+    }
+  }
+  if (skus.length === 0 || axisOrder.length === 0) return null;
+  return {
+    axes: axisOrder.map((name) => ({ name, values: axisValues.get(name) ?? [] })),
+    skus,
+    pricesVary: skus.some((s) => s.priceCents != null),
   };
 }

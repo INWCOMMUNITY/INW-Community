@@ -22,9 +22,9 @@ import {
   type SyncDirection,
 } from "./sync-baseline";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
-import { sumVariantQuantities, variantsFingerprint } from "./variant-sync";
+import { sumVariantQuantities, remoteVariantsIndicateChange, variantsFingerprint } from "./variant-sync";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
-import { isMadeToOrderTracking, normalizeVariantMatrix } from "@/lib/listing-variant-matrix";
+import { isMadeToOrderTracking, matrixHasKnownSkuPrices, normalizeVariantMatrix } from "@/lib/listing-variant-matrix";
 import { isComboInventoryFailedError } from "./combo-sync";
 
 function inwMissingVariants(variants: unknown): boolean {
@@ -186,7 +186,8 @@ export async function reconcileConnectionInboundMeta(
       if (!r.externalListingId) continue;
       const needsFull =
         !r.variantsKnown ||
-        (r.variantsKnown && remoteVariantQtySum(r) === 0);
+        (r.variantsKnown && remoteVariantQtySum(r) === 0) ||
+        (r.variantsKnown && !matrixHasKnownSkuPrices(r.variants));
       if (!needsFull) continue;
       const full = await fetchWixV1Product(ctx.accessToken, r.externalListingId, wixOpts);
       if (full) attachWixVariantsToSummary(r, full);
@@ -315,14 +316,17 @@ export async function reconcileConnectionInboundMeta(
     // false) yields no remote change, so it stays push-only with no regression.
     const inwVarFp = variantsFingerprint(item.variants);
     const baseVarFp = link.syncBaselineVariantsHash ?? inwVarFp;
-    const remoteVarFp =
-      remote.variantsKnown === true ? variantsFingerprint(remote.variants) : null;
     const inwVarChanged = inwChangedSinceBaseline({
       hashDiffers: inwVarFp !== baseVarFp,
       inwUpdatedAt: item.updatedAt,
       baselineAt: baseAt,
     });
-    const remoteVarChanged = remoteVarFp != null && remoteVarFp !== baseVarFp;
+    const remoteVarChanged = remoteVariantsIndicateChange({
+      remoteVariantsKnown: remote.variantsKnown === true,
+      remoteVariants: remote.variants,
+      inwVariants: item.variants,
+      baselineVarHash: link.syncBaselineVariantsHash,
+    });
     const varDecision: SyncDirection = resolveSyncDirection({
       inwChanged: inwVarChanged,
       remoteChanged: remoteVarChanged,

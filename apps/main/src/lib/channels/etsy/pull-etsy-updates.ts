@@ -18,8 +18,9 @@ import {
   inboundRefreshShouldPull,
   isOwnChannelPushEcho,
   newerChannelQtyEditShouldPull,
+  inboundRefreshShouldPullVariantPrices,
 } from "../inbound-catalog-decision";
-import { variantsFingerprint } from "../variant-sync";
+import { variantsFingerprint, variantPricesFingerprint } from "../variant-sync";
 import { updateStoreItemOnChannels } from "../outbound";
 import { channelSyncSucceeded, syncInventoryToChannels } from "../sync-inventory";
 import { inboundContentFanoutKind } from "../listing-link-flags";
@@ -28,6 +29,7 @@ import { etsyGet, setEtsyConnectionContext } from "./client";
 import { etsyListingToSummary } from "./mapping";
 import { etsyRemoteQuantityIsKnown } from "./listing-exists";
 import type { RemoteListingSummary } from "../types";
+import { matrixHasKnownSkuPrices } from "@/lib/listing-variant-matrix";
 
 type ConnectionRow = {
   id: string;
@@ -205,8 +207,25 @@ export async function refreshEtsyListingByStoreItemId(
       remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
       baselineAt: link.syncBaselineAt ?? null,
     });
+  const inwVarChanged = inwChangedSinceBaseline({
+    hashDiffers:
+      link.syncBaselineVariantsHash == null
+        ? false
+        : variantsFingerprint(storeItem.variants) !== link.syncBaselineVariantsHash,
+    inwUpdatedAt: storeItem.updatedAt,
+    baselineAt: link.syncBaselineAt,
+  });
+  const shouldPullPrices = inboundRefreshShouldPullVariantPrices({
+    inwVariantsChanged: inwVarChanged,
+    remotePricesKnown: Boolean(remote.variantsKnown) && matrixHasKnownSkuPrices(remote.variants),
+    remotePriceFingerprint: variantPricesFingerprint(remote.variants),
+    inwPriceFingerprint: variantPricesFingerprint(storeItem.variants),
+    inwUpdatedAt: storeItem.updatedAt,
+    remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
+    ownPushEcho,
+  });
 
-  if (!shouldPullContent && !shouldPullQty) {
+  if (!shouldPullContent && !shouldPullQty && !shouldPullPrices) {
     console.log("[etsy] refresh skipped; last-write-wins kept the Hub copy (INW newer or echo)", {
       storeItemId,
       inwContentChanged,
@@ -242,6 +261,14 @@ export async function refreshEtsyListingByStoreItemId(
       if (varsPulled) {
         updated = true;
         changes.push("variants");
+      }
+    }
+  } else if (shouldPullPrices) {
+    if (remote.variantsKnown && remote.variants && !isComboInventoryFailedError(link.syncError)) {
+      const varsPulled = await applyRemoteVariantsToStoreItem(storeItemId, remote, "etsy");
+      if (varsPulled) {
+        updated = true;
+        changes.push("variant prices");
       }
     }
   }
@@ -293,7 +320,7 @@ export async function refreshEtsyListingByStoreItemId(
     const soldOut =
       refreshedItem.quantity === 0 || refreshedItem.status === "sold_out";
     const fanout = inboundContentFanoutKind({
-      contentChange: pulledContent,
+      contentChange: pulledContent || changes.includes("variant prices") || changes.includes("variants"),
       soldOut,
     });
     if (fanout === "inventory") {

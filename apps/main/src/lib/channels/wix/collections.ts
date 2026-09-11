@@ -49,6 +49,27 @@ function wixVariantChoiceMap(row: WixV1VariantRow): Record<string, string> {
   return {};
 }
 
+function wixAmountToCents(raw: unknown): number | undefined {
+  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+    return Math.round(raw * 100);
+  }
+  if (typeof raw === "string" && raw.trim() !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return Math.round(n * 100);
+  }
+  return undefined;
+}
+
+/** Catalog v1 GET nests price on `variant.priceData`; list payloads sometimes use the top-level field. */
+export function wixV1VariantPriceCents(row: WixV1VariantRow): number | undefined {
+  return (
+    wixAmountToCents(row.variant?.priceData?.price) ??
+    wixAmountToCents(row.variant?.convertedPriceData?.price) ??
+    wixAmountToCents(row.priceData?.price) ??
+    wixAmountToCents(row.price)
+  );
+}
+
 /** Extract INW variant matrix from a classic v1 Wix product (query or GET). */
 export function wixV1ProductToVariants(product: WixV1Product): VariantMatrix | InwVariantAxis[] | null {
   const rows = product.variants?.filter((v) => v.id) ?? [];
@@ -65,13 +86,18 @@ export function wixV1ProductToVariants(product: WixV1Product): VariantMatrix | I
   })).filter((a) => a.name && a.values.length > 0);
 
   if (axes.length === 0 && rows.length > 0) {
-    const comboQty = new Map<string, { options: Record<string, string>; quantity: number }>();
+    const comboQty = new Map<
+      string,
+      { options: Record<string, string>; quantity: number; priceCents?: number }
+    >();
     for (const row of rows) {
       const map = wixVariantChoiceMap(row);
       if (Object.keys(map).length === 0) continue;
+      const priceCents = wixV1VariantPriceCents(row);
       comboQty.set(JSON.stringify(map), {
         options: map,
         quantity: Math.max(0, row.stock?.quantity ?? 0),
+        ...(priceCents != null ? { priceCents } : {}),
       });
     }
     if (comboQty.size === 0) return null;
@@ -101,13 +127,11 @@ export function wixV1ProductToVariants(product: WixV1Product): VariantMatrix | I
       );
       if (val) options[axis.name] = val;
     }
-    const price = row.priceData?.price;
-    const priceCents =
-      typeof price === "number" && Number.isFinite(price) ? Math.round(price * 100) : undefined;
+    const priceCents = wixV1VariantPriceCents(row);
     return {
       options,
       quantity: Math.max(0, row.stock?.quantity ?? 0),
-      ...(priceCents && priceCents > 0 ? { priceCents } : {}),
+      ...(priceCents != null ? { priceCents } : {}),
     };
   }).filter((s) => Object.keys(s.options).length > 0);
 

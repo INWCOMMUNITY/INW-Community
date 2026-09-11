@@ -28,7 +28,7 @@ import { resolveProviderCategoryId } from "../category-map";
 import { assertSaneInventoryQty } from "../inventory-sanity";
 import { isRemoteListingAlreadyGoneError } from "../error-classifier";
 import { hasOptionQuantities, sumOptionQuantities } from "../../store-item-variants";
-import { isMadeToOrderTracking } from "@/lib/listing-variant-matrix";
+import { isMadeToOrderTracking, matrixHasKnownSkuPrices } from "@/lib/listing-variant-matrix";
 import {
   assignWixProductCollection,
   attachWixVariantsToSummary,
@@ -51,6 +51,7 @@ import {
   v1QuantityInfo,
   wixProductToSummary,
   wixV1ProductToSummary,
+  wixV3ProductToVariants,
   type WixProduct,
   type WixV1Product,
 } from "./mapping";
@@ -251,8 +252,13 @@ async function queryAllProductsV1(
         if (fromMap) s.category = fromMap;
       }
       attachWixVariantsToSummary(s, p);
-      // List query sometimes omits productOptions; GET fills them in for option products.
-      if (!s.variantsKnown && p.id && (p.manageVariants || (p.variants?.length ?? 0) > 1)) {
+      // List query sometimes omits productOptions or nested variant.priceData; GET fills them in.
+      const pricesUnknown = Boolean(s.variantsKnown) && !matrixHasKnownSkuPrices(s.variants);
+      if (
+        p.id &&
+        (p.manageVariants || (p.variants?.length ?? 0) > 1) &&
+        (!s.variantsKnown || pricesUnknown)
+      ) {
         const full = await fetchWixV1Product(accessToken, p.id, opts);
         if (full) attachWixVariantsToSummary(s, full);
       }
@@ -296,19 +302,32 @@ async function listRemoteListingsV3(
     list.push(it);
     byProduct.set(it.productId, list);
   }
-  return products
-    .map((p) => {
-      const summary = wixProductToSummary(p, collectionNameById);
-      if (!summary.category && p.id) {
-        const fromMap = categoryByProductId.get(p.id);
-        if (fromMap) summary.category = fromMap;
+  const summaries: RemoteListingSummary[] = [];
+  for (const p of products) {
+    const summary = wixProductToSummary(p, collectionNameById);
+    if (!summary.category && p.id) {
+      const fromMap = categoryByProductId.get(p.id);
+      if (fromMap) summary.category = fromMap;
+    }
+    const invItems = byProduct.get(p.id as string);
+    const withQty = invItems
+      ? { ...summary, quantity: quantityForProduct(invItems), quantityKnown: true }
+      : summary;
+    const multiVariant = (p.variantsInfo?.variants?.length ?? 0) > 1;
+    if (multiVariant && p.id) {
+      const full = await fetchWixV1Product(accessToken, p.id, opts);
+      if (full) attachWixVariantsToSummary(withQty, full);
+    }
+    if (!withQty.variantsKnown) {
+      const v3 = wixV3ProductToVariants(p);
+      if (v3 && v3.skus.some((s) => s.priceCents != null && s.priceCents > 0)) {
+        withQty.variants = v3;
+        withQty.variantsKnown = true;
       }
-      const invItems = byProduct.get(p.id as string);
-      return invItems
-        ? { ...summary, quantity: quantityForProduct(invItems), quantityKnown: true }
-        : summary;
-    })
-    .filter((s) => s.externalListingId);
+    }
+    if (withQty.externalListingId) summaries.push(withQty);
+  }
+  return summaries;
 }
 
 /** Available quantity for a product: sum tracked quantities, else infer from inStock flag. */

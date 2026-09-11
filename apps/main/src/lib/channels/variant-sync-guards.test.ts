@@ -4,6 +4,8 @@ import {
   withLastPushedVariantPricesHash,
   readEtsyLastSyncedContent,
   withEtsyLastSyncedContent,
+  readLastInventoryPushAt,
+  withLastInventoryPushAt,
 } from "./listing-conflict-json";
 import {
   readEbayPendingVariantInboundHash,
@@ -60,5 +62,22 @@ describe("ebayPendingVariantInbound two-look helpers", () => {
   it("returns null when unset", () => {
     expect(readEbayPendingVariantInboundHash(null)).toBeNull();
     expect(readEbayPendingVariantInboundHash({})).toBeNull();
+  });
+});
+
+describe("lastInventoryPushAt conflictDetails helpers", () => {
+  it("round-trips a Date and preserves other keys", () => {
+    const now = new Date("2026-09-10T12:00:00.000Z");
+    const cd = withLastInventoryPushAt({ ebayListingEnded: true }, now);
+    const read = readLastInventoryPushAt(cd);
+    expect(read).toBeInstanceOf(Date);
+    expect(read!.toISOString()).toBe(now.toISOString());
+    expect((cd as Record<string, unknown>).ebayListingEnded).toBe(true);
+  });
+
+  it("returns null when unset or invalid", () => {
+    expect(readLastInventoryPushAt(null)).toBeNull();
+    expect(readLastInventoryPushAt({})).toBeNull();
+    expect(readLastInventoryPushAt({ lastInventoryPushAt: "not-a-date" })).toBeNull();
   });
 });

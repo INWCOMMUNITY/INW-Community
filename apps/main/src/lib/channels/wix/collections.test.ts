@@ -105,6 +105,49 @@ describe("Wix Catalog v1 option structure", () => {
     expect(JSON.stringify(matrix)).not.toMatch(/M \/ Red/);
   });
 
+  it("reads nested variant.priceData.price as per-SKU cents", () => {
+    const matrix = wixV1ProductToVariants({
+      productOptions: [{ name: "Size", choices: [{ description: "S" }, { description: "M" }] }],
+      variants: [
+        {
+          id: "1",
+          choices: { Size: "S" },
+          stock: { quantity: 2 },
+          variant: { priceData: { price: 18.5 } },
+        },
+        {
+          id: "2",
+          choices: { Size: "M" },
+          stock: { quantity: 1 },
+          variant: { priceData: { price: "22.00" } },
+        },
+      ],
+    });
+    expect(matrix).toMatchObject({
+      skus: [
+        { options: { Size: "S" }, quantity: 2, priceCents: 1850 },
+        { options: { Size: "M" }, quantity: 1, priceCents: 2200 },
+      ],
+    });
+  });
+
+  it("falls back to top-level priceData when nested price is missing", () => {
+    const matrix = wixV1ProductToVariants({
+      productOptions: [{ name: "Color", choices: [{ description: "Red" }] }],
+      variants: [
+        {
+          id: "1",
+          choices: { Color: "Red" },
+          stock: { quantity: 3 },
+          priceData: { price: 12 },
+        },
+      ],
+    });
+    expect(matrix).toMatchObject({
+      skus: [{ options: { Color: "Red" }, quantity: 3, priceCents: 1200 }],
+    });
+  });
+
   it("creates untracked stock for made-to-order listings", () => {
     const body = buildWixV1OptionsCreateBody({
       ...sizeItem,

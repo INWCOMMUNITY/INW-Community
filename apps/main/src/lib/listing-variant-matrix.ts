@@ -686,6 +686,64 @@ export type RemoteVariantPrice = {
   priceCents: number;
 };
 
+/** True when any SKU row has a positive per-combination price. */
+export function matrixHasKnownSkuPrices(variants: unknown): boolean {
+  const matrix = normalizeVariantMatrix(variants);
+  if (!matrix || matrix.skus.length === 0) return false;
+  return matrix.skus.some((s) => s.priceCents != null && s.priceCents > 0);
+}
+
+/** Drop per-SKU prices so a qty-only inbound overlay cannot clobber INW prices. */
+export function stripSkuPricesFromMatrix(matrix: VariantMatrix): VariantMatrix {
+  return {
+    ...matrix,
+    pricesVary: false,
+    skus: matrix.skus.map((sku) => {
+      const next = { ...sku };
+      delete next.priceCents;
+      return next;
+    }),
+  };
+}
+
+/**
+ * Keep INW per-SKU prices when the remote snapshot has quantities/structure but no prices.
+ * A priceless inbound matrix must never clear prices we already have (Wix inventory echo,
+ * catalog list omitting nested priceData). When the remote *does* send prices, use it as-is.
+ */
+export function mergeIncomingVariantMatrixPreservingUnknownPrices(
+  existing: unknown,
+  incoming: VariantMatrix
+): VariantMatrix {
+  const inw = normalizeVariantMatrix(existing);
+  if (matrixHasKnownSkuPrices(incoming)) {
+    if (inw && sumMatrixQuantities(incoming) === 0 && sumMatrixQuantities(inw) > 0) {
+      return applyRemoteVariantPricesToMatrix(
+        inw,
+        incoming.skus
+          .filter((s) => s.priceCents != null && s.priceCents > 0)
+          .map((s) => ({
+            sku: s.sku ?? null,
+            options: s.options,
+            priceCents: s.priceCents as number,
+          }))
+      );
+    }
+    return incoming;
+  }
+  if (!inw || !matrixHasKnownSkuPrices(inw)) return incoming;
+  return applyRemoteVariantPricesToMatrix(
+    incoming,
+    inw.skus
+      .filter((s) => s.priceCents != null && s.priceCents > 0)
+      .map((s) => ({
+        sku: s.sku ?? null,
+        options: s.options,
+        priceCents: s.priceCents as number,
+      }))
+  );
+}
+
 /**
  * Overwrite per-option prices in a matrix from authoritative live reads
  * (e.g. eBay GetItem per-variation StartPrice, Etsy per-offering price). Each

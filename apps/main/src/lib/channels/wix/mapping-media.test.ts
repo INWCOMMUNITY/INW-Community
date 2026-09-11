@@ -9,9 +9,11 @@ import {
 import {
   buildWixV1CreateBody,
   buildWixV1MediaFromPhotos,
+  buildWixV1UpdateBody,
   v1Photos,
   wixProductToSummary,
   wixV1ProductToSummary,
+  wixV3ProductToVariants,
 } from "./mapping";
 import type { SyncStoreItem } from "../types";
 
@@ -183,5 +185,91 @@ describe("Wix listing photo import quality", () => {
         ["https://abc.public.blob.vercel-storage.com/hat.jpg"]
       )
     ).toBe(false);
+  });
+});
+
+describe("buildWixV1UpdateBody", () => {
+  const optionItem: SyncStoreItem = {
+    id: "item-1",
+    sku: "HAT",
+    title: "Hat",
+    description: null,
+    photos: [],
+    priceCents: 1000,
+    quantity: 5,
+    variants: {
+      axes: [{ name: "Size", values: ["S", "M"] }],
+      skus: [
+        { options: { Size: "S" }, quantity: 2, priceCents: 1800 },
+        { options: { Size: "M" }, quantity: 3, priceCents: 2200 },
+      ],
+    },
+    status: "active",
+    condition: "new",
+    shippingCostCents: null,
+    category: null,
+    subcategory: null,
+    secondaryCategory: null,
+    etsyWhoMade: null,
+    etsyWhenMade: null,
+    etsyIsSupply: null,
+    etsyTaxonomyId: null,
+    ebayCategoryId: null,
+    ebayConditionEnum: null,
+    aspects: null,
+  };
+
+  it("does not stamp listing price onto every option variant", () => {
+    const body = buildWixV1UpdateBody(optionItem, {
+      variants: [
+        { id: "v-s", choices: { Size: "S" } },
+        { id: "v-m", choices: { Size: "M" } },
+      ],
+    }) as { product: { variants: Record<string, unknown>[] } };
+    expect(body.product.variants).toEqual([{ id: "v-s" }, { id: "v-m" }]);
+    expect(body.product.variants[0].priceData).toBeUndefined();
+    expect(body.product.variants[0].stock).toBeUndefined();
+  });
+
+  it("still sends stock and listing price for a simple product", () => {
+    const body = buildWixV1UpdateBody(
+      { ...optionItem, variants: null },
+      { variants: [{ id: "default" }] }
+    ) as { product: { variants: { id: string; stock?: unknown; priceData?: { price: number } }[] } };
+    expect(body.product.variants[0]).toMatchObject({
+      id: "default",
+      priceData: { price: 10 },
+    });
+    expect(body.product.variants[0].stock).toBeDefined();
+  });
+});
+
+describe("wixV3ProductToVariants", () => {
+  it("maps actualPrice.amount onto SKU rows", () => {
+    const matrix = wixV3ProductToVariants({
+      id: "p1",
+      name: "Hat",
+      variantsInfo: {
+        variants: [
+          {
+            sku: "HAT-S",
+            price: { actualPrice: { amount: "18.50" } },
+            choices: [{ optionChoiceNames: { optionName: "Size", choiceName: "S" } }],
+          },
+          {
+            sku: "HAT-M",
+            price: { actualPrice: { amount: "22.00" } },
+            optionChoices: [{ optionName: "Size", choiceName: "M" }],
+          },
+        ],
+      },
+    });
+    expect(matrix).toMatchObject({
+      axes: [{ name: "Size", values: ["S", "M"] }],
+      skus: [
+        { options: { Size: "S" }, quantity: 0, priceCents: 1850, sku: "HAT-S" },
+        { options: { Size: "M" }, quantity: 0, priceCents: 2200, sku: "HAT-M" },
+      ],
+    });
   });
 });

@@ -541,6 +541,17 @@ async function fetchTaxonomyProperties(
   return res.results ?? [];
 }
 
+/** Per-SKU offering price for a single-axis Etsy rebuild (falls back to listing price). */
+export function etsyOfferingPriceCentsForOption(item: SyncStoreItem, optionValue: string): number {
+  const matrix = variantsToMatrix(item.variants);
+  if (!matrix) return item.priceCents;
+  const want = optionValue.trim().toLowerCase();
+  const hit = matrix.skus.find((s) =>
+    Object.values(s.options).some((v) => v.trim().toLowerCase() === want)
+  );
+  return hit?.priceCents && hit.priceCents > 0 ? hit.priceCents : item.priceCents;
+}
+
 async function buildProductRowForOption(
   accessToken: string,
   taxonomyId: number,
@@ -570,7 +581,7 @@ async function buildProductRowForOption(
     property_values: [
       etsyPropertyValuePayload(resolved, valueName),
     ],
-    offerings: [buildOfferingPayload(opt.quantity, item.priceCents, defaultReadinessStateId)],
+    offerings: [buildOfferingPayload(opt.quantity, etsyOfferingPriceCentsForOption(item, opt.value), defaultReadinessStateId)],
   };
 }
 
@@ -733,7 +744,7 @@ function buildProductRowFromExistingProperty(
         values: [valueName],
       },
     ],
-    offerings: [buildOfferingPayload(opt.quantity, item.priceCents, defaultReadinessStateId)],
+    offerings: [buildOfferingPayload(opt.quantity, etsyOfferingPriceCentsForOption(item, opt.value), defaultReadinessStateId)],
   };
 }
 

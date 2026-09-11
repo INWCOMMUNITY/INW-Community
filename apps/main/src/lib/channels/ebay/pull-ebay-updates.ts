@@ -33,11 +33,12 @@ import {
   withEbayLastSyncedTitle,
 } from "../listing-conflict-json";
 import { ebayRemoteLooksLikeIndependentRevise, syncContentHash, syncMetaHash, SYNC_ECHO_SKEW_MS } from "../sync-baseline";
-import { normalizeVariantsFromProvider, variantsFingerprint } from "../variant-sync";
+import { normalizeVariantsFromProvider, variantPricesFingerprint, variantsFingerprint } from "../variant-sync";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
 import {
   applyLiveInventoryQuantitiesToMatrix,
   applyRemoteVariantPricesToMatrix,
+  matrixHasKnownSkuPrices,
   minSkuPriceCents,
   normalizeVariantMatrix,
   serializeVariantMatrix,
@@ -505,6 +506,8 @@ export function ebayGetItemApplyDecision(args: {
   lastSyncedTitle?: string | null;
   source?: EbayGetItemApplySource;
   now?: Date;
+  inwVariantPricesHash?: string | null;
+  remoteVariantPricesHash?: string | null;
 }): EbayGetItemApplyDecision {
   const inboundAt = args.lastInboundAt?.getTime() ?? null;
   const pushedAt = args.lastPushedAt?.getTime() ?? null;
@@ -533,12 +536,16 @@ export function ebayGetItemApplyDecision(args: {
   });
   const qtyPriceMatch =
     args.remotePriceCents === args.inwPriceCents && args.remoteQuantity === args.inwQuantity;
+  const variantPricesDiffer =
+    Boolean(args.remoteVariantPricesHash) &&
+    args.remoteVariantPricesHash !== (args.inwVariantPricesHash ?? "");
+  const listingFieldsMatch = remoteHash === inwHash && !descriptionDiffers && !variantPricesDiffer;
   const inwLooksNewer =
-    preserveInwContent && qtyPriceMatch && !independentRevise && !descriptionDiffers;
+    preserveInwContent && qtyPriceMatch && !independentRevise && !descriptionDiffers && !variantPricesDiffer;
 
   // Verified ping or dirty seller-list row: apply a real field diff unless this is our push echo.
   if (ebayApplyTrustsSingleSnapshot(args.source)) {
-    if (remoteHash === inwHash && !descriptionDiffers) {
+    if (listingFieldsMatch) {
       return { action: "skip", reason: "matches-inw" };
     }
     if (ebayGetItemIsPushEcho(args)) {
@@ -562,7 +569,7 @@ export function ebayGetItemApplyDecision(args: {
     return { action: "apply", reason: "first-pull" };
   }
 
-  if (remoteHash === inwHash && !descriptionDiffers) {
+  if (listingFieldsMatch) {
     return { action: "skip", reason: "matches-inw" };
   }
 
@@ -581,6 +588,7 @@ export function ebayGetItemApplyDecision(args: {
     ebayGetItemIsStaleVersusInw(args) &&
     qtyPriceMatch &&
     !descriptionDiffers &&
+    !variantPricesDiffer &&
     !independentRevise
   ) {
     return { action: "skip", reason: "lastModified-not-newer" };
@@ -730,6 +738,10 @@ export async function refreshEbayListingByItemId(
     pendingRemoteHash: readEbayPendingInboundHash(link.conflictDetails),
     lastSyncedTitle,
     source: opts?.source,
+    inwVariantPricesHash: variantPricesFingerprint(storeItem.variants) || null,
+    remoteVariantPricesHash: matrixHasKnownSkuPrices(details.variants)
+      ? variantPricesFingerprint(details.variants)
+      : null,
   });
   const preserveInwContent =
     !independentRevise &&

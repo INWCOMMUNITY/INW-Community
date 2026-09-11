@@ -107,6 +107,28 @@ export function withEtsyLastSyncedContent(
   return base;
 }
 
+/**
+ * ISO timestamp of the last inventory-only push from syncInventoryToChannels.
+ * Used by Shopify webhook echo detection to suppress products/update and
+ * inventory_levels/update echoes of our own push (since the qty-only path
+ * intentionally does not stamp lastPushedAt).
+ */
+export function readLastInventoryPushAt(conflictDetails: unknown): Date | null {
+  const value = conflictDetailsAsObject(conflictDetails).lastInventoryPushAt;
+  if (typeof value !== "string" || !value) return null;
+  const d = new Date(value);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+export function withLastInventoryPushAt(
+  conflictDetails: unknown,
+  date: Date
+): Record<string, unknown> {
+  const base = conflictDetailsAsObject(conflictDetails);
+  base.lastInventoryPushAt = date.toISOString();
+  return base;
+}
+
 export function readRemoteCatalogState(conflictDetails: unknown): RemoteCatalogState | null {
   const value = conflictDetailsAsObject(conflictDetails).remoteCatalogState;
   if (

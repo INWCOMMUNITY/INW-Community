@@ -4,6 +4,7 @@ import {
   buildShopifyUpdateBody,
   pickShopifyCategoryLabel,
   quantityForShopifyRemoteVariant,
+  shopifyProductToSummary,
   shopifyProductToVariants,
   shopifyUpdateShouldReplaceImages,
 } from "./mapping";
@@ -80,6 +81,24 @@ describe("shopifyProductToVariants", () => {
     });
     expect(matrix?.imageAxis).toBe("Color");
     expect(matrix?.skus[0].photos).toEqual(["https://cdn.example/navy.jpg"]);
+  });
+});
+
+describe("shopifyProductToSummary", () => {
+  it("sets listing price to the cheapest SKU, not the first variant", () => {
+    const summary = shopifyProductToSummary({
+      id: 11,
+      title: "Tee",
+      options: [
+        { name: "Size", values: ["S", "M"] },
+        { name: "Color", values: ["Navy"] },
+      ],
+      variants: [
+        { option1: "S", option2: "Navy", inventory_quantity: 2, price: "22.00" },
+        { option1: "M", option2: "Navy", inventory_quantity: 3, price: "18.00" },
+      ],
+    });
+    expect(summary.priceCents).toBe(1800);
   });
 });
 

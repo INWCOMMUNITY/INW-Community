@@ -1,5 +1,5 @@
 import { waitUntil } from "@vercel/functions";
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { getAdapter } from "./registry";
 import { withConnectionAuthRetry } from "./connection";
 import { assertSaneInventoryQty, clampSaneInventoryQty } from "./inventory-sanity";
@@ -24,6 +24,8 @@ import { fetchEbayItemDetails } from "./ebay/trading";
 import { resolveEbayLegacyListingId } from "./ebay/mapping";
 import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
 import { fetchShopifyListingForInbound } from "./shopify/adapter";
+import { withLastInventoryPushAt } from "./listing-conflict-json";
+import { variantsFingerprint } from "./variant-sync";
 
 /**
  * Push the StoreItem's current (authoritative) quantity out to every linked channel as an
@@ -159,6 +161,26 @@ export async function syncInventoryToChannels(
       
       const qty = assertSaneInventoryQty(adjustedQty, `syncInventory(${provider})`);
 
+      // Drift gate.  syncBaselineQty records the RAW hub quantity (item.quantity)
+      // at the time of the last successful push.  Compare against the hub qty —
+      // NOT the buffer-adjusted `qty` — so the baseline stays consistent with
+      // writeBaseline (reconcile) and the outbound inventoryOnly path, both of
+      // which write item.quantity.  When a safety buffer or per-channel offset is
+      // active, the PUSHED value (qty) differs from item.quantity by the buffer,
+      // but that's expected and not a reason to re-push every tick.
+      //
+      // Also check the variant fingerprint: individual SKU quantities can shift
+      // while the total remains unchanged (multi-variation listings).
+      const varFp = variantsFingerprint(item.variants);
+      const baselineQtyMatches =
+        link.syncBaselineQty != null && link.syncBaselineQty === item.quantity;
+      const baselineVarMatches =
+        (link.syncBaselineVariantsHash ?? "") === varFp;
+      if (baselineQtyMatches && baselineVarMatches) {
+        results.push({ provider, ok: true, skipped: "no_qty_drift" });
+        continue;
+      }
+
       // Sale-revert guard. This absolute-qty push converges stock after a sale, so it must not
       // block legitimate convergence (INW moved off baseline). It ONLY guards the suspicious
       // case: INW is still at the last agreed baseline while the live channel stock has moved —
@@ -236,7 +258,18 @@ export async function syncInventoryToChannels(
       await withConnectionAuthRetry(link.connection, (ctx) =>
         adapter.updateInventory(ctx, link.externalListingId, qty, item)
       );
-      const baselineQty = clampSaneInventoryQty(qty);
+      // Write baseline as the RAW hub qty (item.quantity), not the buffer-adjusted
+      // `qty`.  Every other baseline writer (writeBaseline in reconcile, and the
+      // outbound inventoryOnly path) records the raw hub qty.  When the baseline
+      // tracks raw qty, the drift gate above (item.quantity !== syncBaselineQty)
+      // only fires when the hub genuinely changed — not every tick because of a
+      // safety buffer offset.  Also stamp the variant fingerprint so individual-SKU
+      // quantity changes are detected on the next pass.
+      const rawBaselineQty = clampSaneInventoryQty(item.quantity);
+      const pushNow = new Date();
+      const updatedConflict = withLastInventoryPushAt(
+        link.conflictDetails, pushNow
+      ) as Prisma.InputJsonValue;
       await prisma.channelListingLink.update({
         where: { id: link.id },
         data: {
@@ -244,7 +277,9 @@ export async function syncInventoryToChannels(
           syncError: null,
           // Qty-only writes must not stamp lastPushedAt / syncBaselineAt — those
           // timestamps are content-inbound floors and were hiding eBay/Etsy edits.
-          ...(baselineQty != null ? { syncBaselineQty: baselineQty } : {}),
+          ...(rawBaselineQty != null ? { syncBaselineQty: rawBaselineQty } : {}),
+          syncBaselineVariantsHash: varFp,
+          conflictDetails: updatedConflict,
         },
       });
       await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);

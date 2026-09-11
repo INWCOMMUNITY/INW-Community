@@ -22,6 +22,7 @@ import {
 } from "./sync-baseline";
 import { clampSaneInventoryQty } from "./inventory-sanity";
 import { variantsFingerprint } from "./variant-sync";
+import { isMadeToOrderTracking, MTO_CHANNEL_QUANTITY } from "@/lib/listing-variant-matrix";
 import { type ChannelProvider, type RemoteListingSummary } from "./types";
 import { getChannelCapabilities } from "./capabilities";
 import { indexEbayRemoteListings, resolveEbayLegacyListingId } from "./ebay/mapping";
@@ -119,6 +120,7 @@ type LinkRow = {
     quantity: number;
     status: string;
     updatedAt: Date;
+    inventoryTracking: string;
   };
 };
 
@@ -200,6 +202,7 @@ export async function reconcileConnectionInboundCatalog(
       syncEnabled: true, 
       conflictResolution: true,
       sourceOfTruth: true,
+      safetyBuffer: true,
     },
   });
   
@@ -211,6 +214,7 @@ export async function reconcileConnectionInboundCatalog(
   
   // Get conflict resolution preference (default: most_recent)
   const conflictResolution = (memberPrefs?.conflictResolution ?? "most_recent") as "most_recent" | "inw_wins" | "manual_review";
+  const globalSafetyBuffer = memberPrefs?.safetyBuffer ?? 0;
   
   const caps = getChannelCapabilities(provider);
   if (!caps.supportsBaselineCatalogReconcile) {
@@ -258,6 +262,7 @@ export async function reconcileConnectionInboundCatalog(
           quantity: true,
           status: true,
           updatedAt: true,
+          inventoryTracking: true,
         },
       },
     },
@@ -711,8 +716,18 @@ export async function reconcileConnectionInboundCatalog(
 
     const inwQtyChangedSinceBaseline =
       link.syncBaselineQty != null && item.quantity !== link.syncBaselineQty;
+
+    // Compute the BUFFER-ADJUSTED qty that syncInventoryToChannels would actually
+    // push to this channel.  The remote listing stores this adjusted value, so the
+    // drift comparison must use it — otherwise a safety buffer causes
+    // remote.quantity !== item.quantity every tick and drives a perpetual re-push
+    // storm (the Shopify-driven snap-back bug).
+    const channelInventoryOffset = (connConfig.inventoryOffset as number) ?? 0;
+    const expectedRemoteQty = isMadeToOrderTracking(item.inventoryTracking)
+      ? MTO_CHANNEL_QUANTITY
+      : Math.max(0, item.quantity - globalSafetyBuffer - channelInventoryOffset);
     const qtyDiffers =
-      (remoteQtyKnown && remote.quantity !== item.quantity) || inwQtyChangedSinceBaseline;
+      (remoteQtyKnown && remote.quantity !== expectedRemoteQty) || inwQtyChangedSinceBaseline;
 
     const hashEcho = isInboundCatalogContentEcho({
       inwContentChanged,
@@ -1080,10 +1095,13 @@ export async function reconcileConnectionInboundCatalog(
       // "who drifted from baseline". A sale on another channel drifts INW's baseline qty
       // without being a newer INW edit, so the old baseline-only rule pushed INW's stale
       // quantity back over a real channel edit (the reported snap-back). Most-recent edit wins.
+      // Pass the ADJUSTED qty so the function compares what the channel SHOULD
+      // hold against what it does hold.  With a safety buffer the raw hub qty
+      // always differs from the remote — that's by design, not a channel edit.
       const remoteQtyChanged = newerChannelQtyEditShouldPull({
         remoteQtyKnown,
         remoteQuantity: remote.quantity,
-        inwQuantity: item.quantity,
+        inwQuantity: expectedRemoteQty,
         inwQtyChangedSinceBaseline,
         inwUpdatedAt: item.updatedAt,
         remoteUpdatedAt: remote.remoteUpdatedAt ?? null,

@@ -233,6 +233,34 @@ export function inboundRefreshShouldPull(args: {
 }
 
 /**
+ * Last-write-wins for per-SKU prices on a webhook / on-demand refresh.
+ * A remote snapshot with no SKU prices is unknown — never a pull.
+ */
+export function inboundRefreshShouldPullVariantPrices(args: {
+  inwVariantsChanged: boolean;
+  remotePricesKnown: boolean;
+  remotePriceFingerprint: string;
+  inwPriceFingerprint: string;
+  inwUpdatedAt: Date | null;
+  remoteUpdatedAt: Date | null;
+  ownPushEcho: boolean;
+}): boolean {
+  if (args.ownPushEcho) return false;
+  if (!args.remotePricesKnown) return false;
+  if (!args.remotePriceFingerprint || args.remotePriceFingerprint === args.inwPriceFingerprint) {
+    return false;
+  }
+  return (
+    resolveSyncDirection({
+      inwChanged: args.inwVariantsChanged,
+      remoteChanged: true,
+      inwUpdatedAt: args.inwUpdatedAt,
+      remoteUpdatedAt: args.remoteUpdatedAt,
+    }) === "pull"
+  );
+}
+
+/**
  * Wix must never flag a listing "remotely deleted" from catalog absence alone. An empty or
  * truncated catalog read (transient glitch, page cap) would otherwise mass-flag every listing.
  * Only flag when a per-product probe (`wixProductIsGone`) confirms the product is gone, the

@@ -10,7 +10,12 @@ import { sumOptionQuantities } from "@/lib/store-item-variants";
 import { clampSaneInventoryQty } from "./inventory-sanity";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
-import { isMadeToOrderTracking } from "@/lib/listing-variant-matrix";
+import {
+  isMadeToOrderTracking,
+  mergeIncomingVariantMatrixPreservingUnknownPrices,
+  minSkuPriceCents,
+  serializeVariantMatrix,
+} from "@/lib/listing-variant-matrix";
 
 /** Apply category + subcategory from a remote listing using the shared import resolver. */
 export async function applyRemoteCategoryToStoreItem(
@@ -112,23 +117,26 @@ export async function applyRemoteVariantAxesToStoreItem(
   storeItemId: string,
   axes: InwVariantAxis[] | null | unknown
 ): Promise<boolean> {
-    const matrix = matrixForStorage(axes, { itemId: storeItemId });
-  if (!matrix || matrix.axes.length === 0) return false;
+  const stored = matrixForStorage(axes, { itemId: storeItemId });
+  if (!stored || stored.axes.length === 0) return false;
 
   const item = await prisma.storeItem.findUnique({
     where: { id: storeItemId },
-    select: { variants: true, quantity: true, status: true, inventoryTracking: true },
+    select: { variants: true, quantity: true, status: true, inventoryTracking: true, priceCents: true },
   });
   if (!item) return false;
 
-  if (remoteVariantMatrixIsWeaker(item.variants, matrix)) {
+  if (remoteVariantMatrixIsWeaker(item.variants, stored)) {
     console.warn("[channels] skip inbound variants; remote matrix is weaker than INW", {
       storeItemId,
-      remoteAxes: matrix.axes.map((a) => a.name),
-      remoteSkuCount: matrix.skus.length,
+      remoteAxes: stored.axes.map((a) => a.name),
+      remoteSkuCount: stored.skus.length,
     });
     return false;
   }
+
+  const merged = mergeIncomingVariantMatrixPreservingUnknownPrices(item.variants, stored);
+  const matrix = serializeVariantMatrix(merged);
 
   const madeToOrder = isMadeToOrderTracking(item.inventoryTracking);
   const rawQty = sumVariantQuantities(matrix) || sumOptionQuantities(matrix);
@@ -137,21 +145,29 @@ export async function applyRemoteVariantAxesToStoreItem(
     console.warn("[channels] rejected absurd inbound variant quantity", { storeItemId, rawQty });
     return false;
   }
+
+  const listingPrice = minSkuPriceCents(matrix, item.priceCents);
+  const nextListingPrice =
+    listingPrice > 0 && listingPrice !== item.priceCents ? listingPrice : null;
+
   if (madeToOrder && rawQty === 0) {
     // Keep MTO listings from being sold out by a channel placeholder of 0.
     const variantsJson = matrix as unknown;
     const sameVariants = JSON.stringify(item.variants) === JSON.stringify(variantsJson);
-    if (sameVariants) return false;
+    if (sameVariants && nextListingPrice == null) return false;
     await prisma.storeItem.update({
       where: { id: storeItemId },
-      data: { variants: variantsJson as object },
+      data: {
+        variants: variantsJson as object,
+        ...(nextListingPrice != null ? { priceCents: nextListingPrice } : {}),
+      },
     });
     return true;
   }
 
   const variantsJson = matrix as unknown;
   const sameVariants = JSON.stringify(item.variants) === JSON.stringify(variantsJson);
-  if (sameVariants && item.quantity === nextQty) return false;
+  if (sameVariants && item.quantity === nextQty && nextListingPrice == null) return false;
 
   const qty = nextQty ?? item.quantity;
   const nextStatus = madeToOrder
@@ -164,7 +180,12 @@ export async function applyRemoteVariantAxesToStoreItem(
 
   await prisma.storeItem.update({
     where: { id: storeItemId },
-    data: { variants: variantsJson as object, quantity: qty, status: nextStatus },
+    data: {
+      variants: variantsJson as object,
+      quantity: qty,
+      status: nextStatus,
+      ...(nextListingPrice != null ? { priceCents: nextListingPrice } : {}),
+    },
   });
   return true;
 }

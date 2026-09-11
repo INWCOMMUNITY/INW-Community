@@ -315,6 +315,21 @@ describe("ebayGetItemApplyDecision", () => {
     expect(ebayGetItemApplyDecision(base)).toEqual({ action: "skip", reason: "matches-inw" });
   });
 
+  it("does not skip matches-inw when variation StartPrices differ from INW", () => {
+    const skuPriceDiff = {
+      ...base,
+      inwVariantPricesHash: "inw-sku-prices",
+      remoteVariantPricesHash: "ebay-sku-prices",
+    };
+    expect(ebayGetItemApplyDecision(skuPriceDiff)).not.toEqual({
+      action: "skip",
+      reason: "matches-inw",
+    });
+    expect(
+      ebayGetItemApplyDecision({ ...skuPriceDiff, source: "webhook" as const })
+    ).toMatchObject({ action: "apply" });
+  });
+
   it("does not copy a lagged eBay title over an INW save when LastModified is missing", () => {
     expect(
       ebayGetItemApplyDecision({

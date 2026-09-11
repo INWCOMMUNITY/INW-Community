@@ -142,8 +142,10 @@ export type ChannelSyncResult = {
    * - `remote_newer`: the shop's live copy is newer than INW and last-write-wins kept it.
    * - `paused`: this channel's sync direction is pull-only or paused, so nothing was pushed.
    * - `sync_disabled`: the seller's content sync toggles are all off.
+   * - `no_qty_drift`: the channel already holds this exact quantity from our last successful push,
+   *   so nothing was re-sent (prevents the every-tick re-push storm and qty snap-back).
    */
-  skipped?: "remote_newer" | "paused" | "sync_disabled";
+  skipped?: "remote_newer" | "paused" | "sync_disabled" | "no_qty_drift";
 };
 
 /** A sale detected via webhook or reconciliation poll. */

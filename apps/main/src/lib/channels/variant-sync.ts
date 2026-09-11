@@ -7,6 +7,7 @@ import {
   MAX_VARIANT_AXES,
   etsyVariesByAllProperties,
   fillMissingAlphanumericComboSkus,
+  matrixHasKnownSkuPrices,
   matrixToLegacyAxes,
   normalizeVariantMatrix,
   serializeVariantMatrix,
@@ -198,6 +199,44 @@ export function variantPricesFingerprint(variants: unknown): string {
     .map((sku) => ({ o: sku.options, p: sku.priceCents ?? null }))
     .sort((x, y) => JSON.stringify(x.o).localeCompare(JSON.stringify(y.o)));
   return createHash("sha1").update(JSON.stringify(compact)).digest("hex");
+}
+
+/**
+ * Fingerprint of option structure + per-SKU quantities only (no prices).
+ * Used so a remote snapshot that omitted prices is not treated as a price edit.
+ */
+export function variantsStructureQtyFingerprint(variants: unknown): string {
+  const matrix = normalizeVariantMatrix(variants);
+  if (!matrix || matrix.axes.length === 0) return "";
+  const compact = {
+    a: matrix.axes.map((ax) => ({ n: ax.name, v: [...ax.values].sort((x, y) => x.localeCompare(y)) })),
+    s: matrix.skus
+      .map((sku) => ({ o: sku.options, q: sku.quantity }))
+      .sort((x, y) => JSON.stringify(x.o).localeCompare(JSON.stringify(y.o))),
+  };
+  return createHash("sha1").update(JSON.stringify(compact)).digest("hex");
+}
+
+/**
+ * Whether a remote variant snapshot should count as a channel-side edit.
+ * Missing per-SKU prices are "unknown", not a cheaper remote version — compare qty/structure
+ * against current INW instead of the priced baseline hash.
+ */
+export function remoteVariantsIndicateChange(args: {
+  remoteVariantsKnown: boolean;
+  remoteVariants: unknown;
+  inwVariants: unknown;
+  baselineVarHash: string | null;
+}): boolean {
+  if (!args.remoteVariantsKnown) return false;
+  if (!matrixHasKnownSkuPrices(args.remoteVariants)) {
+    const remoteQtyFp = variantsStructureQtyFingerprint(args.remoteVariants);
+    const inwQtyFp = variantsStructureQtyFingerprint(args.inwVariants);
+    return remoteQtyFp !== "" && remoteQtyFp !== inwQtyFp;
+  }
+  const remoteFp = variantsFingerprint(args.remoteVariants);
+  const baseFp = args.baselineVarHash ?? variantsFingerprint(args.inwVariants);
+  return remoteFp !== "" && remoteFp !== baseFp;
 }
 
 /** Sum SKU (or legacy option) quantities. */

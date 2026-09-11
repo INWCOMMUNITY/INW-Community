@@ -7,7 +7,10 @@ import {
   fillMissingAlphanumericComboSkus,
   incrementMatrixSku,
   listingGalleryPhotoChoices,
+  matrixHasKnownSkuPrices,
+  mergeIncomingVariantMatrixPreservingUnknownPrices,
   minSkuPriceCents,
+  stripSkuPricesFromMatrix,
   normalizeVariantMatrix,
   rebuildMatrixFromAxes,
   serializeVariantMatrix,
@@ -427,5 +430,76 @@ describe("applyRemoteVariantPricesToMatrix", () => {
     const serialized = serializeVariantMatrix(next);
     expect(serialized.pricesVary).toBe(true);
     expect(serialized.skus.map((s) => s.priceCents)).toEqual([100, 2500, 2500]);
+  });
+});
+
+describe("mergeIncomingVariantMatrixPreservingUnknownPrices", () => {
+  const pricedInw = (): VariantMatrix =>
+    normalizeVariantMatrix({
+      axes: [{ name: "Size", values: ["S", "M"] }],
+      skus: [
+        { options: { Size: "S" }, quantity: 2, priceCents: 1800 },
+        { options: { Size: "M" }, quantity: 4, priceCents: 2200 },
+      ],
+    })!;
+
+  it("keeps INW SKU prices when the remote snapshot has qty but no prices", () => {
+    const incoming = normalizeVariantMatrix({
+      axes: [{ name: "Size", values: ["S", "M"] }],
+      skus: [
+        { options: { Size: "S" }, quantity: 9 },
+        { options: { Size: "M" }, quantity: 1 },
+      ],
+    })!;
+    const next = mergeIncomingVariantMatrixPreservingUnknownPrices(pricedInw(), incoming);
+    expect(next.skus.map((s) => s.quantity)).toEqual([9, 1]);
+    expect(next.skus.map((s) => s.priceCents)).toEqual([1800, 2200]);
+  });
+
+  it("uses remote prices when they are present", () => {
+    const incoming = normalizeVariantMatrix({
+      axes: [{ name: "Size", values: ["S", "M"] }],
+      skus: [
+        { options: { Size: "S" }, quantity: 2, priceCents: 3000 },
+        { options: { Size: "M" }, quantity: 4, priceCents: 3100 },
+      ],
+    })!;
+    const next = mergeIncomingVariantMatrixPreservingUnknownPrices(pricedInw(), incoming);
+    expect(next.skus.map((s) => s.priceCents)).toEqual([3000, 3100]);
+  });
+
+  it("overlays remote prices onto INW qty when the remote matrix has prices but zero stock", () => {
+    const incoming = normalizeVariantMatrix({
+      axes: [{ name: "Size", values: ["S", "M"] }],
+      skus: [
+        { options: { Size: "S" }, quantity: 0, priceCents: 3000 },
+        { options: { Size: "M" }, quantity: 0, priceCents: 3100 },
+      ],
+    })!;
+    const next = mergeIncomingVariantMatrixPreservingUnknownPrices(pricedInw(), incoming);
+    expect(next.skus.map((s) => s.quantity)).toEqual([2, 4]);
+    expect(next.skus.map((s) => s.priceCents)).toEqual([3000, 3100]);
+  });
+
+  it("reports known SKU prices only when a row has a positive priceCents", () => {
+    expect(matrixHasKnownSkuPrices(pricedInw())).toBe(true);
+    expect(
+      matrixHasKnownSkuPrices({
+        axes: [{ name: "Size", values: ["S"] }],
+        skus: [{ options: { Size: "S" }, quantity: 1 }],
+      })
+    ).toBe(false);
+  });
+
+  it("preserves INW SKU prices after a qty-only webhook strip", () => {
+    const inw = pricedInw();
+    const incoming = stripSkuPricesFromMatrix({
+      ...inw,
+      skus: inw.skus.map((s) => ({ ...s, quantity: s.quantity + 1 })),
+    });
+    expect(matrixHasKnownSkuPrices(incoming)).toBe(false);
+    const next = mergeIncomingVariantMatrixPreservingUnknownPrices(inw, incoming);
+    expect(next.skus.map((s) => s.quantity)).toEqual([3, 5]);
+    expect(next.skus.map((s) => s.priceCents)).toEqual([1800, 2200]);
   });
 });

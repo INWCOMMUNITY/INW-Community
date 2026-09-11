@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchSaleToVariantOption, remoteVariantMatrixIsWeaker, validateVariantLimits, variantsPayloadForImport, variantPricesFingerprint } from "./variant-sync";
+import { matchSaleToVariantOption, remoteVariantMatrixIsWeaker, remoteVariantsIndicateChange, validateVariantLimits, variantsPayloadForImport, variantPricesFingerprint, variantsFingerprint } from "./variant-sync";
 
 const matrix = {
   axes: [
@@ -50,6 +50,70 @@ describe("variantPricesFingerprint", () => {
       ],
     };
     expect(variantPricesFingerprint(priceChanged)).not.toBe(variantPricesFingerprint(priced));
+  });
+});
+
+describe("remoteVariantsIndicateChange", () => {
+  const priced = {
+    axes: [{ name: "Color", values: ["Red", "Blue"] }],
+    skus: [
+      { options: { Color: "Red" }, quantity: 2, priceCents: 1500 },
+      { options: { Color: "Blue" }, quantity: 4, priceCents: 2000 },
+    ],
+  };
+  const pricelessSameQty = {
+    axes: priced.axes,
+    skus: [
+      { options: { Color: "Red" }, quantity: 2 },
+      { options: { Color: "Blue" }, quantity: 4 },
+    ],
+  };
+  const pricelessQtyChanged = {
+    axes: priced.axes,
+    skus: [
+      { options: { Color: "Red" }, quantity: 9 },
+      { options: { Color: "Blue" }, quantity: 4 },
+    ],
+  };
+
+  it("does not treat a priceless remote snapshot as a price edit when qty matches INW", () => {
+    expect(
+      remoteVariantsIndicateChange({
+        remoteVariantsKnown: true,
+        remoteVariants: pricelessSameQty,
+        inwVariants: priced,
+        baselineVarHash: variantsFingerprint(priced),
+      })
+    ).toBe(false);
+  });
+
+  it("still sees a remote qty edit when prices are unknown", () => {
+    expect(
+      remoteVariantsIndicateChange({
+        remoteVariantsKnown: true,
+        remoteVariants: pricelessQtyChanged,
+        inwVariants: priced,
+        baselineVarHash: variantsFingerprint(priced),
+      })
+    ).toBe(true);
+  });
+
+  it("sees a priced remote fingerprint that drifted from baseline", () => {
+    const remotePriced = {
+      axes: priced.axes,
+      skus: [
+        { options: { Color: "Red" }, quantity: 2, priceCents: 1800 },
+        { options: { Color: "Blue" }, quantity: 4, priceCents: 2000 },
+      ],
+    };
+    expect(
+      remoteVariantsIndicateChange({
+        remoteVariantsKnown: true,
+        remoteVariants: remotePriced,
+        inwVariants: priced,
+        baselineVarHash: variantsFingerprint(priced),
+      })
+    ).toBe(true);
   });
 });
 

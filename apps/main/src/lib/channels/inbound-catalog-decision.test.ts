@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   inboundRefreshShouldPull,
+  inboundRefreshShouldPullVariantPrices,
   isInboundCatalogContentEcho,
   isOwnChannelPushEcho,
   newerChannelQtyEditShouldPull,
@@ -437,6 +438,53 @@ describe("inboundRefreshShouldPull", () => {
         ownPushEcho: false,
       })
     ).toBe(true);
+  });
+});
+
+describe("inboundRefreshShouldPullVariantPrices", () => {
+  const older = new Date("2026-09-09T01:00:00.000Z");
+  const newer = new Date("2026-09-09T02:00:00.000Z");
+  const base = {
+    inwVariantsChanged: false,
+    remotePricesKnown: true,
+    remotePriceFingerprint: "remote-sku-prices",
+    inwPriceFingerprint: "inw-sku-prices",
+    inwUpdatedAt: older,
+    remoteUpdatedAt: newer,
+    ownPushEcho: false,
+  };
+
+  it("pulls a variant-price-only refresh when the remote is newer", () => {
+    expect(inboundRefreshShouldPullVariantPrices(base)).toBe(true);
+  });
+
+  it("does not pull when remote SKU prices are unknown", () => {
+    expect(inboundRefreshShouldPullVariantPrices({ ...base, remotePricesKnown: false })).toBe(false);
+  });
+
+  it("does not pull when fingerprints already match", () => {
+    expect(
+      inboundRefreshShouldPullVariantPrices({
+        ...base,
+        remotePriceFingerprint: "same",
+        inwPriceFingerprint: "same",
+      })
+    ).toBe(false);
+  });
+
+  it("does not pull our own push echoing back", () => {
+    expect(inboundRefreshShouldPullVariantPrices({ ...base, ownPushEcho: true })).toBe(false);
+  });
+
+  it("does not clobber a newer unpushed INW variant-price edit", () => {
+    expect(
+      inboundRefreshShouldPullVariantPrices({
+        ...base,
+        inwVariantsChanged: true,
+        inwUpdatedAt: newer,
+        remoteUpdatedAt: older,
+      })
+    ).toBe(false);
   });
 });
 
