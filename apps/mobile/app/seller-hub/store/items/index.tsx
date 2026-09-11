@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useLayoutEffect } from "react";
 import {
   StyleSheet,
   View,
@@ -10,8 +10,10 @@ import {
   RefreshControl,
   Alert,
   Modal,
+  TextInput,
+  Platform,
 } from "react-native";
-import { useRouter, useLocalSearchParams } from "expo-router";
+import { useRouter, useLocalSearchParams, useNavigation } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
@@ -89,6 +91,18 @@ function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+function resolvePhotoUrl(path: string | undefined): string | undefined {
+  if (!path) return undefined;
+  return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
+const ITEMS_TABS: { key: "active" | "attention" | "ended" | "sold"; label: string }[] = [
+  { key: "active", label: "Active" },
+  { key: "attention", label: "Attention" },
+  { key: "ended", label: "Ended" },
+  { key: "sold", label: "Sold" },
+];
+
 function statusLabel(item: StoreItem): string {
   if (item.status === "sold_out") return "Sold";
   if (item.status === "inactive") return "Ended";
@@ -153,6 +167,7 @@ function remoteDeletedCopy(item: StoreItem): { headline: string; body: string } 
 
 export default function MyItemsScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const params = useLocalSearchParams<{ listingType?: string; tab?: string }>();
   const listingType = params.listingType === "resale" ? "resale" : undefined;
   const initialTab =
@@ -181,6 +196,43 @@ export default function MyItemsScreen() {
   const [itemsTab, setItemsTab] = useState<ItemsTab>(initialTab);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [tabCounts, setTabCounts] = useState<{
+    active: number;
+    attention: number;
+    ended: number;
+    sold: number;
+  } | null>(null);
+
+  useLayoutEffect(() => {
+    const listButton = (
+      <Pressable
+        onPress={() => router.push("/seller-hub/store/new")}
+        hitSlop={12}
+        accessibilityRole="button"
+        accessibilityLabel="List an item"
+      >
+        <Ionicons name="add" size={32} color="#fff" />
+      </Pressable>
+    );
+    if (Platform.OS === "ios") {
+      navigation.setOptions({
+        headerRight: undefined,
+        unstable_headerRightItems: () => [
+          {
+            type: "custom",
+            element: listButton,
+            hidesSharedBackground: true,
+          },
+        ],
+      });
+    } else {
+      navigation.setOptions({
+        unstable_headerRightItems: undefined,
+        headerRight: () => listButton,
+      });
+    }
+  }, [navigation, router]);
 
   const itemsUrl =
     (listingType ? "/api/store-items?mine=1&listingType=resale" : "/api/store-items?mine=1") +
@@ -198,8 +250,14 @@ export default function MyItemsScreen() {
       apiGet<StoreItem[] | { error: string }>(itemsUrl),
       apiGet<ConnectStatus | { error: string }>("/api/stripe/connect/status"),
       fetchChannelConnections(),
+      apiGet<{
+        active?: number;
+        attention?: number;
+        ended?: number;
+        sold?: number;
+      }>("/api/store-items?mine=1&counts=1"),
     ])
-      .then(([itemsResult, statusResult, channelsResult]) => {
+      .then(([itemsResult, statusResult, channelsResult, countsResult]) => {
         if (itemsResult.status === "fulfilled") {
           const data = itemsResult.value;
           if (Array.isArray(data)) {
@@ -233,6 +291,18 @@ export default function MyItemsScreen() {
           setChannelConnections(channelsResult.value);
         } else {
           setChannelConnections([]);
+        }
+
+        if (countsResult.status === "fulfilled") {
+          const data = countsResult.value;
+          if (data && typeof data.active === "number") {
+            setTabCounts({
+              active: data.active,
+              attention: Number(data.attention) || 0,
+              ended: Number(data.ended) || 0,
+              sold: Number(data.sold) || 0,
+            });
+          }
         }
       })
       .catch(() => {
@@ -269,14 +339,26 @@ export default function MyItemsScreen() {
     setSelectedIds((prev) => prev.filter((id) => items.some((i) => i.id === id)));
   }, [items]);
 
-  const allSelected = items.length > 0 && items.every((i) => selectedIds.includes(i.id));
+  const visibleItems = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((i) => i.title.toLowerCase().includes(q));
+  }, [items, search]);
+
+  const allVisibleSelected =
+    visibleItems.length > 0 && visibleItems.every((i) => selectedIds.includes(i.id));
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
   const toggleSelectAll = () => {
-    setSelectedIds(allSelected ? [] : items.map((i) => i.id));
+    if (allVisibleSelected) {
+      const visible = new Set(visibleItems.map((i) => i.id));
+      setSelectedIds((prev) => prev.filter((id) => !visible.has(id)));
+    } else {
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...visibleItems.map((i) => i.id)])));
+    }
   };
 
   const handleOnboard = async () => {
@@ -665,49 +747,62 @@ export default function MyItemsScreen() {
     );
   }
 
+  const emptyCopy =
+    itemsTab === "attention"
+      ? {
+          title: "Nothing needs attention",
+          body: "When a listing is deleted on eBay, Etsy, or another connected shop, it shows up here.",
+        }
+      : itemsTab === "ended"
+        ? { title: "No ended listings", body: "Ended listings stay here for 14 days, then they’re removed from INW." }
+        : itemsTab === "sold"
+          ? { title: "No sold items yet", body: "Sold listings will land here after checkout." }
+          : { title: "No items yet", body: "List your first item to start selling on the storefront." };
+
   return (
     <View style={styles.container}>
-      <Text style={styles.pageTitle}>My Items</Text>
-      <View style={styles.tabRow}>
-        {(["active", "attention", "ended", "sold"] as const).map((t) => (
-          <Pressable
-            key={t}
-            style={[styles.tab, itemsTab === t && styles.tabActive]}
-            onPress={() => setItemsTab(t)}
-          >
-            <Text
-              style={[styles.tabText, itemsTab === t && styles.tabTextActive]}
-              numberOfLines={2}
-              adjustsFontSizeToFit
-              minimumFontScale={0.85}
+      <View style={styles.tabBar}>
+        {ITEMS_TABS.map((t) => {
+          const count = tabCounts?.[t.key];
+          const active = itemsTab === t.key;
+          const showCount = count != null && count > 0;
+          return (
+            <Pressable
+              key={t.key}
+              style={[styles.tab, active && styles.tabActive]}
+              onPress={() => setItemsTab(t.key)}
             >
-              {t === "active"
-                ? "Active"
-                : t === "attention"
-                  ? "Attention"
-                  : t === "ended"
-                    ? "Ended"
-                    : "Sold"}
-            </Text>
-          </Pressable>
-        ))}
+              <Text style={[styles.tabText, active && styles.tabTextActive]}>{t.label}</Text>
+              {showCount ? (
+                <View style={[styles.tabCount, active && styles.tabCountActive]}>
+                  <Text style={[styles.tabCountText, active && styles.tabCountTextActive]}>{count}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
       </View>
-      <Text style={styles.hint}>
-        {itemsTab === "active"
-          ? "Live on the storefront."
-          : itemsTab === "attention"
+
+      {itemsTab === "attention" || itemsTab === "ended" ? (
+        <Text style={styles.hint}>
+          {itemsTab === "attention"
             ? "A connected shop deleted this listing. Choose whether to delete it on INW and your other shops too."
-            : itemsTab === "ended"
-              ? "Ended listings are not live on INW. They are removed from INW 14 days after they are ended."
-              : "Items you've sold."}
-      </Text>
-      <View style={styles.addBtnWrap}>
-        <Pressable
-          style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.8 }]}
-          onPress={() => router.push("/seller-hub/store/new")}
-        >
-          <Text style={styles.addBtnText}>List an Item</Text>
-        </Pressable>
+            : "Ended listings are not live on INW. They’re removed from INW 14 days after they are ended."}
+        </Text>
+      ) : null}
+
+      <View style={styles.searchWrap}>
+        <Ionicons name="search" size={16} color="#888" />
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search titles"
+          placeholderTextColor="#888"
+          style={styles.searchInput}
+          autoCorrect={false}
+          autoCapitalize="none"
+          clearButtonMode="while-editing"
+        />
       </View>
 
       {fetchError && (
@@ -720,36 +815,32 @@ export default function MyItemsScreen() {
         <View style={styles.connectBanner}>
           <Text style={styles.connectBannerTitle}>Complete payment setup</Text>
           <Text style={styles.connectBannerText}>
-            Items are only listed on the store once payment setup is complete. Complete Stripe Connect onboarding to list items and receive payments.
+            Items go live on the store after Stripe Connect is finished.
           </Text>
           <Pressable
-            style={({ pressed }) => [
-              styles.connectBtn,
-              pressed && { opacity: 0.8 },
-            ]}
+            style={({ pressed }) => [styles.connectBtn, pressed && { opacity: 0.8 }]}
             onPress={handleOnboard}
           >
-            <Text style={styles.connectBtnText}>Complete payment setup</Text>
+            <Text style={styles.connectBtnText}>Set up payments</Text>
           </Pressable>
         </View>
       )}
 
       {items.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyText}>
-            No items yet. Add your first item to start selling.
-          </Text>
+          <Ionicons name="cube-outline" size={36} color={theme.colors.gold} />
+          <Text style={styles.emptyTitle}>{emptyCopy.title}</Text>
+          <Text style={styles.emptyBody}>{emptyCopy.body}</Text>
         </View>
       ) : (
         <FlatList
-          data={items}
+          data={visibleItems}
           keyExtractor={(i) => i.id}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true);
-                // Trigger channel sync on pull-to-refresh (pulls Etsy changes to INW)
                 apiPost("/api/channels/sync-on-view", {}).finally(() => {
                   load();
                 });
@@ -759,140 +850,152 @@ export default function MyItemsScreen() {
           contentContainerStyle={[styles.list, selectedIds.length > 0 && styles.listWithBulk]}
           ListHeaderComponent={
             <Pressable style={styles.selectAllRow} onPress={toggleSelectAll}>
-              <View style={[styles.checkbox, allSelected && styles.checkboxChecked]}>
-                {allSelected ? <Text style={styles.checkmark}>✓</Text> : null}
-              </View>
+              <Ionicons
+                name={allVisibleSelected ? "checkbox" : "square-outline"}
+                size={22}
+                color={allVisibleSelected ? theme.colors.primary : "#888"}
+              />
               <Text style={styles.selectAllText}>
                 Select all{selectedIds.length > 0 ? ` · ${selectedIds.length} selected` : ""}
               </Text>
             </Pressable>
           }
+          ListEmptyComponent={
+            <Text style={styles.emptyBody}>No items match this search.</Text>
+          }
           renderItem={({ item }) => {
             const selected = selectedIds.includes(item.id);
+            const photoUrl = resolvePhotoUrl(item.photos?.[0]);
+            const status = statusLabel(item);
             return (
-            <Pressable
-              style={[styles.card, selected && styles.cardSelected]}
-              onPress={() => toggleSelect(item.id)}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: selected }}
-              accessibilityLabel={`Select ${item.title}`}
-            >
-              <View style={[styles.checkbox, selected && styles.checkboxChecked]}>
-                {selected ? <Text style={styles.checkmark}>✓</Text> : null}
-              </View>
-              {item.photos?.[0] ? (
-                <Image
-                  source={{ uri: item.photos[0] }}
-                  style={styles.thumb}
-                />
-              ) : (
-                <View style={[styles.thumb, styles.thumbPlaceholder]} />
-              )}
-              <View style={styles.cardBody}>
+              <View style={[styles.card, selected && styles.cardSelected]}>
                 <Pressable
+                  onPress={() => toggleSelect(item.id)}
+                  style={styles.checkboxHit}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: selected }}
+                  accessibilityLabel={`Select ${item.title}`}
+                >
+                  <Ionicons
+                    name={selected ? "checkbox" : "square-outline"}
+                    size={24}
+                    color={selected ? theme.colors.primary : "#888"}
+                  />
+                </Pressable>
+                <Pressable
+                  style={styles.cardMain}
                   onPress={() => openListing(item)}
                   accessibilityRole="link"
                   accessibilityLabel={`View ${item.title}`}
                 >
-                  <Text style={styles.cardTitle}>
-                    {item.title}
-                  </Text>
+                  <View style={styles.thumbWrap}>
+                    {photoUrl ? (
+                      <Image source={{ uri: photoUrl }} style={styles.thumb} resizeMode="cover" />
+                    ) : (
+                      <View style={[styles.thumb, styles.thumbPlaceholder]} />
+                    )}
+                    {itemsTab === "sold" ? (
+                      <View style={styles.soldStamp}>
+                        <Text style={styles.soldStampText}>Sold</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={styles.cardBody}>
+                    <Text style={styles.cardTitle} numberOfLines={2}>
+                      {item.title}
+                    </Text>
+                    <Text style={styles.cardPrice}>{formatPrice(item.priceCents)}</Text>
+                    {itemsTab === "sold" && item.soldAt ? (
+                      <Text style={styles.cardMeta}>
+                        Sold {new Date(item.soldAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                      </Text>
+                    ) : (
+                      <View style={styles.chipRow}>
+                        <View style={[styles.statusChip, status === "Active" && styles.statusChipActive]}>
+                          <Text style={[styles.statusChipText, status === "Active" && styles.statusChipTextActive]}>
+                            {status}
+                          </Text>
+                        </View>
+                        <Text style={styles.cardMeta}>{item.quantity} in stock</Text>
+                      </View>
+                    )}
+                    {itemsTab === "attention" ? (
+                      <RemoteDeletedCard
+                        item={item}
+                        busy={decidingId === item.id}
+                        onKeep={() => void decideRemoteDeleted(item, "keep")}
+                        onDelete={() => void decideRemoteDeleted(item, "delete_everywhere")}
+                      />
+                    ) : null}
+                    {itemsTab === "sold" && item.soldOrderId ? (
+                      <Pressable
+                        onPress={() =>
+                          (router.push as (href: string) => void)(`/seller-hub/orders/${item.soldOrderId}`)
+                        }
+                      >
+                        <Text style={styles.viewOrderLink}>View order</Text>
+                      </Pressable>
+                    ) : null}
+                    <View style={styles.channelTagRow}>
+                      {(item.channelLinks ?? [])
+                        .filter(channelLinkShowsOnItem)
+                        .map((link) => {
+                          const label =
+                            CHANNEL_PROVIDER_LABEL[link.provider as ChannelProviderId] ??
+                            link.provider;
+                          const warning = link.syncWarning?.trim() || null;
+                          const isConnectionIssue = link.connectionStatus === "error";
+                          const isError = Boolean(warning) && !isConnectionIssue;
+                          const isPaused = !warning && !link.syncEnabled;
+                          const needsConditionFix =
+                            link.provider === "ebay" &&
+                            link.syncStatus === "error" &&
+                            isEbayConditionSyncError(link.syncError);
+                          const tagText = warning
+                            ? `${isConnectionIssue ? "⚠ " : ""}${warning}`
+                            : isPaused
+                              ? `${label}: paused`
+                              : needsConditionFix
+                                ? `${label}: fix`
+                                : label;
+                          const badge = (
+                            <Text
+                              style={[
+                                styles.channelTag,
+                                warning && isConnectionIssue && styles.channelTagWarning,
+                                isError && styles.channelTagError,
+                                isPaused && styles.channelTagPaused,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {tagText}
+                            </Text>
+                          );
+                          if (needsConditionFix) {
+                            return (
+                              <Pressable key={link.provider} onPress={() => setConditionFixItemId(item.id)}>
+                                {badge}
+                              </Pressable>
+                            );
+                          }
+                          return <View key={link.provider}>{badge}</View>;
+                        })}
+                    </View>
+                  </View>
                 </Pressable>
-                <Text style={styles.cardPrice}>
-                  {formatPrice(item.priceCents)}
-                  {itemsTab === "sold" && item.soldAt
-                    ? ` · Sold on ${new Date(item.soldAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
-                    : ` · ${item.quantity} in stock · ${statusLabel(item)}`}
-                </Text>
-                {itemsTab === "attention" ? (
-                  <RemoteDeletedCard
-                    item={item}
-                    busy={decidingId === item.id}
-                    onKeep={() => void decideRemoteDeleted(item, "keep")}
-                    onDelete={() => void decideRemoteDeleted(item, "delete_everywhere")}
-                  />
-                ) : null}
-                {itemsTab === "sold" && item.soldOrderId && (
-                  <Pressable
-                    onPress={() =>
-                      (router.push as (href: string) => void)(`/seller-hub/orders/${item.soldOrderId}`)
-                    }
-                  >
-                    <Text style={styles.viewOrderLink}>View Order</Text>
-                  </Pressable>
-                )}
-                <View style={styles.channelTagRow}>
-                {(item.channelLinks ?? [])
-                  .filter(channelLinkShowsOnItem)
-                  .map((link) => {
-                      const label =
-                        CHANNEL_PROVIDER_LABEL[link.provider as ChannelProviderId] ??
-                        link.provider;
-                      const warning = link.syncWarning?.trim() || null;
-                      const isConnectionIssue = link.connectionStatus === "error";
-                      const isError = Boolean(warning) && !isConnectionIssue;
-                      const isPaused = !warning && !link.syncEnabled;
-                      const needsConditionFix =
-                        link.provider === "ebay" &&
-                        link.syncStatus === "error" &&
-                        isEbayConditionSyncError(link.syncError);
-                      const tagText = warning
-                        ? `${isConnectionIssue ? "⚠ " : ""}${warning}`
-                        : isPaused
-                          ? `${label}: paused`
-                          : needsConditionFix
-                            ? `${label}: fix`
-                            : label;
-                      const badge = (
-                        <Text
-                          style={[
-                            styles.channelTag,
-                            warning && isConnectionIssue && styles.channelTagWarning,
-                            isError && styles.channelTagError,
-                            isPaused && styles.channelTagPaused,
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {tagText}
-                        </Text>
-                      );
-                      if (needsConditionFix) {
-                        return (
-                          <Pressable key={link.provider} onPress={() => setConditionFixItemId(item.id)}>
-                            {badge}
-                          </Pressable>
-                        );
-                      }
-                      return <View key={link.provider}>{badge}</View>;
-                    })}
-                </View>
+                <Pressable
+                  style={({ pressed }) => [styles.menuBtn, pressed && { opacity: 0.8 }]}
+                  onPress={() => openMenu(item.id)}
+                  disabled={!!actingId}
+                  accessibilityLabel={`More actions for ${item.title}`}
+                >
+                  {actingId === item.id ? (
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                  ) : (
+                    <Ionicons name="ellipsis-vertical" size={20} color={theme.colors.heading} />
+                  )}
+                </Pressable>
               </View>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.viewBtn,
-                  pressed && { opacity: 0.8 },
-                ]}
-                onPress={() => openListing(item)}
-                accessibilityRole="button"
-                accessibilityLabel={`View ${item.title}`}
-              >
-                <Text style={styles.viewBtnText}>View</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.menuBtn,
-                  pressed && { opacity: 0.8 },
-                ]}
-                onPress={() => openMenu(item.id)}
-                disabled={!!actingId}
-              >
-                {actingId === item.id ? (
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                ) : (
-                  <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.heading} />
-                )}
-              </Pressable>
-            </Pressable>
             );
           }}
         />
@@ -1102,151 +1205,169 @@ export default function MyItemsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
+  container: { flex: 1, backgroundColor: theme.colors.pageBackground },
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: theme.colors.pageBackground,
   },
-  pageTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: theme.colors.heading,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  tabRow: {
+  tabBar: {
     flexDirection: "row",
+    backgroundColor: "#fff",
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-    marginHorizontal: 16,
-    marginBottom: 8,
+    borderBottomColor: "#e6e0d6",
+    paddingHorizontal: 8,
   },
   tab: {
     flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
     paddingVertical: 12,
-    paddingHorizontal: 2,
-    alignItems: "center",
-  },
-  tabActive: {
     borderBottomWidth: 2,
-    borderBottomColor: theme.colors.primary,
+    borderBottomColor: "transparent",
   },
-  tabText: {
-    fontSize: 14,
-    lineHeight: 18,
-    color: "#666",
-    textAlign: "center",
-    fontWeight: "500",
-  },
-  tabTextActive: { fontWeight: "700", color: theme.colors.primary },
-  hint: {
-    fontSize: 14,
-    color: "#666",
-    paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-  addBtnWrap: {
+  tabActive: { borderBottomColor: theme.colors.primary },
+  tabText: { fontSize: 13, fontWeight: "600", color: "#666" },
+  tabTextActive: { color: theme.colors.primary },
+  tabCount: {
+    minWidth: 18,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 999,
+    backgroundColor: theme.colors.cream,
     alignItems: "center",
-    paddingHorizontal: 16,
-    marginBottom: 16,
   },
-  addBtn: {
+  tabCountActive: { backgroundColor: theme.colors.primary },
+  tabCountText: { fontSize: 10, fontWeight: "700", color: theme.colors.primary },
+  tabCountTextActive: { color: "#fff" },
+  hint: {
+    fontSize: 13,
+    color: "#666",
+    lineHeight: 18,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
+  searchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#e6e0d6",
+    borderRadius: 10,
+    paddingHorizontal: 10,
     paddingVertical: 8,
-    paddingHorizontal: 16,
-    backgroundColor: theme.colors.primary,
-    borderRadius: 8,
   },
-  addBtnText: { color: "#fff", fontWeight: "600" },
+  searchInput: { flex: 1, fontSize: 14, color: theme.colors.heading, padding: 0 },
   errorBanner: {
     marginHorizontal: 16,
-    marginBottom: 16,
-    padding: 16,
+    marginBottom: 8,
+    padding: 12,
     backgroundColor: "#fef2f2",
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "#fecaca",
   },
   errorText: { fontSize: 14, color: "#b91c1c" },
   connectBanner: {
     marginHorizontal: 16,
-    marginBottom: 16,
-    padding: 16,
+    marginBottom: 8,
+    padding: 12,
     backgroundColor: "#fffbeb",
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "#fde68a",
   },
   connectBannerTitle: {
-    fontSize: 15,
-    fontWeight: "600",
+    fontSize: 14,
+    fontWeight: "700",
     color: "#92400e",
-    marginBottom: 8,
+    marginBottom: 4,
   },
   connectBannerText: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#92400e",
-    marginBottom: 12,
+    marginBottom: 10,
   },
   connectBtn: {
     alignSelf: "flex-start",
     paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     backgroundColor: theme.colors.primary,
     borderRadius: 8,
   },
-  connectBtnText: { color: "#fff", fontWeight: "600" },
-  empty: { flex: 1, padding: 16, justifyContent: "flex-start" },
-  emptyText: { fontSize: 14, color: "#666" },
+  connectBtnText: { color: "#fff", fontWeight: "600", fontSize: 13 },
+  empty: { flex: 1, padding: 32, alignItems: "center", justifyContent: "center" },
+  emptyTitle: {
+    marginTop: 10,
+    fontSize: 16,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    textAlign: "center",
+  },
+  emptyBody: { marginTop: 6, fontSize: 14, color: "#666", textAlign: "center", lineHeight: 20 },
   list: { padding: 16, paddingBottom: 40 },
   listWithBulk: { paddingBottom: 260 },
   selectAllRow: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 12,
-    gap: 10,
+    gap: 8,
   },
   selectAllText: { fontSize: 13, color: "#666", fontWeight: "600" },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderWidth: 2,
-    borderColor: "#ccc",
-    borderRadius: 4,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  checkboxChecked: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
-  },
-  checkmark: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "700",
-  },
   card: {
     flexDirection: "row",
-    padding: 12,
-    backgroundColor: "#f9f9f9",
-    borderRadius: 8,
-    marginBottom: 12,
     alignItems: "flex-start",
+    backgroundColor: "#fff",
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "transparent",
+    borderColor: "#e6e0d6",
+    padding: 10,
+    marginBottom: 10,
   },
   cardSelected: {
-    backgroundColor: theme.colors.creamAlt,
     borderColor: theme.colors.primary,
+    backgroundColor: "#f7f6f2",
   },
-  thumb: { width: 56, height: 56, borderRadius: 8, marginLeft: 10 },
-  thumbPlaceholder: { backgroundColor: "#ddd" },
-  cardBody: { flex: 1, marginLeft: 12, minWidth: 0 },
-  cardTitle: { fontSize: 16, fontWeight: "600", color: "#333", lineHeight: 22 },
-  cardPrice: { fontSize: 13, color: "#666", marginTop: 4 },
-  viewOrderLink: { fontSize: 12, color: theme.colors.primary, marginTop: 2, fontWeight: "600" },
+  checkboxHit: { paddingTop: 6, paddingRight: 6 },
+  cardMain: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  thumbWrap: { width: 72, height: 72, borderRadius: 8, overflow: "hidden", backgroundColor: "#ece8e0" },
+  thumb: { width: 72, height: 72 },
+  thumbPlaceholder: { backgroundColor: "#ece8e0" },
+  soldStamp: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(93, 79, 64, 0.72)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  soldStampText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  cardBody: { flex: 1, minWidth: 0 },
+  cardTitle: { fontSize: 15, fontWeight: "700", color: theme.colors.heading, lineHeight: 20 },
+  cardPrice: { marginTop: 3, fontSize: 15, fontWeight: "700", color: theme.colors.earth },
+  cardMeta: { fontSize: 12, color: "#666" },
+  chipRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 },
+  statusChip: {
+    backgroundColor: "#f3f1ed",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  statusChipActive: { backgroundColor: theme.colors.cream },
+  statusChipText: { fontSize: 11, fontWeight: "700", color: "#555" },
+  statusChipTextActive: { color: theme.colors.earth },
+  viewOrderLink: { fontSize: 12, color: theme.colors.primary, marginTop: 6, fontWeight: "700" },
   channelTagRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1279,19 +1400,6 @@ const styles = StyleSheet.create({
     color: "#4b5563",
     backgroundColor: "#f9fafb",
     borderColor: "#e5e7eb",
-  },
-  viewBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    marginLeft: 4,
-    borderWidth: 1,
-    borderColor: theme.colors.primary,
-    borderRadius: 8,
-  },
-  viewBtnText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: theme.colors.heading,
   },
   attentionBox: {
     marginTop: 8,

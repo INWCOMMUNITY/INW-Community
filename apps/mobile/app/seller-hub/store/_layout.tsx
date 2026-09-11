@@ -13,7 +13,7 @@ export default function SellerStoreLayout() {
         headerBackTitle: "Back",
         headerShadowVisible: false,
         headerTitleStyle: { fontWeight: "600" },
-        contentStyle: { backgroundColor: "#fff" },
+        contentStyle: { backgroundColor: theme.colors.pageBackground },
         headerLeft: () => (
           <Pressable
             onPress={() => {
@@ -41,7 +41,7 @@ export default function SellerStoreLayout() {
     >
       <Stack.Screen name="index" options={{ title: "Seller Page" }} />
       <Stack.Screen name="manage" options={{ title: "Manage Store" }} />
-      <Stack.Screen name="edit" options={{ title: "Edit Seller Profile" }} />
+      <Stack.Screen name="edit" options={{ title: "Edit Seller Page" }} />
       <Stack.Screen name="new" options={{ title: "List an Item" }} />
       <Stack.Screen name="sold" options={{ title: "Sold Items" }} />
       <Stack.Screen name="items/index" options={{ title: "My Items" }} />

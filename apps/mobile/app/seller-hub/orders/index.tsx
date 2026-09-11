@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from "react";
+import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -7,7 +7,6 @@ import {
   ActivityIndicator,
   Pressable,
   RefreshControl,
-  Image,
   ScrollView,
   Linking,
   Alert,
@@ -20,16 +19,17 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, getToken, apiPatch, apiPost } from "@/lib/api";
-import { getStoreOrderStatusLabel } from "@/lib/order-status";
 import { formatShippingAddress } from "@/lib/format-address";
 import { buildHubWebUrl } from "@/lib/seller-hub-web-url";
 import { FulfillmentTabBar } from "@/components/fulfillment/FulfillmentTabBar";
+import { FulfillmentActionBar } from "@/components/fulfillment/FulfillmentActionBar";
+import { FulfillmentOrderCard } from "@/components/fulfillment/FulfillmentOrderCard";
+import { OrderEmptyState } from "@/components/fulfillment/OrderEmptyState";
 import {
   type FulfillmentTabKey,
   isOrderEligibleForToShipQueue,
   filterOrdersForPickupTab,
   filterOrdersForDeliveryTab,
-  formatSellerOrderTotal,
 } from "@/lib/store-order-fulfillment";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
@@ -98,11 +98,6 @@ function parseTabParam(value: string | undefined): FulfillmentTabKey {
   return "ship";
 }
 
-function resolvePhotoUrl(path: string | undefined): string | undefined {
-  if (!path) return undefined;
-  return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
-}
-
 function uint8ArrayToBase64(bytes: Uint8Array): string {
   const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   let out = "";
@@ -116,14 +111,6 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
     out += i + 2 < bytes.length ? B64[c & 63] : "=";
   }
   return out;
-}
-
-function formatDate(s: string): string {
-  try {
-    return new Date(s).toLocaleDateString();
-  } catch {
-    return s;
-  }
 }
 
 function canSellerCancelDeliveryFromMenu(o: StoreOrder): boolean {
@@ -332,86 +319,56 @@ function ToShipFlowView({
 
   if (connected === null) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+      <View style={[styles.tabPaneInner, styles.shipContent]}>
+        <Text style={styles.shipTitle}>Ship Items</Text>
+        <Text style={styles.shipHint}>Checking your shipping connection…</Text>
+        <ActivityIndicator color={theme.colors.primary} />
       </View>
     );
   }
   if (orders.length === 0) {
     return (
-      <View style={[styles.container, styles.shipContent]}>
+      <ScrollView
+        style={styles.tabPaneInner}
+        contentContainerStyle={styles.shipContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         <Text style={styles.shipTitle}>Ship Items</Text>
         <Text style={styles.shipHint}>
           {connected
-            ? "No orders need shipping. Labels are charged to your connected Shippo account."
-            : "No orders are waiting to ship. Connect Shippo when you want to buy labels in the browser."}
+            ? "Paid ship orders that still need a label show up here."
+            : "Connect Shippo when you want to buy labels in the browser."}
         </Text>
-        <Text style={styles.shipEmpty}>No Orders To Ship</Text>
+        <OrderEmptyState tab="ship" />
         {!connected ? (
           <Pressable
             style={({ pressed }) => [styles.shipBtn, { marginTop: 16 }, pressed && { opacity: 0.8 }]}
             onPress={() => (router.push as (href: string) => void)("/seller-hub/shipping-setup")}
           >
-            <Text style={styles.shipBtnText}>Set up shipping (Shippo)</Text>
+            <Text style={styles.shipBtnText}>Shipping setup</Text>
           </Pressable>
         ) : null}
-      </View>
+      </ScrollView>
     );
   }
 
   return (
     <>
     <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.shipContent}
+      style={styles.tabPaneInner}
+      contentContainerStyle={[styles.shipContent, selectedCount > 0 && { paddingBottom: 24 }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       <Text style={styles.shipTitle}>Ship Items</Text>
       <Text style={styles.shipHint}>
         {connected
-          ? "Select orders for this run, then purchase labels (full-screen Shippo in the browser). Same-buyer orders are combined into one purchase per buyer."
+          ? "Select orders, then purchase labels. Same-buyer orders combine into one purchase per buyer."
           : "Connect Shippo below to buy labels and print packing slips in the browser."}
       </Text>
       {connected ? (
-        <>
-          <Pressable onPress={selectAllToShip} style={({ pressed }) => [styles.selectAllBtn, pressed && { opacity: 0.7 }]}>
-            <Text style={styles.selectAllText}>Select all to ship</Text>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [
-              styles.purchaseLabelsBtn,
-              pressed && { opacity: 0.8 },
-              selectedCount === 0 && styles.purchaseLabelsBtnDisabled,
-            ]}
-            onPress={openPurchaseLabelsWeb}
-            disabled={selectedCount === 0}
-          >
-            <Ionicons name="pricetag-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
-            <Text style={styles.shipBtnText}>Purchase Labels</Text>
-          </Pressable>
-          <Text style={styles.packingSlipHint}>Packing slips use the same order selection.</Text>
-          <Pressable
-            style={({ pressed }) => [
-              styles.packingSlipBtn,
-              pressed && { opacity: 0.8 },
-              selectedCount === 0 && styles.purchaseLabelsBtnDisabled,
-            ]}
-            onPress={handleSavePackingSlips}
-            disabled={savingPackingSlip || selectedCount === 0}
-          >
-            {savingPackingSlip ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <View style={styles.packingSlipBtnInner}>
-                <Ionicons name="print-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
-                <Text style={styles.shipBtnText}>Print / Save packing slips</Text>
-              </View>
-            )}
-          </Pressable>
-          <Text style={styles.shipNote}>
-            {selectedCount} of {orders.length} selected for labels / packing slips
-          </Text>
-        </>
+        <Pressable onPress={selectAllToShip} style={({ pressed }) => [styles.selectAllBtn, pressed && { opacity: 0.7 }]}>
+          <Text style={styles.selectAllText}>Select all to ship</Text>
+        </Pressable>
       ) : (
         <Pressable
           style={({ pressed }) => [styles.shipBtnOutline, pressed && { opacity: 0.85 }]}
@@ -426,99 +383,49 @@ function ToShipFlowView({
         </View>
       )}
       {orders.map((order) => {
-        const orderNum = order.orderNumber ?? order.id.slice(-8).toUpperCase();
-        const checked = selectedOrderIds.has(order.id);
-        const addr = formatShippingAddress(order.shippingAddress);
+        const itemBusy = cancelingId === order.id || messagingBuyerId === order.id;
         return (
-          <View key={order.id} style={styles.shipCard}>
-            <View style={styles.shipRow}>
-              {connected ? (
-                <Pressable
-                  onPress={() => toggleOrderSelection(order.id)}
-                  style={({ pressed }) => [styles.shipCheckboxHit, pressed && { opacity: 0.7 }]}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked }}
-                  accessibilityLabel={`Select order ${orderNum}`}
-                >
-                  <Ionicons
-                    name={checked ? "checkbox" : "square-outline"}
-                    size={26}
-                    color={checked ? theme.colors.primary : "#888"}
-                  />
-                </Pressable>
+          <FulfillmentOrderCard
+            key={order.id}
+            order={order}
+            onPress={() => router.push(`/seller-hub/orders/${order.id}` as never)}
+            showStatus={false}
+            selectable={connected}
+            selected={selectedOrderIds.has(order.id)}
+            onToggleSelect={() => toggleOrderSelection(order.id)}
+            address={formatShippingAddress(order.shippingAddress) || null}
+            menu={
+              itemBusy ? (
+                <ActivityIndicator
+                  color={theme.colors.primary}
+                  size="small"
+                  style={styles.shipItemMenuSpinner}
+                />
               ) : (
-                <View style={styles.shipCheckboxSpacer} />
-              )}
-              <View style={styles.shipRowBody}>
-                <Pressable onPress={() => router.push(`/seller-hub/orders/${order.id}` as never)}>
-                  <Text style={styles.shipOrderId}>
-                    #{orderNum}
-                    {order.orderKind === "reward_redemption" ? (
-                      <Text style={styles.shipRewardBadge}> · Reward</Text>
-                    ) : null}
-                  </Text>
+                <Pressable
+                  accessibilityLabel="Order options"
+                  hitSlop={10}
+                  style={({ pressed }) => [styles.shipItemMenuBtn, pressed && { opacity: 0.7 }]}
+                  onPress={() => setShipMenuOrderId(order.id)}
+                >
+                  <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.heading} />
                 </Pressable>
-                <Text style={styles.shipBuyer}>
-                  {order.buyer
-                    ? [order.buyer.firstName, order.buyer.lastName].filter(Boolean).join(" ") || "—"
-                    : "—"}
-                </Text>
-                <Text style={styles.shipAddr} numberOfLines={2}>
-                  {addr || "—"}
-                </Text>
-                <Text style={styles.shipTotal}>{formatSellerOrderTotal(order)}</Text>
-                {(order.items ?? []).length > 0 ? (
-                  <View style={styles.shipItemsList}>
-                    {(order.items ?? []).map((oi) => {
-                      const photoUrl = resolvePhotoUrl(oi.storeItem?.photos?.[0]);
-                      const itemBusy = cancelingId === order.id || messagingBuyerId === order.id;
-                      return (
-                        <View key={oi.id} style={styles.shipItemRow}>
-                          {photoUrl ? (
-                            <Image source={{ uri: photoUrl }} style={styles.shipItemThumb} />
-                          ) : (
-                            <View style={[styles.shipItemThumb, styles.itemThumbPlaceholder]} />
-                          )}
-                          <Text style={styles.shipItemTitle}>
-                            {oi.storeItem?.title ?? "Item"}
-                            {oi.quantity > 1 ? ` × ${oi.quantity}` : ""}
-                          </Text>
-                          {itemBusy ? (
-                            <ActivityIndicator
-                              color={theme.colors.primary}
-                              size="small"
-                              style={styles.shipItemMenuSpinner}
-                            />
-                          ) : (
-                            <Pressable
-                              accessibilityLabel={`Order options for ${oi.storeItem?.title ?? "item"}`}
-                              hitSlop={10}
-                              style={({ pressed }) => [styles.shipItemMenuBtn, pressed && { opacity: 0.7 }]}
-                              onPress={() => setShipMenuOrderId(order.id)}
-                            >
-                              <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.heading} />
-                            </Pressable>
-                          )}
-                        </View>
-                      );
-                    })}
-                  </View>
-                ) : (
-                  <Pressable
-                    accessibilityLabel="Order options"
-                    hitSlop={10}
-                    style={({ pressed }) => [styles.shipItemMenuBtn, { alignSelf: "flex-end" }, pressed && { opacity: 0.7 }]}
-                    onPress={() => setShipMenuOrderId(order.id)}
-                  >
-                    <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.heading} />
-                  </Pressable>
-                )}
-              </View>
-            </View>
-          </View>
+              )
+            }
+          />
         );
       })}
     </ScrollView>
+    <FulfillmentActionBar
+      selectedCount={selectedCount}
+      totalCount={orders.length}
+      savingSlips={savingPackingSlip}
+      connected={connected}
+      onPurchaseLabels={openPurchaseLabelsWeb}
+      onPrintSlips={() => void handleSavePackingSlips()}
+      onSelectAll={selectAllToShip}
+      onClearSelection={() => setSelectedOrderIds(new Set())}
+    />
     <Modal
       visible={shipMenuOrderId != null}
       transparent
@@ -597,9 +504,16 @@ function PickupsTabView({
 
   if (pickupOrders.length === 0) {
     return (
-      <View style={styles.emptyTab}>
-        <Text style={styles.emptyText}>No Pickup Orders Right Now.</Text>
-      </View>
+      <ScrollView
+        style={styles.tabPaneInner}
+        contentContainerStyle={styles.emptyScroll}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        <Text style={styles.tabIntro}>
+          Orders with in-store pickup. Mark as picked up when the buyer collects their items.
+        </Text>
+        <OrderEmptyState tab="pickups" />
+      </ScrollView>
     );
   }
 
@@ -607,80 +521,49 @@ function PickupsTabView({
     const items = item.items ?? [];
     const pickupLine = items.find((i) => (i.fulfillmentType ?? "") === "pickup");
     const pd = (pickupLine?.pickupDetails ?? null) as Record<string, unknown> | null;
-    const pickupName = pd
-      ? [String(pd.firstName ?? "").trim(), String(pd.lastName ?? "").trim()].filter(Boolean).join(" ") || "—"
-      : "—";
     const pickupWhen = [pd?.preferredPickupDate, pd?.preferredPickupTime].filter(Boolean).join(" · ");
     const sellerDone = !!item.pickupSellerConfirmedAt;
     const buyerDone = !!item.pickupBuyerConfirmedAt;
-    const orderNum = item.orderNumber ?? item.id.slice(-8).toUpperCase();
 
     return (
-      <View style={styles.card}>
-        <Pressable
-          onPress={() => router.push(`/seller-hub/orders/${item.id}` as never)}
-          style={({ pressed }) => [styles.cardRow, pressed && { opacity: 0.85 }]}
-        >
-          <Text style={styles.orderId}>#{orderNum}</Text>
-          <Text style={styles.status}>{getStoreOrderStatusLabel(item)}</Text>
-        </Pressable>
-        <Text style={styles.buyer}>
-          {item.buyer ? `${item.buyer.firstName} ${item.buyer.lastName}` : "—"}
-        </Text>
-        {pd?.phone ? <Text style={styles.pickupLine}>Phone: {String(pd.phone)}</Text> : null}
-        {pd?.email ? <Text style={styles.pickupLine}>Email: {String(pd.email)}</Text> : null}
-        {pickupWhen ? <Text style={styles.pickupLine}>Pickup: {pickupWhen}</Text> : null}
-        {pd?.note ? <Text style={styles.pickupNote}>Note: {String(pd.note)}</Text> : null}
-        <Text style={styles.pickupLine}>Pickup contact (form): {pickupName}</Text>
-        <Text style={styles.confirmRow}>
-          Seller: {sellerDone ? "Picked up" : "Pending"} · Buyer: {buyerDone ? "Confirmed" : "Pending"}
-        </Text>
-        <Text style={styles.date}>{formatDate(item.createdAt)}</Text>
-        <Text style={styles.total}>{formatSellerOrderTotal(item)}</Text>
-        {items.length > 0 && (
-          <View style={styles.itemsRow}>
-            {items.map((oi) => {
-              const photoUrl = resolvePhotoUrl(oi.storeItem?.photos?.[0]);
-              return (
-                <View key={oi.id} style={styles.itemChip}>
-                  {photoUrl ? (
-                    <Image source={{ uri: photoUrl }} style={styles.itemThumb} />
-                  ) : (
-                    <View style={[styles.itemThumb, styles.itemThumbPlaceholder]} />
-                  )}
-                  <Text style={styles.itemTitle} numberOfLines={1}>
-                    {oi.storeItem?.title ?? "Item"} × {oi.quantity}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-        )}
-        {showMarkBtn && item.status === "paid" && !sellerDone && (
-          <Pressable
-            style={({ pressed }) => [styles.markBtn, pressed && { opacity: 0.85 }]}
-            onPress={() => markSellerPickedUp(item.id)}
-            disabled={confirmingId === item.id}
-          >
-            {confirmingId === item.id ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Text style={styles.markBtnText}>Mark picked up (seller)</Text>
-            )}
-          </Pressable>
-        )}
-      </View>
+      <FulfillmentOrderCard
+        order={item}
+        onPress={() => router.push(`/seller-hub/orders/${item.id}` as never)}
+        trailing={
+          <>
+            {pd?.phone ? <Text style={styles.pickupLine}>Phone: {String(pd.phone)}</Text> : null}
+            {pickupWhen ? <Text style={styles.pickupLine}>Pickup: {pickupWhen}</Text> : null}
+            {pd?.note ? <Text style={styles.pickupNote}>Note: {String(pd.note)}</Text> : null}
+            <Text style={styles.confirmRow}>
+              Seller: {sellerDone ? "Picked up" : "Pending"} · Buyer: {buyerDone ? "Confirmed" : "Pending"}
+            </Text>
+            {showMarkBtn && item.status === "paid" && !sellerDone ? (
+              <Pressable
+                style={({ pressed }) => [styles.markBtn, pressed && { opacity: 0.85 }]}
+                onPress={() => markSellerPickedUp(item.id)}
+                disabled={confirmingId === item.id}
+              >
+                {confirmingId === item.id ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.markBtnText}>Mark as picked up</Text>
+                )}
+              </Pressable>
+            ) : null}
+          </>
+        }
+      />
     );
   };
 
   return (
     <ScrollView
-      style={styles.container}
+      style={styles.tabPaneInner}
       contentContainerStyle={styles.tabContent}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       <Text style={styles.tabIntro}>
-        Orders with in-store or local pickup will appear here. Mark them as picked up when the buyer collects the item.
+        Orders with in-store pickup. Mark as picked up when the buyer collects their items.
       </Text>
       {pending.length > 0 ? (
         <>
@@ -725,6 +608,7 @@ function DeliveriesTabView({
   onOrderUpdated: (order: StoreOrder) => void;
   onOrderRemoved: (orderId: string) => void;
 }) {
+  const router = useRouter();
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [deliveryMenuOrderId, setDeliveryMenuOrderId] = useState<string | null>(null);
@@ -788,16 +672,23 @@ function DeliveriesTabView({
 
   if (deliveryOrders.length === 0) {
     return (
-      <View style={styles.emptyTab}>
-        <Text style={styles.emptyText}>No Orders With Local Delivery.</Text>
-      </View>
+      <ScrollView
+        style={styles.tabPaneInner}
+        contentContainerStyle={styles.emptyScroll}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        <Text style={styles.tabIntro}>
+          Local delivery orders. Mark as delivered when you have completed the delivery.
+        </Text>
+        <OrderEmptyState tab="deliveries" />
+      </ScrollView>
     );
   }
 
   return (
     <>
       <ScrollView
-        style={styles.container}
+        style={styles.tabPaneInner}
         contentContainerStyle={styles.tabContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
@@ -811,13 +702,12 @@ function DeliveriesTabView({
               const d = (o.localDeliveryDetails || {}) as LocalDeliveryDetails;
               const name = [d.firstName, d.lastName].filter(Boolean).join(" ") || "Customer";
               return (
-                <View key={o.id} style={styles.card}>
-                  <View style={styles.cardHeaderRow}>
-                    <View style={styles.cardHeaderTitles}>
-                      <Text style={styles.orderIdPrimary}>#{o.orderNumber ?? o.id.slice(-6)}</Text>
-                      <Text style={styles.date}>{formatDate(o.createdAt)}</Text>
-                    </View>
-                    {canSellerCancelDeliveryFromMenu(o) ? (
+                <FulfillmentOrderCard
+                  key={o.id}
+                  order={o}
+                  onPress={() => router.push(`/seller-hub/orders/${o.id}` as never)}
+                  menu={
+                    canSellerCancelDeliveryFromMenu(o) ? (
                       <Pressable
                         accessibilityLabel="Delivery options"
                         hitSlop={10}
@@ -827,80 +717,47 @@ function DeliveriesTabView({
                       >
                         <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.heading} />
                       </Pressable>
-                    ) : null}
-                  </View>
-                  <Text style={styles.label}>Name</Text>
-                  <Text style={styles.value}>{name}</Text>
-                  <Text style={styles.label}>Address</Text>
-                  <Text style={styles.value}>{formatDeliveryAddr(o.localDeliveryDetails)}</Text>
-                  {d.phone ? (
+                    ) : undefined
+                  }
+                  trailing={
                     <>
-                      <Text style={styles.label}>Phone</Text>
-                      <Text style={styles.value}>{d.phone}</Text>
-                    </>
-                  ) : null}
-                  {d.email ? (
-                    <>
-                      <Text style={styles.label}>Email</Text>
-                      <Text style={styles.value}>{d.email}</Text>
-                    </>
-                  ) : null}
-                  {d.availableDropOffTimes ? (
-                    <>
-                      <Text style={styles.label}>Available drop-off times</Text>
-                      <Text style={styles.value}>{d.availableDropOffTimes}</Text>
-                    </>
-                  ) : null}
-                  <Text style={styles.label}>Confirmation</Text>
-                  <Text style={styles.value}>
-                    Seller delivered: {o.deliveryConfirmedAt ? "Yes" : "No"} · Buyer received:{" "}
-                    {o.deliveryBuyerConfirmedAt ? "Yes" : "No"}
-                  </Text>
-                  <Text style={styles.label}>Items</Text>
-                  <View style={styles.deliveryItemsRow}>
-                    {(o.items ?? []).map((i, idx) => {
-                      const photoUrl = resolvePhotoUrl(i.storeItem?.photos?.[0]);
-                      return (
-                        <View key={i.id ?? `item-${idx}`} style={styles.deliveryItemRow}>
-                          {photoUrl ? (
-                            <Image source={{ uri: photoUrl }} style={styles.deliveryItemThumb} />
+                      <Text style={styles.pickupLine}>Deliver to: {name}</Text>
+                      <Text style={styles.pickupLine}>{formatDeliveryAddr(o.localDeliveryDetails)}</Text>
+                      {d.phone ? <Text style={styles.pickupLine}>Phone: {d.phone}</Text> : null}
+                      {d.note ? <Text style={styles.pickupNote}>Note: {d.note}</Text> : null}
+                      <Text style={styles.confirmRow}>
+                        Seller delivered: {o.deliveryConfirmedAt ? "Yes" : "No"} · Buyer received:{" "}
+                        {o.deliveryBuyerConfirmedAt ? "Yes" : "No"}
+                      </Text>
+                      {!o.deliveryConfirmedAt && sellerCanMarkLocalDelivery(o) ? (
+                        <Pressable
+                          style={({ pressed }) => [styles.markBtn, pressed && { opacity: 0.8 }]}
+                          onPress={() => markDelivered(o.id)}
+                          disabled={confirmingId === o.id}
+                        >
+                          {confirmingId === o.id ? (
+                            <ActivityIndicator color="#fff" size="small" />
                           ) : (
-                            <View style={[styles.deliveryItemThumb, styles.itemThumbPlaceholder]} />
+                            <Text style={styles.markBtnText}>Mark delivered</Text>
                           )}
-                          <Text style={styles.deliveryItemText}>
-                            {i.storeItem?.title} × {i.quantity}
-                          </Text>
-                        </View>
-                      );
-                    })}
-                  </View>
-                  {!o.deliveryConfirmedAt && sellerCanMarkLocalDelivery(o) ? (
-                    <Pressable
-                      style={({ pressed }) => [styles.markBtn, pressed && { opacity: 0.8 }]}
-                      onPress={() => markDelivered(o.id)}
-                      disabled={confirmingId === o.id}
-                    >
-                      {confirmingId === o.id ? (
-                        <ActivityIndicator color="#fff" size="small" />
+                        </Pressable>
+                      ) : !o.deliveryConfirmedAt ? (
+                        <Text style={styles.cannotMarkYet}>
+                          {o.status === "pending"
+                            ? "This order is not paid yet. After the buyer pays online, you can mark it delivered here."
+                            : "This order can't be marked delivered in its current state."}
+                        </Text>
                       ) : (
-                        <Text style={styles.markBtnText}>Mark delivered (seller)</Text>
+                        <Pressable style={styles.btnMarked} disabled accessibilityState={{ disabled: true }}>
+                          <Text style={styles.btnMarkedText}>Marked Delivered</Text>
+                        </Pressable>
                       )}
-                    </Pressable>
-                  ) : !o.deliveryConfirmedAt ? (
-                    <Text style={styles.cannotMarkYet}>
-                      {o.status === "pending"
-                        ? "This order is not paid yet. After the buyer pays online, you can mark it delivered here."
-                        : "This order can't be marked delivered in its current state."}
-                    </Text>
-                  ) : (
-                    <Pressable style={styles.btnMarked} disabled accessibilityState={{ disabled: true }}>
-                      <Text style={styles.btnMarkedText}>Marked Delivered</Text>
-                    </Pressable>
-                  )}
-                  {o.deliveryConfirmedAt && !o.deliveryBuyerConfirmedAt ? (
-                    <Text style={styles.waiting}>Waiting for buyer to confirm receipt.</Text>
-                  ) : null}
-                </View>
+                      {o.deliveryConfirmedAt && !o.deliveryBuyerConfirmedAt ? (
+                        <Text style={styles.waiting}>Waiting for buyer to confirm receipt.</Text>
+                      ) : null}
+                    </>
+                  }
+                />
               );
             })}
           </>
@@ -916,20 +773,13 @@ function DeliveriesTabView({
               </Text>
             </Pressable>
             {showCompleted &&
-              completed.map((o) => {
-                const d = (o.localDeliveryDetails || {}) as LocalDeliveryDetails;
-                const name = [d.firstName, d.lastName].filter(Boolean).join(" ") || "Customer";
-                return (
-                  <View key={o.id} style={[styles.card, styles.completedCard]}>
-                    <Text style={styles.orderIdPrimary}>#{o.orderNumber ?? o.id.slice(-6)}</Text>
-                    <Text style={styles.date}>{formatDate(o.createdAt)}</Text>
-                    <Text style={styles.value}>{name}</Text>
-                    <Text style={styles.delivered}>
-                      Delivered {o.deliveryConfirmedAt && formatDate(o.deliveryConfirmedAt)}
-                    </Text>
-                  </View>
-                );
-              })}
+              completed.map((o) => (
+                <FulfillmentOrderCard
+                  key={o.id}
+                  order={o}
+                  onPress={() => router.push(`/seller-hub/orders/${o.id}` as never)}
+                />
+              ))}
           </>
         )}
       </ScrollView>
@@ -973,73 +823,44 @@ function ShippedTabView({
 }) {
   const router = useRouter();
   return (
-    <View style={styles.container}>
+    <View style={styles.tabPaneInner}>
       <FlatList
         data={shippedOrders}
         keyExtractor={(o) => o.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={styles.list}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>No shipped orders.</Text>
-          </View>
-        }
-        renderItem={({ item }) => {
-          const firstItem = item.items?.[0]?.storeItem;
-          const photoUrl = firstItem?.photos?.[0] ? resolvePhotoUrl(firstItem.photos[0]) : undefined;
-          const orderNum = item.orderNumber ?? item.id.slice(-8).toUpperCase();
-          const canRepurchase = !!item.shipment;
-          return (
-            <View style={styles.card}>
-              <Pressable
-                style={({ pressed }) => [pressed && { opacity: 0.9 }]}
-                onPress={() => router.push(`/seller-hub/orders/${item.id}` as never)}
-              >
-                <View style={styles.cardInner}>
-                  {photoUrl ? (
-                    <Image source={{ uri: photoUrl }} style={styles.cardThumb} />
-                  ) : (
-                    <View style={[styles.cardThumb, styles.cardThumbPlaceholder]} />
-                  )}
-                  <View style={styles.cardBody}>
-                    <View style={styles.cardRow}>
-                      <Text style={styles.orderId}>#{orderNum}</Text>
-                      <Text style={styles.status}>{getStoreOrderStatusLabel(item)}</Text>
-                    </View>
-                    <Text style={styles.buyer}>
-                      {item.buyer ? `${item.buyer.firstName} ${item.buyer.lastName}` : "—"}
-                    </Text>
-                    <Text style={styles.date}>{formatDate(item.createdAt)}</Text>
-                    <Text style={styles.total}>{formatSellerOrderTotal(item)}</Text>
-                  </View>
-                </View>
-              </Pressable>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-                {item.shipment?.labelUrl ? (
-                  <Pressable
-                    onPress={() => {
-                      const url = item.shipment?.labelUrl;
-                      if (url) void Linking.openURL(url);
-                    }}
-                    style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, backgroundColor: "#eee" }}
-                  >
-                    <Text style={{ fontSize: 12, fontWeight: "600" }}>Reprint Label</Text>
-                  </Pressable>
-                ) : null}
-                {canRepurchase ? (
+        ListEmptyComponent={<OrderEmptyState tab="shipped" />}
+        renderItem={({ item }) => (
+          <FulfillmentOrderCard
+            order={item}
+            onPress={() => router.push(`/seller-hub/orders/${item.id}` as never)}
+            trailing={
+              item.shipment ? (
+                <View style={styles.labelActions}>
+                  {item.shipment.labelUrl ? (
+                    <Pressable
+                      onPress={() => {
+                        const url = item.shipment?.labelUrl;
+                        if (url) void Linking.openURL(url);
+                      }}
+                      style={({ pressed }) => [styles.labelActionOutline, pressed && { opacity: 0.8 }]}
+                    >
+                      <Text style={styles.labelActionOutlineText}>Reprint Label</Text>
+                    </Pressable>
+                  ) : null}
                   <Pressable
                     onPress={() =>
                       router.push(`/seller-hub/shippo-order/${item.id}?mode=another` as never)
                     }
-                    style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, backgroundColor: theme.colors.primary }}
+                    style={({ pressed }) => [styles.labelActionPrimary, pressed && { opacity: 0.85 }]}
                   >
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: "#fff" }}>Repurchase Label</Text>
+                    <Text style={styles.labelActionPrimaryText}>Repurchase Label</Text>
                   </Pressable>
-                ) : null}
-              </View>
-            </View>
-          );
-        }}
+                </View>
+              ) : null
+            }
+          />
+        )}
       />
     </View>
   );
@@ -1061,7 +882,7 @@ function HistoryTabView({
   const orders = subTab === "delivered" ? deliveredOrders : canceledOrders;
 
   return (
-    <View style={styles.container}>
+    <View style={styles.tabPaneInner}>
       <View style={styles.historySubTabRow}>
         {(["delivered", "canceled"] as const).map((key) => {
           const count = key === "delivered" ? deliveredOrders.length : canceledOrders.length;
@@ -1085,54 +906,40 @@ function HistoryTabView({
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>
+          deliveredOrders.length === 0 && canceledOrders.length === 0 ? (
+            <OrderEmptyState tab="history" />
+          ) : (
+            <Text style={styles.emptyInline}>
               {subTab === "delivered" ? "No delivered orders." : "No canceled orders."}
             </Text>
-          </View>
+          )
         }
-        renderItem={({ item }) => {
-          const firstItem = item.items?.[0]?.storeItem;
-          const photoUrl = firstItem?.photos?.[0] ? resolvePhotoUrl(firstItem.photos[0]) : undefined;
-          const orderNum = item.orderNumber ?? item.id.slice(-8).toUpperCase();
-          return (
-            <Pressable
-              style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }]}
-              onPress={() => router.push(`/seller-hub/orders/${item.id}` as never)}
-            >
-              <View style={styles.cardInner}>
-                {photoUrl ? (
-                  <Image source={{ uri: photoUrl }} style={styles.cardThumb} />
-                ) : (
-                  <View style={[styles.cardThumb, styles.cardThumbPlaceholder]} />
-                )}
-                <View style={styles.cardBody}>
-                  <View style={styles.cardRow}>
-                    <Text style={styles.orderId}>#{orderNum}</Text>
-                    <Text style={styles.status}>{getStoreOrderStatusLabel(item)}</Text>
-                  </View>
-                  <Text style={styles.buyer}>
-                    {item.buyer ? `${item.buyer.firstName} ${item.buyer.lastName}` : "—"}
-                  </Text>
-                  <Text style={styles.date}>{formatDate(item.createdAt)}</Text>
-                  <Text style={styles.total}>{formatSellerOrderTotal(item)}</Text>
-                </View>
-              </View>
-            </Pressable>
-          );
-        }}
+        renderItem={({ item }) => (
+          <FulfillmentOrderCard
+            order={item}
+            onPress={() => router.push(`/seller-hub/orders/${item.id}` as never)}
+          />
+        )}
       />
     </View>
   );
 }
+
+type TabCounts = {
+  ship: number;
+  pickups: number;
+  deliveries: number;
+  shipped: number;
+};
 
 export default function OrdersScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ tab?: string | string[] }>();
   const rawTab = params.tab;
   const tabParam = Array.isArray(rawTab) ? rawTab[0] : rawTab;
-  const tab = parseTabParam(tabParam);
 
+  const [tab, setTabState] = useState<FulfillmentTabKey>(() => parseTabParam(tabParam));
+  const [visited, setVisited] = useState(() => new Set<FulfillmentTabKey>([parseTabParam(tabParam)]));
   const [shipOrders, setShipOrders] = useState<StoreOrder[]>([]);
   const [allOrders, setAllOrders] = useState<StoreOrder[]>([]);
   const [shippedOrders, setShippedOrders] = useState<StoreOrder[]>([]);
@@ -1140,13 +947,43 @@ export default function OrdersScreen() {
   const [canceledOrders, setCanceledOrders] = useState<StoreOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [apiCounts, setApiCounts] = useState<Partial<TabCounts> | null>(null);
+
+  const loadedTabsRef = useRef(new Set<FulfillmentTabKey>());
+  const skipFocusLoadRef = useRef(true);
+  const loadRef = useRef<(opts?: { silent?: boolean }) => void>(() => {});
+
+  const markVisited = useCallback((next: FulfillmentTabKey) => {
+    setVisited((prev) => {
+      if (prev.has(next)) return prev;
+      const copy = new Set(prev);
+      copy.add(next);
+      return copy;
+    });
+  }, []);
+
+  useEffect(() => {
+    const fromUrl = parseTabParam(tabParam);
+    setTabState((prev) => (prev === fromUrl ? prev : fromUrl));
+    markVisited(fromUrl);
+  }, [tabParam, markVisited]);
+
+  const setTab = useCallback(
+    (next: FulfillmentTabKey) => {
+      setTabState(next);
+      markVisited(next);
+      if (!loadedTabsRef.current.has(next)) setLoading(true);
+      router.setParams({ tab: next });
+    },
+    [markVisited, router]
+  );
 
   const toShipOrders = useMemo(
     () => shipOrders.filter(isOrderEligibleForToShipQueue),
     [shipOrders]
   );
 
-  const tabCounts = useMemo(
+  const tabCounts = useMemo<TabCounts>(
     () => ({
       ship: toShipOrders.length,
       shipped: shippedOrders.length,
@@ -1158,84 +995,133 @@ export default function OrdersScreen() {
     [toShipOrders.length, allOrders, shippedOrders.length]
   );
 
-  const setTab = useCallback(
-    (next: FulfillmentTabKey) => {
-      if (next === "ship") {
-        router.replace("/seller-hub/orders");
-      } else {
-        router.replace(`/seller-hub/orders?tab=${next}`);
-      }
-    },
-    [router]
+  const displayCounts = useMemo(
+    () => ({
+      ship: loadedTabsRef.current.has("ship") ? tabCounts.ship : (apiCounts?.ship ?? tabCounts.ship),
+      pickups: loadedTabsRef.current.has("pickups")
+        ? tabCounts.pickups
+        : (apiCounts?.pickups ?? tabCounts.pickups),
+      deliveries: loadedTabsRef.current.has("deliveries")
+        ? tabCounts.deliveries
+        : (apiCounts?.deliveries ?? tabCounts.deliveries),
+      shipped: loadedTabsRef.current.has("shipped")
+        ? tabCounts.shipped
+        : (apiCounts?.shipped ?? tabCounts.shipped),
+    }),
+    [apiCounts, tabCounts]
   );
 
-  const load = useCallback(() => {
-    setLoading(true);
-    const fetches: Promise<void>[] = [];
+  const refreshCounts = useCallback(() => {
+    apiGet<{
+      toShip?: number;
+      pickups?: number;
+      deliveries?: number;
+      shipped?: number;
+    }>("/api/store-orders?mine=1&counts=1")
+      .then((data) => {
+        if (data && typeof data === "object" && "toShip" in data) {
+          setApiCounts({
+            ship: Number(data.toShip) || 0,
+            pickups: Number(data.pickups) || 0,
+            deliveries: Number(data.deliveries) || 0,
+            shipped: Number(data.shipped) || 0,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
-    if (tab === "ship") {
-      fetches.push(
-        apiGet<StoreOrder[] | { error: string }>("/api/store-orders?mine=1&needsShipment=1")
-          .then((data) => setShipOrders(Array.isArray(data) ? data : []))
-          .catch(() => setShipOrders([]))
-      );
-      fetches.push(
-        apiGet<StoreOrder[]>("/api/store-orders?mine=1")
-          .then((data) => {
-            if (Array.isArray(data)) setAllOrders(data);
-          })
-          .catch(() => {})
-      );
-    }
+  useEffect(() => {
+    refreshCounts();
+  }, [refreshCounts]);
 
-    if (tab === "pickups" || tab === "deliveries") {
-      fetches.push(
-        apiGet<StoreOrder[] | { error: string }>("/api/store-orders?mine=1")
-          .then((data) => setAllOrders(Array.isArray(data) ? data : []))
-          .catch(() => setAllOrders([]))
-      );
-    }
+  const load = useCallback(
+    (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent ?? loadedTabsRef.current.has(tab);
+      if (!silent) setLoading(true);
+      const fetches: Promise<void>[] = [];
 
-    if (tab === "shipped") {
-      fetches.push(
-        apiGet<StoreOrder[] | { error: string }>("/api/store-orders?mine=1&shipped=1")
-          .then((data) => setShippedOrders(Array.isArray(data) ? data : []))
-          .catch(() => setShippedOrders([]))
-      );
-    }
+      if (tab === "ship") {
+        fetches.push(
+          apiGet<StoreOrder[] | { error: string }>("/api/store-orders?mine=1&needsShipment=1")
+            .then((data) => setShipOrders(Array.isArray(data) ? data : []))
+            .catch(() => setShipOrders([]))
+        );
+        fetches.push(
+          apiGet<StoreOrder[]>("/api/store-orders?mine=1")
+            .then((data) => {
+              if (Array.isArray(data)) setAllOrders(data);
+            })
+            .catch(() => {})
+        );
+      }
 
-    if (tab === "history") {
-      fetches.push(
-        Promise.all([
-          apiGet<StoreOrder[]>("/api/store-orders?mine=1&delivered=1"),
-          apiGet<StoreOrder[]>("/api/store-orders?mine=1&canceled=1"),
-        ])
-          .then(([delivered, canceled]) => {
-            setDeliveredOrders(Array.isArray(delivered) ? delivered : []);
-            setCanceledOrders(Array.isArray(canceled) ? canceled : []);
-          })
-          .catch(() => {
-            setDeliveredOrders([]);
-            setCanceledOrders([]);
-          })
-      );
-    }
+      if (tab === "pickups" || tab === "deliveries") {
+        fetches.push(
+          apiGet<StoreOrder[] | { error: string }>("/api/store-orders?mine=1")
+            .then((data) => setAllOrders(Array.isArray(data) ? data : []))
+            .catch(() => setAllOrders([]))
+        );
+      }
 
-    Promise.all(fetches).finally(() => {
-      setLoading(false);
-      setRefreshing(false);
-    });
-  }, [tab]);
+      if (tab === "shipped") {
+        fetches.push(
+          apiGet<StoreOrder[] | { error: string }>("/api/store-orders?mine=1&shipped=1")
+            .then((data) => setShippedOrders(Array.isArray(data) ? data : []))
+            .catch(() => setShippedOrders([]))
+        );
+      }
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+      if (tab === "history") {
+        fetches.push(
+          Promise.all([
+            apiGet<StoreOrder[]>("/api/store-orders?mine=1&delivered=1"),
+            apiGet<StoreOrder[]>("/api/store-orders?mine=1&canceled=1"),
+          ])
+            .then(([delivered, canceled]) => {
+              setDeliveredOrders(Array.isArray(delivered) ? delivered : []);
+              setCanceledOrders(Array.isArray(canceled) ? canceled : []);
+            })
+            .catch(() => {
+              setDeliveredOrders([]);
+              setCanceledOrders([]);
+            })
+        );
+      }
+
+      Promise.all(fetches).finally(() => {
+        loadedTabsRef.current.add(tab);
+        if (tab === "ship" || tab === "pickups" || tab === "deliveries") {
+          loadedTabsRef.current.add("pickups");
+          loadedTabsRef.current.add("deliveries");
+        }
+        setLoading(false);
+        setRefreshing(false);
+        refreshCounts();
+      });
+    },
+    [tab, refreshCounts]
+  );
+
+  loadRef.current = load;
 
   useEffect(() => {
     load();
-  }, [tab]);
+  }, [load]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (skipFocusLoadRef.current) {
+        skipFocusLoadRef.current = false;
+        return;
+      }
+      loadRef.current({ silent: true });
+    }, [])
+  );
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    load();
+    load({ silent: true });
   }, [load]);
 
   const handleOrderUpdated = useCallback((updated: StoreOrder) => {
@@ -1247,79 +1133,126 @@ export default function OrdersScreen() {
     setShipOrders((prev) => prev.filter((o) => o.id !== orderId));
   }, []);
 
-  const showInitialLoader =
-    loading &&
-    ((tab === "ship" && shipOrders.length === 0) ||
-      ((tab === "pickups" || tab === "deliveries") && allOrders.length === 0) ||
-      (tab === "shipped" && shippedOrders.length === 0) ||
-      (tab === "history" && deliveredOrders.length === 0 && canceledOrders.length === 0));
-
-  if (showInitialLoader) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
-    );
-  }
+  const showContentLoader = loading && !loadedTabsRef.current.has(tab);
 
   return (
-    <View style={styles.container}>
-      <FulfillmentTabBar activeTab={tab} onTabChange={setTab} counts={tabCounts} />
-      {tab === "ship" ? (
-        <ToShipFlowView
-          orders={toShipOrders}
-          onRefresh={handleRefresh}
-          refreshing={refreshing}
-          onOrderRemoved={handleOrderRemoved}
-        />
-      ) : tab === "pickups" ? (
-        <PickupsTabView
-          orders={allOrders}
-          onRefresh={handleRefresh}
-          refreshing={refreshing}
-          onOrderUpdated={handleOrderUpdated}
-        />
-      ) : tab === "deliveries" ? (
-        <DeliveriesTabView
-          orders={allOrders}
-          onRefresh={handleRefresh}
-          refreshing={refreshing}
-          onOrderUpdated={handleOrderUpdated}
-          onOrderRemoved={handleOrderRemoved}
-        />
-      ) : tab === "shipped" ? (
-        <ShippedTabView
-          shippedOrders={shippedOrders}
-          onRefresh={handleRefresh}
-          refreshing={refreshing}
-        />
-      ) : (
-        <HistoryTabView
-          deliveredOrders={deliveredOrders}
-          canceledOrders={canceledOrders}
-          onRefresh={handleRefresh}
-          refreshing={refreshing}
-        />
-      )}
+    <View style={styles.hub}>
+      <Text style={styles.hubIntro}>Manage ship, pickup, and local delivery in one place.</Text>
+      <FulfillmentTabBar activeTab={tab} onTabChange={setTab} counts={displayCounts} />
+      <View style={styles.tabStage}>
+        {showContentLoader ? (
+          <View style={styles.contentLoader}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={styles.contentLoaderText}>Loading…</Text>
+          </View>
+        ) : null}
+        {visited.has("ship") ? (
+          <View
+            style={[styles.tabPane, (tab !== "ship" || showContentLoader) && styles.tabPaneHidden]}
+            pointerEvents={tab === "ship" && !showContentLoader ? "auto" : "none"}
+          >
+            <ToShipFlowView
+              orders={toShipOrders}
+              onRefresh={handleRefresh}
+              refreshing={refreshing && tab === "ship"}
+              onOrderRemoved={handleOrderRemoved}
+            />
+          </View>
+        ) : null}
+        {visited.has("pickups") ? (
+          <View
+            style={[styles.tabPane, (tab !== "pickups" || showContentLoader) && styles.tabPaneHidden]}
+            pointerEvents={tab === "pickups" && !showContentLoader ? "auto" : "none"}
+          >
+            <PickupsTabView
+              orders={allOrders}
+              onRefresh={handleRefresh}
+              refreshing={refreshing && tab === "pickups"}
+              onOrderUpdated={handleOrderUpdated}
+            />
+          </View>
+        ) : null}
+        {visited.has("deliveries") ? (
+          <View
+            style={[styles.tabPane, (tab !== "deliveries" || showContentLoader) && styles.tabPaneHidden]}
+            pointerEvents={tab === "deliveries" && !showContentLoader ? "auto" : "none"}
+          >
+            <DeliveriesTabView
+              orders={allOrders}
+              onRefresh={handleRefresh}
+              refreshing={refreshing && tab === "deliveries"}
+              onOrderUpdated={handleOrderUpdated}
+              onOrderRemoved={handleOrderRemoved}
+            />
+          </View>
+        ) : null}
+        {visited.has("shipped") ? (
+          <View
+            style={[styles.tabPane, (tab !== "shipped" || showContentLoader) && styles.tabPaneHidden]}
+            pointerEvents={tab === "shipped" && !showContentLoader ? "auto" : "none"}
+          >
+            <ShippedTabView
+              shippedOrders={shippedOrders}
+              onRefresh={handleRefresh}
+              refreshing={refreshing && tab === "shipped"}
+            />
+          </View>
+        ) : null}
+        {visited.has("history") ? (
+          <View
+            style={[styles.tabPane, (tab !== "history" || showContentLoader) && styles.tabPaneHidden]}
+            pointerEvents={tab === "history" && !showContentLoader ? "auto" : "none"}
+          >
+            <HistoryTabView
+              deliveredOrders={deliveredOrders}
+              canceledOrders={canceledOrders}
+              onRefresh={handleRefresh}
+              refreshing={refreshing && tab === "history"}
+            />
+          </View>
+        ) : null}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#fff" },
+  hub: { flex: 1, backgroundColor: theme.colors.pageBackground },
+  hubIntro: {
+    fontSize: 13,
+    color: "#666",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  tabStage: { flex: 1 },
+  tabPane: { flex: 1 },
+  tabPaneHidden: { display: "none" },
+  tabPaneInner: { flex: 1, backgroundColor: theme.colors.pageBackground },
+  contentLoader: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  contentLoaderText: { fontSize: 14, color: "#666" },
+  emptyScroll: { paddingHorizontal: 16, paddingVertical: 8, paddingBottom: 40, flexGrow: 1 },
+  container: { flex: 1, backgroundColor: theme.colors.pageBackground },
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
   tabContent: { padding: 16, paddingBottom: 40 },
   tabIntro: { fontSize: 14, color: theme.colors.text, marginBottom: 16 },
   emptyTab: { flex: 1, padding: 32, alignItems: "center", justifyContent: "center" },
   emptyInline: { fontSize: 14, color: "#888", marginBottom: 16 },
   sectionTitle: { fontSize: 16, fontWeight: "600", marginBottom: 12, color: "#333" },
-  list: { padding: 16, paddingBottom: 40 },
+  list: { padding: 16, paddingBottom: 40, flexGrow: 1 },
   empty: { padding: 32, alignItems: "center" },
   emptyText: { fontSize: 15, color: "#888" },
   card: {
     padding: 16,
-    backgroundColor: "#f9f9f9",
-    borderRadius: 8,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e6e0d6",
     marginBottom: 12,
   },
   cardInner: { flexDirection: "row", alignItems: "flex-start" },
@@ -1388,11 +1321,28 @@ const styles = StyleSheet.create({
   waiting: { fontSize: 14, color: "#92400e", marginTop: 12, fontStyle: "italic" },
   toggle: { marginBottom: 12 },
   toggleText: { fontSize: 14, color: theme.colors.primary, fontWeight: "600" },
-  completedCard: { backgroundColor: "#f0f0f0" },
+  completedCard: { backgroundColor: "#f7f5f1" },
   deliveryItemsRow: { marginTop: 4 },
   deliveryItemRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 },
   deliveryItemThumb: { width: 32, height: 32, borderRadius: 6 },
   deliveryItemText: { fontSize: 14, color: "#333", flex: 1 },
+  labelActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  labelActionOutline: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#d7d1c6",
+    backgroundColor: "#fff",
+  },
+  labelActionOutlineText: { fontSize: 12, fontWeight: "600", color: theme.colors.heading },
+  labelActionPrimary: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: theme.colors.primary,
+  },
+  labelActionPrimaryText: { fontSize: 12, fontWeight: "600", color: "#fff" },
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.4)",
@@ -1451,7 +1401,7 @@ const styles = StyleSheet.create({
   },
   historySubTabText: { fontSize: 13, fontWeight: "500", color: "#666" },
   historySubTabTextActive: { color: theme.colors.primary, fontWeight: "600" },
-  shipContent: { padding: 20, paddingBottom: 40 },
+  shipContent: { padding: 16, paddingBottom: 40 },
   shipTitle: { fontSize: 20, fontWeight: "700", marginBottom: 8, color: theme.colors.heading },
   shipHint: { fontSize: 14, color: "#666", marginBottom: 24 },
   shipEmpty: { fontSize: 16, color: "#888", marginTop: 16 },
@@ -1475,8 +1425,10 @@ const styles = StyleSheet.create({
   shipErr: { color: "#c62828", fontSize: 14 },
   shipErrBlock: { marginBottom: 16 },
   shipCard: {
-    backgroundColor: "#f9f9f9",
-    borderRadius: 8,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e6e0d6",
     padding: 12,
     marginBottom: 12,
   },

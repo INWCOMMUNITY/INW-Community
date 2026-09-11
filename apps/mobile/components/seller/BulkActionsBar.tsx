@@ -10,6 +10,7 @@ import {
   Alert,
   ScrollView,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "@/lib/theme";
 import { apiPatch, apiPost } from "@/lib/api";
 import {
@@ -69,6 +70,7 @@ export function BulkActionsBar({
   onClearSelection,
   onActionComplete,
 }: BulkActionsBarProps) {
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [gridAction, setGridAction] = useState<BulkDestinationAction | null>(null);
@@ -253,7 +255,7 @@ export function BulkActionsBar({
 
   return (
     <>
-      <View style={styles.trayWrap} pointerEvents="box-none">
+      <View style={[styles.trayWrap, { bottom: insets.bottom + 28 }]} pointerEvents="box-none">
         <View style={styles.bar}>
           <View style={styles.selectionInfo}>
             <View style={styles.selectionCopy}>
@@ -393,7 +395,6 @@ export function BulkActionsBar({
 const styles = StyleSheet.create({
   trayWrap: {
     position: "absolute",
-    bottom: 12,
     left: 12,
     right: 12,
   },

@@ -18,7 +18,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { switchIosBackgroundColor, switchThumbColor, switchTrackColor, theme } from "@/lib/theme";
-import { apiGet, apiPatch, apiUploadFile, getToken } from "@/lib/api";
+import { apiGet, apiPatch, apiUploadFile } from "@/lib/api";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -110,6 +110,8 @@ export default function EditSellerProfileScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
       quality: 0.8,
     });
     if (result.canceled) return;
@@ -141,6 +143,8 @@ export default function EditSellerProfileScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [16, 9],
       quality: 0.8,
     });
     if (result.canceled) return;
@@ -243,9 +247,6 @@ export default function EditSellerProfileScreen() {
     );
   }
 
-  const inputStyle = [styles.input, { borderColor: "#ccc" }];
-  const labelStyle = styles.label;
-
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -284,81 +285,93 @@ export default function EditSellerProfileScreen() {
       >
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Store Information</Text>
+        <Text style={styles.lede}>
+          Tap the cover or logo to swap photos. Shoppers see this at the top of your page.
+        </Text>
 
-          <Text style={labelStyle}>Store Logo</Text>
-          <View style={styles.logoRow}>
-            {logoUrl ? (
-              <Image source={{ uri: logoUrl }} style={styles.logoPreview} />
+        <View style={styles.heroCard}>
+          <Pressable style={styles.cover} onPress={pickCover} disabled={uploadingCover}>
+            {uploadingCover ? (
+              <ActivityIndicator color={theme.colors.earth} />
+            ) : coverPhotoUrl ? (
+              <Image source={{ uri: coverPhotoUrl }} style={styles.coverImg} resizeMode="cover" />
             ) : (
-              <View style={[styles.logoPreview, styles.logoPlaceholder]}>
-                <Ionicons name="storefront" size={32} color="#999" />
+              <View style={styles.coverEmpty}>
+                <Ionicons name="camera-outline" size={32} color={theme.colors.earth} />
+                <Text style={styles.coverEmptyText}>Tap to add a cover</Text>
+                <Text style={styles.coverEmptyHint}>A booth, workshop, or favorite piece</Text>
               </View>
             )}
-            <Pressable
-              onPress={pickLogo}
-              disabled={uploadingLogo}
-              style={[styles.uploadBtn, uploadingLogo && styles.disabled]}
-            >
-              <Text style={styles.uploadBtnText}>
-                {uploadingLogo ? "Uploading…" : logoUrl ? "Change" : "Add"}
-              </Text>
-            </Pressable>
-            {logoUrl ? (
-              <Pressable onPress={() => setLogoUrl("")} style={styles.removeBtn}>
-                <Text style={styles.removeBtnText}>Remove</Text>
-              </Pressable>
-            ) : null}
-          </View>
-
-          <Text style={labelStyle}>Cover Photo</Text>
-          <View style={styles.logoRow}>
             {coverPhotoUrl ? (
-              <Image source={{ uri: coverPhotoUrl }} style={styles.coverPreview} />
+              <View style={styles.coverBadge}>
+                <Ionicons name="camera-outline" size={14} color="#fff" />
+                <Text style={styles.coverBadgeText}>Change cover</Text>
+              </View>
+            ) : null}
+          </Pressable>
+          <Pressable style={styles.logoWrap} onPress={pickLogo} disabled={uploadingLogo}>
+            {uploadingLogo ? (
+              <View style={[styles.logo, styles.logoEmpty]}>
+                <ActivityIndicator color={theme.colors.earth} />
+              </View>
+            ) : logoUrl ? (
+              <Image source={{ uri: logoUrl }} style={styles.logo} resizeMode="cover" />
             ) : (
-              <View style={[styles.coverPreview, styles.coverPlaceholder]}>
-                <Ionicons name="image-outline" size={24} color="#999" />
+              <View style={[styles.logo, styles.logoEmpty]}>
+                <Ionicons name="add" size={28} color={theme.colors.earth} />
               </View>
             )}
-            <Pressable
-              onPress={pickCover}
-              disabled={uploadingCover}
-              style={[styles.uploadBtn, uploadingCover && styles.disabled]}
-            >
-              <Text style={styles.uploadBtnText}>
-                {uploadingCover ? "Uploading…" : coverPhotoUrl ? "Change" : "Add"}
-              </Text>
+          </Pressable>
+          {logoUrl ? (
+            <Pressable onPress={() => setLogoUrl("")} style={styles.removeLink}>
+              <Text style={styles.removeLinkText}>Remove logo</Text>
             </Pressable>
-            {coverPhotoUrl ? (
-              <Pressable onPress={() => setCoverPhotoUrl("")} style={styles.removeBtn}>
-                <Text style={styles.removeBtnText}>Remove</Text>
-              </Pressable>
-            ) : null}
-          </View>
+          ) : (
+            <Text style={styles.logoHint}>Tap the square for your logo</Text>
+          )}
+          {coverPhotoUrl ? (
+            <Pressable onPress={() => setCoverPhotoUrl("")} style={styles.removeLink}>
+              <Text style={styles.removeLinkText}>Remove cover</Text>
+            </Pressable>
+          ) : null}
+        </View>
 
-          <Text style={labelStyle}>Company Name</Text>
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>The story</Text>
+          <Text style={styles.label}>Shop name</Text>
           <TextInput
-            style={inputStyle}
+            style={styles.input}
             value={name}
             onChangeText={setName}
             placeholder="My Store"
             autoCorrect={true}
           />
-
-          <Text style={labelStyle}>Company Phone</Text>
+          <Text style={styles.label}>What you sell</Text>
           <TextInput
-            style={inputStyle}
+            style={[styles.input, styles.textArea]}
+            value={fullDescription}
+            onChangeText={setFullDescription}
+            placeholder="Handmade soaps, vintage denim, farm eggs on Saturdays…"
+            multiline
+            numberOfLines={4}
+            autoCorrect={true}
+          />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>How to find you</Text>
+          <Text style={styles.label}>Phone</Text>
+          <TextInput
+            style={styles.input}
             value={phone}
             onChangeText={setPhone}
             placeholder="(555) 123-4567"
             keyboardType="phone-pad"
             autoCorrect={true}
           />
-
-          <Text style={labelStyle}>Contact Email</Text>
+          <Text style={styles.label}>Email</Text>
           <TextInput
-            style={inputStyle}
+            style={styles.input}
             value={email}
             onChangeText={setEmail}
             placeholder="store@example.com"
@@ -366,21 +379,9 @@ export default function EditSellerProfileScreen() {
             autoCapitalize="none"
             autoCorrect={true}
           />
-
-          <Text style={labelStyle}>Store Description</Text>
+          <Text style={styles.label}>Website</Text>
           <TextInput
-            style={[inputStyle, styles.textArea]}
-            value={fullDescription}
-            onChangeText={setFullDescription}
-            placeholder="Describe your store..."
-            multiline
-            numberOfLines={4}
-            autoCorrect={true}
-          />
-
-          <Text style={labelStyle}>Website</Text>
-          <TextInput
-            style={inputStyle}
+            style={styles.input}
             value={website}
             onChangeText={setWebsite}
             onBlur={() => setWebsite(normalizeWebsiteUrl(website))}
@@ -389,12 +390,23 @@ export default function EditSellerProfileScreen() {
             autoCapitalize="none"
             autoCorrect={false}
           />
+          <Text style={styles.label}>Storefront address</Text>
+          <TextInput
+            style={styles.input}
+            value={address}
+            onChangeText={setAddress}
+            placeholder="123 Main St, City, State"
+            autoCorrect={true}
+          />
+        </View>
 
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>How you sell</Text>
           <View style={styles.switchRow}>
             <View style={{ flex: 1, paddingRight: 12 }}>
-              <Text style={labelStyle}>Take offers on resale items</Text>
+              <Text style={styles.switchLabel}>Take offers on Resale items</Text>
               <Text style={styles.switchHint}>
-                Default for new resale listings. You can change this per item when listing.
+                Default for new resale listings. You can still change this per item.
               </Text>
             </View>
             <Switch
@@ -405,13 +417,10 @@ export default function EditSellerProfileScreen() {
               ios_backgroundColor={switchIosBackgroundColor}
             />
           </View>
-
-          <View style={styles.switchRow}>
+          <View style={[styles.switchRow, styles.switchRowLast]}>
             <View style={{ flex: 1, paddingRight: 12 }}>
-              <Text style={labelStyle}>Allow buyers to message you</Text>
-              <Text style={styles.switchHint}>
-                When enabled, buyers can send you questions about your listings.
-              </Text>
+              <Text style={styles.switchLabel}>Allow Buyer Messages</Text>
+              <Text style={styles.switchHint}>Shoppers can ask about a listing before they buy.</Text>
             </View>
             <Switch
               value={acceptMessagesForListings}
@@ -421,16 +430,16 @@ export default function EditSellerProfileScreen() {
               ios_backgroundColor={switchIosBackgroundColor}
             />
           </View>
-
-          <Text style={labelStyle}>Storefront Address</Text>
-          <TextInput
-            style={inputStyle}
-            value={address}
-            onChangeText={setAddress}
-            placeholder="123 Main St, City, State"
-            autoCorrect={true}
-          />
         </View>
+
+        <Pressable
+          style={({ pressed }) => [styles.looksCard, pressed && { opacity: 0.85 }]}
+          onPress={() => router.push("/seller-hub/seller-page-settings")}
+        >
+          <Ionicons name="images-outline" size={20} color={theme.colors.earth} />
+          <Text style={styles.looksCardText}>Gallery, Hours & Social</Text>
+          <Ionicons name="chevron-forward" size={18} color={theme.colors.earth} />
+        </Pressable>
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -439,8 +448,13 @@ export default function EditSellerProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#fff" },
+  container: { flex: 1, backgroundColor: theme.colors.pageBackground },
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: theme.colors.pageBackground,
+  },
   headerSaveBtn: {
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -453,47 +467,109 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { padding: 16 },
   errorText: { color: "#c00", marginBottom: 12, fontSize: 14 },
-  section: {
-    backgroundColor: "#f5f5f5",
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
+  lede: { fontSize: 14, color: theme.colors.text, lineHeight: 20, marginBottom: 14 },
+  heroCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e6e0d6",
+    overflow: "hidden",
+    marginBottom: 12,
+    alignItems: "center",
+    paddingBottom: 12,
   },
-  sectionTitle: { fontSize: 16, fontWeight: "600", marginBottom: 8, color: theme.colors.heading },
-  label: { fontSize: 13, color: "#666", marginBottom: 4, marginTop: 8 },
+  cover: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    backgroundColor: theme.colors.cream,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  coverImg: { width: "100%", height: "100%" },
+  coverEmpty: { alignItems: "center", gap: 4 },
+  coverEmptyText: { fontSize: 15, fontWeight: "700", color: theme.colors.earth },
+  coverEmptyHint: { fontSize: 12, color: theme.colors.text },
+  coverBadge: {
+    position: "absolute",
+    right: 10,
+    bottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(93, 79, 64, 0.88)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  coverBadgeText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  logoWrap: {
+    marginTop: -36,
+    borderRadius: 12,
+    borderWidth: 3,
+    borderColor: "#fff",
+    overflow: "hidden",
+    backgroundColor: "#fff",
+  },
+  logo: { width: 72, height: 72 },
+  logoEmpty: {
+    backgroundColor: theme.colors.cream,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logoHint: { marginTop: 8, fontSize: 12, color: theme.colors.labelMuted },
+  removeLink: { marginTop: 6 },
+  removeLinkText: { fontSize: 13, fontWeight: "600", color: "#c00" },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e6e0d6",
+    padding: 16,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: theme.colors.labelMuted,
+    marginBottom: 4,
+  },
+  label: { fontSize: 13, fontWeight: "600", color: theme.colors.heading, marginBottom: 6, marginTop: 10 },
   input: {
     borderWidth: 1,
+    borderColor: "#e6e0d6",
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
-    color: "#333",
-    backgroundColor: "#fff",
+    color: theme.colors.heading,
+    backgroundColor: theme.colors.creamAlt,
   },
-  textArea: { minHeight: 80, textAlignVertical: "top" },
-  logoRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4 },
-  logoPreview: { width: 64, height: 64, borderRadius: 8 },
-  logoPlaceholder: { backgroundColor: "#e0e0e0", justifyContent: "center", alignItems: "center" },
-  coverPreview: { width: 120, height: 72, borderRadius: 8 },
-  coverPlaceholder: { backgroundColor: "#e0e0e0", justifyContent: "center", alignItems: "center" },
-  uploadBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: theme.colors.primary,
-  },
-  uploadBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
-  removeBtn: { padding: 8 },
-  removeBtnText: { color: "#c00", fontSize: 14 },
+  textArea: { minHeight: 96, textAlignVertical: "top" },
   switchRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 12,
-    marginBottom: 8,
-    paddingVertical: 8,
+    marginTop: 8,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#e6e0d6",
   },
-  switchHint: { fontSize: 12, color: "#888", marginTop: 4, lineHeight: 18 },
+  switchRowLast: { borderBottomWidth: 0, paddingBottom: 0 },
+  switchLabel: { fontSize: 15, fontWeight: "600", color: theme.colors.heading },
+  switchHint: { fontSize: 12, color: theme.colors.text, marginTop: 4, lineHeight: 18 },
+  looksCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e6e0d6",
+    padding: 14,
+  },
+  looksCardText: { flex: 1, fontSize: 15, fontWeight: "700", color: theme.colors.heading },
   savedBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.4)",
@@ -507,7 +583,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: theme.colors.primary,
+    borderColor: theme.colors.earth,
     padding: 24,
   },
   savedTitle: {
@@ -518,7 +594,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   savedBtn: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.earth,
     borderRadius: 8,
     paddingVertical: 14,
     paddingHorizontal: 16,

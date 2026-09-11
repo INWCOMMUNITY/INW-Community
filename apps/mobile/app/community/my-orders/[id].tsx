@@ -317,16 +317,16 @@ export default function MyOrderDetailScreen() {
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.earth]} />}
     >
-      <View style={styles.section}>
-        <Text style={styles.label}>Order #</Text>
-        <Text style={styles.value}>#{order.id.slice(-8).toUpperCase()}</Text>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.label}>Status</Text>
-        <Text style={[styles.value, styles.statusCapitalize]}>{getBuyerOrderStatusLabel(order.status, order)}</Text>
+      <View style={styles.summaryCard}>
+        <View style={styles.summaryTop}>
+          <Text style={styles.orderNumber}>#{String(orderNumberDisplay).replace(/^#/, "")}</Text>
+          <View style={styles.statusChip}>
+            <Text style={styles.statusChipText}>{getBuyerOrderStatusLabel(order.status, order)}</Text>
+          </View>
+        </View>
+        <Text style={styles.summaryDate}>{formatDate(order.createdAt)}</Text>
       </View>
 
       {(order.status === "canceled" || order.status === "refunded") && (order.cancelReason ?? order.cancelNote) && (
@@ -337,73 +337,70 @@ export default function MyOrderDetailScreen() {
         </View>
       )}
 
-      <View style={styles.section}>
-        <Text style={styles.label}>Payment</Text>
-        <Text style={styles.value}>
-          {paymentLabelText}
-        </Text>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.label}>Placed</Text>
-        <Text style={styles.value}>{formatDate(order.createdAt)}</Text>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.label}>Seller</Text>
-        <Text style={styles.value}>{sellerName}</Text>
-      </View>
-
       {order.items && order.items.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.label}>Items</Text>
-          {order.items.map((oi) => {
+        <View style={styles.card}>
+          {order.items.map((oi, index) => {
             const photos = (oi.storeItem?.photos ?? []).filter(Boolean);
             const photoUrls = photos.map((p) => resolvePhotoUrl(p)).filter((u): u is string => !!u);
             const firstPhotoUrl = photoUrls[0];
+            const extraCount = Math.max(0, photoUrls.length - 1);
+            const slug = oi.storeItem?.slug;
+            const showPickupTicket =
+              (oi.fulfillmentType ?? "") === "pickup" &&
+              (order.status === "paid" || order.status === "shipped" || order.status === "delivered");
             return (
-              <View key={oi.id} style={styles.itemRow}>
-                <View style={styles.itemPhotos}>
-                  {firstPhotoUrl ? (
-                    <Image source={{ uri: firstPhotoUrl }} style={styles.itemThumb} />
-                  ) : (
-                    <View style={[styles.itemThumb, styles.itemThumbPlaceholder]}>
-                      <Text style={styles.itemThumbText}>
-                        {oi.storeItem?.title?.[0] ?? "?"}
+              <View
+                key={oi.id}
+                style={[styles.itemRow, index < order.items!.length - 1 && styles.itemRowDivider]}
+              >
+                <Pressable
+                  disabled={!slug}
+                  onPress={() =>
+                    slug
+                      ? (router.push as (href: string) => void)(
+                          buildProductPath(slug, {
+                            type: "order",
+                            orderId: orderId,
+                            orderKind: "buyer",
+                          })
+                        )
+                      : undefined
+                  }
+                  style={styles.itemMain}
+                >
+                  <View style={styles.itemThumbWrap}>
+                    {firstPhotoUrl ? (
+                      <Image source={{ uri: firstPhotoUrl }} style={styles.itemThumb} resizeMode="cover" />
+                    ) : (
+                      <View style={[styles.itemThumb, styles.itemThumbPlaceholder]}>
+                        <Text style={styles.itemThumbText}>{oi.storeItem?.title?.[0] ?? "?"}</Text>
+                      </View>
+                    )}
+                    {extraCount > 0 ? (
+                      <View style={styles.extraPhotoBadge}>
+                        <Text style={styles.extraPhotoBadgeText}>+{extraCount}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={styles.itemBody}>
+                    <View style={styles.itemTitleRow}>
+                      <Text style={styles.itemTitle} numberOfLines={2}>
+                        {oi.storeItem?.title ?? "Item"}
                       </Text>
+                      <Text style={styles.itemPrice}>{formatPrice(oi.priceCentsAtPurchase * oi.quantity)}</Text>
                     </View>
-                  )}
-                  {photoUrls.length > 1 ? (
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      style={styles.itemPhotosRow}
-                      contentContainerStyle={styles.itemPhotosRowContent}
-                    >
-                      {photoUrls.slice(1).map((uri, idx) => (
-                        <Image key={idx} source={{ uri }} style={styles.itemThumbSmall} />
-                      ))}
-                    </ScrollView>
-                  ) : null}
-                </View>
-                <View style={styles.itemBody}>
-                  <Text style={styles.itemTitle}>
-                    {oi.storeItem?.title ?? "Item"} × {oi.quantity}
-                  </Text>
-                  <Text style={styles.itemPrice}>
-                    {formatPrice(oi.priceCentsAtPurchase * oi.quantity)}
-                  </Text>
-                  {(oi.fulfillmentType ?? "") === "pickup" &&
-                    (order.status === "paid" || order.status === "shipped" || order.status === "delivered") && (
-                    <Pressable
-                      style={({ pressed }) => [styles.ticketBtn, pressed && { opacity: 0.85 }]}
-                      onPress={() => setTicketModal({ kind: "pickup", item: oi })}
-                    >
-                      <Ionicons name="hand-left-outline" size={16} color={theme.colors.primary} />
-                      <Text style={styles.ticketBtnText}>Pick Up Ticket</Text>
-                    </Pressable>
-                  )}
-                </View>
+                    <Text style={styles.itemMeta}>Qty {oi.quantity}</Text>
+                  </View>
+                </Pressable>
+                {showPickupTicket ? (
+                  <Pressable
+                    style={({ pressed }) => [styles.ticketBtn, pressed && { opacity: 0.85 }]}
+                    onPress={() => setTicketModal({ kind: "pickup", item: oi })}
+                  >
+                    <Ionicons name="hand-left-outline" size={15} color={theme.colors.earth} />
+                    <Text style={styles.ticketBtnText}>Pick Up Ticket</Text>
+                  </Pressable>
+                ) : null}
               </View>
             );
           })}
@@ -413,60 +410,64 @@ export default function MyOrderDetailScreen() {
               style={({ pressed }) => [styles.ticketBtnWide, pressed && { opacity: 0.85 }]}
               onPress={() => setTicketModal({ kind: "delivery" })}
             >
-              <Ionicons name="car-outline" size={18} color={theme.colors.primary} />
+              <Ionicons name="car-outline" size={16} color={theme.colors.earth} />
               <Text style={styles.ticketBtnText}>Delivery Ticket</Text>
             </Pressable>
           )}
         </View>
       )}
 
-      {order.shippingCostCents != null && order.shippingCostCents > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.label}>Shipping</Text>
-          <Text style={styles.value}>{formatPrice(order.shippingCostCents)}</Text>
+      <View style={styles.card}>
+        <View style={styles.metaRow}>
+          <Text style={styles.metaLabel}>Seller</Text>
+          <Text style={styles.metaValue}>{sellerName}</Text>
         </View>
-      )}
-
-      {(order.taxCents ?? 0) > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.label}>Tax</Text>
-          <Text style={styles.value}>{formatPrice(order.taxCents ?? 0)}</Text>
+        <View style={styles.metaRow}>
+          <Text style={styles.metaLabel}>Payment</Text>
+          <Text style={styles.metaValue}>{paymentLabelText}</Text>
         </View>
-      )}
-
-      <View style={styles.section}>
-        <Text style={styles.label}>Total</Text>
-        <Text style={styles.totalValue}>
-          {formatPrice(order.totalCents + (order.taxCents ?? 0))}
-        </Text>
+        {order.shippingCostCents != null && order.shippingCostCents > 0 ? (
+          <View style={styles.metaRow}>
+            <Text style={styles.metaLabel}>Shipping</Text>
+            <Text style={styles.metaValue}>{formatPrice(order.shippingCostCents)}</Text>
+          </View>
+        ) : null}
+        {(order.taxCents ?? 0) > 0 ? (
+          <View style={styles.metaRow}>
+            <Text style={styles.metaLabel}>Tax</Text>
+            <Text style={styles.metaValue}>{formatPrice(order.taxCents ?? 0)}</Text>
+          </View>
+        ) : null}
+        <View style={[styles.metaRow, styles.metaRowLast]}>
+          <Text style={styles.metaLabelTotal}>Total</Text>
+          <Text style={styles.totalValue}>{formatPrice(order.totalCents + (order.taxCents ?? 0))}</Text>
+        </View>
+        {shippingAddressStr ? (
+          <View style={styles.addressBlock}>
+            <Text style={styles.metaLabel}>Ship to</Text>
+            <Text style={styles.addressText}>{shippingAddressStr}</Text>
+          </View>
+        ) : null}
       </View>
 
-      {shippingAddressStr && (
-        <View style={styles.section}>
-          <Text style={styles.label}>Shipping address</Text>
-          <Text style={styles.value}>{shippingAddressStr}</Text>
-        </View>
-      )}
-
-      {trackingNumber && (
-        <View style={styles.section}>
-          <Text style={styles.label}>Tracking</Text>
-          <Text style={styles.value}>
-            {order.shipment?.carrier && `${order.shipment.carrier} — `}
+      {trackingNumber ? (
+        <View style={styles.card}>
+          <Text style={styles.metaLabel}>Tracking</Text>
+          <Text style={styles.trackingValue}>
+            {order.shipment?.carrier ? `${order.shipment.carrier} · ` : ""}
             {trackingNumber}
           </Text>
-          {trackingUrl && (
+          {trackingUrl ? (
             <Pressable
-              style={({ pressed }) => [styles.trackBtn, pressed && { opacity: 0.8 }]}
+              style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.85 }]}
               onPress={() => Linking.openURL(trackingUrl)}
             >
               <Ionicons name="open-outline" size={18} color="#fff" />
-              <Text style={styles.trackBtnText}>Track shipment</Text>
+              <Text style={styles.actionBtnText}>Track Shipment</Text>
             </Pressable>
-          )}
+          ) : null}
         </View>
-      )}
-
+      ) : null}
       {buyerHasPendingRefund(order) ? (
         <View style={styles.refundBanner}>
           <Ionicons name="information-circle" size={20} color="#92400e" />
@@ -494,14 +495,14 @@ export default function MyOrderDetailScreen() {
       ) : null}
 
       {order.returnShipment?.labelUrl ? (
-        <View style={styles.section}>
-          <Text style={styles.label}>Return shipping label</Text>
+        <View style={styles.card}>
+          <Text style={styles.metaLabel}>Return shipping</Text>
           <Pressable
-            style={({ pressed }) => [styles.trackBtn, pressed && { opacity: 0.8 }]}
+            style={({ pressed }) => [styles.actionBtn, { marginTop: 12 }, pressed && { opacity: 0.85 }]}
             onPress={() => Linking.openURL(order.returnShipment!.labelUrl!)}
           >
             <Ionicons name="document-outline" size={18} color="#fff" />
-            <Text style={styles.trackBtnText}>Print return label now</Text>
+            <Text style={styles.actionBtnText}>Print Return Label</Text>
           </Pressable>
         </View>
       ) : null}
@@ -509,25 +510,25 @@ export default function MyOrderDetailScreen() {
       <View style={styles.actionsSection}>
         {order.status === "paid" && (
           <Pressable
-            style={({ pressed }) => [styles.actionBtnOutline, pressed && { opacity: 0.8 }]}
+            style={({ pressed }) => [styles.actionBtnOutline, pressed && { opacity: 0.85 }]}
             onPress={() => setCancelConfirm(true)}
             disabled={canceling}
           >
-            <Text style={styles.actionBtnOutlineText}>{canceling ? "Canceling…" : "Cancel order"}</Text>
+            <Text style={styles.actionBtnOutlineText}>{canceling ? "Canceling…" : "Cancel Order"}</Text>
           </Pressable>
         )}
         {canRequestMobileBuyerRefund(order) && (
-            <Pressable
-              style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.8 }]}
-              onPress={() => setRefundModal(true)}
-              disabled={requestingRefund}
-            >
-              <Text style={styles.actionBtnText}>{requestingRefund ? "Submitting…" : "Request refund"}</Text>
-            </Pressable>
-          )}
+          <Pressable
+            style={({ pressed }) => [styles.actionBtnOutline, pressed && { opacity: 0.85 }]}
+            onPress={() => setRefundModal(true)}
+            disabled={requestingRefund}
+          >
+            <Text style={styles.actionBtnOutlineText}>{requestingRefund ? "Submitting…" : "Request Refund"}</Text>
+          </Pressable>
+        )}
         {order.items && order.items.length > 0 && order.items[0].storeItem?.slug && (
           <Pressable
-            style={({ pressed }) => [styles.actionBtnOutline, pressed && { opacity: 0.8 }]}
+            style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.85 }]}
             onPress={() =>
               (router.push as (href: string) => void)(
                 buildProductPath(order.items![0].storeItem!.slug, {
@@ -538,7 +539,7 @@ export default function MyOrderDetailScreen() {
               )
             }
           >
-            <Text style={styles.actionBtnOutlineText}>Order again</Text>
+            <Text style={styles.actionBtnText}>Order Again</Text>
           </Pressable>
         )}
       </View>
@@ -546,7 +547,7 @@ export default function MyOrderDetailScreen() {
       <Modal visible={refundModal} transparent animationType="fade">
         <Pressable style={styles.modalBackdrop} onPress={() => !requestingRefund && setRefundModal(false)}>
           <View style={styles.modalPanel} onStartShouldSetResponder={() => true}>
-            <Text style={styles.modalTitle}>Request refund</Text>
+            <Text style={styles.modalTitle}>Request Refund</Text>
             {order.sellerChargeReturnShipping ? (
               <Pressable style={styles.ackRow} onPress={() => setAckReturnShipping((v) => !v)}>
                 <Ionicons
@@ -802,73 +803,182 @@ export default function MyOrderDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
+  container: { flex: 1, backgroundColor: theme.colors.pageBackground },
   content: { padding: 16, paddingBottom: 40 },
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: theme.colors.pageBackground,
     padding: 16,
   },
-  section: { marginBottom: 20 },
-  label: {
-    fontSize: 12,
-    color: "#666",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 4,
+  summaryCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e6e0d6",
+    padding: 16,
+    marginBottom: 12,
   },
-  value: { fontSize: 16, color: "#333" },
-  paymentHint: { fontSize: 13, color: "#666", marginTop: 4, fontStyle: "italic" },
-  statusCapitalize: { textTransform: "capitalize" },
-  itemRow: {
+  summaryTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  orderNumber: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    fontFamily: theme.fonts.heading,
+  },
+  statusChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: theme.colors.cream,
+    borderWidth: 1,
+    borderColor: theme.colors.earth,
+  },
+  statusChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.colors.earth,
+  },
+  summaryDate: {
+    marginTop: 8,
+    fontSize: 14,
+    color: theme.colors.text,
+  },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e6e0d6",
+    padding: 16,
+    marginBottom: 12,
+  },
+  metaRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    marginBottom: 16,
+    justifyContent: "space-between",
+    gap: 12,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#e6e0d6",
   },
-  itemPhotos: { marginRight: 12 },
-  itemThumb: { width: 80, height: 80, borderRadius: 8 },
-  itemThumbSmall: { width: 48, height: 48, borderRadius: 6, marginLeft: 6 },
-  itemPhotosRow: { marginTop: 6, maxHeight: 52 },
-  itemPhotosRowContent: { paddingRight: 8 },
+  metaRowLast: { borderBottomWidth: 0, paddingBottom: 0 },
+  metaLabel: {
+    fontSize: 13,
+    color: theme.colors.labelMuted,
+    fontWeight: "600",
+  },
+  metaLabelTotal: {
+    fontSize: 15,
+    color: theme.colors.heading,
+    fontWeight: "700",
+  },
+  metaValue: {
+    flex: 1,
+    fontSize: 14,
+    color: theme.colors.heading,
+    textAlign: "right",
+  },
+  addressBlock: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#e6e0d6",
+  },
+  addressText: {
+    marginTop: 4,
+    fontSize: 14,
+    color: theme.colors.text,
+    lineHeight: 20,
+  },
+  trackingValue: {
+    marginTop: 4,
+    marginBottom: 12,
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.heading,
+  },
+  itemRow: {
+    paddingVertical: 2,
+  },
+  itemRowDivider: {
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#e6e0d6",
+  },
+  itemMain: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  itemThumbWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 8,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#e6e0d6",
+  },
+  itemThumb: { width: 72, height: 72 },
+  extraPhotoBadge: {
+    position: "absolute",
+    right: 4,
+    bottom: 4,
+    backgroundColor: "rgba(93, 79, 64, 0.82)",
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  extraPhotoBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
   itemThumbPlaceholder: {
     backgroundColor: theme.colors.cream,
     justifyContent: "center",
     alignItems: "center",
-    width: 80,
-    height: 80,
   },
-  itemThumbText: { fontSize: 18, fontWeight: "600", color: theme.colors.primary },
+  itemThumbText: { fontSize: 16, fontWeight: "600", color: theme.colors.earth },
   itemBody: { flex: 1, minWidth: 0 },
-  itemTitle: { fontSize: 15, color: "#333" },
-  itemPrice: { fontSize: 15, fontWeight: "600", color: theme.colors.primary, marginTop: 2 },
+  itemTitleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  itemTitle: { flex: 1, fontSize: 15, fontWeight: "600", color: theme.colors.heading },
+  itemMeta: { fontSize: 13, color: theme.colors.text, marginTop: 4 },
+  itemPrice: { fontSize: 15, fontWeight: "700", color: theme.colors.earth },
   ticketBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     marginTop: 10,
+    marginLeft: 84,
     alignSelf: "flex-start",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: theme.colors.primary,
+    borderColor: theme.colors.earth,
     backgroundColor: "#fff",
   },
   ticketBtnWide: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginTop: 16,
+    marginTop: 12,
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: theme.colors.primary,
-    backgroundColor: theme.colors.creamAlt ?? "#faf8f5",
+    borderColor: theme.colors.earth,
+    backgroundColor: theme.colors.creamAlt,
   },
-  ticketBtnText: { fontSize: 14, fontWeight: "600", color: theme.colors.primary },
+  ticketBtnText: { fontSize: 14, fontWeight: "600", color: theme.colors.earth },
   ticketModalPanel: {
     backgroundColor: "#fff",
     borderRadius: 16,
@@ -921,19 +1031,7 @@ const styles = StyleSheet.create({
   ticketConfirmBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
   ticketCloseBtn: { marginTop: 12, paddingVertical: 10, alignItems: "center" },
   ticketCloseBtnText: { fontSize: 16, color: "#666", fontWeight: "600" },
-  totalValue: { fontSize: 18, fontWeight: "700", color: theme.colors.primary },
-  trackBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: theme.colors.primary,
-    alignSelf: "flex-start",
-  },
-  trackBtnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
+  totalValue: { fontSize: 16, fontWeight: "700", color: theme.colors.earth },
   errorText: { fontSize: 16, color: "#666", textAlign: "center", marginBottom: 16 },
   errorButtons: { flexDirection: "row", gap: 12, marginTop: 8 },
   backBtn: {
@@ -955,39 +1053,45 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
-    marginBottom: 20,
+    marginBottom: 12,
     padding: 12,
     backgroundColor: "#fef3c7",
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "#fde68a",
   },
   refundBannerText: { flex: 1, fontSize: 14, color: "#92400e" },
   cancelReasonSection: {
-    marginBottom: 16,
+    marginBottom: 12,
     padding: 12,
     backgroundColor: theme.colors.creamAlt,
-    borderRadius: 8,
+    borderRadius: 12,
   },
   cancelReasonText: { fontSize: 14, color: theme.colors.text },
-  actionsSection: { gap: 12, marginTop: 8 },
+  actionsSection: { gap: 10, marginTop: 4 },
   actionBtn: {
-    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    width: "100%",
+    paddingVertical: 14,
     paddingHorizontal: 20,
     borderRadius: 8,
-    backgroundColor: theme.colors.primary,
-    alignSelf: "flex-start",
+    backgroundColor: theme.colors.earth,
   },
-  actionBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  actionBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
   actionBtnOutline: {
-    paddingVertical: 12,
+    width: "100%",
+    paddingVertical: 14,
     paddingHorizontal: 20,
     borderRadius: 8,
     borderWidth: 2,
-    borderColor: theme.colors.primary,
-    alignSelf: "flex-start",
+    borderColor: theme.colors.earth,
+    backgroundColor: "#fff",
+    alignItems: "center",
   },
-  actionBtnOutlineText: { color: theme.colors.primary, fontSize: 16, fontWeight: "600" },
+  actionBtnOutlineText: { color: theme.colors.earth, fontSize: 16, fontWeight: "700" },
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",

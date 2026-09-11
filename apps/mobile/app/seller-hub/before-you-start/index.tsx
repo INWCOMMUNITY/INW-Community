@@ -245,8 +245,8 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.primary,
   },
   todoItemCompleted: {
-    backgroundColor: "#f0f7f0",
-    borderColor: "#4caf50",
+    backgroundColor: theme.colors.cream,
+    borderColor: theme.colors.gold,
   },
   todoItemPressed: {
     opacity: 0.9,
@@ -267,8 +267,8 @@ const styles = StyleSheet.create({
     marginRight: 14,
   },
   checkboxCompleted: {
-    backgroundColor: "#4caf50",
-    borderColor: "#4caf50",
+    backgroundColor: theme.colors.gold,
+    borderColor: theme.colors.gold,
   },
   checkboxEmpty: {
     width: 12,
@@ -285,7 +285,7 @@ const styles = StyleSheet.create({
     color: theme.colors.heading,
   },
   todoLabelCompleted: {
-    color: "#2e7d32",
+    color: theme.colors.gold,
     textDecorationLine: "line-through",
   },
   todoDesc: {
