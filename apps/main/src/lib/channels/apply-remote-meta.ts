@@ -12,8 +12,8 @@ import { normalizeListingAspects } from "@/lib/listing-limits";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 import {
   isMadeToOrderTracking,
+  inboundListingPriceCents,
   mergeIncomingVariantMatrixPreservingUnknownPrices,
-  minSkuPriceCents,
   serializeVariantMatrix,
 } from "@/lib/listing-variant-matrix";
 
@@ -135,7 +135,9 @@ export async function applyRemoteVariantAxesToStoreItem(
     return false;
   }
 
-  const merged = mergeIncomingVariantMatrixPreservingUnknownPrices(item.variants, stored);
+  const merged = mergeIncomingVariantMatrixPreservingUnknownPrices(item.variants, stored, {
+    listingPriceCents: item.priceCents,
+  });
   const matrix = serializeVariantMatrix(merged);
 
   const madeToOrder = isMadeToOrderTracking(item.inventoryTracking);
@@ -146,7 +148,7 @@ export async function applyRemoteVariantAxesToStoreItem(
     return false;
   }
 
-  const listingPrice = minSkuPriceCents(matrix, item.priceCents);
+  const listingPrice = inboundListingPriceCents(matrix, item.priceCents);
   const nextListingPrice =
     listingPrice > 0 && listingPrice !== item.priceCents ? listingPrice : null;
 

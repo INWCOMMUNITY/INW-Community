@@ -475,6 +475,35 @@ describe("applyRemoteVariantPricesToMatrix", () => {
     expect(inboundListingPriceCents(next, 100)).toBe(100);
   });
 
+  it("does not re-flatten $1 fallback SKUs when eBay leftover StartPrice is $5 and listing min is $1", () => {
+    const matrix = normalizeVariantMatrix({
+      axes: [
+        { name: "Size", values: ["Small", "Large"] },
+        { name: "Primary color", values: ["Red", "Green"] },
+      ],
+      skus: [
+        { options: { Size: "Small", "Primary color": "Red" }, quantity: 1, priceCents: 100 },
+        { options: { Size: "Large", "Primary color": "Blue" }, quantity: 4, priceCents: 2000 },
+        { options: { Size: "Small", "Primary color": "Green" }, quantity: 5, priceCents: 100 },
+        { options: { Size: "Large", "Primary color": "Green" }, quantity: 5, priceCents: 100 },
+      ],
+    })!;
+    const next = applyRemoteVariantPricesToMatrix(
+      matrix,
+      [
+        { options: { Size: "Small", "Primary color": "Red" }, priceCents: 100 },
+        { options: { Size: "Large", "Primary color": "Blue" }, priceCents: 2000 },
+        { options: { Size: "Small", "Primary color": "Green" }, priceCents: 500 },
+        { options: { Size: "Large", "Primary color": "Green" }, priceCents: 500 },
+      ],
+      { listingMinCents: 100, inwListingPriceCents: 100 }
+    );
+    expect(next.skus[0].priceCents).toBe(100);
+    expect(next.skus[1].priceCents).toBe(2000);
+    expect(next.skus[2].priceCents).toBe(100);
+    expect(next.skus[3].priceCents).toBe(100);
+  });
+
   it("still applies a real seller price on a previously unpriced SKU", () => {
     const matrix = normalizeVariantMatrix({
       axes: [{ name: "Color", values: ["Green"] }],
@@ -507,6 +536,15 @@ describe("remoteSkuPriceLooksLikeListingMinFill", () => {
         inwListingPriceCents: 100,
       })
     ).toBe(false);
+    expect(
+      remoteSkuPriceLooksLikeListingMinFill({
+        inwSkuPriceCents: 100,
+        remotePriceCents: 500,
+        listingMinCents: 100,
+        inwListingPriceCents: 100,
+        remotePriceSharedByFallbacks: true,
+      })
+    ).toBe(true);
   });
 });
 
@@ -543,6 +581,27 @@ describe("mergeIncomingVariantMatrixPreservingUnknownPrices", () => {
     })!;
     const next = mergeIncomingVariantMatrixPreservingUnknownPrices(pricedInw(), incoming);
     expect(next.skus.map((s) => s.priceCents)).toEqual([3000, 3100]);
+  });
+
+  it("does not copy eBay listing-min $5 onto INW $1 fallback SKUs", () => {
+    const inw = normalizeVariantMatrix({
+      axes: [{ name: "Color", values: ["Green", "Purple"] }],
+      skus: [
+        { options: { Color: "Green" }, quantity: 5, priceCents: 100 },
+        { options: { Color: "Purple" }, quantity: 5, priceCents: 100 },
+      ],
+    })!;
+    const incoming = normalizeVariantMatrix({
+      axes: [{ name: "Color", values: ["Green", "Purple"] }],
+      skus: [
+        { options: { Color: "Green" }, quantity: 5, priceCents: 500 },
+        { options: { Color: "Purple" }, quantity: 5, priceCents: 500 },
+      ],
+    })!;
+    const next = mergeIncomingVariantMatrixPreservingUnknownPrices(inw, incoming, {
+      listingPriceCents: 100,
+    });
+    expect(next.skus.map((s) => s.priceCents)).toEqual([100, 100]);
   });
 
   it("overlays remote prices onto INW qty when the remote matrix has prices but zero stock", () => {

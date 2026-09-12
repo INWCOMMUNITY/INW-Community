@@ -60,6 +60,7 @@ import {
 } from "@/lib/listing-variant-matrix";
 import { recordVariantPriceTrace, buildIntendedVariantPriceRows } from "../sync-trace";
 import { fetchLiveInventoryItem, readLiveInventoryAvailableQuantity } from "./passthrough-push";
+import { catchUpEbayLiveVariantQuantities, type EbayLiveQtyCatchUp } from "./variant-qty-catchup";
 import { applyRemoteListingRemoved } from "../apply-remote-listing";
 import { syncInventoryToChannels } from "../sync-inventory";
 import { updateStoreItemOnChannels } from "../outbound";
@@ -914,6 +915,30 @@ export async function refreshEbayListingByItemId(
   let conflictDetails: unknown = await persistEbayListingActive(link.id, link.conflictDetails);
   await clearRemoteDeletedNoticeIfSet(link.id, conflictDetails);
 
+  let liveQtyCatchUp: EbayLiveQtyCatchUp | null = null;
+  if (
+    !opts?.skipQuantity &&
+    ebayApplyTrustsSingleSnapshot(opts?.source) &&
+    hasOptionQuantities(storeItem.variants)
+  ) {
+    const catchUpMatrix = normalizeVariantMatrix(storeItem.variants);
+    if (catchUpMatrix) {
+      try {
+        liveQtyCatchUp = await catchUpEbayLiveVariantQuantities({
+          accessToken,
+          inwMatrix: catchUpMatrix,
+          tradingMatrix: normalizeVariantMatrix(details.variants),
+        });
+      } catch (e) {
+        console.warn("[ebay] live listing qty catch-up failed", {
+          storeItemId: storeItem.id,
+          legacyItemId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+  }
+
   await attachShippingOptionOnImport({
     memberId: storeItem.memberId,
     storeItemId: storeItem.id,
@@ -926,7 +951,8 @@ export async function refreshEbayListingByItemId(
     })
   );
 
-  if (!opts?.force && applyDecision.action !== "apply") {
+  const forceQtyFromLiveCatchUp = Boolean(liveQtyCatchUp?.inwNeedsUpdate);
+  if (!opts?.force && applyDecision.action !== "apply" && !forceQtyFromLiveCatchUp) {
     if (applyDecision.action === "pending" && applyDecision.pendingHash) {
       await prisma.channelListingLink.update({
         where: { id: link.id },
@@ -1147,7 +1173,10 @@ export async function refreshEbayListingByItemId(
     });
     let workingMatrix: VariantMatrix | null = inwMatrix;
     let qtyPulled = false;
-    if (overlayGetItemSkuQty && inwMatrix && remoteVariantMatrix) {
+    if (liveQtyCatchUp && liveQtyCatchUp.quantities.length > 0 && inwMatrix) {
+      workingMatrix = applyLiveInventoryQuantitiesToMatrix(inwMatrix, liveQtyCatchUp.quantities);
+      qtyPulled = liveQtyCatchUp.inwNeedsUpdate;
+    } else if (overlayGetItemSkuQty && inwMatrix && remoteVariantMatrix) {
       // Seller Hub qty lives on Trading/GetItem. The Inventory API still holds the last
       // INW push, so reading it here ignores the seller edit and later outbound snaps eBay.
       workingMatrix = applyLiveInventoryQuantitiesToMatrix(
@@ -1179,7 +1208,10 @@ export async function refreshEbayListingByItemId(
 
     if (workingMatrix && remotePrices.length > 0) {
       workingMatrix = applyRemoteVariantPricesToMatrix(workingMatrix, remotePrices, {
-        listingMinCents: remotePrice,
+        listingMinCents: Math.min(
+          remotePrice,
+          ...remotePrices.map((p) => p.priceCents)
+        ),
         inwListingPriceCents: storeItem.priceCents,
       });
     }
@@ -1294,7 +1326,7 @@ export async function refreshEbayListingByItemId(
         inwMatrix &&
         variantsStructureQtyFingerprint(inwMatrix) !== variantsStructureQtyFingerprint(workingMatrix)
       ) {
-        pulledEbayVariantQty = true;
+        pulledEbayVariantQty = !liveQtyCatchUp?.wroteOffers;
       }
       // A confirmed snapshot was applied — clear any pending variation snapshot.
       conflictDetails = withEbayPendingVariantInbound(conflictDetails, null);

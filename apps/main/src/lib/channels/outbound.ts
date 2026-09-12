@@ -798,6 +798,7 @@ export async function updateStoreItemOnChannels(
     try {
       let skippedNewerRemote = false;
       let liveTitleCheckFailed = false;
+      let skippedInboundEcho = false;
       await withConnectionAuthRetry(link.connection, async (ctx) => {
         const adapter = getAdapter(provider);
         
@@ -809,6 +810,22 @@ export async function updateStoreItemOnChannels(
           ? MTO_CHANNEL_QUANTITY
           : Math.max(0, item.quantity - globalSafetyBuffer - channelInventoryOffset);
         const adjustedItem = { ...applyPriceAdjustment(item, priceAdjustmentPercent), quantity: bufferAdjustedQty };
+
+        if (
+          provider === "ebay" &&
+          inwRevisionCameFromChannelInbound({
+            inwUpdatedAt: hubUpdatedAt,
+            lastInboundAt: link.lastInboundAt,
+          })
+        ) {
+          skippedInboundEcho = true;
+          console.info("[channels] skip eBay content push; INW revision came from inbound", {
+            storeItemId,
+            lastInboundAt: link.lastInboundAt?.toISOString() ?? null,
+            inwUpdatedAt: hubUpdatedAt.toISOString(),
+          });
+          return;
+        }
 
         if (provider === "etsy") {
           const fetched = await fetchEtsyListingForInbound(ctx.accessToken, link.externalListingId);
@@ -963,6 +980,10 @@ export async function updateStoreItemOnChannels(
 
         await adapter.updateListing(ctx, link.externalListingId, adjustedItem);
       });
+      if (skippedInboundEcho) {
+        results.push({ provider, ok: true, skipped: "inbound_echo" });
+        continue;
+      }
       if (skippedNewerRemote) {
         if (liveTitleCheckFailed) {
           const msg = "eBay live listing check failed; skipped overwrite";

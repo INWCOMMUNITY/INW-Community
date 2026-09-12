@@ -804,21 +804,38 @@ export function stripSkuPricesFromMatrix(matrix: VariantMatrix): VariantMatrix {
  */
 export function mergeIncomingVariantMatrixPreservingUnknownPrices(
   existing: unknown,
-  incoming: VariantMatrix
+  incoming: VariantMatrix,
+  opts?: { listingPriceCents?: number }
 ): VariantMatrix {
   const inw = normalizeVariantMatrix(existing);
+  const incomingPrices: RemoteVariantPrice[] = incoming.skus
+    .filter((s) => s.priceCents != null && s.priceCents > 0)
+    .map((s) => ({
+      sku: s.sku ?? null,
+      options: s.options,
+      priceCents: s.priceCents as number,
+    }));
+  const priceOpts: ApplyRemoteVariantPricesOpts | undefined =
+    incomingPrices.length > 0
+      ? {
+          listingMinCents: Math.min(...incomingPrices.map((p) => p.priceCents)),
+          inwListingPriceCents: opts?.listingPriceCents ?? 0,
+        }
+      : undefined;
   if (matrixHasKnownSkuPrices(incoming)) {
     if (inw && sumMatrixQuantities(incoming) === 0 && sumMatrixQuantities(inw) > 0) {
-      return applyRemoteVariantPricesToMatrix(
+      return applyRemoteVariantPricesToMatrix(inw, incomingPrices, priceOpts);
+    }
+    if (inw) {
+      const withQty = applyLiveInventoryQuantitiesToMatrix(
         inw,
-        incoming.skus
-          .filter((s) => s.priceCents != null && s.priceCents > 0)
-          .map((s) => ({
-            sku: s.sku ?? null,
-            options: s.options,
-            priceCents: s.priceCents as number,
-          }))
+        incoming.skus.map((s) => ({
+          sku: s.sku ?? null,
+          options: s.options,
+          quantity: s.quantity,
+        }))
       );
+      return applyRemoteVariantPricesToMatrix(withQty, incomingPrices, priceOpts);
     }
     return incoming;
   }
@@ -847,17 +864,24 @@ export function skuHasDistinctPrice(
 }
 
 /**
- * eBay GetItem StartPrice on a variation with no unique price is the listing CurrentPrice
- * (the cheapest SKU). Pulling that onto an unpriced INW row materializes $5 (etc.) onto
- * every generic $1 fallback SKU. Skip those fills; still apply a real seller SKU edit.
+ * eBay GetItem StartPrice on a variation with no unique price is often CurrentPrice
+ * (cheapest SKU) — or a leftover flatten from a previous pull. After INW listing min
+ * is $1, those rows can still read $5 on eBay; treating that as a seller edit writes
+ * $5 onto every generic fallback SKU. Skip fills; still apply a unique seller SKU price.
  */
 export function remoteSkuPriceLooksLikeListingMinFill(args: {
   inwSkuPriceCents: number | null | undefined;
   remotePriceCents: number;
   listingMinCents: number;
   inwListingPriceCents: number;
+  /** True when 2+ INW fallback SKUs all report this remote price. */
+  remotePriceSharedByFallbacks?: boolean;
 }): boolean {
   if (skuHasDistinctPrice(args.inwSkuPriceCents, args.inwListingPriceCents)) return false;
+  if (args.remotePriceSharedByFallbacks) return true;
+  if (args.inwListingPriceCents > 0 && args.remotePriceCents === args.inwListingPriceCents) {
+    return true;
+  }
   return args.listingMinCents > 0 && args.remotePriceCents === args.listingMinCents;
 }
 
@@ -897,21 +921,38 @@ export function applyRemoteVariantPricesToMatrix(
     }
   }
   if (bySku.size === 0 && byOptions.size === 0 && byValues.size === 0) return matrix;
-  let applied = false;
-  const skus = matrix.skus.map((row) => {
+  const lookupRemote = (row: VariantMatrix["skus"][number]): number | undefined => {
     const skuKey = row.sku?.trim();
-    const next =
+    return (
       (skuKey ? bySku.get(skuKey) : undefined) ??
       byOptions.get(skuSelectionKey(row.options)) ??
-      byValues.get(optionValuesKey(row.options));
+      byValues.get(optionValuesKey(row.options))
+    );
+  };
+  const inwListing = opts?.inwListingPriceCents ?? 0;
+  const listingMin = opts?.listingMinCents ?? 0;
+  const fallbackCounts = new Map<number, number>();
+  for (const row of matrix.skus) {
+    if (skuHasDistinctPrice(row.priceCents, inwListing)) continue;
+    const remote = lookupRemote(row);
+    if (remote == null) continue;
+    fallbackCounts.set(remote, (fallbackCounts.get(remote) ?? 0) + 1);
+  }
+  const sharedFallbackPrices = new Set<number>();
+  for (const [price, count] of fallbackCounts) {
+    if (count >= 2) sharedFallbackPrices.add(price);
+  }
+  let applied = false;
+  const skus = matrix.skus.map((row) => {
+    const next = lookupRemote(row);
     if (next == null) return row;
     if (
-      opts?.listingMinCents != null &&
       remoteSkuPriceLooksLikeListingMinFill({
         inwSkuPriceCents: row.priceCents,
         remotePriceCents: next,
-        listingMinCents: opts.listingMinCents,
-        inwListingPriceCents: opts.inwListingPriceCents ?? 0,
+        listingMinCents: listingMin,
+        inwListingPriceCents: inwListing,
+        remotePriceSharedByFallbacks: sharedFallbackPrices.has(next),
       })
     ) {
       return row;
