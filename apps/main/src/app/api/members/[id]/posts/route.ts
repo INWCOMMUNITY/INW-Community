@@ -124,6 +124,17 @@ export async function GET(
     select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true },
   });
 
+  const createdAtMs = (row: unknown): number => {
+    if (!row || typeof row !== "object") return 0;
+    const v = (row as { createdAt?: unknown }).createdAt;
+    if (v instanceof Date) return v.getTime();
+    if (typeof v === "string" || typeof v === "number") {
+      const t = new Date(v).getTime();
+      return Number.isFinite(t) ? t : 0;
+    }
+    return 0;
+  };
+
   const eventItems = eventRows.map((e) => ({
     id: `event-${e.id}`,
     type: "shared_event",
@@ -151,11 +162,7 @@ export async function GET(
     },
   }));
 
-  const merged = [...withPhotos, ...eventItems].sort((a, b) => {
-    const ta = new Date(a.createdAt as Date | string).getTime();
-    const tb = new Date(b.createdAt as Date | string).getTime();
-    return tb - ta;
-  });
+  const merged = [...withPhotos, ...eventItems].sort((a, b) => createdAtMs(b) - createdAtMs(a));
 
   const feedItems = merged.slice(0, limit);
   const lastId = feedItems[feedItems.length - 1]?.id;
