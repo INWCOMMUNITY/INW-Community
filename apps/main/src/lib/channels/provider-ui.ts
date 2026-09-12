@@ -7,6 +7,8 @@ export type ChannelConnectionSummary = {
   shopId: string | null;
   status: string;
   lastError: string | null;
+  /** "two_way" | "push_only" | "pull_only" | "paused" — controls sync direction per store. */
+  syncDirection?: string;
   /** eBay already hosts listing photos; show on the store card, not per listing. */
   photoHostNotice?: string | null;
   hasShippingProfile: boolean;

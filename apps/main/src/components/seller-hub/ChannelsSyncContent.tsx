@@ -19,6 +19,7 @@ import {
   type DisconnectChannelPrompt,
 } from "./DisconnectChannelModal";
 import { ChannelSafetyBufferCard } from "./ChannelSafetyBufferCard";
+import { ChannelSyncDirectionControl } from "./ChannelSyncDirectionControl";
 import { ChannelReconnectGuideModal } from "./ChannelReconnectGuideModal";
 import { NeedsAttentionPanel } from "./NeedsAttentionPanel";
 import {
@@ -396,6 +397,21 @@ export function ChannelsSyncContent() {
                             : `INW could not reach ${p.name}. Reconnect to resume inventory sync.`}
                         </p>
                       )}
+                    </div>
+
+                    <div className="mb-4">
+                      <ChannelSyncDirectionControl
+                        connectionId={conn.id}
+                        providerName={p.name}
+                        current={conn.syncDirection ?? "two_way"}
+                        onChanged={(next) =>
+                          setConnections((prev) =>
+                            prev.map((c) =>
+                              c.id === conn.id ? { ...c, syncDirection: next } : c
+                            )
+                          )
+                        }
+                      />
                     </div>
 
                     <div className="flex flex-col gap-2">

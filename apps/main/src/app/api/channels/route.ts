@@ -67,6 +67,7 @@ export async function GET(req: NextRequest) {
         lastError: c.lastError,
         config: c.config,
       });
+      const connConfig = (c.config ?? {}) as Record<string, unknown>;
       return {
         id: c.id,
         provider: c.provider,
@@ -74,6 +75,7 @@ export async function GET(req: NextRequest) {
         shopName: c.externalShopName,
         status: c.status,
         lastError: c.lastError,
+        syncDirection: (connConfig.syncDirection as string) ?? "two_way",
         hasShippingProfile: Boolean(c.etsyShippingProfileId),
         readyToPublish,
         publishBlockReason: publishBlockReason(c),
