@@ -876,13 +876,20 @@ export function remoteSkuPriceLooksLikeListingMinFill(args: {
   inwListingPriceCents: number;
   /** True when 2+ INW fallback SKUs all report this remote price. */
   remotePriceSharedByFallbacks?: boolean;
+  /** Cheapest INW SKU that already has its own price (not listing fallback). */
+  cheapestDistinctInwCents?: number | null;
+  /** Every remote SKU is the same price and it differs from the INW listing. */
+  uniformRemoteReprice?: boolean;
 }): boolean {
   if (skuHasDistinctPrice(args.inwSkuPriceCents, args.inwListingPriceCents)) return false;
-  if (args.remotePriceSharedByFallbacks) return true;
+  if (args.uniformRemoteReprice) return false;
   if (args.inwListingPriceCents > 0 && args.remotePriceCents === args.inwListingPriceCents) {
     return true;
   }
-  return args.listingMinCents > 0 && args.remotePriceCents === args.listingMinCents;
+  const cheapest = args.cheapestDistinctInwCents;
+  if (cheapest != null && cheapest > 0 && args.remotePriceCents === cheapest) return true;
+  if (args.remotePriceSharedByFallbacks) return true;
+  return false;
 }
 
 export type ApplyRemoteVariantPricesOpts = {
@@ -931,6 +938,21 @@ export function applyRemoteVariantPricesToMatrix(
   };
   const inwListing = opts?.inwListingPriceCents ?? 0;
   const listingMin = opts?.listingMinCents ?? 0;
+  const distinctInwPrices = matrix.skus
+    .map((s) => s.priceCents)
+    .filter((p): p is number => skuHasDistinctPrice(p, inwListing));
+  const cheapestDistinctInwCents =
+    distinctInwPrices.length > 0 ? Math.min(...distinctInwPrices) : null;
+  const remotePriceSet = new Set<number>();
+  for (const entry of remotePrices) {
+    const n = Number(entry.priceCents);
+    if (Number.isFinite(n) && n > 0) remotePriceSet.add(Math.round(n));
+  }
+  const uniformRemoteReprice =
+    remotePriceSet.size === 1 &&
+    inwListing > 0 &&
+    !remotePriceSet.has(inwListing) &&
+    cheapestDistinctInwCents != null;
   const fallbackCounts = new Map<number, number>();
   for (const row of matrix.skus) {
     if (skuHasDistinctPrice(row.priceCents, inwListing)) continue;
@@ -953,6 +975,8 @@ export function applyRemoteVariantPricesToMatrix(
         listingMinCents: listingMin,
         inwListingPriceCents: inwListing,
         remotePriceSharedByFallbacks: sharedFallbackPrices.has(next),
+        cheapestDistinctInwCents,
+        uniformRemoteReprice,
       })
     ) {
       return row;

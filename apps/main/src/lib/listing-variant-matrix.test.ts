@@ -516,6 +516,33 @@ describe("applyRemoteVariantPricesToMatrix", () => {
     );
     expect(next.skus[0].priceCents).toBe(800);
   });
+
+  it("applies a uniform eBay reprice onto the listing-fallback first SKU", () => {
+    const matrix = normalizeVariantMatrix({
+      axes: [
+        { name: "Size", values: ["Small", "Medium"] },
+        { name: "Primary color", values: ["Red", "Blue"] },
+      ],
+      skus: [
+        { options: { Size: "Small", "Primary color": "Red" }, quantity: 1, priceCents: 100 },
+        { options: { Size: "Medium", "Primary color": "Red" }, quantity: 1, priceCents: 600 },
+        { options: { Size: "Small", "Primary color": "Blue" }, quantity: 1, priceCents: 800 },
+        { options: { Size: "Medium", "Primary color": "Blue" }, quantity: 1, priceCents: 2000 },
+      ],
+    })!;
+    const next = applyRemoteVariantPricesToMatrix(
+      matrix,
+      [
+        { options: { Size: "Small", "Primary color": "Red" }, priceCents: 300 },
+        { options: { Size: "Medium", "Primary color": "Red" }, priceCents: 300 },
+        { options: { Size: "Small", "Primary color": "Blue" }, priceCents: 300 },
+        { options: { Size: "Medium", "Primary color": "Blue" }, priceCents: 300 },
+      ],
+      { listingMinCents: 300, inwListingPriceCents: 100 }
+    );
+    expect(next.skus.map((s) => s.priceCents)).toEqual([300, 300, 300, 300]);
+    expect(inboundListingPriceCents(next, 100)).toBe(300);
+  });
 });
 
 describe("remoteSkuPriceLooksLikeListingMinFill", () => {
@@ -526,6 +553,7 @@ describe("remoteSkuPriceLooksLikeListingMinFill", () => {
         remotePriceCents: 500,
         listingMinCents: 500,
         inwListingPriceCents: 100,
+        cheapestDistinctInwCents: 500,
       })
     ).toBe(true);
     expect(
@@ -539,12 +567,13 @@ describe("remoteSkuPriceLooksLikeListingMinFill", () => {
     expect(
       remoteSkuPriceLooksLikeListingMinFill({
         inwSkuPriceCents: 100,
-        remotePriceCents: 500,
-        listingMinCents: 100,
+        remotePriceCents: 300,
+        listingMinCents: 300,
         inwListingPriceCents: 100,
-        remotePriceSharedByFallbacks: true,
+        cheapestDistinctInwCents: 600,
+        uniformRemoteReprice: true,
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 
