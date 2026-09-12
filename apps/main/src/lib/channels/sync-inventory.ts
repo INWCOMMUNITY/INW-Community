@@ -19,13 +19,17 @@ import {
   hydrateCircuitFromConfig,
 } from "./circuit-breaker";
 import { shouldBypassCircuitForInventoryPush } from "./circuit-inventory-bypass";
-import { shouldBlockOutboundQtyOverwrite } from "./sync-baseline";
+import {
+  inwRevisionCameFromChannelInbound,
+  inwSavedAfterChannelPush,
+  shouldBlockOutboundQtyOverwrite,
+} from "./sync-baseline";
 import { fetchEbayItemDetails } from "./ebay/trading";
 import { resolveEbayLegacyListingId } from "./ebay/mapping";
 import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
 import { fetchShopifyListingForInbound } from "./shopify/adapter";
 import { withLastInventoryPushAt, readEbayPendingVariantInboundHash } from "./listing-conflict-json";
-import { variantsFingerprint } from "./variant-sync";
+import { variantsFingerprint, inventoryVariantsBaselineMatches, remoteSkuQuantitiesDivergeFromInw } from "./variant-sync";
 
 /**
  * Push the StoreItem's current (authoritative) quantity out to every linked channel as an
@@ -35,6 +39,11 @@ import { variantsFingerprint } from "./variant-sync";
 export type ChannelSyncOptions = {
   /** Skip pushing to these providers (e.g. Wix already has the new qty after an inbound edit). */
   skipProviders?: ChannelProvider[];
+  /**
+   * Skip drift / inbound-echo gates. Used after eBay GetItem applied per-SKU qty so the
+   * Inventory API catches up with Trading (otherwise Seller Hub snaps qty back).
+   */
+  force?: boolean;
 };
 
 export async function syncInventoryToChannels(
@@ -178,14 +187,34 @@ export async function syncInventoryToChannels(
       // but that's expected and not a reason to re-push every tick.
       //
       // Also check the variant fingerprint: individual SKU quantities can shift
-      // while the total remains unchanged (multi-variation listings).
+      // while the total remains unchanged (multi-variation listings). Price-only
+      // changes must not count as qty drift (that snaps eBay stock after an inbound price pull).
       const varFp = variantsFingerprint(item.variants);
       const baselineQtyMatches =
         link.syncBaselineQty != null && link.syncBaselineQty === item.quantity;
-      const baselineVarMatches =
-        (link.syncBaselineVariantsHash ?? "") === varFp;
-      if (baselineQtyMatches && baselineVarMatches) {
+      const baselineVarMatches = inventoryVariantsBaselineMatches(
+        link.syncBaselineVariantsHash,
+        item.variants
+      );
+      if (!options.force && baselineQtyMatches && baselineVarMatches) {
         results.push({ provider, ok: true, skipped: "no_qty_drift" });
+        continue;
+      }
+
+      if (
+        !options.force &&
+        provider === "ebay" &&
+        inwRevisionCameFromChannelInbound({
+          inwUpdatedAt: freshItem.updatedAt,
+          lastInboundAt: link.lastInboundAt,
+        })
+      ) {
+        console.info("[channels] skip eBay inventory push; INW revision came from inbound", {
+          storeItemId,
+          lastInboundAt: link.lastInboundAt?.toISOString() ?? null,
+          inwUpdatedAt: freshItem.updatedAt.toISOString(),
+        });
+        results.push({ provider, ok: true, skipped: "inbound_echo" });
         continue;
       }
 
@@ -198,6 +227,7 @@ export async function syncInventoryToChannels(
       const inwAtBaseline =
         link.syncBaselineQty != null && item.quantity === link.syncBaselineQty;
       if (
+        !options.force &&
         qtyGuardExact &&
         inwAtBaseline &&
         (provider === "ebay" || provider === "etsy" || provider === "shopify")
@@ -207,15 +237,30 @@ export async function syncInventoryToChannels(
             const legacyId = resolveEbayLegacyListingId(link.externalListingId);
             if (!legacyId) return false;
             const live = await fetchEbayItemDetails(ctx.accessToken, legacyId).catch(() => null);
-            if (!live || live.quantity == null) return false;
-            return shouldBlockOutboundQtyOverwrite({
-              inwQuantity: item.quantity,
-              remoteQuantity: live.quantity,
-              syncBaselineQty: link.syncBaselineQty,
-              remoteUpdatedAt: live.remoteUpdatedAt ?? null,
-              inwUpdatedAt: freshItem.updatedAt,
-              lastPushedAt: link.lastPushedAt,
-            });
+            if (!live) return false;
+            if (
+              live.quantity != null &&
+              shouldBlockOutboundQtyOverwrite({
+                inwQuantity: item.quantity,
+                remoteQuantity: live.quantity,
+                syncBaselineQty: link.syncBaselineQty,
+                remoteUpdatedAt: live.remoteUpdatedAt ?? null,
+                inwUpdatedAt: freshItem.updatedAt,
+                lastPushedAt: link.lastPushedAt,
+              })
+            ) {
+              return true;
+            }
+            return (
+              !inwSavedAfterChannelPush({
+                inwUpdatedAt: freshItem.updatedAt,
+                lastPushedAt: link.lastPushedAt,
+              }) &&
+              remoteSkuQuantitiesDivergeFromInw({
+                inwVariants: item.variants,
+                remoteVariants: live.variants,
+              })
+            );
           }
           if (provider === "shopify") {
             const fetched = await fetchShopifyListingForInbound(

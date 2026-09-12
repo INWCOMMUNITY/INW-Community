@@ -166,6 +166,19 @@ export function inwSavedAfterChannelPush(args: {
 }
 
 /**
+ * This StoreItem revision was applied from a channel inbound (GetItem / webhook).
+ * Echoing quantity back to that channel would overwrite a seller edit the inbound
+ * may have only partially applied (e.g. prices but not per-SKU qty).
+ */
+export function inwRevisionCameFromChannelInbound(args: {
+  inwUpdatedAt: Date | null;
+  lastInboundAt: Date | null;
+}): boolean {
+  if (!args.inwUpdatedAt || !args.lastInboundAt) return false;
+  return args.inwUpdatedAt.getTime() <= args.lastInboundAt.getTime();
+}
+
+/**
  * Last-write guard for outbound content pushes. If the live channel listing
  * differs (title, price, or description) and that listing was saved after the
  * hub timestamp, do not PATCH the old INW copy back.

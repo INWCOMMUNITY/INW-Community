@@ -149,6 +149,49 @@ export function remoteVariantMatrixIsWeaker(existing: unknown, incoming: unknown
   return false;
 }
 
+/**
+ * GetItem variation Quantity sometimes collapses to 1 on every row while INW still has
+ * real per-SKU stock. Overlaying that would wipe inventory; treat it as unreadable.
+ */
+export function variantQuantitiesLookDegraded(existing: unknown, incoming: unknown): boolean {
+  const inw = normalizeVariantMatrix(existing);
+  const remote = normalizeVariantMatrix(incoming);
+  if (!inw || !remote || remote.skus.length === 0) return false;
+  const remoteAllTiny = remote.skus.every((s) => s.quantity <= 1);
+  const inwHasStock = inw.skus.some((s) => s.quantity > 1);
+  return remoteAllTiny && inwHasStock;
+}
+
+/** True when live per-SKU quantities differ from INW and the remote snapshot is trustworthy. */
+export function remoteSkuQuantitiesDivergeFromInw(args: {
+  inwVariants: unknown;
+  remoteVariants: unknown;
+}): boolean {
+  if (remoteVariantMatrixIsWeaker(args.inwVariants, args.remoteVariants)) return false;
+  if (variantQuantitiesLookDegraded(args.inwVariants, args.remoteVariants)) return false;
+  const inwFp = variantsStructureQtyFingerprint(args.inwVariants);
+  const remoteFp = variantsStructureQtyFingerprint(args.remoteVariants);
+  if (!inwFp || !remoteFp) return false;
+  return inwFp !== remoteFp;
+}
+
+/**
+ * Inventory baseline hashes used to include per-SKU prices. A price-only inbound then
+ * looks like quantity drift and `updateInventory` snaps channel stock back to INW.
+ * Match either the qty-only fingerprint or the historical full fingerprint.
+ */
+export function inventoryVariantsBaselineMatches(
+  storedHash: string | null | undefined,
+  variants: unknown
+): boolean {
+  const stored = storedHash ?? "";
+  if (!stored) return false;
+  return (
+    stored === variantsStructureQtyFingerprint(variants) ||
+    stored === variantsFingerprint(variants)
+  );
+}
+
 /** Persist the combo matrix on import — never collapse to per-value totals. */
 export function variantsPayloadForImport(listing: {
   variants?: unknown;

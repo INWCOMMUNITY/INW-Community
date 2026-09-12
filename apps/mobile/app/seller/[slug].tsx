@@ -27,6 +27,7 @@ import { openAddressInMaps } from "@/lib/open-maps";
 import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { AppImage } from "@/components/AppImage";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
+import { NestedHorizontalGallery } from "@/components/NestedHorizontalGallery";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -501,29 +502,17 @@ export default function SellerStorefrontScreen() {
             <Text style={styles.sectionTitle}>Gallery</Text>
             <Text style={styles.galleryCountBadge}>{galleryUrls.length} photos</Text>
           </View>
-          <GHScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.gallery}
-            contentContainerStyle={styles.galleryContent}
-          >
-            {galleryUrls.map((uri, index) => (
-              <Pressable
-                key={`${index}-${uri}`}
-                onPress={() => {
-                  setGalleryIndex(index);
-                  setGalleryOpen(true);
-                }}
-              >
-                <AppImage
-                  uri={uri}
-                  targetWidth={200}
-                  style={styles.galleryImage}
-                  resizeMode="cover"
-                />
-              </Pressable>
-            ))}
-          </GHScrollView>
+          <NestedHorizontalGallery
+            urls={galleryUrls}
+            onPressIndex={(index) => {
+              setGalleryIndex(index);
+              setGalleryOpen(true);
+            }}
+            itemWidth={200}
+            itemHeight={150}
+            contentPadding={16}
+            itemGap={10}
+          />
         </View>
       )}
 
@@ -635,8 +624,10 @@ export default function SellerStorefrontScreen() {
         </Pressable>
       </View>
 
-      <ScrollView
+      <GHScrollView
         style={styles.scroll}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} />}
         stickyHeaderIndices={[2]}
       >
@@ -737,7 +728,7 @@ export default function SellerStorefrontScreen() {
         {activeTab === "policies" && renderPoliciesTab()}
 
         <View style={{ height: 32 }} />
-      </ScrollView>
+      </GHScrollView>
 
       {/* Gallery Viewer */}
       <ImageGalleryViewer
@@ -751,7 +742,13 @@ export default function SellerStorefrontScreen() {
       <ShareToChatModal
         visible={shareModalOpen}
         onClose={() => setShareModalOpen(false)}
-        sharedContent={{ type: "storefront", id: seller.id, slug: seller.slug }}
+        sharedContent={{
+          type: "storefront",
+          id: seller.id,
+          slug: seller.slug,
+          title: seller.name,
+          previewPhotoUrl: seller.logoUrl ?? seller.coverPhotoUrl ?? undefined,
+        }}
       />
 
       {/* Message Seller Modal */}
@@ -1145,18 +1142,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
-  },
-  gallery: {
-    marginHorizontal: -16,
-  },
-  galleryContent: {
-    paddingHorizontal: 16,
-    gap: 10,
-  },
-  galleryImage: {
-    width: 200,
-    height: 150,
-    borderRadius: 8,
   },
   description: {
     fontSize: 14,

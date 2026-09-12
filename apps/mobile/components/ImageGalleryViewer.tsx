@@ -124,44 +124,14 @@ function ZoomableImage({
       clampTranslation();
     });
 
-  const startTouchY = useSharedValue(0);
-  const startTouchX = useSharedValue(0);
-  const dismissDecided = useSharedValue(false);
-
+  // Fail quickly on horizontal so the pager keeps the swipe. manualActivation
+  // used to sit UNDETERMINED for ~16–36px, which ate the drag and snapped back.
   const dismissPanGesture = Gesture.Pan()
-    .manualActivation(true)
-    .onTouchesDown((e) => {
-      const t = e.allTouches[0];
-      if (t) {
-        startTouchX.value = t.absoluteX;
-        startTouchY.value = t.absoluteY;
-      }
-      dismissDecided.value = false;
-    })
-    .onTouchesMove((e, state) => {
-      if (savedScale.value >= ZOOM_LOCK_THRESHOLD || e.allTouches.length > 1) {
-        state.fail();
-        return;
-      }
-      if (dismissDecided.value) return;
-      const t = e.allTouches[0];
-      if (!t) return;
-      const dx = Math.abs(t.absoluteX - startTouchX.value);
-      const dy = Math.abs(t.absoluteY - startTouchY.value);
-
-      // Prefer horizontal paging: only fail dismiss pan after clearer horizontal intent (Android was too sensitive at 8px).
-      if (dx > 16 && dx > dy * 0.85) {
-        dismissDecided.value = true;
-        state.fail();
-        return;
-      }
-      if (dy > 20 && dy > dx * 2.2) {
-        dismissDecided.value = true;
-        state.activate();
-        return;
-      }
-      if (dx + dy > 36) {
-        dismissDecided.value = true;
+    .maxPointers(1)
+    .activeOffsetY([-28, 28])
+    .failOffsetX([-10, 10])
+    .onTouchesMove((_e, state) => {
+      if (savedScale.value >= ZOOM_LOCK_THRESHOLD) {
         state.fail();
       }
     })
@@ -308,7 +278,7 @@ export function ImageGalleryViewer({
     }
   }, [visible, dismissY]);
 
-  /** Android: initialScrollIndex is unreliable; sync offset when opening or size changes. */
+  /** Sync pager only when opening or the photo set changes — not on every width tick. */
   useEffect(() => {
     if (!visible || images.length === 0 || winWidth <= 0) return;
     const idx = Math.min(Math.max(0, initialIndex), images.length - 1);
@@ -321,7 +291,9 @@ export function ImageGalleryViewer({
       });
     });
     return () => cancelAnimationFrame(id);
-  }, [visible, initialIndex, images.length, winWidth]);
+    // winWidth omitted: Android inset/width jitter was resetting the pager mid-swipe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, initialIndex, images.length]);
 
   if (!visible || images.length === 0 || winWidth <= 0) return null;
 
@@ -353,6 +325,8 @@ export function ImageGalleryViewer({
             pagingEnabled
             scrollEnabled={!isZoomed}
             directionalLockEnabled
+            disableIntervalMomentum
+            decelerationRate="fast"
             showsHorizontalScrollIndicator={false}
             removeClippedSubviews={false}
             initialNumToRender={Platform.OS === "android" ? 1 : 2}

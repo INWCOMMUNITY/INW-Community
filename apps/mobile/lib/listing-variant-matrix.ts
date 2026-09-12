@@ -183,15 +183,26 @@ export function inferMatrixVaryFlags(matrix: VariantMatrix): {
 }
 
 const VARIANT_PRICE_DRAFT_RE = /^\d*(\.\d{0,2})?$/;
+const VARIANT_QTY_DRAFT_RE = /^\d*$/;
+
+function stripMoneyDecorators(raw: string): string {
+  return raw.replace(/[$\s,]/g, "");
+}
 
 /** True while the seller is typing a price (`""`, `"1"`, `"1."`, `"18.5"`). */
 export function isVariantPriceDraftInput(raw: string): boolean {
-  return VARIANT_PRICE_DRAFT_RE.test(raw.trim());
+  return VARIANT_PRICE_DRAFT_RE.test(stripMoneyDecorators(raw));
+}
+
+/** Keep the typed string if it is still a price draft; otherwise reject the keystroke. */
+export function sanitizePriceDraftInput(raw: string): string | null {
+  const t = stripMoneyDecorators(raw);
+  return VARIANT_PRICE_DRAFT_RE.test(t) ? t : null;
 }
 
 /** Cents from a complete draft. Trailing `.` and empty/invalid values are incomplete. */
 export function variantPriceDraftToCents(raw: string): number | undefined {
-  const t = raw.trim().replace(/^\$/, "");
+  const t = stripMoneyDecorators(raw);
   if (!t || t === "." || t.endsWith(".")) return undefined;
   const n = Number(t);
   if (!Number.isFinite(n) || n <= 0) return undefined;
@@ -209,6 +220,37 @@ export function variantPriceCentsToEditable(cents: number | null | undefined): s
   if (cents == null || cents <= 0) return "";
   const dollars = cents / 100;
   return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
+}
+
+/** `"18.00"` → `"18"` so the next digit becomes `18`, not `18.008`. */
+export function moneyInputToEditable(raw: string): string {
+  const cents = variantPriceDraftToCents(raw);
+  return cents != null ? variantPriceCentsToEditable(cents) : stripMoneyDecorators(raw);
+}
+
+/** `"18"` → `"18.00"` after the field is left. Incomplete drafts stay as typed. */
+export function moneyInputToIdle(raw: string): string {
+  const cents = variantPriceDraftToCents(raw);
+  return cents != null ? formatVariantPriceCents(cents) : stripMoneyDecorators(raw);
+}
+
+export function isVariantQtyDraftInput(raw: string): boolean {
+  return VARIANT_QTY_DRAFT_RE.test(raw.trim());
+}
+
+export function sanitizeQtyDraftInput(raw: string): string {
+  return raw.replace(/\D/g, "");
+}
+
+export function variantQtyDraftToNumber(raw: string): number {
+  const t = sanitizeQtyDraftInput(raw);
+  if (!t) return 0;
+  const n = parseInt(t, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+export function variantQtyToEditable(qty: number): string {
+  return qty > 0 ? String(qty) : "";
 }
 
 export function resolveImageAxisName(matrix: VariantMatrix): string | null {

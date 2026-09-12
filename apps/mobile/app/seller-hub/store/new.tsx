@@ -59,6 +59,9 @@ import {
 import {
   parseInventoryTracking,
   rebuildMatrixFromAxes,
+  moneyInputToEditable,
+  moneyInputToIdle,
+  sanitizePriceDraftInput,
   type InventoryTracking,
   type VariantAxisDef,
 } from "@/lib/listing-variant-matrix";
@@ -1545,9 +1548,14 @@ export default function ListItemScreen() {
         placeholder="0.00"
         placeholderTextColor={placeholderColor}
         value={priceCents}
-        onChangeText={setPriceCents}
+        onFocus={() => setPriceCents((prev) => moneyInputToEditable(prev))}
+        onChangeText={(t) => {
+          const next = sanitizePriceDraftInput(t);
+          if (next != null) setPriceCents(next);
+        }}
+        onBlur={() => setPriceCents((prev) => moneyInputToIdle(prev))}
         keyboardType="decimal-pad"
-        autoCorrect={true}
+        autoCorrect={false}
       />
 
       {!editId ? (

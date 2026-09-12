@@ -1,8 +1,7 @@
 /**
- * ShareModal - Share content via NWC Messages, to feed, to groups, or externally.
- * Tapping "Share to Feed" opens a compose view with preview + text input.
+ * Share sheet — NWC Messages, feed, groups, or external (text / email / copy / OS share).
  */
-import { useCallback, useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Modal,
   View,
@@ -16,11 +15,12 @@ import {
   Linking,
   Alert,
   Share,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useSafeAreaInsets, initialWindowMetrics } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -79,6 +79,29 @@ const TYPE_LABELS: Record<string, string> = {
   photo: "Photo",
 };
 
+function typeIcon(type: string): keyof typeof Ionicons.glyphMap {
+  switch (type) {
+    case "coupon":
+      return "pricetag";
+    case "business":
+      return "business";
+    case "storefront":
+      return "storefront";
+    case "blog":
+      return "newspaper";
+    case "store_item":
+      return "bag";
+    case "reward":
+      return "star";
+    case "event":
+      return "calendar";
+    case "photo":
+      return "image";
+    default:
+      return "share-social";
+  }
+}
+
 interface ShareToChatModalProps {
   visible: boolean;
   onClose: () => void;
@@ -95,8 +118,67 @@ interface ShareToChatModalProps {
 }
 
 const SHARE_TITLE = "Check this out";
-/** Default DM line when sharing a store listing to a friend (not the listing title). */
 const SHARE_DM_STORE_ITEM = "Check this item out!";
+const FRIENDS_PREVIEW_LIMIT = 12;
+
+const FULL_SCREEN_MODAL = {
+  transparent: true as const,
+  animationType: "slide" as const,
+  presentationStyle: "overFullScreen" as const,
+  statusBarTranslucent: true,
+  ...(Platform.OS === "android" ? { navigationBarTranslucent: true } : {}),
+};
+
+/** iOS does not resize the window for the keyboard; pad the sheet instead of lifting it. */
+function useIosKeyboardHeight() {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    const show = Keyboard.addListener("keyboardWillShow", (e) => {
+      setHeight(e.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener("keyboardWillHide", () => setHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return height;
+}
+
+function ActionRow({
+  icon,
+  label,
+  onPress,
+  disabled,
+  trailing,
+  iconColor,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  trailing?: ReactNode;
+  iconColor?: string;
+}) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.actionRow, pressed && styles.actionRowPressed, disabled && { opacity: 0.55 }]}
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+    >
+      <View style={styles.actionIconWell}>
+        <Ionicons name={icon} size={20} color={iconColor ?? theme.colors.earth} />
+      </View>
+      <Text style={styles.actionLabel} numberOfLines={1}>
+        {label}
+      </Text>
+      {trailing}
+    </Pressable>
+  );
+}
 
 export function ShareToChatModal({
   visible,
@@ -106,19 +188,28 @@ export function ShareToChatModal({
   onShareToFeedComplete,
   onSourcePostShared,
 }: ShareToChatModalProps) {
-  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const keyboardHeight = useIosKeyboardHeight();
+  const bottomSafe = Math.max(insets.bottom, initialWindowMetrics?.insets.bottom ?? 0, 8);
+  const sheetPad = {
+    paddingBottom: keyboardHeight > 0 ? keyboardHeight : bottomSafe,
+  };
   const { member } = useAuth();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [groups, setGroups] = useState<CommunityGroup[]>([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
+  const [sentIds, setSentIds] = useState<Set<string>>(() => new Set());
   const [shareToFeedLoading, setShareToFeedLoading] = useState(false);
   const [shareToFeedText, setShareToFeedText] = useState("");
   const [composing, setComposing] = useState(false);
   const [shareToGroupPicker, setShareToGroupPicker] = useState(false);
   const [shareToGroupLoading, setShareToGroupLoading] = useState<string | null>(null);
-  /** Resolved from API so title + photo always match the listing (parent props can be incomplete). */
   const [storePreview, setStorePreview] = useState<{ title: string; photo?: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [friendQuery, setFriendQuery] = useState("");
+  const [seeAllFriends, setSeeAllFriends] = useState(false);
+  const [statusToast, setStatusToast] = useState<string | null>(null);
 
   const content: ShareContent = {
     type: sharedContent.type,
@@ -152,31 +243,34 @@ export function ShareToChatModal({
     };
   }, [visible, sharedContent.type, sharedContent.id, sharedContent.slug]);
 
-  const typeLabel = useMemo(() => {
+  const typeNoun = TYPE_LABELS[sharedContent.type] ?? "Content";
+
+  const previewTitle = useMemo(() => {
     if (sharedContent.type === "store_item") {
       const t = (storePreview?.title ?? sharedContent.title)?.trim();
       if (t) return t;
     }
-    if (sharedContent.type === "event") {
-      const t = sharedContent.title?.trim();
-      if (t) return t;
-    }
-    return TYPE_LABELS[sharedContent.type] ?? "Content";
-  }, [sharedContent.type, sharedContent.title, storePreview?.title]);
+    const t = sharedContent.title?.trim();
+    if (t) return t;
+    return typeNoun;
+  }, [sharedContent.type, sharedContent.title, storePreview?.title, typeNoun]);
 
   const previewImageUri = useMemo(() => {
-    if (sharedContent.type === "store_item") {
-      const raw = storePreview?.photo ?? sharedContent.previewPhotoUrl;
-      return raw ? resolvePhotoUrl(raw) : undefined;
-    }
-    if (sharedContent.type === "event") {
-      return sharedContent.previewPhotoUrl ? resolvePhotoUrl(sharedContent.previewPhotoUrl) : undefined;
-    }
-    return undefined;
+    const raw =
+      sharedContent.type === "store_item"
+        ? storePreview?.photo ?? sharedContent.previewPhotoUrl
+        : sharedContent.previewPhotoUrl;
+    return raw ? resolvePhotoUrl(raw) : undefined;
   }, [sharedContent.type, sharedContent.previewPhotoUrl, storePreview?.photo]);
 
   const load = useCallback(async () => {
     if (!visible) return;
+    if (!member) {
+      setFriends([]);
+      setGroups([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const [fRes, gRes] = await Promise.all([
@@ -191,7 +285,7 @@ export function ShareToChatModal({
     } finally {
       setLoading(false);
     }
-  }, [visible]);
+  }, [visible, member]);
 
   useEffect(() => {
     load();
@@ -203,8 +297,26 @@ export function ShareToChatModal({
       setShareToFeedText("");
       setShareToGroupPicker(false);
       setStorePreview(null);
+      setCopied(false);
+      setSentIds(new Set());
+      setFriendQuery("");
+      setSeeAllFriends(false);
+      setStatusToast(null);
+      setSending(null);
     }
   }, [visible]);
+
+  useEffect(() => {
+    if (!statusToast) return;
+    const id = setTimeout(() => setStatusToast(null), 1800);
+    return () => clearTimeout(id);
+  }, [statusToast]);
+
+  useEffect(() => {
+    if (!copied) return;
+    const id = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(id);
+  }, [copied]);
 
   const notifyPostShared = useCallback(
     (recorded?: boolean, shareCount?: number) => {
@@ -227,14 +339,26 @@ export function ShareToChatModal({
     [sharedContent.type, sharedContent.id, notifyPostShared]
   );
 
-  const sendToFriend = async (addresseeId: string) => {
-    const key = `friend-${addresseeId}`;
+  const filteredFriends = useMemo(() => {
+    const q = friendQuery.trim().toLowerCase();
+    if (!q) return friends;
+    return friends.filter((f) => `${f.firstName} ${f.lastName}`.toLowerCase().includes(q));
+  }, [friends, friendQuery]);
+
+  const visibleFriends = useMemo(() => {
+    if (friendQuery.trim() || seeAllFriends) return filteredFriends;
+    return filteredFriends.slice(0, FRIENDS_PREVIEW_LIMIT);
+  }, [filteredFriends, friendQuery, seeAllFriends]);
+
+  const sendToFriend = async (friend: Friend) => {
+    const key = `friend-${friend.id}`;
+    if (sending || sentIds.has(friend.id)) return;
     setSending(key);
     try {
       const dmShareText =
         sharedContent.type === "store_item" ? SHARE_DM_STORE_ITEM : SHARE_TITLE;
       const payload = {
-        addresseeId,
+        addresseeId: friend.id,
         content: dmShareText,
         sharedContentType: sharedContent.type,
         sharedContentId: sharedContent.id,
@@ -247,12 +371,14 @@ export function ShareToChatModal({
       if (sharedContent.type === "post") {
         notifyPostShared(conv.shareRecorded, conv.shareCount);
       }
-      onClose();
-      router.push(`/messages/${conv.id}`);
+      setSentIds((prev) => new Set(prev).add(friend.id));
+      const name = friend.firstName.trim() || "friend";
+      setStatusToast(`Sent to ${name}`);
     } catch (e) {
-      setSending(null);
       const err = e as { error?: string };
       Alert.alert("Couldn't send", err?.error ?? "Try again in a moment.");
+    } finally {
+      setSending(null);
     }
   };
 
@@ -293,15 +419,12 @@ export function ShareToChatModal({
 
   const handleCopyLink = async () => {
     try {
-      await Share.share({
-        message: url,
-        url,
-        title: SHARE_TITLE,
-      });
+      await Clipboard.setStringAsync(url);
+      setCopied(true);
+      setStatusToast("Link copied");
       await trackExternalPostShare("link_copy");
-      onClose();
     } catch {
-      // dismissed
+      Alert.alert("Couldn't copy", "Try again in a moment.");
     }
   };
 
@@ -309,7 +432,6 @@ export function ShareToChatModal({
     const body = encodeURIComponent(`${SHARE_TITLE} ${url}`);
     Linking.openURL(`sms:?body=${body}`).catch(() => {});
     await trackExternalPostShare("sms");
-    onClose();
   };
 
   const handleShareViaEmail = async () => {
@@ -317,305 +439,464 @@ export function ShareToChatModal({
     const body = encodeURIComponent(`${SHARE_TITLE}\n\n${url}`);
     Linking.openURL(`mailto:?subject=${subject}&body=${body}`).catch(() => {});
     await trackExternalPostShare("email");
-    onClose();
   };
+
+  const handleMoreShare = async () => {
+    try {
+      await Share.share({
+        message: Platform.OS === "ios" ? SHARE_TITLE : `${SHARE_TITLE} ${url}`,
+        url,
+        title: SHARE_TITLE,
+      });
+      await trackExternalPostShare("external");
+    } catch {
+      // dismissed
+    }
+  };
+
+  const previewCard = (
+    <View style={styles.previewCard}>
+      {previewImageUri ? (
+        <Image source={{ uri: previewImageUri }} style={styles.previewThumb} resizeMode="cover" />
+      ) : (
+        <View style={styles.previewIconWrap}>
+          <Ionicons name={typeIcon(sharedContent.type)} size={24} color={theme.colors.earth} />
+        </View>
+      )}
+      <View style={styles.previewTextWrap}>
+        <Text style={styles.previewKicker}>{typeNoun}</Text>
+        <Text style={styles.previewTitle} numberOfLines={2}>
+          {previewTitle}
+        </Text>
+      </View>
+    </View>
+  );
 
   if (composing) {
     return (
-      <>
-      <Modal visible={visible} transparent animationType="slide" onRequestClose={() => setComposing(false)}>
-        <KeyboardAvoidingView
-          style={styles.backdrop}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
-          <Pressable style={styles.backdrop} onPress={() => setComposing(false)}>
-            <Pressable style={styles.composeSheet} onPress={(e) => e.stopPropagation()}>
-              <View style={styles.composeHeader}>
-                <Pressable onPress={() => setComposing(false)} style={({ pressed }) => [pressed && { opacity: 0.7 }]}>
-                  <Ionicons name="arrow-back" size={24} color={theme.colors.primary} />
-                </Pressable>
-                <Text style={styles.composeTitle}>Share to Feed</Text>
-                <View style={{ width: 24 }} />
-              </View>
-
-              <ScrollView
-                style={styles.composeScroll}
-                contentContainerStyle={styles.composeScrollContent}
-                keyboardShouldPersistTaps="handled"
-              >
-                <View style={styles.previewCard}>
-                  {previewImageUri ? (
-                    <Image source={{ uri: previewImageUri }} style={styles.previewThumb} resizeMode="cover" />
-                  ) : (
-                    <View style={styles.previewIconWrap}>
-                      <Ionicons
-                        name={
-                          sharedContent.type === "coupon" ? "pricetag" :
-                          sharedContent.type === "business" ? "business" :
-                          sharedContent.type === "storefront" ? "storefront" :
-                          sharedContent.type === "blog" ? "newspaper" :
-                          sharedContent.type === "store_item" ? "bag" :
-                          sharedContent.type === "reward" ? "star" :
-                          sharedContent.type === "event" ? "calendar" :
-                          "share-social"
-                        }
-                        size={28}
-                        color={theme.colors.primary}
-                      />
-                    </View>
-                  )}
-                  <View style={styles.previewTextWrap}>
-                    <Text style={styles.previewType}>Sharing a {typeLabel}</Text>
-                    <Text style={styles.previewUrl} numberOfLines={1}>{url}</Text>
-                  </View>
-                </View>
-
-                <TextInput
-                  style={styles.composeInput}
-                  placeholder="Add a comment to your post..."
-                  placeholderTextColor="#999"
-                  value={shareToFeedText}
-                  onChangeText={setShareToFeedText}
-                  multiline
-                  autoFocus
-                  autoCorrect={true}
-                />
-              </ScrollView>
-
+      <Modal visible={visible} {...FULL_SCREEN_MODAL} onRequestClose={() => setComposing(false)}>
+        <View style={styles.backdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setComposing(false)} />
+          <View style={[styles.sheet, sheetPad]}>
+            <View style={styles.handle} />
+            <View style={styles.composeHeader}>
               <Pressable
-                style={({ pressed }) => [
-                  styles.composeShareBtn,
-                  shareToFeedLoading && { opacity: 0.6 },
-                  pressed && { opacity: 0.8 },
-                ]}
-                onPress={handleShareToFeed}
-                disabled={shareToFeedLoading}
+                onPress={() => setComposing(false)}
+                hitSlop={10}
+                style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+                accessibilityLabel="Back"
               >
-                {shareToFeedLoading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.composeShareBtnText}>Share</Text>
-                )}
+                <Ionicons name="arrow-back" size={24} color={theme.colors.earth} />
               </Pressable>
+              <Text style={styles.title}>Share to Feed</Text>
+              <View style={{ width: 24 }} />
+            </View>
+            <ScrollView
+              style={styles.composeScroll}
+              contentContainerStyle={styles.composeScrollContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
+              {previewCard}
+              <TextInput
+                style={styles.composeInput}
+                placeholder="Add a comment to your post..."
+                placeholderTextColor={theme.colors.placeholder}
+                value={shareToFeedText}
+                onChangeText={setShareToFeedText}
+                multiline
+                autoCorrect
+              />
+            </ScrollView>
+            <Pressable
+              style={({ pressed }) => [
+                styles.composeShareBtn,
+                shareToFeedLoading && { opacity: 0.6 },
+                pressed && { opacity: 0.85 },
+              ]}
+              onPress={handleShareToFeed}
+              disabled={shareToFeedLoading}
+            >
+              {shareToFeedLoading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.composeShareBtnText}>Share</Text>
+              )}
             </Pressable>
-          </Pressable>
-        </KeyboardAvoidingView>
+          </View>
+        </View>
       </Modal>
-      </>
     );
   }
 
+  const listFriendsVertically = Boolean(friendQuery.trim()) || seeAllFriends;
+
   return (
-    <>
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-          <View style={styles.handle} />
-          <Text style={styles.title}>Share</Text>
+    <Modal visible={visible} {...FULL_SCREEN_MODAL} onRequestClose={onClose}>
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Dismiss share" />
+        <View style={[styles.sheet, sheetPad]}>
+            <View style={styles.handle} />
+            <Text style={styles.title}>Share</Text>
 
-          {previewImageUri ? (
-            <View style={styles.sheetPreviewRow}>
-              <Image source={{ uri: previewImageUri }} style={styles.sheetPreviewThumb} resizeMode="cover" />
-              <Text style={styles.sheetPreviewTitle} numberOfLines={2}>
-                {typeLabel}
-              </Text>
-            </View>
-          ) : null}
-
-          {loading ? (
-            <View style={styles.loading}>
-              <ActivityIndicator size="large" color={theme.colors.primary} />
-            </View>
-          ) : (
-            <>
-              <View style={styles.friendRowSection}>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.friendRow}
-                >
-                  {friends.slice(0, 12).map((f) => {
-                    const key = `friend-${f.id}`;
-                    const isSending = sending === key;
-                    const photoUrl = resolvePhotoUrl(f.profilePhotoUrl ?? undefined);
-                    return (
-                      <Pressable
-                        key={f.id}
-                        style={({ pressed }) => [
-                          styles.friendAvatarWrap,
-                          pressed && styles.friendAvatarPressed,
-                        ]}
-                        onPress={() => sendToFriend(f.id)}
-                        disabled={isSending}
-                      >
-                        {photoUrl ? (
-                          <Image source={{ uri: photoUrl }} style={styles.friendAvatar} />
-                        ) : (
-                          <View style={[styles.friendAvatar, styles.friendAvatarPlaceholder]}>
-                            <Ionicons name="person" size={24} color={theme.colors.placeholder} />
-                          </View>
-                        )}
-                        {isSending ? (
-                          <View style={styles.friendAvatarOverlay}>
-                            <ActivityIndicator size="small" color="#fff" />
-                          </View>
-                        ) : null}
-                        <Text style={styles.friendName} numberOfLines={1}>
-                          {`${f.firstName} ${f.lastName}`.trim() || "Friend"}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-                {friends.length === 0 && (
-                  <Text style={styles.emptyHint}>Add friends to share via NWC Messages</Text>
-                )}
+            {statusToast ? (
+              <View style={styles.statusToast} accessibilityLiveRegion="polite">
+                <Ionicons name="checkmark-circle" size={18} color={theme.colors.gold} />
+                <Text style={styles.statusToastText}>{statusToast}</Text>
               </View>
+            ) : null}
 
-              <View style={styles.greenSection}>
-                <Pressable
-                  style={({ pressed }) => [styles.greenBtn, pressed && styles.greenBtnPressed]}
-                  onPress={() => setComposing(true)}
-                >
-                  <Text style={styles.greenBtnText}>Share to Feed</Text>
-                </Pressable>
-                {canShareToGroup ? (
-                  shareToGroupPicker ? (
-                    <View style={styles.groupPicker}>
-                      <Pressable
-                        style={({ pressed }) => [styles.backToGroups, pressed && { opacity: 0.8 }]}
-                        onPress={() => setShareToGroupPicker(false)}
-                      >
-                        <Ionicons name="arrow-back" size={20} color="#fff" />
-                        <Text style={styles.backToGroupsText}>Back</Text>
-                      </Pressable>
-                      <ScrollView style={styles.groupList} nestedScrollEnabled>
-                        {groups.map((g) => {
-                          const key = `group-${g.id}`;
-                          const isLoading = shareToGroupLoading === key;
-                          return (
-                            <Pressable
-                              key={g.id}
-                              style={({ pressed }) => [
-                                styles.groupItem,
-                                pressed && styles.groupItemPressed,
-                                isLoading && styles.groupItemDisabled,
-                              ]}
-                              onPress={() => handleShareToGroup(g.id)}
-                              disabled={isLoading}
-                            >
-                              {isLoading ? (
-                                <ActivityIndicator size="small" color="#fff" />
-                              ) : (
-                                <Text style={styles.groupItemText}>{g.name}</Text>
-                              )}
-                            </Pressable>
-                          );
-                        })}
-                        {groups.length === 0 && (
-                          <Text style={styles.emptyHint}>You're not in any groups yet</Text>
-                        )}
-                      </ScrollView>
-                    </View>
-                  ) : (
-                    <Pressable
-                      style={({ pressed }) => [styles.greenBtn, pressed && styles.greenBtnPressed]}
-                      onPress={() => setShareToGroupPicker(true)}
-                    >
-                      <Text style={styles.greenBtnText}>Share to Group</Text>
-                    </Pressable>
-                  )
+            {loading ? (
+              <View style={styles.loading}>
+                <ActivityIndicator size="large" color={theme.colors.earth} />
+              </View>
+            ) : (
+              <ScrollView
+                style={styles.bodyScroll}
+                contentContainerStyle={styles.bodyScrollContent}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                showsVerticalScrollIndicator={false}
+              >
+                {previewCard}
+
+                <Text style={styles.sectionLabel}>Friends</Text>
+                {friends.length > 6 ? (
+                  <TextInput
+                    style={styles.friendSearch}
+                    placeholder="Search friends"
+                    placeholderTextColor={theme.colors.placeholder}
+                    value={friendQuery}
+                    onChangeText={setFriendQuery}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                    clearButtonMode="while-editing"
+                  />
                 ) : null}
-              </View>
 
-              <View style={styles.tanSection}>
-                <Pressable
-                  style={({ pressed }) => [styles.tanBtn, pressed && styles.tanBtnPressed]}
-                  onPress={handleShareViaText}
-                >
-                  <Ionicons name="chatbubble-outline" size={22} color={theme.colors.primary} />
-                  <Text style={styles.tanBtnText}>Share via Text</Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [styles.tanBtn, pressed && styles.tanBtnPressed]}
-                  onPress={handleShareViaEmail}
-                >
-                  <Ionicons name="mail-outline" size={22} color={theme.colors.primary} />
-                  <Text style={styles.tanBtnText}>Share in Email</Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [styles.tanBtn, pressed && styles.tanBtnPressed]}
-                  onPress={handleCopyLink}
-                >
-                  <Ionicons name="link-outline" size={22} color={theme.colors.primary} />
-                  <Text style={styles.tanBtnText}>Copy Link</Text>
-                </Pressable>
-              </View>
-            </>
-          )}
+                {friends.length === 0 ? (
+                  <Text style={styles.emptyHint}>
+                    {member ? "Add friends to share in Messages" : "Sign in to share with friends"}
+                  </Text>
+                ) : listFriendsVertically ? (
+                  <View style={styles.friendList}>
+                    {visibleFriends.map((f) => {
+                      const key = `friend-${f.id}`;
+                      const isSending = sending === key;
+                      const sent = sentIds.has(f.id);
+                      const photoUrl = resolvePhotoUrl(f.profilePhotoUrl ?? undefined);
+                      const name = `${f.firstName} ${f.lastName}`.trim() || "Friend";
+                      return (
+                        <Pressable
+                          key={f.id}
+                          style={({ pressed }) => [styles.friendListRow, pressed && styles.actionRowPressed]}
+                          onPress={() => sendToFriend(f)}
+                          disabled={isSending || sent}
+                        >
+                          {photoUrl ? (
+                            <Image source={{ uri: photoUrl }} style={styles.friendListAvatar} />
+                          ) : (
+                            <View style={[styles.friendListAvatar, styles.friendAvatarPlaceholder]}>
+                              <Ionicons name="person" size={18} color={theme.colors.earth} />
+                            </View>
+                          )}
+                          <Text style={styles.friendListName} numberOfLines={1}>
+                            {name}
+                          </Text>
+                          {isSending ? (
+                            <ActivityIndicator size="small" color={theme.colors.earth} />
+                          ) : sent ? (
+                            <Ionicons name="checkmark-circle" size={22} color={theme.colors.gold} />
+                          ) : (
+                            <Text style={styles.friendSendLabel}>Send</Text>
+                          )}
+                        </Pressable>
+                      );
+                    })}
+                    {visibleFriends.length === 0 ? (
+                      <Text style={styles.emptyHint}>No friends match that name</Text>
+                    ) : null}
+                  </View>
+                ) : (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.friendRow}
+                  >
+                    {visibleFriends.map((f) => {
+                      const key = `friend-${f.id}`;
+                      const isSending = sending === key;
+                      const sent = sentIds.has(f.id);
+                      const photoUrl = resolvePhotoUrl(f.profilePhotoUrl ?? undefined);
+                      return (
+                        <Pressable
+                          key={f.id}
+                          style={({ pressed }) => [styles.friendAvatarWrap, pressed && { opacity: 0.85 }]}
+                          onPress={() => sendToFriend(f)}
+                          disabled={isSending || sent}
+                          accessibilityLabel={`Send to ${f.firstName}`}
+                        >
+                          <View style={[styles.friendAvatarRing, sent && styles.friendAvatarRingSent]}>
+                            {photoUrl ? (
+                              <Image source={{ uri: photoUrl }} style={styles.friendAvatar} />
+                            ) : (
+                              <View style={[styles.friendAvatar, styles.friendAvatarPlaceholder]}>
+                                <Ionicons name="person" size={22} color={theme.colors.earth} />
+                              </View>
+                            )}
+                            {isSending ? (
+                              <View style={styles.friendAvatarOverlay}>
+                                <ActivityIndicator size="small" color="#fff" />
+                              </View>
+                            ) : sent ? (
+                              <View style={styles.friendSentBadge}>
+                                <Ionicons name="checkmark" size={12} color="#fff" />
+                              </View>
+                            ) : null}
+                          </View>
+                          <Text style={styles.friendName} numberOfLines={1}>
+                            {f.firstName.trim() || "Friend"}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                )}
 
-          <Pressable
-            style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.8 }]}
-            onPress={onClose}
-          >
-            <Text style={styles.cancelText}>Cancel</Text>
-          </Pressable>
-        </Pressable>
-      </Pressable>
+                {!friendQuery.trim() && friends.length > FRIENDS_PREVIEW_LIMIT ? (
+                  <Pressable
+                    onPress={() => setSeeAllFriends((v) => !v)}
+                    style={({ pressed }) => [styles.seeAllBtn, pressed && { opacity: 0.75 }]}
+                  >
+                    <Text style={styles.seeAllText}>{seeAllFriends ? "Show less" : "See all friends"}</Text>
+                  </Pressable>
+                ) : null}
+
+                <Text style={styles.sectionLabel}>On Northwest Community</Text>
+                <View style={styles.actionGroup}>
+                  <ActionRow
+                    icon="newspaper-outline"
+                    label="Share to Feed"
+                    onPress={() => setComposing(true)}
+                  />
+                  {canShareToGroup ? (
+                    <>
+                      <ActionRow
+                        icon="people-outline"
+                        label="Share to Group"
+                        onPress={() => setShareToGroupPicker((v) => !v)}
+                        trailing={
+                          <Ionicons
+                            name={shareToGroupPicker ? "chevron-up" : "chevron-down"}
+                            size={18}
+                            color={theme.colors.earth}
+                          />
+                        }
+                      />
+                      {shareToGroupPicker ? (
+                        <View style={styles.groupPicker}>
+                          {groups.map((g) => {
+                            const isLoading = shareToGroupLoading === g.id;
+                            return (
+                              <Pressable
+                                key={g.id}
+                                style={({ pressed }) => [
+                                  styles.groupItem,
+                                  pressed && styles.actionRowPressed,
+                                  isLoading && { opacity: 0.7 },
+                                ]}
+                                onPress={() => handleShareToGroup(g.id)}
+                                disabled={isLoading}
+                              >
+                                {isLoading ? (
+                                  <ActivityIndicator size="small" color={theme.colors.earth} />
+                                ) : (
+                                  <Text style={styles.groupItemText}>{g.name}</Text>
+                                )}
+                              </Pressable>
+                            );
+                          })}
+                          {groups.length === 0 ? (
+                            <Text style={styles.emptyHint}>You’re not in any groups yet</Text>
+                          ) : null}
+                        </View>
+                      ) : null}
+                    </>
+                  ) : null}
+                </View>
+
+                <View style={styles.divider} />
+
+                <Text style={styles.sectionLabel}>Elsewhere</Text>
+                <View style={styles.actionGroup}>
+                  <ActionRow icon="chatbubble-outline" label="Share via Text" onPress={handleShareViaText} />
+                  <ActionRow icon="mail-outline" label="Share in Email" onPress={handleShareViaEmail} />
+                  <ActionRow
+                    icon={copied ? "checkmark-circle" : "link-outline"}
+                    label={copied ? "Copied" : "Copy Link"}
+                    onPress={handleCopyLink}
+                    iconColor={copied ? theme.colors.gold : undefined}
+                  />
+                  <ActionRow icon="ellipsis-horizontal" label="More…" onPress={handleMoreShare} />
+                </View>
+              </ScrollView>
+            )}
+
+            <Pressable
+              style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.7 }]}
+              onPress={onClose}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </Pressable>
+        </View>
+      </View>
     </Modal>
-    </>
   );
 }
 
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(93,79,64,0.45)",
     justifyContent: "flex-end",
   },
   sheet: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    maxHeight: "85%",
-    paddingBottom: 24,
+    width: "100%",
+    backgroundColor: theme.colors.pageBackground,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: "92%",
   },
   handle: {
     width: 40,
     height: 4,
-    backgroundColor: "#ccc",
+    backgroundColor: theme.colors.gold,
     borderRadius: 2,
     alignSelf: "center",
-    marginTop: 12,
-    marginBottom: 8,
+    marginTop: 10,
+    marginBottom: 6,
   },
   title: {
     fontSize: 18,
     fontWeight: "700",
-    color: theme.colors.heading,
+    color: theme.colors.earth,
     textAlign: "center",
-    marginBottom: 16,
+    marginBottom: 8,
+  },
+  composeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    marginBottom: 4,
+  },
+  statusToast: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: theme.colors.cream,
+    borderRadius: 10,
+  },
+  statusToastText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.earth,
   },
   loading: {
-    padding: 32,
+    padding: 40,
     alignItems: "center",
     justifyContent: "center",
   },
-  friendRowSection: {
+  bodyScroll: {
+    maxHeight: 520,
+  },
+  bodyScrollContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  previewCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
     marginBottom: 16,
-    paddingHorizontal: 4,
+  },
+  previewIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    backgroundColor: theme.colors.cream,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  previewThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    backgroundColor: theme.colors.cream,
+  },
+  previewTextWrap: {
+    flex: 1,
+  },
+  previewKicker: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.colors.gold,
+    marginBottom: 2,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  previewTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: theme.colors.heading,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.colors.earth,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  friendSearch: {
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === "ios" ? 10 : 8,
+    fontSize: 15,
+    color: theme.colors.text,
+    marginBottom: 10,
   },
   friendRow: {
     flexDirection: "row",
-    gap: 12,
-    paddingHorizontal: 16,
+    gap: 14,
+    paddingBottom: 4,
   },
   friendAvatarWrap: {
     alignItems: "center",
-    width: 64,
+    width: 68,
   },
-  friendAvatarPressed: {
-    opacity: 0.8,
+  friendAvatarRing: {
+    borderWidth: 2,
+    borderColor: theme.colors.earth,
+    borderRadius: 28,
+    padding: 2,
+  },
+  friendAvatarRingSent: {
+    borderColor: theme.colors.gold,
   },
   friendAvatar: {
     width: 52,
@@ -628,212 +909,154 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   friendAvatarOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    ...StyleSheet.absoluteFillObject,
     borderRadius: 26,
-    backgroundColor: "rgba(0,0,0,0.4)",
+    backgroundColor: "rgba(93,79,64,0.45)",
     alignItems: "center",
     justifyContent: "center",
   },
+  friendSentBadge: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: theme.colors.gold,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: theme.colors.pageBackground,
+  },
   friendName: {
     fontSize: 12,
-    color: theme.colors.text,
-    marginTop: 4,
-    maxWidth: 64,
+    color: theme.colors.earth,
+    marginTop: 6,
+    maxWidth: 68,
     textAlign: "center",
+    fontWeight: "500",
+  },
+  friendList: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    overflow: "hidden",
+    marginBottom: 4,
+  },
+  friendListRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.colors.borderMuted,
+  },
+  friendListAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  friendListName: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "500",
+    color: theme.colors.heading,
+  },
+  friendSendLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.earth,
+  },
+  seeAllBtn: {
+    alignSelf: "flex-start",
+    paddingVertical: 8,
+    marginBottom: 4,
+  },
+  seeAllText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: theme.colors.earth,
   },
   emptyHint: {
     fontSize: 14,
     color: theme.colors.placeholder,
-    paddingHorizontal: 16,
     paddingVertical: 8,
-  },
-  greenSection: {
-    backgroundColor: theme.colors.secondary,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    marginBottom: 0,
-    gap: 12,
-  },
-  greenBtn: {
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 48,
-  },
-  greenBtnPressed: {
-    opacity: 0.9,
-  },
-  greenBtnDisabled: {
-    opacity: 0.7,
-  },
-  greenBtnText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#fff",
-  },
-  groupPicker: {
-    marginTop: 0,
-  },
-  backToGroups: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
     marginBottom: 8,
   },
-  backToGroupsText: {
-    fontSize: 16,
-    color: "#fff",
-    fontWeight: "500",
+  actionGroup: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    overflow: "hidden",
+    marginBottom: 12,
   },
-  groupList: {
-    maxHeight: 160,
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    minHeight: 52,
+  },
+  actionRowPressed: {
+    backgroundColor: theme.colors.creamAlt,
+  },
+  actionIconWell: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: theme.colors.cream,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionLabel: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "600",
+    color: theme.colors.heading,
+  },
+  groupPicker: {
+    paddingHorizontal: 8,
+    paddingBottom: 8,
   },
   groupItem: {
     paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 12,
     borderRadius: 8,
-    marginBottom: 8,
-  },
-  groupItemPressed: {
-    opacity: 0.9,
-  },
-  groupItemDisabled: {
-    opacity: 0.7,
+    backgroundColor: theme.colors.creamAlt,
+    marginBottom: 6,
   },
   groupItemText: {
-    fontSize: 16,
-    color: "#fff",
-  },
-  tanSection: {
-    backgroundColor: theme.colors.cream,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    marginHorizontal: 0,
-    gap: 8,
-  },
-  tanBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-  },
-  tanBtnPressed: {
-    backgroundColor: "rgba(0,0,0,0.05)",
-  },
-  tanBtnText: {
-    fontSize: 16,
-    color: theme.colors.text,
+    fontSize: 15,
+    color: theme.colors.heading,
     fontWeight: "500",
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: theme.colors.border,
+    marginBottom: 12,
   },
   cancelBtn: {
     marginHorizontal: 16,
-    marginTop: 16,
-    paddingVertical: 14,
+    marginTop: 4,
+    paddingVertical: 12,
     alignItems: "center",
-    borderRadius: 8,
-    backgroundColor: theme.colors.creamAlt,
   },
   cancelText: {
     fontSize: 16,
     fontWeight: "600",
-    color: theme.colors.text,
-  },
-  composeSheet: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    maxHeight: "90%",
-    paddingBottom: 24,
-  },
-  composeHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  composeTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: theme.colors.heading,
+    color: theme.colors.earth,
   },
   composeScroll: {
     maxHeight: 400,
   },
   composeScrollContent: {
-    padding: 16,
-  },
-  previewCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    backgroundColor: "#f5f5f5",
-    borderRadius: 10,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    marginBottom: 16,
-  },
-  previewIconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 10,
-    backgroundColor: `${theme.colors.primary}15`,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  previewThumb: {
-    width: 48,
-    height: 48,
-    borderRadius: 10,
-    backgroundColor: "#e8e8e8",
-  },
-  sheetPreviewRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
     paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-  sheetPreviewThumb: {
-    width: 56,
-    height: 56,
-    borderRadius: 10,
-    backgroundColor: "#e8e8e8",
-  },
-  sheetPreviewTitle: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: "600",
-    color: theme.colors.heading,
-  },
-  previewTextWrap: {
-    flex: 1,
-  },
-  previewType: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: theme.colors.heading,
-    marginBottom: 2,
-  },
-  previewUrl: {
-    fontSize: 12,
-    color: "#888",
+    paddingTop: 4,
   },
   composeInput: {
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
+    borderWidth: 1.5,
+    borderColor: theme.colors.earth,
+    backgroundColor: "#fff",
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -843,10 +1066,11 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
   composeShareBtn: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.earth,
     marginHorizontal: 16,
+    marginTop: 12,
     paddingVertical: 14,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: "center",
   },
   composeShareBtnText: {

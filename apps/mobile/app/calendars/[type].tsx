@@ -812,7 +812,12 @@ export default function CalendarDetailScreen() {
               onPress={() => openPostEventModal(selectedDateKey)}
             >
               <Ionicons name="add-circle" size={20} color="#fff" />
-              <Text style={styles.postEventButtonText}>
+              <Text
+                style={[styles.postEventButtonText, styles.postEventOnDayButtonText]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
+              >
                 Post event on{" "}
                 {parseDateKeyToLocalDate(selectedDateKey).toLocaleDateString("en-US", {
                   weekday: "long",
@@ -1046,13 +1051,16 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
   },
   postEventOnDayButton: {
-    flexWrap: "wrap",
-    paddingHorizontal: 14,
+    alignSelf: "stretch",
+    paddingHorizontal: 12,
   },
   postEventButtonText: {
     color: theme.colors.buttonText,
     fontSize: 14,
     fontWeight: "600",
+  },
+  postEventOnDayButtonText: {
+    flexShrink: 1,
   },
   showAllEventsBtn: {
     alignSelf: "center",

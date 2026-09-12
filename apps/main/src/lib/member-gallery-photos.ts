@@ -16,19 +16,22 @@ type NestedSource = {
 /**
  * Prefer the post's own photos; otherwise use the embedded share target
  * (reshared post, blog, listing, event, collection).
+ * Accepts loosely typed hydrated feed rows (`Record<string, unknown>`).
  */
-export function galleryPhotosFromHydratedPost(post: {
-  photos?: unknown;
-  sourceBlog?: { photos?: unknown } | null;
-  sourceStoreItem?: { photos?: unknown } | null;
-  sourceEvent?: { photos?: unknown } | null;
-  sourceListingCollection?: { previewPhotos?: unknown } | null;
-  sourcePost?: NestedSource | null;
-}): string[] {
-  const own = stringUrls(post.photos);
+export function galleryPhotosFromHydratedPost(post: unknown): string[] {
+  if (!post || typeof post !== "object") return [];
+  const p = post as {
+    photos?: unknown;
+    sourceBlog?: { photos?: unknown } | null;
+    sourceStoreItem?: { photos?: unknown } | null;
+    sourceEvent?: { photos?: unknown } | null;
+    sourceListingCollection?: { previewPhotos?: unknown } | null;
+    sourcePost?: NestedSource | null;
+  };
+  const own = stringUrls(p.photos);
   if (own.length) return own;
 
-  const source = post.sourcePost;
+  const source = p.sourcePost;
   if (source) {
     const nestedOwn = stringUrls(source.photos);
     if (nestedOwn.length) return nestedOwn;
@@ -42,11 +45,11 @@ export function galleryPhotosFromHydratedPost(post: {
     if (nestedCol.length) return nestedCol;
   }
 
-  const blog = stringUrls(post.sourceBlog?.photos);
+  const blog = stringUrls(p.sourceBlog?.photos);
   if (blog.length) return blog;
-  const item = stringUrls(post.sourceStoreItem?.photos);
+  const item = stringUrls(p.sourceStoreItem?.photos);
   if (item.length) return item;
-  const event = stringUrls(post.sourceEvent?.photos);
+  const event = stringUrls(p.sourceEvent?.photos);
   if (event.length) return event;
-  return stringUrls(post.sourceListingCollection?.previewPhotos);
+  return stringUrls(p.sourceListingCollection?.previewPhotos);
 }

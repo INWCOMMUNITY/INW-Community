@@ -301,7 +301,7 @@ export function CouponPopup({
           <ShareToChatModal
             visible={shareModalOpen}
             onClose={() => setShareModalOpen(false)}
-            sharedContent={{ type: "coupon", id: data.id }}
+            sharedContent={{ type: "coupon", id: data.id, title: data.name }}
           />
 
           <ScrollView

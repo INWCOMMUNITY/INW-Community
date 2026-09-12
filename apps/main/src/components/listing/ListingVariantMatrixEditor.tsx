@@ -1,21 +1,24 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   INVENTORY_TRACKING_MADE_TO_ORDER,
   INVENTORY_TRACKING_TRACKED,
   MAX_VARIANT_AXES,
-  formatVariantPriceCents,
   inferMatrixVaryFlags,
-  isVariantPriceDraftInput,
   listingGalleryPhotoChoices,
   normalizeVariantMatrix,
   optionsEqual,
   rebuildMatrixFromAxes,
   resolveImageAxisName,
+  sanitizePriceDraftInput,
+  sanitizeQtyDraftInput,
   skuSelectionKey,
   variantPriceCentsToEditable,
   variantPriceDraftToCents,
+  formatVariantPriceCents,
+  variantQtyDraftToNumber,
+  variantQtyToEditable,
   type InventoryTracking,
   type VariantAxisDef,
   type VariantSkuRow,
@@ -91,6 +94,133 @@ function ChannelNotes({ notes }: { notes?: string[] }) {
   );
 }
 
+function VariantPriceInput({
+  cents,
+  onCommitCents,
+  className,
+  placeholder,
+}: {
+  cents: number | undefined;
+  onCommitCents: (cents: number | undefined) => void;
+  className: string;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState(() => formatVariantPriceCents(cents));
+  const focusedRef = useRef(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+
+  useEffect(() => {
+    if (focusedRef.current) return;
+    setDraft(formatVariantPriceCents(cents));
+  }, [cents]);
+
+  const commit = (raw: string) => {
+    const t = sanitizePriceDraftInput(raw) ?? draftRef.current;
+    const next = t === "" ? undefined : variantPriceDraftToCents(t);
+    onCommitCents(next);
+    const idle = next != null ? formatVariantPriceCents(next) : "";
+    draftRef.current = idle;
+    setDraft(idle);
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      className={className}
+      placeholder={placeholder}
+      value={draft}
+      onFocus={() => {
+        focusedRef.current = true;
+        const next = variantPriceCentsToEditable(cents);
+        draftRef.current = next;
+        setDraft(next);
+      }}
+      onChange={(e) => {
+        const t = sanitizePriceDraftInput(e.target.value);
+        if (t == null) return;
+        draftRef.current = t;
+        setDraft(t);
+        if (t === "") {
+          onCommitCents(undefined);
+          return;
+        }
+        const next = variantPriceDraftToCents(t);
+        if (next != null) onCommitCents(next);
+      }}
+      onBlur={(e) => {
+        const raw = e.currentTarget.value;
+        focusedRef.current = false;
+        requestAnimationFrame(() => {
+          if (focusedRef.current) return;
+          commit(raw);
+        });
+      }}
+    />
+  );
+}
+
+function VariantQtyInput({
+  qty,
+  onCommitQty,
+  className,
+  placeholder,
+}: {
+  qty: number;
+  onCommitQty: (qty: number) => void;
+  className: string;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState(() => variantQtyToEditable(qty));
+  const focusedRef = useRef(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+
+  useEffect(() => {
+    if (focusedRef.current) return;
+    setDraft(variantQtyToEditable(qty));
+  }, [qty]);
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      autoComplete="off"
+      className={className}
+      placeholder={placeholder}
+      value={draft}
+      onFocus={() => {
+        focusedRef.current = true;
+        const next = variantQtyToEditable(qty);
+        draftRef.current = next;
+        setDraft(next);
+      }}
+      onChange={(e) => {
+        const t = sanitizeQtyDraftInput(e.target.value);
+        draftRef.current = t;
+        setDraft(t);
+        onCommitQty(variantQtyDraftToNumber(t));
+      }}
+      onBlur={(e) => {
+        const raw = e.currentTarget.value;
+        focusedRef.current = false;
+        requestAnimationFrame(() => {
+          if (focusedRef.current) return;
+          const t = sanitizeQtyDraftInput(raw);
+          const n = variantQtyDraftToNumber(t);
+          onCommitQty(n);
+          const idle = variantQtyToEditable(n);
+          draftRef.current = idle;
+          setDraft(idle);
+        });
+      }}
+    />
+  );
+}
+
 export function ListingVariantMatrixEditor({
   inventoryTracking,
   onInventoryTrackingChange,
@@ -114,7 +244,6 @@ export function ListingVariantMatrixEditor({
   const [draftNewValues, setDraftNewValues] = useState<Record<number, string>>({});
   const [bulkPrice, setBulkPrice] = useState("");
   const [bulkQty, setBulkQty] = useState("");
-  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (skus.some((s) => s.priceCents != null && s.priceCents > 0)) setPricesVary(true);
@@ -158,17 +287,6 @@ export function ListingVariantMatrixEditor({
     );
   };
 
-  const commitPriceDraft = (key: string, raw: string) => {
-    const cents = variantPriceDraftToCents(raw);
-    patchSku(key, { priceCents: cents });
-    setPriceDrafts((prev) => {
-      if (!(key in prev)) return prev;
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-  };
-
   const openManage = () => {
     setDraftAxes(axes.length ? axes.map((a) => ({ ...a, values: [...a.values] })) : [{ name: "Size", values: [] }]);
     setDraftNewValues({});
@@ -202,7 +320,6 @@ export function ListingVariantMatrixEditor({
   const togglePriceVary = (next: boolean) => {
     setPricesVary(next);
     if (!next) {
-      setPriceDrafts({});
       onChange(
         axes,
         skus.map((s) => ({ ...s, priceCents: undefined }))
@@ -309,11 +426,9 @@ export function ListingVariantMatrixEditor({
         ) : (
           <>
             <label className={listingLabelClass}>Quantity *</label>
-            <input
-              type="number"
-              min="0"
-              value={simpleQuantity}
-              onChange={(e) => onSimpleQuantityChange(parseInt(e.target.value, 10) || 0)}
+            <VariantQtyInput
+              qty={simpleQuantity}
+              onCommitQty={onSimpleQuantityChange}
               className={`${listingInputClass} max-w-xs`}
               placeholder="1"
             />
@@ -345,8 +460,13 @@ export function ListingVariantMatrixEditor({
                     Price
                     <input
                       type="text"
+                      inputMode="decimal"
+                      autoComplete="off"
                       value={bulkPrice}
-                      onChange={(e) => setBulkPrice(e.target.value)}
+                      onChange={(e) => {
+                        const t = sanitizePriceDraftInput(e.target.value);
+                        if (t != null) setBulkPrice(t);
+                      }}
                       className="mt-1 block w-24 border rounded px-2 py-1 text-sm"
                       placeholder="12.00"
                     />
@@ -356,10 +476,12 @@ export function ListingVariantMatrixEditor({
                   <label className="text-xs text-gray-600">
                     Qty
                     <input
-                      type="number"
-                      min="0"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autoComplete="off"
                       value={bulkQty}
-                      onChange={(e) => setBulkQty(e.target.value)}
+                      onChange={(e) => setBulkQty(sanitizeQtyDraftInput(e.target.value))}
                       className="mt-1 block w-20 border rounded px-2 py-1 text-sm"
                       placeholder="1"
                     />
@@ -412,49 +534,21 @@ export function ListingVariantMatrixEditor({
                           ))}
                           {quantitiesVary && !madeToOrder ? (
                             <td className="px-2 py-2">
-                              <input
-                                type="number"
-                                min="0"
+                              <VariantQtyInput
+                                qty={row.quantity}
+                                onCommitQty={(n) => patchSku(key, { quantity: n })}
                                 className="w-16 border rounded px-1 py-0.5"
-                                value={row.quantity === 0 ? "" : row.quantity}
-                                onChange={(e) => {
-                                  const n = parseInt(e.target.value.replace(/\D/g, ""), 10);
-                                  patchSku(key, { quantity: Number.isNaN(n) ? 0 : n });
-                                }}
+                                placeholder="0"
                               />
                             </td>
                           ) : null}
                           {pricesVary ? (
                             <td className="px-2 py-2">
-                              <input
-                                type="text"
-                                inputMode="decimal"
+                              <VariantPriceInput
+                                cents={row.priceCents}
+                                onCommitCents={(cents) => patchSku(key, { priceCents: cents })}
                                 className="w-20 border rounded px-1 py-0.5"
                                 placeholder="Default"
-                                value={
-                                  priceDrafts[key] !== undefined
-                                    ? priceDrafts[key]
-                                    : formatVariantPriceCents(row.priceCents)
-                                }
-                                onFocus={() => {
-                                  setPriceDrafts((prev) =>
-                                    prev[key] !== undefined
-                                      ? prev
-                                      : { ...prev, [key]: variantPriceCentsToEditable(row.priceCents) }
-                                  );
-                                }}
-                                onChange={(e) => {
-                                  const t = e.target.value;
-                                  if (!isVariantPriceDraftInput(t)) return;
-                                  setPriceDrafts((prev) => ({ ...prev, [key]: t }));
-                                  if (t.trim() === "") {
-                                    patchSku(key, { priceCents: undefined });
-                                    return;
-                                  }
-                                  const cents = variantPriceDraftToCents(t);
-                                  if (cents != null) patchSku(key, { priceCents: cents });
-                                }}
-                                onBlur={(e) => commitPriceDraft(key, e.currentTarget.value)}
                               />
                             </td>
                           ) : null}

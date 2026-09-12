@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   View,
@@ -9,6 +9,8 @@ import {
   ScrollView,
   Image,
   Modal,
+  type StyleProp,
+  type TextStyle,
 } from "react-native";
 import { theme as defaultTheme } from "@/lib/theme";
 import {
@@ -17,17 +19,20 @@ import {
   MAX_VARIANT_AXES,
   formatVariantPriceCents,
   inferMatrixVaryFlags,
-  isVariantPriceDraftInput,
   listingGalleryPhotoChoices,
   normalizeVariantMatrix,
   optionsEqual,
   rebuildMatrixFromAxes,
   resolveImageAxisName,
+  sanitizePriceDraftInput,
+  sanitizeQtyDraftInput,
   serializeVariantMatrix,
   skuSelectionKey,
   sumMatrixQuantities,
   variantPriceCentsToEditable,
   variantPriceDraftToCents,
+  variantQtyDraftToNumber,
+  variantQtyToEditable,
   type InventoryTracking,
   type VariantAxisDef,
   type VariantSkuRow,
@@ -123,6 +128,193 @@ function ChannelNotes({ notes }: { notes?: string[] }) {
   );
 }
 
+function VariantPriceInput({
+  cents,
+  onCommitCents,
+  style,
+  placeholder,
+  placeholderColor,
+}: {
+  cents: number | undefined;
+  onCommitCents: (cents: number | undefined) => void;
+  style: StyleProp<TextStyle>;
+  placeholder?: string;
+  placeholderColor: string;
+}) {
+  const [draft, setDraft] = useState(() => formatVariantPriceCents(cents));
+  const focusedRef = useRef(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+
+  useEffect(() => {
+    if (focusedRef.current) return;
+    setDraft(formatVariantPriceCents(cents));
+  }, [cents]);
+
+  const commit = (raw: string) => {
+    const t = sanitizePriceDraftInput(raw) ?? draftRef.current;
+    const next = t === "" ? undefined : variantPriceDraftToCents(t);
+    onCommitCents(next);
+    const idle = next != null ? formatVariantPriceCents(next) : "";
+    draftRef.current = idle;
+    setDraft(idle);
+  };
+
+  return (
+    <TextInput
+      style={style}
+      placeholder={placeholder}
+      placeholderTextColor={placeholderColor}
+      keyboardType="decimal-pad"
+      autoCorrect={false}
+      value={draft}
+      onFocus={() => {
+        focusedRef.current = true;
+        const next = variantPriceCentsToEditable(cents);
+        draftRef.current = next;
+        setDraft(next);
+      }}
+      onChangeText={(raw) => {
+        const t = sanitizePriceDraftInput(raw);
+        if (t == null) return;
+        draftRef.current = t;
+        setDraft(t);
+        if (t === "") {
+          onCommitCents(undefined);
+          return;
+        }
+        const next = variantPriceDraftToCents(t);
+        if (next != null) onCommitCents(next);
+      }}
+      onBlur={() => {
+        const raw = draftRef.current;
+        focusedRef.current = false;
+        requestAnimationFrame(() => {
+          if (focusedRef.current) return;
+          commit(raw);
+        });
+      }}
+    />
+  );
+}
+
+function VariantQtyInput({
+  qty,
+  onCommitQty,
+  style,
+  placeholder,
+  placeholderColor,
+}: {
+  qty: number;
+  onCommitQty: (qty: number) => void;
+  style: StyleProp<TextStyle>;
+  placeholder?: string;
+  placeholderColor: string;
+}) {
+  const [draft, setDraft] = useState(() => variantQtyToEditable(qty));
+  const focusedRef = useRef(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+
+  useEffect(() => {
+    if (focusedRef.current) return;
+    setDraft(variantQtyToEditable(qty));
+  }, [qty]);
+
+  return (
+    <TextInput
+      style={style}
+      placeholder={placeholder}
+      placeholderTextColor={placeholderColor}
+      keyboardType="number-pad"
+      autoCorrect={false}
+      value={draft}
+      onFocus={() => {
+        focusedRef.current = true;
+        const next = variantQtyToEditable(qty);
+        draftRef.current = next;
+        setDraft(next);
+      }}
+      onChangeText={(raw) => {
+        const t = sanitizeQtyDraftInput(raw);
+        draftRef.current = t;
+        setDraft(t);
+        onCommitQty(variantQtyDraftToNumber(t));
+      }}
+      onBlur={() => {
+        const raw = draftRef.current;
+        focusedRef.current = false;
+        requestAnimationFrame(() => {
+          if (focusedRef.current) return;
+          const n = variantQtyDraftToNumber(raw);
+          onCommitQty(n);
+          const idle = variantQtyToEditable(n);
+          draftRef.current = idle;
+          setDraft(idle);
+        });
+      }}
+    />
+  );
+}
+
+function SimpleQtyInput({
+  value,
+  onChange,
+  style,
+  placeholder,
+  placeholderColor,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  style: StyleProp<TextStyle>;
+  placeholder?: string;
+  placeholderColor: string;
+}) {
+  const [draft, setDraft] = useState(value);
+  const focusedRef = useRef(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+
+  useEffect(() => {
+    if (focusedRef.current) return;
+    setDraft(value);
+  }, [value]);
+
+  return (
+    <TextInput
+      style={style}
+      placeholder={placeholder}
+      placeholderTextColor={placeholderColor}
+      keyboardType="number-pad"
+      autoCorrect={false}
+      value={draft}
+      onFocus={() => {
+        focusedRef.current = true;
+        const next = sanitizeQtyDraftInput(value);
+        draftRef.current = next;
+        setDraft(next);
+      }}
+      onChangeText={(raw) => {
+        const t = sanitizeQtyDraftInput(raw);
+        draftRef.current = t;
+        setDraft(t);
+        onChange(t);
+      }}
+      onBlur={() => {
+        const raw = draftRef.current;
+        focusedRef.current = false;
+        requestAnimationFrame(() => {
+          if (focusedRef.current) return;
+          const t = sanitizeQtyDraftInput(raw);
+          onChange(t);
+          draftRef.current = t;
+          setDraft(t);
+        });
+      }}
+    />
+  );
+}
+
 export function ListingOptionsEditor({
   mode,
   onModeChange,
@@ -149,7 +341,6 @@ export function ListingOptionsEditor({
   const [draftNewValues, setDraftNewValues] = useState<Record<number, string>>({});
   const [bulkPrice, setBulkPrice] = useState("");
   const [bulkQty, setBulkQty] = useState("");
-  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
   const totalStock = sumEnabledSkus(skus);
 
   useEffect(() => {
@@ -188,17 +379,6 @@ export function ListingOptionsEditor({
       axes,
       skus.map((s) => (skuSelectionKey(s.options) === key ? { ...s, ...patch } : s))
     );
-  };
-
-  const commitPriceDraft = (key: string, raw: string) => {
-    const cents = variantPriceDraftToCents(raw);
-    patchSku(key, { priceCents: cents });
-    setPriceDrafts((prev) => {
-      if (!(key in prev)) return prev;
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
   };
 
   const openManage = () => {
@@ -308,13 +488,12 @@ export function ListingOptionsEditor({
         ) : (
           <>
             <Text style={styles.label}>Quantity *</Text>
-            <TextInput
+            <SimpleQtyInput
               style={styles.input}
               placeholder="1"
-              placeholderTextColor={placeholderColor}
+              placeholderColor={placeholderColor}
               value={simpleQuantity}
-              onChangeText={onSimpleQuantityChange}
-              keyboardType="number-pad"
+              onChange={onSimpleQuantityChange}
             />
           </>
         )
@@ -343,8 +522,12 @@ export function ListingOptionsEditor({
                     placeholder="Price"
                     placeholderTextColor={placeholderColor}
                     keyboardType="decimal-pad"
+                    autoCorrect={false}
                     value={bulkPrice}
-                    onChangeText={setBulkPrice}
+                    onChangeText={(t) => {
+                      const next = sanitizePriceDraftInput(t);
+                      if (next != null) setBulkPrice(next);
+                    }}
                   />
                 ) : null}
                 {quantitiesVary && !madeToOrder ? (
@@ -353,8 +536,9 @@ export function ListingOptionsEditor({
                     placeholder="Qty"
                     placeholderTextColor={placeholderColor}
                     keyboardType="number-pad"
+                    autoCorrect={false}
                     value={bulkQty}
-                    onChangeText={setBulkQty}
+                    onChangeText={(t) => setBulkQty(sanitizeQtyDraftInput(t))}
                   />
                 ) : null}
                 <Pressable
@@ -413,47 +597,21 @@ export function ListingOptionsEditor({
                           </Text>
                         ))}
                         {quantitiesVary && !madeToOrder ? (
-                          <TextInput
+                          <VariantQtyInput
                             style={styles.qtyInput}
                             placeholder="0"
-                            placeholderTextColor={placeholderColor}
-                            keyboardType="number-pad"
-                            value={row.quantity ? String(row.quantity) : ""}
-                            onChangeText={(t) => {
-                              const n = parseInt(t.replace(/\D/g, ""), 10);
-                              patchSku(key, { quantity: Number.isNaN(n) ? 0 : n });
-                            }}
+                            placeholderColor={placeholderColor}
+                            qty={row.quantity}
+                            onCommitQty={(n) => patchSku(key, { quantity: n })}
                           />
                         ) : null}
                         {pricesVary ? (
-                          <TextInput
+                          <VariantPriceInput
                             style={styles.priceInput}
                             placeholder="Price"
-                            placeholderTextColor={placeholderColor}
-                            keyboardType="decimal-pad"
-                            value={
-                              priceDrafts[key] !== undefined
-                                ? priceDrafts[key]
-                                : formatVariantPriceCents(row.priceCents)
-                            }
-                            onFocus={() => {
-                              setPriceDrafts((prev) =>
-                                prev[key] !== undefined
-                                  ? prev
-                                  : { ...prev, [key]: variantPriceCentsToEditable(row.priceCents) }
-                              );
-                            }}
-                            onChangeText={(t) => {
-                              if (!isVariantPriceDraftInput(t)) return;
-                              setPriceDrafts((prev) => ({ ...prev, [key]: t }));
-                              if (t.trim() === "") {
-                                patchSku(key, { priceCents: undefined });
-                                return;
-                              }
-                              const cents = variantPriceDraftToCents(t);
-                              if (cents != null) patchSku(key, { priceCents: cents });
-                            }}
-                            onEndEditing={(e) => commitPriceDraft(key, e.nativeEvent.text)}
+                            placeholderColor={placeholderColor}
+                            cents={row.priceCents}
+                            onCommitCents={(cents) => patchSku(key, { priceCents: cents })}
                           />
                         ) : null}
                         {skusVary ? (
@@ -642,7 +800,6 @@ export function ListingOptionsEditor({
                   const next = !pricesVary;
                   setPricesVary(next);
                   if (!next) {
-                    setPriceDrafts({});
                     onMatrixChange(
                       axes,
                       skus.map((s) => ({ ...s, priceCents: undefined }))

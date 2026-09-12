@@ -10,6 +10,9 @@ import {
   parseInventoryTracking,
   serializeVariantMatrix,
   sumMatrixQuantities,
+  moneyInputToEditable,
+  moneyInputToIdle,
+  sanitizePriceDraftInput,
   type InventoryTracking,
   type VariantAxisDef,
 } from "@/lib/listing-variant-matrix";
@@ -1522,11 +1525,16 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       <div>
         <label className={listingLabelClass}>Price (USD) *</label>
         <input
-          type="number"
-          step="0.01"
-          min="0.01"
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
           value={priceDollars}
-          onChange={(e) => setPriceDollars(e.target.value)}
+          onFocus={() => setPriceDollars((prev) => moneyInputToEditable(prev))}
+          onChange={(e) => {
+            const t = sanitizePriceDraftInput(e.target.value);
+            if (t != null) setPriceDollars(t);
+          }}
+          onBlur={() => setPriceDollars((prev) => moneyInputToIdle(prev))}
           className={`${listingInputClass} max-w-xs`}
           required
         />

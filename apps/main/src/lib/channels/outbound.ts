@@ -8,11 +8,12 @@ import {
   shouldBlockOutboundOverwrite,
   shouldBlockEbayOutboundOverwrite,
   shouldBlockOutboundQtyOverwrite,
+  inwRevisionCameFromChannelInbound,
   syncContentHash,
   syncMetaHash,
   SYNC_ECHO_SKEW_MS,
 } from "./sync-baseline";
-import { variantsFingerprint, variantPricesFingerprint } from "./variant-sync";
+import { variantsFingerprint, variantPricesFingerprint, inventoryVariantsBaselineMatches, remoteSkuQuantitiesDivergeFromInw } from "./variant-sync";
 import type {
   ChannelConnectionContext,
   ChannelProvider,
@@ -496,7 +497,7 @@ export async function updateStoreItemOnChannels(
     const varFp = variantsFingerprint(item.variants);
     const inventoryDrift =
       link.syncBaselineQty !== item.quantity ||
-      (link.syncBaselineVariantsHash ?? "") !== varFp;
+      !inventoryVariantsBaselineMatches(link.syncBaselineVariantsHash, item.variants);
     const contentUnchanged = link.lastPushedHash === hash;
     // Per-variation PRICE edits leave the listing-level price (and syncContentHash) unchanged,
     // so they would route to the quantity-only inventory path and never reach Shopify/eBay.
@@ -576,6 +577,16 @@ export async function updateStoreItemOnChannels(
       try {
         const freshItem = await loadSyncItem(storeItemId);
         if (!freshItem) continue;
+        if (
+          provider === "ebay" &&
+          inwRevisionCameFromChannelInbound({
+            inwUpdatedAt,
+            lastInboundAt: link.lastInboundAt,
+          })
+        ) {
+          results.push({ provider, ok: true, skipped: "inbound_echo" });
+          continue;
+        }
         const channelInventoryOffset = (connConfig.inventoryOffset as number) ?? 0;
         const globalSafetyBuffer = syncPrefs?.safetyBuffer ?? 0;
         const adjustedQty = Math.max(0, freshItem.quantity - globalSafetyBuffer - channelInventoryOffset);
@@ -612,6 +623,24 @@ export async function updateStoreItemOnChannels(
                   inwQty: freshItem.quantity,
                   remoteQty: live.quantity,
                   syncBaselineQty: link.syncBaselineQty,
+                });
+                return;
+              }
+              if (
+                live &&
+                !inwSavedAfterChannelPush({
+                  inwUpdatedAt: hubUpdatedAt,
+                  lastPushedAt: link.lastPushedAt,
+                }) &&
+                remoteSkuQuantitiesDivergeFromInw({
+                  inwVariants: freshItem.variants,
+                  remoteVariants: live.variants,
+                })
+              ) {
+                skippedNewerRemoteQty = true;
+                console.warn("[channels] skip eBay inventory push; live SKU qty differs from INW", {
+                  storeItemId,
+                  externalListingId: link.externalListingId,
                 });
                 return;
               }

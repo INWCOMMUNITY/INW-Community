@@ -10,9 +10,8 @@ import {
   Alert,
   RefreshControl,
   Platform,
-  FlatList,
 } from "react-native";
-import { ScrollView as GHScrollView } from "react-native-gesture-handler";
+import { FlatList } from "react-native-gesture-handler";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +21,7 @@ import { apiGet, apiPost, apiDelete, getToken } from "@/lib/api";
 import { CouponPopup } from "@/components/CouponPopup";
 import { ShareToChatModal } from "@/components/ShareToChatModal";
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
+import { NestedHorizontalGallery } from "@/components/NestedHorizontalGallery";
 import { AppImage } from "@/components/AppImage";
 import { useAuth, type Member } from "@/contexts/AuthContext";
 import { useCreatePost } from "@/contexts/CreatePostContext";
@@ -301,34 +301,14 @@ const BusinessListingHeader = memo(function BusinessListingHeader({
           {androidGalleryTruncationHint ? (
             <Text style={styles.galleryAndroidHint}>{androidGalleryTruncationHint}</Text>
           ) : null}
-          <GHScrollView
-            horizontal
-            nestedScrollEnabled
-            showsHorizontalScrollIndicator={false}
-            style={[styles.gallery, { height: 220 }]}
-            contentContainerStyle={styles.galleryListContent}
-            overScrollMode={Platform.OS === "android" ? "never" : undefined}
-            bounces={false}
-            keyboardShouldPersistTaps="handled"
-            directionalLockEnabled
-            {...(Platform.OS === "android" ? { collapsable: false } : {})}
-          >
-            {galleryUrls.map((uri, index) => (
-              <Pressable
-                key={`${index}-${uri}`}
-                unstable_pressDelay={60}
-                onPress={() => onGalleryOpenIndex(index)}
-              >
-                <AppImage
-                  uri={uri}
-                  targetWidth={280}
-                  style={styles.galleryImage}
-                  resizeMode="cover"
-                  recyclingKey={uri}
-                />
-              </Pressable>
-            ))}
-          </GHScrollView>
+          <NestedHorizontalGallery
+            urls={galleryUrls}
+            onPressIndex={onGalleryOpenIndex}
+            itemWidth={280}
+            itemHeight={220}
+            contentPadding={16}
+            itemGap={16}
+          />
           <ImageGalleryViewer
             visible={galleryOpen}
             images={galleryUrls}
@@ -355,17 +335,20 @@ const BusinessListingHeader = memo(function BusinessListingHeader({
         </View>
       )}
 
-      <View style={styles.sectionDivider} />
-      <View style={styles.feedSection}>
-        <Text style={styles.sectionTitle}>Community Posts</Text>
-        <Text style={styles.feedHint}>
-          Posts that share this business or its coupons and rewards on the community feed.
-        </Text>
-        {feedLoading && feedPostsEmpty ? (
-          <ActivityIndicator size="large" color={theme.colors.primary} style={styles.feedLoading} />
-        ) : null}
-        {!feedLoading && feedPostsEmpty ? <Text style={styles.feedEmpty}>No posts yet.</Text> : null}
-      </View>
+      {feedLoading || !feedPostsEmpty ? (
+        <>
+          <View style={styles.sectionDivider} />
+          <View style={styles.feedSection}>
+            <Text style={styles.sectionTitle}>Community Posts</Text>
+            <Text style={styles.feedHint}>
+              Posts that share this business or its coupons and rewards on the community feed.
+            </Text>
+            {feedLoading && feedPostsEmpty ? (
+              <ActivityIndicator size="large" color={theme.colors.primary} style={styles.feedLoading} />
+            ) : null}
+          </View>
+        </>
+      ) : null}
     </>
   );
 });
@@ -771,13 +754,12 @@ export default function BusinessScreen() {
   if (error || !business) {
     return (
       <View style={styles.container}>
-        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
           <Pressable onPress={goBack} style={styles.backBtn} accessibilityLabel={backLink.label}>
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </Pressable>
-          <View style={styles.headerTitleWrap}>
-            <Text style={styles.headerTitleCentered}>{error || "Business not found"}</Text>
-          </View>
+          <Text style={styles.headerTitleCentered}>{error || "Business not found"}</Text>
+          <View style={styles.headerSide} />
         </View>
       </View>
     );
@@ -787,15 +769,14 @@ export default function BusinessScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable onPress={goBack} style={styles.backBtn} accessibilityLabel={backLink.label}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
-        <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitleCentered} numberOfLines={1}>
-            {business.name}
-          </Text>
-        </View>
+        <Text style={styles.headerTitleCentered} numberOfLines={1}>
+          {business.name}
+        </Text>
+        <View style={styles.headerSide} />
       </View>
 
       <FlatList
@@ -863,7 +844,13 @@ export default function BusinessScreen() {
       <ShareToChatModal
         visible={shareModalOpen}
         onClose={() => setShareModalOpen(false)}
-        sharedContent={{ type: "business", id: business.id, slug: business.slug }}
+        sharedContent={{
+          type: "business",
+          id: business.id,
+          slug: business.slug,
+          title: business.name,
+          previewPhotoUrl: business.logoUrl ?? business.photos?.[0],
+        }}
       />
 
       {feedCommentPostId && (
@@ -906,30 +893,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 8,
-    paddingVertical: 12,
+    paddingBottom: 8,
     backgroundColor: theme.colors.primary,
-    gap: 12,
   },
   backBtn: {
-    padding: 4,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#fff",
-  },
-  headerTitleWrap: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 48,
-    bottom: 12,
-    justifyContent: "center",
+    width: 40,
+    height: 40,
     alignItems: "center",
-    paddingHorizontal: 48,
+    justifyContent: "center",
+  },
+  headerSide: {
+    width: 40,
+    height: 40,
   },
   headerTitleCentered: {
+    flex: 1,
     fontSize: 18,
     fontWeight: "600",
     color: "#fff",
@@ -1086,9 +1064,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     paddingVertical: 12,
     borderRadius: 8,
-    backgroundColor: theme.colors.primary,
-    borderWidth: 2,
-    borderColor: "#000",
+    backgroundColor: theme.colors.earth,
   },
   mapBtnText: {
     fontSize: 16,
@@ -1099,14 +1075,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: theme.colors.text,
     lineHeight: 22,
-  },
-  gallery: {
-    marginHorizontal: -16,
-    flexGrow: 0,
-  },
-  galleryListContent: {
-    paddingHorizontal: 8,
-    alignItems: "center",
   },
   gallerySectionHeader: {
     flexDirection: "row",
@@ -1128,13 +1096,6 @@ const styles = StyleSheet.create({
     color: "#666",
     marginBottom: 8,
     lineHeight: 16,
-  },
-  galleryImage: {
-    width: 280,
-    height: 220,
-    borderRadius: 8,
-    marginHorizontal: 8,
-    backgroundColor: "#f5f5f5",
   },
   couponCard: {
     padding: 16,
@@ -1187,11 +1148,6 @@ const styles = StyleSheet.create({
   },
   feedLoading: {
     paddingVertical: 24,
-  },
-  feedEmpty: {
-    fontSize: 15,
-    color: "#888",
-    paddingVertical: 16,
   },
   feedPostRow: {
     paddingHorizontal: 16,
