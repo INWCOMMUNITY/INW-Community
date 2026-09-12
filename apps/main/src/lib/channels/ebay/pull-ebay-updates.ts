@@ -13,6 +13,7 @@ import {
   type EbayTradingListing,
 } from "./trading";
 import { resolveEbayLegacyListingId } from "./mapping";
+import { resolveEbayInventorySku } from "./listing-origin";
 import {
   ebayNotificationPostcardWrites,
   ebayPostcardDiffersFromStoreItem,
@@ -61,7 +62,7 @@ import {
 } from "@/lib/listing-variant-matrix";
 import { recordVariantPriceTrace, buildIntendedVariantPriceRows } from "../sync-trace";
 import { fetchLiveInventoryItem, readLiveInventoryAvailableQuantity } from "./passthrough-push";
-import { catchUpEbayLiveVariantQuantities, type EbayLiveQtyCatchUp } from "./variant-qty-catchup";
+import { catchUpEbayLiveVariantQuantities, ebaySingleSkuQtyMatrix, type EbayLiveQtyCatchUp } from "./variant-qty-catchup";
 import { applyRemoteListingRemoved } from "../apply-remote-listing";
 import { syncInventoryToChannels } from "../sync-inventory";
 import { updateStoreItemOnChannels } from "../outbound";
@@ -998,25 +999,40 @@ export async function refreshEbayListingByItemId(
   await clearRemoteDeletedNoticeIfSet(link.id, conflictDetails);
 
   let liveQtyCatchUp: EbayLiveQtyCatchUp | null = null;
-  if (!opts?.skipQuantity && hasOptionQuantities(storeItem.variants)) {
-    const catchUpMatrix = normalizeVariantMatrix(storeItem.variants);
-    if (catchUpMatrix) {
-      try {
-        liveQtyCatchUp = await catchUpEbayLiveVariantQuantities({
-          accessToken,
-          inwMatrix: catchUpMatrix,
-          tradingMatrix: normalizeVariantMatrix(details.variants),
-          tradingListingQuantity: details.quantity,
-          inwPushedRecently: ebayInwPushedRecently(link.lastPushedAt),
-          retryIfUnchangedMs: opts?.source === "webhook" ? 2500 : 0,
-        });
-      } catch (e) {
-        console.warn("[ebay] live listing qty catch-up failed", {
-          storeItemId: storeItem.id,
-          legacyItemId,
-          error: e instanceof Error ? e.message : String(e),
-        });
+  if (!opts?.skipQuantity) {
+    try {
+      if (hasOptionQuantities(storeItem.variants)) {
+        const catchUpMatrix = normalizeVariantMatrix(storeItem.variants);
+        if (catchUpMatrix) {
+          liveQtyCatchUp = await catchUpEbayLiveVariantQuantities({
+            accessToken,
+            inwMatrix: catchUpMatrix,
+            tradingMatrix: normalizeVariantMatrix(details.variants),
+            tradingListingQuantity: details.quantity,
+            inwPushedRecently: ebayInwPushedRecently(link.lastPushedAt),
+            retryIfUnchangedMs: opts?.source === "webhook" ? 2500 : 0,
+          });
+        }
+      } else {
+        const sku = resolveEbayInventorySku(link.externalListingId);
+        if (sku) {
+          const tradingQty = details.quantity ?? storeItem.quantity;
+          liveQtyCatchUp = await catchUpEbayLiveVariantQuantities({
+            accessToken,
+            inwMatrix: ebaySingleSkuQtyMatrix(sku, storeItem.quantity),
+            tradingMatrix: ebaySingleSkuQtyMatrix(sku, tradingQty),
+            tradingListingQuantity: details.quantity,
+            inwPushedRecently: ebayInwPushedRecently(link.lastPushedAt),
+            retryIfUnchangedMs: opts?.source === "webhook" ? 2500 : 0,
+          });
+        }
       }
+    } catch (e) {
+      console.warn("[ebay] live listing qty catch-up failed", {
+        storeItemId: storeItem.id,
+        legacyItemId,
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 
@@ -1101,7 +1117,13 @@ export async function refreshEbayListingByItemId(
   const description = storeListingDescription(details.description) ?? storeItem.description;
   // Pass title for keyword-based subcategory inference
   const resolvedCat = await resolveInwCategoryFromEbayPath(details.categoryName ?? null, remoteTitle);
-  const remoteQty = details.quantity ?? storeItem.quantity;
+  const catchUpSimpleQty =
+    !hasOptionQuantities(storeItem.variants) &&
+    liveQtyCatchUp?.inwNeedsUpdate &&
+    liveQtyCatchUp.quantities[0]
+      ? liveQtyCatchUp.quantities[0].quantity
+      : null;
+  const remoteQty = catchUpSimpleQty ?? details.quantity ?? storeItem.quantity;
   const remotePrice =
     details.priceCents != null && details.priceCents > 0
       ? details.priceCents

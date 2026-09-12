@@ -111,6 +111,14 @@ export type EbayLiveQtyCatchUp = {
   inwNeedsUpdate: boolean;
 };
 
+/** One-SKU matrix so simple (non-variation) listings reuse the offer catch-up. */
+export function ebaySingleSkuQtyMatrix(sku: string, quantity: number): VariantMatrix {
+  return {
+    axes: [],
+    skus: [{ sku, options: {}, quantity: Math.max(0, Math.round(quantity)) }],
+  };
+}
+
 async function forEachInChunks<T>(
   items: T[],
   size: number,

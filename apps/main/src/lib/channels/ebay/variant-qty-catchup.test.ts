@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   chooseEbayLiveListingQuantity,
   ebayContentPushShouldWriteVariantQuantities,
+  ebaySingleSkuQtyMatrix,
 } from "./variant-qty-catchup";
 import { variantsStructureQtyFingerprint } from "../variant-sync";
 
@@ -54,6 +55,18 @@ describe("chooseEbayLiveListingQuantity", () => {
         inwQty: 4,
       })
     ).toEqual({ quantity: 9, source: "offer", writeOffers: false });
+  });
+
+  it("writes a simple-listing Seller Hub qty onto the live offer", () => {
+    // Price revises update the offer natively; quantity revises often only hit Trading.
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 5,
+        inventoryQty: 1,
+        offerQty: 1,
+        inwQty: 1,
+      })
+    ).toEqual({ quantity: 5, source: "trading", writeOffers: true });
   });
 
   it("does not write Trading over inventory+offer while our push is still echoing", () => {
@@ -190,5 +203,14 @@ describe("ebayContentPushShouldWriteVariantQuantities", () => {
         variants,
       })
     ).toBe(true);
+  });
+});
+
+describe("ebaySingleSkuQtyMatrix", () => {
+  it("builds a one-SKU matrix for simple-listing catch-up", () => {
+    expect(ebaySingleSkuQtyMatrix("inw404516850572", 5)).toEqual({
+      axes: [],
+      skus: [{ sku: "inw404516850572", options: {}, quantity: 5 }],
+    });
   });
 });
