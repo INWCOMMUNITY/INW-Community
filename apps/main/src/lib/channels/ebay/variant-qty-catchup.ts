@@ -17,9 +17,10 @@ export type ChosenEbayLiveQuantity = {
 };
 
 /**
- * Live View Item stock is offer.availableQuantity. Seller Hub's edit page writes
- * inventory_item (and/or Trading). Copy the seller-hub number onto the offer so
- * the live listing actually changes.
+ * Live View Item stock is offer.availableQuantity. Seller Hub writes
+ * inventory_item. Copy inventory onto the offer when those two disagree so
+ * the live listing matches Seller Hub. GetItem/Trading is lagged and often
+ * degraded — never write it onto inventory or the offer.
  */
 export function chooseEbayLiveListingQuantity(args: {
   tradingQty: number | null;
@@ -43,27 +44,20 @@ export function chooseEbayLiveListingQuantity(args: {
   const inw =
     args.inwQty == null || !Number.isFinite(args.inwQty) ? null : Math.max(0, Math.round(args.inwQty));
 
-  if (offer != null) {
-    if (trading != null && trading !== offer) {
-      return { quantity: trading, source: "trading", writeOffers: true };
-    }
-    if (inventory != null && inventory !== offer) {
+  if (inventory != null && offer != null) {
+    if (inventory !== offer) {
       return { quantity: inventory, source: "inventory", writeOffers: true };
     }
     return { quantity: offer, source: "offer", writeOffers: false };
   }
-  // Offer search often omits availableQuantity (or sends a string). Do not let
-  // a stale GetItem overwrite Seller Hub inventory in that case.
-  if (inventory != null && trading != null && inventory !== trading) {
+  if (offer != null) {
+    return { quantity: offer, source: "offer", writeOffers: false };
+  }
+  // Offer search often omits availableQuantity. Seed the offer from Seller Hub
+  // inventory — never from lagged GetItem.
+  if (inventory != null) {
     return { quantity: inventory, source: "inventory", writeOffers: true };
   }
-  if (inventory != null && inw != null && inventory !== inw) {
-    return { quantity: inventory, source: "inventory", writeOffers: true };
-  }
-  if (trading != null && inw != null && trading !== inw && !args.tradingLooksDegraded) {
-    return { quantity: trading, source: "trading", writeOffers: true };
-  }
-  if (inventory != null) return { quantity: inventory, source: "inventory", writeOffers: false };
   if (trading != null) return { quantity: trading, source: "trading", writeOffers: false };
   if (inw != null) return { quantity: inw, source: "inw", writeOffers: false };
   return null;
@@ -163,9 +157,8 @@ async function fetchEbayOfferQuantity(
 }
 
 /**
- * When Seller Hub qty (inventory/Trading) disagrees with the live offer, write the
- * seller-hub number onto inventory + offers so View Item updates, then return those
- * quantities for INW.
+ * When Seller Hub inventory disagrees with the live offer, write inventory onto
+ * offers so View Item updates, then return those quantities for INW.
  */
 async function catchUpEbayLiveVariantQuantitiesOnce(args: {
   accessToken: string;
@@ -213,10 +206,10 @@ async function catchUpEbayLiveVariantQuantitiesOnce(args: {
 }
 
 /**
- * When Seller Hub qty (inventory/Trading) disagrees with the live offer, write the
- * seller-hub number onto inventory + offers so View Item updates, then return those
- * quantities for INW. ItemRevised often arrives before Inventory/offer catch up —
- * webhook callers pass retryIfUnchangedMs so we re-read once.
+ * When Seller Hub inventory disagrees with the live offer, write inventory onto
+ * offers so View Item updates, then return those quantities for INW. ItemRevised
+ * often arrives before Inventory/offer catch up — webhook callers pass
+ * retryIfUnchangedMs so we re-read once.
  */
 export async function catchUpEbayLiveVariantQuantities(args: {
   accessToken: string;

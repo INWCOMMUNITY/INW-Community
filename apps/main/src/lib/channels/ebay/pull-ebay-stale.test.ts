@@ -20,7 +20,14 @@ import {
   EBAY_POST_INBOUND_SETTLE_MS,
   shouldHoldEbayVariantInbound,
   shouldOverlayEbayGetItemSkuQuantities,
+  ebayInboundShouldApplyVariantPrices,
+  composeEbayInboundVariantMatrix,
 } from "./pull-ebay-updates";
+import {
+  applyLiveInventoryQuantitiesToMatrix,
+  applyRemoteVariantPricesToMatrix,
+} from "@/lib/listing-variant-matrix";
+import { variantPricesFingerprint, variantsStructureQtyFingerprint } from "../variant-sync";
 
 describe("isEbayInboundContentChange", () => {
   it("treats ebayCategoryId-only writes as metadata, not inbound content", () => {
@@ -844,6 +851,101 @@ describe("shouldOverlayEbayGetItemSkuQuantities", () => {
         remoteMatrix: remoteDegraded,
       })
     ).toBe(false);
+  });
+
+  it("does not overlay GetItem SKU qty when inventory/offer catch-up already returned rows", () => {
+    expect(
+      shouldOverlayEbayGetItemSkuQuantities({
+        source: "webhook",
+        inwMatrix: inw,
+        remoteMatrix: remoteQty,
+        catchUpReturnedRows: true,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("ebayInboundShouldApplyVariantPrices", () => {
+  it("does not apply leftover StartPrices when INW still matches the last push", () => {
+    expect(
+      ebayInboundShouldApplyVariantPrices({
+        inwVariantPricesHash: "inw-sku-prices",
+        remoteVariantPricesHash: "ebay-dollar-one",
+        lastPushedVariantPricesHash: "inw-sku-prices",
+      })
+    ).toBe(false);
+  });
+
+  it("applies a seller SKU reprice when LastModified is newer than the last push", () => {
+    expect(
+      ebayInboundShouldApplyVariantPrices({
+        inwVariantPricesHash: "inw-sku-prices",
+        remoteVariantPricesHash: "ebay-sku-prices",
+        lastPushedVariantPricesHash: "inw-sku-prices",
+        lastPushedAt: new Date("2026-08-20T07:00:00.000Z"),
+        ebayLastModified: new Date("2026-08-20T07:20:00.000Z"),
+      })
+    ).toBe(true);
+  });
+
+  it("applies prices when INW no longer matches the last pushed hash", () => {
+    expect(
+      ebayInboundShouldApplyVariantPrices({
+        inwVariantPricesHash: "inw-edited",
+        remoteVariantPricesHash: "ebay-sku-prices",
+        lastPushedVariantPricesHash: "old-push",
+      })
+    ).toBe(true);
+  });
+});
+
+describe("composeEbayInboundVariantMatrix", () => {
+  const inw = {
+    axes: [{ name: "Size", values: ["S", "M"] }],
+    skus: [
+      { options: { Size: "S" }, quantity: 4, priceCents: 1000, sku: "SKU-S" },
+      { options: { Size: "M" }, quantity: 3, priceCents: 1200, sku: "SKU-M" },
+    ],
+  };
+  const qtyOnly = applyLiveInventoryQuantitiesToMatrix(inw, [
+    { sku: "SKU-S", options: { Size: "S" }, quantity: 9 },
+    { sku: "SKU-M", options: { Size: "M" }, quantity: 3 },
+  ]);
+  const priceOnly = applyRemoteVariantPricesToMatrix(inw, [
+    { sku: "SKU-S", options: { Size: "S" }, priceCents: 2000 },
+    { sku: "SKU-M", options: { Size: "M" }, priceCents: 1200 },
+  ]);
+
+  it("applies catch-up qty without importing leftover StartPrices", () => {
+    const next = composeEbayInboundVariantMatrix({
+      inwMatrix: inw,
+      qtyMatrix: qtyOnly,
+      applyQty: true,
+      priceMatrix: priceOnly,
+      applyPrice: false,
+    });
+    expect(next.skus.find((s) => s.sku === "SKU-S")).toMatchObject({
+      quantity: 9,
+      priceCents: 1000,
+    });
+    expect(variantsStructureQtyFingerprint(inw)).not.toBe(variantsStructureQtyFingerprint(next));
+    expect(variantPricesFingerprint(inw)).toBe(variantPricesFingerprint(next));
+  });
+
+  it("applies a seller SKU reprice without rewriting quantities", () => {
+    const next = composeEbayInboundVariantMatrix({
+      inwMatrix: inw,
+      qtyMatrix: qtyOnly,
+      applyQty: false,
+      priceMatrix: priceOnly,
+      applyPrice: true,
+    });
+    expect(next.skus.find((s) => s.sku === "SKU-S")).toMatchObject({
+      quantity: 4,
+      priceCents: 2000,
+    });
+    expect(variantsStructureQtyFingerprint(inw)).toBe(variantsStructureQtyFingerprint(next));
+    expect(variantPricesFingerprint(inw)).not.toBe(variantPricesFingerprint(next));
   });
 });
 
