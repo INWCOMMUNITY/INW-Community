@@ -48,6 +48,7 @@ import { fetchShopifyListingForInbound } from "./shopify/adapter";
 import { resolveEbayLegacyListingId } from "./ebay/mapping";
 import {
   readEbayLastSyncedTitle,
+  readEbayPendingVariantInboundHash,
   readLastPushedVariantPricesHash,
   withLastPushedVariantPricesHash,
   readEtsyLastSyncedContent,
@@ -484,6 +485,11 @@ export async function updateStoreItemOnChannels(
     }
     if (shouldSkipEndedEbayOutbound(provider, link.conflictDetails)) {
       results.push({ provider, ok: true });
+      continue;
+    }
+    if (provider === "ebay" && readEbayPendingVariantInboundHash(link.conflictDetails)) {
+      console.info("[channels] skip eBay outbound; pending variant inbound", { storeItemId });
+      results.push({ provider, ok: true, skipped: "pending_inbound" });
       continue;
     }
 

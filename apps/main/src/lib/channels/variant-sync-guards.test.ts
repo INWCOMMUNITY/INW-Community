@@ -6,11 +6,9 @@ import {
   withEtsyLastSyncedContent,
   readLastInventoryPushAt,
   withLastInventoryPushAt,
-} from "./listing-conflict-json";
-import {
   readEbayPendingVariantInboundHash,
-  withEbayPendingVariantInbound,
-} from "./ebay/pull-ebay-updates";
+} from "./listing-conflict-json";
+import { withEbayPendingVariantInbound } from "./ebay/pull-ebay-updates";
 
 describe("lastPushedVariantPricesHash conflictDetails helpers", () => {
   it("round-trips a hash and preserves other keys", () => {

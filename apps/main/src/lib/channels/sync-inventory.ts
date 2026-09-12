@@ -24,7 +24,7 @@ import { fetchEbayItemDetails } from "./ebay/trading";
 import { resolveEbayLegacyListingId } from "./ebay/mapping";
 import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
 import { fetchShopifyListingForInbound } from "./shopify/adapter";
-import { withLastInventoryPushAt } from "./listing-conflict-json";
+import { withLastInventoryPushAt, readEbayPendingVariantInboundHash } from "./listing-conflict-json";
 import { variantsFingerprint } from "./variant-sync";
 
 /**
@@ -80,6 +80,10 @@ export async function syncInventoryToChannels(
     }
     if (shouldSkipEndedEbayOutbound(provider, link.conflictDetails)) {
       results.push({ provider, ok: true });
+      continue;
+    }
+    if (provider === "ebay" && readEbayPendingVariantInboundHash(link.conflictDetails)) {
+      results.push({ provider, ok: true, skipped: "pending_inbound" });
       continue;
     }
 

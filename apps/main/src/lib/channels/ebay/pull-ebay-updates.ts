@@ -30,6 +30,7 @@ import { selectInboundListingPhotos } from "../photo-urls";
 import { storeListingDescription } from "../import-listing";
 import {
   readEbayLastSyncedTitle,
+  readEbayPendingVariantInboundHash,
   readLastPushedVariantPricesHash,
   withEbayLastSyncedTitle,
 } from "../listing-conflict-json";
@@ -42,12 +43,14 @@ import {
   matrixHasKnownSkuPrices,
   minSkuPriceCents,
   normalizeVariantMatrix,
+  optionValuesKey,
   serializeVariantMatrix,
   sumMatrixQuantities,
   type LiveVariantQuantity,
   type RemoteVariantPrice,
   type VariantMatrix,
 } from "@/lib/listing-variant-matrix";
+import { recordVariantPriceTrace, buildIntendedVariantPriceRows } from "../sync-trace";
 import { fetchLiveInventoryItem, readLiveInventoryAvailableQuantity } from "./passthrough-push";
 import { applyRemoteListingRemoved } from "../apply-remote-listing";
 import { syncInventoryToChannels } from "../sync-inventory";
@@ -370,18 +373,12 @@ export function withEbayPendingInbound(
 
 /**
  * Per-variation two-look/settle guard. GetItem StartPrice + Inventory API per-SKU stock can lag
- * right after INW pushed a variation edit, so a single divergent snapshot must not immediately
- * revert a just-applied per-SKU qty/price. We record the proposed variation snapshot and only
- * apply it once a second consistent look confirms it (or the settle window has elapsed).
+ * right after INW pushed a variation edit, so a rotate snapshot must not immediately revert a
+ * just-applied per-SKU qty/price. Dirty seller-list / webhook rows already have a second signal
+ * (title/price/qty moved on GetMyeBaySelling, or a platform ping) — holding those dropped
+ * eBay SKU-price edits after the listing title had already been applied.
  */
-export function readEbayPendingVariantInboundHash(conflictDetails: unknown): string | null {
-  if (!conflictDetails || typeof conflictDetails !== "object" || Array.isArray(conflictDetails)) {
-    return null;
-  }
-  const pending = (conflictDetails as { ebayPendingVariantInbound?: { hash?: unknown } })
-    .ebayPendingVariantInbound;
-  return typeof pending?.hash === "string" && pending.hash ? pending.hash : null;
-}
+export { readEbayPendingVariantInboundHash };
 
 export function withEbayPendingVariantInbound(
   conflictDetails: unknown,
@@ -397,6 +394,20 @@ export function withEbayPendingVariantInbound(
     delete base.ebayPendingVariantInbound;
   }
   return base as Prisma.InputJsonValue;
+}
+
+/** Hold a variant overlay only on the untrusted rotate path, and only until a matching second look. */
+export function shouldHoldEbayVariantInbound(args: {
+  matrixChanged: boolean;
+  inSettleWindow: boolean;
+  source?: EbayGetItemApplySource;
+  pendingVariantHash: string | null;
+  variantSnapshotHash: string | null;
+}): boolean {
+  if (!args.matrixChanged || !args.inSettleWindow) return false;
+  if (ebayApplyTrustsSingleSnapshot(args.source)) return false;
+  if (args.variantSnapshotHash == null) return false;
+  return args.pendingVariantHash !== args.variantSnapshotHash;
 }
 
 /**
@@ -510,6 +521,8 @@ export function ebayGetItemApplyDecision(args: {
   inwVariantPricesHash?: string | null;
   remoteVariantPricesHash?: string | null;
   lastPushedVariantPricesHash?: string | null;
+  /** Held per-SKU snapshot from a prior GetItem; listing title/qty may already match INW. */
+  pendingVariantInboundHash?: string | null;
 }): EbayGetItemApplyDecision {
   const inboundAt = args.lastInboundAt?.getTime() ?? null;
   const pushedAt = args.lastPushedAt?.getTime() ?? null;
@@ -556,6 +569,19 @@ export function ebayGetItemApplyDecision(args: {
   // variation, so a hub SKU edit looks like "eBay differs" while eBay is still older.
   const inwLooksNewer =
     preserveInwContent && qtyPriceMatch && !independentRevise && !descriptionDiffers;
+
+  // Title can already match INW (applied on the first look) while per-SKU prices are still
+  // held. Without this, matches-inw aborts before the variant overlay and the $20 never lands.
+  if (args.pendingVariantInboundHash) {
+    if (ebayGetItemIsPushEcho(args)) {
+      return { action: "skip", reason: "echo-of-push" };
+    }
+    return {
+      action: "apply",
+      reason: "pending-variant-confirm",
+      pendingHash: remoteHash,
+    };
+  }
 
   // Verified ping or dirty seller-list row: apply a real field diff unless this is our push echo.
   if (ebayApplyTrustsSingleSnapshot(args.source)) {
@@ -766,6 +792,7 @@ export async function refreshEbayListingByItemId(
       ? variantPricesFingerprint(details.variants)
       : null,
     lastPushedVariantPricesHash: readLastPushedVariantPricesHash(link.conflictDetails),
+    pendingVariantInboundHash: readEbayPendingVariantInboundHash(link.conflictDetails),
   });
   const preserveInwContent =
     !independentRevise &&
@@ -1058,20 +1085,34 @@ export async function refreshEbayListingByItemId(
     let workingMatrix: VariantMatrix | null = inwMatrix;
     let qtyPulled = false;
     if (qtyDiverged && inwMatrix) {
-      const inventoryMatrix = await pullEbayVariantQuantitiesFromInventory(
-        accessToken,
-        storeItem.variants
-      );
-      if (inventoryMatrix) {
-        workingMatrix = inventoryMatrix;
+      if (ebayApplyTrustsSingleSnapshot(opts?.source) && remoteVariantMatrix) {
+        // Seller Hub qty lives on Trading/GetItem. The Inventory API still holds the last
+        // INW push, so reading it here ignores the seller edit and later outbound snaps eBay.
+        workingMatrix = applyLiveInventoryQuantitiesToMatrix(
+          inwMatrix,
+          remoteVariantMatrix.skus.map((s) => ({
+            sku: s.sku ?? null,
+            options: s.options,
+            quantity: s.quantity,
+          }))
+        );
         qtyPulled = true;
       } else {
-        console.warn("[ebay] skip GetItem listing qty; no readable inventory variant stock", {
-          storeItemId: storeItem.id,
-          legacyItemId,
-          remoteQty,
-          inwQuantity: storeItem.quantity,
-        });
+        const inventoryMatrix = await pullEbayVariantQuantitiesFromInventory(
+          accessToken,
+          storeItem.variants
+        );
+        if (inventoryMatrix) {
+          workingMatrix = inventoryMatrix;
+          qtyPulled = true;
+        } else {
+          console.warn("[ebay] skip GetItem listing qty; no readable inventory variant stock", {
+            storeItemId: storeItem.id,
+            legacyItemId,
+            remoteQty,
+            inwQuantity: storeItem.quantity,
+          });
+        }
       }
     }
 
@@ -1121,11 +1162,33 @@ export async function refreshEbayListingByItemId(
         .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
     const inVariantSettle = ebayInPostInboundSettleWindow({ lastInboundAt: lastInwTouch });
     const pendingVariantHash = readEbayPendingVariantInboundHash(conflictDetails);
-    const holdVariantForSettle =
-      matrixChanged &&
-      inVariantSettle &&
-      variantSnapshotHash != null &&
-      pendingVariantHash !== variantSnapshotHash;
+    const holdVariantForSettle = shouldHoldEbayVariantInbound({
+      matrixChanged,
+      inSettleWindow: inVariantSettle,
+      source: opts?.source,
+      pendingVariantHash,
+      variantSnapshotHash,
+    });
+
+    const inwSkus = inwMatrix?.skus ?? [];
+    const remotePriceByKey = new Map(
+      remotePrices.map((r) => [optionValuesKey(r.options ?? {}) || (r.sku ?? ""), r.priceCents])
+    );
+    recordVariantPriceTrace({
+      memberId: storeItem.memberId,
+      provider: "ebay",
+      storeItemId: storeItem.id,
+      direction: "reconcile",
+      decision: unsoldZero
+        ? "var:skip-unsold-zero"
+        : holdVariantForSettle
+          ? "var:hold-settle"
+          : matrixChanged
+            ? "var:pull"
+            : "var:unchanged",
+      note: holdVariantForSettle ? "awaiting second consistent look" : undefined,
+      rows: buildIntendedVariantPriceRows(inwSkus, optionValuesKey, remotePriceByKey),
+    });
 
     if (unsoldZero) {
       console.warn("[ebay] skip inventory variant qty 0 on an active listing with no QuantitySold", {
@@ -1555,6 +1618,7 @@ export async function pullEbayUpdatesForConnection(
     select: {
       id: true,
       externalListingId: true,
+      conflictDetails: true,
       storeItem: { select: { id: true, title: true, priceCents: true, quantity: true } },
     },
     orderBy: { id: "asc" },
@@ -1583,6 +1647,10 @@ export async function pullEbayUpdatesForConnection(
     const byRemote = indexEbaySellerList(sellerList);
     const dirty: typeof links = [];
     for (const link of links) {
+      if (readEbayPendingVariantInboundHash(link.conflictDetails)) {
+        dirty.push(link);
+        continue;
+      }
       const remote = matchEbaySellerListRow(link, byRemote);
       if (!remote) continue;
       if (
@@ -1697,10 +1765,13 @@ export function ebayCronShouldPushOutbound(args: {
   lastInboundAt: Date | null;
   /** eBay diverged (dirty) but the live GetItem was inconclusive — do not clobber it. */
   dirtyInboundUnconfirmed?: boolean;
+  /** Per-SKU GetItem snapshot is held; pushing qty would snap the seller's eBay edit. */
+  pendingVariantInbound?: boolean;
 }): boolean {
   if (!args.syncEnabled || args.ended) return false;
   // A dirty eBay row we could not read conclusively wins over an automatic INW re-push.
   if (args.dirtyInboundUnconfirmed) return false;
+  if (args.pendingVariantInbound) return false;
   if (args.syncStatus === "error") return true;
   if (!args.inwUpdatedAt) return false;
   const inw = args.inwUpdatedAt.getTime();
@@ -1767,6 +1838,7 @@ export async function pushFailedEbayOutboundForConnection(
       lastPushedAt: link.lastPushedAt,
       lastInboundAt: link.lastInboundAt,
       dirtyInboundUnconfirmed: ebayDirtyInboundUnconfirmed(link.conflictDetails),
+      pendingVariantInbound: Boolean(readEbayPendingVariantInboundHash(link.conflictDetails)),
     });
   }).slice(0, EBAY_CRON_FAILED_OUTBOUND_LIMIT);
   const storeItemIds: string[] = [];

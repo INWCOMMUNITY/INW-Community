@@ -18,6 +18,7 @@ import {
   EBAY_DIRTY_UNCONFIRMED_TTL_MS,
   ebayInPostInboundSettleWindow,
   EBAY_POST_INBOUND_SETTLE_MS,
+  shouldHoldEbayVariantInbound,
 } from "./pull-ebay-updates";
 
 describe("isEbayInboundContentChange", () => {
@@ -340,6 +341,15 @@ describe("ebayGetItemApplyDecision", () => {
         source: "webhook" as const,
       })
     ).toEqual({ action: "skip", reason: "matches-inw" });
+  });
+
+  it("applies a held variant snapshot even when listing title/price/qty already match INW", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        pendingVariantInboundHash: "held-sku-prices",
+      })
+    ).toMatchObject({ action: "apply", reason: "pending-variant-confirm" });
   });
 
   it("does not snap INW SKU prices back to lagged eBay StartPrices when INW is newer", () => {
@@ -691,6 +701,40 @@ describe("ebayGetItemApplyDecision", () => {
   });
 });
 
+describe("shouldHoldEbayVariantInbound", () => {
+  const holdBase = {
+    matrixChanged: true,
+    inSettleWindow: true,
+    pendingVariantHash: null as string | null,
+    variantSnapshotHash: "snap-1",
+  };
+
+  it("does not hold a dirty seller-list or webhook GetItem", () => {
+    expect(shouldHoldEbayVariantInbound({ ...holdBase, source: "cron-dirty" })).toBe(false);
+    expect(shouldHoldEbayVariantInbound({ ...holdBase, source: "webhook" })).toBe(false);
+  });
+
+  it("holds a rotate look until a second matching snapshot", () => {
+    expect(shouldHoldEbayVariantInbound({ ...holdBase, source: "cron" })).toBe(true);
+    expect(
+      shouldHoldEbayVariantInbound({
+        ...holdBase,
+        source: "cron",
+        pendingVariantHash: "snap-1",
+      })
+    ).toBe(false);
+  });
+
+  it("does not hold when the matrix did not change or settle elapsed", () => {
+    expect(shouldHoldEbayVariantInbound({ ...holdBase, matrixChanged: false, source: "cron" })).toBe(
+      false
+    );
+    expect(shouldHoldEbayVariantInbound({ ...holdBase, inSettleWindow: false, source: "cron" })).toBe(
+      false
+    );
+  });
+});
+
 describe("ebayInPostInboundSettleWindow", () => {
   const inbound = new Date("2026-09-10T02:00:00.000Z");
 
@@ -990,6 +1034,20 @@ describe("ebayCronShouldPushOutbound", () => {
         lastPushedAt: inw,
         lastInboundAt: inw,
         dirtyInboundUnconfirmed: true,
+      })
+    ).toBe(false);
+  });
+
+  it("does NOT push while a per-SKU GetItem snapshot is held", () => {
+    expect(
+      ebayCronShouldPushOutbound({
+        syncEnabled: true,
+        syncStatus: "synced",
+        ended: false,
+        inwUpdatedAt: inw,
+        lastPushedAt: new Date("2026-09-09T16:00:00.000Z"),
+        lastInboundAt: new Date("2026-09-09T16:00:00.000Z"),
+        pendingVariantInbound: true,
       })
     ).toBe(false);
   });

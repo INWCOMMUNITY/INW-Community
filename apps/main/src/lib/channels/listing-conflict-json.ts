@@ -82,6 +82,17 @@ export function withLastPushedVariantPricesHash(
 }
 
 /**
+ * Held per-SKU GetItem snapshot. Set when rotate inbound delays a variant apply;
+ * outbound must not push qty/prices over it or the seller's eBay edit snaps back.
+ */
+export function readEbayPendingVariantInboundHash(conflictDetails: unknown): string | null {
+  const pending = conflictDetailsAsObject(conflictDetails).ebayPendingVariantInbound;
+  if (!pending || typeof pending !== "object" || Array.isArray(pending)) return null;
+  const hash = (pending as { hash?: unknown }).hash;
+  return typeof hash === "string" && hash ? hash : null;
+}
+
+/**
  * Title + listing price we last successfully pushed to Etsy. Lets the outbound guard tell an
  * INDEPENDENT seller edit on Etsy (live content moved off this baseline) apart from Etsy simply
  * echoing our own prior push, so a fresh INW/fan-out edit is not blocked on timestamp alone.
