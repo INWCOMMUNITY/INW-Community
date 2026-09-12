@@ -185,11 +185,10 @@ export function inventoryVariantsBaselineMatches(
   variants: unknown
 ): boolean {
   const stored = storedHash ?? "";
-  if (!stored) return false;
-  return (
-    stored === variantsStructureQtyFingerprint(variants) ||
-    stored === variantsFingerprint(variants)
-  );
+  const qtyFp = variantsStructureQtyFingerprint(variants);
+  const fullFp = variantsFingerprint(variants);
+  if (!stored) return qtyFp === "" && fullFp === "";
+  return stored === qtyFp || stored === fullFp;
 }
 
 /** Persist the combo matrix on import — never collapse to per-value totals. */

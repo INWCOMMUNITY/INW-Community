@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   inwChangedSinceBaseline,
   inwSavedAfterChannelPush,
+  inwRevisionCameFromChannelInbound,
   newerChannelEditShouldPull,
   resolveSyncDirection,
   shouldBlockOutboundOverwrite,
@@ -466,6 +467,35 @@ describe("inwSavedAfterChannelPush", () => {
       inwSavedAfterChannelPush({
         inwUpdatedAt: new Date("2026-09-09T01:20:00.000Z"), // source/remote edit time
         lastPushedAt: new Date("2026-09-09T01:25:00.000Z"), // sibling pushed later
+      })
+    ).toBe(false);
+  });
+});
+
+describe("inwRevisionCameFromChannelInbound", () => {
+  it("is true when the StoreItem save is not newer than last inbound", () => {
+    expect(
+      inwRevisionCameFromChannelInbound({
+        inwUpdatedAt: new Date("2026-09-12T19:15:32.416Z"),
+        lastInboundAt: new Date("2026-09-12T19:15:32.425Z"),
+      })
+    ).toBe(true);
+  });
+
+  it("is false when INW was saved after inbound (a hub edit)", () => {
+    expect(
+      inwRevisionCameFromChannelInbound({
+        inwUpdatedAt: new Date("2026-09-12T19:20:00.000Z"),
+        lastInboundAt: new Date("2026-09-12T19:15:32.425Z"),
+      })
+    ).toBe(false);
+  });
+
+  it("is false when inbound has never landed", () => {
+    expect(
+      inwRevisionCameFromChannelInbound({
+        inwUpdatedAt: new Date("2026-09-12T19:15:32.416Z"),
+        lastInboundAt: null,
       })
     ).toBe(false);
   });

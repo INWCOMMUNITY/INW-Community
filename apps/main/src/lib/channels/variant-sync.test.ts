@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchSaleToVariantOption, remoteVariantMatrixIsWeaker, remoteVariantsIndicateChange, remoteVariantPricesLookLikeListingFlatten, remoteVariantPricesLookUntrusted, stalePushedVariantPricesShouldRepush, validateVariantLimits, variantsPayloadForImport, variantPricesFingerprint, variantsFingerprint } from "./variant-sync";
+import { matchSaleToVariantOption, remoteVariantMatrixIsWeaker, remoteVariantsIndicateChange, remoteVariantPricesLookLikeListingFlatten, remoteVariantPricesLookUntrusted, stalePushedVariantPricesShouldRepush, validateVariantLimits, variantsPayloadForImport, variantPricesFingerprint, variantsFingerprint, variantsStructureQtyFingerprint, variantQuantitiesLookDegraded, inventoryVariantsBaselineMatches, remoteSkuQuantitiesDivergeFromInw } from "./variant-sync";
 
 const matrix = {
   axes: [
@@ -385,6 +385,55 @@ describe("remoteVariantMatrixIsWeaker", () => {
 
   it("allows a same-shape remote update", () => {
     expect(remoteVariantMatrixIsWeaker(sizeColor, sizeColor)).toBe(false);
+  });
+});
+
+describe("variant quantity inbound guards", () => {
+  const inw = {
+    axes: [{ name: "Color", values: ["Blue"] }, { name: "Size", values: ["Large"] }],
+    skus: [{ options: { Color: "Blue", Size: "Large" }, quantity: 4, priceCents: 1000 }],
+  };
+  const remoteQty = {
+    axes: inw.axes,
+    skus: [{ options: { Color: "Blue", Size: "Large" }, quantity: 9, priceCents: 2000 }],
+  };
+  const remoteDegraded = {
+    axes: inw.axes,
+    skus: [{ options: { Color: "Blue", Size: "Large" }, quantity: 1, priceCents: 2000 }],
+  };
+  const remotePriceOnly = {
+    axes: inw.axes,
+    skus: [{ options: { Color: "Blue", Size: "Large" }, quantity: 4, priceCents: 2000 }],
+  };
+
+  it("treats all-1s GetItem qty as degraded when INW still has stock", () => {
+    expect(variantQuantitiesLookDegraded(inw, remoteDegraded)).toBe(true);
+    expect(variantQuantitiesLookDegraded(inw, remoteQty)).toBe(false);
+  });
+
+  it("detects a per-SKU qty edit even when listing totals could match", () => {
+    expect(remoteSkuQuantitiesDivergeFromInw({ inwVariants: inw, remoteVariants: remoteQty })).toBe(
+      true
+    );
+    expect(
+      remoteSkuQuantitiesDivergeFromInw({ inwVariants: inw, remoteVariants: remotePriceOnly })
+    ).toBe(false);
+    expect(
+      remoteSkuQuantitiesDivergeFromInw({ inwVariants: inw, remoteVariants: remoteDegraded })
+    ).toBe(false);
+  });
+
+  it("matches inventory baselines on qty-only or historical full hashes, not price-only edits", () => {
+    expect(inventoryVariantsBaselineMatches(variantsStructureQtyFingerprint(inw), remotePriceOnly)).toBe(
+      true
+    );
+    expect(inventoryVariantsBaselineMatches(variantsFingerprint(remotePriceOnly), remotePriceOnly)).toBe(
+      true
+    );
+    expect(inventoryVariantsBaselineMatches(variantsFingerprint(inw), remotePriceOnly)).toBe(false);
+    expect(inventoryVariantsBaselineMatches(variantsFingerprint(inw), remoteQty)).toBe(false);
+    expect(inventoryVariantsBaselineMatches(null, null)).toBe(true);
+    expect(inventoryVariantsBaselineMatches("", inw)).toBe(false);
   });
 });
 

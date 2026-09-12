@@ -193,4 +193,40 @@ describe("parseEbayVariations", () => {
       priceCents: 2450,
     });
   });
+
+  it("prefers QuantityAvailable over listed Quantity", () => {
+    const xml = `
+<Item>
+  <Variations>
+    <Variation>
+      <SKU>BLUE-L</SKU>
+      <Quantity>4</Quantity>
+      <QuantityAvailable>9</QuantityAvailable>
+      <VariationSpecifics>
+        <NameValueList><Name>Color</Name><Value>Blue</Value></NameValueList>
+        <NameValueList><Name>Size</Name><Value>Large</Value></NameValueList>
+      </VariationSpecifics>
+    </Variation>
+  </Variations>
+</Item>`;
+    expect(parseEbayVariations(xml)?.skus[0]?.quantity).toBe(9);
+  });
+
+  it("subtracts variation QuantitySold when QuantityAvailable is omitted", () => {
+    const xml = `
+<Item>
+  <Variations>
+    <Variation>
+      <SKU>BLUE-L</SKU>
+      <Quantity>10</Quantity>
+      <SellingStatus><QuantitySold>3</QuantitySold></SellingStatus>
+      <VariationSpecifics>
+        <NameValueList><Name>Color</Name><Value>Blue</Value></NameValueList>
+        <NameValueList><Name>Size</Name><Value>Large</Value></NameValueList>
+      </VariationSpecifics>
+    </Variation>
+  </Variations>
+</Item>`;
+    expect(parseEbayVariations(xml)?.skus[0]?.quantity).toBe(7);
+  });
 });

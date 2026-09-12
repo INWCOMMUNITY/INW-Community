@@ -22,6 +22,18 @@ function parseEbayPriceToCents(raw: string | null): number | undefined {
   return Math.round(n * 100);
 }
 
+/** Remaining variation stock. Prefer QuantityAvailable; else Quantity minus QuantitySold. */
+export function parseEbayVariationQuantity(variationXml: string): number {
+  const sellingStatus = tag(variationXml, "SellingStatus") ?? "";
+  const sold = Math.max(0, Number(tag(sellingStatus, "QuantitySold") ?? "0") || 0);
+  const availableStr = tag(variationXml, "QuantityAvailable");
+  if (availableStr != null && availableStr !== "") {
+    return Math.max(0, Number(availableStr) || 0);
+  }
+  const listed = Number(tag(variationXml, "Quantity") ?? "0") || 0;
+  return Math.max(0, listed - sold);
+}
+
 /**
  * Parse `<ItemSpecifics><NameValueList><Name>..</Name><Value>..</Value>..` into aspect rows.
  * A NameValueList may carry multiple <Value> tags (eBay MULTI); each becomes its own row.
@@ -148,8 +160,7 @@ export function parseEbayVariations(itemXml: string): import("@/lib/listing-vari
   const skus: import("@/lib/listing-variant-matrix").VariantSkuRow[] = [];
 
   for (const v of variationNodes) {
-    const qtyStr = tag(v, "Quantity") ?? tag(v, "QuantityAvailable") ?? "0";
-    const qty = Math.max(0, Number(qtyStr) || 0);
+    const qty = parseEbayVariationQuantity(v);
     const sku = tag(v, "SKU")?.trim() || undefined;
     const specifics = tag(v, "VariationSpecifics") ?? "";
     const nvls = allTags(specifics, "NameValueList");

@@ -19,6 +19,7 @@ import {
   ebayInPostInboundSettleWindow,
   EBAY_POST_INBOUND_SETTLE_MS,
   shouldHoldEbayVariantInbound,
+  shouldOverlayEbayGetItemSkuQuantities,
 } from "./pull-ebay-updates";
 
 describe("isEbayInboundContentChange", () => {
@@ -68,6 +69,22 @@ describe("isEbayInboundContentChange", () => {
     expect(
       (patch.conflictDetails as { ebayLastSyncedTitle?: string }).ebayLastSyncedTitle
     ).toBe("INW Title");
+  });
+
+  it("stamps last-pushed variant prices so outbound does not treat inbound prices as an INW edit", () => {
+    const patch = ebayGetItemContentApplyLinkData({
+      contentHash: "abc",
+      metaHash: "def",
+      variantsHash: "ghi",
+      quantity: 40,
+      remoteUpdatedAt: null,
+      conflictDetails: {},
+      remoteTitle: "Part 4",
+      variantPricesHash: "price-fp-20",
+    });
+    expect(
+      (patch.conflictDetails as { lastPushedVariantPricesHash?: string }).lastPushedVariantPricesHash
+    ).toBe("price-fp-20");
   });
 
   it("maps a GetItem title/photos/description apply to sibling content fan-out", async () => {
@@ -732,6 +749,63 @@ describe("shouldHoldEbayVariantInbound", () => {
     expect(shouldHoldEbayVariantInbound({ ...holdBase, inSettleWindow: false, source: "cron" })).toBe(
       false
     );
+  });
+});
+
+describe("shouldOverlayEbayGetItemSkuQuantities", () => {
+  const inw = {
+    axes: [{ name: "Color", values: ["Blue"] }, { name: "Size", values: ["Large"] }],
+    skus: [{ options: { Color: "Blue", Size: "Large" }, quantity: 4, priceCents: 1000 }],
+  };
+  const remoteQty = {
+    axes: inw.axes,
+    skus: [{ options: { Color: "Blue", Size: "Large" }, quantity: 9, priceCents: 2000 }],
+  };
+  const remoteDegraded = {
+    axes: inw.axes,
+    skus: [{ options: { Color: "Blue", Size: "Large" }, quantity: 1, priceCents: 2000 }],
+  };
+
+  it("overlays GetItem SKU qty on dirty/webhook even when listing totals can match", () => {
+    expect(
+      shouldOverlayEbayGetItemSkuQuantities({
+        source: "cron-dirty",
+        inwMatrix: inw,
+        remoteMatrix: remoteQty,
+      })
+    ).toBe(true);
+    expect(
+      shouldOverlayEbayGetItemSkuQuantities({
+        source: "webhook",
+        inwMatrix: inw,
+        remoteMatrix: remoteQty,
+      })
+    ).toBe(true);
+  });
+
+  it("does not overlay on rotate, skipQuantity, or degraded all-1s GetItem qty", () => {
+    expect(
+      shouldOverlayEbayGetItemSkuQuantities({
+        source: "cron",
+        inwMatrix: inw,
+        remoteMatrix: remoteQty,
+      })
+    ).toBe(false);
+    expect(
+      shouldOverlayEbayGetItemSkuQuantities({
+        source: "cron-dirty",
+        skipQuantity: true,
+        inwMatrix: inw,
+        remoteMatrix: remoteQty,
+      })
+    ).toBe(false);
+    expect(
+      shouldOverlayEbayGetItemSkuQuantities({
+        source: "cron-dirty",
+        inwMatrix: inw,
+        remoteMatrix: remoteDegraded,
+      })
+    ).toBe(false);
   });
 });
 

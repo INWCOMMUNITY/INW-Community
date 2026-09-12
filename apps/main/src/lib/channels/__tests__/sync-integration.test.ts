@@ -379,6 +379,45 @@ describe("sync-inventory", () => {
       expect.anything()
     );
   });
+
+  it("does not push eBay inventory for a GetItem inbound echo (price pull must not snap qty)", async () => {
+    const { syncInventoryToChannels } = await import("../sync-inventory");
+    const updatedAt = new Date("2026-09-12T19:15:32.416Z");
+    const lastInboundAt = new Date("2026-09-12T19:15:32.425Z");
+    const link = makeLink({
+      provider: "ebay",
+      syncBaselineQty: 5,
+      syncBaselineVariantsHash: "stale-price-inclusive-hash",
+      lastInboundAt,
+      lastPushedAt: new Date("2026-09-12T19:06:14.000Z"),
+    });
+    mockPrisma.channelListingLink.findMany.mockResolvedValueOnce([link]);
+    mockPrisma.storeItem.findUnique.mockResolvedValueOnce(makeStoreItem({ quantity: 5, updatedAt }));
+
+    const results = await syncInventoryToChannels("item-1");
+
+    expect(results[0]?.skipped).toBe("inbound_echo");
+    expect(mockAdapter.updateInventory).not.toHaveBeenCalled();
+  });
+
+  it("force-pushes eBay inventory after inbound even when lastInboundAt is newer", async () => {
+    const { syncInventoryToChannels } = await import("../sync-inventory");
+    const updatedAt = new Date("2026-09-12T19:15:32.416Z");
+    const lastInboundAt = new Date("2026-09-12T19:15:32.425Z");
+    const link = makeLink({
+      provider: "ebay",
+      syncBaselineQty: 5,
+      syncBaselineVariantsHash: "stale-price-inclusive-hash",
+      lastInboundAt,
+    });
+    mockPrisma.channelListingLink.findMany.mockResolvedValueOnce([link]);
+    mockPrisma.storeItem.findUnique.mockResolvedValueOnce(makeStoreItem({ quantity: 5, updatedAt }));
+
+    const results = await syncInventoryToChannels("item-1", { force: true });
+
+    expect(results[0]?.skipped).toBeUndefined();
+    expect(mockAdapter.updateInventory).toHaveBeenCalledOnce();
+  });
 });
 
 describe("connection token refresh", () => {

@@ -163,8 +163,15 @@ export type ChannelSyncResult = {
    * - `no_qty_drift`: the channel already holds this exact quantity from our last successful push,
    *   so nothing was re-sent (prevents the every-tick re-push storm and qty snap-back).
    * - `pending_inbound`: eBay per-SKU GetItem is held for a second look; pushing would snap the seller edit.
+   * - `inbound_echo`: this StoreItem revision came from channel inbound; echoing qty back would snap stock.
    */
-  skipped?: "remote_newer" | "paused" | "sync_disabled" | "no_qty_drift" | "pending_inbound";
+  skipped?:
+    | "remote_newer"
+    | "paused"
+    | "sync_disabled"
+    | "no_qty_drift"
+    | "pending_inbound"
+    | "inbound_echo";
 };
 
 /** A sale detected via webhook or reconciliation poll. */
