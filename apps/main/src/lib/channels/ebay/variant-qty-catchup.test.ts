@@ -22,7 +22,18 @@ describe("chooseEbayLiveListingQuantity", () => {
     ).toEqual({ quantity: 9, source: "inventory", writeOffers: true });
   });
 
-  it("copies Trading qty onto the live offer when GetItem disagrees with the offer", () => {
+  it("does not copy lagged GetItem onto the offer when inventory already matches View Item", () => {
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 4,
+        inventoryQty: 9,
+        offerQty: 9,
+        inwQty: 4,
+      })
+    ).toEqual({ quantity: 9, source: "offer", writeOffers: false });
+  });
+
+  it("does not write Trading over inventory+offer that already agree", () => {
     expect(
       chooseEbayLiveListingQuantity({
         tradingQty: 9,
@@ -30,7 +41,18 @@ describe("chooseEbayLiveListingQuantity", () => {
         offerQty: 4,
         inwQty: 4,
       })
-    ).toEqual({ quantity: 9, source: "trading", writeOffers: true });
+    ).toEqual({ quantity: 4, source: "offer", writeOffers: false });
+  });
+
+  it("returns Seller Hub qty without rewriting offers when inventory, offer, and Trading agree", () => {
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 9,
+        inventoryQty: 9,
+        offerQty: 9,
+        inwQty: 4,
+      })
+    ).toEqual({ quantity: 9, source: "offer", writeOffers: false });
   });
 
   it("does not rewrite offers when Seller Hub already matches the live listing", () => {
@@ -65,6 +87,17 @@ describe("chooseEbayLiveListingQuantity", () => {
         inwQty: 4,
       })
     ).toEqual({ quantity: 9, source: "inventory", writeOffers: true });
+  });
+
+  it("never writes Trading onto the offer when inventory and offer are missing", () => {
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 9,
+        inventoryQty: null,
+        offerQty: null,
+        inwQty: 4,
+      })
+    ).toEqual({ quantity: 9, source: "trading", writeOffers: false });
   });
 });
 
