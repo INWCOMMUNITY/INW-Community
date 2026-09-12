@@ -5,6 +5,7 @@ import {
   uniformHostFamilyImageUrls,
 } from "./media";
 import { normalizeVariantsFromProvider, variantsToMatrix, type InwVariantAxis } from "../variant-sync";
+import { variantOptionsMatch } from "../variant-match";
 import type { SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
 import { generateEbayVariationMigrationSku, isValidEbayInventorySku, toEbayInventorySku } from "./migrate-prep";
@@ -325,28 +326,16 @@ export type BuildVariantInventoryRowsOptions = {
   imported?: boolean;
 };
 
+/**
+ * Match two eBay variation option selections. Delegates to the shared, axis-name-agnostic
+ * matcher so a live Custom Label group whose option names differ from INW still aligns
+ * (prevents skipped variant offers -> "some prices sync but not all").
+ */
 export function variationOptionsMatch(
   a: Record<string, string>,
   b: Record<string, string>
 ): boolean {
-  const keys = new Set(
-    [...Object.keys(a), ...Object.keys(b)].map((key) => key.trim().toLowerCase()).filter(Boolean)
-  );
-  if (keys.size === 0) return false;
-  for (const key of keys) {
-    const av =
-      Object.entries(a)
-        .find(([name]) => name.trim().toLowerCase() === key)?.[1]
-        ?.trim()
-        .toLowerCase() ?? "";
-    const bv =
-      Object.entries(b)
-        .find(([name]) => name.trim().toLowerCase() === key)?.[1]
-        ?.trim()
-        .toLowerCase() ?? "";
-    if (av !== bv) return false;
-  }
-  return true;
+  return variantOptionsMatch(a, b);
 }
 
 function ebayInventorySkuCandidate(raw: string | null | undefined): string | null {

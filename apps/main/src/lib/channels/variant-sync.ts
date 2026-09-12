@@ -281,6 +281,42 @@ export function remoteVariantPricesLookLikeListingFlatten(args: {
   return first === args.listingPriceCents;
 }
 
+/**
+ * Broader snap-back guard: a remote variant-price snapshot we should NOT pull over INW
+ * because it looks like a failed/lagged channel write, not a real seller edit. Unlike
+ * `remoteVariantPricesLookLikeListingFlatten` (which only fires when every remote SKU equals
+ * the *listing* price), this fires whenever INW has per-SKU prices that VARY but every
+ * remote SKU came back at the SAME price — a flatten to ANY value, including a partial write
+ * that collapsed to a non-listing amount. Pulling that would collapse INW's variations and
+ * then fan the flattened price out to the other channels (the reported revert).
+ */
+export function remoteVariantPricesLookUntrusted(args: {
+  remoteVariants: unknown;
+  inwVariants: unknown;
+}): boolean {
+  if (!matrixHasKnownSkuPrices(args.remoteVariants) || !matrixHasKnownSkuPrices(args.inwVariants)) {
+    return false;
+  }
+  if (variantPricesFingerprint(args.inwVariants) === variantPricesFingerprint(args.remoteVariants)) {
+    return false;
+  }
+  const inw = normalizeVariantMatrix(args.inwVariants);
+  const remote = normalizeVariantMatrix(args.remoteVariants);
+  if (!inw || !remote) return false;
+
+  const inwPrices = inw.skus
+    .map((s) => s.priceCents)
+    .filter((p): p is number => typeof p === "number" && p > 0);
+  const inwVaries = new Set(inwPrices).size > 1;
+  if (!inwVaries) return false;
+
+  const remotePrices = remote.skus
+    .map((s) => s.priceCents)
+    .filter((p): p is number => typeof p === "number" && p > 0);
+  // INW's prices vary, but the channel returned a single uniform price on >= 2 SKUs.
+  return remotePrices.length >= 2 && new Set(remotePrices).size === 1;
+}
+
 /** Sum SKU (or legacy option) quantities. */
 export function sumVariantQuantities(variants: InwVariantAxis[] | VariantMatrix | null | unknown): number {
   const matrix = normalizeVariantMatrix(variants);

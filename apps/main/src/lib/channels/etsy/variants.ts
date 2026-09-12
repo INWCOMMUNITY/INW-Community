@@ -3,6 +3,7 @@ import { etsyPriceFromCents } from "./mapping";
 import type { InwVariantAxis } from "../variant-sync";
 import { normalizeVariantsFromProvider, sumVariantQuantities, variantsToMatrix } from "../variant-sync";
 import { comboInventoryFailedMessage, shouldRebuildEtsyComboInventory } from "../combo-sync";
+import { matchInwSkuRow, variantOptionsMatch } from "../variant-match";
 import type { VariantMatrix, VariantSkuRow } from "@/lib/listing-variant-matrix";
 import {
   channelQuantityForTracked,
@@ -10,7 +11,6 @@ import {
   isMadeToOrderTracking,
   matrixHasKnownSkuPrices,
   MAX_ETSY_AXES,
-  optionsEqual,
 } from "@/lib/listing-variant-matrix";
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
 import { getEffectiveSku } from "../types";
@@ -252,27 +252,48 @@ export function findMatrixSkuForEtsyProduct(
 ): VariantSkuRow | null {
   const map = etsyProductOptionMap(product);
   if (Object.keys(map).length === 0) return null;
-  return matrix.skus.find((s) => optionsEqual(s.options, map)) ?? null;
+  // Match by SKU code, then axis-name-agnostic option values (Etsy renames the axis to
+  // its taxonomy property_name, so a strict key match silently misses).
+  return matchInwSkuRow(matrix, { sku: product.sku ?? null, options: map }).row;
 }
 
-/** True when every INW SKU with a matching Etsy product has the same offering price (1¢). */
+/**
+ * Result of comparing Etsy's persisted offering prices to what INW intended.
+ * `matched === 0` means we could not line up any Etsy product with an INW SKU — a
+ * matching gap, NOT proof Etsy dropped the prices (do not hard-fail on it).
+ */
+export type EtsyPriceVerifyResult = {
+  ok: boolean;
+  matched: number;
+  mismatched: number;
+};
+
+export function verifyEtsyOfferingPrices(
+  products: EtsyInventoryProduct[] | undefined,
+  item: SyncStoreItem
+): EtsyPriceVerifyResult {
+  const matrix = variantsToMatrix(item.variants);
+  if (!matrix || !matrixHasKnownSkuPrices(matrix)) return { ok: true, matched: 0, mismatched: 0 };
+  const rows = products ?? [];
+  let matched = 0;
+  let mismatched = 0;
+  for (const sku of matrix.skus) {
+    const expected = sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents;
+    const product = rows.find((p) => variantOptionsMatch(etsyProductOptionMap(p), sku.options));
+    if (!product) continue;
+    matched += 1;
+    const got = offeringPriceToCents(product.offerings?.[0]?.price);
+    if (got == null || Math.abs(got - expected) > 1) mismatched += 1;
+  }
+  return { ok: matched > 0 && mismatched === 0, matched, mismatched };
+}
+
+/** True when every INW SKU with a matching Etsy product has the expected offering price (1¢). */
 export function etsyInventoryPricesMatchItem(
   products: EtsyInventoryProduct[] | undefined,
   item: SyncStoreItem
 ): boolean {
-  const matrix = variantsToMatrix(item.variants);
-  if (!matrix || !matrixHasKnownSkuPrices(matrix)) return true;
-  const rows = products ?? [];
-  let matched = 0;
-  for (const sku of matrix.skus) {
-    const expected = sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents;
-    const product = rows.find((p) => optionsEqual(etsyProductOptionMap(p), sku.options));
-    if (!product) continue;
-    matched += 1;
-    const got = offeringPriceToCents(product.offerings?.[0]?.price);
-    if (got == null || Math.abs(got - expected) > 1) return false;
-  }
-  return matched > 0;
+  return verifyEtsyOfferingPrices(products, item).ok;
 }
 
 function propertyIdsFromProducts(products: Record<string, unknown>[]): number[] {
@@ -522,10 +543,20 @@ function rebuildExistingProduct(
 ): Record<string, unknown> {
   const propValues = product.property_values ?? [];
   const combo = matrix ? findMatrixSkuForEtsyProduct(matrix, product) : null;
-  const priceCents =
-    combo?.priceCents && combo.priceCents > 0 ? combo.priceCents : item.priceCents;
+  // Guard rail: only override this offering's price when we actually matched it to an INW
+  // SKU that has a real per-SKU price. On a no-match, KEEP Etsy's existing offering price
+  // (never collapse an unmatched variation to the listing/min price — that is the flatten).
+  const matrixHasPrices = Boolean(matrix && matrixHasKnownSkuPrices(matrix));
+  const matchedPriceCents =
+    combo?.priceCents && combo.priceCents > 0
+      ? combo.priceCents
+      : matrixHasPrices
+        ? null
+        : item.priceCents;
   const offerings = (product.offerings ?? []).map((o) => {
     const readinessStateId = o.readiness_state_id ?? defaultReadinessStateId;
+    const existingPriceCents = offeringPriceToCents(o.price);
+    const priceCents = matchedPriceCents ?? existingPriceCents ?? item.priceCents;
     return {
       quantity,
       price: offeringPriceFloat(priceCents),
@@ -1273,6 +1304,9 @@ export async function pushEtsyVariants(
   await verifyEtsyComboInventory(accessToken, listingId, item);
 }
 
+/** Etsy inventory GET can lag a beat behind a successful PUT; retry once before failing. */
+export const ETSY_PRICE_VERIFY_RETRY_MS = 1500;
+
 export async function verifyEtsyComboInventory(
   accessToken: string,
   listingId: string,
@@ -1280,15 +1314,41 @@ export async function verifyEtsyComboInventory(
 ): Promise<void> {
   const matrix = variantsToMatrix(item.variants);
   if (!matrix) return;
-  const inv = await etsyGet<EtsyInventory>(accessToken, `/listings/${listingId}/inventory`);
+  let inv = await etsyGet<EtsyInventory>(accessToken, `/listings/${listingId}/inventory`);
   if (matrix.axes.length >= 2 && matrix.skus.length > 1) {
     const remoteCount = inv.products?.length ?? 0;
     if (remoteCount < matrix.skus.length) {
       throw new Error(comboInventoryFailedMessage("etsy"));
     }
   }
-  if (!etsyInventoryPricesMatchItem(inv.products, item)) {
-    throw new Error("Etsy did not persist per-variation prices. Retry the listing update.");
+
+  let verify = verifyEtsyOfferingPrices(inv.products, item);
+
+  // matched === 0 means we could not line up a single Etsy offering with an INW SKU (a
+  // property-name matching gap), NOT that Etsy dropped the prices. Do not abort the push —
+  // that is the regression that stopped Etsy variant prices from updating at all.
+  if (verify.matched === 0) {
+    console.warn("[etsy] price verify skipped; no Etsy offerings matched INW options", {
+      listingId,
+      skus: matrix.skus.length,
+      products: inv.products?.length ?? 0,
+    });
+    return;
+  }
+
+  if (!verify.ok) {
+    // Bounded single retry to ride out Etsy read lag right after the PUT.
+    await new Promise((resolve) => setTimeout(resolve, ETSY_PRICE_VERIFY_RETRY_MS));
+    inv = await etsyGet<EtsyInventory>(accessToken, `/listings/${listingId}/inventory`);
+    verify = verifyEtsyOfferingPrices(inv.products, item);
+    if (verify.matched > 0 && !verify.ok) {
+      throw new Error("Etsy did not persist per-variation prices. Retry the listing update.");
+    }
+    console.warn("[etsy] price verify recovered on retry (or match dropped)", {
+      listingId,
+      matched: verify.matched,
+      mismatched: verify.mismatched,
+    });
   }
 }
 

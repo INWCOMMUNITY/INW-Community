@@ -948,14 +948,30 @@ export const wixAdapter: ChannelAdapter = {
             buildWixV1UpdateBody(item, v1Probe.product ?? null),
             opts
           );
-          const strategy = await setInventoryAbsolute(
-            conn.accessToken,
-            productId,
-            item.quantity,
-            opts,
-            true
-          );
-          console.info("[wix] updateListing ok", { productId, catalog: "v1-probe", inventoryStrategy: strategy });
+          // The probe confirmed a Catalog v1 product, so run the SAME options/price pipeline
+          // the mode==="v1" branch uses. Product PATCH never writes nested per-option priceData,
+          // so without this a variant-price edit was silently dropped ("Wix refuses to change").
+          await applyWixCategoryAndOptions(conn, productId, item, opts, true);
+          if (replacePhotos) {
+            await syncWixProductMedia(conn, productId, item.photos, { replace: true }).catch((e) => {
+              console.warn("[wix] updateListing v1-probe media sync failed", {
+                productId,
+                message: e instanceof Error ? e.message : String(e),
+              });
+            });
+          }
+          if (!hasOptionQuantities(item.variants)) {
+            const strategy = await setInventoryAbsolute(
+              conn.accessToken,
+              productId,
+              item.quantity,
+              opts,
+              true
+            );
+            console.info("[wix] updateListing ok", { productId, catalog: "v1-probe", inventoryStrategy: strategy });
+          } else {
+            console.info("[wix] updateListing ok", { productId, catalog: "v1-probe", inventoryStrategy: "v1/options" });
+          }
           return;
         }
         throw new WixApiError("Product not found on Wix.", 404, null);

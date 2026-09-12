@@ -8,6 +8,7 @@ import {
   skuSelectionKey,
   type VariantMatrix,
 } from "@/lib/listing-variant-matrix";
+import { matchInwSkuRow, variantOptionsMatch } from "../variant-match";
 import { wixGet, wixJson, WixApiError, type WixRequestOpts } from "./client";
 import type { WixV1Product } from "./mapping";
 
@@ -505,8 +506,21 @@ export function buildWixV1VariantsPriceUpdateBody(
   const variants: WixVariantPricePatch[] = [];
   for (const row of rows) {
     const map = wixVariantChoiceMap(row);
-    const sku = matrix.skus.find((s) => optionsEqual(s.options, map));
-    const cents = sku?.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents;
+    // Match by SKU / axis-name-agnostic option values (Wix reports choices under names
+    // that may differ from INW, and collapses array choices to a generic "Option" key).
+    const { row: sku, quality } = matchInwSkuRow(
+      matrix,
+      {
+        sku: (row.variant as { sku?: string } | undefined)?.sku ?? (row as { sku?: string }).sku ?? null,
+        options: map,
+      },
+      // A single-combination product with no choices is an unambiguous positional match.
+      { allowPositional: true }
+    );
+    // Guard rail: if this Wix row does not map to any INW SKU, DO NOT write the listing/min
+    // price to it — that is exactly what flattens every variation to $1. Leave it untouched.
+    if (!sku || quality === "none") continue;
+    const cents = sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents;
     const price = Math.max(0, cents) / 100;
     if (Object.keys(map).length > 0) {
       variants.push({ choices: map, price });
@@ -526,7 +540,7 @@ export function wixV1VariantPricesMatchItem(item: SyncStoreItem, product: WixV1P
   let matched = 0;
   for (const sku of matrix.skus) {
     const expected = sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents;
-    const row = rows.find((r) => optionsEqual(wixVariantChoiceMap(r), sku.options));
+    const row = rows.find((r) => variantOptionsMatch(wixVariantChoiceMap(r), sku.options));
     if (!row) continue;
     matched += 1;
     const got = wixV1VariantPriceCents(row);

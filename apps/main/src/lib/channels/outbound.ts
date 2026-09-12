@@ -33,7 +33,8 @@ import { logSyncEvent } from "./sync-log";
 import { formatProviderPublishError, validateForProvider } from "./validate-publish";
 import { shouldPushInventoryOnly } from "./sold-out-guard";
 import { shouldBypassCircuitForInventoryPush } from "./circuit-inventory-bypass";
-import { isMadeToOrderTracking, MTO_CHANNEL_QUANTITY } from "@/lib/listing-variant-matrix";
+import { isMadeToOrderTracking, MTO_CHANNEL_QUANTITY, normalizeVariantMatrix, optionValuesKey, matrixHasKnownSkuPrices } from "@/lib/listing-variant-matrix";
+import { recordVariantPriceTrace, buildIntendedVariantPriceRows } from "./sync-trace";
 import { isRemoteListingAlreadyGoneError } from "./error-classifier";
 import {
   persistRemoteListingGoneOnPush,
@@ -84,13 +85,32 @@ async function loadSyncItemWithUpdatedAt(
  */
 function applyPriceAdjustment(item: SyncStoreItem, adjustmentPercent: number): SyncStoreItem {
   if (adjustmentPercent === 0) return item;
-  
+
   const multiplier = 1 + (adjustmentPercent / 100);
   const adjustedPrice = Math.round(item.priceCents * multiplier);
-  
+
+  // Scale per-SKU variation prices by the same channel markup. Previously only the
+  // listing-level price was adjusted, so variations with explicit prices pushed the raw
+  // (unadjusted) amount while the fallback used the adjusted listing price — an inconsistent
+  // mix across a listing. Keep INW's baseline fingerprint on the unadjusted `item.variants`;
+  // this adjusted copy is only used for the outbound API call.
+  const matrix = normalizeVariantMatrix(item.variants);
+  const adjustedVariants =
+    matrix && matrix.skus.some((s) => s.priceCents != null && s.priceCents > 0)
+      ? {
+          ...matrix,
+          skus: matrix.skus.map((s) =>
+            s.priceCents != null && s.priceCents > 0
+              ? { ...s, priceCents: Math.max(1, Math.round(s.priceCents * multiplier)) }
+              : s
+          ),
+        }
+      : item.variants;
+
   return {
     ...item,
     priceCents: Math.max(0, adjustedPrice), // Never go negative
+    variants: adjustedVariants,
   };
 }
 
@@ -659,10 +679,10 @@ export async function updateStoreItemOnChannels(
             syncBaselineVariantsHash: varFp,
             syncBaselineQty: freshItem.quantity,
             syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
-            conflictDetails: withLastPushedVariantPricesHash(
-              link.conflictDetails,
-              variantPricesFingerprint(freshItem.variants)
-            ) as Prisma.InputJsonValue,
+            // NOTE: do NOT stamp lastPushedVariantPricesHash here. The inventory-only path
+            // never writes per-SKU prices, so recording them as "pushed" would falsely
+            // suppress a later real price push and let a stale channel snapshot snap INW back.
+            // Only the full updateListing path (which actually writes prices) stamps it.
           },
         });
         await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);
@@ -944,6 +964,22 @@ export async function updateStoreItemOnChannels(
         },
       });
       await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);
+      // Variant-price round-trip observability: record the per-SKU prices we intended to
+      // write and the push decision, for every provider, in one place. `dump-variant-trace`
+      // reads this back so we can see exactly what INW sent when a variation misbehaves.
+      if (matrixHasKnownSkuPrices(item.variants)) {
+        const intended = normalizeVariantMatrix(item.variants);
+        if (intended) {
+          recordVariantPriceTrace({
+            memberId: link.connection.memberId,
+            provider,
+            storeItemId,
+            direction: "outbound",
+            decision: variantPricesChanged ? "full-push:variant-price-change" : "full-push",
+            rows: buildIntendedVariantPriceRows(intended.skus, optionValuesKey),
+          });
+        }
+      }
       results.push({ provider, ok: true });
     } catch (e) {
       if (isRemoteListingAlreadyGoneError(e)) {

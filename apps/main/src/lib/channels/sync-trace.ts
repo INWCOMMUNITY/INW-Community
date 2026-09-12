@@ -35,12 +35,41 @@ export type TransformRemap = {
   reason?: string;
 };
 
+/** One variation row in a variant-price round-trip trace. */
+export type VariantPriceTraceRow = {
+  /** Stable identity for the row (option value-set key, or SKU). */
+  key: string;
+  options?: Record<string, string>;
+  sku?: string | null;
+  /** What INW intended to write / hold for this SKU. */
+  intendedCents?: number | null;
+  /** What the channel actually reported back (verify read / reconcile snapshot). */
+  verifiedCents?: number | null;
+  /** How confidently the remote row matched an INW SKU. */
+  matchQuality?: "sku" | "values" | "positional" | "none";
+  applied?: boolean;
+};
+
+/**
+ * A variant-price round-trip record: what INW intended per SKU, what the channel
+ * verified, the match quality, and the decision taken. This is the observability that
+ * makes "which SKU didn't round-trip, and why" answerable without redeploying.
+ */
+export type VariantPriceTrace = {
+  direction: "outbound" | "inbound" | "reconcile";
+  /** e.g. "full-push", "full-push:variant-price-change", "pull", "skip:untrusted-flatten". */
+  decision?: string;
+  rows: VariantPriceTraceRow[];
+  note?: string;
+};
+
 export type TransformTrace = {
   before?: Record<string, unknown>;
   after?: Record<string, unknown>;
   remaps?: TransformRemap[];
   dropped?: string[];
   categorySchema?: { name: string; required: boolean }[];
+  variantPrices?: VariantPriceTrace;
 };
 
 export type SyncTraceContext = {
@@ -141,12 +170,74 @@ export function addTransform(
   trace: TransformTrace
 ): void {
   ctx.transformTrace = {
-    before: trace.before ? sanitizePayload(trace.before) : undefined,
-    after: trace.after ? sanitizePayload(trace.after) : undefined,
-    remaps: trace.remaps,
-    dropped: trace.dropped,
-    categorySchema: trace.categorySchema,
+    ...ctx.transformTrace,
+    before: trace.before ? sanitizePayload(trace.before) : ctx.transformTrace?.before,
+    after: trace.after ? sanitizePayload(trace.after) : ctx.transformTrace?.after,
+    remaps: trace.remaps ?? ctx.transformTrace?.remaps,
+    dropped: trace.dropped ?? ctx.transformTrace?.dropped,
+    categorySchema: trace.categorySchema ?? ctx.transformTrace?.categorySchema,
+    variantPrices: trace.variantPrices ?? ctx.transformTrace?.variantPrices,
   };
+}
+
+/** Attach a variant-price round-trip record to a live trace (merges, does not clobber). */
+export function addVariantPriceTrace(ctx: SyncTraceContext, vp: VariantPriceTrace): void {
+  ctx.transformTrace = { ...ctx.transformTrace, variantPrices: vp };
+}
+
+/**
+ * Self-contained variant-price trace: build a context, attach the record, and persist it.
+ * Non-blocking and never throws — safe to call from outbound push / reconcile decision
+ * without threading a trace lifecycle through those paths.
+ */
+export function recordVariantPriceTrace(args: {
+  memberId: string;
+  provider: ChannelProvider | string;
+  storeItemId: string;
+  sku?: string | null;
+  direction: VariantPriceTrace["direction"];
+  decision?: string;
+  note?: string;
+  rows: VariantPriceTraceRow[];
+  status?: "success" | "failed";
+}): void {
+  try {
+    const ctx = startTrace(args.memberId, args.provider, args.storeItemId, "update", {
+      sku: args.sku ?? null,
+    });
+    addVariantPriceTrace(ctx, {
+      direction: args.direction,
+      decision: args.decision,
+      note: args.note,
+      rows: args.rows,
+    });
+    // completeTrace persists asynchronously and swallows its own errors.
+    void completeTrace(ctx, args.status ?? "success");
+  } catch (e) {
+    console.warn("[sync-trace] recordVariantPriceTrace failed", {
+      provider: args.provider,
+      storeItemId: args.storeItemId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
+/** Build variant-price trace rows from an INW matrix (intended) and an optional verified map. */
+export function buildIntendedVariantPriceRows(
+  skus: { options: Record<string, string>; sku?: string | null; priceCents?: number | null }[],
+  valueSetKey: (options: Record<string, string>) => string,
+  verifiedByKey?: Map<string, number>
+): VariantPriceTraceRow[] {
+  return skus.map((s) => {
+    const key = valueSetKey(s.options);
+    return {
+      key: key || (s.sku ?? ""),
+      options: s.options,
+      sku: s.sku ?? null,
+      intendedCents: s.priceCents ?? null,
+      verifiedCents: verifiedByKey?.get(key) ?? null,
+    };
+  });
 }
 
 /**

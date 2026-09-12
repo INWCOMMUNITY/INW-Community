@@ -22,9 +22,11 @@ import {
   type SyncDirection,
 } from "./sync-baseline";
 import type { ChannelProvider, RemoteListingSummary } from "./types";
-import { sumVariantQuantities, remoteVariantsIndicateChange, remoteVariantPricesLookLikeListingFlatten, stalePushedVariantPricesShouldRepush, variantsFingerprint, variantPricesFingerprint } from "./variant-sync";
+import { sumVariantQuantities, remoteVariantsIndicateChange, remoteVariantPricesLookLikeListingFlatten, remoteVariantPricesLookUntrusted, stalePushedVariantPricesShouldRepush, variantsFingerprint, variantPricesFingerprint } from "./variant-sync";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
-import { isMadeToOrderTracking, matrixHasKnownSkuPrices, normalizeVariantMatrix } from "@/lib/listing-variant-matrix";
+import { isMadeToOrderTracking, matrixHasKnownSkuPrices, normalizeVariantMatrix, optionValuesKey } from "@/lib/listing-variant-matrix";
+import { matchInwSkuRow } from "./variant-match";
+import { recordVariantPriceTrace, type VariantPriceTraceRow } from "./sync-trace";
 import { isComboInventoryFailedError } from "./combo-sync";
 import { readLastPushedVariantPricesHash } from "./listing-conflict-json";
 
@@ -132,6 +134,24 @@ export async function reconcileConnectionInboundMeta(
   connection: ConnectionRow
 ): Promise<{ updated: number; removed: number }> {
   const provider = connection.provider as ChannelProvider;
+
+  // Respect the store's sync direction, mirroring the catalog reconcile. Without this the
+  // variant/meta reconcile kept pulling remote variant prices onto INW (and fanning them out)
+  // even for a store the seller set to Paused — so pausing a store did NOT isolate it.
+  // Skip inbound when the store may not write back to INW: "paused" (inert) or "push_only"
+  // (INW->channel only). "pull_only" still wants inbound, and its push side is separately
+  // blocked in outbound.ts, so it is allowed to run here.
+  const connConfig = (connection.config ?? {}) as Record<string, unknown>;
+  const syncDirection = (connConfig.syncDirection as string) ?? "two_way";
+  if (syncDirection === "paused" || syncDirection === "push_only") {
+    console.log("[channels] meta reconcile skipped; sync direction blocks inbound", {
+      connectionId: connection.id,
+      provider,
+      syncDirection,
+    });
+    return { updated: 0, removed: 0 };
+  }
+
   const ctx = await getConnectionContext(connection);
   if (!ctx) return { updated: 0, removed: 0 };
 
@@ -192,6 +212,38 @@ export async function reconcileConnectionInboundMeta(
       if (!needsFull) continue;
       const full = await fetchWixV1Product(ctx.accessToken, r.externalListingId, wixOpts);
       if (full) attachWixVariantsToSummary(r, full);
+    }
+  }
+
+  // eBay list/inventory payloads omit per-variation prices. Overlay live GetItem variations
+  // (each carries StartPrice) so the variant-price reconcile below sees eBay's real per-SKU
+  // prices with last-write-wins — otherwise eBay variant price edits never reach INW/siblings.
+  if (provider === "ebay" && ctx) {
+    const { resolveEbayLegacyListingId } = await import("./ebay/mapping");
+    const { fetchEbayItemDetails } = await import("./ebay/trading");
+    for (const link of await prisma.channelListingLink.findMany({
+      where: { connectionId: connection.id, provider: "ebay", syncEnabled: true },
+      select: { externalListingId: true },
+    })) {
+      const r = remoteById.get(link.externalListingId);
+      if (!r) continue;
+      if (r.variantsKnown && matrixHasKnownSkuPrices(r.variants)) continue;
+      const legacyId =
+        resolveEbayLegacyListingId(link.externalListingId) ??
+        resolveEbayLegacyListingId(r.externalListingId ?? "");
+      if (!legacyId) continue;
+      try {
+        const details = await fetchEbayItemDetails(ctx.accessToken, legacyId);
+        if (details.listingEnded || details.variants == null) continue;
+        r.variants = details.variants;
+        r.variantsKnown = true;
+      } catch (e) {
+        console.warn("[channels] eBay meta variant hydrate failed", {
+          externalListingId: link.externalListingId,
+          legacyId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
     }
   }
 
@@ -344,6 +396,10 @@ export async function reconcileConnectionInboundMeta(
         remoteVariants: remote.variants,
         inwVariants: item.variants,
         listingPriceCents: item.priceCents,
+      }) ||
+      remoteVariantPricesLookUntrusted({
+        remoteVariants: remote.variants,
+        inwVariants: item.variants,
       })
     ) {
       inwVarChanged = true;
@@ -355,6 +411,36 @@ export async function reconcileConnectionInboundMeta(
       inwUpdatedAt: item.updatedAt,
       remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
     });
+
+    // Variant-price observability for the reconcile side: record INW's intended per-SKU price
+    // vs what the channel snapshot reported (verified), the match quality, and the decision.
+    // This is how we can tell whether a snap-back was a real remote edit or a flatten pull.
+    if (
+      varDecision !== "noop" &&
+      (matrixHasKnownSkuPrices(item.variants) || matrixHasKnownSkuPrices(remote.variants))
+    ) {
+      const inwMatrix = normalizeVariantMatrix(item.variants);
+      const remoteMatrix = normalizeVariantMatrix(remote.variants);
+      const rows: VariantPriceTraceRow[] = (inwMatrix?.skus ?? []).map((s) => {
+        const m = remoteMatrix ? matchInwSkuRow(remoteMatrix, { sku: s.sku ?? null, options: s.options }) : null;
+        return {
+          key: optionValuesKey(s.options) || (s.sku ?? ""),
+          options: s.options,
+          sku: s.sku ?? null,
+          intendedCents: s.priceCents ?? null,
+          verifiedCents: m?.row?.priceCents ?? null,
+          matchQuality: m?.quality ?? "none",
+        };
+      });
+      recordVariantPriceTrace({
+        memberId: connection.memberId,
+        provider,
+        storeItemId: link.storeItemId,
+        direction: "reconcile",
+        decision: `var:${varDecision}${remoteVarChanged ? "" : inwVarChanged ? " (repush/guard)" : ""}`,
+        rows,
+      });
+    }
 
     const etsySimpleQtyPull =
       provider === "etsy" &&

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchSaleToVariantOption, remoteVariantMatrixIsWeaker, remoteVariantsIndicateChange, remoteVariantPricesLookLikeListingFlatten, stalePushedVariantPricesShouldRepush, validateVariantLimits, variantsPayloadForImport, variantPricesFingerprint, variantsFingerprint } from "./variant-sync";
+import { matchSaleToVariantOption, remoteVariantMatrixIsWeaker, remoteVariantsIndicateChange, remoteVariantPricesLookLikeListingFlatten, remoteVariantPricesLookUntrusted, stalePushedVariantPricesShouldRepush, validateVariantLimits, variantsPayloadForImport, variantPricesFingerprint, variantsFingerprint } from "./variant-sync";
 
 const matrix = {
   axes: [
@@ -134,6 +134,68 @@ describe("remoteVariantPricesLookLikeListingFlatten", () => {
         },
         inwVariants: inw,
         listingPriceCents: 100,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("remoteVariantPricesLookUntrusted", () => {
+  const inw = {
+    axes: [{ name: "Size", values: ["S", "M"] }],
+    skus: [
+      { options: { Size: "S" }, quantity: 2, priceCents: 1800 },
+      { options: { Size: "M" }, quantity: 3, priceCents: 2200 },
+    ],
+  };
+
+  it("flags a uniform remote flatten even at a NON-listing value", () => {
+    expect(
+      remoteVariantPricesLookUntrusted({
+        remoteVariants: {
+          axes: inw.axes,
+          skus: [
+            { options: { Size: "S" }, quantity: 2, priceCents: 999 },
+            { options: { Size: "M" }, quantity: 3, priceCents: 999 },
+          ],
+        },
+        inwVariants: inw,
+      })
+    ).toBe(true);
+  });
+
+  it("does not flag a genuine per-SKU remote edit", () => {
+    expect(
+      remoteVariantPricesLookUntrusted({
+        remoteVariants: {
+          axes: inw.axes,
+          skus: [
+            { options: { Size: "S" }, quantity: 2, priceCents: 1700 },
+            { options: { Size: "M" }, quantity: 3, priceCents: 2100 },
+          ],
+        },
+        inwVariants: inw,
+      })
+    ).toBe(false);
+  });
+
+  it("does not flag when INW itself has a single uniform price", () => {
+    const uniformInw = {
+      axes: inw.axes,
+      skus: [
+        { options: { Size: "S" }, quantity: 2, priceCents: 1500 },
+        { options: { Size: "M" }, quantity: 3, priceCents: 1500 },
+      ],
+    };
+    expect(
+      remoteVariantPricesLookUntrusted({
+        remoteVariants: {
+          axes: inw.axes,
+          skus: [
+            { options: { Size: "S" }, quantity: 2, priceCents: 999 },
+            { options: { Size: "M" }, quantity: 3, priceCents: 999 },
+          ],
+        },
+        inwVariants: uniformInw,
       })
     ).toBe(false);
   });

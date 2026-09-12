@@ -482,6 +482,12 @@ export async function reconcileConnectionInboundCatalog(
           photos: details.photos.length > 0 ? details.photos : existing?.photos ?? [],
           remoteUpdatedAt: details.remoteUpdatedAt ?? existing?.remoteUpdatedAt ?? null,
           category: existing?.category ?? null,
+          // Carry live per-variation data (incl. per-SKU StartPrice) from GetItem so the
+          // variant reconcile sees eBay's real variation prices, not the list payload that
+          // omits them. Without this, a non-lowest variation price edit is invisible and only
+          // "some" prices ever sync.
+          variants: details.variants ?? existing?.variants,
+          variantsKnown: details.variants != null ? true : existing?.variantsKnown,
           remoteCategoryId: details.remoteCategoryId ?? existing?.remoteCategoryId ?? null,
           aspects: details.aspects.length > 0 ? details.aspects : existing?.aspects,
           acceptOffers: details.acceptOffers ?? existing?.acceptOffers,

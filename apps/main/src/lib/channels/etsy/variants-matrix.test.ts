@@ -6,6 +6,7 @@ import {
   etsyInventoryToVariants,
   etsyInventoryWritePath,
   etsyOnPropertyFields,
+  verifyEtsyOfferingPrices,
 } from "./variants";
 import { MAX_ETSY_AXES } from "@/lib/listing-variant-matrix";
 import { expectedComboSkuCount, shouldRebuildEtsyComboInventory } from "../combo-sync";
@@ -276,6 +277,68 @@ describe("etsyInventoryPricesMatchItem", () => {
         item as never
       )
     ).toBe(true);
+  });
+});
+
+describe("verifyEtsyOfferingPrices (regression guard)", () => {
+  const item = {
+    id: "item-1",
+    priceCents: 100,
+    variants: {
+      axes: [{ name: "Size", values: ["S", "M"] }],
+      skus: [
+        { options: { Size: "S" }, quantity: 2, priceCents: 1800 },
+        { options: { Size: "M" }, quantity: 3, priceCents: 2200 },
+      ],
+    },
+  };
+
+  it("returns matched 0 (not a failure) when no Etsy offering lines up with INW options", () => {
+    const res = verifyEtsyOfferingPrices(
+      [
+        {
+          property_values: [{ property_name: "Talla", values: ["XL"] }],
+          offerings: [{ price: { amount: 100, divisor: 100 } }],
+        },
+      ],
+      item as never
+    );
+    expect(res.matched).toBe(0);
+    expect(res.ok).toBe(false);
+  });
+
+  it("matches across a renamed Etsy property axis (Talla vs Size)", () => {
+    const res = verifyEtsyOfferingPrices(
+      [
+        {
+          property_values: [{ property_name: "Talla", values: ["S"] }],
+          offerings: [{ price: { amount: 1800, divisor: 100 } }],
+        },
+        {
+          property_values: [{ property_name: "Talla", values: ["M"] }],
+          offerings: [{ price: { amount: 2200, divisor: 100 } }],
+        },
+      ],
+      item as never
+    );
+    expect(res.matched).toBe(2);
+    expect(res.mismatched).toBe(0);
+    expect(res.ok).toBe(true);
+  });
+
+  it("flags mismatched matched rows still sitting at the listing price", () => {
+    const res = verifyEtsyOfferingPrices(
+      [
+        {
+          property_values: [{ property_name: "Size", values: ["S"] }],
+          offerings: [{ price: { amount: 100, divisor: 100 } }],
+        },
+      ],
+      item as never
+    );
+    expect(res.matched).toBe(1);
+    expect(res.mismatched).toBe(1);
+    expect(res.ok).toBe(false);
   });
 });
 

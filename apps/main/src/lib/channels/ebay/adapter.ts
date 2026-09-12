@@ -1700,20 +1700,29 @@ async function upsertListing(
               variantOfferBody
             );
             offerIdsBySku.set(row.sku, variantOffer.offerId);
-          } else if (!listingAlreadyOnEbay) {
-            const created = await ebayJson<{ offerId?: string }>(
-              conn.accessToken,
-              `/sell/inventory/v1/offer`,
-              "POST",
-              variantOfferBody
-            );
-            if (created.offerId) offerIdsBySku.set(row.sku, created.offerId);
           } else {
-            console.info("[ebay] skip creating variant offer on live listing", {
-              storeItemId: item.id,
-              sku: row.sku,
-              linkedListingId: resolveEbayLegacyListingId(linkExternalId),
-            });
+            // No offer exists for this variation SKU. Create it (even on a live listing) so
+            // its price/quantity are established and it joins the inventory item group on the
+            // publish below — previously we skipped on live listings, which is why an edited
+            // variation with no offer never received its price ("some variants but not all").
+            try {
+              const created = await ebayJson<{ offerId?: string }>(
+                conn.accessToken,
+                `/sell/inventory/v1/offer`,
+                "POST",
+                variantOfferBody
+              );
+              if (created.offerId) offerIdsBySku.set(row.sku, created.offerId);
+            } catch (e) {
+              // Non-fatal: the group publish/quantity steps still run for the other rows.
+              console.warn("[ebay] create variant offer failed", {
+                storeItemId: item.id,
+                sku: row.sku,
+                listingAlreadyOnEbay,
+                linkedListingId: resolveEbayLegacyListingId(linkExternalId),
+                error: describeEbayThrownError(e),
+              });
+            }
           }
         }
       };

@@ -5,11 +5,11 @@ import { listingDescriptionForHtmlChannel } from "../rich-description";
 import { shopifyProductTypeForInw } from "../category-suggest";
 import { isInwHostedPhotoUrl, isMarketplaceCdnPhotoUrl } from "../photo-urls";
 import { isShopifyNoiseCollectionTitle } from "./collections";
+import { matchInwSkuRow, optionValueSetKey } from "../variant-match";
 import type { ShopifyProductTaxonomyHint } from "./inbound-taxonomy";
 import {
   channelQuantityForTracked,
   isMadeToOrderTracking,
-  optionsEqual,
   pickImageVaryingAxisName,
   minSkuPriceCents,
   sumMatrixQuantities,
@@ -161,11 +161,13 @@ export function shopifyVariantOptionMap(
 export function findMatrixSkuForShopifyVariant(
   matrix: VariantMatrix,
   optionNames: string[],
-  variant: Pick<ShopifyVariant, "option1" | "option2" | "option3">
+  variant: Pick<ShopifyVariant, "option1" | "option2" | "option3"> & { sku?: string | null }
 ): VariantSkuRow | null {
   const map = shopifyVariantOptionMap(optionNames, variant);
-  if (Object.keys(map).length === 0) return null;
-  return matrix.skus.find((s) => optionsEqual(s.options, map)) ?? null;
+  if (Object.keys(map).length === 0 && !variant.sku) return null;
+  // Match by SKU code then axis-name-agnostic option values (Shopify stores options
+  // positionally, so name/order drift must not drop the match).
+  return matchInwSkuRow(matrix, { sku: variant.sku ?? null, options: map }).row;
 }
 
 export function quantityForShopifyRemoteVariant(
@@ -362,13 +364,26 @@ export function buildShopifyUpdateBody(
       values: a.options.map((o) => o.value.slice(0, 255)),
     }));
     const built = cartesianVariants(item, axes, existing);
+    const optionTriple = (o: {
+      option1?: unknown;
+      option2?: unknown;
+      option3?: unknown;
+    }): Record<string, string> => ({
+      a: String(o.option1 ?? ""),
+      b: String(o.option2 ?? ""),
+      c: String(o.option3 ?? ""),
+    });
     product.variants = built.map((v) => {
-      const existingVar = existing?.variants?.find(
-        (ev) =>
-          String(ev.option1 ?? "").toLowerCase() === String(v.option1 ?? "").toLowerCase() &&
-          String(ev.option2 ?? "").toLowerCase() === String(v.option2 ?? "").toLowerCase() &&
-          String(ev.option3 ?? "").toLowerCase() === String(v.option3 ?? "").toLowerCase()
-      );
+      const wantSku = String((v as { sku?: unknown }).sku ?? "").trim().toLowerCase();
+      const wantValues = optionValueSetKey(optionTriple(v));
+      // Attach the existing Shopify variant id by SKU, then by axis-name-agnostic option
+      // values, so an option rename/reorder does not orphan the variant (orphans keep
+      // their old price on the PUT).
+      const existingVar = existing?.variants?.find((ev) => {
+        const evSku = String((ev as { sku?: unknown }).sku ?? "").trim().toLowerCase();
+        if (wantSku && evSku && evSku === wantSku) return true;
+        return wantValues !== "" && optionValueSetKey(optionTriple(ev)) === wantValues;
+      });
       return existingVar?.id != null ? { ...v, id: existingVar.id } : v;
     });
   } else {

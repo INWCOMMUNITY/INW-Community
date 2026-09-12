@@ -185,15 +185,26 @@ export function inferMatrixVaryFlags(matrix: VariantMatrix): {
 }
 
 const VARIANT_PRICE_DRAFT_RE = /^\d*(\.\d{0,2})?$/;
+const VARIANT_QTY_DRAFT_RE = /^\d*$/;
+
+function stripMoneyDecorators(raw: string): string {
+  return raw.replace(/[$\s,]/g, "");
+}
 
 /** True while the seller is typing a price (`""`, `"1"`, `"1."`, `"18.5"`). */
 export function isVariantPriceDraftInput(raw: string): boolean {
-  return VARIANT_PRICE_DRAFT_RE.test(raw.trim());
+  return VARIANT_PRICE_DRAFT_RE.test(stripMoneyDecorators(raw));
+}
+
+/** Keep the typed string if it is still a price draft; otherwise reject the keystroke. */
+export function sanitizePriceDraftInput(raw: string): string | null {
+  const t = stripMoneyDecorators(raw);
+  return VARIANT_PRICE_DRAFT_RE.test(t) ? t : null;
 }
 
 /** Cents from a complete draft. Trailing `.` and empty/invalid values are incomplete. */
 export function variantPriceDraftToCents(raw: string): number | undefined {
-  const t = raw.trim().replace(/^\$/, "");
+  const t = stripMoneyDecorators(raw);
   if (!t || t === "." || t.endsWith(".")) return undefined;
   const n = Number(t);
   if (!Number.isFinite(n) || n <= 0) return undefined;
@@ -211,6 +222,37 @@ export function variantPriceCentsToEditable(cents: number | null | undefined): s
   if (cents == null || cents <= 0) return "";
   const dollars = cents / 100;
   return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
+}
+
+/** `"18.00"` → `"18"` so the next digit becomes `18`, not `18.008`. */
+export function moneyInputToEditable(raw: string): string {
+  const cents = variantPriceDraftToCents(raw);
+  return cents != null ? variantPriceCentsToEditable(cents) : stripMoneyDecorators(raw);
+}
+
+/** `"18"` → `"18.00"` after the field is left. Incomplete drafts stay as typed. */
+export function moneyInputToIdle(raw: string): string {
+  const cents = variantPriceDraftToCents(raw);
+  return cents != null ? formatVariantPriceCents(cents) : stripMoneyDecorators(raw);
+}
+
+export function isVariantQtyDraftInput(raw: string): boolean {
+  return VARIANT_QTY_DRAFT_RE.test(raw.trim());
+}
+
+export function sanitizeQtyDraftInput(raw: string): string {
+  return raw.replace(/\D/g, "");
+}
+
+export function variantQtyDraftToNumber(raw: string): number {
+  const t = sanitizeQtyDraftInput(raw);
+  if (!t) return 0;
+  const n = parseInt(t, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+export function variantQtyToEditable(qty: number): string {
+  return qty > 0 ? String(qty) : "";
 }
 
 export function resolveImageAxisName(matrix: VariantMatrix): string | null {
@@ -294,6 +336,19 @@ export function skuSelectionKey(options: Record<string, string>): string {
     .sort((x, y) => x.toLowerCase().localeCompare(y.toLowerCase()))
     .map((k) => `${k.trim().toLowerCase()}=${String(options[k] ?? "").trim().toLowerCase()}`)
     .join("|");
+}
+
+/**
+ * Axis-name-independent key built from option VALUES only. Used as a fallback when a
+ * remote provider renames axes (Wix "Option", Etsy property_name, eBay Custom Label)
+ * so a value-only match still lines up. Mirrors channels/variant-match.optionValueSetKey.
+ */
+export function optionValuesKey(options: Record<string, string>): string {
+  return Object.values(options)
+    .map((v) => String(v ?? "").trim().toLowerCase())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b))
+    .join("\u0001");
 }
 
 export function findSkuRow(
@@ -688,6 +743,7 @@ export function applyLiveInventoryQuantitiesToMatrix(
   if (!liveQuantities.length) return matrix;
   const bySku = new Map<string, number>();
   const byOptions = new Map<string, number>();
+  const byValues = new Map<string, number>();
   for (const entry of liveQuantities) {
     const n = Number(entry.quantity);
     if (!Number.isFinite(n)) continue;
@@ -696,15 +752,19 @@ export function applyLiveInventoryQuantitiesToMatrix(
     if (sku) bySku.set(sku, qty);
     if (entry.options && Object.keys(entry.options).length > 0) {
       byOptions.set(skuSelectionKey(entry.options), qty);
+      const vk = optionValuesKey(entry.options);
+      if (vk) byValues.set(vk, qty);
     }
   }
-  if (bySku.size === 0 && byOptions.size === 0) return matrix;
+  if (bySku.size === 0 && byOptions.size === 0 && byValues.size === 0) return matrix;
   return {
     ...matrix,
     skus: matrix.skus.map((row) => {
       const skuKey = row.sku?.trim();
       const next =
-        (skuKey ? bySku.get(skuKey) : undefined) ?? byOptions.get(skuSelectionKey(row.options));
+        (skuKey ? bySku.get(skuKey) : undefined) ??
+        byOptions.get(skuSelectionKey(row.options)) ??
+        byValues.get(optionValuesKey(row.options));
       if (next == null) return row;
       return { ...row, quantity: Math.max(0, next) };
     }),
@@ -791,6 +851,7 @@ export function applyRemoteVariantPricesToMatrix(
   if (!remotePrices.length) return matrix;
   const bySku = new Map<string, number>();
   const byOptions = new Map<string, number>();
+  const byValues = new Map<string, number>();
   for (const entry of remotePrices) {
     const n = Number(entry.priceCents);
     if (!Number.isFinite(n) || n <= 0) continue;
@@ -799,14 +860,18 @@ export function applyRemoteVariantPricesToMatrix(
     if (sku) bySku.set(sku, price);
     if (entry.options && Object.keys(entry.options).length > 0) {
       byOptions.set(skuSelectionKey(entry.options), price);
+      const vk = optionValuesKey(entry.options);
+      if (vk) byValues.set(vk, price);
     }
   }
-  if (bySku.size === 0 && byOptions.size === 0) return matrix;
+  if (bySku.size === 0 && byOptions.size === 0 && byValues.size === 0) return matrix;
   let applied = false;
   const skus = matrix.skus.map((row) => {
     const skuKey = row.sku?.trim();
     const next =
-      (skuKey ? bySku.get(skuKey) : undefined) ?? byOptions.get(skuSelectionKey(row.options));
+      (skuKey ? bySku.get(skuKey) : undefined) ??
+      byOptions.get(skuSelectionKey(row.options)) ??
+      byValues.get(optionValuesKey(row.options));
     if (next == null) return row;
     applied = true;
     return { ...row, priceCents: Math.max(1, next) };

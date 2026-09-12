@@ -12,9 +12,16 @@ import {
   minSkuPriceCents,
   stripSkuPricesFromMatrix,
   isVariantPriceDraftInput,
+  isVariantQtyDraftInput,
   formatVariantPriceCents,
+  moneyInputToEditable,
+  moneyInputToIdle,
+  sanitizePriceDraftInput,
+  sanitizeQtyDraftInput,
   variantPriceCentsToEditable,
   variantPriceDraftToCents,
+  variantQtyDraftToNumber,
+  variantQtyToEditable,
   normalizeVariantMatrix,
   rebuildMatrixFromAxes,
   serializeVariantMatrix,
@@ -520,5 +527,20 @@ describe("variant price draft", () => {
     expect(variantPriceDraftToCents("1.")).toBeUndefined();
     expect(variantPriceCentsToEditable(100)).toBe("1");
     expect(formatVariantPriceCents(1800)).toBe("18.00");
+    expect(sanitizePriceDraftInput("1.008")).toBeNull();
+    expect(sanitizePriceDraftInput("$18")).toBe("18");
+    expect(moneyInputToEditable("1.00")).toBe("1");
+    expect(moneyInputToIdle("18")).toBe("18.00");
+  });
+
+  it("keeps quantity as a digit string while typing", () => {
+    expect(isVariantQtyDraftInput("")).toBe(true);
+    expect(isVariantQtyDraftInput("12")).toBe(true);
+    expect(isVariantQtyDraftInput("1.2")).toBe(false);
+    expect(sanitizeQtyDraftInput("12 pcs")).toBe("12");
+    expect(variantQtyDraftToNumber("")).toBe(0);
+    expect(variantQtyDraftToNumber("12")).toBe(12);
+    expect(variantQtyToEditable(0)).toBe("");
+    expect(variantQtyToEditable(12)).toBe("12");
   });
 });
