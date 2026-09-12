@@ -4,6 +4,7 @@ import {
   mergeImportedShippingOption,
   parseShippingCostCentsInput,
   importedListingShippingPatch,
+  importedListingShippingPatchAlreadyApplied,
 } from "./shipping-options";
 
 describe("mergeImportedShippingOption", () => {
@@ -133,5 +134,25 @@ describe("importedListingShippingPatch", () => {
         matchedOption: { id: "ebay-opt", shippingCostCents: 400 },
       })
     ).toBeNull();
+  });
+});
+
+describe("importedListingShippingPatchAlreadyApplied", () => {
+  it("is true when the listing already has the patch values", () => {
+    expect(
+      importedListingShippingPatchAlreadyApplied(
+        { shippingOptionId: "opt-1", shippingCostCents: 0 },
+        { shippingOptionId: "opt-1", shippingCostCents: 0 }
+      )
+    ).toBe(true);
+  });
+
+  it("is false when shipping cost would change", () => {
+    expect(
+      importedListingShippingPatchAlreadyApplied(
+        { shippingOptionId: "opt-1", shippingCostCents: 400 },
+        { shippingOptionId: "opt-1", shippingCostCents: 0 }
+      )
+    ).toBe(false);
   });
 });

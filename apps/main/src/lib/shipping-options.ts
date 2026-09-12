@@ -71,6 +71,23 @@ export type ImportedListingShippingPatch = {
   shippingCostCents?: number;
 };
 
+/** True when writing `patch` would not change the listing — skip so Prisma does not bump updatedAt. */
+export function importedListingShippingPatchAlreadyApplied(
+  listing: { shippingOptionId: string | null; shippingCostCents: number | null },
+  patch: ImportedListingShippingPatch
+): boolean {
+  if (patch.shippingOptionId !== undefined && patch.shippingOptionId !== listing.shippingOptionId) {
+    return false;
+  }
+  if (
+    patch.shippingCostCents !== undefined &&
+    patch.shippingCostCents !== listing.shippingCostCents
+  ) {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Choose the listing's marketplace shipping option (and its INW price) on import.
  * Shop-default eBay policies are not used. INW-created packages are left alone.
@@ -379,6 +396,8 @@ export async function attachShippingOptionOnImport(args: {
     prisma.storeItem.findUnique({
       where: { id: args.storeItemId },
       select: {
+        shippingOptionId: true,
+        shippingCostCents: true,
         shippingOption: { select: { source: true } },
       },
     }),
@@ -417,6 +436,17 @@ export async function attachShippingOptionOnImport(args: {
       : null,
   });
   if (!patch) return;
+  if (
+    importedListingShippingPatchAlreadyApplied(
+      {
+        shippingOptionId: listing.shippingOptionId,
+        shippingCostCents: listing.shippingCostCents,
+      },
+      patch
+    )
+  ) {
+    return;
+  }
 
   await prisma.storeItem.update({
     where: { id: args.storeItemId },

@@ -1252,7 +1252,7 @@ describe("ebayCronShouldPushOutbound", () => {
     ).toBe(false);
   });
 
-  it("does NOT push while a per-SKU GetItem snapshot is held", () => {
+  it("does NOT push while a listing-level GetItem snapshot is held", () => {
     expect(
       ebayCronShouldPushOutbound({
         syncEnabled: true,
@@ -1261,7 +1261,18 @@ describe("ebayCronShouldPushOutbound", () => {
         inwUpdatedAt: inw,
         lastPushedAt: new Date("2026-09-09T16:00:00.000Z"),
         lastInboundAt: new Date("2026-09-09T16:00:00.000Z"),
-        pendingVariantInbound: true,
+        pendingInbound: true,
+      })
+    ).toBe(false);
+    expect(
+      ebayCronShouldPushOutbound({
+        syncEnabled: true,
+        syncStatus: "error",
+        ended: false,
+        inwUpdatedAt: inw,
+        lastPushedAt: inw,
+        lastInboundAt: inw,
+        pendingInbound: true,
       })
     ).toBe(false);
   });

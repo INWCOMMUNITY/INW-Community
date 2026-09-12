@@ -1020,18 +1020,6 @@ export async function refreshEbayListingByItemId(
     }
   }
 
-  await attachShippingOptionOnImport({
-    memberId: storeItem.memberId,
-    storeItemId: storeItem.id,
-    source: "ebay",
-    hint: { remoteProfileId: details.remoteShippingProfileId },
-  }).catch((e) =>
-    console.warn("[ebay] attach shipping option on GetItem pull failed", {
-      storeItemId: storeItem.id,
-      error: String(e),
-    })
-  );
-
   const forceQtyFromLiveCatchUp = Boolean(liveQtyCatchUp?.inwNeedsUpdate);
   if (!opts?.force && applyDecision.action !== "apply" && !forceQtyFromLiveCatchUp) {
     if (applyDecision.action === "pending" && applyDecision.pendingHash) {
@@ -1089,6 +1077,20 @@ export async function refreshEbayListingByItemId(
       changes: [],
     };
   }
+
+  // Only after we are going to apply. A Prisma write here on skip/pending bumps
+  // storeItem.updatedAt and the cron then pushes INW's old qty/price over the eBay edit.
+  await attachShippingOptionOnImport({
+    memberId: storeItem.memberId,
+    storeItemId: storeItem.id,
+    source: "ebay",
+    hint: { remoteProfileId: details.remoteShippingProfileId },
+  }).catch((e) =>
+    console.warn("[ebay] attach shipping option on GetItem pull failed", {
+      storeItemId: storeItem.id,
+      error: String(e),
+    })
+  );
 
   const normalizedAspects = normalizeListingAspects(details.aspects);
   const remoteTitle = (details.title ?? storeItem.title).slice(0, 200);
@@ -1881,7 +1883,10 @@ export async function pullEbayUpdatesForConnection(
     const byRemote = indexEbaySellerList(sellerList);
     const dirty: typeof links = [];
     for (const link of links) {
-      if (readEbayPendingVariantInboundHash(link.conflictDetails)) {
+      if (
+        readEbayPendingVariantInboundHash(link.conflictDetails) ||
+        readEbayPendingInboundHash(link.conflictDetails)
+      ) {
         dirty.push(link);
         continue;
       }
@@ -2001,11 +2006,14 @@ export function ebayCronShouldPushOutbound(args: {
   dirtyInboundUnconfirmed?: boolean;
   /** Per-SKU GetItem snapshot is held; pushing qty would snap the seller's eBay edit. */
   pendingVariantInbound?: boolean;
+  /** Listing-level GetItem snapshot is held; pushing would snap the seller's eBay edit. */
+  pendingInbound?: boolean;
 }): boolean {
   if (!args.syncEnabled || args.ended) return false;
   // A dirty eBay row we could not read conclusively wins over an automatic INW re-push.
   if (args.dirtyInboundUnconfirmed) return false;
   if (args.pendingVariantInbound) return false;
+  if (args.pendingInbound) return false;
   if (args.syncStatus === "error") return true;
   if (!args.inwUpdatedAt) return false;
   const inw = args.inwUpdatedAt.getTime();
@@ -2073,6 +2081,7 @@ export async function pushFailedEbayOutboundForConnection(
       lastInboundAt: link.lastInboundAt,
       dirtyInboundUnconfirmed: ebayDirtyInboundUnconfirmed(link.conflictDetails),
       pendingVariantInbound: Boolean(readEbayPendingVariantInboundHash(link.conflictDetails)),
+      pendingInbound: Boolean(readEbayPendingInboundHash(link.conflictDetails)),
     });
   }).slice(0, EBAY_CRON_FAILED_OUTBOUND_LIMIT);
   const storeItemIds: string[] = [];
