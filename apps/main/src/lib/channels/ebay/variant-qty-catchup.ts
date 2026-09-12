@@ -52,8 +52,19 @@ export function chooseEbayLiveListingQuantity(args: {
     }
     return { quantity: offer, source: "offer", writeOffers: false };
   }
-  if (trading != null) return { quantity: trading, source: "trading", writeOffers: true };
-  if (inventory != null) return { quantity: inventory, source: "inventory", writeOffers: true };
+  // Offer search often omits availableQuantity (or sends a string). Do not let
+  // a stale GetItem overwrite Seller Hub inventory in that case.
+  if (inventory != null && trading != null && inventory !== trading) {
+    return { quantity: inventory, source: "inventory", writeOffers: true };
+  }
+  if (inventory != null && inw != null && inventory !== inw) {
+    return { quantity: inventory, source: "inventory", writeOffers: true };
+  }
+  if (trading != null && inw != null && trading !== inw && !args.tradingLooksDegraded) {
+    return { quantity: trading, source: "trading", writeOffers: true };
+  }
+  if (inventory != null) return { quantity: inventory, source: "inventory", writeOffers: false };
+  if (trading != null) return { quantity: trading, source: "trading", writeOffers: false };
   if (inw != null) return { quantity: inw, source: "inw", writeOffers: false };
   return null;
 }
@@ -114,24 +125,38 @@ function tradingQtyForRow(
   return hit?.quantity ?? null;
 }
 
+function readEbayOfferAvailableQuantity(raw: unknown): number | null {
+  if (raw == null || raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.max(0, Math.round(n)) : null;
+}
+
 async function fetchEbayOfferQuantity(
   accessToken: string,
   sku: string
 ): Promise<{ offerId: string | null; quantity: number | null }> {
   try {
     const res = await ebayGet<{
-      offers?: Array<{ offerId?: string; status?: string; availableQuantity?: number }>;
+      offers?: Array<{ offerId?: string; status?: string; availableQuantity?: unknown }>;
     }>(
       accessToken,
       `/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}&marketplace_id=${EBAY_MARKETPLACE_ID}`
     );
     const offer = pickEbayOffer(res.offers);
-    if (!offer) return { offerId: null, quantity: null };
-    const raw = offer.availableQuantity;
-    return {
-      offerId: offer.offerId ?? null,
-      quantity: typeof raw === "number" && Number.isFinite(raw) ? Math.max(0, Math.round(raw)) : null,
-    };
+    if (!offer?.offerId) return { offerId: null, quantity: null };
+    let quantity = readEbayOfferAvailableQuantity(offer.availableQuantity);
+    if (quantity == null) {
+      try {
+        const details = await ebayGet<{ availableQuantity?: unknown }>(
+          accessToken,
+          `/sell/inventory/v1/offer/${encodeURIComponent(offer.offerId)}`
+        );
+        quantity = readEbayOfferAvailableQuantity(details.availableQuantity);
+      } catch {
+        // Keep offerId so a later write can still update the live listing.
+      }
+    }
+    return { offerId: offer.offerId, quantity };
   } catch {
     return { offerId: null, quantity: null };
   }
@@ -142,7 +167,7 @@ async function fetchEbayOfferQuantity(
  * seller-hub number onto inventory + offers so View Item updates, then return those
  * quantities for INW.
  */
-export async function catchUpEbayLiveVariantQuantities(args: {
+async function catchUpEbayLiveVariantQuantitiesOnce(args: {
   accessToken: string;
   inwMatrix: VariantMatrix;
   tradingMatrix: VariantMatrix | null;
@@ -185,4 +210,23 @@ export async function catchUpEbayLiveVariantQuantities(args: {
   }
 
   return { quantities, wroteOffers: writes.length > 0, inwNeedsUpdate };
+}
+
+/**
+ * When Seller Hub qty (inventory/Trading) disagrees with the live offer, write the
+ * seller-hub number onto inventory + offers so View Item updates, then return those
+ * quantities for INW. ItemRevised often arrives before Inventory/offer catch up —
+ * webhook callers pass retryIfUnchangedMs so we re-read once.
+ */
+export async function catchUpEbayLiveVariantQuantities(args: {
+  accessToken: string;
+  inwMatrix: VariantMatrix;
+  tradingMatrix: VariantMatrix | null;
+  retryIfUnchangedMs?: number;
+}): Promise<EbayLiveQtyCatchUp> {
+  const first = await catchUpEbayLiveVariantQuantitiesOnce(args);
+  const retryMs = args.retryIfUnchangedMs ?? 0;
+  if (retryMs <= 0 || first.wroteOffers || first.inwNeedsUpdate) return first;
+  await new Promise((resolve) => setTimeout(resolve, retryMs));
+  return catchUpEbayLiveVariantQuantitiesOnce(args);
 }

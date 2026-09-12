@@ -916,11 +916,7 @@ export async function refreshEbayListingByItemId(
   await clearRemoteDeletedNoticeIfSet(link.id, conflictDetails);
 
   let liveQtyCatchUp: EbayLiveQtyCatchUp | null = null;
-  if (
-    !opts?.skipQuantity &&
-    ebayApplyTrustsSingleSnapshot(opts?.source) &&
-    hasOptionQuantities(storeItem.variants)
-  ) {
+  if (!opts?.skipQuantity && hasOptionQuantities(storeItem.variants)) {
     const catchUpMatrix = normalizeVariantMatrix(storeItem.variants);
     if (catchUpMatrix) {
       try {
@@ -928,6 +924,7 @@ export async function refreshEbayListingByItemId(
           accessToken,
           inwMatrix: catchUpMatrix,
           tradingMatrix: normalizeVariantMatrix(details.variants),
+          retryIfUnchangedMs: opts?.source === "webhook" ? 2500 : 0,
         });
       } catch (e) {
         console.warn("[ebay] live listing qty catch-up failed", {

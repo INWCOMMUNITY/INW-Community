@@ -55,6 +55,17 @@ describe("chooseEbayLiveListingQuantity", () => {
       })
     ).toEqual({ quantity: 4, source: "offer", writeOffers: false });
   });
+
+  it("prefers Seller Hub inventory when live offer qty is missing", () => {
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 4,
+        inventoryQty: 9,
+        offerQty: null,
+        inwQty: 4,
+      })
+    ).toEqual({ quantity: 9, source: "inventory", writeOffers: true });
+  });
 });
 
 describe("ebayContentPushShouldWriteVariantQuantities", () => {
