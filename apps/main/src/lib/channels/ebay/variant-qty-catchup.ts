@@ -61,11 +61,21 @@ export function chooseEbayLiveListingQuantity(args: {
     return { quantity: trading, source: "trading", writeOffers: true };
   }
 
+  // eBay updates inventory_item and the offer at different times, so on a Seller Hub
+  // revise one of them still holds INW's number. Whichever surface still equals INW is
+  // our own echo — copying it over the other one is what silently erased seller edits.
   if (inventory != null && offer != null) {
-    if (inventory !== offer) {
+    if (inventory === offer) {
+      return { quantity: offer, source: "offer", writeOffers: false };
+    }
+    if (inw != null && inventory === inw) {
+      return { quantity: offer, source: "offer", writeOffers: true };
+    }
+    if (inw != null && offer === inw) {
       return { quantity: inventory, source: "inventory", writeOffers: true };
     }
-    return { quantity: offer, source: "offer", writeOffers: false };
+    // Both moved away from INW: the live listing is what buyers see.
+    return { quantity: offer, source: "offer", writeOffers: true };
   }
   if (offer != null) {
     return { quantity: offer, source: "offer", writeOffers: false };

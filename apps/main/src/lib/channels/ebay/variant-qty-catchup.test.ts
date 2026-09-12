@@ -22,6 +22,29 @@ describe("chooseEbayLiveListingQuantity", () => {
     ).toEqual({ quantity: 9, source: "inventory", writeOffers: true });
   });
 
+  it("keeps a seller edit that landed on the offer while inventory still echoes INW", () => {
+    // The bug: we used to take inventory (still INW's 3) and write it over the seller's 1.
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 3,
+        inventoryQty: 3,
+        offerQty: 1,
+        inwQty: 3,
+      })
+    ).toEqual({ quantity: 1, source: "offer", writeOffers: true });
+  });
+
+  it("prefers the live offer when inventory and offer both moved off INW", () => {
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 3,
+        inventoryQty: 7,
+        offerQty: 5,
+        inwQty: 3,
+      })
+    ).toEqual({ quantity: 5, source: "offer", writeOffers: true });
+  });
+
   it("does not copy lagged GetItem onto the offer when inventory already matches View Item", () => {
     expect(
       chooseEbayLiveListingQuantity({
