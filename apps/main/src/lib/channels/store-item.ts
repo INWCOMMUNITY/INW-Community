@@ -5,19 +5,24 @@ import { resolveChannelPhotoUrls } from "./photo-urls";
 export const syncStoreItemSelect = {
   id: true,
   sku: true,
+  barcode: true,
   title: true,
   description: true,
   photos: true,
   priceCents: true,
+  compareAtPriceCents: true,
   quantity: true,
   inventoryTracking: true,
   variants: true,
   status: true,
   condition: true,
   shippingCostCents: true,
+  shippingDisabled: true,
   category: true,
   subcategory: true,
   secondaryCategory: true,
+  tags: true,
+  vendor: true,
   etsyWhoMade: true,
   etsyWhenMade: true,
   etsyIsSupply: true,
@@ -44,19 +49,24 @@ export const syncStoreItemSelect = {
 type StoreItemLike = {
   id: string;
   sku: string | null;
+  barcode: string | null;
   title: string;
   description: string | null;
   photos: string[];
   priceCents: number;
+  compareAtPriceCents: number | null;
   quantity: number;
   inventoryTracking?: string | null;
   variants: unknown;
   status: string;
   condition: string | null;
   shippingCostCents: number | null;
+  shippingDisabled: boolean;
   category: string | null;
   subcategory: string | null;
   secondaryCategory: string | null;
+  tags: string[];
+  vendor: string | null;
   etsyWhoMade: string | null;
   etsyWhenMade: string | null;
   etsyIsSupply: boolean | null;
@@ -82,19 +92,24 @@ export function toSyncStoreItem(item: StoreItemLike): SyncStoreItem {
   return {
     id: item.id,
     sku: item.sku,
+    barcode: item.barcode ?? null,
     title: item.title,
     description: item.description,
     photos: resolveChannelPhotoUrls(Array.isArray(item.photos) ? item.photos : []),
     priceCents: item.priceCents,
+    compareAtPriceCents: item.compareAtPriceCents ?? null,
     quantity: item.quantity,
     inventoryTracking: item.inventoryTracking ?? "tracked",
     variants: item.variants,
     status: item.status,
     condition: item.condition,
     shippingCostCents: item.shippingCostCents ?? item.shippingOption?.shippingCostCents ?? null,
+    shippingDisabled: item.shippingDisabled ?? false,
     category: item.category,
     subcategory: item.subcategory,
     secondaryCategory: item.secondaryCategory,
+    tags: Array.isArray(item.tags) ? item.tags : [],
+    vendor: item.vendor ?? null,
     etsyWhoMade: item.etsyWhoMade,
     etsyWhenMade: item.etsyWhenMade,
     etsyIsSupply: item.etsyIsSupply,

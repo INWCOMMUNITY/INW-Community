@@ -30,8 +30,10 @@ export type VariantSkuRow = {
   options: Record<string, string>;
   quantity: number;
   priceCents?: number;
+  compareAtPriceCents?: number;
   photos?: string[];
   sku?: string;
+  barcode?: string;
 };
 
 export type VariantMatrix = {

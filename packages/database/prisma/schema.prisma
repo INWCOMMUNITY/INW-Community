@@ -939,6 +939,8 @@ model StoreItem {
   id                  String   @id @default(cuid())
   /// User-defined SKU for channel sync; defaults to item.id if unset.
   sku                 String?  @map("sku")
+  /// UPC, EAN, GTIN, or ISBN barcode. Mapped to Shopify variant barcode.
+  barcode             String?  @map("barcode")
   memberId            String   @map("member_id")
   businessId          String?  @map("business_id")
   title               String
@@ -949,10 +951,16 @@ model StoreItem {
   secondaryCategory   String?  @map("secondary_category")
   subcategory         String?  @map("subcategory")
   priceCents          Int      @map("price_cents")
+  /// "Was" / strikethrough price in cents; shown as compare_at_price on Shopify / sale pricing.
+  compareAtPriceCents Int?     @map("compare_at_price_cents")
   variants            Json?    // matrix { axes, skus } or legacy [{ name, options }]
   /// Item specifics / product aspects: [{ name: "Brand", value: "Nike" }, ...].
   /// Maps to eBay product.aspects; ignored by Etsy/Wix/Shopify adapters.
   aspects             Json?    @map("aspects")
+  /// Comma-separated or array of searchable tags. Maps to Shopify tags, used for smart collections.
+  tags                String[] @default([])
+  /// Manufacturer or brand name. Maps to Shopify vendor.
+  vendor              String?  @map("vendor")
   quantity            Int      @default(0)
   /// tracked | made_to_order — made_to_order does not require or decrement stock.
   inventoryTracking   String   @default("tracked") @map("inventory_tracking")

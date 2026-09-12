@@ -171,6 +171,10 @@ export async function applyRemoteContentToStoreItem(
             description: storeListingDescription(safeRemote.description),
             photos: photosToWrite,
             ...(applyPrice ? { priceCents: safeRemote.priceCents } : {}),
+            ...(safeRemote.compareAtPriceCents != null ? { compareAtPriceCents: safeRemote.compareAtPriceCents } : {}),
+            ...(safeRemote.tags?.length ? { tags: safeRemote.tags } : {}),
+            ...(safeRemote.vendor ? { vendor: safeRemote.vendor } : {}),
+            ...(safeRemote.barcode ? { barcode: safeRemote.barcode } : {}),
           }
         : hostedPhotosChanged
           ? { photos: photosToWrite }

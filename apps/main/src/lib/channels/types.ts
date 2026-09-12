@@ -19,10 +19,14 @@ export type SyncStoreItem = {
   id: string;
   /** User-defined SKU; if unset, adapters should fall back to item.id. */
   sku: string | null;
+  /** UPC/EAN/GTIN/ISBN barcode for POS and Google Shopping feeds. */
+  barcode: string | null;
   title: string;
   description: string | null;
   photos: string[];
   priceCents: number;
+  /** "Was" / strikethrough price in cents (Shopify compare_at_price). */
+  compareAtPriceCents: number | null;
   quantity: number;
   variants: unknown;
   /** tracked | made_to_order */
@@ -33,7 +37,13 @@ export type SyncStoreItem = {
   category: string | null;
   subcategory: string | null;
   secondaryCategory: string | null;
+  /** Searchable tags (Shopify smart collections, storefront filters). */
+  tags: string[];
+  /** Manufacturer or brand name (Shopify vendor). */
+  vendor: string | null;
   shippingCostCents: number | null;
+  /** Whether shipping is disabled (digital products). */
+  shippingDisabled?: boolean;
   /** Assigned package template used for Shippo and channel package fields. */
   package?: {
     source?: string | null;
@@ -93,9 +103,17 @@ export type RemoteListingSummary = {
   title: string;
   /** Remote SKU for the listing. */
   sku?: string | null;
+  /** UPC/EAN/GTIN barcode from the remote listing. */
+  barcode?: string | null;
   description: string | null;
   priceCents: number;
+  /** "Was" / strikethrough price in cents. */
+  compareAtPriceCents?: number | null;
   quantity: number;
+  /** Shopify tags (comma-separated). */
+  tags?: string[];
+  /** Shopify vendor / brand name. */
+  vendor?: string | null;
   /** False when the channel API did not return real stock (do not use qty for catalog reconcile). */
   quantityKnown?: boolean;
   photos: string[];

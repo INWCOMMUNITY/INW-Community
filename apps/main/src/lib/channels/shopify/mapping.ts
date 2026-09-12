@@ -17,6 +17,21 @@ import {
   type VariantSkuRow,
 } from "@/lib/listing-variant-matrix";
 
+/** Convert Shopify weight to ounces. */
+function convertWeightToOz(weight: number, unit?: string | null): number {
+  switch (unit?.toLowerCase()) {
+    case "g":
+      return Math.round(weight * 0.035274 * 100) / 100;
+    case "kg":
+      return Math.round(weight * 35.274 * 100) / 100;
+    case "lb":
+      return Math.round(weight * 16 * 100) / 100;
+    case "oz":
+    default:
+      return weight;
+  }
+}
+
 /** cents -> "12.34" (Shopify expects a decimal string). */
 export function shopifyPriceFromCents(cents: number): string {
   return (Math.max(0, Math.round(cents)) / 100).toFixed(2);
@@ -30,14 +45,19 @@ export function shopifyPriceToCents(price?: string | null): number {
 export type ShopifyVariant = {
   id?: number;
   sku?: string | null;
+  barcode?: string | null;
   price?: string;
+  compare_at_price?: string | null;
   inventory_quantity?: number;
   inventory_management?: string | null;
   inventory_item_id?: number;
+  inventory_policy?: string | null;
   option1?: string | null;
   option2?: string | null;
   option3?: string | null;
   requires_shipping?: boolean;
+  weight?: number;
+  weight_unit?: string;
   image_id?: number | null;
   image?: { id?: number; src?: string } | null;
 };
@@ -47,6 +67,7 @@ export type ShopifyProduct = {
   title?: string;
   body_html?: string | null;
   product_type?: string | null;
+  vendor?: string | null;
   tags?: string | string[] | null;
   status?: string | null;
   updated_at?: string;
@@ -194,8 +215,18 @@ function cartesianVariants(
         price: shopifyPriceFromCents(sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents),
         inventory_management: shopifyInventoryManagement(item),
         inventory_quantity: channelQuantityForTracked(sku.quantity, item.inventoryTracking),
-        requires_shipping: true,
+        inventory_policy: shopifyInventoryPolicy(item),
+        requires_shipping: !item.shippingDisabled,
       };
+      if (sku.barcode) variant.barcode = sku.barcode;
+      const skuCompareAt = sku.compareAtPriceCents ?? item.compareAtPriceCents;
+      if (skuCompareAt != null && skuCompareAt > 0) {
+        variant.compare_at_price = shopifyPriceFromCents(skuCompareAt);
+      }
+      if (item.package?.weightOz != null && item.package.weightOz > 0) {
+        variant.weight = item.package.weightOz;
+        variant.weight_unit = "oz";
+      }
       if (labels[0]) variant.option1 = labels[0];
       if (labels[1]) variant.option2 = labels[1];
       if (labels[2]) variant.option3 = labels[2];
@@ -235,13 +266,32 @@ function cartesianVariants(
       price: shopifyPriceFromCents(item.priceCents),
       inventory_management: shopifyInventoryManagement(item),
       inventory_quantity: channelQuantityForTracked(c.qty, item.inventoryTracking),
-      requires_shipping: true,
+      inventory_policy: shopifyInventoryPolicy(item),
+      requires_shipping: !item.shippingDisabled,
     };
+    if (item.compareAtPriceCents != null && item.compareAtPriceCents > 0) {
+      variant.compare_at_price = shopifyPriceFromCents(item.compareAtPriceCents);
+    }
+    if (item.package?.weightOz != null && item.package.weightOz > 0) {
+      variant.weight = item.package.weightOz;
+      variant.weight_unit = "oz";
+    }
     if (c.labels[0]) variant.option1 = c.labels[0];
     if (c.labels[1]) variant.option2 = c.labels[1];
     if (c.labels[2]) variant.option3 = c.labels[2];
     return variant;
   });
+}
+
+/** Map INW status to Shopify product status. */
+function shopifyStatusFromInw(status: string): string {
+  if (status === "inactive") return "archived";
+  return "active";
+}
+
+/** Map INW inventoryTracking to Shopify inventory_policy. */
+function shopifyInventoryPolicy(item: Pick<SyncStoreItem, "inventoryTracking">): string {
+  return isMadeToOrderTracking(item.inventoryTracking) ? "continue" : "deny";
 }
 
 /** Build `POST /products.json` body with multi-option variants when present. */
@@ -251,7 +301,10 @@ export function buildShopifyCreateBody(item: SyncStoreItem): Record<string, unkn
     title: item.title.slice(0, 255),
     body_html: listingDescriptionForHtmlChannel(item.description, ""),
     product_type: shopifyProductTypeForInw(item.category, item.subcategory) || undefined,
+    status: shopifyStatusFromInw(item.status),
   };
+  if (item.vendor) product.vendor = item.vendor;
+  if (item.tags?.length) product.tags = item.tags.join(", ");
 
   if (axes && axes.length > 0) {
     product.options = axes.slice(0, 3).map((a) => ({
@@ -260,15 +313,23 @@ export function buildShopifyCreateBody(item: SyncStoreItem): Record<string, unkn
     }));
     product.variants = cartesianVariants(item, axes);
   } else {
-    product.variants = [
-      {
-        sku: getEffectiveSku(item),
-        price: shopifyPriceFromCents(item.priceCents),
-        inventory_management: shopifyInventoryManagement(item),
-        inventory_quantity: channelQuantityForTracked(item.quantity, item.inventoryTracking),
-        requires_shipping: true,
-      },
-    ];
+    const variant: Record<string, unknown> = {
+      sku: getEffectiveSku(item),
+      price: shopifyPriceFromCents(item.priceCents),
+      inventory_management: shopifyInventoryManagement(item),
+      inventory_quantity: channelQuantityForTracked(item.quantity, item.inventoryTracking),
+      inventory_policy: shopifyInventoryPolicy(item),
+      requires_shipping: !item.shippingDisabled,
+    };
+    if (item.barcode) variant.barcode = item.barcode;
+    if (item.compareAtPriceCents != null && item.compareAtPriceCents > 0) {
+      variant.compare_at_price = shopifyPriceFromCents(item.compareAtPriceCents);
+    }
+    if (item.package?.weightOz != null && item.package.weightOz > 0) {
+      variant.weight = item.package.weightOz;
+      variant.weight_unit = "oz";
+    }
+    product.variants = [variant];
   }
 
   const photos = item.photos.slice(0, 10);
@@ -290,7 +351,10 @@ export function buildShopifyUpdateBody(
     title: item.title.slice(0, 255),
     body_html: listingDescriptionForHtmlChannel(item.description, ""),
     product_type: shopifyProductTypeForInw(item.category, item.subcategory) || undefined,
+    status: shopifyStatusFromInw(item.status),
   };
+  if (item.vendor) product.vendor = item.vendor;
+  if (item.tags?.length) product.tags = item.tags.join(", ");
 
   if (axes && axes.length > 0) {
     product.options = axes.slice(0, 3).map((a) => ({
@@ -312,8 +376,18 @@ export function buildShopifyUpdateBody(
     const variant: Record<string, unknown> = {
       sku: getEffectiveSku(item),
       price: shopifyPriceFromCents(item.priceCents),
-      requires_shipping: true,
+      requires_shipping: !item.shippingDisabled,
     };
+    if (item.barcode) variant.barcode = item.barcode;
+    if (item.compareAtPriceCents != null && item.compareAtPriceCents > 0) {
+      variant.compare_at_price = shopifyPriceFromCents(item.compareAtPriceCents);
+    } else {
+      variant.compare_at_price = null;
+    }
+    if (item.package?.weightOz != null && item.package.weightOz > 0) {
+      variant.weight = item.package.weightOz;
+      variant.weight_unit = "oz";
+    }
     if (variantId != null) variant.id = variantId;
     product.variants = [variant];
   }
@@ -358,11 +432,14 @@ export function shopifyProductToVariants(product: ShopifyProduct): VariantMatrix
     const photo =
       v.image?.src?.trim() ||
       product.images?.find((img) => img.id != null && img.id === v.image_id)?.src?.trim();
+    const compareAtPriceCents = shopifyPriceToCents(v.compare_at_price);
     return {
       options: optMap,
       quantity: Math.max(0, v.inventory_quantity ?? 0),
       ...(priceCents > 0 ? { priceCents } : {}),
+      ...(compareAtPriceCents > 0 ? { compareAtPriceCents } : {}),
       ...(v.sku?.trim() ? { sku: v.sku.trim() } : {}),
+      ...(v.barcode?.trim() ? { barcode: v.barcode.trim() } : {}),
       ...(photo ? { photos: [photo] } : {}),
     };
   }).filter((s) => Object.keys(s.options).length > 0);
@@ -409,6 +486,11 @@ export function shopifyProductToSummary(
     collectionName,
     taxonomy?.fullName
   );
+  const compareAtPriceCents = shopifyPriceToCents(variant?.compare_at_price);
+  const weightOz = variant?.weight != null && variant.weight > 0
+    ? convertWeightToOz(variant.weight, variant.weight_unit)
+    : null;
+
   return {
     externalListingId: product.id != null ? String(product.id) : "",
     title: product.title || "Shopify product",
@@ -416,16 +498,21 @@ export function shopifyProductToSummary(
     priceCents: matrix
       ? minSkuPriceCents(matrix, shopifyPriceToCents(variant?.price))
       : shopifyPriceToCents(variant?.price),
+    compareAtPriceCents: compareAtPriceCents > 0 ? compareAtPriceCents : null,
     quantity: totalQty,
     quantityKnown: true,
     sku: variant?.sku?.trim() || null,
+    barcode: variant?.barcode?.trim() || null,
     photos,
     category,
     subcategory,
+    tags: shopifyTagsList(product.tags),
+    vendor: product.vendor?.trim() || null,
     remoteCategoryId: taxonomy?.gid ?? null,
     remoteUpdatedAt: product.updated_at ? new Date(product.updated_at) : null,
     variants: matrix ?? undefined,
     variantsKnown: matrix != null,
-    shippingKnown: false,
+    shippingKnown: weightOz != null,
+    packageWeightOz: weightOz,
   };
 }
