@@ -475,6 +475,13 @@ export async function updateStoreItemOnChannels(
     if (skip.has(provider)) {
       continue;
     }
+    // A disconnected (or missing-token) connection can never produce a context, so
+    // withConnectionAuthRetry throws on every linked item — filling the logs with
+    // "Channel connection unavailable" errors. Skip silently.
+    if (link.connection.status === "disconnected" || link.connection.status === "revoked") {
+      results.push({ provider, ok: true, skipped: "sync_disabled" });
+      continue;
+    }
     if (shouldSkipEndedEbayOutbound(provider, link.conflictDetails)) {
       results.push({ provider, ok: true });
       continue;

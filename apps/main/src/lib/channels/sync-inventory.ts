@@ -74,6 +74,10 @@ export async function syncInventoryToChannels(
   for (const link of links) {
     const provider = link.provider as ChannelProvider;
     if (skip.has(provider)) continue;
+    if (link.connection.status === "disconnected" || link.connection.status === "revoked") {
+      results.push({ provider, ok: true, skipped: "sync_disabled" });
+      continue;
+    }
     if (shouldSkipEndedEbayOutbound(provider, link.conflictDetails)) {
       results.push({ provider, ok: true });
       continue;
