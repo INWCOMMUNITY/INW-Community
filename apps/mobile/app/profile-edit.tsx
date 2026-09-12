@@ -50,11 +50,17 @@ interface ProfileData {
   lastName: string;
   email: string;
   profilePhotoUrl: string | null;
+  coverPhotoUrl?: string | null;
   bio: string | null;
   city: string | null;
   phone: string | null;
   deliveryAddress?: DeliveryAddress | null;
   privacyLevel?: "public" | "friends_only" | "completely_private";
+}
+
+function toFullUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return url.startsWith("http") ? url : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
 }
 
 export default function ProfileEditScreen() {
@@ -64,6 +70,7 @@ export default function ProfileEditScreen() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
   const [error, setError] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -71,6 +78,7 @@ export default function ProfileEditScreen() {
   const [city, setCity] = useState("");
   const [phone, setPhone] = useState("");
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+  const [coverPhotoUrl, setCoverPhotoUrl] = useState<string | null>(null);
   const [deliveryAddress, setDeliveryAddress] = useState<AddressValue>({
     street: "",
     aptOrSuite: "",
@@ -83,6 +91,26 @@ export default function ProfileEditScreen() {
   const [deleting, setDeleting] = useState(false);
   const [privacyLevel, setPrivacyLevel] = useState<"public" | "friends_only" | "completely_private">("public");
 
+  const applyLoadedProfile = (d: ProfileData) => {
+    setFirstName(d.firstName ?? "");
+    setLastName(d.lastName ?? "");
+    setBio(d.bio ?? "");
+    setCity(d.city ?? "");
+    setPhone(d.phone ?? "");
+    setProfilePhotoUrl(toFullUrl(d.profilePhotoUrl));
+    setCoverPhotoUrl(toFullUrl(d.coverPhotoUrl));
+    if (d.deliveryAddress) {
+      setDeliveryAddress({
+        street: d.deliveryAddress.street ?? "",
+        aptOrSuite: "",
+        city: d.deliveryAddress.city ?? "",
+        state: d.deliveryAddress.state ?? "",
+        zip: d.deliveryAddress.zip ?? "",
+      });
+    }
+    if (d.privacyLevel) setPrivacyLevel(d.privacyLevel);
+  };
+
   useEffect(() => {
     getToken().then(async (token) => {
       if (!token) {
@@ -92,22 +120,7 @@ export default function ProfileEditScreen() {
       }
       try {
         const d = await apiGet<ProfileData>("/api/me");
-        setFirstName(d.firstName ?? "");
-        setLastName(d.lastName ?? "");
-        setBio(d.bio ?? "");
-        setCity(d.city ?? "");
-        setPhone(d.phone ?? "");
-        setProfilePhotoUrl(d.profilePhotoUrl ?? null);
-        if (d.deliveryAddress) {
-          setDeliveryAddress({
-            street: d.deliveryAddress.street ?? "",
-            aptOrSuite: "",
-            city: d.deliveryAddress.city ?? "",
-            state: d.deliveryAddress.state ?? "",
-            zip: d.deliveryAddress.zip ?? "",
-          });
-        }
-        if (d.privacyLevel) setPrivacyLevel(d.privacyLevel);
+        applyLoadedProfile(d);
       } catch (e) {
         const err = e as { error?: string; status?: number };
         const msg = err?.error ?? "Failed to load profile.";
@@ -152,6 +165,38 @@ export default function ProfileEditScreen() {
       setError((e as { error?: string }).error ?? "Photo upload failed. Try again.");
     } finally {
       setUploadingPhoto(false);
+    }
+  };
+
+  const pickCover = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Allow access to photos to add a hero photo.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [16, 9],
+      quality: 0.8,
+    });
+    if (result.canceled) return;
+    setUploadingCover(true);
+    setError("");
+    try {
+      const asset = result.assets[0];
+      const formData = new FormData();
+      formData.append("file", {
+        uri: asset.uri,
+        type: asset.mimeType ?? "image/jpeg",
+        name: "cover.jpg",
+      } as unknown as Blob);
+      const { url } = await apiUploadFile("/api/upload/profile", formData);
+      setCoverPhotoUrl(toFullUrl(url));
+    } catch (e) {
+      setError((e as { error?: string }).error ?? "Hero photo upload failed. Try again.");
+    } finally {
+      setUploadingCover(false);
     }
   };
 
@@ -242,6 +287,7 @@ export default function ProfileEditScreen() {
         city: city.trim() || null,
         phone: phone.trim() || null,
         profilePhotoUrl: profilePhotoUrl || null,
+        coverPhotoUrl: coverPhotoUrl || null,
         deliveryAddress: payloadDeliveryAddress,
         privacyLevel,
       });
@@ -328,22 +374,7 @@ export default function ProfileEditScreen() {
                   }
                   try {
                     const d = await apiGet<ProfileData>("/api/me");
-                    setFirstName(d.firstName ?? "");
-                    setLastName(d.lastName ?? "");
-                    setBio(d.bio ?? "");
-                    setCity(d.city ?? "");
-                    setPhone(d.phone ?? "");
-                    setProfilePhotoUrl(d.profilePhotoUrl ?? null);
-                    if (d.deliveryAddress) {
-                      setDeliveryAddress({
-                        street: d.deliveryAddress.street ?? "",
-                        aptOrSuite: "",
-                        city: d.deliveryAddress.city ?? "",
-                        state: d.deliveryAddress.state ?? "",
-                        zip: d.deliveryAddress.zip ?? "",
-                      });
-                    }
-                    if (d.privacyLevel) setPrivacyLevel(d.privacyLevel);
+                    applyLoadedProfile(d);
                   } catch (e) {
                     const err = e as { error?: string; status?: number };
                     setError(
@@ -394,23 +425,55 @@ export default function ProfileEditScreen() {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.photoSection}>
-          {profilePhotoUrl ? (
-            <Image source={{ uri: profilePhotoUrl }} style={styles.avatar} accessibilityLabel="Profile photo" />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarInitials}>{initials}</Text>
-            </View>
-          )}
+        <View style={styles.heroCard}>
           <Pressable
-            style={({ pressed }) => [styles.photoBtn, pressed && { opacity: 0.7 }]}
-            onPress={pickPhoto}
-            disabled={uploadingPhoto}
+            style={({ pressed }) => [styles.cover, pressed && { opacity: 0.92 }]}
+            onPress={pickCover}
+            disabled={uploadingCover}
+            accessibilityRole="button"
+            accessibilityLabel={coverPhotoUrl ? "Change hero photo" : "Add hero photo"}
           >
-            <Text style={styles.photoBtnText}>
-              {uploadingPhoto ? "Uploading…" : profilePhotoUrl ? "Change photo" : "Add photo"}
-            </Text>
+            {uploadingCover ? (
+              <ActivityIndicator color={theme.colors.earth} />
+            ) : coverPhotoUrl ? (
+              <Image source={{ uri: coverPhotoUrl }} style={styles.coverImg} resizeMode="cover" />
+            ) : (
+              <View style={styles.coverEmpty}>
+                <Ionicons name="image-outline" size={32} color={theme.colors.earth} />
+                <Text style={styles.coverEmptyText}>Tap to add a hero photo</Text>
+                <Text style={styles.coverEmptyHint}>Shown behind your profile on your public page</Text>
+              </View>
+            )}
+            {coverPhotoUrl && !uploadingCover ? (
+              <View style={styles.coverBadge}>
+                <Ionicons name="camera-outline" size={14} color="#fff" />
+                <Text style={styles.coverBadgeText}>Change hero</Text>
+              </View>
+            ) : null}
           </Pressable>
+          <View style={styles.photoSection}>
+            {profilePhotoUrl ? (
+              <Image source={{ uri: profilePhotoUrl }} style={styles.avatar} accessibilityLabel="Profile photo" />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarInitials}>{initials}</Text>
+              </View>
+            )}
+            <Pressable
+              style={({ pressed }) => [styles.photoBtn, pressed && { opacity: 0.7 }]}
+              onPress={pickPhoto}
+              disabled={uploadingPhoto}
+            >
+              <Text style={styles.photoBtnText}>
+                {uploadingPhoto ? "Uploading…" : profilePhotoUrl ? "Change photo" : "Add photo"}
+              </Text>
+            </Pressable>
+            {coverPhotoUrl ? (
+              <Pressable onPress={() => setCoverPhotoUrl(null)} style={styles.removeCoverBtn}>
+                <Text style={styles.removeCoverText}>Remove hero photo</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
 
         <View style={styles.field}>
@@ -516,15 +579,15 @@ export default function ProfileEditScreen() {
         <Pressable
           style={({ pressed }) => [
             styles.saveBtn,
-            (submitting || uploadingPhoto) && styles.saveBtnDisabled,
+            (submitting || uploadingPhoto || uploadingCover) && styles.saveBtnDisabled,
             pressed && { opacity: 0.8 },
           ]}
           onPress={handleSave}
-          disabled={submitting || uploadingPhoto}
+          disabled={submitting || uploadingPhoto || uploadingCover}
         >
           {submitting ? (
             <ActivityIndicator color="#fff" />
-          ) : uploadingPhoto ? (
+          ) : uploadingPhoto || uploadingCover ? (
             <Text style={styles.saveBtnText}>Uploading…</Text>
           ) : (
             <Text style={styles.saveBtnText}>Save Profile</Text>
@@ -606,15 +669,50 @@ const styles = StyleSheet.create({
   },
   scroll: { flex: 1 },
   scrollContent: { padding: 20, paddingBottom: 40 },
+  heroCard: {
+    backgroundColor: theme.colors.pageBackground,
+    borderRadius: 12,
+    overflow: "hidden",
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "#e6e0d6",
+  },
+  cover: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    backgroundColor: theme.colors.cream,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  coverImg: { width: "100%", height: "100%" },
+  coverEmpty: { alignItems: "center", gap: 4, paddingHorizontal: 24 },
+  coverEmptyText: { fontSize: 15, fontWeight: "700", color: theme.colors.earth, textAlign: "center" },
+  coverEmptyHint: { fontSize: 12, color: theme.colors.text, textAlign: "center" },
+  coverBadge: {
+    position: "absolute",
+    right: 10,
+    bottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(93, 79, 64, 0.88)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  coverBadgeText: { color: "#fff", fontSize: 12, fontWeight: "700" },
   photoSection: {
     alignItems: "center",
-    marginBottom: 24,
+    paddingBottom: 16,
+    marginTop: -40,
   },
   avatar: {
     width: 100,
     height: 100,
     borderRadius: 50,
     marginBottom: 12,
+    borderWidth: 3,
+    borderColor: "#fff",
   },
   avatarPlaceholder: {
     width: 100,
@@ -624,6 +722,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 12,
+    borderWidth: 3,
+    borderColor: "#fff",
   },
   avatarInitials: {
     fontSize: 36,
@@ -641,6 +741,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
+  removeCoverBtn: { marginTop: 10 },
+  removeCoverText: { fontSize: 13, color: theme.colors.earth, textDecorationLine: "underline" },
   field: {
     marginBottom: 16,
   },

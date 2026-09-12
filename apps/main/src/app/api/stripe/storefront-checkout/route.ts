@@ -6,6 +6,7 @@ import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
 import { getAvailableQuantity, getSkuPriceCents, hasMeaningfulVariantSelection, hasOptionQuantities } from "@/lib/store-item-variants";
 import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
+import { cartSkuQuantityKey, findCartRowForCheckoutLine, formatCartVariantLabel } from "@/lib/cart-line-identity";
 import {
   validateLocalDeliveryDetails,
   validatePickupLine,
@@ -123,11 +124,10 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  if (storeItems.length !== items.length) {
+  const itemMap = new Map(storeItems.map((s) => [s.id, s]));
+  if (items.some((i) => !itemMap.has(i.storeItemId))) {
     return NextResponse.json({ error: "Invalid or unavailable items" }, { status: 400 });
   }
-
-  const itemMap = new Map(storeItems.map((s) => [s.id, s]));
 
   const sellerIdsAway = [...new Set(storeItems.map((s) => s.memberId))];
   for (const sellerId of sellerIdsAway) {
@@ -179,13 +179,12 @@ export async function POST(req: NextRequest) {
     },
     include: { resaleOffer: true },
   });
-  const cartByStoreItem = new Map(cartDbItems.map((c) => [c.storeItemId, c]));
   const resaleOfferIdsMeta = new Set<string>();
 
   for (const item of items) {
     if ((item.fulfillmentType ?? "ship") !== "pickup") continue;
     const storeItem = itemMap.get(item.storeItemId);
-    const cartRow = cartByStoreItem.get(item.storeItemId);
+    const cartRow = findCartRowForCheckoutLine(cartDbItems, item);
     if (!storeItem) continue;
     const v = validatePickupLine(cartRow, storeItem);
     if (!v.ok) {
@@ -196,10 +195,16 @@ export async function POST(req: NextRequest) {
   // Group cart items by seller; each seller gets a separate order and their share of the payment.
   const bySeller = new Map<string, typeof items>();
   const singleQtyStoreItemIds: string[] = [];
+  const qtyBySku = new Map<string, number>();
+  for (const item of items) {
+    const key = cartSkuQuantityKey(item.storeItemId, item.variant);
+    qtyBySku.set(key, (qtyBySku.get(key) ?? 0) + item.quantity);
+  }
   for (const item of items) {
     const storeItem = itemMap.get(item.storeItemId);
     const available = storeItem ? getAvailableQuantity(storeItem, item.variant) : 0;
-    if (!storeItem || item.quantity < 1 || item.quantity > available) {
+    const needed = qtyBySku.get(cartSkuQuantityKey(item.storeItemId, item.variant)) ?? item.quantity;
+    if (!storeItem || item.quantity < 1 || needed > available) {
       return NextResponse.json({ error: `Invalid quantity for ${storeItem?.title ?? "item"}` }, { status: 400 });
     }
     if (available === 1) {
@@ -269,7 +274,7 @@ export async function POST(req: NextRequest) {
 
     for (const item of sellerItems) {
       const storeItem = itemMap.get(item.storeItemId)!;
-      const cartRow = cartByStoreItem.get(item.storeItemId);
+      const cartRow = findCartRowForCheckoutLine(cartDbItems, item);
       const listPriceCents = getSkuPriceCents(storeItem, item.variant);
       const { unitPriceCents: priceCents, resaleOfferId } = resolvedPriceForCartLine(
         { priceCents: listPriceCents },
@@ -294,13 +299,14 @@ export async function POST(req: NextRequest) {
           : fulfillmentType === "pickup"
             ? "In-store pickup"
             : "Shipped to you";
+      const variantLabel = formatCartVariantLabel(item.variant);
       lineItems.push({
         price_data: {
           currency: "usd",
           unit_amount: priceCents,
           tax_behavior: "exclusive",
           product_data: {
-            name: `${storeItem.title} (${fulfillmentLabel})${resaleOfferId ? " — agreed offer price" : ""}`,
+            name: `${storeItem.title}${variantLabel ? ` — ${variantLabel}` : ""} (${fulfillmentLabel})${resaleOfferId ? " — agreed offer price" : ""}`,
             description: fulfillmentDescription,
             images: storeItem.photos.length > 0 ? [storeItem.photos[0]] : undefined,
             tax_code: TAX_CODE_GENERAL_TANGIBLE_GOODS,

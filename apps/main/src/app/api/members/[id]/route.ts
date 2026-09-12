@@ -60,17 +60,38 @@ export async function GET(
       profilePhotoUrl: member.profilePhotoUrl,
       coverPhotoUrl: member.coverPhotoUrl,
       city: member.city,
+      favoriteBusinesses: [],
       canSeeFullProfile: false,
     });
   }
 
-  const [postCount, friendCount] = await Promise.all([
+  const [postCount, friendCount, favoriteBusinesses, blogs] = await Promise.all([
     prisma.post.count({ where: { authorId: id } }),
     prisma.friendRequest.count({
       where: {
         status: "accepted",
         OR: [{ requesterId: id }, { addresseeId: id }],
       },
+    }),
+    prisma.savedItem
+      .findMany({
+        where: { memberId: id, type: "business" },
+        select: { referenceId: true },
+        take: 20,
+      })
+      .then((items) =>
+        items.length > 0
+          ? prisma.business.findMany({
+              where: { id: { in: items.map((i) => i.referenceId) } },
+              select: { id: true, name: true, slug: true, logoUrl: true },
+            })
+          : []
+      ),
+    prisma.blog.findMany({
+      where: { memberId: id, status: "approved" },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: { id: true, slug: true, title: true, createdAt: true },
     }),
   ]);
 
@@ -85,6 +106,8 @@ export async function GET(
     memberSince: member.createdAt,
     postCount,
     friendCount,
+    favoriteBusinesses,
+    blogs,
     canSeeFullProfile: true,
   });
 }

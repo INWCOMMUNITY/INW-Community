@@ -10,6 +10,7 @@ import { AddressSearchInput, type AddressValue } from "@/components/AddressSearc
 import { LocalDeliveryModal, type LocalDeliveryDetails } from "@/components/LocalDeliveryModal";
 import { PickupTermsModal, type PickupDetails } from "@/components/PickupTermsModal";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { formatCartVariantLabel } from "@/lib/cart-line-identity";
 import { buildProductHref } from "@/lib/product-referrer";
 
 interface CartItemStoreItem {
@@ -44,13 +45,20 @@ interface CartItem {
   localDeliveryDetails?: LocalDeliveryDetails | null;
   pickupDetails?: PickupDetails & { termsAcceptedAt?: string } | null;
   storeItem: CartItemStoreItem;
-  /** Server-resolved unit price (e.g. accepted resale offer); falls back to storeItem.priceCents when absent. */
+  /** Server-resolved unit price (SKU or accepted resale offer); falls back to storeItem.priceCents when absent. */
   unitPriceCents?: number;
+  resaleOfferId?: string | null;
+  availableQuantity?: number;
   unavailableReason?: string;
 }
 
 function cartLineUnitPriceCents(item: CartItem): number {
   return typeof item.unitPriceCents === "number" ? item.unitPriceCents : item.storeItem.priceCents;
+}
+
+function cartLineMaxQty(item: CartItem): number {
+  if (typeof item.availableQuantity === "number") return Math.max(0, item.availableQuantity);
+  return getAvailableQuantity(item.storeItem, item.variant ?? undefined);
 }
 
 type FulfillmentType = "ship" | "local_delivery" | "pickup";
@@ -454,7 +462,9 @@ export default function CartPage() {
               </h2>
               <div className="space-y-6">
                 <div className="space-y-4">
-                  {items.map((item) => (
+                  {items.map((item) => {
+                    const variantLabel = formatCartVariantLabel(item.variant);
+                    return (
                         <div
                           key={item.id}
                           className="rounded-lg border p-4"
@@ -495,12 +505,17 @@ export default function CartPage() {
                               >
                                 {item.storeItem.title}
                               </Link>
+                              {variantLabel ? (
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                  {variantLabel}
+                                </p>
+                              ) : null}
                         <p
                           className="text-base font-bold mt-0.5"
                           style={{ color: "var(--color-heading)" }}
                         >
                           ${((cartLineUnitPriceCents(item) * item.quantity) / 100).toFixed(2)}
-                          {cartLineUnitPriceCents(item) !== item.storeItem.priceCents ? (
+                          {item.resaleOfferId ? (
                             <span className="block text-xs font-normal text-gray-500 mt-0.5">
                               Agreed offer (list ${(item.storeItem.priceCents / 100).toFixed(2)})
                             </span>
@@ -526,11 +541,11 @@ export default function CartPage() {
                         <input
                           type="number"
                           min={1}
-                          max={getAvailableQuantity(item.storeItem, item.variant ?? undefined)}
+                          max={cartLineMaxQty(item)}
                           value={item.quantity}
                           onChange={(e) => {
                             const q = parseInt(e.target.value, 10) || 1;
-                            const max = getAvailableQuantity(item.storeItem, item.variant ?? undefined);
+                            const max = cartLineMaxQty(item);
                             updateQuantity(item.id, Math.min(q, max));
                           }}
                           className="w-12 border rounded px-1 py-1 text-center text-sm"
@@ -671,7 +686,8 @@ export default function CartPage() {
                       );
                     })()}
                   </div>
-                  ))}
+                  );
+                  })}
                 </div>
               </div>
             </div>

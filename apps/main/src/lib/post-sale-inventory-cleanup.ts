@@ -1,5 +1,6 @@
 import { prisma } from "database";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { cartSkuQuantityKey } from "@/lib/cart-line-identity";
 import { SOLD_BEFORE_CHECKOUT_REASON } from "@/lib/store-order-cancel-reasons";
 
 /** Cancel other buyers' pending checkout orders that include sold-out items; notify once per buyer+item. */
@@ -74,39 +75,47 @@ export async function cleanupOtherBuyersCartsForStoreItems(params: {
   const { sendPushNotification } = await import("@/lib/send-push-notification");
   const notifiedRemoved = new Set<string>();
 
+  const groups = new Map<string, typeof cartRows>();
   for (const row of cartRows) {
-    const si = map.get(row.storeItemId);
+    const key = `${row.memberId}::${cartSkuQuantityKey(row.storeItemId, row.variant)}`;
+    const list = groups.get(key);
+    if (list) list.push(row);
+    else groups.set(key, [row]);
+  }
+
+  for (const group of groups.values()) {
+    const si = map.get(group[0].storeItemId);
     if (!si) {
-      await prisma.cartItem.delete({ where: { id: row.id } });
+      for (const row of group) {
+        await prisma.cartItem.delete({ where: { id: row.id } });
+      }
       continue;
     }
-    const avail = getAvailableQuantity(si, row.variant ?? undefined);
-    if (avail <= 0) {
-      await prisma.cartItem.delete({ where: { id: row.id } });
-      const key = `${row.memberId}:${row.storeItemId}`;
-      if (!notifiedRemoved.has(key)) {
-        notifiedRemoved.add(key);
-        sendPushNotification(row.memberId, {
-          title: "We updated your cart",
-          body: `“${si.title}” just sold to someone else, so we removed it from your cart.`,
-          data: { screen: "cart" },
-          category: "commerce",
-        }).catch(() => {});
+    let remaining = getAvailableQuantity(si, group[0].variant ?? undefined);
+    const sorted = [...group].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    for (const row of sorted) {
+      if (remaining <= 0) {
+        await prisma.cartItem.delete({ where: { id: row.id } });
+        const key = `${row.memberId}:${row.storeItemId}`;
+        if (!notifiedRemoved.has(key)) {
+          notifiedRemoved.add(key);
+          sendPushNotification(row.memberId, {
+            title: "We updated your cart",
+            body: `“${si.title}” just sold to someone else, so we removed it from your cart.`,
+            data: { screen: "cart" },
+            category: "commerce",
+          }).catch(() => {});
+        }
+      } else if (row.quantity > remaining) {
+        await prisma.cartItem.update({
+          where: { id: row.id },
+          data: { quantity: remaining },
+        });
+        remaining = 0;
+      } else {
+        remaining -= row.quantity;
       }
-    } else if (row.quantity > avail) {
-      await prisma.cartItem.update({
-        where: { id: row.id },
-        data: { quantity: avail },
-      });
     }
-  }
-}
-
-function variantKey(variant: unknown): string {
-  try {
-    return JSON.stringify(variant ?? null);
-  } catch {
-    return "null";
   }
 }
 
@@ -118,7 +127,7 @@ export function validateBatchStoreOrdersInventory(
   const merged = new Map<string, { storeItemId: string; variant: unknown; quantity: number }>();
   for (const order of orders) {
     for (const oi of order.items) {
-      const key = `${oi.storeItemId}::${variantKey(oi.variant)}`;
+      const key = cartSkuQuantityKey(oi.storeItemId, oi.variant);
       const prev = merged.get(key);
       merged.set(key, {
         storeItemId: oi.storeItemId,

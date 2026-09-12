@@ -9,6 +9,7 @@ import {
 } from "@/lib/pickup-delivery-checkout";
 import { z } from "zod";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { findMatchingCartLine, maxQuantityForCartLine } from "@/lib/cart-line-identity";
 
 const deliveryAddressSchema = z.object({
   street: z.string().optional(),
@@ -132,6 +133,10 @@ export async function PATCH(
     }
   }
 
+  const siblingRows = await prisma.cartItem.findMany({
+    where: { memberId: session.user.id, storeItemId: item.storeItemId },
+  });
+
   const updateData: {
     quantity?: number;
     fulfillmentType?: string | null;
@@ -140,10 +145,23 @@ export async function PATCH(
     pickupDetails?: unknown;
   } = {};
 
+  const nextVariant = body.variant !== undefined ? body.variant : item.variant;
+  const nextFulfillment =
+    body.fulfillmentType ??
+    (body.localDeliveryDetails !== undefined
+      ? "local_delivery"
+      : body.pickupDetails !== undefined
+        ? "pickup"
+        : item.fulfillmentType ?? "ship");
+
   if (body.quantity !== undefined) {
-    const variant = body.variant !== undefined ? body.variant : item.variant;
-    const available = getAvailableQuantity(storeItem, variant ?? undefined);
-    updateData.quantity = Math.min(body.quantity, available);
+    const skuAvailable = getAvailableQuantity(storeItem, nextVariant ?? undefined);
+    const maxForThisLine = maxQuantityForCartLine(skuAvailable, siblingRows, {
+      id: item.id,
+      storeItemId: item.storeItemId,
+      variant: nextVariant,
+    });
+    updateData.quantity = Math.min(body.quantity, maxForThisLine);
   }
   if (body.fulfillmentType !== undefined) {
     updateData.fulfillmentType = body.fulfillmentType;
@@ -177,6 +195,41 @@ export async function PATCH(
     if (!ldCheck.ok) {
       return NextResponse.json({ error: ldCheck.error }, { status: 400 });
     }
+  }
+
+  const duplicate = findMatchingCartLine(
+    siblingRows.filter((row) => row.id !== item.id),
+    {
+      storeItemId: item.storeItemId,
+      variant: nextVariant,
+      fulfillmentType: nextFulfillment,
+      resaleOfferId: item.resaleOfferId,
+    }
+  );
+  if (duplicate) {
+    const skuAvailable = getAvailableQuantity(storeItem, nextVariant ?? undefined);
+    const withoutCurrent = siblingRows.filter((row) => row.id !== item.id);
+    const maxForDuplicate = maxQuantityForCartLine(skuAvailable, withoutCurrent, {
+      id: duplicate.id,
+      storeItemId: item.storeItemId,
+      variant: nextVariant,
+    });
+    const incomingQty = updateData.quantity ?? item.quantity;
+    const mergedQty = Math.min(duplicate.quantity + incomingQty, maxForDuplicate);
+    await prisma.cartItem.update({
+      where: { id: duplicate.id },
+      data: {
+        quantity: Math.max(1, mergedQty),
+        ...(updateData.localDeliveryDetails !== undefined
+          ? { localDeliveryDetails: updateData.localDeliveryDetails as object }
+          : {}),
+        ...(updateData.pickupDetails !== undefined
+          ? { pickupDetails: updateData.pickupDetails as object }
+          : {}),
+      },
+    });
+    await prisma.cartItem.delete({ where: { id: item.id } });
+    return NextResponse.json({ ok: true });
   }
 
   await prisma.cartItem.update({

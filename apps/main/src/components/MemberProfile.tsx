@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { IonIcon } from "@/components/IonIcon";
 import { buildBusinessHref } from "@/lib/business-referrer";
+import { galleryPhotosFromHydratedPost } from "@/lib/member-gallery-photos";
 
 interface MemberProfileProps {
   member: {
@@ -28,7 +29,15 @@ interface MemberProfileProps {
   backHref?: string;
 }
 
-type MemberPostRow = { id: string; photos: string[] };
+type MemberPostRow = {
+  id: string;
+  photos: string[];
+  sourcePost?: { photos?: string[] } | null;
+  sourceBlog?: { photos?: string[] } | null;
+  sourceStoreItem?: { photos?: string[] } | null;
+  sourceEvent?: { photos?: string[] } | null;
+  sourceListingCollection?: { previewPhotos?: string[] } | null;
+};
 
 function resolveClientMediaUrl(path: string | null | undefined): string {
   if (!path) return "";
@@ -66,7 +75,7 @@ export function MemberProfile({
 
   const galleryUrls: string[] = [];
   for (const post of memberPosts) {
-    const first = post.photos?.[0];
+    const first = galleryPhotosFromHydratedPost(post)[0];
     if (first) {
       const u = resolveClientMediaUrl(first);
       if (u) galleryUrls.push(u);
@@ -76,7 +85,8 @@ export function MemberProfile({
 
   const loadMemberPosts = useCallback(
     async (cursor?: string | null) => {
-      if (!canSeeFullProfile || !sessionUserId) return;
+      if (!sessionUserId) return;
+      if (!isOwnProfile && !canSeeFullProfile) return;
       const isAppend = !!cursor;
       setPostsLoading(true);
       try {
@@ -97,7 +107,7 @@ export function MemberProfile({
         setPostsLoading(false);
       }
     },
-    [canSeeFullProfile, sessionUserId, member.id]
+    [canSeeFullProfile, sessionUserId, isOwnProfile, member.id]
   );
 
   useEffect(() => {
@@ -106,13 +116,18 @@ export function MemberProfile({
   }, [pendingFriendRequest, isFriend]);
 
   useEffect(() => {
-    if (!canSeeFullProfile || !sessionUserId) {
+    if (!sessionUserId) {
+      setMemberPosts([]);
+      setPostsNextCursor(null);
+      return;
+    }
+    if (!isOwnProfile && !canSeeFullProfile) {
       setMemberPosts([]);
       setPostsNextCursor(null);
       return;
     }
     loadMemberPosts();
-  }, [canSeeFullProfile, sessionUserId, member.id, loadMemberPosts]);
+  }, [canSeeFullProfile, sessionUserId, isOwnProfile, member.id, loadMemberPosts]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -257,7 +272,7 @@ export function MemberProfile({
   const photoItems: PhotoGridCell[] = [];
   let idxAcc = 0;
   for (const post of memberPosts) {
-    const ph = post.photos?.[0];
+    const ph = galleryPhotosFromHydratedPost(post)[0];
     if (ph && resolveClientMediaUrl(ph)) {
       photoItems.push({ type: "post", post, idx: idxAcc });
       idxAcc += 1;
@@ -450,7 +465,7 @@ export function MemberProfile({
                       style={{ outlineColor: "var(--color-primary)" }}
                     >
                       <img
-                        src={resolveClientMediaUrl(item.post.photos[0])}
+                        src={resolveClientMediaUrl(galleryPhotosFromHydratedPost(item.post)[0])}
                         alt=""
                         className="w-full h-full object-cover"
                       />

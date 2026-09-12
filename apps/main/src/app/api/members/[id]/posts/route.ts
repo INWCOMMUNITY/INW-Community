@@ -6,11 +6,13 @@ import { authOptions } from "@/lib/auth";
 import { canViewerSeeFullMemberProfile } from "@/lib/member-profile-access";
 import { hasBlockBetween } from "@/lib/member-block";
 import { memberIsSiteVisible } from "@/lib/member-public-visibility";
-import { getShareCountBySourcePostId } from "@/lib/post-share-counts";
+import { feedPostListInclude, hydrateFeedPostRows } from "@/lib/hydrate-feed-post-rows";
+import { galleryPhotosFromHydratedPost } from "@/lib/member-gallery-photos";
 
 /**
  * GET /api/members/[id]/posts?limit=30&cursor=...
- * Returns posts authored by the member. Visibility matches profile: only if viewer can see full profile (self, or friend when profile is friends_only).
+ * Posts with gallery images for the member profile photo grid.
+ * Visibility matches profile: only if viewer can see full profile (self, or friend when profile is friends_only).
  */
 export async function GET(
   req: NextRequest,
@@ -50,57 +52,120 @@ export async function GET(
     return NextResponse.json({ posts: [], nextCursor: null });
   }
 
+  const fetchCount = Math.min(Math.max(limit * 4, 24), 100);
   const posts = await prisma.post.findMany({
-    where: { authorId: memberId },
-    include: {
-      author: {
-        select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true },
-      },
-      postTags: { include: { tag: { select: { id: true, name: true, slug: true } } } },
+    where: {
+      authorId: memberId,
+      OR: [
+        { photos: { isEmpty: false } },
+        { sourcePostId: { not: null } },
+        { sourceBlogId: { not: null } },
+        { sourceStoreItemId: { not: null } },
+        { sourceEventId: { not: null } },
+        { sourceListingCollectionId: { not: null } },
+      ],
     },
+    include: feedPostListInclude,
     orderBy: { createdAt: "desc" },
-    take: limit + 1,
+    take: fetchCount + 1,
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   });
 
-  const hasMore = posts.length > limit;
-  const items = hasMore ? posts.slice(0, limit) : posts;
-  const nextCursor = hasMore ? items[items.length - 1]?.id : null;
-  const postIds = items.map((p) => p.id);
+  const fetchedHasMore = posts.length > fetchCount;
+  const windowItems = fetchedHasMore ? posts.slice(0, fetchCount) : posts;
 
-  const [likes, likeCounts, commentCounts, shareCountMap] = await Promise.all([
-    viewerId
-      ? prisma.postLike.findMany({
-          where: { postId: { in: postIds }, memberId: viewerId },
-          select: { postId: true },
-        })
-      : [],
-    prisma.postLike.groupBy({
-      by: ["postId"],
-      where: { postId: { in: postIds } },
-      _count: { postId: true },
-    }),
-    prisma.postComment.groupBy({
-      by: ["postId"],
-      where: { postId: { in: postIds } },
-      _count: { postId: true },
-    }),
-    getShareCountBySourcePostId(postIds),
-  ]);
+  const hydrated = await hydrateFeedPostRows(windowItems, viewerId ?? "");
+  const withPhotos = hydrated
+    .map((p) => {
+      const photos = galleryPhotosFromHydratedPost(p);
+      return { ...p, photos };
+    })
+    .filter((p) => p.photos.length > 0);
 
-  const likedSet = new Set(likes.map((l) => l.postId));
-  const likeCountMap = Object.fromEntries(likeCounts.map((l) => [l.postId, l._count.postId]));
-  const commentCountMap = Object.fromEntries(commentCounts.map((c) => [c.postId, c._count.postId]));
+  const usedEventIds = new Set(
+    hydrated
+      .map((p) => (typeof p.sourceEventId === "string" ? p.sourceEventId : null))
+      .filter((id): id is string => !!id)
+  );
 
-  const feedItems = items.map((p) => ({
-    ...p,
-    type: "post",
-    tags: p.postTags?.map((pt) => pt.tag) ?? [],
-    liked: viewerId ? likedSet.has(p.id) : false,
-    likeCount: likeCountMap[p.id] ?? 0,
-    commentCount: commentCountMap[p.id] ?? 0,
-    shareCount: shareCountMap[p.id] ?? 0,
+  const eventWhere = {
+    photos: { isEmpty: false },
+    OR: [{ memberId }, { business: { memberId } }],
+    ...(viewerId === memberId ? {} : { status: "approved" }),
+    ...(usedEventIds.size > 0 ? { id: { notIn: [...usedEventIds] } } : {}),
+  };
+
+  const eventRows =
+    cursor
+      ? []
+      : await prisma.event.findMany({
+          where: eventWhere,
+          orderBy: { createdAt: "desc" },
+          take: 20,
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            photos: true,
+            createdAt: true,
+            date: true,
+            time: true,
+            endTime: true,
+            location: true,
+            city: true,
+            member: {
+              select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true },
+            },
+          },
+        });
+
+  const memberAuthor = await prisma.member.findUnique({
+    where: { id: memberId },
+    select: { id: true, firstName: true, lastName: true, profilePhotoUrl: true },
+  });
+
+  const eventItems = eventRows.map((e) => ({
+    id: `event-${e.id}`,
+    type: "shared_event",
+    content: e.title,
+    photos: (e.photos ?? []).filter((u) => typeof u === "string" && u.trim().length > 0),
+    createdAt: e.createdAt,
+    author:
+      e.member ??
+      memberAuthor ?? {
+        id: memberId,
+        firstName: "",
+        lastName: "",
+        profilePhotoUrl: null,
+      },
+    sourceEvent: {
+      id: e.id,
+      slug: e.slug,
+      title: e.title,
+      date: e.date,
+      time: e.time,
+      endTime: e.endTime,
+      location: e.location,
+      city: e.city,
+      photos: e.photos,
+    },
   }));
+
+  const merged = [...withPhotos, ...eventItems].sort((a, b) => {
+    const ta = new Date(a.createdAt as Date | string).getTime();
+    const tb = new Date(b.createdAt as Date | string).getTime();
+    return tb - ta;
+  });
+
+  const feedItems = merged.slice(0, limit);
+  const lastId = feedItems[feedItems.length - 1]?.id;
+  const lastIdStr = typeof lastId === "string" ? lastId : null;
+  const nextCursor =
+    merged.length > limit && lastIdStr && !lastIdStr.startsWith("event-")
+      ? lastIdStr
+      : fetchedHasMore
+        ? windowItems[windowItems.length - 1]?.id ?? null
+        : null;
 
   return NextResponse.json({
     posts: feedItems,

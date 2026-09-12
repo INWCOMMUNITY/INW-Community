@@ -10,8 +10,6 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
-  TextInput,
-  Linking,
 } from "react-native";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
@@ -38,6 +36,11 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { OrderSuccessOverlay, type OrderSuccessItem } from "@/components/OrderSuccessOverlay";
 import { buildProductPath } from "@/lib/product-referrer";
+import {
+  getAvailableQuantityForSelection,
+  getSkuPhotos,
+  getSkuPriceCents,
+} from "@/lib/product-variants";
 
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
@@ -53,6 +56,8 @@ interface CartItemStoreItem {
   photos: string[];
   priceCents: number;
   quantity: number;
+  variants?: unknown;
+  inventoryTracking?: string | null;
   shippingCostCents?: number | null;
   localDeliveryFeeCents?: number | null;
   localDeliveryAvailable?: boolean;
@@ -71,8 +76,10 @@ interface CartItem {
   storeItemId: string;
   quantity: number;
   variant: unknown;
-  /** From GET /api/cart — agreed resale offer unit price when applicable */
+  /** From GET /api/cart — SKU or agreed resale offer unit price */
   unitPriceCents?: number;
+  resaleOfferId?: string | null;
+  availableQuantity?: number;
   fulfillmentType?: string | null;
   localDeliveryDetails?: {
     firstName?: string;
@@ -155,8 +162,82 @@ function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+function resolvePhotoUrl(path: string | undefined): string | undefined {
+  if (!path) return undefined;
+  return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
+function variantAsSelection(variant: unknown): Record<string, string> | null {
+  if (!variant || typeof variant !== "object" || Array.isArray(variant)) return null;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(variant as Record<string, unknown>)) {
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (s) out[k] = s;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function formatVariantLabel(variant: unknown): string | null {
+  const sel = variantAsSelection(variant);
+  if (!sel) return null;
+  return Object.entries(sel)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(" · ");
+}
+
 function cartLineUnitPriceCents(item: CartItem): number {
-  return typeof item.unitPriceCents === "number" ? item.unitPriceCents : item.storeItem.priceCents;
+  if (item.resaleOfferId && typeof item.unitPriceCents === "number") {
+    return item.unitPriceCents;
+  }
+  const sel = variantAsSelection(item.variant);
+  if (sel && item.storeItem.variants != null) {
+    return getSkuPriceCents(
+      { priceCents: item.storeItem.priceCents, variants: item.storeItem.variants },
+      sel
+    );
+  }
+  if (typeof item.unitPriceCents === "number") return item.unitPriceCents;
+  return item.storeItem.priceCents;
+}
+
+function cartLineMaxQuantity(item: CartItem): number {
+  if (typeof item.availableQuantity === "number") {
+    return Math.max(0, item.availableQuantity);
+  }
+  const sel = variantAsSelection(item.variant);
+  if (sel) {
+    return getAvailableQuantityForSelection(
+      {
+        quantity: item.storeItem.quantity,
+        variants: item.storeItem.variants,
+        inventoryTracking: item.storeItem.inventoryTracking,
+      },
+      sel
+    );
+  }
+  return Math.max(0, item.storeItem.quantity);
+}
+
+function cartLinePhotoUrl(item: CartItem): string | undefined {
+  const sel = variantAsSelection(item.variant);
+  const photos =
+    sel && item.storeItem.variants != null
+      ? getSkuPhotos(
+          { photos: item.storeItem.photos ?? [], variants: item.storeItem.variants },
+          sel
+        )
+      : item.storeItem.photos;
+  return resolvePhotoUrl(photos?.[0]);
+}
+
+function fulfillmentMeta(type: string | null | undefined): {
+  label: string;
+  icon: "bicycle-outline" | "storefront-outline" | "cube-outline";
+} {
+  if (type === "local_delivery") return { label: "Local delivery", icon: "bicycle-outline" };
+  if (type === "pickup") return { label: "Pickup", icon: "storefront-outline" };
+  return { label: "Ships to you", icon: "cube-outline" };
 }
 
 /** Stripe return URLs from storefront order-success. */
@@ -174,11 +255,6 @@ function parseOrderSuccessCheckoutParams(url: string): { orderIds: string[]; ses
   }
 }
 
-function resolvePhotoUrl(path: string | undefined): string | undefined {
-  if (!path) return undefined;
-  return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
-}
-
 function snapshotPurchaseItemsFromCart(cartItems: CartItem[]): OrderSuccessItem[] {
   const seen = new Set<string>();
   const out: OrderSuccessItem[] = [];
@@ -190,7 +266,7 @@ function snapshotPurchaseItemsFromCart(cartItems: CartItem[]): OrderSuccessItem[
       storeItemId: id,
       slug: item.storeItem.slug,
       title: item.storeItem.title,
-      photoUrl: resolvePhotoUrl(item.storeItem.photos?.[0]),
+      photoUrl: cartLinePhotoUrl(item),
     });
   }
   return out;
@@ -561,6 +637,22 @@ export default function CartScreen() {
 
   /** All items are charged through Stripe at checkout. */
   const cardItems = items;
+
+  const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
+  const merchandiseCents = items.reduce((sum, i) => sum + cartLineUnitPriceCents(i) * i.quantity, 0);
+  const shippingCents = items.reduce((sum, i) => {
+    if ((i.fulfillmentType ?? "ship") === "ship" && i.storeItem.shippingCostCents != null) {
+      return sum + i.storeItem.shippingCostCents * i.quantity;
+    }
+    return sum;
+  }, 0);
+  const localDeliveryFeeCents = items.reduce((sum, i) => {
+    if (i.fulfillmentType === "local_delivery" && i.storeItem.localDeliveryFeeCents != null) {
+      return sum + i.storeItem.localDeliveryFeeCents * i.quantity;
+    }
+    return sum;
+  }, 0);
+  const estimatedTotalCents = merchandiseCents + shippingCents + localDeliveryFeeCents;
 
   /** Fulfill pending orders when Stripe redirects back (webhook safety net). */
   const finalizeCheckoutAfterPayment = useCallback(
@@ -935,6 +1027,11 @@ export default function CartScreen() {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </Pressable>
         <Text style={styles.headerTitle}>Cart</Text>
+        {itemCount > 0 ? (
+          <View style={styles.headerBadge}>
+            <Text style={styles.headerBadgeText}>{itemCount}</Text>
+          </View>
+        ) : null}
       </View>
 
       {loading ? (
@@ -1035,11 +1132,14 @@ export default function CartScreen() {
 
           {items.length === 0 ? (
             <View style={styles.empty}>
-              <Ionicons name="cart-outline" size={64} color={theme.colors.primary} />
+              <View style={styles.emptyIconWrap}>
+                <Ionicons name="cart-outline" size={48} color={theme.colors.earth} />
+              </View>
               <Text style={styles.emptyText}>Your cart is empty</Text>
+              <Text style={styles.emptyHint}>Browse the store and add something you like.</Text>
               <Pressable
                 style={styles.shopBtn}
-                onPress={() => router.back()}
+                onPress={() => router.push("/(tabs)/store" as never)}
               >
                 <Text style={styles.shopBtnText}>Continue shopping</Text>
               </Pressable>
@@ -1047,100 +1147,127 @@ export default function CartScreen() {
           ) : (
             <>
               {items.map((item) => {
-                const photoUrl = resolvePhotoUrl(item.storeItem.photos?.[0]);
-                const fulfillmentLabel =
-                  item.fulfillmentType === "local_delivery"
-                    ? "Local delivery"
-                    : item.fulfillmentType === "pickup"
-                      ? "Pickup"
-                      : "Ship";
+                const photoUrl = cartLinePhotoUrl(item);
+                const unitCents = cartLineUnitPriceCents(item);
+                const lineCents = unitCents * item.quantity;
+                const variantLabel = formatVariantLabel(item.variant);
+                const fulfillment = fulfillmentMeta(item.fulfillmentType);
+                const maxQty = cartLineMaxQuantity(item);
                 return (
                   <View key={item.id} style={styles.itemCard}>
-                    {photoUrl ? (
-                      <Image source={{ uri: photoUrl }} style={styles.itemImage} />
-                    ) : (
-                      <View style={[styles.itemImage, styles.itemImagePlaceholder]}>
-                        <Ionicons name="image-outline" size={24} color={theme.colors.primary} />
-                      </View>
-                    )}
-                    <View style={styles.itemBody}>
-                      <Text style={styles.itemTitle} numberOfLines={2}>
-                        {item.storeItem.title}
-                      </Text>
-                      <Text style={styles.itemPrice}>
-                        {formatPrice(cartLineUnitPriceCents(item))} x {item.quantity}
-                      </Text>
-                      {cartLineUnitPriceCents(item) !== item.storeItem.priceCents ? (
-                        <Text style={styles.offerHint}>
-                          Agreed offer (list {formatPrice(item.storeItem.priceCents)})
-                        </Text>
-                      ) : null}
-                      <Text style={styles.itemFulfillment}>{fulfillmentLabel}</Text>
-                      {item.fulfillmentType === "local_delivery" ? (
-                        <Pressable
-                          onPress={() => openLocalDeliveryModalForItem(item.id)}
-                          style={({ pressed }) => [pressed && { opacity: 0.7 }]}
-                        >
-                          <Text style={styles.itemDetailLink}>
-                            {localDeliveryRowComplete(item)
-                              ? "Edit delivery details"
-                              : "Confirm or edit delivery details"}
-                          </Text>
-                        </Pressable>
-                      ) : null}
-                      {item.fulfillmentType === "pickup" ? (
-                        <Pressable
-                          onPress={() => openPickupModalForItem(item.id)}
-                          style={({ pressed }) => [pressed && { opacity: 0.7 }]}
-                        >
-                          <Text style={styles.itemDetailLink}>
-                            {pickupRowComplete(item) ? "Edit pickup form" : "Complete pickup form"}
-                          </Text>
-                        </Pressable>
-                      ) : null}
-                      {(item as CartItem).unavailableReason ? (
-                        <Text style={styles.unavailableReason}>{(item as CartItem).unavailableReason}</Text>
-                      ) : null}
-                      <View style={styles.itemActions}>
-                        <View style={styles.qtyRow}>
-                          <Pressable
-                            style={styles.qtyBtn}
-                            onPress={() => updateQuantity(item.id, item.quantity - 1)}
-                            disabled={item.quantity <= 1}
-                          >
-                            <Ionicons name="remove" size={16} color={theme.colors.primary} />
-                          </Pressable>
-                          <Text style={styles.qtyText}>{item.quantity}</Text>
-                          <Pressable
-                            style={styles.qtyBtn}
-                            onPress={() =>
-                              updateQuantity(item.id, Math.min(item.quantity + 1, item.storeItem.quantity))
-                            }
-                            disabled={item.quantity >= item.storeItem.quantity}
-                          >
-                            <Ionicons name="add" size={16} color={theme.colors.primary} />
-                          </Pressable>
+                    <Pressable
+                      onPress={() =>
+                        router.push(buildProductPath(item.storeItem.slug, { type: "cart" }) as never)
+                      }
+                      style={({ pressed }) => [styles.itemMain, pressed && { opacity: 0.88 }]}
+                    >
+                      {photoUrl ? (
+                        <Image source={{ uri: photoUrl }} style={styles.itemImage} />
+                      ) : (
+                        <View style={[styles.itemImage, styles.itemImagePlaceholder]}>
+                          <Ionicons name="image-outline" size={24} color={theme.colors.gold} />
                         </View>
+                      )}
+                      <View style={styles.itemBody}>
+                        <Text style={styles.itemTitle} numberOfLines={2}>
+                          {item.storeItem.title}
+                        </Text>
+                        {variantLabel ? (
+                          <Text style={styles.itemVariant} numberOfLines={2}>
+                            {variantLabel}
+                          </Text>
+                        ) : null}
+                        <View style={styles.fulfillmentChip}>
+                          <Ionicons name={fulfillment.icon} size={13} color={theme.colors.earth} />
+                          <Text style={styles.fulfillmentChipText}>{fulfillment.label}</Text>
+                        </View>
+                        <Text style={styles.itemLineTotal}>{formatPrice(lineCents)}</Text>
+                        {item.quantity > 1 ? (
+                          <Text style={styles.itemUnitPrice}>
+                            {formatPrice(unitCents)} each
+                          </Text>
+                        ) : null}
+                        {item.resaleOfferId ? (
+                          <Text style={styles.offerHint}>
+                            Agreed offer (list {formatPrice(item.storeItem.priceCents)})
+                          </Text>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                    {item.fulfillmentType === "local_delivery" ? (
+                      <Pressable
+                        onPress={() => openLocalDeliveryModalForItem(item.id)}
+                        style={({ pressed }) => [styles.itemDetailLinkWrap, pressed && { opacity: 0.7 }]}
+                      >
+                        <Text style={styles.itemDetailLink}>
+                          {localDeliveryRowComplete(item)
+                            ? "Edit delivery details"
+                            : "Confirm or edit delivery details"}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                    {item.fulfillmentType === "pickup" ? (
+                      <Pressable
+                        onPress={() => openPickupModalForItem(item.id)}
+                        style={({ pressed }) => [styles.itemDetailLinkWrap, pressed && { opacity: 0.7 }]}
+                      >
+                        <Text style={styles.itemDetailLink}>
+                          {pickupRowComplete(item) ? "Edit pickup form" : "Complete pickup form"}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                    {item.unavailableReason ? (
+                      <Text style={styles.unavailableReason}>{item.unavailableReason}</Text>
+                    ) : null}
+                    <View style={styles.itemActions}>
+                      <View style={styles.qtyRow}>
                         <Pressable
-                          style={styles.removeBtn}
-                          onPress={() =>
-                            Alert.alert("Remove", "Remove from cart?", [
-                              { text: "Cancel", style: "cancel" },
-                              { text: "Remove", style: "destructive", onPress: () => removeItem(item.id) },
-                            ])
-                          }
+                          style={[styles.qtyBtn, item.quantity <= 1 && styles.qtyBtnDisabled]}
+                          onPress={() => updateQuantity(item.id, item.quantity - 1)}
+                          disabled={item.quantity <= 1}
                         >
-                          <Ionicons name="trash-outline" size={18} color="#c00" />
+                          <Ionicons name="remove" size={16} color={theme.colors.earth} />
+                        </Pressable>
+                        <Text style={styles.qtyText}>{item.quantity}</Text>
+                        <Pressable
+                          style={[styles.qtyBtn, item.quantity >= maxQty && styles.qtyBtnDisabled]}
+                          onPress={() =>
+                            updateQuantity(item.id, Math.min(item.quantity + 1, maxQty))
+                          }
+                          disabled={item.quantity >= maxQty}
+                        >
+                          <Ionicons name="add" size={16} color={theme.colors.earth} />
                         </Pressable>
                       </View>
+                      <Pressable
+                        style={styles.removeBtn}
+                        onPress={() =>
+                          Alert.alert("Remove", "Remove from cart?", [
+                            { text: "Cancel", style: "cancel" },
+                            { text: "Remove", style: "destructive", onPress: () => removeItem(item.id) },
+                          ])
+                        }
+                      >
+                        <Ionicons name="trash-outline" size={18} color="#8a3a3a" />
+                      </Pressable>
                     </View>
                   </View>
                 );
               })}
 
               {hasShippedItem && (
-                <View style={styles.formSection}>
-                  <Text style={styles.formTitle}>Shipping address</Text>
+                <View style={styles.shippingCard}>
+                  <View style={styles.shippingHeader}>
+                    <View style={styles.shippingIconWrap}>
+                      <Ionicons name="location-outline" size={20} color={theme.colors.earth} />
+                    </View>
+                    <View style={styles.shippingHeaderText}>
+                      <Text style={styles.formTitle}>Ship to</Text>
+                      <Text style={styles.shippingHint}>
+                        This is the address postage labels use when the seller ships your order.
+                      </Text>
+                    </View>
+                  </View>
                   <AddressSearchInput
                     value={shippingAddress}
                     onChange={(addr, meta) => {
@@ -1154,7 +1281,7 @@ export default function CartScreen() {
                       if (meta?.fromPlaces !== undefined) setShippingAddressFromPlaces(meta.fromPlaces);
                     }}
                     placeholder="Search for your address"
-                    showManualFallback={false}
+                    showManualFallback={true}
                   />
                 </View>
               )}
@@ -1195,11 +1322,35 @@ export default function CartScreen() {
                 </View>
               )}
 
-              <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Subtotal</Text>
-                <Text style={styles.totalValue}>
-                  {formatPrice(items.reduce((s, i) => s + cartLineUnitPriceCents(i) * i.quantity, 0))}
-                </Text>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryTitle}>Order summary</Text>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Items</Text>
+                  <Text style={styles.summaryValue}>{formatPrice(merchandiseCents)}</Text>
+                </View>
+                {shippingCents > 0 ? (
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Shipping</Text>
+                    <Text style={styles.summaryValue}>{formatPrice(shippingCents)}</Text>
+                  </View>
+                ) : hasShippedItem ? (
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Shipping</Text>
+                    <Text style={styles.summaryMuted}>Included or calculated at checkout</Text>
+                  </View>
+                ) : null}
+                {localDeliveryFeeCents > 0 ? (
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Local delivery</Text>
+                    <Text style={styles.summaryValue}>{formatPrice(localDeliveryFeeCents)}</Text>
+                  </View>
+                ) : null}
+                <View style={styles.summaryDivider} />
+                <View style={styles.summaryRow}>
+                  <Text style={styles.totalLabel}>Estimated total</Text>
+                  <Text style={styles.totalValue}>{formatPrice(estimatedTotalCents)}</Text>
+                </View>
+                <Text style={styles.taxHint}>Tax is calculated at checkout.</Text>
               </View>
 
               {checkoutBlockedHints.length > 0 ? (
@@ -1212,49 +1363,57 @@ export default function CartScreen() {
                   ))}
                 </View>
               ) : null}
-
-              {useNativeStorefrontCheckout ? (
-                <StorefrontNativeCheckoutButton
-                  getPayload={getNativeCheckoutPayload}
-                  onShippingAddressFormatted={
-                    hasShippedItem
-                      ? (addr) =>
-                          setShippingAddress({
-                            street: addr.street ?? "",
-                            city: addr.city ?? "",
-                            state: addr.state ?? "",
-                            zip: addr.zip ?? "",
-                            aptOrSuite: addr.aptOrSuite ?? "",
-                          })
-                      : undefined
-                  }
-                  onHostedCheckoutUrl={(url) => {
-                    rememberPurchaseItems(items);
-                    setCheckoutUrl(url);
-                  }}
-                  onError={setError}
-                  setCheckingOut={setCheckingOut}
-                  disabled={!canCheckout || checkingOut}
-                  buttonStyle={styles.checkoutBtn}
-                  buttonDisabledStyle={styles.checkoutBtnDisabled}
-                />
-              ) : (
-                <Pressable
-                  style={[styles.checkoutBtn, (checkingOut || !canCheckout) && styles.checkoutBtnDisabled]}
-                  onPress={doCheckout}
-                  disabled={checkingOut || !canCheckout}
-                >
-                  {checkingOut ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Text style={styles.checkoutBtnText}>Checkout</Text>
-                  )}
-                </Pressable>
-              )}
             </>
           )}
         </ScrollView>
       )}
+
+      {!loading && items.length > 0 ? (
+        <View style={[styles.checkoutBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <View style={styles.checkoutBarTotals}>
+            <Text style={styles.checkoutBarLabel}>Estimated total</Text>
+            <Text style={styles.checkoutBarValue}>{formatPrice(estimatedTotalCents)}</Text>
+          </View>
+          {useNativeStorefrontCheckout ? (
+            <StorefrontNativeCheckoutButton
+              getPayload={getNativeCheckoutPayload}
+              onShippingAddressFormatted={
+                hasShippedItem
+                  ? (addr) =>
+                      setShippingAddress({
+                        street: addr.street ?? "",
+                        city: addr.city ?? "",
+                        state: addr.state ?? "",
+                        zip: addr.zip ?? "",
+                        aptOrSuite: addr.aptOrSuite ?? "",
+                      })
+                  : undefined
+              }
+              onHostedCheckoutUrl={(url) => {
+                rememberPurchaseItems(items);
+                setCheckoutUrl(url);
+              }}
+              onError={setError}
+              setCheckingOut={setCheckingOut}
+              disabled={!canCheckout || checkingOut}
+              buttonStyle={styles.checkoutBtn}
+              buttonDisabledStyle={styles.checkoutBtnDisabled}
+            />
+          ) : (
+            <Pressable
+              style={[styles.checkoutBtn, (checkingOut || !canCheckout) && styles.checkoutBtnDisabled]}
+              onPress={doCheckout}
+              disabled={checkingOut || !canCheckout}
+            >
+              {checkingOut ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.checkoutBtnText}>Checkout</Text>
+              )}
+            </Pressable>
+          )}
+        </View>
+      ) : null}
 
       {itemForLocalDeliveryModal && (
         <LocalDeliveryModal
@@ -1325,13 +1484,13 @@ export default function CartScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: theme.colors.pageBackground,
   },
   center: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fff",
+    backgroundColor: theme.colors.pageBackground,
   },
   header: {
     flexDirection: "row",
@@ -1350,12 +1509,27 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#fff",
   },
+  headerBadge: {
+    minWidth: 28,
+    height: 28,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    backgroundColor: theme.colors.gold,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 8,
+  },
+  headerBadgeText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
+  },
   scroll: {
     flex: 1,
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 48,
+    paddingBottom: 28,
   },
   errorBanner: {
     backgroundColor: "#fee",
@@ -1389,30 +1563,30 @@ const styles = StyleSheet.create({
   offersSectionTitle: {
     fontSize: 17,
     fontWeight: "700",
-    color: theme.colors.text,
+    color: theme.colors.heading,
     marginBottom: 6,
   },
   offersSectionHint: {
     fontSize: 13,
-    color: "#666",
+    color: theme.colors.text,
     marginBottom: 12,
+    opacity: 0.85,
   },
   offerRow: {
     flexDirection: "row",
     alignItems: "center",
     padding: 12,
     marginBottom: 10,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: "#eee",
-    backgroundColor: "#fafafa",
+    borderRadius: theme.radii.card,
+    backgroundColor: theme.colors.surface,
     gap: 10,
+    ...theme.shadows.card,
   },
   offerRowImage: {
     width: 56,
     height: 56,
     borderRadius: 8,
-    backgroundColor: "#f0f0f0",
+    backgroundColor: theme.colors.cardImageWell,
   },
   offerRowImagePlaceholder: {
     alignItems: "center",
@@ -1425,24 +1599,24 @@ const styles = StyleSheet.create({
   offerRowTitle: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#000",
+    color: theme.colors.heading,
   },
   offerRowStatus: {
     fontSize: 13,
-    color: theme.colors.primary,
+    color: theme.colors.earth,
     marginTop: 2,
     fontWeight: "500",
   },
   offerRowAmount: {
     fontSize: 14,
-    color: "#333",
+    color: theme.colors.heading,
     marginTop: 4,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   offerSwipeRight: {
     justifyContent: "center",
     marginBottom: 10,
-    borderRadius: 8,
+    borderRadius: theme.radii.card,
     overflow: "hidden",
   },
   offerSwipeDeleteBtn: {
@@ -1461,24 +1635,44 @@ const styles = StyleSheet.create({
   },
   unavailableReason: {
     fontSize: 12,
-    color: "#c00",
-    marginTop: 4,
+    color: "#8a3a3a",
+    marginTop: 8,
+    paddingHorizontal: 12,
   },
   empty: {
     alignItems: "center",
-    paddingVertical: 48,
+    paddingVertical: 64,
+    paddingHorizontal: 24,
+  },
+  emptyIconWrap: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: theme.colors.cream,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.colors.gold,
   },
   emptyText: {
-    fontSize: 18,
+    fontSize: 20,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    marginTop: 18,
+  },
+  emptyHint: {
+    fontSize: 14,
     color: theme.colors.text,
-    marginTop: 16,
+    marginTop: 8,
+    textAlign: "center",
+    opacity: 0.85,
   },
   shopBtn: {
-    marginTop: 16,
+    marginTop: 20,
     paddingHorizontal: 24,
     paddingVertical: 12,
     backgroundColor: theme.colors.primary,
-    borderRadius: 8,
+    borderRadius: theme.radii.button,
   },
   shopBtnText: {
     color: "#fff",
@@ -1486,19 +1680,22 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   itemCard: {
+    marginBottom: 14,
+    borderRadius: theme.radii.card,
+    backgroundColor: theme.colors.surface,
+    overflow: "hidden",
+    ...theme.shadows.card,
+  },
+  itemMain: {
     flexDirection: "row",
     padding: 12,
-    marginBottom: 12,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: "#eee",
-    backgroundColor: "#fff",
+    paddingBottom: 4,
   },
   itemImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-    backgroundColor: "#f5f5f5",
+    width: 88,
+    height: 88,
+    borderRadius: 10,
+    backgroundColor: theme.colors.cardImageWell,
   },
   itemImagePlaceholder: {
     alignItems: "center",
@@ -1509,30 +1706,57 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   itemTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#000",
+    fontSize: 16,
+    fontWeight: "700",
+    color: theme.colors.heading,
   },
-  itemPrice: {
-    fontSize: 14,
-    color: "#000",
+  itemVariant: {
+    fontSize: 13,
+    color: theme.colors.earth,
     marginTop: 4,
+    lineHeight: 18,
+  },
+  fulfillmentChip: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: theme.radii.chip,
+    backgroundColor: theme.colors.cream,
+  },
+  fulfillmentChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: theme.colors.earth,
+  },
+  itemLineTotal: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    marginTop: 8,
+  },
+  itemUnitPrice: {
+    fontSize: 12,
+    color: theme.colors.text,
+    marginTop: 2,
+    opacity: 0.85,
   },
   offerHint: {
     fontSize: 12,
-    color: "#666",
-    marginTop: 2,
+    color: theme.colors.text,
+    marginTop: 4,
   },
-  itemFulfillment: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 2,
+  itemDetailLinkWrap: {
+    paddingHorizontal: 12,
+    paddingTop: 4,
   },
   itemDetailLink: {
     fontSize: 13,
     fontWeight: "600",
-    color: theme.colors.primary,
-    marginTop: 6,
+    color: theme.colors.earth,
     textDecorationLine: "underline",
   },
   paymentMethodRow: {
@@ -1577,6 +1801,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginTop: 8,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.borderMuted,
   },
   qtyRow: {
     flexDirection: "row",
@@ -1584,23 +1813,27 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   qtyBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: theme.colors.earth,
+    backgroundColor: theme.colors.cream,
     alignItems: "center",
     justifyContent: "center",
   },
+  qtyBtnDisabled: {
+    opacity: 0.4,
+  },
   qtyText: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "700",
     color: theme.colors.heading,
-    minWidth: 20,
+    minWidth: 22,
     textAlign: "center",
   },
   removeBtn: {
-    padding: 4,
+    padding: 6,
   },
   completeDetailsHint: {
     fontSize: 13,
@@ -1612,7 +1845,7 @@ const styles = StyleSheet.create({
   completeDetailsBtn: {
     paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 8,
+    borderRadius: theme.radii.button,
     backgroundColor: theme.colors.primary,
     alignItems: "center",
     marginBottom: 12,
@@ -1623,14 +1856,116 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
   formSection: {
-    marginTop: 16,
+    marginTop: 8,
     marginBottom: 16,
   },
   formTitle: {
     fontSize: 16,
+    fontWeight: "700",
+    color: theme.colors.heading,
+  },
+  shippingCard: {
+    marginTop: 8,
+    marginBottom: 16,
+    padding: 14,
+    borderRadius: theme.radii.card,
+    backgroundColor: theme.colors.surface,
+    ...theme.shadows.card,
+  },
+  shippingHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginBottom: 12,
+  },
+  shippingIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: theme.colors.cream,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shippingHeaderText: {
+    flex: 1,
+  },
+  shippingHint: {
+    fontSize: 13,
+    color: theme.colors.text,
+    marginTop: 4,
+    lineHeight: 18,
+    opacity: 0.9,
+  },
+  summaryCard: {
+    marginTop: 4,
+    marginBottom: 16,
+    padding: 16,
+    borderRadius: theme.radii.card,
+    backgroundColor: theme.colors.surface,
+    ...theme.shadows.card,
+  },
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    marginBottom: 12,
+  },
+  summaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+    gap: 12,
+  },
+  summaryLabel: {
+    fontSize: 14,
+    color: theme.colors.text,
+  },
+  summaryValue: {
+    fontSize: 14,
     fontWeight: "600",
     color: theme.colors.heading,
+  },
+  summaryMuted: {
+    fontSize: 13,
+    color: theme.colors.text,
+    opacity: 0.75,
+    flexShrink: 1,
+    textAlign: "right",
+  },
+  summaryDivider: {
+    height: 1,
+    backgroundColor: theme.colors.borderMuted,
+    marginVertical: 8,
+  },
+  taxHint: {
+    fontSize: 12,
+    color: theme.colors.text,
+    marginTop: 6,
+    opacity: 0.75,
+  },
+  checkoutBar: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    backgroundColor: theme.colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.borderMuted,
+    ...theme.shadows.card,
+  },
+  checkoutBarTotals: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
     marginBottom: 10,
+  },
+  checkoutBarLabel: {
+    fontSize: 14,
+    color: theme.colors.text,
+  },
+  checkoutBarValue: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: theme.colors.heading,
   },
   input: {
     borderWidth: 2,
@@ -1673,12 +2008,12 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   checkoutHintBox: {
-    backgroundColor: "#f9f6f0",
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
-    borderRadius: 8,
+    backgroundColor: theme.colors.cream,
+    borderWidth: 1,
+    borderColor: theme.colors.gold,
+    borderRadius: theme.radii.card,
     padding: 12,
-    marginBottom: 16,
+    marginBottom: 8,
   },
   checkoutHintTitle: {
     fontSize: 14,
@@ -1692,33 +2027,25 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 4,
   },
-  totalRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 16,
-    marginBottom: 16,
-  },
   totalLabel: {
-    fontSize: 18,
-    fontWeight: "600",
+    fontSize: 16,
+    fontWeight: "700",
     color: theme.colors.heading,
   },
   totalValue: {
     fontSize: 18,
     fontWeight: "700",
-    color: theme.colors.primary,
+    color: theme.colors.earth,
   },
   checkoutBtn: {
+    width: "100%",
     paddingVertical: 14,
-    borderRadius: 8,
+    borderRadius: theme.radii.button,
     backgroundColor: theme.colors.primary,
-    borderWidth: 2,
-    borderColor: "#000",
     alignItems: "center",
   },
   checkoutBtnDisabled: {
-    opacity: 0.6,
+    opacity: 0.55,
   },
   checkoutBtnText: {
     color: "#fff",

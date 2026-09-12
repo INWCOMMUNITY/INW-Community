@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getSellerAnalyticsSource } from "@/lib/seller-analytics-source";
-import { getAvailableQuantity } from "@/lib/store-item-variants";
+import { getAvailableQuantity, getSkuPriceCents } from "@/lib/store-item-variants";
 import { listingHasPublicStock } from "@/lib/store-item-public-access";
 import { expireStaleResaleOffers } from "@/lib/expire-stale-resale-offers";
 import { resolvedPriceForCartLine } from "@/lib/resale-offer-cart-price";
+import { findMatchingCartLine, maxQuantityForCartLine } from "@/lib/cart-line-identity";
 import {
   validateRequestedFulfillment,
   validateLocalDeliveryDetails,
@@ -62,6 +63,7 @@ export async function GET(req: NextRequest) {
 
   const items = await prisma.cartItem.findMany({
     where: { memberId: session.user.id },
+    orderBy: { createdAt: "asc" },
     include: {
       storeItem: {
         select: {
@@ -106,7 +108,12 @@ export async function GET(req: NextRequest) {
 
   const cart = items.map((i) => {
     const storeItem = i.storeItem as typeof i.storeItem & { member?: { stripeConnectAccountId?: string | null } };
-    const available = getAvailableQuantity(storeItem, i.variant ?? undefined);
+    const skuAvailable = getAvailableQuantity(storeItem, i.variant ?? undefined);
+    const available = maxQuantityForCartLine(skuAvailable, items, {
+      id: i.id,
+      storeItemId: i.storeItemId,
+      variant: i.variant,
+    });
     const sellerHasConnect = !!storeItem.member?.stripeConnectAccountId?.trim();
     let unavailableReason: string | undefined;
     if (!sellerHasConnect) {
@@ -117,8 +124,9 @@ export async function GET(req: NextRequest) {
           ? "This item is no longer available."
           : `Only ${available} available. Reduce quantity or remove.`;
     }
+    const listPriceCents = getSkuPriceCents(storeItem, i.variant);
     const { unitPriceCents } = resolvedPriceForCartLine(
-      { priceCents: storeItem.priceCents },
+      { priceCents: listPriceCents },
       i,
       session.user.id
     );
@@ -135,6 +143,7 @@ export async function GET(req: NextRequest) {
       resaleOffer: i.resaleOffer,
       storeItem: i.storeItem,
       unitPriceCents,
+      availableQuantity: available,
       ...(unavailableReason && { unavailableReason }),
     };
   });
@@ -232,21 +241,53 @@ export async function POST(req: NextRequest) {
     pickupDetails = body.pickupDetails as object;
   }
 
-  const existing = await prisma.cartItem.findFirst({
+  const existingRows = await prisma.cartItem.findMany({
     where: {
       memberId: session.user.id,
       storeItemId: body.storeItemId,
     },
   });
+  const incoming = {
+    storeItemId: body.storeItemId,
+    variant: body.variant ?? null,
+    fulfillmentType,
+    resaleOfferId: null as string | null,
+  };
+  const existing = findMatchingCartLine(existingRows, incoming);
+  const maxForThisLine = maxQuantityForCartLine(available, existingRows, {
+    id: existing?.id,
+    storeItemId: body.storeItemId,
+    variant: body.variant,
+  });
+
+  if (!existing && body.quantity > maxForThisLine) {
+    return NextResponse.json(
+      {
+        error:
+          maxForThisLine <= 0
+            ? "Item is no longer available."
+            : `Only ${maxForThisLine} available.`,
+      },
+      { status: 400 }
+    );
+  }
 
   const cartData = {
     quantity: existing
-      ? Math.min(existing.quantity + body.quantity, available)
-      : Math.min(body.quantity, available),
+      ? Math.min(existing.quantity + body.quantity, maxForThisLine)
+      : Math.min(body.quantity, maxForThisLine),
     variant: body.variant ? (body.variant as object) : Prisma.JsonNull,
     fulfillmentType,
-    localDeliveryDetails: localDeliveryDetails ? (localDeliveryDetails as object) : Prisma.JsonNull,
-    pickupDetails: pickupDetails ? (pickupDetails as object) : Prisma.JsonNull,
+    localDeliveryDetails: localDeliveryDetails
+      ? (localDeliveryDetails as object)
+      : existing?.localDeliveryDetails && fulfillmentType === "local_delivery"
+        ? (existing.localDeliveryDetails as object)
+        : Prisma.JsonNull,
+    pickupDetails: pickupDetails
+      ? (pickupDetails as object)
+      : existing?.pickupDetails && fulfillmentType === "pickup"
+        ? (existing.pickupDetails as object)
+        : Prisma.JsonNull,
   };
 
   if (existing) {

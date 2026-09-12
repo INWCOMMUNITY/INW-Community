@@ -15,6 +15,8 @@ interface CartItem {
   quantity: number;
   variant: unknown;
   unitPriceCents?: number;
+  resaleOfferId?: string | null;
+  availableQuantity?: number;
   storeItem: {
     id: string;
     title: string;
@@ -30,6 +32,11 @@ interface CartItem {
 
 function cartLineUnitPriceCents(item: CartItem): number {
   return typeof item.unitPriceCents === "number" ? item.unitPriceCents : item.storeItem.priceCents;
+}
+
+function cartLineMaxQty(item: CartItem): number {
+  if (typeof item.availableQuantity === "number") return Math.max(0, item.availableQuantity);
+  return getAvailableQuantity(item.storeItem, item.variant ?? undefined);
 }
 
 export function SideCart() {
@@ -155,7 +162,7 @@ export function SideCart() {
                     ) : null}
                     <p className="text-sm font-bold mt-1">
                       ${(cartLineUnitPriceCents(item) / 100).toFixed(2)}
-                      {cartLineUnitPriceCents(item) !== item.storeItem.priceCents ? (
+                      {item.resaleOfferId ? (
                         <span className="block text-xs font-normal text-gray-500">
                           Offer (list ${(item.storeItem.priceCents / 100).toFixed(2)})
                         </span>
@@ -177,16 +184,10 @@ export function SideCart() {
                         onClick={() =>
                           updateQuantity(
                             item.id,
-                            Math.min(
-                              getAvailableQuantity(item.storeItem, item.variant ?? undefined),
-                              item.quantity + 1
-                            )
+                            Math.min(cartLineMaxQty(item), item.quantity + 1)
                           )
                         }
-                        disabled={
-                          item.quantity >=
-                          getAvailableQuantity(item.storeItem, item.variant ?? undefined)
-                        }
+                        disabled={item.quantity >= cartLineMaxQty(item)}
                         className="w-6 h-6 border rounded text-sm leading-none disabled:opacity-50"
                       >
                         +
