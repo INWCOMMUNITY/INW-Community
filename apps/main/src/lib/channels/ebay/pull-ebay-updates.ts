@@ -48,8 +48,8 @@ import { hasOptionQuantities } from "@/lib/store-item-variants";
 import {
   applyLiveInventoryQuantitiesToMatrix,
   applyRemoteVariantPricesToMatrix,
+  inboundListingPriceCents,
   matrixHasKnownSkuPrices,
-  minSkuPriceCents,
   normalizeVariantMatrix,
   optionValuesKey,
   serializeVariantMatrix,
@@ -559,6 +559,9 @@ export function ebayGetItemApplyDecision(args: {
   lastPushedVariantPricesHash?: string | null;
   /** Held per-SKU snapshot from a prior GetItem; listing title/qty may already match INW. */
   pendingVariantInboundHash?: string | null;
+  inwVariantQtyHash?: string | null;
+  remoteVariantQtyHash?: string | null;
+  remoteVariantQtyLooksDegraded?: boolean;
 }): EbayGetItemApplyDecision {
   const inboundAt = args.lastInboundAt?.getTime() ?? null;
   const pushedAt = args.lastPushedAt?.getTime() ?? null;
@@ -599,8 +602,15 @@ export function ebayGetItemApplyDecision(args: {
       (args.ebayLastModified != null &&
         args.lastPushedAt != null &&
         args.ebayLastModified.getTime() > args.lastPushedAt.getTime() + SYNC_ECHO_SKEW_MS));
+  const independentSkuQtyRevise =
+    Boolean(args.remoteVariantQtyHash) &&
+    args.remoteVariantQtyHash !== (args.inwVariantQtyHash ?? "") &&
+    !args.remoteVariantQtyLooksDegraded;
   const listingFieldsMatch =
-    remoteHash === inwHash && !descriptionDiffers && !independentSkuPriceRevise;
+    remoteHash === inwHash &&
+    !descriptionDiffers &&
+    !independentSkuPriceRevise &&
+    !independentSkuQtyRevise;
   // SKU-price diffs must not disable this skip. Listing CurrentPrice is the cheapest
   // variation, so a hub SKU edit looks like "eBay differs" while eBay is still older.
   const inwLooksNewer =
@@ -627,7 +637,10 @@ export function ebayGetItemApplyDecision(args: {
     if (ebayGetItemIsPushEcho(args)) {
       return { action: "skip", reason: "echo-of-push" };
     }
-    if (inwLooksNewer) {
+    // Listing total often stays put on a single-SKU qty edit. After an INW save,
+    // inwLooksNewer would skip that webhook and leave Inventory API on the old qty,
+    // which Seller Hub immediately redisplays.
+    if (inwLooksNewer && !independentSkuQtyRevise) {
       return { action: "skip", reason: "inw-newer-than-ebay" };
     }
     return {
@@ -674,6 +687,7 @@ export function ebayGetItemApplyDecision(args: {
     qtyPriceMatch &&
     !descriptionDiffers &&
     !independentSkuPriceRevise &&
+    !independentSkuQtyRevise &&
     !independentRevise
   ) {
     return { action: "skip", reason: "lastModified-not-newer" };
@@ -829,6 +843,12 @@ export async function refreshEbayListingByItemId(
       : null,
     lastPushedVariantPricesHash: readLastPushedVariantPricesHash(link.conflictDetails),
     pendingVariantInboundHash: readEbayPendingVariantInboundHash(link.conflictDetails),
+    inwVariantQtyHash: variantsStructureQtyFingerprint(storeItem.variants) || null,
+    remoteVariantQtyHash: variantsStructureQtyFingerprint(details.variants) || null,
+    remoteVariantQtyLooksDegraded: variantQuantitiesLookDegraded(
+      storeItem.variants,
+      details.variants
+    ),
   });
   const preserveInwContent =
     !independentRevise &&
@@ -1158,7 +1178,10 @@ export async function refreshEbayListingByItemId(
     }
 
     if (workingMatrix && remotePrices.length > 0) {
-      workingMatrix = applyRemoteVariantPricesToMatrix(workingMatrix, remotePrices);
+      workingMatrix = applyRemoteVariantPricesToMatrix(workingMatrix, remotePrices, {
+        listingMinCents: remotePrice,
+        inwListingPriceCents: storeItem.priceCents,
+      });
     }
 
     const currentSerialized = inwMatrix ? serializeVariantMatrix(inwMatrix) : null;
@@ -1167,7 +1190,7 @@ export async function refreshEbayListingByItemId(
       JSON.stringify(nextSerialized) !== JSON.stringify(currentSerialized);
     const sum = workingMatrix ? sumMatrixQuantities(workingMatrix) : storeItem.quantity;
     const nextListingPrice = workingMatrix
-      ? minSkuPriceCents(workingMatrix, storeItem.priceCents)
+      ? inboundListingPriceCents(workingMatrix, storeItem.priceCents)
       : storeItem.priceCents;
     const unsoldZero =
       qtyPulled &&

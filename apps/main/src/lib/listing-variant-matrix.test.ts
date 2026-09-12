@@ -6,10 +6,12 @@ import {
   decrementMatrixSku,
   fillMissingAlphanumericComboSkus,
   incrementMatrixSku,
+  inboundListingPriceCents,
   listingGalleryPhotoChoices,
   matrixHasKnownSkuPrices,
   mergeIncomingVariantMatrixPreservingUnknownPrices,
   minSkuPriceCents,
+  remoteSkuPriceLooksLikeListingMinFill,
   stripSkuPricesFromMatrix,
   isVariantPriceDraftInput,
   isVariantQtyDraftInput,
@@ -441,6 +443,70 @@ describe("applyRemoteVariantPricesToMatrix", () => {
     const serialized = serializeVariantMatrix(next);
     expect(serialized.pricesVary).toBe(true);
     expect(serialized.skus.map((s) => s.priceCents)).toEqual([100, 2500, 2500]);
+  });
+
+  it("does not materialize eBay listing-min StartPrice onto unpriced fallback SKUs", () => {
+    const matrix = normalizeVariantMatrix({
+      axes: [
+        { name: "Size", values: ["Small", "Large"] },
+        { name: "Primary color", values: ["Red", "Green"] },
+      ],
+      skus: [
+        { options: { Size: "Small", "Primary color": "Red" }, quantity: 1, priceCents: 500 },
+        { options: { Size: "Large", "Primary color": "Blue" }, quantity: 4, priceCents: 2000 },
+        { options: { Size: "Small", "Primary color": "Green" }, quantity: 5 },
+        { options: { Size: "Large", "Primary color": "Green" }, quantity: 5 },
+      ],
+    })!;
+    const next = applyRemoteVariantPricesToMatrix(
+      matrix,
+      [
+        { options: { Size: "Small", "Primary color": "Red" }, priceCents: 500 },
+        { options: { Size: "Large", "Primary color": "Blue" }, priceCents: 2000 },
+        { options: { Size: "Small", "Primary color": "Green" }, priceCents: 500 },
+        { options: { Size: "Large", "Primary color": "Green" }, priceCents: 500 },
+      ],
+      { listingMinCents: 500, inwListingPriceCents: 100 }
+    );
+    expect(next.skus[0].priceCents).toBe(500);
+    expect(next.skus[1].priceCents).toBe(2000);
+    expect(next.skus[2].priceCents).toBeUndefined();
+    expect(next.skus[3].priceCents).toBeUndefined();
+    expect(inboundListingPriceCents(next, 100)).toBe(100);
+  });
+
+  it("still applies a real seller price on a previously unpriced SKU", () => {
+    const matrix = normalizeVariantMatrix({
+      axes: [{ name: "Color", values: ["Green"] }],
+      skus: [{ options: { Color: "Green" }, quantity: 5 }],
+    })!;
+    const next = applyRemoteVariantPricesToMatrix(
+      matrix,
+      [{ options: { Color: "Green" }, priceCents: 800 }],
+      { listingMinCents: 500, inwListingPriceCents: 100 }
+    );
+    expect(next.skus[0].priceCents).toBe(800);
+  });
+});
+
+describe("remoteSkuPriceLooksLikeListingMinFill", () => {
+  it("skips listing-min fills on unpriced rows and allows distinct INW SKU prices", () => {
+    expect(
+      remoteSkuPriceLooksLikeListingMinFill({
+        inwSkuPriceCents: undefined,
+        remotePriceCents: 500,
+        listingMinCents: 500,
+        inwListingPriceCents: 100,
+      })
+    ).toBe(true);
+    expect(
+      remoteSkuPriceLooksLikeListingMinFill({
+        inwSkuPriceCents: 500,
+        remotePriceCents: 500,
+        listingMinCents: 500,
+        inwListingPriceCents: 100,
+      })
+    ).toBe(false);
   });
 });
 

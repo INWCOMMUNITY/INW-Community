@@ -836,6 +836,37 @@ export function mergeIncomingVariantMatrixPreservingUnknownPrices(
 }
 
 /**
+ * True when this SKU has its own price, not the listing fallback.
+ * Unpriced rows (and rows still at the listing amount) inherit `storeItem.priceCents`.
+ */
+export function skuHasDistinctPrice(
+  priceCents: number | null | undefined,
+  listingPriceCents: number
+): boolean {
+  return priceCents != null && priceCents > 0 && priceCents !== listingPriceCents;
+}
+
+/**
+ * eBay GetItem StartPrice on a variation with no unique price is the listing CurrentPrice
+ * (the cheapest SKU). Pulling that onto an unpriced INW row materializes $5 (etc.) onto
+ * every generic $1 fallback SKU. Skip those fills; still apply a real seller SKU edit.
+ */
+export function remoteSkuPriceLooksLikeListingMinFill(args: {
+  inwSkuPriceCents: number | null | undefined;
+  remotePriceCents: number;
+  listingMinCents: number;
+  inwListingPriceCents: number;
+}): boolean {
+  if (skuHasDistinctPrice(args.inwSkuPriceCents, args.inwListingPriceCents)) return false;
+  return args.listingMinCents > 0 && args.remotePriceCents === args.listingMinCents;
+}
+
+export type ApplyRemoteVariantPricesOpts = {
+  listingMinCents?: number;
+  inwListingPriceCents?: number;
+};
+
+/**
  * Overwrite per-option prices in a matrix from authoritative live reads
  * (e.g. eBay GetItem per-variation StartPrice, Etsy per-offering price). Each
  * remote entry is matched to a matrix row by SKU first, then by option selection.
@@ -846,7 +877,8 @@ export function mergeIncomingVariantMatrixPreservingUnknownPrices(
  */
 export function applyRemoteVariantPricesToMatrix(
   matrix: VariantMatrix,
-  remotePrices: RemoteVariantPrice[]
+  remotePrices: RemoteVariantPrice[],
+  opts?: ApplyRemoteVariantPricesOpts
 ): VariantMatrix {
   if (!remotePrices.length) return matrix;
   const bySku = new Map<string, number>();
@@ -873,6 +905,17 @@ export function applyRemoteVariantPricesToMatrix(
       byOptions.get(skuSelectionKey(row.options)) ??
       byValues.get(optionValuesKey(row.options));
     if (next == null) return row;
+    if (
+      opts?.listingMinCents != null &&
+      remoteSkuPriceLooksLikeListingMinFill({
+        inwSkuPriceCents: row.priceCents,
+        remotePriceCents: next,
+        listingMinCents: opts.listingMinCents,
+        inwListingPriceCents: opts.inwListingPriceCents ?? 0,
+      })
+    ) {
+      return row;
+    }
     applied = true;
     return { ...row, priceCents: Math.max(1, next) };
   });
@@ -912,6 +955,16 @@ export function minSkuPriceCents(matrix: VariantMatrix, fallback: number): numbe
     .filter((p): p is number => typeof p === "number" && p > 0);
   if (prices.length === 0) return fallback;
   return Math.min(...prices);
+}
+
+/**
+ * Listing price is the fallback for SKUs with no override. Do not raise it to the
+ * cheapest priced SKU while unpriced rows still inherit the old listing amount.
+ */
+export function inboundListingPriceCents(matrix: VariantMatrix, currentListingCents: number): number {
+  const inheritsListing = matrix.skus.some((s) => !skuHasDistinctPrice(s.priceCents, currentListingCents));
+  if (inheritsListing) return currentListingCents;
+  return minSkuPriceCents(matrix, currentListingCents);
 }
 
 /** Browse/feed cards: listing price, or “from $X” when SKU overrides differ. */

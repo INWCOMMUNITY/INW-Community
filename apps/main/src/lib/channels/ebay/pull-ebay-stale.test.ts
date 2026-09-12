@@ -348,6 +348,44 @@ describe("ebayGetItemApplyDecision", () => {
     ).toMatchObject({ action: "apply" });
   });
 
+  it("applies a webhook qty-only SKU edit even when listing total still matches INW", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        inwVariantQtyHash: "inw-sku-qty",
+        remoteVariantQtyHash: "ebay-sku-qty",
+        source: "webhook",
+      })
+    ).toMatchObject({ action: "apply", reason: "webhook-revise" });
+  });
+
+  it("applies an eBay SKU qty revise after an INW save instead of skipping inw-newer", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastPushedAt: new Date("2026-08-20T07:00:00.000Z"),
+        inwUpdatedAt: new Date("2026-08-20T07:00:00.000Z"),
+        lastInboundAt: inbound,
+        inwVariantQtyHash: "inw-sku-qty",
+        remoteVariantQtyHash: "ebay-sku-qty",
+        source: "webhook",
+        now: new Date("2026-08-20T07:10:00.000Z"),
+      })
+    ).toMatchObject({ action: "apply", reason: "webhook-revise" });
+  });
+
+  it("does not treat degraded all-1s GetItem qty as a seller SKU edit", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        inwVariantQtyHash: "inw-sku-qty",
+        remoteVariantQtyHash: "ebay-all-ones",
+        remoteVariantQtyLooksDegraded: true,
+        source: "webhook",
+      })
+    ).toEqual({ action: "skip", reason: "matches-inw" });
+  });
+
   it("does not copy lagged SKU prices when INW still matches the last push", () => {
     expect(
       ebayGetItemApplyDecision({
