@@ -411,6 +411,44 @@ describe("variant quantity inbound guards", () => {
     expect(variantQuantitiesLookDegraded(inw, remoteQty)).toBe(false);
   });
 
+  it("accepts a real all-1s revise when the listing total sums to the rows", () => {
+    // Seller set every variation to 1: listing total follows the rows.
+    expect(variantQuantitiesLookDegraded(inw, remoteDegraded, 1)).toBe(false);
+    // Degraded read: rows collapsed to 1 but the listing total kept the old stock.
+    expect(variantQuantitiesLookDegraded(inw, remoteDegraded, 4)).toBe(true);
+  });
+
+  it("pushes nothing over a seller's all-1s edit", () => {
+    const twelveInw = {
+      axes: [{ name: "Size", values: ["S", "M"] }],
+      skus: [
+        { options: { Size: "S" }, quantity: 2 },
+        { options: { Size: "M" }, quantity: 2 },
+      ],
+    };
+    const allOnes = {
+      axes: twelveInw.axes,
+      skus: [
+        { options: { Size: "S" }, quantity: 1 },
+        { options: { Size: "M" }, quantity: 1 },
+      ],
+    };
+    expect(
+      remoteSkuQuantitiesDivergeFromInw({
+        inwVariants: twelveInw,
+        remoteVariants: allOnes,
+        remoteListingQuantity: 2,
+      })
+    ).toBe(true);
+    expect(
+      remoteSkuQuantitiesDivergeFromInw({
+        inwVariants: twelveInw,
+        remoteVariants: allOnes,
+        remoteListingQuantity: 4,
+      })
+    ).toBe(false);
+  });
+
   it("detects a per-SKU qty edit even when listing totals could match", () => {
     expect(remoteSkuQuantitiesDivergeFromInw({ inwVariants: inw, remoteVariants: remoteQty })).toBe(
       true

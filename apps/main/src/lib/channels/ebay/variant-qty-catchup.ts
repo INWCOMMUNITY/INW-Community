@@ -17,10 +17,13 @@ export type ChosenEbayLiveQuantity = {
 };
 
 /**
- * Live View Item stock is offer.availableQuantity. Seller Hub writes
- * inventory_item. Copy inventory onto the offer when those two disagree so
- * the live listing matches Seller Hub. GetItem/Trading is lagged and often
- * degraded — never write it onto inventory or the offer.
+ * Live View Item stock is offer.availableQuantity. Seller Hub's variation editor writes
+ * the Trading layer, which is what the revise form redisplays; the Inventory API copies
+ * lag behind it. Copy whichever surface holds the seller's edit onto the offer so the
+ * live listing matches what the seller typed.
+ *
+ * Trading is also what lags right after an INW push, so only treat a Trading-only
+ * difference as the seller's edit when INW has not just written (`inwPushedRecently`).
  */
 export function chooseEbayLiveListingQuantity(args: {
   tradingQty: number | null;
@@ -28,6 +31,7 @@ export function chooseEbayLiveListingQuantity(args: {
   offerQty: number | null;
   inwQty: number | null;
   tradingLooksDegraded?: boolean;
+  inwPushedRecently?: boolean;
 }): ChosenEbayLiveQuantity | null {
   const trading =
     args.tradingLooksDegraded || args.tradingQty == null || !Number.isFinite(args.tradingQty)
@@ -43,6 +47,19 @@ export function chooseEbayLiveListingQuantity(args: {
       : Math.max(0, Math.round(args.offerQty));
   const inw =
     args.inwQty == null || !Number.isFinite(args.inwQty) ? null : Math.max(0, Math.round(args.inwQty));
+
+  // Seller Hub revise wrote Trading while the Inventory API still echoes our last push.
+  // A Trading value that matches INW is our own lag, not an edit.
+  if (
+    trading != null &&
+    !args.inwPushedRecently &&
+    trading !== inw &&
+    trading !== inventory &&
+    trading !== offer &&
+    (inventory != null || offer != null)
+  ) {
+    return { quantity: trading, source: "trading", writeOffers: true };
+  }
 
   if (inventory != null && offer != null) {
     if (inventory !== offer) {
@@ -164,10 +181,16 @@ async function catchUpEbayLiveVariantQuantitiesOnce(args: {
   accessToken: string;
   inwMatrix: VariantMatrix;
   tradingMatrix: VariantMatrix | null;
+  tradingListingQuantity?: number | null;
+  inwPushedRecently?: boolean;
 }): Promise<EbayLiveQtyCatchUp> {
   const tradingDegraded = Boolean(
     args.tradingMatrix &&
-      variantQuantitiesLookDegraded(args.inwMatrix, args.tradingMatrix)
+      variantQuantitiesLookDegraded(
+        args.inwMatrix,
+        args.tradingMatrix,
+        args.tradingListingQuantity
+      )
   );
   const rows = args.inwMatrix.skus.filter((row) => row.sku?.trim());
   const quantities: LiveVariantQuantity[] = [];
@@ -185,6 +208,7 @@ async function catchUpEbayLiveVariantQuantitiesOnce(args: {
       offerQty: offer.quantity,
       inwQty: row.quantity,
       tradingLooksDegraded: tradingDegraded,
+      inwPushedRecently: args.inwPushedRecently,
     });
     if (!chosen) return;
     quantities.push({ sku, options: row.options, quantity: chosen.quantity });
@@ -215,6 +239,8 @@ export async function catchUpEbayLiveVariantQuantities(args: {
   accessToken: string;
   inwMatrix: VariantMatrix;
   tradingMatrix: VariantMatrix | null;
+  tradingListingQuantity?: number | null;
+  inwPushedRecently?: boolean;
   retryIfUnchangedMs?: number;
 }): Promise<EbayLiveQtyCatchUp> {
   const first = await catchUpEbayLiveVariantQuantitiesOnce(args);

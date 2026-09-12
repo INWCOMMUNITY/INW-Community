@@ -152,23 +152,46 @@ export function remoteVariantMatrixIsWeaker(existing: unknown, incoming: unknown
 /**
  * GetItem variation Quantity sometimes collapses to 1 on every row while INW still has
  * real per-SKU stock. Overlaying that would wipe inventory; treat it as unreadable.
+ *
+ * A seller can also legitimately set every variation to 1. The two are identical in the
+ * variation rows, so use the listing-level total to tell them apart: eBay's degraded read
+ * leaves the listing total at the true stock while the rows collapse, whereas a real
+ * all-1s revise sums to the listing total.
  */
-export function variantQuantitiesLookDegraded(existing: unknown, incoming: unknown): boolean {
+export function variantQuantitiesLookDegraded(
+  existing: unknown,
+  incoming: unknown,
+  remoteListingQuantity?: number | null
+): boolean {
   const inw = normalizeVariantMatrix(existing);
   const remote = normalizeVariantMatrix(incoming);
   if (!inw || !remote || remote.skus.length === 0) return false;
   const remoteAllTiny = remote.skus.every((s) => s.quantity <= 1);
   const inwHasStock = inw.skus.some((s) => s.quantity > 1);
-  return remoteAllTiny && inwHasStock;
+  if (!remoteAllTiny || !inwHasStock) return false;
+  if (remoteListingQuantity != null && Number.isFinite(remoteListingQuantity)) {
+    const remoteSum = remote.skus.reduce((n, s) => n + Math.max(0, s.quantity), 0);
+    if (Math.round(remoteListingQuantity) === remoteSum) return false;
+  }
+  return true;
 }
 
 /** True when live per-SKU quantities differ from INW and the remote snapshot is trustworthy. */
 export function remoteSkuQuantitiesDivergeFromInw(args: {
   inwVariants: unknown;
   remoteVariants: unknown;
+  remoteListingQuantity?: number | null;
 }): boolean {
   if (remoteVariantMatrixIsWeaker(args.inwVariants, args.remoteVariants)) return false;
-  if (variantQuantitiesLookDegraded(args.inwVariants, args.remoteVariants)) return false;
+  if (
+    variantQuantitiesLookDegraded(
+      args.inwVariants,
+      args.remoteVariants,
+      args.remoteListingQuantity
+    )
+  ) {
+    return false;
+  }
   const inwFp = variantsStructureQtyFingerprint(args.inwVariants);
   const remoteFp = variantsStructureQtyFingerprint(args.remoteVariants);
   if (!inwFp || !remoteFp) return false;

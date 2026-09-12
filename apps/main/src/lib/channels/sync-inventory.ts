@@ -259,6 +259,7 @@ export async function syncInventoryToChannels(
               remoteSkuQuantitiesDivergeFromInw({
                 inwVariants: item.variants,
                 remoteVariants: live.variants,
+                remoteListingQuantity: live.quantity,
               })
             );
           }

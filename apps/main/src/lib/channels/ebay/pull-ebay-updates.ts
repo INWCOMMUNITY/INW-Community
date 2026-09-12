@@ -551,6 +551,20 @@ export function withEbayDirtyUnconfirmed(
  */
 export const EBAY_POST_INBOUND_SETTLE_MS = 10 * 60_000;
 
+/**
+ * GetItem/Trading echoes our own push for a short window. Outside it, a Trading-only
+ * quantity is the seller's Seller Hub revise, not our lag.
+ */
+export const EBAY_TRADING_PUSH_ECHO_MS = 2 * 60_000;
+
+export function ebayInwPushedRecently(
+  lastPushedAt: Date | null | undefined,
+  now: Date = new Date()
+): boolean {
+  if (!lastPushedAt) return false;
+  return now.getTime() - lastPushedAt.getTime() < EBAY_TRADING_PUSH_ECHO_MS;
+}
+
 export function ebayInPostInboundSettleWindow(args: {
   lastInboundAt: Date | null;
   now?: Date;
@@ -584,13 +598,18 @@ export function shouldOverlayEbayGetItemSkuQuantities(args: {
   inwMatrix: VariantMatrix | null;
   remoteMatrix: VariantMatrix | null;
   catchUpReturnedRows?: boolean;
+  remoteListingQuantity?: number | null;
 }): boolean {
   if (args.skipQuantity) return false;
   if (args.catchUpReturnedRows) return false;
   if (!ebayApplyTrustsSingleSnapshot(args.source)) return false;
   if (!args.inwMatrix || !args.remoteMatrix) return false;
   if (remoteVariantMatrixIsWeaker(args.inwMatrix, args.remoteMatrix)) return false;
-  if (variantQuantitiesLookDegraded(args.inwMatrix, args.remoteMatrix)) return false;
+  if (
+    variantQuantitiesLookDegraded(args.inwMatrix, args.remoteMatrix, args.remoteListingQuantity)
+  ) {
+    return false;
+  }
   return (
     variantsStructureQtyFingerprint(args.inwMatrix) !==
     variantsStructureQtyFingerprint(args.remoteMatrix)
@@ -910,7 +929,8 @@ export async function refreshEbayListingByItemId(
     remoteVariantQtyHash: variantsStructureQtyFingerprint(details.variants) || null,
     remoteVariantQtyLooksDegraded: variantQuantitiesLookDegraded(
       storeItem.variants,
-      details.variants
+      details.variants,
+      details.quantity
     ),
   });
   const preserveInwContent =
@@ -986,6 +1006,8 @@ export async function refreshEbayListingByItemId(
           accessToken,
           inwMatrix: catchUpMatrix,
           tradingMatrix: normalizeVariantMatrix(details.variants),
+          tradingListingQuantity: details.quantity,
+          inwPushedRecently: ebayInwPushedRecently(link.lastPushedAt),
           retryIfUnchangedMs: opts?.source === "webhook" ? 2500 : 0,
         });
       } catch (e) {
@@ -1229,6 +1251,7 @@ export async function refreshEbayListingByItemId(
       inwMatrix,
       remoteMatrix: remoteVariantMatrix,
       catchUpReturnedRows,
+      remoteListingQuantity: details.quantity,
     });
     let qtyMatrix: VariantMatrix | null = inwMatrix;
     let qtyPulled = false;

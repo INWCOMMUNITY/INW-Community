@@ -33,13 +33,14 @@ describe("chooseEbayLiveListingQuantity", () => {
     ).toEqual({ quantity: 9, source: "offer", writeOffers: false });
   });
 
-  it("does not write Trading over inventory+offer that already agree", () => {
+  it("does not write Trading over inventory+offer while our push is still echoing", () => {
     expect(
       chooseEbayLiveListingQuantity({
         tradingQty: 9,
         inventoryQty: 4,
         offerQty: 4,
         inwQty: 4,
+        inwPushedRecently: true,
       })
     ).toEqual({ quantity: 4, source: "offer", writeOffers: false });
   });
@@ -67,6 +68,42 @@ describe("chooseEbayLiveListingQuantity", () => {
   });
 
   it("ignores degraded all-1s Trading qty", () => {
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 1,
+        inventoryQty: 4,
+        offerQty: 4,
+        inwQty: 4,
+        tradingLooksDegraded: true,
+      })
+    ).toEqual({ quantity: 4, source: "offer", writeOffers: false });
+  });
+
+  it("writes the Seller Hub revise onto the live offer when only Trading moved", () => {
+    // Revise form shows 1, View Item still shows 2.
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 1,
+        inventoryQty: 2,
+        offerQty: 2,
+        inwQty: 2,
+      })
+    ).toEqual({ quantity: 1, source: "trading", writeOffers: true });
+  });
+
+  it("does not let lagged Trading undo our own push", () => {
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 2,
+        inventoryQty: 5,
+        offerQty: 5,
+        inwQty: 5,
+        inwPushedRecently: true,
+      })
+    ).toEqual({ quantity: 5, source: "offer", writeOffers: false });
+  });
+
+  it("still ignores a degraded all-1s Trading read", () => {
     expect(
       chooseEbayLiveListingQuantity({
         tradingQty: 1,

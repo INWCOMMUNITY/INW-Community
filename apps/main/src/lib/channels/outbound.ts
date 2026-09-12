@@ -635,6 +635,7 @@ export async function updateStoreItemOnChannels(
                 remoteSkuQuantitiesDivergeFromInw({
                   inwVariants: freshItem.variants,
                   remoteVariants: live.variants,
+                  remoteListingQuantity: live.quantity,
                 })
               ) {
                 skippedNewerRemoteQty = true;
