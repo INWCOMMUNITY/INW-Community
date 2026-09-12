@@ -109,6 +109,20 @@ describe("isEbayOfferLookupMiss", () => {
     });
     expect(isEbayOfferLookupMiss(err)).toBe(true);
   });
+
+  it("does not treat #25604 Availability not found as a missing offer", () => {
+    const err = new EbayApiError("eBay API error (400)", 400, {
+      errors: [
+        {
+          errorId: 25604,
+          domain: "API_INVENTORY",
+          category: "REQUEST",
+          message: "Input error. Seller Inventory Service can not publish the data. Availability not found.",
+        },
+      ],
+    });
+    expect(isEbayOfferLookupMiss(err)).toBe(false);
+  });
 });
 
 describe("parseEbayInventorySkuInAnotherGroup", () => {

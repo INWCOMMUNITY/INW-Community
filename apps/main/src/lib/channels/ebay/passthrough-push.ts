@@ -13,6 +13,7 @@ import { enrichInventoryProductAspectsForPush, prepareLiveAspectsForInventoryPut
 import { applyBestOfferTermsToOfferBody, bestOfferStatesMatch, inwBestOfferState, readOfferBestOfferTerms } from "./best-offer";
 import { EBAY_CURRENCY } from "./config";
 import { ebayPriceFromCents } from "./mapping";
+import { channelQuantityForTracked } from "@/lib/listing-variant-matrix";
 import {
   ebayPhotosAreHostFamilyMismatchOnly,
   liveEbayPhotoUrlsToPin,
@@ -68,6 +69,7 @@ export function buildPassthroughLiveOverlayBody(
     title?: string;
     imageUrls?: string[];
     quantity?: number;
+    fallbackQuantity?: number;
   } = {}
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {};
@@ -77,8 +79,8 @@ export function buildPassthroughLiveOverlayBody(
     body.availability = {
       shipToLocationAvailability: { quantity: Math.max(0, patch.quantity) },
     };
-  } else if (live.availability && typeof live.availability === "object") {
-    body.availability = structuredClone(live.availability);
+  } else {
+    body.availability = passthroughAvailabilityForPut(live, patch.fallbackQuantity ?? 0);
   }
 
   const liveProduct =
@@ -111,7 +113,10 @@ export function buildPassthroughTitleOnlyInventoryBody(
   live: LiveInventoryItem,
   item: SyncStoreItem
 ): Record<string, unknown> {
-  return buildPassthroughLiveOverlayBody(live, { title: item.title });
+  return buildPassthroughLiveOverlayBody(live, {
+    title: item.title,
+    fallbackQuantity: channelQuantityForTracked(item.quantity, item.inventoryTracking),
+  });
 }
 
 export type LiveInventoryItem = Record<string, unknown>;
@@ -208,6 +213,23 @@ export function readLiveInventoryAvailableQuantity(
   if (ship?.quantity == null) return null;
   const n = Number(ship.quantity);
   return Number.isFinite(n) ? Math.max(0, n) : null;
+}
+
+/**
+ * Inventory PUT must always include availability. Omitting it strips stock and the next
+ * offer PUT / publish returns #25604 Availability not found.
+ */
+export function passthroughAvailabilityForPut(
+  live: LiveInventoryItem,
+  fallbackQuantity: number
+): { shipToLocationAvailability: { quantity: number } } {
+  const liveQty = readLiveInventoryAvailableQuantity(live);
+  if (liveQty != null && live.availability && typeof live.availability === "object") {
+    return structuredClone(live.availability) as { shipToLocationAvailability: { quantity: number } };
+  }
+  return {
+    shipToLocationAvailability: { quantity: Math.max(0, fallbackQuantity) },
+  };
 }
 
 function liveQuantity(live: LiveInventoryItem): number | null {
@@ -478,8 +500,11 @@ export function buildPassthroughInventoryBody(
     body.availability = {
       shipToLocationAvailability: { quantity: Math.max(0, item.quantity) },
     };
-  } else if (live.availability && typeof live.availability === "object") {
-    body.availability = live.availability;
+  } else {
+    body.availability = passthroughAvailabilityForPut(
+      live,
+      channelQuantityForTracked(item.quantity, item.inventoryTracking)
+    );
   }
 
   return body;

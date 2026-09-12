@@ -11,6 +11,7 @@ import { logSyncPullQuantityChange } from "./quantity-audit";
 import { skuToAdoptFromRemote } from "@/lib/listing-sku";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
 import { isSoldOutQtyRecovery, shouldBlockSoldOutQtyRecovery } from "./sold-out-guard";
+import { normalizeVariantMatrix, stripSkuPricesFromMatrix } from "@/lib/listing-variant-matrix";
 
 /** Normalize title text so HTML entities don't trigger false content drift. */
 function normalizeTitleForCompare(title: string): string {
@@ -275,6 +276,14 @@ export async function applyRemoteQuantityToStoreItem(
 }
 
 /**
+ * Qty-only overlay for catalog/stock pulls. Remote SKU prices must not replace INW.
+ */
+export function remoteVariantsForStockPull(variants: unknown): unknown {
+  const qtyOnly = normalizeVariantMatrix(variants);
+  return qtyOnly ? stripSkuPricesFromMatrix(qtyOnly) : variants;
+}
+
+/**
  * Pull channel stock onto INW. Variation listings must write option rows, not a single total.
  */
 export async function applyRemoteStockFromChannel(
@@ -288,7 +297,11 @@ export async function applyRemoteStockFromChannel(
 ): Promise<boolean> {
   if (remote.variantsKnown && remote.variants) {
     const { applyRemoteVariantsToStoreItem } = await import("./apply-remote-meta");
-    const vars = await applyRemoteVariantsToStoreItem(storeItemId, remote, auditContext.provider);
+    const vars = await applyRemoteVariantsToStoreItem(
+      storeItemId,
+      { ...remote, variants: remoteVariantsForStockPull(remote.variants) },
+      auditContext.provider
+    );
     if (vars) return true;
   }
   if (remote.quantityKnown === false) return false;

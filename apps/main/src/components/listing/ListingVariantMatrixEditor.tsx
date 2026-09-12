@@ -5,13 +5,17 @@ import {
   INVENTORY_TRACKING_MADE_TO_ORDER,
   INVENTORY_TRACKING_TRACKED,
   MAX_VARIANT_AXES,
+  formatVariantPriceCents,
   inferMatrixVaryFlags,
+  isVariantPriceDraftInput,
   listingGalleryPhotoChoices,
   normalizeVariantMatrix,
   optionsEqual,
   rebuildMatrixFromAxes,
   resolveImageAxisName,
   skuSelectionKey,
+  variantPriceCentsToEditable,
+  variantPriceDraftToCents,
   type InventoryTracking,
   type VariantAxisDef,
   type VariantSkuRow,
@@ -110,6 +114,7 @@ export function ListingVariantMatrixEditor({
   const [draftNewValues, setDraftNewValues] = useState<Record<number, string>>({});
   const [bulkPrice, setBulkPrice] = useState("");
   const [bulkQty, setBulkQty] = useState("");
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (skus.some((s) => s.priceCents != null && s.priceCents > 0)) setPricesVary(true);
@@ -153,6 +158,17 @@ export function ListingVariantMatrixEditor({
     );
   };
 
+  const commitPriceDraft = (key: string, raw: string) => {
+    const cents = variantPriceDraftToCents(raw);
+    patchSku(key, { priceCents: cents });
+    setPriceDrafts((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
   const openManage = () => {
     setDraftAxes(axes.length ? axes.map((a) => ({ ...a, values: [...a.values] })) : [{ name: "Size", values: [] }]);
     setDraftNewValues({});
@@ -186,6 +202,7 @@ export function ListingVariantMatrixEditor({
   const togglePriceVary = (next: boolean) => {
     setPricesVary(next);
     if (!next) {
+      setPriceDrafts({});
       onChange(
         axes,
         skus.map((s) => ({ ...s, priceCents: undefined }))
@@ -411,20 +428,33 @@ export function ListingVariantMatrixEditor({
                             <td className="px-2 py-2">
                               <input
                                 type="text"
+                                inputMode="decimal"
                                 className="w-20 border rounded px-1 py-0.5"
                                 placeholder="Default"
                                 value={
-                                  row.priceCents != null && row.priceCents > 0
-                                    ? (row.priceCents / 100).toFixed(2)
-                                    : ""
+                                  priceDrafts[key] !== undefined
+                                    ? priceDrafts[key]
+                                    : formatVariantPriceCents(row.priceCents)
                                 }
-                                onChange={(e) => {
-                                  const n = parseFloat(e.target.value);
-                                  patchSku(key, {
-                                    priceCents:
-                                      Number.isFinite(n) && n > 0 ? Math.round(n * 100) : undefined,
-                                  });
+                                onFocus={() => {
+                                  setPriceDrafts((prev) =>
+                                    prev[key] !== undefined
+                                      ? prev
+                                      : { ...prev, [key]: variantPriceCentsToEditable(row.priceCents) }
+                                  );
                                 }}
+                                onChange={(e) => {
+                                  const t = e.target.value;
+                                  if (!isVariantPriceDraftInput(t)) return;
+                                  setPriceDrafts((prev) => ({ ...prev, [key]: t }));
+                                  if (t.trim() === "") {
+                                    patchSku(key, { priceCents: undefined });
+                                    return;
+                                  }
+                                  const cents = variantPriceDraftToCents(t);
+                                  if (cents != null) patchSku(key, { priceCents: cents });
+                                }}
+                                onBlur={(e) => commitPriceDraft(key, e.currentTarget.value)}
                               />
                             </td>
                           ) : null}

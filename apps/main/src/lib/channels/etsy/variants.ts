@@ -8,6 +8,7 @@ import {
   channelQuantityForTracked,
   inferMatrixVaryFlags,
   isMadeToOrderTracking,
+  matrixHasKnownSkuPrices,
   MAX_ETSY_AXES,
   optionsEqual,
 } from "@/lib/listing-variant-matrix";
@@ -254,6 +255,26 @@ export function findMatrixSkuForEtsyProduct(
   return matrix.skus.find((s) => optionsEqual(s.options, map)) ?? null;
 }
 
+/** True when every INW SKU with a matching Etsy product has the same offering price (1¢). */
+export function etsyInventoryPricesMatchItem(
+  products: EtsyInventoryProduct[] | undefined,
+  item: SyncStoreItem
+): boolean {
+  const matrix = variantsToMatrix(item.variants);
+  if (!matrix || !matrixHasKnownSkuPrices(matrix)) return true;
+  const rows = products ?? [];
+  let matched = 0;
+  for (const sku of matrix.skus) {
+    const expected = sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents;
+    const product = rows.find((p) => optionsEqual(etsyProductOptionMap(p), sku.options));
+    if (!product) continue;
+    matched += 1;
+    const got = offeringPriceToCents(product.offerings?.[0]?.price);
+    if (got == null || Math.abs(got - expected) > 1) return false;
+  }
+  return matched > 0;
+}
+
 function propertyIdsFromProducts(products: Record<string, unknown>[]): number[] {
   const first = products[0] as { property_values?: { property_id?: number }[] } | undefined;
   const ids: number[] = [];
@@ -328,10 +349,13 @@ export function etsyOnPropertyFields(
   const flags = matrix
     ? inferMatrixVaryFlags(matrix)
     : { pricesVary: true, quantitiesVary: true, skusVary: true };
+  const hasSkuPrices = Boolean(
+    matrix?.skus.some((s) => s.priceCents != null && s.priceCents > 0)
+  );
   const allOrNone = (vary: boolean) => (vary && ids.length > 0 ? [...ids] : []);
   const aligned = alignEtsyOnPropertyFields(
     {
-      price: allOrNone(flags.pricesVary),
+      price: allOrNone(flags.pricesVary || hasSkuPrices),
       quantity: allOrNone(flags.quantitiesVary),
       sku: allOrNone(flags.skusVary),
     },
@@ -1026,6 +1050,7 @@ export async function syncEtsyListingInventoryFromInw(
     }
     throw err;
   }
+  await verifyEtsyComboInventory(accessToken, listingId, item);
 }
 
 /** Sum live offering quantities. Shop-list `listing.quantity` is often 0 while these are not. */
@@ -1254,11 +1279,16 @@ export async function verifyEtsyComboInventory(
   item: SyncStoreItem
 ): Promise<void> {
   const matrix = variantsToMatrix(item.variants);
-  if (!matrix || matrix.axes.length < 2 || matrix.skus.length <= 1) return;
+  if (!matrix) return;
   const inv = await etsyGet<EtsyInventory>(accessToken, `/listings/${listingId}/inventory`);
-  const remoteCount = inv.products?.length ?? 0;
-  if (remoteCount < matrix.skus.length) {
-    throw new Error(comboInventoryFailedMessage("etsy"));
+  if (matrix.axes.length >= 2 && matrix.skus.length > 1) {
+    const remoteCount = inv.products?.length ?? 0;
+    if (remoteCount < matrix.skus.length) {
+      throw new Error(comboInventoryFailedMessage("etsy"));
+    }
+  }
+  if (!etsyInventoryPricesMatchItem(inv.products, item)) {
+    throw new Error("Etsy did not persist per-variation prices. Retry the listing update.");
   }
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   remoteContentDiffersFromStoreItem,
   remoteTitleOrPriceDiffersFromStoreItem,
+  remoteVariantsForStockPull,
   shouldApplyAggregateRemoteQuantity,
   shouldApplyRemoteListingPrice,
 } from "./apply-remote-listing";
@@ -136,5 +137,19 @@ describe("remoteContentDiffersFromStoreItem photos", () => {
         remote({ photos: ["https://i.ebayimg.com/images/g/one/s-l2000.jpg"] })
       )
     ).toBe(false);
+  });
+});
+
+describe("remoteVariantsForStockPull", () => {
+  it("strips SKU prices so a qty pull cannot snap INW back to $1", () => {
+    const stripped = remoteVariantsForStockPull({
+      axes: [{ name: "Size", values: ["S", "M"] }],
+      skus: [
+        { options: { Size: "S" }, quantity: 2, priceCents: 100 },
+        { options: { Size: "M" }, quantity: 3, priceCents: 100 },
+      ],
+    }) as { skus: { priceCents?: number; quantity: number }[] };
+    expect(stripped.skus.every((s) => s.priceCents == null)).toBe(true);
+    expect(stripped.skus.map((s) => s.quantity)).toEqual([2, 3]);
   });
 });

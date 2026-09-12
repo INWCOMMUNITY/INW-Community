@@ -659,6 +659,10 @@ export async function updateStoreItemOnChannels(
             syncBaselineVariantsHash: varFp,
             syncBaselineQty: freshItem.quantity,
             syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
+            conflictDetails: withLastPushedVariantPricesHash(
+              link.conflictDetails,
+              variantPricesFingerprint(freshItem.variants)
+            ) as Prisma.InputJsonValue,
           },
         });
         await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);

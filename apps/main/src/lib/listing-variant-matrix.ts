@@ -182,6 +182,35 @@ export function inferMatrixVaryFlags(matrix: VariantMatrix): {
   return { pricesVary, quantitiesVary, skusVary };
 }
 
+const VARIANT_PRICE_DRAFT_RE = /^\d*(\.\d{0,2})?$/;
+
+/** True while the seller is typing a price (`""`, `"1"`, `"1."`, `"18.5"`). */
+export function isVariantPriceDraftInput(raw: string): boolean {
+  return VARIANT_PRICE_DRAFT_RE.test(raw.trim());
+}
+
+/** Cents from a complete draft. Trailing `.` and empty/invalid values are incomplete. */
+export function variantPriceDraftToCents(raw: string): number | undefined {
+  const t = raw.trim().replace(/^\$/, "");
+  if (!t || t === "." || t.endsWith(".")) return undefined;
+  const n = Number(t);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.round(n * 100);
+}
+
+/** Idle display (`18.00`). Not used while the field is focused. */
+export function formatVariantPriceCents(cents: number | null | undefined): string {
+  if (cents == null || cents <= 0) return "";
+  return (cents / 100).toFixed(2);
+}
+
+/** Focused display so typing `1` then `8` becomes `18`, not `1.008`. */
+export function variantPriceCentsToEditable(cents: number | null | undefined): string {
+  if (cents == null || cents <= 0) return "";
+  const dollars = cents / 100;
+  return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
+}
+
 export function resolveImageAxisName(matrix: VariantMatrix): string | null {
   if (matrix.imageAxis?.trim()) {
     const named = matrix.axes.find(

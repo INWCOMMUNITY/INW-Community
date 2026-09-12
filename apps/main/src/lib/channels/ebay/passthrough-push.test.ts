@@ -16,6 +16,7 @@ import {
   needsInventoryPut,
   overlayOfferAvailableQuantity,
   overlayPassthroughOffer,
+  passthroughAvailabilityForPut,
   passthroughEndedQuantityOnly,
   passthroughShouldPushVariantOffers,
   passthroughSyncHasFailures,
@@ -574,6 +575,19 @@ describe("passthrough-push", () => {
     );
     const product = body.product as Record<string, unknown>;
     expect(product.imageUrls).toEqual(["https://i.ebayimg.com/a.jpg"]);
+    expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 1 } });
+  });
+
+  it("passthroughAvailabilityForPut falls back to INW qty when live GET has none", () => {
+    expect(passthroughAvailabilityForPut({}, 4)).toEqual({
+      shipToLocationAvailability: { quantity: 4 },
+    });
+    expect(
+      passthroughAvailabilityForPut(
+        { availability: { shipToLocationAvailability: { quantity: 7 } } },
+        4
+      )
+    ).toEqual({ shipToLocationAvailability: { quantity: 7 } });
   });
 
   it("buildPassthroughTitleInventoryBody changes title with prepared aspects", () => {

@@ -15,7 +15,9 @@ import {
   INVENTORY_TRACKING_MADE_TO_ORDER,
   INVENTORY_TRACKING_TRACKED,
   MAX_VARIANT_AXES,
+  formatVariantPriceCents,
   inferMatrixVaryFlags,
+  isVariantPriceDraftInput,
   listingGalleryPhotoChoices,
   normalizeVariantMatrix,
   optionsEqual,
@@ -24,6 +26,8 @@ import {
   serializeVariantMatrix,
   skuSelectionKey,
   sumMatrixQuantities,
+  variantPriceCentsToEditable,
+  variantPriceDraftToCents,
   type InventoryTracking,
   type VariantAxisDef,
   type VariantSkuRow,
@@ -145,6 +149,7 @@ export function ListingOptionsEditor({
   const [draftNewValues, setDraftNewValues] = useState<Record<number, string>>({});
   const [bulkPrice, setBulkPrice] = useState("");
   const [bulkQty, setBulkQty] = useState("");
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
   const totalStock = sumEnabledSkus(skus);
 
   useEffect(() => {
@@ -183,6 +188,17 @@ export function ListingOptionsEditor({
       axes,
       skus.map((s) => (skuSelectionKey(s.options) === key ? { ...s, ...patch } : s))
     );
+  };
+
+  const commitPriceDraft = (key: string, raw: string) => {
+    const cents = variantPriceDraftToCents(raw);
+    patchSku(key, { priceCents: cents });
+    setPriceDrafts((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   };
 
   const openManage = () => {
@@ -416,17 +432,28 @@ export function ListingOptionsEditor({
                             placeholderTextColor={placeholderColor}
                             keyboardType="decimal-pad"
                             value={
-                              row.priceCents != null && row.priceCents > 0
-                                ? (row.priceCents / 100).toFixed(2)
-                                : ""
+                              priceDrafts[key] !== undefined
+                                ? priceDrafts[key]
+                                : formatVariantPriceCents(row.priceCents)
                             }
-                            onChangeText={(t) => {
-                              const n = parseFloat(t);
-                              patchSku(key, {
-                                priceCents:
-                                  Number.isFinite(n) && n > 0 ? Math.round(n * 100) : undefined,
-                              });
+                            onFocus={() => {
+                              setPriceDrafts((prev) =>
+                                prev[key] !== undefined
+                                  ? prev
+                                  : { ...prev, [key]: variantPriceCentsToEditable(row.priceCents) }
+                              );
                             }}
+                            onChangeText={(t) => {
+                              if (!isVariantPriceDraftInput(t)) return;
+                              setPriceDrafts((prev) => ({ ...prev, [key]: t }));
+                              if (t.trim() === "") {
+                                patchSku(key, { priceCents: undefined });
+                                return;
+                              }
+                              const cents = variantPriceDraftToCents(t);
+                              if (cents != null) patchSku(key, { priceCents: cents });
+                            }}
+                            onEndEditing={(e) => commitPriceDraft(key, e.nativeEvent.text)}
                           />
                         ) : null}
                         {skusVary ? (
@@ -615,6 +642,7 @@ export function ListingOptionsEditor({
                   const next = !pricesVary;
                   setPricesVary(next);
                   if (!next) {
+                    setPriceDrafts({});
                     onMatrixChange(
                       axes,
                       skus.map((s) => ({ ...s, priceCents: undefined }))

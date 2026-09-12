@@ -11,6 +11,10 @@ import {
   mergeIncomingVariantMatrixPreservingUnknownPrices,
   minSkuPriceCents,
   stripSkuPricesFromMatrix,
+  isVariantPriceDraftInput,
+  formatVariantPriceCents,
+  variantPriceCentsToEditable,
+  variantPriceDraftToCents,
   normalizeVariantMatrix,
   rebuildMatrixFromAxes,
   serializeVariantMatrix,
@@ -501,5 +505,20 @@ describe("mergeIncomingVariantMatrixPreservingUnknownPrices", () => {
     const next = mergeIncomingVariantMatrixPreservingUnknownPrices(inw, incoming);
     expect(next.skus.map((s) => s.quantity)).toEqual([3, 5]);
     expect(next.skus.map((s) => s.priceCents)).toEqual([1800, 2200]);
+  });
+});
+
+describe("variant price draft", () => {
+  it("lets typing 1 then 18 stay 18 until blur formats cents", () => {
+    expect(isVariantPriceDraftInput("1")).toBe(true);
+    expect(isVariantPriceDraftInput("18")).toBe(true);
+    expect(isVariantPriceDraftInput("1.")).toBe(true);
+    expect(isVariantPriceDraftInput("1.00")).toBe(true);
+    expect(isVariantPriceDraftInput("1.002")).toBe(false);
+    expect(variantPriceDraftToCents("1")).toBe(100);
+    expect(variantPriceDraftToCents("18")).toBe(1800);
+    expect(variantPriceDraftToCents("1.")).toBeUndefined();
+    expect(variantPriceCentsToEditable(100)).toBe("1");
+    expect(formatVariantPriceCents(1800)).toBe("18.00");
   });
 });

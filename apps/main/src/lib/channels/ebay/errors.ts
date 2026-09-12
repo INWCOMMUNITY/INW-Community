@@ -185,10 +185,8 @@ export function isEbayOfferLookupMiss(error: unknown): boolean {
       : error instanceof Error
         ? error.message
         : String(error);
-  if (/#25604\b/i.test(msg)) return true;
-  if (error instanceof EbayApiError && error.status === 400 && /offer not found/i.test(msg)) {
-    return true;
-  }
+  if (/availability not found/i.test(msg)) return false;
+  if (/offer not found/i.test(msg)) return true;
   return false;
 }
 

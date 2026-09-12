@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   etsyInventoryOfferingQuantity,
+  etsyInventoryPricesMatchItem,
   etsyInventoryPutBody,
   etsyInventoryToVariants,
   etsyInventoryWritePath,
@@ -182,6 +183,31 @@ describe("etsy inventory writes", () => {
     expect(etsyInventoryPutBody(noSku, products).sku_on_property).toBeUndefined();
   });
 
+  it("turns on price_on_property when SKUs have cents even if pricesVary is false", () => {
+    const products = [
+      {
+        property_values: [
+          { property_id: 1, property_name: "Size" },
+          { property_id: 2, property_name: "Color" },
+        ],
+      },
+    ];
+    const on = etsyOnPropertyFields(
+      {
+        axes: [
+          { name: "Size", values: ["S"] },
+          { name: "Color", values: ["Navy"] },
+        ],
+        skus: [{ options: { Size: "S", Color: "Navy" }, quantity: 1, priceCents: 1800 }],
+        pricesVary: false,
+        quantitiesVary: true,
+        skusVary: false,
+      },
+      products
+    );
+    expect(on.price_on_property).toEqual([1, 2]);
+  });
+
   it("expands a 1-of-2 sku_on_property when quantity already uses both properties", () => {
     const products = [
       {
@@ -200,6 +226,56 @@ describe("etsy inventory writes", () => {
     );
     expect(body.quantity_on_property).toEqual([100, 200]);
     expect(body.sku_on_property).toEqual([100, 200]);
+  });
+});
+
+describe("etsyInventoryPricesMatchItem", () => {
+  const item = {
+    id: "item-1",
+    priceCents: 100,
+    variants: {
+      axes: [{ name: "Size", values: ["S", "M"] }],
+      skus: [
+        { options: { Size: "S" }, quantity: 2, priceCents: 1800 },
+        { options: { Size: "M" }, quantity: 3, priceCents: 2200 },
+      ],
+    },
+  };
+
+  it("rejects offerings still sitting at listing $1", () => {
+    expect(
+      etsyInventoryPricesMatchItem(
+        [
+          {
+            property_values: [{ property_name: "Size", values: ["S"] }],
+            offerings: [{ price: { amount: 100, divisor: 100 } }],
+          },
+          {
+            property_values: [{ property_name: "Size", values: ["M"] }],
+            offerings: [{ price: { amount: 100, divisor: 100 } }],
+          },
+        ],
+        item as never
+      )
+    ).toBe(false);
+  });
+
+  it("accepts offering amounts that match INW SKU cents", () => {
+    expect(
+      etsyInventoryPricesMatchItem(
+        [
+          {
+            property_values: [{ property_name: "Size", values: ["S"] }],
+            offerings: [{ price: { amount: 1800, divisor: 100 } }],
+          },
+          {
+            property_values: [{ property_name: "Size", values: ["M"] }],
+            offerings: [{ price: { amount: 2200, divisor: 100 } }],
+          },
+        ],
+        item as never
+      )
+    ).toBe(true);
   });
 });
 
