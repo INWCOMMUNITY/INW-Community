@@ -4,6 +4,7 @@ import {
   extractEbayLegacyItemId,
   isEbayRelevantNotification,
   isEbaySaleNotification,
+  ebayWebhookShouldPullListing,
   parseEbayNotificationBody,
 } from "./notification-parse";
 
@@ -142,6 +143,19 @@ describe("parseEbayNotificationBody Commerce JSON", () => {
     const parsed = parseEbayNotificationBody("{not-json", "application/json");
     expect(parsed.parseable).toBe(false);
     expect(parsed.itemId).toBeNull();
+  });
+});
+
+describe("ebayWebhookShouldPullListing", () => {
+  it("does not GetItem or write offers on a listing revise", () => {
+    expect(ebayWebhookShouldPullListing("ItemRevised")).toBe(false);
+    expect(ebayWebhookShouldPullListing("ITEM_AVAILABILITY")).toBe(false);
+    expect(ebayWebhookShouldPullListing("ITEM_PRICE_REVISION")).toBe(false);
+    expect(ebayWebhookShouldPullListing("FixedPriceTransaction")).toBe(false);
+  });
+
+  it("still pulls ended listings", () => {
+    expect(ebayWebhookShouldPullListing("ItemClosed")).toBe(true);
   });
 });
 

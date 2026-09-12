@@ -974,10 +974,11 @@ export async function migrateEbayListings(
  * This enables real-time sync when listings are edited on eBay.
  *
  * Events subscribed:
- * - ItemRevised: Listing was edited
  * - ItemClosed: Listing ended
  * - ItemSold: Full sale (quantity reached 0)
  * - FixedPriceTransaction: Partial sale (quantity decremented)
+ * ItemRevised is explicitly disabled — handling it GetItem/writes the live offer
+ * in the same second as a Seller Hub qty edit and blocks eBay from applying it.
  */
 export async function subscribeToEbayNotifications(
   accessToken: string,
@@ -993,7 +994,7 @@ export async function subscribeToEbayNotifications(
   <UserDeliveryPreferenceArray>
     <NotificationEnable>
       <EventType>ItemRevised</EventType>
-      <EventEnable>Enable</EventEnable>
+      <EventEnable>Disable</EventEnable>
     </NotificationEnable>
     <NotificationEnable>
       <EventType>ItemClosed</EventType>

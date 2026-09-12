@@ -127,10 +127,18 @@ export function ebayPlatformNotificationsNeedRepair(args: {
   liveFetched: boolean;
   liveSubscribed: boolean;
   liveUrlSecured: boolean;
+  listingReviseEventsEnabled?: boolean;
 }): boolean {
+  if (args.listingReviseEventsEnabled) return true;
   if (!args.storedEnabledAndSecured) return true;
   if (!args.liveFetched) return false;
   return !(args.liveSubscribed && args.liveUrlSecured);
+}
+
+export function ebayListingReviseNotificationsEnabled(events?: string[]): boolean {
+  return (events ?? []).some((event) =>
+    /ItemRevised|ITEM_AVAILABILITY|ITEM_PRICE_REVISION/i.test(event)
+  );
 }
 
 export async function ensureEbayPlatformNotifications(args: {
@@ -155,6 +163,7 @@ export async function ensureEbayPlatformNotifications(args: {
         liveFetched: live.fetched,
         liveSubscribed: live.subscribed,
         liveUrlSecured: live.urlSecured === true,
+        listingReviseEventsEnabled: ebayListingReviseNotificationsEnabled(live.events),
       })
     ) {
       return { repaired: false, success: true };

@@ -11,9 +11,7 @@ export type CommerceNotificationTopic =
   | "ITEM_PRICE_REVISION"
   | "ORDER_CONFIRMATION";
 
-const DEFAULT_TOPICS: CommerceNotificationTopic[] = [
-  "ITEM_AVAILABILITY",
-  "ITEM_PRICE_REVISION",
+export const EBAY_COMMERCE_WEBHOOK_TOPICS: CommerceNotificationTopic[] = [
   "ORDER_CONFIRMATION",
 ];
 
@@ -69,7 +67,7 @@ export async function ensureCommerceNotificationDestination(
 export async function subscribeCommerceNotificationTopics(
   accessToken: string,
   destinationId: string,
-  topics: CommerceNotificationTopic[] = DEFAULT_TOPICS
+  topics: CommerceNotificationTopic[] = EBAY_COMMERCE_WEBHOOK_TOPICS
 ): Promise<string[]> {
   const ids: string[] = [];
   for (const topic of topics) {

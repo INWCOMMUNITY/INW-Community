@@ -19,6 +19,7 @@ import {
   isEbayClosedNotification,
   isEbayRelevantNotification,
   isEbaySaleNotification,
+  ebayWebhookShouldPullListing,
   parseEbayNotificationBody,
 } from "@/lib/channels/ebay/notification-parse";
 import {
@@ -48,9 +49,9 @@ async function findConnectionByEbayUserId(ebayUserId: string) {
 /**
  * eBay Platform Notifications + Commerce Notification receiver.
  *
- * Sale events poll orders (never apply XML qty). Revises GetItem that listing
- * with source=webhook so await-confirm does not hide a real ping. Title/price
- * XML postcard is only used when GetItem fails.
+ * Sale events poll orders (never apply XML qty). Listing revises are ignored here
+ * so INW does not write the live offer in the same second as a Seller Hub qty edit.
+ * Closed listings still GetItem. Title/price XML postcard is unused for revises.
  */
 export async function POST(req: NextRequest) {
   void recordEbayWebhookHit("post-received");
@@ -200,6 +201,21 @@ export async function POST(req: NextRequest) {
       });
       await markWebhookCompleted(webhookEventId);
       return NextResponse.json({ ok: true, processed: true, itemId, eventType });
+    }
+
+    if (!ebayWebhookShouldPullListing(eventType)) {
+      console.log("[ebay webhook] listing revise ignored; cron-only inbound", {
+        itemId,
+        eventType,
+      });
+      await markWebhookCompleted(webhookEventId);
+      return NextResponse.json({
+        ok: true,
+        processed: true,
+        skipped: "listing_revise_cron_only",
+        itemId,
+        eventType,
+      });
     }
 
     let result;

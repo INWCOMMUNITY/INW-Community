@@ -999,7 +999,7 @@ export async function refreshEbayListingByItemId(
   await clearRemoteDeletedNoticeIfSet(link.id, conflictDetails);
 
   let liveQtyCatchUp: EbayLiveQtyCatchUp | null = null;
-  if (!opts?.skipQuantity) {
+  if (!opts?.skipQuantity && opts?.source !== "webhook") {
     try {
       if (hasOptionQuantities(storeItem.variants)) {
         const catchUpMatrix = normalizeVariantMatrix(storeItem.variants);
@@ -1010,7 +1010,6 @@ export async function refreshEbayListingByItemId(
             tradingMatrix: normalizeVariantMatrix(details.variants),
             tradingListingQuantity: details.quantity,
             inwPushedRecently: ebayInwPushedRecently(link.lastPushedAt),
-            retryIfUnchangedMs: opts?.source === "webhook" ? 2500 : 0,
           });
         }
       } else {
@@ -1023,7 +1022,6 @@ export async function refreshEbayListingByItemId(
             tradingMatrix: ebaySingleSkuQtyMatrix(sku, tradingQty),
             tradingListingQuantity: details.quantity,
             inwPushedRecently: ebayInwPushedRecently(link.lastPushedAt),
-            retryIfUnchangedMs: opts?.source === "webhook" ? 2500 : 0,
           });
         }
       }

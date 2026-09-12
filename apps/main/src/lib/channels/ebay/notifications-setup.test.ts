@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isEbayCommerceNotificationPermissionError } from "./commerce-notifications";
-import { ebayPlatformNotificationsNeedRepair } from "./notifications-setup";
+import { ebayPlatformNotificationsNeedRepair, ebayListingReviseNotificationsEnabled } from "./notifications-setup";
 
 describe("ebayPlatformNotificationsNeedRepair", () => {
   it("does not repair when live Platform Notifications are already subscribed and secured", () => {
@@ -45,6 +45,25 @@ describe("ebayPlatformNotificationsNeedRepair", () => {
         liveUrlSecured: true,
       })
     ).toBe(true);
+  });
+
+  it("repairs when ItemRevised is still enabled so qty edits stop being overwritten on the ping", () => {
+    expect(
+      ebayPlatformNotificationsNeedRepair({
+        storedEnabledAndSecured: true,
+        liveFetched: true,
+        liveSubscribed: true,
+        liveUrlSecured: true,
+        listingReviseEventsEnabled: true,
+      })
+    ).toBe(true);
+  });
+});
+
+describe("ebayListingReviseNotificationsEnabled", () => {
+  it("detects ItemRevised and commerce qty/price topics", () => {
+    expect(ebayListingReviseNotificationsEnabled(["ItemSold", "ItemRevised"])).toBe(true);
+    expect(ebayListingReviseNotificationsEnabled(["ItemSold"])).toBe(false);
   });
 });
 
