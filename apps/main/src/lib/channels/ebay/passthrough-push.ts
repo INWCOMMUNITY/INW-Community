@@ -326,6 +326,18 @@ export function resolvePassthroughChanges(
   };
 }
 
+/**
+ * Title/price/shipping passthrough must not PUT INW qty just because live eBay ≠ INW.
+ * That difference is a Seller Hub edit; only write qty when INW itself changed qty.
+ */
+export function applyEbayPassthroughQuantityWriteGate(
+  changed: PassthroughChangedFields,
+  writeVariantQty: boolean
+): PassthroughChangedFields {
+  if (writeVariantQty || !changed.quantity) return changed;
+  return { ...changed, quantity: false };
+}
+
 export async function fetchLiveInventoryItem(
   accessToken: string,
   sku: string

@@ -48,6 +48,14 @@ export function chooseEbayLiveListingQuantity(args: {
   const inw =
     args.inwQty == null || !Number.isFinite(args.inwQty) ? null : Math.max(0, Math.round(args.inwQty));
 
+  const finish = (chosen: ChosenEbayLiveQuantity): ChosenEbayLiveQuantity => {
+    // Inventory vs offer lag after our own write is not a Seller Hub edit.
+    if (inw != null && chosen.quantity === inw) {
+      return { ...chosen, writeOffers: false };
+    }
+    return chosen;
+  };
+
   // Seller Hub revise wrote Trading while the Inventory API still echoes our last push.
   // A Trading value that matches INW is our own lag, not an edit.
   if (
@@ -58,7 +66,7 @@ export function chooseEbayLiveListingQuantity(args: {
     trading !== offer &&
     (inventory != null || offer != null)
   ) {
-    return { quantity: trading, source: "trading", writeOffers: true };
+    return finish({ quantity: trading, source: "trading", writeOffers: true });
   }
 
   // eBay updates inventory_item and the offer at different times, so on a Seller Hub
@@ -66,27 +74,30 @@ export function chooseEbayLiveListingQuantity(args: {
   // our own echo — copying it over the other one is what silently erased seller edits.
   if (inventory != null && offer != null) {
     if (inventory === offer) {
-      return { quantity: offer, source: "offer", writeOffers: false };
+      return finish({ quantity: offer, source: "offer", writeOffers: false });
     }
     if (inw != null && inventory === inw) {
-      return { quantity: offer, source: "offer", writeOffers: true };
+      return finish({ quantity: offer, source: "offer", writeOffers: true });
     }
     if (inw != null && offer === inw) {
-      return { quantity: inventory, source: "inventory", writeOffers: true };
+      if (args.inwPushedRecently) {
+        return finish({ quantity: offer, source: "offer", writeOffers: false });
+      }
+      return finish({ quantity: inventory, source: "inventory", writeOffers: true });
     }
     // Both moved away from INW: the live listing is what buyers see.
-    return { quantity: offer, source: "offer", writeOffers: true };
+    return finish({ quantity: offer, source: "offer", writeOffers: true });
   }
   if (offer != null) {
-    return { quantity: offer, source: "offer", writeOffers: false };
+    return finish({ quantity: offer, source: "offer", writeOffers: false });
   }
   // Offer search often omits availableQuantity. Seed the offer from Seller Hub
   // inventory — never from lagged GetItem.
   if (inventory != null) {
-    return { quantity: inventory, source: "inventory", writeOffers: true };
+    return finish({ quantity: inventory, source: "inventory", writeOffers: true });
   }
-  if (trading != null) return { quantity: trading, source: "trading", writeOffers: false };
-  if (inw != null) return { quantity: inw, source: "inw", writeOffers: false };
+  if (trading != null) return finish({ quantity: trading, source: "trading", writeOffers: false });
+  if (inw != null) return finish({ quantity: inw, source: "inw", writeOffers: false });
   return null;
 }
 
@@ -230,7 +241,12 @@ async function catchUpEbayLiveVariantQuantitiesOnce(args: {
     });
     if (!chosen) return;
     quantities.push({ sku, options: row.options, quantity: chosen.quantity });
-    if (chosen.quantity !== row.quantity) inwNeedsUpdate = true;
+    if (chosen.quantity !== row.quantity) {
+      // Lagged Inventory/Trading after our own push is not a Seller Hub edit.
+      if (!(args.inwPushedRecently && !chosen.writeOffers)) {
+        inwNeedsUpdate = true;
+      }
+    }
     if (chosen.writeOffers) {
       writes.push({ sku, quantity: chosen.quantity, offerId: offer.offerId });
     }

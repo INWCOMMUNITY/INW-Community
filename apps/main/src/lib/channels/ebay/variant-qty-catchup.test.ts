@@ -172,6 +172,63 @@ describe("chooseEbayLiveListingQuantity", () => {
       })
     ).toEqual({ quantity: 9, source: "trading", writeOffers: false });
   });
+
+  it("writes Seller Hub inventory onto the offer when INW still matches View Item", () => {
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 1,
+        inventoryQty: 5,
+        offerQty: 1,
+        inwQty: 1,
+      })
+    ).toEqual({ quantity: 5, source: "inventory", writeOffers: true });
+  });
+
+  it("does not write the offer when every surface already matches INW", () => {
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 1,
+        inventoryQty: 1,
+        offerQty: 1,
+        inwQty: 1,
+      })
+    ).toEqual({ quantity: 1, source: "offer", writeOffers: false });
+  });
+
+  it("does not write Trading that matches INW after a recent push", () => {
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 5,
+        inventoryQty: 1,
+        offerQty: 1,
+        inwQty: 5,
+        inwPushedRecently: true,
+      })
+    ).toEqual({ quantity: 1, source: "offer", writeOffers: false });
+  });
+
+  it("does not copy lagged warehouse over an offer that already matches a recent INW push", () => {
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 4,
+        inventoryQty: 4,
+        offerQty: 9,
+        inwQty: 9,
+        inwPushedRecently: true,
+      })
+    ).toEqual({ quantity: 9, source: "offer", writeOffers: false });
+  });
+
+  it("does not write the offer when the only readable qty is still INW's number", () => {
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 4,
+        inventoryQty: 4,
+        offerQty: null,
+        inwQty: 4,
+      })
+    ).toEqual({ quantity: 4, source: "inventory", writeOffers: false });
+  });
 });
 
 describe("ebayContentPushShouldWriteVariantQuantities", () => {

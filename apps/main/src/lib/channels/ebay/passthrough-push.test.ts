@@ -6,6 +6,7 @@ import {
   buildPassthroughOfferBody,
   buildPassthroughTitleInventoryBody,
   buildPassthroughTitleOnlyInventoryBody,
+  applyEbayPassthroughQuantityWriteGate,
   detectLivePassthroughChanges,
   detectPassthroughChangedFields,
   formatPassthroughFieldSyncSummary,
@@ -883,6 +884,53 @@ describe("passthrough-push", () => {
     );
     expect(changed.title).toBe(true);
     expect(needsInventoryPut(changed)).toBe(false);
+  });
+
+  it("does not keep quantity dirty on a title/price push when live offer qty differs from INW", () => {
+    const item = { ...coinItem, title: "1938 Jefferson Nickel NGC MS 67 Revised", quantity: 1 };
+    const live = {
+      ...liveJeffersonNickel,
+      availability: { shipToLocationAvailability: { quantity: 9 } },
+    };
+    const liveChanges = detectLivePassthroughChanges(live, item, {
+      listingDescription: "Original eBay description",
+      pricingSummary: { price: { value: "125.00" } },
+      availableQuantity: 9,
+    });
+    expect(liveChanges.quantity).toBe(true);
+    const resolved = resolvePassthroughChanges(
+      liveChanges,
+      {
+        title: true,
+        description: false,
+        photos: false,
+        price: true,
+      },
+      {
+        syncTitles: true,
+        syncDescriptions: true,
+        syncPhotos: true,
+        syncPrices: true,
+      }
+    );
+    expect(resolved.quantity).toBe(true);
+    const gated = applyEbayPassthroughQuantityWriteGate(resolved, false);
+    expect(gated.title).toBe(true);
+    expect(gated.price).toBe(true);
+    expect(gated.quantity).toBe(false);
+    const offer = overlayPassthroughOffer(
+      {
+        categoryId: "41087",
+        availableQuantity: 9,
+        pricingSummary: { price: { value: "125.00", currency: "USD" } },
+      },
+      item,
+      gated
+    );
+    expect(offer.availableQuantity).toBe(9);
+    expect(
+      applyEbayPassthroughQuantityWriteGate(resolved, true).quantity
+    ).toBe(true);
   });
 
   it("buildPassthroughLiveOverlayBody omits aspects on photo-only PUT", () => {

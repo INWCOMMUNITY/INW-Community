@@ -167,6 +167,7 @@ import {
   readLiveInventoryAvailableQuantity,
   readOfferPriceCents,
   resolvePassthroughChanges,
+  applyEbayPassthroughQuantityWriteGate,
   type PassthroughBuildOptions,
   type PassthroughFieldResult,
 } from "./passthrough-push";
@@ -601,12 +602,15 @@ async function upsertListing(
             },
           })
         : null;
-      const changed = resolvePassthroughChanges(liveChanges, inwFields, {
-        syncTitles: syncPrefsRow?.syncTitles ?? true,
-        syncDescriptions: syncPrefsRow?.syncDescriptions ?? true,
-        syncPhotos: syncPrefsRow?.syncPhotos ?? true,
-        syncPrices: syncPrefsRow?.syncPrices ?? true,
-      });
+      const changed = applyEbayPassthroughQuantityWriteGate(
+        resolvePassthroughChanges(liveChanges, inwFields, {
+          syncTitles: syncPrefsRow?.syncTitles ?? true,
+          syncDescriptions: syncPrefsRow?.syncDescriptions ?? true,
+          syncPhotos: syncPrefsRow?.syncPhotos ?? true,
+          syncPrices: syncPrefsRow?.syncPrices ?? true,
+        }),
+        writeVariantQty
+      );
       const putInventory = needsInventoryPut(changed);
       const needsInventoryAspectContext = changed.title || putInventory;
 

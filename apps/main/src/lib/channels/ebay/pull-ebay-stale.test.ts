@@ -1176,7 +1176,7 @@ describe("ebayCronShouldRetryOutbound", () => {
 
 describe("ebayCronShouldPushOutbound", () => {
   const inw = new Date("2026-09-09T18:00:00.000Z");
-  it("retries error rows and INW saves newer than both push and inbound", () => {
+  it("retries error rows only", () => {
     expect(
       ebayCronShouldPushOutbound({
         syncEnabled: true,
@@ -1196,7 +1196,20 @@ describe("ebayCronShouldPushOutbound", () => {
         lastPushedAt: new Date("2026-09-09T17:00:00.000Z"),
         lastInboundAt: new Date("2026-09-09T16:00:00.000Z"),
       })
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it("does not outbound-push because INW updatedAt is newer than push and inbound", () => {
+    expect(
+      ebayCronShouldPushOutbound({
+        syncEnabled: true,
+        syncStatus: "synced",
+        ended: false,
+        inwUpdatedAt: inw,
+        lastPushedAt: new Date("2026-09-09T17:00:00.000Z"),
+        lastInboundAt: new Date("2026-09-09T16:00:00.000Z"),
+      })
+    ).toBe(false);
   });
 
   it("does not re-push a GetItem inbound echo or a successful save-time push", () => {
@@ -1223,8 +1236,7 @@ describe("ebayCronShouldPushOutbound", () => {
   });
 
   it("does NOT push when eBay is dirty but the live GetItem was inconclusive", () => {
-    // INW looks newer than both push and inbound (would normally push), but eBay diverged and
-    // we could not read it — pushing would clobber the seller's eBay edit.
+    // Even an error retry must not clobber a seller edit we could not read.
     expect(
       ebayCronShouldPushOutbound({
         syncEnabled: true,
