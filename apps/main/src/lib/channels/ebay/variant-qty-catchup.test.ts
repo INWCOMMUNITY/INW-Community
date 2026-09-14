@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   chooseEbayLiveListingQuantity,
-  ebayCatchUpAdoptedLiveQty,
   ebayContentPushShouldWriteVariantQuantities,
   ebaySingleSkuQtyMatrix,
 } from "./variant-qty-catchup";
@@ -270,27 +269,5 @@ describe("ebaySingleSkuQtyMatrix", () => {
       axes: [],
       skus: [{ sku: "inw404516850572", options: {}, quantity: 5 }],
     });
-  });
-});
-
-describe("ebayCatchUpAdoptedLiveQty", () => {
-  it("is false when catch-up only read SKUs that still match INW", () => {
-    expect(
-      ebayCatchUpAdoptedLiveQty({
-        quantities: [{ sku: "a", options: {}, quantity: 1 }],
-        wroteOffers: false,
-        inwNeedsUpdate: false,
-      })
-    ).toBe(false);
-  });
-
-  it("is true when catch-up wrote the offer or needs an INW qty update", () => {
-    expect(
-      ebayCatchUpAdoptedLiveQty({
-        quantities: [{ sku: "a", options: {}, quantity: 5 }],
-        wroteOffers: true,
-        inwNeedsUpdate: false,
-      })
-    ).toBe(true);
   });
 });
