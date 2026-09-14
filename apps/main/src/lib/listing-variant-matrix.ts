@@ -863,33 +863,116 @@ export function skuHasDistinctPrice(
   return priceCents != null && priceCents > 0 && priceCents !== listingPriceCents;
 }
 
+function remoteAmountLooksLikeListingMin(args: {
+  remotePriceCents: number;
+  listingMinCents: number;
+  inwListingPriceCents: number;
+  cheapestDistinctInwCents?: number | null;
+}): boolean {
+  if (args.inwListingPriceCents > 0 && args.remotePriceCents === args.inwListingPriceCents) {
+    return true;
+  }
+  if (args.listingMinCents > 0 && args.remotePriceCents === args.listingMinCents) return true;
+  const cheapest = args.cheapestDistinctInwCents;
+  return cheapest != null && cheapest > 0 && args.remotePriceCents === cheapest;
+}
+
 /**
- * eBay GetItem StartPrice on a variation with no unique price is often CurrentPrice
- * (cheapest SKU) — or a leftover flatten from a previous pull. After INW listing min
- * is $1, those rows can still read $5 on eBay; treating that as a seller edit writes
- * $5 onto every generic fallback SKU. Skip fills; still apply a unique seller SKU price.
+ * eBay GetItem StartPrice / Etsy leftover offerings on a variation with no unique
+ * price are often CurrentPrice (cheapest SKU). After a real INW SKU save, those
+ * leftover mins still read $5 on the channel; treating that as a seller edit
+ * overwrites $10/$15 overrides. Skip leftover fills; still apply a unique SKU edit
+ * or a uniform reprice to a new amount.
  */
 export function remoteSkuPriceLooksLikeListingMinFill(args: {
   inwSkuPriceCents: number | null | undefined;
   remotePriceCents: number;
   listingMinCents: number;
   inwListingPriceCents: number;
-  /** True when 2+ INW fallback SKUs all report this remote price. */
+  /** True when 2+ remote SKUs report this price (leftover min copied across the listing). */
   remotePriceSharedByFallbacks?: boolean;
   /** Cheapest INW SKU that already has its own price (not listing fallback). */
   cheapestDistinctInwCents?: number | null;
   /** Every remote SKU is the same price and it differs from the INW listing. */
   uniformRemoteReprice?: boolean;
 }): boolean {
-  if (skuHasDistinctPrice(args.inwSkuPriceCents, args.inwListingPriceCents)) return false;
   if (args.uniformRemoteReprice) return false;
+  const shared = args.remotePriceSharedByFallbacks === true;
+  const leftoverMin = remoteAmountLooksLikeListingMin(args);
+  if (skuHasDistinctPrice(args.inwSkuPriceCents, args.inwListingPriceCents)) {
+    return shared && leftoverMin && args.inwSkuPriceCents !== args.remotePriceCents;
+  }
   if (args.inwListingPriceCents > 0 && args.remotePriceCents === args.inwListingPriceCents) {
     return true;
   }
   const cheapest = args.cheapestDistinctInwCents;
   if (cheapest != null && cheapest > 0 && args.remotePriceCents === cheapest) return true;
-  if (args.remotePriceSharedByFallbacks) return true;
-  return false;
+  if (shared) return true;
+  return leftoverMin;
+}
+
+function matchMatrixRowForPrice(
+  matrix: VariantMatrix,
+  row: VariantMatrix["skus"][number]
+): VariantMatrix["skus"][number] | undefined {
+  const sku = row.sku?.trim();
+  if (sku) {
+    const hit = matrix.skus.find((s) => s.sku?.trim() === sku);
+    if (hit) return hit;
+  }
+  const key = optionValuesKey(row.options);
+  if (key) {
+    const byValues = matrix.skus.find((s) => optionValuesKey(s.options) === key);
+    if (byValues) return byValues;
+  }
+  return matrix.skus.find((s) => skuSelectionKey(s.options) === skuSelectionKey(row.options));
+}
+
+/**
+ * Channel snapshot is leftover listing-min (CurrentPrice / cheapest StartPrice)
+ * copied onto 2+ SKUs that INW already priced higher. Not a seller per-SKU edit.
+ */
+export function remoteVariantPricesLookLikeLeftoverMinOverwrite(args: {
+  inwVariants: unknown;
+  remoteVariants: unknown;
+  inwListingPriceCents: number;
+  remoteListingPriceCents?: number;
+}): boolean {
+  const inw = normalizeVariantMatrix(args.inwVariants);
+  const remote = normalizeVariantMatrix(args.remoteVariants);
+  if (!inw || !remote || inw.skus.length < 2 || remote.skus.length < 2) return false;
+  if (!matrixHasKnownSkuPrices(inw) || !matrixHasKnownSkuPrices(remote)) return false;
+  const listingMin =
+    args.remoteListingPriceCents != null && args.remoteListingPriceCents > 0
+      ? Math.min(args.remoteListingPriceCents, minSkuPriceCents(remote, args.remoteListingPriceCents))
+      : minSkuPriceCents(remote, args.inwListingPriceCents);
+  if (listingMin <= 0) return false;
+  let clobbered = 0;
+  for (const row of inw.skus) {
+    if (!skuHasDistinctPrice(row.priceCents, args.inwListingPriceCents)) continue;
+    if (row.priceCents === listingMin) continue;
+    const hit = matchMatrixRowForPrice(remote, row);
+    if (hit?.priceCents === listingMin) clobbered += 1;
+  }
+  return clobbered >= 2;
+}
+
+/** Listing CurrentPrice / shop price is leftover min while INW SKUs are priced higher. */
+export function remoteListingPriceLooksLikeLeftoverMin(args: {
+  inwListingPriceCents: number;
+  remoteListingPriceCents: number;
+  inwVariants: unknown;
+}): boolean {
+  if (args.remoteListingPriceCents <= 0) return false;
+  const inw = normalizeVariantMatrix(args.inwVariants);
+  if (!inw || inw.skus.length < 2) return false;
+  const distinct = inw.skus
+    .map((s) => s.priceCents)
+    .filter((p): p is number => skuHasDistinctPrice(p, args.inwListingPriceCents));
+  if (distinct.length === 0) return false;
+  const floor = Math.min(args.inwListingPriceCents, ...distinct);
+  if (args.remoteListingPriceCents > floor) return false;
+  return distinct.some((p) => p > args.remoteListingPriceCents);
 }
 
 export type ApplyRemoteVariantPricesOpts = {
@@ -953,12 +1036,18 @@ export function applyRemoteVariantPricesToMatrix(
     inwListing > 0 &&
     !remotePriceSet.has(inwListing) &&
     cheapestDistinctInwCents != null;
+  const remoteCounts = new Map<number, number>();
   const fallbackCounts = new Map<number, number>();
   for (const row of matrix.skus) {
-    if (skuHasDistinctPrice(row.priceCents, inwListing)) continue;
     const remote = lookupRemote(row);
     if (remote == null) continue;
+    remoteCounts.set(remote, (remoteCounts.get(remote) ?? 0) + 1);
+    if (skuHasDistinctPrice(row.priceCents, inwListing)) continue;
     fallbackCounts.set(remote, (fallbackCounts.get(remote) ?? 0) + 1);
+  }
+  const sharedRemotePrices = new Set<number>();
+  for (const [price, count] of remoteCounts) {
+    if (count >= 2) sharedRemotePrices.add(price);
   }
   const sharedFallbackPrices = new Set<number>();
   for (const [price, count] of fallbackCounts) {
@@ -974,7 +1063,7 @@ export function applyRemoteVariantPricesToMatrix(
         remotePriceCents: next,
         listingMinCents: listingMin,
         inwListingPriceCents: inwListing,
-        remotePriceSharedByFallbacks: sharedFallbackPrices.has(next),
+        remotePriceSharedByFallbacks: sharedRemotePrices.has(next) || sharedFallbackPrices.has(next),
         cheapestDistinctInwCents,
         uniformRemoteReprice,
       })
@@ -1136,6 +1225,7 @@ export function validateVariantMatrixForSave(
   }
 
   const seenSku = new Set<string>();
+  const seenCodes = new Set<string>();
   for (const sku of matrix.skus) {
     if (!allMatrixAxesSelected(matrix, sku.options)) {
       return "Each combination must include a value for every option type.";
@@ -1145,6 +1235,15 @@ export function validateVariantMatrixForSave(
     seenSku.add(key);
     if (sku.quantity < 0 || !Number.isFinite(sku.quantity)) {
       return "Combination quantities cannot be negative.";
+    }
+    const code = sku.sku?.trim();
+    if (code) {
+      if (!/^[a-zA-Z0-9]{1,50}$/.test(code)) {
+        return "SKU must be letters and numbers only (no hyphens or spaces), at most 50 characters.";
+      }
+      const owner = code.toLowerCase();
+      if (seenCodes.has(owner)) return "Duplicate SKU on another combination.";
+      seenCodes.add(owner);
     }
   }
   return null;
@@ -1190,41 +1289,4 @@ export function stampSkuCodes(
     if (row && u.sku.trim()) row.sku = u.sku.trim();
   }
   return next;
-}
-
-function alphanumericSkuPart(raw: string, max = 50): string {
-  return raw.replace(/[^a-zA-Z0-9]/g, "").slice(0, max);
-}
-
-/**
- * Fill blank combo SKUs with alphanumeric keys eBay accepts (no hyphens).
- * Existing seller SKUs are left as typed.
- */
-export function fillMissingAlphanumericComboSkus(
-  matrix: VariantMatrix,
-  itemId: string,
-  parentSku?: string | null
-): VariantMatrix {
-  const base =
-    alphanumericSkuPart(parentSku?.trim() || itemId, 36) || alphanumericSkuPart(itemId, 36);
-  if (!base || matrix.skus.length === 0) return matrix;
-  const used = new Set<string>();
-  for (const row of matrix.skus) {
-    const existing = row.sku?.trim();
-    if (existing) used.add(alphanumericSkuPart(existing, 50) || existing);
-  }
-  let filled = false;
-  const skus = matrix.skus.map((row, i) => {
-    if (row.sku?.trim()) return row;
-    const valuePart = alphanumericSkuPart(Object.values(row.options).join(""), 12);
-    let sku = `${base}${valuePart}`.slice(0, 50);
-    if (!sku || used.has(sku)) sku = `${base}v${i + 1}`.slice(0, 50);
-    if (!sku || used.has(sku)) sku = alphanumericSkuPart(`${itemId}v${i + 1}`, 50);
-    if (!sku) return row;
-    used.add(sku);
-    filled = true;
-    return { ...row, sku };
-  });
-  if (!filled) return matrix;
-  return { ...matrix, skus, skusVary: true };
 }

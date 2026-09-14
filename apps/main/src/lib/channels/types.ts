@@ -17,7 +17,7 @@ export function isChannelProvider(value: string): value is ChannelProvider {
 /** Minimal StoreItem projection needed to map a listing to an external channel. */
 export type SyncStoreItem = {
   id: string;
-  /** User-defined SKU; if unset, adapters should fall back to item.id. */
+  /** Join-key SKU per simple listing. Never fall back to item.id. */
   sku: string | null;
   /** UPC/EAN/GTIN/ISBN barcode for POS and Google Shopping feeds. */
   barcode: string | null;
@@ -68,10 +68,6 @@ export type SyncStoreItem = {
   /** Auto-decline offers below this amount (cents); null = no minimum. */
   minOfferCents?: number | null;
 };
-export function getEffectiveSku(item: SyncStoreItem): string {
-  return item.sku?.trim() || item.id;
-}
-
 /** A live connection with a fresh (decrypted, non-expired) access token. */
 export type ChannelConnectionContext = {
   id: string;
@@ -180,7 +176,7 @@ export type RemoteSale = {
   externalEventId: string;
   externalListingId: string;
   quantitySold: number;
-  /** SKU set to the StoreItem id on publish; used for reverse lookup. */
+  /** Channel SKU on the sale line (join key or live eBay Inventory pin). */
   sku?: string | null;
   /** eBay Fulfillment `legacyItemId` (live Item ID) when the line has no inventory SKU. */
   legacyItemId?: string | null;

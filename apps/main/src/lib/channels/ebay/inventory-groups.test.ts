@@ -47,9 +47,9 @@ describe("inventory item groups", () => {
     expect(shouldUseInventoryItemGroup(variantItem)).toBe(true);
   });
 
-  it("builds stable group key and alphanumeric variant skus", () => {
-    expect(buildInventoryItemGroupKey(variantItem)).toBe("inw-group-SKU-1");
-    expect(buildVariantInventorySkus(variantItem)).toEqual(["SKU1S", "SKU1M"]);
+  it("builds a stable group key from the StoreItem id", () => {
+    expect(buildInventoryItemGroupKey(variantItem)).toBe("inw-group-item-1");
+    expect(() => buildVariantInventorySkus(variantItem)).toThrow(/Missing eBay SKU/);
   });
 
   it("uses item.id as the group key when StoreItem.sku is a generated variant of the id", () => {
@@ -109,7 +109,26 @@ describe("inventory item groups", () => {
     ).toBe("inw-group-cmt7vumcl000dxjujvgwe8dob-Purple");
   });
 
-  it("pins live GetItem variation SKUs over newly generated combo keys", () => {
+  it("does not invent combo SKUs from option values", () => {
+    expect(() =>
+      buildVariantInventoryRows({
+        ...variantItem,
+        id: "itemabc",
+        sku: "itemabc",
+        variants: [
+          {
+            name: "Color",
+            options: [
+              { value: "Purple", quantity: 2 },
+              { value: "Red", quantity: 1 },
+            ],
+          },
+        ],
+      })
+    ).toThrow(/Missing eBay SKU/);
+  });
+
+  it("pins live GetItem variation SKUs over assigned combo keys", () => {
     const rows = buildVariantInventoryRows({
       ...variantItem,
       id: "itemabc",
@@ -118,13 +137,13 @@ describe("inventory item groups", () => {
         {
           name: "Color",
           options: [
-            { value: "Purple", quantity: 2 },
-            { value: "Red", quantity: 1 },
+            { value: "Purple", quantity: 2, sku: "INWPURPLE" },
+            { value: "Red", quantity: 1, sku: "INWRED" },
           ],
         },
       ],
     });
-    expect(rows.map((row) => row.sku)).toEqual(["itemabcPurple", "itemabcRed"]);
+    expect(rows.map((row) => row.sku)).toEqual(["INWPURPLE", "INWRED"]);
     expect(
       applyLiveEbayVariationSkus(rows, {
         axes: [{ name: "Color", values: ["Purple", "Red"] }],
@@ -170,7 +189,7 @@ describe("inventory item groups", () => {
     ).toBe(false);
   });
 
-  it("strips hyphens from size values so eBay Inventory accepts the SKU", () => {
+  it("does not invent SKUs from hyphens or missing combo codes", () => {
     const hyphenItem = {
       ...variantItem,
       sku: "HAT-42",
@@ -184,13 +203,10 @@ describe("inventory item groups", () => {
         },
       ],
     };
-    expect(buildVariantInventorySkus(hyphenItem)).toEqual(["HAT42small", "HAT42xl"]);
-    expect(buildVariantInventorySkus(hyphenItem).every((sku) => /^[a-zA-Z0-9]{1,50}$/.test(sku))).toBe(
-      true
-    );
+    expect(() => buildVariantInventorySkus(hyphenItem)).toThrow(/Missing eBay SKU/);
   });
 
-  it("prefers an existing option SKU and generates the rest", () => {
+  it("uses an existing option SKU and refuses to invent the rest", () => {
     const mixed = {
       ...variantItem,
       variants: [
@@ -203,7 +219,7 @@ describe("inventory item groups", () => {
         },
       ],
     };
-    expect(buildVariantInventorySkus(mixed)).toEqual(["KEEPME", "SKU1M"]);
+    expect(() => buildVariantInventorySkus(mixed)).toThrow(/Missing eBay SKU/);
   });
 
   it("generates migrate-style SKUs for imported listings without option SKUs", () => {
@@ -217,20 +233,32 @@ describe("inventory item groups", () => {
     ).toEqual(["inw403004607151v1", "inw403004607151v2"]);
   });
 
-  it("does not switch INW-created listings to migrate SKUs after a listing id exists", () => {
+  it("does not invent SKUs for INW-created listings after a listing id exists", () => {
     const created = { ...variantItem, sku: null, id: "itemabc" };
-    expect(
+    expect(() =>
       buildVariantInventorySkus(created, {
         parentSku: "itemabc",
         legacyListingId: "403004607151",
         imported: false,
       })
-    ).toEqual(["itemabcS", "itemabcM"]);
+    ).toThrow(/Missing eBay SKU/);
   });
 
-  it("stamps generated SKUs onto option rows for later reuse", () => {
-    const rows = buildVariantInventoryRows(variantItem);
-    expect(mergeGeneratedSkusIntoVariants(variantItem.variants, rows)).toEqual({
+  it("stamps assigned SKUs onto option rows for later reuse", () => {
+    const withSkus = {
+      ...variantItem,
+      variants: [
+        {
+          name: "Size",
+          options: [
+            { value: "S", quantity: 1, sku: "SKU1S" },
+            { value: "M", quantity: 2, sku: "SKU1M" },
+          ],
+        },
+      ],
+    };
+    const rows = buildVariantInventoryRows(withSkus);
+    expect(mergeGeneratedSkusIntoVariants(withSkus.variants, rows)).toEqual({
       axes: [{ name: "Size", values: ["S", "M"] }],
       skus: [
         { options: { Size: "S" }, quantity: 1, sku: "SKU1S" },
@@ -307,7 +335,19 @@ describe("inventory item groups", () => {
   });
 
   it("pins a single variation aspect on an inventory PUT", () => {
-    const row = buildVariantInventoryRows(variantItem)[0]!;
+    const withSkus = {
+      ...variantItem,
+      variants: [
+        {
+          name: "Size",
+          options: [
+            { value: "S", quantity: 1, sku: "SKU1S" },
+            { value: "M", quantity: 2, sku: "SKU1M" },
+          ],
+        },
+      ],
+    };
+    const row = buildVariantInventoryRows(withSkus)[0]!;
     const body = withVariationAspect(
       { product: { title: "T-Shirt", aspects: { Brand: ["Acme"], Size: ["S", "M"] } } },
       row
@@ -316,7 +356,7 @@ describe("inventory item groups", () => {
       Brand: ["Acme"],
       Size: ["S"],
     });
-    expect(buildVariantSyncItem(variantItem, row).variants).toEqual([
+    expect(buildVariantSyncItem(withSkus, row).variants).toEqual([
       { name: "Size", options: [{ value: "S", quantity: 1, sku: "SKU1S" }] },
     ]);
   });
@@ -330,10 +370,10 @@ describe("inventory item groups", () => {
           { name: "Color", values: ["Navy", "White"] },
         ],
         skus: [
-          { options: { Size: "S", Color: "Navy" }, quantity: 1 },
-          { options: { Size: "S", Color: "White" }, quantity: 2 },
-          { options: { Size: "M", Color: "Navy" }, quantity: 3 },
-          { options: { Size: "M", Color: "White" }, quantity: 4 },
+          { options: { Size: "S", Color: "Navy" }, quantity: 1, sku: "SNAVY" },
+          { options: { Size: "S", Color: "White" }, quantity: 2, sku: "SWHITE" },
+          { options: { Size: "M", Color: "Navy" }, quantity: 3, sku: "MNAVY" },
+          { options: { Size: "M", Color: "White" }, quantity: 4, sku: "MWHITE" },
         ],
       },
     };

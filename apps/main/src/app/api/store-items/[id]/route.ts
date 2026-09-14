@@ -359,12 +359,25 @@ export async function PATCH(
     }
   }
   if (data.variants !== undefined) {
-    const parentSku = data.sku !== undefined ? normalizeListingSku(data.sku) : existing.sku;
-    const stored =
-      data.variants === null
-        ? Prisma.JsonNull
-        : matrixForStorage(data.variants, { itemId, parentSku });
-    update.variants = stored ?? Prisma.JsonNull;
+    const matrix = data.variants === null ? null : matrixForStorage(data.variants);
+    update.variants = matrix ?? Prisma.JsonNull;
+    if (matrix) {
+      for (const row of matrix.skus ?? []) {
+        const code = row.sku?.trim();
+        if (!code) continue;
+        const conflict = await findConflictingStoreItemSku({
+          memberId: ownerId,
+          sku: code,
+          excludeItemId: itemId,
+        });
+        if (conflict) {
+          return NextResponse.json(
+            { error: "You already have another listing with this SKU." },
+            { status: 400 }
+          );
+        }
+      }
+    }
     if (isMadeToOrderTracking(nextTracking)) {
       update.quantity = MTO_CHANNEL_QUANTITY;
     } else if (hasOptionQuantities(data.variants)) {

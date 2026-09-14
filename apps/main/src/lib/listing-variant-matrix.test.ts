@@ -4,14 +4,15 @@ import {
   applyRemoteVariantPricesToMatrix,
   browsePriceLabel,
   decrementMatrixSku,
-  fillMissingAlphanumericComboSkus,
   incrementMatrixSku,
   inboundListingPriceCents,
   listingGalleryPhotoChoices,
   matrixHasKnownSkuPrices,
   mergeIncomingVariantMatrixPreservingUnknownPrices,
   minSkuPriceCents,
+  remoteListingPriceLooksLikeLeftoverMin,
   remoteSkuPriceLooksLikeListingMinFill,
+  remoteVariantPricesLookLikeLeftoverMinOverwrite,
   stripSkuPricesFromMatrix,
   isVariantPriceDraftInput,
   isVariantQtyDraftInput,
@@ -314,21 +315,28 @@ describe("browsePriceLabel", () => {
   });
 });
 
-describe("fillMissingAlphanumericComboSkus", () => {
-  it("stamps alphanumeric SKUs onto combo rows that have none", () => {
-    const filled = fillMissingAlphanumericComboSkus(
-      {
+describe("combo SKUs are not invented on save", () => {
+  it("leaves blank combo SKUs blank", () => {
+    const stored = serializeVariantMatrix(
+      normalizeVariantMatrix({
         axes: [{ name: "Color", values: ["Purple", "Red"] }],
         skus: [
           { options: { Color: "Purple" }, quantity: 2 },
           { options: { Color: "Red" }, quantity: 1, sku: "KEEPME" },
         ],
-      },
-      "cmt7vumcl000dxjujvgwe8dob"
+      })!
     );
-    expect(filled.skus[0].sku).toBe("cmt7vumcl000dxjujvgwe8dobPurple");
-    expect(filled.skus[1].sku).toBe("KEEPME");
-    expect(filled.skus[0].sku).not.toContain("-");
+    expect(stored.skus[0].sku).toBeUndefined();
+    expect(stored.skus[1].sku).toBe("KEEPME");
+  });
+
+  it("rejects hyphenated combo SKUs", () => {
+    expect(
+      validateVariantMatrixForSave({
+        axes: [{ name: "Color", values: ["Purple"] }],
+        skus: [{ options: { Color: "Purple" }, quantity: 1, sku: "ITEM-Purple" }],
+      })
+    ).toMatch(/letters and numbers/);
   });
 });
 
@@ -517,6 +525,58 @@ describe("applyRemoteVariantPricesToMatrix", () => {
     expect(next.skus[0].priceCents).toBe(800);
   });
 
+  it("does not clobber distinct INW SKU prices with leftover listing-min StartPrices", () => {
+    const matrix = normalizeVariantMatrix({
+      axes: [
+        { name: "Size", values: ["Small", "Medium", "Large"] },
+        { name: "Primary color", values: ["Red", "Blue", "Green"] },
+      ],
+      skus: [
+        { options: { Size: "Small", "Primary color": "Red" }, quantity: 1, priceCents: 1000 },
+        { options: { Size: "Medium", "Primary color": "Red" }, quantity: 1, priceCents: 1000 },
+        { options: { Size: "Large", "Primary color": "Red" }, quantity: 1, priceCents: 2400 },
+        { options: { Size: "Small", "Primary color": "Blue" }, quantity: 4, priceCents: 1000 },
+        { options: { Size: "Small", "Primary color": "Green" }, quantity: 5, priceCents: 1500 },
+      ],
+    })!;
+    const next = applyRemoteVariantPricesToMatrix(
+      matrix,
+      [
+        { options: { Size: "Small", "Primary color": "Red" }, priceCents: 500 },
+        { options: { Size: "Medium", "Primary color": "Red" }, priceCents: 500 },
+        { options: { Size: "Large", "Primary color": "Red" }, priceCents: 2400 },
+        { options: { Size: "Small", "Primary color": "Blue" }, priceCents: 500 },
+        { options: { Size: "Small", "Primary color": "Green" }, priceCents: 1500 },
+      ],
+      { listingMinCents: 500, inwListingPriceCents: 500 }
+    );
+    expect(next.skus.map((s) => s.priceCents)).toEqual([1000, 1000, 2400, 1000, 1500]);
+    expect(
+      remoteVariantPricesLookLikeLeftoverMinOverwrite({
+        inwVariants: matrix,
+        remoteVariants: {
+          axes: matrix.axes,
+          skus: [
+            { options: { Size: "Small", "Primary color": "Red" }, quantity: 1, priceCents: 500 },
+            { options: { Size: "Medium", "Primary color": "Red" }, quantity: 1, priceCents: 500 },
+            { options: { Size: "Large", "Primary color": "Red" }, quantity: 1, priceCents: 2400 },
+            { options: { Size: "Small", "Primary color": "Blue" }, quantity: 4, priceCents: 500 },
+            { options: { Size: "Small", "Primary color": "Green" }, quantity: 5, priceCents: 1500 },
+          ],
+        },
+        inwListingPriceCents: 500,
+        remoteListingPriceCents: 500,
+      })
+    ).toBe(true);
+    expect(
+      remoteListingPriceLooksLikeLeftoverMin({
+        inwListingPriceCents: 500,
+        remoteListingPriceCents: 500,
+        inwVariants: matrix,
+      })
+    ).toBe(true);
+  });
+
   it("applies a uniform eBay reprice onto the listing-fallback first SKU", () => {
     const matrix = normalizeVariantMatrix({
       axes: [
@@ -564,6 +624,15 @@ describe("remoteSkuPriceLooksLikeListingMinFill", () => {
         inwListingPriceCents: 100,
       })
     ).toBe(false);
+    expect(
+      remoteSkuPriceLooksLikeListingMinFill({
+        inwSkuPriceCents: 1000,
+        remotePriceCents: 500,
+        listingMinCents: 500,
+        inwListingPriceCents: 500,
+        remotePriceSharedByFallbacks: true,
+      })
+    ).toBe(true);
     expect(
       remoteSkuPriceLooksLikeListingMinFill({
         inwSkuPriceCents: 100,

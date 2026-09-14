@@ -1,6 +1,6 @@
 import { ebayGet } from "./client";
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
-import { getEffectiveSku } from "../types";
+import { resolvePublishSku } from "../sku-identity";
 import { normalizeVariantsFromProvider, type InwVariantAxis } from "../variant-sync";
 import { EBAY_CURRENCY, EBAY_MARKETPLACE_ID, getEbayConfig } from "./config";
 import { applyBestOfferTermsToOfferBody } from "./best-offer";
@@ -121,7 +121,7 @@ export function buildEbayOffer(
 ): Record<string, unknown> {
   const categoryId = resolveCategoryId(item, categoryOverride);
   const offer: Record<string, unknown> = {
-    sku: sku || getEffectiveSku(item),
+    sku: sku || resolvePublishSku({ sku: item.sku, itemId: item.id, channel: "ebay" }),
     marketplaceId: EBAY_MARKETPLACE_ID,
     format: "FIXED_PRICE",
     availableQuantity: channelQuantityForTracked(item.quantity, item.inventoryTracking),

@@ -123,7 +123,7 @@ describe("listing-origin", () => {
     ).toBe("cmt9br02u0001ogr5kqvvjwm3");
   });
 
-  it("strips hyphens from a seller SKU before sending to eBay", () => {
+  it("does not rewrite a hyphenated seller SKU into an Inventory SKU", () => {
     expect(
       resolveEbayPushSku({
         itemId: "cmsz85hpj0001ahwfa2pmvtun",
@@ -131,7 +131,7 @@ describe("listing-origin", () => {
         externalListingId: "403004607151",
         linkOrigin: "inw_create",
       })
-    ).toBe("HAT42");
+    ).toBe("cmsz85hpj0001ahwfa2pmvtun");
   });
 
   it("does not use a Shopify itemId-option SKU as the parent Inventory SKU", () => {

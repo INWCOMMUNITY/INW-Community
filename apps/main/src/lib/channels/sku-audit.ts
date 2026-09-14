@@ -171,8 +171,7 @@ function catalogFindingsForSku(args: {
   }
   if (args.duplicate) findings.push("duplicate_in_member");
   if (args.leftoverParent) findings.push("parent_is_variant_leftover");
-  // Parent SKU is the listing-level join key. Combo codes derived from the item id
-  // are a generator leftover, not the getEffectiveSku() fallback this class names.
+  // Combo SKUs derived from the item id are a generator leftover, not a parent join key.
   if (args.kind === "parent" && (sku === args.itemId || isGeneratedVariantOfItemId(sku, args.itemId))) {
     findings.push("uses_item_id");
   }

@@ -7,9 +7,7 @@ import {
 import { normalizeVariantsFromProvider, variantsToMatrix, type InwVariantAxis } from "../variant-sync";
 import { variantOptionsMatch } from "../variant-match";
 import type { SyncStoreItem } from "../types";
-import { getEffectiveSku } from "../types";
 import { generateEbayVariationMigrationSku, isValidEbayInventorySku, toEbayInventorySku } from "./migrate-prep";
-import { isGeneratedVariantOfItemId } from "@/lib/listing-sku";
 import { extractEbayInventoryAspects } from "./listing-origin";
 import { parseEbayInventorySkuInAnotherGroup } from "./errors";
 import {
@@ -33,9 +31,7 @@ export function shouldUseInventoryItemGroup(item: SyncStoreItem): boolean {
 }
 
 export function buildInventoryItemGroupKey(item: SyncStoreItem): string {
-  const raw = getEffectiveSku(item);
-  const stable = isGeneratedVariantOfItemId(raw, item.id) ? item.id : raw;
-  return `inw-group-${stable}`.slice(0, 50);
+  return `inw-group-${item.id}`.slice(0, 50);
 }
 
 function variantOptionValues(item: SyncStoreItem): string[] {
@@ -299,10 +295,6 @@ export async function publishOfferByInventoryItemGroup(
   );
 }
 
-function alphanumericSku(raw: string, max = 50): string {
-  return raw.replace(/[^a-zA-Z0-9]/g, "").slice(0, max);
-}
-
 export type EbayVariantInventoryRow = {
   sku: string;
   value: string;
@@ -472,8 +464,9 @@ export function shouldPutEbayVariantInventoryOnLiveListing(args: {
 
 /**
  * Unique alphanumeric Inventory SKUs for each variation.
- * Prefers a seller/imported option SKU, then INW-generated keys — sellers do not
- * need to type Custom Labels in Seller Hub before a push.
+ * Uses assigned INW combo SKUs only. Live Custom Labels are aligned by the caller.
+ * Imported listings with a blank variation Custom Label may stamp `inw{legacyId}vN` once
+ * so bulk_migrate has a resource key — that string is then the pin.
  */
 export function buildVariantInventoryRows(
   item: SyncStoreItem,
@@ -488,7 +481,6 @@ export function buildVariantInventoryRows(
     );
   }
   const primary = axes[0]!;
-  const baseSku = alphanumericSku(options.parentSku?.trim() || getEffectiveSku(item), 36);
   const legacyId = options.legacyListingId?.trim() || "";
   const used = new Set<string>();
   const source =
@@ -517,14 +509,9 @@ export function buildVariantInventoryRows(
       sku = generateEbayVariationMigrationSku(legacyId, i);
     }
     if (!sku || !isValidEbayInventorySku(sku) || used.has(sku)) {
-      const valuePart = alphanumericSku(Object.values(option.options).join(""), 12);
-      sku = `${baseSku}${valuePart}`.slice(0, 50);
-    }
-    if (!sku || !isValidEbayInventorySku(sku) || used.has(sku)) {
-      sku = `${baseSku}v${i + 1}`.slice(0, 50);
-    }
-    if (!isValidEbayInventorySku(sku) || used.has(sku)) {
-      sku = alphanumericSku(`inw${item.id}v${i + 1}`, 50);
+      throw new Error(
+        `Missing eBay SKU for ${Object.values(option.options).filter(Boolean).join(" / ") || option.value}. Assign a SKU before publishing.`
+      );
     }
     used.add(sku);
     return {

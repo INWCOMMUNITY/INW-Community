@@ -486,7 +486,7 @@ export async function POST(req: NextRequest) {
     const storedVariants =
       data.variants == null
         ? null
-        : matrixForStorage(data.variants, { parentSku: normalizeListingSku(data.sku) });
+        : matrixForStorage(data.variants);
     const useOptionQuantities = hasOptionQuantities(storedVariants ?? data.variants);
     let quantity = madeToOrder
       ? MTO_CHANNEL_QUANTITY
@@ -519,8 +519,21 @@ export async function POST(req: NextRequest) {
       return s;
     })();
     const sku = normalizeListingSku(data.sku);
-    if (sku) {
-      const conflict = await findConflictingStoreItemSku({ memberId: userId, sku });
+    const skuCodes = [
+      sku,
+      ...((storedVariants?.skus ?? []).map((row) => row.sku?.trim() || null) ?? []),
+    ].filter((code): code is string => Boolean(code));
+    const seenSku = new Set<string>();
+    for (const code of skuCodes) {
+      const owner = code.toLowerCase();
+      if (seenSku.has(owner)) {
+        return NextResponse.json(
+          { error: "You already have another listing with this SKU." },
+          { status: 400 }
+        );
+      }
+      seenSku.add(owner);
+      const conflict = await findConflictingStoreItemSku({ memberId: userId, sku: code });
       if (conflict) {
         return NextResponse.json(
           { error: "You already have another listing with this SKU." },
@@ -597,16 +610,6 @@ export async function POST(req: NextRequest) {
         slug,
       },
     });
-    if (item.variants != null) {
-      const restamped = matrixForStorage(item.variants, { itemId: item.id, parentSku: sku });
-      if (restamped) {
-        await prisma.storeItem.update({
-          where: { id: item.id },
-          data: { variants: restamped as object },
-        });
-        item.variants = restamped as typeof item.variants;
-      }
-    }
     // Log activity
     const { logSellerActivity } = await import("@/lib/seller-activity-log");
     logSellerActivity(userId, "item_created", "store_item", item.id, {

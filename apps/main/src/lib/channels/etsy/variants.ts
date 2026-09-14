@@ -3,7 +3,7 @@ import { etsyPriceFromCents } from "./mapping";
 import type { InwVariantAxis } from "../variant-sync";
 import { normalizeVariantsFromProvider, sumVariantQuantities, variantsToMatrix } from "../variant-sync";
 import { comboInventoryFailedMessage, shouldRebuildEtsyComboInventory } from "../combo-sync";
-import { matchInwSkuRow, variantOptionsMatch } from "../variant-match";
+import { matchInwSkuRow, matchRemoteRow } from "../variant-match";
 import type { VariantMatrix, VariantSkuRow } from "@/lib/listing-variant-matrix";
 import {
   channelQuantityForTracked,
@@ -13,30 +13,8 @@ import {
   MAX_ETSY_AXES,
 } from "@/lib/listing-variant-matrix";
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
-import { getEffectiveSku } from "../types";
 import { hasOptionQuantities } from "@/lib/store-item-variants";
-import { clampEtsySku } from "@/lib/listing-sku";
-
-function etsyInventorySku(sku: string | null | undefined, salt = ""): string | undefined {
-  const clamped = clampEtsySku(sku ?? "", salt);
-  return clamped || undefined;
-}
-
-function uniquifyEtsyProductSkus(products: Record<string, unknown>[]): void {
-  const used = new Set<string>();
-  products.forEach((product, index) => {
-    const raw = typeof product.sku === "string" ? product.sku : "";
-    if (!raw) return;
-    let sku = clampEtsySku(raw, String(index));
-    let n = 0;
-    while (used.has(sku) && n < 32) {
-      sku = clampEtsySku(`${raw}#${index}:${n}`, `${index}:${n}`);
-      n += 1;
-    }
-    product.sku = sku;
-    used.add(sku);
-  });
-}
+import { matchAllowsChannelWrite, resolvePublishSku } from "../sku-identity";
 
 export const ETSY_MAX_VARIATIONS_SUPPORTED = 3;
 
@@ -239,7 +217,8 @@ export function offeringPriceToCents(price: EtsyInventoryOffering["price"]): num
 export function etsyProductOptionMap(product: EtsyInventoryProduct): Record<string, string> {
   const out: Record<string, string> = {};
   for (const pv of product.property_values ?? []) {
-    const name = (pv.property_name ?? "").trim();
+    const named = (pv.property_name ?? "").trim();
+    const name = named || (pv.property_id != null ? `Option ${pv.property_id}` : "");
     const val = pv.values?.[0]?.trim();
     if (name && val) out[name] = val;
   }
@@ -254,7 +233,9 @@ export function findMatrixSkuForEtsyProduct(
   if (Object.keys(map).length === 0) return null;
   // Match by SKU code, then axis-name-agnostic option values (Etsy renames the axis to
   // its taxonomy property_name, so a strict key match silently misses).
-  return matchInwSkuRow(matrix, { sku: product.sku ?? null, options: map }).row;
+  const { row, quality } = matchInwSkuRow(matrix, { sku: product.sku ?? null, options: map });
+  if (!matchAllowsChannelWrite({ quality, inwSku: row?.sku, remoteSku: product.sku })) return null;
+  return row;
 }
 
 /**
@@ -268,27 +249,40 @@ export type EtsyPriceVerifyResult = {
   mismatched: number;
 };
 
+export const ETSY_PRICE_PERSIST_FAILED_MESSAGE =
+  "Etsy did not persist per-variation prices. Retry the listing update.";
+
+export function isEtsyPricePersistError(error: unknown): boolean {
+  return error instanceof Error && error.message === ETSY_PRICE_PERSIST_FAILED_MESSAGE;
+}
+
 export function verifyEtsyOfferingPrices(
   products: EtsyInventoryProduct[] | undefined,
   item: SyncStoreItem
 ): EtsyPriceVerifyResult {
   const matrix = variantsToMatrix(item.variants);
   if (!matrix || !matrixHasKnownSkuPrices(matrix)) return { ok: true, matched: 0, mismatched: 0 };
-  const rows = products ?? [];
+  const remote = (products ?? []).map((product) => ({
+    product,
+    sku: product.sku,
+    options: etsyProductOptionMap(product),
+  }));
   let matched = 0;
   let mismatched = 0;
   for (const sku of matrix.skus) {
-    const expected = sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents;
-    const product = rows.find((p) => variantOptionsMatch(etsyProductOptionMap(p), sku.options));
-    if (!product) continue;
+    // Only SKUs we actually wrote a price for. Unpriced rows keep Etsy's existing
+    // offering (rebuildExistingProduct); expecting the listing price here is a false fail.
+    if (!(sku.priceCents && sku.priceCents > 0)) continue;
+    const hit = matchRemoteRow(remote, sku);
+    if (!hit.row) continue;
     matched += 1;
-    const got = offeringPriceToCents(product.offerings?.[0]?.price);
-    if (got == null || Math.abs(got - expected) > 1) mismatched += 1;
+    const got = offeringPriceToCents(hit.row.product.offerings?.[0]?.price);
+    if (got == null || Math.abs(got - sku.priceCents) > 1) mismatched += 1;
   }
   return { ok: matched > 0 && mismatched === 0, matched, mismatched };
 }
 
-/** True when every INW SKU with a matching Etsy product has the expected offering price (1¢). */
+/** True when every INW SKU with its own price and a matching Etsy product has the expected offering (1¢). */
 export function etsyInventoryPricesMatchItem(
   products: EtsyInventoryProduct[] | undefined,
   item: SyncStoreItem
@@ -462,6 +456,8 @@ function resolveProductQuantity(
   if (matrix) {
     const sku = findMatrixSkuForEtsyProduct(matrix, product);
     if (sku) return Math.max(0, sku.quantity);
+    const current = product.offerings?.[0]?.quantity;
+    if (typeof current === "number") return Math.max(0, current);
   }
   if (!usePerOption || optionQtys.size === 0) {
     return Math.max(0, absoluteQuantity);
@@ -506,18 +502,19 @@ async function putEtsyInventoryIfValid(
   listingId: string,
   inv: EtsyInventory,
   products: Record<string, unknown>[]
-): Promise<void> {
+): Promise<EtsyInventory | null> {
   if (!inventoryHasEnabledOfferingWithStock(products)) {
     throw new Error(
       "Etsy requires at least one enabled offering with quantity > 0. Options were not pushed."
     );
   }
-  await etsyJson(
+  const res = await etsyJson<EtsyInventory>(
     accessToken,
     etsyInventoryWritePath(listingId),
     "PUT",
     etsyInventoryPutBody(inv, products)
   );
+  return res && typeof res === "object" ? res : null;
 }
 
 async function putEtsyVariantMatrix(
@@ -525,12 +522,12 @@ async function putEtsyVariantMatrix(
   listingId: string,
   body: { products: Record<string, unknown>[] },
   matrix?: VariantMatrix | null
-): Promise<void> {
+): Promise<EtsyInventory | null> {
   const onProps = etsyOnPropertyFields(matrix ?? null, body.products);
   const inv: EtsyInventory = {
     ...onProps,
   };
-  await putEtsyInventoryIfValid(accessToken, listingId, inv, body.products);
+  return putEtsyInventoryIfValid(accessToken, listingId, inv, body.products);
 }
 
 function rebuildExistingProduct(
@@ -566,7 +563,7 @@ function rebuildExistingProduct(
   });
   // Use normalized SKU if provided (for consistency when adding new variants)
   // Otherwise preserve original SKU if present
-  const sku = etsyInventorySku(normalizedSku ?? product.sku, item.id);
+  const sku = (normalizedSku ?? product.sku)?.trim();
   return {
     ...(sku ? { sku } : {}),
     property_values: propValues.map((pv) => ({
@@ -607,6 +604,20 @@ export function etsyOfferingPriceCentsForOption(item: SyncStoreItem, optionValue
   return hit?.priceCents && hit.priceCents > 0 ? hit.priceCents : item.priceCents;
 }
 
+function inwSkuForEtsyOptionValue(item: SyncStoreItem, valueName: string): string {
+  const matrix = variantsToMatrix(item.variants);
+  const want = valueName.trim().toLowerCase();
+  const hit = matrix?.skus.find((s) =>
+    Object.values(s.options).some((v) => v.trim().toLowerCase() === want)
+  );
+  return resolvePublishSku({
+    sku: hit?.sku ?? (matrix ? undefined : item.sku),
+    itemId: item.id,
+    channel: "etsy",
+    comboLabel: valueName,
+  });
+}
+
 async function buildProductRowForOption(
   accessToken: string,
   taxonomyId: number,
@@ -624,15 +635,10 @@ async function buildProductRowForOption(
   if (!resolved) return null;
 
   const valueName = opt.value.trim();
-
-  // Only add SKU if existing products have SKUs (or it's a fresh listing)
-  const baseSku = getEffectiveSku(item);
-  const sku = (!skuPattern || skuPattern.hasSkus)
-    ? etsyInventorySku(`${baseSku}-${valueName}`, `${item.id}:${valueName}`)
-    : undefined;
+  const sku = inwSkuForEtsyOptionValue(item, valueName);
 
   return {
-    ...(sku ? { sku } : {}),
+    sku,
     property_values: [
       etsyPropertyValuePayload(resolved, valueName),
     ],
@@ -775,21 +781,10 @@ function buildProductRowFromExistingProperty(
   skuPattern: { hasSkus: boolean; useValueSuffix: boolean }
 ): Record<string, unknown> {
   const valueName = opt.value.trim();
-  const baseSku = getEffectiveSku(item);
-  
-  // Match SKU pattern from existing products for consistency
-  let sku: string | undefined;
-  if (skuPattern.hasSkus) {
-    if (skuPattern.useValueSuffix) {
-      sku = etsyInventorySku(`${baseSku}-${valueName}`, `${item.id}:${valueName}`);
-    } else {
-      sku = etsyInventorySku(`${baseSku}-${valueName}`, `${item.id}:${valueName}`);
-    }
-  }
-  // If no existing SKUs, don't set SKU (undefined will be omitted from payload)
+  const sku = inwSkuForEtsyOptionValue(item, valueName);
   
   return {
-    ...(sku ? { sku } : {}),
+    sku,
     property_values: [
       {
         property_id: existingProperty.property_id,
@@ -865,8 +860,8 @@ export async function syncEtsyListingInventoryFromInw(
       existingProductCount: products.length,
       skuCount: matrix?.skus.length ?? 0,
     });
-    await putEtsyVariantMatrix(accessToken, listingId, body, matrix);
-    await verifyEtsyComboInventory(accessToken, listingId, item);
+    const putResult = await putEtsyVariantMatrix(accessToken, listingId, body, matrix);
+    await verifyEtsyComboInventory(accessToken, listingId, item, putResult);
   }
 
   if (products.length === 0 || shouldRebuildEtsyComboInventory(matrix, products.length)) {
@@ -909,12 +904,7 @@ export async function syncEtsyListingInventoryFromInw(
       : null;
 
   // Extract SKU pattern to maintain consistency when adding new products
-  const baseSku = getEffectiveSku(item);
-  const skuPattern = extractSkuPattern(products, baseSku);
-
-  // When adding new options, we must normalize ALL SKUs to be consistent
-  // Etsy requires SKUs to follow the same pattern across all products
-  const needsSkuNormalization = newOptions.length > 0 && skuPattern.hasSkus;
+  const skuPattern = extractSkuPattern(products, item.sku ?? "");
 
   console.log("[etsy] variant sync setup", {
     listingId,
@@ -926,11 +916,9 @@ export async function syncEtsyListingInventoryFromInw(
     fallbackPropertyId: fallbackProperty?.property_id,
     newOptionsCount: newOptions.length,
     skuPattern,
-    needsSkuNormalization,
   });
 
-  // Rebuild existing products (with normalized SKUs if adding new options)
-  const rebuilt: Record<string, unknown>[] = products.map((p, idx) => {
+  const rebuilt: Record<string, unknown>[] = products.map((p) => {
     const quantity = resolveProductQuantity(
       p,
       optionQtys,
@@ -939,25 +927,7 @@ export async function syncEtsyListingInventoryFromInw(
       true,
       matrix
     );
-    
-    // If we're adding new options and existing products have SKUs,
-    // normalize all SKUs to use baseSku-value format for consistency
-    let normalizedSku: string | undefined;
-    if (needsSkuNormalization) {
-      const values = productValuesForQtyProperty(p, quantityOnProperty);
-      const firstValue = values[0]?.trim();
-      if (firstValue) {
-        normalizedSku = etsyInventorySku(`${baseSku}-${firstValue}`, `${item.id}:${firstValue}`);
-      } else {
-        // Fallback: extract suffix from original SKU or use index
-        const originalSku = p.sku ?? "";
-        const dashIdx = originalSku.lastIndexOf("-");
-        const suffix = dashIdx > 0 ? originalSku.slice(dashIdx + 1) : `v${idx}`;
-        normalizedSku = etsyInventorySku(`${baseSku}-${suffix}`, `${item.id}:${suffix}`);
-      }
-    }
-    
-    return rebuildExistingProduct(p, quantity, item, defaultReadinessStateId, normalizedSku, matrix);
+    return rebuildExistingProduct(p, quantity, item, defaultReadinessStateId, undefined, matrix);
   });
 
   let newOptionsAdded = 0;
@@ -1030,10 +1000,6 @@ export async function syncEtsyListingInventoryFromInw(
     }
   }
 
-  uniquifyEtsyProductSkus(rebuilt);
-
-  // When normalizing SKUs, link sku_on_property to every variation property (0 or all —
-  // never a single ID on a 2-axis listing when quantity already uses both).
   const productPropertyIds = propertyIdsFromProducts(rebuilt);
   // Turn ON per-variation pricing (and quantity) when INW's matrix varies those but the remote
   // Etsy listing is still uniform (price_on_property empty). The offerings already carry per-SKU
@@ -1050,7 +1016,7 @@ export async function syncEtsyListingInventoryFromInw(
     quantity_on_property:
       desiredQtyOnProp.length > 0 ? desiredQtyOnProp : inv.quantity_on_property,
     sku_on_property:
-      needsSkuNormalization && productPropertyIds.length > 0
+      productPropertyIds.length > 0 && rebuilt.some((p) => typeof p.sku === "string" && p.sku)
         ? [...productPropertyIds]
         : inv.sku_on_property,
   };
@@ -1068,10 +1034,12 @@ export async function syncEtsyListingInventoryFromInw(
   });
 
   try {
-    await putEtsyInventoryIfValid(accessToken, listingId, invForPut, rebuilt);
+    const putResult = await putEtsyInventoryIfValid(accessToken, listingId, invForPut, rebuilt);
+    await verifyEtsyComboInventory(accessToken, listingId, item, putResult);
   } catch (err) {
-    // Etsy can reject flipping price mode in place; a full matrix rebuild sets it cleanly.
-    if (enablingPriceOnProperty) {
+    // Etsy can reject flipping price mode in place, or 200 while keeping listing-level
+    // prices. A full matrix rebuild (fresh products + price_on_property) is the retry.
+    if (enablingPriceOnProperty && !isEtsyPricePersistError(err)) {
       console.warn("[etsy] in-place price_on_property enable rejected; rebuilding full inventory", {
         listingId,
         error: err instanceof Error ? err.message : String(err),
@@ -1079,9 +1047,15 @@ export async function syncEtsyListingInventoryFromInw(
       await rebuildFullEtsyInventory("price_mode_mismatch");
       return;
     }
+    if (isEtsyPricePersistError(err) && taxonomyId != null) {
+      console.warn("[etsy] in-place prices not persisted; rebuilding full inventory", {
+        listingId,
+      });
+      await rebuildFullEtsyInventory("price_verify_failed");
+      return;
+    }
     throw err;
   }
-  await verifyEtsyComboInventory(accessToken, listingId, item);
 }
 
 /** Sum live offering quantities. Shop-list `listing.quantity` is often 0 while these are not. */
@@ -1187,7 +1161,7 @@ export async function buildEtsyInventoryProducts(
     return {
       products: [
         {
-          sku: etsyInventorySku(getEffectiveSku(item), item.id),
+          sku: resolvePublishSku({ sku: item.sku, itemId: item.id, channel: "etsy" }),
           property_values: [],
           offerings: [
             buildOfferingPayload(
@@ -1233,10 +1207,12 @@ export async function buildEtsyInventoryProducts(
       if (property_values.length === 0) continue;
       const qty = channelQuantityForTracked(sku.quantity, item.inventoryTracking);
       const price = sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents;
-      const code = etsyInventorySku(
-        sku.sku?.trim() || `${getEffectiveSku(item)}-${Object.values(sku.options).join("-")}`,
-        `${item.id}:${Object.values(sku.options).join("|")}`
-      );
+      const code = resolvePublishSku({
+        sku: sku.sku,
+        itemId: item.id,
+        channel: "etsy",
+        comboLabel: Object.values(sku.options).filter(Boolean).join(" / ") || undefined,
+      });
       products.push({
         sku: code,
         property_values,
@@ -1271,7 +1247,6 @@ export async function buildEtsyInventoryProducts(
       `Could not map INW options onto Etsy. Check the Etsy category supports those values.`
     );
   }
-  uniquifyEtsyProductSkus(products);
   return { products };
 }
 
@@ -1300,8 +1275,19 @@ export async function pushEtsyVariants(
     productCount: body.products.length,
     defaultReadinessStateId: readiness,
   });
-  await putEtsyVariantMatrix(accessToken, listingId, body, variantsToMatrix(item.variants));
-  await verifyEtsyComboInventory(accessToken, listingId, item);
+  const matrix = variantsToMatrix(item.variants);
+  const putResult = await putEtsyVariantMatrix(accessToken, listingId, body, matrix);
+  try {
+    await verifyEtsyComboInventory(accessToken, listingId, item, putResult);
+  } catch (err) {
+    if (!isEtsyPricePersistError(err)) throw err;
+    // Full-matrix PUT can 200 while GET still shows listing prices. Retry the write once.
+    console.warn("[etsy] variant matrix prices not persisted; retrying inventory PUT", {
+      listingId,
+    });
+    const retried = await putEtsyVariantMatrix(accessToken, listingId, body, matrix);
+    await verifyEtsyComboInventory(accessToken, listingId, item, retried);
+  }
 }
 
 /** Etsy inventory GET can lag a beat behind a successful PUT; retry once before failing. */
@@ -1310,11 +1296,20 @@ export const ETSY_PRICE_VERIFY_RETRY_MS = 1500;
 export async function verifyEtsyComboInventory(
   accessToken: string,
   listingId: string,
-  item: SyncStoreItem
+  item: SyncStoreItem,
+  putResult?: EtsyInventory | null
 ): Promise<void> {
   const matrix = variantsToMatrix(item.variants);
   if (!matrix) return;
-  let inv = await etsyGet<EtsyInventory>(accessToken, `/listings/${listingId}/inventory`);
+
+  const putVerify = putResult ? verifyEtsyOfferingPrices(putResult.products, item) : null;
+  // PUT often echoes the request. An immediate flatten in the response is a real miss —
+  // skip the GET wait and let the caller retry with a full rebuild.
+  const putAlreadyFlat = Boolean(putVerify && putVerify.matched > 0 && !putVerify.ok);
+
+  let inv = putAlreadyFlat
+    ? putResult!
+    : await etsyGet<EtsyInventory>(accessToken, `/listings/${listingId}/inventory`);
   if (matrix.axes.length >= 2 && matrix.skus.length > 1) {
     const remoteCount = inv.products?.length ?? 0;
     if (remoteCount < matrix.skus.length) {
@@ -1336,19 +1331,29 @@ export async function verifyEtsyComboInventory(
     return;
   }
 
-  if (!verify.ok) {
+  if (!verify.ok && !putAlreadyFlat) {
     // Bounded single retry to ride out Etsy read lag right after the PUT.
     await new Promise((resolve) => setTimeout(resolve, ETSY_PRICE_VERIFY_RETRY_MS));
     inv = await etsyGet<EtsyInventory>(accessToken, `/listings/${listingId}/inventory`);
     verify = verifyEtsyOfferingPrices(inv.products, item);
-    if (verify.matched > 0 && !verify.ok) {
-      throw new Error("Etsy did not persist per-variation prices. Retry the listing update.");
+    if (verify.matched === 0 || verify.ok) {
+      console.warn("[etsy] price verify recovered on retry (or match dropped)", {
+        listingId,
+        matched: verify.matched,
+        mismatched: verify.mismatched,
+      });
+      return;
     }
-    console.warn("[etsy] price verify recovered on retry (or match dropped)", {
+  }
+
+  if (verify.matched > 0 && !verify.ok) {
+    console.warn("[etsy] price verify failed", {
       listingId,
       matched: verify.matched,
       mismatched: verify.mismatched,
+      putAlreadyFlat,
     });
+    throw new Error(ETSY_PRICE_PERSIST_FAILED_MESSAGE);
   }
 }
 

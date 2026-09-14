@@ -239,6 +239,7 @@ async function syncShopifyVariantInventory(
   for (const v of existing.variants) {
     if (v.inventory_item_id == null) continue;
     const qty = quantityForShopifyRemoteVariant(item, existing, v);
+    if (qty == null) continue;
     await setInventoryAbsolute(
       conn.accessToken,
       cfg.shop,
@@ -344,6 +345,7 @@ export const shopifyAdapter: ChannelAdapter = {
           for (const v of variants) {
             if (v.inventory_item_id == null) continue;
             const qty = quantityForShopifyRemoteVariant(item, product ?? {}, v);
+            if (qty == null) continue;
             await setInventoryAbsolute(
               conn.accessToken,
               cfg.shop,

@@ -6,7 +6,6 @@
 import { normalizeListingAspects, parseStoredAspects, type ListingAspect } from "@/lib/listing-limits";
 import { prisma, Prisma } from "database";
 import type { SyncStoreItem } from "../types";
-import { getEffectiveSku } from "../types";
 import type { EbayCategoryAspect } from "./aspects";
 import {
   prepareAspectsForEbayCategory,
@@ -63,7 +62,10 @@ export async function prepareEbaySyncAspects(args: {
   /** Live revisions: do not treat Type/Brand / empty taxonomy as hard failures. */
   enforceListOnRequirements?: boolean;
 }): Promise<PrepareEbaySyncAspectsResult> {
-  const sku = args.sku ?? args.externalListingId ?? getEffectiveSku(args.item);
+  const sku = args.sku ?? args.externalListingId;
+  if (!sku?.trim()) {
+    throw new Error("Missing eBay SKU. Assign a SKU before syncing aspects.");
+  }
 
   let tradingAspects = args.tradingAspects ?? [];
   if (tradingAspects.length === 0 && args.tradingAspects === undefined) {

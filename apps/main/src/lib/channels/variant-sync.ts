@@ -6,7 +6,6 @@ import {
   MAX_SKU_ROWS_SHOPIFY,
   MAX_VARIANT_AXES,
   etsyVariesByAllProperties,
-  fillMissingAlphanumericComboSkus,
   matrixHasKnownSkuPrices,
   matrixToLegacyAxes,
   normalizeVariantMatrix,
@@ -113,16 +112,10 @@ export function variantsToMatrix(remoteVariants: unknown): VariantMatrix | null 
   return normalizeVariantMatrix(remoteVariants);
 }
 
-export function matrixForStorage(
-  remoteVariants: unknown,
-  opts?: { itemId?: string; parentSku?: string | null }
-): VariantMatrix | null {
+export function matrixForStorage(remoteVariants: unknown): VariantMatrix | null {
   const matrix = normalizeVariantMatrix(remoteVariants);
   if (!matrix) return null;
-  const filled = opts?.itemId
-    ? fillMissingAlphanumericComboSkus(matrix, opts.itemId, opts.parentSku)
-    : matrix;
-  return serializeVariantMatrix(filled);
+  return serializeVariantMatrix(matrix);
 }
 
 /**

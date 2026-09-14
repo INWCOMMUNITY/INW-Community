@@ -1,6 +1,6 @@
 import { wixOriginalMediaUrl } from "@/lib/business-photos";
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
-import { getEffectiveSku } from "../types";
+import { resolvePublishSku } from "../sku-identity";
 import { hasOptionQuantities } from "../../store-item-variants";
 import { listingDescriptionForHtmlChannel } from "../rich-description";
 import { isMadeToOrderTracking, type VariantMatrix } from "@/lib/listing-variant-matrix";
@@ -65,7 +65,7 @@ export type WixProduct = {
 /**
  * Build the `POST /stores/v3/products-with-inventory` body for a StoreItem. v1 maps a single
  * variant (one price/qty); options-based variants are out of scope. Media is set via external URL
- * (Wix imports each URL), and the variant SKU is set to the StoreItem id for reverse lookup.
+ * (Wix imports each URL), and the variant SKU is the INW join key.
  */
 export function buildWixCreateBody(item: SyncStoreItem): Record<string, unknown> {
   const photos = item.photos.slice(0, 12);
@@ -77,7 +77,7 @@ export function buildWixCreateBody(item: SyncStoreItem): Record<string, unknown>
     variantsInfo: {
       variants: [
         {
-          sku: getEffectiveSku(item),
+          sku: resolvePublishSku({ sku: item.sku, itemId: item.id, channel: "wix" }),
           price: { actualPrice: { amount: wixPriceFromCents(item.priceCents) } },
           inventoryItem: isMadeToOrderTracking(item.inventoryTracking)
             ? { trackQuantity: false, inStock: true }
@@ -109,7 +109,7 @@ export function buildWixUpdateBody(
   variantId: string | null
 ): Record<string, unknown> {
   const variant: Record<string, unknown> = {
-    sku: getEffectiveSku(item),
+    sku: resolvePublishSku({ sku: item.sku, itemId: item.id, channel: "wix" }),
     price: { actualPrice: { amount: wixPriceFromCents(item.priceCents) } },
   };
   if (variantId) variant.id = variantId;
@@ -363,10 +363,12 @@ export function buildWixV1CreateBody(item: SyncStoreItem): Record<string, unknow
     name: item.title.slice(0, 80),
     productType: "physical",
     visible: true,
-    sku: getEffectiveSku(item),
     priceData: { price: Math.max(0, item.priceCents) / 100 },
     stock: buildWixV1StockFields(item.quantity, item.inventoryTracking),
   };
+  if (!hasOptionQuantities(item.variants)) {
+    product.sku = resolvePublishSku({ sku: item.sku, itemId: item.id, channel: "wix" });
+  }
   if (item.category?.trim()) product.ribbon = item.category.trim().slice(0, 40);
   const desc = (item.description ?? "").trim();
   if (desc) product.description = desc;
@@ -392,7 +394,9 @@ export function buildWixV1UpdateBody(
   const product: Record<string, unknown> = {
     name: item.title.slice(0, 80),
     description: (item.description ?? "").trim() || undefined,
-    sku: getEffectiveSku(item),
+    ...(perOptionStock
+      ? {}
+      : { sku: resolvePublishSku({ sku: item.sku, itemId: item.id, channel: "wix" }) }),
     ...(perOptionStock ? {} : { priceData: { price } }),
   };
   const variantRows = existing?.variants?.filter((v) => v.id) ?? [];

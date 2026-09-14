@@ -340,6 +340,59 @@ describe("verifyEtsyOfferingPrices (regression guard)", () => {
     expect(res.mismatched).toBe(1);
     expect(res.ok).toBe(false);
   });
+
+  it("ignores unpriced SKUs that still hold a distinct remote price", () => {
+    const mixed = {
+      id: "item-1",
+      priceCents: 100,
+      variants: {
+        axes: [{ name: "Size", values: ["S", "M"] }],
+        skus: [
+          { options: { Size: "S" }, quantity: 2, priceCents: 1800 },
+          { options: { Size: "M" }, quantity: 3 },
+        ],
+      },
+    };
+    const res = verifyEtsyOfferingPrices(
+      [
+        {
+          property_values: [{ property_name: "Size", values: ["S"] }],
+          offerings: [{ price: { amount: 1800, divisor: 100 } }],
+        },
+        {
+          property_values: [{ property_name: "Size", values: ["M"] }],
+          offerings: [{ price: { amount: 1800, divisor: 100 } }],
+        },
+      ],
+      mixed as never
+    );
+    expect(res.matched).toBe(1);
+    expect(res.mismatched).toBe(0);
+    expect(res.ok).toBe(true);
+  });
+
+  it("matches a priced SKU by SKU code when option values do not line up", () => {
+    const withCodes = {
+      id: "item-1",
+      priceCents: 100,
+      variants: {
+        axes: [{ name: "Size", values: ["S"] }],
+        skus: [{ options: { Size: "S" }, quantity: 2, priceCents: 1800, sku: "NAVY-S" }],
+      },
+    };
+    const res = verifyEtsyOfferingPrices(
+      [
+        {
+          sku: "NAVY-S",
+          property_values: [{ property_name: "Size", values: ["XL"] }],
+          offerings: [{ price: { amount: 1800, divisor: 100 } }],
+        },
+      ],
+      withCodes as never
+    );
+    expect(res.matched).toBe(1);
+    expect(res.ok).toBe(true);
+  });
 });
 
 describe("Etsy combo rebuild", () => {

@@ -22,10 +22,10 @@ describe("normalizeListingSku", () => {
 });
 
 describe("skuToAdoptFromRemote", () => {
-  it("fills an empty local SKU from the channel", () => {
+  it("fills an empty local SKU from an alphanumeric channel SKU", () => {
     expect(
-      skuToAdoptFromRemote({ localSku: null, remoteSku: "COIN-001", itemId: "item-1" })
-    ).toBe("COIN-001");
+      skuToAdoptFromRemote({ localSku: null, remoteSku: "COIN001", itemId: "item-1" })
+    ).toBe("COIN001");
   });
 
   it("does not overwrite a seller SKU", () => {
@@ -34,11 +34,18 @@ describe("skuToAdoptFromRemote", () => {
     ).toBeNull();
   });
 
-  it("skips item ids and eBay migration keys", () => {
+  it("skips item ids and hyphenated strings; adopts live eBay inw pins", () => {
     expect(
       skuToAdoptFromRemote({
         localSku: null,
         remoteSku: "item-1",
+        itemId: "item-1",
+      })
+    ).toBeNull();
+    expect(
+      skuToAdoptFromRemote({
+        localSku: null,
+        remoteSku: "COIN-001",
         itemId: "item-1",
       })
     ).toBeNull();
@@ -49,7 +56,7 @@ describe("skuToAdoptFromRemote", () => {
         remoteSku: "inw403004607151",
         itemId: "item-1",
       })
-    ).toBeNull();
+    ).toBe("inw403004607151");
   });
 
   it("does not adopt Shopify-generated itemId-option SKUs as the parent SKU", () => {

@@ -9,13 +9,14 @@ import {
   type VariantMatrix,
 } from "@/lib/listing-variant-matrix";
 import { matchInwSkuRow, variantOptionsMatch } from "../variant-match";
+import { matchAllowsChannelWrite, resolvePublishSku } from "../sku-identity";
 import { wixGet, wixJson, WixApiError, type WixRequestOpts } from "./client";
 import type { WixV1Product } from "./mapping";
 
 type WixV1VariantRow = NonNullable<WixV1Product["variants"]>[number];
 
 /** Wix v1 returns variant choices as { "OptionName": "value" }, not an array. */
-function wixVariantChoiceMap(row: WixV1VariantRow): Record<string, string> {
+export function wixVariantChoiceMap(row: WixV1VariantRow): Record<string, string> {
   const raw = row.choices;
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     const out: Record<string, string> = {};
@@ -372,6 +373,12 @@ export function buildWixV1OptionsCreateBody(item: SyncStoreItem): Record<string,
     }));
     const variants = axes[0].options.map((o) => ({
       choices: { [axes[0].name]: o.value },
+      sku: resolvePublishSku({
+        sku: o.sku,
+        itemId: item.id,
+        channel: "wix",
+        comboLabel: o.value,
+      }),
       stock: wixVariantStock(item, o.quantity),
       priceData: { price: Math.max(0, item.priceCents) / 100 },
     }));
@@ -384,6 +391,12 @@ export function buildWixV1OptionsCreateBody(item: SyncStoreItem): Record<string,
   }));
   const variants = matrix.skus.map((sku) => ({
     choices: sku.options,
+    sku: resolvePublishSku({
+      sku: sku.sku,
+      itemId: item.id,
+      channel: "wix",
+      comboLabel: Object.values(sku.options).filter(Boolean).join(" / ") || undefined,
+    }),
     stock: wixVariantStock(item, sku.quantity),
     priceData: {
       price: Math.max(0, sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents) / 100,
@@ -513,13 +526,11 @@ export function buildWixV1VariantsPriceUpdateBody(
       {
         sku: (row.variant as { sku?: string } | undefined)?.sku ?? (row as { sku?: string }).sku ?? null,
         options: map,
-      },
-      // A single-combination product with no choices is an unambiguous positional match.
-      { allowPositional: true }
+      }
     );
-    // Guard rail: if this Wix row does not map to any INW SKU, DO NOT write the listing/min
-    // price to it — that is exactly what flattens every variation to $1. Leave it untouched.
-    if (!sku || quality === "none") continue;
+    const remoteSku =
+      (row.variant as { sku?: string } | undefined)?.sku ?? (row as { sku?: string }).sku ?? null;
+    if (!sku || !matchAllowsChannelWrite({ quality, inwSku: sku.sku, remoteSku })) continue;
     const cents = sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents;
     const price = Math.max(0, cents) / 100;
     if (Object.keys(map).length > 0) {
@@ -651,15 +662,19 @@ export async function pushWixV1PerOptionInventory(
   let resolved = 0;
   for (const row of rows) {
     const variantId = row.id as string;
-    const map = wixVariantChoiceMap(row);
-    const mapped = qtyByKey.get(skuSelectionKey(map));
-    if (mapped == null) {
+    const remoteSku =
+      (row.variant as { sku?: string } | undefined)?.sku ?? (row as { sku?: string }).sku ?? null;
+    const matrix = inwMatrix(item);
+    const { row: matched, quality } = matrix
+      ? matchInwSkuRow(matrix, { sku: remoteSku, options: wixVariantChoiceMap(row) })
+      : { row: null, quality: "none" as const };
+    if (!matched || !matchAllowsChannelWrite({ quality, inwSku: matched.sku, remoteSku })) {
       const current = v2QtyById.get(variantId) ?? Math.max(0, row.stock?.quantity ?? 0);
       variants.push({ variantId, quantity: current, inStock: current > 0 });
       continue;
     }
     resolved += 1;
-    const qty = track ? assertSaneInventoryQty(mapped, "pushWixV1PerOptionInventory") : 0;
+    const qty = track ? assertSaneInventoryQty(matched.quantity, "pushWixV1PerOptionInventory") : 0;
     variants.push({ variantId, quantity: qty, inStock: track ? qty > 0 : true });
   }
 

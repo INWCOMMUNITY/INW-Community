@@ -1,11 +1,11 @@
 import type { RemoteListingSummary, SyncStoreItem } from "../types";
-import { getEffectiveSku } from "../types";
-import { normalizeVariantsFromProvider, variantsToMatrix, type InwVariantAxis } from "../variant-sync";
 import { listingDescriptionForHtmlChannel } from "../rich-description";
+import { matchAllowsChannelWrite, resolvePublishSku, skusExact } from "../sku-identity";
 import { shopifyProductTypeForInw } from "../category-suggest";
 import { isInwHostedPhotoUrl, isMarketplaceCdnPhotoUrl } from "../photo-urls";
 import { isShopifyNoiseCollectionTitle } from "./collections";
 import { matchInwSkuRow, optionValueSetKey } from "../variant-match";
+import { normalizeVariantsFromProvider, variantsToMatrix, type InwVariantAxis } from "../variant-sync";
 import type { ShopifyProductTaxonomyHint } from "./inbound-taxonomy";
 import {
   channelQuantityForTracked,
@@ -165,26 +165,24 @@ export function findMatrixSkuForShopifyVariant(
 ): VariantSkuRow | null {
   const map = shopifyVariantOptionMap(optionNames, variant);
   if (Object.keys(map).length === 0 && !variant.sku) return null;
-  // Match by SKU code then axis-name-agnostic option values (Shopify stores options
-  // positionally, so name/order drift must not drop the match).
-  return matchInwSkuRow(matrix, { sku: variant.sku ?? null, options: map }).row;
+  const { row, quality } = matchInwSkuRow(matrix, { sku: variant.sku ?? null, options: map });
+  if (!matchAllowsChannelWrite({ quality, inwSku: row?.sku, remoteSku: variant.sku })) return null;
+  return row;
 }
 
 export function quantityForShopifyRemoteVariant(
-  item: Pick<SyncStoreItem, "quantity" | "inventoryTracking" | "variants">,
+  item: Pick<SyncStoreItem, "quantity" | "inventoryTracking" | "variants" | "sku" | "id">,
   product: Pick<ShopifyProduct, "options">,
-  variant: Pick<ShopifyVariant, "option1" | "option2" | "option3">
-): number {
+  variant: Pick<ShopifyVariant, "option1" | "option2" | "option3"> & { sku?: string | null }
+): number | null {
   const matrix = variantsToMatrix(item.variants);
   const names = shopifyOptionNames(product);
-  if (matrix && names.length > 0) {
+  if (matrix && matrix.skus.length > 0) {
     const sku = findMatrixSkuForShopifyVariant(matrix, names, variant);
     if (sku) return channelQuantityForTracked(sku.quantity, item.inventoryTracking);
-    // Unmatched variant (orphan, name mismatch, etc.) — returning the aggregate
-    // item.quantity would massively overstock this variant. Return 0 so the
-    // variant shows out-of-stock until the seller reconciles it.
-    return 0;
+    return null;
   }
+  if (!skusExact(item.sku, variant.sku)) return null;
   return channelQuantityForTracked(item.quantity, item.inventoryTracking);
 }
 
@@ -193,13 +191,6 @@ function shopifyImageIdForUrl(product: ShopifyProduct | null | undefined, url?: 
   const want = url.split("?")[0];
   const hit = product.images.find((i) => i.src && (i.src === url || i.src.split("?")[0] === want));
   return hit?.id;
-}
-
-function alphanumericShopifySku(baseSku: string, labels: string[]): string {
-  const base = baseSku.replace(/[^a-zA-Z0-9]/g, "").slice(0, 36);
-  const suffix = labels.filter(Boolean).join("").replace(/[^a-zA-Z0-9]/g, "").slice(0, 12);
-  const combined = `${base}${suffix}`.slice(0, 50);
-  return combined || base || baseSku.replace(/[^a-zA-Z0-9]/g, "").slice(0, 50);
 }
 
 function cartesianVariants(
@@ -211,9 +202,13 @@ function cartesianVariants(
   if (matrix && matrix.skus.length > 0) {
     return matrix.skus.map((sku) => {
       const labels = matrix.axes.slice(0, 3).map((a) => sku.options[a.name] ?? "");
-      const baseSku = getEffectiveSku(item);
       const variant: Record<string, unknown> = {
-        sku: sku.sku?.trim() || alphanumericShopifySku(baseSku, labels),
+        sku: resolvePublishSku({
+          sku: sku.sku,
+          itemId: item.id,
+          channel: "shopify",
+          comboLabel: labels.filter(Boolean).join(" / ") || undefined,
+        }),
         price: shopifyPriceFromCents(sku.priceCents && sku.priceCents > 0 ? sku.priceCents : item.priceCents),
         inventory_management: shopifyInventoryManagement(item),
         inventory_quantity: channelQuantityForTracked(sku.quantity, item.inventoryTracking),
@@ -244,45 +239,9 @@ function cartesianVariants(
     );
   }
 
-  const limited = axes.slice(0, 3);
-  const combos: { labels: string[]; qty: number }[] = [{ labels: [], qty: item.quantity }];
-
-  for (const axis of limited) {
-    const next: { labels: string[]; qty: number }[] = [];
-    for (const combo of combos) {
-      for (const opt of axis.options) {
-        next.push({
-          labels: [...combo.labels, opt.value],
-          qty: opt.quantity,
-        });
-      }
-    }
-    combos.length = 0;
-    combos.push(...next);
-  }
-
-  return combos.map((c) => {
-    const baseSku = getEffectiveSku(item);
-    const variant: Record<string, unknown> = {
-      sku: alphanumericShopifySku(baseSku, c.labels),
-      price: shopifyPriceFromCents(item.priceCents),
-      inventory_management: shopifyInventoryManagement(item),
-      inventory_quantity: channelQuantityForTracked(c.qty, item.inventoryTracking),
-      inventory_policy: shopifyInventoryPolicy(item),
-      requires_shipping: !item.shippingDisabled,
-    };
-    if (item.compareAtPriceCents != null && item.compareAtPriceCents > 0) {
-      variant.compare_at_price = shopifyPriceFromCents(item.compareAtPriceCents);
-    }
-    if (item.package?.weightOz != null && item.package.weightOz > 0) {
-      variant.weight = item.package.weightOz;
-      variant.weight_unit = "oz";
-    }
-    if (c.labels[0]) variant.option1 = c.labels[0];
-    if (c.labels[1]) variant.option2 = c.labels[1];
-    if (c.labels[2]) variant.option3 = c.labels[2];
-    return variant;
-  });
+  throw new Error(
+    "Each Shopify variant needs an assigned SKU. Add SKUs on INW before publishing."
+  );
 }
 
 /** Map INW status to Shopify product status. */
@@ -316,7 +275,7 @@ export function buildShopifyCreateBody(item: SyncStoreItem): Record<string, unkn
     product.variants = cartesianVariants(item, axes);
   } else {
     const variant: Record<string, unknown> = {
-      sku: getEffectiveSku(item),
+      sku: resolvePublishSku({ sku: item.sku, itemId: item.id, channel: "shopify" }),
       price: shopifyPriceFromCents(item.priceCents),
       inventory_management: shopifyInventoryManagement(item),
       inventory_quantity: channelQuantityForTracked(item.quantity, item.inventoryTracking),
@@ -389,7 +348,7 @@ export function buildShopifyUpdateBody(
   } else {
     const variantId = existing?.variants?.[0]?.id ?? null;
     const variant: Record<string, unknown> = {
-      sku: getEffectiveSku(item),
+      sku: resolvePublishSku({ sku: item.sku, itemId: item.id, channel: "shopify" }),
       price: shopifyPriceFromCents(item.priceCents),
       requires_shipping: !item.shippingDisabled,
     };

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyChannelPauseReason,
   connectionHealthUx,
+  liveChannelSkipMessage,
   nextRecoverAt,
 } from "./pause-reason";
 
@@ -58,5 +59,38 @@ describe("connectionHealthUx", () => {
   it("shows delayed for transient unknown errors", () => {
     const ux = connectionHealthUx({ status: "error", lastError: "fetch failed" });
     expect(ux.kind).toBe("delayed");
+  });
+});
+
+describe("liveChannelSkipMessage", () => {
+  it("does not ask sellers to reconnect when decrypt failed on an active row", () => {
+    const msg = liveChannelSkipMessage({
+      providerLabel: "Etsy",
+      decryptFailed: true,
+      status: "active",
+    });
+    expect(msg).toMatch(/do not reconnect/i);
+    expect(msg).not.toMatch(/reconnect in sync stores/i);
+  });
+
+  it("tells local-vs-hosted decrypt failures to copy the production key", () => {
+    const msg = liveChannelSkipMessage({
+      providerLabel: "Etsy",
+      decryptFailed: true,
+      status: "active",
+      localHostedDb: true,
+    });
+    expect(msg).toMatch(/ENCRYPTION_KEY/i);
+    expect(msg).toMatch(/do not reconnect/i);
+  });
+
+  it("does not ask sellers to reconnect when tokens are unusable locally", () => {
+    const msg = liveChannelSkipMessage({
+      providerLabel: "eBay",
+      decryptFailed: false,
+      status: "active",
+      localHostedDb: true,
+    });
+    expect(msg).toMatch(/do not reconnect/i);
   });
 });

@@ -7,6 +7,38 @@ export type ChannelPauseReason =
 
 export type ChannelHealthKind = "ok" | "reconnect" | "delayed" | "platform_key";
 
+export const PLATFORM_ENCRYPTION_KEY_MESSAGE =
+  "This store cannot sync because of a platform encryption-key issue. Do not reconnect — contact support.";
+
+/** Skip copy when live GET cannot use tokens but the row is still marked active. */
+export function liveChannelSkipMessage(args: {
+  providerLabel: string;
+  decryptFailed: boolean;
+  status: string;
+  lastError?: string | null;
+  config?: unknown;
+  localHostedDb?: boolean;
+}): string {
+  if (args.decryptFailed) {
+    if (args.localHostedDb) {
+      return "This local app cannot decrypt hosted store tokens. Copy Production ENCRYPTION_KEY from Vercel into apps/main/.env (or .env.local), restart, then try again. Do not reconnect.";
+    }
+    return PLATFORM_ENCRYPTION_KEY_MESSAGE;
+  }
+  const health = connectionHealthUx({
+    status: args.status,
+    lastError: args.lastError,
+    config: args.config,
+  });
+  if (health.kind === "ok") {
+    if (args.localHostedDb) {
+      return `${args.providerLabel} tokens could not be used from this local app. Do not reconnect — use the deployed site or a matching ENCRYPTION_KEY.`;
+    }
+    return `${args.providerLabel} connection is unavailable on this machine. Do not reconnect — hosted store tokens could not be used.`;
+  }
+  return health.message;
+}
+
 const BACKOFF_MS = [15 * 60 * 1000, 60 * 60 * 1000, 6 * 60 * 60 * 1000, 24 * 60 * 60 * 1000];
 
 export function classifyChannelPauseReason(error: unknown): ChannelPauseReason {
@@ -69,8 +101,7 @@ export function connectionHealthUx(args: {
   if (reason === "decrypt_failure") {
     return {
       kind: "platform_key",
-      message:
-        "This store cannot sync because of a platform encryption-key issue. Do not reconnect — contact support.",
+      message: PLATFORM_ENCRYPTION_KEY_MESSAGE,
       pauseReason: reason,
     };
   }

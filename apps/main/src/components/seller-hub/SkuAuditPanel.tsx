@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { suggestedSkuRepairs, type SuggestedRepair } from "@/lib/channels/sku-repair-suggest";
 
 type ChannelHit = {
   provider: string;
@@ -13,6 +14,7 @@ type AuditUnit = {
   storeItemId: string;
   title: string;
   kind: "parent" | "combo";
+  comboKey: string | null;
   comboLabel: string | null;
   inwSku: string | null;
   catalogFindings: string[];
@@ -109,11 +111,18 @@ function uniqueHydrateErrors(
   return out;
 }
 
+function unitKey(unit: AuditUnit): string {
+  return `${unit.storeItemId}:${unit.kind}:${unit.comboKey ?? unit.comboLabel ?? ""}`;
+}
+
 export function SkuAuditPanel() {
   const [report, setReport] = useState<AuditReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [liveBusy, setLiveBusy] = useState(false);
+  const [repairing, setRepairing] = useState<string | null>(null);
+  const [assignDraft, setAssignDraft] = useState<Record<string, string>>({});
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const load = useCallback(async (live: boolean) => {
     if (live) setLiveBusy(true);
@@ -139,6 +148,47 @@ export function SkuAuditPanel() {
     }
   }, []);
 
+  const runRepair = useCallback(
+    async (unit: AuditUnit, action: SuggestedRepair) => {
+      const key = `${unitKey(unit)}:${action.kind}:${action.provider ?? ""}`;
+      if (action.kind === "rewrite_remote" || action.kind === "adopt_pin") {
+        const ok = window.confirm(
+          `${action.label} for “${unit.title}”? This copies the SKU string and does not delete the listing.`
+        );
+        if (!ok) return;
+      }
+      setRepairing(key);
+      setActionMessage(null);
+      setError(null);
+      try {
+        const res = await fetch("/api/channels/sku-repair", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            storeItemId: unit.storeItemId,
+            kind: action.kind,
+            provider: action.provider,
+            comboKey: unit.comboKey,
+            sku: action.kind === "assign_canonical" ? assignDraft[unitKey(unit)] : undefined,
+          }),
+        });
+        const data = (await res.json()) as { ok?: boolean; message?: string; error?: string };
+        if (!res.ok) {
+          setError(data.error || "SKU repair failed.");
+          return;
+        }
+        setActionMessage(data.message || "Updated.");
+        await load(Boolean(report?.live));
+      } catch {
+        setError("SKU repair failed.");
+      } finally {
+        setRepairing(null);
+      }
+    },
+    [assignDraft, load, report?.live]
+  );
+
   useEffect(() => {
     void load(false);
   }, [load]);
@@ -162,12 +212,14 @@ export function SkuAuditPanel() {
   const showRows = rows.length > 0 ? rows : report.units.slice(0, 25);
   const liveStatus = report.liveStatus;
   const hydrateErrors = uniqueHydrateErrors(report.hydrateErrors);
+  const rewriteShown = new Set<string>();
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-600">
-        Read-only check: every sellable unit should use the same alphanumeric SKU (max 32
-        characters) on INW, eBay, Etsy, Shopify, and Wix. Nothing is written from this tab.
+        Every sellable unit should use the same alphanumeric SKU on INW, eBay, Etsy, Shopify, and
+        Wix. Observation is the default. Repair buttons copy that string (Method 2) — they do not
+        unsync or delete listings.
       </p>
 
       <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm space-y-2">
@@ -219,6 +271,7 @@ export function SkuAuditPanel() {
         {liveBusy ? "Checking live channels…" : "Check live channels"}
       </button>
       {error ? <p className="text-red-700 text-sm">{error}</p> : null}
+      {actionMessage ? <p className="text-green-800 text-sm">{actionMessage}</p> : null}
 
       <div className="overflow-x-auto rounded-lg border border-gray-200">
         <table className="min-w-full text-xs text-left">
@@ -232,11 +285,21 @@ export function SkuAuditPanel() {
               <th className="px-2 py-2 font-medium">Shopify</th>
               <th className="px-2 py-2 font-medium">Wix</th>
               <th className="px-2 py-2 font-medium">Class</th>
+              <th className="px-2 py-2 font-medium">Repair</th>
             </tr>
           </thead>
           <tbody>
-            {showRows.map((u) => (
-              <tr key={`${u.storeItemId}:${u.kind}:${u.comboLabel ?? ""}`} className="border-t border-gray-100">
+            {showRows.map((u) => {
+              const actions = suggestedSkuRepairs(u).filter((a) => {
+                if (a.kind !== "rewrite_remote") return true;
+                const key = `${u.storeItemId}:${a.provider}`;
+                if (rewriteShown.has(key)) return false;
+                rewriteShown.add(key);
+                return true;
+              });
+              const draftKey = unitKey(u);
+              return (
+              <tr key={draftKey} className="border-t border-gray-100">
                 <td className="px-2 py-2 max-w-[140px] truncate" title={u.title}>
                   {u.title}
                 </td>
@@ -247,8 +310,49 @@ export function SkuAuditPanel() {
                 <td className="px-2 py-2 font-mono">{channelSku(u, "shopify")}</td>
                 <td className="px-2 py-2 font-mono">{channelSku(u, "wix")}</td>
                 <td className="px-2 py-2">{issueClass(u)}</td>
+                <td className="px-2 py-2">
+                  <div className="flex flex-col gap-1 min-w-[140px]">
+                    {actions.map((action) => {
+                      const busyKey = `${draftKey}:${action.kind}:${action.provider ?? ""}`;
+                      if (action.kind === "assign_canonical") {
+                        return (
+                          <div key={busyKey} className="flex gap-1">
+                            <input
+                              value={assignDraft[draftKey] ?? ""}
+                              onChange={(e) =>
+                                setAssignDraft((prev) => ({ ...prev, [draftKey]: e.target.value }))
+                              }
+                              placeholder="SKU"
+                              className="w-24 rounded border border-gray-300 px-1 py-0.5 font-mono"
+                            />
+                            <button
+                              type="button"
+                              disabled={repairing != null}
+                              onClick={() => void runRepair(u, action)}
+                              className="rounded border border-gray-300 px-1.5 py-0.5 font-semibold disabled:opacity-50"
+                            >
+                              {repairing === busyKey ? "…" : "Assign"}
+                            </button>
+                          </div>
+                        );
+                      }
+                      return (
+                        <button
+                          key={busyKey}
+                          type="button"
+                          disabled={repairing != null}
+                          onClick={() => void runRepair(u, action)}
+                          className="rounded border border-gray-300 px-1.5 py-0.5 text-left font-semibold disabled:opacity-50"
+                        >
+                          {repairing === busyKey ? "…" : action.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

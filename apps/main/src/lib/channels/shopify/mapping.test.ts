@@ -24,8 +24,8 @@ const baseItem: SyncStoreItem = {
       { name: "Color", values: ["Navy"] },
     ],
     skus: [
-      { options: { Size: "S", Color: "Navy" }, quantity: 2, priceCents: 2200, sku: "TEE-S-NVY" },
-      { options: { Size: "M", Color: "Navy" }, quantity: 3, sku: "TEE-M-NVY" },
+      { options: { Size: "S", Color: "Navy" }, quantity: 2, priceCents: 2200, sku: "TEESNVY" },
+      { options: { Size: "M", Color: "Navy" }, quantity: 3, sku: "TEEMNVY" },
     ],
   },
   status: "active",
@@ -113,7 +113,7 @@ describe("buildShopifyCreateBody", () => {
       option2: "Navy",
       inventory_quantity: 2,
       price: "22.00",
-      sku: "TEE-S-NVY",
+      sku: "TEESNVY",
       inventory_management: "shopify",
     });
   });
@@ -136,17 +136,17 @@ describe("buildShopifyCreateBody", () => {
     expect(body.product.product_type).toBe("Video Games");
   });
 
-  it("does not invent hyphenated SKUs when combo rows have none", () => {
-    const body = buildShopifyCreateBody({
-      ...baseItem,
-      sku: null,
-      variants: {
-        axes: [{ name: "Color", values: ["Purple"] }],
-        skus: [{ options: { Color: "Purple" }, quantity: 2 }],
-      },
-    }) as { product: { variants: { sku: string }[] } };
-    expect(body.product.variants[0].sku).toBe("item1Purple");
-    expect(body.product.variants[0].sku).not.toContain("-");
+  it("does not invent SKUs when combo rows have none", () => {
+    expect(() =>
+      buildShopifyCreateBody({
+        ...baseItem,
+        sku: null,
+        variants: {
+          axes: [{ name: "Color", values: ["Purple"] }],
+          skus: [{ options: { Color: "Purple" }, quantity: 2 }],
+        },
+      })
+    ).toThrow(/Missing SKU/);
   });
 });
 
@@ -229,7 +229,8 @@ describe("quantityForShopifyRemoteVariant", () => {
         { name: "Color", values: ["Navy"] },
       ],
     };
-    expect(quantityForShopifyRemoteVariant(item, product, { option1: "S", option2: "Navy" })).toBe(2);
-    expect(quantityForShopifyRemoteVariant(item, product, { option1: "M", option2: "Navy" })).toBe(3);
+    expect(quantityForShopifyRemoteVariant(item, product, { option1: "S", option2: "Navy", sku: "TEESNVY" })).toBe(2);
+    expect(quantityForShopifyRemoteVariant(item, product, { option1: "M", option2: "Navy", sku: "TEEMNVY" })).toBe(3);
+    expect(quantityForShopifyRemoteVariant(item, product, { option1: "S", option2: "Navy" })).toBeNull();
   });
 });

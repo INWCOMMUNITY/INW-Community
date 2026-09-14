@@ -81,8 +81,9 @@ export function isGeneratedVariantOfItemId(sku: string, itemId: string): boolean
 }
 
 /**
- * Fill an empty INW SKU from a channel listing. Skips the item id and eBay
- * migration keys so inbound sync does not overwrite a blank box with internals.
+ * Fill an empty INW SKU from a channel listing. Adopts live eBay Inventory pins
+ * (including `inw{legacyId}`). Rejects StoreItem.id leftovers and non-alphanumeric
+ * strings (hyphens are not the join key).
  */
 export function skuToAdoptFromRemote(args: {
   localSku: string | null | undefined;
@@ -91,7 +92,7 @@ export function skuToAdoptFromRemote(args: {
 }): string | null {
   if (normalizeListingSku(args.localSku)) return null;
   const sku = normalizeListingSku(args.remoteSku);
-  if (!sku || sku === args.itemId || isEbayMigrationSku(sku)) return null;
-  if (isGeneratedVariantOfItemId(sku, args.itemId)) return null;
+  if (!sku || sku === args.itemId || isGeneratedVariantOfItemId(sku, args.itemId)) return null;
+  if (!/^[a-zA-Z0-9]{1,50}$/.test(sku)) return null;
   return sku;
 }

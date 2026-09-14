@@ -38,6 +38,7 @@ type FulfillmentType = "ship" | "local_delivery" | "pickup";
 
 interface StoreItem {
   id: string;
+  sku?: string | null;
   title: string;
   slug: string;
   status?: string;
@@ -533,7 +534,7 @@ export function StorefrontListingContent({
     name: item.title,
     description: item.description?.replace(/<[^>]*>/g, "").slice(0, 500) || undefined,
     image: heroPhoto ? [heroPhoto] : undefined,
-    sku: item.id,
+    sku: item.sku?.trim() || undefined,
     offers: {
       "@type": "Offer",
       price: (displayPriceCents / 100).toFixed(2),

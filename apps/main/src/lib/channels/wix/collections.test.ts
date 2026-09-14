@@ -53,14 +53,38 @@ describe("isWixCollectionAlreadyExistsError", () => {
   });
 });
 
+const sizedItemWithSkus: SyncStoreItem = {
+  ...sizeItem,
+  sku: "PARENT",
+  variants: {
+    axes: [{ name: "size", values: ["small", "medium", "large", "xl"] }],
+    skus: [
+      { options: { size: "small" }, quantity: 5, sku: "TESTERS" },
+      { options: { size: "medium" }, quantity: 5, sku: "TESTERM" },
+      { options: { size: "large" }, quantity: 5, sku: "TESTERL" },
+      { options: { size: "xl" }, quantity: 5, sku: "TESTERXL" },
+    ],
+  },
+};
+
 describe("Wix Catalog v1 option structure", () => {
-  it("sets manageVariants so Wix generates per-option inventory rows", () => {
-    const body = buildWixV1OptionsCreateBody(sizeItem) as {
-      product: { manageVariants?: boolean; productOptions?: { name: string }[]; variants?: unknown[] };
+  it("throws when option SKUs are missing instead of stamping the parent SKU", () => {
+    expect(() => buildWixV1OptionsCreateBody(sizeItem)).toThrow(/Missing SKU/);
+  });
+
+  it("writes a distinct SKU per variant, not the parent leftover", () => {
+    const body = buildWixV1OptionsCreateBody(sizedItemWithSkus) as {
+      product: { manageVariants?: boolean; productOptions?: { name: string }[]; variants?: { sku?: string }[] };
     };
     expect(body.product.manageVariants).toBe(true);
     expect(body.product.productOptions?.[0]?.name).toBe("size");
-    expect(body.product.variants).toHaveLength(4);
+    expect(body.product.variants?.map((v) => v.sku)).toEqual([
+      "TESTERS",
+      "TESTERM",
+      "TESTERL",
+      "TESTERXL",
+    ]);
+    expect(body.product.variants?.map((v) => v.sku)).not.toContain("PARENT");
   });
 
   it("does not collapse Size × Color onto the first axis", () => {
@@ -152,7 +176,7 @@ describe("Wix Catalog v1 option structure", () => {
 
   it("creates untracked stock for made-to-order listings", () => {
     const body = buildWixV1OptionsCreateBody({
-      ...sizeItem,
+      ...sizedItemWithSkus,
       inventoryTracking: "made_to_order",
     }) as { product: { variants: { stock: { trackInventory?: boolean } }[] } };
     expect(body.product.variants[0].stock.trackInventory).toBe(false);
@@ -181,22 +205,44 @@ describe("Wix Catalog v1 option structure", () => {
 });
 
 describe("buildWixV1VariantsPriceUpdateBody", () => {
-  it("sends Catalog v1 /variants { choices, price } instead of product.variants.priceData", () => {
+  it("skips price writes when SKUs do not match exactly", () => {
     const item: SyncStoreItem = {
       ...sizeItem,
       priceCents: 1000,
       variants: {
         axes: [{ name: "Size", values: ["S", "M"] }],
         skus: [
-          { options: { Size: "S" }, quantity: 2, priceCents: 1800 },
-          { options: { Size: "M" }, quantity: 3, priceCents: 2200 },
+          { options: { Size: "S" }, quantity: 2, priceCents: 1800, sku: "SIZES" },
+          { options: { Size: "M" }, quantity: 3, priceCents: 2200, sku: "SIZEM" },
+        ],
+      },
+    };
+    expect(
+      buildWixV1VariantsPriceUpdateBody(item, {
+        variants: [
+          { id: "guid-s", choices: { Size: "S" } },
+          { id: "guid-m", choices: { Size: "M" } },
+        ],
+      })
+    ).toBeNull();
+  });
+
+  it("sends Catalog v1 /variants { choices, price } when SKUs match", () => {
+    const item: SyncStoreItem = {
+      ...sizeItem,
+      priceCents: 1000,
+      variants: {
+        axes: [{ name: "Size", values: ["S", "M"] }],
+        skus: [
+          { options: { Size: "S" }, quantity: 2, priceCents: 1800, sku: "SIZES" },
+          { options: { Size: "M" }, quantity: 3, priceCents: 2200, sku: "SIZEM" },
         ],
       },
     };
     const body = buildWixV1VariantsPriceUpdateBody(item, {
       variants: [
-        { id: "guid-s", choices: { Size: "S" } },
-        { id: "guid-m", choices: { Size: "M" } },
+        { id: "guid-s", sku: "SIZES", choices: { Size: "S" } },
+        { id: "guid-m", sku: "SIZEM", choices: { Size: "M" } },
       ],
     });
     expect(body).toEqual({
@@ -213,11 +259,11 @@ describe("buildWixV1VariantsPriceUpdateBody", () => {
       priceCents: 1800,
       variants: {
         axes: [{ name: "Size", values: ["S"] }],
-        skus: [{ options: { Size: "S" }, quantity: 2, priceCents: 1800 }],
+        skus: [{ options: { Size: "S" }, quantity: 2, priceCents: 1800, sku: "SIZES" }],
       },
     };
     expect(
-      buildWixV1VariantsPriceUpdateBody(item, { variants: [{ id: "guid-s" }] })
+      buildWixV1VariantsPriceUpdateBody(item, { variants: [{ id: "guid-s", sku: "SIZES" }] })
     ).toEqual({
       variants: [{ variantIds: ["guid-s"], price: 18 }],
     });

@@ -398,9 +398,9 @@ async function enrichPassthroughInventoryPutBody(
 /**
  * Create/update the inventory item + offer for a StoreItem and (when policies allow) publish.
  *
- * For INW-created listings the SKU = StoreItem.id. For imported listings the eBay-assigned
- * migrated SKU differs from item.id; callers pass it via `linkedSku` so we target the
- * correct inventory item + offer on eBay rather than creating an orphan.
+ * Existing INW-created Inventory items may still be addressed by StoreItem.id (the live pin).
+ * Imported listings use the eBay-assigned migrated SKU via `linkedSku`. New publishes require
+ * a canonical join key — never invent item.id as a SKU.
  */
 type UpsertResult = {
   sku: string;
@@ -2197,6 +2197,8 @@ export const ebayAdapter: ChannelAdapter = {
     if (item.status !== "active" || item.quantity <= 0) {
       throw new Error("Item must be active with a quantity of at least 1 to list on eBay.");
     }
+    const { requireSellableSkusForPublish } = await import("../sku-identity");
+    requireSellableSkusForPublish(item, "ebay");
     const { sku, listingId, publishError, quantityError } = await upsertListing(conn, item);
     if (publishError) {
       throw new Error(publishError);

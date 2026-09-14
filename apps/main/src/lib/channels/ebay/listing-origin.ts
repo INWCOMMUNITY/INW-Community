@@ -4,7 +4,7 @@
  */
 
 import { isGeneratedVariantOfItemId } from "@/lib/listing-sku";
-import { isValidEbayInventorySku, toEbayInventorySku } from "./migrate-prep";
+import { isValidEbayInventorySku } from "./migrate-prep";
 
 export type EbayLinkOrigin = "import" | "inw_create";
 
@@ -47,7 +47,7 @@ function sellerSkuForEbayInventory(
   // Shopify cartesian keys (`{itemId}-Purple`) must not become the parent Inventory SKU.
   // Stripping the hyphen used to look up the Purple variation and rewrite the group.
   if (id && isGeneratedVariantOfItemId(trimmed, id)) return null;
-  const candidate = isValidEbayInventorySku(trimmed) ? trimmed : toEbayInventorySku(trimmed);
+  const candidate = isValidEbayInventorySku(trimmed) ? trimmed : null;
   if (!candidate || !isValidEbayInventorySku(candidate)) return null;
   if (id && isGeneratedVariantOfItemId(candidate, id)) return null;
   if (IMPORTED_EBAY_SKU.test(candidate)) return null;
@@ -58,8 +58,9 @@ function sellerSkuForEbayInventory(
 }
 
 /**
- * SKU for Inventory API writes. INW-created listings keep StoreItem id as the SKU
- * even when ChannelListingLink.externalListingId stores the live eBay listing id.
+ * SKU for Inventory API addressing of an existing listing.
+ * New publishes must use resolvePublishSku — this fallback to StoreItem.id only
+ * locates Inventory items that were already created with that pin.
  */
 export function resolveEbayPushSku(args: {
   itemId: string;

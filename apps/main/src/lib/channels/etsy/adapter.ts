@@ -132,7 +132,7 @@ export const etsyAdapter: ChannelAdapter = {
 
     // Start trace
     const trace = startTrace(conn.memberId, "etsy", item.id, "create", {
-      sku: item.sku ?? item.id,
+      sku: item.sku,
       categoryId: item.etsyTaxonomyId?.toString() ?? null,
     });
 
@@ -330,7 +330,7 @@ export const etsyAdapter: ChannelAdapter = {
 
     // Start trace
     const trace = startTrace(conn.memberId, "etsy", item.id, "update", {
-      sku: item.sku ?? item.id,
+      sku: item.sku,
       categoryId: item.etsyTaxonomyId?.toString() ?? null,
     });
 

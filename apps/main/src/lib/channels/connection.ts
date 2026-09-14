@@ -14,7 +14,7 @@ import { shouldBlockDevChannelTokenWrites } from "./dev-prod-guard";
 import { remintWixAccessToken } from "./wix/site";
 import {
   classifyChannelPauseReason,
-  connectionHealthUx,
+  liveChannelSkipMessage,
   nextRecoverAt,
   shouldSkipPausedRecover,
   readPauseConfig,
@@ -385,6 +385,7 @@ export async function getConnectionContext(
       console.error("[channels] decrypt failed; not pausing hosted connections from local process", {
         connectionId: connection.id,
         provider: connection.provider,
+        error: e instanceof Error ? e.message : String(e),
       });
       return null;
     }
@@ -402,21 +403,28 @@ export async function getConnectionContext(
 
   // Wix app tokens last 4h and have no refresh token — remint from instanceId.
   if (expired && connection.provider === "wix") {
-    const ctx: ChannelConnectionContext = {
-      id: connection.id,
-      memberId: connection.memberId,
-      provider: "wix",
-      externalShopId: connection.externalShopId,
-      accessToken,
-      etsyShippingProfileId: connection.etsyShippingProfileId,
-      scopes: connection.scopes ?? null,
-      config:
-        connection.config && typeof connection.config === "object"
-          ? (connection.config as Record<string, unknown>)
-          : null,
-    };
-    if (await remintWixAccessToken(ctx)) {
-      return ctx;
+    if (shouldBlockDevChannelTokenWrites()) {
+      console.error("[channels] refusing Wix remint from local dev against hosted DB", {
+        connectionId: connection.id,
+        provider: connection.provider,
+      });
+    } else {
+      const ctx: ChannelConnectionContext = {
+        id: connection.id,
+        memberId: connection.memberId,
+        provider: "wix",
+        externalShopId: connection.externalShopId,
+        accessToken,
+        etsyShippingProfileId: connection.etsyShippingProfileId,
+        scopes: connection.scopes ?? null,
+        config:
+          connection.config && typeof connection.config === "object"
+            ? (connection.config as Record<string, unknown>)
+            : null,
+      };
+      if (await remintWixAccessToken(ctx)) {
+        return ctx;
+      }
     }
   }
 
@@ -494,25 +502,31 @@ export async function getMemberConnectionContextWithError(
   if (!conn || conn.status === "disconnected") {
     return { ctx: null, error: `Connect your ${provider} account in Sync Stores.` };
   }
-  const ctx = await getConnectionContext(conn);
+  let decryptFailed = false;
+  if (conn.accessTokenEncrypted) {
+    try {
+      decrypt(conn.accessTokenEncrypted);
+    } catch {
+      decryptFailed = true;
+    }
+  }
+  const ctx = decryptFailed ? null : await getConnectionContext(conn);
   if (ctx) return { ctx, error: null };
   const latest = await prisma.channelConnection.findUnique({
     where: { id: conn.id },
     select: { lastError: true, status: true },
   });
   const label = provider.charAt(0).toUpperCase() + provider.slice(1);
-  const health = connectionHealthUx({
-    status: latest?.status ?? conn.status,
-    lastError: latest?.lastError,
-    config: conn.config,
-  });
-  const fallback =
-    health.kind === "ok"
-      ? `${label} connection is unavailable. Reconnect in Sync Stores.`
-      : health.message;
   return {
     ctx: null,
-    error: latest?.lastError ?? fallback,
+    error: liveChannelSkipMessage({
+      providerLabel: label,
+      decryptFailed,
+      status: latest?.status ?? conn.status,
+      lastError: latest?.lastError,
+      config: conn.config,
+      localHostedDb: shouldBlockDevChannelTokenWrites(),
+    }),
   };
 }
 

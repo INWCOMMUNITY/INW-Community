@@ -42,7 +42,7 @@ describe("buildWixV1MediaFromPhotos", () => {
   it("includes media on v1 create body", () => {
     const item: SyncStoreItem = {
       id: "item-1",
-      sku: null,
+      sku: "HAT42",
       title: "Hat",
       description: null,
       photos: ["https://cdn.example.com/hat.jpg"],
@@ -67,13 +67,13 @@ describe("buildWixV1MediaFromPhotos", () => {
     expect(body.product.media).toEqual({
       mainMedia: { image: { url: "https://cdn.example.com/hat.jpg" } },
     });
-    expect(body.product.sku).toBe("item-1");
+    expect(body.product.sku).toBe("HAT42");
   });
 
   it("sets sku from the item sku when present", () => {
     const item: SyncStoreItem = {
       id: "item-1",
-      sku: "HAT-42",
+      sku: "HAT42",
       title: "Hat",
       description: null,
       photos: [],
@@ -95,7 +95,7 @@ describe("buildWixV1MediaFromPhotos", () => {
       aspects: null,
     };
     const body = buildWixV1CreateBody(item) as { product: { sku?: string } };
-    expect(body.product.sku).toBe("HAT-42");
+    expect(body.product.sku).toBe("HAT42");
   });
 });
 
