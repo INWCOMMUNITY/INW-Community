@@ -62,7 +62,13 @@ import {
 } from "@/lib/listing-variant-matrix";
 import { recordVariantPriceTrace, buildIntendedVariantPriceRows } from "../sync-trace";
 import { fetchLiveInventoryItem, readLiveInventoryAvailableQuantity } from "./passthrough-push";
-import { catchUpEbayLiveVariantQuantities, ebaySingleSkuQtyMatrix, type EbayLiveQtyCatchUp } from "./variant-qty-catchup";
+import {
+  catchUpEbayLiveVariantQuantities,
+  ebayCatchUpAdoptedLiveQty,
+  ebaySingleSkuQtyMatrix,
+  writeEbayLiveVariantQuantitiesToOffers,
+  type EbayLiveQtyCatchUp,
+} from "./variant-qty-catchup";
 import { applyRemoteListingRemoved } from "../apply-remote-listing";
 import { syncInventoryToChannels } from "../sync-inventory";
 import { updateStoreItemOnChannels } from "../outbound";
@@ -433,6 +439,11 @@ export function ebayInboundShouldApplyVariantPrices(args: {
   lastPushedVariantPricesHash?: string | null;
   ebayLastModified?: Date | null;
   lastPushedAt?: Date | null;
+  /**
+   * Title (or another listing field) is already being applied. GetItem often omits
+   * LastModifiedTime; leftover $1 StartPrices are still rejected in applyRemoteVariantPricesToMatrix.
+   */
+  alreadyApplying?: boolean;
 }): boolean {
   const variantPricesDiffer =
     Boolean(args.remoteVariantPricesHash) &&
@@ -442,6 +453,7 @@ export function ebayInboundShouldApplyVariantPrices(args: {
     Boolean(args.inwVariantPricesHash) &&
     args.inwVariantPricesHash === (args.lastPushedVariantPricesHash ?? "");
   if (!hubSkuPricesMatchLastPush) return true;
+  if (args.alreadyApplying) return true;
   return (
     args.ebayLastModified != null &&
     args.lastPushedAt != null &&
@@ -589,9 +601,9 @@ export function ebayApplyTrustsSingleSnapshot(source?: EbayGetItemApplySource): 
 }
 
 /**
- * Last-resort GetItem SKU qty overlay when inventory/offer catch-up returned no rows.
- * Never overlay Trading qty when catch-up already read Seller Hub / View Item stock —
- * GetItem lags and would snap INW (and later eBay) back to the old number.
+ * Last-resort GetItem SKU qty overlay when inventory/offer catch-up did not adopt live stock.
+ * Catch-up always *reads* SKUs; only skip overlay when it actually took Seller Hub / View Item
+ * numbers. Echoing INW from lagged inventory/offer must not hide GetItem SKU qty.
  */
 export function shouldOverlayEbayGetItemSkuQuantities(args: {
   skipQuantity?: boolean;
@@ -1266,18 +1278,18 @@ export async function refreshEbayListingByItemId(
         })) ?? [];
 
     const qtyDiverged = !opts?.skipQuantity && remoteQty !== storeItem.quantity;
-    const catchUpReturnedRows = Boolean(liveQtyCatchUp && liveQtyCatchUp.quantities.length > 0);
+    const catchUpAdoptedLiveQty = ebayCatchUpAdoptedLiveQty(liveQtyCatchUp);
     const overlayGetItemSkuQty = shouldOverlayEbayGetItemSkuQuantities({
       skipQuantity: opts?.skipQuantity,
       source: opts?.source,
       inwMatrix,
       remoteMatrix: remoteVariantMatrix,
-      catchUpReturnedRows,
+      catchUpReturnedRows: catchUpAdoptedLiveQty,
       remoteListingQuantity: details.quantity,
     });
     let qtyMatrix: VariantMatrix | null = inwMatrix;
     let qtyPulled = false;
-    if (catchUpReturnedRows && inwMatrix && liveQtyCatchUp) {
+    if (catchUpAdoptedLiveQty && inwMatrix && liveQtyCatchUp) {
       qtyMatrix = applyLiveInventoryQuantitiesToMatrix(inwMatrix, liveQtyCatchUp.quantities);
       qtyPulled = liveQtyCatchUp.inwNeedsUpdate;
     } else if (overlayGetItemSkuQty && inwMatrix && remoteVariantMatrix) {
@@ -1319,6 +1331,7 @@ export async function refreshEbayListingByItemId(
         lastPushedVariantPricesHash: readLastPushedVariantPricesHash(conflictDetails),
         ebayLastModified: details.remoteUpdatedAt,
         lastPushedAt: link.lastPushedAt,
+        alreadyApplying: true,
       });
     const priceMatrix =
       applyRemotePrices && inwMatrix
@@ -1394,7 +1407,7 @@ export async function refreshEbayListingByItemId(
       inwHadPerSkuPrices: Boolean(inwMatrix?.skus.some((s) => s.priceCents != null && s.priceCents > 0)),
       qtyDiverged,
       overlayGetItemSkuQty,
-      catchUpReturnedRows,
+      catchUpAdoptedLiveQty,
       qtyPulled,
       qtyChanged,
       priceChanged,
@@ -1460,6 +1473,34 @@ export async function refreshEbayListingByItemId(
         })
         .catch(() => {});
     } else if (workingMatrix && nextSerialized && matrixChanged) {
+      if (applyQty && overlayGetItemSkuQty && !liveQtyCatchUp?.wroteOffers && inwMatrix) {
+        try {
+          await writeEbayLiveVariantQuantitiesToOffers({
+            accessToken,
+            quantities: workingMatrix.skus
+              .filter((s) => s.sku?.trim())
+              .filter((s) => {
+                const orig = inwMatrix.skus.find(
+                  (row) =>
+                    row.sku?.trim() === s.sku?.trim() ||
+                    optionValuesKey(row.options) === optionValuesKey(s.options)
+                );
+                return orig != null && orig.quantity !== s.quantity;
+              })
+              .map((s) => ({
+                sku: s.sku!.trim(),
+                options: s.options,
+                quantity: s.quantity,
+              })),
+          });
+        } catch (e) {
+          console.warn("[ebay] GetItem SKU qty offer write failed", {
+            storeItemId: storeItem.id,
+            legacyItemId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
       updateData.variants = nextSerialized;
       if (applyQty && sum !== storeItem.quantity) {
         updateData.quantity = sum;

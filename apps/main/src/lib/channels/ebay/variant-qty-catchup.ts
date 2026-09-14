@@ -1,4 +1,9 @@
-import { type LiveVariantQuantity, type VariantMatrix } from "@/lib/listing-variant-matrix";
+import {
+  optionValuesKey,
+  skuSelectionKey,
+  type LiveVariantQuantity,
+  type VariantMatrix,
+} from "@/lib/listing-variant-matrix";
 import { inventoryVariantsBaselineMatches, variantQuantitiesLookDegraded } from "../variant-sync";
 import { ebayGet } from "./client";
 import { EBAY_MARKETPLACE_ID } from "./config";
@@ -122,6 +127,11 @@ export type EbayLiveQtyCatchUp = {
   inwNeedsUpdate: boolean;
 };
 
+/** True when catch-up actually took Seller Hub / View Item stock, not merely read SKUs. */
+export function ebayCatchUpAdoptedLiveQty(catchUp: EbayLiveQtyCatchUp | null | undefined): boolean {
+  return Boolean(catchUp && (catchUp.inwNeedsUpdate || catchUp.wroteOffers));
+}
+
 /** One-SKU matrix so simple (non-variation) listings reuse the offer catch-up. */
 export function ebaySingleSkuQtyMatrix(sku: string, quantity: number): VariantMatrix {
   return {
@@ -141,7 +151,8 @@ async function forEachInChunks<T>(
   }
 }
 
-function tradingQtyForRow(
+/** Same SKU / option matching as inbound overlay so Seller Hub GetItem qty is not dropped. */
+export function tradingQtyForRow(
   trading: VariantMatrix | null,
   row: { sku?: string | null; options: Record<string, string> }
 ): number | null {
@@ -151,18 +162,15 @@ function tradingQtyForRow(
     const hit = trading.skus.find((s) => s.sku?.trim() === sku);
     if (hit) return hit.quantity;
   }
-  const values = Object.values(row.options)
-    .map((v) => v.toLowerCase())
-    .sort()
-    .join("\0");
-  const hit = trading.skus.find(
-    (s) =>
-      Object.values(s.options)
-        .map((v) => v.toLowerCase())
-        .sort()
-        .join("\0") === values
-  );
-  return hit?.quantity ?? null;
+  const optionKey = skuSelectionKey(row.options);
+  if (optionKey) {
+    const byOptions = trading.skus.find((s) => skuSelectionKey(s.options) === optionKey);
+    if (byOptions) return byOptions.quantity;
+  }
+  const values = optionValuesKey(row.options);
+  if (!values) return null;
+  const byValues = trading.skus.find((s) => optionValuesKey(s.options) === values);
+  return byValues?.quantity ?? null;
 }
 
 function readEbayOfferAvailableQuantity(raw: unknown): number | null {
@@ -261,6 +269,31 @@ async function catchUpEbayLiveVariantQuantitiesOnce(args: {
   }
 
   return { quantities, wroteOffers: writes.length > 0, inwNeedsUpdate };
+}
+
+/**
+ * Copy already-chosen SKU qtys onto live offers. Used when GetItem overlay applies
+ * Seller Hub stock that inventory/offer catch-up did not adopt.
+ */
+export async function writeEbayLiveVariantQuantitiesToOffers(args: {
+  accessToken: string;
+  quantities: LiveVariantQuantity[];
+}): Promise<boolean> {
+  const rows = args.quantities.filter((row) => row.sku?.trim());
+  const writes: { sku: string; quantity: number; offerId?: string | null }[] = [];
+  await forEachInChunks(rows, OFFER_LOOKUP_CONCURRENCY, async (row) => {
+    const sku = row.sku!.trim();
+    const offer = await fetchEbayOfferQuantity(args.accessToken, sku);
+    if (offer.quantity === row.quantity) return;
+    writes.push({ sku, quantity: row.quantity, offerId: offer.offerId });
+  });
+  if (writes.length === 0) return false;
+  await pushEbayVariantGroupQuantities(args.accessToken, writes);
+  console.info("[ebay] wrote GetItem SKU qty onto live listing offers", {
+    skuCount: writes.length,
+    sample: writes.slice(0, 3).map((w) => ({ sku: w.sku, quantity: w.quantity })),
+  });
+  return true;
 }
 
 /**
