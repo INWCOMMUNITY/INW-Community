@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   adoptPinnedEbaySku,
+  ensureSellableSkus,
   matchAllowsChannelWrite,
   requireSellableSkusForPublish,
   resolvePublishSku,
@@ -33,6 +34,52 @@ describe("resolvePublishSku", () => {
     expect(() =>
       resolvePublishSku({ sku: "a".repeat(41), itemId: "item-1", channel: "wix" })
     ).toThrow(/40/);
+  });
+});
+
+describe("ensureSellableSkus", () => {
+  it("mints a hub join key when a simple listing has no SKU", () => {
+    const used = new Set<string>();
+    const result = ensureSellableSkus({ id: "item-1", sku: null, variants: null }, used);
+    expect(result.changed).toBe(true);
+    expect(result.sku).toMatch(/^nwc[a-zA-Z0-9]{10}$/);
+    expect(used.has(result.sku!.toLowerCase())).toBe(true);
+  });
+
+  it("keeps a live eBay pin and canonicalizes hyphenated seller SKUs", () => {
+    const used = new Set<string>();
+    expect(
+      ensureSellableSkus(
+        { id: "cmt8zc266000dw2tzrmx9rie1", sku: "inw404516850572", variants: null },
+        used
+      ).sku
+    ).toBe("inw404516850572");
+    expect(
+      ensureSellableSkus({ id: "item-1", sku: "HAT-42", variants: null }, new Set()).sku
+    ).toBe("HAT42");
+  });
+
+  it("mints unique combo SKUs and clears an item-id leftover parent", () => {
+    const itemId = "cmt7vumcl000dxjujvgwe8dob";
+    const result = ensureSellableSkus(
+      {
+        id: itemId,
+        sku: `${itemId}-Purple`,
+        variants: {
+          axes: [{ name: "Size", values: ["S", "M"] }],
+          skus: [
+            { options: { Size: "S" }, quantity: 1 },
+            { options: { Size: "M" }, quantity: 1 },
+          ],
+        },
+      },
+      new Set()
+    );
+    expect(result.sku).toBeNull();
+    const matrix = result.variants as { skus: { sku: string }[] };
+    expect(matrix.skus.map((s) => s.sku)).toHaveLength(2);
+    expect(new Set(matrix.skus.map((s) => s.sku)).size).toBe(2);
+    expect(matrix.skus.every((s) => /^nwc[a-zA-Z0-9]{10}$/.test(s.sku))).toBe(true);
   });
 });
 

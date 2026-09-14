@@ -17,7 +17,7 @@
 | **Adapter contract** | Each provider implements `ChannelAdapter` in `types.ts`: OAuth, CRUD listings, inventory, import list, sales poll, optional webhooks. |
 | **Best-effort outbound** | Push failures are stored on the link (`syncStatus: "error"`, `syncError`) and logged — they must **not** crash the seller flow. |
 | **Disconnect ≠ delete** | Disconnecting a channel stops sync; external listings stay on the marketplace. **Remove listing** in INW triggers `deleteListing`. |
-| **SKU join key** | One alphanumeric SKU per sellable unit (`^[a-zA-Z0-9]{1,32}$` for new codes; live eBay Inventory SKUs pinned as-is). Copy that string onto every channel. Locators stay on `ChannelListingLink.externalListingId` (and Shopify/Wix variant ids). Never publish `StoreItem.id` as a SKU. |
+| **SKU join key** | INW owns one alphanumeric SKU per sellable unit. If the seller leaves it blank, INW mints a hub key (`nwc…`) on save/import/publish and copies that same string onto every channel. Live eBay Inventory SKUs are pinned as-is. Never publish `StoreItem.id`. Locators stay on `ChannelListingLink.externalListingId` (and Shopify/Wix variant ids). |
 
 ---
 

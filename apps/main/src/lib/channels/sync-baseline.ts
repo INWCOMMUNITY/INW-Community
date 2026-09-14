@@ -41,6 +41,7 @@ export function storeItemContentHash(item: SyncStoreItem): string {
         p: item.priceCents,
         q: item.quantity,
         s: item.status,
+        sku: item.sku,
         ph: item.photos,
         v: item.variants,
         c: item.condition,

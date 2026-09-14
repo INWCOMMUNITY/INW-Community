@@ -217,9 +217,9 @@ export function SkuAuditPanel() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-600">
-        Every sellable unit should use the same alphanumeric SKU on INW, eBay, Etsy, Shopify, and
-        Wix. Observation is the default. Repair buttons copy that string (Method 2) — they do not
-        unsync or delete listings.
+        INW assigns a join-key SKU when you save or list, then copies that string onto eBay, Etsy,
+        Shopify, and Wix. Sellers do not have to type or copy SKUs. Repair buttons are only an
+        escape hatch for live mismatches — they do not unsync or delete listings.
       </p>
 
       <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm space-y-2">

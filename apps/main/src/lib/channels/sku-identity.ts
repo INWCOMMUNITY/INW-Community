@@ -1,14 +1,17 @@
 /**
- * INW-owned SKU join key. One alphanumeric string per sellable unit, copied onto
- * every channel. Never invent StoreItem.id, hyphens, or hashes.
+ * INW-owned SKU join key. One alphanumeric string per sellable unit. Blank units
+ * get a hub mint (`nwc…`); that same string is copied onto every channel.
+ * Never publish StoreItem.id or per-channel hyphen/hash generators.
  */
 
+import { randomBytes } from "crypto";
 import {
   ETSY_SKU_MAX,
   isGeneratedVariantOfItemId,
   skuToAdoptFromRemote,
+  toCanonicalChannelSku,
 } from "@/lib/listing-sku";
-import { normalizeVariantMatrix } from "@/lib/listing-variant-matrix";
+import { normalizeVariantMatrix, serializeVariantMatrix } from "@/lib/listing-variant-matrix";
 import { isValidEbayInventorySku } from "./ebay/migrate-prep";
 import type { VariantMatchQuality } from "./variant-match";
 import type { ChannelProvider, SyncStoreItem } from "./types";
@@ -37,6 +40,112 @@ export function isJoinKeySku(sku: string | null | undefined): boolean {
 export function skuOwnerKey(raw: string | null | undefined): string | null {
   const trimmed = raw?.trim() ?? "";
   return trimmed ? trimmed.toLowerCase() : null;
+}
+
+const MINT_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+function randomAlphanumeric(length: number): string {
+  const bytes = randomBytes(length);
+  let out = "";
+  for (let i = 0; i < length; i++) {
+    out += MINT_ALPHABET[bytes[i]! % MINT_ALPHABET.length];
+  }
+  return out;
+}
+
+/** Hub-owned join key. Not StoreItem.id, not a per-channel generator. */
+export function mintJoinKeySku(used: Set<string>): string {
+  for (let attempt = 0; attempt < 64; attempt++) {
+    const sku = `nwc${randomAlphanumeric(10)}`;
+    const key = sku.toLowerCase();
+    if (!used.has(key)) {
+      used.add(key);
+      return sku;
+    }
+  }
+  throw new SkuIdentityError("Could not mint a unique SKU.");
+}
+
+/**
+ * Keep a legal join key (including live eBay pins). Strip punctuation on seller-typed
+ * codes. Reject item-id leftovers so the hub can mint a real key.
+ */
+export function acceptExistingJoinKey(
+  raw: string | null | undefined,
+  itemId: string
+): string | null {
+  const sku = raw?.trim() ?? "";
+  if (!sku) return null;
+  if (sku === itemId || isGeneratedVariantOfItemId(sku, itemId)) return null;
+  if (isJoinKeySku(sku)) return sku;
+  const compact = toCanonicalChannelSku(sku);
+  if (!compact || compact === itemId || isGeneratedVariantOfItemId(compact, itemId)) return null;
+  return compact;
+}
+
+export type SellableSkuItem = {
+  id: string;
+  sku: string | null;
+  variants: unknown;
+};
+
+function takeJoinKey(
+  raw: string | null | undefined,
+  itemId: string,
+  used: Set<string>
+): { sku: string; minted: boolean } {
+  const accepted = acceptExistingJoinKey(raw, itemId);
+  if (accepted) {
+    const key = accepted.toLowerCase();
+    if (!used.has(key)) {
+      used.add(key);
+      return { sku: accepted, minted: accepted !== (raw?.trim() ?? "") };
+    }
+  }
+  return { sku: mintJoinKeySku(used), minted: true };
+}
+
+/**
+ * Fill blank / leftover / hyphenated SKUs with one hub join key per sellable unit.
+ * Variant listings mint combo rows only (parent leftover is cleared, not copied).
+ */
+export function ensureSellableSkus(
+  item: SellableSkuItem,
+  used: Set<string>
+): { sku: string | null; variants: unknown; changed: boolean } {
+  const matrix = normalizeVariantMatrix(item.variants);
+  if (matrix && matrix.skus.length > 0) {
+    let changed = false;
+    const skus = matrix.skus.map((row) => {
+      const next = takeJoinKey(row.sku, item.id, used);
+      if (next.minted || next.sku !== (row.sku?.trim() ?? "")) changed = true;
+      return { ...row, sku: next.sku };
+    });
+    const comboKeys = new Set(skus.map((row) => row.sku.toLowerCase()));
+    const parentAccepted = acceptExistingJoinKey(item.sku, item.id);
+    let sku: string | null = null;
+    if (
+      parentAccepted &&
+      !comboKeys.has(parentAccepted.toLowerCase()) &&
+      !used.has(parentAccepted.toLowerCase())
+    ) {
+      sku = parentAccepted;
+      used.add(parentAccepted.toLowerCase());
+    } else if (item.sku?.trim()) {
+      changed = true;
+    }
+    return {
+      sku,
+      variants: serializeVariantMatrix({ ...matrix, skus, skusVary: true }),
+      changed: changed || sku !== (item.sku?.trim() || null),
+    };
+  }
+  const next = takeJoinKey(item.sku, item.id, used);
+  return {
+    sku: next.sku,
+    variants: item.variants,
+    changed: next.minted || next.sku !== (item.sku?.trim() ?? ""),
+  };
 }
 
 export function resolvePublishSku(args: {

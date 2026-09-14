@@ -23,7 +23,8 @@ import { z } from "zod";
 import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-rules";
 import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
 import { LISTING_SKU_MAX, normalizeListingSku } from "@/lib/listing-sku";
-import { findConflictingStoreItemSku } from "@/lib/listing-sku-db";
+import { findConflictingStoreItemSku, loadMemberSkuOwnerSet } from "@/lib/listing-sku-db";
+import { ensureSellableSkus } from "@/lib/channels/sku-identity";
 import { isImportedEbayLink } from "@/lib/channels/ebay/listing-origin";
 import { Prisma } from "database";
 import { assertMemberShippingOption } from "@/lib/shipping-options";
@@ -502,6 +503,25 @@ export async function PATCH(
         };
       });
     }
+  }
+
+  const skuForEnsure =
+    data.sku !== undefined ? (normalizeListingSku(data.sku) ?? null) : existing.sku;
+  const variantsForEnsure =
+    data.variants !== undefined
+      ? data.variants === null
+        ? null
+        : (update.variants ?? matrixForStorage(data.variants))
+      : existing.variants;
+  const used = await loadMemberSkuOwnerSet(ownerId, itemId);
+  const ensured = ensureSellableSkus(
+    { id: itemId, sku: skuForEnsure, variants: variantsForEnsure },
+    used
+  );
+  if (ensured.changed || data.sku !== undefined || data.variants !== undefined) {
+    update.sku = ensured.sku;
+    update.variants =
+      ensured.variants == null ? Prisma.JsonNull : (ensured.variants as Prisma.InputJsonValue);
   }
 
   const item = await prisma.storeItem.update({

@@ -937,7 +937,7 @@ model Policy {
 // Storefront - products listed by sellers
 model StoreItem {
   id                  String   @id @default(cuid())
-  /// Seller/pinned join-key SKU (alphanumeric). Never StoreItem.id.
+  /// Hub join-key SKU (alphanumeric). INW mints `nwc…` when blank. Never StoreItem.id.
   sku                 String?  @map("sku")
   /// UPC, EAN, GTIN, or ISBN barcode. Mapped to Shopify variant barcode.
   barcode             String?  @map("barcode")

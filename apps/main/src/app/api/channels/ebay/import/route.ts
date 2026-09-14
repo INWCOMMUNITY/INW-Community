@@ -19,6 +19,7 @@ import { variantsFingerprint, sumVariantQuantities, matrixForStorage } from "@/l
 import { describeEbayThrownError, ebayErrorActionHint } from "@/lib/channels/ebay/errors";
 import { resolveEbayLegacyListingId, indexEbayRemoteListings } from "@/lib/channels/ebay/mapping";
 import { attachShippingOptionOnImport, maybeImportShippingOptionsOnSync } from "@/lib/shipping-options";
+import { ensureMemberItemJoinKeys } from "@/lib/listing-sku-db";
 import { withSkipMeta, type ImportSkipEntry, type ImportSuccessEntry } from "@/lib/channels/import-skip";
 import {
   ensureJobSnapshots,
@@ -618,6 +619,7 @@ export async function POST(req: NextRequest) {
         data: {
           memberId: userId,
           title: (details.title ?? listing.title).slice(0, 200),
+          sku: details.sku?.trim() || listing.sku?.trim() || null,
           description: importedDescription,
           photos,
           priceCents: safePriceCents,
@@ -641,6 +643,12 @@ export async function POST(req: NextRequest) {
         },
       });
       createdStoreItemId = storeItem.id;
+      await ensureMemberItemJoinKeys({
+        memberId: userId,
+        id: storeItem.id,
+        sku: storeItem.sku,
+        variants: storeItem.variants,
+      });
       await attachEbayListingShippingOption({
         memberId: userId,
         storeItemId: storeItem.id,

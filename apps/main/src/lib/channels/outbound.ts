@@ -2,6 +2,7 @@ import { prisma, Prisma } from "database";
 import { getAdapter } from "./registry";
 import { getActiveConnectionsForMember, withConnectionAuthRetry, isChannelAuthError } from "./connection";
 import { syncStoreItemSelect, toSyncStoreItem } from "./store-item";
+import { ensureMemberItemJoinKeys } from "@/lib/listing-sku-db";
 import {
   inwSavedAfterChannelPush,
   storeItemContentHash,
@@ -211,6 +212,13 @@ export async function publishStoreItemToChannels(
     }
     return results;
   }
+  const withKeys = await ensureMemberItemJoinKeys({
+    memberId,
+    id: storeItemId,
+    sku: item.sku,
+    variants: item.variants,
+  });
+  item = { ...item, sku: withKeys.sku, variants: withKeys.variants ?? item.variants };
 
   const targets = requested ?? connections.map((c) => c.provider);
   if (targets.length === 0) return results;
@@ -446,12 +454,21 @@ export async function updateStoreItemOnChannels(
   if (links.length === 0) return results;
   const loaded = await loadSyncItemWithUpdatedAt(storeItemId);
   if (!loaded) return results;
-  const { item, updatedAt: inwUpdatedAt } = loaded;
+  let { item, updatedAt: inwUpdatedAt } = loaded;
   const hubUpdatedAt = options.sourceUpdatedAt ?? inwUpdatedAt;
-  const hash = contentHash(item);
 
   // Load member sync preferences
   const memberId = links[0]?.connection?.memberId;
+  if (memberId) {
+    const withKeys = await ensureMemberItemJoinKeys({
+      memberId,
+      id: storeItemId,
+      sku: item.sku,
+      variants: item.variants,
+    });
+    item = { ...item, sku: withKeys.sku, variants: withKeys.variants ?? item.variants };
+  }
+  const hash = contentHash(item);
   const syncPrefs = memberId ? await loadSyncPreferences(memberId) : null;
   
   // If sync is globally disabled, skip all channels — but report each so the banner isn't false-green.

@@ -9,11 +9,13 @@ import {
   INVENTORY_TRACKING_MADE_TO_ORDER,
   isMadeToOrderTracking,
   MTO_CHANNEL_QUANTITY,
+  normalizeVariantMatrix,
   parseInventoryTracking,
 } from "@/lib/listing-variant-matrix";
 import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
 import { LISTING_SKU_MAX, normalizeListingSku } from "@/lib/listing-sku";
-import { findConflictingStoreItemSku } from "@/lib/listing-sku-db";
+import { findConflictingStoreItemSku, loadMemberSkuOwnerSet } from "@/lib/listing-sku-db";
+import { ensureSellableSkus } from "@/lib/channels/sku-identity";
 import { normalizeAspectsForEbayStorage } from "@/lib/channels/ebay/sync-aspects";
 import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
@@ -518,10 +520,16 @@ export async function POST(req: NextRequest) {
       if (s === p) return null;
       return s;
     })();
-    const sku = normalizeListingSku(data.sku);
+    const used = await loadMemberSkuOwnerSet(userId);
+    const ensured = ensureSellableSkus(
+      { id: "new", sku: normalizeListingSku(data.sku), variants: storedVariants },
+      used
+    );
+    const sku = ensured.sku;
+    const variantsToStore = ensured.variants;
     const skuCodes = [
       sku,
-      ...((storedVariants?.skus ?? []).map((row) => row.sku?.trim() || null) ?? []),
+      ...((normalizeVariantMatrix(variantsToStore)?.skus ?? []).map((row) => row.sku?.trim() || null) ?? []),
     ].filter((code): code is string => Boolean(code));
     const seenSku = new Set<string>();
     for (const code of skuCodes) {
@@ -577,7 +585,7 @@ export async function POST(req: NextRequest) {
         secondaryCategory: secondaryNorm,
         subcategory: data.subcategory?.trim() || null,
         priceCents,
-        variants: storedVariants ? (storedVariants as object) : Prisma.JsonNull,
+        variants: variantsToStore ? (variantsToStore as object) : Prisma.JsonNull,
         aspects: aspectsForStorage.length > 0 ? (aspectsForStorage as object) : Prisma.JsonNull,
         quantity,
         inventoryTracking,

@@ -35,6 +35,7 @@ import {
   unsyncedInwLinkShouldBeForgotten,
 } from "./unsync-listing";
 import { sellerPrimaryBusinessForMember } from "@/lib/listing-feed-seller-business";
+import { ensureMemberItemJoinKeys } from "@/lib/listing-sku-db";
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -660,7 +661,7 @@ export async function importRemoteListing(args: {
         ? Math.max(0, Math.round(listing.shippingCostCents))
         : null;
 
-    const storeItem = await prisma.storeItem.create({
+    let storeItem = await prisma.storeItem.create({
       data: {
         memberId,
         title: listing.title.slice(0, 200),
@@ -690,6 +691,13 @@ export async function importRemoteListing(args: {
       },
     });
     createdStoreItemId = storeItem.id;
+    const withKeys = await ensureMemberItemJoinKeys({
+      memberId,
+      id: storeItem.id,
+      sku: storeItem.sku,
+      variants: storeItem.variants,
+    });
+    storeItem = { ...storeItem, sku: withKeys.sku, variants: withKeys.variants ?? storeItem.variants };
 
     if ((provider === "etsy" || provider === "ebay")) {
       await attachShippingOptionOnImport({

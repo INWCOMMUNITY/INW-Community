@@ -17,7 +17,7 @@ export function isChannelProvider(value: string): value is ChannelProvider {
 /** Minimal StoreItem projection needed to map a listing to an external channel. */
 export type SyncStoreItem = {
   id: string;
-  /** Join-key SKU per simple listing. Never fall back to item.id. */
+  /** Join-key SKU per simple listing. Hub-minted when blank. Never fall back to item.id. */
   sku: string | null;
   /** UPC/EAN/GTIN/ISBN barcode for POS and Google Shopping feeds. */
   barcode: string | null;
