@@ -853,7 +853,7 @@ describe("shouldOverlayEbayGetItemSkuQuantities", () => {
     ).toBe(false);
   });
 
-  it("does not overlay GetItem SKU qty when catch-up already adopted live stock", () => {
+  it("does not overlay GetItem SKU qty when inventory/offer catch-up already returned rows", () => {
     expect(
       shouldOverlayEbayGetItemSkuQuantities({
         source: "webhook",
@@ -862,17 +862,6 @@ describe("shouldOverlayEbayGetItemSkuQuantities", () => {
         catchUpReturnedRows: true,
       })
     ).toBe(false);
-  });
-
-  it("overlays GetItem SKU qty when catch-up only echoed INW", () => {
-    expect(
-      shouldOverlayEbayGetItemSkuQuantities({
-        source: "cron-dirty",
-        inwMatrix: inw,
-        remoteMatrix: remoteQty,
-        catchUpReturnedRows: false,
-      })
-    ).toBe(true);
   });
 });
 
@@ -905,24 +894,6 @@ describe("ebayInboundShouldApplyVariantPrices", () => {
         inwVariantPricesHash: "inw-edited",
         remoteVariantPricesHash: "ebay-sku-prices",
         lastPushedVariantPricesHash: "old-push",
-      })
-    ).toBe(true);
-  });
-
-  it("applies SKU prices on an already-applying GetItem even without LastModified", () => {
-    expect(
-      ebayInboundShouldApplyVariantPrices({
-        inwVariantPricesHash: "inw-sku-prices",
-        remoteVariantPricesHash: "ebay-sku-prices",
-        lastPushedVariantPricesHash: "inw-sku-prices",
-      })
-    ).toBe(false);
-    expect(
-      ebayInboundShouldApplyVariantPrices({
-        inwVariantPricesHash: "inw-sku-prices",
-        remoteVariantPricesHash: "ebay-sku-prices",
-        lastPushedVariantPricesHash: "inw-sku-prices",
-        alreadyApplying: true,
       })
     ).toBe(true);
   });

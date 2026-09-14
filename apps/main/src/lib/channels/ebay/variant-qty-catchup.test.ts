@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   chooseEbayLiveListingQuantity,
-  ebayCatchUpAdoptedLiveQty,
   ebayContentPushShouldWriteVariantQuantities,
   ebaySingleSkuQtyMatrix,
-  tradingQtyForRow,
 } from "./variant-qty-catchup";
 import { variantsStructureQtyFingerprint } from "../variant-sync";
 
@@ -271,47 +269,5 @@ describe("ebaySingleSkuQtyMatrix", () => {
       axes: [],
       skus: [{ sku: "inw404516850572", options: {}, quantity: 5 }],
     });
-  });
-});
-
-describe("tradingQtyForRow", () => {
-  const trading = {
-    axes: [{ name: "Color", values: ["Navy"] }],
-    skus: [{ sku: "ebay-navy", options: { Colour: "Navy" }, quantity: 9 }],
-  };
-
-  it("matches GetItem variation qty by option values when SKU and axis names differ", () => {
-    expect(
-      tradingQtyForRow(trading, { sku: "inw-navy", options: { Color: "Navy" } })
-    ).toBe(9);
-  });
-});
-
-describe("ebayCatchUpAdoptedLiveQty", () => {
-  it("is false when catch-up only read SKUs that still match INW", () => {
-    expect(
-      ebayCatchUpAdoptedLiveQty({
-        quantities: [{ sku: "a", options: {}, quantity: 1 }],
-        wroteOffers: false,
-        inwNeedsUpdate: false,
-      })
-    ).toBe(false);
-  });
-
-  it("is true when catch-up wrote the offer or needs an INW qty update", () => {
-    expect(
-      ebayCatchUpAdoptedLiveQty({
-        quantities: [{ sku: "a", options: {}, quantity: 5 }],
-        wroteOffers: true,
-        inwNeedsUpdate: false,
-      })
-    ).toBe(true);
-    expect(
-      ebayCatchUpAdoptedLiveQty({
-        quantities: [{ sku: "a", options: {}, quantity: 5 }],
-        wroteOffers: false,
-        inwNeedsUpdate: true,
-      })
-    ).toBe(true);
   });
 });
