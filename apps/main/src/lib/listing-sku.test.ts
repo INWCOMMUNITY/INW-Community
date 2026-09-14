@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  CANONICAL_SKU_MAX,
   clampEtsySku,
   ETSY_SKU_MAX,
+  isCanonicalChannelSku,
   isEbayMigrationSku,
   isGeneratedVariantOfItemId,
   LISTING_SKU_MAX,
   normalizeListingSku,
   skuToAdoptFromRemote,
+  toCanonicalChannelSku,
 } from "./listing-sku";
 
 describe("normalizeListingSku", () => {
@@ -77,6 +80,26 @@ describe("clampEtsySku", () => {
     expect(new Set(codes).size).toBe(12);
     expect(codes.every((code) => code.length <= ETSY_SKU_MAX)).toBe(true);
     expect(codes.every((code) => /^[a-zA-Z0-9]+$/.test(code))).toBe(true);
+  });
+});
+
+describe("canonical channel SKU", () => {
+  it("accepts alphanumeric codes at or under 32 characters", () => {
+    expect(isCanonicalChannelSku("HAT42")).toBe(true);
+    expect(isCanonicalChannelSku("a".repeat(CANONICAL_SKU_MAX))).toBe(true);
+    expect(isCanonicalChannelSku("HAT-42")).toBe(false);
+    expect(isCanonicalChannelSku("HAT 42")).toBe(false);
+    expect(isCanonicalChannelSku("a".repeat(CANONICAL_SKU_MAX + 1))).toBe(false);
+    expect(isCanonicalChannelSku("")).toBe(false);
+    expect(isCanonicalChannelSku(null)).toBe(false);
+  });
+
+  it("strips punctuation and caps at 32", () => {
+    expect(toCanonicalChannelSku("HAT-42")).toBe("HAT42");
+    expect(toCanonicalChannelSku("  tshirt_bl_m  ")).toBe("tshirtblm");
+    expect(toCanonicalChannelSku("a".repeat(40))).toHaveLength(CANONICAL_SKU_MAX);
+    expect(toCanonicalChannelSku("---")).toBeNull();
+    expect(toCanonicalChannelSku(null)).toBeNull();
   });
 });
 

@@ -13,6 +13,7 @@ import {
   diagnoseWixLinks,
   type WixSyncDiagnosis,
 } from "@/lib/channels/wix/diagnose-sync";
+import { tryCatalogSkuAuditCompact } from "@/lib/channels/sku-audit-run";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +67,11 @@ export async function GET(req: NextRequest) {
   const storeItemId = searchParams.get("storeItemId")?.trim() || null;
   const repair = searchParams.get("repair") === "1";
   const resetBaseline = searchParams.get("resetBaseline") === "1";
+  const skuAudit = await tryCatalogSkuAuditCompact({
+    memberId: userId,
+    provider: "wix",
+    storeItemId,
+  });
 
   await ensureWixSiteId(ctx);
 
@@ -196,6 +202,7 @@ export async function GET(req: NextRequest) {
       wixLinksWithSyncDisabled: disabledLinkCount,
       order: orderBlock,
       links: [],
+      skuAudit,
       stripeConnectWebhookHint:
         "After linking, storefront sales need checkout.session.completed on the platform webhook to decrement INW and push qty to Wix.",
     });
@@ -238,6 +245,7 @@ export async function GET(req: NextRequest) {
       repairAttempted: true,
       repairResults,
       baselineReset,
+      skuAudit,
     });
   }
 
@@ -247,6 +255,7 @@ export async function GET(req: NextRequest) {
     order: orderBlock,
     repairAttempted: false,
     baselineReset,
+    skuAudit,
     howToUse:
       "After a test sale, open this URL again (same browser session). If verdict is BASELINE_CORRUPT, run ?resetBaseline=1 first. If not SYNC_OK, try ?repair=1.",
   });

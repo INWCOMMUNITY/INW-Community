@@ -216,6 +216,30 @@ export async function resolveSyncLegacyListingId(
     }
   }
 
+  const skuCandidates = [args.linkedSku, args.sku, args.itemSku]
+    .map((s) => s?.trim())
+    .filter((s): s is string => Boolean(s));
+  const seen = new Set<string>();
+  for (const sku of skuCandidates) {
+    if (seen.has(sku) || resolveEbayLegacyListingId(sku)) continue;
+    seen.add(sku);
+    try {
+      const res = await ebayGet<{
+        offers?: Array<{ listing?: { listingId?: string }; listingId?: string }>;
+      }>(
+        accessToken,
+        `/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}&marketplace_id=${EBAY_MARKETPLACE_ID}`
+      );
+      const offer = res.offers?.[0];
+      const listingId = offer?.listing?.listingId ?? offer?.listingId;
+      if (listingId && /^\d+$/.test(String(listingId).trim())) {
+        return String(listingId).trim();
+      }
+    } catch {
+      /* optional */
+    }
+  }
+
   return null;
 }
 

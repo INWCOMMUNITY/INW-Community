@@ -4,6 +4,8 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { getRecentTraces, getRecentFailedTraces } from "@/lib/channels/sync-trace";
 import { getErrorCategoryLabel, getSuggestedFixes } from "@/lib/channels/error-classifiers-registry";
 import type { ChannelProvider } from "@/lib/channels/types";
+import { tryCatalogSkuAuditCompact } from "@/lib/channels/sku-audit-run";
+import type { SkuAuditCompact } from "@/lib/channels/sku-audit";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +45,7 @@ type DiagnoseResponse = {
     totalTraces: number;
     successRate: number | null;
   };
+  skuAudit?: SkuAuditCompact;
 };
 
 /**
@@ -178,6 +181,12 @@ export async function GET(req: NextRequest) {
     summary = `All channels healthy. ${totalLinked} listing(s) linked and syncing.`;
   }
 
+  const skuAudit = await tryCatalogSkuAuditCompact({
+    memberId: userId,
+    provider: providerFilter,
+    storeItemId,
+  });
+
   return NextResponse.json<DiagnoseResponse>({
     ok: hasConnections && !hasErrors,
     summary,
@@ -190,6 +199,7 @@ export async function GET(req: NextRequest) {
       totalTraces,
       successRate: successRate !== null ? Math.round(successRate * 10) / 10 : null,
     },
+    skuAudit,
   });
 }
 

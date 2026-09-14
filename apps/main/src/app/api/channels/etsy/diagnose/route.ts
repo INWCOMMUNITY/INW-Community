@@ -10,6 +10,8 @@ import { getCircuitStatus, hydrateCircuitFromConfig, resetCircuit } from "@/lib/
 import { getRateLimitStats } from "@/lib/channels/rate-limit-tracker";
 import { getRecentTraces } from "@/lib/channels/sync-trace";
 import { getErrorCategoryLabel, getSuggestedFixes } from "@/lib/channels/error-classifiers-registry";
+import { tryCatalogSkuAuditCompact } from "@/lib/channels/sku-audit-run";
+import type { SkuAuditCompact } from "@/lib/channels/sku-audit";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +64,7 @@ type DiagnosisResult = {
   baselineReset?: { reset: number; linkIds: string[] };
   circuitReset?: boolean;
   recentTraces?: RecentTrace[];
+  skuAudit?: SkuAuditCompact;
 };
 
 /**
@@ -339,5 +342,10 @@ export async function GET(req: NextRequest) {
     baselineReset,
     circuitReset,
     recentTraces,
+    skuAudit: await tryCatalogSkuAuditCompact({
+      memberId: userId,
+      provider: "etsy",
+      storeItemId,
+    }),
   });
 }

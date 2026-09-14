@@ -10,6 +10,8 @@ import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
 import { resetCorruptBaselinesForConnection } from "@/lib/channels/reset-corrupt-baselines";
 import { getCircuitStatus } from "@/lib/channels/circuit-breaker";
 import { getRateLimitStats } from "@/lib/channels/rate-limit-tracker";
+import { tryCatalogSkuAuditCompact } from "@/lib/channels/sku-audit-run";
+import type { SkuAuditCompact } from "@/lib/channels/sku-audit";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +60,7 @@ type DiagnosisResult = {
   repairAttempted?: boolean;
   repairResults?: { storeItemId: string; ok: boolean; error?: string }[];
   baselineReset?: { reset: number; linkIds: string[] };
+  skuAudit?: SkuAuditCompact;
 };
 
 /**
@@ -343,5 +346,10 @@ export async function GET(req: NextRequest) {
     repairAttempted: repair,
     repairResults,
     baselineReset,
+    skuAudit: await tryCatalogSkuAuditCompact({
+      memberId: userId,
+      provider: "shopify",
+      storeItemId,
+    }),
   });
 }

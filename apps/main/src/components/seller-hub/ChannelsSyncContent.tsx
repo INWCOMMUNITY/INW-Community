@@ -22,13 +22,14 @@ import { ChannelSafetyBufferCard } from "./ChannelSafetyBufferCard";
 import { ChannelSyncDirectionControl } from "./ChannelSyncDirectionControl";
 import { ChannelReconnectGuideModal } from "./ChannelReconnectGuideModal";
 import { NeedsAttentionPanel } from "./NeedsAttentionPanel";
+import { SkuAuditPanel } from "./SkuAuditPanel";
 import {
   deleteInwQuery,
   disconnectSuccessMessage,
   type DisconnectDeleteMode,
 } from "@/lib/channels/disconnect-inw-items";
 
-type TabId = "connections" | "attention" | "traces";
+type TabId = "connections" | "attention" | "traces" | "sku";
 
 export function ChannelsSyncContent() {
   const searchParams = useSearchParams();
@@ -86,6 +87,9 @@ export function ChannelsSyncContent() {
     }
     if (searchParams.get("tab") === "attention") {
       setActiveTab("attention");
+    }
+    if (searchParams.get("tab") === "sku") {
+      setActiveTab("sku");
     }
   }, [searchParams, refresh]);
 
@@ -268,7 +272,7 @@ export function ChannelsSyncContent() {
       </p>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-gray-200 mb-6">
+      <div className="flex flex-wrap gap-1 border-b border-gray-200 mb-6">
         <button
           type="button"
           onClick={() => { setActiveTab("connections"); setSelectedTraceId(null); }}
@@ -290,6 +294,13 @@ export function ChannelsSyncContent() {
         >
           Sync Traces
         </button>
+        <button
+          type="button"
+          onClick={() => { setActiveTab("sku"); setSelectedTraceId(null); }}
+          className={tabClasses("sku")}
+        >
+          SKU audit
+        </button>
       </div>
 
       {activeTab === "attention" && (
@@ -309,6 +320,12 @@ export function ChannelsSyncContent() {
           ) : (
             <SyncTraceList onSelectTrace={(id) => setSelectedTraceId(id)} />
           )}
+        </div>
+      )}
+
+      {activeTab === "sku" && (
+        <div className="mb-6">
+          <SkuAuditPanel />
         </div>
       )}
 

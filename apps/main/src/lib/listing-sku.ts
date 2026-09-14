@@ -4,6 +4,13 @@ export const LISTING_SKU_MAX = 50;
 /** Etsy listing inventory SKU cap (`/sku cannot be more than 32 characters`). */
 export const ETSY_SKU_MAX = 32;
 
+/**
+ * Exact-same SKU contract for every channel: alphanumeric, Etsy's 32-char cap.
+ * eBay charset is tighter than Shopify; Etsy length is tighter than eBay's 50.
+ */
+export const CANONICAL_SKU_MAX = ETSY_SKU_MAX;
+export const CANONICAL_SKU_RE = /^[a-zA-Z0-9]{1,32}$/;
+
 /** eBay migrated inventory keys like inw403004607151 — not a seller custom SKU. */
 const EBAY_MIGRATION_SKU = /^inw\d+$/i;
 
@@ -39,6 +46,21 @@ export function normalizeListingSku(value: unknown): string | null {
 
 export function isEbayMigrationSku(sku: string | null | undefined): boolean {
   return Boolean(sku && EBAY_MIGRATION_SKU.test(sku.trim()));
+}
+
+/** True when the SKU can be published unchanged to eBay, Etsy, Shopify, and Wix. */
+export function isCanonicalChannelSku(sku: string | null | undefined): boolean {
+  const trimmed = sku?.trim() ?? "";
+  return CANONICAL_SKU_RE.test(trimmed);
+}
+
+/**
+ * Strip punctuation/spaces and cap at 32 so the same string is legal on every channel.
+ * Empty after stripping is null (not a usable identity).
+ */
+export function toCanonicalChannelSku(raw: string | null | undefined): string | null {
+  const compact = (raw ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(0, CANONICAL_SKU_MAX);
+  return compact || null;
 }
 
 /**

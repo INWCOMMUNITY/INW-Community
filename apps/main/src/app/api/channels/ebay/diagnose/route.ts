@@ -25,6 +25,8 @@ import { parseStoredAspects, aspectsToEbayProductAspects } from "@/lib/listing-l
 import { getItemAspectsForCategory } from "@/lib/channels/ebay/aspects";
 import { getRecentTraces, type SyncTraceSummary } from "@/lib/channels/sync-trace";
 import { getErrorCategoryLabel, getSuggestedFixes } from "@/lib/channels/error-classifiers-registry";
+import { tryCatalogSkuAuditCompact } from "@/lib/channels/sku-audit-run";
+import type { SkuAuditCompact } from "@/lib/channels/sku-audit";
 import { isImportedEbayLink, extractEbayInventoryAspects } from "@/lib/channels/ebay/listing-origin";
 import { ebayGetInventoryItem } from "@/lib/channels/ebay/client";
 import {
@@ -106,6 +108,7 @@ type DiagnosisResult = {
     droppedAspectNames: string[];
   };
   recentTraces?: RecentTrace[];
+  skuAudit?: SkuAuditCompact;
   passthroughDebug?: {
     linkOrigin: string;
     liveAspects: Record<string, string[]> | null;
@@ -496,5 +499,10 @@ export async function GET(req: NextRequest) {
     syncReadiness,
     passthroughDebug,
     recentTraces,
+    skuAudit: await tryCatalogSkuAuditCompact({
+      memberId: userId,
+      provider: "ebay",
+      storeItemId,
+    }),
   });
 }
