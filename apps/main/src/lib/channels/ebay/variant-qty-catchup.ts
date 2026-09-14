@@ -122,6 +122,11 @@ export type EbayLiveQtyCatchUp = {
   inwNeedsUpdate: boolean;
 };
 
+/** Catch-up always reads SKUs. Adoption means it took live stock, not an INW echo. */
+export function ebayCatchUpAdoptedLiveQty(catchUp: EbayLiveQtyCatchUp | null | undefined): boolean {
+  return Boolean(catchUp && (catchUp.inwNeedsUpdate || catchUp.wroteOffers));
+}
+
 /** One-SKU matrix so simple (non-variation) listings reuse the offer catch-up. */
 export function ebaySingleSkuQtyMatrix(sku: string, quantity: number): VariantMatrix {
   return {

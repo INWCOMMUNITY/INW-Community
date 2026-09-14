@@ -21,6 +21,7 @@ import {
   shouldHoldEbayVariantInbound,
   shouldOverlayEbayGetItemSkuQuantities,
   ebayInboundShouldApplyVariantPrices,
+  ebayInboundShouldApplyVariantQuantities,
   composeEbayInboundVariantMatrix,
 } from "./pull-ebay-updates";
 import {
@@ -379,6 +380,21 @@ describe("ebayGetItemApplyDecision", () => {
         now: new Date("2026-08-20T07:10:00.000Z"),
       })
     ).toMatchObject({ action: "apply", reason: "webhook-revise" });
+  });
+
+  it("does not treat lagged GetItem SKU qty as a Hub edit during the post-push settle window", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastPushedAt: new Date("2026-08-20T07:00:00.000Z"),
+        inwUpdatedAt: new Date("2026-08-20T07:00:00.000Z"),
+        lastInboundAt: inbound,
+        inwVariantQtyHash: "inw-sku-qty",
+        remoteVariantQtyHash: "ebay-sku-qty",
+        source: "cron-dirty",
+        now: new Date("2026-08-20T07:05:00.000Z"),
+      })
+    ).toEqual({ action: "skip", reason: "matches-inw" });
   });
 
   it("does not treat degraded all-1s GetItem qty as a seller SKU edit", () => {
@@ -853,7 +869,7 @@ describe("shouldOverlayEbayGetItemSkuQuantities", () => {
     ).toBe(false);
   });
 
-  it("does not overlay GetItem SKU qty when inventory/offer catch-up already returned rows", () => {
+  it("does not overlay GetItem SKU qty when catch-up already adopted live stock", () => {
     expect(
       shouldOverlayEbayGetItemSkuQuantities({
         source: "webhook",
@@ -862,6 +878,17 @@ describe("shouldOverlayEbayGetItemSkuQuantities", () => {
         catchUpReturnedRows: true,
       })
     ).toBe(false);
+  });
+
+  it("overlays GetItem SKU qty onto INW when catch-up only echoed INW", () => {
+    expect(
+      shouldOverlayEbayGetItemSkuQuantities({
+        source: "cron-dirty",
+        inwMatrix: inw,
+        remoteMatrix: remoteQty,
+        catchUpReturnedRows: false,
+      })
+    ).toBe(true);
   });
 });
 
@@ -894,6 +921,44 @@ describe("ebayInboundShouldApplyVariantPrices", () => {
         inwVariantPricesHash: "inw-edited",
         remoteVariantPricesHash: "ebay-sku-prices",
         lastPushedVariantPricesHash: "old-push",
+      })
+    ).toBe(true);
+  });
+});
+
+describe("ebayInboundShouldApplyVariantQuantities", () => {
+  const pushed = new Date("2026-08-20T07:00:00.000Z");
+
+  it("does not copy lagged GetItem SKU qty onto INW right after our push", () => {
+    expect(
+      ebayInboundShouldApplyVariantQuantities({
+        inwVariantQtyHash: "inw-sku-qty",
+        remoteVariantQtyHash: "ebay-sku-qty",
+        lastPushedAt: pushed,
+        now: new Date("2026-08-20T07:05:00.000Z"),
+      })
+    ).toBe(false);
+  });
+
+  it("applies a Hub SKU qty revise when LastModified is newer than the last push", () => {
+    expect(
+      ebayInboundShouldApplyVariantQuantities({
+        inwVariantQtyHash: "inw-sku-qty",
+        remoteVariantQtyHash: "ebay-sku-qty",
+        lastPushedAt: pushed,
+        ebayLastModified: new Date("2026-08-20T07:04:00.000Z"),
+        now: new Date("2026-08-20T07:05:00.000Z"),
+      })
+    ).toBe(true);
+  });
+
+  it("applies GetItem SKU qty after the post-push settle window", () => {
+    expect(
+      ebayInboundShouldApplyVariantQuantities({
+        inwVariantQtyHash: "inw-sku-qty",
+        remoteVariantQtyHash: "ebay-sku-qty",
+        lastPushedAt: pushed,
+        now: new Date("2026-08-20T07:11:00.000Z"),
       })
     ).toBe(true);
   });

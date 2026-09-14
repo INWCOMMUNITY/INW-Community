@@ -62,7 +62,12 @@ import {
 } from "@/lib/listing-variant-matrix";
 import { recordVariantPriceTrace, buildIntendedVariantPriceRows } from "../sync-trace";
 import { fetchLiveInventoryItem, readLiveInventoryAvailableQuantity } from "./passthrough-push";
-import { catchUpEbayLiveVariantQuantities, ebaySingleSkuQtyMatrix, type EbayLiveQtyCatchUp } from "./variant-qty-catchup";
+import {
+  catchUpEbayLiveVariantQuantities,
+  ebayCatchUpAdoptedLiveQty,
+  ebaySingleSkuQtyMatrix,
+  type EbayLiveQtyCatchUp,
+} from "./variant-qty-catchup";
 import { applyRemoteListingRemoved } from "../apply-remote-listing";
 import { syncInventoryToChannels } from "../sync-inventory";
 import { updateStoreItemOnChannels } from "../outbound";
@@ -449,6 +454,36 @@ export function ebayInboundShouldApplyVariantPrices(args: {
   );
 }
 
+/**
+ * Copy GetItem SKU qty onto INW only — never onto offer.availableQuantity.
+ * Same LastModified/echo idea as SKU prices: after our own qty write, lagged Trading
+ * looks like a Hub edit. Require eBay to be newer than lastPushedAt, or wait until
+ * the post-push settle window has elapsed.
+ */
+export function ebayInboundShouldApplyVariantQuantities(args: {
+  inwVariantQtyHash?: string | null;
+  remoteVariantQtyHash?: string | null;
+  remoteLooksDegraded?: boolean;
+  ebayLastModified?: Date | null;
+  lastPushedAt?: Date | null;
+  now?: Date;
+}): boolean {
+  if (args.remoteLooksDegraded) return false;
+  if (!args.remoteVariantQtyHash || args.remoteVariantQtyHash === (args.inwVariantQtyHash ?? "")) {
+    return false;
+  }
+  if (ebayGetItemIsPushEcho(args)) return false;
+  if (!args.lastPushedAt) return true;
+  const now = (args.now ?? new Date()).getTime();
+  if (now - args.lastPushedAt.getTime() < EBAY_POST_INBOUND_SETTLE_MS) {
+    return (
+      args.ebayLastModified != null &&
+      args.ebayLastModified.getTime() > args.lastPushedAt.getTime() + SYNC_ECHO_SKEW_MS
+    );
+  }
+  return true;
+}
+
 function matchEbayInboundMatrixRow(
   matrix: VariantMatrix,
   row: VariantMatrix["skus"][number]
@@ -589,9 +624,8 @@ export function ebayApplyTrustsSingleSnapshot(source?: EbayGetItemApplySource): 
 }
 
 /**
- * Last-resort GetItem SKU qty overlay when inventory/offer catch-up returned no rows.
- * Never overlay Trading qty when catch-up already read Seller Hub / View Item stock —
- * GetItem lags and would snap INW (and later eBay) back to the old number.
+ * Last-resort GetItem SKU qty overlay onto INW when inventory/offer catch-up did not
+ * adopt live stock. Never write those GetItem numbers onto the live offer.
  */
 export function shouldOverlayEbayGetItemSkuQuantities(args: {
   skipQuantity?: boolean;
@@ -685,10 +719,14 @@ export function ebayGetItemApplyDecision(args: {
     ebayLastModified: args.ebayLastModified,
     lastPushedAt: args.lastPushedAt,
   });
-  const independentSkuQtyRevise =
-    Boolean(args.remoteVariantQtyHash) &&
-    args.remoteVariantQtyHash !== (args.inwVariantQtyHash ?? "") &&
-    !args.remoteVariantQtyLooksDegraded;
+  const independentSkuQtyRevise = ebayInboundShouldApplyVariantQuantities({
+    inwVariantQtyHash: args.inwVariantQtyHash,
+    remoteVariantQtyHash: args.remoteVariantQtyHash,
+    remoteLooksDegraded: args.remoteVariantQtyLooksDegraded,
+    ebayLastModified: args.ebayLastModified,
+    lastPushedAt: args.lastPushedAt,
+    now: args.now,
+  });
   const listingFieldsMatch =
     remoteHash === inwHash &&
     !descriptionDiffers &&
@@ -1266,18 +1304,31 @@ export async function refreshEbayListingByItemId(
         })) ?? [];
 
     const qtyDiverged = !opts?.skipQuantity && remoteQty !== storeItem.quantity;
-    const catchUpReturnedRows = Boolean(liveQtyCatchUp && liveQtyCatchUp.quantities.length > 0);
-    const overlayGetItemSkuQty = shouldOverlayEbayGetItemSkuQuantities({
-      skipQuantity: opts?.skipQuantity,
-      source: opts?.source,
-      inwMatrix,
-      remoteMatrix: remoteVariantMatrix,
-      catchUpReturnedRows,
-      remoteListingQuantity: details.quantity,
+    const catchUpAdoptedLiveQty = ebayCatchUpAdoptedLiveQty(liveQtyCatchUp);
+    const allowGetItemQtyInbound = ebayInboundShouldApplyVariantQuantities({
+      inwVariantQtyHash: variantsStructureQtyFingerprint(storeItem.variants) || null,
+      remoteVariantQtyHash: variantsStructureQtyFingerprint(details.variants) || null,
+      remoteLooksDegraded: variantQuantitiesLookDegraded(
+        storeItem.variants,
+        details.variants,
+        details.quantity
+      ),
+      ebayLastModified: details.remoteUpdatedAt,
+      lastPushedAt: link.lastPushedAt,
     });
+    const overlayGetItemSkuQty =
+      allowGetItemQtyInbound &&
+      shouldOverlayEbayGetItemSkuQuantities({
+        skipQuantity: opts?.skipQuantity,
+        source: opts?.source,
+        inwMatrix,
+        remoteMatrix: remoteVariantMatrix,
+        catchUpReturnedRows: catchUpAdoptedLiveQty,
+        remoteListingQuantity: details.quantity,
+      });
     let qtyMatrix: VariantMatrix | null = inwMatrix;
     let qtyPulled = false;
-    if (catchUpReturnedRows && inwMatrix && liveQtyCatchUp) {
+    if (catchUpAdoptedLiveQty && inwMatrix && liveQtyCatchUp) {
       qtyMatrix = applyLiveInventoryQuantitiesToMatrix(inwMatrix, liveQtyCatchUp.quantities);
       qtyPulled = liveQtyCatchUp.inwNeedsUpdate;
     } else if (overlayGetItemSkuQty && inwMatrix && remoteVariantMatrix) {
@@ -1394,7 +1445,7 @@ export async function refreshEbayListingByItemId(
       inwHadPerSkuPrices: Boolean(inwMatrix?.skus.some((s) => s.priceCents != null && s.priceCents > 0)),
       qtyDiverged,
       overlayGetItemSkuQty,
-      catchUpReturnedRows,
+      catchUpAdoptedLiveQty,
       qtyPulled,
       qtyChanged,
       priceChanged,
