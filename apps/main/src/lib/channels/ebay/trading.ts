@@ -87,6 +87,8 @@ export type EbayItemDetails = {
   quantity: number | null;
   priceCents: number | null;
   variants: unknown;
+  /** Listing-level Custom Label from GetItem `<SKU>` (simple listings). */
+  sku: string | null;
   listingEnded: boolean;
   /** Units sold on this listing (SellingStatus.QuantitySold). */
   quantitySold: number;
@@ -357,6 +359,7 @@ export async function fetchEbayItemDetails(
       quantitySold: availability.quantitySold,
       priceCents,
       variants: parseEbayVariations(item),
+      sku: tag(item, "SKU")?.trim() || null,
       listingEnded: availability.listingEnded,
       acceptOffers: bestOffer.acceptOffers,
       minOfferCents: bestOffer.minOfferCents,
