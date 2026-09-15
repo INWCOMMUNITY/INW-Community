@@ -466,6 +466,11 @@ export async function catchupEbayListingQtyPrice(args: {
   tradingVariants?: unknown;
   skuMap?: unknown;
   linkId?: string;
+  /**
+   * Force write even when GetItem quantities appear to match offer/warehouse.
+   * Use when cron detects a variant qty change but APIs are stale (eBay lag).
+   */
+  forceVariationWrite?: boolean;
 }): Promise<{ wrote: boolean; surfaces: EbayQtyPriceSurfaces }> {
   const map = parseEbaySkuMap(args.skuMap);
   const discovered: Record<string, string> = {};
@@ -588,6 +593,9 @@ export async function catchupEbayListingQtyPrice(args: {
           hubPriceCents: hub.priceCents,
           offerPriceCents: livePrice,
         });
+        // Force write bypasses the stale API check - used when cron detects qty change
+        // but GetItem returns old data due to eBay propagation lag
+        const willWrite = shouldWrite || args.forceVariationWrite === true;
         console.info("[ebay] Hub→View Item variation row compare", {
           sku,
           options: hub.options,
@@ -597,8 +605,10 @@ export async function catchupEbayListingQtyPrice(args: {
           hubPrice: hub.priceCents,
           offerPrice: livePrice,
           shouldWrite,
+          forceWrite: args.forceVariationWrite === true,
+          willWrite,
         });
-        if (!shouldWrite) {
+        if (!willWrite) {
           continue;
         }
         await ebayBulkUpdatePriceQuantity({

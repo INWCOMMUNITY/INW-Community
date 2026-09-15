@@ -62,6 +62,7 @@ import {
 import { fetchLiveInventoryItem, readLiveInventoryAvailableQuantity } from "./passthrough-push";
 import { catchupEbayListingQtyPrice, collectEbayInventoryVerifyVariantRows } from "./bulk-update-price-quantity";
 import { catchupEbayListingHubContent } from "./hub-content-catchup";
+import { enqueueEbayHubCatchup } from "./hub-catchup";
 import { ebaySkuMapHasPins, parseEbaySkuMap } from "./sku-map";
 import type { SyncStoreItem } from "../types";
 import { applyRemoteListingRemoved } from "../apply-remote-listing";
@@ -1338,6 +1339,21 @@ export async function refreshEbayListingByItemId(
         quantity: remoteQty,
       },
     });
+
+    // When variant qty changes, eBay's GetItem often returns stale data.
+    // Schedule a delayed retry so the catch-up runs again with fresher API values.
+    if (changes.some((c) => c.includes("variants (qty)")) && link.id) {
+      await enqueueEbayHubCatchup({
+        linkId: link.id,
+        storeItemId: storeItem.id,
+        delayMs: 5 * 60_000, // 5 minutes
+      }).catch((e) => {
+        console.warn("[ebay] failed to enqueue delayed variant qty retry", {
+          storeItemId: storeItem.id,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      });
+    }
 
     const soldOutOnThisApply =
       (typeof updateData.quantity === "number" && updateData.quantity === 0) ||
