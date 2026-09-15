@@ -35,28 +35,30 @@ Append a new row **before** trying the next fix. Do not reopen a row marked fail
 | 17 | Sep 15 | `d74a7305` | Option-value match (Hub `Primary color` vs Inventory `Color`); never address parent group key; lookup group `inw{legacyId}`; probe `inw{legacyId}vN` if group GET empty; skip parent `/offer?sku=` 400 before variant writes | **Not verified on live listing yet.** Deployed to `main`. Next Hub revise after Vercel should move Blue/Small 10 → 5. | Writing listing total **60** onto every variant |
 | 18 | Sep 15 | (diagnosis, no code) | Side-by-side title vs price vs qty routes after seller reported title+price live, qty not | Title is Trading + optional content PUT. Price is listing-level Trading StartPrice (View Item shows it without Inventory). Qty is per-SKU Inventory only. INW `bulk_update` sends price and qty together — price succeeding on View Item does not mean that call ran. | Treating qty as "the same Hub revise path as price"; adding a separate price-only writer |
 | 19 | Sep 15 | `c950be91` | Add `findOfferSkusByListingId` fallback: when group lookup and `inw{id}vN` probe both fail, paginate all offers and find the ones whose `listing.listingId` matches. Handles seller-migrated listings with arbitrary SKUs. Better logging (`liveGroupSkuSample`, `discoveredSkus`, warning when no SKUs found). | **Ran — still stuck.** User reported "all qtys were changed to 5 on every variable" but View Item still 10. Possible bug in offer listing ID extraction. | — |
-| 20 | Sep 15 | `b7c6ec18` | Fix `findOfferSkusByListingId` to check **both** `offer.listingId` and `offer.listing.listingId` (eBay returns either). Add extensive logging: SKU discovery source (group/probe/offer-list/none), alignment result (alignedSkuCount, unmatchedRows), per-SKU aspect matching failures. | **Deploying now.** Watch Vercel logs for `[ebay] Hub→View Item catch-up: SKU discovery` and `alignment result`. | — |
+| 20 | Sep 15 | `b7c6ec18` | Fix `findOfferSkusByListingId` to check **both** `offer.listingId` and `offer.listing.listingId` (eBay returns either). Add extensive logging: SKU discovery source (group/probe/offer-list/none), alignment result (alignedSkuCount, unmatchedRows), per-SKU aspect matching failures. | Deployed. SKU discovery works, alignment works (`addressed: 12`), but `wrote: false`. | — |
+| 21 | Sep 15 | `8ae49a1b` | Add per-row logging: `hubQty`, `offerQty`, `warehouseQty`, `shouldWrite`. Diagnose why `wrote: false`. | **ROOT CAUSE FOUND:** GetItem returns **stale** variation quantities (10) when Hub shows 2. All three API surfaces (Trading, offer, warehouse) return 10, so `shouldWrite: false`. eBay propagation lag. | Trusting GetItem for real-time Hub values |
+| 22 | Sep 15 | `0e6101b3` | When cron detects `variants (qty)` change, schedule a **delayed retry** (5 minutes) for the catch-up. By then, eBay APIs should have propagated the Hub values. | **Deploying now.** | — |
 
 ---
 
 ## Still open (do not skip)
 
-1. **Check new logging from `b7c6ec18`** in Vercel logs after the next Hub revise:
-   - `[ebay] Hub→View Item catch-up: SKU discovery` — should show `source` (group/probe/offer-list/none) and `liveGroupSkuCount`
-   - `[ebay] findOfferSkusByListingId completed` — should show `foundCount` and `foundSkus`
-   - `[ebay] alignVariantRowsToLiveEbayInventory completed` — should show `matchedByAspects` and `unmatchedRowCount`
-   - `[ebay] Hub→View Item catch-up: alignment result` — should show `alignedSkuCount`
-2. If `source: "none"` and `liveGroupSkuCount: 0`: all three SKU discovery methods failed. Check:
-   - Does the listing actually have Inventory offers? (imported before Inventory API existed?)
-   - Are the offer listing IDs stored differently?
-3. If SKUs found but `alignedSkuCount: 0` or `matchedByAspects: 0`: alignment by aspects failed:
-   - Check `[ebay] alignVariantRows: no aspects for SKU` — variation inventory_items may not have aspects
-   - Check `[ebay] alignVariantRows: no match for SKU` — aspects might not contain Color/Size
-4. If `addressed === 0`: no variation row got a SKU to write. Check `ebayCatchupVariantAddress` returning null.
-5. If `wrote === false` but `addressed > 0`: pin found, `bulk_update` skipped or verify failed. Diagnose warehouse vs offer vs Hub per SKU.
-6. If warehouse = offer = Hub 5 and View Item still 10: **then** CDN / hard-refresh.
-7. Webhook: is `ItemRevised` arriving? If not, cron `ebay_hub_catchup` / GetMyeBaySelling listed-remaining dirty-scan must fire.
-8. Live token dumps from this machine have failed (`noToken` / decrypt blocked). Production logs + diagnose route are the evidence path.
+### Root cause confirmed (2026-09-15)
+
+**eBay's GetItem API returns stale variation quantities.** Hub UI shows 2 per variation, but GetItem returns 10. All three API surfaces (Trading GetItem, Inventory offer, Inventory warehouse) are stale and agree, so `shouldWrite: false`.
+
+### Current fix (`0e6101b3`)
+
+When cron detects `variants (qty)` change, schedule a **delayed retry** (5 minutes). By then, eBay APIs should have propagated the Hub values.
+
+### Still to verify
+
+1. **Delayed retry fires** — check for `[ebay] Hub→View Item catch-up` logs 5 minutes after cron detects change
+2. **APIs refresh within 5 minutes** — if they don't, the delayed retry will still see stale data
+3. **ItemRevised webhooks** — not arriving at all. Check notification subscription via admin or `GetNotificationPreferences`
+4. If delay isn't enough, may need to:
+   - Use `ReviseInventoryStatus` Trading API to get fresher values
+   - Or accept that eBay lag is fundamental and only ItemRevised webhook + longer delay can fix it
 
 ## Diagnose
 
