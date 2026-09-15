@@ -21,7 +21,9 @@ const TRUNCATE_LENGTH = 200;
 
 function listingCardPriceText(priceCents: number, variants?: unknown): string {
   const p = browsePriceLabel(priceCents, variants);
-  return `${p.from ? "From " : ""}$${(p.cents / 100).toFixed(2)}`;
+  return p.range
+    ? `$${(p.minCents / 100).toFixed(2)} - $${(p.maxCents / 100).toFixed(2)}`
+    : `$${(p.cents / 100).toFixed(2)}`;
 }
 
 function taggedBusinessListSeparator(index: number, total: number): string {

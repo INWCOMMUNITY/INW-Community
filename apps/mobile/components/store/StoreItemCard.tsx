@@ -136,7 +136,9 @@ export function StoreItemCard({
       <Text style={styles.cardPrice}>
         {(() => {
           const label = browsePriceLabel(item.priceCents, item.variants);
-          return `${label.from ? "From " : ""}${formatPrice(label.cents)}`;
+          return label.range
+            ? `${formatPrice(label.minCents)} - ${formatPrice(label.maxCents)}`
+            : formatPrice(label.cents);
         })()}
       </Text>
 

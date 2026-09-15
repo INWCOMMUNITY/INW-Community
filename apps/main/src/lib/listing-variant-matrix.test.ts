@@ -293,16 +293,16 @@ describe("cartesian inventory", () => {
 });
 
 describe("browsePriceLabel", () => {
-  it("uses listing price when SKU prices match", () => {
+  it("uses listing price when no SKU prices are set", () => {
     expect(
       browsePriceLabel(2000, {
         axes: [{ name: "Size", values: ["S"] }],
         skus: [{ options: { Size: "S" }, quantity: 1 }],
       })
-    ).toEqual({ cents: 2000, from: false });
+    ).toEqual({ cents: 2000, minCents: 2000, maxCents: 2000, from: false, range: false });
   });
 
-  it("shows from $X when SKU overrides differ", () => {
+  it("shows price range when SKU overrides differ", () => {
     expect(
       browsePriceLabel(2000, {
         axes: [{ name: "Size", values: ["S", "M"] }],
@@ -311,7 +311,20 @@ describe("browsePriceLabel", () => {
           { options: { Size: "M" }, quantity: 1, priceCents: 3200 },
         ],
       })
-    ).toEqual({ cents: 2800, from: true });
+    ).toEqual({ cents: 2800, minCents: 2800, maxCents: 3200, from: true, range: true });
+  });
+
+  it("uses single price when all variants have the same price", () => {
+    expect(
+      browsePriceLabel(2000, {
+        axes: [{ name: "Size", values: ["S", "M", "L"] }],
+        skus: [
+          { options: { Size: "S" }, quantity: 1, priceCents: 5000 },
+          { options: { Size: "M" }, quantity: 1, priceCents: 5000 },
+          { options: { Size: "L" }, quantity: 1, priceCents: 5000 },
+        ],
+      })
+    ).toEqual({ cents: 5000, minCents: 5000, maxCents: 5000, from: false, range: false });
   });
 });
 

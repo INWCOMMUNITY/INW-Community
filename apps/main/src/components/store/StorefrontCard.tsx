@@ -72,7 +72,9 @@ export function StorefrontCard({
           </div>
         )}
         <div className="absolute bottom-2 left-0 bg-[var(--color-primary)] text-white text-sm font-bold px-3 py-1 rounded-r-md shadow-md">
-          {priceLabel.from ? "From " : ""}${(priceLabel.cents / 100).toFixed(2)}
+          {priceLabel.range
+            ? `$${(priceLabel.minCents / 100).toFixed(2)} - $${(priceLabel.maxCents / 100).toFixed(2)}`
+            : `$${(priceLabel.cents / 100).toFixed(2)}`}
         </div>
       </Link>
       <div className="p-2.5 flex flex-1 flex-col min-h-0">

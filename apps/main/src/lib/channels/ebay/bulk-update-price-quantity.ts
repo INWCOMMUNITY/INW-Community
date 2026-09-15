@@ -248,15 +248,25 @@ async function findOfferSkusByListingId(
   const found: string[] = [];
   let offset = 0;
   const limit = 200;
+  let totalScanned = 0;
   for (let page = 0; page < 15 && found.length < 50; page++) {
     try {
-      const res = await ebayGet<{ offers?: Array<{ sku?: string; listing?: { listingId?: string } }> }>(
+      const res = await ebayGet<{
+        offers?: Array<{
+          sku?: string;
+          listing?: { listingId?: string | number };
+          listingId?: string | number;
+        }>;
+      }>(
         accessToken,
         `/sell/inventory/v1/offer?limit=${limit}&offset=${offset}&marketplace_id=${EBAY_MARKETPLACE_ID}`
       );
       const offers = res.offers ?? [];
+      totalScanned += offers.length;
       for (const offer of offers) {
-        const listingId = String(offer.listing?.listingId ?? "").trim();
+        // eBay returns listing ID in either location
+        const rawId = offer.listing?.listingId ?? offer.listingId;
+        const listingId = rawId != null ? String(rawId).trim() : "";
         const sku = offer.sku?.trim();
         if (listingId === wantId && sku && isValidEbayInventorySku(sku) && !found.includes(sku)) {
           found.push(sku);
@@ -273,6 +283,12 @@ async function findOfferSkusByListingId(
       break;
     }
   }
+  console.info("[ebay] findOfferSkusByListingId completed", {
+    legacyListingId,
+    totalScanned,
+    foundCount: found.length,
+    foundSkus: found.slice(0, 5),
+  });
   return found;
 }
 
@@ -480,6 +496,7 @@ export async function catchupEbayListingQtyPrice(args: {
       parentSku
     );
     let liveGroupSkus = readInventoryItemGroupVariantSkus(liveGroup.body);
+    const groupSource = liveGroupSkus.length > 0 ? "group" : null;
     const legacy = resolveEbayLegacyListingId(args.externalListingId);
     if (liveGroupSkus.length === 0 && legacy) {
       // Try inw{legacyId}vN pattern (INW-migrated listings)
@@ -489,11 +506,23 @@ export async function catchupEbayListingQtyPrice(args: {
         hubOptionRows.length
       );
     }
+    const probeSource = !groupSource && liveGroupSkus.length > 0 ? "probe" : null;
     if (liveGroupSkus.length === 0 && legacy) {
       // Last resort: paginate all offers and find ones for this listing ID
       // (handles seller-migrated listings with arbitrary SKUs)
       liveGroupSkus = await findOfferSkusByListingId(args.accessToken, legacy);
     }
+    const offerSource = !groupSource && !probeSource && liveGroupSkus.length > 0 ? "offer-list" : null;
+    console.info("[ebay] Hub→View Item catch-up: SKU discovery", {
+      storeItemId: args.item.id,
+      legacyId: legacy,
+      parentSku,
+      liveGroupKey: liveGroup.key,
+      source: groupSource ?? probeSource ?? offerSource ?? "none",
+      liveGroupSkuCount: liveGroupSkus.length,
+      liveGroupSkuSample: liveGroupSkus.slice(0, 4),
+      hubRowCount: hubOptionRows.length,
+    });
     const placeholderRows: EbayVariantInventoryRow[] = hubOptionRows.map((row) => ({
       sku: row.sku ?? "",
       value: Object.values(row.options)[0] ?? "",
@@ -510,6 +539,13 @@ export async function catchupEbayListingQtyPrice(args: {
             liveGroupSkus
           )
         : placeholderRows;
+    const alignedSkus = aligned.map((row) => row.sku).filter(Boolean);
+    console.info("[ebay] Hub→View Item catch-up: alignment result", {
+      storeItemId: args.item.id,
+      alignedSkuCount: alignedSkus.length,
+      alignedSkuSample: alignedSkus.slice(0, 4),
+      unmatchedRows: aligned.filter((row) => !row.sku).length,
+    });
     const inw = normalizeVariantMatrix(args.item.variants);
     let wrote = false;
     let addressed = 0;

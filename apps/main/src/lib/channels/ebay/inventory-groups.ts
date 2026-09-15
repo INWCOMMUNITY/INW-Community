@@ -455,6 +455,7 @@ export async function alignVariantRowsToLiveEbayInventory(
     next.filter((row) => liveGroupSkus.includes(row.sku)).map((row) => row.sku)
   );
   const unmatchedLive = liveGroupSkus.filter((sku) => !reserved.has(sku));
+  let aspectMatchCount = 0;
   for (const liveSku of unmatchedLive) {
     try {
       const inventory = await ebayGet<Record<string, unknown>>(
@@ -462,13 +463,38 @@ export async function alignVariantRowsToLiveEbayInventory(
         `/sell/inventory/v1/inventory_item/${encodeURIComponent(liveSku)}`
       );
       const aspects = extractEbayInventoryAspects(inventory);
-      if (!aspects) continue;
+      if (!aspects) {
+        console.warn("[ebay] alignVariantRows: no aspects for SKU", { liveSku });
+        continue;
+      }
+      const before = next.filter((row) => row.sku === liveSku).length;
       next = applyLiveInventorySkuByAspects(next, liveSku, aspects, reserved);
-      if (next.some((row) => row.sku === liveSku)) reserved.add(liveSku);
+      const after = next.filter((row) => row.sku === liveSku).length;
+      if (after > before) {
+        aspectMatchCount++;
+        reserved.add(liveSku);
+      } else {
+        // Log why match failed - show unmatched row options vs live aspects
+        const unmatchedRows = next.filter((row) => !row.sku || !liveGroupSkus.includes(row.sku));
+        if (unmatchedRows.length > 0) {
+          console.info("[ebay] alignVariantRows: no match for SKU", {
+            liveSku,
+            liveAspects: Object.fromEntries(Object.entries(aspects).slice(0, 5)),
+            sampleRowOptions: unmatchedRows[0]?.options,
+          });
+        }
+      }
     } catch {
       /* live SKU may be unpublished */
     }
   }
+  console.info("[ebay] alignVariantRowsToLiveEbayInventory completed", {
+    inputRows: rows.length,
+    liveSkus: liveGroupSkus.length,
+    matchedByAspects: aspectMatchCount,
+    reservedCount: reserved.size,
+    unmatchedRowCount: next.filter((row) => !row.sku || !liveGroupSkus.includes(row.sku)).length,
+  });
   return next;
 }
 

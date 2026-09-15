@@ -743,13 +743,20 @@ export function minSkuPriceCents(matrix: VariantMatrix, fallback: number): numbe
 }
 
 /** Browse/feed cards: listing price, or “from $X” when SKU overrides differ. */
-export function browsePriceLabel(priceCents: number, variants?: unknown): { cents: number; from: boolean } {
+export function browsePriceLabel(
+  priceCents: number,
+  variants?: unknown
+): { cents: number; minCents: number; maxCents: number; from: boolean; range: boolean } {
   const matrix = normalizeVariantMatrix(variants);
-  if (!matrix || matrix.skus.length === 0) return { cents: priceCents, from: false };
+  if (!matrix || matrix.skus.length === 0) {
+    return { cents: priceCents, minCents: priceCents, maxCents: priceCents, from: false, range: false };
+  }
   const prices = matrix.skus.map((s) => (s.priceCents && s.priceCents > 0 ? s.priceCents : priceCents));
   const min = Math.min(...prices);
+  const max = Math.max(...prices);
   const distinct = new Set(prices);
-  return { cents: min, from: distinct.size > 1 };
+  const hasRange = distinct.size > 1;
+  return { cents: min, minCents: min, maxCents: max, from: hasRange, range: hasRange };
 }
 
 export function skuPriceCents(sku: VariantSkuRow | null, fallback: number): number {
