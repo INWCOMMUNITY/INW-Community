@@ -12,6 +12,8 @@ import {
   shouldWriteEbayOffer,
   shouldBlockEbayUpdateForMissingAspects,
   shouldFetchTradingItemOnUpsert,
+  readEbayOfferAvailableQuantity,
+  withEbayLiveOfferQuantity,
 } from "./publish-policy";
 
 describe("publish-policy", () => {
@@ -177,5 +179,29 @@ describe("publish-policy", () => {
     expect(
       shouldFetchTradingItemOnUpsert({ listingAlreadyLinked: false, usesInventoryItemGroup: false })
     ).toBe(true);
+  });
+
+  it("keeps live offer qty on content PUTs and writes INW qty only when asked", () => {
+    expect(readEbayOfferAvailableQuantity(9)).toBe(9);
+    expect(readEbayOfferAvailableQuantity("4")).toBe(4);
+    expect(readEbayOfferAvailableQuantity(undefined)).toBeNull();
+    expect(
+      withEbayLiveOfferQuantity(
+        { sku: "inw1", availableQuantity: 1, categoryId: "39458" },
+        { writeQuantity: false, liveAvailableQuantity: 7 }
+      )
+    ).toEqual({ sku: "inw1", availableQuantity: 7, categoryId: "39458" });
+    expect(
+      withEbayLiveOfferQuantity(
+        { sku: "inw1", availableQuantity: 1 },
+        { writeQuantity: true, liveAvailableQuantity: 7 }
+      )
+    ).toEqual({ sku: "inw1", availableQuantity: 1 });
+    expect(
+      withEbayLiveOfferQuantity(
+        { sku: "inw1", availableQuantity: 1 },
+        { writeQuantity: false }
+      )
+    ).toEqual({ sku: "inw1" });
   });
 });

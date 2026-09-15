@@ -88,8 +88,8 @@ export type EbayItemDetails = {
   quantity: number | null;
   /**
    * Seller Hub listed remaining (Quantity − QuantitySold) when it diverges from
-   * QuantityAvailable. Catch-up uses this as Trading qty so a Hub revise is not
-   * treated as identical to the live offer.
+   * QuantityAvailable. Outbound stays quiet when Hub listed remaining disagrees
+   * with View Item so INW does not restamp the public listing.
    */
   tradingQuantity: number | null;
   priceCents: number | null;
@@ -1033,19 +1033,12 @@ export async function migrateEbayListings(
 
 /**
  * Subscribe to eBay Platform Notifications for item changes.
- * This enables real-time sync when listings are edited on eBay.
  *
- * Events subscribed:
- * - ItemRevised: ack only (Hub owns View Item; cron inbound reads the public listing)
- * - ItemClosed: Listing ended
- * - ItemSold: Full sale (quantity reached 0)
- * - FixedPriceTransaction: Partial sale (quantity decremented)
+ * ItemRevised stays Disable: delivery during a Hub Revise stalls View Item.
+ * Cron inbound reads `<QuantityAvailable>`. Sales and closed listings stay enabled.
  */
-export async function subscribeToEbayNotifications(
-  accessToken: string,
-  webhookUrl: string
-): Promise<{ success: boolean; error?: string }> {
-  const xml = `<?xml version="1.0" encoding="utf-8"?>
+export function buildSubscribeEbayNotificationsXml(webhookUrl: string): string {
+  return `<?xml version="1.0" encoding="utf-8"?>
 <SetNotificationPreferencesRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <ApplicationDeliveryPreferences>
     <ApplicationEnable>Enable</ApplicationEnable>
@@ -1055,7 +1048,7 @@ export async function subscribeToEbayNotifications(
   <UserDeliveryPreferenceArray>
     <NotificationEnable>
       <EventType>ItemRevised</EventType>
-      <EventEnable>Enable</EventEnable>
+      <EventEnable>Disable</EventEnable>
     </NotificationEnable>
     <NotificationEnable>
       <EventType>ItemClosed</EventType>
@@ -1071,6 +1064,13 @@ export async function subscribeToEbayNotifications(
     </NotificationEnable>
   </UserDeliveryPreferenceArray>
 </SetNotificationPreferencesRequest>`;
+}
+
+export async function subscribeToEbayNotifications(
+  accessToken: string,
+  webhookUrl: string
+): Promise<{ success: boolean; error?: string }> {
+  const xml = buildSubscribeEbayNotificationsXml(webhookUrl);
 
   try {
     const response = await callTrading(accessToken, "SetNotificationPreferences", xml);

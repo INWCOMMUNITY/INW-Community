@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { isEbayCommerceNotificationPermissionError } from "./commerce-notifications";
-import { ebayPlatformNotificationsNeedRepair, ebayListingReviseNotificationsEnabled } from "./notifications-setup";
+import {
+  ebayPlatformNotificationsNeedRepair,
+  ebayListingReviseNotificationsEnabled,
+  ebayItemRevisedNotificationEnabled,
+} from "./notifications-setup";
 
 describe("ebayPlatformNotificationsNeedRepair", () => {
   it("does not repair when live Platform Notifications are already subscribed and secured", () => {
@@ -10,7 +14,7 @@ describe("ebayPlatformNotificationsNeedRepair", () => {
         liveFetched: true,
         liveSubscribed: true,
         liveUrlSecured: true,
-        listingReviseEventsEnabled: true,
+        listingReviseEventsEnabled: false,
       })
     ).toBe(false);
   });
@@ -48,7 +52,7 @@ describe("ebayPlatformNotificationsNeedRepair", () => {
     ).toBe(true);
   });
 
-  it("does not repair when ItemRevised is already enabled", () => {
+  it("repairs when ItemRevised is still enabled so Hub Revise is not stalled", () => {
     expect(
       ebayPlatformNotificationsNeedRepair({
         storedEnabledAndSecured: true,
@@ -57,10 +61,10 @@ describe("ebayPlatformNotificationsNeedRepair", () => {
         liveUrlSecured: true,
         listingReviseEventsEnabled: true,
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("repairs when ItemRevised is missing so Hub revises are still acked", () => {
+  it("does not repair when ItemRevised is already disabled", () => {
     expect(
       ebayPlatformNotificationsNeedRepair({
         storedEnabledAndSecured: true,
@@ -69,7 +73,7 @@ describe("ebayPlatformNotificationsNeedRepair", () => {
         liveUrlSecured: true,
         listingReviseEventsEnabled: false,
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 
@@ -77,6 +81,12 @@ describe("ebayListingReviseNotificationsEnabled", () => {
   it("detects ItemRevised and commerce qty/price topics", () => {
     expect(ebayListingReviseNotificationsEnabled(["ItemSold", "ItemRevised"])).toBe(true);
     expect(ebayListingReviseNotificationsEnabled(["ItemSold"])).toBe(false);
+  });
+
+  it("treats only Platform ItemRevised as a subscribe-XML repair signal", () => {
+    expect(ebayItemRevisedNotificationEnabled(["ItemSold", "ItemRevised"])).toBe(true);
+    expect(ebayItemRevisedNotificationEnabled(["ITEM_AVAILABILITY"])).toBe(false);
+    expect(ebayItemRevisedNotificationEnabled(["ItemSold"])).toBe(false);
   });
 });
 

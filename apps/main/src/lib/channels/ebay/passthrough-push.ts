@@ -508,7 +508,7 @@ export function buildPassthroughInventoryBody(
     product: liveProduct,
   };
 
-  if (changed.quantity || changed.content) {
+  if (changed.quantity) {
     body.availability = {
       shipToLocationAvailability: { quantity: Math.max(0, item.quantity) },
     };

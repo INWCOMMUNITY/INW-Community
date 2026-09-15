@@ -148,6 +148,7 @@ import {
   shouldWriteEbayOffer,
   shouldBlockEbayUpdateForMissingAspects,
   shouldFetchTradingItemOnUpsert,
+  withEbayLiveOfferQuantity,
 } from "./publish-policy";
 import { passthroughUsePreparedInventoryAspects } from "./aspect-prep";
 import {
@@ -179,7 +180,12 @@ import { pushEbayAbsoluteQuantity, pushEbayVariantGroupQuantities } from "./quan
 import { ebayContentPushShouldWriteVariantQuantities } from "./variant-qty-catchup";
 import type { ListingAspect } from "@/lib/listing-limits";
 
-type EbayOffer = { offerId?: string; status?: string; listing?: { listingId?: string } };
+type EbayOffer = {
+  offerId?: string;
+  status?: string;
+  listing?: { listingId?: string };
+  availableQuantity?: number;
+};
 type OfferSearch = { offers?: EbayOffer[] };
 
 /** Keep a 12-SKU group off the serial round-trip path that blew past Vercel 120s. */
@@ -1453,7 +1459,21 @@ async function upsertListing(
       inwPhotos: item.photos,
       pushInwPhotos,
     });
-    const offerBody = buildEbayOffer(syncItem, cfg, aspectCategoryId, sku);
+    if (!writeVariantQty) {
+      const liveQty = readLiveInventoryAvailableQuantity(liveNative);
+      if (liveQty != null) {
+        inventoryBody.availability = {
+          shipToLocationAvailability: { quantity: liveQty },
+        };
+      }
+    }
+    const offerBody = withEbayLiveOfferQuantity(
+      buildEbayOffer(syncItem, cfg, aspectCategoryId, sku),
+      {
+        writeQuantity: writeVariantQty,
+        liveAvailableQuantity: liveOffer?.availableQuantity,
+      }
+    );
     const offerStatus =
       (typeof liveOffer?.status === "string" ? liveOffer.status : null) ??
       existingOffer?.status ??
@@ -1683,11 +1703,16 @@ async function upsertListing(
           anyVariantHadOffer = true;
           if (variantListingId) publishedVariantListingId ??= variantListingId;
         }
-        const variantOfferBody = buildEbayOffer(
-          variantItem,
-          cfg,
-          aspectCategoryId,
-          row.sku
+        const variantOfferBody = withEbayLiveOfferQuantity(
+          buildEbayOffer(variantItem, cfg, aspectCategoryId, row.sku),
+          {
+            writeQuantity: writeVariantQty,
+            liveAvailableQuantity:
+              variantOffer?.availableQuantity ??
+              (!writeVariantQty && variantOffer?.offerId
+                ? (await getOfferDetails(conn.accessToken, variantOffer.offerId))?.availableQuantity
+                : undefined),
+          }
         );
         const variantOfferStatus =
           typeof variantOffer?.status === "string" ? variantOffer.status : null;
@@ -1925,26 +1950,32 @@ async function upsertListing(
           sku,
           syncConditionEnum: prepared.conditionEnum,
         });
-        await pushInventoryBody(
-          applyEbayInventoryPhotoPolicy(
-            await finalizeInventoryBody(
-              conn.accessToken,
-              buildEbayInventoryItem(syncItem, pushAspects),
-              {
-                categoryId: aspectCategoryId,
-                pushAspects,
-                operation,
-                item: syncItem,
-              }
-            ),
+        let retryInventoryBody = applyEbayInventoryPhotoPolicy(
+          await finalizeInventoryBody(
+            conn.accessToken,
+            buildEbayInventoryItem(syncItem, pushAspects),
             {
-              liveImageUrls: liveNativeImageUrls,
-              inwPhotos: syncItem.photos,
-              pushInwPhotos,
+              categoryId: aspectCategoryId,
+              pushAspects,
+              operation,
+              item: syncItem,
             }
           ),
-          trace
+          {
+            liveImageUrls: liveNativeImageUrls,
+            inwPhotos: syncItem.photos,
+            pushInwPhotos,
+          }
         );
+        if (!writeVariantQty) {
+          const liveQty = readLiveInventoryAvailableQuantity(liveNative);
+          if (liveQty != null) {
+            retryInventoryBody.availability = {
+              shipToLocationAvailability: { quantity: liveQty },
+            };
+          }
+        }
+        await pushInventoryBody(retryInventoryBody, trace);
       }
     }
 

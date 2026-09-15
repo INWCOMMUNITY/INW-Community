@@ -50,9 +50,9 @@ async function findConnectionByEbayUserId(ebayUserId: string) {
 /**
  * eBay Platform Notifications + Commerce Notification receiver.
  *
- * Sale events poll orders (never apply XML qty). Listing revises ack only — INW
- * must not write the live offer, so Seller Hub can update View Item. Closed
- * listings still GetItem. Cron reads the public listing into INW.
+ * Sale events poll orders (never apply XML qty). Listing revises ack immediately
+ * (no DB, no token refresh) so Seller Hub can update View Item. Closed listings
+ * still GetItem. Cron reads the public listing into INW.
  */
 export async function POST(req: NextRequest) {
   void recordEbayWebhookHit("post-received");
@@ -81,6 +81,23 @@ export async function POST(req: NextRequest) {
       parsed.parseable ? "rejected-untrusted" : "rejected-unparseable"
     );
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  }
+
+  // Ack revises before any DB or eBay token refresh. Same-second Inventory/Trading
+  // use on the seller token blocks Seller Hub from updating View Item.
+  if (isEbayReviseNotification(eventType)) {
+    void recordEbayWebhookHit("revise-acked");
+    console.log("[ebay webhook] listing revise acked; Hub owns View Item", {
+      itemId,
+      eventType,
+    });
+    return NextResponse.json({
+      ok: true,
+      processed: true,
+      skipped: "listing_revise_ack_only",
+      itemId,
+      eventType,
+    });
   }
 
   console.log("[ebay webhook] received notification", {
@@ -202,21 +219,6 @@ export async function POST(req: NextRequest) {
       });
       await markWebhookCompleted(webhookEventId);
       return NextResponse.json({ ok: true, processed: true, itemId, eventType });
-    }
-
-    if (isEbayReviseNotification(eventType)) {
-      console.log("[ebay webhook] listing revise acked; Hub owns View Item", {
-        itemId,
-        eventType,
-      });
-      await markWebhookCompleted(webhookEventId);
-      return NextResponse.json({
-        ok: true,
-        processed: true,
-        skipped: "listing_revise_ack_only",
-        itemId,
-        eventType,
-      });
     }
 
     if (!ebayWebhookShouldPullListing(eventType)) {

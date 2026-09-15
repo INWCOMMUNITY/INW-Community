@@ -276,6 +276,20 @@ describe("passthrough-push", () => {
     expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 0 } });
   });
 
+  it("preserves live warehouse qty on content-only inventory PUTs", () => {
+    const live = {
+      ...liveJeffersonNickel,
+      availability: { shipToLocationAvailability: { quantity: 9 } },
+    };
+    const body = buildPassthroughInventoryBody(
+      live,
+      { ...coinItem, quantity: 1, title: "1938 Jefferson Nickel NGC MS 67 Revised" },
+      { content: true, title: true, quantity: false, price: false, photos: false }
+    );
+    expect((body.product as { title: string }).title).toBe("1938 Jefferson Nickel NGC MS 67 Revised");
+    expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 9 } });
+  });
+
   it("buildPassthroughOfferBody updates price and qty", () => {
     const changed = { content: true, quantity: true, price: true };
     const offer = buildPassthroughOfferBody(
@@ -1201,6 +1215,7 @@ describe("passthrough-push", () => {
     );
     expect(body).not.toHaveProperty("variations");
     expect((body.product as { title: string }).title).toBe(shirt.title);
+    expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 1 } });
   });
 });
 

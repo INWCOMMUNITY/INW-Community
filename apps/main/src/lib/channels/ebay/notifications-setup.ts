@@ -117,7 +117,7 @@ export async function subscribeEbayInboundNotifications(accessToken: string): Pr
 /**
  * Re-register Platform Notifications when the stored URL is missing `?secret=`,
  * live eBay prefs show delivery disabled / an unsecured URL, or ItemRevised is
- * missing (ack-only ping so Hub is not fought on View Item).
+ * still enabled (delivery during Hub Revise stalls View Item).
  *
  * Commerce REST notifications (#1100 403 on many seller tokens) are optional.
  * Do not treat a missing commerce destination as a reason to SetNotificationPreferences
@@ -130,10 +130,15 @@ export function ebayPlatformNotificationsNeedRepair(args: {
   liveUrlSecured: boolean;
   listingReviseEventsEnabled?: boolean;
 }): boolean {
-  if (args.liveFetched && args.listingReviseEventsEnabled === false) return true;
+  if (args.liveFetched && args.listingReviseEventsEnabled === true) return true;
   if (!args.storedEnabledAndSecured) return true;
   if (!args.liveFetched) return false;
   return !(args.liveSubscribed && args.liveUrlSecured);
+}
+
+/** Platform XML ItemRevised only — commerce qty/price topics are not SetNotificationPreferences. */
+export function ebayItemRevisedNotificationEnabled(events?: string[]): boolean {
+  return (events ?? []).some((event) => /^ItemRevised$/i.test(event));
 }
 
 export function ebayListingReviseNotificationsEnabled(events?: string[]): boolean {
@@ -164,7 +169,7 @@ export async function ensureEbayPlatformNotifications(args: {
         liveFetched: live.fetched,
         liveSubscribed: live.subscribed,
         liveUrlSecured: live.urlSecured === true,
-        listingReviseEventsEnabled: ebayListingReviseNotificationsEnabled(live.events),
+        listingReviseEventsEnabled: ebayItemRevisedNotificationEnabled(live.events),
       })
     ) {
       return { repaired: false, success: true };
