@@ -1306,6 +1306,20 @@ export async function refreshEbayListingByItemId(
         perVarFromSellerList,
         dividesEvenly,
       });
+      // Schedule rapid retries for non-uniform quantities - GetItem might catch up
+      if (link.id) {
+        console.info("[ebay] scheduling rapid retries for non-uniform qty (waiting for GetItem)", {
+          storeItemId: storeItem.id,
+          linkId: link.id,
+        });
+        for (const delayMs of [60_000, 120_000, 300_000, 600_000]) {
+          await enqueueEbayHubCatchup({
+            linkId: link.id,
+            storeItemId: storeItem.id,
+            delayMs,
+          }).catch(() => {});
+        }
+      }
     }
     // Only skip qty overlay if stale AND can't derive from seller list
     const skipQtyBecauseStale = getItemQtyIsStale && !dividesEvenly;
