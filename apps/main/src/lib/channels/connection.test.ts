@@ -182,6 +182,21 @@ describe("withConnectionAuthRetry", () => {
     expect(mockAdapter.refreshAccessToken).not.toHaveBeenCalled();
   });
 
+  it("does not try to refresh a paused Shopify offline token", async () => {
+    const shopifyPaused = {
+      ...staleConn,
+      provider: "shopify",
+      refreshTokenEncrypted: null,
+      status: "error",
+    };
+    mockPrisma.channelConnection.findMany.mockResolvedValue([shopifyPaused]);
+    const { recoverPausedChannelConnections } = await import("./connection");
+    const result = await recoverPausedChannelConnections();
+    expect(result.recovered).toBe(0);
+    expect(result.failed).toBe(0);
+    expect(mockAdapter.refreshAccessToken).not.toHaveBeenCalled();
+  });
+
   it("remints an expired Wix app token instead of requiring a refresh token", async () => {
     mockRemintWix.mockImplementation(async (ctx: { accessToken: string }) => {
       ctx.accessToken = "wix-fresh";

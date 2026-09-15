@@ -1092,6 +1092,8 @@ model ChannelListingLink {
   linkOrigin             String?  @map("link_origin")
   /// Raw product.aspects from last GET inventory_item (eBay passthrough — canonical for push).
   ebayInventoryAspects   Json?    @map("ebay_inventory_aspects")
+  /// Live Inventory SKU pins { parent, variations } — never hyphen parent SKUs.
+  ebaySkuMap             Json?    @map("ebay_sku_map")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 

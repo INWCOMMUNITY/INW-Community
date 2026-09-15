@@ -49,8 +49,8 @@ export function isEbayReviseNotification(eventType: string | null): boolean {
 
 /**
  * Listing revises must not GetItem or refresh the seller token during the webhook
- * ack. A delayed job copies Hub listed remaining onto the offer after Revise
- * settles. Sales still reconcile via orders.
+ * ack. A delayed job copies Hub listed remaining onto the live offer.
+ * Sales still reconcile via orders.
  */
 export function ebayWebhookShouldPullListing(eventType: string | null): boolean {
   if (isEbaySaleNotification(eventType)) return false;

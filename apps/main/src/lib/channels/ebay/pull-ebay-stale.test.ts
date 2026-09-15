@@ -105,6 +105,7 @@ describe("isEbayInboundContentChange", () => {
     ).toBe(true);
     expect(inboundContentFanoutKind({ contentChange: true, soldOut: false })).toBe("content");
     expect(inboundContentFanoutKind({ contentChange: true, soldOut: true })).toBe("inventory");
+    // Direct Hub→Inventory write happens first; sibling fan-out still skipProviders: ["ebay"].
   });
 });
 
@@ -336,15 +337,16 @@ describe("ebayGetItemApplyDecision", () => {
     ).toBe("apply");
   });
 
-  it("skips when GetItem title already matches INW even if qty or price differ", () => {
+  it("applies when GetItem Hub qty or price differs from INW even if title matches", () => {
     expect(ebayGetItemApplyDecision(base)).toEqual({ action: "skip", reason: "matches-inw" });
     expect(
       ebayGetItemApplyDecision({
         ...base,
         remotePriceCents: 9999,
         remoteQuantity: 99,
-      })
-    ).toEqual({ action: "skip", reason: "matches-inw" });
+        source: "webhook",
+      }).action
+    ).toBe("apply");
   });
 
   it("does not apply inbound qty or price when variation StartPrices differ from INW", () => {
@@ -545,7 +547,20 @@ describe("ebayGetItemApplyDecision", () => {
     ).toMatchObject({ action: "apply", reason: "remote-revise" });
   });
 
-  it("does not apply a cron-dirty qty revise", () => {
+  it("applies a webhook Hub qty revise onto INW even when INW content looks newer", () => {
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        lastInboundAt: new Date("2026-08-20T06:50:03.000Z"),
+        inwUpdatedAt: new Date("2026-08-20T07:10:00.000Z"),
+        remoteQuantity: 7,
+        inwQuantity: 3,
+        source: "webhook",
+      })
+    ).toMatchObject({ action: "apply", reason: "webhook-revise" });
+  });
+
+  it("applies a cron-dirty Hub qty revise onto INW", () => {
     expect(
       ebayGetItemApplyDecision({
         ...base,
@@ -555,7 +570,7 @@ describe("ebayGetItemApplyDecision", () => {
         inwQuantity: 4,
         source: "cron-dirty",
       })
-    ).toEqual({ action: "skip", reason: "matches-inw" });
+    ).toMatchObject({ action: "apply", reason: "dirty-revise" });
   });
 
   it("still skips a webhook GetItem that matches INW or is an echo of our push", () => {
@@ -835,7 +850,7 @@ describe("shouldOverlayEbayGetItemSkuQuantities", () => {
     ).toBe(true);
   });
 
-  it("does not overlay on rotate, skipQuantity, or degraded all-1s GetItem qty", () => {
+  it("does not overlay on rotate without a SKU map, skipQuantity, or degraded all-1s GetItem qty", () => {
     expect(
       shouldOverlayEbayGetItemSkuQuantities({
         source: "cron",
@@ -843,6 +858,14 @@ describe("shouldOverlayEbayGetItemSkuQuantities", () => {
         remoteMatrix: remoteQty,
       })
     ).toBe(false);
+    expect(
+      shouldOverlayEbayGetItemSkuQuantities({
+        source: "cron",
+        inwMatrix: inw,
+        remoteMatrix: remoteQty,
+        hasSkuMap: true,
+      })
+    ).toBe(true);
     expect(
       shouldOverlayEbayGetItemSkuQuantities({
         source: "cron-dirty",

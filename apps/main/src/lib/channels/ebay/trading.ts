@@ -39,7 +39,10 @@ export type EbayTradingListing = {
   listingId: string;
   title: string;
   priceCents: number;
+  /** View Item / QuantityAvailable remaining. */
   quantity: number;
+  /** Seller Hub listed remaining (Quantity − sold). Null when the list omitted Quantity. */
+  tradingQuantity?: number | null;
   photos: string[];
   /** eBay leaf category id (from PrimaryCategory) when known. */
   remoteCategoryId?: string | null;
@@ -81,8 +84,8 @@ export type EbayItemDetails = {
   quantity: number | null;
   /**
    * Seller Hub listed remaining (Quantity − QuantitySold) when it diverges from
-   * QuantityAvailable. Outbound stays quiet when Hub listed remaining disagrees
-   * with View Item so INW does not restamp the public listing.
+   * QuantityAvailable. Catch-up copies Hub remaining onto the live offer so View
+   * Item updates; outbound skips while a catch-up retry is pending.
    */
   tradingQuantity: number | null;
   priceCents: number | null;
@@ -98,6 +101,36 @@ export type EbayItemDetails = {
   minOfferCents: number | null;
   remoteShippingProfileId: string | null;
 };
+
+/** Parse GetMyeBaySelling ActiveList qty the same way as GetItem (listed remaining vs available). */
+export function parseEbaySellerListAvailability(itemXml: string): {
+  quantity: number;
+  tradingQuantity: number | null;
+} {
+  const sellingStatus = tag(itemXml, "SellingStatus") ?? "";
+  const quantitySold = Math.max(0, Number(tag(sellingStatus, "QuantitySold") ?? "0") || 0);
+  const availableStr = tag(itemXml, "QuantityAvailable");
+  const listedStr = tag(itemXml, "Quantity") ?? "";
+  let listed: number | null = null;
+  if (listedStr !== "") {
+    const n = Number(listedStr);
+    if (Number.isFinite(n)) listed = Math.max(0, Math.round(n));
+  }
+  let quantity = 0;
+  if (availableStr != null && availableStr !== "") {
+    quantity = Math.max(0, Number(availableStr) || 0);
+  } else if (listed != null) {
+    quantity = Math.max(0, listed - quantitySold);
+  }
+  return {
+    quantity,
+    tradingQuantity: ebayGetItemTradingQuantity({
+      listed,
+      available: quantity,
+      sold: quantitySold,
+    }),
+  };
+}
 
 /** Seller Hub listed remaining — prefer over QuantityAvailable (View Item / live offer). */
 export function ebaySellerHubListedQuantity(details: {
@@ -475,8 +508,8 @@ export async function enumerateEbayListings(
       const sellingStatus = tag(item, "SellingStatus") ?? "";
       const priceStr = tag(sellingStatus, "CurrentPrice") ?? tag(item, "CurrentPrice") ?? "0";
       const priceCents = Math.round((Number(priceStr) || 0) * 100);
-      const qtyStr = tag(item, "QuantityAvailable") ?? tag(item, "Quantity") ?? "0";
-      const quantity = Math.max(0, Number(qtyStr) || 0);
+      const availability = parseEbaySellerListAvailability(item);
+      const quantity = availability.quantity;
       const photos = extractEbayItemPhotos(item);
       const { categoryId, categoryName } = parseEbayPrimaryCategory(item);
       const sku = tag(item, "SKU")?.trim() || null;
@@ -485,6 +518,7 @@ export async function enumerateEbayListings(
         title,
         priceCents,
         quantity,
+        tradingQuantity: availability.tradingQuantity,
         photos,
         remoteCategoryId: categoryId,
         categoryName,
@@ -879,7 +913,8 @@ export async function migrateEbayListings(
 /**
  * Subscribe to eBay Platform Notifications for item changes.
  *
- * ItemRevised is ack-only. INW does not write listing quantity or price.
+ * ItemRevised HTTP handler is ack-only (no GetItem on the webhook request).
+ * A delayed job copies Hub listed remaining / StartPrice onto the live offer.
  */
 export function buildSubscribeEbayNotificationsXml(webhookUrl: string): string {
   return `<?xml version="1.0" encoding="utf-8"?>

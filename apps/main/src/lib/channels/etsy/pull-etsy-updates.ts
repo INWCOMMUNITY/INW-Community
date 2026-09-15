@@ -21,6 +21,11 @@ import {
   inboundRefreshShouldPullVariantPrices,
 } from "../inbound-catalog-decision";
 import { variantsFingerprint, variantPricesFingerprint } from "../variant-sync";
+import {
+  matrixHasKnownSkuPrices,
+  remoteListingPriceLooksLikeLeftoverMin,
+  remoteVariantPricesLookLikeLeftoverMinOverwrite,
+} from "@/lib/listing-variant-matrix";
 import { updateStoreItemOnChannels } from "../outbound";
 import { channelSyncSucceeded, syncInventoryToChannels } from "../sync-inventory";
 import { inboundContentFanoutKind } from "../listing-link-flags";
@@ -29,7 +34,6 @@ import { etsyGet, setEtsyConnectionContext } from "./client";
 import { etsyListingToSummary } from "./mapping";
 import { etsyRemoteQuantityIsKnown } from "./listing-exists";
 import type { RemoteListingSummary } from "../types";
-import { matrixHasKnownSkuPrices } from "@/lib/listing-variant-matrix";
 import { readLastPushedVariantPricesHash } from "../listing-conflict-json";
 
 type ConnectionRow = {
@@ -188,13 +192,49 @@ export async function refreshEtsyListingByStoreItemId(
     inwUpdatedAt: storeItem.updatedAt,
     listingsDisagree: remoteHash !== inwHash,
   });
-  const shouldPullContent = inboundRefreshShouldPull({
+  const inwVarChanged = inwChangedSinceBaseline({
+    hashDiffers:
+      link.syncBaselineVariantsHash == null
+        ? false
+        : variantsFingerprint(storeItem.variants) !== link.syncBaselineVariantsHash,
+    inwUpdatedAt: storeItem.updatedAt,
+    baselineAt: link.syncBaselineAt,
+  });
+  const leftoverMin =
+    remoteVariantPricesLookLikeLeftoverMinOverwrite({
+      inwVariants: storeItem.variants,
+      remoteVariants: remote.variants,
+      inwListingPriceCents: storeItem.priceCents,
+      remoteListingPriceCents: remote.priceCents,
+    }) ||
+    remoteListingPriceLooksLikeLeftoverMin({
+      inwListingPriceCents: storeItem.priceCents,
+      remoteListingPriceCents: remote.priceCents,
+      inwVariants: storeItem.variants,
+    });
+  let shouldPullContent = inboundRefreshShouldPull({
     inwContentChanged,
     remoteContentChanged,
     inwUpdatedAt: storeItem.updatedAt,
     remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
     ownPushEcho,
   });
+  let shouldPullPrices = inboundRefreshShouldPullVariantPrices({
+    inwVariantsChanged: inwVarChanged,
+    remotePricesKnown: Boolean(remote.variantsKnown) && matrixHasKnownSkuPrices(remote.variants),
+    remotePriceFingerprint: variantPricesFingerprint(remote.variants),
+    inwPriceFingerprint: variantPricesFingerprint(storeItem.variants),
+    inwUpdatedAt: storeItem.updatedAt,
+    remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
+    ownPushEcho,
+    lastPushedPriceFingerprint: readLastPushedVariantPricesHash(link.conflictDetails),
+  });
+  if (leftoverMin) {
+    const titleSame =
+      storeItem.title.trim().slice(0, 200) === (remote.title ?? "").trim().slice(0, 200);
+    shouldPullPrices = false;
+    if (titleSame) shouldPullContent = false;
+  }
   const shouldPullQty =
     !ownPushEcho &&
     qtyKnown &&
@@ -208,24 +248,6 @@ export async function refreshEtsyListingByStoreItemId(
       remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
       baselineAt: link.syncBaselineAt ?? null,
     });
-  const inwVarChanged = inwChangedSinceBaseline({
-    hashDiffers:
-      link.syncBaselineVariantsHash == null
-        ? false
-        : variantsFingerprint(storeItem.variants) !== link.syncBaselineVariantsHash,
-    inwUpdatedAt: storeItem.updatedAt,
-    baselineAt: link.syncBaselineAt,
-  });
-  const shouldPullPrices = inboundRefreshShouldPullVariantPrices({
-    inwVariantsChanged: inwVarChanged,
-    remotePricesKnown: Boolean(remote.variantsKnown) && matrixHasKnownSkuPrices(remote.variants),
-    remotePriceFingerprint: variantPricesFingerprint(remote.variants),
-    inwPriceFingerprint: variantPricesFingerprint(storeItem.variants),
-    inwUpdatedAt: storeItem.updatedAt,
-    remoteUpdatedAt: remote.remoteUpdatedAt ?? null,
-    ownPushEcho,
-    lastPushedPriceFingerprint: readLastPushedVariantPricesHash(link.conflictDetails),
-  });
 
   if (!shouldPullContent && !shouldPullQty && !shouldPullPrices) {
     console.log("[etsy] refresh skipped; last-write-wins kept the Hub copy (INW newer or echo)", {

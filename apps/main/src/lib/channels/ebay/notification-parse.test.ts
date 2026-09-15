@@ -147,7 +147,7 @@ describe("parseEbayNotificationBody Commerce JSON", () => {
 });
 
 describe("ebayWebhookShouldPullListing", () => {
-  it("does not GetItem or write offers on a listing revise", () => {
+  it("does not GetItem on the webhook request for a listing revise", () => {
     expect(ebayWebhookShouldPullListing("ItemRevised")).toBe(false);
     expect(ebayWebhookShouldPullListing("ITEM_AVAILABILITY")).toBe(false);
     expect(ebayWebhookShouldPullListing("ITEM_PRICE_REVISION")).toBe(false);

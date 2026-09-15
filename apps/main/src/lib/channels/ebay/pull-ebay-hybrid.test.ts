@@ -63,10 +63,15 @@ describe("ebaySellerListRowIsDirty", () => {
     );
   });
 
-  it("is dirty when quantity moved", () => {
-    expect(ebaySellerListRowIsDirty(inw, { title: "Bear Clock", priceCents: 4400, quantity: 3 })).toBe(
-      true
-    );
+  it("is dirty when Hub listed remaining differs from View Item even if View Item matches INW", () => {
+    expect(
+      ebaySellerListRowIsDirty(inw, {
+        title: "Bear Clock",
+        priceCents: 4400,
+        quantity: 4,
+        tradingQuantity: 7,
+      })
+    ).toBe(true);
   });
 });
 

@@ -64,7 +64,7 @@ describe("ebayPlatformNotificationsNeedRepair", () => {
     ).toBe(false);
   });
 
-  it("repairs when ItemRevised is missing so Hub View Item copy can be pinged", () => {
+  it("repairs when ItemRevised is missing", () => {
     expect(
       ebayPlatformNotificationsNeedRepair({
         storedEnabledAndSecured: true,

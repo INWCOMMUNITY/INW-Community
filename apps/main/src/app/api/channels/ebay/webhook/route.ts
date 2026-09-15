@@ -27,6 +27,7 @@ import {
   recordEbayWebhookHit,
   recordEbayWebhookReceipt,
 } from "@/lib/channels/ebay/notifications-setup";
+import { enqueueEbayHubCatchupFromRevise, scheduleEbayHubCatchupFromRevise } from "@/lib/channels/ebay/hub-catchup";
 import {
   logWebhookEvent,
   markWebhookProcessing,
@@ -51,8 +52,8 @@ async function findConnectionByEbayUserId(ebayUserId: string) {
  * eBay Platform Notifications + Commerce Notification receiver.
  *
  * Sale events poll orders (never apply XML qty). Listing revises ack immediately
- * (no DB, no token refresh) so Seller Hub can update View Item. Closed listings
- * still GetItem. Cron reads the public listing into INW.
+ * (no GetItem on this request) then a delayed job copies Hub listed remaining
+ * onto the live offer so View Item updates. Closed listings still GetItem.
  */
 export async function POST(req: NextRequest) {
   void recordEbayWebhookHit("post-received");
@@ -83,10 +84,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  // Ack revises before any DB or eBay token refresh. INW does not write qty/price/SKU.
+  // Ack revises before GetItem. Durable retry is the catch-up; waitUntil is best-effort.
   if (isEbayReviseNotification(eventType)) {
     void recordEbayWebhookHit("revise-acked");
-    console.log("[ebay webhook] listing revise acked", {
+    await enqueueEbayHubCatchupFromRevise({ itemId, ebayUserId });
+    scheduleEbayHubCatchupFromRevise({ itemId, ebayUserId });
+    console.log("[ebay webhook] listing revise acked; Hub catch-up scheduled", {
       itemId,
       eventType,
     });

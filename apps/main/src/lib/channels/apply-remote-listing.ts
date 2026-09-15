@@ -222,7 +222,6 @@ export async function applyRemoteQuantityToStoreItem(
     externalEventId?: string;
   }
 ): Promise<boolean> {
-  if (auditContext?.provider === "ebay") return false;
   const item = await prisma.storeItem.findUnique({ where: { id: storeItemId } });
   if (!item) return false;
 
@@ -304,7 +303,6 @@ export async function applyRemoteStockFromChannel(
     externalEventId?: string;
   }
 ): Promise<boolean> {
-  if (auditContext.provider === "ebay") return false;
   if (remote.variantsKnown && remote.variants) {
     const { applyRemoteVariantsToStoreItem } = await import("./apply-remote-meta");
     const vars = await applyRemoteVariantsToStoreItem(

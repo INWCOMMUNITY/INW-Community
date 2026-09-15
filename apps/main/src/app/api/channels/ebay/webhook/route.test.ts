@@ -7,6 +7,13 @@ const prisma = vi.hoisted(() => ({
   channelListingLink: { findFirst: vi.fn() },
 }));
 
+vi.mock("@vercel/functions", () => ({
+  waitUntil: vi.fn(),
+}));
+vi.mock("@/lib/channels/ebay/hub-catchup", () => ({
+  enqueueEbayHubCatchupFromRevise: vi.fn().mockResolvedValue(undefined),
+  scheduleEbayHubCatchupFromRevise: vi.fn(),
+}));
 vi.mock("@/lib/channels/ebay/pull-ebay-updates", () => ({
   refreshEbayListingByItemId,
   applyEbayXmlPostcard,
@@ -28,6 +35,7 @@ vi.mock("@/lib/channels/webhook-event", () => ({
 }));
 
 import { POST } from "./route";
+import { enqueueEbayHubCatchupFromRevise, scheduleEbayHubCatchupFromRevise } from "@/lib/channels/ebay/hub-catchup";
 
 const SOAP_REVISE = `<?xml version="1.0" encoding="utf-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
@@ -70,7 +78,7 @@ describe("eBay ItemRevised webhook ack", () => {
     else process.env.EBAY_WEBHOOK_SECRET = ORIGINAL_SECRET;
   });
 
-  it("returns 200 without GetItem, token use, or qty copy", async () => {
+  it("returns 200 without GetItem on the request; catch-up is scheduled after ack", async () => {
     const res = await POST(reviseRequest());
     const body = await res.json();
 
@@ -80,5 +88,7 @@ describe("eBay ItemRevised webhook ack", () => {
     expect(prisma.channelListingLink.findFirst).not.toHaveBeenCalled();
     expect(refreshEbayListingByItemId).not.toHaveBeenCalled();
     expect(applyEbayXmlPostcard).not.toHaveBeenCalled();
+    expect(enqueueEbayHubCatchupFromRevise).toHaveBeenCalled();
+    expect(scheduleEbayHubCatchupFromRevise).toHaveBeenCalled();
   });
 });

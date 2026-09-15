@@ -4,6 +4,7 @@ import {
   buildEtsyUpdateFields,
   etsyListingToSummary,
   etsyOriginTrioFields,
+  etsyRemoteLooksIndependentlyEdited,
   sanitizeEtsyTitle,
 } from "./mapping";
 import type { ChannelConnectionContext, SyncStoreItem } from "../types";
@@ -250,5 +251,50 @@ describe("sanitizeEtsyTitle", () => {
 
   it("truncates to 140 characters", () => {
     expect(sanitizeEtsyTitle("A".repeat(200)).length).toBe(140);
+  });
+});
+
+describe("etsyRemoteLooksIndependentlyEdited", () => {
+  const base = {
+    inwTitle: "New INW title",
+    remoteTitle: "Old Etsy title",
+    remotePriceCents: 1000,
+    baselineTitle: "Old Etsy title",
+    baselinePriceCents: 1000,
+    contentUnchanged: false,
+  };
+
+  it("does not block an un-pushed INW title after listing price moved on our inventory PUT", () => {
+    expect(
+      etsyRemoteLooksIndependentlyEdited({
+        ...base,
+        remotePriceCents: 100,
+      })
+    ).toBe(false);
+  });
+
+  it("still detects a genuine Etsy title edit when INW did not change the title", () => {
+    expect(
+      etsyRemoteLooksIndependentlyEdited({
+        ...base,
+        inwTitle: "Old Etsy title",
+        remoteTitle: "Seller edited on Etsy",
+      })
+    ).toBe(true);
+  });
+
+  it("does not treat all-caps softening as an independent Etsy edit", () => {
+    const raw =
+      "Library of Coins EARLY SILVER DOLLARS Coin Album Volume 49 VERY RARE 1794/1803";
+    expect(
+      etsyRemoteLooksIndependentlyEdited({
+        inwTitle: raw,
+        remoteTitle: sanitizeEtsyTitle(raw),
+        remotePriceCents: 5000,
+        baselineTitle: raw,
+        baselinePriceCents: 5000,
+        contentUnchanged: true,
+      })
+    ).toBe(false);
   });
 });

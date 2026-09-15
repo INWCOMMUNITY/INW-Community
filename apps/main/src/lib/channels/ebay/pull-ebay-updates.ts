@@ -9,6 +9,7 @@ import {
   ebayGetItemMarksInwSoldOut,
   ebayGetItemQtyIsUnsoldZero,
   ebayInwPushedRecently,
+  ebaySellerHubListedQuantity,
   EBAY_TRADING_PUSH_ECHO_MS,
   enumerateEbayListings,
   fetchEbayItemDetails,
@@ -24,6 +25,7 @@ import {
 import {
   inboundDescriptionsMatch,
   remoteTitleOrPriceDiffersFromStoreItem,
+  shouldApplyRemoteListingPrice,
 } from "../apply-remote-listing";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { ebayAspectsFingerprint } from "./ebay-compat";
@@ -58,6 +60,10 @@ import {
   type VariantMatrix,
 } from "@/lib/listing-variant-matrix";
 import { fetchLiveInventoryItem, readLiveInventoryAvailableQuantity } from "./passthrough-push";
+import { catchupEbayListingQtyPrice, collectEbayInventoryVerifyVariantRows } from "./bulk-update-price-quantity";
+import { catchupEbayListingHubContent } from "./hub-content-catchup";
+import { ebaySkuMapHasPins, parseEbaySkuMap } from "./sku-map";
+import type { SyncStoreItem } from "../types";
 import { applyRemoteListingRemoved } from "../apply-remote-listing";
 import { syncInventoryToChannels } from "../sync-inventory";
 import { updateStoreItemOnChannels } from "../outbound";
@@ -571,7 +577,8 @@ export function ebayApplyTrustsSingleSnapshot(source?: EbayGetItemApplySource): 
 
 /**
  * Last-resort GetItem SKU qty overlay. Never overlay lagged Trading qty in a way
- * that later outbound stamps INW's old number onto eBay — Hub owns View Item.
+ * that later outbound stamps INW's old number onto eBay — catch-up writes Hub
+ * onto the offer first.
  */
 export function shouldOverlayEbayGetItemSkuQuantities(args: {
   skipQuantity?: boolean;
@@ -579,9 +586,10 @@ export function shouldOverlayEbayGetItemSkuQuantities(args: {
   inwMatrix: VariantMatrix | null;
   remoteMatrix: VariantMatrix | null;
   remoteListingQuantity?: number | null;
+  hasSkuMap?: boolean;
 }): boolean {
   if (args.skipQuantity) return false;
-  if (!ebayApplyTrustsSingleSnapshot(args.source)) return false;
+  if (!ebayApplyTrustsSingleSnapshot(args.source) && !args.hasSkuMap) return false;
   if (!args.inwMatrix || !args.remoteMatrix) return false;
   if (remoteVariantMatrixIsWeaker(args.inwMatrix, args.remoteMatrix)) return false;
   if (
@@ -634,13 +642,13 @@ export function ebayGetItemApplyDecision(args: {
 
   const remoteHash = ebayRemoteSnapshotHash({
     title: args.remoteTitle,
-    priceCents: 0,
-    quantity: 0,
+    priceCents: args.remotePriceCents ?? 0,
+    quantity: args.remoteQuantity ?? 0,
   });
   const inwHash = ebayRemoteSnapshotHash({
     title: args.inwTitle,
-    priceCents: 0,
-    quantity: 0,
+    priceCents: args.inwPriceCents,
+    quantity: args.inwQuantity,
   });
   const descriptionProvided =
     args.inwDescription !== undefined || args.remoteDescription !== undefined;
@@ -654,7 +662,9 @@ export function ebayGetItemApplyDecision(args: {
     lastPushedAt: args.lastPushedAt,
     now: args.now,
   });
-  const qtyPriceMatch = true;
+  const qtyPriceMatch =
+    (args.remotePriceCents == null || args.remotePriceCents === args.inwPriceCents) &&
+    (args.remoteQuantity == null || args.remoteQuantity === args.inwQuantity);
   const listingFieldsMatch = remoteHash === inwHash && !descriptionDiffers;
   const inwLooksNewer = preserveInwContent && !independentRevise && !descriptionDiffers;
 
@@ -678,7 +688,7 @@ export function ebayGetItemApplyDecision(args: {
     // Listing total often stays put on a single-SKU qty edit. After an INW save,
     // inwLooksNewer would skip that webhook and leave Inventory API on the old qty,
     // which Seller Hub immediately redisplays.
-    if (inwLooksNewer) {
+    if (inwLooksNewer && qtyPriceMatch) {
       return { action: "skip", reason: "inw-newer-than-ebay" };
     }
     return {
@@ -793,6 +803,7 @@ export async function refreshEbayListingByItemId(
           photos: true,
           priceCents: true,
           quantity: true,
+          inventoryTracking: true,
           category: true,
           subcategory: true,
           secondaryCategory: true,
@@ -869,7 +880,7 @@ export async function refreshEbayListingByItemId(
     inwQuantity: storeItem.quantity,
     remoteTitle: details.title,
     remotePriceCents: details.priceCents,
-    remoteQuantity: details.quantity,
+    remoteQuantity: ebaySellerHubListedQuantity(details) ?? details.quantity,
     inwDescription: storeItem.description,
     remoteDescription: details.description,
     pendingRemoteHash: readEbayPendingInboundHash(link.conflictDetails),
@@ -953,6 +964,44 @@ export async function refreshEbayListingByItemId(
   let conflictDetails: unknown = await persistEbayListingActive(link.id, link.conflictDetails);
   await clearRemoteDeletedNoticeIfSet(link.id, conflictDetails);
 
+  try {
+    const catchupItem = {
+      id: storeItem.id,
+      sku: storeItem.sku,
+      quantity: storeItem.quantity,
+      priceCents: storeItem.priceCents,
+      variants: storeItem.variants,
+      inventoryTracking: storeItem.inventoryTracking ?? null,
+    } as SyncStoreItem;
+    await catchupEbayListingQtyPrice({
+      accessToken,
+      item: catchupItem,
+      externalListingId: link.externalListingId,
+      linkOrigin: link.linkOrigin,
+      hubQuantity: ebaySellerHubListedQuantity(details),
+      viewItemQuantity: details.quantity,
+      hubPriceCents: details.priceCents,
+      liveCustomLabel: details.sku,
+      tradingVariants: details.tradingVariants,
+      skuMap: link.ebaySkuMap,
+      linkId: link.id,
+    });
+    await catchupEbayListingHubContent({
+      accessToken,
+      item: catchupItem,
+      externalListingId: link.externalListingId,
+      linkOrigin: link.linkOrigin,
+      skuMap: link.ebaySkuMap,
+      hub: details,
+    });
+  } catch (e) {
+    console.warn("[ebay] Hub→View Item catch-up failed", {
+      storeItemId: storeItem.id,
+      legacyItemId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+
   const willSkipGetItem = !opts?.force && applyDecision.action !== "apply";
   if (willSkipGetItem) {
     if (applyDecision.action === "pending" && applyDecision.pendingHash) {
@@ -1034,7 +1083,8 @@ export async function refreshEbayListingByItemId(
   const description = storeListingDescription(details.description) ?? storeItem.description;
   // Pass title for keyword-based subcategory inference
   const resolvedCat = await resolveInwCategoryFromEbayPath(details.categoryName ?? null, remoteTitle);
-  const remoteQty = details.quantity ?? storeItem.quantity;
+  const hubQty = ebaySellerHubListedQuantity(details);
+  const remoteQty = hubQty ?? details.quantity ?? storeItem.quantity;
   const remotePrice =
     details.priceCents != null && details.priceCents > 0
       ? details.priceCents
@@ -1143,6 +1193,95 @@ export async function refreshEbayListingByItemId(
     if (Number.isInteger(catId) && catId > 0 && catId !== storeItem.ebayCategoryId) {
       updateData.ebayCategoryId = catId;
     }
+  }
+
+  if (
+    !opts?.skipQuantity &&
+    !skipContent &&
+    ebayGetItemShouldApplyListingQuantity({
+      localHasOptionQuantities: hasOptionQuantities(storeItem.variants),
+      applyRemoteVariants: false,
+    }) &&
+    hubQty != null &&
+    hubQty !== storeItem.quantity
+  ) {
+    updateData.quantity = hubQty;
+    if (hubQty === 0 && storeItem.status !== "sold_out") updateData.status = "sold_out";
+    if (hubQty > 0 && storeItem.status === "sold_out") updateData.status = "active";
+    changes.push(`quantity (${hubQty})`);
+  }
+
+  if (
+    !skipContent &&
+    remotePrice > 0 &&
+    remotePrice !== storeItem.priceCents &&
+    shouldApplyRemoteListingPrice(storeItem.variants)
+  ) {
+    updateData.priceCents = remotePrice;
+    changes.push(`price ($${(remotePrice / 100).toFixed(2)})`);
+  }
+
+  const inwMatrix = normalizeVariantMatrix(storeItem.variants);
+  const remoteQtyMatrix = normalizeVariantMatrix(details.tradingVariants ?? details.variants);
+  const mapped = ebaySkuMapHasPins(parseEbaySkuMap(link.ebaySkuMap));
+  const hubRowsLackSkus = Boolean(
+    remoteQtyMatrix &&
+      remoteQtyMatrix.skus.length > 0 &&
+      remoteQtyMatrix.skus.every((s) => !s.sku?.trim())
+  );
+  let overlayQtyMatrix = remoteQtyMatrix;
+  if (hubRowsLackSkus && mapped && inwMatrix) {
+    const verified = await collectEbayInventoryVerifyVariantRows({
+      accessToken,
+      skuMap: link.ebaySkuMap,
+      inwMatrix,
+    });
+    if (verified.length > 0) {
+      overlayQtyMatrix = {
+        ...inwMatrix,
+        skus: inwMatrix.skus.map((row) => {
+          const hit = verified.find((v) => v.sku === row.sku?.trim());
+          return hit ? { ...row, quantity: hit.quantity, priceCents: hit.priceCents ?? row.priceCents } : row;
+        }),
+      };
+    }
+  }
+  const overlayQty = shouldOverlayEbayGetItemSkuQuantities({
+    skipQuantity: opts?.skipQuantity || skipContent,
+    source: opts?.source,
+    inwMatrix,
+    remoteMatrix: overlayQtyMatrix,
+    remoteListingQuantity: details.quantity,
+    hasSkuMap: mapped,
+  });
+  const overlayPrice =
+    !skipContent &&
+    (ebayInboundShouldApplyVariantPrices({
+      inwVariantPricesHash: variantPricesFingerprint(storeItem.variants) || null,
+      remoteVariantPricesHash: matrixHasKnownSkuPrices(
+        hubRowsLackSkus ? overlayQtyMatrix : details.variants
+      )
+        ? variantPricesFingerprint(hubRowsLackSkus ? overlayQtyMatrix : details.variants)
+        : null,
+      lastPushedVariantPricesHash: readLastPushedVariantPricesHash(link.conflictDetails),
+      ebayLastModified: details.remoteUpdatedAt,
+      lastPushedAt: link.lastPushedAt,
+    }) ||
+      Boolean(hubRowsLackSkus && overlayQtyMatrix && matrixHasKnownSkuPrices(overlayQtyMatrix)));
+  if (inwMatrix && (overlayQty || overlayPrice)) {
+    const next = composeEbayInboundVariantMatrix({
+      inwMatrix,
+      qtyMatrix: overlayQtyMatrix,
+      applyQty: overlayQty,
+      priceMatrix: hubRowsLackSkus && overlayQtyMatrix ? overlayQtyMatrix : normalizeVariantMatrix(details.variants),
+      applyPrice: overlayPrice,
+    });
+    updateData.variants = next as object;
+    if (overlayQty) {
+      const total = next.skus.reduce((sum, row) => sum + Math.max(0, row.quantity), 0);
+      updateData.quantity = total;
+    }
+    changes.push(overlayQty && overlayPrice ? "variants (qty+price)" : overlayQty ? "variants (qty)" : "variants (price)");
   }
 
   if (Object.keys(updateData).length > 0) {
@@ -1392,10 +1531,19 @@ function matchEbaySellerListRow(
 /** GetMyeBaySelling title/price/qty vs INW — list is a dirty detector, not source of truth. */
 export function ebaySellerListRowIsDirty(
   inw: { title: string; priceCents: number; quantity: number },
-  remote: { title: string; priceCents: number; quantity: number }
+  remote: {
+    title: string;
+    priceCents: number;
+    quantity: number;
+    tradingQuantity?: number | null;
+  }
 ): boolean {
   if (remoteTitleOrPriceDiffersFromStoreItem(inw, remote)) return true;
-  return remote.quantity !== inw.quantity;
+  if (remote.quantity !== inw.quantity) return true;
+  const hub = remote.tradingQuantity;
+  if (hub != null && hub !== inw.quantity) return true;
+  if (hub != null && hub !== remote.quantity) return true;
+  return false;
 }
 
 export function rotateEbayLinks<T extends { id: string }>(
@@ -1540,6 +1688,7 @@ export async function pullEbayUpdatesForConnection(
             title: remote.title,
             priceCents: remote.priceCents,
             quantity: remote.quantity,
+            tradingQuantity: remote.tradingQuantity,
           }
         )
       ) {

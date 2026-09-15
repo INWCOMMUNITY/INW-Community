@@ -42,6 +42,7 @@ import {
   persistRemoteListingGoneOnPush,
   shouldSkipEndedEbayOutbound,
 } from "./listing-link-flags";
+import { shouldSkipChannelSync } from "./disconnect-inw-items";
 import { claimChannelListingLink } from "./listing-link-claim";
 import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
 import { inboundDescriptionsMatch } from "./apply-remote-listing";
@@ -497,7 +498,7 @@ export async function updateStoreItemOnChannels(
     // A disconnected (or missing-token) connection can never produce a context, so
     // withConnectionAuthRetry throws on every linked item — filling the logs with
     // "Channel connection unavailable" errors. Skip silently.
-    if (link.connection.status === "disconnected" || link.connection.status === "revoked") {
+    if (shouldSkipChannelSync(link.connection.status, provider)) {
       results.push({ provider, ok: true, skipped: "sync_disabled" });
       continue;
     }
@@ -524,7 +525,6 @@ export async function updateStoreItemOnChannels(
     const currentPricesFp = variantPricesFingerprint(item.variants);
     const lastPushedPricesFp = readLastPushedVariantPricesHash(link.conflictDetails);
     const variantPricesChanged =
-      provider !== "ebay" &&
       currentPricesFp !== "" &&
       lastPushedPricesFp !== currentPricesFp;
     // Use hubUpdatedAt (the true source time, which is the remote edit time on an inbound
@@ -551,15 +551,16 @@ export async function updateStoreItemOnChannels(
     // updateInventory so we do not run eBay passthrough / Etsy content verify for qty 0.
     const inventoryOnly =
       !options.force &&
-      !variantPricesChanged &&
-      shouldPushInventoryOnly({
+      !(provider !== "ebay" && variantPricesChanged) &&
+      (shouldPushInventoryOnly({
         quantity: item.quantity,
         status: item.status,
         contentUnchanged,
         inventoryDrift,
         syncBaselineHash: link.syncBaselineHash,
         contentHashNow: syncContentHash(item),
-      });
+      }) ||
+        (provider === "ebay" && variantPricesChanged && contentUnchanged));
     if (variantPricesChanged) {
       console.log("[channels] per-variation price change -> full listing push", {
         storeItemId,
@@ -569,10 +570,6 @@ export async function updateStoreItemOnChannels(
     }
 
     if (inventoryOnly) {
-      if (provider === "ebay") {
-        results.push({ provider, ok: true, skipped: "ebay_qty_unsynced" });
-        continue;
-      }
       const connConfig = (link.connection.config ?? {}) as Record<string, unknown>;
       const syncDirection = (connConfig.syncDirection as string) ?? "two_way";
       if (syncDirection === "pull_only" || syncDirection === "paused") {
@@ -689,10 +686,14 @@ export async function updateStoreItemOnChannels(
             syncBaselineVariantsHash: varFp,
             syncBaselineQty: freshItem.quantity,
             syncBaselineAt: new Date(Date.now() + SYNC_ECHO_SKEW_MS),
-            // NOTE: do NOT stamp lastPushedVariantPricesHash here. The inventory-only path
-            // never writes per-SKU prices, so recording them as "pushed" would falsely
-            // suppress a later real price push and let a stale channel snapshot snap INW back.
-            // Only the full updateListing path (which actually writes prices) stamps it.
+            ...(provider === "ebay" && variantPricesChanged
+              ? {
+                  conflictDetails: withLastPushedVariantPricesHash(
+                    link.conflictDetails,
+                    currentPricesFp
+                  ) as Prisma.InputJsonValue,
+                }
+              : {}),
           },
         });
         await recordCircuitSuccess(link.connectionId, provider, link.connection.memberId);

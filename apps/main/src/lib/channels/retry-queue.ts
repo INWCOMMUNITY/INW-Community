@@ -5,12 +5,8 @@ import { classifyError, isRemoteListingAlreadyGoneError, type ErrorClassificatio
 import { logSyncEvent } from "./sync-log";
 import type { ChannelProvider } from "./types";
 import { shouldBlockSoldOutQtyRecovery } from "./sold-out-guard";
-import {
-  persistRemoteListingGoneOnPush,
-  readRemoteCatalogState,
-  shouldDropStaleChannelRetry,
-  shouldDropContentRetryAfterLaterWrite,
-} from "./listing-link-flags";
+import { persistRemoteListingGoneOnPush, readRemoteCatalogState, shouldDropStaleChannelRetry, shouldDropContentRetryAfterLaterWrite } from "./listing-link-flags";
+import { shouldDropRetryForDisconnectedConnection } from "./disconnect-inw-items";
 
 const BACKOFF_SCHEDULE_MS = [
   30_000,        // 30s
@@ -26,7 +22,7 @@ function nextRetryDelay(attempt: number): number {
   return BACKOFF_SCHEDULE_MS[Math.min(attempt, BACKOFF_SCHEDULE_MS.length - 1)];
 }
 
-export type RetryType = "inventory" | "content" | "publish";
+export type RetryType = "inventory" | "content" | "publish" | "ebay_hub_catchup";
 
 /**
  * Enqueue a failed sync for automatic retry with exponential backoff.
@@ -163,7 +159,7 @@ export async function processRetryQueue(): Promise<{
     include: {
       link: {
         include: {
-          connection: { select: { id: true, memberId: true } },
+          connection: { select: { id: true, memberId: true, status: true } },
           storeItem: { select: { quantity: true } },
         },
       },
@@ -179,6 +175,11 @@ export async function processRetryQueue(): Promise<{
     const provider = retry.provider as ChannelProvider;
     const memberId = retry.link?.connection?.memberId;
     const connectionId = retry.link?.connection?.id;
+
+    if (shouldDropRetryForDisconnectedConnection(retry.link?.connection?.status, retry.provider)) {
+      await prisma.channelSyncRetry.delete({ where: { id: retry.id } });
+      continue;
+    }
 
     if (
       shouldDropContentRetryAfterLaterWrite({
@@ -225,7 +226,10 @@ export async function processRetryQueue(): Promise<{
     }
 
     try {
-      if (retry.retryType === "inventory") {
+      if (retry.retryType === "ebay_hub_catchup") {
+        const { runEbayHubCatchupForStoreItem } = await import("./ebay/hub-catchup");
+        await runEbayHubCatchupForStoreItem(retry.storeItemId);
+      } else if (retry.retryType === "inventory") {
         const results = await syncInventoryToChannels(retry.storeItemId);
         const providerResult = results.find((r) => r.provider === retry.provider);
         if (providerResult && !providerResult.ok) {

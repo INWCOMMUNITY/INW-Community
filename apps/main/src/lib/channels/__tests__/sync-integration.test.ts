@@ -299,6 +299,21 @@ describe("sync-inventory", () => {
     expect(mockAdapter.updateInventory).not.toHaveBeenCalled();
   });
 
+  it("skips a paused Shopify connection without writing inventory", async () => {
+    const { syncInventoryToChannels } = await import("../sync-inventory");
+
+    const link = makeLink({
+      provider: "shopify",
+      connection: makeConnection({ provider: "shopify", status: "error" }),
+    });
+    mockPrisma.channelListingLink.findMany.mockResolvedValueOnce([link]);
+
+    const results = await syncInventoryToChannels("item-1");
+
+    expect(results).toEqual([{ provider: "shopify", ok: true, skipped: "sync_disabled" }]);
+    expect(mockAdapter.updateInventory).not.toHaveBeenCalled();
+  });
+
   it("does NOT re-push when the channel already holds this exact qty (no drift)", async () => {
     const { syncInventoryToChannels } = await import("../sync-inventory");
 
@@ -498,6 +513,68 @@ describe("retry queue", () => {
     expect(result.succeeded).toBe(1);
     expect(mockPrisma.channelSyncRetry.delete).toHaveBeenCalledWith({
       where: { id: "retry-1" },
+    });
+  });
+
+  it("drops retries for a disconnected store without writing inventory", async () => {
+    const { processRetryQueue } = await import("../retry-queue");
+
+    mockPrisma.channelSyncRetry.findMany.mockResolvedValueOnce([
+      {
+        id: "retry-ebay",
+        linkId: "link-ebay",
+        storeItemId: "item-1",
+        provider: "ebay",
+        retryType: "inventory",
+        attempts: 0,
+        maxAttempts: 5,
+        nextRetryAt: new Date(Date.now() - 1000),
+        lastError: null,
+        createdAt: new Date(),
+        link: {
+          connection: { id: "conn-ebay", memberId: "member-1", status: "disconnected" },
+          storeItem: { quantity: 4 },
+        },
+      },
+    ]);
+
+    const result = await processRetryQueue();
+
+    expect(result.processed).toBe(1);
+    expect(mockAdapter.updateInventory).not.toHaveBeenCalled();
+    expect(mockPrisma.channelSyncRetry.delete).toHaveBeenCalledWith({
+      where: { id: "retry-ebay" },
+    });
+  });
+
+  it("drops retries for a paused Shopify store without writing inventory", async () => {
+    const { processRetryQueue } = await import("../retry-queue");
+
+    mockPrisma.channelSyncRetry.findMany.mockResolvedValueOnce([
+      {
+        id: "retry-shopify",
+        linkId: "link-shopify",
+        storeItemId: "item-1",
+        provider: "shopify",
+        retryType: "inventory",
+        attempts: 0,
+        maxAttempts: 5,
+        nextRetryAt: new Date(Date.now() - 1000),
+        lastError: null,
+        createdAt: new Date(),
+        link: {
+          connection: { id: "conn-shopify", memberId: "member-1", status: "error" },
+          storeItem: { quantity: 4 },
+        },
+      },
+    ]);
+
+    const result = await processRetryQueue();
+
+    expect(result.processed).toBe(1);
+    expect(mockAdapter.updateInventory).not.toHaveBeenCalled();
+    expect(mockPrisma.channelSyncRetry.delete).toHaveBeenCalledWith({
+      where: { id: "retry-shopify" },
     });
   });
 
@@ -992,6 +1069,6 @@ describe("eBay passthrough sync (imported listings)", () => {
     });
     const aspects = (body.product as Record<string, unknown>).aspects as Record<string, string[]>;
     expect(aspects["Letter grade"]).toEqual(["MS"]);
-    expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 2 } });
+    // Live qty/price are written with bulk_update, not by restamping inventory PUT.
   });
 });

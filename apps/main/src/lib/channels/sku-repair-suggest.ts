@@ -1,4 +1,5 @@
 import type { ChannelProvider } from "./types";
+import { isJoinKeySku, isLegalLivePinSku } from "./sku-identity";
 
 export type SuggestedRepairKind =
   | "adopt_pin"
@@ -11,11 +12,6 @@ export type SuggestedRepair = {
   provider?: ChannelProvider;
   label: string;
 };
-
-function isJoinKeySku(sku: string | null | undefined): boolean {
-  const trimmed = sku?.trim() ?? "";
-  return /^[a-zA-Z0-9]{1,50}$/.test(trimmed);
-}
 
 /** Observation-first: these are the Method-2 buttons a seller can choose. */
 export function suggestedSkuRepairs(unit: {
@@ -30,7 +26,7 @@ export function suggestedSkuRepairs(unit: {
   }
   const ebay = unit.channels.find((c) => c.provider === "ebay");
   const missing = !unit.inwSku || unit.catalogFindings.includes("missing");
-  if (missing && ebay?.remoteSku && isJoinKeySku(ebay.remoteSku)) {
+  if (missing && ebay?.remoteSku && isLegalLivePinSku(ebay.remoteSku)) {
     out.push({ kind: "adopt_pin", label: "Adopt eBay SKU" });
   } else if (missing) {
     out.push({ kind: "assign_canonical", label: "Assign SKU" });

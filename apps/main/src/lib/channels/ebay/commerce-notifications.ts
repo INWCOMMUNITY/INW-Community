@@ -1,4 +1,4 @@
-import { ebayJson } from "./client";
+import { ebayAction, ebayJson } from "./client";
 import { ebayNotificationVerificationToken } from "./webhook";
 
 /** Notification API is on api.ebay.com, not apiz (identity/media). Relative paths use EBAY_API_BASE. */
@@ -111,4 +111,52 @@ export async function enableCommerceNotifications(
     subscriptionIds,
     ...(subscriptionIds.length === 0 ? { error: "destination-ok-subscriptions-empty" } : {}),
   };
+}
+
+function readCommerceNotificationIds(config: unknown): {
+  destinationId: string | null;
+  subscriptionIds: string[];
+} {
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    return { destinationId: null, subscriptionIds: [] };
+  }
+  const row = config as Record<string, unknown>;
+  const destinationId =
+    typeof row.commerceNotificationsDestinationId === "string"
+      ? row.commerceNotificationsDestinationId.trim() || null
+      : null;
+  const raw = row.commerceNotificationSubscriptionIds;
+  const subscriptionIds = Array.isArray(raw)
+    ? raw.filter((id): id is string => typeof id === "string" && Boolean(id.trim()))
+    : [];
+  return { destinationId, subscriptionIds };
+}
+
+/** Best-effort: disable Commerce REST notifications so disconnect does not leave a live destination. */
+export async function disableEbayCommerceNotifications(
+  accessToken: string,
+  config: unknown
+): Promise<void> {
+  const { destinationId, subscriptionIds } = readCommerceNotificationIds(config);
+  for (const subscriptionId of subscriptionIds) {
+    await ebayAction(
+      accessToken,
+      `${NOTIFICATION_SUBSCRIPTION}/${encodeURIComponent(subscriptionId)}`,
+      "DELETE"
+    ).catch((e) =>
+      console.warn("[ebay] disable commerce subscription failed", {
+        subscriptionId,
+        error: e instanceof Error ? e.message : String(e),
+      })
+    );
+  }
+  if (!destinationId) return;
+  await ebayJson(accessToken, `${NOTIFICATION_DESTINATION}/${encodeURIComponent(destinationId)}`, "PUT", {
+    status: "DISABLED",
+  }).catch((e) =>
+    console.warn("[ebay] disable commerce destination failed", {
+      destinationId,
+      error: e instanceof Error ? e.message : String(e),
+    })
+  );
 }

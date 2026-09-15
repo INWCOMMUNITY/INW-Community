@@ -506,6 +506,43 @@ function etsyTitle(title: string): string {
   return sanitizeEtsyTitle(title);
 }
 
+/** Compare titles the way Etsy stores them (trim, 140 chars, all-caps softening). */
+export function etsyTitlesMatchForSync(
+  a: string | null | undefined,
+  b: string | null | undefined
+): boolean {
+  return sanitizeEtsyTitle(a ?? "") === sanitizeEtsyTitle(b ?? "");
+}
+
+/**
+ * True when live Etsy content looks like an independent seller edit — not our own
+ * inventory PUT echo (timestamp/listing-price move) while INW still has an un-pushed title.
+ */
+export function etsyRemoteLooksIndependentlyEdited(args: {
+  inwTitle: string;
+  remoteTitle: string;
+  remotePriceCents: number;
+  baselineTitle: string | null;
+  baselinePriceCents: number | null;
+  contentUnchanged: boolean;
+}): boolean {
+  const haveBaseline = args.baselineTitle != null || args.baselinePriceCents != null;
+  if (!haveBaseline) return args.contentUnchanged;
+
+  const remoteTitleMoved =
+    args.baselineTitle != null && !etsyTitlesMatchForSync(args.baselineTitle, args.remoteTitle);
+  const inwTitlePending =
+    args.baselineTitle != null && !etsyTitlesMatchForSync(args.baselineTitle, args.inwTitle);
+  const remotePriceMoved =
+    args.baselinePriceCents != null && args.remotePriceCents !== args.baselinePriceCents;
+
+  // Failed / partial inventory writes advance last_modified and can move listing price
+  // without the seller touching the title. Do not block the title PATCH in that case.
+  if (inwTitlePending && !remoteTitleMoved) return false;
+
+  return remoteTitleMoved || remotePriceMoved;
+}
+
 function etsyDescription(item: SyncStoreItem): string {
   // Etsy listing description is plain text; keep line breaks from our HTML subset.
   const plain =

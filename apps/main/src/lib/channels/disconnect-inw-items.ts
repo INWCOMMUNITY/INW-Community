@@ -24,6 +24,27 @@ export function isLiveConnectionStatus(status: string): boolean {
 }
 
 /**
+ * Shopify offline tokens cannot refresh, so `error` means reconnect — keep listing
+ * links, but do not ingest webhooks, cron-reconcile, or push. Other providers may
+ * still recover from `error` via refresh.
+ */
+export function shouldSkipChannelSync(
+  status: string | null | undefined,
+  provider?: string | null
+): boolean {
+  if (status === "disconnected" || status === "revoked") return true;
+  if (provider === "shopify" && status !== "active") return true;
+  return false;
+}
+
+export function shouldDropRetryForDisconnectedConnection(
+  status: string | null | undefined,
+  provider?: string | null
+): boolean {
+  return shouldSkipChannelSync(status, provider);
+}
+
+/**
  * Split a connection's linked INW items into those only on this store vs also on
  * another connected store.
  */

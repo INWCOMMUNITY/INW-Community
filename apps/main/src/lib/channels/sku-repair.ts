@@ -13,6 +13,7 @@ import {
 import {
   adoptPinnedEbaySku,
   isJoinKeySku,
+  isLegalLivePinSku,
   resolvePublishSku,
   SkuIdentityError,
 } from "./sku-identity";
@@ -103,7 +104,9 @@ async function adoptPin(memberId: string, storeItemId: string): Promise<SkuRepai
   const remoteSku =
     hydrated.rows.length === 1
       ? hydrated.rows[0]?.sku ?? null
-      : hydrated.rows.find((r) => isJoinKeySku(r.sku))?.sku ?? hydrated.rows[0]?.sku ?? null;
+      : hydrated.rows.find((r) => isLegalLivePinSku(r.sku) || isJoinKeySku(r.sku))?.sku ??
+        hydrated.rows[0]?.sku ??
+        null;
   const pin = adoptPinnedEbaySku({ localSku: item.sku, remoteSku, itemId: item.id });
   if (!pin) return { ok: false, error: "INW already has a SKU, or eBay has no pin-able Custom Label." };
   const conflict = await findConflictingMemberSku({ memberId, sku: pin, excludeItemId: item.id });

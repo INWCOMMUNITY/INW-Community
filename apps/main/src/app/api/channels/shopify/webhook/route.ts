@@ -3,6 +3,7 @@ import { prisma } from "database";
 import {
   shopifyWebhookShopDomain,
   shopifyWebhookTopic,
+  shouldApplyShopifyInboundWebhook,
   verifyShopifyWebhook,
 } from "@/lib/channels/shopify/webhook";
 import { reconcileConnectionSales } from "@/lib/channels/reconcile";
@@ -19,6 +20,7 @@ import {
   markWebhookFailed,
   isWebhookDuplicate,
 } from "@/lib/channels/webhook-event";
+import { wipeDisconnectedChannel } from "@/lib/channels/disconnect-channel";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -84,6 +86,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, skipped: "no_connection" });
     }
 
+    if (topic === "app/uninstalled") {
+      console.warn("[shopify webhook] app uninstalled", { shop, connectionId: conn.id });
+      await wipeDisconnectedChannel(conn.id, {
+        lastError: "Shopify app was uninstalled by the store owner.",
+        memberId: conn.memberId,
+        provider: conn.provider,
+      });
+      await markWebhookCompleted(webhookEventId);
+      return NextResponse.json({ ok: true, processed: true, topic });
+    }
+
+    if (!shouldApplyShopifyInboundWebhook(conn.status, topic)) {
+      console.warn("[shopify webhook] skipped; Shopify is not active", {
+        shop,
+        topic,
+        status: conn.status,
+        connectionId: conn.id,
+      });
+      await markWebhookCompleted(webhookEventId);
+      return NextResponse.json({ ok: true, skipped: "not_active" });
+    }
+
     await stampShopifyWebhookReceipt(conn.id, topic);
 
     if (topic === "orders/paid") {
@@ -117,21 +141,6 @@ export async function POST(req: NextRequest) {
       console.log("[shopify webhook] inventory apply", { shop, topic, ...result });
       await markWebhookCompleted(webhookEventId);
       return NextResponse.json({ ok: true, processed: result.applied, topic, ...result });
-    }
-
-    if (topic === "app/uninstalled") {
-      console.warn("[shopify webhook] app uninstalled", { shop, connectionId: conn.id });
-      await prisma.channelConnection.update({
-        where: { id: conn.id },
-        data: {
-          status: "disconnected",
-          accessTokenEncrypted: null,
-          refreshTokenEncrypted: null,
-          lastError: "Shopify app was uninstalled by the store owner.",
-        },
-      });
-      await markWebhookCompleted(webhookEventId);
-      return NextResponse.json({ ok: true, processed: true, topic });
     }
 
     await markWebhookCompleted(webhookEventId);

@@ -17,7 +17,7 @@
 | **Adapter contract** | Each provider implements `ChannelAdapter` in `types.ts`: OAuth, CRUD listings, inventory, import list, sales poll, optional webhooks. |
 | **Best-effort outbound** | Push failures are stored on the link (`syncStatus: "error"`, `syncError`) and logged — they must **not** crash the seller flow. |
 | **Disconnect ≠ delete marketplace listings** | Disconnecting a channel unregisters INW webhooks/notifications, deletes `ChannelListingLink` rows for that store (retries cascade), and wipes tokens. External listings stay on the marketplace. **Remove listing** in INW triggers `deleteListing`. |
-| **SKU join key** | INW owns one alphanumeric SKU per sellable unit. If the seller leaves it blank, INW mints a hub key (`nwc…`) on save/import/publish and copies that same string onto every channel. Live eBay Inventory SKUs are pinned as-is. eBay Inventory API addressing (qty push + Hub catch-up) prefers the live pin — GetItem Custom Label, then historical `StoreItem.id` for INW-created listings — over a later hub mint, so View Item `offer.availableQuantity` updates after a Seller Hub revise. Never publish `StoreItem.id` as a new join key. Locators stay on `ChannelListingLink.externalListingId` (and Shopify/Wix variant ids). |
+| **SKU join key** | INW owns one alphanumeric SKU per sellable unit, capped at **32 characters** (`CANONICAL_SKU_RE`) so the same string is legal on INW, Etsy, Shopify, Wix, and new eBay publishes. If the seller leaves it blank, INW mints a hub key (`nwc…`) on save/import/publish and copies that same string onto every channel. Live eBay Inventory pins (including `inw{legacyId}`) are adopted as-is and stored on `ChannelListingLink.ebaySkuMap` `{ parent, variations }` — qty/price writes never address a hyphen parent SKU. Do not rename live Inventory SKUs. Locators stay on `ChannelListingLink.externalListingId` (and Shopify/Wix variant ids). |
 
 ---
 
@@ -274,6 +274,32 @@ Status as of Jul 2026 overhaul (capability flags in `capabilities.ts`):
 - [x] Item specifics (aspects) two-way (see §18)
 - [x] Rich description HTML subset (bold/breaks/lists; strip font/color) — `rich-description.ts`
 - [x] Title/condition/variants pull on refresh; revision counts persisted on connection config
+- [x] Live qty/price via `bulk_update_price_quantity` on the pinned Inventory SKU (Hub → View Item catch-up + INW hub push)
+- [x] Hub listed remaining on GetMyeBaySelling dirty-scan (not QuantityAvailable-first)
+- [x] Catch-up writes **warehouse ∩ offer** and verifies both; empty bulk `responses[]` is failure
+- [x] Hub title/photos/description PUT onto Inventory/offer **before** skip-eBay fan-out
+- [x] Per-SKU Hub qty+price inbound; no listing-level price flatten on variation items
+- [x] `ebaySkuMap` persisted pins; diagnose per SKU (Hub vs warehouse vs offer vs View Item vs INW)
+
+#### eBay View Item vs Seller Hub (do not reopen)
+
+Inventory API listings have two writers. Seller Hub revises Trading `<Quantity>` / StartPrice / title. The public View Item page reads **min(warehouse `shipToLocationAvailability.quantity`, offer `availableQuantity`)** and Inventory/offer content. Hub edits do **not** copy onto View Item by themselves.
+
+INW `StoreItem` is the hub (most-recent-wins from any channel). A Hub edit must: (1) `bulk_update` Hub's numbers onto **warehouse and offer** so View Item matches, (2) PUT Hub title/photos/description onto Inventory/offer directly, (3) pull into INW, (4) fan-out to other channels with `skipProviders: ["ebay"]`. Do not use INW as the intermediary for the View Item write.
+
+GetMyeBaySelling dirty-scan uses listed remaining (`Quantity` − sold), not `QuantityAvailable`. ItemRevised is ack-only; the durable path is `ebay_hub_catchup` (do not depend on 8s `waitUntil`).
+
+**Ruled out (Sep 12–15 2026):**
+
+1. Stopping Inventory writes so Hub can “own” View Item — Hub already updates; View Item stays stale.
+2. Full `PUT inventory_item` as the qty/price tool — restamps warehouse qty. Use `POST /sell/inventory/v1/bulk_update_price_quantity` only. Do not restore `hub-view-item.ts` / `variant-qty-catchup.ts` / `quantity.ts`.
+3. Ack-only `ItemRevised` with no follow-up write — fast ack is required; catch-up must still run delayed **and** be enqueued immediately.
+4. SKU / hyphen Custom Label rewrite as the View Item bug — pin live Inventory SKUs on `ebaySkuMap`; do not push Custom Label on live listings; never address hyphen parents.
+5. Disconnecting Shopify to “fix” Hub≠View Item — Shopify can echo INW; it does not create the two eBay surfaces.
+6. Trading `ReviseInventoryStatus` on Inventory-managed listings — mixing APIs is how the surfaces diverge.
+7. Gating **all** live upserts (title/photos) behind create-only Inventory writes — content PUTs are allowed; they must omit `availableQuantity` / `pricingSummary`. Treat View Item CDN as the diagnosis **only after** Hub = warehouse = offer.
+
+Diagnose: `GET /api/channels/ebay/diagnose?storeItemId=` includes `qtyPriceSurfaces` (Hub listed, warehouse, offer, `viewItemQty = min(warehouse, offer)`, INW, mapped pin, per-SKU rows). If those four numbers already match and `ebay.com/itm` is still old, wait / hard-refresh.
 
 ### Shopify
 
@@ -453,4 +479,4 @@ These caused the Wix “finicky” bugs:
 
 ---
 
-*Last updated: August 18, 2026 — eBay passthrough sync for imported listings; read-only specifics UI; aspect remap gated to INW-created listings.*
+*Last updated: September 15, 2026 — eBay View Item catch-up writes warehouse ∩ offer, Hub content PUT before skip-eBay, canonical 32-char SKU + ebaySkuMap.*

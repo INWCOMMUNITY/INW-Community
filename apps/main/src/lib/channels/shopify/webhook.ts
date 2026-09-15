@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { getShopifyConfig } from "./config";
+import { shouldSkipChannelSync } from "../disconnect-inw-items";
 
 /**
  * Verify Shopify webhook HMAC (base64) from X-Shopify-Hmac-Sha256.
@@ -46,4 +47,15 @@ export function shopifyWebhookTopic(headers: Headers): ShopifyWebhookTopic {
 export function shopifyWebhookShopDomain(headers: Headers): string | null {
   const shop = headers.get("x-shopify-shop-domain")?.trim().toLowerCase();
   return shop || null;
+}
+
+/** Uninstall must still run on a paused (`error`) row. Other topics require `active`. */
+export function shouldApplyShopifyInboundWebhook(
+  status: string | null | undefined,
+  topic: string
+): boolean {
+  if (topic === "app/uninstalled") {
+    return status !== "disconnected" && status !== "revoked";
+  }
+  return !shouldSkipChannelSync(status, "shopify");
 }

@@ -117,7 +117,7 @@ export async function subscribeEbayInboundNotifications(accessToken: string): Pr
 /**
  * Re-register Platform Notifications when the stored URL is missing `?secret=`,
  * live eBay prefs show delivery disabled / an unsecured URL, or ItemRevised is
- * missing (delayed Hub listed remaining → View Item copy).
+ * missing (delayed Hub listed remaining → View Item copy via bulk_update).
  *
  * Commerce REST notifications (#1100 403 on many seller tokens) are optional.
  * Do not treat a missing commerce destination as a reason to SetNotificationPreferences

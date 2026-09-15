@@ -12,6 +12,7 @@ import { logSyncEvent } from "./sync-log";
 import { captureChannelSyncError } from "./sentry";
 import { isRemoteListingAlreadyGoneError } from "./error-classifier";
 import { persistRemoteListingGoneOnPush, shouldSkipEndedEbayOutbound } from "./listing-link-flags";
+import { shouldSkipChannelSync } from "./disconnect-inw-items";
 import {
   isCircuitOpen,
   recordCircuitSuccess,
@@ -21,6 +22,7 @@ import {
 import { shouldBypassCircuitForInventoryPush } from "./circuit-inventory-bypass";
 import {
   shouldBlockOutboundQtyOverwrite,
+  inwRevisionCameFromChannelInbound,
 } from "./sync-baseline";
 import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
 import { fetchShopifyListingForInbound } from "./shopify/adapter";
@@ -79,7 +81,7 @@ export async function syncInventoryToChannels(
   for (const link of links) {
     const provider = link.provider as ChannelProvider;
     if (skip.has(provider)) continue;
-    if (link.connection.status === "disconnected" || link.connection.status === "revoked") {
+    if (shouldSkipChannelSync(link.connection.status, provider)) {
       results.push({ provider, ok: true, skipped: "sync_disabled" });
       continue;
     }
@@ -89,10 +91,6 @@ export async function syncInventoryToChannels(
     }
     if (provider === "ebay" && readEbayPendingVariantInboundHash(link.conflictDetails)) {
       results.push({ provider, ok: true, skipped: "pending_inbound" });
-      continue;
-    }
-    if (provider === "ebay") {
-      results.push({ provider, ok: true, skipped: "ebay_qty_unsynced" });
       continue;
     }
 
@@ -198,6 +196,18 @@ export async function syncInventoryToChannels(
       );
       if (!options.force && baselineQtyMatches && baselineVarMatches) {
         results.push({ provider, ok: true, skipped: "no_qty_drift" });
+        continue;
+      }
+
+      if (
+        !options.force &&
+        provider === "ebay" &&
+        inwRevisionCameFromChannelInbound({
+          inwUpdatedAt: freshItem.updatedAt,
+          lastInboundAt: link.lastInboundAt,
+        })
+      ) {
+        results.push({ provider, ok: true, skipped: "inbound_echo" });
         continue;
       }
 

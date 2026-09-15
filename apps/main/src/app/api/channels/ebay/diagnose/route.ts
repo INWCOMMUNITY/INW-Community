@@ -4,6 +4,10 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { isEbayConfigured } from "@/lib/channels/ebay/config";
 import { ebayGet } from "@/lib/channels/ebay/client";
+import { collectEbayPerSkuQtyPriceSurfaces, collectEbayQtyPriceSurfaces } from "@/lib/channels/ebay/bulk-update-price-quantity";
+import { ebayViewItemQuantity, summarizeEbayQtyPriceSurfaces } from "@/lib/channels/ebay/qty-price-surfaces";
+import { fetchEbayItemDetails } from "@/lib/channels/ebay/trading";
+import { resolveEbayLegacyListingId } from "@/lib/channels/ebay/mapping";
 import {
   fetchEbayConnectionConfig,
   optInToSellingPolicyManagement,
@@ -22,6 +26,7 @@ import {
   validateRemappedAspects,
 } from "@/lib/channels/ebay/ebay-compat";
 import { parseStoredAspects, aspectsToEbayProductAspects } from "@/lib/listing-limits";
+import { normalizeVariantMatrix } from "@/lib/listing-variant-matrix";
 import { getItemAspectsForCategory } from "@/lib/channels/ebay/aspects";
 import { getRecentTraces, type SyncTraceSummary } from "@/lib/channels/sync-trace";
 import { getErrorCategoryLabel, getSuggestedFixes } from "@/lib/channels/error-classifiers-registry";
@@ -115,6 +120,33 @@ type DiagnosisResult = {
     storedAspects: Record<string, string[]>;
     cachedInventoryAspects: Record<string, string[]> | null;
   };
+  qtyPriceSurfaces?: {
+    hubQuantity: number | null;
+    viewItemQuantity: number | null;
+    offerQuantity: number | null;
+    warehouseQuantity: number | null;
+    inwQuantity: number;
+    hubPriceCents: number | null;
+    offerPriceCents: number | null;
+    inwPriceCents: number;
+    hubAheadOfViewItem: boolean;
+    hubPriceAheadOfOffer: boolean;
+    verdict: string;
+    viewItemQty: number | null;
+    mappedPin?: string | null;
+    skus?: {
+      joinKey: string;
+      mappedPin: string;
+      hubQuantity: number | null;
+      warehouseQuantity: number | null;
+      offerQuantity: number | null;
+      viewItemQty: number | null;
+      inwQuantity: number;
+      hubPriceCents: number | null;
+      offerPriceCents: number | null;
+      inwPriceCents: number;
+    }[];
+  };
 };
 
 /**
@@ -123,7 +155,7 @@ type DiagnosisResult = {
  * Diagnostic endpoint for troubleshooting eBay sync issues.
  * 
  * Query params:
- *   - storeItemId — focus on one linked item
+ *   - storeItemId — focus on one linked item (includes qtyPriceSurfaces)
  *   - repair=1 — run a sync push for linked items, then re-diagnose
  *   - resetBaseline=1 — reset poisoned syncBaselineQty values
  *   - resetCircuit=1 — clear paused sync circuit (after fixing underlying errors)
@@ -353,6 +385,7 @@ export async function GET(req: NextRequest) {
 
   let syncReadiness: DiagnosisResult["syncReadiness"];
   let passthroughDebug: DiagnosisResult["passthroughDebug"];
+  let qtyPriceSurfaces: DiagnosisResult["qtyPriceSurfaces"];
   if (storeItemId && tokenValid) {
     const ebayLink = await prisma.channelListingLink.findFirst({
       where: { storeItemId, provider: "ebay", connectionId: ctx.id },
@@ -360,6 +393,7 @@ export async function GET(req: NextRequest) {
         externalListingId: true,
         linkOrigin: true,
         ebayInventoryAspects: true,
+        ebaySkuMap: true,
       },
     });
     const imported =
@@ -434,6 +468,49 @@ export async function GET(req: NextRequest) {
       };
       }
     }
+
+    if (itemRow && ebayLink) {
+      try {
+        const { ebaySellerHubListedQuantity } = await import("@/lib/channels/ebay/trading");
+        const listingId = resolveEbayLegacyListingId(ebayLink.externalListingId);
+        const details = listingId
+          ? await fetchEbayItemDetails(ctx.accessToken, listingId).catch(() => null)
+          : null;
+        const item = toSyncStoreItem(itemRow);
+        const surfaces = await collectEbayQtyPriceSurfaces({
+          accessToken: ctx.accessToken,
+          item,
+          externalListingId: ebayLink.externalListingId,
+          linkOrigin: ebayLink.linkOrigin,
+          hubQuantity: details ? ebaySellerHubListedQuantity(details) : null,
+          viewItemQuantity: details?.quantity ?? null,
+          hubPriceCents: details?.priceCents ?? null,
+          liveCustomLabel: details?.sku ?? item.sku,
+          skuMap: ebayLink.ebaySkuMap,
+        });
+        const hubRows = details
+          ? [
+              ...(normalizeVariantMatrix(details.tradingVariants)?.skus ?? []),
+              ...(normalizeVariantMatrix(details.variants)?.skus ?? []),
+            ]
+          : [];
+        const skus = await collectEbayPerSkuQtyPriceSurfaces({
+          accessToken: ctx.accessToken,
+          item,
+          skuMap: ebayLink.ebaySkuMap,
+          hubRows,
+        }).catch(() => []);
+        qtyPriceSurfaces = {
+          ...surfaces,
+          ...summarizeEbayQtyPriceSurfaces(surfaces),
+          viewItemQty: ebayViewItemQuantity(surfaces),
+          mappedPin: skus[0]?.mappedPin ?? null,
+          skus,
+        };
+      } catch (e) {
+        console.warn("[ebay/diagnose] qtyPriceSurfaces failed", { error: String(e) });
+      }
+    }
   }
 
   // Fetch recent sync traces for this connection
@@ -498,6 +575,7 @@ export async function GET(req: NextRequest) {
     refreshedConfig,
     syncReadiness,
     passthroughDebug,
+    qtyPriceSurfaces,
     recentTraces,
     skuAudit: await tryCatalogSkuAuditCompact({
       memberId: userId,

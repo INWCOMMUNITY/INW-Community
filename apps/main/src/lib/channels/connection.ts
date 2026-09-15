@@ -214,16 +214,14 @@ export async function recoverPausedChannelConnections(): Promise<{ recovered: nu
   const paused = await prisma.channelConnection.findMany({
     where: {
       status: "error",
-      OR: [
-        { refreshTokenEncrypted: { not: null } },
-        { provider: "wix" },
-        { provider: "shopify" },
-      ],
+      provider: { not: "shopify" },
+      OR: [{ refreshTokenEncrypted: { not: null } }, { provider: "wix" }],
     },
   });
   let recovered = 0;
   let failed = 0;
   for (const c of paused) {
+    if (c.provider === "shopify") continue;
     if (shouldSkipPausedRecover(c.config)) {
       continue;
     }

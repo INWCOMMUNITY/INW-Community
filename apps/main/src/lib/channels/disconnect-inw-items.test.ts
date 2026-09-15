@@ -5,8 +5,42 @@ import {
   exclusiveAndSharedIds,
   overlapCounts,
   parseDeleteInwMode,
+  shouldDropRetryForDisconnectedConnection,
+  shouldSkipChannelSync,
   storeItemIdsToDelete,
 } from "./disconnect-inw-items";
+
+describe("shouldSkipChannelSync", () => {
+  it("skips disconnected and revoked for every provider", () => {
+    expect(shouldSkipChannelSync("disconnected", "ebay")).toBe(true);
+    expect(shouldSkipChannelSync("revoked", "etsy")).toBe(true);
+    expect(shouldSkipChannelSync("active", "ebay")).toBe(false);
+    expect(shouldSkipChannelSync("error", "ebay")).toBe(false);
+  });
+
+  it("freezes Shopify unless the connection is active", () => {
+    expect(shouldSkipChannelSync("active", "shopify")).toBe(false);
+    expect(shouldSkipChannelSync("error", "shopify")).toBe(true);
+    expect(shouldSkipChannelSync("disconnected", "shopify")).toBe(true);
+    expect(shouldSkipChannelSync(undefined, "shopify")).toBe(true);
+  });
+});
+
+describe("shouldDropRetryForDisconnectedConnection", () => {
+  it("drops retries after the seller disconnects or the token is revoked", () => {
+    expect(shouldDropRetryForDisconnectedConnection("disconnected")).toBe(true);
+    expect(shouldDropRetryForDisconnectedConnection("revoked")).toBe(true);
+    expect(shouldDropRetryForDisconnectedConnection("active")).toBe(false);
+    expect(shouldDropRetryForDisconnectedConnection("error")).toBe(false);
+    expect(shouldDropRetryForDisconnectedConnection(undefined)).toBe(false);
+  });
+
+  it("drops Shopify retries while the store is paused", () => {
+    expect(shouldDropRetryForDisconnectedConnection("error", "shopify")).toBe(true);
+    expect(shouldDropRetryForDisconnectedConnection("active", "shopify")).toBe(false);
+    expect(shouldDropRetryForDisconnectedConnection("error", "ebay")).toBe(false);
+  });
+});
 
 describe("parseDeleteInwMode", () => {
   it("keeps all INW items unless a delete flag is set", () => {

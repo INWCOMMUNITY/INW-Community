@@ -6,13 +6,18 @@ import {
   parseDeleteInwMode,
   storeItemIdsToDelete,
 } from "@/lib/channels/disconnect-inw-items";
+import {
+  releaseRemoteChannelBindings,
+  tryDecryptChannelToken,
+  wipeDisconnectedChannel,
+} from "@/lib/channels/disconnect-channel";
 
 export const dynamic = "force-dynamic";
 
 /**
  * DELETE: disconnect a channel.
- * Default: keep listing links so My Items can flag unsynced listings; wipe tokens; mark disconnected.
- * StoreItems stay on INW; external marketplace listings stay.
+ * Default: keep INW StoreItems; wipe tokens, listing links, retries, and remote webhooks.
+ * Marketplace listings stay. Sync must not keep writing after this returns.
  * ?deleteInwItems=exclusive: delete INW items linked only to this store.
  * ?deleteInwItems=1: delete all INW items linked to this store, including ones also on other stores.
  */
@@ -31,6 +36,25 @@ export async function DELETE(
   const conn = await prisma.channelConnection.findUnique({ where: { id } });
   if (!conn || conn.memberId !== userId) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const token = tryDecryptChannelToken(conn.accessTokenEncrypted);
+  let remoteReleased = false;
+  if (token) {
+    const remote = await releaseRemoteChannelBindings({
+      provider: conn.provider,
+      accessToken: token,
+      config: conn.config,
+      externalShopId: conn.externalShopId,
+    });
+    remoteReleased = remote.ok;
+    if (!remote.ok) {
+      console.warn("[channels] disconnect remote release failed", {
+        connectionId: id,
+        provider: conn.provider,
+        error: remote.error,
+      });
+    }
   }
 
   const links = await prisma.channelListingLink.findMany({
@@ -67,15 +91,9 @@ export async function DELETE(
     }
   }
 
-  await prisma.channelConnection.update({
-    where: { id },
-    data: {
-      status: "disconnected",
-      accessTokenEncrypted: null,
-      refreshTokenEncrypted: null,
-      tokenExpiresAt: null,
-      lastError: "Disconnected by seller",
-    },
+  const wiped = await wipeDisconnectedChannel(id, {
+    memberId: conn.memberId,
+    provider: conn.provider,
   });
 
   const keptInwCount = storeItemIds.length - deletedInwCount;
@@ -88,5 +106,7 @@ export async function DELETE(
     keptInwCount,
     exclusiveCount: exclusiveIds.length,
     sharedCount: sharedIds.length,
+    linksDeleted: wiped.linksDeleted,
+    remoteReleased,
   });
 }

@@ -601,7 +601,7 @@ export function overlayPassthroughOffer(
   return offer;
 }
 
-/** Overlay INW description on an existing offer body. Qty and price are Hub-owned. */
+/** Overlay INW description on an existing offer body. Qty and price use bulk_update. */
 export function buildPassthroughOfferBody(
   item: SyncStoreItem,
   changed: PassthroughChangedFields,

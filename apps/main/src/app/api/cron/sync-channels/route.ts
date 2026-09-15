@@ -10,6 +10,7 @@ import {
   markWebhookFailed,
   cleanupOldWebhookEvents,
 } from "@/lib/channels/webhook-event";
+import { cleanupOldSyncEvents } from "@/lib/channels/disconnect-channel";
 import { reconcileMemberProvider } from "@/lib/channels/reconcile";
 import { checkAllQuotaAlerts, shouldSkipSyncDueToQuota } from "@/lib/channels/daily-quota-tracker";
 import { prisma } from "database";
@@ -159,6 +160,9 @@ export async function GET(req: NextRequest) {
   });
   const webhooksCleaned = await cleanupOldWebhookEvents().catch(() => 0);
 
+  // Clean up old sync events (30-day retention for order dedup safety)
+  const syncEventsCleaned = await cleanupOldSyncEvents().catch(() => 0);
+
   // Run full reconciliation. Leave headroom under the 300s wall so we release the lock cleanly
   // and defer any connections we couldn't reach to the next tick (durable resume cursor).
   let syncResult = {
@@ -195,6 +199,7 @@ export async function GET(req: NextRequest) {
     exhaustedCleaned: cleaned,
     webhookEvents: webhookResult,
     webhooksCleaned,
+    syncEventsCleaned,
     ...syncResult,
     durationMs,
     resumed: lock.resumed,

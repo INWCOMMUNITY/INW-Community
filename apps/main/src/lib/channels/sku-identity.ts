@@ -7,6 +7,7 @@
 import { randomBytes } from "crypto";
 import {
   ETSY_SKU_MAX,
+  isCanonicalChannelSku,
   isGeneratedVariantOfItemId,
   skuToAdoptFromRemote,
   toCanonicalChannelSku,
@@ -31,8 +32,13 @@ export function skusExact(a: string | null | undefined, b: string | null | undef
   return Boolean(left && right && left === right);
 }
 
-/** Alphanumeric 1–50: legal eBay Inventory SKU and the cross-channel join charset. */
+/** Exact-same join key on INW/Etsy/Shopify/Wix/new eBay publishes: 32-char alphanumeric. */
 export function isJoinKeySku(sku: string | null | undefined): boolean {
+  return isCanonicalChannelSku(sku);
+}
+
+/** Live eBay Inventory pin — legal on Inventory API (1–50 alphanumeric), including `inw{id}`. */
+export function isLegalLivePinSku(sku: string | null | undefined): boolean {
   const trimmed = sku?.trim() ?? "";
   return isValidEbayInventorySku(trimmed);
 }
@@ -84,6 +90,7 @@ export function acceptExistingJoinKey(
   if (!sku) return null;
   if (sku === itemId || isGeneratedVariantOfItemId(sku, itemId)) return null;
   if (isJoinKeySku(sku)) return sku;
+  if (isLegalLivePinSku(sku)) return sku;
   const compact = toCanonicalChannelSku(sku);
   if (!compact || compact === itemId || isGeneratedVariantOfItemId(compact, itemId)) return null;
   return compact;
@@ -172,7 +179,7 @@ export function resolvePublishSku(args: {
   }
   if (!isJoinKeySku(sku)) {
     throw new SkuIdentityError(
-      `SKU${where} must be letters and numbers only (no hyphens or spaces), at most 50 characters.`
+      `SKU${where} must be letters and numbers only (no hyphens or spaces), at most 32 characters.`
     );
   }
   if (args.channel === "etsy" && sku.length > ETSY_SKU_MAX) {

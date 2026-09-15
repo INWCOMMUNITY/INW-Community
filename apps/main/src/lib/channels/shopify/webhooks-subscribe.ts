@@ -1,5 +1,5 @@
 import { getBaseUrl } from "@/lib/get-base-url";
-import { shopifyGet, shopifyJson, ShopifyApiError } from "./client";
+import { shopifyDelete, shopifyGet, shopifyJson, ShopifyApiError } from "./client";
 import type { ShopifyWebhookTopic } from "./webhook";
 
 export const SHOPIFY_WEBHOOK_TOPICS: Exclude<ShopifyWebhookTopic, "unknown">[] = [
@@ -10,11 +10,54 @@ export const SHOPIFY_WEBHOOK_TOPICS: Exclude<ShopifyWebhookTopic, "unknown">[] =
   "app/uninstalled",
 ];
 
-type ShopifyWebhookRow = {
+export type ShopifyWebhookRow = {
   id?: number;
   topic?: string;
   address?: string;
 };
+
+export function normalizeShopifyWebhookAddress(address: string | null | undefined): string {
+  return (address ?? "").trim().replace(/\/+$/, "");
+}
+
+export function shopifyWebhookAddressSet(
+  addresses: Array<string | null | undefined>
+): Set<string> {
+  return new Set(addresses.map(normalizeShopifyWebhookAddress).filter(Boolean));
+}
+
+export function isInwShopifyWebhookAddress(
+  address: string | null | undefined,
+  ownedAddresses: Iterable<string | null | undefined>
+): boolean {
+  const n = normalizeShopifyWebhookAddress(address);
+  if (!n) return false;
+  return shopifyWebhookAddressSet([...ownedAddresses]).has(n);
+}
+
+/** Topics we still need to POST at our callback — never rewrite another app's URL. */
+export function shopifyWebhookTopicsToCreate(
+  existing: ShopifyWebhookRow[],
+  address: string,
+  topics: readonly string[] = SHOPIFY_WEBHOOK_TOPICS
+): string[] {
+  const ours = normalizeShopifyWebhookAddress(address);
+  const have = new Set(
+    existing
+      .filter((w) => normalizeShopifyWebhookAddress(w.address) === ours)
+      .map((w) => (w.topic ?? "").toLowerCase())
+  );
+  return topics.filter((topic) => !have.has(topic.toLowerCase()));
+}
+
+export function shopifyWebhookIdsToDelete(
+  existing: ShopifyWebhookRow[],
+  ownedAddresses: Array<string | null | undefined>
+): number[] {
+  return existing
+    .filter((w) => w.id != null && isInwShopifyWebhookAddress(w.address, ownedAddresses))
+    .map((w) => w.id as number);
+}
 
 export function shopifyWebhookCallbackUrl(): string | null {
   const explicit = process.env.SHOPIFY_WEBHOOK_URL?.trim();
@@ -60,29 +103,11 @@ export async function ensureShopifyWebhooks(args: {
     return { address, topics: [], created: [], error: msg };
   }
 
-  const have = new Set(
-    existing
-      .filter((w) => (w.address ?? "").replace(/\/+$/, "") === address)
-      .map((w) => (w.topic ?? "").toLowerCase())
-  );
+  const missing = shopifyWebhookTopicsToCreate(existing, address, SHOPIFY_WEBHOOK_TOPICS);
   const created: string[] = [];
 
-  for (const topic of SHOPIFY_WEBHOOK_TOPICS) {
-    if (have.has(topic)) continue;
-    const stale = existing.find((w) => (w.topic ?? "").toLowerCase() === topic && w.id != null);
+  for (const topic of missing) {
     try {
-      if (stale?.id != null && stale.address && stale.address.replace(/\/+$/, "") !== address) {
-        await shopifyJson(
-          args.accessToken,
-          args.shop,
-          args.apiVersion,
-          `/webhooks/${stale.id}.json`,
-          "PUT",
-          { webhook: { id: stale.id, address } }
-        );
-        created.push(topic);
-        continue;
-      }
       await shopifyJson(args.accessToken, args.shop, args.apiVersion, "/webhooks.json", "POST", {
         webhook: { topic, address, format: "json" },
       });
@@ -94,7 +119,7 @@ export async function ensureShopifyWebhooks(args: {
       const msg = e instanceof Error ? e.message : String(e);
       return {
         address,
-        topics: [...have, ...created],
+        topics: SHOPIFY_WEBHOOK_TOPICS.filter((t) => !missing.includes(t) || created.includes(t)),
         created,
         error: `${topic}: ${msg}`,
       };
@@ -107,4 +132,42 @@ export async function ensureShopifyWebhooks(args: {
     created,
     error: null,
   };
+}
+
+/** Delete this app's Shopify webhooks so disconnect does not keep ingesting the shop. */
+export async function removeShopifyWebhooks(args: {
+  accessToken: string;
+  shop: string;
+  apiVersion: string;
+  extraAddresses?: Array<string | null | undefined>;
+}): Promise<{ deleted: number; error: string | null }> {
+  let existing: ShopifyWebhookRow[] = [];
+  try {
+    const res = await shopifyGet<{ webhooks?: ShopifyWebhookRow[] }>(
+      args.accessToken,
+      args.shop,
+      args.apiVersion,
+      "/webhooks.json?limit=250"
+    );
+    existing = res.webhooks ?? [];
+  } catch (e) {
+    return { deleted: 0, error: e instanceof Error ? e.message : String(e) };
+  }
+
+  const owned = [shopifyWebhookCallbackUrl(), ...(args.extraAddresses ?? [])];
+  const ids = shopifyWebhookIdsToDelete(existing, owned);
+
+  let deleted = 0;
+  for (const id of ids) {
+    try {
+      await shopifyDelete(args.accessToken, args.shop, args.apiVersion, `/webhooks/${id}.json`);
+      deleted += 1;
+    } catch (e) {
+      return {
+        deleted,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+  }
+  return { deleted, error: null };
 }

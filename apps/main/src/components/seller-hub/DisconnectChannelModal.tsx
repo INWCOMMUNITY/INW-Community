@@ -11,8 +11,8 @@ export type DisconnectChannelPrompt = {
 
 export function disconnectBaseMessage(name: string, linkedListings: number): string {
   return linkedListings > 0
-    ? `You have ${listingsLabel(linkedListings)} tied to ${name}. Sync will stop in both directions. Your listings on ${name} are not removed by INW.\n\nNWC is not responsible for inventory, oversells, or other business effects after you disconnect (see Terms of Service).`
-    : `Your ${name} account will disconnect from INW Community. Any items you add later on INW will not sync to ${name} until you connect again.`;
+    ? `You have ${listingsLabel(linkedListings)} tied to ${name}. INW will unregister its webhooks, delete its sync links, and wipe tokens. Your listings on ${name} are not removed by INW.\n\nNWC is not responsible for inventory, oversells, or other business effects after you disconnect (see Terms of Service).`
+    : `Your ${name} account will disconnect from INW Community. INW will unregister its webhooks and wipe tokens. Any items you add later on INW will not sync to ${name} until you connect again.`;
 }
 
 type Props = {

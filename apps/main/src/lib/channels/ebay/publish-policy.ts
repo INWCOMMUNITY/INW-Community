@@ -56,6 +56,25 @@ export function shouldRepublishEbayOffer(args: {
 }
 
 /**
+ * First publish still writes qty/price on the inventory item + offer body.
+ * Live qty/price must use bulk_update_price_quantity so a content PUT cannot
+ * restamp View Item remaining.
+ */
+export function shouldIncludeQtyPriceOnEbayOffer(operation: "create" | "update"): boolean {
+  return operation === "create";
+}
+
+/** Live Hub/INW qty+price may be written via bulk_update_price_quantity. */
+export function shouldWriteEbayQtyPriceOnLiveListing(): boolean {
+  return true;
+}
+
+/** Title/photos/description/aspects may PUT inventory/offer on live listings. */
+export function shouldWriteEbayInventoryContentOnUpdate(): boolean {
+  return true;
+}
+
+/**
  * Variation groups use publish_by_group. That creates a new Item ID when Inventory
  * has no offer for the parent SKU — even if INW already linked a live listing.
  * Content updates must never take that path.

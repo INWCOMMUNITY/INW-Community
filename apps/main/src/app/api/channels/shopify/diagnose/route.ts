@@ -12,6 +12,7 @@ import { getCircuitStatus } from "@/lib/channels/circuit-breaker";
 import { getRateLimitStats } from "@/lib/channels/rate-limit-tracker";
 import { tryCatalogSkuAuditCompact } from "@/lib/channels/sku-audit-run";
 import type { SkuAuditCompact } from "@/lib/channels/sku-audit";
+import { shouldSkipChannelSync } from "@/lib/channels/disconnect-inw-items";
 
 export const dynamic = "force-dynamic";
 
@@ -106,6 +107,12 @@ export async function GET(req: NextRequest) {
 
   setShopifyConnectionContext(ctx.id);
 
+  const connRow = await prisma.channelConnection.findUnique({
+    where: { id: ctx.id },
+    select: { status: true },
+  });
+  const shopifySyncLive = !shouldSkipChannelSync(connRow?.status, "shopify");
+
   const { searchParams } = new URL(req.url);
   const storeItemId = searchParams.get("storeItemId")?.trim() || null;
   const repair = searchParams.get("repair") === "1";
@@ -131,7 +138,7 @@ export async function GET(req: NextRequest) {
   }
 
   let webhooks: DiagnosisResult["webhooks"];
-  if (tokenValid) {
+  if (tokenValid && shopifySyncLive) {
     const shopCfg = readShopifyConfig(
       (ctx.config as Record<string, unknown> | null) ?? null,
       ctx.externalShopId
@@ -207,7 +214,7 @@ export async function GET(req: NextRequest) {
 
   // Repair if requested
   let repairResults: { storeItemId: string; ok: boolean; error?: string }[] | undefined;
-  if (repair && linkRows.length > 0) {
+  if (repair && shopifySyncLive && linkRows.length > 0) {
     repairResults = [];
     for (const row of linkRows) {
       const results = await syncInventoryToChannels(row.storeItemId);
@@ -302,6 +309,10 @@ export async function GET(req: NextRequest) {
     verdict = "TOKEN_INVALID";
     summary = `Shopify access token is invalid or expired: ${tokenError}`;
     nextStep = "Disconnect and reconnect Shopify in Seller Hub → Sync Stores.";
+  } else if (!shopifySyncLive) {
+    verdict = "SYNC_PAUSED";
+    summary = "Shopify sync is paused. INW will not pull, push, or re-register webhooks until you reconnect.";
+    nextStep = "Seller Hub → Sync Stores → Reconnect Shopify.";
   } else if (circuitStatus.state === "OPEN") {
     verdict = "CIRCUIT_OPEN";
     summary = "Sync is temporarily paused due to repeated failures.";

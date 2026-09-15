@@ -62,6 +62,17 @@ describe("resolveLiveEbayInventorySku", () => {
     ebayGet.mockResolvedValue({ offers: [] });
     await expect(resolveLiveEbayInventorySku("t", ["nwcAbCdEfGh12"])).resolves.toBeNull();
   });
+
+  it("drops hyphen parent SKUs as Inventory candidates", async () => {
+    const { uniqueEbayInventorySkuCandidates } = await import("./inventory-sku");
+    expect(
+      uniqueEbayInventorySkuCandidates([
+        "cmt7vumcl000dxjujvgwe8dob-Purple",
+        "inw404516850572",
+        "HAT 42",
+      ])
+    ).toEqual(["inw404516850572"]);
+  });
 });
 
 describe("resolveEbayLivePushSku", () => {

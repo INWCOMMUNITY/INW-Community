@@ -36,13 +36,14 @@ describe("resolvePublishSku", () => {
     expect(() => resolvePublishSku({ sku: "HAT-42", itemId: "item-1" })).toThrow(SkuIdentityError);
   });
 
-  it("enforces Etsy 32 and Wix 40", () => {
+  it("rejects SKUs longer than the 32-character canonical join key", () => {
+    expect(() => resolvePublishSku({ sku: "a".repeat(33), itemId: "item-1" })).toThrow(/32/);
     expect(() =>
       resolvePublishSku({ sku: "a".repeat(33), itemId: "item-1", channel: "etsy" })
     ).toThrow(/32/);
     expect(() =>
-      resolvePublishSku({ sku: "a".repeat(41), itemId: "item-1", channel: "wix" })
-    ).toThrow(/40/);
+      resolvePublishSku({ sku: "a".repeat(33), itemId: "item-1", channel: "wix" })
+    ).toThrow(/32/);
   });
 });
 

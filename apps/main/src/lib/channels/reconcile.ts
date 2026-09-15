@@ -21,6 +21,7 @@ import { CHANNEL_PROVIDER_LABELS } from "./provider-ui";
 import { logSellerActivity } from "@/lib/seller-activity-log";
 import { sendPushNotification } from "@/lib/send-push-notification";
 import type { RemoteSale } from "./types";
+import { shouldSkipChannelSync } from "./disconnect-inw-items";
 
 const DEFAULT_LOOKBACK_MS = 1000 * 60 * 60 * 24 * 2; // 2 days
 
@@ -272,6 +273,17 @@ async function reconcileSingleConnection(c: ConnectionRow): Promise<{
   catalogRemoved: number;
   metaUpdated: number;
 }> {
+  const empty = {
+    applied: 0,
+    imported: 0,
+    catalogUpdated: 0,
+    catalogRemoved: 0,
+    metaUpdated: 0,
+  };
+  if (shouldSkipChannelSync(c.status, c.provider)) {
+    return empty;
+  }
+
   let applied = 0;
   let imported = 0;
   let catalogUpdated = 0;

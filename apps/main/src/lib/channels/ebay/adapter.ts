@@ -9,7 +9,7 @@ import type {
 } from "../types";
 import { ebayFulfillmentLineToSale } from "../sale-link";
 import { classifyEbayUpsertResult } from "./upsert-outcome";
-import { EbayApiError, ebayAction, ebayGet, ebayJson, takeEbayCallWarnings } from "./client";
+import { EbayApiError, ebayAction, ebayGet, ebayGetInventoryItem, ebayJson, takeEbayCallWarnings } from "./client";
 import {
   describeEbayThrownError,
   formatEbayErrorDiagnostics,
@@ -135,6 +135,8 @@ import {
   isImportedEbayLink,
 } from "./listing-origin";
 import { resolveEbayLivePushSku } from "./inventory-sku";
+import { hasPendingEbayHubCatchup } from "./hub-catchup";
+import { pushEbayLivePriceQuantity, findEbayOfferForSku } from "./bulk-update-price-quantity";
 import {
   ebayOfferIsPublished,
   pickEbayOffer,
@@ -145,8 +147,12 @@ import {
   shouldSkipEbayInventoryContentPutAtZeroQty,
   shouldSkipEbayUnpublishedZeroQuantitySync,
   shouldWriteEbayOffer,
+  shouldIncludeQtyPriceOnEbayOffer,
+  shouldWriteEbayQtyPriceOnLiveListing,
+  shouldWriteEbayInventoryContentOnUpdate,
   shouldBlockEbayUpdateForMissingAspects,
   shouldFetchTradingItemOnUpsert,
+  readEbayOfferAvailableQuantity,
 } from "./publish-policy";
 import { passthroughUsePreparedInventoryAspects } from "./aspect-prep";
 import {
@@ -394,6 +400,7 @@ async function upsertListing(
       externalListingId: true,
       linkOrigin: true,
       ebayInventoryAspects: true,
+      ebaySkuMap: true,
       lastPushedHash: true,
       lastPushedPhotos: true,
       conflictDetails: true,
@@ -503,7 +510,7 @@ async function upsertListing(
         : null);
     const listingAlreadyLinked = Boolean(liveListingId);
     const hadOfferAtStart = listingAlreadyLinked;
-    operation = listingAlreadyLinked ? "update" : "create";
+    if (listingAlreadyLinked) operation = "update";
 
     const isImported = isImportedEbayLink({
       provider: "ebay",
@@ -677,7 +684,9 @@ async function upsertListing(
           })
         : [];
 
-      const pushInventoryContent = changed.title === true || putInventory;
+      const writeLiveContent = shouldWriteEbayInventoryContentOnUpdate();
+      const pushInventoryContent =
+        writeLiveContent && (changed.title === true || putInventory);
       let inventoryContentPutOk = !pushInventoryContent;
 
       if (
@@ -851,11 +860,13 @@ async function upsertListing(
         inventoryContentPutOk = contentPutOk;
       }
 
-      const pushVariantOffers = passthroughShouldPushVariantOffers({
-        changed,
-        hasVariantRows: variantRows.length > 0,
-        hasSkuPrices: false,
-      });
+      const pushVariantOffers =
+        writeLiveContent &&
+        passthroughShouldPushVariantOffers({
+          changed,
+          hasVariantRows: variantRows.length > 0,
+          hasSkuPrices: false,
+        });
       if (pushVariantOffers && inventoryContentPutOk) {
         if (variantRows.length > 0) {
           let anyOfferPutFailed = false;
@@ -1023,6 +1034,24 @@ async function upsertListing(
         );
         await completeTrace(trace, "failed", error);
         throw error;
+      }
+
+      if (
+        shouldWriteEbayQtyPriceOnLiveListing() &&
+        (changed.quantity || changed.price) &&
+        !(ebayLink && (await hasPendingEbayHubCatchup(ebayLink.id)))
+      ) {
+        await pushEbayLivePriceQuantity({
+          accessToken: conn.accessToken,
+          item,
+          externalListingId: linkExternalId,
+          linkOrigin: ebayLink?.linkOrigin,
+          quantity: item.quantity,
+          priceCents: changed.price ? item.priceCents : null,
+          liveCustomLabel: sku,
+          skuMap: ebayLink?.ebaySkuMap,
+          linkId: ebayLink?.id,
+        });
       }
 
       await completeTrace(trace, "success");
@@ -1223,6 +1252,9 @@ async function upsertListing(
     });
 
     async function pushOfferBody(body: Record<string, unknown>) {
+      if (operation === "update" && !shouldWriteEbayInventoryContentOnUpdate()) {
+        return;
+      }
       if (offerId) {
         await ebayJson(conn.accessToken, `/sell/inventory/v1/offer/${offerId}`, "PUT", body);
         await persistRevisionCount(conn.id, sku, conn.config);
@@ -1312,7 +1344,7 @@ async function upsertListing(
       }
     }
     const offerBody = buildEbayOffer(syncItem, cfg, aspectCategoryId, sku, {
-      includeQtyPrice: operation === "create",
+      includeQtyPrice: shouldIncludeQtyPriceOnEbayOffer(operation),
     });
     const offerStatus =
       (typeof liveOffer?.status === "string" ? liveOffer.status : null) ??
@@ -1546,7 +1578,7 @@ async function upsertListing(
           if (variantListingId) publishedVariantListingId ??= variantListingId;
         }
         const variantOfferBody = buildEbayOffer(variantItem, cfg, aspectCategoryId, row.sku, {
-          includeQtyPrice: operation === "create",
+          includeQtyPrice: shouldIncludeQtyPriceOnEbayOffer(operation),
         });
         const variantOfferStatus =
           typeof variantOffer?.status === "string" ? variantOffer.status : null;
@@ -1732,6 +1764,10 @@ async function upsertListing(
     }
 
     async function pushInventoryWithConditionRetry() {
+      if (operation === "update" && !shouldWriteEbayInventoryContentOnUpdate()) {
+        console.info("[ebay] skip live inventory content PUT", { storeItemId: item.id, sku });
+        return;
+      }
       try {
         await pushInventoryBody(inventoryBody, trace);
       } catch (e) {
@@ -1915,6 +1951,33 @@ async function upsertListing(
         });
     }
 
+    if (
+      operation === "update" &&
+      shouldWriteEbayQtyPriceOnLiveListing() &&
+      !(ebayLink && (await hasPendingEbayHubCatchup(ebayLink.id)))
+    ) {
+      try {
+        await pushEbayLivePriceQuantity({
+          accessToken: conn.accessToken,
+          item: syncItem,
+          externalListingId: linkExternalId,
+          linkOrigin: ebayLink?.linkOrigin,
+          quantity: item.quantity,
+          priceCents: item.priceCents,
+          liveCustomLabel: sku,
+          skuMap: ebayLink?.ebaySkuMap,
+          linkId: ebayLink?.id,
+        });
+      } catch (e) {
+        console.warn("[ebay] live qty/price bulk_update after content upsert failed", {
+          storeItemId: item.id,
+          sku,
+          error: describeEbayThrownError(e),
+        });
+        throw e;
+      }
+    }
+
     await completeTrace(trace, "success");
     return { sku, listingId: publishedListingId };
   } catch (e) {
@@ -2048,8 +2111,29 @@ export const ebayAdapter: ChannelAdapter = {
     return;
   },
 
-  async updateInventory(_conn, _externalListingId, _absoluteQuantity, _item): Promise<void> {
-    return;
+  async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {
+    if (!shouldWriteEbayQtyPriceOnLiveListing()) return;
+    const link = await prisma.channelListingLink.findFirst({
+      where: { provider: "ebay", storeItemId: item.id },
+      select: { id: true, linkOrigin: true, externalListingId: true, ebaySkuMap: true },
+    });
+    if (link && (await hasPendingEbayHubCatchup(link.id))) {
+      console.info("[ebay] skip INW qty push; Hub catch-up pending", {
+        storeItemId: item.id,
+        listingId: externalListingId,
+      });
+      return;
+    }
+    await pushEbayLivePriceQuantity({
+      accessToken: conn.accessToken,
+      item,
+      externalListingId: link?.externalListingId ?? externalListingId,
+      linkOrigin: link?.linkOrigin,
+      quantity: absoluteQuantity,
+      priceCents: item.priceCents,
+      skuMap: link?.ebaySkuMap,
+      linkId: link?.id,
+    });
   },
 
   async listRemoteListings(conn, opts?: { skipPhotoEnrichment?: boolean }): Promise<RemoteListingSummary[]> {
@@ -2105,9 +2189,25 @@ export const ebayAdapter: ChannelAdapter = {
   },
 
   async fetchProductQuantity(
-    _conn,
-    _externalListingId
+    conn,
+    externalListingId
   ): Promise<{ quantity: number; known: boolean }> {
+    const link = await prisma.channelListingLink.findFirst({
+      where: { provider: "ebay", externalListingId },
+      select: { storeItemId: true, linkOrigin: true, storeItem: { select: { sku: true } } },
+    });
+    const sku = await resolveEbayLivePushSku(conn.accessToken, {
+      itemId: link?.storeItemId ?? externalListingId,
+      itemSku: link?.storeItem?.sku,
+      externalListingId,
+      linkOrigin: link?.linkOrigin,
+    });
+    const offer = await findEbayOfferForSku(conn.accessToken, sku);
+    const qty = readEbayOfferAvailableQuantity(offer?.availableQuantity);
+    if (qty != null) return { quantity: qty, known: true };
+    const live = await ebayGetInventoryItem(conn.accessToken, sku);
+    const warehouse = readLiveInventoryAvailableQuantity(live as Record<string, unknown> | null);
+    if (warehouse != null) return { quantity: warehouse, known: true };
     return { quantity: 0, known: false };
   },
 

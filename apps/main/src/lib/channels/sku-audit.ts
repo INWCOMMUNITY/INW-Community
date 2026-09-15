@@ -6,7 +6,6 @@
  */
 
 import {
-  clampEtsySku,
   isCanonicalChannelSku,
   isEbayMigrationSku,
   isGeneratedVariantOfItemId,
@@ -296,7 +295,7 @@ function matchClassForPair(args: {
 }): ChannelMatchClass {
   if (args.remoteIsDuplicate) return "duplicate_remote";
 
-  if (args.provider === "etsy" && args.inwSku && clampEtsySku(args.inwSku) !== args.inwSku) {
+  if (args.provider === "etsy" && args.inwSku && !isCanonicalChannelSku(args.inwSku)) {
     return "etsy_clamp_diff";
   }
 

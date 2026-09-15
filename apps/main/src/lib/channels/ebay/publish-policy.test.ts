@@ -10,6 +10,9 @@ import {
   shouldSkipEbayInventoryContentPutAtZeroQty,
   shouldSkipEbayUnpublishedZeroQuantitySync,
   shouldWriteEbayOffer,
+  shouldIncludeQtyPriceOnEbayOffer,
+  shouldWriteEbayQtyPriceOnLiveListing,
+  shouldWriteEbayInventoryContentOnUpdate,
   shouldBlockEbayUpdateForMissingAspects,
   shouldFetchTradingItemOnUpsert,
   readEbayOfferAvailableQuantity,
@@ -161,6 +164,13 @@ describe("publish-policy", () => {
         offerStatus: "UNPUBLISHED",
       })
     ).toBe(false);
+  });
+
+  it("keeps qty/price off live offer bodies; content and bulk_update stay allowed", () => {
+    expect(shouldIncludeQtyPriceOnEbayOffer("create")).toBe(true);
+    expect(shouldIncludeQtyPriceOnEbayOffer("update")).toBe(false);
+    expect(shouldWriteEbayQtyPriceOnLiveListing()).toBe(true);
+    expect(shouldWriteEbayInventoryContentOnUpdate()).toBe(true);
   });
 
   it("does not block live listing updates for missing Type/Brand", () => {
