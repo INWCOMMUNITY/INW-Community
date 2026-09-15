@@ -982,19 +982,22 @@ export async function refreshEbayListingByItemId(
     const variationCount = tradingMatrix?.skus?.length ?? 0;
     
     // Detect stale GetItem variation data: seller list has correct total, but GetItem variations are stale
-    const trustedHubQty = opts?.sellerListHubQty ?? listingLevelHubQty;
-    const variationsAreStale = trustedHubQty != null && variationCount > 0 && trustedHubQty !== variationQtySum;
-    const perVariationQty = variationsAreStale && variationCount > 0
-      ? Math.floor(trustedHubQty / variationCount)
+    // IMPORTANT: Only trust seller list when it shows LESS than GetItem (stock reduced).
+    // If seller list shows MORE, it might be counting sold items or original qty - trust GetItem instead.
+    const sellerListHubQty = opts?.sellerListHubQty ?? null;
+    const sellerListShowsLess = sellerListHubQty != null && sellerListHubQty < variationQtySum;
+    const variationsAreStale = sellerListShowsLess && variationCount > 0;
+    const perVariationQty = variationsAreStale
+      ? Math.floor(sellerListHubQty / variationCount)
       : null;
     
     console.info("[ebay] catch-up qty comparison: listing-level vs variation sum", {
       storeItemId: storeItem.id,
-      sellerListHubQty: opts?.sellerListHubQty,
+      sellerListHubQty,
       listingLevelHubQty,
-      trustedHubQty,
       variationQtySum,
       variationCount,
+      sellerListShowsLess,
       variationsAreStale,
       perVariationQty,
     });
@@ -1112,8 +1115,11 @@ export async function refreshEbayListingByItemId(
   // Pass title for keyword-based subcategory inference
   const resolvedCat = await resolveInwCategoryFromEbayPath(details.categoryName ?? null, remoteTitle);
   const hubQty = ebaySellerHubListedQuantity(details);
-  // Prefer seller list qty when available (it's fresher than GetItem for variations)
-  const remoteQty = opts?.sellerListHubQty ?? hubQty ?? details.quantity ?? storeItem.quantity;
+  // Only use seller list qty when it's LESS than GetItem (stock reduced, GetItem stale)
+  // If seller list is higher, it might include sold items - trust GetItem instead
+  const getItemQty = hubQty ?? details.quantity ?? storeItem.quantity;
+  const sellerListQtyIsLower = opts?.sellerListHubQty != null && opts.sellerListHubQty < getItemQty;
+  const remoteQty = sellerListQtyIsLower ? opts.sellerListHubQty : getItemQty;
   const remotePrice =
     details.priceCents != null && details.priceCents > 0
       ? details.priceCents
@@ -1224,8 +1230,8 @@ export async function refreshEbayListingByItemId(
     }
   }
 
-  // For listing-level qty, prefer seller list when available (fresher than GetItem for variation listings)
-  const applyQty = opts?.sellerListHubQty ?? hubQty;
+  // For listing-level qty, only use seller list when it's LESS than GetItem (stock reduced)
+  const applyQty = sellerListQtyIsLower ? opts?.sellerListHubQty : hubQty;
   if (
     !opts?.skipQuantity &&
     !skipContent &&
@@ -1261,28 +1267,40 @@ export async function refreshEbayListingByItemId(
       remoteQtyMatrix.skus.every((s) => !s.sku?.trim())
   );
   
-  // Detect stale GetItem variation data: seller list has correct total, but GetItem variations sum differently
-  const sellerListHubQty = opts?.sellerListHubQty ?? null;
-  const variationQtySum = remoteQtyMatrix?.skus?.reduce((sum, s) => sum + (s.quantity ?? 0), 0) ?? 0;
-  const variationCount = remoteQtyMatrix?.skus?.length ?? 0;
-  const getItemVariationsAreStale = sellerListHubQty != null && variationCount > 0 && sellerListHubQty !== variationQtySum;
-  
-  if (getItemVariationsAreStale && remoteQtyMatrix && sellerListHubQty != null) {
-    // Trust seller list qty and distribute evenly across variations
-    const perVariationQty = Math.floor(sellerListHubQty / variationCount);
-    console.info("[ebay] refreshEbayListingByItemId: GetItem variations stale, using seller list qty", {
-      storeItemId: storeItem.id,
-      legacyItemId,
-      sellerListHubQty,
-      variationQtySum,
-      variationCount,
-      perVariationQty,
-    });
-    remoteQtyMatrix = {
-      ...remoteQtyMatrix,
-      skus: remoteQtyMatrix.skus.map((s) => ({ ...s, quantity: perVariationQty })),
-    };
-  }
+    // Detect stale GetItem variation data: seller list has correct total, but GetItem variations sum differently
+    // IMPORTANT: Only trust seller list when it shows LESS than GetItem (stock reduced).
+    // If seller list shows MORE, it might be counting sold items or original qty - trust GetItem instead.
+    const sellerListHubQty = opts?.sellerListHubQty ?? null;
+    const variationQtySum = remoteQtyMatrix?.skus?.reduce((sum, s) => sum + (s.quantity ?? 0), 0) ?? 0;
+    const variationCount = remoteQtyMatrix?.skus?.length ?? 0;
+    const sellerListShowsLess = sellerListHubQty != null && sellerListHubQty < variationQtySum;
+    const getItemVariationsAreStale = sellerListShowsLess && variationCount > 0;
+    
+    if (getItemVariationsAreStale && remoteQtyMatrix && sellerListHubQty != null) {
+      // Trust seller list qty and distribute evenly across variations
+      const perVariationQty = Math.floor(sellerListHubQty / variationCount);
+      console.info("[ebay] refreshEbayListingByItemId: GetItem variations stale, using seller list qty", {
+        storeItemId: storeItem.id,
+        legacyItemId,
+        sellerListHubQty,
+        variationQtySum,
+        variationCount,
+        perVariationQty,
+        reason: "seller list < GetItem sum",
+      });
+      remoteQtyMatrix = {
+        ...remoteQtyMatrix,
+        skus: remoteQtyMatrix.skus.map((s) => ({ ...s, quantity: perVariationQty })),
+      };
+    } else if (sellerListHubQty != null && sellerListHubQty !== variationQtySum) {
+      console.info("[ebay] refreshEbayListingByItemId: seller list differs but trusting GetItem", {
+        storeItemId: storeItem.id,
+        legacyItemId,
+        sellerListHubQty,
+        variationQtySum,
+        reason: "seller list > GetItem sum (likely stale seller list)",
+      });
+    }
   
   let overlayQtyMatrix = remoteQtyMatrix;
   if (hubRowsLackSkus && mapped && inwMatrix) {
