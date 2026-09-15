@@ -62,9 +62,10 @@ import {
 } from "./inventory-groups";
 import {
   emptyOfferFulfillmentIndex,
-  listEbayOfferFulfillmentPolicies,
+  indexOfferFulfillmentPolicies,
+  listEbayOffers,
   listInventoryItems,
-  mergeInventoryRowsWithTrading,
+  mergeLiveEbayImportListings,
   resolveEbayListingFulfillmentPolicyId,
 } from "./inventory-import";
 import {
@@ -133,8 +134,8 @@ import {
   ebayExternalIdLooksLive,
   extractEbayInventoryAspects,
   isImportedEbayLink,
-  resolveEbayPushSku,
 } from "./listing-origin";
+import { resolveEbayLivePushSku } from "./inventory-sku";
 import {
   ebayOfferIsPublished,
   pickEbayOffer,
@@ -431,7 +432,7 @@ async function upsertListing(
     },
   });
   const linkExternalId = linkedSku ?? ebayLink?.externalListingId ?? item.id;
-  const sku = resolveEbayPushSku({
+  const sku = await resolveEbayLivePushSku(conn.accessToken, {
     itemId: item.id,
     itemSku: item.sku,
     externalListingId: linkExternalId,
@@ -2246,7 +2247,7 @@ export const ebayAdapter: ChannelAdapter = {
       where: { connectionId: conn.id, provider: "ebay", externalListingId },
       select: { linkOrigin: true, storeItemId: true, storeItem: { select: { sku: true } } },
     });
-    const sku = resolveEbayPushSku({
+    const sku = await resolveEbayLivePushSku(conn.accessToken, {
       itemId: link?.storeItemId ?? externalListingId,
       itemSku: link?.storeItem?.sku,
       externalListingId,
@@ -2313,7 +2314,7 @@ export const ebayAdapter: ChannelAdapter = {
       });
       return;
     }
-    const inventorySku = resolveEbayPushSku({
+    const inventorySku = await resolveEbayLivePushSku(conn.accessToken, {
       itemId: item.id,
       itemSku: item.sku,
       externalListingId,
@@ -2436,23 +2437,25 @@ export const ebayAdapter: ChannelAdapter = {
       });
       return [];
     });
-    const listings = mergeInventoryRowsWithTrading(tradingListings, inventoryRows);
-    const invBySku = new Map(
-      inventoryRows
-        .filter((row) => row.sku?.trim())
-        .map((row) => [row.sku!.trim(), row] as const)
-    );
-    const offerIndex = await listEbayOfferFulfillmentPolicies(conn.accessToken, {
+    const offers = await listEbayOffers(conn.accessToken, {
       fallbackSkus: [
         ...inventoryRows.map((row) => row.sku),
         ...tradingListings.map((row) => row.sku),
       ].filter((sku): sku is string => Boolean(sku?.trim())),
     }).catch((e) => {
-      console.warn("[ebay] listEbayOfferFulfillmentPolicies failed during import", {
+      console.warn("[ebay] listEbayOffers failed during import", {
         error: e instanceof Error ? e.message : String(e),
       });
-      return emptyOfferFulfillmentIndex();
+      return [];
     });
+    const listings = mergeLiveEbayImportListings(tradingListings, offers, inventoryRows);
+    const invBySku = new Map(
+      inventoryRows
+        .filter((row) => row.sku?.trim())
+        .map((row) => [row.sku!.trim(), row] as const)
+    );
+    const offerIndex =
+      offers.length > 0 ? indexOfferFulfillmentPolicies(offers) : emptyOfferFulfillmentIndex();
     return listings.map((l) => {
       const inv = l.sku?.trim() ? invBySku.get(l.sku.trim()) : undefined;
       return ebayListingToSummary({

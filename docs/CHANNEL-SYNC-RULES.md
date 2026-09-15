@@ -16,8 +16,8 @@
 | **Links, not copies** | `ChannelListingLink` ties one INW item to one external listing per provider. Sync only runs when `syncEnabled: true`. |
 | **Adapter contract** | Each provider implements `ChannelAdapter` in `types.ts`: OAuth, CRUD listings, inventory, import list, sales poll, optional webhooks. |
 | **Best-effort outbound** | Push failures are stored on the link (`syncStatus: "error"`, `syncError`) and logged — they must **not** crash the seller flow. |
-| **Disconnect ≠ delete** | Disconnecting a channel stops sync; external listings stay on the marketplace. **Remove listing** in INW triggers `deleteListing`. |
-| **SKU join key** | INW owns one alphanumeric SKU per sellable unit. If the seller leaves it blank, INW mints a hub key (`nwc…`) on save/import/publish and copies that same string onto every channel. Live eBay Inventory SKUs are pinned as-is. Never publish `StoreItem.id`. Locators stay on `ChannelListingLink.externalListingId` (and Shopify/Wix variant ids). |
+| **Disconnect ≠ delete marketplace listings** | Disconnecting a channel unregisters INW webhooks/notifications, deletes `ChannelListingLink` rows for that store (retries cascade), and wipes tokens. External listings stay on the marketplace. **Remove listing** in INW triggers `deleteListing`. |
+| **SKU join key** | INW owns one alphanumeric SKU per sellable unit. If the seller leaves it blank, INW mints a hub key (`nwc…`) on save/import/publish and copies that same string onto every channel. Live eBay Inventory SKUs are pinned as-is. eBay Inventory API addressing (qty push + Hub catch-up) prefers the live pin — GetItem Custom Label, then historical `StoreItem.id` for INW-created listings — over a later hub mint, so View Item `offer.availableQuantity` updates after a Seller Hub revise. Never publish `StoreItem.id` as a new join key. Locators stay on `ChannelListingLink.externalListingId` (and Shopify/Wix variant ids). |
 
 ---
 
@@ -426,7 +426,7 @@ These caused the Wix “finicky” bugs:
 - **Form pickers:** SELECTION_ONLY aspects use dropdowns; MULTI aspects accept comma-separated values. Required flags come from Taxonomy API.
 - **Business policies:** sellers choose fulfillment/payment/return policies + merchant location via Sync Stores (`GET/PATCH /api/channels/ebay/policies`). Per-listing `shippingCostCents` in INW is storefront-only — eBay uses the selected fulfillment policy.
 - **Scope:** US marketplace, fixed-price listings only. Single variant axis outbound; per-variation pricing not synced.
-- **Import scale:** GetMyeBaySelling paginates up to ~2000 active listings (20 × 100).
+- **Import scale:** GetMyeBaySelling paginates up to ~2000 active listings (20 × 100). Import/reconcile does **not** treat leftover Inventory SKUs as listings — ended tests, unpublished drafts, and each variation SKU stay in `inventory_item` after the live Item is gone. Only ActiveList rows plus **published** offers that still have a numeric Item ID appear.
 - **Diagnose:** `GET /api/channels/ebay/diagnose?storeItemId=` includes taxonomy remap preview for INW-created listings; `passthroughDebug` (live vs stored vs cached aspects) for imports. See `docs/EBAY-PASSTHROUGH-SYNC.md`.
 
 ### Meta reconcile

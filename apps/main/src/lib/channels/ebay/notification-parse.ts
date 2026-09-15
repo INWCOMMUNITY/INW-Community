@@ -48,9 +48,9 @@ export function isEbayReviseNotification(eventType: string | null): boolean {
 }
 
 /**
- * Listing revises must not GetItem/catch-up/write offers. That webhook runs in the
- * same second as Seller Hub "Revise" and is what immediately overwrites quantity.
- * Sales still reconcile via orders; listing inbound is cron-only, like Etsy.
+ * Immediate GetItem/write on a listing revise races Seller Hub Revise.
+ * The webhook delays Hub→offer catch-up on a separate path; this helper stays
+ * false for revises so the generic pull does not run in the same second.
  */
 export function ebayWebhookShouldPullListing(eventType: string | null): boolean {
   if (isEbaySaleNotification(eventType)) return false;

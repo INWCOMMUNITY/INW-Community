@@ -4,6 +4,7 @@
  */
 
 import { isGeneratedVariantOfItemId } from "@/lib/listing-sku";
+import { isHubMintedJoinKey } from "../sku-identity";
 import { isValidEbayInventorySku } from "./migrate-prep";
 
 export type EbayLinkOrigin = "import" | "inw_create";
@@ -57,17 +58,24 @@ function sellerSkuForEbayInventory(
   return candidate;
 }
 
-/**
- * SKU for Inventory API addressing of an existing listing.
- * New publishes must use resolvePublishSku — this fallback to StoreItem.id only
- * locates Inventory items that were already created with that pin.
- */
-export function resolveEbayPushSku(args: {
+export type EbayPushSkuArgs = {
   itemId: string;
   itemSku?: string | null;
   externalListingId: string;
   linkOrigin?: string | null;
-}): string {
+  /** GetItem `<SKU>` / live Custom Label when already fetched. */
+  liveCustomLabel?: string | null;
+};
+
+/**
+ * SKU for Inventory API addressing of an existing listing.
+ * New publishes must use resolvePublishSku — this fallback to StoreItem.id only
+ * locates Inventory items that were already created with that pin.
+ *
+ * A later hub mint (`nwc…`) on StoreItem.sku must not win over the live pin.
+ * Use `ebayInventorySkuCandidates` + live offer lookup for qty push/catch-up.
+ */
+export function resolveEbayPushSku(args: EbayPushSkuArgs): string {
   if (args.linkOrigin === "inw_create") {
     return sellerSkuForEbayInventory(args.itemSku, args.itemId) ?? args.itemId;
   }
@@ -78,6 +86,46 @@ export function resolveEbayPushSku(args: {
     return sellerSkuForEbayInventory(args.itemSku, args.itemId) ?? args.itemId;
   }
   return resolveEbayInventorySku(args.externalListingId);
+}
+
+/**
+ * Inventory SKUs to probe for a live listing. Hub-minted join keys come last on
+ * INW-created listings that already have a numeric Item ID, so qty writes hit
+ * `inventory_item/{StoreItem.id}` (the historical pin) instead of a ghost `nwc…`.
+ */
+export function ebayInventorySkuCandidates(args: EbayPushSkuArgs): string[] {
+  const out: string[] = [];
+  const add = (raw: string | null | undefined) => {
+    const sku = raw?.trim();
+    if (!sku || !isValidEbayInventorySku(sku) || out.includes(sku)) return;
+    out.push(sku);
+  };
+
+  add(args.liveCustomLabel);
+
+  const created = isInwCreatedEbayLink({
+    provider: "ebay",
+    externalListingId: args.externalListingId,
+    storeItemId: args.itemId,
+    linkOrigin: args.linkOrigin,
+  });
+  const live = ebayExternalIdLooksLive(args.externalListingId);
+  const primary = resolveEbayPushSku(args);
+  const seller = sellerSkuForEbayInventory(args.itemSku, args.itemId);
+
+  if (created && live) {
+    add(args.itemId);
+    if (seller && !isHubMintedJoinKey(seller)) add(seller);
+    add(primary);
+    return out;
+  }
+
+  add(primary);
+  if (created) add(args.itemId);
+  else add(resolveEbayInventorySku(args.externalListingId));
+  add(seller);
+  add(args.itemSku);
+  return out;
 }
 
 /** True when the listing was imported from eBay (migrated SKU inw{legacyId}). */

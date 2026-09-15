@@ -1,3 +1,4 @@
+import { waitUntil } from "@vercel/functions";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import {
@@ -18,6 +19,7 @@ import { getBaseUrl } from "@/lib/get-base-url";
 import {
   isEbayClosedNotification,
   isEbayRelevantNotification,
+  isEbayReviseNotification,
   isEbaySaleNotification,
   ebayWebhookShouldPullListing,
   parseEbayNotificationBody,
@@ -26,6 +28,7 @@ import {
   recordEbayWebhookHit,
   recordEbayWebhookReceipt,
 } from "@/lib/channels/ebay/notifications-setup";
+import { EBAY_HUB_OFFER_CATCHUP_DELAY_MS } from "@/lib/channels/ebay/variant-qty-catchup";
 import {
   logWebhookEvent,
   markWebhookProcessing,
@@ -49,9 +52,9 @@ async function findConnectionByEbayUserId(ebayUserId: string) {
 /**
  * eBay Platform Notifications + Commerce Notification receiver.
  *
- * Sale events poll orders (never apply XML qty). Listing revises are ignored here
- * so INW does not write the live offer in the same second as a Seller Hub qty edit.
- * Closed listings still GetItem. Title/price XML postcard is unused for revises.
+ * Sale events poll orders (never apply XML qty). Listing revises ack immediately
+ * then catch up Hub qty onto the live offer after a short delay so we do not
+ * write in the same second as Seller Hub Revise. Closed listings still GetItem.
  */
 export async function POST(req: NextRequest) {
   void recordEbayWebhookHit("post-received");
@@ -203,8 +206,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, processed: true, itemId, eventType });
     }
 
+    if (isEbayReviseNotification(eventType)) {
+      const accessToken = ctx.accessToken;
+      const delayedItemId = itemId;
+      waitUntil(
+        (async () => {
+          await new Promise((resolve) => setTimeout(resolve, EBAY_HUB_OFFER_CATCHUP_DELAY_MS));
+          try {
+            const result = await refreshEbayListingByItemId(accessToken, delayedItemId, {
+              skipContent: true,
+              source: "webhook",
+            });
+            console.log("[ebay webhook] delayed Hub qty catch-up", {
+              itemId: delayedItemId,
+              eventType,
+              updated: result?.updated ?? false,
+              changes: result?.changes ?? [],
+            });
+          } catch (e) {
+            console.warn("[ebay webhook] delayed Hub qty catch-up failed", {
+              itemId: delayedItemId,
+              eventType,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+        })()
+      );
+      await markWebhookCompleted(webhookEventId);
+      return NextResponse.json({
+        ok: true,
+        processed: true,
+        deferred: "hub_qty_catchup",
+        itemId,
+        eventType,
+      });
+    }
+
     if (!ebayWebhookShouldPullListing(eventType)) {
-      console.log("[ebay webhook] listing revise ignored; cron-only inbound", {
+      console.log("[ebay webhook] listing event skipped", {
         itemId,
         eventType,
       });
@@ -212,7 +251,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ok: true,
         processed: true,
-        skipped: "listing_revise_cron_only",
+        skipped: "listing_event_skipped",
         itemId,
         eventType,
       });

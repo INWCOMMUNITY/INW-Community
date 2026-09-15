@@ -16,7 +16,7 @@ import {
 } from "./trading";
 export { ebayInwPushedRecently, EBAY_TRADING_PUSH_ECHO_MS };
 import { resolveEbayLegacyListingId } from "./mapping";
-import { resolveEbayPushSku } from "./listing-origin";
+import { resolveEbayLivePushSku } from "./inventory-sku";
 import {
   ebayNotificationPostcardWrites,
   ebayPostcardDiffersFromStoreItem,
@@ -990,8 +990,9 @@ export async function refreshEbayListingByItemId(
   await clearRemoteDeletedNoticeIfSet(link.id, conflictDetails);
 
   let liveQtyCatchUp: EbayLiveQtyCatchUp | null = null;
-  if (!opts?.skipQuantity && opts?.source !== "webhook") {
+  if (!opts?.skipQuantity) {
     try {
+      const retryIfUnchangedMs = opts?.source === "webhook" ? 5_000 : 0;
       if (hasOptionQuantities(storeItem.variants)) {
         const catchUpMatrix = normalizeVariantMatrix(storeItem.variants);
         if (catchUpMatrix) {
@@ -1001,14 +1002,16 @@ export async function refreshEbayListingByItemId(
             tradingMatrix: normalizeVariantMatrix(details.tradingVariants ?? details.variants),
             tradingListingQuantity: details.tradingQuantity ?? details.quantity,
             inwPushedRecently: ebayInwPushedRecently(link.lastPushedAt),
+            retryIfUnchangedMs,
           });
         }
       } else {
-        const sku = resolveEbayPushSku({
+        const sku = await resolveEbayLivePushSku(accessToken, {
           itemId: storeItem.id,
           itemSku: storeItem.sku,
           externalListingId: link.externalListingId,
           linkOrigin: link.linkOrigin,
+          liveCustomLabel: details.sku,
         });
         if (sku) {
           const tradingQty = details.tradingQuantity ?? details.quantity ?? storeItem.quantity;
@@ -1018,6 +1021,7 @@ export async function refreshEbayListingByItemId(
             tradingMatrix: ebaySingleSkuQtyMatrix(sku, tradingQty),
             tradingListingQuantity: details.tradingQuantity ?? details.quantity,
             inwPushedRecently: ebayInwPushedRecently(link.lastPushedAt),
+            retryIfUnchangedMs,
           });
         }
       }

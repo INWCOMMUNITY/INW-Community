@@ -53,12 +53,18 @@ function randomAlphanumeric(length: number): string {
   return out;
 }
 
+export const HUB_JOIN_KEY_RE = /^nwc[a-zA-Z0-9]{10}$/;
+
+export function isHubMintedJoinKey(sku: string | null | undefined): boolean {
+  return HUB_JOIN_KEY_RE.test((sku ?? "").trim());
+}
+
 /** Hub-owned join key. Not StoreItem.id, not a per-channel generator. */
 export function mintJoinKeySku(used: Set<string>): string {
   for (let attempt = 0; attempt < 64; attempt++) {
     const sku = `nwc${randomAlphanumeric(10)}`;
     const key = sku.toLowerCase();
-    if (!used.has(key)) {
+    if (!used.has(key) && isHubMintedJoinKey(sku)) {
       used.add(key);
       return sku;
     }

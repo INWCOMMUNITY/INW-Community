@@ -3,6 +3,7 @@ import {
   chooseEbayLiveListingQuantity,
   ebayContentPushShouldWriteVariantQuantities,
   ebaySingleSkuQtyMatrix,
+  liveEbayInventorySkuCandidatesForCatchUpRow,
 } from "./variant-qty-catchup";
 import { variantsStructureQtyFingerprint } from "../variant-sync";
 
@@ -12,7 +13,7 @@ const variants = {
 };
 
 describe("chooseEbayLiveListingQuantity", () => {
-  it("does not copy warehouse over Hub that already matches View Item", () => {
+  it("copies Hub warehouse onto View Item when the offer still equals INW", () => {
     expect(
       chooseEbayLiveListingQuantity({
         tradingQty: 4,
@@ -20,10 +21,10 @@ describe("chooseEbayLiveListingQuantity", () => {
         offerQty: 4,
         inwQty: 4,
       })
-    ).toEqual({ quantity: 4, source: "offer", writeOffers: false });
+    ).toEqual({ quantity: 9, source: "inventory", writeOffers: true });
   });
 
-  it("copies Seller Hub Trading onto View Item when the offer still shows the old qty", () => {
+  it("does not copy an INW echo over an offer that already moved off INW", () => {
     expect(
       chooseEbayLiveListingQuantity({
         tradingQty: 3,
@@ -31,10 +32,10 @@ describe("chooseEbayLiveListingQuantity", () => {
         offerQty: 1,
         inwQty: 3,
       })
-    ).toEqual({ quantity: 3, source: "trading", writeOffers: true });
+    ).toEqual({ quantity: 1, source: "offer", writeOffers: false });
   });
 
-  it("copies Seller Hub Trading onto the offer when warehouse and offer both drifted", () => {
+  it("copies Hub warehouse onto View Item when the offer moved off INW but warehouse disagrees", () => {
     expect(
       chooseEbayLiveListingQuantity({
         tradingQty: 3,
@@ -42,10 +43,10 @@ describe("chooseEbayLiveListingQuantity", () => {
         offerQty: 5,
         inwQty: 3,
       })
-    ).toEqual({ quantity: 3, source: "trading", writeOffers: true });
+    ).toEqual({ quantity: 7, source: "inventory", writeOffers: true });
   });
 
-  it("copies Seller Hub Trading onto View Item when warehouse already matches the offer", () => {
+  it("does not copy lagged Trading over View Item that already shows Hub warehouse", () => {
     expect(
       chooseEbayLiveListingQuantity({
         tradingQty: 4,
@@ -53,7 +54,7 @@ describe("chooseEbayLiveListingQuantity", () => {
         offerQty: 9,
         inwQty: 4,
       })
-    ).toEqual({ quantity: 4, source: "trading", writeOffers: true });
+    ).toEqual({ quantity: 9, source: "offer", writeOffers: false });
   });
 
   it("writes a simple-listing Seller Hub qty onto the live offer", () => {
@@ -72,6 +73,18 @@ describe("chooseEbayLiveListingQuantity", () => {
       chooseEbayLiveListingQuantity({
         tradingQty: 9,
         inventoryQty: 4,
+        offerQty: 4,
+        inwQty: 4,
+        inwPushedRecently: true,
+      })
+    ).toEqual({ quantity: 4, source: "offer", writeOffers: false });
+  });
+
+  it("does not copy Hub warehouse over View Item that already matches a recent INW push", () => {
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 4,
+        inventoryQty: 9,
         offerQty: 4,
         inwQty: 4,
         inwPushedRecently: true,
@@ -136,7 +149,7 @@ describe("chooseEbayLiveListingQuantity", () => {
     ).toEqual({ quantity: 5, source: "offer", writeOffers: false });
   });
 
-  it("seeds the offer from Seller Hub Trading when offer qty is missing", () => {
+  it("seeds the offer from Hub warehouse when offer qty is unread", () => {
     expect(
       chooseEbayLiveListingQuantity({
         tradingQty: 4,
@@ -144,7 +157,19 @@ describe("chooseEbayLiveListingQuantity", () => {
         offerQty: null,
         inwQty: 4,
       })
-    ).toEqual({ quantity: 4, source: "trading", writeOffers: true });
+    ).toEqual({ quantity: 9, source: "inventory", writeOffers: true });
+  });
+
+  it("writes Hub Trading onto a live offer id when warehouse qty is unread", () => {
+    expect(
+      chooseEbayLiveListingQuantity({
+        tradingQty: 5,
+        inventoryQty: null,
+        offerQty: null,
+        inwQty: 1,
+        canWriteOffers: true,
+      })
+    ).toEqual({ quantity: 5, source: "trading", writeOffers: true });
   });
 
   it("never writes Trading onto the offer when inventory and offer are missing", () => {
@@ -158,7 +183,7 @@ describe("chooseEbayLiveListingQuantity", () => {
     ).toEqual({ quantity: 9, source: "trading", writeOffers: false });
   });
 
-  it("does not copy warehouse over Hub when INW still matches View Item", () => {
+  it("copies Hub warehouse onto the offer when Trading still matches INW", () => {
     expect(
       chooseEbayLiveListingQuantity({
         tradingQty: 1,
@@ -166,7 +191,7 @@ describe("chooseEbayLiveListingQuantity", () => {
         offerQty: 1,
         inwQty: 1,
       })
-    ).toEqual({ quantity: 1, source: "offer", writeOffers: false });
+    ).toEqual({ quantity: 5, source: "inventory", writeOffers: true });
   });
 
   it("does not write the offer when every surface already matches INW", () => {
@@ -254,5 +279,28 @@ describe("ebaySingleSkuQtyMatrix", () => {
       axes: [],
       skus: [{ sku: "inw404516850572", options: {}, quantity: 5 }],
     });
+  });
+});
+
+describe("liveEbayInventorySkuCandidatesForCatchUpRow", () => {
+  it("prefers the live GetItem Custom Label over a hub-minted INW SKU", () => {
+    expect(
+      liveEbayInventorySkuCandidatesForCatchUpRow(
+        { sku: "nwcAbCdEfGh12", options: { Size: "S" } },
+        {
+          axes: [],
+          skus: [{ sku: "cmsz85hpj0001ahwfa2pmvtun", options: { Size: "S" }, quantity: 9 }],
+        }
+      )
+    ).toEqual(["cmsz85hpj0001ahwfa2pmvtun", "nwcAbCdEfGh12"]);
+  });
+
+  it("keeps the INW SKU when GetItem has no Custom Label", () => {
+    expect(
+      liveEbayInventorySkuCandidatesForCatchUpRow(
+        { sku: "HAT42", options: {} },
+        { axes: [], skus: [{ sku: null, options: {}, quantity: 4 }] }
+      )
+    ).toEqual(["HAT42"]);
   });
 });

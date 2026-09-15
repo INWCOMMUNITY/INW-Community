@@ -6,7 +6,7 @@
 import type { ChannelConnectionContext, ChannelProvider, RemoteListingSummary, SyncStoreItem } from "./types";
 import { fetchEbayItemDetails } from "./ebay/trading";
 import { resolveEbayLegacyListingId, resolveSyncLegacyListingId } from "./ebay/mapping";
-import { resolveEbayPushSku } from "./ebay/listing-origin";
+import { ebayInventorySkuCandidates } from "./ebay/listing-origin";
 import { buildVariantInventoryRows } from "./ebay/inventory-groups";
 import { enrichEtsyListingSummaryWithInventory } from "./etsy/variants";
 import { setEtsyConnectionContext } from "./etsy/client";
@@ -43,14 +43,12 @@ export function expectedEbayPushSkus(
   } catch {
     /* combo rows missing — fall through to parent push SKU */
   }
-  return [
-    resolveEbayPushSku({
-      itemId: item.id,
-      itemSku: item.sku,
-      externalListingId: link.externalListingId,
-      linkOrigin: link.linkOrigin,
-    }),
-  ];
+  return ebayInventorySkuCandidates({
+    itemId: item.id,
+    itemSku: item.sku,
+    externalListingId: link.externalListingId,
+    linkOrigin: link.linkOrigin,
+  });
 }
 
 async function hydrateEbay(

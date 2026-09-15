@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { inventoryRowToTradingListing, mergeInventoryRowsWithTrading, indexOfferFulfillmentPolicies, resolveEbayListingFulfillmentPolicyId } from "./inventory-import";
+import {
+  inventoryRowToTradingListing,
+  mergeLiveEbayImportListings,
+  indexOfferFulfillmentPolicies,
+  liveEbayOfferShouldAppearInImport,
+  resolveEbayListingFulfillmentPolicyId,
+} from "./inventory-import";
 
 describe("inventoryRowToTradingListing", () => {
   it("maps inventory rows into importable listing rows", () => {
@@ -18,14 +24,76 @@ describe("inventoryRowToTradingListing", () => {
   });
 });
 
-describe("mergeInventoryRowsWithTrading", () => {
-  it("adds inventory-only SKUs without duplicating Trading rows", () => {
-    const merged = mergeInventoryRowsWithTrading(
-      [{ listingId: "123", title: "A", priceCents: 100, quantity: 1, photos: [], sku: "sku-a" }],
-      [{ sku: "sku-a" }, { sku: "sku-b", product: { title: "B" } }]
+describe("liveEbayOfferShouldAppearInImport", () => {
+  it("requires a published offer with a numeric Item ID", () => {
+    expect(liveEbayOfferShouldAppearInImport({ status: "PUBLISHED", listingId: "123" })).toBe(true);
+    expect(liveEbayOfferShouldAppearInImport({ status: "UNPUBLISHED", listingId: "123" })).toBe(
+      false
     );
-    expect(merged).toHaveLength(2);
-    expect(merged.map((row) => row.sku)).toEqual(["sku-a", "sku-b"]);
+    expect(liveEbayOfferShouldAppearInImport({ status: "PUBLISHED", listingId: "nwcABC123" })).toBe(
+      false
+    );
+    expect(liveEbayOfferShouldAppearInImport({ status: "PUBLISHED", listingId: null })).toBe(false);
+  });
+});
+
+describe("mergeLiveEbayImportListings", () => {
+  it("does not add leftover inventory SKUs that are not live listings", () => {
+    const merged = mergeLiveEbayImportListings(
+      [{ listingId: "123", title: "A", priceCents: 100, quantity: 1, photos: [], sku: "sku-a" }],
+      [{ sku: "sku-b", status: "UNPUBLISHED", listingId: null }],
+      [
+        { sku: "sku-a" },
+        {
+          sku: "sku-b",
+          product: { title: "Ended test listing" },
+          availability: { shipToLocationAvailability: { quantity: 4 } },
+        },
+      ]
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.listingId).toBe("123");
+  });
+
+  it("adds a published offer only when ActiveList missed the live Item ID", () => {
+    const merged = mergeLiveEbayImportListings(
+      [{ listingId: "123", title: "A", priceCents: 100, quantity: 1, photos: [], sku: "sku-a" }],
+      [
+        { sku: "sku-b", status: "PUBLISHED", listingId: "456", priceCents: 250 },
+        { sku: "sku-c", status: "PUBLISHED", listingId: "456", priceCents: 250 },
+      ],
+      [{ sku: "sku-b", product: { title: "Inventory-only live" } }]
+    );
+    expect(merged.map((row) => row.listingId)).toEqual(["123", "456"]);
+    expect(merged[1]).toMatchObject({
+      listingId: "456",
+      title: "Inventory-only live",
+      priceCents: 250,
+      sku: "sku-b",
+    });
+  });
+
+  it("does not explode a variation listing into one import row per SKU", () => {
+    const merged = mergeLiveEbayImportListings(
+      [
+        {
+          listingId: "999",
+          title: "Clock",
+          priceCents: 250,
+          quantity: 12,
+          photos: [],
+          sku: "parent",
+        },
+      ],
+      [
+        { sku: "v1", status: "PUBLISHED", listingId: "999" },
+        { sku: "v2", status: "PUBLISHED", listingId: "999" },
+        { sku: "v3", status: "PUBLISHED", listingId: "999" },
+      ],
+      [{ sku: "v1" }, { sku: "v2" }, { sku: "v3" }]
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.listingId).toBe("999");
   });
 });
 

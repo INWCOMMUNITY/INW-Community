@@ -2,12 +2,21 @@ import { describe, expect, it } from "vitest";
 import {
   adoptPinnedEbaySku,
   ensureSellableSkus,
+  isHubMintedJoinKey,
   matchAllowsChannelWrite,
   requireSellableSkusForPublish,
   resolvePublishSku,
   SkuIdentityError,
   skusExact,
 } from "./sku-identity";
+
+describe("isHubMintedJoinKey", () => {
+  it("matches nwc plus 10 alphanumeric chars", () => {
+    expect(isHubMintedJoinKey("nwcAbCdEfGh12")).toBe(true);
+    expect(isHubMintedJoinKey("HAT42")).toBe(false);
+    expect(isHubMintedJoinKey("nwcshort")).toBe(false);
+  });
+});
 
 describe("resolvePublishSku", () => {
   it("returns a join-key SKU unchanged", () => {

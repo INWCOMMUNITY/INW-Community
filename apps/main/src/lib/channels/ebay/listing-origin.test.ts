@@ -7,6 +7,7 @@ import {
   ebayExternalIdLooksLive,
   resolveEbayInventorySku,
   resolveEbayPushSku,
+  ebayInventorySkuCandidates,
 } from "./listing-origin";
 
 describe("listing-origin", () => {
@@ -104,6 +105,51 @@ describe("listing-origin", () => {
         linkOrigin: "inw_create",
       })
     ).toBe("HAT42");
+  });
+
+  it("probes StoreItem.id before a hub mint on a live INW-created listing", () => {
+    expect(
+      ebayInventorySkuCandidates({
+        itemId: "cmsz85hpj0001ahwfa2pmvtun",
+        itemSku: "nwcAbCdEfGh12",
+        externalListingId: "403004607151",
+        linkOrigin: "inw_create",
+      })
+    ).toEqual(["cmsz85hpj0001ahwfa2pmvtun", "nwcAbCdEfGh12"]);
+  });
+
+  it("puts GetItem Custom Label first when probing a live listing", () => {
+    expect(
+      ebayInventorySkuCandidates({
+        itemId: "cmsz85hpj0001ahwfa2pmvtun",
+        itemSku: "nwcAbCdEfGh12",
+        externalListingId: "403004607151",
+        linkOrigin: "inw_create",
+        liveCustomLabel: "HAT42",
+      })
+    ).toEqual(["HAT42", "cmsz85hpj0001ahwfa2pmvtun", "nwcAbCdEfGh12"]);
+  });
+
+  it("keeps a seller SKU ahead of StoreItem.id on first publish", () => {
+    expect(
+      ebayInventorySkuCandidates({
+        itemId: "cmsz85hpj0001ahwfa2pmvtun",
+        itemSku: "HAT42",
+        externalListingId: "cmsz85hpj0001ahwfa2pmvtun",
+        linkOrigin: "inw_create",
+      })
+    ).toEqual(["HAT42", "cmsz85hpj0001ahwfa2pmvtun"]);
+  });
+
+  it("addresses imported listings with the migrate SKU, not StoreItem.id", () => {
+    expect(
+      ebayInventorySkuCandidates({
+        itemId: "cmsz85hpj0001ahwfa2pmvtun",
+        itemSku: "nwcAbCdEfGh12",
+        externalListingId: "403004607151",
+        linkOrigin: "import",
+      })
+    ).toEqual(["inw403004607151", "nwcAbCdEfGh12"]);
   });
 
   it("does not use a numeric Custom Label as the Inventory SKU on first publish", () => {

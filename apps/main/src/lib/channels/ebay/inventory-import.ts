@@ -1,5 +1,6 @@
 import { ebayGet } from "./client";
 import { normalizeEbayPhotoUrl } from "./photos";
+import { ebayOfferIsPublished, readEbayOfferListingId } from "./publish-policy";
 import { isValidEbayInventorySku, type EbayTradingListing } from "./trading";
 import { EBAY_MARKETPLACE_ID } from "./config";
 
@@ -89,11 +90,18 @@ export function resolveEbayListingFulfillmentPolicyId(args: {
   return null;
 }
 
+export type EbayOfferListRef = EbayOfferFulfillmentRef & {
+  status?: string | null;
+  priceCents?: number | null;
+};
+
 type EbayOfferListRow = {
   sku?: string;
+  status?: string;
   listingId?: string;
   listing?: { listingId?: string };
   listingPolicies?: { fulfillmentPolicyId?: string };
+  pricingSummary?: { price?: { value?: string | number } };
 };
 
 type OfferListResponse = {
@@ -101,11 +109,21 @@ type OfferListResponse = {
   total?: number;
 };
 
-function offerRowsFromResponse(res: OfferListResponse): EbayOfferFulfillmentRef[] {
+function readOfferPriceCents(offer: EbayOfferListRow): number | null {
+  const raw = offer.pricingSummary?.price?.value;
+  if (raw == null) return null;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 100);
+}
+
+function offerRowsFromResponse(res: OfferListResponse): EbayOfferListRef[] {
   return (res.offers ?? []).map((offer) => ({
     sku: offer.sku,
-    listingId: offer.listing?.listingId ?? offer.listingId,
+    listingId: readEbayOfferListingId(offer),
+    status: offer.status ?? null,
     fulfillmentPolicyId: offer.listingPolicies?.fulfillmentPolicyId ?? null,
+    priceCents: readOfferPriceCents(offer),
   }));
 }
 
@@ -117,9 +135,9 @@ function isInvalidSkuOfferError(e: unknown): boolean {
 async function listOffersByKnownSkus(
   accessToken: string,
   skus: string[]
-): Promise<EbayOfferFulfillmentRef[]> {
+): Promise<EbayOfferListRef[]> {
   const unique = [...new Set(skus.map((s) => s.trim()).filter((s) => isValidEbayInventorySku(s)))];
-  const rows: EbayOfferFulfillmentRef[] = [];
+  const rows: EbayOfferListRef[] = [];
   const concurrency = 5;
   for (let i = 0; i < unique.length; i += concurrency) {
     const chunk = unique.slice(i, i + concurrency);
@@ -132,7 +150,7 @@ async function listOffersByKnownSkus(
           );
           return offerRowsFromResponse(res);
         } catch {
-          return [] as EbayOfferFulfillmentRef[];
+          return [] as EbayOfferListRef[];
         }
       })
     );
@@ -141,12 +159,12 @@ async function listOffersByKnownSkus(
   return rows;
 }
 
-/** Paginate Inventory offers so import can use each listing's fulfillment policy, not the shop default. */
-export async function listEbayOfferFulfillmentPolicies(
+/** Paginate Inventory offers (status + listing id + fulfillment policy). */
+export async function listEbayOffers(
   accessToken: string,
   opts?: { fallbackSkus?: string[] }
-): Promise<EbayOfferFulfillmentIndex> {
-  const rows: EbayOfferFulfillmentRef[] = [];
+): Promise<EbayOfferListRef[]> {
+  const rows: EbayOfferListRef[] = [];
   let offset = 0;
   const limit = 200;
 
@@ -157,8 +175,7 @@ export async function listEbayOfferFulfillmentPolicies(
       res = await ebayGet<OfferListResponse>(accessToken, offerPath);
     } catch (e) {
       if (isInvalidSkuOfferError(e) && (opts?.fallbackSkus?.length ?? 0) > 0) {
-        const bySku = await listOffersByKnownSkus(accessToken, opts?.fallbackSkus ?? []);
-        return indexOfferFulfillmentPolicies(bySku);
+        return listOffersByKnownSkus(accessToken, opts?.fallbackSkus ?? []);
       }
       throw e;
     }
@@ -168,7 +185,15 @@ export async function listEbayOfferFulfillmentPolicies(
     offset += offers.length;
   }
 
-  return indexOfferFulfillmentPolicies(rows);
+  return rows;
+}
+
+/** Paginate Inventory offers so import can use each listing's fulfillment policy, not the shop default. */
+export async function listEbayOfferFulfillmentPolicies(
+  accessToken: string,
+  opts?: { fallbackSkus?: string[] }
+): Promise<EbayOfferFulfillmentIndex> {
+  return indexOfferFulfillmentPolicies(await listEbayOffers(accessToken, opts));
 }
 
 export function inventoryRowToTradingListing(row: EbayInventoryListRow): EbayTradingListing | null {
@@ -186,20 +211,56 @@ export function inventoryRowToTradingListing(row: EbayInventoryListRow): EbayTra
   };
 }
 
-export function mergeInventoryRowsWithTrading(
+/** Live eBay listings only: published offer with a numeric Item ID. */
+export function liveEbayOfferShouldAppearInImport(offer: {
+  status?: string | null;
+  listingId?: string | null;
+}): boolean {
+  if (!ebayOfferIsPublished(offer.status)) return false;
+  const listingId = offer.listingId?.trim() ?? "";
+  return /^\d+$/.test(listingId);
+}
+
+/**
+ * Import/reconcile must not treat leftover inventory_item SKUs as listings.
+ * Ended tests, unpublished drafts, and each variation SKU all stay in Inventory
+ * after the live Item is gone. GetMyeBaySelling ActiveList is the catalog;
+ * published offers add a listing only when they still have a live Item ID.
+ */
+export function mergeLiveEbayImportListings(
   tradingRows: EbayTradingListing[],
-  inventoryRows: EbayInventoryListRow[]
+  offers: EbayOfferListRef[],
+  inventoryRows: EbayInventoryListRow[] = []
 ): EbayTradingListing[] {
-  const seenSkus = new Set(
-    tradingRows.map((row) => row.sku?.trim()).filter((sku): sku is string => Boolean(sku))
-  );
-  const merged = [...tradingRows];
-  for (const row of inventoryRows) {
-    const mapped = inventoryRowToTradingListing(row);
-    const sku = mapped?.sku?.trim();
-    if (!mapped || !sku || seenSkus.has(sku)) continue;
-    seenSkus.add(sku);
-    merged.push(mapped);
+  const byListingId = new Map<string, EbayTradingListing>();
+  for (const row of tradingRows) {
+    const listingId = row.listingId?.trim();
+    if (!listingId) continue;
+    byListingId.set(listingId, row);
   }
-  return merged;
+
+  const invBySku = new Map(
+    inventoryRows
+      .filter((row) => row.sku?.trim())
+      .map((row) => [row.sku!.trim(), row] as const)
+  );
+
+  for (const offer of offers) {
+    if (!liveEbayOfferShouldAppearInImport(offer)) continue;
+    const listingId = offer.listingId!.trim();
+    if (byListingId.has(listingId)) continue;
+    const sku = offer.sku?.trim() || null;
+    const inv = sku ? invBySku.get(sku) : undefined;
+    const fromInv = inv ? inventoryRowToTradingListing(inv) : null;
+    byListingId.set(listingId, {
+      listingId,
+      title: fromInv?.title || sku || listingId,
+      priceCents: offer.priceCents ?? fromInv?.priceCents ?? 0,
+      quantity: fromInv?.quantity ?? 0,
+      photos: fromInv?.photos ?? [],
+      sku,
+    });
+  }
+
+  return [...byListingId.values()];
 }

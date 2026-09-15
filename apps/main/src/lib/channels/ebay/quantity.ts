@@ -67,8 +67,9 @@ export async function pushEbayVariantGroupQuantities(
 }
 
 /**
- * Hub catch-up: write offer.availableQuantity only. Dual inventory+offer writes
- * make eBay treat INW as owner of the Inventory SKU and ignore Seller Hub.
+ * Offer.availableQuantity only (no inventory_item). Dual-writing INW's number
+ * in the same second as a Hub Revise blocks View Item; Hub catch-up dual-writes
+ * Hub's number after Hub has landed via pushEbayVariantGroupQuantities instead.
  */
 export async function pushEbayOfferQuantitiesOnly(
   accessToken: string,
