@@ -1733,6 +1733,16 @@ export async function pullEbayUpdatesForConnection(
         sellerListListingId: remote?.listingId,
       });
       if (!legacyId) continue;
+      console.info("[ebay] dirty scan detected change", {
+        legacyId,
+        inwTitle: link.storeItem.title.slice(0, 40),
+        inwQty: link.storeItem.quantity,
+        inwPrice: link.storeItem.priceCents,
+        sellerListTitle: remote?.title?.slice(0, 40),
+        sellerListQty: remote?.quantity,
+        sellerListTradingQty: remote?.tradingQuantity,
+        sellerListPrice: remote?.priceCents,
+      });
       checkedIds.add(link.id);
       const next = await refreshEbayListingWithAuthRetry(
         connection,
