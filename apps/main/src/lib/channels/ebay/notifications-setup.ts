@@ -163,13 +163,22 @@ export async function ensureEbayPlatformNotifications(args: {
 
   if (storedLooksOk) {
     const live = await getEbayNotificationPreferences(args.accessToken);
+    const itemRevisedEnabled = ebayItemRevisedNotificationEnabled(live.events);
+    console.info("[ebay] checking Platform Notifications status", {
+      connectionId: args.connectionId,
+      liveFetched: live.fetched,
+      liveSubscribed: live.subscribed,
+      liveUrlSecured: live.urlSecured,
+      itemRevisedEnabled,
+      liveEvents: live.events?.slice(0, 5),
+    });
     if (
       !ebayPlatformNotificationsNeedRepair({
         storedEnabledAndSecured: true,
         liveFetched: live.fetched,
         liveSubscribed: live.subscribed,
         liveUrlSecured: live.urlSecured === true,
-        listingReviseEventsEnabled: ebayItemRevisedNotificationEnabled(live.events),
+        listingReviseEventsEnabled: itemRevisedEnabled,
       })
     ) {
       return { repaired: false, success: true };
@@ -186,6 +195,7 @@ export async function ensureEbayPlatformNotifications(args: {
     console.log("[ebay] repaired Platform Notifications URL", {
       connectionId: args.connectionId,
       webhookUrl: redactEbayWebhookUrl(result.webhookUrl),
+      events: ["ItemRevised", "ItemClosed", "ItemSold", "FixedPriceTransaction"],
     });
   } else {
     console.warn("[ebay] Platform Notifications repair failed", {
