@@ -39,34 +39,35 @@ Append a new row **before** trying the next fix. Do not reopen a row marked fail
 | 21 | Sep 15 | `8ae49a1b` | Add per-row logging: `hubQty`, `offerQty`, `warehouseQty`, `shouldWrite`. Diagnose why `wrote: false`. | **ROOT CAUSE FOUND:** GetItem returns **stale** variation quantities (10) when Hub shows 2. All three API surfaces (Trading, offer, warehouse) return 10, so `shouldWrite: false`. eBay propagation lag. | Trusting GetItem for real-time Hub values |
 | 22 | Sep 15 | `0e6101b3` | When cron detects `variants (qty)` change, schedule a **delayed retry** (5 minutes → 15 minutes) for the catch-up. By then, eBay APIs should have propagated the Hub values. | **Not enough** — 15 min delay scheduled but GetItem still stale. | Relying on eBay API lag to self-resolve |
 | 23 | Sep 15 | `b40b194f` | **Use GetMyeBaySelling qty (24) instead of stale GetItem variation sum (120).** Dirty scan sees correct seller list qty (24); pass it through. When seller list differs from GetItem variation sum, trust seller list and distribute evenly (24/12=2). Force write with `overridePerVariationQty`. | **✅ SUCCESS** — View Item now shows 2 available (was 10). | GetItem variation qty as source of truth |
-| 24 | Sep 15 | `0c97adfa` | **Only trust seller list when it's LESS than GetItem.** Previous fix blindly trusted seller list (94) over GetItem (24), overwriting correct qty=2 to wrong qty=7. GetMyeBaySelling can return stale/original qty. Now: only override when seller list < GetItem (stock reduced). | **Testing now.** | Blindly trusting GetMyeBaySelling when it's higher |
+| 24 | Sep 15 | `0c97adfa` | **Only trust seller list when it's LESS than GetItem.** Previous fix blindly trusted seller list (94) over GetItem (24), overwriting correct qty=2 to wrong qty=7. | Intermediate fix, superseded by #25. | — |
+| 25 | Sep 15 | `6f80bec9` | **Remove divide-by-total logic entirely.** Can't derive per-SKU qty from listing total — variations have different quantities, sales affect individual SKUs. Trust GetItem per-variation; if stale, 15-min delayed retry handles it. | **Deployed.** | Deriving per-variation qty from listing total |
 
 ---
 
-## ✅ RESOLVED (2026-09-15)
+## Current Status (2026-09-15)
 
 ### Root cause
 
-**eBay's GetItem API returns stale variation quantities.** Hub UI shows 2 per variation, but GetItem returns 10. All three API surfaces (Trading GetItem, Inventory offer, Inventory warehouse) are stale and agree, so `shouldWrite: false`.
+**eBay's GetItem API can be stale for variation quantities** after a Hub revise. The lag can be 10-20+ minutes. During this window, GetItem returns old values, so our catch-up sees matching quantities and skips writing.
 
-**Key finding:** GetMyeBaySelling returns **correct** listing-level qty (24), while GetItem variations are stale (120 total, 10 each).
+### Current approach (attempt #25, commit `6f80bec9`)
 
-### Fix (attempt #23, commit `b40b194f`)
+**Trust GetItem per-variation quantities.** We can't derive per-SKU qty from listing totals — variations have different quantities and sales affect individual SKUs.
 
-**Trust GetMyeBaySelling qty, not GetItem variations.**
+1. Cron dirty scan detects changes via GetMyeBaySelling
+2. Call GetItem to get per-variation details
+3. If GetItem qty differs from Inventory offer/warehouse → write
+4. If GetItem is stale (matches offer) → skip, but **15-min delayed retry** will catch it
 
-1. Dirty scan calls GetMyeBaySelling, sees `sellerListTradingQty: 24` (correct)
-2. GetItem variations still return 10 each = 120 total (stale)
-3. When `sellerListHubQty (24) !== variationQtySum (120)`, detect stale GetItem
-4. Distribute seller list qty evenly: `24 / 12 = 2` per variation
-5. Force `bulk_update_price_quantity` with qty=2 per SKU
-6. For eBay→INW sync: apply 2 per variation to INW (not stale 10)
+### Why not use seller list total?
 
-### Verified
+Attempt #23 tried dividing seller list total by variation count, but this broke when:
+- Variations have different quantities (Red/Small=5, Blue/Large=2)
+- GetMyeBaySelling returned stale/wrong values (94 instead of 24)
 
-- ✅ Logs show `variationsAreStale: true`, `perVariationQty: 2`
-- ✅ Logs show `hasQtyOverride: true`, `willWrite: true` for all 12 variations
-- ✅ View Item updated from 10 → **2 available**
+### Limitation
+
+If GetItem is stale and all APIs agree on the stale value, the catch-up won't write. The delayed retry (15 min after detecting `variants (qty)` change) is the fallback for this case.
 
 ## Diagnose
 
