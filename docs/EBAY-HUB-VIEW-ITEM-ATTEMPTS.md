@@ -2,7 +2,7 @@
 
 **Symptom (locked):** Seller Hub shows the new quantity. The public View Item page (`ebay.com/itm`) does not. Hub already saved; the buyer page reads a different eBay surface.
 
-**Live fixture (still failing as of 2026-09-15):** Vintage Bear Clock listing `407217102811`, Custom label `inw407217102811`, 12 variations (Primary color × Size). After Hub revise: listing Quantity **60**, Hub preview **5 available**, live View Item Blue/Small **10 available**. 60 is the listing **sum**; View Item is **per SKU**. Success for this listing is Blue/Small → **5**, not 60.
+**Live fixture (✅ FIXED 2026-09-15):** Vintage Bear Clock listing `407217102811`, Custom label `inw407217102811`, 12 variations (Primary color × Size). After Hub revise: listing Quantity **24**, Hub preview **2 available**, live View Item Blue/Medium **2 available**. Fix: trust GetMyeBaySelling (24) over stale GetItem variations (120).
 
 **What View Item actually reads:** Title and listing price still come from Trading (`Item.Title` / `StartPrice`) — a Hub revise shows immediately. Qty does **not**: buyer remaining is `min(warehouse shipToLocationAvailability.quantity, offer availableQuantity)` **per SKU**. A Hub qty save updates Trading only.
 
@@ -38,19 +38,19 @@ Append a new row **before** trying the next fix. Do not reopen a row marked fail
 | 20 | Sep 15 | `b7c6ec18` | Fix `findOfferSkusByListingId` to check **both** `offer.listingId` and `offer.listing.listingId` (eBay returns either). Add extensive logging: SKU discovery source (group/probe/offer-list/none), alignment result (alignedSkuCount, unmatchedRows), per-SKU aspect matching failures. | Deployed. SKU discovery works, alignment works (`addressed: 12`), but `wrote: false`. | — |
 | 21 | Sep 15 | `8ae49a1b` | Add per-row logging: `hubQty`, `offerQty`, `warehouseQty`, `shouldWrite`. Diagnose why `wrote: false`. | **ROOT CAUSE FOUND:** GetItem returns **stale** variation quantities (10) when Hub shows 2. All three API surfaces (Trading, offer, warehouse) return 10, so `shouldWrite: false`. eBay propagation lag. | Trusting GetItem for real-time Hub values |
 | 22 | Sep 15 | `0e6101b3` | When cron detects `variants (qty)` change, schedule a **delayed retry** (5 minutes → 15 minutes) for the catch-up. By then, eBay APIs should have propagated the Hub values. | **Not enough** — 15 min delay scheduled but GetItem still stale. | Relying on eBay API lag to self-resolve |
-| 23 | Sep 15 | `886d0782` | **Use GetMyeBaySelling qty (24) instead of stale GetItem variation sum (120).** Dirty scan sees correct seller list qty (24); pass it through. When seller list differs from GetItem variation sum, trust seller list and distribute evenly (24/12=2). Force write with `overridePerVariationQty`. | **DEPLOYING NOW.** | — |
+| 23 | Sep 15 | `b40b194f` | **Use GetMyeBaySelling qty (24) instead of stale GetItem variation sum (120).** Dirty scan sees correct seller list qty (24); pass it through. When seller list differs from GetItem variation sum, trust seller list and distribute evenly (24/12=2). Force write with `overridePerVariationQty`. | **✅ SUCCESS** — View Item now shows 2 available (was 10). | GetItem variation qty as source of truth |
 
 ---
 
-## Still open (do not skip)
+## ✅ RESOLVED (2026-09-15)
 
-### Root cause confirmed (2026-09-15)
+### Root cause
 
 **eBay's GetItem API returns stale variation quantities.** Hub UI shows 2 per variation, but GetItem returns 10. All three API surfaces (Trading GetItem, Inventory offer, Inventory warehouse) are stale and agree, so `shouldWrite: false`.
 
-**Key finding:** GetMyeBaySelling returns **correct** listing-level qty (24), while GetItem variations are stale (120 total, 10 each). We must trust seller list, not GetItem variations.
+**Key finding:** GetMyeBaySelling returns **correct** listing-level qty (24), while GetItem variations are stale (120 total, 10 each).
 
-### Current fix (attempt #23)
+### Fix (attempt #23, commit `b40b194f`)
 
 **Trust GetMyeBaySelling qty, not GetItem variations.**
 
@@ -61,11 +61,11 @@ Append a new row **before** trying the next fix. Do not reopen a row marked fail
 5. Force `bulk_update_price_quantity` with qty=2 per SKU
 6. For eBay→INW sync: apply 2 per variation to INW (not stale 10)
 
-### Still to verify
+### Verified
 
-1. **New logs show detection** — look for `GetItem variations stale, using seller list qty`
-2. **Force write happens** — look for `hasQtyOverride: true, willWrite: true`
-3. **View Item updates** — buyer page shows 2, not 10
+- ✅ Logs show `variationsAreStale: true`, `perVariationQty: 2`
+- ✅ Logs show `hasQtyOverride: true`, `willWrite: true` for all 12 variations
+- ✅ View Item updated from 10 → **2 available**
 
 ## Diagnose
 
