@@ -471,6 +471,17 @@ export async function catchupEbayListingQtyPrice(args: {
   const discovered: Record<string, string> = {};
   const trading = normalizeVariantMatrix(args.tradingVariants);
   const hubOptionRows = selectEbayHubCatchupOptionRows(trading?.skus ?? []);
+  console.info("[ebay] Hub→View Item catch-up: Hub option rows from Trading", {
+    storeItemId: args.item.id,
+    tradingSkuCount: trading?.skus?.length ?? 0,
+    hubRowCount: hubOptionRows.length,
+    hubRowSample: hubOptionRows.slice(0, 3).map((r) => ({
+      options: r.options,
+      qty: r.quantity,
+      price: r.priceCents,
+    })),
+    tradingTotalQty: trading?.skus?.reduce((sum, s) => sum + (s.quantity ?? 0), 0) ?? 0,
+  });
   const isVariation =
     shouldUseInventoryItemGroup(args.item) || hubOptionRows.length > 1;
   const stubSurfaces = buildEbayQtyPriceSurfaces({
@@ -570,15 +581,24 @@ export async function catchupEbayListingQtyPrice(args: {
         const livePrice = readOfferPriceCents(offer as Record<string, unknown>);
         const liveItem = await fetchLiveInventoryItem(args.accessToken, sku).catch(() => null);
         const warehouse = readLiveInventoryAvailableQuantity(liveItem);
-        if (
-          !ebayCatchupShouldWriteVariantRow({
-            hubQuantity: hub.quantity,
-            offerQuantity: liveQty,
-            warehouseQuantity: warehouse,
-            hubPriceCents: hub.priceCents,
-            offerPriceCents: livePrice,
-          })
-        ) {
+        const shouldWrite = ebayCatchupShouldWriteVariantRow({
+          hubQuantity: hub.quantity,
+          offerQuantity: liveQty,
+          warehouseQuantity: warehouse,
+          hubPriceCents: hub.priceCents,
+          offerPriceCents: livePrice,
+        });
+        console.info("[ebay] Hub→View Item variation row compare", {
+          sku,
+          options: hub.options,
+          hubQty: hub.quantity,
+          offerQty: liveQty,
+          warehouseQty: warehouse,
+          hubPrice: hub.priceCents,
+          offerPrice: livePrice,
+          shouldWrite,
+        });
+        if (!shouldWrite) {
           continue;
         }
         await ebayBulkUpdatePriceQuantity({
