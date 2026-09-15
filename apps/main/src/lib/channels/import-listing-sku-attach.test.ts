@@ -90,7 +90,12 @@ describe("importRemoteListing SKU attach", () => {
       needsCategoryReview: false,
     });
     expect(mockPrisma.storeItem.create).not.toHaveBeenCalled();
-    expect(mockPrisma.storeItem.update).not.toHaveBeenCalled();
+    expect(mockPrisma.storeItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "cmt8zc266000dw2tzrmx9rie1" },
+        data: expect.objectContaining({ quantity: 1 }),
+      })
+    );
     expect(mockPrisma.channelListingLink.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -192,6 +197,64 @@ describe("importRemoteListing SKU attach", () => {
     expect(createArg.data.syncBaselineHash).toEqual(expect.any(String));
     expect(createArg.data.syncBaselineQty).toBe(4);
     expect(createArg.data.lastPushedHash).toEqual(expect.any(String));
+    expect(createArg.data.lastPushedAt).toBeNull();
+  });
+
+  it("adopts remote qty on leftover attach and does not fake lastPushedAt", async () => {
+    const { importRemoteListing } = await import("./import-listing");
+    let leftoverQty = 1;
+    mockPrisma.storeItem.findFirst.mockResolvedValueOnce({
+      id: "leftover-1",
+      category: "Clothing",
+      subcategory: "Tops & Tees",
+      channelLinks: [],
+    });
+    mockPrisma.storeItem.update.mockImplementation(async ({ data }: { data: { quantity?: number } }) => {
+      leftoverQty = data.quantity ?? leftoverQty;
+      return { id: "leftover-1", quantity: leftoverQty };
+    });
+    mockPrisma.storeItem.findUnique.mockImplementation(async () => ({
+      id: "leftover-1",
+      title: "Old leftover",
+      description: "nice",
+      photos: [],
+      priceCents: 2000,
+      quantity: leftoverQty,
+      category: "Clothing",
+      subcategory: "Tops & Tees",
+      secondaryCategory: null,
+      shippingCostCents: null,
+      variants: null,
+    }));
+
+    await importRemoteListing({
+      memberId: "member-1",
+      connectionId: "conn-1",
+      provider: "ebay",
+      listing: {
+        externalListingId: "393315434144",
+        title: "Old leftover",
+        sku: "leftover-1",
+        description: null,
+        photos: ["https://example.com/p.jpg"],
+        priceCents: 2000,
+        quantity: 5,
+        quantityKnown: true,
+      },
+      externalShopId: "shop-1",
+    });
+
+    expect(mockPrisma.storeItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "leftover-1" },
+        data: expect.objectContaining({ quantity: 5 }),
+      })
+    );
+    const createArg = mockPrisma.channelListingLink.create.mock.calls[0]?.[0] as {
+      data: Record<string, unknown>;
+    };
+    expect(createArg.data.syncBaselineQty).toBe(5);
+    expect(createArg.data.lastPushedAt).toBeNull();
   });
 
   it("skips (does not mint) when the SKU maps to multiple unlinked items", async () => {

@@ -12,8 +12,12 @@ export function ebayContentPushShouldWriteVariantQuantities(args: {
   variants: unknown;
 }): boolean {
   if (args.operation === "create") return true;
-  if (args.baselineQty == null && !args.baselineVariantsHash) return true;
   if (args.baselineQty != null && args.baselineQty !== args.listingQty) return true;
-  if (!inventoryVariantsBaselineMatches(args.baselineVariantsHash, args.variants)) return true;
+  if (
+    args.baselineVariantsHash &&
+    !inventoryVariantsBaselineMatches(args.baselineVariantsHash, args.variants)
+  ) {
+    return true;
+  }
   return false;
 }

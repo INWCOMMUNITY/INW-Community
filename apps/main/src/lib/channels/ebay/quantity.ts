@@ -67,9 +67,8 @@ export async function pushEbayVariantGroupQuantities(
 }
 
 /**
- * Offer.availableQuantity only (no inventory_item). Used for sell-out / fallback
- * when a dual inventory+offer write is unsafe. Do not use this to copy Hub qty
- * onto View Item — Hub owns the public listing; INW writes qty only on INW stock changes.
+ * Offer.availableQuantity only (no inventory_item). View Item is this field.
+ * Hub listed remaining is copied here after a Revise settles; sell-out also uses it.
  */
 export async function pushEbayOfferQuantitiesOnly(
   accessToken: string,

@@ -1034,8 +1034,8 @@ export async function migrateEbayListings(
 /**
  * Subscribe to eBay Platform Notifications for item changes.
  *
- * ItemRevised stays Disable: delivery during a Hub Revise stalls View Item.
- * Cron inbound reads `<QuantityAvailable>`. Sales and closed listings stay enabled.
+ * ItemRevised is a ping only: the webhook acks immediately, then copies Hub listed
+ * remaining onto offer.availableQuantity after Revise settles. Sales/closed stay enabled.
  */
 export function buildSubscribeEbayNotificationsXml(webhookUrl: string): string {
   return `<?xml version="1.0" encoding="utf-8"?>
@@ -1048,7 +1048,7 @@ export function buildSubscribeEbayNotificationsXml(webhookUrl: string): string {
   <UserDeliveryPreferenceArray>
     <NotificationEnable>
       <EventType>ItemRevised</EventType>
-      <EventEnable>Disable</EventEnable>
+      <EventEnable>Enable</EventEnable>
     </NotificationEnable>
     <NotificationEnable>
       <EventType>ItemClosed</EventType>

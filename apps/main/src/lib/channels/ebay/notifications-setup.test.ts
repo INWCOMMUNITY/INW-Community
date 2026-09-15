@@ -14,7 +14,7 @@ describe("ebayPlatformNotificationsNeedRepair", () => {
         liveFetched: true,
         liveSubscribed: true,
         liveUrlSecured: true,
-        listingReviseEventsEnabled: false,
+        listingReviseEventsEnabled: true,
       })
     ).toBe(false);
   });
@@ -52,7 +52,7 @@ describe("ebayPlatformNotificationsNeedRepair", () => {
     ).toBe(true);
   });
 
-  it("repairs when ItemRevised is still enabled so Hub Revise is not stalled", () => {
+  it("does not repair when ItemRevised is already enabled", () => {
     expect(
       ebayPlatformNotificationsNeedRepair({
         storedEnabledAndSecured: true,
@@ -61,10 +61,10 @@ describe("ebayPlatformNotificationsNeedRepair", () => {
         liveUrlSecured: true,
         listingReviseEventsEnabled: true,
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 
-  it("does not repair when ItemRevised is already disabled", () => {
+  it("repairs when ItemRevised is missing so Hub View Item copy can be pinged", () => {
     expect(
       ebayPlatformNotificationsNeedRepair({
         storedEnabledAndSecured: true,
@@ -73,7 +73,7 @@ describe("ebayPlatformNotificationsNeedRepair", () => {
         liveUrlSecured: true,
         listingReviseEventsEnabled: false,
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 

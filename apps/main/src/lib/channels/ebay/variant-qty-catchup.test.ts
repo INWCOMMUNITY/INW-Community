@@ -37,4 +37,16 @@ describe("ebayContentPushShouldWriteVariantQuantities", () => {
       })
     ).toBe(true);
   });
+
+  it("does not write qty on a linked content update with missing baselines", () => {
+    expect(
+      ebayContentPushShouldWriteVariantQuantities({
+        operation: "update",
+        baselineQty: null,
+        baselineVariantsHash: null,
+        listingQty: 4,
+        variants,
+      })
+    ).toBe(false);
+  });
 });

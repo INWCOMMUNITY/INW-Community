@@ -16,6 +16,7 @@ import {
 } from "./trading";
 export { ebayInwPushedRecently, EBAY_TRADING_PUSH_ECHO_MS };
 import { resolveEbayLegacyListingId } from "./mapping";
+import { publishEbayHubListedQuantityToViewItem } from "./hub-view-item";
 import {
   ebayNotificationPostcardWrites,
   ebayPostcardDiffersFromStoreItem,
@@ -882,6 +883,32 @@ export async function refreshEbayListingByItemId(
       .catch(() => {});
     link.conflictDetails = cleared as typeof link.conflictDetails;
   }
+
+  if (!opts?.skipQuantity) {
+    const copied = await publishEbayHubListedQuantityToViewItem({
+      accessToken,
+      itemId: legacyItemId,
+      storeItem,
+      link: {
+        id: link.id,
+        externalListingId: link.externalListingId,
+        linkOrigin: link.linkOrigin,
+        syncBaselineQty: link.syncBaselineQty,
+        lastPushedAt: link.lastPushedAt,
+      },
+      details,
+    });
+    if (copied.copied && copied.hubQty != null) {
+      details.quantity = copied.hubQty;
+      details.tradingQuantity = copied.hubQty;
+      storeItem.quantity = copied.hubQty;
+      if (details.tradingVariants) {
+        details.variants = details.tradingVariants;
+        storeItem.variants = details.tradingVariants as typeof storeItem.variants;
+      }
+    }
+  }
+
   const lastSyncedTitle = readEbayLastSyncedTitle(link.conflictDetails);
   const independentRevise = ebayInboundLooksLikeIndependentRevise({
     inwTitle: storeItem.title,

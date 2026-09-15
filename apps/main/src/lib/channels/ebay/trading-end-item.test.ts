@@ -21,11 +21,11 @@ describe("isEbayTradingListingAlreadyEnded", () => {
 });
 
 describe("buildSubscribeEbayNotificationsXml", () => {
-  it("disables ItemRevised so Hub Revise is not stalled by notification delivery", () => {
+  it("enables ItemRevised as a delayed Hub listed remaining ping", () => {
     const xml = buildSubscribeEbayNotificationsXml("https://example.com/api/channels/ebay/webhook?secret=x");
     expect(xml).toContain("<ApplicationEnable>Enable</ApplicationEnable>");
     expect(xml).toMatch(
-      /<EventType>ItemRevised<\/EventType>\s*<EventEnable>Disable<\/EventEnable>/
+      /<EventType>ItemRevised<\/EventType>\s*<EventEnable>Enable<\/EventEnable>/
     );
     expect(xml).toMatch(/<EventType>ItemSold<\/EventType>\s*<EventEnable>Enable<\/EventEnable>/);
   });

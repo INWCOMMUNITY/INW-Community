@@ -528,8 +528,19 @@ export async function importRemoteListing(args: {
       return { ok: false, externalListingId: productId, reason: "ambiguous_sku" };
     }
     if (skuMatch.kind === "attach") {
-      // Baseline the link to the item's current content so the next reconcile doesn't treat the
-      // freshly attached listing as content-changed (spurious push) or unbaselined (spurious pull).
+      const importQty =
+        listing.quantityKnown === false
+          ? null
+          : Math.max(0, Math.round(Number(listing.quantity) || 0));
+      if (importQty != null) {
+        await prisma.storeItem.update({
+          where: { id: skuMatch.id },
+          data: {
+            quantity: importQty,
+            status: importQty > 0 ? "active" : "sold_out",
+          },
+        });
+      }
       const attachItem = await prisma.storeItem
         .findUnique({ where: { id: skuMatch.id } })
         .catch(() => null);
@@ -560,7 +571,7 @@ export async function importRemoteListing(args: {
         syncEnabled: true,
         syncStatus: "synced",
         lastInboundAt: new Date(),
-        lastPushedAt: new Date(),
+        lastPushedAt: null,
         ...baseline,
       });
       let needsCategoryReview = storeItemNeedsCategoryRepair(skuMatch);

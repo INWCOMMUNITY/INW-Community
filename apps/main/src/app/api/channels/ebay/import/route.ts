@@ -6,11 +6,11 @@ import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
 import { importedChannelLinkWhere } from "@/lib/channels/unsync-listing";
-import { migrateEbayListings, fetchEbayItemDetails } from "@/lib/channels/ebay/trading";
+import { migrateEbayListings, fetchEbayItemDetails, ebaySellerHubListedQuantity } from "@/lib/channels/ebay/trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { fetchAndCacheEbayInventoryAspects } from "@/lib/channels/ebay/inventory-aspects-cache";
 import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
-import { storeListingDescription, resolveImportCategory, importCategoryNeedsReview } from "@/lib/channels/import-listing";
+import { storeListingDescription, resolveImportCategory, importCategoryNeedsReview, findStoreItemForInboundSku } from "@/lib/channels/import-listing";
 import { seedCategoryMappingFromImport } from "@/lib/channels/category-resolver";
 import { needsCategoryRepair } from "@/lib/channels/repair-categories";
 import { splitEbayCategoryPath } from "@/lib/channels/ebay-category-aliases";
@@ -586,11 +586,13 @@ export async function POST(req: NextRequest) {
     const remoteCategoryId = details.remoteCategoryId ?? listing.remoteCategoryId ?? null;
     const importedAspects = normalizeListingAspects(details.aspects);
     const aspectsForStorage = importedAspects;
-    const importedVariants = matrixForStorage(details.variants);
+    const importedVariants =
+      matrixForStorage(details.tradingVariants) ?? matrixForStorage(details.variants);
     const importQty =
       importedVariants && importedVariants.skus.length > 0
         ? sumVariantQuantities(importedVariants)
-        : Math.max(0, Math.round(Number(details.quantity ?? listing.quantity) || 0));
+        : ebaySellerHubListedQuantity(details) ??
+          Math.max(0, Math.round(Number(details.quantity ?? listing.quantity) || 0));
 
     // Debug logging for import troubleshooting
     console.log("[ebay import] details fetched", {
@@ -615,34 +617,55 @@ export async function POST(req: NextRequest) {
 
     let createdStoreItemId: string | null = null;
     try {
-      const storeItem = await prisma.storeItem.create({
-        data: {
-          memberId: userId,
-          title: (details.title ?? listing.title).slice(0, 200),
-          sku: details.sku?.trim() || listing.sku?.trim() || null,
-          description: importedDescription,
-          photos,
-          priceCents: safePriceCents,
-          quantity: importQty,
-          status: importQty > 0 ? "active" : "sold_out",
-          condition: details.condition ?? "used",
-          listingType: "new",
-          acceptOffers: details.acceptOffers,
-          minOfferCents: details.minOfferCents,
-          slug: uniqueSlug(slugify(listing.title)),
-          category: finalResolvedCat?.category ?? null,
-          subcategory: finalResolvedCat?.subcategory ?? null,
-          ...(aspectsForStorage.length > 0 ? { aspects: aspectsForStorage as object } : {}),
-          ...(importedVariants && importedVariants.skus.length > 0
-            ? { variants: importedVariants as object }
-            : {}),
-          ...(remoteCategoryId
-            ? { ebayCategoryId: Number(remoteCategoryId) || undefined }
-            : {}),
-          ...(details.conditionEnum ? { ebayConditionEnum: details.conditionEnum } : {}),
-        },
-      });
-      createdStoreItemId = storeItem.id;
+      const leftoverSku = details.sku?.trim() || listing.sku?.trim() || null;
+      const leftoverMatch = leftoverSku
+        ? await findStoreItemForInboundSku({
+            memberId: userId,
+            provider: "ebay",
+            sku: leftoverSku,
+          })
+        : { kind: "none" as const };
+      const adoptedLeftover = leftoverMatch.kind === "attach";
+      const storeItem =
+        leftoverMatch.kind === "attach"
+          ? await prisma.storeItem.update({
+              where: { id: leftoverMatch.id },
+            data: {
+              quantity: importQty,
+              status: importQty > 0 ? "active" : "sold_out",
+              ...(importedVariants && importedVariants.skus.length > 0
+                ? { variants: importedVariants as object }
+                : {}),
+            },
+          })
+        : await prisma.storeItem.create({
+            data: {
+              memberId: userId,
+              title: (details.title ?? listing.title).slice(0, 200),
+              sku: leftoverSku,
+              description: importedDescription,
+              photos,
+              priceCents: safePriceCents,
+              quantity: importQty,
+              status: importQty > 0 ? "active" : "sold_out",
+              condition: details.condition ?? "used",
+              listingType: "new",
+              acceptOffers: details.acceptOffers,
+              minOfferCents: details.minOfferCents,
+              slug: uniqueSlug(slugify(listing.title)),
+              category: finalResolvedCat?.category ?? null,
+              subcategory: finalResolvedCat?.subcategory ?? null,
+              ...(aspectsForStorage.length > 0 ? { aspects: aspectsForStorage as object } : {}),
+              ...(importedVariants && importedVariants.skus.length > 0
+                ? { variants: importedVariants as object }
+                : {}),
+              ...(remoteCategoryId
+                ? { ebayCategoryId: Number(remoteCategoryId) || undefined }
+                : {}),
+              ...(details.conditionEnum ? { ebayConditionEnum: details.conditionEnum } : {}),
+            },
+          });
+      if (!adoptedLeftover) createdStoreItemId = storeItem.id;
       await ensureMemberItemJoinKeys({
         memberId: userId,
         id: storeItem.id,
@@ -677,10 +700,10 @@ export async function POST(req: NextRequest) {
             provider: "ebay",
             externalListingId: sku,
             externalShopId: ctx.externalShopId,
-            linkOrigin: "import",
+            linkOrigin: adoptedLeftover && leftoverMatch.kind === "attach" ? leftoverMatch.origin : "import",
             syncEnabled: true,
             syncStatus: "synced",
-            lastPushedAt: new Date(),
+            lastPushedAt: null,
             lastInboundAt: new Date(),
             lastPushedHash: contentHash,
             syncBaselineHash: contentHash,
@@ -694,8 +717,10 @@ export async function POST(req: NextRequest) {
         });
         void fetchAndCacheEbayInventoryAspects(ctx.accessToken, createdLink.id, sku).catch(() => {});
       } catch (linkErr) {
-        await prisma.storeItem.delete({ where: { id: storeItem.id } }).catch(() => {});
-        createdStoreItemId = null;
+        if (!adoptedLeftover) {
+          await prisma.storeItem.delete({ where: { id: storeItem.id } }).catch(() => {});
+          createdStoreItemId = null;
+        }
         if (linkErr instanceof Prisma.PrismaClientKnownRequestError && linkErr.code === "P2002") {
           await pushSkip(legacyId, "dedupe", "already_linked", {
           title: listing.title,
