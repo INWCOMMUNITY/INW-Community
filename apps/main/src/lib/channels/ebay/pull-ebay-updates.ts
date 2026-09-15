@@ -974,12 +974,22 @@ export async function refreshEbayListingByItemId(
       variants: storeItem.variants,
       inventoryTracking: storeItem.inventoryTracking ?? null,
     } as SyncStoreItem;
+    const listingLevelHubQty = ebaySellerHubListedQuantity(details);
+    const tradingMatrix = normalizeVariantMatrix(details.tradingVariants);
+    const variationQtySum = tradingMatrix?.skus?.reduce((sum, s) => sum + (s.quantity ?? 0), 0) ?? 0;
+    console.info("[ebay] catch-up qty comparison: listing-level vs variation sum", {
+      storeItemId: storeItem.id,
+      listingLevelHubQty,
+      variationQtySum,
+      variationCount: tradingMatrix?.skus?.length ?? 0,
+      qtyMismatch: listingLevelHubQty !== variationQtySum,
+    });
     await catchupEbayListingQtyPrice({
       accessToken,
       item: catchupItem,
       externalListingId: link.externalListingId,
       linkOrigin: link.linkOrigin,
-      hubQuantity: ebaySellerHubListedQuantity(details),
+      hubQuantity: listingLevelHubQty,
       viewItemQuantity: details.quantity,
       hubPriceCents: details.priceCents,
       liveCustomLabel: details.sku,
