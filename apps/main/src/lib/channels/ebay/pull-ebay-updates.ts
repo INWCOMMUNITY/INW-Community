@@ -981,10 +981,19 @@ export async function refreshEbayListingByItemId(
     const variationQtySum = tradingMatrix?.skus?.reduce((sum, s) => sum + (s.quantity ?? 0), 0) ?? 0;
     const variationCount = tradingMatrix?.skus?.length ?? 0;
     
-    // Detect stale GetItem: seller list total differs significantly from GetItem variation sum
+    // Detect stale GetItem: seller list total differs from GetItem variation sum
     const sellerListHubQty = opts?.sellerListHubQty ?? null;
     const getItemQtyIsStale = sellerListHubQty != null && 
-      Math.abs(sellerListHubQty - variationQtySum) > 2; // Allow small rounding differences
+      Math.abs(sellerListHubQty - variationQtySum) > 2;
+    
+    // When GetItem is stale AND seller list divides evenly, use that value
+    // This handles "set all variations to X" case which is common
+    const perVariationFromSellerList = (sellerListHubQty != null && variationCount > 0)
+      ? Math.floor(sellerListHubQty / variationCount)
+      : null;
+    const sellerListDividesEvenly = perVariationFromSellerList != null && 
+      (perVariationFromSellerList * variationCount === sellerListHubQty);
+    const useSellerListQty = getItemQtyIsStale && sellerListDividesEvenly && perVariationFromSellerList != null;
     
     console.info("[ebay] catch-up qty comparison", {
       storeItemId: storeItem.id,
@@ -993,38 +1002,26 @@ export async function refreshEbayListingByItemId(
       variationQtySum,
       variationCount,
       getItemQtyIsStale,
+      perVariationFromSellerList,
+      sellerListDividesEvenly,
+      useSellerListQty,
     });
     
-    // Skip writing stale GetItem quantities to Inventory - schedule retry instead
-    if (getItemQtyIsStale) {
-      console.warn("[ebay] catch-up: skipping qty write due to stale GetItem, scheduling rapid retry", {
-        storeItemId: storeItem.id,
-        sellerListHubQty,
-        variationQtySum,
-      });
-      // Schedule rapid retries: 1 min, 3 min, 5 min
-      for (const delayMs of [60_000, 180_000, 300_000]) {
-        await enqueueEbayHubCatchup({
-          linkId: link.id,
-          storeItemId: storeItem.id,
-          delayMs,
-        }).catch(() => {});
-      }
-    } else {
-      await catchupEbayListingQtyPrice({
-        accessToken,
-        item: catchupItem,
-        externalListingId: link.externalListingId,
-        linkOrigin: link.linkOrigin,
-        hubQuantity: listingLevelHubQty,
-        viewItemQuantity: details.quantity,
-        hubPriceCents: details.priceCents,
-        liveCustomLabel: details.sku,
-        tradingVariants: details.tradingVariants,
-        skuMap: link.ebaySkuMap,
-        linkId: link.id,
-      });
-    }
+    await catchupEbayListingQtyPrice({
+      accessToken,
+      item: catchupItem,
+      externalListingId: link.externalListingId,
+      linkOrigin: link.linkOrigin,
+      hubQuantity: listingLevelHubQty,
+      viewItemQuantity: details.quantity,
+      hubPriceCents: details.priceCents,
+      liveCustomLabel: details.sku,
+      tradingVariants: details.tradingVariants,
+      skuMap: link.ebaySkuMap,
+      linkId: link.id,
+      // Override with seller list qty when GetItem is stale and divides evenly
+      overridePerVariationQty: useSellerListQty ? perVariationFromSellerList : undefined,
+    });
     await catchupEbayListingHubContent({
       accessToken,
       item: catchupItem,
@@ -1273,25 +1270,45 @@ export async function refreshEbayListingByItemId(
   );
   
     // Detect stale GetItem: seller list total differs from GetItem variation sum
-    // When stale, DON'T apply GetItem quantities to INW - they're wrong.
-    // Schedule rapid retries instead of applying stale data.
     const sellerListHubQty = opts?.sellerListHubQty ?? null;
     const variationQtySum = remoteQtyMatrix?.skus?.reduce((sum, s) => sum + (s.quantity ?? 0), 0) ?? 0;
+    const variationCount = remoteQtyMatrix?.skus?.length ?? 0;
     const getItemQtyIsStale = sellerListHubQty != null && 
-      Math.abs(sellerListHubQty - variationQtySum) > 2; // Allow small rounding differences
+      Math.abs(sellerListHubQty - variationQtySum) > 2;
     
-    if (getItemQtyIsStale) {
-      console.warn("[ebay] refreshEbayListingByItemId: GetItem qty is STALE - skipping inbound qty sync", {
+    // When stale AND seller list divides evenly, use that value for INW
+    const perVarFromSellerList = (sellerListHubQty != null && variationCount > 0)
+      ? Math.floor(sellerListHubQty / variationCount)
+      : null;
+    const dividesEvenly = perVarFromSellerList != null && 
+      (perVarFromSellerList * variationCount === sellerListHubQty);
+    
+    if (getItemQtyIsStale && dividesEvenly && remoteQtyMatrix && perVarFromSellerList != null) {
+      console.info("[ebay] refreshEbayListingByItemId: GetItem stale, using seller list (divides evenly)", {
         storeItemId: storeItem.id,
         legacyItemId,
         sellerListHubQty,
         variationQtySum,
-        difference: sellerListHubQty - variationQtySum,
-        variationCount: remoteQtyMatrix?.skus?.length ?? 0,
+        perVarFromSellerList,
+      });
+      // Override the stale quantities with seller list / count
+      remoteQtyMatrix = {
+        ...remoteQtyMatrix,
+        skus: remoteQtyMatrix.skus.map((s) => ({ ...s, quantity: perVarFromSellerList })),
+      };
+    } else if (getItemQtyIsStale) {
+      console.warn("[ebay] refreshEbayListingByItemId: GetItem stale, can't derive per-variation (non-uniform)", {
+        storeItemId: storeItem.id,
+        legacyItemId,
+        sellerListHubQty,
+        variationQtySum,
+        variationCount,
+        perVarFromSellerList,
+        dividesEvenly,
       });
     }
-    // Flag to skip qty overlay when GetItem is stale
-    const skipQtyBecauseStale = getItemQtyIsStale;
+    // Only skip qty overlay if stale AND can't derive from seller list
+    const skipQtyBecauseStale = getItemQtyIsStale && !dividesEvenly;
   
   let overlayQtyMatrix = remoteQtyMatrix;
   if (hubRowsLackSkus && mapped && inwMatrix) {
