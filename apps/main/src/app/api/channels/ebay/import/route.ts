@@ -6,7 +6,7 @@ import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access
 import { getMemberConnectionContext } from "@/lib/channels/connection";
 import { getAdapter } from "@/lib/channels/registry";
 import { importedChannelLinkWhere } from "@/lib/channels/unsync-listing";
-import { migrateEbayListings, fetchEbayItemDetails, ebaySellerHubListedQuantity } from "@/lib/channels/ebay/trading";
+import { migrateEbayListings, fetchEbayItemDetails, ebaySellerHubListedQuantity, generateEbayMigrationSku, isValidEbayInventorySku } from "@/lib/channels/ebay/trading";
 import { normalizeListingAspects } from "@/lib/listing-limits";
 import { fetchAndCacheEbayInventoryAspects } from "@/lib/channels/ebay/inventory-aspects-cache";
 import { normalizeEbayPhotoUrl } from "@/lib/channels/ebay/photos";
@@ -435,20 +435,25 @@ export async function POST(req: NextRequest) {
         ]),
       });
       const result = migration.get(legacyId) ?? migration.get(listing.externalListingId);
-      if (!result || result.error || !result.sku) {
-        await pushSkip(legacyId, "migration", result?.error || "migration_failed", {
-          title: listing.title,
-          photo: listingPhoto,
+      if (result?.sku) sku = result.sku;
+      else if (result?.error) {
+        console.warn("[ebay import] migrate skipped; linking with live or local SKU", {
+          legacyId,
+          error: result.error,
         });
-        continue;
       }
-      sku = result.sku;
     } catch (e) {
-      await pushSkip(legacyId, "migration", describeEbayThrownError(e), {
-        title: listing.title,
-        photo: listingPhoto,
+      console.warn("[ebay import] migrate failed; linking with live or local SKU", {
+        legacyId,
+        error: describeEbayThrownError(e),
       });
-      continue;
+    }
+    const liveSku = listing.sku?.trim() ?? "";
+    if (!sku) {
+      sku =
+        liveSku && isValidEbayInventorySku(liveSku)
+          ? liveSku
+          : generateEbayMigrationSku(legacyId);
     }
 
     try {

@@ -16,7 +16,6 @@ import {
 } from "./trading";
 export { ebayInwPushedRecently, EBAY_TRADING_PUSH_ECHO_MS };
 import { resolveEbayLegacyListingId } from "./mapping";
-import { publishEbayHubListedQuantityToViewItem } from "./hub-view-item";
 import {
   ebayNotificationPostcardWrites,
   ebayPostcardDiffersFromStoreItem,
@@ -51,20 +50,13 @@ import {
 import { hasOptionQuantities } from "@/lib/store-item-variants";
 import {
   applyLiveInventoryQuantitiesToMatrix,
-  applyRemoteVariantPricesToMatrix,
-  inboundListingPriceCents,
   matrixHasKnownSkuPrices,
   normalizeVariantMatrix,
   optionValuesKey,
-  remoteVariantPricesLookLikeLeftoverMinOverwrite,
   skuSelectionKey,
-  serializeVariantMatrix,
-  sumMatrixQuantities,
   type LiveVariantQuantity,
-  type RemoteVariantPrice,
   type VariantMatrix,
 } from "@/lib/listing-variant-matrix";
-import { recordVariantPriceTrace, buildIntendedVariantPriceRows } from "../sync-trace";
 import { fetchLiveInventoryItem, readLiveInventoryAvailableQuantity } from "./passthrough-push";
 import { applyRemoteListingRemoved } from "../apply-remote-listing";
 import { syncInventoryToChannels } from "../sync-inventory";
@@ -642,13 +634,13 @@ export function ebayGetItemApplyDecision(args: {
 
   const remoteHash = ebayRemoteSnapshotHash({
     title: args.remoteTitle,
-    priceCents: args.remotePriceCents,
-    quantity: args.remoteQuantity,
+    priceCents: 0,
+    quantity: 0,
   });
   const inwHash = ebayRemoteSnapshotHash({
     title: args.inwTitle,
-    priceCents: args.inwPriceCents,
-    quantity: args.inwQuantity,
+    priceCents: 0,
+    quantity: 0,
   });
   const descriptionProvided =
     args.inwDescription !== undefined || args.remoteDescription !== undefined;
@@ -662,28 +654,9 @@ export function ebayGetItemApplyDecision(args: {
     lastPushedAt: args.lastPushedAt,
     now: args.now,
   });
-  const qtyPriceMatch =
-    args.remotePriceCents === args.inwPriceCents && args.remoteQuantity === args.inwQuantity;
-  const independentSkuPriceRevise = ebayInboundShouldApplyVariantPrices({
-    inwVariantPricesHash: args.inwVariantPricesHash,
-    remoteVariantPricesHash: args.remoteVariantPricesHash,
-    lastPushedVariantPricesHash: args.lastPushedVariantPricesHash,
-    ebayLastModified: args.ebayLastModified,
-    lastPushedAt: args.lastPushedAt,
-  });
-  const independentSkuQtyRevise =
-    Boolean(args.remoteVariantQtyHash) &&
-    args.remoteVariantQtyHash !== (args.inwVariantQtyHash ?? "") &&
-    !args.remoteVariantQtyLooksDegraded;
-  const listingFieldsMatch =
-    remoteHash === inwHash &&
-    !descriptionDiffers &&
-    !independentSkuPriceRevise &&
-    !independentSkuQtyRevise;
-  // SKU-price diffs must not disable this skip. Listing CurrentPrice is the cheapest
-  // variation, so a hub SKU edit looks like "eBay differs" while eBay is still older.
-  const inwLooksNewer =
-    preserveInwContent && qtyPriceMatch && !independentRevise && !descriptionDiffers;
+  const qtyPriceMatch = true;
+  const listingFieldsMatch = remoteHash === inwHash && !descriptionDiffers;
+  const inwLooksNewer = preserveInwContent && !independentRevise && !descriptionDiffers;
 
   // Title can already match INW (applied on the first look) while per-SKU prices are still
   // held. Without this, matches-inw aborts before the variant overlay and the $20 never lands.
@@ -691,11 +664,7 @@ export function ebayGetItemApplyDecision(args: {
     if (ebayGetItemIsPushEcho(args)) {
       return { action: "skip", reason: "echo-of-push" };
     }
-    return {
-      action: "apply",
-      reason: "pending-variant-confirm",
-      pendingHash: remoteHash,
-    };
+    return { action: "skip", reason: "matches-inw" };
   }
 
   // Verified ping or dirty seller-list row: apply a real field diff unless this is our push echo.
@@ -709,7 +678,7 @@ export function ebayGetItemApplyDecision(args: {
     // Listing total often stays put on a single-SKU qty edit. After an INW save,
     // inwLooksNewer would skip that webhook and leave Inventory API on the old qty,
     // which Seller Hub immediately redisplays.
-    if (inwLooksNewer && !independentSkuQtyRevise) {
+    if (inwLooksNewer) {
       return { action: "skip", reason: "inw-newer-than-ebay" };
     }
     return {
@@ -755,8 +724,6 @@ export function ebayGetItemApplyDecision(args: {
     ebayGetItemIsStaleVersusInw(args) &&
     qtyPriceMatch &&
     !descriptionDiffers &&
-    !independentSkuPriceRevise &&
-    !independentSkuQtyRevise &&
     !independentRevise
   ) {
     return { action: "skip", reason: "lastModified-not-newer" };
@@ -882,31 +849,6 @@ export async function refreshEbayListingByItemId(
       .update({ where: { id: link.id }, data: { conflictDetails: cleared } })
       .catch(() => {});
     link.conflictDetails = cleared as typeof link.conflictDetails;
-  }
-
-  if (!opts?.skipQuantity) {
-    const copied = await publishEbayHubListedQuantityToViewItem({
-      accessToken,
-      itemId: legacyItemId,
-      storeItem,
-      link: {
-        id: link.id,
-        externalListingId: link.externalListingId,
-        linkOrigin: link.linkOrigin,
-        syncBaselineQty: link.syncBaselineQty,
-        lastPushedAt: link.lastPushedAt,
-      },
-      details,
-    });
-    if (copied.copied && copied.hubQty != null) {
-      details.quantity = copied.hubQty;
-      details.tradingQuantity = copied.hubQty;
-      storeItem.quantity = copied.hubQty;
-      if (details.tradingVariants) {
-        details.variants = details.tradingVariants;
-        storeItem.variants = details.tradingVariants as typeof storeItem.variants;
-      }
-    }
   }
 
   const lastSyncedTitle = readEbayLastSyncedTitle(link.conflictDetails);
@@ -1105,7 +1047,7 @@ export async function refreshEbayListingByItemId(
   const remoteTitleMatchesInw = remoteTitle === storeItem.title;
 
   if (preserveInwContent && opts?.skipContent !== true) {
-    console.log("[ebay] refreshEbayListingByItemId: keep INW title; still apply qty/description diffs", {
+    console.log("[ebay] refreshEbayListingByItemId: keep INW title; still apply description diffs", {
       storeItemId: storeItem.id,
       legacyItemId,
       source: opts?.source ?? "cron",
@@ -1167,23 +1109,6 @@ export async function refreshEbayListingByItemId(
     changes.push("description");
   }
 
-  const remoteVariantMatrix = normalizeVariantMatrix(details.variants);
-
-  const applyRemoteVariants = shouldApplyEbayInboundVariants({
-    localVariants: storeItem.variants,
-    remoteVariants: details.variants,
-  });
-
-  // A per-option variation listing prices each SKU independently. eBay's listing-level
-  // CurrentPrice is the *lowest* variation price, so applying it standalone would collapse
-  // every INW variation to that price. Per-SKU prices are pulled below instead.
-  const inwIsPerOption = hasOptionQuantities(storeItem.variants) && !applyRemoteVariants;
-
-  if (!skipContent && !inwIsPerOption && remotePrice !== storeItem.priceCents) {
-    updateData.priceCents = remotePrice;
-    changes.push(`price ($${(remotePrice / 100).toFixed(2)})`);
-  }
-
   if (!skipContent && details.acceptOffers !== storeItem.acceptOffers) {
     updateData.acceptOffers = details.acceptOffers;
     changes.push(details.acceptOffers ? "acceptOffers (on)" : "acceptOffers (off)");
@@ -1194,281 +1119,6 @@ export async function refreshEbayListingByItemId(
     changes.push(
       remoteMin != null ? `minOffer ($${(remoteMin / 100).toFixed(2)})` : "minOffer (none)"
     );
-  }
-
-  const shouldApplyListingQty = ebayGetItemShouldApplyListingQuantity({
-    localHasOptionQuantities: hasOptionQuantities(storeItem.variants),
-    applyRemoteVariants,
-  });
-  if (
-    !opts?.skipQuantity &&
-    remoteQty !== storeItem.quantity &&
-    shouldApplyListingQty
-  ) {
-    const unsoldZero = ebayGetItemQtyIsUnsoldZero({
-      listingEnded: details.listingEnded,
-      quantitySold: details.quantitySold,
-      quantity: remoteQty,
-    });
-    if (unsoldZero) {
-      console.warn("[ebay] skip GetItem qty 0 on an active listing with no QuantitySold", {
-        storeItemId: storeItem.id,
-        legacyItemId,
-        remoteQty,
-        quantitySold: details.quantitySold,
-      });
-    } else {
-      updateData.quantity = remoteQty;
-      updateData.status = remoteQty > 0 ? "active" : "sold_out";
-      changes.push(`quantity (${remoteQty})`);
-    }
-  } else if (inwIsPerOption) {
-    // Per-option variation listing. GetItem listing-level qty/price are aggregates.
-    // Qty comes from GetItem SKU overlay or a read of live inventory (never an offer write).
-    // Prices come from StartPrice only when they look like a seller SKU revise.
-    const inwMatrix = normalizeVariantMatrix(storeItem.variants);
-    const remotePrices: RemoteVariantPrice[] =
-      remoteVariantMatrix?.skus
-        .filter((s) => s.priceCents != null && s.priceCents > 0)
-        .map((s) => ({
-          sku: s.sku ?? null,
-          options: s.options,
-          priceCents: s.priceCents as number,
-        })) ?? [];
-
-    const qtyDiverged = !opts?.skipQuantity && remoteQty !== storeItem.quantity;
-    const overlayGetItemSkuQty = shouldOverlayEbayGetItemSkuQuantities({
-      skipQuantity: opts?.skipQuantity,
-      source: opts?.source,
-      inwMatrix,
-      remoteMatrix: remoteVariantMatrix,
-      remoteListingQuantity: details.quantity,
-    });
-    let qtyMatrix: VariantMatrix | null = inwMatrix;
-    let qtyPulled = false;
-    if (overlayGetItemSkuQty && inwMatrix && remoteVariantMatrix) {
-      qtyMatrix = applyLiveInventoryQuantitiesToMatrix(
-        inwMatrix,
-        remoteVariantMatrix.skus.map((s) => ({
-          sku: s.sku ?? null,
-          options: s.options,
-          quantity: s.quantity,
-        }))
-      );
-      qtyPulled = true;
-    } else if (qtyDiverged && inwMatrix) {
-      const inventoryMatrix = await pullEbayVariantQuantitiesFromInventory(
-        accessToken,
-        storeItem.variants
-      );
-      if (inventoryMatrix) {
-        qtyMatrix = inventoryMatrix;
-        qtyPulled = true;
-      } else {
-        console.warn("[ebay] skip GetItem listing qty; no readable inventory variant stock", {
-          storeItemId: storeItem.id,
-          legacyItemId,
-          remoteQty,
-          inwQuantity: storeItem.quantity,
-        });
-      }
-    }
-
-    const applyRemotePrices =
-      !skipContent &&
-      remotePrices.length > 0 &&
-      ebayInboundShouldApplyVariantPrices({
-        inwVariantPricesHash: variantPricesFingerprint(storeItem.variants) || null,
-        remoteVariantPricesHash: matrixHasKnownSkuPrices(details.variants)
-          ? variantPricesFingerprint(details.variants)
-          : null,
-        lastPushedVariantPricesHash: readLastPushedVariantPricesHash(conflictDetails),
-        ebayLastModified: details.remoteUpdatedAt,
-        lastPushedAt: link.lastPushedAt,
-      });
-    const priceMatrix =
-      applyRemotePrices && inwMatrix
-        ? applyRemoteVariantPricesToMatrix(inwMatrix, remotePrices, {
-            listingMinCents: Math.min(
-              remotePrice,
-              ...remotePrices.map((p) => p.priceCents)
-            ),
-            inwListingPriceCents: storeItem.priceCents,
-          })
-        : inwMatrix;
-
-    const qtyChanged =
-      Boolean(inwMatrix && qtyMatrix) &&
-      variantsStructureQtyFingerprint(inwMatrix) !== variantsStructureQtyFingerprint(qtyMatrix);
-    const priceChanged =
-      Boolean(inwMatrix && priceMatrix) &&
-      variantPricesFingerprint(inwMatrix) !== variantPricesFingerprint(priceMatrix);
-    const sum = qtyMatrix ? sumMatrixQuantities(qtyMatrix) : storeItem.quantity;
-    const nextListingPrice = priceMatrix
-      ? inboundListingPriceCents(priceMatrix, storeItem.priceCents)
-      : storeItem.priceCents;
-    const unsoldZero =
-      qtyPulled &&
-      ebayGetItemQtyIsUnsoldZero({
-        listingEnded: details.listingEnded,
-        quantitySold: details.quantitySold,
-        quantity: sum,
-      });
-
-    const lastInwTouch =
-      [link.lastPushedAt, link.lastInboundAt]
-        .filter((d): d is Date => d != null)
-        .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
-    const inVariantSettle = ebayInPostInboundSettleWindow({ lastInboundAt: lastInwTouch });
-    const pendingVariantHash = readEbayPendingVariantInboundHash(conflictDetails);
-    const qtyHash = qtyMatrix ? variantsStructureQtyFingerprint(qtyMatrix) : null;
-    const priceHash = priceMatrix ? variantPricesFingerprint(priceMatrix) : null;
-    const holdQty = shouldHoldEbayVariantInbound({
-      matrixChanged: qtyChanged,
-      inSettleWindow: inVariantSettle,
-      source: opts?.source,
-      pendingVariantHash,
-      variantSnapshotHash: qtyHash,
-    });
-    const holdPrice = shouldHoldEbayVariantInbound({
-      matrixChanged: priceChanged,
-      inSettleWindow: inVariantSettle,
-      source: opts?.source,
-      pendingVariantHash,
-      variantSnapshotHash: priceHash,
-    });
-    const applyQty = qtyChanged && !holdQty && !unsoldZero;
-    const applyPriceNow = priceChanged && !holdPrice;
-    const workingMatrix =
-      inwMatrix && (applyQty || applyPriceNow)
-        ? composeEbayInboundVariantMatrix({
-            inwMatrix,
-            qtyMatrix,
-            applyQty,
-            priceMatrix,
-            applyPrice: applyPriceNow,
-          })
-        : inwMatrix;
-    const nextSerialized = workingMatrix ? serializeVariantMatrix(workingMatrix) : null;
-    const matrixChanged = applyQty || applyPriceNow;
-
-    console.log("[ebay] variation price/qty inbound decision", {
-      storeItemId: storeItem.id,
-      legacyItemId,
-      remoteListingPrice: remotePrice,
-      remotePerSkuPriceCount: remotePrices.length,
-      inwHadPerSkuPrices: Boolean(inwMatrix?.skus.some((s) => s.priceCents != null && s.priceCents > 0)),
-      qtyDiverged,
-      overlayGetItemSkuQty,
-      qtyPulled,
-      qtyChanged,
-      priceChanged,
-      applyQty,
-      applyPriceNow,
-      holdQty,
-      holdPrice,
-      matrixChanged,
-      sum,
-      nextListingPrice,
-      inwListingPrice: storeItem.priceCents,
-      unsoldZero,
-    });
-    const leftoverOverwrite = remoteVariantPricesLookLikeLeftoverMinOverwrite({
-      inwVariants: storeItem.variants,
-      remoteVariants: details.variants,
-      inwListingPriceCents: storeItem.priceCents,
-      remoteListingPriceCents: remotePrice,
-    });
-
-    const inwSkus = inwMatrix?.skus ?? [];
-    const remotePriceByKey = new Map(
-      remotePrices.map((r) => [optionValuesKey(r.options ?? {}) || (r.sku ?? ""), r.priceCents])
-    );
-    recordVariantPriceTrace({
-      memberId: storeItem.memberId,
-      provider: "ebay",
-      storeItemId: storeItem.id,
-      direction: "reconcile",
-      decision: unsoldZero && !applyPriceNow
-        ? "var:skip-unsold-zero"
-        : holdQty && holdPrice
-          ? "var:hold-settle"
-          : matrixChanged
-            ? "var:pull"
-            : holdQty || holdPrice
-              ? "var:hold-settle"
-              : "var:unchanged",
-      note:
-        holdQty || holdPrice ? "awaiting second consistent look" : undefined,
-      rows: buildIntendedVariantPriceRows(inwSkus, optionValuesKey, remotePriceByKey),
-    });
-
-    if (unsoldZero && !applyPriceNow) {
-      console.warn("[ebay] skip inventory variant qty 0 on an active listing with no QuantitySold", {
-        storeItemId: storeItem.id,
-        legacyItemId,
-        sum,
-        quantitySold: details.quantitySold,
-      });
-    } else if (!applyQty && !applyPriceNow && (holdQty || holdPrice)) {
-      const heldHash = (holdQty ? qtyHash : priceHash) as string;
-      console.warn("[ebay] hold variation inbound; awaiting second consistent look (settle)", {
-        storeItemId: storeItem.id,
-        legacyItemId,
-        variantSnapshotHash: heldHash,
-        holdQty,
-        holdPrice,
-        lastInwTouch: lastInwTouch?.toISOString() ?? null,
-      });
-      conflictDetails = withEbayPendingVariantInbound(conflictDetails, {
-        hash: heldHash,
-        seenAt: new Date().toISOString(),
-      });
-      await prisma.channelListingLink
-        .update({
-          where: { id: link.id },
-          data: { conflictDetails: conflictDetails as Prisma.InputJsonValue },
-        })
-        .catch(() => {});
-    } else if (workingMatrix && nextSerialized && matrixChanged) {
-      updateData.variants = nextSerialized;
-      if (applyQty && sum !== storeItem.quantity) {
-        updateData.quantity = sum;
-        updateData.status = sum > 0 ? "active" : "sold_out";
-      }
-      if (applyPriceNow && nextListingPrice > 0 && nextListingPrice !== storeItem.priceCents) {
-        updateData.priceCents = nextListingPrice;
-      }
-      if (applyQty && applyPriceNow) changes.push("variant prices/quantities");
-      else if (applyQty) changes.push("variant quantities");
-      else changes.push("variant prices");
-      if (holdQty || holdPrice) {
-        conflictDetails = withEbayPendingVariantInbound(conflictDetails, {
-          hash: (holdQty ? qtyHash : priceHash) as string,
-          seenAt: new Date().toISOString(),
-        });
-      } else {
-        conflictDetails = withEbayPendingVariantInbound(conflictDetails, null);
-      }
-    }
-  }
-
-  if (!skipLaggedTitle && applyRemoteVariants && remoteVariantMatrix && remoteVariantMatrix.skus.length > 0) {
-    updateData.variants = serializeVariantMatrix(remoteVariantMatrix);
-    const sum = sumMatrixQuantities(remoteVariantMatrix);
-    // Prefer summed variant qty when variations are present (unless sale path skipped qty).
-    if (!opts?.skipQuantity && sum !== storeItem.quantity) {
-      const unsoldZero = ebayGetItemQtyIsUnsoldZero({
-        listingEnded: details.listingEnded,
-        quantitySold: details.quantitySold,
-        quantity: sum,
-      });
-      if (!unsoldZero) {
-        updateData.quantity = sum;
-        updateData.status = sum > 0 ? "active" : "sold_out";
-      }
-    }
-    changes.push("variants");
   }
 
   if (!skipLaggedTitle && resolvedCat) {
@@ -1589,8 +1239,8 @@ export async function refreshEbayListingByItemId(
 }
 
 /**
- * Apply title/price only from a verified notification snapshot when GetItem failed.
- * Never writes qty, photos, description, aspects, variations, or Ended.
+ * Apply title only from a verified notification snapshot when GetItem failed.
+ * Never writes qty, price, photos, description, aspects, variations, or Ended.
  */
 export async function applyEbayXmlPostcard(args: {
   itemId: string;
@@ -1638,10 +1288,6 @@ export async function applyEbayXmlPostcard(args: {
   if (writes.title && writes.title !== link.storeItem.title && !preserveInwContent) {
     updateData.title = writes.title.slice(0, 200);
     changes.push("title");
-  }
-  if (writes.priceCents != null && writes.priceCents !== link.storeItem.priceCents) {
-    updateData.priceCents = writes.priceCents;
-    changes.push(`price ($${(writes.priceCents / 100).toFixed(2)})`);
   }
   if (Object.keys(updateData).length === 0) {
     return {

@@ -111,41 +111,6 @@ function escapeXml(str: string): string {
     .replace(/'/g, "&apos;");
 }
 
-export function buildReviseItemSkuXml(listingId: string, sku: string): string {
-  return `<?xml version="1.0" encoding="utf-8"?>
-<ReviseFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-  <Item>
-    <ItemID>${escapeXml(listingId)}</ItemID>
-    <SKU>${escapeXml(sku)}</SKU>
-  </Item>
-</ReviseFixedPriceItemRequest>`;
-}
-
-export function buildReviseVariationSkusXml(
-  listingId: string,
-  parentSku: string,
-  rows: EbayVariationSkuRow[],
-  variationSkus: string[]
-): string {
-  const variationXml = rows
-    .map((row, i) => {
-      const sku = variationSkus[i] ?? generateEbayVariationMigrationSku(listingId, i);
-      const specifics = row.specificsXml.trim()
-        ? `<VariationSpecifics>${row.specificsXml}</VariationSpecifics>`
-        : "<VariationSpecifics></VariationSpecifics>";
-      return `<Variation><SKU>${escapeXml(sku)}</SKU>${specifics}</Variation>`;
-    })
-    .join("");
-  return `<?xml version="1.0" encoding="utf-8"?>
-<ReviseFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-  <Item>
-    <ItemID>${escapeXml(listingId)}</ItemID>
-    <SKU>${escapeXml(parentSku)}</SKU>
-    <Variations>${variationXml}</Variations>
-  </Item>
-</ReviseFixedPriceItemRequest>`;
-}
-
 export function plannedVariationSkus(listingId: string, rows: EbayVariationSkuRow[]): string[] {
   return rows.map((row, i) =>
     row.sku && isValidEbayInventorySku(row.sku)

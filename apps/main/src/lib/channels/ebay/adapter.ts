@@ -9,7 +9,7 @@ import type {
 } from "../types";
 import { ebayFulfillmentLineToSale } from "../sale-link";
 import { classifyEbayUpsertResult } from "./upsert-outcome";
-import { EbayApiError, ebayAction, ebayGet, ebayGetInventoryItem, ebayJson, takeEbayCallWarnings } from "./client";
+import { EbayApiError, ebayAction, ebayGet, ebayJson, takeEbayCallWarnings } from "./client";
 import {
   describeEbayThrownError,
   formatEbayErrorDiagnostics,
@@ -108,8 +108,7 @@ import {
   prepareEbaySyncAspects,
 } from "./sync-aspects";
 import { parseStoredAspects, aspectsToEbayProductAspects } from "@/lib/listing-limits";
-import { channelTreatsItemInStock, matrixHasKnownSkuPrices } from "@/lib/listing-variant-matrix";
-import { hasOptionQuantities } from "../../store-item-variants";
+import { channelTreatsItemInStock } from "@/lib/listing-variant-matrix";
 import {
   enumerateEbayListings,
   fetchEbayItemDetails,
@@ -148,7 +147,6 @@ import {
   shouldWriteEbayOffer,
   shouldBlockEbayUpdateForMissingAspects,
   shouldFetchTradingItemOnUpsert,
-  withEbayLiveOfferQuantity,
 } from "./publish-policy";
 import { passthroughUsePreparedInventoryAspects } from "./aspect-prep";
 import {
@@ -167,17 +165,13 @@ import {
   passthroughShouldPushVariantOffers,
   passthroughSyncHasFailures,
   readLiveInventoryAvailableQuantity,
-  readOfferPriceCents,
   resolvePassthroughChanges,
-  applyEbayPassthroughQuantityWriteGate,
   type PassthroughBuildOptions,
   type PassthroughFieldResult,
 } from "./passthrough-push";
 import { bestOfferStatesMatch, inwBestOfferState, readOfferBestOfferTerms } from "./best-offer";
 import { fetchAndCacheEbayInventoryAspects } from "./inventory-aspects-cache";
 import { detectStoreItemFieldChanges } from "../sync-baseline";
-import { pushEbayAbsoluteQuantity, pushEbayVariantGroupQuantities } from "./quantity";
-import { ebayContentPushShouldWriteVariantQuantities } from "./variant-qty-catchup";
 import type { ListingAspect } from "@/lib/listing-limits";
 
 type EbayOffer = {
@@ -253,33 +247,6 @@ async function persistEbayVariantOptionSkus(
       error: e instanceof Error ? e.message : String(e),
     });
   }
-}
-
-/** Live eBay stock is offer.availableQuantity — publish_by_group often leaves each variation at 1. */
-async function pushVariantGroupQuantities(
-  accessToken: string,
-  rows: EbayVariantInventoryRow[],
-  offerIdsBySku?: Map<string, string>
-): Promise<void> {
-  const withOffers: { sku: string; quantity: number; offerId?: string | null }[] = [];
-  for (const row of rows) {
-    const known = offerIdsBySku?.get(row.sku);
-    if (known) {
-      withOffers.push({ sku: row.sku, quantity: row.quantity, offerId: known });
-      continue;
-    }
-    try {
-      const offer = await findOffer(accessToken, row.sku);
-      withOffers.push({ sku: row.sku, quantity: row.quantity, offerId: offer?.offerId ?? null });
-    } catch (e) {
-      console.warn("[ebay] variant offer lookup for quantity failed", {
-        sku: row.sku,
-        error: describeEbayThrownError(e),
-      });
-      withOffers.push({ sku: row.sku, quantity: row.quantity, offerId: null });
-    }
-  }
-  await pushEbayVariantGroupQuantities(accessToken, withOffers);
 }
 
 async function publishOffer(accessToken: string, offerId: string): Promise<string | undefined> {
@@ -413,8 +380,6 @@ type UpsertResult = {
   sku: string;
   listingId?: string;
   publishError?: string;
-  /** Publish/content succeeded but the post-publish variant quantity write failed. */
-  quantityError?: string;
 };
 
 async function upsertListing(
@@ -539,13 +504,6 @@ async function upsertListing(
     const listingAlreadyLinked = Boolean(liveListingId);
     const hadOfferAtStart = listingAlreadyLinked;
     operation = listingAlreadyLinked ? "update" : "create";
-    const writeVariantQty = ebayContentPushShouldWriteVariantQuantities({
-      operation,
-      baselineQty: ebayLink?.syncBaselineQty,
-      baselineVariantsHash: ebayLink?.syncBaselineVariantsHash,
-      listingQty: item.quantity,
-      variants: item.variants,
-    });
 
     const isImported = isImportedEbayLink({
       provider: "ebay",
@@ -609,15 +567,12 @@ async function upsertListing(
             },
           })
         : null;
-      const changed = applyEbayPassthroughQuantityWriteGate(
-        resolvePassthroughChanges(liveChanges, inwFields, {
+      const changed = resolvePassthroughChanges(liveChanges, inwFields, {
           syncTitles: syncPrefsRow?.syncTitles ?? true,
           syncDescriptions: syncPrefsRow?.syncDescriptions ?? true,
           syncPhotos: syncPrefsRow?.syncPhotos ?? true,
-          syncPrices: syncPrefsRow?.syncPrices ?? true,
-        }),
-        writeVariantQty
-      );
+          syncPrices: false,
+        });
       const putInventory = needsInventoryPut(changed);
       const needsInventoryAspectContext = changed.title || putInventory;
 
@@ -721,63 +676,6 @@ async function upsertListing(
             imported: true,
           })
         : [];
-
-      if (writeVariantQty && variantRows.length > 0) {
-        try {
-          await pushVariantGroupQuantities(conn.accessToken, variantRows);
-          fieldResults.push({ field: "quantity", ok: true });
-        } catch (e) {
-          const msg = describeEbayThrownError(e);
-          fieldResults.push({ field: "quantity", ok: false, error: msg });
-        }
-      } else if (changed.quantity && variantRows.length === 0) {
-        if (isEbayListingEnded(ebayLink?.conflictDetails) || skipUnpublishedZeroQty) {
-          if (skipUnpublishedZeroQty) {
-            console.info("[ebay] skip unpublished zero-qty write", {
-              storeItemId: item.id,
-              sku,
-              offerId,
-              offerStatus: passthroughOfferStatus,
-            });
-          }
-          fieldResults.push({ field: "quantity", ok: true });
-        } else {
-          const quantity = Math.max(0, item.quantity);
-          const bulkFields: PassthroughFieldResult[] = [{ field: "quantity", ok: false }];
-          try {
-            await pushEbayAbsoluteQuantity({
-              accessToken: conn.accessToken,
-              sku,
-              quantity,
-              offerId,
-              title: item.title,
-            });
-            await persistRevisionCount(conn.id, sku, conn.config);
-            bulkFields[0]!.ok = true;
-          } catch (e) {
-            const msg = describeEbayThrownError(e);
-            if (isEbayEndedListingError(e) || isEbayEndedListingError(msg)) {
-              bulkFields[0]!.ok = true;
-              if (ebayLink) {
-                await persistEbayListingEnded(ebayLink.id, ebayLink.conflictDetails);
-              }
-            } else if (isEbayUnpublishedZeroQuantityError(msg)) {
-              console.info("[ebay] skip #25004 zero-qty on unpublished offer", {
-                storeItemId: item.id,
-                sku,
-                offerId,
-              });
-              bulkFields[0]!.ok = true;
-            } else {
-              bulkFields[0]!.error = msg;
-              if (e instanceof EbayApiError) {
-                addResponse(trace, e.status, { error: e.message, body: e.body });
-              }
-            }
-          }
-          fieldResults.push(...bulkFields);
-        }
-      }
 
       const pushInventoryContent = changed.title === true || putInventory;
       let inventoryContentPutOk = !pushInventoryContent;
@@ -956,41 +854,12 @@ async function upsertListing(
       const pushVariantOffers = passthroughShouldPushVariantOffers({
         changed,
         hasVariantRows: variantRows.length > 0,
-        hasSkuPrices: matrixHasKnownSkuPrices(item.variants),
+        hasSkuPrices: false,
       });
       if (pushVariantOffers && inventoryContentPutOk) {
-        if (readLiveInventoryAvailableQuantity(live) == null) {
-          try {
-            if (variantRows.length > 0) {
-              await pushEbayVariantGroupQuantities(
-                conn.accessToken,
-                variantRows.map((row) => ({ sku: row.sku, quantity: row.quantity }))
-              );
-            } else {
-              await pushEbayAbsoluteQuantity({
-                accessToken: conn.accessToken,
-                sku,
-                quantity: Math.max(0, item.quantity),
-                offerId,
-                title: item.title,
-              });
-            }
-          } catch (e) {
-            console.warn("[ebay] restore availability before variant offer PUT failed", {
-              storeItemId: item.id,
-              sku,
-              error: describeEbayThrownError(e),
-            });
-          }
-        }
         if (variantRows.length > 0) {
-          // Imported multi-variation listing: price/description/bestOffer live on EACH variant's
-          // own offer, not a single parent offer. Push the per-SKU price to every variant offer
-          // so varying prices actually reach eBay (they were previously dropped here).
           let anyOfferPutFailed = false;
           let attemptedAny = false;
-          let priceMismatch = false;
-          const overlayPrice = changed.price || matrixHasKnownSkuPrices(item.variants);
           for (const row of variantRows) {
             const variantItem = buildVariantSyncItem(item, row);
             const vOffer = await findOffer(conn.accessToken, row.sku).catch(() => null);
@@ -1005,9 +874,9 @@ async function upsertListing(
             const vOfferBody = overlayPassthroughOffer(vOfferDetails, variantItem, {
               ...changed,
               quantity: false,
+              price: false,
               title: false,
               photos: false,
-              price: overlayPrice,
             });
             try {
               await ebayJson(
@@ -1017,13 +886,6 @@ async function upsertListing(
                 vOfferBody
               );
               await persistRevisionCount(conn.id, row.sku, conn.config);
-              if (overlayPrice) {
-                const refreshed = await getOfferDetails(conn.accessToken, vOffer.offerId).catch(
-                  () => null
-                );
-                const applied = readOfferPriceCents(refreshed);
-                if (applied != null && applied !== variantItem.priceCents) priceMismatch = true;
-              }
             } catch (e) {
               anyOfferPutFailed = true;
               console.warn("[ebay] passthrough variant offer update failed", {
@@ -1033,17 +895,11 @@ async function upsertListing(
             }
           }
           const offersOk = attemptedAny && !anyOfferPutFailed;
-          const priceOk = offersOk && !priceMismatch;
           const failMsg = !attemptedAny
             ? "No eBay variation offers found to update."
             : anyOfferPutFailed
               ? "One or more eBay variation offers failed to update."
-              : priceMismatch
-                ? "One or more eBay variation prices didn't update."
-                : undefined;
-          if (overlayPrice) {
-            fieldResults.push({ field: "price", ok: priceOk, error: priceOk ? undefined : failMsg });
-          }
+              : undefined;
           if (changed.description) {
             fieldResults.push({
               field: "description",
@@ -1058,13 +914,12 @@ async function upsertListing(
               error: offersOk ? undefined : failMsg,
             });
           }
-          console.log("[ebay] passthrough per-variation offer prices pushed", {
+          console.log("[ebay] passthrough per-variation offer content pushed", {
             storeItemId: item.id,
             sku,
             variantCount: variantRows.length,
             attemptedAny,
             anyOfferPutFailed,
-            priceMismatch,
           });
         } else {
         if (!offerId) {
@@ -1077,9 +932,6 @@ async function upsertListing(
         if (!offerId || !liveOffer) {
           const missingOfferError =
             "Could not update eBay offer — no published offer found for this imported listing.";
-          if (changed.price) {
-            fieldResults.push({ field: "price", ok: false, error: missingOfferError });
-          }
           if (changed.description) {
             fieldResults.push({ field: "description", ok: false, error: missingOfferError });
           }
@@ -1090,11 +942,11 @@ async function upsertListing(
           const offerBody = overlayPassthroughOffer(liveOffer, item, {
             ...changed,
             quantity: false,
+            price: false,
             title: false,
             photos: false,
           });
           const offerFields: PassthroughFieldResult[] = [];
-          if (changed.price) offerFields.push({ field: "price", ok: false });
           if (changed.description) offerFields.push({ field: "description", ok: false });
           if (changed.bestOffer) offerFields.push({ field: "bestOffer", ok: false });
           try {
@@ -1108,14 +960,7 @@ async function upsertListing(
             const refreshed = await getOfferDetails(conn.accessToken, offerId);
             const wantedBest = inwBestOfferState(item);
             for (const row of offerFields) {
-              if (row.field === "price") {
-                const applied = readOfferPriceCents(refreshed);
-                if (applied != null && applied !== item.priceCents) {
-                  row.error = `Price didn't update on eBay (offer still $${(applied / 100).toFixed(2)}).`;
-                } else {
-                  row.ok = true;
-                }
-              } else if (row.field === "bestOffer") {
+              if (row.field === "bestOffer") {
                 const appliedBest = readOfferBestOfferTerms(refreshed);
                 if (!bestOfferStatesMatch(appliedBest, wantedBest)) {
                   console.warn("[ebay] passthrough bestOffer verification mismatch", {
@@ -1144,9 +989,6 @@ async function upsertListing(
         }
       } else if (pushVariantOffers && !inventoryContentPutOk) {
         const blockedError = "Skipped eBay offer update because inventory content update failed.";
-        if (changed.price || matrixHasKnownSkuPrices(item.variants)) {
-          fieldResults.push({ field: "price", ok: false, error: blockedError });
-        }
         if (changed.description) {
           fieldResults.push({ field: "description", ok: false, error: blockedError });
         }
@@ -1459,21 +1301,19 @@ async function upsertListing(
       inwPhotos: item.photos,
       pushInwPhotos,
     });
-    if (!writeVariantQty) {
+    if (operation === "update") {
       const liveQty = readLiveInventoryAvailableQuantity(liveNative);
       if (liveQty != null) {
         inventoryBody.availability = {
           shipToLocationAvailability: { quantity: liveQty },
         };
+      } else {
+        delete inventoryBody.availability;
       }
     }
-    const offerBody = withEbayLiveOfferQuantity(
-      buildEbayOffer(syncItem, cfg, aspectCategoryId, sku),
-      {
-        writeQuantity: writeVariantQty,
-        liveAvailableQuantity: liveOffer?.availableQuantity,
-      }
-    );
+    const offerBody = buildEbayOffer(syncItem, cfg, aspectCategoryId, sku, {
+      includeQtyPrice: operation === "create",
+    });
     const offerStatus =
       (typeof liveOffer?.status === "string" ? liveOffer.status : null) ??
       existingOffer?.status ??
@@ -1506,9 +1346,9 @@ async function upsertListing(
             error: describeEbayThrownError(e),
           });
           try {
-            await pushOfferBody({ ...offerBody, availableQuantity: 1 });
+            await pushOfferBody(offerBody);
           } catch (fallbackErr) {
-            console.warn("[ebay] unpublished offer qty-1 fallback failed", {
+            console.warn("[ebay] unpublished offer update after delete failed", {
               storeItemId: item.id,
               sku,
               offerId,
@@ -1645,12 +1485,14 @@ async function upsertListing(
                 inwPhotos: inventoryItemGroupInwPhotoUrls(syncItem),
                 pushInwPhotos: opts.sendInwPhotos,
               });
-          if (!writeVariantQty) {
+          if (operation === "update") {
             const liveQty = readLiveInventoryAvailableQuantity(cached?.live ?? null);
             if (liveQty != null) {
               variantBody.availability = {
                 shipToLocationAvailability: { quantity: liveQty },
               };
+            } else {
+              delete variantBody.availability;
             }
           }
           console.info("[ebay] variant inventory photos", {
@@ -1703,17 +1545,9 @@ async function upsertListing(
           anyVariantHadOffer = true;
           if (variantListingId) publishedVariantListingId ??= variantListingId;
         }
-        const variantOfferBody = withEbayLiveOfferQuantity(
-          buildEbayOffer(variantItem, cfg, aspectCategoryId, row.sku),
-          {
-            writeQuantity: writeVariantQty,
-            liveAvailableQuantity:
-              variantOffer?.availableQuantity ??
-              (!writeVariantQty && variantOffer?.offerId
-                ? (await getOfferDetails(conn.accessToken, variantOffer.offerId))?.availableQuantity
-                : undefined),
-          }
-        );
+        const variantOfferBody = buildEbayOffer(variantItem, cfg, aspectCategoryId, row.sku, {
+          includeQtyPrice: operation === "create",
+        });
         const variantOfferStatus =
           typeof variantOffer?.status === "string" ? variantOffer.status : null;
         if (
@@ -1754,11 +1588,7 @@ async function upsertListing(
               variantOfferBody
             );
             offerIdsBySku.set(row.sku, variantOffer.offerId);
-          } else {
-            // No offer exists for this variation SKU. Create it (even on a live listing) so
-            // its price/quantity are established and it joins the inventory item group on the
-            // publish below — previously we skipped on live listings, which is why an edited
-            // variation with no offer never received its price ("some variants but not all").
+          } else if (operation === "create") {
             try {
               const created = await ebayJson<{ offerId?: string }>(
                 conn.accessToken,
@@ -1768,7 +1598,6 @@ async function upsertListing(
               );
               if (created.offerId) offerIdsBySku.set(row.sku, created.offerId);
             } catch (e) {
-              // Non-fatal: the group publish/quantity steps still run for the other rows.
               console.warn("[ebay] create variant offer failed", {
                 storeItemId: item.id,
                 sku: row.sku,
@@ -1777,6 +1606,13 @@ async function upsertListing(
                 error: describeEbayThrownError(e),
               });
             }
+          } else {
+            console.info("[ebay] skip create variant offer on live listing", {
+              storeItemId: item.id,
+              sku: row.sku,
+              listingAlreadyOnEbay,
+              linkedListingId: resolveEbayLegacyListingId(linkExternalId),
+            });
           }
         }
       };
@@ -1879,56 +1715,19 @@ async function upsertListing(
             return publishOfferByInventoryItemGroup(conn.accessToken, groupKey);
           });
           await persistEbayVariantOptionSkus(item.id, item.variants, variantRows);
-          let quantityError: string | undefined;
-          try {
-            await pushVariantGroupQuantities(conn.accessToken, variantRows, offerIdsBySku);
-          } catch (qtyErr) {
-            quantityError = describeEbayThrownError(qtyErr);
-            console.warn("[ebay] variant quantity write after publish failed", {
-              storeItemId: item.id,
-              listingId: published?.listingId ?? null,
-              error: quantityError,
-            });
-          }
-          await completeTrace(trace, quantityError ? "failed" : "success");
-          return { sku: variantSkus[0] ?? sku, listingId: published?.listingId, quantityError };
+          await completeTrace(trace, "success");
+          return { sku: variantSkus[0] ?? sku, listingId: published?.listingId };
         } catch (e) {
           const msg = describeEbayThrownError(e);
-          if (/#25604\b/i.test(msg) && /availability not found/i.test(msg)) {
-            try {
-              await pushVariantGroupQuantities(conn.accessToken, variantRows, offerIdsBySku);
-              const retried = await publishOfferByInventoryItemGroup(conn.accessToken, groupKey);
-              await persistEbayVariantOptionSkus(item.id, item.variants, variantRows);
-              await completeTrace(trace, "success");
-              return { sku: variantSkus[0] ?? sku, listingId: retried?.listingId };
-            } catch (retryErr) {
-              const retryMsg = describeEbayThrownError(retryErr);
-              await completeTrace(trace, "failed", retryErr);
-              return { sku: variantSkus[0] ?? sku, publishError: retryMsg };
-            }
-          }
           await completeTrace(trace, "failed", e);
           return { sku: variantSkus[0] ?? sku, publishError: msg };
         }
       }
       await persistEbayVariantOptionSkus(item.id, item.variants, variantRows);
-      let variantQuantityError: string | undefined;
-      try {
-        if (writeVariantQty) {
-          await pushVariantGroupQuantities(conn.accessToken, variantRows, offerIdsBySku);
-        }
-      } catch (qtyErr) {
-        variantQuantityError = describeEbayThrownError(qtyErr);
-        console.warn("[ebay] variant quantity write failed", {
-          storeItemId: item.id,
-          error: variantQuantityError,
-        });
-      }
-      await completeTrace(trace, variantQuantityError ? "failed" : "success");
+      await completeTrace(trace, "success");
       return {
         sku: variantSkus[0] ?? sku,
         listingId: publishedVariantListingId ?? undefined,
-        quantityError: variantQuantityError,
       };
     }
 
@@ -1967,12 +1766,14 @@ async function upsertListing(
             pushInwPhotos,
           }
         );
-        if (!writeVariantQty) {
+        if (operation === "update") {
           const liveQty = readLiveInventoryAvailableQuantity(liveNative);
           if (liveQty != null) {
             retryInventoryBody.availability = {
               shipToLocationAvailability: { quantity: liveQty },
             };
+          } else {
+            delete retryInventoryBody.availability;
           }
         }
         await pushInventoryBody(retryInventoryBody, trace);
@@ -2087,16 +1888,6 @@ async function upsertListing(
             readEbayOfferListingId(existingOffer) ??
             undefined;
           console.info("[ebay] publish skipped; offer already live", { offerId, listingId: publishedListingId });
-        } else if (/#25604\b/i.test(msg) && /availability not found/i.test(msg)) {
-          await pushEbayAbsoluteQuantity({
-            accessToken: conn.accessToken,
-            sku,
-            quantity: Math.max(0, item.quantity),
-            offerId,
-            title: item.title,
-          });
-          publishedListingId = await publishOffer(conn.accessToken, offerId);
-          await persistRevisionCount(conn.id, sku, conn.config);
         } else {
           console.error("[ebay] publish failed; left as draft", { offerId, error: msg });
           await completeTrace(trace, "failed", e);
@@ -2129,64 +1920,6 @@ async function upsertListing(
   } catch (e) {
     await completeTrace(trace, "failed", e);
     throw e;
-  }
-}
-
-/** Read-back: live listing stock is offer.availableQuantity, not inventory PUT. */
-async function verifyOfferWrite(
-  accessToken: string,
-  offerId: string,
-  expectedQuantity: number
-): Promise<void> {
-  await new Promise((r) => setTimeout(r, 500));
-  const offer = await getOfferDetails(accessToken, offerId);
-  if (!offer) return;
-  const actual = Number(offer.availableQuantity);
-  if (!Number.isFinite(actual) || actual === expectedQuantity) return;
-  await new Promise((r) => setTimeout(r, 800));
-  const retry = await getOfferDetails(accessToken, offerId);
-  const retryQty = Number(retry?.availableQuantity);
-  if (Number.isFinite(retryQty) && retryQty !== expectedQuantity) {
-    throw new Error(
-      `eBay offer verify failed for ${offerId}: expected ${expectedQuantity}, got ${retryQty}`
-    );
-  }
-}
-
-/**
- * Read-back verification: confirm the inventory quantity was actually applied.
- * This catches cases where eBay returns 200 OK but the stock didn't change.
- * @param expectedQuantity - The quantity we tried to set, or null to skip qty check (for variant listings)
- */
-async function verifyInventoryWrite(
-  accessToken: string,
-  sku: string,
-  expectedQuantity: number | null
-): Promise<void> {
-  // Small delay to allow eBay to propagate the write
-  await new Promise((r) => setTimeout(r, 500));
-
-  const item = await ebayGetInventoryItem(accessToken, sku);
-  if (!item) {
-    console.warn("[ebay] verifyInventoryWrite: inventory item not found after write", { sku });
-    // Don't throw - the item might be newly created and still propagating
-    return;
-  }
-
-  // For variant listings, we skip quantity check since it's per-variation
-  if (expectedQuantity === null) return;
-
-  const actualQuantity = item.availability?.shipToLocationAvailability?.quantity;
-  if (actualQuantity !== undefined && actualQuantity !== expectedQuantity) {
-    // One retry after a longer delay for eBay propagation.
-    await new Promise((r) => setTimeout(r, 800));
-    const retry = await ebayGetInventoryItem(accessToken, sku);
-    const retryQty = retry?.availability?.shipToLocationAvailability?.quantity;
-    if (retryQty !== undefined && retryQty !== expectedQuantity) {
-      throw new Error(
-        `eBay inventory verify failed for SKU ${sku}: expected ${expectedQuantity}, got ${retryQty}`
-      );
-    }
   }
 }
 
@@ -2231,7 +1964,7 @@ export const ebayAdapter: ChannelAdapter = {
     }
     const { requireSellableSkusForPublish } = await import("../sku-identity");
     requireSellableSkusForPublish(item, "ebay");
-    const { sku, listingId, publishError, quantityError } = await upsertListing(conn, item);
+    const { sku, listingId, publishError } = await upsertListing(conn, item);
     if (publishError) {
       throw new Error(publishError);
     }
@@ -2243,15 +1976,10 @@ export const ebayAdapter: ChannelAdapter = {
         warning: "eBay saved a draft. It is not live on eBay yet.",
       };
     }
-    // Listing is live; don't orphan it by throwing. Surface the qty failure as a warning so
-    // the link is created and the seller sees that quantities still need to sync.
     return {
       externalListingId: listingId,
       externalShopId: conn.externalShopId,
       live: true,
-      ...(quantityError
-        ? { warning: `eBay listing is live but the variation quantities failed to update: ${quantityError}` }
-        : {}),
     };
   },
 
@@ -2263,13 +1991,6 @@ export const ebayAdapter: ChannelAdapter = {
         throw new Error(outcome.message);
       }
       throw new Error(`eBay content updated but publish failed: ${outcome.message}`);
-    }
-    // A published listing whose variation quantities didn't write is NOT a success — surface it
-    // so it becomes a Needs Attention item and the retry queue re-attempts the quantity write.
-    if (outcome.kind === "quantity_error") {
-      throw new Error(
-        `eBay listing updated but variation quantities failed to sync: ${outcome.message}`
-      );
     }
   },
 
@@ -2327,135 +2048,8 @@ export const ebayAdapter: ChannelAdapter = {
     return;
   },
 
-  async updateInventory(conn, externalListingId, absoluteQuantity, item): Promise<void> {
-    const ebayLink = await prisma.channelListingLink.findFirst({
-      where: { storeItemId: item.id, provider: "ebay" },
-      select: {
-        id: true,
-        linkOrigin: true,
-        externalListingId: true,
-        ebayInventoryAspects: true,
-        conflictDetails: true,
-      },
-    });
-    if (isEbayListingEnded(ebayLink?.conflictDetails)) {
-      console.info("[ebay] skip inventory update; listing ended", {
-        storeItemId: item.id,
-        sku: ebayLink?.externalListingId,
-      });
-      return;
-    }
-    const inventorySku = await resolveEbayLivePushSku(conn.accessToken, {
-      itemId: item.id,
-      itemSku: item.sku,
-      externalListingId,
-      linkOrigin: ebayLink?.linkOrigin,
-    });
-    hydrateRevisionCountsFromConfig(conn.config);
-
-    try {
-      // Check rate limit before making any changes
-      const limitCheck = checkRevisionLimit(inventorySku);
-      if (limitCheck.atLimit) {
-        const warning = getRevisionLimitWarning(inventorySku);
-        throw new Error(warning || "eBay daily revision limit reached");
-      }
-      if (limitCheck.nearLimit) {
-        console.warn("[ebay] updateInventory: approaching rate limit", {
-          sku: inventorySku,
-          count: limitCheck.count,
-        });
-      }
-
-      const isImported = isImportedEbayLink({
-        provider: "ebay",
-        externalListingId,
-        storeItemId: item.id,
-        linkOrigin: ebayLink?.linkOrigin,
-      });
-
-      const offer = await findOffer(conn.accessToken, inventorySku).catch(() => null);
-      if (
-        offer?.status &&
-        shouldSkipEbayUnpublishedZeroQuantitySync({
-          quantity: Math.max(0, absoluteQuantity),
-          offerStatus: offer.status,
-        })
-      ) {
-        console.info("[ebay] skip unpublished zero-qty inventory update", {
-          storeItemId: item.id,
-          sku: inventorySku,
-          offerId: offer.offerId,
-          offerStatus: offer.status,
-        });
-        return;
-      }
-
-      if (hasOptionQuantities(item.variants) && shouldUseInventoryItemGroup(item)) {
-        let variantRows = buildVariantInventoryRows(item, {
-          parentSku: inventorySku,
-          legacyListingId: resolveEbayLegacyListingId(externalListingId),
-          imported: isImported,
-        });
-        const liveGroup = await resolveLiveEbayInventoryItemGroup(
-          conn.accessToken,
-          item,
-          inventorySku
-        );
-        variantRows = await alignVariantRowsToLiveEbayInventory(
-          conn.accessToken,
-          variantRows,
-          readInventoryItemGroupVariantSkus(liveGroup.body)
-        );
-        await pushVariantGroupQuantities(conn.accessToken, variantRows);
-        await persistEbayVariantOptionSkus(item.id, item.variants, variantRows);
-        return;
-      }
-
-      if (hasOptionQuantities(item.variants)) {
-        const quantity = Math.max(0, absoluteQuantity);
-        await pushEbayAbsoluteQuantity({
-          accessToken: conn.accessToken,
-          sku: inventorySku,
-          quantity,
-          offerId: offer?.offerId,
-          title: item.title,
-        });
-        await persistRevisionCount(conn.id, inventorySku, conn.config);
-        if (quantity <= 0) {
-          if (offer?.offerId) {
-            await verifyOfferWrite(conn.accessToken, offer.offerId, 0);
-          }
-        } else {
-          await verifyInventoryWrite(conn.accessToken, inventorySku, quantity);
-        }
-        return;
-      }
-      const quantity = Math.max(0, absoluteQuantity);
-      await pushEbayAbsoluteQuantity({
-        accessToken: conn.accessToken,
-        sku: inventorySku,
-        quantity,
-        offerId: offer?.offerId,
-        title: item.title,
-      });
-      await persistRevisionCount(conn.id, inventorySku, conn.config);
-
-      if (quantity <= 0) {
-        if (offer?.offerId) {
-          await verifyOfferWrite(conn.accessToken, offer.offerId, 0);
-        }
-      } else {
-        await verifyInventoryWrite(conn.accessToken, inventorySku, quantity);
-      }
-    } catch (e) {
-      const msg = describeEbayThrownError(e);
-      if (ebayLink && (isEbayEndedListingError(e) || isEbayEndedListingError(msg))) {
-        await persistEbayListingEnded(ebayLink.id, ebayLink.conflictDetails);
-        return;
-      }
-      throw e;
-    }
+  async updateInventory(_conn, _externalListingId, _absoluteQuantity, _item): Promise<void> {
+    return;
   },
 
   async listRemoteListings(conn, opts?: { skipPhotoEnrichment?: boolean }): Promise<RemoteListingSummary[]> {
@@ -2511,30 +2105,9 @@ export const ebayAdapter: ChannelAdapter = {
   },
 
   async fetchProductQuantity(
-    conn,
-    externalListingId
+    _conn,
+    _externalListingId
   ): Promise<{ quantity: number; known: boolean }> {
-    let legacyId = externalListingId;
-    const inwMatch = legacyId.match(/^inw(\d+)$/);
-    if (inwMatch) legacyId = inwMatch[1];
-
-    // Prefer Inventory API for INW-created SKUs; fall back to Trading GetItem for classic IDs.
-    const inv = await ebayGetInventoryItem(conn.accessToken, externalListingId).catch(() => null);
-    const invQty = inv?.availability?.shipToLocationAvailability?.quantity;
-    if (typeof invQty === "number") {
-      return { quantity: Math.max(0, invQty), known: true };
-    }
-
-    if (/^\d+$/.test(legacyId)) {
-      try {
-        const details = await fetchEbayItemDetails(conn.accessToken, legacyId);
-        if (details.quantity != null) {
-          return { quantity: details.quantity, known: true };
-        }
-      } catch {
-        return { quantity: 0, known: false };
-      }
-    }
     return { quantity: 0, known: false };
   },
 

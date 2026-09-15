@@ -11,9 +11,6 @@ import { ebayGetInventoryItem } from "./client";
 import { extractEbayInventoryAspects } from "./listing-origin";
 import { enrichInventoryProductAspectsForPush, prepareLiveAspectsForInventoryPut, passthroughUsePreparedInventoryAspects, type CategoryAspectSchema } from "./aspect-prep";
 import { applyBestOfferTermsToOfferBody, bestOfferStatesMatch, inwBestOfferState, readOfferBestOfferTerms } from "./best-offer";
-import { EBAY_CURRENCY } from "./config";
-import { ebayPriceFromCents } from "./mapping";
-import { channelQuantityForTracked } from "@/lib/listing-variant-matrix";
 import {
   ebayPhotosAreHostFamilyMismatchOnly,
   liveEbayPhotoUrlsToPin,
@@ -41,17 +38,15 @@ export function needsInventoryPut(changed: PassthroughChangedFields): boolean {
 }
 
 /**
- * Variation listings price each SKU on its own offer. Listing CurrentPrice is the
- * cheapest variation, so `changed.price` stays false when only a non-min SKU moved.
- * Still PUT every variant offer when INW has per-SKU prices.
+ * Variation listings keep description and Best Offer on each SKU's offer.
+ * Quantity and price stay Hub-owned — do not PUT those fields.
  */
 export function passthroughShouldPushVariantOffers(args: {
   changed: PassthroughChangedFields;
   hasVariantRows: boolean;
   hasSkuPrices: boolean;
 }): boolean {
-  if (args.changed.price || args.changed.description || args.changed.bestOffer) return true;
-  return args.hasVariantRows && args.hasSkuPrices;
+  return !!(args.changed.description || args.changed.bestOffer);
 }
 
 /** Description lives on the offer for imported listings — omit from inventory product overlay. */
@@ -68,20 +63,13 @@ export function buildPassthroughLiveOverlayBody(
   patch: {
     title?: string;
     imageUrls?: string[];
-    quantity?: number;
-    fallbackQuantity?: number;
   } = {}
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   if (typeof live.condition === "string") body.condition = live.condition;
 
-  if (patch.quantity != null) {
-    body.availability = {
-      shipToLocationAvailability: { quantity: Math.max(0, patch.quantity) },
-    };
-  } else {
-    body.availability = passthroughAvailabilityForPut(live, patch.fallbackQuantity ?? 0);
-  }
+  const liveAvailability = passthroughAvailabilityForPut(live);
+  if (liveAvailability) body.availability = liveAvailability;
 
   const liveProduct =
     live.product && typeof live.product === "object"
@@ -115,7 +103,6 @@ export function buildPassthroughTitleOnlyInventoryBody(
 ): Record<string, unknown> {
   return buildPassthroughLiveOverlayBody(live, {
     title: item.title,
-    fallbackQuantity: channelQuantityForTracked(item.quantity, item.inventoryTracking),
   });
 }
 
@@ -220,16 +207,13 @@ export function readLiveInventoryAvailableQuantity(
  * offer PUT / publish returns #25604 Availability not found.
  */
 export function passthroughAvailabilityForPut(
-  live: LiveInventoryItem,
-  fallbackQuantity: number
-): { shipToLocationAvailability: { quantity: number } } {
+  live: LiveInventoryItem
+): { shipToLocationAvailability: { quantity: number } } | null {
   const liveQty = readLiveInventoryAvailableQuantity(live);
   if (liveQty != null && live.availability && typeof live.availability === "object") {
     return structuredClone(live.availability) as { shipToLocationAvailability: { quantity: number } };
   }
-  return {
-    shipToLocationAvailability: { quantity: Math.max(0, fallbackQuantity) },
-  };
+  return null;
 }
 
 function liveQuantity(live: LiveInventoryItem): number | null {
@@ -313,29 +297,16 @@ export function resolvePassthroughChanges(
   const title = prefs.syncTitles && (inwFields.title || live.title);
   const description = prefs.syncDescriptions && (inwFields.description || live.description);
   const photos = false;
-  const price = prefs.syncPrices && (inwFields.price || live.price);
   const bestOffer = inwFields.bestOffer || live.bestOffer === true;
   return {
     title,
     photos,
     description,
-    quantity: live.quantity,
-    price,
+    quantity: false,
+    price: false,
     bestOffer,
     content: !!(title || photos || description),
   };
-}
-
-/**
- * Title/price/shipping passthrough must not PUT INW qty just because live eBay ≠ INW.
- * That difference is a Seller Hub edit; only write qty when INW itself changed qty.
- */
-export function applyEbayPassthroughQuantityWriteGate(
-  changed: PassthroughChangedFields,
-  writeVariantQty: boolean
-): PassthroughChangedFields {
-  if (writeVariantQty || !changed.quantity) return changed;
-  return { ...changed, quantity: false };
 }
 
 export async function fetchLiveInventoryItem(
@@ -508,16 +479,8 @@ export function buildPassthroughInventoryBody(
     product: liveProduct,
   };
 
-  if (changed.quantity) {
-    body.availability = {
-      shipToLocationAvailability: { quantity: Math.max(0, item.quantity) },
-    };
-  } else {
-    body.availability = passthroughAvailabilityForPut(
-      live,
-      channelQuantityForTracked(item.quantity, item.inventoryTracking)
-    );
-  }
+  const liveAvailability = passthroughAvailabilityForPut(live);
+  if (liveAvailability) body.availability = liveAvailability;
 
   return body;
 }
@@ -611,21 +574,7 @@ const OFFER_READ_ONLY_KEYS = new Set([
   "conditionDescriptors",
 ]);
 
-/** Strip read-only offer fields and set availableQuantity for a qty-only PUT. */
-export function overlayOfferAvailableQuantity(
-  liveOffer: Record<string, unknown>,
-  quantity: number
-): Record<string, unknown> {
-  const offer: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(liveOffer)) {
-    if (OFFER_READ_ONLY_KEYS.has(key)) continue;
-    offer[key] = value;
-  }
-  offer.availableQuantity = Math.max(0, quantity);
-  return offer;
-}
-
-/** Overlay INW description/qty on a live GET offer — never rewrite category or policies. */
+/** Strip read-only offer fields for a content PUT. Do not send qty or price. */
 export function overlayPassthroughOffer(
   liveOffer: Record<string, unknown>,
   item: SyncStoreItem,
@@ -634,22 +583,8 @@ export function overlayPassthroughOffer(
   const offer: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(liveOffer)) {
     if (OFFER_READ_ONLY_KEYS.has(key)) continue;
+    if (key === "availableQuantity" || key === "pricingSummary") continue;
     offer[key] = value;
-  }
-
-  if (changed.quantity) {
-    offer.availableQuantity = Math.max(0, item.quantity);
-  }
-
-  if (changed.price) {
-    const existing =
-      offer.pricingSummary && typeof offer.pricingSummary === "object"
-        ? { ...(offer.pricingSummary as Record<string, unknown>) }
-        : {};
-    offer.pricingSummary = {
-      ...existing,
-      price: { value: ebayPriceFromCents(item.priceCents), currency: EBAY_CURRENCY },
-    };
   }
 
   if (changed.description || (changed.content && changed.description == null)) {
@@ -666,20 +601,15 @@ export function overlayPassthroughOffer(
   return offer;
 }
 
-/** Overlay INW price/qty/description on an existing offer body for imported listings. */
+/** Overlay INW description on an existing offer body. Qty and price are Hub-owned. */
 export function buildPassthroughOfferBody(
   item: SyncStoreItem,
   changed: PassthroughChangedFields,
   baseOffer?: Record<string, unknown>
 ): Record<string, unknown> {
   const offer: Record<string, unknown> = baseOffer ? { ...baseOffer } : {};
-  offer.availableQuantity = Math.max(0, item.quantity);
-
-  if (changed.price) {
-    offer.pricingSummary = {
-      price: { value: ebayPriceFromCents(item.priceCents), currency: EBAY_CURRENCY },
-    };
-  }
+  delete offer.availableQuantity;
+  delete offer.pricingSummary;
 
   if (changed.description || changed.content) {
     offer.listingDescription = listingDescriptionForHtmlChannel(item.description, item.title).slice(

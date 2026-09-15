@@ -196,8 +196,9 @@ export async function applyRemoteVariantAxesToStoreItem(
 export async function applyRemoteVariantsToStoreItem(
   storeItemId: string,
   remote: RemoteListingSummary,
-  _provider: ChannelProvider
+  provider: ChannelProvider
 ): Promise<boolean> {
+  if (provider === "ebay") return false;
   if (remote.variantsKnown === false || !remote.variants) return false;
   return applyRemoteVariantAxesToStoreItem(storeItemId, remote.variants);
 }

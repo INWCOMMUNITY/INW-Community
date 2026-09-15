@@ -110,22 +110,6 @@ export function readEbayOfferAvailableQuantity(raw: unknown): number | null {
   return Number.isFinite(n) ? Math.max(0, Math.round(n)) : null;
 }
 
-/**
- * Content/price offer PUTs must not restamp INW qty onto View Item. Hub owns the
- * public listing; INW writes availableQuantity only on a real INW stock change.
- */
-export function withEbayLiveOfferQuantity(
-  offerBody: Record<string, unknown>,
-  args: { writeQuantity: boolean; liveAvailableQuantity?: unknown }
-): Record<string, unknown> {
-  if (args.writeQuantity) return offerBody;
-  const next = { ...offerBody };
-  const live = readEbayOfferAvailableQuantity(args.liveAvailableQuantity);
-  if (live != null) next.availableQuantity = live;
-  else delete next.availableQuantity;
-  return next;
-}
-
 /** Unpublished offers reject quantity 0 (#25004) and then block inventory Brand updates. */
 export function shouldWriteEbayOffer(args: {
   quantity: number;

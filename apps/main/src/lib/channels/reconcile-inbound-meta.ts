@@ -24,7 +24,7 @@ import {
 import type { ChannelProvider, RemoteListingSummary } from "./types";
 import { sumVariantQuantities, remoteVariantsIndicateChange, remoteVariantPricesLookLikeListingFlatten, remoteVariantPricesLookUntrusted, stalePushedVariantPricesShouldRepush, variantsFingerprint, variantPricesFingerprint } from "./variant-sync";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
-import { isMadeToOrderTracking, matrixHasKnownSkuPrices, normalizeVariantMatrix, optionValuesKey } from "@/lib/listing-variant-matrix";
+import { isMadeToOrderTracking, matrixHasKnownSkuPrices, normalizeVariantMatrix, optionValuesKey, remoteVariantPricesLookLikeLeftoverMinOverwrite } from "@/lib/listing-variant-matrix";
 import { matchInwSkuRow } from "./variant-match";
 import { recordVariantPriceTrace, type VariantPriceTraceRow } from "./sync-trace";
 import { isComboInventoryFailedError } from "./combo-sync";
@@ -400,6 +400,12 @@ export async function reconcileConnectionInboundMeta(
       remoteVariantPricesLookUntrusted({
         remoteVariants: remote.variants,
         inwVariants: item.variants,
+      }) ||
+      remoteVariantPricesLookLikeLeftoverMinOverwrite({
+        inwVariants: item.variants,
+        remoteVariants: remote.variants,
+        inwListingPriceCents: item.priceCents,
+        remoteListingPriceCents: remote.priceCents,
       })
     ) {
       inwVarChanged = true;

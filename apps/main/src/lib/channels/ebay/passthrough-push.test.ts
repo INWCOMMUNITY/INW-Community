@@ -6,7 +6,6 @@ import {
   buildPassthroughOfferBody,
   buildPassthroughTitleInventoryBody,
   buildPassthroughTitleOnlyInventoryBody,
-  applyEbayPassthroughQuantityWriteGate,
   detectLivePassthroughChanges,
   detectPassthroughChangedFields,
   formatPassthroughFieldSyncSummary,
@@ -15,7 +14,6 @@ import {
   inwPhotosChangedSinceLastEbayPush,
   shouldPushInwPhotosToEbay,
   needsInventoryPut,
-  overlayOfferAvailableQuantity,
   overlayPassthroughOffer,
   passthroughAvailabilityForPut,
   passthroughEndedQuantityOnly,
@@ -273,7 +271,7 @@ describe("passthrough-push", () => {
 
     const product = body.product as Record<string, unknown>;
     expect(product.title).toBe("1938 Jefferson Nickel NGC MS 67");
-    expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 0 } });
+    expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 1 } });
   });
 
   it("preserves live warehouse qty on content-only inventory PUTs", () => {
@@ -290,7 +288,7 @@ describe("passthrough-push", () => {
     expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 9 } });
   });
 
-  it("buildPassthroughOfferBody updates price and qty", () => {
+  it("buildPassthroughOfferBody omits qty and price on linked updates", () => {
     const changed = { content: true, quantity: true, price: true };
     const offer = buildPassthroughOfferBody(
       { ...coinItem, priceCents: 15000, quantity: 2 },
@@ -298,8 +296,8 @@ describe("passthrough-push", () => {
       { sku: "inw403004607151", format: "FIXED_PRICE" }
     );
 
-    expect(offer.availableQuantity).toBe(2);
-    expect((offer.pricingSummary as { price: { value: string } }).price.value).toBe("150.00");
+    expect(offer.availableQuantity).toBeUndefined();
+    expect(offer.pricingSummary).toBeUndefined();
     expect(offer.listingDescription).toContain("Beautiful coin");
   });
 
@@ -423,59 +421,26 @@ describe("passthrough-push", () => {
     expect(product.imageUrls).toEqual(["https://i.ebayimg.com/original.jpg"]);
   });
 
-  it("overlayOfferAvailableQuantity zeros qty and strips read-only keys", () => {
-    const offer = overlayOfferAvailableQuantity(
-      {
-        categoryId: "39458",
-        listingPolicies: { paymentPolicyId: "p1" },
-        availableQuantity: 1,
-        offerId: "offer-1",
-        status: "PUBLISHED",
-        listing: { listingId: "403004607151" },
-      },
-      0
-    );
-    expect(offer.availableQuantity).toBe(0);
-    expect(offer.categoryId).toBe("39458");
-    expect(offer.listingPolicies).toEqual({ paymentPolicyId: "p1" });
-    expect(offer.offerId).toBeUndefined();
-    expect(offer.status).toBeUndefined();
-    expect(offer.listing).toBeUndefined();
-  });
-
-  it("overlayPassthroughOffer updates pricingSummary without rewriting categoryId", () => {
+  it("overlayPassthroughOffer omits qty and price so Hub keeps those fields", () => {
     const offer = overlayPassthroughOffer(
       {
         categoryId: "39458",
         listingPolicies: { paymentPolicyId: "p1" },
         listingDescription: "old",
         pricingSummary: { price: { value: "125.00", currency: "USD" } },
+        availableQuantity: 9,
         offerId: "offer-1",
         status: "PUBLISHED",
       },
-      { ...coinItem, priceCents: 14500 },
+      { ...coinItem, priceCents: 14500, quantity: 4 },
       { content: false, quantity: false, price: true, description: false }
     );
     expect(offer.categoryId).toBe("39458");
     expect(offer.listingPolicies).toEqual({ paymentPolicyId: "p1" });
     expect(offer.offerId).toBeUndefined();
-    expect(offer.pricingSummary).toEqual({ price: { value: "145.00", currency: "USD" } });
-    expect(offer.listingDescription).toBe("old");
+    expect(offer.pricingSummary).toBeUndefined();
     expect(offer.availableQuantity).toBeUndefined();
-  });
-
-  it("overlayPassthroughOffer keeps live availableQuantity on a price-only PUT", () => {
-    const offer = overlayPassthroughOffer(
-      {
-        categoryId: "39458",
-        availableQuantity: 9,
-        pricingSummary: { price: { value: "10.00", currency: "USD" } },
-      },
-      { ...coinItem, priceCents: 2000, quantity: 4 },
-      { content: false, quantity: false, price: true, description: false }
-    );
-    expect(offer.availableQuantity).toBe(9);
-    expect(offer.pricingSummary).toEqual({ price: { value: "20.00", currency: "USD" } });
+    expect(offer.listingDescription).toBe("old");
   });
 
   it("overlayPassthroughOffer omits stale conditionDescriptors from offer PUT", () => {
@@ -605,18 +570,15 @@ describe("passthrough-push", () => {
     );
     const product = body.product as Record<string, unknown>;
     expect(product.imageUrls).toEqual(["https://i.ebayimg.com/a.jpg"]);
-    expect(body.availability).toEqual({ shipToLocationAvailability: { quantity: 1 } });
+    expect(body.availability).toBeUndefined();
   });
 
-  it("passthroughAvailabilityForPut falls back to INW qty when live GET has none", () => {
-    expect(passthroughAvailabilityForPut({}, 4)).toEqual({
-      shipToLocationAvailability: { quantity: 4 },
-    });
+  it("passthroughAvailabilityForPut pins live qty and does not fall back to INW", () => {
+    expect(passthroughAvailabilityForPut({})).toBeNull();
     expect(
-      passthroughAvailabilityForPut(
-        { availability: { shipToLocationAvailability: { quantity: 7 } } },
-        4
-      )
+      passthroughAvailabilityForPut({
+        availability: { shipToLocationAvailability: { quantity: 7 } },
+      })
     ).toEqual({ shipToLocationAvailability: { quantity: 7 } });
   });
 
@@ -794,7 +756,7 @@ describe("passthrough-push", () => {
     expect(changed.price).toBe(false);
   });
 
-  it("pushes per-SKU offer prices when listing CurrentPrice is unchanged", () => {
+  it("does not push per-SKU offer prices when listing CurrentPrice is unchanged", () => {
     const listingMinUnchanged = {
       content: false,
       quantity: false,
@@ -808,7 +770,7 @@ describe("passthrough-push", () => {
         hasVariantRows: true,
         hasSkuPrices: true,
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       passthroughShouldPushVariantOffers({
         changed: listingMinUnchanged,
@@ -822,7 +784,7 @@ describe("passthrough-push", () => {
         { ...coinItem, priceCents: 1800 },
         { ...listingMinUnchanged, price: true }
       ).pricingSummary
-    ).toEqual({ price: { value: "18.00", currency: "USD" } });
+    ).toBeUndefined();
   });
 
   it("overlayPassthroughOffer applies bestOfferTerms from INW", () => {
@@ -900,7 +862,7 @@ describe("passthrough-push", () => {
     expect(needsInventoryPut(changed)).toBe(false);
   });
 
-  it("does not keep quantity dirty on a title/price push when live offer qty differs from INW", () => {
+  it("linked content PUTs omit quantity and price even when live offer qty differs from INW", () => {
     const item = { ...coinItem, title: "1938 Jefferson Nickel NGC MS 67 Revised", quantity: 1 };
     const live = {
       ...liveJeffersonNickel,
@@ -911,7 +873,6 @@ describe("passthrough-push", () => {
       pricingSummary: { price: { value: "125.00" } },
       availableQuantity: 9,
     });
-    expect(liveChanges.quantity).toBe(true);
     const resolved = resolvePassthroughChanges(
       liveChanges,
       {
@@ -927,11 +888,9 @@ describe("passthrough-push", () => {
         syncPrices: true,
       }
     );
-    expect(resolved.quantity).toBe(true);
-    const gated = applyEbayPassthroughQuantityWriteGate(resolved, false);
-    expect(gated.title).toBe(true);
-    expect(gated.price).toBe(true);
-    expect(gated.quantity).toBe(false);
+    expect(resolved.quantity).toBe(false);
+    expect(resolved.price).toBe(false);
+    expect(resolved.title).toBe(true);
     const offer = overlayPassthroughOffer(
       {
         categoryId: "41087",
@@ -939,12 +898,10 @@ describe("passthrough-push", () => {
         pricingSummary: { price: { value: "125.00", currency: "USD" } },
       },
       item,
-      gated
+      resolved
     );
-    expect(offer.availableQuantity).toBe(9);
-    expect(
-      applyEbayPassthroughQuantityWriteGate(resolved, true).quantity
-    ).toBe(true);
+    expect(offer.availableQuantity).toBeUndefined();
+    expect(offer.pricingSummary).toBeUndefined();
   });
 
   it("buildPassthroughLiveOverlayBody omits aspects on photo-only PUT", () => {

@@ -45,12 +45,7 @@ import {
 import { claimChannelListingLink } from "./listing-link-claim";
 import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
 import { inboundDescriptionsMatch } from "./apply-remote-listing";
-import {
-  ebayInwPushedRecently,
-  ebaySellerHubListedQuantity,
-  ebaySellerHubQtyAheadOfViewItem,
-  fetchEbayItemDetails,
-} from "./ebay/trading";
+import { fetchEbayItemDetails } from "./ebay/trading";
 import { fetchShopifyListingForInbound } from "./shopify/adapter";
 import { resolveEbayLegacyListingId } from "./ebay/mapping";
 import {
@@ -529,7 +524,9 @@ export async function updateStoreItemOnChannels(
     const currentPricesFp = variantPricesFingerprint(item.variants);
     const lastPushedPricesFp = readLastPushedVariantPricesHash(link.conflictDetails);
     const variantPricesChanged =
-      currentPricesFp !== "" && lastPushedPricesFp !== currentPricesFp;
+      provider !== "ebay" &&
+      currentPricesFp !== "" &&
+      lastPushedPricesFp !== currentPricesFp;
     // Use hubUpdatedAt (the true source time, which is the remote edit time on an inbound
     // fan-out) consistently with the overwrite guard — otherwise the post-apply now() makes
     // this look "newer than the sibling" and re-pushes a stale copy over a newer sibling edit.
@@ -572,6 +569,10 @@ export async function updateStoreItemOnChannels(
     }
 
     if (inventoryOnly) {
+      if (provider === "ebay") {
+        results.push({ provider, ok: true, skipped: "ebay_qty_unsynced" });
+        continue;
+      }
       const connConfig = (link.connection.config ?? {}) as Record<string, unknown>;
       const syncDirection = (connConfig.syncDirection as string) ?? "two_way";
       if (syncDirection === "pull_only" || syncDirection === "paused") {
@@ -599,16 +600,6 @@ export async function updateStoreItemOnChannels(
       try {
         const freshItem = await loadSyncItem(storeItemId);
         if (!freshItem) continue;
-        if (
-          provider === "ebay" &&
-          inwRevisionCameFromChannelInbound({
-            inwUpdatedAt,
-            lastInboundAt: link.lastInboundAt,
-          })
-        ) {
-          results.push({ provider, ok: true, skipped: "inbound_echo" });
-          continue;
-        }
         const channelInventoryOffset = (connConfig.inventoryOffset as number) ?? 0;
         const globalSafetyBuffer = syncPrefs?.safetyBuffer ?? 0;
         const adjustedQty = Math.max(0, freshItem.quantity - globalSafetyBuffer - channelInventoryOffset);
@@ -622,69 +613,7 @@ export async function updateStoreItemOnChannels(
           // Sale-revert guard: never push INW's quantity when the live marketplace stock is
           // the newer edit and INW is still at baseline (e.g. a buyer just purchased on the
           // channel). Reuses a live read like the content-push path, but qty-only.
-          if (qtyGuardExact && provider === "ebay") {
-            const legacyId = resolveEbayLegacyListingId(link.externalListingId);
-            if (legacyId) {
-              const live = await fetchEbayItemDetails(ctx.accessToken, legacyId).catch(() => null);
-              if (
-                live &&
-                !ebayInwPushedRecently(link.lastPushedAt) &&
-                ebaySellerHubQtyAheadOfViewItem(live)
-              ) {
-                skippedNewerRemoteQty = true;
-                console.warn("[channels] skip eBay inventory push; Seller Hub qty has not reached View Item", {
-                  storeItemId,
-                  externalListingId: link.externalListingId,
-                  inwQty: freshItem.quantity,
-                  hubQty: ebaySellerHubListedQuantity(live),
-                  viewItemQty: live.quantity,
-                });
-                return;
-              }
-              const hubQty = live ? ebaySellerHubListedQuantity(live) : null;
-              if (
-                live &&
-                hubQty != null &&
-                shouldBlockOutboundQtyOverwrite({
-                  inwQuantity: freshItem.quantity,
-                  remoteQuantity: hubQty,
-                  syncBaselineQty: link.syncBaselineQty,
-                  remoteUpdatedAt: live.remoteUpdatedAt ?? null,
-                  inwUpdatedAt: hubUpdatedAt,
-                  lastPushedAt: link.lastPushedAt,
-                })
-              ) {
-                skippedNewerRemoteQty = true;
-                console.warn("[channels] skip eBay inventory push; live stock is newer than INW", {
-                  storeItemId,
-                  externalListingId: link.externalListingId,
-                  inwQty: freshItem.quantity,
-                  remoteQty: hubQty,
-                  syncBaselineQty: link.syncBaselineQty,
-                });
-                return;
-              }
-              if (
-                live &&
-                !inwSavedAfterChannelPush({
-                  inwUpdatedAt: hubUpdatedAt,
-                  lastPushedAt: link.lastPushedAt,
-                }) &&
-                remoteSkuQuantitiesDivergeFromInw({
-                  inwVariants: freshItem.variants,
-                  remoteVariants: live.tradingVariants ?? live.variants,
-                  remoteListingQuantity: hubQty,
-                })
-              ) {
-                skippedNewerRemoteQty = true;
-                console.warn("[channels] skip eBay inventory push; live SKU qty differs from INW", {
-                  storeItemId,
-                  externalListingId: link.externalListingId,
-                });
-                return;
-              }
-            }
-          } else if (qtyGuardExact && provider === "etsy") {
+          if (qtyGuardExact && provider === "etsy") {
             const fetched = await fetchEtsyListingForInbound(
               ctx.accessToken,
               link.externalListingId
@@ -936,20 +865,6 @@ export async function updateStoreItemOnChannels(
                 });
                 return;
               }
-              const hubQty = ebaySellerHubListedQuantity(live);
-              if (
-                !ebayInwPushedRecently(link.lastPushedAt) &&
-                ebaySellerHubQtyAheadOfViewItem(live)
-              ) {
-                skippedNewerRemote = true;
-                console.warn("[channels] skip eBay content push; Seller Hub qty has not reached View Item", {
-                  storeItemId,
-                  externalListingId: link.externalListingId,
-                  hubQty,
-                  viewItemQty: live.quantity,
-                });
-                return;
-              }
               if (
                 shouldBlockEbayOutboundOverwrite({
                   inwTitle: item.title,
@@ -959,9 +874,6 @@ export async function updateStoreItemOnChannels(
                   lastPushedAt: link.lastPushedAt,
                   remoteUpdatedAt: live.remoteUpdatedAt ?? null,
                   inwMatchesLastPushedHash: Boolean(link.lastPushedHash && link.lastPushedHash === hash),
-                  inwQuantity: item.quantity,
-                  remoteQuantity: hubQty,
-                  syncBaselineQty: link.syncBaselineQty,
                   inwDescription: item.description,
                   remoteDescription: live.description,
                 })
@@ -975,8 +887,6 @@ export async function updateStoreItemOnChannels(
                   lastSyncedTitle: readEbayLastSyncedTitle(link.conflictDetails),
                   inwUpdatedAt: hubUpdatedAt.toISOString(),
                   remoteUpdatedAt: live.remoteUpdatedAt?.toISOString() ?? null,
-                  inwQuantity: item.quantity,
-                  remoteQuantity: hubQty,
                 });
                 return;
               }

@@ -307,7 +307,7 @@ describe("shouldBlockEbayOutboundOverwrite", () => {
     ).toBe(true);
   });
 
-  it("blocks pushing INW quantity over a seller qty revise on eBay", () => {
+  it("does not block a content push when Hub quantity differs from INW", () => {
     expect(
       shouldBlockEbayOutboundOverwrite({
         inwTitle: "Vintage Bear Clock (Testing) S",
@@ -316,27 +316,7 @@ describe("shouldBlockEbayOutboundOverwrite", () => {
         inwUpdatedAt,
         lastPushedAt,
         remoteUpdatedAt: null,
-        inwQuantity: 49,
-        remoteQuantity: 3,
-        syncBaselineQty: 49,
         inwMatchesLastPushedHash: true,
-        nowMs,
-      })
-    ).toBe(true);
-  });
-
-  it("allows an INW qty save when live eBay still has the last baseline qty", () => {
-    expect(
-      shouldBlockEbayOutboundOverwrite({
-        inwTitle: "Vintage Bear Clock (Testing) S",
-        remoteTitle: "Vintage Bear Clock (Testing) S",
-        lastSyncedTitle: "Vintage Bear Clock (Testing) S",
-        inwUpdatedAt,
-        lastPushedAt,
-        remoteUpdatedAt: null,
-        inwQuantity: 3,
-        remoteQuantity: 49,
-        syncBaselineQty: 49,
         nowMs,
       })
     ).toBe(false);

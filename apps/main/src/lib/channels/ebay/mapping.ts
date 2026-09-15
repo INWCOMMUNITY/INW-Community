@@ -117,22 +117,26 @@ export function buildEbayOffer(
   item: SyncStoreItem,
   cfg: EbayConnectionConfig,
   categoryOverride?: string | null,
-  sku?: string
+  sku?: string,
+  opts?: { includeQtyPrice?: boolean }
 ): Record<string, unknown> {
   const categoryId = resolveCategoryId(item, categoryOverride);
+  const includeQtyPrice = opts?.includeQtyPrice === true;
   const offer: Record<string, unknown> = {
     sku: sku || resolvePublishSku({ sku: item.sku, itemId: item.id, channel: "ebay" }),
     marketplaceId: EBAY_MARKETPLACE_ID,
     format: "FIXED_PRICE",
-    availableQuantity: channelQuantityForTracked(item.quantity, item.inventoryTracking),
     listingDescription: listingDescriptionForHtmlChannel(item.description, item.title).slice(
       0,
       500000
     ),
-    pricingSummary: {
-      price: { value: ebayPriceFromCents(item.priceCents), currency: EBAY_CURRENCY },
-    },
   };
+  if (includeQtyPrice) {
+    offer.availableQuantity = channelQuantityForTracked(item.quantity, item.inventoryTracking);
+    offer.pricingSummary = {
+      price: { value: ebayPriceFromCents(item.priceCents), currency: EBAY_CURRENCY },
+    };
+  }
   if (categoryId) offer.categoryId = categoryId;
   if (cfg.merchantLocationKey) offer.merchantLocationKey = cfg.merchantLocationKey;
   const listingPolicies: Record<string, string> = {};

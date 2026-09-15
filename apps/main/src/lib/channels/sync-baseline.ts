@@ -252,9 +252,6 @@ export function shouldBlockEbayOutboundOverwrite(args: {
   remoteUpdatedAt: Date | null | undefined;
   inwMatchesLastPushedHash?: boolean;
   nowMs?: number;
-  inwQuantity?: number;
-  remoteQuantity?: number | null;
-  syncBaselineQty?: number | null;
   inwDescription?: string | null;
   remoteDescription?: string | null;
 }): boolean {
@@ -267,19 +264,6 @@ export function shouldBlockEbayOutboundOverwrite(args: {
   // Seller title revise must win even when GetItem LastModified is missing or older
   // than an Etsy/Wix restamp of StoreItem.updatedAt.
   if (titlesDiffer && ebayRemoteLooksLikeIndependentRevise(args)) return true;
-
-  const quantitiesDiffer =
-    args.remoteQuantity != null &&
-    args.inwQuantity != null &&
-    args.remoteQuantity !== args.inwQuantity;
-  if (quantitiesDiffer) {
-    const baseline = args.syncBaselineQty;
-    const inwMatchesBaseline = baseline == null || args.inwQuantity === baseline;
-    const liveMatchesBaseline = baseline == null || args.remoteQuantity === baseline;
-    // eBay moved, INW still at last agreed qty — do not push the old INW qty back.
-    if (inwMatchesBaseline && !liveMatchesBaseline) return true;
-    if (baseline == null && args.inwMatchesLastPushedHash) return true;
-  }
 
   const descriptionsDiffer =
     args.remoteDescription !== undefined &&

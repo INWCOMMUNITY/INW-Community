@@ -236,6 +236,7 @@ describe("ebay picture errors", () => {
     const msg =
       "[#25002 · API_INVENTORY · REQUEST · HTTP 400] A user error has occurred. The listing SKU cannot be null or empty.";
     expect(ebayErrorActionHint(msg)).toMatch(/Custom Label/i);
+    expect(ebayErrorActionHint(msg)).not.toMatch(/INW adds a valid SKU/i);
     expect(ebayErrorActionHint(msg)).not.toMatch(/GTC listing/i);
   });
 

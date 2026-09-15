@@ -514,7 +514,7 @@ export function ebayErrorActionHint(reason: string): string | undefined {
     return "INW could not write a Custom Label on this eBay listing. Open it in Seller Hub, set an alphanumeric Custom Label (max 50 characters), and import again.";
   }
   if (/SKU cannot be null|listing SKU cannot/i.test(reason)) {
-    return "This eBay listing has no Custom Label (SKU). INW adds a valid SKU and retries migrate; if this persists, set an alphanumeric Custom Label (max 50 characters) in Seller Hub.";
+    return "This eBay listing has no Custom Label (SKU). INW does not rewrite eBay SKUs; set an alphanumeric Custom Label (max 50 characters) in Seller Hub, then import again.";
   }
   if (/#25707|invalid value for a SKU/i.test(reason)) {
     return "eBay Inventory SKUs must be alphanumeric and at most 50 characters. Hyphens, spaces, and longer Custom Labels cannot be used.";

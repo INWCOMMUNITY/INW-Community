@@ -336,26 +336,33 @@ describe("ebayGetItemApplyDecision", () => {
     ).toBe("apply");
   });
 
-  it("skips when GetItem title/price/qty already match INW", () => {
+  it("skips when GetItem title already matches INW even if qty or price differ", () => {
     expect(ebayGetItemApplyDecision(base)).toEqual({ action: "skip", reason: "matches-inw" });
+    expect(
+      ebayGetItemApplyDecision({
+        ...base,
+        remotePriceCents: 9999,
+        remoteQuantity: 99,
+      })
+    ).toEqual({ action: "skip", reason: "matches-inw" });
   });
 
-  it("does not skip matches-inw when variation StartPrices differ from INW", () => {
+  it("does not apply inbound qty or price when variation StartPrices differ from INW", () => {
     const skuPriceDiff = {
       ...base,
       inwVariantPricesHash: "inw-sku-prices",
       remoteVariantPricesHash: "ebay-sku-prices",
     };
-    expect(ebayGetItemApplyDecision(skuPriceDiff)).not.toEqual({
+    expect(ebayGetItemApplyDecision(skuPriceDiff)).toEqual({
       action: "skip",
       reason: "matches-inw",
     });
     expect(
       ebayGetItemApplyDecision({ ...skuPriceDiff, source: "webhook" as const })
-    ).toMatchObject({ action: "apply" });
+    ).toEqual({ action: "skip", reason: "matches-inw" });
   });
 
-  it("applies a webhook qty-only SKU edit even when listing total still matches INW", () => {
+  it("does not apply a webhook qty-only SKU edit", () => {
     expect(
       ebayGetItemApplyDecision({
         ...base,
@@ -363,10 +370,10 @@ describe("ebayGetItemApplyDecision", () => {
         remoteVariantQtyHash: "ebay-sku-qty",
         source: "webhook",
       })
-    ).toMatchObject({ action: "apply", reason: "webhook-revise" });
+    ).toEqual({ action: "skip", reason: "matches-inw" });
   });
 
-  it("applies an eBay SKU qty revise after an INW save instead of skipping inw-newer", () => {
+  it("does not apply an eBay SKU qty revise after an INW save", () => {
     expect(
       ebayGetItemApplyDecision({
         ...base,
@@ -378,7 +385,7 @@ describe("ebayGetItemApplyDecision", () => {
         source: "webhook",
         now: new Date("2026-08-20T07:10:00.000Z"),
       })
-    ).toMatchObject({ action: "apply", reason: "webhook-revise" });
+    ).toEqual({ action: "skip", reason: "matches-inw" });
   });
 
   it("does not treat degraded all-1s GetItem qty as a seller SKU edit", () => {
@@ -405,13 +412,13 @@ describe("ebayGetItemApplyDecision", () => {
     ).toEqual({ action: "skip", reason: "matches-inw" });
   });
 
-  it("applies a held variant snapshot even when listing title/price/qty already match INW", () => {
+  it("does not apply a held variant qty/price snapshot", () => {
     expect(
       ebayGetItemApplyDecision({
         ...base,
         pendingVariantInboundHash: "held-sku-prices",
       })
-    ).toMatchObject({ action: "apply", reason: "pending-variant-confirm" });
+    ).toEqual({ action: "skip", reason: "matches-inw" });
   });
 
   it("does not snap INW SKU prices back to lagged eBay StartPrices when INW is newer", () => {
@@ -426,7 +433,7 @@ describe("ebayGetItemApplyDecision", () => {
         source: "webhook",
         now: new Date("2026-08-20T07:10:00.000Z"),
       })
-    ).toEqual({ action: "skip", reason: "inw-newer-than-ebay" });
+    ).toEqual({ action: "skip", reason: "matches-inw" });
   });
 
   it("does not copy a lagged eBay title over an INW save when LastModified is missing", () => {
@@ -538,7 +545,7 @@ describe("ebayGetItemApplyDecision", () => {
     ).toMatchObject({ action: "apply", reason: "remote-revise" });
   });
 
-  it("applies a cron-dirty qty revise even when INW looks newer than last inbound", () => {
+  it("does not apply a cron-dirty qty revise", () => {
     expect(
       ebayGetItemApplyDecision({
         ...base,
@@ -548,7 +555,7 @@ describe("ebayGetItemApplyDecision", () => {
         inwQuantity: 4,
         source: "cron-dirty",
       })
-    ).toMatchObject({ action: "apply", reason: "dirty-revise" });
+    ).toEqual({ action: "skip", reason: "matches-inw" });
   });
 
   it("still skips a webhook GetItem that matches INW or is an echo of our push", () => {

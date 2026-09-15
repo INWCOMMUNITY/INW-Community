@@ -22,7 +22,12 @@ import {
 } from "./sync-baseline";
 import { clampSaneInventoryQty } from "./inventory-sanity";
 import { variantsFingerprint } from "./variant-sync";
-import { isMadeToOrderTracking, MTO_CHANNEL_QUANTITY } from "@/lib/listing-variant-matrix";
+import {
+  isMadeToOrderTracking,
+  MTO_CHANNEL_QUANTITY,
+  remoteListingPriceLooksLikeLeftoverMin,
+  remoteVariantPricesLookLikeLeftoverMinOverwrite,
+} from "@/lib/listing-variant-matrix";
 import { type ChannelProvider, type RemoteListingSummary } from "./types";
 import { getChannelCapabilities } from "./capabilities";
 import { indexEbayRemoteListings, resolveEbayLegacyListingId } from "./ebay/mapping";
@@ -121,6 +126,7 @@ type LinkRow = {
     status: string;
     updatedAt: Date;
     inventoryTracking: string;
+    variants: unknown;
   };
 };
 
@@ -263,6 +269,7 @@ export async function reconcileConnectionInboundCatalog(
           status: true,
           updatedAt: true,
           inventoryTracking: true,
+          variants: true,
         },
       },
     },
@@ -786,13 +793,37 @@ export async function reconcileConnectionInboundCatalog(
         baselineAt: baseAt,
       })
     ) {
-      console.log("[channels] pulling newer channel edit instead of inw_wins push", {
-        storeItemId: link.storeItemId,
-        provider,
-        remoteUpdatedAt: remote.remoteUpdatedAt?.toISOString(),
-        inwUpdatedAt: item.updatedAt.toISOString(),
+      const leftoverSkuMin = remoteVariantPricesLookLikeLeftoverMinOverwrite({
+        inwVariants: item.variants,
+        remoteVariants: remote.variants,
+        inwListingPriceCents: item.priceCents,
+        remoteListingPriceCents: remote.priceCents,
       });
-      contentDecision = "pull";
+      const leftoverListingMin = remoteListingPriceLooksLikeLeftoverMin({
+        inwListingPriceCents: item.priceCents,
+        remoteListingPriceCents: remote.priceCents,
+        inwVariants: item.variants,
+      });
+      const titleSame =
+        item.title.trim().slice(0, 200) === (remote.title ?? "").trim().slice(0, 200);
+      if (titleSame && (leftoverSkuMin || leftoverListingMin)) {
+        console.log("[channels] skip leftover listing-min pull; keeping INW prices", {
+          storeItemId: link.storeItemId,
+          provider,
+          leftoverSkuMin,
+          leftoverListingMin,
+          remotePriceCents: remote.priceCents,
+          inwPriceCents: item.priceCents,
+        });
+      } else {
+        console.log("[channels] pulling newer channel edit instead of inw_wins push", {
+          storeItemId: link.storeItemId,
+          provider,
+          remoteUpdatedAt: remote.remoteUpdatedAt?.toISOString(),
+          inwUpdatedAt: item.updatedAt.toISOString(),
+        });
+        contentDecision = "pull";
+      }
     }
 
     // Debug logging for inbound sync - always log to understand what's happening

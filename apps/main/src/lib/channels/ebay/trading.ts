@@ -25,20 +25,13 @@ import { getEbayCategoryPathFromId } from "./category-path";
 import { resolveEbayLegacyListingId } from "./mapping";
 import { ebayWebhookUrlIsSecured, redactEbayWebhookUrl } from "./webhook";
 import {
-  buildReviseItemSkuXml,
-  buildReviseVariationSkusXml,
   canSkipEbayBulkMigrate,
   classifyEbayItemForMigration,
-  EBAY_SKU_VERIFY_DELAYS_MS,
   ENDED_LISTING_MIGRATE_ERROR,
   generateEbayMigrationSku,
   isValidEbayInventorySku,
   listingHasValidMigrateSku,
   NOT_FIXED_PRICE_MIGRATE_ERROR,
-  plannedParentSku,
-  plannedVariationSkus,
-  VARIATION_SKU_MIGRATE_ERROR,
-  type EbayVariationSkuRow,
 } from "./migrate-prep";
 
 /** A classic (Trading API) eBay listing enumerated for import preview. */
@@ -524,93 +517,22 @@ export type MigrationResult = { sku?: string; offerId?: string; error?: string }
 
 export { generateEbayMigrationSku, isValidEbayInventorySku } from "./migrate-prep";
 
+/** Trading API returns HTTP 200 with <Ack>Failure</Ack> + <Errors> for logical failures. */
+function parseTradingAck(xml: string): { ok: boolean; error?: string; errorCode?: string } {
+  const ack = (tag(xml, "Ack") ?? "").trim();
+  if (/success|warning/i.test(ack)) return { ok: true };
+  const errors = tag(xml, "Errors") ?? "";
+  const msg = (tag(errors, "LongMessage") ?? tag(errors, "ShortMessage") ?? "Trading call failed").trim();
+  const errorCode = (tag(errors, "ErrorCode") ?? "").trim() || undefined;
+  return { ok: false, error: errorCode ? `${msg} (${errorCode})` : msg, errorCode };
+}
+
 function formatMigrationError(e: unknown): string {
   return describeEbayThrownError(e);
 }
 
 function generateMigrationSku(listingId: string): string {
   return generateEbayMigrationSku(listingId);
-}
-
-/**
- * eBay's bulkMigrateListing REQUIRES that the listing already has a seller-defined SKU
- * (Custom Label). Listings created on the eBay website usually have none, so migration
- * fails with a "no SKU" error. eBay's documented remediation is to ReviseFixedPriceItem
- * to add a SKU, then migrate again — that's what this detects.
- */
-function migrationErrorLikelyMissingSku(reason: string): boolean {
-  if (!reason) return false;
-  // Listing tracked by SKU (InventoryTrackingMethod=SKU) needs a different fix — skip.
-  if (/tracked by sku|inventorytrackingmethod/i.test(reason)) return false;
-  if (/sku/i.test(reason)) return true;
-  // A bare 400 / "no details" migrate failure is most commonly a missing SKU.
-  return /http 400|bad request|migration_failed|migration_missing_sku|no error details|no_response|2571[08]/i.test(
-    reason
-  );
-}
-
-/** Auctions / classified-ad listings can never be migrated; SKU won't help. */
-function migrationErrorNonRemediable(reason: string): boolean {
-  if (/sku cannot be null|listing sku cannot|null or empty/i.test(reason)) return false;
-  return /auction|classified|listingtype|not a fixed|non-fixed|good 'til cancelled|duration/i.test(reason);
-}
-
-function buildReviseSkuXml(listingId: string, sku: string): string {
-  return buildReviseItemSkuXml(listingId, sku);
-}
-
-/** Trading API returns HTTP 200 with <Ack>Failure</Ack> + <Errors> for logical failures. */
-function parseTradingAck(xml: string): { ok: boolean; error?: string; errorCode?: string } {
-  const ack = (tag(xml, "Ack") ?? "").trim();
-  if (/success|warning/i.test(ack)) return { ok: true };
-  const errors = tag(xml, "Errors") ?? "";
-  const msg = (tag(errors, "LongMessage") ?? tag(errors, "ShortMessage") ?? "ReviseFixedPriceItem failed").trim();
-  const errorCode = (tag(errors, "ErrorCode") ?? "").trim() || undefined;
-  return { ok: false, error: errorCode ? `${msg} (${errorCode})` : msg, errorCode };
-}
-
-/** Add a seller-defined SKU (Custom Label) to a live fixed-price listing. */
-async function setEbayListingSku(
-  accessToken: string,
-  listingId: string,
-  sku: string
-): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const xml = await callTrading(accessToken, "ReviseFixedPriceItem", buildReviseSkuXml(listingId, sku));
-    return parseTradingAck(xml);
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-async function setEbayVariationSkus(
-  accessToken: string,
-  listingId: string,
-  parentSku: string,
-  rows: EbayVariationSkuRow[],
-  variationSkus: string[]
-): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const xml = await callTrading(
-      accessToken,
-      "ReviseFixedPriceItem",
-      buildReviseVariationSkusXml(listingId, parentSku, rows, variationSkus)
-    );
-    return parseTradingAck(xml);
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function reviseFailureMessage(error: string | undefined, fallback: string): string {
-  if (error && /fixed price|fixed-price|auction|not.*fixed|classified/i.test(error)) {
-    return NOT_FIXED_PRICE_MIGRATE_ERROR;
-  }
-  return error?.trim() ? error : fallback;
 }
 
 async function fetchItemXml(accessToken: string, listingId: string): Promise<string> {
@@ -641,44 +563,9 @@ async function ensureListingSkuOnEbay(
     return { sku: cls.itemSku ?? generateMigrationSku(listingId) };
   }
 
-  const parentSku = plannedParentSku(listingId, cls.itemSku);
-  if (cls.variations.length > 0) {
-    const variationSkus = plannedVariationSkus(listingId, cls.variations);
-    const set = await setEbayVariationSkus(accessToken, listingId, parentSku, cls.variations, variationSkus);
-    if (!set.ok) {
-      return { error: reviseFailureMessage(set.error, VARIATION_SKU_MIGRATE_ERROR) };
-    }
-  } else {
-    const set = await setEbayListingSku(accessToken, listingId, parentSku);
-    if (!set.ok) {
-      return {
-        error: reviseFailureMessage(
-          set.error,
-          `Could not set Custom Label (${parentSku}) on this listing.`
-        ),
-      };
-    }
-  }
-
-  for (let i = 0; i < EBAY_SKU_VERIFY_DELAYS_MS.length; i += 1) {
-    const delay = EBAY_SKU_VERIFY_DELAYS_MS[i];
-    if (delay > 0) await sleep(delay);
-    try {
-      itemXml = await fetchItemXml(accessToken, listingId);
-    } catch {
-      continue;
-    }
-    cls = classifyEbayItemForMigration(itemXml);
-    if (cls.kind === "ready" && listingHasValidMigrateSku(cls)) {
-      return { sku: cls.itemSku ?? parentSku };
-    }
-  }
-
-  if (cls.kind === "ready" && cls.variations.length > 0) {
-    return { error: VARIATION_SKU_MIGRATE_ERROR };
-  }
   return {
-    error: `Could not set Custom Label (${parentSku}) on this listing — eBay did not show the SKU after revise.`,
+    error:
+      "This listing has no Custom Label (SKU). INW does not rewrite eBay SKUs; add one in Seller Hub if you need Inventory API migrate.",
   };
 }
 
@@ -698,16 +585,11 @@ async function fetchExistingListingSku(
       const trimmed = sku.trim();
       const valid = isValidEbayInventorySku(trimmed);
       if (!valid) {
-        const nextSku = generateMigrationSku(listingId);
-        const set = await setEbayListingSku(accessToken, listingId, nextSku);
-        if (set.ok) {
-          console.log("[ebay] fetchExistingListingSku: replaced invalid SKU", { listingId, nextSku });
-          return nextSku;
-        }
-        console.warn("[ebay] fetchExistingListingSku: invalid SKU and revise failed", {
+        console.warn("[ebay] fetchExistingListingSku: live Custom Label is not a valid Inventory SKU", {
           listingId,
-          error: set.error,
+          sku: trimmed,
         });
+        return null;
       }
       console.log("[ebay] fetchExistingListingSku: found SKU", { listingId, sku: trimmed });
       return trimmed;
@@ -743,39 +625,6 @@ async function resolveAlreadyMigratedSkus(
       const fallbackSku = generateMigrationSku(listingId);
       console.log("[ebay] using fallback SKU for already-migrated listing", { listingId, fallbackSku });
       result.set(listingId, { sku: fallbackSku });
-    }
-  }
-}
-
-/**
- * For listings that failed migration because they lack a SKU, add one via
- * ReviseFixedPriceItem and retry the migration. Mutates `result` in place.
- */
-async function remediateMissingSkus(
-  accessToken: string,
-  result: Map<string, MigrationResult>
-): Promise<void> {
-  for (const [listingId, res] of result) {
-    if (!res.error || res.sku) continue;
-    if (!/^\d+$/.test(listingId)) continue;
-    const likelyMissing = migrationErrorLikelyMissingSku(res.error);
-    const nonRemediable = migrationErrorNonRemediable(res.error);
-    if (!likelyMissing || nonRemediable) continue;
-
-    const ensured = await ensureListingSkuOnEbay(accessToken, listingId);
-    if (ensured.error) {
-      result.set(listingId, { error: ensured.error });
-      continue;
-    }
-
-    try {
-      const retry = await migrateListingBatch(accessToken, [listingId]);
-      const retryMap = new Map<string, MigrationResult>();
-      applyMigrateResponse(retryMap, retry, [listingId]);
-      const r = retryMap.get(listingId);
-      if (r) result.set(listingId, r);
-    } catch (e) {
-      result.set(listingId, { error: formatMigrationError(e) });
     }
   }
 }
@@ -1024,18 +873,13 @@ export async function migrateEbayListings(
   // Listings that returned 409 (already migrated): look up their existing SKU.
   await resolveAlreadyMigratedSkus(accessToken, result);
 
-  // Listings that failed because they lack a SKU: add one via ReviseFixedPriceItem and retry.
-  // This is eBay's documented remediation and unblocks website-created listings.
-  await remediateMissingSkus(accessToken, result);
-
   return result;
 }
 
 /**
  * Subscribe to eBay Platform Notifications for item changes.
  *
- * ItemRevised is a ping only: the webhook acks immediately, then copies Hub listed
- * remaining onto offer.availableQuantity after Revise settles. Sales/closed stay enabled.
+ * ItemRevised is ack-only. INW does not write listing quantity or price.
  */
 export function buildSubscribeEbayNotificationsXml(webhookUrl: string): string {
   return `<?xml version="1.0" encoding="utf-8"?>

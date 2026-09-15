@@ -88,8 +88,8 @@ describe("shouldApplyRemoteListingPrice", () => {
     expect(shouldApplyRemoteListingPrice(optionVariants, false)).toBe(false);
   });
 
-  it("adopts the listing price for a per-option item once variants are hydrated", () => {
-    expect(shouldApplyRemoteListingPrice(optionVariants, true)).toBe(true);
+  it("still holds listing price for a per-option item after variants are hydrated", () => {
+    expect(shouldApplyRemoteListingPrice(optionVariants, true)).toBe(false);
   });
 });
 

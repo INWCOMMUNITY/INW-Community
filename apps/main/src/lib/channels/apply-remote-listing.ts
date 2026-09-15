@@ -92,7 +92,8 @@ export async function applyRemoteBestOfferToStoreItem(
 /** Apply title, price, photos, description from a channel catalog snapshot (not quantity). */
 export async function applyRemoteContentToStoreItem(
   storeItemId: string,
-  remote: RemoteListingSummary
+  remote: RemoteListingSummary,
+  opts?: { skipPrice?: boolean; skipSku?: boolean }
 ): Promise<boolean> {
   const item = await prisma.storeItem.findUnique({ where: { id: storeItemId } });
   if (!item) {
@@ -122,7 +123,8 @@ export async function applyRemoteContentToStoreItem(
   // variants-hydrated this tick (per-SKU prices are applied alongside via
   // applyRemoteVariantsToStoreItem); otherwise keep INW's price until hydration.
   const inwIsPerOption = hasOptionQuantities(item.variants);
-  const applyPrice = shouldApplyRemoteListingPrice(item.variants, safeRemote.variantsKnown);
+  const applyPrice =
+    !opts?.skipPrice && shouldApplyRemoteListingPrice(item.variants, safeRemote.variantsKnown);
 
   const nonPriceDiffers =
     normalizeTitleForCompare(item.title).slice(0, EBAY_TITLE_MAX) !==
@@ -132,11 +134,13 @@ export async function applyRemoteContentToStoreItem(
   const differs = applyPrice
     ? remoteContentDiffersFromStoreItem(item, safeRemote)
     : nonPriceDiffers;
-  const adoptedSku = skuToAdoptFromRemote({
-    localSku: item.sku,
-    remoteSku: safeRemote.sku,
-    itemId: storeItemId,
-  });
+  const adoptedSku = opts?.skipSku
+    ? null
+    : skuToAdoptFromRemote({
+        localSku: item.sku,
+        remoteSku: safeRemote.sku,
+        itemId: storeItemId,
+      });
   if (!differs && !adoptedSku && !hostedPhotosChanged) {
     console.log("[channels] applyRemoteContent: no differences detected", {
       storeItemId,
@@ -196,17 +200,17 @@ export function shouldApplyAggregateRemoteQuantity(
 
 /**
  * A channel's listing-level price for a per-option item is the *lowest* variation price.
- * Adopting it standalone collapses every INW variation to that price. Only apply the
- * listing-level price when the remote is variants-hydrated this tick, so per-SKU prices
- * are applied alongside (via applyRemoteVariantsToStoreItem). Simple (non-variant)
- * listings always adopt the remote price.
+ * Adopting it — even when the remote sent variant rows — collapses INW's "from" price
+ * and any SKU that still inherits the listing amount (the $10/$15 save that snapped
+ * back to leftover $5). Per-SKU overlay + inboundListingPriceCents update the listing
+ * after real SKU prices land. Simple listings always adopt the remote price.
  */
 export function shouldApplyRemoteListingPrice(
   variants: unknown,
-  remoteVariantsKnown?: boolean
+  _remoteVariantsKnown?: boolean
 ): boolean {
   if (!hasOptionQuantities(variants)) return true;
-  return remoteVariantsKnown === true;
+  return false;
 }
 
 export async function applyRemoteQuantityToStoreItem(
@@ -218,6 +222,7 @@ export async function applyRemoteQuantityToStoreItem(
     externalEventId?: string;
   }
 ): Promise<boolean> {
+  if (auditContext?.provider === "ebay") return false;
   const item = await prisma.storeItem.findUnique({ where: { id: storeItemId } });
   if (!item) return false;
 
@@ -299,6 +304,7 @@ export async function applyRemoteStockFromChannel(
     externalEventId?: string;
   }
 ): Promise<boolean> {
+  if (auditContext.provider === "ebay") return false;
   if (remote.variantsKnown && remote.variants) {
     const { applyRemoteVariantsToStoreItem } = await import("./apply-remote-meta");
     const vars = await applyRemoteVariantsToStoreItem(

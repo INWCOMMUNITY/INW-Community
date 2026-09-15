@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const waitUntil = vi.hoisted(() => vi.fn());
-const scheduleEbayHubViewItemCopy = vi.hoisted(() =>
-  vi.fn(() => new Promise<void>(() => {}))
-);
 const refreshEbayListingByItemId = vi.hoisted(() => vi.fn());
 const applyEbayXmlPostcard = vi.hoisted(() => vi.fn());
 const prisma = vi.hoisted(() => ({
@@ -11,8 +7,6 @@ const prisma = vi.hoisted(() => ({
   channelListingLink: { findFirst: vi.fn() },
 }));
 
-vi.mock("@vercel/functions", () => ({ waitUntil }));
-vi.mock("@/lib/channels/ebay/hub-view-item", () => ({ scheduleEbayHubViewItemCopy }));
 vi.mock("@/lib/channels/ebay/pull-ebay-updates", () => ({
   refreshEbayListingByItemId,
   applyEbayXmlPostcard,
@@ -65,8 +59,6 @@ function reviseRequest() {
 describe("eBay ItemRevised webhook ack", () => {
   beforeEach(() => {
     process.env.EBAY_WEBHOOK_SECRET = "test-secret";
-    waitUntil.mockClear();
-    scheduleEbayHubViewItemCopy.mockClear();
     refreshEbayListingByItemId.mockClear();
     applyEbayXmlPostcard.mockClear();
     prisma.channelConnection.findFirst.mockClear();
@@ -78,14 +70,12 @@ describe("eBay ItemRevised webhook ack", () => {
     else process.env.EBAY_WEBHOOK_SECRET = ORIGINAL_SECRET;
   });
 
-  it("returns 200 without GetItem or token use and schedules the delayed Hub copy", async () => {
+  it("returns 200 without GetItem, token use, or qty copy", async () => {
     const res = await POST(reviseRequest());
     const body = await res.json();
 
     expect(res.status).toBe(200);
     expect(body.skipped).toBe("listing_revise_ack_only");
-    expect(scheduleEbayHubViewItemCopy).toHaveBeenCalledWith("403004607151");
-    expect(waitUntil).toHaveBeenCalledTimes(1);
     expect(prisma.channelConnection.findFirst).not.toHaveBeenCalled();
     expect(prisma.channelListingLink.findFirst).not.toHaveBeenCalled();
     expect(refreshEbayListingByItemId).not.toHaveBeenCalled();

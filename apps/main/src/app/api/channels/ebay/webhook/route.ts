@@ -1,11 +1,9 @@
-import { waitUntil } from "@vercel/functions";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import {
   applyEbayXmlPostcard,
   refreshEbayListingByItemId,
 } from "@/lib/channels/ebay/pull-ebay-updates";
-import { scheduleEbayHubViewItemCopy } from "@/lib/channels/ebay/hub-view-item";
 import {
   acknowledgeRecentSalesWithoutDecrement,
   reconcileConnectionSales,
@@ -85,22 +83,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  // Ack revises before any DB or eBay token refresh. Same-second Inventory/Trading
-  // use on the seller token blocks Seller Hub from updating View Item. Copy Hub
-  // listed remaining onto the offer after Revise settles.
+  // Ack revises before any DB or eBay token refresh. INW does not write qty/price/SKU.
   if (isEbayReviseNotification(eventType)) {
     void recordEbayWebhookHit("revise-acked");
-    if (itemId) {
-      waitUntil(
-        scheduleEbayHubViewItemCopy(itemId).catch((e) => {
-          console.warn("[ebay webhook] delayed Hub View Item copy failed", {
-            itemId,
-            error: e instanceof Error ? e.message : String(e),
-          });
-        })
-      );
-    }
-    console.log("[ebay webhook] listing revise acked; Hub View Item copy scheduled", {
+    console.log("[ebay webhook] listing revise acked", {
       itemId,
       eventType,
     });

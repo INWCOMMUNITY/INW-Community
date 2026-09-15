@@ -20,21 +20,12 @@ import {
 } from "./circuit-breaker";
 import { shouldBypassCircuitForInventoryPush } from "./circuit-inventory-bypass";
 import {
-  inwRevisionCameFromChannelInbound,
-  inwSavedAfterChannelPush,
   shouldBlockOutboundQtyOverwrite,
 } from "./sync-baseline";
-import {
-  ebayInwPushedRecently,
-  ebaySellerHubListedQuantity,
-  ebaySellerHubQtyAheadOfViewItem,
-  fetchEbayItemDetails,
-} from "./ebay/trading";
-import { resolveEbayLegacyListingId } from "./ebay/mapping";
 import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
 import { fetchShopifyListingForInbound } from "./shopify/adapter";
 import { withLastInventoryPushAt, readEbayPendingVariantInboundHash } from "./listing-conflict-json";
-import { variantsFingerprint, inventoryVariantsBaselineMatches, remoteSkuQuantitiesDivergeFromInw } from "./variant-sync";
+import { variantsFingerprint, inventoryVariantsBaselineMatches } from "./variant-sync";
 
 /**
  * Push the StoreItem's current (authoritative) quantity out to every linked channel as an
@@ -98,6 +89,10 @@ export async function syncInventoryToChannels(
     }
     if (provider === "ebay" && readEbayPendingVariantInboundHash(link.conflictDetails)) {
       results.push({ provider, ok: true, skipped: "pending_inbound" });
+      continue;
+    }
+    if (provider === "ebay") {
+      results.push({ provider, ok: true, skipped: "ebay_qty_unsynced" });
       continue;
     }
 
@@ -206,23 +201,6 @@ export async function syncInventoryToChannels(
         continue;
       }
 
-      if (
-        !options.force &&
-        provider === "ebay" &&
-        inwRevisionCameFromChannelInbound({
-          inwUpdatedAt: freshItem.updatedAt,
-          lastInboundAt: link.lastInboundAt,
-        })
-      ) {
-        console.info("[channels] skip eBay inventory push; INW revision came from inbound", {
-          storeItemId,
-          lastInboundAt: link.lastInboundAt?.toISOString() ?? null,
-          inwUpdatedAt: freshItem.updatedAt.toISOString(),
-        });
-        results.push({ provider, ok: true, skipped: "inbound_echo" });
-        continue;
-      }
-
       // Sale-revert guard. This absolute-qty push converges stock after a sale, so it must not
       // block legitimate convergence (INW moved off baseline). It ONLY guards the suspicious
       // case: INW is still at the last agreed baseline while the live channel stock has moved —
@@ -235,46 +213,9 @@ export async function syncInventoryToChannels(
         !options.force &&
         qtyGuardExact &&
         inwAtBaseline &&
-        (provider === "ebay" || provider === "etsy" || provider === "shopify")
+        (provider === "etsy" || provider === "shopify")
       ) {
         const blocked = await withConnectionAuthRetry(link.connection, async (ctx) => {
-          if (provider === "ebay") {
-            const legacyId = resolveEbayLegacyListingId(link.externalListingId);
-            if (!legacyId) return false;
-            const live = await fetchEbayItemDetails(ctx.accessToken, legacyId).catch(() => null);
-            if (!live) return false;
-            if (
-              !ebayInwPushedRecently(link.lastPushedAt) &&
-              ebaySellerHubQtyAheadOfViewItem(live)
-            ) {
-              return true;
-            }
-            const hubQty = ebaySellerHubListedQuantity(live);
-            if (
-              hubQty != null &&
-              shouldBlockOutboundQtyOverwrite({
-                inwQuantity: item.quantity,
-                remoteQuantity: hubQty,
-                syncBaselineQty: link.syncBaselineQty,
-                remoteUpdatedAt: live.remoteUpdatedAt ?? null,
-                inwUpdatedAt: freshItem.updatedAt,
-                lastPushedAt: link.lastPushedAt,
-              })
-            ) {
-              return true;
-            }
-            return (
-              !inwSavedAfterChannelPush({
-                inwUpdatedAt: freshItem.updatedAt,
-                lastPushedAt: link.lastPushedAt,
-              }) &&
-              remoteSkuQuantitiesDivergeFromInw({
-                inwVariants: item.variants,
-                remoteVariants: live.tradingVariants ?? live.variants,
-                remoteListingQuantity: hubQty,
-              })
-            );
-          }
           if (provider === "shopify") {
             const fetched = await fetchShopifyListingForInbound(
               ctx,

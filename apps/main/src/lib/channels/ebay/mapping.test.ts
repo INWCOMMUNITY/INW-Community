@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildEbayInventoryItem,
+  buildEbayOffer,
   ebayListingToSummary,
   findEbayRemoteListing,
   indexEbayRemoteListings,
@@ -193,5 +194,48 @@ describe("buildEbayInventoryItem", () => {
     expect((body.product as { imageUrls: string[] }).imageUrls).toEqual([
       "https://blob.vercel-storage.com/clock.jpg",
     ]);
+  });
+});
+
+describe("buildEbayOffer qty/price", () => {
+  const cfg = {
+    fulfillmentPolicyId: null,
+    paymentPolicyId: null,
+    returnPolicyId: null,
+    merchantLocationKey: null,
+    marketplaceId: "EBAY_US",
+    canPublish: false,
+  };
+
+  it("includes availableQuantity and pricing on first create", () => {
+    const offer = buildEbayOffer(
+      makeInventoryItem({ sku: "SKU1", quantity: 3, priceCents: 2500 }),
+      cfg,
+      null,
+      "SKU1",
+      { includeQtyPrice: true }
+    );
+    expect(offer.availableQuantity).toBe(3);
+    expect(offer.pricingSummary).toEqual({
+      price: { value: "25.00", currency: "USD" },
+    });
+  });
+
+  it("omits availableQuantity and pricing unless create opts in", () => {
+    const offer = buildEbayOffer(makeInventoryItem({ sku: "SKU1", quantity: 3, priceCents: 2500 }), cfg);
+    expect(offer.availableQuantity).toBeUndefined();
+    expect(offer.pricingSummary).toBeUndefined();
+  });
+
+  it("omits availableQuantity and pricing on linked updates", () => {
+    const offer = buildEbayOffer(
+      makeInventoryItem({ sku: "SKU1", quantity: 3, priceCents: 2500 }),
+      cfg,
+      null,
+      "inw1",
+      { includeQtyPrice: false }
+    );
+    expect(offer.availableQuantity).toBeUndefined();
+    expect(offer.pricingSummary).toBeUndefined();
   });
 });
