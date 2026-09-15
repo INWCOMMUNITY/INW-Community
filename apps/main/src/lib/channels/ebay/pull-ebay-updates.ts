@@ -1291,20 +1291,37 @@ export async function refreshEbayListingByItemId(
     remoteListingQuantity: details.quantity,
     hasSkuMap: mapped,
   });
+  const inwPricesHash = variantPricesFingerprint(storeItem.variants) || null;
+  const remotePricesHash = matrixHasKnownSkuPrices(
+    hubRowsLackSkus ? overlayQtyMatrix : details.variants
+  )
+    ? variantPricesFingerprint(hubRowsLackSkus ? overlayQtyMatrix : details.variants)
+    : null;
   const overlayPrice =
     !skipContent &&
     (ebayInboundShouldApplyVariantPrices({
-      inwVariantPricesHash: variantPricesFingerprint(storeItem.variants) || null,
-      remoteVariantPricesHash: matrixHasKnownSkuPrices(
-        hubRowsLackSkus ? overlayQtyMatrix : details.variants
-      )
-        ? variantPricesFingerprint(hubRowsLackSkus ? overlayQtyMatrix : details.variants)
-        : null,
+      inwVariantPricesHash: inwPricesHash,
+      remoteVariantPricesHash: remotePricesHash,
       lastPushedVariantPricesHash: readLastPushedVariantPricesHash(link.conflictDetails),
       ebayLastModified: details.remoteUpdatedAt,
       lastPushedAt: link.lastPushedAt,
     }) ||
       Boolean(hubRowsLackSkus && overlayQtyMatrix && matrixHasKnownSkuPrices(overlayQtyMatrix)));
+  
+  console.info("[ebay] refreshEbayListingByItemId: variant overlay decision", {
+    storeItemId: storeItem.id,
+    legacyItemId,
+    overlayQty,
+    overlayPrice,
+    skipContent,
+    hasInwMatrix: Boolean(inwMatrix),
+    hasRemoteMatrix: Boolean(overlayQtyMatrix),
+    inwPricesHash: inwPricesHash?.slice(0, 16),
+    remotePricesHash: remotePricesHash?.slice(0, 16),
+    hubRowsLackSkus,
+    mapped,
+  });
+  
   if (inwMatrix && (overlayQty || overlayPrice)) {
     const next = composeEbayInboundVariantMatrix({
       inwMatrix,

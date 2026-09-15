@@ -29,6 +29,7 @@ import {
   getSkuPriceCents,
   getSkuPhotos,
 } from "@/lib/store-item-variants";
+import { browsePriceLabel } from "@/lib/listing-variant-matrix";
 import { listingHasPublicStock } from "@/lib/store-item-public-access";
 import { ListingRichDescription } from "@/components/ListingRichDescription";
 import { parseStoredAspects } from "@/lib/listing-limits";
@@ -297,7 +298,15 @@ export function StorefrontListingContent({
     !hasVariants || allVariantAxesSelected(item?.variants, selectedVariant);
   const perOptionStock = item ? hasOptionQuantities(item.variants) : false;
   const displayPhotos = item ? getSkuPhotos(item, selectedVariant) : [];
-  const displayPriceCents = item ? getSkuPriceCents(item, selectedVariant) : 0;
+  // Price range for display before variant selection
+  const priceRange = item ? browsePriceLabel(item.priceCents, item.variants) : null;
+  // When variants exist but not all selected, use min variant price instead of potentially stale base price
+  const displayPriceCents = item
+    ? allVariantsSelected
+      ? getSkuPriceCents(item, selectedVariant)
+      : (priceRange?.minCents ?? item.priceCents)
+    : 0;
+  const showPriceRange = hasVariants && !allVariantsSelected && priceRange?.range;
 
   useEffect(() => {
     setSelectedPhotoIndex((i) =>
@@ -881,7 +890,9 @@ export function StorefrontListingContent({
               )}
             </div>
             <p className="mt-3 text-3xl font-bold tracking-tight text-[var(--color-heading)]">
-              ${(displayPriceCents / 100).toFixed(2)}
+              {showPriceRange && priceRange
+                ? `$${(priceRange.minCents / 100).toFixed(2)} - $${(priceRange.maxCents / 100).toFixed(2)}`
+                : `$${(displayPriceCents / 100).toFixed(2)}`}
             </p>
             {fulfillmentSummary && (
               <p className="mt-1 text-sm text-gray-500">{fulfillmentSummary}</p>
