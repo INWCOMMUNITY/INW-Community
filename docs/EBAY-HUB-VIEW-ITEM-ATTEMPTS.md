@@ -37,7 +37,8 @@ Append a new row **before** trying the next fix. Do not reopen a row marked fail
 | 19 | Sep 15 | `c950be91` | Add `findOfferSkusByListingId` fallback: when group lookup and `inw{id}vN` probe both fail, paginate all offers and find the ones whose `listing.listingId` matches. Handles seller-migrated listings with arbitrary SKUs. Better logging (`liveGroupSkuSample`, `discoveredSkus`, warning when no SKUs found). | **Ran — still stuck.** User reported "all qtys were changed to 5 on every variable" but View Item still 10. Possible bug in offer listing ID extraction. | — |
 | 20 | Sep 15 | `b7c6ec18` | Fix `findOfferSkusByListingId` to check **both** `offer.listingId` and `offer.listing.listingId` (eBay returns either). Add extensive logging: SKU discovery source (group/probe/offer-list/none), alignment result (alignedSkuCount, unmatchedRows), per-SKU aspect matching failures. | Deployed. SKU discovery works, alignment works (`addressed: 12`), but `wrote: false`. | — |
 | 21 | Sep 15 | `8ae49a1b` | Add per-row logging: `hubQty`, `offerQty`, `warehouseQty`, `shouldWrite`. Diagnose why `wrote: false`. | **ROOT CAUSE FOUND:** GetItem returns **stale** variation quantities (10) when Hub shows 2. All three API surfaces (Trading, offer, warehouse) return 10, so `shouldWrite: false`. eBay propagation lag. | Trusting GetItem for real-time Hub values |
-| 22 | Sep 15 | `0e6101b3` | When cron detects `variants (qty)` change, schedule a **delayed retry** (5 minutes) for the catch-up. By then, eBay APIs should have propagated the Hub values. | **Deploying now.** | — |
+| 22 | Sep 15 | `0e6101b3` | When cron detects `variants (qty)` change, schedule a **delayed retry** (5 minutes → 15 minutes) for the catch-up. By then, eBay APIs should have propagated the Hub values. | **Not enough** — 15 min delay scheduled but GetItem still stale. | Relying on eBay API lag to self-resolve |
+| 23 | Sep 15 | `886d0782` | **Use GetMyeBaySelling qty (24) instead of stale GetItem variation sum (120).** Dirty scan sees correct seller list qty (24); pass it through. When seller list differs from GetItem variation sum, trust seller list and distribute evenly (24/12=2). Force write with `overridePerVariationQty`. | **DEPLOYING NOW.** | — |
 
 ---
 
@@ -47,18 +48,24 @@ Append a new row **before** trying the next fix. Do not reopen a row marked fail
 
 **eBay's GetItem API returns stale variation quantities.** Hub UI shows 2 per variation, but GetItem returns 10. All three API surfaces (Trading GetItem, Inventory offer, Inventory warehouse) are stale and agree, so `shouldWrite: false`.
 
-### Current fix (`0e6101b3`)
+**Key finding:** GetMyeBaySelling returns **correct** listing-level qty (24), while GetItem variations are stale (120 total, 10 each). We must trust seller list, not GetItem variations.
 
-When cron detects `variants (qty)` change, schedule a **delayed retry** (5 minutes). By then, eBay APIs should have propagated the Hub values.
+### Current fix (attempt #23)
+
+**Trust GetMyeBaySelling qty, not GetItem variations.**
+
+1. Dirty scan calls GetMyeBaySelling, sees `sellerListTradingQty: 24` (correct)
+2. GetItem variations still return 10 each = 120 total (stale)
+3. When `sellerListHubQty (24) !== variationQtySum (120)`, detect stale GetItem
+4. Distribute seller list qty evenly: `24 / 12 = 2` per variation
+5. Force `bulk_update_price_quantity` with qty=2 per SKU
+6. For eBay→INW sync: apply 2 per variation to INW (not stale 10)
 
 ### Still to verify
 
-1. **Delayed retry fires** — check for `[ebay] Hub→View Item catch-up` logs 5 minutes after cron detects change
-2. **APIs refresh within 5 minutes** — if they don't, the delayed retry will still see stale data
-3. **ItemRevised webhooks** — not arriving at all. Check notification subscription via admin or `GetNotificationPreferences`
-4. If delay isn't enough, may need to:
-   - Use `ReviseInventoryStatus` Trading API to get fresher values
-   - Or accept that eBay lag is fundamental and only ItemRevised webhook + longer delay can fix it
+1. **New logs show detection** — look for `GetItem variations stale, using seller list qty`
+2. **Force write happens** — look for `hasQtyOverride: true, willWrite: true`
+3. **View Item updates** — buyer page shows 2, not 10
 
 ## Diagnose
 

@@ -471,6 +471,11 @@ export async function catchupEbayListingQtyPrice(args: {
    * Use when cron detects a variant qty change but APIs are stale (eBay lag).
    */
   forceVariationWrite?: boolean;
+  /**
+   * Override per-variation qty when GetItem variation data is stale.
+   * Derived from seller list total / variation count.
+   */
+  overridePerVariationQty?: number | null;
 }): Promise<{ wrote: boolean; surfaces: EbayQtyPriceSurfaces }> {
   const map = parseEbaySkuMap(args.skuMap);
   const discovered: Record<string, string> = {};
@@ -586,8 +591,14 @@ export async function catchupEbayListingQtyPrice(args: {
         const livePrice = readOfferPriceCents(offer as Record<string, unknown>);
         const liveItem = await fetchLiveInventoryItem(args.accessToken, sku).catch(() => null);
         const warehouse = readLiveInventoryAvailableQuantity(liveItem);
+        
+        // Use override qty when GetItem variation data is stale (detected via seller list mismatch)
+        const hubQtyRaw = hub.quantity;
+        const hubQtyEffective = args.overridePerVariationQty ?? hub.quantity;
+        const hasQtyOverride = args.overridePerVariationQty != null;
+        
         const shouldWrite = ebayCatchupShouldWriteVariantRow({
-          hubQuantity: hub.quantity,
+          hubQuantity: hubQtyEffective,
           offerQuantity: liveQty,
           warehouseQuantity: warehouse,
           hubPriceCents: hub.priceCents,
@@ -595,11 +606,14 @@ export async function catchupEbayListingQtyPrice(args: {
         });
         // Force write bypasses the stale API check - used when cron detects qty change
         // but GetItem returns old data due to eBay propagation lag
-        const willWrite = shouldWrite || args.forceVariationWrite === true;
+        // Also force write if we have an override qty (seller list says different than GetItem)
+        const willWrite = shouldWrite || args.forceVariationWrite === true || hasQtyOverride;
         console.info("[ebay] Hub→View Item variation row compare", {
           sku,
           options: hub.options,
-          hubQty: hub.quantity,
+          hubQtyRaw,
+          hubQtyEffective,
+          hasQtyOverride,
           offerQty: liveQty,
           warehouseQty: warehouse,
           hubPrice: hub.priceCents,
@@ -615,14 +629,14 @@ export async function catchupEbayListingQtyPrice(args: {
           accessToken: args.accessToken,
           sku,
           offerId: offer.offerId,
-          quantity: hub.quantity,
+          quantity: hubQtyEffective,
           priceCents: hub.priceCents,
         });
         await verifyEbayOfferQtyPrice({
           accessToken: args.accessToken,
           offerId: offer.offerId,
           sku,
-          quantity: hub.quantity,
+          quantity: hubQtyEffective,
           priceCents: hub.priceCents,
         });
         wrote = true;

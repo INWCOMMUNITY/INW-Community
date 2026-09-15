@@ -784,6 +784,8 @@ export async function refreshEbayListingByItemId(
     force?: boolean;
     source?: EbayGetItemApplySource;
     postcard?: EbayNotificationPostcard;
+    /** Seller list hub qty - use to detect stale GetItem variation data */
+    sellerListHubQty?: number | null;
   }
 ): Promise<PullResult | null> {
   const link = await prisma.channelListingLink.findFirst({
@@ -977,13 +979,26 @@ export async function refreshEbayListingByItemId(
     const listingLevelHubQty = ebaySellerHubListedQuantity(details);
     const tradingMatrix = normalizeVariantMatrix(details.tradingVariants);
     const variationQtySum = tradingMatrix?.skus?.reduce((sum, s) => sum + (s.quantity ?? 0), 0) ?? 0;
+    const variationCount = tradingMatrix?.skus?.length ?? 0;
+    
+    // Detect stale GetItem variation data: seller list has correct total, but GetItem variations are stale
+    const trustedHubQty = opts?.sellerListHubQty ?? listingLevelHubQty;
+    const variationsAreStale = trustedHubQty != null && variationCount > 0 && trustedHubQty !== variationQtySum;
+    const perVariationQty = variationsAreStale && variationCount > 0
+      ? Math.floor(trustedHubQty / variationCount)
+      : null;
+    
     console.info("[ebay] catch-up qty comparison: listing-level vs variation sum", {
       storeItemId: storeItem.id,
+      sellerListHubQty: opts?.sellerListHubQty,
       listingLevelHubQty,
+      trustedHubQty,
       variationQtySum,
-      variationCount: tradingMatrix?.skus?.length ?? 0,
-      qtyMismatch: listingLevelHubQty !== variationQtySum,
+      variationCount,
+      variationsAreStale,
+      perVariationQty,
     });
+    
     await catchupEbayListingQtyPrice({
       accessToken,
       item: catchupItem,
@@ -996,6 +1011,8 @@ export async function refreshEbayListingByItemId(
       tradingVariants: details.tradingVariants,
       skuMap: link.ebaySkuMap,
       linkId: link.id,
+      // Override stale GetItem variation qty with correct seller list qty
+      overridePerVariationQty: perVariationQty,
     });
     await catchupEbayListingHubContent({
       accessToken,
@@ -1095,7 +1112,8 @@ export async function refreshEbayListingByItemId(
   // Pass title for keyword-based subcategory inference
   const resolvedCat = await resolveInwCategoryFromEbayPath(details.categoryName ?? null, remoteTitle);
   const hubQty = ebaySellerHubListedQuantity(details);
-  const remoteQty = hubQty ?? details.quantity ?? storeItem.quantity;
+  // Prefer seller list qty when available (it's fresher than GetItem for variations)
+  const remoteQty = opts?.sellerListHubQty ?? hubQty ?? details.quantity ?? storeItem.quantity;
   const remotePrice =
     details.priceCents != null && details.priceCents > 0
       ? details.priceCents
@@ -1206,6 +1224,8 @@ export async function refreshEbayListingByItemId(
     }
   }
 
+  // For listing-level qty, prefer seller list when available (fresher than GetItem for variation listings)
+  const applyQty = opts?.sellerListHubQty ?? hubQty;
   if (
     !opts?.skipQuantity &&
     !skipContent &&
@@ -1213,13 +1233,13 @@ export async function refreshEbayListingByItemId(
       localHasOptionQuantities: hasOptionQuantities(storeItem.variants),
       applyRemoteVariants: false,
     }) &&
-    hubQty != null &&
-    hubQty !== storeItem.quantity
+    applyQty != null &&
+    applyQty !== storeItem.quantity
   ) {
-    updateData.quantity = hubQty;
-    if (hubQty === 0 && storeItem.status !== "sold_out") updateData.status = "sold_out";
-    if (hubQty > 0 && storeItem.status === "sold_out") updateData.status = "active";
-    changes.push(`quantity (${hubQty})`);
+    updateData.quantity = applyQty;
+    if (applyQty === 0 && storeItem.status !== "sold_out") updateData.status = "sold_out";
+    if (applyQty > 0 && storeItem.status === "sold_out") updateData.status = "active";
+    changes.push(`quantity (${applyQty})`);
   }
 
   if (
@@ -1233,13 +1253,37 @@ export async function refreshEbayListingByItemId(
   }
 
   const inwMatrix = normalizeVariantMatrix(storeItem.variants);
-  const remoteQtyMatrix = normalizeVariantMatrix(details.tradingVariants ?? details.variants);
+  let remoteQtyMatrix = normalizeVariantMatrix(details.tradingVariants ?? details.variants);
   const mapped = ebaySkuMapHasPins(parseEbaySkuMap(link.ebaySkuMap));
   const hubRowsLackSkus = Boolean(
     remoteQtyMatrix &&
       remoteQtyMatrix.skus.length > 0 &&
       remoteQtyMatrix.skus.every((s) => !s.sku?.trim())
   );
+  
+  // Detect stale GetItem variation data: seller list has correct total, but GetItem variations sum differently
+  const sellerListHubQty = opts?.sellerListHubQty ?? null;
+  const variationQtySum = remoteQtyMatrix?.skus?.reduce((sum, s) => sum + (s.quantity ?? 0), 0) ?? 0;
+  const variationCount = remoteQtyMatrix?.skus?.length ?? 0;
+  const getItemVariationsAreStale = sellerListHubQty != null && variationCount > 0 && sellerListHubQty !== variationQtySum;
+  
+  if (getItemVariationsAreStale && remoteQtyMatrix && sellerListHubQty != null) {
+    // Trust seller list qty and distribute evenly across variations
+    const perVariationQty = Math.floor(sellerListHubQty / variationCount);
+    console.info("[ebay] refreshEbayListingByItemId: GetItem variations stale, using seller list qty", {
+      storeItemId: storeItem.id,
+      legacyItemId,
+      sellerListHubQty,
+      variationQtySum,
+      variationCount,
+      perVariationQty,
+    });
+    remoteQtyMatrix = {
+      ...remoteQtyMatrix,
+      skus: remoteQtyMatrix.skus.map((s) => ({ ...s, quantity: perVariationQty })),
+    };
+  }
+  
   let overlayQtyMatrix = remoteQtyMatrix;
   if (hubRowsLackSkus && mapped && inwMatrix) {
     const verified = await collectEbayInventoryVerifyVariantRows({
@@ -1612,10 +1656,12 @@ async function refreshEbayListingWithAuthRetry(
   legacyId: string,
   refreshedThisPass: boolean,
   source: EbayGetItemApplySource,
-  logKind: "cron dirty GetItem" | "cron rotate"
+  logKind: "cron dirty GetItem" | "cron rotate",
+  /** Seller list hub qty - use to detect stale GetItem variation data */
+  sellerListHubQty?: number | null
 ): Promise<{ result: PullResult | null; accessToken: string; refreshedThisPass: boolean }> {
   try {
-    const result = await refreshEbayListingByItemId(accessToken, legacyId, { source });
+    const result = await refreshEbayListingByItemId(accessToken, legacyId, { source, sellerListHubQty });
     if (result) {
       console.log(`[ebay] ${logKind}`, {
         legacyId,
@@ -1634,7 +1680,7 @@ async function refreshEbayListingWithAuthRetry(
     if (isChannelAuthError("ebay", e) && connection.refreshTokenEncrypted && !refreshedThisPass) {
       try {
         const nextToken = await refreshConnectionToken(connection.id, "ebay");
-        const result = await refreshEbayListingByItemId(nextToken, legacyId, { source });
+        const result = await refreshEbayListingByItemId(nextToken, legacyId, { source, sellerListHubQty });
         if (result) {
           console.log(`[ebay] ${logKind}`, {
             legacyId,
@@ -1756,13 +1802,16 @@ export async function pullEbayUpdatesForConnection(
         sellerListPrice: remote?.priceCents,
       });
       checkedIds.add(link.id);
+      // Pass seller list qty so catch-up can detect stale GetItem variation data
+      const sellerListHubQty = remote?.tradingQuantity ?? remote?.quantity ?? null;
       const next = await refreshEbayListingWithAuthRetry(
         connection,
         accessToken,
         legacyId,
         refreshedThisPass,
         "cron-dirty",
-        "cron dirty GetItem"
+        "cron dirty GetItem",
+        sellerListHubQty
       );
       accessToken = next.accessToken;
       refreshedThisPass = next.refreshedThisPass;
