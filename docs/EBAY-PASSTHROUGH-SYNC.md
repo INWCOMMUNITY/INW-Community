@@ -85,7 +85,7 @@ Compare these when sync fails. Passthrough should send `liveAspects` keys, not T
 | Symptom | Likely cause | Action |
 |---------|--------------|--------|
 | `#25064` on import | Passthrough not active (missing `linkOrigin` or wrong SKU) | Backfill origin; confirm SKU is `inw*` |
-| Hub new, View Item old | Catch-up did not write the offer | Diagnose `qtyPriceSurfaces`; confirm ItemRevised + retry queue |
+| Hub new, View Item old | Catch-up did not write the offer | Diagnose `qtyPriceSurfaces`; confirm ItemRevised + retry queue. Append to [`EBAY-HUB-VIEW-ITEM-ATTEMPTS.md`](./EBAY-HUB-VIEW-ITEM-ATTEMPTS.md) before trying another fix. |
 | Qty mismatch | Baseline drift | Sync now; `?resetBaseline=1` on diagnose |
 | Content failed | Title/photos/policy | Fix in INW; not aspect-related |
 

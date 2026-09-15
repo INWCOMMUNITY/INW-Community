@@ -283,6 +283,8 @@ Status as of Jul 2026 overhaul (capability flags in `capabilities.ts`):
 
 #### eBay View Item vs Seller Hub (do not reopen)
 
+Running attempt log (append before the next fix): [`docs/EBAY-HUB-VIEW-ITEM-ATTEMPTS.md`](./EBAY-HUB-VIEW-ITEM-ATTEMPTS.md).
+
 Inventory API listings have two writers. Seller Hub revises Trading `<Quantity>` / StartPrice / title. The public View Item page reads **min(warehouse `shipToLocationAvailability.quantity`, offer `availableQuantity`)** and Inventory/offer content. Hub edits do **not** copy onto View Item by themselves.
 
 INW `StoreItem` is the hub (most-recent-wins from any channel). A Hub edit must: (1) `bulk_update` Hub's numbers onto **warehouse and offer** so View Item matches, (2) PUT Hub title/photos/description onto Inventory/offer directly, (3) pull into INW, (4) fan-out to other channels with `skipProviders: ["ebay"]`. Do not use INW as the intermediary for the View Item write.
@@ -481,4 +483,4 @@ These caused the Wix “finicky” bugs:
 
 ---
 
-*Last updated: September 15, 2026 — eBay View Item catch-up writes warehouse ∩ offer, Hub content PUT before skip-eBay, canonical 32-char SKU + ebaySkuMap.*
+*Last updated: September 15, 2026 — eBay Hub→View Item attempt log in `docs/EBAY-HUB-VIEW-ITEM-ATTEMPTS.md`.*
