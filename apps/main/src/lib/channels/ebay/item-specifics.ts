@@ -15,6 +15,32 @@ import {
 } from "@/lib/listing-limits";
 import { conditionEnumFromId } from "./conditions";
 
+/**
+ * Seller Hub revises `<Quantity>` (listed). View Item / live offer is
+ * `<QuantityAvailable>`. Catch-up must use listed remaining when they diverge,
+ * otherwise GetItem looks identical to INW and never writes the offer.
+ * After a sale, listed − sold equals available — keep available.
+ */
+export function ebayGetItemTradingQuantity(args: {
+  listed: number | null;
+  available: number | null;
+  sold: number;
+}): number | null {
+  const sold = Math.max(0, Math.round(Number(args.sold) || 0));
+  const available =
+    args.available == null || !Number.isFinite(args.available)
+      ? null
+      : Math.max(0, Math.round(args.available));
+  const listed =
+    args.listed == null || !Number.isFinite(args.listed) ? null : Math.max(0, Math.round(args.listed));
+  if (listed != null) {
+    const listedRemaining = Math.max(0, listed - sold);
+    if (available == null || listedRemaining !== available) return listedRemaining;
+    return available;
+  }
+  return available;
+}
+
 function parseEbayPriceToCents(raw: string | null): number | undefined {
   if (!raw?.trim()) return undefined;
   const n = Number(raw);
@@ -22,16 +48,34 @@ function parseEbayPriceToCents(raw: string | null): number | undefined {
   return Math.round(n * 100);
 }
 
-/** Remaining variation stock. Prefer QuantityAvailable; else Quantity minus QuantitySold. */
-export function parseEbayVariationQuantity(variationXml: string): number {
+function parseEbayVariationQtyFields(variationXml: string): {
+  listed: number | null;
+  available: number | null;
+  sold: number;
+} {
   const sellingStatus = tag(variationXml, "SellingStatus") ?? "";
   const sold = Math.max(0, Number(tag(sellingStatus, "QuantitySold") ?? "0") || 0);
   const availableStr = tag(variationXml, "QuantityAvailable");
-  if (availableStr != null && availableStr !== "") {
-    return Math.max(0, Number(availableStr) || 0);
-  }
-  const listed = Number(tag(variationXml, "Quantity") ?? "0") || 0;
-  return Math.max(0, listed - sold);
+  const listedStr = tag(variationXml, "Quantity") ?? "";
+  const available =
+    availableStr != null && availableStr !== ""
+      ? Math.max(0, Number(availableStr) || 0)
+      : null;
+  const listed = listedStr !== "" && Number.isFinite(Number(listedStr)) ? Math.max(0, Number(listedStr)) : null;
+  return { listed, available, sold };
+}
+
+/** Remaining variation stock. Prefer QuantityAvailable; else Quantity minus QuantitySold. */
+export function parseEbayVariationQuantity(variationXml: string): number {
+  const { listed, available, sold } = parseEbayVariationQtyFields(variationXml);
+  if (available != null) return available;
+  return Math.max(0, (listed ?? 0) - sold);
+}
+
+/** Seller Hub listed remaining — used as catch-up Trading qty when it diverges from available. */
+export function parseEbayVariationTradingQuantity(variationXml: string): number {
+  const { listed, available, sold } = parseEbayVariationQtyFields(variationXml);
+  return ebayGetItemTradingQuantity({ listed, available, sold }) ?? parseEbayVariationQuantity(variationXml);
 }
 
 /**
@@ -149,7 +193,10 @@ export type EbayVariationAxis = {
 /**
  * Parse Variations from GetItem XML into an INW variant matrix (all NameValueList values).
  */
-export function parseEbayVariations(itemXml: string): import("@/lib/listing-variant-matrix").VariantMatrix | null {
+export function parseEbayVariations(
+  itemXml: string,
+  opts?: { quantityMode?: "available" | "trading" }
+): import("@/lib/listing-variant-matrix").VariantMatrix | null {
   const variationsBlock = tag(itemXml, "Variations");
   if (!variationsBlock) return null;
   const variationNodes = allTags(variationsBlock, "Variation");
@@ -160,7 +207,10 @@ export function parseEbayVariations(itemXml: string): import("@/lib/listing-vari
   const skus: import("@/lib/listing-variant-matrix").VariantSkuRow[] = [];
 
   for (const v of variationNodes) {
-    const qty = parseEbayVariationQuantity(v);
+    const qty =
+      opts?.quantityMode === "trading"
+        ? parseEbayVariationTradingQuantity(v)
+        : parseEbayVariationQuantity(v);
     const sku = tag(v, "SKU")?.trim() || undefined;
     const specifics = tag(v, "VariationSpecifics") ?? "";
     const nvls = allTags(specifics, "NameValueList");

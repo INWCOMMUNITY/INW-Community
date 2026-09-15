@@ -66,6 +66,47 @@ export async function pushEbayVariantGroupQuantities(
   }
 }
 
+/**
+ * Hub catch-up: write offer.availableQuantity only. Dual inventory+offer writes
+ * make eBay treat INW as owner of the Inventory SKU and ignore Seller Hub.
+ */
+export async function pushEbayOfferQuantitiesOnly(
+  accessToken: string,
+  rows: EbayVariantQuantityRow[]
+): Promise<void> {
+  const targets = rows.filter((row) => row.offerId?.trim());
+  for (let i = 0; i < targets.length; i += EBAY_BULK_PRICE_QUANTITY_MAX) {
+    const chunk = targets.slice(i, i + EBAY_BULK_PRICE_QUANTITY_MAX);
+    try {
+      const body = await ebayJson(accessToken, BULK_QTY_PATH, "POST", {
+        requests: chunk.map((row) => ({
+          sku: row.sku,
+          offers: [
+            {
+              offerId: row.offerId,
+              availableQuantity: Math.max(0, Math.round(row.quantity)),
+            },
+          ],
+        })),
+      });
+      assertBulkPriceQuantityOk(body, BULK_QTY_PATH);
+    } catch (e) {
+      console.warn("[ebay] offer-only bulk qty failed; PUT offer", {
+        skuCount: chunk.length,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      for (const row of chunk) {
+        await putEbayOfferAvailableQuantity(
+          accessToken,
+          row.sku,
+          row.offerId!,
+          Math.max(0, Math.round(row.quantity))
+        );
+      }
+    }
+  }
+}
+
 export async function pushEbayAbsoluteQuantity(args: {
   accessToken: string;
   sku: string;
@@ -124,14 +165,24 @@ async function pushEbayZeroOfferQuantity(
   sku: string,
   offerId: string
 ): Promise<void> {
+  await putEbayOfferAvailableQuantity(accessToken, sku, offerId, 0);
+}
+
+async function putEbayOfferAvailableQuantity(
+  accessToken: string,
+  sku: string,
+  offerId: string,
+  quantity: number
+): Promise<void> {
+  const availableQuantity = Math.max(0, Math.round(quantity));
   try {
     const body = await ebayJson(accessToken, BULK_QTY_PATH, "POST", {
-      requests: [{ sku, offers: [{ offerId, availableQuantity: 0 }] }],
+      requests: [{ sku, offers: [{ offerId, availableQuantity }] }],
     });
     assertBulkPriceQuantityOk(body, BULK_QTY_PATH);
     return;
   } catch (e) {
-    console.warn("[ebay] offer-only bulk qty 0 failed; PUT offer", {
+    console.warn("[ebay] offer-only bulk qty failed; PUT offer", {
       sku,
       offerId,
       error: e instanceof Error ? e.message : String(e),
@@ -146,7 +197,7 @@ async function pushEbayZeroOfferQuantity(
     accessToken,
     `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`,
     "PUT",
-    overlayOfferAvailableQuantity(live, 0)
+    overlayOfferAvailableQuantity(live, availableQuantity)
   );
 }
 

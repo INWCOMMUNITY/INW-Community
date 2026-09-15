@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
+  ebayGetItemTradingQuantity,
   parseEbayDescription,
   parseEbayItemSpecifics,
   parseEbayLastModified,
   parseEbayPrimaryCategory,
   parseEbayVariations,
 } from "./item-specifics";
+
+describe("ebayGetItemTradingQuantity", () => {
+  it("returns listed remaining when it diverges from available with no sold units", () => {
+    expect(ebayGetItemTradingQuantity({ listed: 7, available: 3, sold: 0 })).toBe(7);
+  });
+
+  it("keeps available after a sale where listed minus sold equals available", () => {
+    expect(ebayGetItemTradingQuantity({ listed: 3, available: 2, sold: 1 })).toBe(2);
+  });
+});
 
 const ITEM_XML = `
 <Item>
@@ -210,6 +221,27 @@ describe("parseEbayVariations", () => {
   </Variations>
 </Item>`;
     expect(parseEbayVariations(xml)?.skus[0]?.quantity).toBe(9);
+    expect(parseEbayVariations(xml, { quantityMode: "trading" })?.skus[0]?.quantity).toBe(4);
+  });
+
+  it("uses listed remaining as trading qty when QuantityAvailable still echoes live stock", () => {
+    const xml = `
+<Item>
+  <Variations>
+    <Variation>
+      <SKU>RED-S</SKU>
+      <Quantity>7</Quantity>
+      <QuantityAvailable>3</QuantityAvailable>
+      <SellingStatus><QuantitySold>0</QuantitySold></SellingStatus>
+      <VariationSpecifics>
+        <NameValueList><Name>Color</Name><Value>Red</Value></NameValueList>
+        <NameValueList><Name>Size</Name><Value>Small</Value></NameValueList>
+      </VariationSpecifics>
+    </Variation>
+  </Variations>
+</Item>`;
+    expect(parseEbayVariations(xml)?.skus[0]?.quantity).toBe(3);
+    expect(parseEbayVariations(xml, { quantityMode: "trading" })?.skus[0]?.quantity).toBe(7);
   });
 
   it("subtracts variation QuantitySold when QuantityAvailable is omitted", () => {

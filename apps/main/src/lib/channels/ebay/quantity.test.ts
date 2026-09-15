@@ -22,7 +22,7 @@ vi.mock("./passthrough-push", () => ({
   }),
 }));
 
-import { assertBulkPriceQuantityOk, pushEbayAbsoluteQuantity, pushEbayVariantGroupQuantities } from "./quantity";
+import { assertBulkPriceQuantityOk, pushEbayAbsoluteQuantity, pushEbayOfferQuantitiesOnly, pushEbayVariantGroupQuantities } from "./quantity";
 
 describe("pushEbayAbsoluteQuantity", () => {
   beforeEach(() => {
@@ -208,5 +208,37 @@ describe("pushEbayVariantGroupQuantities", () => {
         ],
       }
     );
+  });
+});
+
+describe("pushEbayOfferQuantitiesOnly", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ebayJson.mockResolvedValue({});
+  });
+
+  it("writes offer availableQuantity without inventory_item quantity", async () => {
+    await pushEbayOfferQuantitiesOnly("t", [
+      { sku: "sku-a", quantity: 2, offerId: "offer-a" },
+      { sku: "sku-b", quantity: 5, offerId: "offer-b" },
+    ]);
+
+    expect(ebayJson).toHaveBeenCalledTimes(1);
+    expect(ebayJson).toHaveBeenCalledWith(
+      "t",
+      "/sell/inventory/v1/bulk_update_price_quantity",
+      "POST",
+      {
+        requests: [
+          { sku: "sku-a", offers: [{ offerId: "offer-a", availableQuantity: 2 }] },
+          { sku: "sku-b", offers: [{ offerId: "offer-b", availableQuantity: 5 }] },
+        ],
+      }
+    );
+  });
+
+  it("skips rows that have no offer id", async () => {
+    await pushEbayOfferQuantitiesOnly("t", [{ sku: "sku-a", quantity: 2 }]);
+    expect(ebayJson).not.toHaveBeenCalled();
   });
 });

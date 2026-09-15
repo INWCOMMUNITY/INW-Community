@@ -8,12 +8,15 @@ import {
 import {
   ebayGetItemMarksInwSoldOut,
   ebayGetItemQtyIsUnsoldZero,
+  ebayInwPushedRecently,
+  EBAY_TRADING_PUSH_ECHO_MS,
   enumerateEbayListings,
   fetchEbayItemDetails,
   type EbayTradingListing,
 } from "./trading";
+export { ebayInwPushedRecently, EBAY_TRADING_PUSH_ECHO_MS };
 import { resolveEbayLegacyListingId } from "./mapping";
-import { resolveEbayInventorySku } from "./listing-origin";
+import { resolveEbayPushSku } from "./listing-origin";
 import {
   ebayNotificationPostcardWrites,
   ebayPostcardDiffersFromStoreItem,
@@ -53,6 +56,7 @@ import {
   matrixHasKnownSkuPrices,
   normalizeVariantMatrix,
   optionValuesKey,
+  remoteVariantPricesLookLikeLeftoverMinOverwrite,
   skuSelectionKey,
   serializeVariantMatrix,
   sumMatrixQuantities,
@@ -552,20 +556,6 @@ export function withEbayDirtyUnconfirmed(
  */
 export const EBAY_POST_INBOUND_SETTLE_MS = 10 * 60_000;
 
-/**
- * GetItem/Trading echoes our own push for a short window. Outside it, a Trading-only
- * quantity is the seller's Seller Hub revise, not our lag.
- */
-export const EBAY_TRADING_PUSH_ECHO_MS = 2 * 60_000;
-
-export function ebayInwPushedRecently(
-  lastPushedAt: Date | null | undefined,
-  now: Date = new Date()
-): boolean {
-  if (!lastPushedAt) return false;
-  return now.getTime() - lastPushedAt.getTime() < EBAY_TRADING_PUSH_ECHO_MS;
-}
-
 export function ebayInPostInboundSettleWindow(args: {
   lastInboundAt: Date | null;
   now?: Date;
@@ -852,6 +842,7 @@ export async function refreshEbayListingByItemId(
           status: true,
           acceptOffers: true,
           minOfferCents: true,
+          sku: true,
           updatedAt: true,
         },
       },
@@ -1007,20 +998,25 @@ export async function refreshEbayListingByItemId(
           liveQtyCatchUp = await catchUpEbayLiveVariantQuantities({
             accessToken,
             inwMatrix: catchUpMatrix,
-            tradingMatrix: normalizeVariantMatrix(details.variants),
-            tradingListingQuantity: details.quantity,
+            tradingMatrix: normalizeVariantMatrix(details.tradingVariants ?? details.variants),
+            tradingListingQuantity: details.tradingQuantity ?? details.quantity,
             inwPushedRecently: ebayInwPushedRecently(link.lastPushedAt),
           });
         }
       } else {
-        const sku = resolveEbayInventorySku(link.externalListingId);
+        const sku = resolveEbayPushSku({
+          itemId: storeItem.id,
+          itemSku: storeItem.sku,
+          externalListingId: link.externalListingId,
+          linkOrigin: link.linkOrigin,
+        });
         if (sku) {
-          const tradingQty = details.quantity ?? storeItem.quantity;
+          const tradingQty = details.tradingQuantity ?? details.quantity ?? storeItem.quantity;
           liveQtyCatchUp = await catchUpEbayLiveVariantQuantities({
             accessToken,
             inwMatrix: ebaySingleSkuQtyMatrix(sku, storeItem.quantity),
             tradingMatrix: ebaySingleSkuQtyMatrix(sku, tradingQty),
-            tradingListingQuantity: details.quantity,
+            tradingListingQuantity: details.tradingQuantity ?? details.quantity,
             inwPushedRecently: ebayInwPushedRecently(link.lastPushedAt),
           });
         }
@@ -1035,7 +1031,9 @@ export async function refreshEbayListingByItemId(
   }
 
   const forceQtyFromLiveCatchUp = Boolean(liveQtyCatchUp?.inwNeedsUpdate);
-  if (!opts?.force && applyDecision.action !== "apply" && !forceQtyFromLiveCatchUp) {
+  const willSkipGetItem =
+    !opts?.force && applyDecision.action !== "apply" && !forceQtyFromLiveCatchUp;
+  if (willSkipGetItem) {
     if (applyDecision.action === "pending" && applyDecision.pendingHash) {
       await prisma.channelListingLink.update({
         where: { id: link.id },
@@ -1225,13 +1223,14 @@ export async function refreshEbayListingByItemId(
     );
   }
 
+  const shouldApplyListingQty = ebayGetItemShouldApplyListingQuantity({
+    localHasOptionQuantities: hasOptionQuantities(storeItem.variants),
+    applyRemoteVariants,
+  });
   if (
     !opts?.skipQuantity &&
     remoteQty !== storeItem.quantity &&
-    ebayGetItemShouldApplyListingQuantity({
-      localHasOptionQuantities: hasOptionQuantities(storeItem.variants),
-      applyRemoteVariants,
-    })
+    shouldApplyListingQty
   ) {
     const unsoldZero = ebayGetItemQtyIsUnsoldZero({
       listingEnded: details.listingEnded,
@@ -1407,6 +1406,12 @@ export async function refreshEbayListingByItemId(
       nextListingPrice,
       inwListingPrice: storeItem.priceCents,
       unsoldZero,
+    });
+    const leftoverOverwrite = remoteVariantPricesLookLikeLeftoverMinOverwrite({
+      inwVariants: storeItem.variants,
+      remoteVariants: details.variants,
+      inwListingPriceCents: storeItem.priceCents,
+      remoteListingPriceCents: remotePrice,
     });
 
     const inwSkus = inwMatrix?.skus ?? [];

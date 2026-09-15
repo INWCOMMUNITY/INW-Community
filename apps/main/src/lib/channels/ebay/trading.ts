@@ -18,6 +18,7 @@ import {
   parseEbayLastModified,
   parseEbayPrimaryCategory,
   parseEbayVariations,
+  ebayGetItemTradingQuantity,
 } from "./item-specifics";
 import type { ListingAspect } from "@/lib/listing-limits";
 import { getEbayCategoryPathFromId } from "./category-path";
@@ -85,8 +86,16 @@ export type EbayItemDetails = {
   conditionEnum: string | null;
   remoteUpdatedAt: Date | null;
   quantity: number | null;
+  /**
+   * Seller Hub listed remaining (Quantity − QuantitySold) when it diverges from
+   * QuantityAvailable. Catch-up uses this as Trading qty so a Hub revise is not
+   * treated as identical to the live offer.
+   */
+  tradingQuantity: number | null;
   priceCents: number | null;
   variants: unknown;
+  /** GetItem variation qtys from listed remaining — catch-up Trading surface. */
+  tradingVariants: unknown;
   /** Listing-level Custom Label from GetItem `<SKU>` (simple listings). */
   sku: string | null;
   listingEnded: boolean;
@@ -97,12 +106,51 @@ export type EbayItemDetails = {
   remoteShippingProfileId: string | null;
 };
 
+/** Seller Hub listed remaining — prefer over QuantityAvailable (View Item / live offer). */
+export function ebaySellerHubListedQuantity(details: {
+  tradingQuantity?: number | null;
+  quantity?: number | null;
+}): number | null {
+  if (details.tradingQuantity != null && Number.isFinite(details.tradingQuantity)) {
+    return Math.max(0, Math.round(details.tradingQuantity));
+  }
+  if (details.quantity != null && Number.isFinite(details.quantity)) {
+    return Math.max(0, Math.round(details.quantity));
+  }
+  return null;
+}
+
+/** True when Seller Hub listed remaining disagrees with View Item / available qty. */
+export function ebaySellerHubQtyAheadOfViewItem(details: {
+  tradingQuantity?: number | null;
+  quantity?: number | null;
+}): boolean {
+  const hub = ebaySellerHubListedQuantity(details);
+  if (hub == null || details.quantity == null || !Number.isFinite(details.quantity)) return false;
+  return hub !== Math.max(0, Math.round(details.quantity));
+}
+
+/**
+ * GetItem/Trading echoes our own push for a short window. Outside it, a Trading-only
+ * quantity is the seller's Seller Hub revise, not our lag.
+ */
+export const EBAY_TRADING_PUSH_ECHO_MS = 2 * 60_000;
+
+export function ebayInwPushedRecently(
+  lastPushedAt: Date | null | undefined,
+  now: Date = new Date()
+): boolean {
+  if (!lastPushedAt) return false;
+  return now.getTime() - lastPushedAt.getTime() < EBAY_TRADING_PUSH_ECHO_MS;
+}
+
 /**
  * Listing-level stock from GetItem. Strips Variations so a size with qty 0 cannot
  * be read as the whole listing being sold out.
  */
 export function parseEbayGetItemAvailability(itemXml: string): {
   quantity: number | null;
+  tradingQuantity: number | null;
   quantitySold: number;
   listingEnded: boolean;
 } {
@@ -116,15 +164,24 @@ export function parseEbayGetItemAvailability(itemXml: string): {
   const quantitySold = Math.max(0, Number(tag(sellingStatus, "QuantitySold") ?? "0") || 0);
   const availableStr = tag(listingXml, "QuantityAvailable");
   const listedStr = tag(listingXml, "Quantity") ?? "";
+  let listed: number | null = null;
+  if (listedStr !== "") {
+    const n = Number(listedStr);
+    if (Number.isFinite(n)) listed = Math.max(0, Math.round(n));
+  }
   let quantity: number | null = null;
   if (availableStr != null && availableStr !== "") {
     quantity = Math.max(0, Number(availableStr) || 0);
-  } else if (listedStr !== "") {
-    const listed = Number(listedStr);
-    if (Number.isFinite(listed)) quantity = Math.max(0, listed - quantitySold);
+  } else if (listed != null) {
+    quantity = Math.max(0, listed - quantitySold);
   }
   return {
     quantity,
+    tradingQuantity: ebayGetItemTradingQuantity({
+      listed,
+      available: quantity,
+      sold: quantitySold,
+    }),
     quantitySold,
     listingEnded: listingStatus === "completed" || listingStatus === "ended",
   };
@@ -356,9 +413,11 @@ export async function fetchEbayItemDetails(
       conditionEnum: parseEbayConditionEnum(item),
       remoteUpdatedAt: parseEbayLastModified(item) ?? parseEbayLastModified(xml),
       quantity: availability.quantity,
+      tradingQuantity: availability.tradingQuantity,
       quantitySold: availability.quantitySold,
       priceCents,
       variants: parseEbayVariations(item),
+      tradingVariants: parseEbayVariations(item, { quantityMode: "trading" }),
       sku: tag(item, "SKU")?.trim() || null,
       listingEnded: availability.listingEnded,
       acceptOffers: bestOffer.acceptOffers,
@@ -1033,6 +1092,59 @@ export async function subscribeToEbayNotifications(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[ebay] subscribeToEbayNotifications: exception", { error: msg });
+    return { success: false, error: msg };
+  }
+}
+
+export function buildUnsubscribeEbayNotificationsXml(): string {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<SetNotificationPreferencesRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ApplicationDeliveryPreferences>
+    <ApplicationEnable>Disable</ApplicationEnable>
+    <DeviceType>Platform</DeviceType>
+  </ApplicationDeliveryPreferences>
+  <UserDeliveryPreferenceArray>
+    <NotificationEnable>
+      <EventType>ItemRevised</EventType>
+      <EventEnable>Disable</EventEnable>
+    </NotificationEnable>
+    <NotificationEnable>
+      <EventType>ItemClosed</EventType>
+      <EventEnable>Disable</EventEnable>
+    </NotificationEnable>
+    <NotificationEnable>
+      <EventType>ItemSold</EventType>
+      <EventEnable>Disable</EventEnable>
+    </NotificationEnable>
+    <NotificationEnable>
+      <EventType>FixedPriceTransaction</EventType>
+      <EventEnable>Disable</EventEnable>
+    </NotificationEnable>
+  </UserDeliveryPreferenceArray>
+</SetNotificationPreferencesRequest>`;
+}
+
+/** Stop eBay Platform Notifications from posting to INW after disconnect. */
+export async function unsubscribeFromEbayNotifications(
+  accessToken: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await callTrading(
+      accessToken,
+      "SetNotificationPreferences",
+      buildUnsubscribeEbayNotificationsXml()
+    );
+    const ack = tag(response, "Ack");
+    if (ack === "Success" || ack === "Warning") {
+      console.log("[ebay] unsubscribeFromEbayNotifications: success");
+      return { success: true };
+    }
+    const errorMsg = tag(response, "LongMessage") || tag(response, "ShortMessage") || "Unknown error";
+    console.error("[ebay] unsubscribeFromEbayNotifications: failed", { ack, errorMsg });
+    return { success: false, error: errorMsg };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[ebay] unsubscribeFromEbayNotifications: exception", { error: msg });
     return { success: false, error: msg };
   }
 }

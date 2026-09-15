@@ -92,6 +92,7 @@ describe("listing-origin", () => {
         linkOrigin: "inw_create",
       })
     ).toBe("cmsz85hpj0001ahwfa2pmvtun");
+    expect(resolveEbayInventorySku("394295737513")).toBe("inw394295737513");
   });
 
   it("uses a seller SKU on eBay when it is alphanumeric", () => {

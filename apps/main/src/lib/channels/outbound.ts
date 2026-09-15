@@ -45,7 +45,12 @@ import {
 import { claimChannelListingLink } from "./listing-link-claim";
 import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
 import { inboundDescriptionsMatch } from "./apply-remote-listing";
-import { fetchEbayItemDetails } from "./ebay/trading";
+import {
+  ebayInwPushedRecently,
+  ebaySellerHubListedQuantity,
+  ebaySellerHubQtyAheadOfViewItem,
+  fetchEbayItemDetails,
+} from "./ebay/trading";
 import { fetchShopifyListingForInbound } from "./shopify/adapter";
 import { resolveEbayLegacyListingId } from "./ebay/mapping";
 import {
@@ -623,10 +628,26 @@ export async function updateStoreItemOnChannels(
               const live = await fetchEbayItemDetails(ctx.accessToken, legacyId).catch(() => null);
               if (
                 live &&
-                live.quantity != null &&
+                !ebayInwPushedRecently(link.lastPushedAt) &&
+                ebaySellerHubQtyAheadOfViewItem(live)
+              ) {
+                skippedNewerRemoteQty = true;
+                console.warn("[channels] skip eBay inventory push; Seller Hub qty has not reached View Item", {
+                  storeItemId,
+                  externalListingId: link.externalListingId,
+                  inwQty: freshItem.quantity,
+                  hubQty: ebaySellerHubListedQuantity(live),
+                  viewItemQty: live.quantity,
+                });
+                return;
+              }
+              const hubQty = live ? ebaySellerHubListedQuantity(live) : null;
+              if (
+                live &&
+                hubQty != null &&
                 shouldBlockOutboundQtyOverwrite({
                   inwQuantity: freshItem.quantity,
-                  remoteQuantity: live.quantity,
+                  remoteQuantity: hubQty,
                   syncBaselineQty: link.syncBaselineQty,
                   remoteUpdatedAt: live.remoteUpdatedAt ?? null,
                   inwUpdatedAt: hubUpdatedAt,
@@ -638,7 +659,7 @@ export async function updateStoreItemOnChannels(
                   storeItemId,
                   externalListingId: link.externalListingId,
                   inwQty: freshItem.quantity,
-                  remoteQty: live.quantity,
+                  remoteQty: hubQty,
                   syncBaselineQty: link.syncBaselineQty,
                 });
                 return;
@@ -651,8 +672,8 @@ export async function updateStoreItemOnChannels(
                 }) &&
                 remoteSkuQuantitiesDivergeFromInw({
                   inwVariants: freshItem.variants,
-                  remoteVariants: live.variants,
-                  remoteListingQuantity: live.quantity,
+                  remoteVariants: live.tradingVariants ?? live.variants,
+                  remoteListingQuantity: hubQty,
                 })
               ) {
                 skippedNewerRemoteQty = true;
@@ -915,6 +936,20 @@ export async function updateStoreItemOnChannels(
                 });
                 return;
               }
+              const hubQty = ebaySellerHubListedQuantity(live);
+              if (
+                !ebayInwPushedRecently(link.lastPushedAt) &&
+                ebaySellerHubQtyAheadOfViewItem(live)
+              ) {
+                skippedNewerRemote = true;
+                console.warn("[channels] skip eBay content push; Seller Hub qty has not reached View Item", {
+                  storeItemId,
+                  externalListingId: link.externalListingId,
+                  hubQty,
+                  viewItemQty: live.quantity,
+                });
+                return;
+              }
               if (
                 shouldBlockEbayOutboundOverwrite({
                   inwTitle: item.title,
@@ -925,7 +960,7 @@ export async function updateStoreItemOnChannels(
                   remoteUpdatedAt: live.remoteUpdatedAt ?? null,
                   inwMatchesLastPushedHash: Boolean(link.lastPushedHash && link.lastPushedHash === hash),
                   inwQuantity: item.quantity,
-                  remoteQuantity: live.quantity,
+                  remoteQuantity: hubQty,
                   syncBaselineQty: link.syncBaselineQty,
                   inwDescription: item.description,
                   remoteDescription: live.description,
@@ -941,7 +976,7 @@ export async function updateStoreItemOnChannels(
                   inwUpdatedAt: hubUpdatedAt.toISOString(),
                   remoteUpdatedAt: live.remoteUpdatedAt?.toISOString() ?? null,
                   inwQuantity: item.quantity,
-                  remoteQuantity: live.quantity,
+                  remoteQuantity: hubQty,
                 });
                 return;
               }

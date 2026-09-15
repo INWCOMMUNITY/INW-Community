@@ -24,7 +24,12 @@ import {
   inwSavedAfterChannelPush,
   shouldBlockOutboundQtyOverwrite,
 } from "./sync-baseline";
-import { fetchEbayItemDetails } from "./ebay/trading";
+import {
+  ebayInwPushedRecently,
+  ebaySellerHubListedQuantity,
+  ebaySellerHubQtyAheadOfViewItem,
+  fetchEbayItemDetails,
+} from "./ebay/trading";
 import { resolveEbayLegacyListingId } from "./ebay/mapping";
 import { fetchEtsyListingForInbound } from "./etsy/listing-exists";
 import { fetchShopifyListingForInbound } from "./shopify/adapter";
@@ -239,10 +244,17 @@ export async function syncInventoryToChannels(
             const live = await fetchEbayItemDetails(ctx.accessToken, legacyId).catch(() => null);
             if (!live) return false;
             if (
-              live.quantity != null &&
+              !ebayInwPushedRecently(link.lastPushedAt) &&
+              ebaySellerHubQtyAheadOfViewItem(live)
+            ) {
+              return true;
+            }
+            const hubQty = ebaySellerHubListedQuantity(live);
+            if (
+              hubQty != null &&
               shouldBlockOutboundQtyOverwrite({
                 inwQuantity: item.quantity,
-                remoteQuantity: live.quantity,
+                remoteQuantity: hubQty,
                 syncBaselineQty: link.syncBaselineQty,
                 remoteUpdatedAt: live.remoteUpdatedAt ?? null,
                 inwUpdatedAt: freshItem.updatedAt,
@@ -258,8 +270,8 @@ export async function syncInventoryToChannels(
               }) &&
               remoteSkuQuantitiesDivergeFromInw({
                 inwVariants: item.variants,
-                remoteVariants: live.variants,
-                remoteListingQuantity: live.quantity,
+                remoteVariants: live.tradingVariants ?? live.variants,
+                remoteListingQuantity: hubQty,
               })
             );
           }
@@ -397,7 +409,10 @@ export function channelSyncSucceeded(
 ): boolean {
   const row = results.find((r) => r.provider === provider);
   if (!row) return true;
-  return row.ok;
+  if (!row.ok) return false;
+  // Declined writes must not stamp lastPushedAt / syncBaselineHash as if the listing updated.
+  if (row.skipped === "remote_newer") return false;
+  return true;
 }
 
 /**

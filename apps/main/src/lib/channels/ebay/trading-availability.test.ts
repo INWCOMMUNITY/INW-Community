@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   ebayGetItemMarksInwSoldOut,
   ebayGetItemQtyIsUnsoldZero,
+  ebayInwPushedRecently,
+  ebaySellerHubListedQuantity,
+  ebaySellerHubQtyAheadOfViewItem,
   parseEbayGetItemAvailability,
   parseEbaySellerShippingProfile,
 } from "./trading";
@@ -53,6 +56,36 @@ describe("parseEbayGetItemAvailability", () => {
         </SellingStatus>
       </Item>`;
     expect(parseEbayGetItemAvailability(xml).quantity).toBe(2);
+  });
+
+  it("keeps QuantityAvailable as live qty after a sale (listed 3, sold 1, available 2)", () => {
+    const xml = `
+      <Item>
+        <Quantity>3</Quantity>
+        <QuantityAvailable>2</QuantityAvailable>
+        <SellingStatus>
+          <ListingStatus>Active</ListingStatus>
+          <QuantitySold>1</QuantitySold>
+        </SellingStatus>
+      </Item>`;
+    const parsed = parseEbayGetItemAvailability(xml);
+    expect(parsed.quantity).toBe(2);
+    expect(parsed.tradingQuantity).toBe(2);
+  });
+
+  it("uses listed remaining as trading qty when QuantityAvailable still matches INW", () => {
+    const xml = `
+      <Item>
+        <Quantity>7</Quantity>
+        <QuantityAvailable>3</QuantityAvailable>
+        <SellingStatus>
+          <ListingStatus>Active</ListingStatus>
+          <QuantitySold>0</QuantitySold>
+        </SellingStatus>
+      </Item>`;
+    const parsed = parseEbayGetItemAvailability(xml);
+    expect(parsed.quantity).toBe(3);
+    expect(parsed.tradingQuantity).toBe(7);
   });
 });
 
@@ -107,5 +140,23 @@ describe("parseEbaySellerShippingProfile", () => {
       remoteProfileId: null,
       name: null,
     });
+  });
+});
+
+describe("ebaySellerHubListedQuantity", () => {
+  it("prefers Trading listed remaining over View Item available qty", () => {
+    expect(ebaySellerHubListedQuantity({ tradingQuantity: 4, quantity: 7 })).toBe(4);
+    expect(ebaySellerHubListedQuantity({ tradingQuantity: null, quantity: 7 })).toBe(7);
+  });
+
+  it("detects a Hub revise that has not reached View Item", () => {
+    expect(ebaySellerHubQtyAheadOfViewItem({ tradingQuantity: 4, quantity: 7 })).toBe(true);
+    expect(ebaySellerHubQtyAheadOfViewItem({ tradingQuantity: 7, quantity: 7 })).toBe(false);
+  });
+
+  it("treats a push from the last two minutes as our own echo", () => {
+    expect(ebayInwPushedRecently(new Date(Date.now() - 30_000))).toBe(true);
+    expect(ebayInwPushedRecently(new Date(Date.now() - 3 * 60_000))).toBe(false);
+    expect(ebayInwPushedRecently(null)).toBe(false);
   });
 });
