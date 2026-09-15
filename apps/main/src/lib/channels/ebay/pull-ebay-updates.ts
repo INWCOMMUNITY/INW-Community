@@ -1343,6 +1343,11 @@ export async function refreshEbayListingByItemId(
     // When variant qty changes, eBay's GetItem often returns stale data.
     // Schedule a delayed retry so the catch-up runs again with fresher API values.
     if (changes.some((c) => c.includes("variants (qty)")) && link.id) {
+      console.info("[ebay] scheduling delayed retry for variant qty (eBay API lag workaround)", {
+        storeItemId: storeItem.id,
+        linkId: link.id,
+        delayMs: 5 * 60_000,
+      });
       await enqueueEbayHubCatchup({
         linkId: link.id,
         storeItemId: storeItem.id,
