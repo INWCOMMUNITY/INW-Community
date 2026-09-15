@@ -67,9 +67,9 @@ export async function pushEbayVariantGroupQuantities(
 }
 
 /**
- * Offer.availableQuantity only (no inventory_item). Dual-writing INW's number
- * in the same second as a Hub Revise blocks View Item; Hub catch-up dual-writes
- * Hub's number after Hub has landed via pushEbayVariantGroupQuantities instead.
+ * Offer.availableQuantity only (no inventory_item). Used for sell-out / fallback
+ * when a dual inventory+offer write is unsafe. Do not use this to copy Hub qty
+ * onto View Item — Hub owns the public listing; INW writes qty only on INW stock changes.
  */
 export async function pushEbayOfferQuantitiesOnly(
   accessToken: string,

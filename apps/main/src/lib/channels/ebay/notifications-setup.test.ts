@@ -10,6 +10,7 @@ describe("ebayPlatformNotificationsNeedRepair", () => {
         liveFetched: true,
         liveSubscribed: true,
         liveUrlSecured: true,
+        listingReviseEventsEnabled: true,
       })
     ).toBe(false);
   });
@@ -47,7 +48,7 @@ describe("ebayPlatformNotificationsNeedRepair", () => {
     ).toBe(true);
   });
 
-  it("repairs when ItemRevised is still enabled so qty edits stop being overwritten on the ping", () => {
+  it("does not repair when ItemRevised is already enabled", () => {
     expect(
       ebayPlatformNotificationsNeedRepair({
         storedEnabledAndSecured: true,
@@ -55,6 +56,18 @@ describe("ebayPlatformNotificationsNeedRepair", () => {
         liveSubscribed: true,
         liveUrlSecured: true,
         listingReviseEventsEnabled: true,
+      })
+    ).toBe(false);
+  });
+
+  it("repairs when ItemRevised is missing so Hub revises are still acked", () => {
+    expect(
+      ebayPlatformNotificationsNeedRepair({
+        storedEnabledAndSecured: true,
+        liveFetched: true,
+        liveSubscribed: true,
+        liveUrlSecured: true,
+        listingReviseEventsEnabled: false,
       })
     ).toBe(true);
   });

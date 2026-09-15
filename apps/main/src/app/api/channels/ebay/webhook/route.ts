@@ -1,4 +1,3 @@
-import { waitUntil } from "@vercel/functions";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import {
@@ -28,7 +27,6 @@ import {
   recordEbayWebhookHit,
   recordEbayWebhookReceipt,
 } from "@/lib/channels/ebay/notifications-setup";
-import { EBAY_HUB_OFFER_CATCHUP_DELAY_MS } from "@/lib/channels/ebay/variant-qty-catchup";
 import {
   logWebhookEvent,
   markWebhookProcessing,
@@ -52,9 +50,9 @@ async function findConnectionByEbayUserId(ebayUserId: string) {
 /**
  * eBay Platform Notifications + Commerce Notification receiver.
  *
- * Sale events poll orders (never apply XML qty). Listing revises ack immediately
- * then catch up Hub qty onto the live offer after a short delay so we do not
- * write in the same second as Seller Hub Revise. Closed listings still GetItem.
+ * Sale events poll orders (never apply XML qty). Listing revises ack only — INW
+ * must not write the live offer, so Seller Hub can update View Item. Closed
+ * listings still GetItem. Cron reads the public listing into INW.
  */
 export async function POST(req: NextRequest) {
   void recordEbayWebhookHit("post-received");
@@ -207,36 +205,15 @@ export async function POST(req: NextRequest) {
     }
 
     if (isEbayReviseNotification(eventType)) {
-      const accessToken = ctx.accessToken;
-      const delayedItemId = itemId;
-      waitUntil(
-        (async () => {
-          await new Promise((resolve) => setTimeout(resolve, EBAY_HUB_OFFER_CATCHUP_DELAY_MS));
-          try {
-            const result = await refreshEbayListingByItemId(accessToken, delayedItemId, {
-              skipContent: true,
-              source: "webhook",
-            });
-            console.log("[ebay webhook] delayed Hub qty catch-up", {
-              itemId: delayedItemId,
-              eventType,
-              updated: result?.updated ?? false,
-              changes: result?.changes ?? [],
-            });
-          } catch (e) {
-            console.warn("[ebay webhook] delayed Hub qty catch-up failed", {
-              itemId: delayedItemId,
-              eventType,
-              error: e instanceof Error ? e.message : String(e),
-            });
-          }
-        })()
-      );
+      console.log("[ebay webhook] listing revise acked; Hub owns View Item", {
+        itemId,
+        eventType,
+      });
       await markWebhookCompleted(webhookEventId);
       return NextResponse.json({
         ok: true,
         processed: true,
-        deferred: "hub_qty_catchup",
+        skipped: "listing_revise_ack_only",
         itemId,
         eventType,
       });

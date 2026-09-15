@@ -48,9 +48,8 @@ export function isEbayReviseNotification(eventType: string | null): boolean {
 }
 
 /**
- * Immediate GetItem/write on a listing revise races Seller Hub Revise.
- * The webhook delays Hub→offer catch-up on a separate path; this helper stays
- * false for revises so the generic pull does not run in the same second.
+ * Listing revises must not GetItem or write the live offer. Hub owns View Item;
+ * cron reads `<QuantityAvailable>` into INW. Sales still reconcile via orders.
  */
 export function ebayWebhookShouldPullListing(eventType: string | null): boolean {
   if (isEbaySaleNotification(eventType)) return false;

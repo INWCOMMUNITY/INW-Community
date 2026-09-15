@@ -852,17 +852,6 @@ describe("shouldOverlayEbayGetItemSkuQuantities", () => {
       })
     ).toBe(false);
   });
-
-  it("does not overlay GetItem SKU qty when inventory/offer catch-up already returned rows", () => {
-    expect(
-      shouldOverlayEbayGetItemSkuQuantities({
-        source: "webhook",
-        inwMatrix: inw,
-        remoteMatrix: remoteQty,
-        catchUpReturnedRows: true,
-      })
-    ).toBe(false);
-  });
 });
 
 describe("ebayInboundShouldApplyVariantPrices", () => {
