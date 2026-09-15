@@ -34,18 +34,29 @@ Append a new row **before** trying the next fix. Do not reopen a row marked fail
 | 16 | Sep 15 | (local, then folded into #17) | Variation catch-up required a **legal Hub Custom Label** per row. Blank/hyphen SKUs dropped; parent `inw{legacyId}` `bulk_update` never hits Blue/Small | **Failed** on this listing (variation labels blank/hyphen; parent is the group key) | Parent group key as a variation offer SKU; dropping option rows without Custom Labels |
 | 17 | Sep 15 | `d74a7305` | Option-value match (Hub `Primary color` vs Inventory `Color`); never address parent group key; lookup group `inw{legacyId}`; probe `inw{legacyId}vN` if group GET empty; skip parent `/offer?sku=` 400 before variant writes | **Not verified on live listing yet.** Deployed to `main`. Next Hub revise after Vercel should move Blue/Small 10 → 5. | Writing listing total **60** onto every variant |
 | 18 | Sep 15 | (diagnosis, no code) | Side-by-side title vs price vs qty routes after seller reported title+price live, qty not | Title is Trading + optional content PUT. Price is listing-level Trading StartPrice (View Item shows it without Inventory). Qty is per-SKU Inventory only. INW `bulk_update` sends price and qty together — price succeeding on View Item does not mean that call ran. | Treating qty as "the same Hub revise path as price"; adding a separate price-only writer |
-| 19 | Sep 15 | (shipping) | Add `findOfferSkusByListingId` fallback: when group lookup and `inw{id}vN` probe both fail, paginate all offers and find the ones whose `listing.listingId` matches. Handles seller-migrated listings with arbitrary SKUs. Better logging (`liveGroupSkuSample`, `discoveredSkus`, warning when no SKUs found). | **Not verified yet.** Deploying now. | — |
+| 19 | Sep 15 | `c950be91` | Add `findOfferSkusByListingId` fallback: when group lookup and `inw{id}vN` probe both fail, paginate all offers and find the ones whose `listing.listingId` matches. Handles seller-migrated listings with arbitrary SKUs. Better logging (`liveGroupSkuSample`, `discoveredSkus`, warning when no SKUs found). | **Ran — still stuck.** User reported "all qtys were changed to 5 on every variable" but View Item still 10. Possible bug in offer listing ID extraction. | — |
+| 20 | Sep 15 | `b7c6ec18` | Fix `findOfferSkusByListingId` to check **both** `offer.listingId` and `offer.listing.listingId` (eBay returns either). Add extensive logging: SKU discovery source (group/probe/offer-list/none), alignment result (alignedSkuCount, unmatchedRows), per-SKU aspect matching failures. | **Deploying now.** Watch Vercel logs for `[ebay] Hub→View Item catch-up: SKU discovery` and `alignment result`. | — |
 
 ---
 
 ## Still open (do not skip)
 
-1. Did `d74a7305` actually run on `407217102811`? Check Vercel logs for `[ebay] Hub→View Item variation catch-up` (`hubRows`, `liveGroupKey`, `liveGroupSkus`, `addressed`, `wrote`) after the next Hub revise.
-2. If `addressed === 0`: group GET and `inw{id}vN` probe both missed. Need live `variantSKUs` / offer SKUs from diagnose.
-3. If `wrote === false` but `addressed > 0`: pin found, `bulk_update` skipped or verify failed. Diagnose warehouse vs offer vs Hub per SKU.
-4. If warehouse = offer = Hub 5 and View Item still 10: **then** CDN / hard-refresh.
-5. Webhook: is `ItemRevised` arriving? If not, cron `ebay_hub_catchup` / GetMyeBaySelling listed-remaining dirty-scan must fire.
-6. Live token dumps from this machine have failed (`noToken` / decrypt blocked). Production logs + diagnose route are the evidence path.
+1. **Check new logging from `b7c6ec18`** in Vercel logs after the next Hub revise:
+   - `[ebay] Hub→View Item catch-up: SKU discovery` — should show `source` (group/probe/offer-list/none) and `liveGroupSkuCount`
+   - `[ebay] findOfferSkusByListingId completed` — should show `foundCount` and `foundSkus`
+   - `[ebay] alignVariantRowsToLiveEbayInventory completed` — should show `matchedByAspects` and `unmatchedRowCount`
+   - `[ebay] Hub→View Item catch-up: alignment result` — should show `alignedSkuCount`
+2. If `source: "none"` and `liveGroupSkuCount: 0`: all three SKU discovery methods failed. Check:
+   - Does the listing actually have Inventory offers? (imported before Inventory API existed?)
+   - Are the offer listing IDs stored differently?
+3. If SKUs found but `alignedSkuCount: 0` or `matchedByAspects: 0`: alignment by aspects failed:
+   - Check `[ebay] alignVariantRows: no aspects for SKU` — variation inventory_items may not have aspects
+   - Check `[ebay] alignVariantRows: no match for SKU` — aspects might not contain Color/Size
+4. If `addressed === 0`: no variation row got a SKU to write. Check `ebayCatchupVariantAddress` returning null.
+5. If `wrote === false` but `addressed > 0`: pin found, `bulk_update` skipped or verify failed. Diagnose warehouse vs offer vs Hub per SKU.
+6. If warehouse = offer = Hub 5 and View Item still 10: **then** CDN / hard-refresh.
+7. Webhook: is `ItemRevised` arriving? If not, cron `ebay_hub_catchup` / GetMyeBaySelling listed-remaining dirty-scan must fire.
+8. Live token dumps from this machine have failed (`noToken` / decrypt blocked). Production logs + diagnose route are the evidence path.
 
 ## Diagnose
 
