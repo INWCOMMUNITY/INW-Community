@@ -981,29 +981,50 @@ export async function refreshEbayListingByItemId(
     const variationQtySum = tradingMatrix?.skus?.reduce((sum, s) => sum + (s.quantity ?? 0), 0) ?? 0;
     const variationCount = tradingMatrix?.skus?.length ?? 0;
     
-    // Log for diagnostics. We trust GetItem per-variation quantities - can't derive per-SKU from total.
-    // If GetItem is stale, the 15-min delayed retry will handle it.
+    // Detect stale GetItem: seller list total differs significantly from GetItem variation sum
+    const sellerListHubQty = opts?.sellerListHubQty ?? null;
+    const getItemQtyIsStale = sellerListHubQty != null && 
+      Math.abs(sellerListHubQty - variationQtySum) > 2; // Allow small rounding differences
+    
     console.info("[ebay] catch-up qty comparison", {
       storeItemId: storeItem.id,
-      sellerListHubQty: opts?.sellerListHubQty,
+      sellerListHubQty,
       listingLevelHubQty,
       variationQtySum,
       variationCount,
+      getItemQtyIsStale,
     });
     
-    await catchupEbayListingQtyPrice({
-      accessToken,
-      item: catchupItem,
-      externalListingId: link.externalListingId,
-      linkOrigin: link.linkOrigin,
-      hubQuantity: listingLevelHubQty,
-      viewItemQuantity: details.quantity,
-      hubPriceCents: details.priceCents,
-      liveCustomLabel: details.sku,
-      tradingVariants: details.tradingVariants,
-      skuMap: link.ebaySkuMap,
-      linkId: link.id,
-    });
+    // Skip writing stale GetItem quantities to Inventory - schedule retry instead
+    if (getItemQtyIsStale) {
+      console.warn("[ebay] catch-up: skipping qty write due to stale GetItem, scheduling rapid retry", {
+        storeItemId: storeItem.id,
+        sellerListHubQty,
+        variationQtySum,
+      });
+      // Schedule rapid retries: 1 min, 3 min, 5 min
+      for (const delayMs of [60_000, 180_000, 300_000]) {
+        await enqueueEbayHubCatchup({
+          linkId: link.id,
+          storeItemId: storeItem.id,
+          delayMs,
+        }).catch(() => {});
+      }
+    } else {
+      await catchupEbayListingQtyPrice({
+        accessToken,
+        item: catchupItem,
+        externalListingId: link.externalListingId,
+        linkOrigin: link.linkOrigin,
+        hubQuantity: listingLevelHubQty,
+        viewItemQuantity: details.quantity,
+        hubPriceCents: details.priceCents,
+        liveCustomLabel: details.sku,
+        tradingVariants: details.tradingVariants,
+        skuMap: link.ebaySkuMap,
+        linkId: link.id,
+      });
+    }
     await catchupEbayListingHubContent({
       accessToken,
       item: catchupItem,
@@ -1251,20 +1272,26 @@ export async function refreshEbayListingByItemId(
       remoteQtyMatrix.skus.every((s) => !s.sku?.trim())
   );
   
-    // Log mismatch between seller list and GetItem for diagnostics, but always trust GetItem
-    // for per-variation quantities. We can't derive per-SKU qty from a listing total.
-    // If GetItem is stale, the 15-min delayed retry will catch it when eBay propagates.
+    // Detect stale GetItem: seller list total differs from GetItem variation sum
+    // When stale, DON'T apply GetItem quantities to INW - they're wrong.
+    // Schedule rapid retries instead of applying stale data.
     const sellerListHubQty = opts?.sellerListHubQty ?? null;
     const variationQtySum = remoteQtyMatrix?.skus?.reduce((sum, s) => sum + (s.quantity ?? 0), 0) ?? 0;
-    if (sellerListHubQty != null && sellerListHubQty !== variationQtySum) {
-      console.info("[ebay] refreshEbayListingByItemId: seller list vs GetItem mismatch (trusting GetItem per-variation)", {
+    const getItemQtyIsStale = sellerListHubQty != null && 
+      Math.abs(sellerListHubQty - variationQtySum) > 2; // Allow small rounding differences
+    
+    if (getItemQtyIsStale) {
+      console.warn("[ebay] refreshEbayListingByItemId: GetItem qty is STALE - skipping inbound qty sync", {
         storeItemId: storeItem.id,
         legacyItemId,
         sellerListHubQty,
         variationQtySum,
+        difference: sellerListHubQty - variationQtySum,
         variationCount: remoteQtyMatrix?.skus?.length ?? 0,
       });
     }
+    // Flag to skip qty overlay when GetItem is stale
+    const skipQtyBecauseStale = getItemQtyIsStale;
   
   let overlayQtyMatrix = remoteQtyMatrix;
   if (hubRowsLackSkus && mapped && inwMatrix) {
@@ -1283,7 +1310,7 @@ export async function refreshEbayListingByItemId(
       };
     }
   }
-  const overlayQty = shouldOverlayEbayGetItemSkuQuantities({
+  const overlayQty = !skipQtyBecauseStale && shouldOverlayEbayGetItemSkuQuantities({
     skipQuantity: opts?.skipQuantity || skipContent,
     source: opts?.source,
     inwMatrix,

@@ -34,6 +34,7 @@ import {
 import { ImageGalleryViewer } from "@/components/ImageGalleryViewer";
 import { AppImage } from "@/components/AppImage";
 import {
+  browsePriceLabel,
   getAvailableQuantityForSelection,
   getSkuPhotos,
   getSkuPriceCents,
@@ -212,6 +213,13 @@ export default function ProductScreen() {
       ),
     [displayVariants, selectedVariant]
   );
+
+  // Price range for display before variant selection
+  const priceRange = useMemo(
+    () => (item ? browsePriceLabel(item.priceCents, item.variants) : null),
+    [item?.priceCents, item?.variants]
+  );
+  const showPriceRange = displayVariants.length > 0 && !allOptionsSelected && (priceRange?.range ?? false);
 
   const showQuantityStepper =
     displayVariants.length === 0 || hasPerOptionQuantities(displayVariants)
@@ -780,7 +788,11 @@ export default function ProductScreen() {
             ) : null}
           </View>
           <View style={styles.priceRow}>
-            <Text style={styles.price}>{formatPrice(getSkuPriceCents(item, selectedVariant))}</Text>
+            <Text style={styles.price}>
+              {showPriceRange && priceRange
+                ? `${formatPrice(priceRange.minCents)} - ${formatPrice(priceRange.maxCents)}`
+                : formatPrice(allOptionsSelected ? getSkuPriceCents(item, selectedVariant) : (priceRange?.minCents ?? item.priceCents))}
+            </Text>
             {item.acceptOffers && !itemUnavailable && (
               <Pressable
                 style={({ pressed }) => [styles.orBestOfferBtn, pressed && { opacity: 0.8 }]}
