@@ -7,8 +7,10 @@ import {
   ebayCatchupQuantity,
   ebayCatchupShouldWrite,
   ebayCatchupShouldWriteVariantRow,
+  ebayCatchupVariantAddress,
   ebayHubPriceAheadOfOffer,
   ebayHubQtyAheadOfViewItem,
+  selectEbayHubCatchupOptionRows,
   selectEbayHubCatchupVariantRows,
   summarizeEbayQtyPriceSurfaces,
 } from "./qty-price-surfaces";
@@ -131,6 +133,65 @@ describe("eBay qty/price surfaces", () => {
         offerPriceCents: 1200,
       })
     ).toBe(false);
+  });
+
+  it("keeps Hub variation option rows when Custom Label is blank or hyphenated", () => {
+    expect(
+      selectEbayHubCatchupOptionRows([
+        { options: { Color: "Blue", Size: "Small" }, quantity: 5, priceCents: 500 },
+        {
+          sku: "cmt7vumcl000dxjujvgwe8dob-Purple",
+          options: { Color: "Purple", Size: "Large" },
+          quantity: 7,
+        },
+        { sku: "inw407217102811v1", options: { Color: "Red", Size: "Small" }, quantity: 5 },
+      ])
+    ).toEqual([
+      {
+        sku: null,
+        options: { Color: "Blue", Size: "Small" },
+        quantity: 5,
+        priceCents: 500,
+      },
+      {
+        sku: null,
+        options: { Color: "Purple", Size: "Large" },
+        quantity: 7,
+        priceCents: null,
+      },
+      {
+        sku: "inw407217102811v1",
+        options: { Color: "Red", Size: "Small" },
+        quantity: 5,
+        priceCents: null,
+      },
+    ]);
+    expect(
+      ebayCatchupVariantAddress({
+        hubSku: "cmt7vumcl000dxjujvgwe8dob-Purple",
+        livePin: "407217102811abc",
+      })
+    ).toBe("407217102811abc");
+    expect(
+      ebayCatchupVariantAddress({
+        hubSku: "inw407217102811",
+        mappedPin: "407217102811abc",
+      })
+    ).toBe("407217102811abc");
+    expect(
+      ebayCatchupVariantAddress({
+        hubSku: "inw407217102811",
+        livePin: "inw407217102811",
+        parentSku: "inw407217102811",
+      })
+    ).toBeNull();
+    expect(
+      ebayCatchupVariantAddress({
+        hubSku: "inw407217102811",
+        livePin: "inw407217102811v3",
+        parentSku: "inw407217102811",
+      })
+    ).toBe("inw407217102811v3");
   });
 
   it("builds a bulk_update body with Hub quantity and optional price, never omitting offerId", () => {

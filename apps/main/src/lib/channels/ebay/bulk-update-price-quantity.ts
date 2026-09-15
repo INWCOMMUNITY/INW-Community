@@ -5,7 +5,7 @@ import { ebayGet, ebayJson, EbayApiError, ebayGetInventoryItem } from "./client"
 import { EBAY_CURRENCY, EBAY_MARKETPLACE_ID } from "./config";
 import { isEbayOfferLookupMiss } from "./errors";
 import { resolveEbayLivePushSku } from "./inventory-sku";
-import { shouldUseInventoryItemGroup, buildVariantInventoryRows } from "./inventory-groups";
+import { shouldUseInventoryItemGroup, buildVariantInventoryRows, resolveLiveEbayInventoryItemGroup, readInventoryItemGroupVariantSkus, alignVariantRowsToLiveEbayInventory, variationOptionsMatch, type EbayVariantInventoryRow } from "./inventory-groups";
 import { ebayPriceFromCents, resolveEbayLegacyListingId } from "./mapping";
 import { fetchLiveInventoryItem, readLiveInventoryAvailableQuantity, readOfferPriceCents } from "./passthrough-push";
 import {
@@ -22,12 +22,13 @@ import {
   ebayCatchupQuantity,
   ebayCatchupShouldWrite,
   ebayCatchupShouldWriteVariantRow,
-  selectEbayHubCatchupVariantRows,
+  ebayCatchupVariantAddress,
+  selectEbayHubCatchupOptionRows,
   summarizeEbayQtyPriceSurfaces,
   type EbayQtyPriceSurfaces,
 } from "./qty-price-surfaces";
 import { mappedEbayInventorySku, mergeEbaySkuMap, parseEbaySkuMap, persistEbaySkuMap, type EbaySkuMap } from "./sku-map";
-import { isValidEbayInventorySku } from "./migrate-prep";
+import { generateEbayVariationMigrationSku, isValidEbayInventorySku } from "./migrate-prep";
 import { ebaySellerHubListedQuantity } from "./trading";
 
 type OfferRow = {
@@ -219,6 +220,21 @@ export async function pushEbayLivePriceQuantity(args: {
   await persistDiscoveredSkuMap(args.linkId, map, { parent: sku });
 }
 
+async function probeImportedEbayVariationPins(
+  accessToken: string,
+  listingId: string,
+  count: number
+): Promise<string[]> {
+  const n = Math.min(Math.max(count, 0), 50);
+  const out: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const sku = generateEbayVariationMigrationSku(listingId, i);
+    const live = await fetchLiveInventoryItem(accessToken, sku);
+    if (live) out.push(sku);
+  }
+  return out;
+}
+
 async function resolveMappedLiveSku(
   accessToken: string,
   joinKey: string,
@@ -394,67 +410,136 @@ export async function catchupEbayListingQtyPrice(args: {
   skuMap?: unknown;
   linkId?: string;
 }): Promise<{ wrote: boolean; surfaces: EbayQtyPriceSurfaces }> {
-  const surfaces = await collectEbayQtyPriceSurfaces(args);
   const map = parseEbaySkuMap(args.skuMap);
   const discovered: Record<string, string> = {};
+  const trading = normalizeVariantMatrix(args.tradingVariants);
+  const hubOptionRows = selectEbayHubCatchupOptionRows(trading?.skus ?? []);
+  const isVariation =
+    shouldUseInventoryItemGroup(args.item) || hubOptionRows.length > 1;
+  const stubSurfaces = buildEbayQtyPriceSurfaces({
+    hubQuantity: args.hubQuantity,
+    viewItemQuantity: args.viewItemQuantity,
+    offerQuantity: null,
+    warehouseQuantity: null,
+    inwQuantity: args.item.quantity,
+    hubPriceCents: args.hubPriceCents,
+    offerPriceCents: null,
+    inwPriceCents: args.item.priceCents,
+  });
 
-  if (shouldUseInventoryItemGroup(args.item)) {
-    const trading = normalizeVariantMatrix(args.tradingVariants);
-    const hubRows = selectEbayHubCatchupVariantRows(trading?.skus ?? []);
-    const addressed = hubRows;
+  if (isVariation) {
+    // Parent Custom Label is the group key, not an offer. Do not GET /offer?sku=parent
+    // first — that 400 can abort catch-up before any variant bulk_update runs.
+    const parentSku =
+      args.liveCustomLabel?.trim() ||
+      (isValidEbayInventorySku(args.item.sku?.trim() ?? "") ? args.item.sku!.trim() : null);
+    const liveGroup = await resolveLiveEbayInventoryItemGroup(
+      args.accessToken,
+      args.item,
+      parentSku
+    );
+    let liveGroupSkus = readInventoryItemGroupVariantSkus(liveGroup.body);
+    if (liveGroupSkus.length === 0) {
+      const legacy = resolveEbayLegacyListingId(args.externalListingId);
+      if (legacy) {
+        liveGroupSkus = await probeImportedEbayVariationPins(
+          args.accessToken,
+          legacy,
+          hubOptionRows.length
+        );
+      }
+    }
+    const placeholderRows: EbayVariantInventoryRow[] = hubOptionRows.map((row) => ({
+      sku: row.sku ?? "",
+      value: Object.values(row.options)[0] ?? "",
+      quantity: row.quantity,
+      aspectName: Object.keys(row.options)[0] ?? "Option",
+      options: row.options,
+      ...(row.priceCents != null ? { priceCents: row.priceCents } : {}),
+    }));
+    const aligned =
+      liveGroupSkus.length > 0
+        ? await alignVariantRowsToLiveEbayInventory(
+            args.accessToken,
+            placeholderRows,
+            liveGroupSkus
+          )
+        : placeholderRows;
+    const inw = normalizeVariantMatrix(args.item.variants);
     let wrote = false;
-    for (const row of addressed) {
-      let sku: string;
+    let addressed = 0;
+    for (let i = 0; i < hubOptionRows.length; i++) {
+      const hub = hubOptionRows[i]!;
+      const alignedRow = aligned[i];
+      const inwJoin =
+        inw?.skus.find((s) => variationOptionsMatch(s.options, hub.options))?.sku?.trim() ?? null;
+      const sku = ebayCatchupVariantAddress({
+        mappedPin: mappedEbayInventorySku(map, inwJoin ?? hub.sku),
+        livePin: alignedRow?.sku,
+        hubSku: hub.sku,
+        parentSku,
+      });
+      if (!sku) continue;
+      addressed += 1;
+      discovered[inwJoin ?? hub.sku ?? sku] = sku;
       try {
-        sku = await resolveMappedLiveSku(args.accessToken, row.sku, map);
-      } catch {
-        continue;
+        const offer = await findEbayOfferForSku(args.accessToken, sku);
+        if (!offer?.offerId) continue;
+        const liveQty = readEbayOfferAvailableQuantity(offer.availableQuantity);
+        const livePrice = readOfferPriceCents(offer as Record<string, unknown>);
+        const liveItem = await fetchLiveInventoryItem(args.accessToken, sku).catch(() => null);
+        const warehouse = readLiveInventoryAvailableQuantity(liveItem);
+        if (
+          !ebayCatchupShouldWriteVariantRow({
+            hubQuantity: hub.quantity,
+            offerQuantity: liveQty,
+            warehouseQuantity: warehouse,
+            hubPriceCents: hub.priceCents,
+            offerPriceCents: livePrice,
+          })
+        ) {
+          continue;
+        }
+        await ebayBulkUpdatePriceQuantity({
+          accessToken: args.accessToken,
+          sku,
+          offerId: offer.offerId,
+          quantity: hub.quantity,
+          priceCents: hub.priceCents,
+        });
+        await verifyEbayOfferQtyPrice({
+          accessToken: args.accessToken,
+          offerId: offer.offerId,
+          sku,
+          quantity: hub.quantity,
+          priceCents: hub.priceCents,
+        });
+        wrote = true;
+      } catch (e) {
+        console.warn("[ebay] Hub→View Item variation row failed", {
+          storeItemId: args.item.id,
+          sku,
+          error: e instanceof Error ? e.message : String(e),
+        });
       }
-      if (!isValidEbayInventorySku(sku)) continue;
-      discovered[row.sku] = sku;
-      const offer = await findEbayOfferForSku(args.accessToken, sku);
-      if (!offer?.offerId) continue;
-      const liveQty = readEbayOfferAvailableQuantity(offer.availableQuantity);
-      const livePrice = readOfferPriceCents(offer as Record<string, unknown>);
-      const liveItem = await fetchLiveInventoryItem(args.accessToken, sku).catch(() => null);
-      const warehouse = readLiveInventoryAvailableQuantity(liveItem);
-      if (
-        !ebayCatchupShouldWriteVariantRow({
-          hubQuantity: row.quantity,
-          offerQuantity: liveQty,
-          warehouseQuantity: warehouse,
-          hubPriceCents: row.priceCents,
-          offerPriceCents: livePrice,
-        })
-      ) {
-        continue;
-      }
-      await ebayBulkUpdatePriceQuantity({
-        accessToken: args.accessToken,
-        sku,
-        offerId: offer.offerId,
-        quantity: row.quantity,
-        priceCents: row.priceCents,
-      });
-      await verifyEbayOfferQtyPrice({
-        accessToken: args.accessToken,
-        offerId: offer.offerId,
-        sku,
-        quantity: row.quantity,
-        priceCents: row.priceCents,
-      });
-      wrote = true;
     }
-    await persistDiscoveredSkuMap(args.linkId, map, { variations: discovered });
-    if (wrote) {
-      console.info("[ebay] Hub→View Item variation catch-up wrote bulk_update", {
-        storeItemId: args.item.id,
-        listingId: resolveEbayLegacyListingId(args.externalListingId),
-        rows: addressed.length,
-      });
-    }
-    return { wrote, surfaces };
+    await persistDiscoveredSkuMap(args.linkId, map, {
+      parent: parentSku,
+      variations: discovered,
+    });
+    console.info("[ebay] Hub→View Item variation catch-up", {
+      storeItemId: args.item.id,
+      listingId: resolveEbayLegacyListingId(args.externalListingId),
+      hubRows: hubOptionRows.length,
+      liveGroupKey: liveGroup.key,
+      liveGroupSkus: liveGroupSkus.length,
+      addressed,
+      wrote,
+    });
+    return { wrote, surfaces: stubSurfaces };
   }
+
+  const surfaces = await collectEbayQtyPriceSurfaces(args);
 
   if (!ebayCatchupShouldWrite(surfaces)) {
     return { wrote: false, surfaces };

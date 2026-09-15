@@ -294,10 +294,12 @@ GetMyeBaySelling dirty-scan uses listed remaining (`Quantity` − sold), not `Qu
 1. Stopping Inventory writes so Hub can “own” View Item — Hub already updates; View Item stays stale.
 2. Full `PUT inventory_item` as the qty/price tool — restamps warehouse qty. Use `POST /sell/inventory/v1/bulk_update_price_quantity` only. Do not restore `hub-view-item.ts` / `variant-qty-catchup.ts` / `quantity.ts`.
 3. Ack-only `ItemRevised` with no follow-up write — fast ack is required; catch-up must still run delayed **and** be enqueued immediately.
-4. SKU / hyphen Custom Label rewrite as the View Item bug — pin live Inventory SKUs on `ebaySkuMap`; do not push Custom Label on live listings; never address hyphen parents.
+4. SKU / hyphen Custom Label rewrite as the View Item bug — pin live Inventory SKUs on `ebaySkuMap`; do not push Custom Label on live listings; never address hyphen parents **or the group parent** (`inw{legacyId}`) as a variation pin.
 5. Disconnecting Shopify to “fix” Hub≠View Item — Shopify can echo INW; it does not create the two eBay surfaces.
 6. Trading `ReviseInventoryStatus` on Inventory-managed listings — mixing APIs is how the surfaces diverge.
 7. Gating **all** live upserts (title/photos) behind create-only Inventory writes — content PUTs are allowed; they must omit `availableQuantity` / `pricingSummary`. Treat View Item CDN as the diagnosis **only after** Hub = warehouse = offer.
+
+Imported variation listings (Hub Quantity is the **sum**; View Item is **per SKU**): catch-up copies each Hub variation's listed remaining onto the live Inventory pin matched by option **values** (Hub `Primary color` vs Inventory `Color`). Blank/hyphen Custom Labels are not addresses. Group lookup includes the migrate pin `inw{legacyId}`; if the group GET is empty, probe `inw{legacyId}vN`. Never write the listing total onto every variant.
 
 Diagnose: `GET /api/channels/ebay/diagnose?storeItemId=` includes `qtyPriceSurfaces` (Hub listed, warehouse, offer, `viewItemQty = min(warehouse, offer)`, INW, mapped pin, per-SKU rows). If those four numbers already match and `ebay.com/itm` is still old, wait / hard-refresh.
 

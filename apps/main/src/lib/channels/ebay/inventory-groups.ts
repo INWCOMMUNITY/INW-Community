@@ -69,6 +69,13 @@ export function inventoryItemGroupKeysToTry(
   push(item.id);
   push(parentSku);
   push(item.sku);
+  // Imported listings keep the migrate pin `inw{legacyId}` as the group key, not `inw-group-…`.
+  const pushInventoryPin = (raw: string | null | undefined) => {
+    const sku = raw?.trim() ?? "";
+    if (sku && isValidEbayInventorySku(sku) && !keys.includes(sku)) keys.push(sku);
+  };
+  pushInventoryPin(parentSku);
+  pushInventoryPin(item.sku);
   // Leftover Color-only groups were keyed `inw-group-{itemId}-Purple` even after
   // StoreItem.sku was cleaned. Keep looking those up so Size × Color SKUs stay put.
   for (const value of variantOptionValues(item)) {
@@ -364,6 +371,25 @@ function aspectOptionsForRow(
   return out;
 }
 
+/** Hub "Primary color" still matches Inventory "Color" when the option values line up. */
+export function liveInventoryAspectsMatchHubOptions(
+  aspects: Record<string, string[]>,
+  hubOptions: Record<string, string>
+): boolean {
+  const byName = aspectOptionsForRow(aspects, hubOptions);
+  if (variationOptionsMatch(hubOptions, byName)) return true;
+  const liveValues = new Set(
+    Object.values(aspects)
+      .flat()
+      .map((v) => String(v ?? "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const hubValues = Object.values(hubOptions)
+    .map((v) => String(v ?? "").trim().toLowerCase())
+    .filter(Boolean);
+  return hubValues.length > 0 && hubValues.every((value) => liveValues.has(value));
+}
+
 /** Prefer live GetItem Custom Labels over newly generated INW combo SKUs. */
 export function applyLiveEbayVariationSkus(
   rows: EbayVariantInventoryRow[],
@@ -403,15 +429,16 @@ export function applyLiveEbayGroupSkus(
 export function applyLiveInventorySkuByAspects(
   rows: EbayVariantInventoryRow[],
   liveSku: string,
-  aspects: Record<string, string[]>
+  aspects: Record<string, string[]>,
+  reservedSkus?: Set<string>
 ): EbayVariantInventoryRow[] {
   const sku = ebayInventorySkuCandidate(liveSku);
   if (!sku) return rows;
   let assigned = false;
   return rows.map((row) => {
     if (assigned || row.sku === sku) return row;
-    const liveOptions = aspectOptionsForRow(aspects, row.options);
-    if (!variationOptionsMatch(row.options, liveOptions)) return row;
+    if (reservedSkus?.has(row.sku)) return row;
+    if (!liveInventoryAspectsMatchHubOptions(aspects, row.options)) return row;
     assigned = true;
     return { ...row, sku };
   });
@@ -424,8 +451,10 @@ export async function alignVariantRowsToLiveEbayInventory(
 ): Promise<EbayVariantInventoryRow[]> {
   let next = applyLiveEbayGroupSkus(rows, liveGroupSkus);
   if (liveGroupSkus.length === 0) return next;
-  const matched = new Set(next.filter((row) => liveGroupSkus.includes(row.sku)).map((row) => row.sku));
-  const unmatchedLive = liveGroupSkus.filter((sku) => !matched.has(sku));
+  const reserved = new Set(
+    next.filter((row) => liveGroupSkus.includes(row.sku)).map((row) => row.sku)
+  );
+  const unmatchedLive = liveGroupSkus.filter((sku) => !reserved.has(sku));
   for (const liveSku of unmatchedLive) {
     try {
       const inventory = await ebayGet<Record<string, unknown>>(
@@ -434,7 +463,8 @@ export async function alignVariantRowsToLiveEbayInventory(
       );
       const aspects = extractEbayInventoryAspects(inventory);
       if (!aspects) continue;
-      next = applyLiveInventorySkuByAspects(next, liveSku, aspects);
+      next = applyLiveInventorySkuByAspects(next, liveSku, aspects, reserved);
+      if (next.some((row) => row.sku === liveSku)) reserved.add(liveSku);
     } catch {
       /* live SKU may be unpublished */
     }

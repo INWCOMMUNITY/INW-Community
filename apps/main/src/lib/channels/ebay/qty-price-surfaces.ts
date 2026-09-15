@@ -117,6 +117,37 @@ export type EbayCatchupVariantRow = {
   priceCents: number | null;
 };
 
+export type EbayCatchupOptionRow = {
+  sku: string | null;
+  quantity: number;
+  priceCents: number | null;
+  options: Record<string, string>;
+};
+
+/** Hub GetItem variation rows with options — SKU optional. Hyphen parents are not addresses. */
+export function selectEbayHubCatchupOptionRows(
+  rows: {
+    sku?: string | null;
+    quantity: number;
+    priceCents?: number | null;
+    options?: Record<string, string>;
+  }[]
+): EbayCatchupOptionRow[] {
+  const out: EbayCatchupOptionRow[] = [];
+  for (const row of rows) {
+    const options = row.options ?? {};
+    if (Object.keys(options).length === 0) continue;
+    const sku = row.sku?.trim() || null;
+    out.push({
+      sku: sku && /^[a-zA-Z0-9]{1,50}$/.test(sku) ? sku : null,
+      quantity: Math.max(0, Math.round(row.quantity)),
+      priceCents: row.priceCents != null && row.priceCents > 0 ? Math.round(row.priceCents) : null,
+      options,
+    });
+  }
+  return out;
+}
+
 /** Hub GetItem variation rows only — never INW fallback, hyphen parent, or blank Custom Label. */
 export function selectEbayHubCatchupVariantRows(
   rows: { sku?: string | null; quantity: number; priceCents?: number | null }[]
@@ -132,6 +163,23 @@ export function selectEbayHubCatchupVariantRows(
     });
   }
   return out;
+}
+
+/** Prefer a mapped/live Inventory pin; never a hyphen Custom Label or group parent. */
+export function ebayCatchupVariantAddress(args: {
+  hubSku?: string | null;
+  mappedPin?: string | null;
+  livePin?: string | null;
+  parentSku?: string | null;
+}): string | null {
+  const parent = args.parentSku?.trim() ?? "";
+  for (const raw of [args.mappedPin, args.livePin, args.hubSku]) {
+    const sku = raw?.trim() ?? "";
+    if (!sku || !/^[a-zA-Z0-9]{1,50}$/.test(sku)) continue;
+    if (parent && sku === parent) continue;
+    return sku;
+  }
+  return null;
 }
 
 export function ebayCatchupShouldWriteVariantRow(args: {

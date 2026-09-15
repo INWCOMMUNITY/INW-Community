@@ -7,6 +7,8 @@ import {
   buildVariantInventorySkus,
   buildVariantSyncItem,
   inventoryItemGroupKeysToTry,
+  applyLiveInventorySkuByAspects,
+  liveInventoryAspectsMatchHubOptions,
   liveEbayVariantSkusForGroupPut,
   mergeGeneratedSkusIntoVariants,
   pickLiveEbayInventoryItemGroup,
@@ -92,6 +94,19 @@ describe("inventory item groups", () => {
         "cmt7vumcl000dxjujvgwe8dob"
       )
     ).toContain("inw-group-cmt7vumcl000dxjujvgwe8dob-Purple");
+  });
+
+  it("looks up the imported inw{legacyId} pin as an inventory item group key", () => {
+    expect(
+      inventoryItemGroupKeysToTry(
+        {
+          ...variantItem,
+          id: "cmt8zc266000dw2tzrmx9rie1",
+          sku: null,
+        },
+        "inw407217102811"
+      )
+    ).toContain("inw407217102811");
   });
 
   it("prefers the inventory group that already has variant SKUs", () => {
@@ -433,5 +448,41 @@ describe("inventory item groups", () => {
       ["A", "B"]
     );
     expect(body.imageUrls).toEqual(["https://blob.vercel-storage.com/clock.jpg"]);
+  });
+
+  it("pins a live variation SKU when Hub says Primary color and Inventory says Color", () => {
+    expect(
+      liveInventoryAspectsMatchHubOptions(
+        { Color: ["Blue"], Size: ["Small"], Brand: ["Accent"] },
+        { "Primary color": "Blue", Size: "Small" }
+      )
+    ).toBe(true);
+    expect(
+      liveInventoryAspectsMatchHubOptions(
+        { Color: ["Blue"], Size: ["Medium"], Brand: ["Accent"] },
+        { "Primary color": "Blue", Size: "Small" }
+      )
+    ).toBe(false);
+    const rows = applyLiveInventorySkuByAspects(
+      [
+        {
+          sku: "inw407217102811",
+          value: "Blue",
+          quantity: 5,
+          aspectName: "Primary color",
+          options: { "Primary color": "Blue", Size: "Small" },
+        },
+        {
+          sku: "",
+          value: "Red",
+          quantity: 5,
+          aspectName: "Primary color",
+          options: { "Primary color": "Red", Size: "Small" },
+        },
+      ],
+      "inw407217102811v3",
+      { Color: ["Blue"], Size: ["Small"], Brand: ["Accent"] }
+    );
+    expect(rows.map((row) => row.sku)).toEqual(["inw407217102811v3", ""]);
   });
 });
