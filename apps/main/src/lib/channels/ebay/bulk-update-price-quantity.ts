@@ -235,6 +235,47 @@ async function probeImportedEbayVariationPins(
   return out;
 }
 
+/**
+ * Last-resort: paginate all offers and find the ones whose listing.listingId matches.
+ * This handles listings migrated outside INW (seller migrated on eBay before connecting).
+ */
+async function findOfferSkusByListingId(
+  accessToken: string,
+  legacyListingId: string
+): Promise<string[]> {
+  const wantId = legacyListingId.trim();
+  if (!wantId || !/^\d+$/.test(wantId)) return [];
+  const found: string[] = [];
+  let offset = 0;
+  const limit = 200;
+  for (let page = 0; page < 15 && found.length < 50; page++) {
+    try {
+      const res = await ebayGet<{ offers?: Array<{ sku?: string; listing?: { listingId?: string } }> }>(
+        accessToken,
+        `/sell/inventory/v1/offer?limit=${limit}&offset=${offset}&marketplace_id=${EBAY_MARKETPLACE_ID}`
+      );
+      const offers = res.offers ?? [];
+      for (const offer of offers) {
+        const listingId = String(offer.listing?.listingId ?? "").trim();
+        const sku = offer.sku?.trim();
+        if (listingId === wantId && sku && isValidEbayInventorySku(sku) && !found.includes(sku)) {
+          found.push(sku);
+        }
+      }
+      if (offers.length < limit) break;
+      offset += offers.length;
+    } catch (e) {
+      console.warn("[ebay] findOfferSkusByListingId pagination failed", {
+        legacyListingId,
+        offset,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      break;
+    }
+  }
+  return found;
+}
+
 async function resolveMappedLiveSku(
   accessToken: string,
   joinKey: string,
@@ -439,15 +480,19 @@ export async function catchupEbayListingQtyPrice(args: {
       parentSku
     );
     let liveGroupSkus = readInventoryItemGroupVariantSkus(liveGroup.body);
-    if (liveGroupSkus.length === 0) {
-      const legacy = resolveEbayLegacyListingId(args.externalListingId);
-      if (legacy) {
-        liveGroupSkus = await probeImportedEbayVariationPins(
-          args.accessToken,
-          legacy,
-          hubOptionRows.length
-        );
-      }
+    const legacy = resolveEbayLegacyListingId(args.externalListingId);
+    if (liveGroupSkus.length === 0 && legacy) {
+      // Try inw{legacyId}vN pattern (INW-migrated listings)
+      liveGroupSkus = await probeImportedEbayVariationPins(
+        args.accessToken,
+        legacy,
+        hubOptionRows.length
+      );
+    }
+    if (liveGroupSkus.length === 0 && legacy) {
+      // Last resort: paginate all offers and find ones for this listing ID
+      // (handles seller-migrated listings with arbitrary SKUs)
+      liveGroupSkus = await findOfferSkusByListingId(args.accessToken, legacy);
     }
     const placeholderRows: EbayVariantInventoryRow[] = hubOptionRows.map((row) => ({
       sku: row.sku ?? "",
@@ -527,14 +572,25 @@ export async function catchupEbayListingQtyPrice(args: {
       parent: parentSku,
       variations: discovered,
     });
+    if (liveGroupSkus.length === 0) {
+      console.warn("[ebay] Hub→View Item variation catch-up: no live SKUs found", {
+        storeItemId: args.item.id,
+        listingId: resolveEbayLegacyListingId(args.externalListingId),
+        hubRows: hubOptionRows.length,
+        liveGroupKey: liveGroup.key,
+        parentSku,
+      });
+    }
     console.info("[ebay] Hub→View Item variation catch-up", {
       storeItemId: args.item.id,
       listingId: resolveEbayLegacyListingId(args.externalListingId),
       hubRows: hubOptionRows.length,
       liveGroupKey: liveGroup.key,
       liveGroupSkus: liveGroupSkus.length,
+      liveGroupSkuSample: liveGroupSkus.slice(0, 5),
       addressed,
       wrote,
+      discoveredSkus: Object.keys(discovered).length,
     });
     return { wrote, surfaces: stubSurfaces };
   }
