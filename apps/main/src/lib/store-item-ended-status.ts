@@ -1,104 +1,59 @@
-import { channelLinkShowsOnItem } from "@/lib/channels/listing-sync-warning";
+/**
+ * Store item ended status utilities.
+ * Channel sync functionality has been removed; these functions now return
+ * false/empty as placeholders.
+ */
 
-/** Ended INW listings are removed from our records after this window. Third-party shops are not touched. */
+/** 14 days retention period before ended listings are purged. */
 export const ENDED_LISTING_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
-type ChannelLinkLike = {
-  provider: string;
-  externalListingId?: string | null;
-  remoteDeletedProvider?: string | null;
-  connectionStatus?: string | null;
-  ebayListingEnded?: boolean;
-  remoteCatalogState?: string | null;
-};
-
-function isLiveChannelLink(link: ChannelLinkLike): boolean {
-  return channelLinkShowsOnItem(link);
-}
-
 export function hasLinkedChannelListings(
-  items: { channelLinks?: ChannelLinkLike[] }[]
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _items: unknown[]
 ): boolean {
-  return items.some((item) => (item.channelLinks ?? []).some(isLiveChannelLink));
+  // No channel links anymore
+  return false;
 }
 
-export function uniqueLinkedShopNames(
-  items: { channelLinks?: ChannelLinkLike[] }[],
-  labels: Record<string, string>
-): string[] {
-  const names: string[] = [];
-  const seen = new Set<string>();
-  for (const item of items) {
-    for (const link of item.channelLinks ?? []) {
-      if (!isLiveChannelLink(link)) continue;
-      const name = labels[link.provider] ?? link.provider;
-      if (seen.has(name)) continue;
-      seen.add(name);
-      names.push(name);
-    }
-  }
-  return names;
+export function computeEffectiveEndedForBulk(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _items: unknown[],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _value: boolean
+): Map<string, boolean> {
+  // No channel links anymore - return empty map
+  return new Map();
 }
 
-export function formatShopList(names: string[]): string {
-  if (names.length === 0) return "";
-  if (names.length === 1) return names[0];
-  if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+/**
+ * Returns the Prisma update data to mark a listing as inactive.
+ * Used when bulk-ending listings.
+ */
+export function inactiveStoreItemData(): { status: "inactive"; endedAt: Date } {
+  return { status: "inactive", endedAt: new Date() };
 }
 
-export function endOnInwConfirm(count: number, shopNames: string[]): string {
-  const endWhat = count === 1 ? "this listing" : "these listings";
-  const leave = count === 1 ? "It leaves" : "They leave";
-  if (shopNames.length === 0) {
-    return `End ${endWhat} on INW? ${leave} our storefront. Ended INW listings are removed after 14 days.`;
-  }
-  const shops = formatShopList(shopNames);
-  const stay = shopNames.length === 1 ? "stays" : "stay";
-  const there = shopNames.length === 1 ? "it" : "them";
-  return (
-    `This will NOT end ${endWhat} on ${shops}.\n\n` +
-    `End on INW only? ${leave} our storefront. ${shops} ${stay} live until you end ${there} there. Ended INW listings are removed after 14 days.`
-  );
-}
-
-export function endOnInwResult(
-  updated: number,
-  failed: number,
-  shopNames: string[]
-): { title: string; message: string; ok: boolean } {
-  if (failed > 0) {
-    return {
-      title: "Couldn't End Every Listing",
-      message: `Ended ${updated}. ${failed} didn't go through.`,
-      ok: false,
-    };
-  }
-  const ended = `Ended ${updated} listing${updated === 1 ? "" : "s"} on INW. Relist anytime — we drop the INW record after 14 days.`;
-  if (shopNames.length === 0) {
-    return { title: "Off INW", message: ended, ok: true };
-  }
-  const shops = formatShopList(shopNames);
-  return {
-    title: "Off INW Only",
-    message: `${ended}\n\nThis did not take it down on ${shops}. End it there separately if you want it gone.`,
-    ok: true,
-  };
-}
-
-export function inactiveStoreItemData(now = new Date()): { status: "inactive"; endedAt: Date } {
-  return { status: "inactive", endedAt: now };
-}
-
-/** Status write that starts or clears the 14-day ended clock. */
+/**
+ * Build the Prisma update data for changing listing status.
+ * Sets endedAt when ending a listing, clears it when relisting.
+ */
 export function storeItemStatusWrite(
-  nextStatus: string,
-  previousStatus?: string | null,
-  now = new Date()
+  nextStatus: "active" | "inactive" | "sold_out" | "draft",
+  currentStatus: string = "active",
+  now?: Date
 ): { status: string; endedAt?: Date | null } {
-  if (nextStatus === "inactive") {
-    if (previousStatus === "inactive") return { status: nextStatus };
-    return { status: nextStatus, endedAt: now };
+  // Handle sold_out and draft as status-only changes (not ending)
+  if (nextStatus === "sold_out" || nextStatus === "draft") {
+    return { status: nextStatus };
   }
-  return { status: nextStatus, endedAt: null };
+  if (nextStatus === "inactive" && currentStatus !== "inactive") {
+    // Ending the listing — stamp the timer
+    return { status: "inactive", endedAt: now ?? new Date() };
+  }
+  if (nextStatus === "active" && currentStatus === "inactive") {
+    // Relisting — clear the timer
+    return { status: "active", endedAt: null };
+  }
+  // No change to timer
+  return { status: nextStatus };
 }

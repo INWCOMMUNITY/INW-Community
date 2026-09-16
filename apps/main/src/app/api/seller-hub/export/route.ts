@@ -4,7 +4,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 
 export const dynamic = "force-dynamic";
 
-type ExportType = "listings" | "orders" | "activity" | "sync-log";
+type ExportType = "listings" | "orders" | "activity";
 type ExportFormat = "csv";
 
 function escapeCSV(value: unknown): string {
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
   const type = (searchParams.get("type") ?? "listings") as ExportType;
   const format = (searchParams.get("format") ?? "csv") as ExportFormat;
 
-  if (!["listings", "orders", "activity", "sync-log"].includes(type)) {
+  if (!["listings", "orders", "activity"].includes(type)) {
     return NextResponse.json({ error: "Invalid export type" }, { status: 400 });
   }
 
@@ -61,9 +61,6 @@ export async function GET(req: NextRequest) {
       const items = await prisma.storeItem.findMany({
         where: { memberId },
         include: {
-          channelLinks: {
-            select: { provider: true, externalListingId: true, syncStatus: true },
-          },
           business: { select: { name: true } },
         },
         orderBy: { createdAt: "desc" },
@@ -79,16 +76,11 @@ export async function GET(req: NextRequest) {
         "Category",
         "Subcategory",
         "Storefront",
-        "eBay Link",
-        "Etsy Link",
-        "Shopify Link",
-        "Wix Link",
         "Created",
         "Updated",
       ];
 
       const rows = items.map((item) => {
-        const links = new Map(item.channelLinks.map((l: { provider: string; externalListingId: string }) => [l.provider, l.externalListingId]));
         return [
           item.id,
           item.title,
@@ -99,10 +91,6 @@ export async function GET(req: NextRequest) {
           item.category ?? "",
           item.subcategory ?? "",
           item.business?.name ?? "",
-          links.get("ebay") ?? "",
-          links.get("etsy") ?? "",
-          links.get("shopify") ?? "",
-          links.get("wix") ?? "",
           formatDate(item.createdAt),
           formatDate(item.updatedAt),
         ];
@@ -218,37 +206,6 @@ export async function GET(req: NextRequest) {
       break;
     }
 
-    case "sync-log": {
-      const logs = await prisma.channelSyncLog.findMany({
-        where: { memberId },
-        orderBy: { createdAt: "desc" },
-        take: 1000,
-      });
-
-      const headers = [
-        "Date",
-        "Provider",
-        "Action",
-        "Store Item ID",
-        "Detail",
-      ];
-
-      const rows = logs.map((log) => [
-        formatDateTime(log.createdAt),
-        log.provider,
-        log.action,
-        log.storeItemId ?? "",
-        log.detail ?? "",
-      ]);
-
-      csvContent = [
-        headers.map(escapeCSV).join(","),
-        ...rows.map((row) => row.map(escapeCSV).join(",")),
-      ].join("\n");
-
-      filename = `sync-log-${formatDate(new Date())}.csv`;
-      break;
-    }
   }
 
   // Return CSV as downloadable file

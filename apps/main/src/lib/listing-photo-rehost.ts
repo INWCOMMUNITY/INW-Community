@@ -1,6 +1,27 @@
 import { put } from "@vercel/blob";
 import { fetchListingPhotoSource, optimizeListingPhoto } from "@/lib/listing-photo-optimize";
-import { isInwHostedPhotoUrl, isMarketplaceCdnPhotoUrl } from "@/lib/channels/photo-urls";
+
+const INW_BLOB_PATTERNS = [
+  /vercel-storage\.com/i,
+  /blob\.vercel-storage\.com/i,
+  /public\.blob\.vercel-storage\.com/i,
+];
+
+/** Check if a URL is hosted on INW (Vercel Blob). */
+function isInwHostedPhotoUrl(url: string): boolean {
+  return INW_BLOB_PATTERNS.some((pattern) => pattern.test(url));
+}
+
+/** Check if a URL is from a known marketplace CDN. */
+function isMarketplaceCdnPhotoUrl(url: string): boolean {
+  const patterns = [
+    /i\.etsystatic\.com/i,
+    /i\.ebayimg\.com/i,
+    /cdn\.shopify\.com/i,
+    /static\.wixstatic\.com/i,
+  ];
+  return patterns.some((pattern) => pattern.test(url));
+}
 
 /** Copy marketplace CDNs onto INW Blob once — never when the listing already has INW files. */
 export function shouldCopyMarketplacePhotosToInw(photos: string[]): boolean {
@@ -32,7 +53,7 @@ async function copyMarketplacePhotoToInw(sourceUrl: string, index: number): Prom
 }
 
 /**
- * One-time copy of Shopify/eBay/Etsy/Wix CDN photos onto INW-hosted files.
+ * One-time copy of external CDN photos onto INW-hosted files.
  * Leaves URLs unchanged when INW blobs already exist or Blob is not configured.
  */
 export async function ensureInwHostedListingPhotos(photos: string[]): Promise<string[]> {

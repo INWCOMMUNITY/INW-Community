@@ -117,47 +117,11 @@ export async function GET(req: NextRequest) {
     external: events.filter((e) => e.eventType === "listing_view" && e.source === "external").length,
   };
 
-  // Provider breakdown (revenue by channel)
-  // INW direct orders are "inwc"
+  // Revenue breakdown - INW direct orders
   const ordersByChannel: Record<string, number> = {};
   const inwcRevenue = orders.reduce((sum, o) => sum + o.totalCents, 0);
   if (inwcRevenue > 0) {
     ordersByChannel["inwc"] = inwcRevenue;
-  }
-
-  // External channel sales from ChannelSyncEvent (quantity sold, estimated revenue from StoreItem price)
-  const channelSales = await prisma.channelSyncEvent.findMany({
-    where: {
-      type: "sale",
-      storeItemId: { not: null },
-      processedAt: { gte: periodStart },
-    },
-    select: {
-      provider: true,
-      storeItemId: true,
-      payload: true,
-    },
-  });
-
-  // Filter to this seller's items and estimate revenue
-  const sellerItemIds = new Set(storeItemIds);
-  const sellerItems = await prisma.storeItem.findMany({
-    where: { memberId },
-    select: { id: true, priceCents: true },
-  });
-  const itemPriceMap = new Map(sellerItems.map((i) => [i.id, i.priceCents]));
-  
-  for (const sale of channelSales) {
-    if (!sale.storeItemId) continue;
-    const price = itemPriceMap.get(sale.storeItemId);
-    if (price === undefined) continue; // Not this seller's item
-    
-    // Extract quantity from payload if available, default to 1
-    const payload = sale.payload as { quantitySold?: number } | null;
-    const qty = payload?.quantitySold ?? 1;
-    const estimatedRevenue = price * qty;
-    
-    ordersByChannel[sale.provider] = (ordersByChannel[sale.provider] ?? 0) + estimatedRevenue;
   }
 
   // Conversion rates

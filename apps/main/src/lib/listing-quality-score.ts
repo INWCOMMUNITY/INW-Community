@@ -3,8 +3,6 @@
  * Analyzes listings and provides quality scores with actionable improvement tips.
  */
 
-import type { ChannelProvider } from "./channels/types";
-import { validateForProviders } from "./channels/validate-publish";
 import { normalizeVariantMatrix, pickImageVaryingAxisName } from "./listing-variant-matrix";
 
 export interface ScoreBreakdown {
@@ -23,11 +21,6 @@ export interface PhotoAnalysisResult {
   quality: "good" | "acceptable" | "poor";
 }
 
-export interface ChannelReadiness {
-  ready: boolean;
-  issues: string[];
-}
-
 export interface QualityScore {
   overall: number;
   grade: "A" | "B" | "C" | "D" | "F";
@@ -38,7 +31,6 @@ export interface QualityScore {
     pricing: ScoreBreakdown;
     completeness: ScoreBreakdown;
   };
-  channelReadiness: Record<ChannelProvider, ChannelReadiness>;
   photoAnalysis?: PhotoAnalysisResult[];
 }
 
@@ -58,10 +50,6 @@ export interface ListingData {
   variants?: unknown;
   inventoryTracking?: string | null;
   aspects?: unknown;
-  etsyWhoMade?: string | null;
-  etsyWhenMade?: string | null;
-  etsyIsSupply?: boolean | null;
-  ebayCategoryId?: number | null;
 }
 
 function getGrade(score: number): "A" | "B" | "C" | "D" | "F" {
@@ -414,8 +402,6 @@ export async function calculateQualityScore(
   listing: ListingData,
   options?: {
     photoAnalysis?: PhotoAnalysisResult[];
-    checkChannelReadiness?: boolean;
-    memberConnections?: Array<{ provider: string; status: string; etsyShippingProfileId?: string | null; config?: unknown }>;
   }
 ): Promise<QualityScore> {
   const titleScore = scoreTitle(listing.title);
@@ -431,50 +417,6 @@ export async function calculateQualityScore(
     pricingScore.score +
     completenessScore.score;
 
-  // Channel readiness
-  let channelReadiness: Record<ChannelProvider, ChannelReadiness> = {
-    ebay: { ready: false, issues: ["Not checked"] },
-    etsy: { ready: false, issues: ["Not checked"] },
-    shopify: { ready: false, issues: ["Not checked"] },
-    wix: { ready: false, issues: ["Not checked"] },
-  };
-
-  if (options?.checkChannelReadiness) {
-    const providers: ChannelProvider[] = ["ebay", "etsy", "shopify", "wix"];
-    const connections = (options?.memberConnections ?? []).map((c) => ({
-      provider: c.provider,
-      status: c.status,
-      etsyShippingProfileId: c.etsyShippingProfileId ?? null,
-      config: c.config ?? null,
-    }));
-    const validationResults = await validateForProviders(
-      {
-        title: listing.title ?? "",
-        description: listing.description ?? "",
-        photos: listing.photos ?? [],
-        priceCents: listing.priceCents ?? 0,
-        quantity: listing.quantity ?? 0,
-        category: listing.category ?? undefined,
-        condition: listing.condition ?? "new",
-        etsyWhoMade: listing.etsyWhoMade ?? undefined,
-        etsyWhenMade: listing.etsyWhenMade ?? undefined,
-        etsyIsSupply: listing.etsyIsSupply ?? undefined,
-        ebayCategoryId: listing.ebayCategoryId ?? undefined,
-        aspects: listing.aspects as Record<string, string> | undefined,
-      },
-      providers,
-      connections
-    );
-
-    for (const provider of providers) {
-      const result = validationResults.byProvider[provider];
-      channelReadiness[provider] = {
-        ready: result.valid,
-        issues: [...result.errors.map((e) => e.message), ...result.warnings.map((w) => w.message)],
-      };
-    }
-  }
-
   return {
     overall,
     grade: getGrade(overall),
@@ -485,7 +427,6 @@ export async function calculateQualityScore(
       pricing: pricingScore,
       completeness: completenessScore,
     },
-    channelReadiness,
     photoAnalysis: options?.photoAnalysis,
   };
 }
@@ -494,9 +435,6 @@ export async function calculateQualityScore(
  * Get a quick summary of quality issues for display.
  */
 export function getQualityIssueSummary(score: QualityScore): string[] {
-  const issues: string[] = [];
-
-  // Get top 3 most impactful tips
   const allTips = [
     ...score.breakdown.photos.tips,
     ...score.breakdown.title.tips,

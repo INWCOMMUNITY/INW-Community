@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { prisma } from "database";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
-import { listingDescriptionPreview } from "@/lib/channels/rich-description";
+import { listingDescriptionPreview } from "@/lib/listing-description-preview";
 import { includeUnavailableVisibleToViewer, withPublicStockWhere } from "@/lib/store-item-public-access";
 
 const storeItemPublicSelect = {

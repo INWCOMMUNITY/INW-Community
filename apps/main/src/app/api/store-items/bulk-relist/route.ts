@@ -9,14 +9,13 @@ export const dynamic = "force-dynamic";
 const bodySchema = z.object({
   storeItemIds: z.array(z.string()).min(1, "Select at least one item to relist."),
   quantity: z.number().int().positive().optional(),
-  republishChannels: z.boolean().optional().default(false),
 });
 
 /**
  * POST /api/store-items/bulk-relist
  *
  * Relist sold-out or ended items (set status back to "active").
- * Optionally set a new quantity and republish to connected channels.
+ * Optionally set a new quantity.
  */
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -33,7 +32,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: String(msg) }, { status: 400 });
   }
 
-  const { storeItemIds, quantity, republishChannels } = body;
+  const { storeItemIds, quantity } = body;
 
   // Get items owned by this user that are in a relistable state
   const items = await prisma.storeItem.findMany({
@@ -88,61 +87,11 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // Republish to channels if requested
-  const channelResults: { itemId: string; provider: string; ok: boolean; error?: string }[] = [];
-  if (republishChannels) {
-    const { publishStoreItemToChannels } = await import("@/lib/channels/outbound");
-
-    const links = await prisma.channelListingLink.findMany({
-      where: {
-        storeItemId: { in: itemIds },
-        syncEnabled: true,
-      },
-      select: {
-        storeItemId: true,
-        provider: true,
-      },
-    });
-
-    const providersByItem = new Map<string, ("ebay" | "etsy" | "shopify" | "wix")[]>();
-    for (const link of links) {
-      const list = providersByItem.get(link.storeItemId) ?? [];
-      list.push(link.provider as "ebay" | "etsy" | "shopify" | "wix");
-      providersByItem.set(link.storeItemId, list);
-    }
-
-    for (const [itemId, itemProviders] of providersByItem) {
-      try {
-        const syncResults = await publishStoreItemToChannels(itemId, userId, {
-          providers: itemProviders,
-        });
-        for (const sr of syncResults) {
-          channelResults.push({
-            itemId,
-            provider: sr.provider,
-            ok: sr.ok,
-            error: sr.error,
-          });
-        }
-      } catch (e) {
-        for (const provider of itemProviders) {
-          channelResults.push({
-            itemId,
-            provider,
-            ok: false,
-            error: e instanceof Error ? e.message : String(e),
-          });
-        }
-      }
-    }
-  }
-
   // Log activity
   await logSellerActivity(userId, "bulk_relist", "store_item", null, {
     itemIds,
     itemCount: items.length,
     newQuantity,
-    republishChannels,
   });
 
   return NextResponse.json({
@@ -150,6 +99,5 @@ export async function POST(req: NextRequest) {
     relisted: items.length,
     notEligible: storeItemIds.length - items.length,
     snapshotId: snapshot.id,
-    channelSync: channelResults.length > 0 ? channelResults : undefined,
   });
 }

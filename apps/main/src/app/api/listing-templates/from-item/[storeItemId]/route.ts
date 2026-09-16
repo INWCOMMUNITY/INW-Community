@@ -54,11 +54,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
         shippingDisabled: true,
         localDeliveryAvailable: true,
         inStorePickupAvailable: true,
-        etsyWhoMade: true,
-        etsyWhenMade: true,
-        etsyIsSupply: true,
-        ebayCategoryId: true,
-        aspects: true,
         variants: true,
       },
     });
@@ -117,13 +112,6 @@ export async function POST(req: NextRequest, context: RouteContext) {
         shippingDisabled: storeItem.shippingDisabled,
         localDeliveryAvailable: storeItem.localDeliveryAvailable,
         inStorePickupAvailable: storeItem.inStorePickupAvailable,
-        etsyWhoMade: storeItem.etsyWhoMade,
-        etsyWhenMade: storeItem.etsyWhenMade,
-        etsyIsSupply: storeItem.etsyIsSupply,
-        ebayCategoryId: storeItem.ebayCategoryId,
-        ebayAspects: storeItem.aspects
-          ? (storeItem.aspects as object)
-          : Prisma.JsonNull,
         variantsTemplate: variantsTemplate ?? Prisma.JsonNull,
       },
     });

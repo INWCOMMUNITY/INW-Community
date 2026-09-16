@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { BackToProfileLink } from "@/components/BackToProfileLink";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
-import { listingDescriptionPreview } from "@/lib/channels/rich-description";
+import { listingDescriptionPreview } from "@/lib/listing-description-preview";
 import { buildProductHref } from "@/lib/product-referrer";
 import { buildBusinessHref } from "@/lib/business-referrer";
 

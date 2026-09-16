@@ -6,7 +6,7 @@ import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { extractBusinessDisplayCity } from "@/lib/city-utils";
 import { photosExcludingLogo } from "@/lib/business-photos";
 import { listingDisplayPhotos } from "@/lib/listing-display-photo";
-import { listingDescriptionPreview } from "@/lib/channels/rich-description";
+import { listingDescriptionPreview } from "@/lib/listing-description-preview";
 import { withPublicStockWhere } from "@/lib/store-item-public-access";
 import {
   SellerStorefrontContent,

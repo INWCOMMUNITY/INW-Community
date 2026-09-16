@@ -2,21 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { hasOptionQuantities, sumOptionQuantities, usesPerOptionInventorySync } from "@/lib/store-item-variants";
+import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-rules";
-import {
-  publishStoreItemToChannels,
-  resolvePublishProviders,
-  shouldPublishToChannels,
-} from "@/lib/channels/outbound";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const bodySchema = z.object({
   quantity: z.number().int().min(1).max(9999).optional(),
-  syncToChannels: z.boolean().optional(),
-  channelProviders: z.array(z.enum(["etsy", "ebay", "shopify", "wix"])).optional(),
 });
 
 /** Restore per-option rows to qty 1 each when a sold listing is reactivated. */
@@ -33,7 +26,7 @@ function variantsForRelist(variants: unknown, perOptionQty: number): unknown {
 }
 
 /**
- * POST: reactivate a sold_out StoreItem on INW (default qty 1) and optionally publish to channels.
+ * POST: reactivate a sold_out StoreItem on INW (default qty 1).
  */
 export async function POST(
   req: NextRequest,
@@ -105,33 +98,5 @@ export async function POST(
     data: update as object,
   });
 
-  let channelSync: { provider: string; ok: boolean; error?: string }[] = [];
-  try {
-    const publishArgs = {
-      syncToChannels: body.syncToChannels,
-      channelProviders: body.channelProviders,
-    };
-    if (shouldPublishToChannels(publishArgs)) {
-      const providers = resolvePublishProviders(publishArgs);
-      if (providers !== undefined) {
-        channelSync = await publishStoreItemToChannels(item.id, item.memberId, { providers });
-      }
-    } else {
-      const linkCount = await prisma.channelListingLink.count({ where: { storeItemId: itemId } });
-      if (linkCount > 0) {
-        const { updateStoreItemOnChannels } = await import("@/lib/channels/outbound");
-        const { syncInventoryToChannels } = await import("@/lib/channels/sync-inventory");
-        const { mergeChannelSyncResults } = await import("@/lib/channels/channel-sync-merge");
-        const contentResults = await updateStoreItemOnChannels(itemId);
-        const inventoryResults = usesPerOptionInventorySync(item.variants)
-          ? []
-          : await syncInventoryToChannels(itemId);
-        channelSync = mergeChannelSyncResults(contentResults, inventoryResults);
-      }
-    }
-  } catch (err) {
-    console.error("[store-items] relist channel sync failed:", err);
-  }
-
-  return NextResponse.json({ ...item, channelSync });
+  return NextResponse.json({ ...item });
 }

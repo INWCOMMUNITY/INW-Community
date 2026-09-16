@@ -3,7 +3,6 @@ import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
-import { getCircuitStatus } from "@/lib/channels/circuit-breaker";
 import { whereNoCurrentOutboundShipment } from "@/lib/store-order-shipments";
 import { ACTIVE_STORE_RETURN_STATUSES } from "@/lib/store-return";
 
@@ -26,7 +25,6 @@ const emptyResponse = {
     soldCount: 0,
     payoutSetupComplete: false,
   },
-  syncHealth: null,
   funds: {
     balanceCents: 0,
     totalEarnedCents: 0,
@@ -100,61 +98,6 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    // Sync health inline computation
-    const connections = await prisma.channelConnection.findMany({
-      where: { memberId: userId, status: { not: "disconnected" } },
-      select: {
-        id: true,
-        provider: true,
-        status: true,
-        _count: { select: { listingLinks: { where: { syncStatus: "error" } } } },
-      },
-    });
-
-    const retryQueueDepths = await prisma.channelSyncRetry.groupBy({
-      by: ["provider"],
-      where: { link: { connection: { memberId: userId } } },
-      _count: { id: true },
-    });
-
-    type ChannelHealth = {
-      provider: string;
-      status: "healthy" | "degraded" | "error" | "paused";
-      errorCount: number;
-      retryQueueDepth: number;
-    };
-
-    const channelHealthList: ChannelHealth[] = connections.map((conn) => {
-      const retryEntry = retryQueueDepths.find((r) => r.provider === conn.provider);
-      const retryDepth = retryEntry?._count.id ?? 0;
-      const errorCount = conn._count.listingLinks;
-      const circuitStatus = getCircuitStatus(conn.id);
-
-      let status: ChannelHealth["status"] = "healthy";
-      if (circuitStatus.state === "OPEN") status = "paused";
-      else if (conn.status === "error" || errorCount > 0) status = "error";
-      else if (retryDepth > 0 || circuitStatus.state === "HALF_OPEN") status = "degraded";
-
-      return { provider: conn.provider, status, errorCount, retryQueueDepth: retryDepth };
-    });
-
-    const totalErrors = channelHealthList.reduce((sum, c) => sum + c.errorCount, 0);
-    const totalRetries = channelHealthList.reduce((sum, c) => sum + c.retryQueueDepth, 0);
-
-    let overallHealth: "healthy" | "attention_needed" | "degraded" = "healthy";
-    if (channelHealthList.some((c) => c.status === "error" || c.status === "paused")) {
-      overallHealth = "attention_needed";
-    } else if (channelHealthList.some((c) => c.status === "degraded")) {
-      overallHealth = "degraded";
-    }
-
-    const syncHealthData = connections.length > 0 ? {
-      overall: overallHealth,
-      channels: channelHealthList,
-      totalErrors,
-      totalRetries,
-    } : null;
-
     const pendingShip = paidOrdersUnshipped.filter((o) => orderHasShippedLine(o.items)).length;
     let chargesEnabled = false;
     const balanceCents = balance?.balanceCents ?? 0;
@@ -196,7 +139,6 @@ export async function GET(req: NextRequest) {
         soldCount: soldCount ?? 0,
         payoutSetupComplete: chargesEnabled,
       },
-      syncHealth: syncHealthData,
       funds: {
         balanceCents,
         totalEarnedCents: balance?.totalEarnedCents ?? 0,

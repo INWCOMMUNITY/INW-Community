@@ -1,19 +1,8 @@
 import { prisma } from "database";
-import { getMemberConnectionContext } from "@/lib/channels/connection";
-import { fetchEbayPolicyOptions } from "@/lib/channels/ebay/account";
 import {
-  etsyProfileDomesticShippingCostCents,
-  fetchEtsyShippingProfileDestinations,
-  fetchEtsyShippingProfiles,
-  isEtsyCalculatedShippingProfile,
-} from "@/lib/channels/shipping-map";
-import {
-  convertLengthToIn,
-  convertWeightToOz,
   isPackageComplete,
   lbsOzToTotalOz,
   totalOzToLbsOz,
-  type PackageFields,
 } from "@/lib/package-weight";
 
 function shippingOptions() {
@@ -26,8 +15,6 @@ function shippingOptions() {
   return delegate;
 }
 
-export type ShippingOptionSource = "inw" | "ebay" | "etsy";
-
 export type ShippingOptionDto = {
   id: string;
   name: string;
@@ -38,89 +25,9 @@ export type ShippingOptionDto = {
   weightLbs: number;
   weightOzRemainder: number;
   shippingCostCents: number | null;
-  source: ShippingOptionSource;
-  remoteProfileId: string | null;
   complete: boolean;
   archivedAt: string | null;
-  lastImportedAt: string | null;
   listingCount: number;
-};
-
-export type RemoteShippingProfile = {
-  source: "ebay" | "etsy";
-  remoteProfileId: string;
-  name: string;
-  lengthIn?: number | null;
-  widthIn?: number | null;
-  heightIn?: number | null;
-  weightOz?: number | null;
-  shippingCostCents?: number | null;
-};
-
-export type ListingPackageHint = {
-  remoteProfileId?: string | null;
-  lengthIn?: number | null;
-  widthIn?: number | null;
-  heightIn?: number | null;
-  weightOz?: number | null;
-  shippingCostCents?: number | null;
-};
-
-export type ImportedListingShippingPatch = {
-  shippingOptionId?: string;
-  shippingCostCents?: number;
-};
-
-/** True when writing `patch` would not change the listing — skip so Prisma does not bump updatedAt. */
-export function importedListingShippingPatchAlreadyApplied(
-  listing: { shippingOptionId: string | null; shippingCostCents: number | null },
-  patch: ImportedListingShippingPatch
-): boolean {
-  if (patch.shippingOptionId !== undefined && patch.shippingOptionId !== listing.shippingOptionId) {
-    return false;
-  }
-  if (
-    patch.shippingCostCents !== undefined &&
-    patch.shippingCostCents !== listing.shippingCostCents
-  ) {
-    return false;
-  }
-  return true;
-}
-
-/**
- * Choose the listing's marketplace shipping option (and its INW price) on import.
- * Shop-default eBay policies are not used. INW-created packages are left alone.
- * Free-shipping-on-INW keeps the option but charges $0 at INW checkout.
- */
-export function importedListingShippingPatch(args: {
-  importOptionsEnabled: boolean;
-  offerFreeShippingOnInw: boolean;
-  existingOptionSource?: string | null;
-  matchedOption?: { id: string; shippingCostCents: number | null } | null;
-}): ImportedListingShippingPatch | null {
-  if (args.existingOptionSource === "inw") {
-    return args.offerFreeShippingOnInw ? { shippingCostCents: 0 } : null;
-  }
-
-  const patch: ImportedListingShippingPatch = {};
-  if (args.importOptionsEnabled && args.matchedOption) {
-    patch.shippingOptionId = args.matchedOption.id;
-    if (args.offerFreeShippingOnInw) {
-      patch.shippingCostCents = 0;
-    } else if (args.matchedOption.shippingCostCents != null) {
-      patch.shippingCostCents = args.matchedOption.shippingCostCents;
-    }
-  } else if (args.offerFreeShippingOnInw) {
-    patch.shippingCostCents = 0;
-  }
-
-  return Object.keys(patch).length > 0 ? patch : null;
-}
-
-export type ShippingOptionMergeFields = PackageFields & {
-  name: string;
-  shippingCostCents?: number | null;
 };
 
 export function parseShippingCostCentsInput(args: {
@@ -151,10 +58,7 @@ export function serializeShippingOption(
     heightIn: number | null;
     weightOz: number | null;
     shippingCostCents?: number | null;
-    source: string;
-    remoteProfileId: string | null;
     archivedAt: Date | null;
-    lastImportedAt: Date | null;
     _count?: { storeItems: number };
   }
 ): ShippingOptionDto {
@@ -169,76 +73,16 @@ export function serializeShippingOption(
     weightLbs: lbs,
     weightOzRemainder: oz,
     shippingCostCents: row.shippingCostCents ?? null,
-    source: (row.source as ShippingOptionSource) || "inw",
-    remoteProfileId: row.remoteProfileId,
     complete: isPackageComplete(row),
     archivedAt: row.archivedAt?.toISOString() ?? null,
-    lastImportedAt: row.lastImportedAt?.toISOString() ?? null,
     listingCount: row._count?.storeItems ?? 0,
-  };
-}
-
-export function mergeImportedShippingOption(
-  existing: ShippingOptionMergeFields | null,
-  incoming: RemoteShippingProfile
-): {
-  name: string;
-  lengthIn: number | null;
-  widthIn: number | null;
-  heightIn: number | null;
-  weightOz: number | null;
-  shippingCostCents: number | null;
-} {
-  return {
-    name: incoming.name.trim() || existing?.name || "Imported shipping",
-    lengthIn: existing?.lengthIn && existing.lengthIn > 0 ? existing.lengthIn : incoming.lengthIn ?? null,
-    widthIn: existing?.widthIn && existing.widthIn > 0 ? existing.widthIn : incoming.widthIn ?? null,
-    heightIn: existing?.heightIn && existing.heightIn > 0 ? existing.heightIn : incoming.heightIn ?? null,
-    weightOz: existing?.weightOz && existing.weightOz > 0 ? existing.weightOz : incoming.weightOz ?? null,
-    shippingCostCents:
-      existing?.shippingCostCents != null
-        ? existing.shippingCostCents
-        : incoming.shippingCostCents ?? null,
-  };
-}
-
-export function listingPackageFromRemote(args: {
-  remoteProfileId?: string | number | null;
-  weight?: number | string | null;
-  weightUnit?: string | null;
-  length?: number | string | null;
-  width?: number | string | null;
-  height?: number | string | null;
-  dimensionUnit?: string | null;
-  shippingCostCents?: number | null;
-}): ListingPackageHint {
-  const num = (v: number | string | null | undefined) => {
-    if (v == null || v === "") return null;
-    const n = typeof v === "number" ? v : Number(v);
-    return Number.isFinite(n) && n > 0 ? n : null;
-  };
-  const weightVal = num(args.weight);
-  const lengthVal = num(args.length);
-  const widthVal = num(args.width);
-  const heightVal = num(args.height);
-  const cost =
-    args.shippingCostCents != null && Number.isFinite(args.shippingCostCents)
-      ? Math.max(0, Math.round(args.shippingCostCents))
-      : null;
-  return {
-    remoteProfileId: args.remoteProfileId != null && String(args.remoteProfileId) !== "" ? String(args.remoteProfileId) : null,
-    weightOz: weightVal != null ? convertWeightToOz(weightVal, args.weightUnit) : null,
-    lengthIn: lengthVal != null ? convertLengthToIn(lengthVal, args.dimensionUnit) : null,
-    widthIn: widthVal != null ? convertLengthToIn(widthVal, args.dimensionUnit) : null,
-    heightIn: heightVal != null ? convertLengthToIn(heightVal, args.dimensionUnit) : null,
-    shippingCostCents: cost,
   };
 }
 
 export async function listShippingOptions(memberId: string): Promise<ShippingOptionDto[]> {
   const rows = await shippingOptions().findMany({
     where: { memberId, archivedAt: null },
-    orderBy: [{ source: "asc" }, { name: "asc" }],
+    orderBy: [{ name: "asc" }],
     include: { _count: { select: { storeItems: true } } },
   });
   return rows.map(serializeShippingOption);
@@ -275,7 +119,6 @@ export async function createInwShippingOption(
       heightIn: input.heightIn,
       weightOz,
       shippingCostCents: Math.round(input.shippingCostCents),
-      source: "inw",
     },
     include: { _count: { select: { storeItems: true } } },
   });
@@ -297,9 +140,6 @@ export async function updateInwShippingOption(
 ) {
   const existing = await shippingOptions().findFirst({ where: { id, memberId } });
   if (!existing) return null;
-  if (existing.source !== "inw") {
-    throw new Error("Imported shipping options can only be edited on the original marketplace.");
-  }
   const data: {
     name?: string;
     lengthIn?: number;
@@ -343,145 +183,13 @@ export async function archiveShippingOption(memberId: string, id: string): Promi
   return true;
 }
 
-export async function upsertImportedShippingOption(memberId: string, incoming: RemoteShippingProfile) {
-  const existing = await shippingOptions().findFirst({
-    where: { memberId, source: incoming.source, remoteProfileId: incoming.remoteProfileId },
-  });
-  const merged = mergeImportedShippingOption(existing, incoming);
-  const row = existing
-    ? await shippingOptions().update({
-        where: { id: existing.id },
-        data: {
-          ...merged,
-          archivedAt: null,
-          lastImportedAt: new Date(),
-        },
-      })
-    : await shippingOptions().create({
-        data: {
-          memberId,
-          source: incoming.source,
-          remoteProfileId: incoming.remoteProfileId,
-          ...merged,
-          lastImportedAt: new Date(),
-        },
-      });
-  if (row.shippingCostCents != null) {
-    await prisma.storeItem.updateMany({
-      where: { memberId, shippingOptionId: row.id, shippingCostCents: null },
-      data: { shippingCostCents: row.shippingCostCents },
-    });
-  }
-  return row;
-}
-
-export async function attachShippingOptionOnImport(args: {
-  memberId: string;
-  storeItemId: string;
-  source: "ebay" | "etsy";
-  hint: ListingPackageHint;
-}): Promise<void> {
-  const [prefs, member, listing] = await Promise.all([
-    prisma.memberSyncPreferences.findUnique({
-      where: { memberId: args.memberId },
-      select: {
-        importEbayShippingOptions: true,
-        importEtsyShippingOptions: true,
-      },
-    }),
-    prisma.member.findUnique({
-      where: { id: args.memberId },
-      select: { offerFreeShippingOnInw: true },
-    }),
-    prisma.storeItem.findUnique({
-      where: { id: args.storeItemId },
-      select: {
-        shippingOptionId: true,
-        shippingCostCents: true,
-        shippingOption: { select: { source: true } },
-      },
-    }),
-  ]);
-  if (!listing) return;
-
-  const importOptionsEnabled =
-    args.source === "ebay"
-      ? prefs?.importEbayShippingOptions === true
-      : prefs?.importEtsyShippingOptions === true;
-  const offerFreeShippingOnInw = member?.offerFreeShippingOnInw === true;
-  const remoteId = args.hint.remoteProfileId?.trim() || null;
-
-  let matchedOption: { id: string; shippingCostCents: number | null; archivedAt: Date | null } | null =
-    null;
-  if (importOptionsEnabled && remoteId) {
-    matchedOption = await shippingOptions().findFirst({
-      where: { memberId: args.memberId, source: args.source, remoteProfileId: remoteId },
-      select: { id: true, shippingCostCents: true, archivedAt: true },
-    });
-    if (matchedOption?.archivedAt) {
-      matchedOption = await shippingOptions().update({
-        where: { id: matchedOption.id },
-        data: { archivedAt: null },
-        select: { id: true, shippingCostCents: true, archivedAt: true },
-      });
-    }
-  }
-
-  const patch = importedListingShippingPatch({
-    importOptionsEnabled,
-    offerFreeShippingOnInw,
-    existingOptionSource: listing.shippingOption?.source ?? null,
-    matchedOption: matchedOption
-      ? { id: matchedOption.id, shippingCostCents: matchedOption.shippingCostCents }
-      : null,
-  });
-  if (!patch) return;
-  if (
-    importedListingShippingPatchAlreadyApplied(
-      {
-        shippingOptionId: listing.shippingOptionId,
-        shippingCostCents: listing.shippingCostCents,
-      },
-      patch
-    )
-  ) {
-    return;
-  }
-
-  await prisma.storeItem.update({
-    where: { id: args.storeItemId },
-    data: patch,
-  });
-}
-
 export async function getShippingOptionPrefs(memberId: string) {
-  const [member, prefs, connections] = await Promise.all([
-    prisma.member.findUnique({
-      where: { id: memberId },
-      select: { offerFreeShippingOnInw: true },
-    }),
-    prisma.memberSyncPreferences.findUnique({
-      where: { memberId },
-      select: {
-        syncShipping: true,
-        importEbayShippingOptions: true,
-        importEtsyShippingOptions: true,
-      },
-    }),
-    prisma.channelConnection.findMany({
-      where: { memberId, status: { not: "disconnected" }, provider: { in: ["ebay", "etsy"] } },
-      select: { provider: true, status: true },
-    }),
-  ]);
-  const ebayConnected = connections.some((c) => c.provider === "ebay" && c.status === "active");
-  const etsyConnected = connections.some((c) => c.provider === "etsy" && c.status === "active");
+  const member = await prisma.member.findUnique({
+    where: { id: memberId },
+    select: { offerFreeShippingOnInw: true },
+  });
   return {
     offerFreeShippingOnInw: member?.offerFreeShippingOnInw ?? false,
-    importEbayShippingOptions: prefs?.importEbayShippingOptions ?? false,
-    importEtsyShippingOptions: prefs?.importEtsyShippingOptions ?? false,
-    syncShipping: prefs?.syncShipping ?? true,
-    ebayConnected,
-    etsyConnected,
   };
 }
 
@@ -489,8 +197,6 @@ export async function updateShippingOptionPrefs(
   memberId: string,
   patch: Partial<{
     offerFreeShippingOnInw: boolean;
-    importEbayShippingOptions: boolean;
-    importEtsyShippingOptions: boolean;
   }>
 ) {
   if (patch.offerFreeShippingOnInw !== undefined) {
@@ -499,114 +205,7 @@ export async function updateShippingOptionPrefs(
       data: { offerFreeShippingOnInw: patch.offerFreeShippingOnInw },
     });
   }
-  if (patch.importEbayShippingOptions !== undefined || patch.importEtsyShippingOptions !== undefined) {
-    await prisma.memberSyncPreferences.upsert({
-      where: { memberId },
-      update: {
-        ...(patch.importEbayShippingOptions !== undefined
-          ? { importEbayShippingOptions: patch.importEbayShippingOptions }
-          : {}),
-        ...(patch.importEtsyShippingOptions !== undefined
-          ? { importEtsyShippingOptions: patch.importEtsyShippingOptions }
-          : {}),
-      },
-      create: {
-        memberId,
-        ...(patch.importEbayShippingOptions !== undefined
-          ? { importEbayShippingOptions: patch.importEbayShippingOptions }
-          : {}),
-        ...(patch.importEtsyShippingOptions !== undefined
-          ? { importEtsyShippingOptions: patch.importEtsyShippingOptions }
-          : {}),
-      },
-    });
-  }
   return getShippingOptionPrefs(memberId);
-}
-
-export async function importRemoteShippingOptions(
-  memberId: string,
-  provider: "ebay" | "etsy"
-): Promise<{ imported: number; error?: string }> {
-  const prefs = await prisma.memberSyncPreferences.findUnique({
-    where: { memberId },
-    select: { syncShipping: true },
-  });
-  if (prefs && prefs.syncShipping === false) {
-    return { imported: 0, error: "Shipping sync is turned off." };
-  }
-  const ctx = await getMemberConnectionContext(memberId, provider);
-  if (!ctx) return { imported: 0, error: `Connect ${provider === "etsy" ? "Etsy" : "eBay"} first.` };
-
-  const profiles: RemoteShippingProfile[] = [];
-  if (provider === "etsy") {
-    const shopId = ctx.externalShopId;
-    if (!shopId) return { imported: 0, error: "Etsy shop is missing." };
-    const remote = await fetchEtsyShippingProfiles(ctx.accessToken, shopId);
-    for (const p of remote) {
-      if (p.shipping_profile_id == null) continue;
-      let shippingCostCents = etsyProfileDomesticShippingCostCents(p);
-      if (
-        shippingCostCents == null &&
-        !isEtsyCalculatedShippingProfile(p)
-      ) {
-        const dests = await fetchEtsyShippingProfileDestinations(
-          ctx.accessToken,
-          shopId,
-          p.shipping_profile_id
-        );
-        shippingCostCents = etsyProfileDomesticShippingCostCents({
-          ...p,
-          shipping_profile_destinations: dests,
-        });
-      }
-      profiles.push({
-        source: "etsy",
-        remoteProfileId: String(p.shipping_profile_id),
-        name: p.title?.trim() || `Etsy profile ${p.shipping_profile_id}`,
-        shippingCostCents,
-      });
-    }
-  } else {
-    const options = await fetchEbayPolicyOptions(ctx.accessToken);
-    for (const p of options.fulfillmentPolicies) {
-      profiles.push({
-        source: "ebay",
-        remoteProfileId: p.id,
-        name: p.name?.trim() || `eBay policy ${p.id}`,
-        shippingCostCents: p.shippingCostCents ?? null,
-      });
-    }
-  }
-
-  for (const profile of profiles) {
-    await upsertImportedShippingOption(memberId, profile);
-  }
-  return { imported: profiles.length };
-}
-
-export async function maybeImportShippingOptionsOnSync(
-  memberId: string,
-  provider: "ebay" | "etsy"
-): Promise<void> {
-  const prefs = await prisma.memberSyncPreferences.findUnique({
-    where: { memberId },
-    select: {
-      syncShipping: true,
-      importEbayShippingOptions: true,
-      importEtsyShippingOptions: true,
-    },
-  });
-  if (!prefs || prefs.syncShipping === false) return;
-  if (provider === "ebay" && !prefs.importEbayShippingOptions) return;
-  if (provider === "etsy" && !prefs.importEtsyShippingOptions) return;
-  await importRemoteShippingOptions(memberId, provider).catch((e) => {
-    console.warn("[shipping-options] import during sync failed", {
-      memberId,
-      provider,
-      error: String(e),
-    });
-  });
 }
 
 export const shippingOptionPackageSelect = {
@@ -616,8 +215,6 @@ export const shippingOptionPackageSelect = {
   heightIn: true,
   weightOz: true,
   shippingCostCents: true,
-  source: true,
-  remoteProfileId: true,
 } as const;
 
 export async function getShippingOptionCostCents(

@@ -3,7 +3,7 @@ import { prisma, Prisma } from "database";
 import { listingDisplayPhotos } from "@/lib/listing-display-photo";
 import { withPublicStockWhere } from "@/lib/store-item-public-access";
 import { listingVariantDisplayAxes } from "@/lib/store-item-variants";
-import { listingDescriptionPreview } from "@/lib/channels/rich-description";
+import { listingDescriptionPreview } from "@/lib/listing-description-preview";
 import { sortByStorefrontSearchRelevance } from "@/lib/storefront-search";
 
 export const BROWSE_CACHE_HEADERS = {

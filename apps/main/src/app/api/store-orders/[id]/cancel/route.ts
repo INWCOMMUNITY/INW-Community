@@ -5,7 +5,6 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { restockOrderLinesAfterReturn } from "@/lib/store-item-restock";
-import { syncInventoryToChannelsAfterSale } from "@/lib/channels/sync-inventory";
 import { refundPaidStorefrontOrder } from "@/lib/stripe/refund-store-order";
 
 const CANCEL_REASONS = [
@@ -80,7 +79,6 @@ export async function POST(
       });
       await restockOrderLinesAfterReturn(tx, order.items);
     });
-    await Promise.all(order.items.map((oi) => syncInventoryToChannelsAfterSale(oi.storeItemId)));
     return NextResponse.json({ ok: true, refunded: false });
   }
 

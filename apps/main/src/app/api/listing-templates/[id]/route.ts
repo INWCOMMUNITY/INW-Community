@@ -20,11 +20,6 @@ const updateTemplateSchema = z.object({
   shippingCostCents: z.number().nullable().optional(),
   shippingOptionId: z.string().nullable().optional(),
   localDeliveryFeeCents: z.number().nullable().optional(),
-  etsyWhoMade: z.string().nullable().optional(),
-  etsyWhenMade: z.string().nullable().optional(),
-  etsyIsSupply: z.boolean().nullable().optional(),
-  ebayCategoryId: z.number().nullable().optional(),
-  ebayAspects: z.unknown().optional(),
   variantsTemplate: z.unknown().optional(),
 });
 
@@ -133,11 +128,6 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
         ...(data.shippingCostCents !== undefined && { shippingCostCents: data.shippingCostCents }),
         ...(data.shippingOptionId !== undefined && { shippingOptionId }),
         ...(data.localDeliveryFeeCents !== undefined && { localDeliveryFeeCents: data.localDeliveryFeeCents }),
-        ...(data.etsyWhoMade !== undefined && { etsyWhoMade: data.etsyWhoMade }),
-        ...(data.etsyWhenMade !== undefined && { etsyWhenMade: data.etsyWhenMade }),
-        ...(data.etsyIsSupply !== undefined && { etsyIsSupply: data.etsyIsSupply }),
-        ...(data.ebayCategoryId !== undefined && { ebayCategoryId: data.ebayCategoryId }),
-        ...(data.ebayAspects !== undefined && { ebayAspects: jsonField(data.ebayAspects) }),
         ...(data.variantsTemplate !== undefined && { variantsTemplate: jsonField(data.variantsTemplate) }),
       },
     });

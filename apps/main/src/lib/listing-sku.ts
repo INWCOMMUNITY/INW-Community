@@ -96,3 +96,14 @@ export function skuToAdoptFromRemote(args: {
   if (!/^[a-zA-Z0-9]{1,50}$/.test(sku)) return null;
   return sku;
 }
+
+/**
+ * Generate a SKU from a seed (like an ID).
+ * Creates an alphanumeric string that's valid for eBay/Etsy/etc.
+ */
+export function generateListingSku(seed: string): string {
+  // Create a hash-based SKU from the seed
+  const hash = fnv1a32(seed + Date.now().toString(36));
+  const prefix = seed.replace(/[^a-zA-Z0-9]/g, "").slice(0, 16).toUpperCase() || "INW";
+  return `${prefix}${hash}`.slice(0, CANONICAL_SKU_MAX);
+}

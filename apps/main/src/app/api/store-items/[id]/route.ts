@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireAdmin } from "@/lib/admin-auth";
 import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
@@ -8,31 +8,20 @@ import {
   hasOptionQuantities,
   sumOptionQuantities,
 } from "@/lib/store-item-variants";
-import { matrixForStorage, validateInwVariantsForSave } from "@/lib/channels/variant-sync";
 import {
-  INVENTORY_TRACKING_MADE_TO_ORDER,
-  INVENTORY_TRACKING_TRACKED,
   isMadeToOrderTracking,
   MTO_CHANNEL_QUANTITY,
   parseInventoryTracking,
+  normalizeVariantMatrix,
+  serializeVariantMatrix,
+  validateVariantMatrixForSave,
 } from "@/lib/listing-variant-matrix";
-import { logManualEditQuantityChange } from "@/lib/channels/quantity-audit";
-import { recordCategoryFeedback } from "@/lib/channels/category-resolver";
-import type { ChannelProvider } from "@/lib/channels/types";
 import { z } from "zod";
 import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-rules";
 import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
 import { LISTING_SKU_MAX, normalizeListingSku } from "@/lib/listing-sku";
-import { findConflictingStoreItemSku, loadMemberSkuOwnerSet } from "@/lib/listing-sku-db";
-import { ensureSellableSkus } from "@/lib/channels/sku-identity";
-import { isImportedEbayLink } from "@/lib/channels/ebay/listing-origin";
-import { Prisma } from "database";
+import { findConflictingStoreItemSku } from "@/lib/listing-sku-db";
 import { assertMemberShippingOption } from "@/lib/shipping-options";
-import {
-  channelLinkShowsOnItem,
-  SELLER_CHANNEL_LINK_SELECT,
-  withListingChannelSyncWarning,
-} from "@/lib/channels/listing-sync-warning";
 import { strangerMayViewStoreItemById } from "@/lib/store-item-public-access";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
 
@@ -62,17 +51,7 @@ const bodySchema = z.object({
   pickupTerms: z.string().nullable().optional(),
   acceptOffers: z.boolean().optional(),
   minOfferCents: z.number().int().min(0).nullable().optional(),
-  // Channel sync (Etsy, eBay, Wix, Shopify)
-  syncToChannels: z.boolean().optional(),
-  channelProviders: z.array(z.enum(["etsy", "ebay", "shopify", "wix"])).optional(),
-  /** When marking sold: delete external listings on these channels and drop links. */
-  unpublishChannelProviders: z.array(z.enum(["etsy", "ebay", "shopify", "wix"])).optional(),
-  etsyWhoMade: z.string().nullable().optional(),
-  etsyWhenMade: z.string().nullable().optional(),
-  etsyIsSupply: z.boolean().nullable().optional(),
-  etsyTaxonomyId: z.coerce.number().int().positive().nullable().optional(),
-  ebayCategoryId: z.coerce.number().int().positive().nullable().optional(),
-  // Item specifics / product aspects (Descriptor + Value rows). Synced to eBay product.aspects.
+  // Item specifics / product aspects (Descriptor + Value rows)
   aspects: z
     .array(z.object({ name: z.string(), value: z.string() }))
     .nullable()
@@ -91,19 +70,11 @@ export async function GET(
     include: {
       member: { select: { id: true, firstName: true, lastName: true } },
       business: { select: { id: true, name: true, slug: true } },
-      channelLinks: {
-        select: {
-          ...SELLER_CHANNEL_LINK_SELECT,
-          lastPushedAt: true,
-          linkOrigin: true,
-        },
-      },
     },
   });
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  const isOwner = Boolean(userId && item.memberId === userId);
   if (
     !strangerMayViewStoreItemById({
       status: item.status,
@@ -115,35 +86,8 @@ export async function GET(
   ) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  const channelLinks = isOwner
-    ? item.channelLinks.map((link) => ({
-        ...withListingChannelSyncWarning(link),
-        lastPushedAt: link.lastPushedAt,
-        linkOrigin: link.linkOrigin,
-      }))
-    : item.channelLinks.map(({ connection: _connection, ...link }) => link);
-  const liveEbayLink = item.channelLinks.find(
-    (l) => l.provider === "ebay" && channelLinkShowsOnItem(l)
-  );
-  const hasEbayLink = Boolean(liveEbayLink);
-  const ebayLink = item.channelLinks.find((l) => l.provider === "ebay");
-  const hasEbayImportLink = Boolean(
-    liveEbayLink &&
-      ebayLink &&
-      isImportedEbayLink({
-        provider: "ebay",
-        externalListingId: ebayLink.externalListingId,
-        storeItemId: id,
-        linkOrigin: ebayLink.linkOrigin,
-      })
-  );
-  const ebayLinkOrigin = !hasEbayLink ? null : hasEbayImportLink ? "import" : "inw_create";
   return NextResponse.json({
     ...item,
-    channelLinks,
-    hasEbayLink,
-    hasEbayImportLink,
-    ebayLinkOrigin,
   });
 }
 
@@ -298,12 +242,8 @@ export async function PATCH(
   }
 
   if (data.variants !== undefined && data.variants !== null) {
-    const links = await prisma.channelListingLink.findMany({
-      where: { storeItemId: itemId },
-      select: { provider: true },
-    });
-    const variantErr = validateInwVariantsForSave(data.variants, {
-      linkedProviders: links.map((l) => l.provider),
+    const variantErr = validateVariantMatrixForSave(data.variants, {
+      linkedProviders: [],
     });
     if (variantErr) {
       return NextResponse.json({ error: variantErr }, { status: 400 });
@@ -348,19 +288,13 @@ export async function PATCH(
       : parseInventoryTracking(existing.inventoryTracking);
   if (data.inventoryTracking !== undefined) {
     update.inventoryTracking = nextTracking;
-    if (
-      isMadeToOrderTracking(nextTracking) &&
-      data.etsyWhenMade === undefined &&
-      (!existing.etsyWhenMade || existing.etsyWhenMade === INVENTORY_TRACKING_MADE_TO_ORDER)
-    ) {
-      update.etsyWhenMade = INVENTORY_TRACKING_MADE_TO_ORDER;
-    }
     if (isMadeToOrderTracking(nextTracking)) {
       update.quantity = MTO_CHANNEL_QUANTITY;
     }
   }
   if (data.variants !== undefined) {
-    const matrix = data.variants === null ? null : matrixForStorage(data.variants);
+    const normalized = data.variants === null ? null : normalizeVariantMatrix(data.variants);
+    const matrix = normalized ? serializeVariantMatrix(normalized) : null;
     update.variants = matrix ?? Prisma.JsonNull;
     if (matrix) {
       for (const row of matrix.skus ?? []) {
@@ -418,42 +352,10 @@ export async function PATCH(
   if (data.condition !== undefined) update.condition = data.condition;
   if (data.acceptOffers !== undefined) update.acceptOffers = data.acceptOffers;
   if (data.minOfferCents !== undefined) update.minOfferCents = data.minOfferCents;
-  if (data.etsyWhoMade !== undefined) update.etsyWhoMade = data.etsyWhoMade?.trim() || null;
-  if (data.etsyWhenMade !== undefined) update.etsyWhenMade = data.etsyWhenMade?.trim() || null;
-  if (data.etsyIsSupply !== undefined) update.etsyIsSupply = data.etsyIsSupply;
-  if (data.etsyTaxonomyId !== undefined) update.etsyTaxonomyId = data.etsyTaxonomyId;
-  if (data.ebayCategoryId !== undefined) update.ebayCategoryId = data.ebayCategoryId;
   if (data.aspects !== undefined) {
-    const ebayLink = await prisma.channelListingLink.findFirst({
-      where: { storeItemId: itemId, provider: "ebay" },
-      select: { externalListingId: true, linkOrigin: true },
-    });
-    const importedEbay =
-      ebayLink &&
-      isImportedEbayLink({
-        provider: "ebay",
-        externalListingId: ebayLink.externalListingId,
-        storeItemId: itemId,
-        linkOrigin: ebayLink.linkOrigin,
-      });
-
-    if (!importedEbay) {
-      let normalizedAspects = normalizeListingAspects(data.aspects);
-      const categoryId = data.ebayCategoryId ?? existing.ebayCategoryId;
-      const title = data.title ?? existing.title;
-      if (categoryId && normalizedAspects.length > 0) {
-        const { normalizeAspectsForEbayStorage } = await import(
-          "@/lib/channels/ebay/sync-aspects"
-        );
-        normalizedAspects = await normalizeAspectsForEbayStorage(
-          String(categoryId),
-          normalizedAspects,
-          title ?? ""
-        );
-      }
-      update.aspects =
-        normalizedAspects.length > 0 ? (normalizedAspects as object) : Prisma.JsonNull;
-    }
+    const normalizedAspects = normalizeListingAspects(data.aspects);
+    update.aspects =
+      normalizedAspects.length > 0 ? (normalizedAspects as object) : Prisma.JsonNull;
   }
 
   const mergedStatus =
@@ -505,139 +407,23 @@ export async function PATCH(
     }
   }
 
-  const skuForEnsure =
-    data.sku !== undefined ? (normalizeListingSku(data.sku) ?? null) : existing.sku;
-  const variantsForEnsure =
-    data.variants !== undefined
-      ? data.variants === null
-        ? null
-        : (update.variants ?? matrixForStorage(data.variants))
-      : existing.variants;
-  const used = await loadMemberSkuOwnerSet(ownerId, itemId);
-  const ensured = ensureSellableSkus(
-    { id: itemId, sku: skuForEnsure, variants: variantsForEnsure },
-    used
-  );
-  if (ensured.changed || data.sku !== undefined || data.variants !== undefined) {
-    update.sku = ensured.sku;
-    update.variants =
-      ensured.variants == null ? Prisma.JsonNull : (ensured.variants as Prisma.InputJsonValue);
-  }
-
   const item = await prisma.storeItem.update({
     where: { id: itemId },
     data: update as object,
   });
 
-  // Log quantity change for audit trail if quantity was modified
-  if (item.quantity !== existing.quantity) {
-    logManualEditQuantityChange({
-      storeItemId: itemId,
-      memberId: ownerId,
-      previousQty: existing.quantity,
-      newQty: item.quantity,
-    });
-  }
-
-  // Record category feedback for adaptive learning when a synced item's category changes
-  const categoryChanged =
-    (item.category ?? "") !== (existing.category ?? "") ||
-    (item.subcategory ?? "") !== (existing.subcategory ?? "");
-  if (categoryChanged && existing.category) {
-    // Check if this item is linked to any sales channel
-    const channelLinks = await prisma.channelListingLink.findMany({
-      where: { storeItemId: itemId, syncEnabled: true },
-      select: {
-        provider: true,
-        remoteCategoryLabel: true,
-        remoteCategorySubLabel: true,
-      },
-    });
-    // Record feedback for each linked provider to improve future auto-mapping
-    for (const link of channelLinks) {
-      const remoteCategory = link.remoteCategoryLabel?.trim() || existing.category?.trim();
-      if (!remoteCategory) continue;
-
-      recordCategoryFeedback({
-        provider: link.provider as ChannelProvider,
-        remoteCategory,
-        remoteSubcategory: link.remoteCategorySubLabel ?? existing.subcategory,
-        autoMapped: existing.category ?? "",
-        autoMappedSubcategory: existing.subcategory,
-        sellerChosen: item.category ?? "",
-        sellerChosenSubcategory: item.subcategory,
-        storeItemId: itemId,
-        memberId: ownerId,
-      }).catch((err) => {
-        console.warn("[store-items] Failed to record category feedback:", err);
-      });
-    }
-  }
-
   if (item.status === "sold_out") {
     deleteFeedPostsForSoldItem(itemId).catch(() => {});
   }
   // Log activity
-  const { logSellerActivity, createUpdateDetail } = await import("@/lib/seller-activity-log");
+  const { logSellerActivity } = await import("@/lib/seller-activity-log");
   const changedFields = Object.keys(update);
   logSellerActivity(ownerId, "item_updated", "store_item", itemId, {
     changedFields,
     title: item.title,
   });
 
-  // Keep linked sales channels (Etsy, etc.) in sync. Best-effort: never fail the save, but if the
-  // channel push throws we must still tell the seller which channels did not sync (no false-green).
-  let channelSync: { provider: string; ok: boolean; error?: string; skipped?: string }[] = [];
-  const linkedProviders = (
-    await prisma.channelListingLink.findMany({
-      where: { storeItemId: itemId },
-      select: { provider: true },
-    })
-  ).map((l) => l.provider);
-  try {
-    const existingLinks = linkedProviders.length;
-    const unpublishProviders = data.unpublishChannelProviders ?? [];
-    if (data.status === "inactive") {
-      // End listing is INW-only: leave eBay/Etsy/Wix/Shopify listings as they are.
-    } else if (item.status === "sold_out" && unpublishProviders.length > 0) {
-      const { unpublishStoreItemFromChannels } = await import("@/lib/channels/outbound");
-      channelSync = await unpublishStoreItemFromChannels(itemId, unpublishProviders);
-    } else if (data.syncToChannels === false && existingLinks > 0) {
-      // Skip push for this save only; keep links enabled for future edits.
-    } else if (existingLinks > 0) {
-      const { updateStoreItemOnChannels } = await import("@/lib/channels/outbound");
-      const { syncInventoryToChannels } = await import("@/lib/channels/sync-inventory");
-      const { mergeChannelSyncResults } = await import("@/lib/channels/channel-sync-merge");
-      const contentResults = await updateStoreItemOnChannels(itemId);
-      const inventoryResults = await syncInventoryToChannels(itemId);
-      channelSync = mergeChannelSyncResults(contentResults, inventoryResults);
-    } else if (data.syncToChannels === true || (data.channelProviders?.length ?? 0) > 0) {
-      const { publishStoreItemToChannels, resolvePublishProviders } = await import(
-        "@/lib/channels/outbound"
-      );
-      const publishArgs = {
-        syncToChannels: data.syncToChannels,
-        channelProviders: data.channelProviders,
-      };
-      const providers = resolvePublishProviders(publishArgs);
-      if (providers !== undefined) {
-        channelSync = await publishStoreItemToChannels(itemId, item.memberId, { providers });
-      } else if (data.channelProviders === undefined) {
-        channelSync = await publishStoreItemToChannels(itemId, item.memberId);
-      }
-    }
-  } catch (err) {
-    console.error("[store-items] Channel update failed:", err);
-    // The save itself succeeded, but the channel push threw before returning per-provider results.
-    // Surface a failure row for every linked provider so the banner is honest instead of empty.
-    if (channelSync.length === 0 && linkedProviders.length > 0) {
-      const message =
-        err instanceof Error ? err.message : "Channel sync failed. Retry from the listing.";
-      channelSync = linkedProviders.map((provider) => ({ provider, ok: false, error: message }));
-    }
-  }
-
-  return NextResponse.json({ ...item, channelSync });
+  return NextResponse.json({ ...item });
 }
 
 export async function DELETE(
@@ -660,33 +446,6 @@ export async function DELETE(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Remove the listing from connected sales channels first (links cascade on StoreItem delete).
-  let channelSync: { provider: string; ok: boolean; error?: string }[] = [];
-  try {
-    const { deleteStoreItemFromChannels } = await import("@/lib/channels/outbound");
-    channelSync = await deleteStoreItemFromChannels(id);
-  } catch (err) {
-    console.error("[store-items] Channel delete failed:", err);
-    return NextResponse.json(
-      {
-        error:
-          "Could not remove this listing from connected stores. It was not deleted from INW.",
-        channelSync,
-      },
-      { status: 409 }
-    );
-  }
-  if (channelSync.some((r) => !r.ok)) {
-    return NextResponse.json(
-      {
-        error:
-          "Could not remove this listing from connected stores. It was not deleted from INW.",
-        channelSync,
-      },
-      { status: 409 }
-    );
-  }
-
   // Delete associated feed posts so "Recently Added" doesn't show stale previews
   await deleteFeedPostsForSoldItem(id).catch((err) =>
     console.error("[store-items] Feed post cleanup failed:", err)
@@ -699,5 +458,5 @@ export async function DELETE(
     title: existing.title,
     priceCents: existing.priceCents,
   });
-  return NextResponse.json({ ok: true, channelSync });
+  return NextResponse.json({ ok: true });
 }

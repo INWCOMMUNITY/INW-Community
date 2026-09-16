@@ -131,14 +131,11 @@ model Member {
   groupMemberBansSubject   GroupMemberBan[]       @relation("GroupMemberBanSubject")
   groupMemberBansIssued    GroupMemberBan[]       @relation("GroupMemberBanIssuer")
   groupDeletionRequests    GroupDeletionRequest[] @relation("GroupDeletionRequester")
-  channelConnections       ChannelConnection[]
-  syncPreferences          MemberSyncPreferences?
   listingTemplates         ListingTemplate[]
   shippingOptions          ShippingOption[]
   sellerAnalyticsEvents    SellerAnalyticsEvent[]
   sellerActivityLogs       SellerActivityLog[]
   bulkEditSnapshots        BulkEditSnapshot[]
-  batchImportJobs          BatchImportJob[]
   pollVotes                PostPollVote[]
 }
 
@@ -980,14 +977,6 @@ model StoreItem {
   listingType         String   @default("new") @map("listing_type") // deprecated: always "new" (single store)
   acceptOffers         Boolean  @default(true) @map("accept_offers") // used items: allow make-offer
   minOfferCents        Int?     @map("min_offer_cents") // used items: auto-decline offers below this
-  // Channel sync metadata (Etsy requires these fields that the native store does not collect).
-  etsyWhoMade          String?  @map("etsy_who_made")   // i_did | someone_else | collective
-  etsyWhenMade         String?  @map("etsy_when_made")  // made_to_order | 2020_2025 | before_2006 ...
-  etsyIsSupply         Boolean? @map("etsy_is_supply")
-  etsyTaxonomyId       Int?     @map("etsy_taxonomy_id")
-  ebayCategoryId       Int?     @map("ebay_category_id")
-  /// eBay Inventory API ConditionEnum override (e.g. NEW, USED_EXCELLENT). Category-specific.
-  ebayConditionEnum    String?  @map("ebay_condition_enum")
   lowStockThreshold    Int?     @map("low_stock_threshold") // Alert when quantity falls to or below this value
   featured             Boolean  @default(false) @map("featured") // Admin-curated featured listings
   /// Set when the listing is ended (status inactive); cleared on relist. INW record is purged 14 days later.
@@ -1002,7 +991,6 @@ model StoreItem {
   cartItems CartItem[]
   resaleOffers ResaleOffer[]
   resaleConversations ResaleConversation[]
-  channelLinks ChannelListingLink[]
   sellerAnalyticsEvents SellerAnalyticsEvent[]
   memberViews MemberListingView[]
   collectionItems CollectionItem[]
@@ -1031,152 +1019,6 @@ model MemberListingView {
   @@map("member_listing_view")
 }
 
-// Per-seller connection to an external sales channel (Etsy now; eBay/Shopify/Wix later).
-// OAuth tokens are encrypted at rest with the same AES-256-GCM helper used for Shippo keys.
-model ChannelConnection {
-  id                    String    @id @default(cuid())
-  memberId              String    @map("member_id")
-  provider              String    // etsy | ebay | shopify | wix
-  externalShopId        String?   @map("external_shop_id")
-  externalShopName      String?   @map("external_shop_name")
-  accessTokenEncrypted  String?   @map("access_token_encrypted") @db.Text
-  refreshTokenEncrypted String?   @map("refresh_token_encrypted") @db.Text
-  tokenExpiresAt        DateTime? @map("token_expires_at")
-  scopes                String?
-  status                String    @default("active") // active | error | disconnected
-  lastError             String?   @map("last_error") @db.Text
-  etsyShippingProfileId String?   @map("etsy_shipping_profile_id")
-  /// Provider-specific settings (e.g. eBay policy ids + merchant location; future Wix/Shopify config).
-  config                Json?     @map("config")
-  lastReconciledAt      DateTime? @map("last_reconciled_at")
-  createdAt             DateTime  @default(now()) @map("created_at")
-  updatedAt             DateTime  @updatedAt @map("updated_at")
-
-  member       Member               @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  listingLinks ChannelListingLink[]
-
-  @@unique([memberId, provider])
-  @@map("channel_connection")
-}
-
-// Maps one StoreItem to one external listing per provider (a StoreItem may link to many channels).
-model ChannelListingLink {
-  id                String    @id @default(cuid())
-  storeItemId       String    @map("store_item_id")
-  connectionId      String    @map("connection_id")
-  provider          String    // etsy | ebay | shopify | wix
-  externalListingId String    @map("external_listing_id")
-  externalShopId    String?   @map("external_shop_id")
-  syncEnabled       Boolean   @default(true) @map("sync_enabled")
-  syncStatus        String    @default("pending") @map("sync_status") // synced | pending | error
-  syncError         String?   @map("sync_error") @db.Text
-  lastPushedHash    String?   @map("last_pushed_hash")
-  lastPushedAt      DateTime? @map("last_pushed_at")
-  /// INW photo URLs from the last successful content push (Etsy must not re-upload on title/price sync).
-  lastPushedPhotos  Json?     @map("last_pushed_photos")
-  lastInboundAt     DateTime? @map("last_inbound_at")
-  // Differential reconcile baseline: last agreed state across INW <-> channel.
-  syncBaselineHash  String?   @map("sync_baseline_hash")
-  syncBaselineQty   Int?      @map("sync_baseline_qty")
-  syncBaselineAt    DateTime? @map("sync_baseline_at")
-  syncBaselineMetaHash String? @map("sync_baseline_meta_hash")
-  syncBaselineVariantsHash String? @map("sync_baseline_variants_hash")
-  // Conflict tracking for sync resolution
-  lastConflictAt     DateTime?  @map("last_conflict_at")
-  conflictResolution String?    @map("conflict_resolution") // inw_won | channel_won | pending
-  conflictDetails    Json?      @map("conflict_details")
-  /// Original marketplace category label at import (for adaptive mapping feedback).
-  remoteCategoryLabel    String?  @map("remote_category_label")
-  remoteCategorySubLabel String?  @map("remote_category_sub_label")
-  /// How this channel link was created: import | inw_create (eBay passthrough sync).
-  linkOrigin             String?  @map("link_origin")
-  /// Raw product.aspects from last GET inventory_item (eBay passthrough — canonical for push).
-  ebayInventoryAspects   Json?    @map("ebay_inventory_aspects")
-  /// Live Inventory SKU pins { parent, variations } — never hyphen parent SKUs.
-  ebaySkuMap             Json?    @map("ebay_sku_map")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
-
-  storeItem  StoreItem           @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
-  connection ChannelConnection   @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-  retries    ChannelSyncRetry[]
-
-  @@unique([storeItemId, provider])
-  @@unique([provider, externalListingId])
-  @@map("channel_listing_link")
-}
-
-// Dedupe inbound channel events (webhooks + reconciliation receipts) so a sale is only applied once.
-model ChannelSyncEvent {
-  id              String    @id @default(cuid())
-  provider        String
-  externalEventId String    @map("external_event_id")
-  type            String    // order_created | reconcile_sale | listing_deleted ...
-  storeItemId     String?   @map("store_item_id")
-  payload         Json?
-  processedAt     DateTime  @default(now()) @map("processed_at")
-  /// Null until inventory decrement succeeds. Unique claim can exist without burning a failed apply.
-  appliedAt       DateTime? @map("applied_at")
-
-  @@unique([provider, externalEventId])
-  @@index([appliedAt])
-  @@map("channel_sync_event")
-}
-
-// Retry queue for failed channel sync pushes (inventory, content, publish).
-// Exponential backoff: 30s, 2m, 10m, 1h, 6h. Deleted on success.
-model ChannelSyncRetry {
-  id          String   @id @default(cuid())
-  linkId      String   @map("link_id")
-  storeItemId String   @map("store_item_id")
-  provider    String
-  retryType   String   @map("retry_type")
-  attempts    Int      @default(0)
-  maxAttempts Int      @default(5) @map("max_attempts")
-  nextRetryAt DateTime @map("next_retry_at")
-  lastError   String?  @map("last_error") @db.Text
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  link ChannelListingLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
-
-  @@index([nextRetryAt])
-  @@map("channel_sync_retry")
-}
-
-// Seller-visible sync activity log: successful pushes, sales, conflicts, errors, token events.
-model ChannelSyncLog {
-  id          String   @id @default(cuid())
-  memberId    String   @map("member_id")
-  provider    String
-  storeItemId String?  @map("store_item_id")
-  action      String
-  detail      String?  @db.Text
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  @@index([memberId, createdAt])
-  @@index([storeItemId])
-  @@map("channel_sync_log")
-}
-
-// Webhook event log: ensures no webhook events are lost by logging before processing.
-// Status transitions: pending -> processing -> completed|failed
-// Stale pending events (older than 5min) are reprocessed by cron.
-model ChannelWebhookEvent {
-  id              String    @id @default(cuid())
-  provider        String
-  eventType       String    @map("event_type")
-  externalEventId String?   @map("external_event_id")
-  payload         Json?
-  status          String    @default("pending") // pending | processing | completed | failed
-  error           String?   @db.Text
-  createdAt       DateTime  @default(now()) @map("created_at")
-  processedAt     DateTime? @map("processed_at")
-
-  @@index([provider, status])
-  @@index([status, createdAt])
-  @@map("channel_webhook_event")
-}
-
 /// Single-row lease so overlapping Vercel cron invocations cannot share a connection set.
 model CronJobLock {
   jobName        String    @id @map("job_name")
@@ -1189,55 +1031,6 @@ model CronJobLock {
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
   @@map("cron_job_lock")
-}
-
-/// Persisted daily API counts so quota skip survives serverless cold starts.
-model ChannelQuotaUsage {
-  provider     String
-  dateUtc      String   @map("date_utc")
-  requestCount Int      @default(0) @map("request_count")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  @@id([provider, dateUtc])
-  @@map("channel_quota_usage")
-}
-
-// Structured sync trace for detailed diagnostics of every sync operation.
-// Captures input state, validation, transforms, API request/response, and error classification.
-model SyncTrace {
-  id              String   @id @default(cuid())
-  memberId        String   @map("member_id")
-  provider        String
-  storeItemId     String   @map("store_item_id")
-  sku             String?
-  categoryId      String?  @map("category_id")
-  operation       String   // create | update | delete | inventory
-  status          String   // pending | success | failed | validation_failed
-  
-  // Structured context
-  inputSnapshot   Json?    @map("input_snapshot")
-  validationResult Json?   @map("validation_result")
-  transformTrace  Json?    @map("transform_trace")
-  
-  // API interaction
-  requestPayload  Json?    @map("request_payload")
-  responsePayload Json?    @map("response_payload")
-  httpStatus      Int?     @map("http_status")
-  
-  // Error classification
-  errorCode       String?  @map("error_code")
-  errorCategory   String?  @map("error_category")
-  errorMessage    String?  @map("error_message") @db.Text
-  rootCause       String?  @map("root_cause") @db.Text
-  
-  durationMs      Int?     @map("duration_ms")
-  createdAt       DateTime @default(now()) @map("created_at")
-  
-  @@index([memberId, provider, createdAt])
-  @@index([storeItemId, createdAt])
-  @@index([errorCode, createdAt])
-  @@index([errorCategory, createdAt])
-  @@map("sync_trace")
 }
 
 // Listing templates: reusable presets for common listing settings.
@@ -1261,15 +1054,6 @@ model ListingTemplate {
   shippingOptionId       String?  @map("shipping_option_id")
   localDeliveryFeeCents  Int?     @map("local_delivery_fee_cents")
 
-  // Channel-specific defaults (Etsy)
-  etsyWhoMade            String?  @map("etsy_who_made")
-  etsyWhenMade           String?  @map("etsy_when_made")
-  etsyIsSupply           Boolean? @map("etsy_is_supply")
-
-  // Channel-specific defaults (eBay)
-  ebayCategoryId         Int?     @map("ebay_category_id")
-  ebayAspects            Json?    @map("ebay_aspects")
-
   // Variants template: e.g. { name: "Size", options: ["S", "M", "L", "XL"] }
   variantsTemplate       Json?    @map("variants_template")
 
@@ -1283,7 +1067,7 @@ model ListingTemplate {
   @@map("listing_template")
 }
 
-/// Reusable package template (name + inches + weight). Imported eBay/Etsy rows are one-way.
+/// Reusable package template (name + inches + weight).
 model ShippingOption {
   id              String    @id @default(cuid())
   memberId        String    @map("member_id")
@@ -1294,11 +1078,7 @@ model ShippingOption {
   weightOz        Float?    @map("weight_oz")
   /// INW checkout / domestic flat rate. Null when calculated or unknown. 0 = free.
   shippingCostCents Int?    @map("shipping_cost_cents")
-  /// inw | ebay | etsy
-  source          String    @default("inw")
-  remoteProfileId String?   @map("remote_profile_id")
   archivedAt      DateTime? @map("archived_at")
-  lastImportedAt  DateTime? @map("last_imported_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
@@ -1306,7 +1086,6 @@ model ShippingOption {
   storeItems       StoreItem[]
   listingTemplates ListingTemplate[]
 
-  @@unique([memberId, source, remoteProfileId])
   @@index([memberId, archivedAt])
   @@map("shipping_option")
 }
@@ -1860,28 +1639,6 @@ model BulkEditSnapshot {
   @@map("bulk_edit_snapshot")
 }
 
-// Batch import jobs for tracking channel listing imports (replaces in-memory storage)
-model BatchImportJob {
-  id          String    @id @default(cuid())
-  memberId    String    @map("member_id")
-  provider    String    // etsy, ebay, shopify, wix
-  status      String    @default("pending") // pending, processing, completed, failed
-  total       Int       @default(0)
-  completed   Int       @default(0)
-  failed      Int       @default(0)
-  errors      Json?     // [{ listingId, error }, ...]
-  startedAt   DateTime? @map("started_at")
-  completedAt DateTime? @map("completed_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-
-  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
-
-  @@index([memberId, createdAt])
-  @@index([status])
-  @@map("batch_import_job")
-}
-
 // Post polls - attach a single poll to a post
 model PostPoll {
   id        String   @id @default(cuid())
@@ -1918,116 +1675,3 @@ model PostPollVote {
   @@map("post_poll_vote")
 }
 
-// ============================================================================
-// Multi-Platform Listing System - Category Mapping & Sync Health
-// ============================================================================
-
-// Tracks seller corrections to auto-mapped categories for ML learning
-model CategoryMappingFeedback {
-  id              String   @id @default(cuid())
-  provider        String   // etsy | ebay | shopify | wix
-  remoteCategory  String   @map("remote_category")
-  remoteSubcat    String?  @map("remote_subcategory")
-  autoMapped      String   @map("auto_mapped")
-  autoMappedSub   String?  @map("auto_mapped_subcategory")
-  sellerChosen    String   @map("seller_chosen")
-  sellerChosenSub String?  @map("seller_chosen_subcategory")
-  confidence      Float?   // Original confidence score from auto-mapping
-  storeItemId     String?  @map("store_item_id")
-  memberId        String   @map("member_id")
-  createdAt       DateTime @default(now()) @map("created_at")
-
-  @@index([provider, remoteCategory])
-  @@index([memberId])
-  @@map("category_mapping_feedback")
-}
-
-// Aggregated stats for improving auto-mapping accuracy over time
-model CategoryMappingStats {
-  id             String   @id @default(cuid())
-  provider       String
-  remoteCategory String   @map("remote_category")
-  mappedCategory String   @map("mapped_category")
-  mappedSubcat   String?  @map("mapped_subcategory")
-  confidence     Float    @default(0.5)
-  overrideCount  Int      @default(0) @map("override_count")  // Times seller changed it
-  keepCount      Int      @default(0) @map("keep_count")      // Times seller kept it
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  @@unique([provider, remoteCategory])
-  @@map("category_mapping_stats")
-}
-
-// Canonical eBay/Etsy → INW category + subcategory mappings (seeded + admin-editable).
-model ChannelCategoryMapping {
-  id             String   @id @default(cuid())
-  provider       String   // ebay | etsy | wix | shopify
-  matchType      String   @map("match_type") // category_id | path | label
-  matchKey       String   @map("match_key") // normalized lookup key
-  remoteLabel    String?  @map("remote_label") // human-readable path/label for admin
-  inwCategory    String   @map("inw_category")
-  inwSubcategory String?  @map("inw_subcategory")
-  priority       Int      @default(0)
-  active         Boolean  @default(true)
-  source         String   @default("seed")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  @@unique([provider, matchType, matchKey])
-  @@index([provider, matchType, active])
-  @@map("channel_category_mapping")
-}
-
-// Full audit trail for all quantity changes across platforms
-model QuantityAuditLog {
-  id              String   @id @default(cuid())
-  storeItemId     String   @map("store_item_id")
-  memberId        String   @map("member_id")
-  provider        String   // inwc | etsy | ebay | shopify | wix
-  previousQty     Int      @map("previous_qty")
-  newQty          Int      @map("new_qty")
-  delta           Int      // Computed: newQty - previousQty
-  reason          String   // sale | restock | sync_pull | manual_edit | refund | bulk_edit
-  externalEventId String?  @map("external_event_id")
-  orderId         String?  @map("order_id")
-  variantValue    String?  @map("variant_value") // e.g., "Size: M"
-  metadata        Json?    // Additional context
-  createdAt       DateTime @default(now()) @map("created_at")
-
-  @@index([storeItemId, createdAt])
-  @@index([memberId, createdAt])
-  @@index([provider, createdAt])
-  @@map("quantity_audit_log")
-}
-
-// Member-level sync preferences for multi-platform channel sync
-model MemberSyncPreferences {
-  id                    String   @id @default(cuid())
-  memberId              String   @unique @map("member_id")
-  
-  // Global controls
-  syncEnabled           Boolean  @default(true) @map("sync_enabled")           // Master pause toggle
-  sourceOfTruth         String   @default("inw") @map("source_of_truth")        // inw | wix | ebay | etsy | shopify
-  conflictResolution    String   @default("most_recent") @map("conflict_resolution") // most_recent | inw_wins | manual_review
-  
-  // Inventory rules
-  safetyBuffer          Int      @default(0) @map("safety_buffer")              // Units held back from external channels
-  lowStockAlertThreshold Int     @default(0) @map("low_stock_alert_threshold")  // 0 = disabled
-  syncZeroQuantity      Boolean  @default(true) @map("sync_zero_quantity")      // When off, 0 qty items hidden on channels
-  
-  // Content sync toggles
-  syncTitles            Boolean  @default(true) @map("sync_titles")
-  syncDescriptions      Boolean  @default(true) @map("sync_descriptions")
-  syncPhotos            Boolean  @default(true) @map("sync_photos")
-  syncPrices            Boolean  @default(true) @map("sync_prices")
-  syncShipping          Boolean  @default(true) @map("sync_shipping")           // When off, shipping costs not imported/synced
-  importEbayShippingOptions Boolean @default(false) @map("import_ebay_shipping_options")
-  importEtsyShippingOptions Boolean @default(false) @map("import_etsy_shipping_options")
-  
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
-
-  member                Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
-
-  @@map("member_sync_preferences")
-}

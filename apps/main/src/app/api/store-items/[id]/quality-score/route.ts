@@ -38,10 +38,6 @@ export async function GET(
       inStorePickupAvailable: true,
       variants: true,
       aspects: true,
-      etsyWhoMade: true,
-      etsyWhenMade: true,
-      etsyIsSupply: true,
-      ebayCategoryId: true,
     },
   });
 
@@ -55,7 +51,6 @@ export async function GET(
 
   const { searchParams } = new URL(req.url);
   const analyzePhotosParam = searchParams.get("analyzePhotos") !== "false";
-  const checkChannels = searchParams.get("checkChannels") === "true";
 
   // Analyze photos if requested (default: true)
   let photoAnalysis;
@@ -66,21 +61,6 @@ export async function GET(
       console.error("[quality-score] Photo analysis error:", e);
       photoAnalysis = undefined;
     }
-  }
-
-  // Fetch member's channel connections if checking channel readiness
-  let memberConnections;
-  if (checkChannels) {
-    const connections = await prisma.channelConnection.findMany({
-      where: { memberId: session.user.id },
-      select: {
-        provider: true,
-        status: true,
-        etsyShippingProfileId: true,
-        config: true,
-      },
-    });
-    memberConnections = connections;
   }
 
   // Calculate quality score
@@ -101,15 +81,9 @@ export async function GET(
       inStorePickupAvailable: item.inStorePickupAvailable,
       variants: item.variants,
       aspects: item.aspects,
-      etsyWhoMade: item.etsyWhoMade,
-      etsyWhenMade: item.etsyWhenMade,
-      etsyIsSupply: item.etsyIsSupply,
-      ebayCategoryId: item.ebayCategoryId,
     },
     {
       photoAnalysis,
-      checkChannelReadiness: checkChannels,
-      memberConnections,
     }
   );
 

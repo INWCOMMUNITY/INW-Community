@@ -4,7 +4,6 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
-import { syncInventoryToChannelsAfterSale } from "@/lib/channels/sync-inventory";
 import { refundPaidStorefrontOrder } from "@/lib/stripe/refund-store-order";
 
 export const dynamic = "force-dynamic";
@@ -126,9 +125,6 @@ export async function POST(
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
   }
-
-  // Pooled inventory: restored stock should be reflected on any linked channels (Etsy, etc.).
-  await Promise.all(order.items.map((oi) => syncInventoryToChannelsAfterSale(oi.storeItemId)));
 
   const { sendPushNotification } = await import("@/lib/send-push-notification");
   sendPushNotification(order.buyerId, {

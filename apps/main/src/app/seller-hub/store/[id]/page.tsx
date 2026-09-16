@@ -5,11 +5,6 @@ import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { authOptions } from "@/lib/auth";
 import Link from "next/link";
 import { StoreItemForm } from "@/components/StoreItemForm";
-import {
-  channelLinkShowsOnItem,
-  SELLER_CHANNEL_LINK_SELECT,
-  withListingChannelSyncWarning,
-} from "@/lib/channels/listing-sync-warning";
 
 export default async function EditStoreItemPage({
   params,
@@ -42,15 +37,6 @@ export default async function EditStoreItemPage({
 
   const item = await prisma.storeItem.findFirst({
     where: { id: params.id, memberId: session.user.id },
-    include: {
-      channelLinks: {
-        select: {
-          ...SELLER_CHANNEL_LINK_SELECT,
-          lastPushedAt: true,
-          linkOrigin: true,
-        },
-      },
-    },
   });
   if (!item) {
     notFound();
@@ -59,8 +45,8 @@ export default async function EditStoreItemPage({
   return (
     <section className="py-8 px-4" style={{ padding: "var(--section-padding)" }}>
       <div className="max-w-5xl mx-auto">
-        <Link href="/seller-hub/store/items" className="text-sm text-gray-600 hover:underline mb-2 inline-block">
-          ← Back to My Items
+        <Link href="/seller-hub" className="text-sm text-gray-600 hover:underline mb-2 inline-block">
+          ← Back to Seller Hub
         </Link>
         <h1 className="text-2xl sm:text-3xl font-bold mb-6 text-gray-900">Edit Item</h1>
         <StoreItemForm
@@ -87,38 +73,12 @@ export default async function EditStoreItemPage({
             localDeliveryTerms: (item as { localDeliveryTerms?: string | null }).localDeliveryTerms ?? null,
             acceptOffers: item.acceptOffers,
             minOfferCents: item.minOfferCents,
-            ebayCategoryId: (item as { ebayCategoryId?: number | null }).ebayCategoryId ?? null,
             aspects: Array.isArray((item as { aspects?: unknown }).aspects)
               ? ((item as { aspects?: { name?: unknown; value?: unknown }[] }).aspects ?? []).map((a) => ({
                   name: String(a?.name ?? ""),
                   value: String(a?.value ?? ""),
                 }))
               : null,
-            etsyWhoMade: (item as { etsyWhoMade?: string | null }).etsyWhoMade ?? null,
-            etsyWhenMade: (item as { etsyWhenMade?: string | null }).etsyWhenMade ?? null,
-            etsyIsSupply: (item as { etsyIsSupply?: boolean | null }).etsyIsSupply ?? null,
-            etsyTaxonomyId: (item as { etsyTaxonomyId?: number | null }).etsyTaxonomyId ?? null,
-            channelLinks: item.channelLinks.map((l) => ({
-              ...withListingChannelSyncWarning(l),
-              lastPushedAt: l.lastPushedAt?.toISOString() ?? null,
-              linkOrigin: l.linkOrigin,
-            })),
-            hasEbayImportLink: item.channelLinks.some(
-              (l) =>
-                l.provider === "ebay" &&
-                channelLinkShowsOnItem(withListingChannelSyncWarning(l)) &&
-                (/^inw\d+$/i.test(l.externalListingId.trim()) || l.linkOrigin === "import")
-            ),
-            ebayLinkOrigin: (() => {
-              const ebay = item.channelLinks.find(
-                (l) => l.provider === "ebay" && channelLinkShowsOnItem(withListingChannelSyncWarning(l))
-              );
-              if (!ebay) return null;
-              if (ebay.linkOrigin === "import" || /^inw\d+$/i.test(ebay.externalListingId.trim())) {
-                return "import" as const;
-              }
-              return "inw_create" as const;
-            })(),
           }}
         />
       </div>

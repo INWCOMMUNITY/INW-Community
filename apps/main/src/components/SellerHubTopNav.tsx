@@ -90,7 +90,6 @@ export function SellerHubTopNav() {
   const listingsChildren: Child[] = [
     { href: "/seller-hub/store/items", label: "My Items", icon: "cube-outline" },
     { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
-    { href: "/seller-hub/channels", label: "Sync Stores", icon: "sync-outline" },
   ];
 
   const ordersChildren: Child[] = [

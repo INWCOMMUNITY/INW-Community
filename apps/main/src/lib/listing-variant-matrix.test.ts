@@ -32,7 +32,6 @@ import {
   validateVariantMatrixForSave,
   type VariantMatrix,
 } from "./listing-variant-matrix";
-import { validateInwVariantsForSave } from "./channels/variant-sync";
 import {
   decrementOptionQuantity,
   getAvailableQuantity,
@@ -164,7 +163,7 @@ describe("normalizeVariantMatrix", () => {
   });
 });
 
-describe("validateInwVariantsForSave", () => {
+describe("validateVariantMatrixForSave", () => {
   it("allows 2–3 axes within the default 100 SKU cap", () => {
     const matrix = rebuildMatrixFromAxes(
       [
@@ -173,7 +172,6 @@ describe("validateInwVariantsForSave", () => {
       ],
       []
     );
-    expect(validateInwVariantsForSave(matrix)).toBeNull();
     expect(validateVariantMatrixForSave(matrix)).toBeNull();
   });
 
@@ -220,7 +218,7 @@ describe("validateInwVariantsForSave", () => {
 
   it("rejects a fourth option type", () => {
     expect(
-      validateInwVariantsForSave({
+      validateVariantMatrixForSave({
         axes: [
           { name: "A", values: ["1"] },
           { name: "B", values: ["1"] },

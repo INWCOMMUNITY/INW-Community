@@ -1,7 +1,6 @@
 import Stripe from "stripe";
 import { prisma } from "database";
 import { restockOrderLinesAfterReturn } from "@/lib/store-item-restock";
-import { syncInventoryToChannelsAfterSale } from "@/lib/channels/sync-inventory";
 import { computeSellerTransferCents } from "@/lib/storefront-payout";
 import {
   fullRefundChargeCents,
@@ -196,9 +195,6 @@ export async function refundPaidStorefrontOrder(args: {
     await debitSellerLedgerForRefund(tx, order, args.ledgerDebitCents);
   });
 
-  if (shouldRestock) {
-    await Promise.all(order.items.map((oi) => syncInventoryToChannelsAfterSale(oi.storeItemId)));
-  }
   return { ok: true, refunded: true, amountCents: amount };
 }
 
@@ -264,6 +260,5 @@ export async function restockAfterExternalRefund(
     await restockOrderLinesAfterReturn(tx, order.items);
     await debitSellerLedgerForRefund(tx, order);
   });
-  await Promise.all(order.items.map((oi) => syncInventoryToChannelsAfterSale(oi.storeItemId)));
   return true;
 }

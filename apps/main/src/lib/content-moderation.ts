@@ -4,7 +4,7 @@
  * slurs blocked everywhere; profanity allowed in messages/comments; business names with profanity require admin approval.
  */
 
-import { listingDescriptionToPlainText } from "./channels/rich-description";
+import { listingDescriptionToPlainText } from "./listing-description-preview";
 
 // Prohibited product categories for seller listings
 export const PROHIBITED_PRODUCT_CATEGORIES = [

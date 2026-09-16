@@ -69,6 +69,7 @@ const SHARE_API_PATH: Record<Exclude<SharedContentType, "photo">, string> = {
   coupon: "/api/coupons",
   reward: "/api/rewards",
   event: "/api/events",
+  storefront: "/api/storefronts",
 };
 
 /**

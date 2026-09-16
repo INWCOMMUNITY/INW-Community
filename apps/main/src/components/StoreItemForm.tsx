@@ -16,7 +16,6 @@ import {
   type InventoryTracking,
   type VariantAxisDef,
 } from "@/lib/listing-variant-matrix";
-import { channelLinkShowsOnItem, listingVariantChannelWarnings } from "@/lib/channels/listing-sync-warning";
 import {
   initEditorFromVariants,
   ListingVariantMatrixEditor,
@@ -24,35 +23,11 @@ import {
   type EditorSkuRow,
 } from "@/components/listing/ListingVariantMatrixEditor";
 import { buildProductHref } from "@/lib/product-referrer";
-import {
-  defaultSelectedProviders,
-  fetchChannelConnections,
-  type ChannelConnectionSummary,
-  type ChannelProviderId,
-} from "@/lib/channel-connections-client";
-import { CHANNEL_PROVIDER_LABELS } from "@/lib/channels/provider-ui";
-import {
-  buildSyncSuccessMessage,
-  formatChannelSyncResults,
-  type ChannelSyncRow,
-} from "@/lib/channel-sync-feedback";
-import {
-  consumeListingChannelSync,
-  persistListingChannelSync,
-} from "@/lib/listing-channel-sync-session";
 import { ListingEditorLayout } from "@/components/store-item/ListingEditorLayout";
 import { ListingFormSection } from "@/components/store-item/ListingFormSection";
 import { ListingConditionToggle } from "@/components/store-item/ListingConditionToggle";
 import { ListingPhotoGallery } from "@/components/store-item/ListingPhotoGallery";
 import { ListingSaveBar } from "@/components/store-item/ListingSaveBar";
-import {
-  ItemChannelSyncPanel,
-  type ChannelLinkSummary,
-} from "@/components/store-item/ItemChannelSyncPanel";
-import { ChannelListOnCheckboxes } from "@/components/store-item/ChannelListOnCheckboxes";
-import { ChannelSyncResultBanner } from "@/components/store-item/ChannelSyncResultBanner";
-import { ItemSyncActivityLog } from "@/components/store-item/ItemSyncActivityLog";
-import { LISTING_SYNC_HINTS, SyncFieldHint } from "@/components/store-item/listing-sync-hints";
 import { LISTING_SKU_MAX } from "@/lib/listing-sku";
 import {
   listingHintClass,
@@ -75,53 +50,18 @@ import {
   formatShippingOptionPackageSummary,
   shippingOptionNeedsMeasurements,
 } from "@/lib/package-weight";
-import {
-  formatAspectValidationErrors,
-  prepareAspectRowsForForm,
-  prepareAspectsForEbayCategory,
-} from "@/lib/channels/ebay/aspect-prep";
-import { isImportedEbayLink } from "@/lib/channels/ebay/listing-origin";
-import {
-  listingDescriptionForEditForm,
-  listingDescriptionFromEditForm,
-} from "@/lib/channels/rich-description";
-import {
-  type EtsyWhenMade,
-  type EtsyWhoMade,
-  isEtsyWhoMade,
-  normalizeEtsyWhenMade,
-} from "@/lib/etsy-listing-options";
 import { listingPhotoEffectiveMime } from "@/lib/listing-photo-upload";
 import {
   formatListingPhotoSizeLabel,
   MAX_LISTING_PHOTO_BYTES,
   uploadListingPhoto,
 } from "@/lib/upload-listing-photo-browser";
-import { EbayListingRequirementsSection } from "@/components/store-item/EbayListingRequirementsSection";
-import {
-  EtsyListingRequirementsSection,
-  type EtsyCategorySuggestion,
-} from "@/components/store-item/EtsyListingRequirementsSection";
 
 interface Business {
   id: string;
   name: string;
   slug: string;
 }
-
-type EbayCategorySuggestion = {
-  categoryId: string;
-  categoryName: string;
-  categoryPath?: string;
-};
-
-type EbayCategoryAspect = {
-  name: string;
-  required: boolean;
-  mode: "FREE_TEXT" | "SELECTION_ONLY";
-  cardinality: "SINGLE" | "MULTI";
-  suggestedValues: string[];
-};
 
 interface StoreItemFormProps {
   existing?: {
@@ -150,15 +90,6 @@ interface StoreItemFormProps {
     pickupTerms?: string | null;
     acceptOffers?: boolean;
     minOfferCents?: number | null;
-    ebayCategoryId?: number | null;
-    aspects?: { name: string; value: string }[] | null;
-    etsyWhoMade?: string | null;
-    etsyWhenMade?: string | null;
-    etsyIsSupply?: boolean | null;
-    etsyTaxonomyId?: number | null;
-    channelLinks?: ChannelLinkSummary[];
-    ebayLinkOrigin?: "import" | "inw_create" | null;
-    hasEbayImportLink?: boolean;
     sku?: string | null;
   };
   /** Redirect after successful create/update (default: /seller-hub/store/items). */
@@ -172,9 +103,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [condition, setCondition] = useState<"new" | "used">(existing?.condition ?? "new");
   const [title, setTitle] = useState(existing?.title ?? "");
   const [sku, setSku] = useState(existing?.sku ?? "");
-  const [description, setDescription] = useState(() =>
-    listingDescriptionForEditForm(existing?.description)
-  );
+  const [description, setDescription] = useState(existing?.description ?? "");
   const [photos, setPhotos] = useState<string[]>(existing?.photos ?? []);
   const [category, setCategory] = useState(existing?.category ?? "");
   const [subcategory, setSubcategory] = useState(existing?.subcategory ?? "");
@@ -182,38 +111,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     const c = existing?.category ?? "";
     return !!c && !STORE_CATEGORIES.some((x) => x.label === c);
   });
-  // eBay / Etsy integration: channel-specific listing requirements.
-  const [etsyWhoMade, setEtsyWhoMade] = useState<EtsyWhoMade>(() =>
-    isEtsyWhoMade(existing?.etsyWhoMade) ? existing!.etsyWhoMade! : "i_did"
-  );
-  const [etsyWhenMade, setEtsyWhenMade] = useState<EtsyWhenMade>(() =>
-    normalizeEtsyWhenMade(existing?.etsyWhenMade) ?? "made_to_order"
-  );
-  const [etsyIsSupply, setEtsyIsSupply] = useState(
-    existing?.etsyIsSupply ?? false
-  );
-  const [etsyTaxonomyId, setEtsyTaxonomyId] = useState<string>(
-    existing?.etsyTaxonomyId != null ? String(existing.etsyTaxonomyId) : ""
-  );
-  const [etsyCategoryLabel, setEtsyCategoryLabel] = useState<string>("");
-  const [etsyCategorySearch, setEtsyCategorySearch] = useState("");
-  const [etsyCategorySearchError, setEtsyCategorySearchError] = useState<string | null>(null);
-  const [etsyCategoryResults, setEtsyCategoryResults] = useState<EtsyCategorySuggestion[]>([]);
-  const [etsySearching, setEtsySearching] = useState(false);
-  const [ebayCategoryId, setEbayCategoryId] = useState<string>(
-    existing?.ebayCategoryId != null ? String(existing.ebayCategoryId) : ""
-  );
-  const [ebayCategoryLabel, setEbayCategoryLabel] = useState<string>("");
-  const [ebayCategorySearch, setEbayCategorySearch] = useState("");
-  const [ebayCategorySearchError, setEbayCategorySearchError] = useState<string | null>(null);
-  const [ebayCategoryResults, setEbayCategoryResults] = useState<EbayCategorySuggestion[]>([]);
-  const [ebaySearching, setEbaySearching] = useState(false);
-  const [categoryAspects, setCategoryAspects] = useState<EbayCategoryAspect[]>([]);
-  const [aspects, setAspects] = useState<ListingAspect[]>(() =>
-    Array.isArray(existing?.aspects)
-      ? existing!.aspects!.map((a) => ({ name: String(a.name ?? ""), value: String(a.value ?? "") }))
-      : []
-  );
+  const [aspects, setAspects] = useState<ListingAspect[]>([]);
   const [priceDollars, setPriceDollars] = useState(
     existing ? (existing.priceCents / 100).toFixed(2) : ""
   );
@@ -271,7 +169,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [acceptOffers, setAcceptOffers] = useState(
     existing?.acceptOffers ?? true
   );
-  /** Whole dollars, 0 = no minimum (accept any offer). Max follows list price when set. */
   const [minOfferSliderDollars, setMinOfferSliderDollars] = useState(() =>
     existing?.minOfferCents != null && existing.minOfferCents > 0
       ? Math.round(existing.minOfferCents / 100)
@@ -292,57 +189,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [feedShareError, setFeedShareError] = useState<string | null>(null);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [photoError, setPhotoError] = useState("");
-  const [hasChannelConnections, setHasChannelConnections] = useState(false);
-  const [channelConnections, setChannelConnections] = useState<ChannelConnectionSummary[]>([]);
-  const [listOnProviders, setListOnProviders] = useState<ChannelProviderId[]>([]);
-  const [channelLinks, setChannelLinks] = useState<ChannelLinkSummary[]>(
-    existing?.channelLinks ?? []
-  );
-  const [skipSyncOnSave, setSkipSyncOnSave] = useState(false);
-  const [lastChannelSync, setLastChannelSync] = useState<ChannelSyncRow[] | undefined>();
-  const [retryingFailedChannels, setRetryingFailedChannels] = useState(false);
   const [successDetail, setSuccessDetail] = useState("");
-  const [syncLogRefreshKey, setSyncLogRefreshKey] = useState(0);
-
-  const isEbayImportedListing = useMemo(() => {
-    if (existing?.hasEbayImportLink) return true;
-    if (existing?.ebayLinkOrigin === "import") return true;
-    const ebayLink = channelLinks.find((l) => l.provider === "ebay");
-    if (!ebayLink?.externalListingId) return false;
-    return isImportedEbayLink({
-      provider: "ebay",
-      externalListingId: ebayLink.externalListingId,
-      storeItemId: existing?.id,
-      linkOrigin: ebayLink.linkOrigin,
-    });
-  }, [channelLinks, existing?.id, existing?.ebayLinkOrigin, existing?.hasEbayImportLink]);
-
-  const etsyConnected = channelConnections.some((c) => c.provider === "etsy" && c.status === "active");
-  const ebayConnected = channelConnections.some((c) => c.provider === "ebay" && c.status === "active");
-  const etsyConn = channelConnections.find((c) => c.provider === "etsy");
-  const ebayConn = channelConnections.find((c) => c.provider === "ebay");
-  const etsyConnectionError =
-    etsyConn?.status === "error"
-      ? etsyConn.lastError?.trim() || "Reconnect Etsy in Sync Stores."
-      : null;
-  const ebayConnectionError =
-    ebayConn?.status === "error"
-      ? ebayConn.lastError?.trim() || "Reconnect eBay in Sync Stores."
-      : null;
-  const listingOnEtsy = existing
-    ? channelLinks.some((l) => l.provider === "etsy" && channelLinkShowsOnItem(l))
-    : listOnProviders.includes("etsy");
-  const listingOnEbay = existing
-    ? channelLinks.some((l) => l.provider === "ebay" && channelLinkShowsOnItem(l))
-    : listOnProviders.includes("ebay");
-  const showEtsyRequirements = listingOnEtsy;
-  const showEbayRequirements = listingOnEbay;
-
-  useEffect(() => {
-    if (!existing?.id) return;
-    const stored = consumeListingChannelSync(existing.id);
-    if (stored?.length) setLastChannelSync(stored);
-  }, [existing?.id]);
 
   useEffect(() => {
     fetch("/api/me/policies")
@@ -372,7 +219,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         }
       })
       .catch(() => setOfferFlagsLoaded(true));
-  }, [existing?.shippingPolicy, existing?.localDeliveryTerms, existing?.pickupTerms]);
+  }, [existing?.shippingPolicy, existing?.localDeliveryTerms, existing?.pickupTerms, useSellerProfileShipping, useSellerProfilePickup]);
 
   useEffect(() => {
     fetch("/api/shipping-options", { credentials: "include" })
@@ -415,7 +262,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       fetch("/api/businesses?mine=1").then((r) => r.json()),
       fetch("/api/businesses?list=meta").then((r) => r.json()),
       fetch("/api/seller-profile").then((r) => r.json()).catch(() => ({})),
-    ]).then(([bizData, metaData, profileData]) => {
+    ]).then(([bizData, , profileData]) => {
       if (Array.isArray(bizData)) {
         setBusinesses(bizData);
         if (!existing?.businessId && bizData[0]) {
@@ -442,264 +289,32 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     if (!offerLocalPickup) setInStorePickupAvailable(false);
   }, [offerFlagsLoaded, offerShipping, offerLocalDelivery, offerLocalPickup]);
 
-  useEffect(() => {
-    fetchChannelConnections()
-      .then((list) => {
-        setChannelConnections(list);
-        setHasChannelConnections(list.some((c) => c.status === "active" || c.status === "error"));
-        if (!existing) {
-          setListOnProviders(defaultSelectedProviders(list));
-        }
-      })
-      .catch(() => {
-        setChannelConnections([]);
-        setHasChannelConnections(false);
-      });
-  }, [existing]);
-
-  // If category search fails with reconnect guidance, refresh connection status in the UI.
-  useEffect(() => {
-    const msg = ebayCategorySearchError || etsyCategorySearchError;
-    if (!msg) return;
-    if (!/reconnect|sync stores|unavailable|decrypt|expired/i.test(msg)) return;
-    fetchChannelConnections()
-      .then((list) => {
-        setChannelConnections(list);
-        setHasChannelConnections(list.some((c) => c.status === "active" || c.status === "error"));
-      })
-      .catch(() => {});
-  }, [ebayCategorySearchError, etsyCategorySearchError]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("fixEbayCondition") === "1") {
-      document.getElementById("listing-condition")?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, []);
-
-  // Debounced live eBay category search (Taxonomy API — app credentials, not seller OAuth).
-  useEffect(() => {
-    const q = ebayCategorySearch.trim();
-    if (!showEbayRequirements) return;
-    if (q.length < 2) {
-      setEbayCategoryResults([]);
-      setEbayCategorySearchError(null);
-      return;
-    }
-    let cancelled = false;
-    setEbaySearching(true);
-    setEbayCategorySearchError(null);
-    const t = setTimeout(() => {
-      fetch(`/api/channels/ebay/categories?q=${encodeURIComponent(q)}`, {
-        credentials: "include",
-      })
-        .then(async (r) => {
-          const ct = r.headers.get("content-type") ?? "";
-          let data: { categories?: EbayCategorySuggestion[]; error?: string; warning?: string; rateLimited?: boolean } =
-            {};
-          if (ct.includes("application/json")) {
-            data = await r.json();
-          }
-          if (cancelled) return;
-          if (!r.ok) {
-            setEbayCategoryResults([]);
-            setEbayCategorySearchError(
-              data.error ??
-                data.warning ??
-                (r.status === 503
-                  ? "eBay category search is not configured on this server."
-                  : "eBay is busy right now. Wait a minute and search again.")
-            );
-            return;
-          }
-          setEbayCategoryResults(data.categories ?? []);
-          setEbayCategorySearchError(
-            data.warning ?? (data.rateLimited ? "eBay is busy right now. Wait a minute and search again." : null)
-          );
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setEbayCategoryResults([]);
-            setEbayCategorySearchError("Category search failed. Check your connection and try again.");
-          }
-        })
-        .finally(() => {
-          if (!cancelled) setEbaySearching(false);
-        });
-    }, 400);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [ebayCategorySearch, showEbayRequirements]);
-
-  // Debounced live Etsy category search (seller taxonomy via connected shop token).
-  useEffect(() => {
-    const q = etsyCategorySearch.trim();
-    if (!showEtsyRequirements) return;
-    if (q.length < 2) {
-      setEtsyCategoryResults([]);
-      setEtsyCategorySearchError(null);
-      return;
-    }
-    let cancelled = false;
-    setEtsySearching(true);
-    setEtsyCategorySearchError(null);
-    const t = setTimeout(() => {
-      fetch(`/api/channels/etsy/categories?q=${encodeURIComponent(q)}`, {
-        credentials: "include",
-      })
-        .then(async (r) => {
-          const ct = r.headers.get("content-type") ?? "";
-          let data: { categories?: EtsyCategorySuggestion[]; error?: string } = {};
-          if (ct.includes("application/json")) {
-            data = await r.json();
-          }
-          if (cancelled) return;
-          if (!r.ok) {
-            setEtsyCategoryResults([]);
-            setEtsyCategorySearchError(
-              data.error ??
-                (r.status === 503
-                  ? "Connect Etsy in Sync Stores to search categories."
-                  : r.status >= 500
-                    ? "Category search is temporarily unavailable. Try again in a moment."
-                    : "Category search failed. Try again or contact support.")
-            );
-            return;
-          }
-          setEtsyCategorySearchError(null);
-          setEtsyCategoryResults(data.categories ?? []);
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setEtsyCategoryResults([]);
-            setEtsyCategorySearchError("Category search failed. Check your connection and try again.");
-          }
-        })
-        .finally(() => {
-          if (!cancelled) setEtsySearching(false);
-        });
-    }, 400);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [etsyCategorySearch, showEtsyRequirements]);
-
-  // Resolve a saved Etsy taxonomy id to a readable path for the picker.
-  useEffect(() => {
-    if (!showEtsyRequirements || !etsyTaxonomyId || etsyCategoryLabel) return;
-    let cancelled = false;
-    fetch(`/api/channels/etsy/categories?id=${encodeURIComponent(etsyTaxonomyId)}`, {
-      credentials: "include",
-    })
-      .then(async (r) => {
-        if (!r.ok) return null;
-        const data: { categories?: EtsyCategorySuggestion[] } = await r.json();
-        return data.categories?.[0] ?? null;
-      })
-      .then((hit) => {
-        if (cancelled || !hit) return;
-        setEtsyCategoryLabel(hit.categoryPath || hit.categoryName);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [showEtsyRequirements, etsyTaxonomyId, etsyCategoryLabel]);
-
-  // When an eBay category is chosen, load its required/recommended item specifics and pre-seed rows.
-  const loadCategoryAspects = useCallback(
-    async (categoryId: string) => {
-      if (!categoryId) {
-        setCategoryAspects([]);
-        return;
-      }
-      try {
-        const storeItemQuery = existing?.id
-          ? `&storeItemId=${encodeURIComponent(existing.id)}`
-          : "";
-        const res = await fetch(
-          `/api/channels/ebay/category-aspects?categoryId=${encodeURIComponent(categoryId)}${storeItemQuery}`,
-          { credentials: "include" }
-        );
-        const data: { aspects?: EbayCategoryAspect[]; error?: string; readOnly?: boolean } =
-          await res.json();
-        if (!res.ok) {
-          setCategoryAspects([]);
-          setEbayCategorySearchError(
-            data.error ??
-              (res.status === 503
-                ? "eBay item specifics are not configured on this server."
-                : "Could not load eBay item specifics for this category.")
-          );
-          return;
-        }
-        const list = data.aspects ?? [];
-        setCategoryAspects(list);
-        if (!data.readOnly) {
-          setAspects((prev) => prepareAspectRowsForForm(list, prev, title.trim()));
-        }
-      } catch {
-        setCategoryAspects([]);
-      }
-    },
-    [title, existing?.id]
-  );
-
-  // Load aspects for a previously-saved eBay category on edit.
-  useEffect(() => {
-    if (showEbayRequirements && ebayCategoryId) {
-      void loadCategoryAspects(ebayCategoryId);
-    }
-  }, [showEbayRequirements, ebayCategoryId, loadCategoryAspects]);
-
-  function mergeUploadedUrls(prev: string[], urls: string[]) {
-    const next = [...prev];
-    for (const url of urls) {
-      if (!next.includes(url)) next.push(url);
-    }
-    return next;
-  }
-
   async function handlePhotosUpload(files: File[]) {
-    if (!files.length) return;
-    setUploadingPhotos(true);
     setPhotoError("");
     setError("");
-
-    const accepted: { file: File; preview: string }[] = [];
+    setUploadingPhotos(true);
+    const uploaded: string[] = [];
     const issues: string[] = [];
+
     for (const file of files) {
+      const mime = listingPhotoEffectiveMime(file.name, file.type);
+      if (!mime) {
+        issues.push(`${file.name}: unsupported format`);
+        continue;
+      }
+      const ext = mime.split("/")[1];
       if (file.size > MAX_LISTING_PHOTO_BYTES) {
-        issues.push(`${file.name || "Photo"} is over ${formatListingPhotoSizeLabel()}.`);
+        issues.push(
+          `${file.name} is too large (${formatListingPhotoSizeLabel(file.size)})`
+        );
         continue;
       }
-      if (!listingPhotoEffectiveMime(file.type, file.name)) {
-        issues.push(`${file.name || "Photo"} is not a supported image type.`);
-        continue;
-      }
-      accepted.push({ file, preview: URL.createObjectURL(file) });
-    }
-
-    if (accepted.length) {
-      setPhotos((prev) => mergeUploadedUrls(prev, accepted.map((a) => a.preview)));
-    }
-
-    for (const item of accepted) {
       try {
-        const url = await uploadListingPhoto(item.file);
-        setPhotos((prev) => {
-          const withoutPreview = prev.filter((u) => u !== item.preview);
-          return mergeUploadedUrls(withoutPreview, [url]);
-        });
+        const url = await uploadListingPhoto(file, ext);
+        uploaded.push(url);
       } catch (err) {
-        setPhotos((prev) => prev.filter((u) => u !== item.preview));
         issues.push(err instanceof Error ? err.message : "Upload failed");
       }
-      window.setTimeout(() => URL.revokeObjectURL(item.preview), 1500);
     }
 
     if (issues.length) {
@@ -710,9 +325,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       setPhotoError(message);
       setError(message);
     }
+    if (uploaded.length) {
+      setPhotos((prev) => [...prev, ...uploaded]);
+    }
     setUploadingPhotos(false);
   }
-
 
   function buildPayload(): Record<string, unknown> | null {
     const priceCents = Math.round(parseFloat(priceDollars) * 100);
@@ -764,55 +381,16 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     const cleanedAspects = aspects
       .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
       .filter((a) => a.name && a.value);
-    let aspectsToSave = cleanedAspects;
-    if (listingOnEbay && !isEbayImportedListing && !ebayCategoryId) {
-      setError("eBay requires a category — fill in eBay Listing Requirements.");
-      return null;
-    }
-    if (listingOnEbay && ebayCategoryId && !isEbayImportedListing) {
-      const aspectValidation = prepareAspectsForEbayCategory(
-        categoryAspects,
-        cleanedAspects,
-        title.trim()
-      );
-      if (!aspectValidation.valid) {
-        setError(
-          formatAspectValidationErrors(
-            aspectValidation.missingRequired,
-            aspectValidation.invalidSelectionValues
-          )
-        );
-        return null;
-      }
-      aspectsToSave = aspectValidation.remappedAspects.filter((a) => a.name && a.value);
-    }
-    if (listingOnEtsy) {
-      if (!etsyTaxonomyId) {
-        setError("Etsy requires a category — fill in Etsy Listing Requirements.");
-        return null;
-      }
-      if (!isEtsyWhoMade(etsyWhoMade)) {
-        setError('Etsy requires "Who made it?" — fill in Etsy Listing Requirements.');
-        return null;
-      }
-      if (!normalizeEtsyWhenMade(etsyWhenMade)) {
-        setError('Etsy requires "When was it made?" — fill in Etsy Listing Requirements.');
-        return null;
-      }
-    }
+
     return {
       businessId: businessId || null,
       title: title.trim(),
       sku: sku.trim() || null,
-      description: listingDescriptionFromEditForm(description),
+      description: description.trim() || null,
       photos,
       category: category.trim() || null,
       subcategory: subcategory.trim() || null,
-      ebayCategoryId: listingOnEbay && ebayCategoryId ? Number(ebayCategoryId) : null,
-      ...(isEbayImportedListing ? {} : { aspects: aspectsToSave }),
-      ...(listingOnEtsy
-        ? { etsyWhoMade, etsyWhenMade, etsyIsSupply, etsyTaxonomyId: Number(etsyTaxonomyId) }
-        : {}),
+      aspects: cleanedAspects,
       priceCents,
       status: "active",
       condition,
@@ -853,35 +431,24 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     };
   }
 
-  async function performSubmit(
-    payload: Record<string, unknown>,
-    syncOptions?: { syncToChannels?: boolean; channelProviders?: ChannelProviderId[] }
-  ) {
-    setSubmitting(true);
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
     setError("");
-    setLastChannelSync(undefined);
+    const payload = buildPayload();
+    if (!payload) return;
+
+    setSubmitting(true);
     try {
-      const body = {
-        ...payload,
-        ...(syncOptions?.syncToChannels !== undefined
-          ? { syncToChannels: syncOptions.syncToChannels }
-          : existing && skipSyncOnSave
-            ? { syncToChannels: false }
-            : {}),
-        ...(syncOptions?.channelProviders ? { channelProviders: syncOptions.channelProviders } : {}),
-      };
       const url = existing ? `/api/store-items/${existing.id}` : "/api/store-items";
       const method = existing ? "PATCH" : "POST";
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       });
       let data: {
         error?: unknown;
         message?: string;
-        channelSync?: ChannelSyncRow[];
-        channelLinks?: ChannelLinkSummary[];
         id?: string;
         slug?: string;
         photos?: string[];
@@ -899,35 +466,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         return;
       }
 
-      const syncResult = formatChannelSyncResults(data.channelSync, "saved");
-      setLastChannelSync(data.channelSync);
-
-      if (Array.isArray(data.channelLinks)) {
-        setChannelLinks(
-          data.channelLinks.map((l) => ({
-            provider: l.provider,
-            syncStatus: l.syncStatus,
-            syncEnabled: l.syncEnabled ?? true,
-            syncError: l.syncError ?? null,
-            lastPushedAt: l.lastPushedAt ?? null,
-            externalListingId: l.externalListingId ?? null,
-          }))
-        );
-      } else if (existing?.id) {
-        await refreshChannelLinks(existing.id);
-      }
-
-      setSyncLogRefreshKey((k) => k + 1);
-
-      if (!syncResult.allOk && (data.channelSync?.length ?? 0) > 0) {
-        if (!existing && data.id) {
-          persistListingChannelSync(data.id, data.channelSync ?? []);
-          router.replace(`/seller-hub/store/${data.id}`);
-          router.refresh();
-        }
-        return;
-      }
-
       setEditSuccess(!!existing);
       setSuccessItemId(data.id ?? existing?.id ?? null);
       setSuccessItemSlug(data.slug ?? existing?.slug ?? null);
@@ -937,81 +475,15 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         setPhotos(data.photos);
       }
       setSuccessDetail(
-        syncResult.successLines.length > 0
-          ? buildSyncSuccessMessage(syncResult.successLines)
-          : existing
-            ? "Your changes have been saved on INW."
-            : "Your listing is now live on INW."
+        existing
+          ? "Your changes have been saved on INW."
+          : "Your listing is now live on INW."
       );
       setShowSuccessModal(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
-    }
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    const payload = buildPayload();
-    if (!payload) return;
-
-    if (!existing) {
-      await performSubmit(payload, {
-        syncToChannels: listOnProviders.length > 0,
-        channelProviders: listOnProviders,
-      });
-      return;
-    }
-
-    await performSubmit(payload);
-  }
-
-  async function refreshChannelLinks(itemId: string) {
-    const refresh = await fetch(`/api/store-items/${itemId}`, { credentials: "include" });
-    const refreshed = await refresh.json();
-    if (Array.isArray(refreshed.channelLinks)) {
-      setChannelLinks(refreshed.channelLinks);
-    }
-  }
-
-  async function retryFailedChannelPublish() {
-    const itemId = existing?.id;
-    const failed = (lastChannelSync ?? [])
-      .filter((r) => !r.ok)
-      .map((r) => r.provider)
-      .filter((p): p is ChannelProviderId =>
-        p === "etsy" || p === "ebay" || p === "shopify" || p === "wix"
-      );
-    if (!itemId || failed.length === 0 || retryingFailedChannels) return;
-    setRetryingFailedChannels(true);
-    setError("");
-    try {
-      const res = await fetch(`/api/store-items/${itemId}/publish-channels`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ providers: failed }),
-      });
-      let data: { error?: unknown; message?: string; channelSync?: ChannelSyncRow[] } = {};
-      try {
-        const text = await res.text();
-        if (text) data = JSON.parse(text);
-      } catch {
-        data = { error: `Retry failed (${res.status}).` };
-      }
-      if (!res.ok) {
-        setError(getErrorMessage(data?.error, data?.message ?? "Could not retry failed stores"));
-        return;
-      }
-      setLastChannelSync(data.channelSync);
-      await refreshChannelLinks(itemId);
-      setSyncLogRefreshKey((k) => k + 1);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not retry failed stores");
-    } finally {
-      setRetryingFailedChannels(false);
     }
   }
 
@@ -1045,6 +517,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       setFeedShareBusy(false);
     }
   }
+
   function handleSeeListing() {
     if (!successItemSlug) {
       handleSuccessModalClose();
@@ -1053,6 +526,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     setShowSuccessModal(false);
     router.push(buildProductHref(successItemSlug, { type: "my-items" }));
   }
+
   function handleEditListing() {
     setShowSuccessModal(false);
     if (successItemId && existing?.id !== successItemId) {
@@ -1061,6 +535,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     }
     router.refresh();
   }
+
   function handleListAnother() {
     setShowSuccessModal(false);
     router.push("/seller-hub/store/new");
@@ -1079,50 +554,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   function removeAspectRow(i: number) {
     setAspects((prev) => prev.filter((_, idx) => idx !== i));
   }
-  function clearEbayRequiredAspectRows(fromAspects: EbayCategoryAspect[]) {
-    const requiredNames = new Set(
-      fromAspects.filter((a) => a.required).map((a) => a.name.trim().toLowerCase())
-    );
-    if (requiredNames.size === 0) return;
-    setAspects((prev) =>
-      prev.filter((a) => {
-        const nameLower = a.name.trim().toLowerCase();
-        if (!requiredNames.has(nameLower)) return true;
-        return a.value.trim().length > 0;
-      })
-    );
-  }
-
-  function handleClearEbayCategory() {
-    clearEbayRequiredAspectRows(categoryAspects);
-    setEbayCategoryId("");
-    setEbayCategoryLabel("");
-    setEbayCategorySearch("");
-    setEbayCategorySearchError(null);
-    setCategoryAspects([]);
-  }
-
-  function handleClearEtsyCategory() {
-    setEtsyTaxonomyId("");
-    setEtsyCategoryLabel("");
-    setEtsyCategorySearch("");
-    setEtsyCategorySearchError(null);
-    setEtsyCategoryResults([]);
-  }
-
-  /** Suggested values for a Descriptor that matches a known eBay category aspect. */
-  function suggestionsForAspect(name: string): string[] {
-    const match = categoryAspects.find((a) => a.name.trim().toLowerCase() === name.trim().toLowerCase());
-    return match?.suggestedValues ?? [];
-  }
-  function isRequiredAspect(name: string): boolean {
-    if (!ebayCategoryId) return false;
-    return categoryAspects.some(
-      (a) => a.required && a.name.trim().toLowerCase() === name.trim().toLowerCase()
-    );
-  }
-
-  const showSyncHints = hasChannelConnections;
 
   return (
     <>
@@ -1137,8 +568,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                   onUploadFiles={handlePhotosUpload}
                   uploadingPhotos={uploadingPhotos}
                   photoError={photoError}
-                  showSyncHint={showSyncHints}
-                  listingOnEbay={listingOnEbay}
                 />
               </ListingFormSection>
 
@@ -1148,81 +577,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                   onChange={setCondition}
                   hint="Buyers can filter the storefront by New or Used. Used items can accept offers."
                 />
-                {listingOnEbay ? <SyncFieldHint text={LISTING_SYNC_HINTS.condition} /> : null}
               </ListingFormSection>
-
-              {existing ? (
-              <ListingFormSection
-                title="Connected stores"
-                description="Sync status and actions for linked marketplaces."
-              >
-                <ItemChannelSyncPanel
-                  storeItemId={existing.id}
-                  initialLinks={channelLinks}
-                  hasConnections={hasChannelConnections}
-                  skipSyncOnSave={skipSyncOnSave}
-                  onSkipSyncChange={setSkipSyncOnSave}
-                  disabled={submitting}
-                  onLinksUpdated={setChannelLinks}
-                  onItemRefreshed={(item) => {
-                    setTitle(item.title ?? "");
-                    if (item.sku !== undefined) setSku(item.sku ?? "");
-                    setDescription(listingDescriptionForEditForm(item.description));
-                    setPhotos(Array.isArray(item.photos) ? item.photos : []);
-                    setCategory(item.category ?? "");
-                    setSubcategory(item.subcategory ?? "");
-                    setPriceDollars(
-                      item.priceCents != null ? (item.priceCents / 100).toFixed(2) : ""
-                    );
-                    setQuantity(item.quantity ?? 1);
-                    if (item.ebayCategoryId != null) {
-                      setEbayCategoryId(String(item.ebayCategoryId));
-                    }
-                    if (item.etsyTaxonomyId != null) {
-                      setEtsyTaxonomyId(String(item.etsyTaxonomyId));
-                      setEtsyCategoryLabel("");
-                    }
-                    if (item.condition === "new" || item.condition === "used") {
-                      setCondition(item.condition);
-                    }
-                    if (typeof item.acceptOffers === "boolean") {
-                      setAcceptOffers(item.acceptOffers);
-                    }
-                    if (item.minOfferCents != null && item.minOfferCents > 0) {
-                      setMinOfferSliderDollars(Math.round(item.minOfferCents / 100));
-                    } else if (item.minOfferCents === null) {
-                      setMinOfferSliderDollars(0);
-                    }
-                    if (Array.isArray(item.aspects)) {
-                      setAspects(
-                        item.aspects.map((a: { name?: unknown; value?: unknown }) => ({
-                          name: String(a?.name ?? ""),
-                          value: String(a?.value ?? ""),
-                        }))
-                      );
-                    }
-                  }}
-                />
-              </ListingFormSection>
-              ) : null}
             </>
           }
           main={
             <>
-              {!existing ? (
-                <ListingFormSection
-                  title="Where Else to List?"
-                  description="Choose other places to publish this item. Uncheck any store you want to skip."
-                >
-                  <ChannelListOnCheckboxes
-                    connections={channelConnections}
-                    selected={listOnProviders}
-                    onChange={setListOnProviders}
-                    disabled={submitting}
-                  />
-                </ListingFormSection>
-              ) : null}
-
               {businesses.length > 1 ? (
                 <ListingFormSection title="Business">
                   <label className={listingLabelClass}>Business (optional)</label>
@@ -1241,13 +600,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 </ListingFormSection>
               ) : null}
 
-              <ChannelSyncResultBanner
-                channelSync={lastChannelSync}
-                onDismiss={() => setLastChannelSync(undefined)}
-                onRetryFailed={existing ? () => void retryFailedChannelPublish() : undefined}
-                retrying={retryingFailedChannels}
-              />
-
               <ListingFormSection title="Listing Details" description="Title, SKU, description, and category.">
                 <div>
                   <label className={listingLabelClass}>Title *</label>
@@ -1262,7 +614,6 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                   <p className={`text-xs mt-1 text-right ${title.length >= EBAY_TITLE_MAX ? "text-red-600" : "text-gray-500"}`}>
                     {title.length}/{EBAY_TITLE_MAX}
                   </p>
-                  {showSyncHints ? <SyncFieldHint text={LISTING_SYNC_HINTS.title} /> : null}
                 </div>
 
                 <div>
@@ -1281,20 +632,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                     placeholder="Optional — your stock keeping unit"
                   />
                   <p className={listingHintClass}>
-                    {existing?.ebayLinkOrigin === "import"
-                      ? "Synced to Etsy, Wix, and Shopify. eBay imported listings keep their eBay inventory SKU."
-                      : "Synced to Etsy, eBay, Wix, and Shopify when you save. Leave blank to auto-generate."}
+                    Leave blank to auto-generate.
                   </p>
-                  {showSyncHints ? <SyncFieldHint text={LISTING_SYNC_HINTS.sku} /> : null}
-                  {existing?.ebayLinkOrigin === "inw_create" ? (
-                    <p className={listingHintClass}>
-                      eBay only accepts letters and numbers (no spaces or hyphens). Other stores can keep punctuation.
-                    </p>
-                  ) : sku && /[^a-zA-Z0-9]/.test(sku) ? (
-                    <p className={listingHintClass}>
-                      eBay only accepts letters and numbers. This SKU still syncs to Etsy, Wix, and Shopify; eBay will keep using this listing’s id.
-                    </p>
-                  ) : null}
                 </div>
 
                 <div>
@@ -1314,583 +653,498 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                       Choose a main category, then optionally narrow with a subcategory.
                     </p>
                   </div>
-        {useCustomCategory ? (
-          <div className="space-y-2">
-            <input
-              type="text"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              placeholder="Enter your category"
-              className={listingInputClass}
-            />
-            <input
-              type="text"
-              value={subcategory}
-              onChange={(e) => setSubcategory(e.target.value)}
-              placeholder="Subcategory (optional)"
-              className={listingInputClass}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setUseCustomCategory(false);
-                setCategory("");
-                setSubcategory("");
-              }}
-              className="text-sm underline"
-              style={{ color: "var(--color-primary)" }}
-            >
-              Choose from list instead
-            </button>
-          </div>
-        ) : (
-          <>
-            <div>
-              <label htmlFor="store-item-category" className="block text-xs font-medium text-gray-700 mb-1">
-                Main category
-              </label>
-              <select
-                id="store-item-category"
-                value={category}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setCategory(v);
-                  setSubcategory("");
-                }}
-                className="w-full border rounded px-3 py-2 bg-white"
-              >
-                <option value="">Select a category…</option>
-                {STORE_CATEGORIES.map((c) => (
-                  <option key={c.label} value={c.label}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {category ? (
-              <div>
-                <label htmlFor="store-item-subcategory" className="block text-xs font-medium text-gray-700 mb-1">
-                  Subcategory (optional)
-                </label>
-                <select
-                  id="store-item-subcategory"
-                  value={subcategory}
-                  onChange={(e) => setSubcategory(e.target.value)}
-                  className="w-full border rounded px-3 py-2 bg-white"
-                >
-                  <option value="">— None —</option>
-                  {getSubcategoriesForCategory(category).map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                  {subcategory && !getSubcategoriesForCategory(category).includes(subcategory) ? (
-                    <option value={subcategory}>{subcategory}</option>
-                  ) : null}
-                </select>
-              </div>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => setUseCustomCategory(true)}
-              className="text-sm underline mt-1 block"
-              style={{ color: "var(--color-primary)" }}
-            >
-              Can&apos;t find your category? Add your own
-            </button>
-          </>
-        )}
+                  {useCustomCategory ? (
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        value={category}
+                        onChange={(e) => setCategory(e.target.value)}
+                        placeholder="Enter your category"
+                        className={listingInputClass}
+                      />
+                      <input
+                        type="text"
+                        value={subcategory}
+                        onChange={(e) => setSubcategory(e.target.value)}
+                        placeholder="Subcategory (optional)"
+                        className={listingInputClass}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUseCustomCategory(false);
+                          setCategory("");
+                          setSubcategory("");
+                        }}
+                        className="text-sm underline"
+                        style={{ color: "var(--color-primary)" }}
+                      >
+                        Choose from list instead
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label htmlFor="store-item-category" className="block text-xs font-medium text-gray-700 mb-1">
+                          Main category
+                        </label>
+                        <select
+                          id="store-item-category"
+                          value={category}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setCategory(v);
+                            setSubcategory("");
+                          }}
+                          className="w-full border rounded px-3 py-2 bg-white"
+                        >
+                          <option value="">Select a category…</option>
+                          {STORE_CATEGORIES.map((c) => (
+                            <option key={c.label} value={c.label}>
+                              {c.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {category ? (
+                        <div>
+                          <label htmlFor="store-item-subcategory" className="block text-xs font-medium text-gray-700 mb-1">
+                            Subcategory (optional)
+                          </label>
+                          <select
+                            id="store-item-subcategory"
+                            value={subcategory}
+                            onChange={(e) => setSubcategory(e.target.value)}
+                            className="w-full border rounded px-3 py-2 bg-white"
+                          >
+                            <option value="">— None —</option>
+                            {getSubcategoriesForCategory(category).map((s) => (
+                              <option key={s} value={s}>
+                                {s}
+                              </option>
+                            ))}
+                            {subcategory && !getSubcategoriesForCategory(category).includes(subcategory) ? (
+                              <option value={subcategory}>{subcategory}</option>
+                            ) : null}
+                          </select>
+                        </div>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setUseCustomCategory(true)}
+                        className="text-sm underline mt-1 block"
+                        style={{ color: "var(--color-primary)" }}
+                      >
+                        Can&apos;t find your category? Add your own
+                      </button>
+                    </>
+                  )}
                 </div>
               </ListingFormSection>
 
-      {showEtsyRequirements && (
-        <EtsyListingRequirementsSection
-          etsyWhoMade={etsyWhoMade}
-          etsyWhenMade={etsyWhenMade}
-          etsyIsSupply={etsyIsSupply}
-          onWhoMadeChange={setEtsyWhoMade}
-          onWhenMadeChange={setEtsyWhenMade}
-          onIsSupplyChange={setEtsyIsSupply}
-          etsyTaxonomyId={etsyTaxonomyId}
-          etsyCategoryLabel={etsyCategoryLabel}
-          etsyCategorySearch={etsyCategorySearch}
-          onEtsyCategorySearchChange={setEtsyCategorySearch}
-          etsyCategorySearchError={etsyCategorySearchError}
-          etsyCategoryResults={etsyCategoryResults}
-          etsySearching={etsySearching}
-          connectionError={etsyConnectionError}
-          onSelectCategory={(taxonomyId, label) => {
-            setEtsyTaxonomyId(taxonomyId);
-            setEtsyCategoryLabel(label);
-            setEtsyCategoryResults([]);
-            setEtsyCategorySearch("");
-            setEtsyCategorySearchError(null);
-          }}
-          onClearCategory={handleClearEtsyCategory}
-        />
-      )}
-
-      {showEbayRequirements && (
-        <EbayListingRequirementsSection
-          ebayCategoryId={ebayCategoryId}
-          ebayCategoryLabel={ebayCategoryLabel}
-          ebayCategorySearch={ebayCategorySearch}
-          onEbayCategorySearchChange={setEbayCategorySearch}
-          ebayCategorySearchError={ebayCategorySearchError}
-          ebayCategoryResults={ebayCategoryResults}
-          ebaySearching={ebaySearching}
-          connectionError={ebayConnectionError}
-          categorySearchEnabled
-          onSelectCategory={(categoryId, label) => {
-            clearEbayRequiredAspectRows(categoryAspects);
-            setEbayCategoryId(categoryId);
-            setEbayCategoryLabel(label);
-            setEbayCategoryResults([]);
-            setEbayCategorySearch("");
-            setEbayCategorySearchError(null);
-            void loadCategoryAspects(categoryId);
-          }}
-          onClearCategory={handleClearEbayCategory}
-          aspects={aspects}
-          onAspectNameChange={setAspectName}
-          onAspectValueChange={setAspectValue}
-          onRemoveAspect={removeAspectRow}
-          onAddAspect={addAspectRow}
-          isRequiredAspect={isRequiredAspect}
-          suggestionsForAspect={suggestionsForAspect}
-          categoryAspects={categoryAspects}
-          readOnlyAspects={isEbayImportedListing}
-        />
-      )}
-
-      {!showEbayRequirements && (
-      <ListingFormSection
-        title="Item Details"
-        description="Add optional descriptors for your listing (Brand, Material, Year, etc.)."
-      >
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-900">Descriptors</span>
-            <span className="text-xs text-gray-500">
-              {aspects.length}/{MAX_ASPECTS}
-            </span>
-          </div>
-          {aspects.map((a, i) => {
-            return (
-              <div key={i} className="space-y-1">
-                <div className="flex flex-wrap gap-2 items-start">
-                  <input
-                    type="text"
-                    value={a.name}
-                    maxLength={EBAY_ASPECT_NAME_MAX}
-                    onChange={(e) => setAspectName(i, e.target.value)}
-                    placeholder="Descriptor (e.g. Brand)"
-                    className="flex-1 min-w-[120px] border rounded px-2 py-1.5 text-sm"
-                  />
-                  <input
-                    type="text"
-                    value={a.value}
-                    maxLength={EBAY_ASPECT_VALUE_MAX}
-                    onChange={(e) => setAspectValue(i, e.target.value)}
-                    placeholder="Value"
-                    className="flex-1 min-w-[120px] border rounded px-2 py-1.5 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeAspectRow(i)}
-                    className="text-red-500 hover:text-red-700 font-bold leading-none px-2 py-1.5"
-                    aria-label="Remove detail"
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-          {aspects.length < MAX_ASPECTS && (
-            <button
-              type="button"
-              onClick={addAspectRow}
-              className="action-pill action-pill-sm btn-pill-outline"
-            >
-              + Add a detail
-            </button>
-          )}
-        </div>
-      </ListingFormSection>
-      )}
-
-      <ListingFormSection title="Pricing & Inventory">
-      {/* 5. Price */}
-      <div>
-        <label className={listingLabelClass}>Price (USD) *</label>
-        <input
-          type="text"
-          inputMode="decimal"
-          autoComplete="off"
-          value={priceDollars}
-          onFocus={() => setPriceDollars((prev) => moneyInputToEditable(prev))}
-          onChange={(e) => {
-            const t = sanitizePriceDraftInput(e.target.value);
-            if (t != null) setPriceDollars(t);
-          }}
-          onBlur={() => setPriceDollars((prev) => moneyInputToIdle(prev))}
-          className={`${listingInputClass} max-w-xs`}
-          required
-        />
-        {showSyncHints ? <SyncFieldHint text={LISTING_SYNC_HINTS.price} /> : null}
-      </div>
-
-      {/* 6. Options (Enable options + Quantity) — under Price */}
-      <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-gray-900">Options (Size, Color, etc.)</h3>
-        <ListingVariantMatrixEditor
-          inventoryTracking={inventoryTracking}
-          onInventoryTrackingChange={setInventoryTracking}
-          optionsEnabled={optionsEnabled}
-          onOptionsEnabledChange={setOptionsEnabled}
-          simpleQuantity={quantity}
-          onSimpleQuantityChange={setQuantity}
-          axes={variantAxes}
-          skus={variantSkus}
-          onChange={(nextAxes, nextSkus) => {
-            setVariantAxes(nextAxes);
-            setVariantSkus(nextSkus);
-          }}
-          galleryPhotos={photos}
-          channelNotes={listingVariantChannelWarnings({
-            variants:
-              optionsEnabled && variantSkus.some((s) => s.enabled)
-                ? serializeVariantMatrix({
-                    axes: variantAxes,
-                    skus: variantSkus.filter((s) => s.enabled),
-                  })
-                : null,
-            inventoryTracking,
-            linkedProviders: [...listOnProviders, ...channelLinks.map((l) => l.provider)],
-          })}
-        />
-        {showSyncHints ? <SyncFieldHint text={LISTING_SYNC_HINTS.quantity} /> : null}
-      </div>
-
-      {condition === "used" && (
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Accept Offers</label>
-            <div className="flex flex-wrap gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="acceptOffers"
-                  checked={acceptOffers}
-                  onChange={() => setAcceptOffers(true)}
-                  className="rounded"
-                />
-                <span className="text-sm font-medium">Yes</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="acceptOffers"
-                  checked={!acceptOffers}
-                  onChange={() => setAcceptOffers(false)}
-                  className="rounded"
-                />
-                <span className="text-sm font-medium">No</span>
-              </label>
-            </div>
-          </div>
-          {acceptOffers && (
-            <div>
-              <label className="block text-sm font-medium mb-1" htmlFor="store-min-offer-range">
-                Automatically decline offers less than
-              </label>
-              <div className="w-full max-w-xs space-y-2 pt-1">
-                <input
-                  id="store-min-offer-range"
-                  type="range"
-                  min={0}
-                  max={minOfferSliderMax}
-                  step={1}
-                  value={Math.min(minOfferSliderDollars, minOfferSliderMax)}
-                  onChange={(e) => setMinOfferSliderDollars(Number(e.target.value))}
-                  className="store-min-offer-range w-full"
-                  style={
-                    {
-                      ["--range-pct" as string]: `${
-                        minOfferSliderMax > 0
-                          ? (Math.min(minOfferSliderDollars, minOfferSliderMax) / minOfferSliderMax) * 100
-                          : 0
-                      }%`,
-                    } as CSSProperties
-                  }
-                />
-                <p className="text-sm font-semibold text-gray-900">
-                  {minOfferSliderDollars <= 0
-                    ? "$0 — accept any offer"
-                    : `Minimum offer: $${Math.min(minOfferSliderDollars, minOfferSliderMax).toFixed(2)}`}
-                </p>
-                <p className="text-xs text-gray-500">
-                  Slide to set a floor, or leave at $0 to accept any amount. Upper end matches your list price
-                  (or up to $500 until a price is set).
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      </ListingFormSection>
-
-      {offerFlagsLoaded && (offerShipping || offerLocalDelivery || offerLocalPickup) && (
-      <ListingFormSection title="Delivery options">
-        {offerShipping && (
-        <>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={!shippingDisabled}
-            onChange={(e) => {
-              const nextDisabled = !e.target.checked;
-              if (nextDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
-                setLocalDeliveryAvailable(true);
-              }
-              setShippingDisabled(nextDisabled);
-            }}
-            className="rounded"
-          />
-          <span className="text-sm font-medium">Offer Shipping</span>
-        </label>
-        {!shippingDisabled && (
-          <>
-            <div>
-              <label className="block text-sm font-medium mb-1">Shipping price (USD)</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={shippingCostDollars}
-                onChange={(e) => setShippingCostDollars(e.target.value)}
-                className={listingInputClass}
-                placeholder="e.g. 5.99"
-              />
-              <p className="text-xs text-gray-500 mt-0.5">Price charged for shipping this item</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Shipping option (package)</label>
-              <select
-                className={listingSelectClass}
-                value={shippingOptionId}
-                onChange={(e) => {
-                  const id = e.target.value;
-                  setShippingOptionId(id);
-                  if (offerFreeShippingOnInw) {
-                    setShippingCostDollars((prev) => prev || "0.00");
-                    return;
-                  }
-                  const selected = shippingOptions.find((o) => o.id === id);
-                  if (selected?.shippingCostCents != null) {
-                    setShippingCostDollars((selected.shippingCostCents / 100).toFixed(2));
-                  }
-                }}
-                required={!existing}
+              <ListingFormSection
+                title="Item Details"
+                description="Add optional descriptors for your listing (Brand, Material, Year, etc.)."
               >
-                <option value="">{existing ? "None (INW defaults)" : "Select a package"}</option>
-                {shippingOptions.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.name}
-                    {opt.source !== "inw" ? ` (${opt.source === "etsy" ? "Etsy" : "eBay"})` : ""}
-                    {opt.shippingCostCents != null
-                      ? opt.shippingCostCents === 0
-                        ? " · Free"
-                        : ` · $${(opt.shippingCostCents / 100).toFixed(2)}`
-                      : ""}
-                    {shippingOptionNeedsMeasurements(opt) ? " — needs weight and size" : ""}
-                  </option>
-                ))}
-              </select>
-              {(() => {
-                const selected = shippingOptions.find((o) => o.id === shippingOptionId);
-                if (!selected) return null;
-                const pkg = formatShippingOptionPackageSummary(
-                  selected,
-                  "Needs weight and size — Shippo and calculated Etsy will use defaults until you add measurements."
-                );
-                const price =
-                  selected.shippingCostCents != null
-                    ? selected.shippingCostCents === 0
-                      ? "Free"
-                      : `$${(selected.shippingCostCents / 100).toFixed(2)}`
-                    : "";
-                const line = [pkg, price].filter(Boolean).join(" · ");
-                if (!line) return null;
-                return <p className="text-xs text-gray-500 mt-0.5">{line}</p>;
-              })()}
-              <p className="text-xs text-gray-500 mt-0.5">
-                Used for Shippo labels and eBay/Etsy package size.{" "}
-                <Link href="/seller-hub/shipping-options" className="underline">
-                  Manage shipping options
-                </Link>
-              </p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Shipping Policy</label>
-              <div className="flex gap-2 items-start">
-                <textarea
-                  value={useSellerProfileShipping ? effectiveShippingPolicy : shippingPolicy}
-                  onChange={(e) => {
-                    if (useSellerProfileShipping) return;
-                    setShippingPolicy(e.target.value);
-                  }}
-                  readOnly={useSellerProfileShipping}
-                  className={`w-full border rounded px-3 py-2 flex-1 min-w-0 ${useSellerProfileShipping ? "bg-gray-50" : ""}`}
-                  rows={3}
-                  placeholder="e.g. 2-5 business days via USPS. Free over $50."
-                />
-              </div>
-              <label className="flex items-center gap-2 cursor-pointer mt-2">
-                <input
-                  type="checkbox"
-                  checked={useSellerProfileShipping}
-                  onChange={(e) => {
-                    setUseSellerProfileShipping(e.target.checked);
-                    if (e.target.checked) setShippingPolicy("");
-                  }}
-                  className="rounded"
-                />
-                <span className="text-sm font-medium">Use seller profile default</span>
-              </label>
-              <p className="text-xs text-gray-500 mt-0.5">
-                {useSellerProfileShipping
-                  ? "Synced from your seller profile. Uncheck to set item-specific policy."
-                  : "Item-specific shipping policy (overrides profile default)."}
-              </p>
-            </div>
-          </>
-        )}
-        </>
-        )}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-gray-900">Descriptors</span>
+                    <span className="text-xs text-gray-500">
+                      {aspects.length}/{MAX_ASPECTS}
+                    </span>
+                  </div>
+                  {aspects.map((a, i) => (
+                    <div key={i} className="space-y-1">
+                      <div className="flex flex-wrap gap-2 items-start">
+                        <input
+                          type="text"
+                          value={a.name}
+                          maxLength={EBAY_ASPECT_NAME_MAX}
+                          onChange={(e) => setAspectName(i, e.target.value)}
+                          placeholder="Descriptor (e.g. Brand)"
+                          className="flex-1 min-w-[120px] border rounded px-2 py-1.5 text-sm"
+                        />
+                        <input
+                          type="text"
+                          value={a.value}
+                          maxLength={EBAY_ASPECT_VALUE_MAX}
+                          onChange={(e) => setAspectValue(i, e.target.value)}
+                          placeholder="Value"
+                          className="flex-1 min-w-[120px] border rounded px-2 py-1.5 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeAspectRow(i)}
+                          className="text-red-500 hover:text-red-700 font-bold leading-none px-2 py-1.5"
+                          aria-label="Remove detail"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {aspects.length < MAX_ASPECTS && (
+                    <button
+                      type="button"
+                      onClick={addAspectRow}
+                      className="action-pill action-pill-sm btn-pill-outline"
+                    >
+                      + Add a detail
+                    </button>
+                  )}
+                </div>
+              </ListingFormSection>
 
-        {offerLocalDelivery && (
-        <label className="flex items-center gap-2 cursor-pointer mt-3">
-          <input
-            type="checkbox"
-            checked={localDeliveryAvailable}
-            onChange={(e) => setLocalDeliveryAvailable(e.target.checked)}
-            className="rounded"
-          />
-          <span className="font-medium">Offer Local Delivery</span>
-        </label>
-        )}
-        {offerLocalDelivery && localDeliveryAvailable && (
-          <div className="space-y-2 pl-6">
-            <div>
-              <label className="block text-sm font-medium mb-1">Local Delivery fee (USD, optional)</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={localDeliveryFeeDollars}
-                onChange={(e) => setLocalDeliveryFeeDollars(e.target.value)}
-                className="w-full border rounded px-3 py-2 max-w-xs"
-                placeholder="e.g. 5.00 or leave blank for free"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Local Delivery terms</label>
-              <div className="flex gap-2 items-start">
-                <textarea
-                  value={localDeliveryTerms}
-                  onChange={(e) => setLocalDeliveryTerms(e.target.value)}
-                  className="w-full border rounded px-3 py-2 flex-1 min-w-0"
-                  rows={3}
-                  placeholder="Describe terms of local delivery (e.g. areas served, contact method)"
-                />
-              </div>
-            </div>
-          </div>
-        )}
+              <ListingFormSection title="Pricing & Inventory">
+                <div>
+                  <label className={listingLabelClass}>Price (USD) *</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={priceDollars}
+                    onFocus={() => setPriceDollars((prev) => moneyInputToEditable(prev))}
+                    onChange={(e) => {
+                      const t = sanitizePriceDraftInput(e.target.value);
+                      if (t != null) setPriceDollars(t);
+                    }}
+                    onBlur={() => setPriceDollars((prev) => moneyInputToIdle(prev))}
+                    className={`${listingInputClass} max-w-xs`}
+                    required
+                  />
+                </div>
 
-        {offerLocalPickup && (
-        <>
-        <label className="flex items-center gap-2 cursor-pointer mt-3">
-          <input
-            type="checkbox"
-            checked={inStorePickupAvailable}
-            onChange={(e) => setInStorePickupAvailable(e.target.checked)}
-            className="rounded"
-          />
-          <span className="font-medium">Offer Local Pick Up</span>
-        </label>
-        {inStorePickupAvailable && (
-          <>
-            <div className="mt-2 pl-6">
-              <label className="block text-sm font-medium mb-1">Pickup terms</label>
-              <div className="flex gap-2 items-start">
-                <textarea
-                  value={useSellerProfilePickup ? sellerProfilePickupPolicy : pickupTerms}
-                  onChange={(e) => {
-                    if (!useSellerProfilePickup) setPickupTerms(e.target.value);
-                  }}
-                  readOnly={useSellerProfilePickup}
-                  className={`w-full border rounded px-3 py-2 flex-1 min-w-0 ${useSellerProfilePickup ? "bg-gray-50" : ""}`}
-                  rows={3}
-                  placeholder="e.g. Location, contact method, hours."
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    fetch("/api/me/policies")
-                      .then((r) => r.json())
-                      .then((data: { sellerPickupPolicy?: string | null }) => {
-                        const policy = data?.sellerPickupPolicy ?? "";
-                        setSellerProfilePickupPolicy(policy);
-                        setPickupTerms(policy);
-                      })
-                      .catch(() => {});
-                  }}
-                  className="shrink-0 border border-gray-300 bg-white hover:bg-gray-50 rounded px-2 py-1 text-sm text-gray-700"
-                >
-                  Sync
-                </button>
-              </div>
-              <label className="flex items-center gap-2 cursor-pointer mt-2">
-                <input
-                  type="checkbox"
-                  checked={useSellerProfilePickup}
-                  onChange={(e) => {
-                    setUseSellerProfilePickup(e.target.checked);
-                    if (e.target.checked) setPickupTerms("");
-                  }}
-                  className="rounded"
-                />
-                <span className="text-sm font-medium">Use policies from settings</span>
-              </label>
-              <p className="text-xs text-gray-500 mt-0.5">
-                {useSellerProfilePickup
-                  ? "Synced from your Policies screen. Uncheck to set item-specific terms."
-                  : "Item-specific pickup terms (overrides profile default)."}
-              </p>
-            </div>
-          </>
-        )}
-        </>
-        )}
-      </ListingFormSection>
-      )}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-semibold text-gray-900">Options (Size, Color, etc.)</h3>
+                  <ListingVariantMatrixEditor
+                    inventoryTracking={inventoryTracking}
+                    onInventoryTrackingChange={setInventoryTracking}
+                    optionsEnabled={optionsEnabled}
+                    onOptionsEnabledChange={setOptionsEnabled}
+                    simpleQuantity={quantity}
+                    onSimpleQuantityChange={setQuantity}
+                    axes={variantAxes}
+                    skus={variantSkus}
+                    onChange={(nextAxes, nextSkus) => {
+                      setVariantAxes(nextAxes);
+                      setVariantSkus(nextSkus);
+                    }}
+                    galleryPhotos={photos}
+                  />
+                </div>
 
-      {offerFlagsLoaded && !(offerShipping || offerLocalDelivery || offerLocalPickup) && (
-        <ListingFormSection>
-          <p className="text-sm text-gray-600 mb-2">
-            Set your fulfillment options in Policies (shipping, local delivery, pickup) to enable them here.
-          </p>
-          <a href="/my-community" className="text-[var(--color-primary)] hover:underline text-sm">Open Policies</a>
-        </ListingFormSection>
-      )}
+                {condition === "used" && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Accept Offers</label>
+                      <div className="flex flex-wrap gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="acceptOffers"
+                            checked={acceptOffers}
+                            onChange={() => setAcceptOffers(true)}
+                            className="rounded"
+                          />
+                          <span className="text-sm font-medium">Yes</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="acceptOffers"
+                            checked={!acceptOffers}
+                            onChange={() => setAcceptOffers(false)}
+                            className="rounded"
+                          />
+                          <span className="text-sm font-medium">No</span>
+                        </label>
+                      </div>
+                    </div>
+                    {acceptOffers && (
+                      <div>
+                        <label className="block text-sm font-medium mb-1" htmlFor="store-min-offer-range">
+                          Automatically decline offers less than
+                        </label>
+                        <div className="w-full max-w-xs space-y-2 pt-1">
+                          <input
+                            id="store-min-offer-range"
+                            type="range"
+                            min={0}
+                            max={minOfferSliderMax}
+                            step={1}
+                            value={Math.min(minOfferSliderDollars, minOfferSliderMax)}
+                            onChange={(e) => setMinOfferSliderDollars(Number(e.target.value))}
+                            className="store-min-offer-range w-full"
+                            style={
+                              {
+                                ["--range-pct" as string]: `${
+                                  minOfferSliderMax > 0
+                                    ? (Math.min(minOfferSliderDollars, minOfferSliderMax) / minOfferSliderMax) * 100
+                                    : 0
+                                }%`,
+                              } as CSSProperties
+                            }
+                          />
+                          <p className="text-sm font-semibold text-gray-900">
+                            {minOfferSliderDollars <= 0
+                              ? "$0 — accept any offer"
+                              : `Minimum offer: $${Math.min(minOfferSliderDollars, minOfferSliderMax).toFixed(2)}`}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            Slide to set a floor, or leave at $0 to accept any amount. Upper end matches your list price
+                            (or up to $500 until a price is set).
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </ListingFormSection>
 
-              {existing?.id ? (
-                <ItemSyncActivityLog storeItemId={existing.id} refreshKey={syncLogRefreshKey} />
-              ) : null}
+              {offerFlagsLoaded && (offerShipping || offerLocalDelivery || offerLocalPickup) && (
+                <ListingFormSection title="Delivery options">
+                  {offerShipping && (
+                    <>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!shippingDisabled}
+                          onChange={(e) => {
+                            const nextDisabled = !e.target.checked;
+                            if (nextDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
+                              setLocalDeliveryAvailable(true);
+                            }
+                            setShippingDisabled(nextDisabled);
+                          }}
+                          className="rounded"
+                        />
+                        <span className="text-sm font-medium">Offer Shipping</span>
+                      </label>
+                      {!shippingDisabled && (
+                        <>
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Shipping price (USD)</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={shippingCostDollars}
+                              onChange={(e) => setShippingCostDollars(e.target.value)}
+                              className={listingInputClass}
+                              placeholder="e.g. 5.99"
+                            />
+                            <p className="text-xs text-gray-500 mt-0.5">Price charged for shipping this item</p>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Shipping option (package)</label>
+                            <select
+                              className={listingSelectClass}
+                              value={shippingOptionId}
+                              onChange={(e) => {
+                                const id = e.target.value;
+                                setShippingOptionId(id);
+                                if (offerFreeShippingOnInw) {
+                                  setShippingCostDollars((prev) => prev || "0.00");
+                                  return;
+                                }
+                                const selected = shippingOptions.find((o) => o.id === id);
+                                if (selected?.shippingCostCents != null) {
+                                  setShippingCostDollars((selected.shippingCostCents / 100).toFixed(2));
+                                }
+                              }}
+                              required={!existing}
+                            >
+                              <option value="">{existing ? "None (INW defaults)" : "Select a package"}</option>
+                              {shippingOptions.map((opt) => (
+                                <option key={opt.id} value={opt.id}>
+                                  {opt.name}
+                                  {opt.shippingCostCents != null
+                                    ? opt.shippingCostCents === 0
+                                      ? " · Free"
+                                      : ` · $${(opt.shippingCostCents / 100).toFixed(2)}`
+                                    : ""}
+                                  {shippingOptionNeedsMeasurements(opt) ? " — needs weight and size" : ""}
+                                </option>
+                              ))}
+                            </select>
+                            {(() => {
+                              const selected = shippingOptions.find((o) => o.id === shippingOptionId);
+                              if (!selected) return null;
+                              const pkg = formatShippingOptionPackageSummary(
+                                selected,
+                                "Needs weight and size — Shippo will use defaults until you add measurements."
+                              );
+                              const price =
+                                selected.shippingCostCents != null
+                                  ? selected.shippingCostCents === 0
+                                    ? "Free"
+                                    : `$${(selected.shippingCostCents / 100).toFixed(2)}`
+                                  : "";
+                              const line = [pkg, price].filter(Boolean).join(" · ");
+                              if (!line) return null;
+                              return <p className="text-xs text-gray-500 mt-0.5">{line}</p>;
+                            })()}
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              Used for Shippo labels.{" "}
+                              <Link href="/seller-hub/shipping-options" className="underline">
+                                Manage shipping options
+                              </Link>
+                            </p>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Shipping Policy</label>
+                            <div className="flex gap-2 items-start">
+                              <textarea
+                                value={useSellerProfileShipping ? effectiveShippingPolicy : shippingPolicy}
+                                onChange={(e) => {
+                                  if (useSellerProfileShipping) return;
+                                  setShippingPolicy(e.target.value);
+                                }}
+                                readOnly={useSellerProfileShipping}
+                                className={`w-full border rounded px-3 py-2 flex-1 min-w-0 ${useSellerProfileShipping ? "bg-gray-50" : ""}`}
+                                rows={3}
+                                placeholder="e.g. 2-5 business days via USPS. Free over $50."
+                              />
+                            </div>
+                            <label className="flex items-center gap-2 cursor-pointer mt-2">
+                              <input
+                                type="checkbox"
+                                checked={useSellerProfileShipping}
+                                onChange={(e) => {
+                                  setUseSellerProfileShipping(e.target.checked);
+                                  if (e.target.checked) setShippingPolicy("");
+                                }}
+                                className="rounded"
+                              />
+                              <span className="text-sm font-medium">Use seller profile default</span>
+                            </label>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {useSellerProfileShipping
+                                ? "Synced from your seller profile. Uncheck to set item-specific policy."
+                                : "Item-specific shipping policy (overrides profile default)."}
+                            </p>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {offerLocalDelivery && (
+                    <label className="flex items-center gap-2 cursor-pointer mt-3">
+                      <input
+                        type="checkbox"
+                        checked={localDeliveryAvailable}
+                        onChange={(e) => setLocalDeliveryAvailable(e.target.checked)}
+                        className="rounded"
+                      />
+                      <span className="font-medium">Offer Local Delivery</span>
+                    </label>
+                  )}
+                  {offerLocalDelivery && localDeliveryAvailable && (
+                    <div className="space-y-2 pl-6">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Local Delivery fee (USD, optional)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={localDeliveryFeeDollars}
+                          onChange={(e) => setLocalDeliveryFeeDollars(e.target.value)}
+                          className="w-full border rounded px-3 py-2 max-w-xs"
+                          placeholder="e.g. 5.00 or leave blank for free"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Local Delivery terms</label>
+                        <div className="flex gap-2 items-start">
+                          <textarea
+                            value={localDeliveryTerms}
+                            onChange={(e) => setLocalDeliveryTerms(e.target.value)}
+                            className="w-full border rounded px-3 py-2 flex-1 min-w-0"
+                            rows={3}
+                            placeholder="Describe terms of local delivery (e.g. areas served, contact method)"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {offerLocalPickup && (
+                    <>
+                      <label className="flex items-center gap-2 cursor-pointer mt-3">
+                        <input
+                          type="checkbox"
+                          checked={inStorePickupAvailable}
+                          onChange={(e) => setInStorePickupAvailable(e.target.checked)}
+                          className="rounded"
+                        />
+                        <span className="font-medium">Offer Local Pick Up</span>
+                      </label>
+                      {inStorePickupAvailable && (
+                        <>
+                          <div className="mt-2 pl-6">
+                            <label className="block text-sm font-medium mb-1">Pickup terms</label>
+                            <div className="flex gap-2 items-start">
+                              <textarea
+                                value={useSellerProfilePickup ? sellerProfilePickupPolicy : pickupTerms}
+                                onChange={(e) => {
+                                  if (!useSellerProfilePickup) setPickupTerms(e.target.value);
+                                }}
+                                readOnly={useSellerProfilePickup}
+                                className={`w-full border rounded px-3 py-2 flex-1 min-w-0 ${useSellerProfilePickup ? "bg-gray-50" : ""}`}
+                                rows={3}
+                                placeholder="e.g. Location, contact method, hours."
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  fetch("/api/me/policies")
+                                    .then((r) => r.json())
+                                    .then((data: { sellerPickupPolicy?: string | null }) => {
+                                      const policy = data?.sellerPickupPolicy ?? "";
+                                      setSellerProfilePickupPolicy(policy);
+                                      setPickupTerms(policy);
+                                    })
+                                    .catch(() => {});
+                                }}
+                                className="shrink-0 border border-gray-300 bg-white hover:bg-gray-50 rounded px-2 py-1 text-sm text-gray-700"
+                              >
+                                Sync
+                              </button>
+                            </div>
+                            <label className="flex items-center gap-2 cursor-pointer mt-2">
+                              <input
+                                type="checkbox"
+                                checked={useSellerProfilePickup}
+                                onChange={(e) => {
+                                  setUseSellerProfilePickup(e.target.checked);
+                                  if (e.target.checked) setPickupTerms("");
+                                }}
+                                className="rounded"
+                              />
+                              <span className="text-sm font-medium">Use policies from settings</span>
+                            </label>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {useSellerProfilePickup
+                                ? "Synced from your Policies screen. Uncheck to set item-specific terms."
+                                : "Item-specific pickup terms (overrides profile default)."}
+                            </p>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+                </ListingFormSection>
+              )}
+
+              {offerFlagsLoaded && !(offerShipping || offerLocalDelivery || offerLocalPickup) && (
+                <ListingFormSection>
+                  <p className="text-sm text-gray-600 mb-2">
+                    Set your fulfillment options in Policies (shipping, local delivery, pickup) to enable them here.
+                  </p>
+                  <a href="/my-community" className="text-[var(--color-primary)] hover:underline text-sm">Open Policies</a>
+                </ListingFormSection>
+              )}
             </>
           }
           footer={
@@ -1899,13 +1153,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
               submitting={submitting}
               error={error}
               backHref={successRedirect ?? "/seller-hub/store/items"}
-              createHint={
-                listOnProviders.length === 0
-                  ? "List on INW."
-                  : `List on INW and ${listOnProviders
-                      .map((p) => CHANNEL_PROVIDER_LABELS[p] ?? p)
-                      .join(", ")}.`
-              }
+              createHint="List on INW."
             />
           }
         />

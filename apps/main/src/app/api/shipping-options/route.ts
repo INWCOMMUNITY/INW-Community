@@ -3,7 +3,6 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import {
   createInwShippingOption,
   getShippingOptionPrefs,
-  importRemoteShippingOptions,
   listShippingOptions,
   parseShippingCostCentsInput,
   updateShippingOptionPrefs,
@@ -25,8 +24,6 @@ const createSchema = z.object({
 
 const prefsSchema = z.object({
   offerFreeShippingOnInw: z.boolean().optional(),
-  importEbayShippingOptions: z.boolean().optional(),
-  importEtsyShippingOptions: z.boolean().optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -94,15 +91,8 @@ export async function PATCH(req: NextRequest) {
   }
   try {
     const prefs = await updateShippingOptionPrefs(userId, parsed.data);
-    const imports: { provider: string; imported: number; error?: string }[] = [];
-    if (parsed.data.importEbayShippingOptions === true) {
-      imports.push({ provider: "ebay", ...(await importRemoteShippingOptions(userId, "ebay")) });
-    }
-    if (parsed.data.importEtsyShippingOptions === true) {
-      imports.push({ provider: "etsy", ...(await importRemoteShippingOptions(userId, "etsy")) });
-    }
     const options = await listShippingOptions(userId);
-    return NextResponse.json({ options, ...prefs, imports });
+    return NextResponse.json({ options, ...prefs });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Could not save" },

@@ -3,7 +3,6 @@ import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { restockOrderLinesAfterReturn } from "@/lib/store-item-restock";
-import { syncInventoryToChannelsAfterSale } from "@/lib/channels/sync-inventory";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 import { refundPaidStorefrontOrder } from "@/lib/stripe/refund-store-order";
 
@@ -67,7 +66,6 @@ export async function POST(
       });
       await restockOrderLinesAfterReturn(tx, order.items);
     });
-    await Promise.all(order.items.map((oi) => syncInventoryToChannelsAfterSale(oi.storeItemId)));
   } else {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeSecretKey?.startsWith("sk_")) {

@@ -34,7 +34,6 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
   const [soldCount, setSoldCount] = useState(0);
   const [soldItemsViewedAt, setSoldItemsViewedAt] = useState<string | null>(null);
   const [hasLocalDelivery, setHasLocalDelivery] = useState(false);
-  const [needsAttentionCount, setNeedsAttentionCount] = useState(0);
   const [payoutReady, setPayoutReady] = useState(false);
 
   useEffect(() => {
@@ -47,7 +46,6 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
             pendingReturns?: number;
             soldCount?: number;
             hasLocalDelivery?: boolean;
-            needsAttentionCount?: number;
             payoutReady?: boolean;
           }>("/api/seller-hub/pending-actions"),
           AsyncStorage.getItem(SOLD_ITEMS_VIEWED_KEY),
@@ -56,7 +54,6 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
         setPendingReturns(Number(data.pendingReturns) || 0);
         setSoldCount(Number(data.soldCount) || 0);
         setHasLocalDelivery(Boolean(data.hasLocalDelivery));
-        setNeedsAttentionCount(Number(data.needsAttentionCount) || 0);
         setPayoutReady(Boolean(data.payoutReady));
         setSoldItemsViewedAt(viewedAt);
       } catch {
@@ -73,12 +70,6 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
     { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
     { href: "/seller-hub/store/items?tab=sold", label: "Sold Items", icon: "pricetag-outline", alert: soldItemsAlert },
     { href: "/seller-hub/store/drafts", label: "Drafts", icon: "document-text-outline" },
-    {
-      href: needsAttentionCount > 0 ? "/seller-hub/channels?tab=attention" : "/seller-hub/channels",
-      label: "Sync Stores",
-      icon: "sync-outline",
-      alert: needsAttentionCount > 0,
-    },
   ];
 
   const ordersItems: NavItem[] = [

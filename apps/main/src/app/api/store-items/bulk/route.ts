@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { syncInventoryToChannels } from "@/lib/channels/sync-inventory";
-import { logBulkEditQuantityChange } from "@/lib/channels/quantity-audit";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
 
 export const dynamic = "force-dynamic";
@@ -271,21 +269,6 @@ export async function PATCH(req: NextRequest) {
               before: beforeState[item.id],
               after: { ...item },
             };
-            // Log quantity changes for audit trail
-            const prevQty = beforeState[item.id].quantity as number;
-            const newQty = item.quantity;
-            if (prevQty !== newQty) {
-              logBulkEditQuantityChange({
-                storeItemId: item.id,
-                memberId: userId,
-                previousQty: prevQty,
-                newQty,
-                metadata: { 
-                  operation: "bulk_edit",
-                  changedFields: Object.keys(updates).filter((k) => updates[k as keyof typeof updates] !== undefined),
-                },
-              });
-            }
           }
         }
         
@@ -322,44 +305,6 @@ export async function PATCH(req: NextRequest) {
       }
     }
     
-    // Sync to channels if requested. Ending a listing is INW-only.
-    if (syncToChannels && updates.status !== "inactive" && result.updated > 0) {
-      result.synced = {};
-
-      // Get connections for syncing
-      const connections = await prisma.channelConnection.findMany({
-        where: { memberId: userId, status: "active" },
-        select: { provider: true },
-      });
-
-      if (connections.length > 0) {
-        // Get updated items with their channel links
-        const updatedItems = await prisma.storeItem.findMany({
-          where: { id: { in: Array.from(ownedIds) } },
-          include: {
-            channelLinks: {
-              where: { syncEnabled: true },
-            },
-          },
-        });
-
-        for (const item of updatedItems) {
-          if (item.channelLinks.length > 0) {
-            try {
-              const syncResults = await syncInventoryToChannels(item.id);
-              for (const sr of syncResults) {
-                if (sr.ok) {
-                  result.synced[sr.provider] = (result.synced[sr.provider] || 0) + 1;
-                }
-              }
-            } catch {
-              // Sync errors are non-fatal for bulk operations
-            }
-          }
-        }
-      }
-    }
-
     return NextResponse.json(result);
   } catch (e) {
     console.error("[bulk-update] error:", e);
@@ -449,35 +394,14 @@ export async function DELETE(req: NextRequest) {
       console.warn("[bulk-delete] snapshot creation failed:", e);
     }
 
-    // Remove from remote channels first. Keep items whose marketplace delete failed
-    // so we do not drop the INW link while the listing is still live.
-    const { deleteStoreItemFromChannels } = await import("@/lib/channels/outbound");
-    const channelResults: { itemId: string; provider: string; ok: boolean; error?: string }[] = [];
-    const deletableIds: string[] = [];
-
-    for (const itemId of ownedIds) {
-      try {
-        const results = await deleteStoreItemFromChannels(itemId);
-        let failed = false;
-        for (const r of results) {
-          channelResults.push({ itemId, provider: r.provider, ok: r.ok, error: r.error });
-          if (!r.ok) failed = true;
-        }
-        if (!failed) deletableIds.push(itemId);
-      } catch (e) {
-        console.warn(`[bulk-delete] channel unpublish failed for ${itemId}:`, e);
-      }
-    }
-
     const deleteResult = await prisma.storeItem.deleteMany({
-      where: { id: { in: deletableIds } },
+      where: { id: { in: ownedIds } },
     });
 
     return NextResponse.json({
       deleted: deleteResult.count,
       notFound: storeItemIds.length - ownedIds.length,
       snapshotId,
-      channelSync: channelResults.length > 0 ? channelResults : undefined,
     });
   } catch (e) {
     console.error("[bulk-delete] error:", e);

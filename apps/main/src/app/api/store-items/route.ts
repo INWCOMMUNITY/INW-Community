@@ -4,29 +4,23 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { containsProhibitedCategory, formatModerationErrorMessage, validateText } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
-import { matrixForStorage, validateInwVariantsForSave } from "@/lib/channels/variant-sync";
 import {
   INVENTORY_TRACKING_MADE_TO_ORDER,
   isMadeToOrderTracking,
   MTO_CHANNEL_QUANTITY,
   normalizeVariantMatrix,
+  serializeVariantMatrix,
+  validateVariantMatrixForSave,
   parseInventoryTracking,
 } from "@/lib/listing-variant-matrix";
 import { clampListingTitle, normalizeListingAspects } from "@/lib/listing-limits";
 import { LISTING_SKU_MAX, normalizeListingSku } from "@/lib/listing-sku";
-import { findConflictingStoreItemSku, loadMemberSkuOwnerSet } from "@/lib/listing-sku-db";
-import { ensureSellableSkus } from "@/lib/channels/sku-identity";
-import { normalizeAspectsForEbayStorage } from "@/lib/channels/ebay/sync-aspects";
+import { findConflictingStoreItemSku } from "@/lib/listing-sku-db";
 import { z } from "zod";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { recordSellerListingView } from "@/lib/record-seller-listing-view";
 import { assertMemberShippingOption, getShippingOptionCostCents } from "@/lib/shipping-options";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
-import {
-  SELLER_CHANNEL_LINK_SELECT,
-  withListingChannelSyncWarning,
-} from "@/lib/channels/listing-sync-warning";
-import { listRemoteDeletedStoreItemIds } from "@/lib/channels/remote-deleted-attention";
 import { getStoreItemPublicPayload } from "@/lib/get-store-item-public";
 import {
   BROWSE_CACHE_HEADERS,
@@ -138,7 +132,7 @@ export async function GET(req: NextRequest) {
         prisma.storeItem.count({ where: { memberId: userId, status: "active" } }),
         prisma.storeItem.count({ where: { memberId: userId, status: "inactive" } }),
         prisma.storeItem.count({ where: { memberId: userId, status: "sold_out" } }),
-        listRemoteDeletedStoreItemIds(userId),
+        Promise.resolve([]), // No longer tracking remote-deleted items
       ]);
       return NextResponse.json({
         active,
@@ -166,11 +160,8 @@ export async function GET(req: NextRequest) {
     } else if (filter === "ended") {
       where.status = "inactive";
     } else if (filter === "attention") {
-      const attentionIds = await listRemoteDeletedStoreItemIds(userId);
-      if (attentionIds.length === 0) {
-        return NextResponse.json([]);
-      }
-      where.id = { in: attentionIds };
+      // No longer tracking attention items
+      return NextResponse.json([]);
     }
     const items = await prisma.storeItem.findMany({
       where,
@@ -183,14 +174,7 @@ export async function GET(req: NextRequest) {
         status: true,
         photos: true,
         localDeliveryAvailable: true,
-        etsyTaxonomyId: true,
-        ebayCategoryId: true,
-        etsyWhoMade: true,
-        etsyWhenMade: true,
         aspects: true,
-        channelLinks: {
-          select: SELLER_CHANNEL_LINK_SELECT,
-        },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -221,7 +205,6 @@ export async function GET(req: NextRequest) {
           const mapped = {
             ...i,
             photos: Array.isArray(i.photos) ? (i.photos as string[]).slice(0, 1) : [],
-            channelLinks: i.channelLinks.map(withListingChannelSyncWarning),
           };
           return sold ? { ...mapped, soldOrderId: sold.orderId, soldAt: sold.soldAt } : mapped;
         })
@@ -232,7 +215,6 @@ export async function GET(req: NextRequest) {
       items.map((i) => ({
         ...i,
         photos: Array.isArray(i.photos) ? (i.photos as string[]).slice(0, 1) : [],
-        channelLinks: i.channelLinks.map(withListingChannelSyncWarning),
       }))
     );
   }
@@ -307,15 +289,7 @@ const bodySchema = z.object({
   pickupTerms: z.string().nullable().optional(),
   acceptOffers: z.boolean().optional(),
   minOfferCents: z.coerce.number().int().min(0).nullable().optional(),
-  // Channel sync (Etsy, eBay, Wix, Shopify)
-  syncToChannels: z.boolean().optional(),
-  channelProviders: z.array(z.enum(["etsy", "ebay", "shopify", "wix"])).optional(),
-  etsyWhoMade: z.string().nullable().optional(),
-  etsyWhenMade: z.string().nullable().optional(),
-  etsyIsSupply: z.boolean().nullable().optional(),
-  etsyTaxonomyId: z.coerce.number().int().positive().nullable().optional(),
-  ebayCategoryId: z.coerce.number().int().positive().nullable().optional(),
-  // Item specifics / product aspects (Descriptor + Value rows). Synced to eBay product.aspects.
+  // Item specifics / product aspects (Descriptor + Value rows)
   aspects: z
     .array(z.object({ name: z.string(), value: z.string() }))
     .nullable()
@@ -478,17 +452,15 @@ export async function POST(req: NextRequest) {
     const inventoryTracking = parseInventoryTracking(data.inventoryTracking);
     const madeToOrder = isMadeToOrderTracking(inventoryTracking);
     if (data.variants != null) {
-      const variantErr = validateInwVariantsForSave(data.variants, {
-        linkedProviders: data.channelProviders,
+      const variantErr = validateVariantMatrixForSave(data.variants, {
+        linkedProviders: [],
       });
       if (variantErr) {
         return NextResponse.json({ error: variantErr }, { status: 400 });
       }
     }
-    const storedVariants =
-      data.variants == null
-        ? null
-        : matrixForStorage(data.variants);
+    const normalizedVariants = data.variants == null ? null : normalizeVariantMatrix(data.variants);
+    const storedVariants = normalizedVariants ? serializeVariantMatrix(normalizedVariants) : null;
     const useOptionQuantities = hasOptionQuantities(storedVariants ?? data.variants);
     let quantity = madeToOrder
       ? MTO_CHANNEL_QUANTITY
@@ -520,13 +492,8 @@ export async function POST(req: NextRequest) {
       if (s === p) return null;
       return s;
     })();
-    const used = await loadMemberSkuOwnerSet(userId);
-    const ensured = ensureSellableSkus(
-      { id: "new", sku: normalizeListingSku(data.sku), variants: storedVariants },
-      used
-    );
-    const sku = ensured.sku;
-    const variantsToStore = ensured.variants;
+    const sku = normalizeListingSku(data.sku);
+    const variantsToStore = storedVariants;
     const skuCodes = [
       sku,
       ...((normalizeVariantMatrix(variantsToStore)?.skus ?? []).map((row) => row.sku?.trim() || null) ?? []),
@@ -550,14 +517,7 @@ export async function POST(req: NextRequest) {
       }
     }
     const normalizedAspects = normalizeListingAspects(data.aspects);
-    const aspectsForStorage =
-      data.ebayCategoryId && normalizedAspects.length > 0
-        ? await normalizeAspectsForEbayStorage(
-            String(data.ebayCategoryId),
-            normalizedAspects,
-            data.title.trim()
-          )
-        : normalizedAspects;
+    const aspectsForStorage = normalizedAspects;
     let shippingOptionId: string | null = null;
     try {
       shippingOptionId = await assertMemberShippingOption(userId, data.shippingOptionId);
@@ -608,13 +568,6 @@ export async function POST(req: NextRequest) {
               ? member!.acceptOffersOnResale
               : false,
         minOfferCents: data.minOfferCents ?? null,
-        etsyWhoMade: data.etsyWhoMade?.trim() || null,
-        etsyWhenMade:
-          data.etsyWhenMade?.trim() ||
-          (madeToOrder ? INVENTORY_TRACKING_MADE_TO_ORDER : null),
-        etsyIsSupply: data.etsyIsSupply ?? null,
-        etsyTaxonomyId: data.etsyTaxonomyId ?? null,
-        ebayCategoryId: data.ebayCategoryId ?? null,
         slug,
       },
     });
@@ -626,41 +579,7 @@ export async function POST(req: NextRequest) {
       quantity: item.quantity,
     });
 
-    // Publish to selected connected sales channels. Best-effort: never fail the listing save.
-    let channelSync: { provider: string; ok: boolean; error?: string }[] = [];
-    try {
-      const { publishStoreItemToChannels, resolvePublishProviders } = await import(
-        "@/lib/channels/outbound"
-      );
-      const publishArgs = {
-        syncToChannels: data.syncToChannels,
-        channelProviders: data.channelProviders,
-      };
-      const providers = resolvePublishProviders(publishArgs);
-      if (providers !== undefined) {
-        channelSync = await publishStoreItemToChannels(item.id, userId, { providers });
-      } else if (data.channelProviders === undefined && data.syncToChannels !== false) {
-        channelSync = await publishStoreItemToChannels(item.id, userId);
-      }
-    } catch (err) {
-      console.error("[store-items] Channel publish failed:", err);
-    }
-
-    const links = await prisma.channelListingLink.findMany({
-      where: { storeItemId: item.id },
-      select: {
-        ...SELLER_CHANNEL_LINK_SELECT,
-        lastPushedAt: true,
-        linkOrigin: true,
-      },
-    });
-    const channelLinks = links.map((link) => ({
-      ...withListingChannelSyncWarning(link),
-      lastPushedAt: link.lastPushedAt,
-      linkOrigin: link.linkOrigin,
-    }));
-
-    return NextResponse.json({ ...item, channelSync, channelLinks });
+    return NextResponse.json({ ...item });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const isConn = /P1001|ECONNREFUSED|connect/i.test(msg);

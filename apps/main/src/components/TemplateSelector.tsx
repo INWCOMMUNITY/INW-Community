@@ -17,11 +17,6 @@ export interface ListingTemplate {
   shippingPolicy?: string | null;
   localDeliveryTerms?: string | null;
   pickupTerms?: string | null;
-  etsyWhoMade?: string | null;
-  etsyWhenMade?: string | null;
-  etsyIsSupply?: boolean | null;
-  ebayCategoryId?: number | null;
-  ebayAspects?: { name: string; value: string }[] | null;
   variantsTemplate?: { axes?: { name: string; options?: string[]; values?: string[] }[] } | null;
   createdAt?: string;
   updatedAt?: string;
@@ -144,8 +139,6 @@ export function TemplateSelector({ onSelectTemplate, disabled }: TemplateSelecto
                           {template.condition && (
                             <p>Condition: {template.condition === "new" ? "New" : "Used"}</p>
                           )}
-                          {template.etsyWhoMade && <p>Etsy fields included</p>}
-                          {template.ebayCategoryId && <p>eBay category included</p>}
                         </div>
                       </button>
                       <button

@@ -37,17 +37,7 @@ import {
   formatShippingOptionPackageSummary,
   shippingOptionNeedsMeasurements,
 } from "@/lib/shipping-option-display";
-import { alertChannelPublishResult, alertChannelSyncFailures } from "@/lib/channel-sync-alert";
-import {
-  defaultSelectedProviders,
-  fetchChannelConnections,
-  type ChannelConnectionSummary,
-  type ChannelProviderId,
-} from "@/lib/channel-connections";
-import { listingVariantChannelWarnings } from "@/lib/listing-variant-channel-warnings";
-import { channelLinkShowsOnItem } from "@/lib/channel-link-visibility";
-import { ChannelListOnCheckboxes } from "@/components/channels/ChannelListOnCheckboxes";
-import { getDraft, saveDraft, deleteDraft, type StoreItemDraft } from "@/lib/drafts";
+import { getDraft, saveDraft, deleteDraft } from "@/lib/drafts";
 import {
   ListingOptionsEditor,
   buildVariantsPayload,
@@ -66,41 +56,12 @@ import {
   type VariantAxisDef,
 } from "@/lib/listing-variant-matrix";
 import { TemplateSelector, type ListingTemplate } from "@/components/listing/TemplateSelector";
-import { CategorySuggestions } from "@/components/listing/CategorySuggestions";
 import { SelectField } from "@/components/listing/SelectField";
-import { CollapsibleSection } from "@/components/listing/CollapsibleSection";
-import { EbayItemDetailsSection } from "@/components/listing/EbayItemDetailsSection";
-import { EtsyListingRequirementsSection, type EtsyCategorySuggestion } from "@/components/listing/EtsyListingRequirementsSection";
-import {
-  type EtsyWhoMade,
-  type EtsyWhenMade,
-  isEtsyWhoMade,
-  normalizeEtsyWhenMade,
-} from "@/lib/etsy-listing-options";
-import {
-  formatAspectValidationErrors,
-  prepareAspectRowsForForm,
-  prepareAspectsForEbayCategory,
-} from "@/lib/ebay-aspect-prep";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
-// eBay listing field caps (mirror of apps/main/src/lib/listing-limits.ts).
-const EBAY_TITLE_MAX = 80;
-const EBAY_ASPECT_NAME_MAX = 40;
-const EBAY_ASPECT_VALUE_MAX = 50;
-const MAX_ASPECTS = 30;
-
-type ListingAspect = { name: string; value: string };
-type EbayCategorySuggestion = { categoryId: string; categoryName: string; categoryPath?: string };
-type EbayCategoryAspect = {
-  name: string;
-  required: boolean;
-  mode: "FREE_TEXT" | "SELECTION_ONLY";
-  cardinality: "SINGLE" | "MULTI";
-  suggestedValues: string[];
-};
+const TITLE_MAX = 80;
 
 function toFullUrl(url: string): string {
   return url.startsWith("http") ? url : `${siteBase}${url.startsWith("/") ? "" : "/"}${url}`;
@@ -117,11 +78,6 @@ interface StoreCategoryOption {
   subcategories: string[];
 }
 
-interface Meta {
-  categories: string[];
-  sizes: string[];
-}
-
 interface PoliciesResponse {
   sellerShippingPolicy?: string;
   sellerLocalDeliveryPolicy?: string;
@@ -134,7 +90,6 @@ interface PoliciesResponse {
 type ShippingOptionChoice = {
   id: string;
   name: string;
-  source: string;
   complete: boolean;
   lengthIn: number | null;
   widthIn: number | null;
@@ -166,9 +121,9 @@ export default function ListItemScreen() {
       contentStyle: { backgroundColor: "#fff" },
     });
   }, [navigation, editId]);
+
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [storeCategories, setStoreCategories] = useState<StoreCategoryOption[]>([]);
-  const [categories, setCategories] = useState<string[]>([]);
   const [sellerProfileShippingPolicy, setSellerProfileShippingPolicy] = useState("");
   const [sellerProfileLocalDeliveryPolicy, setSellerProfileLocalDeliveryPolicy] = useState("");
   const [sellerProfilePickupPolicy, setSellerProfilePickupPolicy] = useState("");
@@ -210,29 +165,6 @@ export default function ListItemScreen() {
   const [variantAxes, setVariantAxes] = useState<VariantAxisDef[]>([]);
   const [variantSkus, setVariantSkus] = useState<EditorSkuRow[]>([]);
   const [acceptOffers, setAcceptOffers] = useState(true);
-  // Channel sync (Etsy). Only shown when the seller has connected an Etsy shop.
-  const [etsyConnected, setEtsyConnected] = useState(false);
-  const [syncToEtsy, setSyncToEtsy] = useState(true);
-  const [etsyWhoMade, setEtsyWhoMade] = useState<EtsyWhoMade>("i_did");
-  const [etsyWhenMade, setEtsyWhenMade] = useState<EtsyWhenMade>("made_to_order");
-  const [etsyIsSupply, setEtsyIsSupply] = useState(false);
-  const [etsyTaxonomyId, setEtsyTaxonomyId] = useState("");
-  const [etsyCategoryLabel, setEtsyCategoryLabel] = useState("");
-  const [etsyCategorySearch, setEtsyCategorySearch] = useState("");
-  const [etsyCategoryResults, setEtsyCategoryResults] = useState<EtsyCategorySuggestion[]>([]);
-  const [etsySearching, setEtsySearching] = useState(false);
-  const [etsyCategorySearchError, setEtsyCategorySearchError] = useState<string | null>(null);
-  // Channel sync (eBay). Only shown when the seller has connected an eBay account.
-  const [ebayConnected, setEbayConnected] = useState(false);
-  const [ebayCategoryId, setEbayCategoryId] = useState("");
-  const [ebayCategoryLabel, setEbayCategoryLabel] = useState("");
-  const [ebayCategorySearch, setEbayCategorySearch] = useState("");
-  const [ebayCategoryResults, setEbayCategoryResults] = useState<EbayCategorySuggestion[]>([]);
-  const [ebaySearching, setEbaySearching] = useState(false);
-  const [categoryAspects, setCategoryAspects] = useState<EbayCategoryAspect[]>([]);
-  const [aspects, setAspects] = useState<ListingAspect[]>([]);
-  const [channelConnections, setChannelConnections] = useState<ChannelConnectionSummary[]>([]);
-  const [listOnProviders, setListOnProviders] = useState<ChannelProviderId[]>([]);
 
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -245,34 +177,8 @@ export default function ListItemScreen() {
   const [feedShareBusy, setFeedShareBusy] = useState(false);
   const [feedShareDone, setFeedShareDone] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
-  const [hasEbayLink, setHasEbayLink] = useState(false);
-  const [linkedChannelProviders, setLinkedChannelProviders] = useState<string[]>([]);
-  const [isEbayImportedListing, setIsEbayImportedListing] = useState(false);
-  const [refreshingFromEbay, setRefreshingFromEbay] = useState(false);
   const isExitingRef = useRef(false);
   const submittedRef = useRef(false);
-
-  const listingOnEtsy = editId
-    ? linkedChannelProviders.includes("etsy")
-    : listOnProviders.includes("etsy");
-  const listingOnEbay = editId ? hasEbayLink : listOnProviders.includes("ebay");
-
-  const variantChannelNotes = useMemo(
-    () =>
-      listingVariantChannelWarnings({
-        variants: buildVariantsPayload(inventoryMode, variantAxes, variantSkus),
-        inventoryTracking,
-        linkedProviders: Array.from(new Set([...listOnProviders, ...linkedChannelProviders])),
-      }),
-    [
-      inventoryMode,
-      variantAxes,
-      variantSkus,
-      inventoryTracking,
-      listOnProviders,
-      linkedChannelProviders,
-    ]
-  );
 
   const filteredStoreCategories = useMemo(() => {
     const q = categorySearch.trim().toLowerCase();
@@ -301,21 +207,13 @@ export default function ListItemScreen() {
     inventoryMode === "options" &&
     variantAxes.some((a) => a.name.trim() && a.values.length > 0) &&
     variantSkus.some((s) => s.enabled);
+
   const hasContent =
     !!title.trim() ||
     !!description.trim() ||
     photos.length > 0 ||
     !!category.trim() ||
-    !!secondaryCategory.trim() ||
-    !!priceCents ||
-    (inventoryMode === "simple" && quantity !== "1" && !!quantity) ||
-    (hasVariantsWithOptions && sumEnabledSkus(variantSkus) > 0) ||
-    variantSkus.length > 0 ||
-    !!shippingCostDollars ||
-    !!shippingPolicy.trim() ||
-    !!localDeliveryTerms.trim() ||
-    !!localDeliveryFeeDollars ||
-    !!pickupTerms.trim();
+    !!priceCents;
 
   const saveDraftAndExit = useCallback(async () => {
     isExitingRef.current = true;
@@ -350,36 +248,13 @@ export default function ListItemScreen() {
     if (draftId) await deleteDraft(draftId);
     router.back();
   }, [
-    title,
-    sku,
-    description,
-    photos,
-    category,
-    secondaryCategory,
-    subcategory,
-    priceCents,
-    quantity,
-    condition,
-    shippingDisabled,
-    shippingCostDollars,
-    shippingFree,
-    shippingOptionId,
-    shippingPolicy,
-    useSellerProfileShipping,
-    localDeliveryAvailable,
-    localDeliveryFeeDollars,
-    localDeliveryTerms,
-    useSellerProfileLocalDelivery,
-    inStorePickupAvailable,
-    pickupTerms,
-    useSellerProfilePickup,
-    businessId,
-    inventoryMode,
-    variantAxes,
-    variantSkus,
-    inventoryTracking,
-    draftId,
-    router,
+    title, sku, description, photos, category, secondaryCategory, subcategory,
+    priceCents, quantity, condition, shippingDisabled, shippingCostDollars,
+    shippingFree, shippingOptionId, shippingPolicy, useSellerProfileShipping,
+    localDeliveryAvailable, localDeliveryFeeDollars, localDeliveryTerms,
+    useSellerProfileLocalDelivery, inStorePickupAvailable, pickupTerms,
+    useSellerProfilePickup, businessId, inventoryMode, variantAxes, variantSkus,
+    inventoryTracking, draftId, router,
   ]);
 
   useEffect(() => {
@@ -412,23 +287,7 @@ export default function ListItemScreen() {
         useSellerProfileShipping?: boolean;
         useSellerProfileLocalDelivery?: boolean;
         useSellerProfilePickup?: boolean;
-        etsyWhoMade?: string | null;
-        etsyWhenMade?: string | null;
-        etsyIsSupply?: boolean | null;
-        etsyTaxonomyId?: number | null;
         sku?: string | null;
-        ebayCategoryId?: number | null;
-        aspects?: { name?: unknown; value?: unknown }[] | null;
-        hasEbayLink?: boolean;
-        hasEbayImportLink?: boolean;
-        ebayLinkOrigin?: "import" | "inw_create" | null;
-        channelLinks?: {
-          provider?: string | null;
-          remoteDeletedProvider?: string | null;
-          connectionStatus?: string | null;
-          ebayListingEnded?: boolean;
-          remoteCatalogState?: string | null;
-        }[] | null;
       }>(`/api/store-items/${editId}`)
         .then((item) => {
           setTitle(item.title ?? "");
@@ -466,37 +325,9 @@ export default function ListItemScreen() {
           setInventoryTracking(parseInventoryTracking(item.inventoryTracking));
           if (item.condition === "used" || item.condition === "new") setCondition(item.condition);
           if (typeof item.acceptOffers === "boolean") setAcceptOffers(item.acceptOffers);
-          if (isEtsyWhoMade(item.etsyWhoMade)) {
-            setEtsyWhoMade(item.etsyWhoMade);
-          }
-          const whenMade = normalizeEtsyWhenMade(item.etsyWhenMade);
-          if (whenMade) setEtsyWhenMade(whenMade);
-          if (typeof item.etsyIsSupply === "boolean") setEtsyIsSupply(item.etsyIsSupply);
-          if (item.etsyTaxonomyId != null) {
-            setEtsyTaxonomyId(String(item.etsyTaxonomyId));
-            setEtsyCategoryLabel("");
-          }
-          if (item.ebayCategoryId != null) setEbayCategoryId(String(item.ebayCategoryId));
-          if (Array.isArray(item.aspects)) {
-            setAspects(
-              item.aspects.map((a) => ({ name: String(a?.name ?? ""), value: String(a?.value ?? "") }))
-            );
-          }
           if (item.useSellerProfileShipping !== undefined) setUseSellerProfileShipping(item.useSellerProfileShipping);
           if (item.useSellerProfileLocalDelivery !== undefined) setUseSellerProfileLocalDelivery(item.useSellerProfileLocalDelivery);
           if (item.useSellerProfilePickup !== undefined) setUseSellerProfilePickup(item.useSellerProfilePickup);
-          setHasEbayLink(Boolean(item.hasEbayLink));
-          if (Array.isArray(item.channelLinks)) {
-            setLinkedChannelProviders(
-              item.channelLinks
-                .filter((l) => channelLinkShowsOnItem(l))
-                .map((l) => (typeof l.provider === "string" ? l.provider : ""))
-                .filter(Boolean)
-            );
-          }
-          setIsEbayImportedListing(
-            Boolean(item.hasEbayImportLink || item.ebayLinkOrigin === "import")
-          );
         })
         .catch(() => setError("Failed to load item"))
         .finally(() => {
@@ -554,25 +385,6 @@ export default function ListItemScreen() {
       .catch(() => {});
   }, [editId]);
 
-  useEffect(() => {
-    if (editId && category && storeCategories.length > 0 && !storeCategories.some((c) => c.label === category)) {
-      setUseCustomCategory(true);
-    }
-  }, [editId, category, storeCategories]);
-
-  useEffect(() => {
-    if (!editId || !category || !subcategory || storeCategories.length === 0) return;
-    const preset = storeCategories.find((c) => c.label === category);
-    if (!preset || preset.subcategories.includes(subcategory)) return;
-
-    const normalized = subcategory.trim().toLowerCase();
-    const match = preset.subcategories.find((s) => {
-      const subNorm = s.toLowerCase();
-      return subNorm === normalized || subNorm.includes(normalized) || normalized.includes(subNorm);
-    });
-    if (match) setSubcategory(match);
-  }, [editId, category, subcategory, storeCategories]);
-
   const shouldPreventRemove = hasContent && !submitting && !isExitingRef.current;
   usePreventRemove(shouldPreventRemove, ({ data }) => {
     Alert.alert(
@@ -606,22 +418,6 @@ export default function ListItemScreen() {
     apiGet<{ categories: StoreCategoryOption[] }>("/api/store-categories")
       .then((data) => setStoreCategories(data.categories ?? []))
       .catch(() => setStoreCategories([]));
-    apiGet<Meta>("/api/store-items?list=meta")
-      .then((data) => setCategories((data as Meta).categories ?? []))
-      .catch(() => setCategories([]));
-    fetchChannelConnections()
-      .then((list) => {
-        setChannelConnections(list);
-        setEtsyConnected(list.some((c) => c.provider === "etsy" && c.status === "active"));
-        setEbayConnected(list.some((c) => c.provider === "ebay" && c.status === "active"));
-        setListOnProviders(defaultSelectedProviders(list));
-      })
-      .catch(() => {
-        setChannelConnections([]);
-        setListOnProviders([]);
-        setEtsyConnected(false);
-        setEbayConnected(false);
-      });
     apiGet<PoliciesResponse>("/api/me/policies")
       .then((data) => {
         const pol = data as PoliciesResponse;
@@ -631,8 +427,6 @@ export default function ListItemScreen() {
         if (pol.sellerShippingPolicy && useSellerProfileShipping) setShippingPolicy(pol.sellerShippingPolicy);
         if (pol.sellerLocalDeliveryPolicy && useSellerProfileLocalDelivery) {
           setLocalDeliveryTerms(pol.sellerLocalDeliveryPolicy);
-        } else if (pol.sellerLocalDeliveryPolicy) {
-          setLocalDeliveryTerms((prev) => prev || (pol.sellerLocalDeliveryPolicy ?? ""));
         }
         if (pol.sellerPickupPolicy) setPickupTerms((prev) => prev || (pol.sellerPickupPolicy ?? ""));
         if (pol.offerShipping !== undefined) setOfferShipping(pol.offerShipping);
@@ -641,14 +435,10 @@ export default function ListItemScreen() {
         if (pol.offerShipping === false) setShippingDisabled(true);
         if (pol.offerLocalDelivery === false) setLocalDeliveryAvailable(false);
         if (pol.offerLocalPickup === false) setInStorePickupAvailable(false);
-        if (pol.offerLocalDelivery === false && pol.offerLocalPickup === false) setShippingDisabled(false);
       })
       .catch(() => {})
       .finally(() => setPoliciesLoaded(true));
-    apiGet<{
-      options?: ShippingOptionChoice[];
-      offerFreeShippingOnInw?: boolean;
-    }>("/api/shipping-options")
+    apiGet<{ options?: ShippingOptionChoice[]; offerFreeShippingOnInw?: boolean }>("/api/shipping-options")
       .then((data) => {
         const options = Array.isArray(data.options) ? data.options : [];
         setShippingOptions(options);
@@ -671,282 +461,10 @@ export default function ListItemScreen() {
   useEffect(() => {
     const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const subShow = Keyboard.addListener(showEvt, (e) =>
-      setKeyboardHeight(e.endCoordinates?.height ?? 0)
-    );
+    const subShow = Keyboard.addListener(showEvt, (e) => setKeyboardHeight(e.endCoordinates?.height ?? 0));
     const subHide = Keyboard.addListener(hideEvt, () => setKeyboardHeight(0));
-    return () => {
-      subShow.remove();
-      subHide.remove();
-    };
+    return () => { subShow.remove(); subHide.remove(); };
   }, []);
-
-  // Load required/recommended item specifics for an eBay leaf category; pre-seed required rows.
-  const loadCategoryAspects = useCallback(async (categoryId: string) => {
-    if (!categoryId) {
-      setCategoryAspects([]);
-      return;
-    }
-    try {
-      const storeItemQuery = editId ? `&storeItemId=${encodeURIComponent(editId)}` : "";
-      const data = await apiGet<{ aspects?: EbayCategoryAspect[]; readOnly?: boolean }>(
-        `/api/channels/ebay/category-aspects?categoryId=${encodeURIComponent(categoryId)}${storeItemQuery}`
-      );
-      const list = data.aspects ?? [];
-      setCategoryAspects(list);
-      if (!data.readOnly) {
-        setAspects((prev) => prepareAspectRowsForForm(list, prev, title.trim()));
-      }
-    } catch {
-      setCategoryAspects([]);
-    }
-  }, [title, editId]);
-
-  // Debounced live eBay category search.
-  useEffect(() => {
-    if (!listingOnEbay) return;
-    const q = ebayCategorySearch.trim();
-    if (q.length < 2) {
-      setEbayCategoryResults([]);
-      return;
-    }
-    let cancelled = false;
-    setEbaySearching(true);
-    const t = setTimeout(() => {
-      apiGet<{ categories?: EbayCategorySuggestion[] }>(
-        `/api/channels/ebay/categories?q=${encodeURIComponent(q)}`
-      )
-        .then((data) => {
-          if (!cancelled) setEbayCategoryResults(data.categories ?? []);
-        })
-        .catch(() => {
-          if (!cancelled) setEbayCategoryResults([]);
-        })
-        .finally(() => {
-          if (!cancelled) setEbaySearching(false);
-        });
-    }, 400);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [ebayCategorySearch, listingOnEbay]);
-
-  // Debounced live Etsy category search.
-  useEffect(() => {
-    if (!listingOnEtsy) return;
-    const q = etsyCategorySearch.trim();
-    if (q.length < 2) {
-      setEtsyCategoryResults([]);
-      setEtsyCategorySearchError(null);
-      return;
-    }
-    let cancelled = false;
-    setEtsySearching(true);
-    setEtsyCategorySearchError(null);
-    const t = setTimeout(() => {
-      apiGet<{ categories?: EtsyCategorySuggestion[] }>(
-        `/api/channels/etsy/categories?q=${encodeURIComponent(q)}`
-      )
-        .then((data) => {
-          if (!cancelled) {
-            setEtsyCategoryResults(data.categories ?? []);
-            setEtsyCategorySearchError(null);
-          }
-        })
-        .catch((e: { error?: string }) => {
-          if (!cancelled) {
-            setEtsyCategoryResults([]);
-            setEtsyCategorySearchError(e?.error ?? "Category search failed. Try again.");
-          }
-        })
-        .finally(() => {
-          if (!cancelled) setEtsySearching(false);
-        });
-    }, 400);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [etsyCategorySearch, listingOnEtsy]);
-
-  useEffect(() => {
-    if (!listingOnEtsy || !etsyTaxonomyId || etsyCategoryLabel) return;
-    let cancelled = false;
-    apiGet<{ categories?: EtsyCategorySuggestion[] }>(
-      `/api/channels/etsy/categories?id=${encodeURIComponent(etsyTaxonomyId)}`
-    )
-      .then((data) => {
-        const hit = data.categories?.[0];
-        if (!cancelled && hit) {
-          setEtsyCategoryLabel(hit.categoryPath || hit.categoryName);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [listingOnEtsy, etsyTaxonomyId, etsyCategoryLabel]);
-
-  // Load aspects for a previously-saved eBay category once the connection is known.
-  useEffect(() => {
-    if (ebayConnected && ebayCategoryId) void loadCategoryAspects(ebayCategoryId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ebayConnected]);
-
-  const addAspectRow = () =>
-    setAspects((prev) => (prev.length >= MAX_ASPECTS ? prev : [...prev, { name: "", value: "" }]));
-  const setAspectName = (i: number, name: string) =>
-    setAspects((prev) =>
-      prev.map((a, idx) => (idx === i ? { ...a, name: name.slice(0, EBAY_ASPECT_NAME_MAX) } : a))
-    );
-  const setAspectValue = (i: number, value: string) =>
-    setAspects((prev) =>
-      prev.map((a, idx) => (idx === i ? { ...a, value: value.slice(0, EBAY_ASPECT_VALUE_MAX) } : a))
-    );
-  const removeAspectRow = (i: number) =>
-    setAspects((prev) => prev.filter((_, idx) => idx !== i));
-  const isRequiredAspect = (name: string) =>
-    categoryAspects.some(
-      (a) => a.required && a.name.trim().toLowerCase() === name.trim().toLowerCase()
-    );
-  const suggestionsForAspect = (name: string) => {
-    const match = categoryAspects.find(
-      (a) => a.name.trim().toLowerCase() === name.trim().toLowerCase()
-    );
-    return match?.suggestedValues ?? [];
-  };
-
-  const missingRequiredAspectCount = useMemo(() => {
-    if (isEbayImportedListing || categoryAspects.length === 0) return 0;
-    const filled = aspects
-      .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
-      .filter((a) => a.name && a.value);
-    return prepareAspectsForEbayCategory(categoryAspects, filled, title.trim()).missingRequired
-      .length;
-  }, [categoryAspects, aspects, title, isEbayImportedListing]);
-
-  const selectEbayCategory = (categoryId: string, label: string) => {
-    setEbayCategoryId(categoryId);
-    setEbayCategoryLabel(label);
-    setEbayCategoryResults([]);
-    setEbayCategorySearch("");
-    void loadCategoryAspects(categoryId);
-  };
-
-  const clearEbayCategory = () => {
-    setEbayCategoryId("");
-    setEbayCategoryLabel("");
-    setEbayCategorySearch("");
-    setCategoryAspects([]);
-  };
-
-  const selectEtsyCategory = (taxonomyId: string, label: string) => {
-    setEtsyTaxonomyId(taxonomyId);
-    setEtsyCategoryLabel(label);
-    setEtsyCategoryResults([]);
-    setEtsyCategorySearch("");
-    setEtsyCategorySearchError(null);
-  };
-
-  const clearEtsyCategory = () => {
-    setEtsyTaxonomyId("");
-    setEtsyCategoryLabel("");
-    setEtsyCategorySearch("");
-    setEtsyCategorySearchError(null);
-    setEtsyCategoryResults([]);
-  };
-
-  const syncShippingPolicy = () => {
-    apiGet<PoliciesResponse>("/api/me/policies")
-      .then((data) => {
-        const pol = data as PoliciesResponse;
-        const policy = pol.sellerShippingPolicy ?? "";
-        setSellerProfileShippingPolicy(policy);
-        setShippingPolicy(policy);
-      })
-      .catch(() => {});
-  };
-
-  const syncPickupPolicy = () => {
-    apiGet<PoliciesResponse>("/api/me/policies")
-      .then((data) => {
-        const pol = data as PoliciesResponse;
-        const policy = pol.sellerPickupPolicy ?? "";
-        setSellerProfilePickupPolicy(policy);
-        setPickupTerms(policy);
-      })
-      .catch(() => {});
-  };
-
-  const syncLocalDeliveryPolicy = () => {
-    apiGet<PoliciesResponse>("/api/me/policies")
-      .then((data) => {
-        const pol = data as PoliciesResponse;
-        const policy = pol.sellerLocalDeliveryPolicy ?? "";
-        setSellerProfileLocalDeliveryPolicy(policy);
-        setLocalDeliveryTerms(policy);
-      })
-      .catch(() => {});
-  };
-
-  const refreshFromEbay = async () => {
-    if (!editId) return;
-    setRefreshingFromEbay(true);
-    setError(null);
-    try {
-      const res = await apiPost<{
-        ok: boolean;
-        updated: boolean;
-        changes: string[];
-        message: string;
-      }>("/api/channels/ebay/refresh", { storeItemId: editId });
-
-      if (res.updated && res.changes.length > 0) {
-        // Reload the item data to reflect changes
-        const item = await apiGet<{
-          title: string;
-          description: string | null;
-          photos: string[];
-          category: string | null;
-          subcategory: string | null;
-          priceCents: number;
-          quantity: number;
-          ebayCategoryId?: number | null;
-          etsyTaxonomyId?: number | null;
-          aspects?: { name?: unknown; value?: unknown }[] | null;
-        }>(`/api/store-items/${editId}`);
-
-        // Update form state with fresh data
-        setTitle(item.title ?? "");
-        setDescription(item.description ?? "");
-        setPhotos(item.photos ?? []);
-        setCategory(item.category ?? "");
-        setSubcategory(item.subcategory ?? "");
-        setPriceCents(item.priceCents != null ? (item.priceCents / 100).toFixed(2) : "");
-        setQuantity(String(item.quantity ?? 1));
-        if (item.ebayCategoryId != null) setEbayCategoryId(String(item.ebayCategoryId));
-        if (item.etsyTaxonomyId != null) {
-          setEtsyTaxonomyId(String(item.etsyTaxonomyId));
-          setEtsyCategoryLabel("");
-        }
-        if (Array.isArray(item.aspects)) {
-          setAspects(
-            item.aspects.map((a) => ({ name: String(a?.name ?? ""), value: String(a?.value ?? "") }))
-          );
-        }
-
-        Alert.alert("Refreshed from eBay", res.message);
-      } else {
-        Alert.alert("Up to Date", res.message);
-      }
-    } catch (e: unknown) {
-      const err = e as { error?: string };
-      setError(err?.error ?? "Failed to refresh from eBay");
-    } finally {
-      setRefreshingFromEbay(false);
-    }
-  };
 
   const pickPhotos = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -971,13 +489,8 @@ export default function ListItemScreen() {
       }
       for (let i = 0; i < result.assets.length; i++) {
         const asset = result.assets[i];
-        if (
-          typeof asset.fileSize === "number" &&
-          asset.fileSize > MAX_LISTING_PHOTO_BYTES
-        ) {
-          setPhotoError(
-            `Each photo must be under ${formatListingPhotoSizeLabel()}. Skip very large originals or compress them.`
-          );
+        if (typeof asset.fileSize === "number" && asset.fileSize > MAX_LISTING_PHOTO_BYTES) {
+          setPhotoError(`Each photo must be under ${formatListingPhotoSizeLabel()}.`);
           continue;
         }
         const { url } = await uploadListingPhotoFile({
@@ -997,15 +510,6 @@ export default function ListItemScreen() {
       if (urls.length > 0) setPhotoError(null);
     } catch (e) {
       setPhotoError((e as { error?: string })?.error ?? "Photo upload failed.");
-      if (urls.length > 0) {
-        setPhotos((p) => {
-          const next = [...p];
-          for (const u of urls) {
-            if (!next.includes(u)) next.push(u);
-          }
-          return next;
-        });
-      }
     } finally {
       setUploading(false);
     }
@@ -1015,151 +519,49 @@ export default function ListItemScreen() {
     setPhotos((p) => p.filter((u) => u !== url));
   };
 
-  const effectiveShippingPolicy = useSellerProfileShipping
-    ? sellerProfileShippingPolicy
-    : shippingPolicy;
+  const effectiveShippingPolicy = useSellerProfileShipping ? sellerProfileShippingPolicy : shippingPolicy;
 
   const handleSubmit = async () => {
     const price = Math.round(parseFloat(priceCents) * 100);
     const qty = hasVariantsWithOptions ? 0 : parseInt(quantity, 10);
-    const shipCost =
-      shippingFree || !shippingCostDollars.trim()
-        ? 0
-        : Math.round(parseFloat(shippingCostDollars) * 100);
-    const localFee = localDeliveryFeeDollars.trim()
-      ? Math.round(parseFloat(localDeliveryFeeDollars) * 100)
-      : null;
+    const shipCost = shippingFree || !shippingCostDollars.trim() ? 0 : Math.round(parseFloat(shippingCostDollars) * 100);
+    const localFee = localDeliveryFeeDollars.trim() ? Math.round(parseFloat(localDeliveryFeeDollars) * 100) : null;
 
-    if (!title.trim()) {
-      setError("Title is required");
-      return;
-    }
-    if (!price || price < 1) {
-      setError("Price must be at least $0.01");
-      return;
-    }
+    if (!title.trim()) { setError("Title is required"); return; }
+    if (!price || price < 1) { setError("Price must be at least $0.01"); return; }
     if (!hasVariantsWithOptions && inventoryTracking !== "made_to_order" && (!qty || qty < 1)) {
-      setError("Quantity must be at least 1");
-      return;
+      setError("Quantity must be at least 1"); return;
     }
     if (hasVariantsWithOptions) {
       if (variantAxes.some((a) => !a.name.trim() || a.values.length === 0)) {
-        setError("Each option type needs a name and at least one value.");
-        return;
+        setError("Each option type needs a name and at least one value."); return;
       }
       const totalOptionQty = sumEnabledSkus(variantSkus);
       if (inventoryTracking !== "made_to_order" && totalOptionQty < 1) {
-        setError("Add at least one combination with quantity 1 or more.");
-        return;
+        setError("Add at least one combination with quantity 1 or more."); return;
       }
     }
     if (shippingDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
-      setError("You must offer at least one form of delivery (shipping, local delivery, or pickup).");
-      return;
+      setError("You must offer at least one form of delivery."); return;
     }
     if (!editId && !shippingDisabled && !shippingOptionId) {
-      setError("Choose a shipping option, or create one in Shipping options.");
-      return;
-    }
-    if (listingOnEbay && !isEbayImportedListing && !ebayCategoryId.trim()) {
-      setError("eBay requires a category — fill in eBay Listing Requirements.");
-      return;
-    }
-    if (listingOnEbay && ebayCategoryId.trim() && !isEbayImportedListing) {
-      const filled = aspects
-        .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
-        .filter((a) => a.name && a.value);
-      const aspectValidation = prepareAspectsForEbayCategory(
-        categoryAspects,
-        filled,
-        title.trim()
-      );
-      if (!aspectValidation.valid) {
-        setError(
-          formatAspectValidationErrors(
-            aspectValidation.missingRequired,
-            aspectValidation.invalidSelectionValues
-          )
-        );
-        return;
-      }
-    }
-    if (listingOnEtsy) {
-      if (!etsyTaxonomyId.trim()) {
-        setError("Etsy requires a category — fill in Etsy Listing Requirements.");
-        return;
-      }
-      if (!isEtsyWhoMade(etsyWhoMade)) {
-        setError('Etsy requires "Who made it?" — fill in Etsy Listing Requirements.');
-        return;
-      }
-      if (!normalizeEtsyWhenMade(etsyWhenMade)) {
-        setError('Etsy requires "When was it made?" — fill in Etsy Listing Requirements.');
-        return;
-      }
-    }
-    if (
-      !shippingDisabled &&
-      !(useSellerProfileShipping ? effectiveShippingPolicy : shippingPolicy).trim()
-    ) {
-      setError("Shipping policy is required when you offer shipping.");
-      return;
-    }
-    if (
-      localDeliveryAvailable &&
-      !(useSellerProfileLocalDelivery ? sellerProfileLocalDeliveryPolicy : localDeliveryTerms).trim()
-    ) {
-      setError(
-        useSellerProfileLocalDelivery
-          ? "Set your Delivery Policy in Policies first, or uncheck \"Use seller profile default\" to add item-specific terms."
-          : "Local delivery terms are required when you offer local delivery."
-      );
-      return;
-    }
-    if (
-      inStorePickupAvailable &&
-      !(useSellerProfilePickup ? sellerProfilePickupPolicy : pickupTerms).trim()
-    ) {
-      setError("Pickup terms are required when you offer local pickup.");
-      return;
+      setError("Choose a shipping option."); return;
     }
 
     const variantPayload = buildVariantsPayload(inventoryMode, variantAxes, variantSkus);
-
-    const payloadQuantity =
-      inventoryTracking === "made_to_order"
-        ? qty || 1
-        : variantPayload != null
-          ? sumEnabledSkus(variantSkus)
-          : qty;
+    const payloadQuantity = inventoryTracking === "made_to_order"
+      ? qty || 1
+      : variantPayload != null ? sumEnabledSkus(variantSkus) : qty;
 
     setError(null);
     setPhotoError(null);
     const catTrim = category.trim();
     const secTrim = secondaryCategory.trim();
     const secondaryPayload = secTrim && secTrim !== catTrim ? secTrim : null;
-    const cleanedAspects = aspects
-      .map((a) => ({ name: a.name.trim(), value: a.value.trim() }))
-      .filter((a) => a.name && a.value);
-    let aspectsToSave = cleanedAspects;
-    if (listingOnEbay && ebayCategoryId.trim() && !isEbayImportedListing) {
-      const aspectValidation = prepareAspectsForEbayCategory(
-        categoryAspects,
-        cleanedAspects,
-        title.trim()
-      );
-      aspectsToSave = aspectValidation.remappedAspects.filter((a) => a.name && a.value);
-    }
+
     const basePayload: Record<string, unknown> = {
-      title: title.trim().slice(0, EBAY_TITLE_MAX),
+      title: title.trim().slice(0, TITLE_MAX),
       sku: sku.trim() || null,
-      ...(isEbayImportedListing ? {} : { aspects: aspectsToSave }),
-      ...(listingOnEbay && ebayCategoryId.trim()
-        ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
-        : {}),
-      ...(listingOnEtsy
-        ? { etsyWhoMade, etsyWhenMade, etsyIsSupply, etsyTaxonomyId: Number(etsyTaxonomyId.trim()) }
-        : {}),
       description: description.trim() || null,
       photos,
       category: catTrim || null,
@@ -1174,92 +576,31 @@ export default function ListItemScreen() {
       localDeliveryAvailable,
       inStorePickupAvailable,
       businessId: businessId || null,
-      shippingCostCents:
-        !shippingDisabled ? (shippingFree ? 0 : shipCost > 0 ? shipCost : null) : null,
+      shippingCostCents: !shippingDisabled ? (shippingFree ? 0 : shipCost > 0 ? shipCost : null) : null,
       shippingOptionId: shippingOptionId || null,
-      shippingPolicy:
-        shippingDisabled || useSellerProfileShipping
-          ? null
-          : shippingPolicy.trim() || null,
-      localDeliveryTerms:
-        localDeliveryAvailable && !useSellerProfileLocalDelivery
-          ? localDeliveryTerms.trim() || null
-          : null,
-      pickupTerms:
-        inStorePickupAvailable && !useSellerProfilePickup
-          ? pickupTerms.trim() || null
-          : null,
+      shippingPolicy: shippingDisabled || useSellerProfileShipping ? null : shippingPolicy.trim() || null,
+      localDeliveryTerms: localDeliveryAvailable && !useSellerProfileLocalDelivery ? localDeliveryTerms.trim() || null : null,
+      pickupTerms: inStorePickupAvailable && !useSellerProfilePickup ? pickupTerms.trim() || null : null,
       localDeliveryFeeCents: localFee,
-      variants: variantPayload,
       ...(condition === "used" ? { acceptOffers } : { acceptOffers: false }),
     };
 
-    if (editId) {
-      const editPayload = {
-        ...basePayload,
-        ...(etsyConnected || ebayConnected
-          ? {
-              syncToChannels: true,
-              ...(listingOnEtsy
-                ? { etsyWhoMade, etsyWhenMade, etsyIsSupply, etsyTaxonomyId: Number(etsyTaxonomyId.trim()) }
-                : {}),
-              ...(listingOnEbay && ebayCategoryId.trim()
-                ? { ebayCategoryId: Number(ebayCategoryId.trim()) }
-                : {}),
-            }
-          : {}),
-      };
-      await performListingSubmit(editPayload, true);
-      return;
-    }
-
-    await performListingSubmit(
-      {
-        ...basePayload,
-        syncToChannels: listOnProviders.length > 0,
-        channelProviders: listOnProviders,
-      },
-      false
-    );
-  };
-
-  const performListingSubmit = async (
-    payload: Record<string, unknown>,
-    isEdit: boolean
-  ) => {
     setSubmitting(true);
     submittedRef.current = true;
     try {
       isExitingRef.current = true;
-      if (isEdit && editId) {
-        const patchRes = await apiPatch<{
-          channelSync?: { provider: string; ok: boolean; error?: string }[];
-        }>(`/api/store-items/${editId}`, payload);
-        alertChannelSyncFailures(patchRes.channelSync, "saved");
+      if (editId) {
+        await apiPatch(`/api/store-items/${editId}`, basePayload);
         setEditSuccess(true);
         setShowListingSuccessModal(true);
       } else {
-        const res = await apiPost<{
-          id?: string;
-          channelSync?: { provider: string; ok: boolean; error?: string }[];
-        }>("/api/store-items", payload);
-        const channelSync = res.channelSync ?? [];
-        if (channelSync.length > 0) {
-          alertChannelPublishResult(channelSync);
-        }
+        const res = await apiPost<{ id?: string }>("/api/store-items", basePayload);
         setCreatedItemId(res.id ?? null);
         setFeedShareDone(false);
-        if (channelSync.some((row) => !row.ok)) {
-          isExitingRef.current = false;
-        } else {
-          setShowListingSuccessModal(true);
-        }
+        setShowListingSuccessModal(true);
       }
     } catch (e) {
-      setError(
-        (e as { error?: string })?.error ??
-          (isEdit ? "Failed to update listing" : "Failed to create listing")
-      );
+      setError((e as { error?: string })?.error ?? (editId ? "Failed to update listing" : "Failed to create listing"));
       submittedRef.current = false;
       isExitingRef.current = false;
     } finally {
@@ -1270,9 +611,7 @@ export default function ListItemScreen() {
   const handleSelectTemplate = useCallback((template: ListingTemplate) => {
     if (template.category) setCategory(template.category);
     if (template.subcategory) setSubcategory(template.subcategory);
-    if (template.condition === "new" || template.condition === "used") {
-      setCondition(template.condition);
-    }
+    if (template.condition === "new" || template.condition === "used") setCondition(template.condition);
     if (template.shippingDisabled !== undefined) setShippingDisabled(template.shippingDisabled);
     if (template.localDeliveryAvailable !== undefined) setLocalDeliveryAvailable(template.localDeliveryAvailable);
     if (template.inStorePickupAvailable !== undefined) setInStorePickupAvailable(template.inStorePickupAvailable);
@@ -1281,13 +620,6 @@ export default function ListItemScreen() {
       setShippingFree(template.shippingCostCents === 0);
     }
     if (template.shippingOptionId) setShippingOptionId(template.shippingOptionId);
-    if (template.shippingCostCents == null && template.shippingOptionId) {
-      const fromOption = shippingOptions.find((o) => o.id === template.shippingOptionId);
-      if (fromOption?.shippingCostCents != null) {
-        setShippingCostDollars((fromOption.shippingCostCents / 100).toFixed(2));
-        setShippingFree(fromOption.shippingCostCents === 0);
-      }
-    }
     if (template.localDeliveryFeeCents != null) {
       setLocalDeliveryFeeDollars((template.localDeliveryFeeCents / 100).toFixed(2));
     }
@@ -1303,393 +635,227 @@ export default function ListItemScreen() {
       setPickupTerms(template.pickupTerms);
       setUseSellerProfilePickup(false);
     }
-    if (isEtsyWhoMade(template.etsyWhoMade)) {
-      setEtsyWhoMade(template.etsyWhoMade);
-    }
-    const templateWhenMade = normalizeEtsyWhenMade(template.etsyWhenMade);
-    if (templateWhenMade) setEtsyWhenMade(templateWhenMade);
-    if (template.etsyIsSupply !== undefined && template.etsyIsSupply !== null) {
-      setEtsyIsSupply(template.etsyIsSupply);
-    }
-    if (template.ebayCategoryId) {
-      setEbayCategoryId(String(template.ebayCategoryId));
-      void loadCategoryAspects(String(template.ebayCategoryId));
-    }
-    if (Array.isArray(template.ebayAspects)) {
-      setAspects(template.ebayAspects.map((a) => ({ name: a.name ?? "", value: a.value ?? "" })));
-    }
     if (template.variantsTemplate?.axes?.length) {
       setInventoryMode("options");
       const axes = template.variantsTemplate.axes
-        .map((axis) => ({
+        .map((axis: { name?: string; values?: string[]; options?: string[] }) => ({
           name: axis.name || "Option",
           values: axis.values ?? axis.options ?? [],
         }))
-        .filter((a) => a.name && a.values.length > 0);
+        .filter((a: { name: string; values: string[] }) => a.name && a.values.length > 0);
       const rebuilt = rebuildMatrixFromAxes(axes, []);
       setVariantAxes(rebuilt.axes);
       setVariantSkus(rebuilt.skus.map((s) => ({ ...s, enabled: true })));
     }
     Alert.alert("Template Applied", `Settings from "${template.name}" have been applied.`);
-  }, [loadCategoryAspects, shippingOptions]);
+  }, [shippingOptions]);
 
   return (
     <View style={styles.screenWrapper}>
-    <Modal visible={showListingSuccessModal} transparent animationType="fade">
-      <View style={styles.successModalOverlay}>
-        <View style={styles.successModalCard}>
-          <Text style={styles.successModalTitle}>
-            {editSuccess ? "Item updated" : "Item listed successfully"}
-          </Text>
-          <Text style={styles.successModalSubtitle}>
-            {editSuccess ? "Your changes have been saved." : "Your listing is now live."}
-          </Text>
-          {!editSuccess && createdItemId && !feedShareDone ? (
+      <Modal visible={showListingSuccessModal} transparent animationType="fade">
+        <View style={styles.successModalOverlay}>
+          <View style={styles.successModalCard}>
+            <Text style={styles.successModalTitle}>
+              {editSuccess ? "Item updated" : "Item listed successfully"}
+            </Text>
+            <Text style={styles.successModalSubtitle}>
+              {editSuccess ? "Your changes have been saved." : "Your listing is now live."}
+            </Text>
+            {!editSuccess && createdItemId && !feedShareDone ? (
+              <Pressable
+                style={({ pressed }) => [styles.successModalBtn, pressed && { opacity: 0.8 }]}
+                disabled={feedShareBusy}
+                onPress={async () => {
+                  setFeedShareBusy(true);
+                  try {
+                    await apiPost("/api/store-items/share-to-feed", { storeItemIds: [createdItemId] });
+                    setFeedShareDone(true);
+                  } catch {
+                    Alert.alert("Could not share", "Your listing is live. You can share it later.");
+                  } finally {
+                    setFeedShareBusy(false);
+                  }
+                }}
+              >
+                <Text style={styles.successModalBtnText}>
+                  {feedShareBusy ? "Sharing…" : "Share on Community Feed"}
+                </Text>
+              </Pressable>
+            ) : null}
+            {!editSuccess && feedShareDone ? (
+              <Text style={[styles.successModalSubtitle, { marginBottom: 12 }]}>Shared to the Community Feed.</Text>
+            ) : null}
             <Pressable
               style={({ pressed }) => [styles.successModalBtn, pressed && { opacity: 0.8 }]}
-              disabled={feedShareBusy}
-              onPress={async () => {
-                setFeedShareBusy(true);
-                try {
-                  await apiPost("/api/store-items/share-to-feed", { storeItemIds: [createdItemId] });
-                  setFeedShareDone(true);
-                } catch {
-                  Alert.alert("Could not share", "Your listing is live. You can share it from the feed later.");
-                } finally {
-                  setFeedShareBusy(false);
-                }
+              onPress={() => {
+                setShowListingSuccessModal(false);
+                setEditSuccess(false);
+                (router.replace as (href: string) => void)("/seller-hub/store/items");
               }}
             >
               <Text style={styles.successModalBtnText}>
-                {feedShareBusy ? "Sharing…" : "Share on Community Feed"}
+                {editSuccess ? "Back to My Items" : "See Listing"}
               </Text>
             </Pressable>
-          ) : null}
-          {!editSuccess && feedShareDone ? (
-            <Text style={[styles.successModalSubtitle, { marginBottom: 12 }]}>Shared to the Community Feed.</Text>
-          ) : null}
-          <Pressable
-            style={({ pressed }) => [styles.successModalBtn, pressed && { opacity: 0.8 }]}
-            onPress={() => {
-              setShowListingSuccessModal(false);
-              setEditSuccess(false);
-              (router.replace as (href: string) => void)("/seller-hub/store/items");
-            }}
-          >
-            <Text style={styles.successModalBtnText}>
-              {editSuccess ? "Back to My Items" : "See Listing"}
-            </Text>
-          </Pressable>
-          {!editSuccess && (
-            <Pressable
-              style={({ pressed }) => [styles.successModalBtnSecondary, pressed && { opacity: 0.8 }]}
-              onPress={() => {
-                setShowListingSuccessModal(false);
-                submittedRef.current = false;
-                (router.replace as (href: string) => void)("/seller-hub/store/new");
-              }}
-            >
-              <Text style={styles.successModalBtnTextSecondary}>List Another Item</Text>
-            </Pressable>
+            {!editSuccess && (
+              <Pressable
+                style={({ pressed }) => [styles.successModalBtnSecondary, pressed && { opacity: 0.8 }]}
+                onPress={() => {
+                  setShowListingSuccessModal(false);
+                  submittedRef.current = false;
+                  (router.replace as (href: string) => void)("/seller-hub/store/new");
+                }}
+              >
+                <Text style={styles.successModalBtnTextSecondary}>List Another Item</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      </Modal>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoid}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? Math.max(headerHeight, 56) : 0}
+      >
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={[styles.content, { paddingBottom: 40 + insets.bottom + keyboardHeight }]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        >
+          {!editId && (
+            <TemplateSelector onSelectTemplate={handleSelectTemplate} disabled={submitting || editLoading} />
           )}
-        </View>
-      </View>
-    </Modal>
-    <KeyboardAvoidingView
-      style={styles.keyboardAvoid}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? Math.max(headerHeight, 56) : 0}
-    >
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[
-        styles.content,
-        { paddingBottom: 40 + insets.bottom + keyboardHeight },
-      ]}
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-    >
-      {!editId && (
-        <TemplateSelector
-          onSelectTemplate={handleSelectTemplate}
-          disabled={submitting || editLoading}
-        />
-      )}
 
-      <View style={styles.typeRow}>
-        <Text style={styles.label}>Condition</Text>
-        <View style={styles.typeBtns}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.typeBtn,
-              condition === "new" && styles.typeBtnActive,
-              pressed && { opacity: 0.8 },
-            ]}
-            onPress={() => setCondition("new")}
-          >
-            <Text
-              style={
-                condition === "new" ? styles.typeBtnTextActive : styles.typeBtnText
-              }
+          <View style={styles.typeRow}>
+            <Text style={styles.label}>Condition</Text>
+            <View style={styles.typeBtns}>
+              <Pressable
+                style={({ pressed }) => [styles.typeBtn, condition === "new" && styles.typeBtnActive, pressed && { opacity: 0.8 }]}
+                onPress={() => setCondition("new")}
+              >
+                <Text style={condition === "new" ? styles.typeBtnTextActive : styles.typeBtnText}>New</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.typeBtn, condition === "used" && styles.typeBtnActive, pressed && { opacity: 0.8 }]}
+                onPress={() => setCondition("used")}
+              >
+                <Text style={condition === "used" ? styles.typeBtnTextActive : styles.typeBtnText}>Used</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          {condition === "used" && (
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>Accept offers on this listing</Text>
+              <Switch
+                value={acceptOffers}
+                onValueChange={setAcceptOffers}
+                trackColor={switchTrackColor()}
+                thumbColor={switchThumbColor(acceptOffers)}
+                ios_backgroundColor={switchIosBackgroundColor}
+              />
+            </View>
+          )}
+
+          <Text style={styles.label}>Photos *</Text>
+          <Text style={styles.hint}>Up to {formatListingPhotoSizeLabel()} each.</Text>
+          <View style={styles.photoRow}>
+            {photos.map((url) => (
+              <View key={url} style={styles.photoWrap}>
+                <Image source={{ uri: url }} style={styles.photo} />
+                <Pressable style={styles.removePhoto} onPress={() => removePhoto(url)}>
+                  <Text style={styles.removePhotoText}>×</Text>
+                </Pressable>
+              </View>
+            ))}
+            <Pressable
+              style={({ pressed }) => [styles.addPhoto, pressed && { opacity: 0.8 }]}
+              onPress={pickPhotos}
+              disabled={uploading}
             >
-              New
-            </Text>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [
-              styles.typeBtn,
-              condition === "used" && styles.typeBtnActive,
-              pressed && { opacity: 0.8 },
-            ]}
-            onPress={() => setCondition("used")}
-          >
-            <Text
-              style={
-                condition === "used"
-                  ? styles.typeBtnTextActive
-                  : styles.typeBtnText
-              }
-            >
-              Used
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {condition === "used" && (
-        <View style={styles.switchRow}>
-          <Text style={styles.switchLabel}>Accept offers on this listing</Text>
-          <Switch
-            value={acceptOffers}
-            onValueChange={setAcceptOffers}
-            trackColor={switchTrackColor()}
-            thumbColor={switchThumbColor(acceptOffers)}
-            ios_backgroundColor={switchIosBackgroundColor}
-          />
-        </View>
-      )}
-
-      <Text style={styles.label}>Photos *</Text>
-      <Text style={styles.hint}>
-        Up to {formatListingPhotoSizeLabel()} each. Large camera originals are resized automatically.
-      </Text>
-      <View style={styles.photoRow}>
-        {photos.map((url) => (
-          <View key={url} style={styles.photoWrap}>
-            <Image source={{ uri: url }} style={styles.photo} />
-            <Pressable style={styles.removePhoto} onPress={() => removePhoto(url)}>
-              <Text style={styles.removePhotoText}>×</Text>
+              {uploading ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <Text style={styles.addPhotoText}>+ Add</Text>
+              )}
             </Pressable>
           </View>
-        ))}
-        <Pressable
-          style={({ pressed }) => [styles.addPhoto, pressed && { opacity: 0.8 }]}
-          onPress={pickPhotos}
-          disabled={uploading}
-        >
-          {uploading ? (
-            <ActivityIndicator size="small" color={theme.colors.primary} />
-          ) : (
-            <Text style={styles.addPhotoText}>+ Add</Text>
-          )}
-        </Pressable>
-      </View>
-      {photoError ? (
-        <Text style={styles.photoErr}>{photoError}</Text>
-      ) : null}
+          {photoError ? <Text style={styles.photoErr}>{photoError}</Text> : null}
 
-      <Text style={styles.label}>Title *</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Item title"
-        placeholderTextColor={placeholderColor}
-        value={title}
-        onChangeText={(t) => setTitle(t.slice(0, EBAY_TITLE_MAX))}
-        maxLength={EBAY_TITLE_MAX}
-        autoCorrect={true}
-      />
-      <Text style={[styles.hint, { textAlign: "right" }, title.length >= EBAY_TITLE_MAX ? { color: "#dc2626" } : null]}>
-        {title.length}/{EBAY_TITLE_MAX}
-      </Text>
-
-      <Text style={styles.label}>SKU</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Stock Keeping Unit (optional)"
-        placeholderTextColor={placeholderColor}
-        value={sku}
-        onChangeText={(s) => setSku(s.slice(0, 50))}
-        maxLength={50}
-        autoCapitalize="characters"
-        autoCorrect={false}
-      />
-      <Text style={styles.hint}>
-        Synced with Etsy, eBay, Wix, and Shopify. Leave blank to auto-generate.
-        eBay needs letters and numbers only (no spaces or hyphens).
-      </Text>
-
-      <Text style={styles.label}>Description</Text>
-      <TextInput
-        style={[styles.input, styles.textArea]}
-        placeholder="Describe your item"
-        placeholderTextColor={placeholderColor}
-        value={description}
-        onChangeText={setDescription}
-        multiline
-        scrollEnabled={false}
-        numberOfLines={4}
-        textAlignVertical="top"
-        autoCorrect={true}
-      />
-
-      <Text style={styles.label}>Price ($) *</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="0.00"
-        placeholderTextColor={placeholderColor}
-        value={priceCents}
-        onFocus={() => setPriceCents((prev) => moneyInputToEditable(prev))}
-        onChangeText={(t) => {
-          const next = sanitizePriceDraftInput(t);
-          if (next != null) setPriceCents(next);
-        }}
-        onBlur={() => setPriceCents((prev) => moneyInputToIdle(prev))}
-        keyboardType="decimal-pad"
-        autoCorrect={false}
-      />
-
-      {!editId ? (
-        <ChannelListOnCheckboxes
-          connections={channelConnections}
-          selected={listOnProviders}
-          onChange={setListOnProviders}
-          disabled={submitting}
-        />
-      ) : null}
-
-      {listingOnEtsy && (
-        <EtsyListingRequirementsSection
-          etsyWhoMade={etsyWhoMade}
-          etsyWhenMade={etsyWhenMade}
-          etsyIsSupply={etsyIsSupply}
-          onWhoMadeChange={setEtsyWhoMade}
-          onWhenMadeChange={setEtsyWhenMade}
-          onIsSupplyChange={setEtsyIsSupply}
-          etsyTaxonomyId={etsyTaxonomyId}
-          etsyCategoryLabel={etsyCategoryLabel}
-          etsyCategorySearch={etsyCategorySearch}
-          onEtsyCategorySearchChange={setEtsyCategorySearch}
-          etsyCategoryResults={etsyCategoryResults}
-          etsySearching={etsySearching}
-          etsyCategorySearchError={etsyCategorySearchError}
-          onSelectCategory={selectEtsyCategory}
-          onClearCategory={clearEtsyCategory}
-          placeholderColor={placeholderColor}
-        />
-      )}
-
-      {listingOnEbay && (
-        <EbayItemDetailsSection
-          ebayCategoryId={ebayCategoryId}
-          ebayCategoryLabel={ebayCategoryLabel}
-          ebayCategorySearch={ebayCategorySearch}
-          onEbayCategorySearchChange={setEbayCategorySearch}
-          ebayCategoryResults={ebayCategoryResults}
-          ebaySearching={ebaySearching}
-          onSelectCategory={selectEbayCategory}
-          onClearCategory={clearEbayCategory}
-          aspects={aspects}
-          onAspectNameChange={setAspectName}
-          onAspectValueChange={setAspectValue}
-          onRemoveAspect={removeAspectRow}
-          onAddAspect={addAspectRow}
-          isRequiredAspect={isRequiredAspect}
-          categoryAspects={categoryAspects}
-          suggestionsForAspect={suggestionsForAspect}
-          maxAspects={MAX_ASPECTS}
-          aspectNameMax={EBAY_ASPECT_NAME_MAX}
-          aspectValueMax={EBAY_ASPECT_VALUE_MAX}
-          placeholderColor={placeholderColor}
-          defaultExpanded={!!ebayCategoryId || missingRequiredAspectCount > 0}
-          missingRequiredCount={missingRequiredAspectCount}
-          readOnlyAspects={isEbayImportedListing}
-        />
-      )}
-
-      <ListingOptionsEditor
-        mode={inventoryMode}
-        onModeChange={setInventoryMode}
-        axes={variantAxes}
-        skus={variantSkus}
-        onMatrixChange={(nextAxes, nextSkus) => {
-          setVariantAxes(nextAxes);
-          setVariantSkus(nextSkus);
-        }}
-        simpleQuantity={quantity}
-        onSimpleQuantityChange={setQuantity}
-        inventoryTracking={inventoryTracking}
-        onInventoryTrackingChange={setInventoryTracking}
-        galleryPhotos={photos}
-        placeholderColor={placeholderColor}
-        channelNotes={variantChannelNotes}
-      />
-
-      {/* Category suggestions based on title - only show when no category selected yet */}
-      {!category && title.trim().length >= 3 && (
-        <CategorySuggestions
-          title={title}
-          category={category}
-          subcategory={subcategory}
-          onSelectInwCategory={(cat, sub) => {
-            setCategory(cat);
-            if (sub) setSubcategory(sub);
-          }}
-          onSelectEbayCategory={(catId, catPath) => {
-            setEbayCategoryId(catId);
-            setEbayCategoryLabel(catPath);
-            void loadCategoryAspects(catId);
-          }}
-          ebayConnected={listingOnEbay}
-          showInwSuggestion={!category}
-        />
-      )}
-
-      <Text style={styles.label}>Category</Text>
-      {useCustomCategory ? (
-        <>
+          <Text style={styles.label}>Title *</Text>
           <TextInput
             style={styles.input}
-            placeholder="Your category"
+            placeholder="Item title"
             placeholderTextColor={placeholderColor}
-            value={category}
-            onChangeText={setCategory}
+            value={title}
+            onChangeText={(t) => setTitle(t.slice(0, TITLE_MAX))}
+            maxLength={TITLE_MAX}
             autoCorrect={true}
           />
+
+          <Text style={styles.label}>SKU</Text>
           <TextInput
             style={styles.input}
-            placeholder="Second category (optional)"
+            placeholder="Stock Keeping Unit (optional)"
             placeholderTextColor={placeholderColor}
-            value={secondaryCategory}
-            onChangeText={setSecondaryCategory}
+            value={sku}
+            onChangeText={(s) => setSku(s.slice(0, 50))}
+            maxLength={50}
+            autoCapitalize="characters"
+            autoCorrect={false}
+          />
+
+          <Text style={styles.label}>Description</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            placeholder="Describe your item"
+            placeholderTextColor={placeholderColor}
+            value={description}
+            onChangeText={setDescription}
+            multiline
+            scrollEnabled={false}
+            numberOfLines={4}
+            textAlignVertical="top"
             autoCorrect={true}
           />
+
+          <Text style={styles.label}>Price ($) *</Text>
           <TextInput
             style={styles.input}
-            placeholder="Subcategory (optional)"
+            placeholder="0.00"
             placeholderTextColor={placeholderColor}
-            value={subcategory}
-            onChangeText={setSubcategory}
-            autoCorrect={true}
+            value={priceCents}
+            onFocus={() => setPriceCents((prev) => moneyInputToEditable(prev))}
+            onChangeText={(t) => {
+              const next = sanitizePriceDraftInput(t);
+              if (next != null) setPriceCents(next);
+            }}
+            onBlur={() => setPriceCents((prev) => moneyInputToIdle(prev))}
+            keyboardType="decimal-pad"
+            autoCorrect={false}
           />
-          <Pressable onPress={() => { setUseCustomCategory(false); setCategory(""); setSecondaryCategory(""); setSubcategory(""); }}>
-            <Text style={[styles.hint, { color: theme.colors.primary }]}>Choose from list</Text>
-          </Pressable>
-        </>
-      ) : (
-        <>
+
+          <ListingOptionsEditor
+            mode={inventoryMode}
+            onModeChange={setInventoryMode}
+            axes={variantAxes}
+            skus={variantSkus}
+            onMatrixChange={(nextAxes, nextSkus) => {
+              setVariantAxes(nextAxes);
+              setVariantSkus(nextSkus);
+            }}
+            simpleQuantity={quantity}
+            onSimpleQuantityChange={setQuantity}
+            inventoryTracking={inventoryTracking}
+            onInventoryTrackingChange={setInventoryTracking}
+            galleryPhotos={photos}
+            placeholderColor={placeholderColor}
+          />
+
+          <Text style={styles.label}>Category</Text>
           {storeCategories.length > 0 && (
             <>
-              <Text style={styles.hint}>Search categories</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Filter by name…"
@@ -1699,21 +865,13 @@ export default function ListItemScreen() {
                 autoCorrect={false}
                 autoCapitalize="none"
               />
-              <Text style={styles.hint}>Category</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
                 <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
                   {filteredStoreCategories.map((c) => (
                     <Pressable
                       key={c.label}
-                      style={[
-                        styles.typeBtn,
-                        category === c.label && styles.typeBtnActive,
-                      ]}
-                      onPress={() => {
-                        setCategory(c.label);
-                        setSubcategory("");
-                        if (secondaryCategory === c.label) setSecondaryCategory("");
-                      }}
+                      style={[styles.typeBtn, category === c.label && styles.typeBtnActive]}
+                      onPress={() => { setCategory(c.label); setSubcategory(""); }}
                     >
                       <Text style={category === c.label ? styles.typeBtnTextActive : styles.typeBtnText} numberOfLines={1}>
                         {c.label}
@@ -1722,588 +880,114 @@ export default function ListItemScreen() {
                   ))}
                 </View>
               </ScrollView>
-              {category && filteredSubcategoriesForCategory.length ? (
-                <>
-                  <Text style={styles.hint}>Subcategory (optional)</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-                    <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                      {filteredSubcategoriesForCategory.map((s) => (
-                        <Pressable
-                          key={s}
-                          style={[styles.typeBtn, subcategory === s && styles.typeBtnActive]}
-                          onPress={() => setSubcategory(subcategory === s ? "" : s)}
-                        >
-                          <Text style={subcategory === s ? styles.typeBtnTextActive : styles.typeBtnText} numberOfLines={1}>
-                            {s}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  </ScrollView>
-                </>
-              ) : null}
-              <>
-                <Text style={styles.hint}>Second category (optional)</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-                  <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                    {filteredSecondaryStoreCategories.map((c) => (
+              {category && filteredSubcategoriesForCategory.length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    {filteredSubcategoriesForCategory.map((s) => (
                       <Pressable
-                        key={`sec-${c.label}`}
-                        style={[
-                          styles.typeBtn,
-                          secondaryCategory === c.label && styles.typeBtnActive,
-                        ]}
-                        onPress={() =>
-                          setSecondaryCategory((prev) => (prev === c.label ? "" : c.label))
-                        }
+                        key={s}
+                        style={[styles.typeBtn, subcategory === s && styles.typeBtnActive]}
+                        onPress={() => setSubcategory(subcategory === s ? "" : s)}
                       >
-                        <Text
-                          style={
-                            secondaryCategory === c.label
-                              ? styles.typeBtnTextActive
-                              : styles.typeBtnText
-                          }
-                          numberOfLines={1}
-                        >
-                          {c.label}
-                        </Text>
+                        <Text style={subcategory === s ? styles.typeBtnTextActive : styles.typeBtnText}>{s}</Text>
                       </Pressable>
                     ))}
                   </View>
                 </ScrollView>
-              </>
-            </>
-          )}
-          {storeCategories.length === 0 && (
-            <>
-            <TextInput
-              style={styles.input}
-              placeholder="Category"
-              placeholderTextColor={placeholderColor}
-              value={category}
-              onChangeText={setCategory}
-              autoCorrect={true}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Second category (optional)"
-              placeholderTextColor={placeholderColor}
-              value={secondaryCategory}
-              onChangeText={setSecondaryCategory}
-              autoCorrect={true}
-            />
-            </>
-          )}
-          {storeCategories.length > 0 && (
-            <Pressable onPress={() => setUseCustomCategory(true)}>
-              <Text style={[styles.hint, { color: theme.colors.primary }]}>Can&apos;t find your category? Add your own</Text>
-            </Pressable>
-          )}
-        </>
-      )}
-
-      {/* Delivery options - three toggles from policy */}
-      {policiesLoaded && (offerShipping || offerLocalDelivery || offerLocalPickup) && (
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Delivery options</Text>
-
-        {offerShipping && (
-          <>
-            <View style={styles.switchRow}>
-              <Text style={styles.switchLabel}>Offer Shipping</Text>
-              <Switch
-                value={!shippingDisabled}
-                onValueChange={(v) => {
-                  const nextDisabled = !v;
-                  if (nextDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
-                    setLocalDeliveryAvailable(true);
-                  }
-                  setShippingDisabled(nextDisabled);
-                }}
-                trackColor={switchTrackColor()}
-                thumbColor={switchThumbColor(!shippingDisabled)}
-                ios_backgroundColor={switchIosBackgroundColor}
-              />
-            </View>
-            {!shippingDisabled && (
-              <>
-                <Text style={styles.label}>Shipping price ($)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. 5.99"
-                  placeholderTextColor={placeholderColor}
-                  value={shippingCostDollars}
-                  onChangeText={(v) => {
-                    setShippingCostDollars(v);
-                    if (v.trim()) setShippingFree(false);
-                  }}
-                  keyboardType="decimal-pad"
-                  editable={!shippingFree}
-                  autoCorrect={true}
-                />
-                <View style={styles.checkboxRow}>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.checkbox,
-                      shippingFree && styles.checkboxChecked,
-                      pressed && { opacity: 0.8 },
-                    ]}
-                    onPress={() => {
-                      setShippingFree((prev) => {
-                        if (!prev) setShippingCostDollars("");
-                        return !prev;
-                      });
-                    }}
-                  >
-                    {shippingFree && <Text style={styles.checkboxCheck}>✓</Text>}
-                  </Pressable>
-                  <Text
-                    style={styles.checkboxLabel}
-                    onPress={() => {
-                      setShippingFree((prev) => {
-                        if (!prev) setShippingCostDollars("");
-                        return !prev;
-                      });
-                    }}
-                  >
-                    Free
-                  </Text>
-                </View>
-                <SelectField
-                  label="Shipping option (package)"
-                  value={shippingOptionId}
-                  placeholder={
-                    shippingOptions.length === 0
-                      ? "Create a shipping option first"
-                      : "Select a shipping option"
-                  }
-                  options={shippingOptions.map((opt) => ({
-                    value: opt.id,
-                    label: `${opt.name}${
-                      opt.shippingCostCents != null
-                        ? opt.shippingCostCents === 0
-                          ? " · Free"
-                          : ` · $${(opt.shippingCostCents / 100).toFixed(2)}`
-                        : ""
-                    }${shippingOptionNeedsMeasurements(opt) ? " *" : ""}`,
-                  }))}
-                  onChange={(id) => {
-                    setShippingOptionId(id);
-                    const opt = shippingOptions.find((o) => o.id === id);
-                    if (!opt) return;
-                    if (offerFreeShippingOnInw) {
-                      setShippingFree(true);
-                      return;
-                    }
-                    if (opt.shippingCostCents != null) {
-                      setShippingCostDollars((opt.shippingCostCents / 100).toFixed(2));
-                      setShippingFree(opt.shippingCostCents === 0);
-                    }
-                  }}
-                />
-                {(() => {
-                  const selected = shippingOptions.find((o) => o.id === shippingOptionId);
-                  if (!selected) {
-                    return (
-                      <Text style={styles.hint}>
-                        Required for new listings. Used for Shippo labels and eBay/Etsy package size.
-                      </Text>
-                    );
-                  }
-                  const pkg = formatShippingOptionPackageSummary(
-                    selected,
-                    "Needs weight and size — labels will use defaults until complete."
-                  );
-                  const price =
-                    selected.shippingCostCents != null
-                      ? selected.shippingCostCents === 0
-                        ? "Free"
-                        : `$${(selected.shippingCostCents / 100).toFixed(2)}`
-                      : "";
-                  const line = [pkg, price].filter(Boolean).join(" · ");
-                  if (!line) {
-                    return (
-                      <Text style={styles.hint}>
-                        Used for Shippo labels and eBay/Etsy package size.
-                      </Text>
-                    );
-                  }
-                  return <Text style={styles.hint}>{line}</Text>;
-                })()}
-                <Pressable onPress={() => router.push("/seller-hub/shipping-options" as never)}>
-                  <Text style={styles.link}>Manage shipping options</Text>
-                </Pressable>
-                <Text style={styles.label}>Shipping Policy</Text>
-                <View style={styles.policyRow}>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      styles.textAreaSmall,
-                      useSellerProfileShipping && styles.inputReadonly,
-                    ]}
-                    placeholder="e.g. 2-5 business days via USPS. Free over $50."
-                    placeholderTextColor={placeholderColor}
-                    value={
-                      useSellerProfileShipping ? effectiveShippingPolicy : shippingPolicy
-                    }
-                    onChangeText={(v) => {
-                      if (!useSellerProfileShipping) setShippingPolicy(v);
-                    }}
-                    editable={!useSellerProfileShipping}
-                    multiline
-                    scrollEnabled={false}
-                    autoCorrect={true}
-                    numberOfLines={3}
-                    textAlignVertical="top"
-                  />
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.syncBtn,
-                      pressed && { opacity: 0.8 },
-                    ]}
-                    onPress={syncShippingPolicy}
-                  >
-                    <Text style={styles.syncBtnText}>Sync</Text>
-                  </Pressable>
-                </View>
-                <View style={styles.switchRow}>
-                  <Text style={styles.switchLabel}>
-                    Use seller profile default
-                  </Text>
-                  <Switch
-                    value={useSellerProfileShipping}
-                    onValueChange={(v) => {
-                      setUseSellerProfileShipping(v);
-                      if (v) setShippingPolicy("");
-                    }}
-                    trackColor={switchTrackColor()}
-                    thumbColor={switchThumbColor(useSellerProfileShipping)}
-                    ios_backgroundColor={switchIosBackgroundColor}
-                  />
-                </View>
-                <Text style={styles.hint}>
-                  {useSellerProfileShipping
-                    ? "Synced from your seller profile. Uncheck to set item-specific policy."
-                    : "Item-specific shipping policy (overrides profile default)."}
-                </Text>
-              </>
-            )}
-          </>
-        )}
-
-        {offerLocalDelivery && (
-          <>
-            <View style={styles.switchRow}>
-              <Text style={styles.switchLabel}>Offer Local Delivery</Text>
-              <Switch
-                value={localDeliveryAvailable}
-                onValueChange={(v) => {
-                  if (!v && shippingDisabled && !inStorePickupAvailable) return;
-                  setLocalDeliveryAvailable(v);
-                }}
-                trackColor={switchTrackColor()}
-                thumbColor={switchThumbColor(localDeliveryAvailable)}
-                ios_backgroundColor={switchIosBackgroundColor}
-              />
-            </View>
-            {localDeliveryAvailable && (
-              <>
-                <Text style={styles.label}>Local delivery fee ($, optional)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. 5.00 or leave blank for free"
-                  placeholderTextColor={placeholderColor}
-                  value={localDeliveryFeeDollars}
-                  onChangeText={setLocalDeliveryFeeDollars}
-                  keyboardType="decimal-pad"
-                  autoCorrect={true}
-                />
-                <Text style={styles.label}>Local delivery terms</Text>
-                <View style={styles.policyRow}>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      styles.textAreaSmall,
-                      useSellerProfileLocalDelivery && styles.inputReadonly,
-                    ]}
-                    placeholder="e.g. Areas served, contact method, timing."
-                    placeholderTextColor={placeholderColor}
-                    value={
-                      useSellerProfileLocalDelivery
-                        ? sellerProfileLocalDeliveryPolicy
-                        : localDeliveryTerms
-                    }
-                    onChangeText={(v) => {
-                      if (!useSellerProfileLocalDelivery) setLocalDeliveryTerms(v);
-                    }}
-                    autoCorrect={true}
-                    editable={!useSellerProfileLocalDelivery}
-                    multiline
-                    scrollEnabled={false}
-                    numberOfLines={3}
-                    textAlignVertical="top"
-                  />
-                  <Pressable
-                    style={({ pressed }) => [styles.syncBtn, pressed && { opacity: 0.8 }]}
-                    onPress={syncLocalDeliveryPolicy}
-                  >
-                    <Text style={styles.syncBtnText}>Sync</Text>
-                  </Pressable>
-                </View>
-                <View style={styles.switchRow}>
-                  <Text style={styles.switchLabel}>Use seller profile default</Text>
-                  <Switch
-                    value={useSellerProfileLocalDelivery}
-                    onValueChange={(v) => {
-                      setUseSellerProfileLocalDelivery(v);
-                      if (v) setLocalDeliveryTerms("");
-                    }}
-                    trackColor={switchTrackColor()}
-                    thumbColor={switchThumbColor(useSellerProfileLocalDelivery)}
-                    ios_backgroundColor={switchIosBackgroundColor}
-                  />
-                </View>
-                <Text style={styles.hint}>
-                  {useSellerProfileLocalDelivery
-                    ? "Synced from your Policies screen. Uncheck to set item-specific terms."
-                    : "Item-specific delivery terms (overrides profile default)."}
-                </Text>
-              </>
-            )}
-          </>
-        )}
-
-        {offerLocalPickup && (
-          <>
-            <View style={styles.switchRow}>
-              <Text style={styles.switchLabel}>Offer Local Pick Up</Text>
-              <Switch
-                value={inStorePickupAvailable}
-                onValueChange={(v) => {
-                  if (!v && shippingDisabled && !localDeliveryAvailable) return;
-                  setInStorePickupAvailable(v);
-                }}
-                trackColor={switchTrackColor()}
-                thumbColor={switchThumbColor(inStorePickupAvailable)}
-                ios_backgroundColor={switchIosBackgroundColor}
-              />
-            </View>
-            {inStorePickupAvailable && (
-              <>
-                <Text style={styles.label}>Pickup terms</Text>
-                <View style={styles.policyRow}>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      styles.textAreaSmall,
-                      useSellerProfilePickup && styles.inputReadonly,
-                    ]}
-                    placeholder="e.g. Location, contact method, hours."
-                    placeholderTextColor={placeholderColor}
-                    value={
-                      useSellerProfilePickup ? sellerProfilePickupPolicy : pickupTerms
-                    }
-                    onChangeText={(v) => {
-                      if (!useSellerProfilePickup) setPickupTerms(v);
-                    }}
-                    editable={!useSellerProfilePickup}
-                    multiline
-                    scrollEnabled={false}
-                    autoCorrect={true}
-                    numberOfLines={3}
-                    textAlignVertical="top"
-                  />
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.syncBtn,
-                      pressed && { opacity: 0.8 },
-                    ]}
-                    onPress={syncPickupPolicy}
-                  >
-                    <Text style={styles.syncBtnText}>Sync</Text>
-                  </Pressable>
-                </View>
-                <View style={styles.switchRow}>
-                  <Text style={styles.switchLabel}>Use seller profile default</Text>
-                  <Switch
-                    value={useSellerProfilePickup}
-                    onValueChange={(v) => {
-                      setUseSellerProfilePickup(v);
-                      if (v) setPickupTerms("");
-                    }}
-                    trackColor={switchTrackColor()}
-                    thumbColor={switchThumbColor(useSellerProfilePickup)}
-                    ios_backgroundColor={switchIosBackgroundColor}
-                  />
-                </View>
-                <Text style={styles.hint}>
-                  {useSellerProfilePickup
-                    ? "Synced from your seller profile. Uncheck to set item-specific terms."
-                    : "Item-specific pickup terms (overrides profile default)."}
-                </Text>
-              </>
-            )}
-          </>
-        )}
-
-      </View>
-      )}
-
-      {policiesLoaded && !(offerShipping || offerLocalDelivery || offerLocalPickup) && (
-        <View style={[styles.section, { backgroundColor: "#f9f9f9", padding: 16 }]}>
-          <Text style={styles.hint}>
-            Set your fulfillment options in Policies (Policies screen or Seller Profile) to
-            enable shipping, local delivery, and pickup here.
-          </Text>
-          <Pressable
-            style={({ pressed }) => [
-              styles.policiesBtn,
-              pressed && { opacity: 0.8 },
-            ]}
-            onPress={() => (router.push as (href: string) => void)("/policies")}
-          >
-            <Text style={styles.policiesBtnText}>Open Policies</Text>
-          </Pressable>
-        </View>
-      )}
-
-      {!policiesLoaded && (
-        <View style={[styles.section, { alignItems: "center", padding: 24 }]}>
-          <ActivityIndicator size="small" color={theme.colors.primary} />
-          <Text style={styles.hint}>Loading your policies…</Text>
-        </View>
-      )}
-
-      {businesses.length >= 2 && (
-        <>
-          <Text style={styles.label}>Which business is this item posted under?</Text>
-          <View style={styles.bizRow}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.bizBtn,
-                !businessId && styles.bizBtnActive,
-                pressed && { opacity: 0.8 },
-              ]}
-              onPress={() => setBusinessId(null)}
-            >
-              <Text style={!businessId ? styles.bizBtnTextActive : styles.bizBtnText}>
-                None
-              </Text>
-            </Pressable>
-            {businesses.map((b) => (
-              <Pressable
-                key={b.id}
-                style={({ pressed }) => [
-                  styles.bizBtn,
-                  businessId === b.id && styles.bizBtnActive,
-                  pressed && { opacity: 0.8 },
-                ]}
-                onPress={() => setBusinessId(businessId === b.id ? null : b.id)}
-              >
-                <Text
-                  style={
-                    businessId === b.id
-                      ? styles.bizBtnTextActive
-                      : styles.bizBtnText
-                  }
-                >
-                  {b.name}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </>
-      )}
-
-      {editId && etsyConnected && (
-        <CollapsibleSection
-          title="Etsy sync"
-          subtitle={
-            syncToEtsy
-              ? "Listing will sync to your Etsy shop"
-              : "Off — INW only"
-          }
-          defaultExpanded={syncToEtsy}
-          badge={syncToEtsy ? "On" : "Off"}
-          badgeColor={syncToEtsy ? theme.colors.primary : "#6b7280"}
-        >
-          <View style={styles.switchRow}>
-            <Text style={styles.switchLabel}>List this item on Etsy too</Text>
-            <Switch
-              value={syncToEtsy}
-              onValueChange={setSyncToEtsy}
-              trackColor={switchTrackColor()}
-              thumbColor={switchThumbColor(syncToEtsy)}
-              ios_backgroundColor={switchIosBackgroundColor}
-            />
-          </View>
-          <Text style={styles.hint}>
-            When on, this listing is created/updated on your connected Etsy shop and inventory stays
-            in sync across both stores. Fill in Etsy Listing Requirements above before publishing.
-          </Text>
-        </CollapsibleSection>
-      )}
-
-      {editId && hasEbayLink && (
-        <CollapsibleSection
-          title="eBay sync"
-          subtitle={
-            hasEbayLink
-              ? "Linked — inventory stays in sync"
-              : "Publishes to your connected eBay account"
-          }
-          defaultExpanded={!!(editId && hasEbayLink)}
-          badge={hasEbayLink ? "Linked" : undefined}
-          badgeColor="#16a34a"
-        >
-          <Text style={styles.hint}>
-            A sale on either store updates inventory on both. eBay listings publish live only when
-            your account has business policies and a merchant location.
-          </Text>
-          {editId && hasEbayLink && (
-            <Pressable
-              style={[styles.refreshEbayButton, refreshingFromEbay && styles.refreshEbayButtonDisabled]}
-              onPress={refreshFromEbay}
-              disabled={refreshingFromEbay}
-            >
-              {refreshingFromEbay ? (
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-              ) : (
-                <Text style={styles.refreshEbayButtonText}>Refresh from eBay</Text>
               )}
-            </Pressable>
+            </>
           )}
-        </CollapsibleSection>
-      )}
 
-      {error && (
-        <View style={styles.errorWrap}>
-          <Text style={styles.err}>{error}</Text>
-        </View>
-      )}
+          {policiesLoaded && offerShipping && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Shipping</Text>
+              <View style={styles.switchRow}>
+                <Text style={styles.switchLabel}>Offer Shipping</Text>
+                <Switch
+                  value={!shippingDisabled}
+                  onValueChange={(v) => setShippingDisabled(!v)}
+                  trackColor={switchTrackColor()}
+                  thumbColor={switchThumbColor(!shippingDisabled)}
+                  ios_backgroundColor={switchIosBackgroundColor}
+                />
+              </View>
+              {!shippingDisabled && (
+                <>
+                  <Text style={styles.label}>Shipping price ($)</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. 5.99"
+                    placeholderTextColor={placeholderColor}
+                    value={shippingCostDollars}
+                    onChangeText={(v) => { setShippingCostDollars(v); if (v.trim()) setShippingFree(false); }}
+                    keyboardType="decimal-pad"
+                    editable={!shippingFree}
+                    autoCorrect={true}
+                  />
+                  <SelectField
+                    label="Shipping option (package)"
+                    value={shippingOptionId}
+                    placeholder="Select a shipping option"
+                    options={shippingOptions.map((opt) => ({
+                      value: opt.id,
+                      label: `${opt.name}${opt.shippingCostCents != null ? ` · $${(opt.shippingCostCents / 100).toFixed(2)}` : ""}`,
+                    }))}
+                    onChange={(id) => {
+                      setShippingOptionId(id);
+                      const opt = shippingOptions.find((o) => o.id === id);
+                      if (opt?.shippingCostCents != null) {
+                        setShippingCostDollars((opt.shippingCostCents / 100).toFixed(2));
+                        setShippingFree(opt.shippingCostCents === 0);
+                      }
+                    }}
+                  />
+                </>
+              )}
+            </View>
+          )}
 
-      <Pressable
-        style={({ pressed }) => [
-          styles.submitBtn,
-          pressed && { opacity: 0.8 },
-          submitting && styles.submitDisabled,
-        ]}
-        onPress={handleSubmit}
-        disabled={submitting}
-      >
-        {submitting ? (
-          <ActivityIndicator color="#fff" size="small" />
-        ) : (
-          <Text style={styles.submitBtnText}>{editId ? "Update Item" : "List an Item"}</Text>
-        )}
-      </Pressable>
-      {submitting && listingOnEbay ? (
-        <Text style={styles.ebayWaitHint}>
-          eBay listings with sizes or colors can take up to a minute. Keep this screen open.
-        </Text>
-      ) : null}
-    </ScrollView>
-    </KeyboardAvoidingView>
+          {businesses.length >= 2 && (
+            <>
+              <Text style={styles.label}>Which business is this item posted under?</Text>
+              <View style={styles.bizRow}>
+                <Pressable
+                  style={({ pressed }) => [styles.bizBtn, !businessId && styles.bizBtnActive, pressed && { opacity: 0.8 }]}
+                  onPress={() => setBusinessId(null)}
+                >
+                  <Text style={!businessId ? styles.bizBtnTextActive : styles.bizBtnText}>None</Text>
+                </Pressable>
+                {businesses.map((b) => (
+                  <Pressable
+                    key={b.id}
+                    style={({ pressed }) => [styles.bizBtn, businessId === b.id && styles.bizBtnActive, pressed && { opacity: 0.8 }]}
+                    onPress={() => setBusinessId(businessId === b.id ? null : b.id)}
+                  >
+                    <Text style={businessId === b.id ? styles.bizBtnTextActive : styles.bizBtnText}>{b.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          )}
+
+          {error && (
+            <View style={styles.errorWrap}>
+              <Text style={styles.err}>{error}</Text>
+            </View>
+          )}
+
+          <Pressable
+            style={({ pressed }) => [styles.submitBtn, pressed && { opacity: 0.8 }, submitting && styles.submitDisabled]}
+            onPress={handleSubmit}
+            disabled={submitting}
+          >
+            {submitting ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.submitBtnText}>{editId ? "Update Item" : "List an Item"}</Text>
+            )}
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -2313,236 +997,44 @@ const styles = StyleSheet.create({
   keyboardAvoid: { flex: 1 },
   container: { flex: 1, backgroundColor: "#fff" },
   content: { padding: 20, paddingBottom: 40 },
-  successModalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24,
-  },
-  successModalCard: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 24,
-    width: "100%",
-    maxWidth: 340,
-    borderWidth: 2,
-    borderColor: defaultTheme.colors.primary,
-  },
-  successModalTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#000",
-    textAlign: "center",
-    marginBottom: 8,
-  },
-  successModalSubtitle: {
-    fontSize: 15,
-    color: "#666",
-    textAlign: "center",
-    marginBottom: 24,
-  },
-  successModalBtn: {
-    backgroundColor: defaultTheme.colors.primary,
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: "center",
-    marginBottom: 12,
-  },
+  successModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 },
+  successModalCard: { backgroundColor: "#fff", borderRadius: 16, padding: 24, width: "100%", maxWidth: 340, borderWidth: 2, borderColor: defaultTheme.colors.primary },
+  successModalTitle: { fontSize: 20, fontWeight: "700", color: "#000", textAlign: "center", marginBottom: 8 },
+  successModalSubtitle: { fontSize: 15, color: "#666", textAlign: "center", marginBottom: 24 },
+  successModalBtn: { backgroundColor: defaultTheme.colors.primary, paddingVertical: 14, borderRadius: 8, alignItems: "center", marginBottom: 12 },
   successModalBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  successModalBtnSecondary: {
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: defaultTheme.colors.primary,
-  },
-  successModalBtnTextSecondary: {
-    color: defaultTheme.colors.primary,
-    fontSize: 16,
-    fontWeight: "600",
-  },
+  successModalBtnSecondary: { paddingVertical: 14, borderRadius: 8, alignItems: "center", borderWidth: 2, borderColor: defaultTheme.colors.primary },
+  successModalBtnTextSecondary: { color: defaultTheme.colors.primary, fontSize: 16, fontWeight: "600" },
   errorWrap: { marginTop: 8, marginBottom: 16 },
   err: { color: "#c62828", marginBottom: 0, fontSize: 14 },
   label: { fontSize: 14, fontWeight: "600", marginBottom: 8, color: "#000" },
   hint: { fontSize: 12, color: defaultTheme.colors.labelMuted, marginBottom: 12 },
-  link: {
-    color: defaultTheme.colors.primary,
-    fontSize: 13,
-    fontWeight: "600",
-    textDecorationLine: "underline",
-    marginBottom: 12,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    marginBottom: 16,
-    color: defaultTheme.colors.text,
-  },
-  inputReadonly: { backgroundColor: "#f5f5f5" },
+  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 16, color: defaultTheme.colors.text },
   textArea: { minHeight: 80, textAlignVertical: "top" },
-  textAreaSmall: { minHeight: 60, textAlignVertical: "top" },
   photoRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 8 },
-  photoErr: {
-    fontSize: 14,
-    color: defaultTheme.colors.primary,
-    marginBottom: 12,
-    lineHeight: 20,
-  },
+  photoErr: { fontSize: 14, color: defaultTheme.colors.primary, marginBottom: 12, lineHeight: 20 },
   photoWrap: { position: "relative" },
   photo: { width: 80, height: 80, borderRadius: 8 },
-  removePhoto: {
-    position: "absolute",
-    top: -8,
-    right: -8,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#c62828",
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  removePhoto: { position: "absolute", top: -8, right: -8, width: 24, height: 24, borderRadius: 12, backgroundColor: "#c62828", justifyContent: "center", alignItems: "center" },
   removePhotoText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  addPhoto: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: defaultTheme.colors.primary,
-    borderStyle: "dashed",
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  addPhoto: { width: 80, height: 80, borderRadius: 8, borderWidth: 2, borderColor: defaultTheme.colors.primary, borderStyle: "dashed", justifyContent: "center", alignItems: "center" },
   addPhotoText: { color: defaultTheme.colors.primary, fontWeight: "600" },
   typeRow: { marginBottom: 16 },
   typeBtns: { flexDirection: "row", gap: 8, marginTop: 8 },
-  typeBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#ccc",
-  },
-  typeBtnActive: {
-    backgroundColor: defaultTheme.colors.primary,
-    borderColor: defaultTheme.colors.primary,
-  },
+  typeBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#ccc" },
+  typeBtnActive: { backgroundColor: defaultTheme.colors.primary, borderColor: defaultTheme.colors.primary },
   typeBtnText: { color: "#333", fontSize: 16 },
   typeBtnTextActive: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  section: {
-    borderTopWidth: 1,
-    borderTopColor: "#eee",
-    paddingTop: 16,
-    marginTop: 8,
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#000",
-    marginBottom: 12,
-  },
-  refreshEbayButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: defaultTheme.colors.primary,
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    marginBottom: 16,
-  },
-  refreshEbayButtonDisabled: {
-    opacity: 0.5,
-  },
-  refreshEbayButtonText: {
-    color: defaultTheme.colors.primary,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  switchRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
+  section: { borderTopWidth: 1, borderTopColor: "#eee", paddingTop: 16, marginTop: 8, marginBottom: 16 },
+  sectionTitle: { fontSize: 16, fontWeight: "700", color: "#000", marginBottom: 12 },
+  switchRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
   switchLabel: { fontSize: 14, color: "#000", flex: 1 },
-  checkboxRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 16,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderWidth: 2,
-    borderColor: "#ccc",
-    borderRadius: 4,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  checkboxChecked: {
-    backgroundColor: defaultTheme.colors.primary,
-    borderColor: defaultTheme.colors.primary,
-  },
-  checkboxCheck: { color: "#fff", fontSize: 14, fontWeight: "700" },
-  checkboxLabel: { fontSize: 14, color: "#000" },
-  policyRow: { flexDirection: "row", gap: 8, alignItems: "flex-start" },
-  syncBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    backgroundColor: "#fff",
-  },
-  syncBtnText: { color: "#000", fontSize: 14, fontWeight: "600" },
-  policiesBtn: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderWidth: 2,
-    borderColor: defaultTheme.colors.primary,
-    borderRadius: 8,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  policiesBtnText: {
-    color: defaultTheme.colors.primary,
-    fontWeight: "600",
-    fontSize: 15,
-  },
   bizRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
-  bizBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#ccc",
-  },
-  bizBtnActive: {
-    backgroundColor: defaultTheme.colors.creamAlt,
-    borderColor: defaultTheme.colors.primary,
-  },
+  bizBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#ccc" },
+  bizBtnActive: { backgroundColor: defaultTheme.colors.creamAlt, borderColor: defaultTheme.colors.primary },
   bizBtnText: { color: defaultTheme.colors.labelMuted },
   bizBtnTextActive: { color: defaultTheme.colors.primary, fontWeight: "600" },
-  submitBtn: {
-    marginTop: 24,
-    backgroundColor: defaultTheme.colors.primary,
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: "center",
-  },
+  submitBtn: { marginTop: 24, backgroundColor: defaultTheme.colors.primary, paddingVertical: 14, borderRadius: 8, alignItems: "center" },
   submitDisabled: { opacity: 0.7 },
   submitBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  ebayWaitHint: {
-    marginTop: 10,
-    fontSize: 13,
-    color: defaultTheme.colors.labelMuted,
-    textAlign: "center",
-  },
 });
