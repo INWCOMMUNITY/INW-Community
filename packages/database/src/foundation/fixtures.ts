@@ -79,7 +79,7 @@ export async function createListing(
 
 export async function createOrder(
   prisma: PrismaClient,
-  args: { buyerId: string; sellerId: string }
+  args: { buyerId: string; sellerId: string; checkoutAttemptId?: string | null }
 ) {
   return prisma.storeOrder.create({
     data: {
@@ -87,6 +87,89 @@ export async function createOrder(
       sellerId: args.sellerId,
       totalCents: 1000,
       subtotalCents: 1000,
+      ...(args.checkoutAttemptId ? { checkoutAttemptId: args.checkoutAttemptId } : {}),
+    },
+  });
+}
+
+export async function createCheckoutAttempt(
+  prisma: PrismaClient,
+  args: {
+    buyerMemberId: string;
+    stripeIdempotencyKey?: string;
+    stripeCheckoutSessionId?: string | null;
+    stripePaymentIntentId?: string | null;
+    amountCents?: number;
+  }
+) {
+  return prisma.checkoutAttempt.create({
+    data: {
+      buyerMemberId: args.buyerMemberId,
+      cartHash: `cart-${nonce()}`,
+      amountCents: args.amountCents ?? 1000,
+      stripeIdempotencyKey: args.stripeIdempotencyKey ?? `idem-${nonce()}`,
+      stripeCheckoutSessionId: args.stripeCheckoutSessionId ?? undefined,
+      stripePaymentIntentId: args.stripePaymentIntentId ?? undefined,
+    },
+  });
+}
+
+export async function createOrderLine(
+  prisma: PrismaClient,
+  args: {
+    orderId: string;
+    storeItemId: string;
+    variantId?: string | null;
+    quantity?: number;
+  }
+) {
+  return prisma.orderItem.create({
+    data: {
+      orderId: args.orderId,
+      storeItemId: args.storeItemId,
+      quantity: args.quantity ?? 1,
+      priceCentsAtPurchase: 1000,
+      variantId: args.variantId ?? null,
+    },
+  });
+}
+
+export async function createReservation(
+  prisma: PrismaClient,
+  args: {
+    memberId: string;
+    checkoutAttemptId: string;
+    storeOrderId: string;
+    orderItemId: string;
+    variantId: string;
+    storeItemId: string;
+    originalQty?: number;
+    activeQty?: number;
+    convertedQty?: number;
+    releasedQty?: number;
+    invalidatedQty?: number;
+    expiresAt?: Date;
+  }
+) {
+  const originalQty = args.originalQty ?? 5;
+  const convertedQty = args.convertedQty ?? 0;
+  const releasedQty = args.releasedQty ?? 0;
+  const invalidatedQty = args.invalidatedQty ?? 0;
+  const activeQty = args.activeQty ?? originalQty - convertedQty - releasedQty - invalidatedQty;
+  return prisma.inventoryReservation.create({
+    data: {
+      memberId: args.memberId,
+      checkoutAttemptId: args.checkoutAttemptId,
+      storeOrderId: args.storeOrderId,
+      orderItemId: args.orderItemId,
+      variantId: args.variantId,
+      storeItemId: args.storeItemId,
+      originalQty,
+      activeQty,
+      convertedQty,
+      releasedQty,
+      invalidatedQty,
+      expiresAt: args.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000),
     },
   });
 }

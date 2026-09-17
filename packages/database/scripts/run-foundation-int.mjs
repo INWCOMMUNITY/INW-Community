@@ -31,6 +31,7 @@ const SHARE_MIGRATION = "20260604120000_content_share_event";
 const REMOVE_CHANNEL_SYNC = "20260916000000_remove_channel_sync";
 const MARKETPLACE_V2 = "20260916010000_marketplace_sync_v2";
 const M1_MIGRATION = "20260916221500_commerce_foundation_m1";
+const M2_MIGRATION = "20260916233000_commerce_foundation_m2";
 const EXPECTED_SHARE_SHA256 =
   "d1f89b47101f513809c3e23541019bfe52e23dcea9616eadad68dc095fda1e6f";
 const BAD_FRAGMENT = `REFERENCES "member"("id")`;
@@ -218,7 +219,7 @@ function assertAppliedMigrations() {
   const finished = psql(
     "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL"
   );
-  for (const name of [SHARE_MIGRATION, REMOVE_CHANNEL_SYNC, M1_MIGRATION]) {
+  for (const name of [SHARE_MIGRATION, REMOVE_CHANNEL_SYNC, M1_MIGRATION, M2_MIGRATION]) {
     if (!finished.split(/\s+/).includes(name)) {
       throw new Error(`Expected finished migration ${name} in disposable _prisma_migrations`);
     }
@@ -315,6 +316,54 @@ function assertM1Catalog() {
   }
 }
 
+function assertM2Catalog() {
+  const tables = psql(
+    "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('checkout_attempt','inventory_reservation') ORDER BY 1"
+  )
+    .split(/\s+/)
+    .filter(Boolean);
+  if (tables.join(",") !== "checkout_attempt,inventory_reservation") {
+    throw new Error(`M2 tables missing after migrate deploy: ${tables.join(",") || "(none)"}`);
+  }
+
+  const commerce = psql(
+    `SELECT is_nullable || ':' || column_default
+     FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'StoreOrder' AND column_name = 'commerce_status'`
+  );
+  if (!commerce.includes("NO:") || !commerce.includes("PENDING")) {
+    throw new Error(`StoreOrder.commerce_status missing default PENDING: ${commerce}`);
+  }
+
+  const checks = psql(
+    "SELECT conname FROM pg_constraint WHERE contype = 'c' AND conname = 'inventory_reservation_qty_check'"
+  );
+  if (!checks.includes("inventory_reservation_qty_check")) {
+    throw new Error("Missing inventory_reservation_qty_check after migrate deploy");
+  }
+
+  for (const name of [
+    "inventory_reservation_variant_id_store_item_id_member_id_fkey",
+    "inventory_reservation_store_order_id_checkout_attempt_id_fkey",
+    "inventory_reservation_store_order_id_member_id_fkey",
+    "inventory_reservation_order_item_id_store_order_id_fkey",
+    "inventory_reservation_line_variant_listing_fkey",
+    "inventory_event_reservation_id_fkey",
+  ]) {
+    const found = psql(`SELECT conname FROM pg_constraint WHERE contype = 'f' AND conname = '${name}'`);
+    if (!found.includes(name)) {
+      throw new Error(`Missing M2 FK after migrate deploy: ${name}`);
+    }
+  }
+
+  const partial = psql(
+    "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'inventory_reservation_active_expires_at_idx'"
+  );
+  if (!partial.includes("inventory_reservation_active_expires_at_idx")) {
+    throw new Error("Missing active-reservation expiresAt partial index after migrate deploy");
+  }
+}
+
 refuseInheritedRemoteUrls();
 assertLocal(TEST_DATABASE_URL);
 console.log("[foundation-int] using", TEST_DATABASE_URL.replace(PASSWORD, "***"));
@@ -341,6 +390,7 @@ try {
 
   assertAppliedMigrations();
   assertM1Catalog();
+  assertM2Catalog();
   assertTrackedShareChecksum("after migrate deploy");
 
   console.log("[foundation-int] vitest against migrate-deploy database");
