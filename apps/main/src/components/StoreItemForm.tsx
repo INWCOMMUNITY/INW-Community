@@ -91,6 +91,7 @@ interface StoreItemFormProps {
     acceptOffers?: boolean;
     minOfferCents?: number | null;
     sku?: string | null;
+    aspects?: { name: string; value: string }[] | null;
   };
   /** Redirect after successful create/update (default: /seller-hub/store/items). */
   successRedirect?: string;
@@ -111,7 +112,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     const c = existing?.category ?? "";
     return !!c && !STORE_CATEGORIES.some((x) => x.label === c);
   });
-  const [aspects, setAspects] = useState<ListingAspect[]>([]);
+  const [aspects, setAspects] = useState<ListingAspect[]>(() =>
+    Array.isArray(existing?.aspects)
+      ? existing.aspects.map((a) => ({ name: String(a.name ?? ""), value: String(a.value ?? "") }))
+      : []
+  );
   const [priceDollars, setPriceDollars] = useState(
     existing ? (existing.priceCents / 100).toFixed(2) : ""
   );
@@ -297,20 +302,19 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     const issues: string[] = [];
 
     for (const file of files) {
-      const mime = listingPhotoEffectiveMime(file.name, file.type);
+      const mime = listingPhotoEffectiveMime(file.type, file.name);
       if (!mime) {
         issues.push(`${file.name}: unsupported format`);
         continue;
       }
-      const ext = mime.split("/")[1];
       if (file.size > MAX_LISTING_PHOTO_BYTES) {
         issues.push(
-          `${file.name} is too large (${formatListingPhotoSizeLabel(file.size)})`
+          `${file.name} is too large (${formatListingPhotoSizeLabel()})`
         );
         continue;
       }
       try {
-        const url = await uploadListingPhoto(file, ext);
+        const url = await uploadListingPhoto(file);
         uploaded.push(url);
       } catch (err) {
         issues.push(err instanceof Error ? err.message : "Upload failed");

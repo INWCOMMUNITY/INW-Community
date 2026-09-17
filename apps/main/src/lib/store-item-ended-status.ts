@@ -7,18 +7,13 @@
 /** Historical 14-day window previously used by the ended-listing purge cron. Physical purge is disabled; ended listings are retained. */
 export const ENDED_LISTING_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
-export function hasLinkedChannelListings(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _items: unknown[]
-): boolean {
+export function hasLinkedChannelListings(_items: unknown[]): boolean {
   // No channel links anymore
   return false;
 }
 
 export function computeEffectiveEndedForBulk(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _items: unknown[],
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _value: boolean
 ): Map<string, boolean> {
   // No channel links anymore - return empty map
