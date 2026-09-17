@@ -30,6 +30,7 @@ const TRACKED_SHARE_SQL = path.join(REPO_ROOT, TRACKED_SHARE_REL);
 const SHARE_MIGRATION = "20260604120000_content_share_event";
 const REMOVE_CHANNEL_SYNC = "20260916000000_remove_channel_sync";
 const MARKETPLACE_V2 = "20260916010000_marketplace_sync_v2";
+const DELETE_SAFETY = "20260916210000_commerce_foundation_delete_safety";
 const M1_MIGRATION = "20260916221500_commerce_foundation_m1";
 const M2_MIGRATION = "20260916233000_commerce_foundation_m2";
 const M3_MIGRATION = "20260916234500_commerce_foundation_m3";
@@ -220,13 +221,27 @@ function assertAppliedMigrations() {
   const finished = psql(
     "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL"
   );
-  for (const name of [SHARE_MIGRATION, REMOVE_CHANNEL_SYNC, M1_MIGRATION, M2_MIGRATION, M3_MIGRATION]) {
+  for (const name of [
+    SHARE_MIGRATION,
+    REMOVE_CHANNEL_SYNC,
+    DELETE_SAFETY,
+    M1_MIGRATION,
+    M2_MIGRATION,
+    M3_MIGRATION,
+  ]) {
     if (!finished.split(/\s+/).includes(name)) {
       throw new Error(`Expected finished migration ${name} in disposable _prisma_migrations`);
     }
   }
   if (names.includes(MARKETPLACE_V2)) {
     throw new Error("marketplace-v2 migration unexpectedly applied");
+  }
+
+  const fk = psql(
+    `SELECT confdeltype FROM pg_constraint WHERE conname = 'OrderItem_store_item_id_fkey'`
+  ).trim();
+  if (fk !== "r") {
+    throw new Error(`OrderItem_store_item_id_fkey must be ON DELETE RESTRICT (confdeltype=r), got ${fk || "(missing)"}`);
   }
 }
 

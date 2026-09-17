@@ -4,7 +4,7 @@
  * false/empty as placeholders.
  */
 
-/** 14 days retention period before ended listings are purged. */
+/** Historical 14-day window previously used by the ended-listing purge cron. Physical purge is disabled; ended listings are retained. */
 export const ENDED_LISTING_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
 export function hasLinkedChannelListings(
@@ -47,11 +47,11 @@ export function storeItemStatusWrite(
     return { status: nextStatus };
   }
   if (nextStatus === "inactive" && currentStatus !== "inactive") {
-    // Ending the listing — stamp the timer
+    // Ending the listing — stamp endedAt (retained; not a purge timer)
     return { status: "inactive", endedAt: now ?? new Date() };
   }
   if (nextStatus === "active" && currentStatus === "inactive") {
-    // Relisting — clear the timer
+    // Relisting — clear endedAt
     return { status: "active", endedAt: null };
   }
   // No change to timer

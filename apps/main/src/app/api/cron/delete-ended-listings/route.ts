@@ -4,9 +4,9 @@ import { deleteEndedListingsPastRetention } from "@/lib/ended-listing-cleanup";
 export const maxDuration = 60;
 
 /**
- * Removes INW storefront records that were ended more than 14 days ago.
- * Does not unpublish or delete listings on eBay, Etsy, Wix, or Shopify.
- * Configure in `apps/main/vercel.json` crons + `CRON_SECRET`.
+ * Route name is kept for scheduler compatibility. Physical StoreItem purge is
+ * intentionally disabled: deleteEndedListingsPastRetention is a protective no-op
+ * so ended listings and OrderItem history are retained.
  */
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");

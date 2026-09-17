@@ -11,6 +11,7 @@
     "build": "echo no-op",
     "check": "prisma generate && tsc --noEmit",
     "test:foundation": "node scripts/run-foundation-int.mjs",
+    "test:delete-safety": "node scripts/run-delete-safety-int.mjs",
     "postinstall": "prisma generate",
     "generate": "prisma generate",
     "push": "prisma db push",

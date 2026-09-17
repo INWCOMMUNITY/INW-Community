@@ -317,7 +317,7 @@ export default function MyItemsScreen() {
     setMenuItemId(null);
     Alert.alert(
       "Remove listing",
-      "This permanently deletes the listing. To keep a record, use Mark as sold instead.",
+      "This ends the listing and removes it from the storefront. You can relist it later from Ended.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -390,7 +390,7 @@ export default function MyItemsScreen() {
 
   const emptyCopy =
     itemsTab === "ended"
-      ? { title: "No ended listings", body: "Ended listings stay here for 14 days, then they're removed." }
+      ? { title: "No ended listings", body: "Ended listings stay here so you can relist them." }
       : itemsTab === "sold"
         ? { title: "No sold items yet", body: "Sold listings will land here after checkout." }
         : { title: "No items yet", body: "List your first item to start selling." };

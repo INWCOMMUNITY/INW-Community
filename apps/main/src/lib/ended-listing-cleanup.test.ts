@@ -1,19 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { ENDED_LISTING_RETENTION_MS, storeItemStatusWrite } from "./store-item-ended-status";
-
-const { mockPrisma } = vi.hoisted(() => ({
-  mockPrisma: {
-    storeItem: {
-      deleteMany: vi.fn().mockResolvedValue({ count: 2 }),
-    },
-  },
-}));
-
-vi.mock("database", () => ({
-  prisma: mockPrisma,
-}));
-
-import { deleteEndedListingsPastRetention, endedListingPurgeWhere } from "./ended-listing-cleanup";
+import { storeItemStatusWrite } from "./store-item-ended-status";
 
 describe("storeItemStatusWrite", () => {
   it("stamps endedAt when a listing is ended", () => {
@@ -31,10 +17,28 @@ describe("storeItemStatusWrite", () => {
   it("clears endedAt on relist", () => {
     expect(storeItemStatusWrite("active", "inactive")).toEqual({ status: "active", endedAt: null });
   });
+
+  it("does not treat sold_out as ending", () => {
+    expect(storeItemStatusWrite("sold_out", "active")).toEqual({ status: "sold_out" });
+  });
 });
 
+const { mockPrisma } = vi.hoisted(() => ({
+  mockPrisma: {
+    storeItem: {
+      deleteMany: vi.fn().mockResolvedValue({ count: 2 }),
+    },
+  },
+}));
+
+vi.mock("database", () => ({
+  prisma: mockPrisma,
+}));
+
+import { deleteEndedListingsPastRetention, endedListingPurgeWhere } from "./ended-listing-cleanup";
+
 describe("endedListingPurgeWhere", () => {
-  it("selects ended INW records past cutoff without order or offer history", () => {
+  it("documents the historical purge filter (no longer executed)", () => {
     const cutoff = new Date("2026-08-11T12:00:00.000Z");
     expect(endedListingPurgeWhere(cutoff)).toEqual({
       status: "inactive",
@@ -48,15 +52,12 @@ describe("endedListingPurgeWhere", () => {
 describe("deleteEndedListingsPastRetention", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPrisma.storeItem.deleteMany.mockResolvedValue({ count: 2 });
   });
 
-  it("deletes INW rows older than 14 days", async () => {
+  it("does not physically delete StoreItems", async () => {
     const now = new Date("2026-08-25T12:00:00.000Z");
-    const { deleted } = await deleteEndedListingsPastRetention(now);
-    expect(deleted).toBe(2);
-    expect(mockPrisma.storeItem.deleteMany).toHaveBeenCalledWith({
-      where: endedListingPurgeWhere(new Date(now.getTime() - ENDED_LISTING_RETENTION_MS)),
-    });
+    const result = await deleteEndedListingsPastRetention(now);
+    expect(result).toEqual({ deleted: 0, skipped: true });
+    expect(mockPrisma.storeItem.deleteMany).not.toHaveBeenCalled();
   });
 });

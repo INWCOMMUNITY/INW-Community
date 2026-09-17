@@ -24,6 +24,7 @@ import { findConflictingStoreItemSku } from "@/lib/listing-sku-db";
 import { assertMemberShippingOption } from "@/lib/shipping-options";
 import { strangerMayViewStoreItemById } from "@/lib/store-item-public-access";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
+import { endStoreItemListing } from "@/lib/end-store-item-listing";
 
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
@@ -446,13 +447,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Delete associated feed posts so "Recently Added" doesn't show stale previews
-  await deleteFeedPostsForSoldItem(id).catch((err) =>
-    console.error("[store-items] Feed post cleanup failed:", err)
-  );
-
-  await prisma.storeItem.delete({ where: { id } });
-  // Log activity
+  await endStoreItemListing(existing);
   const { logSellerActivity } = await import("@/lib/seller-activity-log");
   logSellerActivity(existing.memberId, "item_deleted", "store_item", id, {
     title: existing.title,
