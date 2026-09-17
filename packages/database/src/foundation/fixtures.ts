@@ -174,6 +174,79 @@ export async function createReservation(
   });
 }
 
+export async function createStripeEvidence(
+  prisma: PrismaClient,
+  args?: {
+    stripeEventId?: string;
+    checkoutAttemptId?: string | null;
+    eventType?: string;
+  }
+) {
+  return prisma.stripeEventEvidence.create({
+    data: {
+      stripeEventId: args?.stripeEventId ?? `evt_${nonce()}`,
+      eventType: args?.eventType ?? "checkout.session.completed",
+      stripeCreatedAt: new Date(),
+      payload: { id: args?.stripeEventId ?? "evt", type: args?.eventType ?? "checkout.session.completed" },
+      checkoutAttemptId: args?.checkoutAttemptId ?? undefined,
+    },
+  });
+}
+
+export async function createRefundOperation(
+  prisma: PrismaClient,
+  args: {
+    memberId: string;
+    storeOrderId: string;
+    orderItemId?: string | null;
+    checkoutAttemptId?: string | null;
+    kind?: "FULL" | "PARTIAL" | "COURTESY" | "RETURN";
+    amountCents?: number;
+    restockRequested?: boolean;
+    providerIdempotencyKey?: string;
+    stripeRefundId?: string | null;
+    status?: "PENDING" | "PROCESSING" | "SUCCEEDED" | "FAILED" | "UNCERTAIN";
+  }
+) {
+  return prisma.refundOperation.create({
+    data: {
+      memberId: args.memberId,
+      storeOrderId: args.storeOrderId,
+      orderItemId: args.orderItemId ?? undefined,
+      checkoutAttemptId: args.checkoutAttemptId ?? undefined,
+      kind: args.kind ?? "PARTIAL",
+      amountCents: args.amountCents ?? 100,
+      restockRequested: args.restockRequested ?? false,
+      providerIdempotencyKey: args.providerIdempotencyKey ?? `re_${nonce()}`,
+      stripeRefundId: args.stripeRefundId ?? undefined,
+      status: args.status ?? "PENDING",
+    },
+  });
+}
+
+export async function createTransferOperation(
+  prisma: PrismaClient,
+  args: {
+    memberId: string;
+    storeOrderId: string;
+    amountCents?: number;
+    providerIdempotencyKey?: string;
+    stripeTransferId?: string | null;
+    status?: "PENDING" | "PROCESSING" | "SUCCEEDED" | "FAILED" | "UNCERTAIN";
+  }
+) {
+  return prisma.transferOperation.create({
+    data: {
+      memberId: args.memberId,
+      storeOrderId: args.storeOrderId,
+      amountCents: args.amountCents ?? 900,
+      providerIdempotencyKey: args.providerIdempotencyKey ?? `tr_${nonce()}`,
+      stripeTransferId: args.stripeTransferId ?? undefined,
+      status: args.status ?? "PENDING",
+    },
+  });
+}
+
 export function dbCode(err: unknown): string {
   if (err && typeof err === "object" && "code" in err) {
     return String((err as { code: unknown }).code);
