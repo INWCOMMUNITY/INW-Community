@@ -137,6 +137,10 @@ model Member {
   sellerActivityLogs       SellerActivityLog[]
   bulkEditSnapshots        BulkEditSnapshot[]
   pollVotes                PostPollVote[]
+  storeVariants            StoreVariant[]
+  inventoryStates          InventoryState[]
+  inventoryEvents          InventoryEvent[]
+  variantBackfillMaps      VariantBackfillMap[]
 }
 
 model WebviewBridgeToken {
@@ -240,8 +244,12 @@ model CartItem {
   member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
   storeItem StoreItem @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
   resaleOffer ResaleOffer? @relation(fields: [resaleOfferId], references: [id], onDelete: SetNull)
+  /// Nullable until cart writer cutover. Composite (variantId, storeItemId) is enforced in M1 SQL.
+  variantId String? @map("variant_id")
+  storeVariant StoreVariant? @relation(fields: [variantId], references: [id], onDelete: Restrict)
 
   @@index([memberId])
+  @@index([variantId])
 }
 
 model Subscription {
@@ -981,6 +989,10 @@ model StoreItem {
   featured             Boolean  @default(false) @map("featured") // Admin-curated featured listings
   /// Set when the listing is ended (status inactive). Ended listings are retained for commerce/history. Cleared on relist.
   endedAt             DateTime? @map("ended_at")
+  /// Semantic listing-content version. Not a timestamp. Starts at 1.
+  contentVersion      Int      @default(1) @map("content_version")
+  /// Semantic listing-lifecycle version (active / ended). Not a timestamp. Starts at 1.
+  lifecycleVersion    Int      @default(1) @map("lifecycle_version")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
@@ -996,11 +1008,166 @@ model StoreItem {
   collectionItems CollectionItem[]
   listingFeedCollectionItems ListingFeedCollectionItem[]
   priceDropAlerts PriceDropAlert[]
+  storeVariants StoreVariant[]
+  inventoryStates InventoryState[]
+  inventoryEvents InventoryEvent[]
+  variantBackfillMaps VariantBackfillMap[]
 
+  @@unique([id, memberId])
   @@index([status, endedAt])
   @@index([status, createdAt])
   @@index([memberId, status])
   @@index([category, status])
+}
+
+enum StoreVariantStatus {
+  ACTIVE
+  RETIRED
+
+  @@map("store_variant_status")
+}
+
+enum InventoryMode {
+  TRACKED_FINITE
+  MADE_TO_ORDER
+
+  @@map("inventory_mode")
+}
+
+enum InventoryEventType {
+  SALE
+  SET
+  ADJUSTMENT
+  RESERVATION_HOLD
+  RESERVATION_RELEASE
+  RESERVATION_CONVERT
+  RESERVATION_INVALIDATE
+  UNDO_CONSUMPTION
+  PHYSICAL_RECEIPT
+  OPENING_BALANCE
+  CORRECTION
+
+  @@map("inventory_event_type")
+}
+
+/// Durable sellable child of StoreItem. Identity is `id`; SKU/options are mutable attributes.
+model StoreVariant {
+  id                  String             @id @default(cuid())
+  memberId            String             @map("member_id")
+  storeItemId         String             @map("store_item_id")
+  status              StoreVariantStatus @default(ACTIVE)
+  isDefault           Boolean            @default(false) @map("is_default")
+  sku                 String?
+  barcode             String?
+  /// Option labels as a JSON map, e.g. {"Size":"M","Color":"Red"}. Not identity.
+  options             Json               @default("{}")
+  priceCents          Int                @map("price_cents")
+  compareAtPriceCents Int?               @map("compare_at_price_cents")
+  photos              String[]           @default([])
+  offerVersion        Int                @default(1) @map("offer_version")
+  sortOrder           Int?               @map("sort_order")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  retiredAt           DateTime?          @map("retired_at")
+
+  member          Member               @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  storeItem       StoreItem            @relation(fields: [storeItemId, memberId], references: [id, memberId], onDelete: Restrict)
+  inventoryState  InventoryState?
+  inventoryEvents InventoryEvent[]
+  orderItems      OrderItem[]
+  cartItems       CartItem[]
+  backfillMaps    VariantBackfillMap[]
+
+  @@unique([id, memberId])
+  @@unique([id, storeItemId])
+  @@unique([id, storeItemId, memberId])
+  @@index([storeItemId, status])
+  @@index([memberId, status])
+  @@map("store_variant")
+}
+
+/// 1:1 current finite inventory for a Variant. `available` is derived (onHand - reserved), not stored.
+model InventoryState {
+  variantId            String        @id @map("variant_id")
+  memberId             String        @map("member_id")
+  storeItemId          String        @map("store_item_id")
+  mode                 InventoryMode
+  onHand               Int?          @map("on_hand")
+  reserved             Int?
+  availabilityVersion  Int           @default(1) @map("availability_version")
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+
+  member    Member       @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  storeItem StoreItem    @relation(fields: [storeItemId, memberId], references: [id, memberId], onDelete: Restrict)
+  variant   StoreVariant @relation(fields: [variantId, storeItemId, memberId], references: [id, storeItemId, memberId], onDelete: Cascade)
+
+  @@unique([variantId, memberId])
+  @@unique([variantId, storeItemId, memberId])
+  @@index([storeItemId])
+  @@map("inventory_state")
+}
+
+/// Append-only causal inventory history. Rejected stale SET commands are not persisted.
+model InventoryEvent {
+  id                          String             @id @default(cuid())
+  memberId                    String             @map("member_id")
+  variantId                   String             @map("variant_id")
+  storeItemId                 String             @map("store_item_id")
+  eventType                   InventoryEventType @map("event_type")
+  /// e.g. INW_ORDER | MARKETPLACE_ORDER | SELLER | ADMIN | SYSTEM_MIGRATION | RETURN | CANCEL | REFUND | EXPIRE | CHECKOUT
+  cause                       String
+  sourceSystem                String             @map("source_system")
+  /// Canonical empty string when unused so unique-index NULL semantics cannot allow duplicates.
+  sourceScope                 String             @default("") @map("source_scope")
+  sourceFactId                String             @map("source_fact_id")
+  requestedQty                Int                @default(0) @map("requested_qty")
+  appliedOnHandQty            Int                @default(0) @map("applied_on_hand_qty")
+  appliedReservedQty          Int                @default(0) @map("applied_reserved_qty")
+  shortageQty                 Int                @default(0) @map("shortage_qty")
+  displacedReservationQty     Int                @default(0) @map("displaced_reservation_qty")
+  onHandBefore                Int?               @map("on_hand_before")
+  onHandAfter                 Int?               @map("on_hand_after")
+  reservedBefore              Int?               @map("reserved_before")
+  reservedAfter               Int?               @map("reserved_after")
+  commandId                   String?            @map("command_id")
+  expectedAvailabilityVersion Int?               @map("expected_availability_version")
+  targetOnHand                Int?               @map("target_on_hand")
+  originalSaleEventId         String?            @map("original_sale_event_id")
+  orderItemId                 String?            @map("order_item_id")
+  metadata                    Json?
+  occurredAt                  DateTime           @default(now()) @map("occurred_at")
+  createdAt                   DateTime           @default(now()) @map("created_at")
+
+  member            Member          @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  storeItem         StoreItem       @relation(fields: [storeItemId, memberId], references: [id, memberId], onDelete: Restrict)
+  variant           StoreVariant    @relation(fields: [variantId, storeItemId, memberId], references: [id, storeItemId, memberId], onDelete: Restrict)
+  originalSaleEvent InventoryEvent? @relation("InventoryEventUndoOfSale", fields: [originalSaleEventId], references: [id], onDelete: Restrict)
+  undoEvents        InventoryEvent[] @relation("InventoryEventUndoOfSale")
+  orderItem         OrderItem?      @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+
+  @@unique([memberId, sourceSystem, sourceScope, eventType, sourceFactId], map: "inventory_event_causal_key")
+  @@index([variantId, createdAt])
+  @@index([originalSaleEventId, eventType])
+  @@index([orderItemId])
+  @@map("inventory_event")
+}
+
+/// Temporary idempotent backfill allocation: legacy snapshot fingerprint → StoreVariant.id. Not business identity.
+model VariantBackfillMap {
+  id                 String   @id @default(cuid())
+  storeItemId        String   @map("store_item_id")
+  memberId           String   @map("member_id")
+  sourceFingerprint  String   @map("source_fingerprint")
+  variantId          String   @unique @map("variant_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  member    Member       @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  storeItem StoreItem    @relation(fields: [storeItemId, memberId], references: [id, memberId], onDelete: Restrict)
+  variant   StoreVariant @relation(fields: [variantId, storeItemId, memberId], references: [id, storeItemId, memberId], onDelete: Restrict)
+
+  @@unique([storeItemId, sourceFingerprint])
+  @@map("variant_backfill_map")
 }
 
 model MemberListingView {
@@ -1215,6 +1382,12 @@ model OrderItem {
 
   order     StoreOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   storeItem StoreItem  @relation(fields: [storeItemId], references: [id], onDelete: Restrict)
+  /// Nullable for historical rows. Composite (variantId, storeItemId) is enforced in M1 SQL.
+  variantId String? @map("variant_id")
+  storeVariant StoreVariant? @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  inventoryEvents InventoryEvent[]
+
+  @@index([variantId])
 }
 
 // Community Resale - make offer on resale items

@@ -11,6 +11,7 @@
     "build": "echo no-op",
     "check": "prisma generate && tsc --noEmit",
     "test:delete-safety": "node scripts/run-delete-safety-int.mjs",
+    "test:foundation": "node scripts/run-foundation-int.mjs",
     "postinstall": "prisma generate",
     "generate": "prisma generate",
     "push": "prisma db push",
@@ -40,6 +41,7 @@
     "@types/bcryptjs": "^2.4.6",
     "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.6"
   }
 }

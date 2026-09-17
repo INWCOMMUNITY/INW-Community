@@ -38,6 +38,9 @@ const prismaClient = (() => {
     typeof (existing as { shippingOption?: unknown }).shippingOption !== "undefined" &&
     typeof (existing as { listingFeedCollection?: unknown }).listingFeedCollection !== "undefined" &&
     typeof (existing as { cronJobLock?: unknown }).cronJobLock !== "undefined" &&
+    typeof (existing as { storeVariant?: unknown }).storeVariant !== "undefined" &&
+    typeof (existing as { inventoryState?: unknown }).inventoryState !== "undefined" &&
+    typeof (existing as { inventoryEvent?: unknown }).inventoryEvent !== "undefined" &&
     prismaHasShippingOptionCost(existing)
   ) {
     return existing;
