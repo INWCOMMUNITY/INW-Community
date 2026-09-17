@@ -141,6 +141,8 @@ model Member {
   inventoryStates          InventoryState[]
   inventoryEvents          InventoryEvent[]
   variantBackfillMaps      VariantBackfillMap[]
+  checkoutAttempts         CheckoutAttempt[]
+  inventoryReservations    InventoryReservation[]
 }
 
 model WebviewBridgeToken {
@@ -1012,6 +1014,7 @@ model StoreItem {
   inventoryStates InventoryState[]
   inventoryEvents InventoryEvent[]
   variantBackfillMaps VariantBackfillMap[]
+  inventoryReservations InventoryReservation[]
 
   @@unique([id, memberId])
   @@index([status, endedAt])
@@ -1050,6 +1053,39 @@ enum InventoryEventType {
   @@map("inventory_event_type")
 }
 
+enum CheckoutAttemptState {
+  CREATED
+  SESSION_OPEN
+  SESSION_FAILED
+  SESSION_UNKNOWN
+  PAID
+  CLOSED
+
+  @@map("checkout_attempt_state")
+}
+
+/// Stripe payment truth for a CheckoutAttempt. Not commerce finalization.
+enum CheckoutPaymentStatus {
+  UNPAID
+  PAID
+  PARTIALLY_REFUNDED
+  REFUNDED
+  FAILED
+
+  @@map("checkout_payment_status")
+}
+
+/// Local commerce finalization, independent of StoreOrder.status and Stripe paymentStatus.
+/// Default PENDING on existing rows is compatibility only — not proof the order used reservations.
+enum CommerceStatus {
+  PENDING
+  FINALIZED
+  UNFULFILLABLE
+  REFUND_REQUIRED
+
+  @@map("commerce_status")
+}
+
 /// Durable sellable child of StoreItem. Identity is `id`; SKU/options are mutable attributes.
 model StoreVariant {
   id                  String             @id @default(cuid())
@@ -1077,6 +1113,7 @@ model StoreVariant {
   orderItems      OrderItem[]
   cartItems       CartItem[]
   backfillMaps    VariantBackfillMap[]
+  reservations    InventoryReservation[]
 
   @@unique([id, memberId])
   @@unique([id, storeItemId])
@@ -1135,6 +1172,7 @@ model InventoryEvent {
   targetOnHand                Int?               @map("target_on_hand")
   originalSaleEventId         String?            @map("original_sale_event_id")
   orderItemId                 String?            @map("order_item_id")
+  reservationId               String?            @map("reservation_id")
   metadata                    Json?
   occurredAt                  DateTime           @default(now()) @map("occurred_at")
   createdAt                   DateTime           @default(now()) @map("created_at")
@@ -1145,12 +1183,70 @@ model InventoryEvent {
   originalSaleEvent InventoryEvent? @relation("InventoryEventUndoOfSale", fields: [originalSaleEventId], references: [id], onDelete: Restrict)
   undoEvents        InventoryEvent[] @relation("InventoryEventUndoOfSale")
   orderItem         OrderItem?      @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  reservation       InventoryReservation? @relation(fields: [reservationId], references: [id], onDelete: Restrict)
 
   @@unique([memberId, sourceSystem, sourceScope, eventType, sourceFactId], map: "inventory_event_causal_key")
   @@index([variantId, createdAt])
   @@index([originalSaleEventId, eventType])
   @@index([orderItemId])
+  @@index([reservationId])
   @@map("inventory_event")
+}
+
+/// One durable local identity for one multi-seller checkout/payment session.
+model CheckoutAttempt {
+  id                      String                @id @default(cuid())
+  buyerMemberId           String                @map("buyer_member_id")
+  state                   CheckoutAttemptState  @default(CREATED)
+  cartHash                String                @map("cart_hash")
+  amountCents             Int                   @map("amount_cents")
+  currency                String                @default("usd")
+  stripeIdempotencyKey    String                @unique @map("stripe_idempotency_key")
+  stripeCheckoutSessionId String?               @unique @map("stripe_checkout_session_id")
+  stripePaymentIntentId   String?               @unique @map("stripe_payment_intent_id")
+  paymentStatus           CheckoutPaymentStatus @default(UNPAID) @map("payment_status")
+  expiresAt               DateTime?             @map("expires_at")
+  reconciledAt            DateTime?             @map("reconciled_at")
+  createdAt               DateTime              @default(now()) @map("created_at")
+  updatedAt               DateTime              @updatedAt @map("updated_at")
+
+  buyer        Member                  @relation(fields: [buyerMemberId], references: [id], onDelete: Restrict)
+  storeOrders  StoreOrder[]
+  reservations InventoryReservation[]
+
+  @@index([buyerMemberId, createdAt])
+  @@index([state])
+  @@map("checkout_attempt")
+}
+
+/// Hold/convert/release counters for one OrderItem. Counters are the authority; no writable status.
+/// `memberId` is the seller inventory tenant (Variant owner), not the CheckoutAttempt buyer.
+model InventoryReservation {
+  id                String   @id @default(cuid())
+  memberId          String   @map("member_id")
+  checkoutAttemptId String   @map("checkout_attempt_id")
+  storeOrderId      String   @map("store_order_id")
+  orderItemId       String   @unique @map("order_item_id")
+  variantId         String   @map("variant_id")
+  storeItemId       String   @map("store_item_id")
+  originalQty       Int      @map("original_qty")
+  activeQty         Int      @map("active_qty")
+  convertedQty      Int      @map("converted_qty")
+  releasedQty       Int      @map("released_qty")
+  invalidatedQty    Int      @map("invalidated_qty")
+  expiresAt         DateTime @map("expires_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  member          Member           @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  checkoutAttempt CheckoutAttempt  @relation(fields: [checkoutAttemptId], references: [id], onDelete: Restrict)
+  storeOrder      StoreOrder       @relation(fields: [storeOrderId], references: [id], onDelete: Restrict)
+  orderItem       OrderItem        @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  storeItem       StoreItem        @relation(fields: [storeItemId, memberId], references: [id, memberId], onDelete: Restrict)
+  variant         StoreVariant     @relation(fields: [variantId, storeItemId, memberId], references: [id, storeItemId, memberId], onDelete: Restrict)
+  inventoryEvents InventoryEvent[]
+
+  @@map("inventory_reservation")
 }
 
 /// Temporary idempotent backfill allocation: legacy snapshot fingerprint → StoreVariant.id. Not business identity.
@@ -1289,23 +1385,32 @@ model StoreOrder {
   cancelReason            String?   @map("cancel_reason") // Changed my mind | Didn't mean to order | Order Arrived Damaged | Wrong Item Delivered | Other
   cancelNote              String?   @map("cancel_note") @db.Text // Optional note for seller
   inventoryRestoredAt     DateTime? @map("inventory_restored_at") // When inventory was restored after a cancel
+  /// Nullable for historical orders. Live reservation rows require a non-null attempt.
+  checkoutAttemptId       String?   @map("checkout_attempt_id")
+  /// Compatibility default PENDING; not proof the order used the reservation protocol.
+  commerceStatus          CommerceStatus @default(PENDING) @map("commerce_status")
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
 
   buyer   Member     @relation("BuyerOrders", fields: [buyerId], references: [id], onDelete: Cascade)
   seller  Member     @relation("SellerOrders", fields: [sellerId], references: [id], onDelete: Cascade)
+  checkoutAttempt CheckoutAttempt? @relation(fields: [checkoutAttemptId], references: [id], onDelete: Restrict)
   items   OrderItem[]
   shipments Shipment[]
   storeReturns StoreReturn[]
+  reservations InventoryReservation[]
   packageWeightOz  Float?   @map("package_weight_oz")
   packageLengthIn  Float?   @map("package_length_in")
   packageWidthIn   Float?   @map("package_width_in")
   packageHeightIn Float?   @map("package_height_in")
   shippedWithOrderId String? @map("shipped_with_order_id") // When shipped as part of combined shipment
 
+  @@unique([id, checkoutAttemptId])
+  @@unique([id, sellerId])
   @@index([buyerId, createdAt])
   @@index([sellerId, createdAt])
   @@index([status, createdAt])
+  @@index([checkoutAttemptId])
 }
 
 model Shipment {
@@ -1386,7 +1491,11 @@ model OrderItem {
   variantId String? @map("variant_id")
   storeVariant StoreVariant? @relation(fields: [variantId], references: [id], onDelete: Restrict)
   inventoryEvents InventoryEvent[]
+  reservation InventoryReservation?
 
+  @@unique([id, orderId])
+  @@unique([id, storeItemId])
+  @@unique([id, variantId, storeItemId])
   @@index([variantId])
 }
 
