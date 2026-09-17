@@ -1,10 +1,8 @@
 import type { Prisma } from "database";
-import { prisma } from "database";
-import { ENDED_LISTING_RETENTION_MS } from "@/lib/store-item-ended-status";
 
 /**
- * Prisma filter: ended storefront records past retention, with no order history so we do not
- * wipe line items. Channel listings are not unpublished — only the INW row is deleted.
+ * Historical filter for the old 14-day physical purge. Kept for diagnostics only.
+ * Physical StoreItem delete is no longer performed.
  */
 export function endedListingPurgeWhere(cutoff: Date): Prisma.StoreItemWhereInput {
   return {
@@ -16,12 +14,11 @@ export function endedListingPurgeWhere(cutoff: Date): Prisma.StoreItemWhereInput
 }
 
 /**
- * Hard-deletes matching StoreItems (cascades INW links/cart rows). Does not call channel delete APIs.
+ * History-safe no-op. Ended listings are retained (logical End via inactive + endedAt).
+ * Does not physically delete StoreItems or cascade OrderItems.
  */
-export async function deleteEndedListingsPastRetention(now = new Date()): Promise<{ deleted: number }> {
-  const cutoff = new Date(now.getTime() - ENDED_LISTING_RETENTION_MS);
-  const result = await prisma.storeItem.deleteMany({
-    where: endedListingPurgeWhere(cutoff),
-  });
-  return { deleted: result.count };
+export async function deleteEndedListingsPastRetention(
+  _now = new Date()
+): Promise<{ deleted: number; skipped: true }> {
+  return { deleted: 0, skipped: true };
 }

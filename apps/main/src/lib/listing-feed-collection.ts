@@ -1,10 +1,10 @@
 import { cache } from "react";
 import { prisma } from "database";
-import { LISTING_FEED_COLLECTION_MIN } from "@/lib/listing-feed-collection-constants";
+import { LISTING_FEED_COLLECTION_MIN, isListingFeedCollectionPublicItem } from "@/lib/listing-feed-collection-constants";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
 import { sellerPrimaryBusinessForMember } from "@/lib/listing-feed-seller-business";
 
-export { LISTING_FEED_COLLECTION_MIN } from "@/lib/listing-feed-collection-constants";
+export { LISTING_FEED_COLLECTION_MIN, isListingFeedCollectionPublicItem } from "@/lib/listing-feed-collection-constants";
 
 export type ListingCollectionFeedEmbed = {
   id: string;
@@ -44,6 +44,10 @@ export type ListingFeedCollectionItem = {
   quantity: number;
 };
 
+const listingFeedCollectionVisibleItemWhere = {
+  storeItem: { status: { not: "inactive" } },
+} as const;
+
 export type ListingFeedCollectionDetail = {
   id: string;
   title: string;
@@ -63,6 +67,7 @@ export const getListingFeedCollectionById = cache(
         title: true,
         createdAt: true,
         items: {
+          where: listingFeedCollectionVisibleItemWhere,
           orderBy: { sortOrder: "asc" },
           select: {
             storeItem: {
@@ -89,6 +94,7 @@ export const getListingFeedCollectionById = cache(
       items: collection.items
         .map((row) => row.storeItem)
         .filter((item): item is NonNullable<typeof item> => item != null)
+        .filter((item) => isListingFeedCollectionPublicItem(item.status))
         .map((item) => {
           const photo = item.photos.find(Boolean);
           return {
@@ -139,8 +145,9 @@ export async function listingCollectionEmbedMap(
     select: {
       id: true,
       title: true,
-      _count: { select: { items: true } },
+      _count: { select: { items: { where: listingFeedCollectionVisibleItemWhere } } },
       items: {
+        where: listingFeedCollectionVisibleItemWhere,
         orderBy: { sortOrder: "asc" },
         take: 3,
         select: { storeItem: { select: { photos: true } } },

@@ -3,6 +3,7 @@ import { prisma, Prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
+import { endStoreItemListing } from "@/lib/end-store-item-listing";
 
 export const dynamic = "force-dynamic";
 
@@ -318,8 +319,7 @@ export async function PATCH(req: NextRequest) {
 /**
  * DELETE /api/store-items/bulk
  *
- * Delete multiple store items. Only deletes items owned by the current user.
- * Items with active channel links will be unlinked first.
+ * Logically ends owned listings (inactive + endedAt). Does not physically delete StoreItems.
  */
 export async function DELETE(req: NextRequest) {
   try {
@@ -333,7 +333,6 @@ export async function DELETE(req: NextRequest) {
     const body = await req.json();
     const storeItemIds = z.array(z.string()).min(1).max(100).parse(body.storeItemIds);
 
-    // Verify ownership and capture state for snapshot
     const ownedItems = await prisma.storeItem.findMany({
       where: {
         id: { in: storeItemIds },
@@ -363,27 +362,25 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ deleted: 0, errors: [] });
     }
 
-    // Create snapshot for undo (bulk delete can't truly undo but we track it)
     let snapshotId: string | undefined;
     try {
-      const changes: Record<string, { before: Record<string, unknown>; after: null }> = {};
+      const changes: Record<string, { before: Record<string, unknown>; after: { status: "inactive" } }> = {};
       for (const item of ownedItems) {
-        changes[item.id] = { before: { ...item }, after: null };
+        changes[item.id] = { before: { ...item }, after: { status: "inactive" } };
       }
-      
+
       const snapshot = await prisma.bulkEditSnapshot.create({
         data: {
           memberId: userId,
           operation: "bulk_delete",
           itemCount: ownedItems.length,
           changes: changes as Prisma.InputJsonValue,
-          canUndo: false, // Deletes can't be undone
+          canUndo: false,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         },
       });
       snapshotId = snapshot.id;
-      
-      // Log activity
+
       const { logSellerActivity } = await import("@/lib/seller-activity-log");
       logSellerActivity(userId, "bulk_delete", "bulk_operation", snapshot.id, {
         itemIds: ownedIds,
@@ -394,12 +391,12 @@ export async function DELETE(req: NextRequest) {
       console.warn("[bulk-delete] snapshot creation failed:", e);
     }
 
-    const deleteResult = await prisma.storeItem.deleteMany({
-      where: { id: { in: ownedIds } },
-    });
+    for (const item of ownedItems) {
+      await endStoreItemListing(item);
+    }
 
     return NextResponse.json({
-      deleted: deleteResult.count,
+      deleted: ownedItems.length,
       notFound: storeItemIds.length - ownedIds.length,
       snapshotId,
     });

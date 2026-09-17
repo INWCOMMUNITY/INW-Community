@@ -979,7 +979,7 @@ model StoreItem {
   minOfferCents        Int?     @map("min_offer_cents") // used items: auto-decline offers below this
   lowStockThreshold    Int?     @map("low_stock_threshold") // Alert when quantity falls to or below this value
   featured             Boolean  @default(false) @map("featured") // Admin-curated featured listings
-  /// Set when the listing is ended (status inactive); cleared on relist. INW record is purged 14 days later.
+  /// Set when the listing is ended (status inactive). Ended listings are retained for commerce/history. Cleared on relist.
   endedAt             DateTime? @map("ended_at")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
@@ -1214,7 +1214,7 @@ model OrderItem {
   createdAt            DateTime @default(now()) @map("created_at")
 
   order     StoreOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  storeItem StoreItem  @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
+  storeItem StoreItem  @relation(fields: [storeItemId], references: [id], onDelete: Restrict)
 }
 
 // Community Resale - make offer on resale items
