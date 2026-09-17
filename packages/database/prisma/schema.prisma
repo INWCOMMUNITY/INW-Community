@@ -46,7 +46,11 @@ model Member {
   acceptOffersOnResale       Boolean  @default(true) @map("accept_offers_on_resale")
   // Whether buyers can message seller about listings; must be set before first listing.
   acceptMessagesForListings  Boolean  @default(true) @map("accept_messages_for_listings")
-  status            String   @default("active") // active | suspended
+  status            String   @default("active") // active | suspended | closed
+  /// Set when the account is permanently closed (not reversible moderation).
+  closedAt          DateTime? @map("closed_at")
+  /// Incremented on closure so previously issued JWTs/Bearer tokens fail.
+  authEpoch         Int      @default(0) @map("auth_epoch")
   privacyLevel      String   @default("public") @map("privacy_level") // public | friends_only | completely_private
   signupIntent      String?  @map("signup_intent") // resident | business | seller
   lastLogin         DateTime? @map("last_login") // For 30-day sliding session (mobile)
@@ -215,7 +219,7 @@ model SellerBalance {
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
-  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Restrict)
 }
 
 model SellerBalanceTransaction {
@@ -229,7 +233,7 @@ model SellerBalanceTransaction {
   description String?  @db.Text
   createdAt   DateTime @default(now()) @map("created_at")
 
-  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Restrict)
 }
 
 model CartItem {
@@ -1000,7 +1004,7 @@ model StoreItem {
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
-  member    Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  member    Member    @relation(fields: [memberId], references: [id], onDelete: Restrict)
   business  Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
   shippingOption ShippingOption? @relation(fields: [shippingOptionId], references: [id], onDelete: SetNull)
   orderItems OrderItem[]
@@ -1504,8 +1508,8 @@ model StoreOrder {
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
 
-  buyer   Member     @relation("BuyerOrders", fields: [buyerId], references: [id], onDelete: Cascade)
-  seller  Member     @relation("SellerOrders", fields: [sellerId], references: [id], onDelete: Cascade)
+  buyer   Member     @relation("BuyerOrders", fields: [buyerId], references: [id], onDelete: Restrict)
+  seller  Member     @relation("SellerOrders", fields: [sellerId], references: [id], onDelete: Restrict)
   checkoutAttempt CheckoutAttempt? @relation(fields: [checkoutAttemptId], references: [id], onDelete: Restrict)
   items   OrderItem[]
   shipments Shipment[]

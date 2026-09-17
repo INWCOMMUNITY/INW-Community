@@ -291,7 +291,13 @@ export async function expectRejects(
     if (kind === "check" && isCheckViolation(err)) return err;
     if (kind === "restrict") {
       const msg = dbMessage(err);
-      if (isFkViolation(err) || msg.includes("23503") || /restrict|referenced/i.test(msg)) {
+      const code = dbCode(err);
+      if (
+        isFkViolation(err) ||
+        code === "P2014" ||
+        msg.includes("23503") ||
+        /restrict|referenced|required relation/i.test(msg)
+      ) {
         return err;
       }
     }

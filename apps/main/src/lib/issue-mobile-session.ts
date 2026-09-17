@@ -16,6 +16,7 @@ export const memberRowSelectForMobileSession = {
   status: true,
   emailVerifiedAt: true,
   signupIntent: true,
+  authEpoch: true,
 } satisfies Prisma.MemberSelect;
 
 export type MemberRowForMobileSession = Prisma.MemberGetPayload<{
@@ -51,8 +52,8 @@ export type MobileSessionFailure = { error: string; status: number };
 export async function issueMobileSessionForMemberRow(
   member: MemberRowForMobileSession
 ): Promise<MobileSessionSuccess | MobileSessionFailure> {
-  if (member.status === "suspended") {
-    return { error: "Account suspended", status: 403 };
+  if (member.status === "suspended" || member.status === "closed") {
+    return { error: member.status === "closed" ? "Account closed" : "Account suspended", status: 403 };
   }
   if (!memberRowHasAppAccess(member)) {
     return { error: "EMAIL_NOT_VERIFIED", status: 403 };
@@ -80,6 +81,7 @@ export async function issueMobileSessionForMemberRow(
     name: `${member.firstName} ${member.lastName}`,
     isSubscriber: !!subTier,
     subscriptionPlan: effectivePlan ?? undefined,
+    authEpoch: member.authEpoch,
   });
 
   return {

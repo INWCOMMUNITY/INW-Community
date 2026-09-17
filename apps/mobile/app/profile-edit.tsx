@@ -324,9 +324,37 @@ export default function ProfileEditScreen() {
     setDeleting(true);
     setError("");
     try {
-      await apiPost("/api/me/delete");
-      await signOut();
-      router.replace("/(auth)/login");
+      const result = await apiPost<{
+        ok?: boolean;
+        outcome?: string;
+        billingCleanupPending?: boolean;
+      }>("/api/me/delete");
+      if (result?.outcome !== "deleted" && result?.outcome !== "closed") {
+        setError("Could not close your account. Try again.");
+        setDeleting(false);
+        return;
+      }
+      const finishClosed = async () => {
+        await signOut();
+        router.replace("/(auth)/login");
+      };
+      if (result.outcome === "closed" && result.billingCleanupPending === true) {
+        Alert.alert(
+          "Account closed",
+          "Your account has been closed, but we could not confirm cancellation of your active subscription. Please contact support so we can make sure no further billing occurs.",
+          [
+            {
+              text: "OK",
+              onPress: () => {
+                void finishClosed();
+              },
+            },
+          ],
+          { cancelable: false },
+        );
+        return;
+      }
+      await finishClosed();
     } catch (e) {
       const err = e as { error?: string; status?: number };
       setError(err?.error ?? "Failed to delete account. Try again.");
@@ -607,7 +635,9 @@ export default function ProfileEditScreen() {
         <View style={styles.deleteSection}>
           <Text style={styles.deleteLabel}>Delete account</Text>
           <Text style={styles.deleteDescription}>
-            Permanently delete your account and all saved data. This cannot be undone.
+            Close your account. Community content is removed. Orders and listings are kept when
+            required, and the account is closed. Accounts with no protected history are permanently
+            deleted.
           </Text>
           {!deleteConfirm ? (
             <Pressable onPress={() => setDeleteConfirm(true)} style={styles.deleteLink}>

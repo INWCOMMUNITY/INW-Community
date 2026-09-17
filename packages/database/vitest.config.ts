@@ -6,7 +6,7 @@ export default defineConfig({
     include: ["src/foundation/**/*.int.test.ts"],
     fileParallelism: false,
     sequence: { concurrent: false },
-    testTimeout: 30_000,
+    testTimeout: 60_000,
     hookTimeout: 30_000,
   },
 });

@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
       select: { id: true, email: true, status: true, passwordResetCompletedAt: true },
     });
 
-    if (member && member.status !== "suspended") {
+    if (member && member.status !== "suspended" && member.status !== "closed") {
       const last = member.passwordResetCompletedAt;
       const onCooldown =
         last != null && Date.now() - last.getTime() < PASSWORD_RESET_COOLDOWN_MS;

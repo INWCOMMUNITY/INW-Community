@@ -31,7 +31,8 @@ export async function POST(req: NextRequest) {
       !member ||
       !member.passwordResetExpiresAt ||
       member.passwordResetExpiresAt < new Date() ||
-      member.status === "suspended"
+      member.status === "suspended" ||
+      member.status === "closed"
     ) {
       return NextResponse.json(
         { error: "This reset link is invalid or has expired. Request a new one from Forgot password." },
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest) {
         id: member.id,
         passwordResetTokenHash: hash,
         passwordResetExpiresAt: { gt: now },
-        status: { not: "suspended" },
+        status: { notIn: ["suspended", "closed"] },
       },
       data: {
         passwordHash,

@@ -182,7 +182,11 @@ export default function AdminMembersPage() {
                 <td className="px-4 py-2 align-top">
                   <span
                     className={`inline-block text-xs font-medium px-2 py-0.5 rounded ${
-                      m.status === "suspended" ? "bg-amber-100 text-amber-800" : "bg-green-100 text-green-800"
+                      m.status === "suspended"
+                        ? "bg-amber-100 text-amber-800"
+                        : m.status === "closed"
+                          ? "bg-gray-200 text-gray-700"
+                          : "bg-green-100 text-green-800"
                     }`}
                   >
                     {m.status}

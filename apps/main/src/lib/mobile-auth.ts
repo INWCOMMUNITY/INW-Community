@@ -2,6 +2,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { NextRequest } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { memberAllowsIssuedSession } from "@/lib/member-auth-access";
 
 const JWT_ISSUER = "nwc-mobile";
 const JWT_EXPIRY = "30d";
@@ -20,6 +21,7 @@ export interface MobileTokenPayload {
   name: string;
   isSubscriber?: boolean;
   subscriptionPlan?: SubscriptionPlan;
+  authEpoch?: number;
 }
 
 export async function signMobileToken(payload: MobileTokenPayload): Promise<string> {
@@ -29,6 +31,7 @@ export async function signMobileToken(payload: MobileTokenPayload): Promise<stri
     name: payload.name,
     isSubscriber: payload.isSubscriber ?? false,
     subscriptionPlan: payload.subscriptionPlan ?? null,
+    authEpoch: payload.authEpoch ?? 0,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -49,7 +52,8 @@ export async function verifyMobileToken(token: string): Promise<MobileTokenPaylo
     const isSubscriber = Boolean(payload.isSubscriber);
     const subscriptionPlan = payload.subscriptionPlan as SubscriptionPlan | undefined;
     if (!id || !email) return null;
-    return { id, email, name, isSubscriber, subscriptionPlan };
+    const authEpoch = typeof payload.authEpoch === "number" ? payload.authEpoch : 0;
+    return { id, email, name, isSubscriber, subscriptionPlan, authEpoch };
   } catch {
     return null;
   }
@@ -82,8 +86,11 @@ export async function getSessionForApi(
   if (bearer) {
     const payload = await verifyMobileToken(bearer);
     if (payload) {
+      const allowed = await memberAllowsIssuedSession(payload.id, payload.authEpoch);
+      if (!allowed.ok) {
+        return null;
+      }
       const { prisma } = await import("database");
-      // Only update lastLogin for sliding session; never overwrite profile fields
       prisma.member
         .update({ where: { id: payload.id }, data: { lastLogin: new Date() } })
         .catch(() => {});

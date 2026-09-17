@@ -91,3 +91,8 @@ export const prisma = prismaClient;
 if (process.env.NODE_ENV !== "production") globalThis.prisma = prismaClient;
 
 export * from "@prisma/client";
+export {
+  closeOrDeleteMemberAccount,
+  durableCommerceFinancialNone,
+} from "./member-account-lifecycle";
+export type { MemberAccountLifecycleResult } from "./member-account-lifecycle";
