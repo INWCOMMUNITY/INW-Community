@@ -143,6 +143,8 @@ model Member {
   variantBackfillMaps      VariantBackfillMap[]
   checkoutAttempts         CheckoutAttempt[]
   inventoryReservations    InventoryReservation[]
+  refundOperations         RefundOperation[]
+  transferOperations       TransferOperation[]
 }
 
 model WebviewBridgeToken {
@@ -1086,6 +1088,35 @@ enum CommerceStatus {
   @@map("commerce_status")
 }
 
+enum StripeEvidenceProcessState {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  ERROR
+
+  @@map("stripe_evidence_process_state")
+}
+
+enum RefundKind {
+  FULL
+  PARTIAL
+  COURTESY
+  RETURN
+
+  @@map("refund_kind")
+}
+
+/// Shared refund/transfer provider-operation state. PROCESSING = request in flight; UNCERTAIN = local ack lost.
+enum FinancialOperationStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  UNCERTAIN
+
+  @@map("financial_operation_status")
+}
+
 /// Durable sellable child of StoreItem. Identity is `id`; SKU/options are mutable attributes.
 model StoreVariant {
   id                  String             @id @default(cuid())
@@ -1213,6 +1244,8 @@ model CheckoutAttempt {
   buyer        Member                  @relation(fields: [buyerMemberId], references: [id], onDelete: Restrict)
   storeOrders  StoreOrder[]
   reservations InventoryReservation[]
+  stripeEvents StripeEventEvidence[]
+  refundOperations RefundOperation[]
 
   @@index([buyerMemberId, createdAt])
   @@index([state])
@@ -1247,6 +1280,85 @@ model InventoryReservation {
   inventoryEvents InventoryEvent[]
 
   @@map("inventory_reservation")
+}
+
+/// Durable Stripe webhook/event evidence. Not a SALE/inventory event. Duplicate deliveries lookup by stripeEventId.
+model StripeEventEvidence {
+  id                String                     @id @default(cuid())
+  stripeEventId     String                     @unique @map("stripe_event_id")
+  eventType         String                     @map("event_type")
+  stripeCreatedAt   DateTime                   @map("stripe_created_at")
+  receivedAt        DateTime                   @default(now()) @map("received_at")
+  payload           Json
+  payloadHash       String?                    @map("payload_hash")
+  processState      StripeEvidenceProcessState @default(RECEIVED) @map("process_state")
+  lastError         String?                    @map("last_error") @db.Text
+  checkoutAttemptId String?                    @map("checkout_attempt_id")
+  processedAt       DateTime?                  @map("processed_at")
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  updatedAt         DateTime                   @updatedAt @map("updated_at")
+
+  checkoutAttempt CheckoutAttempt? @relation(fields: [checkoutAttemptId], references: [id], onDelete: SetNull)
+
+  @@index([processState, receivedAt])
+  @@map("stripe_event_evidence")
+}
+
+/// Durable local refund-provider intention. restockRequested is policy only and does not mutate inventory.
+/// memberId is the seller tenant, not the buyer.
+model RefundOperation {
+  id                      String                    @id @default(cuid())
+  memberId                String                    @map("member_id")
+  storeOrderId            String                    @map("store_order_id")
+  orderItemId             String?                   @map("order_item_id")
+  checkoutAttemptId       String?                   @map("checkout_attempt_id")
+  kind                    RefundKind
+  amountCents             Int                       @map("amount_cents")
+  currency                String                    @default("usd")
+  restockRequested        Boolean                   @default(false) @map("restock_requested")
+  reason                  String?
+  providerIdempotencyKey  String                    @unique @map("provider_idempotency_key")
+  stripeRefundId          String?                   @unique @map("stripe_refund_id")
+  status                  FinancialOperationStatus  @default(PENDING)
+  retryCount              Int                       @default(0) @map("retry_count")
+  lastError               String?                   @map("last_error") @db.Text
+  lastAttemptAt           DateTime?                 @map("last_attempt_at")
+  succeededAt             DateTime?                 @map("succeeded_at")
+  createdAt               DateTime                  @default(now()) @map("created_at")
+  updatedAt               DateTime                  @updatedAt @map("updated_at")
+
+  member          Member           @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  storeOrder      StoreOrder       @relation(fields: [storeOrderId], references: [id], onDelete: Restrict)
+  orderItem       OrderItem?       @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  checkoutAttempt CheckoutAttempt? @relation(fields: [checkoutAttemptId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@map("refund_operation")
+}
+
+/// Durable seller Stripe Connect transfer intention. One canonical payout per StoreOrder for v1.
+/// memberId is the seller tenant.
+model TransferOperation {
+  id                     String                   @id @default(cuid())
+  memberId               String                   @map("member_id")
+  storeOrderId           String                   @unique @map("store_order_id")
+  providerIdempotencyKey String                   @unique @map("provider_idempotency_key")
+  stripeTransferId       String?                  @unique @map("stripe_transfer_id")
+  amountCents            Int                      @map("amount_cents")
+  currency               String                   @default("usd")
+  status                 FinancialOperationStatus @default(PENDING)
+  retryCount             Int                      @default(0) @map("retry_count")
+  lastError              String?                  @map("last_error") @db.Text
+  lastAttemptAt          DateTime?                @map("last_attempt_at")
+  succeededAt            DateTime?                @map("succeeded_at")
+  createdAt              DateTime                 @default(now()) @map("created_at")
+  updatedAt              DateTime                 @updatedAt @map("updated_at")
+
+  member     Member     @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  storeOrder StoreOrder @relation(fields: [storeOrderId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@map("transfer_operation")
 }
 
 /// Temporary idempotent backfill allocation: legacy snapshot fingerprint → StoreVariant.id. Not business identity.
@@ -1399,6 +1511,8 @@ model StoreOrder {
   shipments Shipment[]
   storeReturns StoreReturn[]
   reservations InventoryReservation[]
+  refundOperations RefundOperation[]
+  transferOperation TransferOperation?
   packageWeightOz  Float?   @map("package_weight_oz")
   packageLengthIn  Float?   @map("package_length_in")
   packageWidthIn   Float?   @map("package_width_in")
@@ -1492,6 +1606,7 @@ model OrderItem {
   storeVariant StoreVariant? @relation(fields: [variantId], references: [id], onDelete: Restrict)
   inventoryEvents InventoryEvent[]
   reservation InventoryReservation?
+  refundOperations RefundOperation[]
 
   @@unique([id, orderId])
   @@unique([id, storeItemId])

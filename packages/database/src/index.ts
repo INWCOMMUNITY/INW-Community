@@ -43,6 +43,9 @@ const prismaClient = (() => {
     typeof (existing as { inventoryEvent?: unknown }).inventoryEvent !== "undefined" &&
     typeof (existing as { checkoutAttempt?: unknown }).checkoutAttempt !== "undefined" &&
     typeof (existing as { inventoryReservation?: unknown }).inventoryReservation !== "undefined" &&
+    typeof (existing as { stripeEventEvidence?: unknown }).stripeEventEvidence !== "undefined" &&
+    typeof (existing as { refundOperation?: unknown }).refundOperation !== "undefined" &&
+    typeof (existing as { transferOperation?: unknown }).transferOperation !== "undefined" &&
     prismaHasShippingOptionCost(existing)
   ) {
     return existing;

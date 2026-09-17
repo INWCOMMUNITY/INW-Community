@@ -32,6 +32,7 @@ const REMOVE_CHANNEL_SYNC = "20260916000000_remove_channel_sync";
 const MARKETPLACE_V2 = "20260916010000_marketplace_sync_v2";
 const M1_MIGRATION = "20260916221500_commerce_foundation_m1";
 const M2_MIGRATION = "20260916233000_commerce_foundation_m2";
+const M3_MIGRATION = "20260916234500_commerce_foundation_m3";
 const EXPECTED_SHARE_SHA256 =
   "d1f89b47101f513809c3e23541019bfe52e23dcea9616eadad68dc095fda1e6f";
 const BAD_FRAGMENT = `REFERENCES "member"("id")`;
@@ -219,7 +220,7 @@ function assertAppliedMigrations() {
   const finished = psql(
     "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL"
   );
-  for (const name of [SHARE_MIGRATION, REMOVE_CHANNEL_SYNC, M1_MIGRATION, M2_MIGRATION]) {
+  for (const name of [SHARE_MIGRATION, REMOVE_CHANNEL_SYNC, M1_MIGRATION, M2_MIGRATION, M3_MIGRATION]) {
     if (!finished.split(/\s+/).includes(name)) {
       throw new Error(`Expected finished migration ${name} in disposable _prisma_migrations`);
     }
@@ -364,6 +365,40 @@ function assertM2Catalog() {
   }
 }
 
+function assertM3Catalog() {
+  const tables = psql(
+    "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('stripe_event_evidence','refund_operation','transfer_operation') ORDER BY 1"
+  )
+    .split(/\s+/)
+    .filter(Boolean);
+  if (tables.join(",") !== "refund_operation,stripe_event_evidence,transfer_operation") {
+    throw new Error(`M3 tables missing after migrate deploy: ${tables.join(",") || "(none)"}`);
+  }
+
+  for (const name of [
+    "refund_operation_amount_positive_check",
+    "transfer_operation_amount_positive_check",
+  ]) {
+    const found = psql(`SELECT conname FROM pg_constraint WHERE contype = 'c' AND conname = '${name}'`);
+    if (!found.includes(name)) {
+      throw new Error(`Missing M3 CHECK after migrate deploy: ${name}`);
+    }
+  }
+
+  for (const name of [
+    "refund_operation_store_order_id_member_id_fkey",
+    "refund_operation_order_item_id_store_order_id_fkey",
+    "refund_operation_store_order_id_checkout_attempt_id_fkey",
+    "transfer_operation_store_order_id_member_id_fkey",
+    "stripe_event_evidence_checkout_attempt_id_fkey",
+  ]) {
+    const found = psql(`SELECT conname FROM pg_constraint WHERE contype = 'f' AND conname = '${name}'`);
+    if (!found.includes(name)) {
+      throw new Error(`Missing M3 FK after migrate deploy: ${name}`);
+    }
+  }
+}
+
 refuseInheritedRemoteUrls();
 assertLocal(TEST_DATABASE_URL);
 console.log("[foundation-int] using", TEST_DATABASE_URL.replace(PASSWORD, "***"));
@@ -391,6 +426,7 @@ try {
   assertAppliedMigrations();
   assertM1Catalog();
   assertM2Catalog();
+  assertM3Catalog();
   assertTrackedShareChecksum("after migrate deploy");
 
   console.log("[foundation-int] vitest against migrate-deploy database");
