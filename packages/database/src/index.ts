@@ -46,6 +46,7 @@ const prismaClient = (() => {
     typeof (existing as { stripeEventEvidence?: unknown }).stripeEventEvidence !== "undefined" &&
     typeof (existing as { refundOperation?: unknown }).refundOperation !== "undefined" &&
     typeof (existing as { transferOperation?: unknown }).transferOperation !== "undefined" &&
+    typeof (existing as { commerceFoundationCutover?: unknown }).commerceFoundationCutover !== "undefined" &&
     prismaHasShippingOptionCost(existing)
   ) {
     return existing;
@@ -96,3 +97,15 @@ export {
   durableCommerceFinancialNone,
 } from "./member-account-lifecycle";
 export type { MemberAccountLifecycleResult } from "./member-account-lifecycle";
+export {
+  COMMERCE_FOUNDATION_CUTOVER_SINGLETON_ID,
+  CommerceFoundationCutoverBlockedError,
+  CommerceFoundationCutoverStateError,
+  INVENTORY_CUTOVER_FROZEN_ERROR,
+  assertLegacyDrainFinalizerAllowed,
+  assertLegacyInteractiveMutationAllowed,
+  durableStartedAtFromUnixSeconds,
+  getCommerceFoundationCutoverState,
+  isCommerceFoundationCutoverBlockedError,
+} from "./commerce-foundation-cutover";
+export type { CommerceFoundationCutoverState, CommerceFoundationCutoverWriterClass } from "./commerce-foundation-cutover";

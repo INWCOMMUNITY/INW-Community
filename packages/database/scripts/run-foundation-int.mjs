@@ -34,6 +34,7 @@ const M1_MIGRATION = "20260916221500_commerce_foundation_m1";
 const M2_MIGRATION = "20260916233000_commerce_foundation_m2";
 const M3_MIGRATION = "20260916234500_commerce_foundation_m3";
 const MEMBER_DELETE_SAFETY = "20260917140000_member_delete_safety";
+const CUTOVER_STATE = "20260918183000_commerce_foundation_cutover_state";
 const EXPECTED_SHARE_SHA256 =
   "d1f89b47101f513809c3e23541019bfe52e23dcea9616eadad68dc095fda1e6f";
 const BAD_FRAGMENT = `REFERENCES "member"("id")`;
@@ -221,7 +222,7 @@ function assertAppliedMigrations() {
   const finished = psql(
     "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL"
   );
-  for (const name of [SHARE_MIGRATION, REMOVE_CHANNEL_SYNC, M1_MIGRATION, M2_MIGRATION, M3_MIGRATION, MEMBER_DELETE_SAFETY]) {
+  for (const name of [SHARE_MIGRATION, REMOVE_CHANNEL_SYNC, M1_MIGRATION, M2_MIGRATION, M3_MIGRATION, MEMBER_DELETE_SAFETY, CUTOVER_STATE]) {
     if (!finished.split(/\s+/).includes(name)) {
       throw new Error(`Expected finished migration ${name} in disposable _prisma_migrations`);
     }
@@ -393,6 +394,29 @@ function assertMemberDeleteSafetyCatalog() {
   }
 }
 
+function assertCutoverCatalog() {
+  const tables = psql(
+    "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = 'commerce_foundation_cutover'"
+  );
+  if (!tables.includes("commerce_foundation_cutover")) {
+    throw new Error("commerce_foundation_cutover table missing after migrate deploy");
+  }
+  const check = psql(
+    "SELECT conname FROM pg_constraint WHERE contype = 'c' AND conname = 'commerce_foundation_cutover_singleton_id_check'"
+  );
+  if (!check.includes("commerce_foundation_cutover_singleton_id_check")) {
+    throw new Error("cutover singleton CHECK missing after migrate deploy");
+  }
+  const row = psql(`SELECT id || '=' || mode FROM commerce_foundation_cutover`);
+  if (!row.includes("singleton=LEGACY")) {
+    throw new Error(`Expected singleton LEGACY cutover row, got: ${row || "(none)"}`);
+  }
+  const extra = psql("SELECT COUNT(*)::text FROM commerce_foundation_cutover");
+  if (!extra.trim().split(/\s+/).includes("1")) {
+    throw new Error(`Expected exactly one cutover row, got: ${extra}`);
+  }
+}
+
 function assertM3Catalog() {
   const tables = psql(
     "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('stripe_event_evidence','refund_operation','transfer_operation') ORDER BY 1"
@@ -456,6 +480,7 @@ try {
   assertM2Catalog();
   assertM3Catalog();
   assertMemberDeleteSafetyCatalog();
+  assertCutoverCatalog();
   assertTrackedShareChecksum("after migrate deploy");
 
   run("pnpm", ["exec", "prisma", "generate"]);

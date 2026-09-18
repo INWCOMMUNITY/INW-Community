@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
+import { gateLegacyInteractiveMutation } from "@/lib/commerce-foundation-cutover-http";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,8 @@ export async function POST(
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const blocked = await gateLegacyInteractiveMutation();
+  if (blocked) return blocked;
 
   const { id } = await params;
   const order = await prisma.storeOrder.findFirst({

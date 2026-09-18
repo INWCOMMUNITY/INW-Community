@@ -1,4 +1,5 @@
 import type { Prisma } from "database";
+import { assertLegacyInteractiveMutationAllowed } from "database";
 import { hasOptionQuantities, incrementOptionQuantity, shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
 
 type Tx = {
@@ -22,6 +23,7 @@ export async function restockStoreItemAfterReturn(
   tx: Tx,
   line: { storeItemId: string; quantity: number; variant?: unknown }
 ): Promise<{ status: string; quantity: number }> {
+  await assertLegacyInteractiveMutationAllowed(tx as never);
   const storeItem = await tx.storeItem.findUnique({
     where: { id: line.storeItemId },
     select: { id: true, variants: true, quantity: true, status: true },

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { logSellerActivity } from "@/lib/seller-activity-log";
+import { gateLegacyInteractiveMutation } from "@/lib/commerce-foundation-cutover-http";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,8 @@ export async function POST(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const blocked = await gateLegacyInteractiveMutation();
+  if (blocked) return blocked;
 
   const { id } = await params;
 

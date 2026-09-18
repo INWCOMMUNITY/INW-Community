@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { prisma } from "database";
+import { assertLegacyInteractiveMutationAllowed, prisma } from "database";
 import { restockOrderLinesAfterReturn } from "@/lib/store-item-restock";
 import { computeSellerTransferCents } from "@/lib/storefront-payout";
 import {
@@ -242,6 +242,8 @@ export async function restockAfterExternalRefund(
   if (!["paid", "shipped", "delivered"].includes(order.status) && order.status !== "refunded") {
     return false;
   }
+
+  await assertLegacyInteractiveMutationAllowed(prisma);
 
   if (stripe && order.stripeSellerTransferId) {
     await reverseConnectTransfer(stripe, order.stripeSellerTransferId);

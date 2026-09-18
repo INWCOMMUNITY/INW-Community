@@ -25,6 +25,7 @@ import { assertMemberShippingOption } from "@/lib/shipping-options";
 import { strangerMayViewStoreItemById } from "@/lib/store-item-public-access";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
 import { endStoreItemListing } from "@/lib/end-store-item-listing";
+import { gateLegacyInteractiveMutation, jsonIfCutoverBlocked } from "@/lib/commerce-foundation-cutover-http";
 
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
@@ -111,6 +112,8 @@ export async function PATCH(
   if (!isAdmin && existing.memberId !== session.user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const blocked = await gateLegacyInteractiveMutation();
+  if (blocked) return blocked;
 
   let data: z.infer<typeof bodySchema>;
   try {
@@ -446,8 +449,16 @@ export async function DELETE(
   if (!isAdmin && existing.memberId !== session.user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const blocked = await gateLegacyInteractiveMutation();
+  if (blocked) return blocked;
 
-  await endStoreItemListing(existing);
+  try {
+    await endStoreItemListing(existing);
+  } catch (e) {
+    const cutover = jsonIfCutoverBlocked(e);
+    if (cutover) return cutover;
+    throw e;
+  }
   const { logSellerActivity } = await import("@/lib/seller-activity-log");
   logSellerActivity(existing.memberId, "item_deleted", "store_item", id, {
     title: existing.title,

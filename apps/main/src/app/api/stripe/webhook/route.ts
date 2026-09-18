@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { prisma, Prisma } from "database";
+import {
+  prisma,
+  Prisma,
+  assertLegacyDrainFinalizerAllowed,
+  durableStartedAtFromUnixSeconds,
+  isCommerceFoundationCutoverBlockedError,
+} from "database";
+import type { Plan } from "database";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
 import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
 import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
@@ -31,7 +38,7 @@ import {
   syncStoreItemsAfterSale,
 } from "@/lib/stripe/fulfill-storefront-orders";
 import { recordConnectPayoutInLedger } from "@/lib/stripe/connect-payouts";
-import type { Plan } from "database";
+import { jsonIfCutoverBlocked } from "@/lib/commerce-foundation-cutover-http";
 
 /**
  * Idempotency: Stripe may deliver the same event more than once. All handlers in this file
@@ -222,6 +229,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  try {
   /** Snapshot / v1 events that actually write or update Subscription rows (thin v2.core.* events do not). */
   const SUBSCRIPTION_RELATED_EVENT_TYPES = new Set([
     "checkout.session.completed",
@@ -456,6 +464,11 @@ export async function POST(req: NextRequest) {
           orderItems = [];
         }
 
+        await assertLegacyDrainFinalizerAllowed(
+          prisma,
+          durableStartedAtFromUnixSeconds(session.created)
+        );
+
         const order = await prisma.storeOrder.create({
           data: {
             buyerId,
@@ -494,10 +507,15 @@ export async function POST(req: NextRequest) {
             where: { id: oi.storeItemId },
           });
           if (storeItem) {
-            await applyStoreItemDecrementAfterSale(prisma, storeItem, {
-              quantity: oi.quantity,
-              variant: oi.variant,
-            });
+            await applyStoreItemDecrementAfterSale(
+              prisma,
+              storeItem,
+              {
+                quantity: oi.quantity,
+                variant: oi.variant,
+              },
+              { startedAt: durableStartedAtFromUnixSeconds(session.created) }
+            );
           }
           const updated = await prisma.storeItem.findUnique({
             where: { id: oi.storeItemId },
@@ -654,12 +672,13 @@ export async function POST(req: NextRequest) {
             })
           );
         }
-        await restockAfterExternalRefund(o.id, stripe).catch((err) =>
+        await restockAfterExternalRefund(o.id, stripe).catch((err) => {
+          if (isCommerceFoundationCutoverBlockedError(err)) throw err;
           console.error("[stripe/webhook] restock after refund/dispute failed", {
             orderId: o.id,
             error: String(err),
-          })
-        );
+          });
+        });
       }
     }
   }
@@ -805,6 +824,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
+      await assertLegacyDrainFinalizerAllowed(prisma, order.createdAt);
       await prisma.storeOrder.update({
         where: { id: order.id },
         data: {
@@ -821,10 +841,15 @@ export async function POST(req: NextRequest) {
         });
         if (storeItem) titleByItemIdPI.set(oi.storeItemId, storeItem.title);
         if (storeItem) {
-          await applyStoreItemDecrementAfterSale(prisma, storeItem, {
-            quantity: oi.quantity,
-            variant: oi.variant,
-          });
+          await applyStoreItemDecrementAfterSale(
+            prisma,
+            storeItem,
+            {
+              quantity: oi.quantity,
+              variant: oi.variant,
+            },
+            { startedAt: order.createdAt }
+          );
         }
         const updated = await prisma.storeItem.findUnique({
           where: { id: oi.storeItemId },
@@ -996,11 +1021,17 @@ export async function POST(req: NextRequest) {
     if (subscriptionEnded) {
       const uniqueMembers = [...new Set(affectedRows.map((r) => r.memberId))];
       for (const memberId of uniqueMembers) {
-        await removeNwcMemberPerksAfterSubscriptionEnd(memberId).catch((err) =>
-          console.error("[stripe/webhook] perk cleanup", memberId, err)
-        );
+        await removeNwcMemberPerksAfterSubscriptionEnd(memberId).catch((err) => {
+          if (isCommerceFoundationCutoverBlockedError(err)) throw err;
+          console.error("[stripe/webhook] perk cleanup", memberId, err);
+        });
       }
     }
   }
   return NextResponse.json({ received: true });
+  } catch (e) {
+    const blocked = jsonIfCutoverBlocked(e);
+    if (blocked) return blocked;
+    throw e;
+  }
 }

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-rules";
+import { gateLegacyInteractiveMutation } from "@/lib/commerce-foundation-cutover-http";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -37,6 +38,8 @@ export async function POST(
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const blocked = await gateLegacyInteractiveMutation();
+  if (blocked) return blocked;
 
   const { id: itemId } = await params;
 

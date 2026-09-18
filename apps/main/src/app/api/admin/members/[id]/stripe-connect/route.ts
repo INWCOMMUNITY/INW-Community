@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconnect";
+import { jsonIfCutoverBlocked } from "@/lib/commerce-foundation-cutover-http";
 
 /**
  * DELETE: Disconnect Stripe Connect for a member (admin only).
@@ -15,6 +16,12 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { id } = await params;
-  await disconnectStripeAndDisableListings(id);
+  try {
+    await disconnectStripeAndDisableListings(id);
+  } catch (e) {
+    const cutover = jsonIfCutoverBlocked(e);
+    if (cutover) return cutover;
+    throw e;
+  }
   return NextResponse.json({ ok: true });
 }

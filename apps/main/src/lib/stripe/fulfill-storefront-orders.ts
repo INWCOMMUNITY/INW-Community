@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { prisma } from "database";
+import { assertLegacyDrainFinalizerAllowed, prisma } from "database";
 import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
 import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
 import {
@@ -95,6 +95,11 @@ export async function fulfillStoreOrdersFromCheckoutSession(
       );
     }
     return { orderIds: toProcess };
+  }
+
+  // CLASS 2 drain: every pending order must be eligible before any Connect transfer.
+  for (const order of ordersToFulfill) {
+    await assertLegacyDrainFinalizerAllowed(prisma, order.createdAt);
   }
 
   console.info(`${log} fulfilling ${ordersToFulfill.length} pending order(s)`, {
@@ -314,10 +319,15 @@ export async function fulfillStoreOrdersFromCheckoutSession(
         });
         if (storeItem) titleByItemId.set(oi.storeItemId, storeItem.title);
         if (storeItem) {
-          await applyStoreItemDecrementAfterSale(prisma, storeItem, {
-            quantity: oi.quantity,
-            variant: oi.variant,
-          });
+          await applyStoreItemDecrementAfterSale(
+            prisma,
+            storeItem,
+            {
+              quantity: oi.quantity,
+              variant: oi.variant,
+            },
+            { startedAt: order.createdAt }
+          );
         }
         const updated = await prisma.storeItem.findUnique({
           where: { id: oi.storeItemId },

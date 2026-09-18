@@ -1,6 +1,7 @@
 import { randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import { Prisma, type PrismaClient } from "@prisma/client";
+import { assertLegacyInteractiveMutationAllowed } from "./commerce-foundation-cutover";
 
 export type MemberAccountLifecycleResult =
   | { ok: true; outcome: "deleted" | "closed" }
@@ -260,6 +261,7 @@ export async function closeOrDeleteMemberAccount(
         return { ok: true, outcome: "deleted" } as const;
       }
 
+      await assertLegacyInteractiveMutationAllowed(tx);
       await closeRetainedMember(tx, memberId, new Date());
       return { ok: true, outcome: "closed" } as const;
     },

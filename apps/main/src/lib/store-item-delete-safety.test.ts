@@ -2,30 +2,53 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { storeItemStatusWrite } from "./store-item-ended-status";
 
-const { mockPrisma, getSessionForApi, requireAdmin } = vi.hoisted(() => ({
-  mockPrisma: {
-    storeItem: {
-      findUnique: vi.fn(),
-      findMany: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
-      deleteMany: vi.fn(),
+const {
+  mockPrisma,
+  getSessionForApi,
+  requireAdmin,
+  assertLegacyInteractiveMutationAllowed,
+  CommerceFoundationCutoverBlockedError,
+} = vi.hoisted(() => {
+  class CommerceFoundationCutoverBlockedError extends Error {
+    code = "inventory_cutover_frozen";
+    retryable = true as const;
+    httpStatus = 503 as const;
+    constructor() {
+      super("blocked");
+      this.name = "CommerceFoundationCutoverBlockedError";
+    }
+  }
+  return {
+    mockPrisma: {
+      storeItem: {
+        findUnique: vi.fn(),
+        findMany: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn(),
+        deleteMany: vi.fn(),
+      },
+      orderItem: {
+        findMany: vi.fn(),
+        deleteMany: vi.fn(),
+      },
+      bulkEditSnapshot: {
+        create: vi.fn(),
+      },
     },
-    orderItem: {
-      findMany: vi.fn(),
-      deleteMany: vi.fn(),
-    },
-    bulkEditSnapshot: {
-      create: vi.fn(),
-    },
-  },
-  getSessionForApi: vi.fn(),
-  requireAdmin: vi.fn(),
-}));
+    getSessionForApi: vi.fn(),
+    requireAdmin: vi.fn(),
+    assertLegacyInteractiveMutationAllowed: vi.fn(async () => {}),
+    CommerceFoundationCutoverBlockedError,
+  };
+});
 
 vi.mock("database", () => ({
   prisma: mockPrisma,
   Prisma: {},
+  assertLegacyInteractiveMutationAllowed,
+  CommerceFoundationCutoverBlockedError,
+  isCommerceFoundationCutoverBlockedError: (err: unknown) =>
+    err instanceof CommerceFoundationCutoverBlockedError,
 }));
 
 vi.mock("@/lib/mobile-auth", () => ({
@@ -89,6 +112,7 @@ describe("storeItemStatusWrite lifecycle", () => {
 describe("endStoreItemListing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    assertLegacyInteractiveMutationAllowed.mockResolvedValue(undefined);
     mockPrisma.storeItem.update.mockImplementation(async ({ data }: { data: object }) => ({
       ...listing(),
       ...data,
@@ -112,6 +136,7 @@ describe("DELETE /api/store-items/[id]", () => {
     vi.clearAllMocks();
     getSessionForApi.mockResolvedValue({ user: { id: sellerId } });
     requireAdmin.mockResolvedValue(false);
+    assertLegacyInteractiveMutationAllowed.mockResolvedValue(undefined);
     mockPrisma.storeItem.update.mockImplementation(async ({ data }: { data: object }) => ({
       ...listing(),
       ...data,
@@ -131,6 +156,17 @@ describe("DELETE /api/store-items/[id]", () => {
       data: expect.objectContaining({ status: "inactive" }),
     });
     expect(deleteFeedPostsForSoldItem).not.toHaveBeenCalled();
+  });
+
+  it("FROZEN seller DELETE returns 503 inventory_cutover_frozen without mutating", async () => {
+    mockPrisma.storeItem.findUnique.mockResolvedValue(listing());
+    assertLegacyInteractiveMutationAllowed.mockRejectedValue(new CommerceFoundationCutoverBlockedError());
+    const res = await sellerDelete(new NextRequest("http://localhost/api/store-items/item-1", { method: "DELETE" }), {
+      params: Promise.resolve({ id: itemId }),
+    });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "inventory_cutover_frozen", retryable: true });
+    expect(mockPrisma.storeItem.update).not.toHaveBeenCalled();
   });
 
   it("H. seller DELETE does not destroy feed posts or other durable children", async () => {

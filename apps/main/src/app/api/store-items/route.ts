@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, Prisma } from "database";
+import { gateLegacyInteractiveMutation } from "@/lib/commerce-foundation-cutover-http";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { containsProhibitedCategory, formatModerationErrorMessage, validateText } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
@@ -302,6 +303,8 @@ export async function POST(req: NextRequest) {
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const blocked = await gateLegacyInteractiveMutation();
+  if (blocked) return blocked;
 
   let data: z.infer<typeof bodySchema>;
   try {

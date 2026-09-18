@@ -22,6 +22,7 @@ import {
 } from "@/lib/storefront-checkout-hold";
 import { memberHasConnectPayoutsEnabled } from "@/lib/stripe-connect-payout-gate";
 import { sellerIsAwayFromOrders } from "@/lib/seller-write-gates";
+import { gateLegacyInteractiveMutation } from "@/lib/commerce-foundation-cutover-http";
 
 /**
  * Stripe Product tax code **General - Tangible Goods** (`txcd_99999999`).
@@ -44,6 +45,8 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const blocked = await gateLegacyInteractiveMutation();
+  if (blocked) return blocked;
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeSecretKey?.startsWith("sk_") || stripeSecretKey.includes("...")) {
     return NextResponse.json(

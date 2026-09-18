@@ -443,10 +443,10 @@ model Collection {
   isPublic    Boolean  @default(false) @map("is_public")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
-  
+
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
   items  CollectionItem[]
-  
+
   @@index([memberId])
 }
 
@@ -455,10 +455,10 @@ model CollectionItem {
   collectionId String   @map("collection_id")
   storeItemId  String   @map("store_item_id")
   addedAt      DateTime @default(now()) @map("added_at")
-  
+
   collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
   storeItem  StoreItem  @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
-  
+
   @@unique([collectionId, storeItemId])
   @@index([storeItemId])
 }
@@ -501,10 +501,10 @@ model PriceDropAlert {
   active        Boolean   @default(true)
   createdAt     DateTime  @default(now()) @map("created_at")
   triggeredAt   DateTime? @map("triggered_at")
-  
+
   member    Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
   storeItem StoreItem @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
-  
+
   @@unique([memberId, storeItemId])
   @@index([storeItemId, active])
   @@map("price_drop_alert")
@@ -517,7 +517,7 @@ model StoreCategory {
   description String?
   bannerUrl   String? @map("banner_url")
   sortOrder   Int     @default(0) @map("sort_order")
-  
+
   @@map("store_category")
 }
 
@@ -1389,10 +1389,10 @@ model MemberListingView {
   storeItemId String   @map("store_item_id")
   source      String   // mobile | web
   createdAt   DateTime @default(now()) @map("created_at")
-  
+
   viewer    Member?    @relation(fields: [viewerId], references: [id], onDelete: Cascade)
   storeItem StoreItem  @relation(fields: [storeItemId], references: [id], onDelete: Cascade)
-  
+
   @@index([storeItemId, createdAt])
   @@index([viewerId, createdAt])
   @@map("member_listing_view")
@@ -1410,6 +1410,32 @@ model CronJobLock {
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
   @@map("cron_job_lock")
+}
+
+/// Singleton cutover mode for commerce-foundation inventory writer switch.
+/// DB CHECK enforces id = 'singleton'. Missing row is a hard runtime error (never assume LEGACY).
+enum CommerceFoundationCutoverMode {
+  LEGACY
+  FROZEN
+  BACKFILLING
+  FOUNDATION
+  UNFROZEN
+
+  @@map("commerce_foundation_cutover_mode")
+}
+
+model CommerceFoundationCutover {
+  id           String                         @id
+  mode         CommerceFoundationCutoverMode  @default(LEGACY)
+  frozenAt     DateTime?                      @map("frozen_at")
+  backfilledAt DateTime?                      @map("backfilled_at")
+  foundationAt DateTime?                      @map("foundation_at")
+  unfrozenAt   DateTime?                      @map("unfrozen_at")
+  engineSha    String?                        @map("engine_sha")
+  manifestHash String?                        @map("manifest_hash")
+  updatedAt    DateTime                       @updatedAt @map("updated_at")
+
+  @@map("commerce_foundation_cutover")
 }
 
 // Listing templates: reusable presets for common listing settings.

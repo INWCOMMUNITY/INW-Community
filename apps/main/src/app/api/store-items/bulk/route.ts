@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
 import { endStoreItemListing } from "@/lib/end-store-item-listing";
+import { gateLegacyInteractiveMutation, jsonIfCutoverBlocked } from "@/lib/commerce-foundation-cutover-http";
 
 export const dynamic = "force-dynamic";
 
@@ -105,6 +106,8 @@ export async function PATCH(req: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const blocked = await gateLegacyInteractiveMutation();
+    if (blocked) return blocked;
 
     const body = await req.json();
     const parsed = bulkUpdateSchema.safeParse(body);
@@ -139,7 +142,7 @@ export async function PATCH(req: NextRequest) {
         inStorePickupAvailable: true,
       },
     });
-    
+
     // Capture before state for snapshot
     const beforeState: Record<string, Record<string, unknown>> = {};
     for (const item of ownedItems) {
@@ -262,7 +265,7 @@ export async function PATCH(req: NextRequest) {
             inStorePickupAvailable: true,
           },
         });
-        
+
         const changes: Record<string, { before: Record<string, unknown>; after: Record<string, unknown> }> = {};
         for (const item of afterItems) {
           if (beforeState[item.id]) {
@@ -272,7 +275,7 @@ export async function PATCH(req: NextRequest) {
             };
           }
         }
-        
+
         const snapshot = await prisma.bulkEditSnapshot.create({
           data: {
             memberId: userId,
@@ -282,7 +285,7 @@ export async function PATCH(req: NextRequest) {
             expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
           },
         });
-        
+
         // Log activity
         const { logSellerActivity } = await import("@/lib/seller-activity-log");
         logSellerActivity(userId, "bulk_edit", "bulk_operation", snapshot.id, {
@@ -290,7 +293,7 @@ export async function PATCH(req: NextRequest) {
           itemCount: result.updated,
           changedFields: Object.keys(updates).filter((k) => updates[k as keyof typeof updates] !== undefined),
         });
-        
+
         // Check low stock for updated items
         const { checkLowStockBatch } = await import("@/lib/low-stock-alerts");
         const itemsToCheck = afterItems.map((item) => ({
@@ -298,14 +301,14 @@ export async function PATCH(req: NextRequest) {
           previousQuantity: (beforeState[item.id]?.quantity as number) ?? undefined,
         }));
         checkLowStockBatch(itemsToCheck).catch(() => {});
-        
+
         // Add snapshotId to result
         (result as Record<string, unknown>).snapshotId = snapshot.id;
       } catch (e) {
         console.warn("[bulk-update] snapshot creation failed:", e);
       }
     }
-    
+
     return NextResponse.json(result);
   } catch (e) {
     console.error("[bulk-update] error:", e);
@@ -329,6 +332,8 @@ export async function DELETE(req: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const blocked = await gateLegacyInteractiveMutation();
+    if (blocked) return blocked;
 
     const body = await req.json();
     const storeItemIds = z.array(z.string()).min(1).max(100).parse(body.storeItemIds);
@@ -401,6 +406,8 @@ export async function DELETE(req: NextRequest) {
       snapshotId,
     });
   } catch (e) {
+    const cutover = jsonIfCutoverBlocked(e);
+    if (cutover) return cutover;
     console.error("[bulk-delete] error:", e);
     return NextResponse.json(
       { error: "Bulk delete failed", detail: e instanceof Error ? e.message : String(e) },
