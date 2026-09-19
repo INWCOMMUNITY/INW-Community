@@ -164,4 +164,17 @@ export {
   stripeCheckoutRequestOptions,
 } from "./commerce-foundation-checkout";
 export type { FoundationCheckoutSellerOrderInput } from "./commerce-foundation-checkout";
+export {
+  applyFoundationCheckoutProviderObservation,
+  FOUNDATION_CHECKOUT_HOLD_MS,
+  FOUNDATION_CHECKOUT_RECONCILIATION_BATCH_SIZE,
+  foundationCheckoutReconciliationCronAllowed,
+  hostedCheckoutUrlIfActive,
+  listFoundationCheckoutReconciliationCandidates,
+} from "./commerce-foundation-checkout-reconciliation";
+export type {
+  FoundationCheckoutObservationResult,
+  FoundationCheckoutProviderObservation,
+  FoundationCheckoutReconciliationClassification,
+} from "./commerce-foundation-checkout-reconciliation";
 export { reconcileStoreItemQuantities, verifyFoundationListingHealth } from "./commerce-foundation-health";

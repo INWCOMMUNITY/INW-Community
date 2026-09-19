@@ -11,6 +11,10 @@ import {
   Prisma,
   stripeCheckoutRequestOptions,
 } from "database";
+import {
+  checkoutReconciliationHttpContract,
+  reconcileFoundationCheckoutAttempt,
+} from "@/lib/stripe/reconcile-foundation-checkout-attempt";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
@@ -541,34 +545,18 @@ export async function POST(req: NextRequest) {
 
     if (
       preparedAttempt?.reused &&
-      preparedAttempt.stripeCheckoutSessionId &&
       (preparedAttempt.state === "SESSION_OPEN" || preparedAttempt.state === "SESSION_UNKNOWN")
     ) {
-      try {
-        const existingSession = await stripe.checkout.sessions.retrieve(
-          preparedAttempt.stripeCheckoutSessionId
-        );
-        if (existingSession.url) {
-          if (preparedAttempt.state === "SESSION_UNKNOWN") {
-            await markCheckoutAttemptSessionOpen(prisma, {
-              attemptId: preparedAttempt.attemptId,
-              stripeCheckoutSessionId: existingSession.id,
-              stripePaymentIntentId:
-                typeof existingSession.payment_intent === "string" ? existingSession.payment_intent : null,
-            });
-          }
-          return NextResponse.json({ url: existingSession.url });
-        }
-      } catch {
-        return NextResponse.json(
-          { error: "checkout_session_unknown", retryable: true },
-          { status: 503 }
-        );
+      const reconciled = await reconcileFoundationCheckoutAttempt({
+        prisma,
+        stripe,
+        attemptId: preparedAttempt.attemptId,
+      });
+      if (reconciled.classification === "ACTIVE" && reconciled.checkoutUrl) {
+        return NextResponse.json({ url: reconciled.checkoutUrl });
       }
-      return NextResponse.json(
-        { error: "checkout_session_unknown", retryable: true },
-        { status: 503 }
-      );
+      const http = checkoutReconciliationHttpContract(reconciled);
+      return NextResponse.json(http.body, { status: http.status });
     }
 
     let checkoutSession: Stripe.Checkout.Session;

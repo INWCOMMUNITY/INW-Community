@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import {
-  expireFoundationCheckoutAttempt,
   finalizeFoundationCheckoutPayment,
   foundationAttemptExpiryDecision,
   prisma,
@@ -122,7 +121,8 @@ export async function GET(req: NextRequest) {
           }
           continue;
         }
-        await expireFoundationCheckoutAttempt(prisma, attempt.id);
+        // Unpaid Foundation SESSION_OPEN/UNKNOWN must not release on local TTL.
+        // Stripe-aware expiry lives in reconcile-foundation-checkouts.
         continue;
       }
     }
