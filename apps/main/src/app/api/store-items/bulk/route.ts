@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Prisma } from "database";
+import { applyFoundationSellerQuantitySets, prisma, Prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
 import { endStoreItemListing } from "@/lib/end-store-item-listing";
-import { gateLegacyInteractiveMutation, jsonIfCutoverBlocked } from "@/lib/commerce-foundation-cutover-http";
+import { hasOptionQuantities } from "@/lib/store-item-variants";
+import {
+  gateInteractiveOrFoundationWriter,
+  jsonIfCutoverBlocked,
+  resolveCommerceInventoryWriter,
+} from "@/lib/commerce-foundation-cutover-http";
 
 export const dynamic = "force-dynamic";
 
@@ -106,8 +111,9 @@ export async function PATCH(req: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const blocked = await gateLegacyInteractiveMutation();
-    if (blocked) return blocked;
+    const writer = await resolveCommerceInventoryWriter();
+    if (!writer.ok) return writer.response;
+    const isFoundation = writer.route === "foundation";
 
     const body = await req.json();
     const parsed = bulkUpdateSchema.safeParse(body);
@@ -132,6 +138,7 @@ export async function PATCH(req: NextRequest) {
         title: true,
         priceCents: true,
         quantity: true,
+        variants: true,
         category: true,
         subcategory: true,
         condition: true,
@@ -190,10 +197,45 @@ export async function PATCH(req: NextRequest) {
       updateData.inStorePickupAvailable = updates.inStorePickupAvailable;
     }
 
+    const quantityRequested = updates.quantity !== undefined || updates.quantityAdjust !== undefined;
+    if (isFoundation && quantityRequested) {
+      for (const item of ownedItems) {
+        if (hasOptionQuantities(item.variants)) {
+          result.failed++;
+          result.errors.push({
+            itemId: item.id,
+            error: "FOUNDATION bulk quantity is not supported for matrix listings",
+          });
+          continue;
+        }
+        const target =
+          updates.quantityAdjust !== undefined
+            ? Math.max(0, item.quantity + updates.quantityAdjust)
+            : updates.quantity!;
+        try {
+          await prisma.$transaction((tx) =>
+            applyFoundationSellerQuantitySets(tx, {
+              storeItemId: item.id,
+              memberId: userId,
+              commandId: `bulk-set-${item.id}`,
+              simpleTarget: target,
+            })
+          );
+          result.updated++;
+        } catch (e) {
+          result.failed++;
+          result.errors.push({
+            itemId: item.id,
+            error: e instanceof Error ? e.message : "Foundation quantity update failed",
+          });
+        }
+      }
+    }
+
     // Handle price and quantity updates per-item (may need calculation)
     const itemsNeedingIndividualUpdate =
       updates.priceChangePercent !== undefined ||
-      updates.quantityAdjust !== undefined;
+      (!isFoundation && updates.quantityAdjust !== undefined);
 
     if (itemsNeedingIndividualUpdate) {
       // Update each item individually
@@ -210,15 +252,16 @@ export async function PATCH(req: NextRequest) {
             itemUpdate.priceCents = updates.priceCents;
           }
 
-          if (updates.quantityAdjust !== undefined) {
+          if (!isFoundation && updates.quantityAdjust !== undefined) {
             const newQty = Math.max(0, item.quantity + updates.quantityAdjust);
             itemUpdate.quantity = newQty;
-          } else if (updates.quantity !== undefined) {
+          } else if (!isFoundation && updates.quantity !== undefined) {
             itemUpdate.quantity = updates.quantity;
           }
 
+          if (Object.keys(itemUpdate).length === 0) continue;
           await updateOneStoreItem(item.id, itemUpdate);
-          result.updated++;
+          if (!isFoundation || !quantityRequested) result.updated++;
         } catch (e) {
           result.failed++;
           result.errors.push({
@@ -232,14 +275,14 @@ export async function PATCH(req: NextRequest) {
       if (updates.priceCents !== undefined) {
         updateData.priceCents = updates.priceCents;
       }
-      if (updates.quantity !== undefined) {
+      if (!isFoundation && updates.quantity !== undefined) {
         updateData.quantity = updates.quantity;
       }
 
       if (Object.keys(updateData).length > 0) {
         const batchResult = await updateManyStoreItems(Array.from(ownedIds), updateData);
-        result.updated = batchResult.count;
-      } else {
+        result.updated = isFoundation && quantityRequested ? result.updated : batchResult.count;
+      } else if (!(isFoundation && quantityRequested)) {
         result.updated = ownedItems.length;
       }
     }
@@ -332,7 +375,7 @@ export async function DELETE(req: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const blocked = await gateLegacyInteractiveMutation();
+    const blocked = await gateInteractiveOrFoundationWriter();
     if (blocked) return blocked;
 
     const body = await req.json();

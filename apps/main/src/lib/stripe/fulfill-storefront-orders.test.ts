@@ -4,6 +4,8 @@ const {
   mockPrisma,
   assertLegacyDrainFinalizerAllowed,
   applyStoreItemDecrementAfterSale,
+  getCommerceFoundationCutoverState,
+  finalizeFoundationCheckoutPayment,
   CommerceFoundationCutoverBlockedError,
 } = vi.hoisted(() => {
   class CommerceFoundationCutoverBlockedError extends Error {
@@ -27,6 +29,7 @@ const {
         findMany: vi.fn(),
         findUnique: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(),
       },
       member: { findMany: vi.fn() },
       sellerBalance: { upsert: vi.fn() },
@@ -37,6 +40,12 @@ const {
     },
     assertLegacyDrainFinalizerAllowed: vi.fn(async () => {}),
     applyStoreItemDecrementAfterSale: vi.fn(async () => {}),
+    getCommerceFoundationCutoverState: vi.fn(async () => ({ mode: "LEGACY" })),
+    finalizeFoundationCheckoutPayment: vi.fn(async () => ({
+      converted: 0,
+      alreadyFinalized: true,
+      attemptId: "att_1",
+    })),
     CommerceFoundationCutoverBlockedError,
   };
 });
@@ -45,6 +54,11 @@ vi.mock("database", () => ({
   prisma: mockPrisma,
   assertLegacyDrainFinalizerAllowed,
   CommerceFoundationCutoverBlockedError,
+  getCommerceFoundationCutoverState,
+  commerceInventoryWriterRoute: (mode: string) =>
+    mode === "LEGACY" ? "legacy" : mode === "FOUNDATION" || mode === "UNFROZEN" ? "foundation" : "blocked",
+  finalizeFoundationCheckoutPayment,
+  failCheckoutAttemptAndRelease: vi.fn(async () => {}),
 }));
 
 vi.mock("@/lib/store-item-inventory-sale", () => ({
@@ -59,6 +73,12 @@ vi.mock("@/lib/delete-posts-for-sold-item", () => ({
   deleteFeedPostsForSoldItem: vi.fn(),
 }));
 
+vi.mock("@/lib/post-sale-inventory-cleanup", () => ({
+  cancelPendingOrdersForSoldOutItems: vi.fn(async () => {}),
+  cleanupOtherBuyersCartsForStoreItems: vi.fn(async () => {}),
+  validateBatchStoreOrdersInventory: vi.fn(() => ({ ok: true, titles: [] })),
+}));
+
 import { fulfillStoreOrdersFromCheckoutSession } from "./fulfill-storefront-orders";
 
 const preFreezeCreatedAt = new Date("2026-01-01T00:00:00.000Z");
@@ -68,6 +88,7 @@ function pendingOrder(overrides: {
   id: string;
   createdAt: Date;
   sellerId?: string;
+  checkoutAttemptId?: string | null;
 }) {
   return {
     id: overrides.id,
@@ -77,6 +98,7 @@ function pendingOrder(overrides: {
     totalCents: 1000,
     subtotalCents: 1000,
     createdAt: overrides.createdAt,
+    checkoutAttemptId: overrides.checkoutAttemptId ?? null,
     shippingAddress: { street: "1 Main", city: "Spokane", state: "WA", zip: "99201" },
     items: [
       {
@@ -119,6 +141,12 @@ function stripeStub() {
 describe("fulfillStoreOrdersFromCheckoutSession cutover ordering", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getCommerceFoundationCutoverState.mockResolvedValue({ mode: "LEGACY" });
+    finalizeFoundationCheckoutPayment.mockResolvedValue({
+      converted: 0,
+      alreadyFinalized: true,
+      attemptId: "att_1",
+    });
     mockPrisma.storeItem.findMany.mockResolvedValue([
       { id: "item-1", title: "Widget", variants: null, quantity: 4, inventoryTracking: "tracked" },
     ]);
@@ -218,5 +246,34 @@ describe("fulfillStoreOrdersFromCheckoutSession cutover ordering", () => {
     expect(stripe.refunds.create).not.toHaveBeenCalled();
     expect(applyStoreItemDecrementAfterSale).not.toHaveBeenCalled();
     expect(mockPrisma.storeOrder.update).not.toHaveBeenCalled();
+  });
+
+  it("FOUNDATION keeps pending orders for Connect transfer and does not mark sold_out from quantity 0", async () => {
+    getCommerceFoundationCutoverState.mockResolvedValue({ mode: "FOUNDATION" });
+    mockPrisma.storeOrder.findFirst.mockResolvedValue(
+      pendingOrder({ id: "ord-f", createdAt: preFreezeCreatedAt, checkoutAttemptId: "att_1" })
+    );
+    mockPrisma.storeItem.findUnique.mockResolvedValue({
+      id: "item-1",
+      title: "Widget",
+      variants: null,
+      quantity: 0,
+      inventoryTracking: "tracked",
+    });
+    const stripe = stripeStub();
+    await fulfillStoreOrdersFromCheckoutSession(stripe as never, paidSession("ord-f", 1000) as never);
+    expect(stripe.transfers.create).toHaveBeenCalledTimes(1);
+    expect(finalizeFoundationCheckoutPayment).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ attemptId: "att_1" })
+    );
+    expect(applyStoreItemDecrementAfterSale).not.toHaveBeenCalled();
+    expect(mockPrisma.storeItem.update).not.toHaveBeenCalled();
+    expect(mockPrisma.storeOrder.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "ord-f" },
+        data: expect.objectContaining({ status: "paid" }),
+      })
+    );
   });
 });

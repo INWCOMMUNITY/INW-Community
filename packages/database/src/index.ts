@@ -101,11 +101,67 @@ export {
   COMMERCE_FOUNDATION_CUTOVER_SINGLETON_ID,
   CommerceFoundationCutoverBlockedError,
   CommerceFoundationCutoverStateError,
+  CommerceFoundationWriterModeError,
   INVENTORY_CUTOVER_FROZEN_ERROR,
+  assertFoundationInventoryWriterAllowed,
   assertLegacyDrainFinalizerAllowed,
   assertLegacyInteractiveMutationAllowed,
+  commerceInventoryWriterRoute,
   durableStartedAtFromUnixSeconds,
   getCommerceFoundationCutoverState,
   isCommerceFoundationCutoverBlockedError,
+  isFoundationInventoryWriterMode,
 } from "./commerce-foundation-cutover";
 export type { CommerceFoundationCutoverState, CommerceFoundationCutoverWriterClass } from "./commerce-foundation-cutover";
+export {
+  FoundationInsufficientAvailabilityError,
+  FoundationInventoryError,
+  FoundationMissingStateError,
+  FoundationReservationError,
+  FoundationRestockReviewError,
+  convertReservation,
+  holdTrackedReservation,
+  lockCheckoutAttemptForUpdate,
+  lockStoreItemForUpdate,
+  projectStoreItemQuantity,
+  releaseReservation,
+  restockTrackedVariant,
+  setTrackedOnHand,
+  trackedAvailable,
+} from "./commerce-foundation-inventory";
+export {
+  FoundationVariantResolutionError,
+  resolveCheckoutVariant,
+  resolveMatrixVariant,
+  resolveSimpleDefaultVariant,
+} from "./commerce-foundation-variant-resolution";
+export {
+  applyFoundationSellerQuantitySets,
+  assertFoundationMatrixStructureUnchanged,
+  assertNoStructuralVariantChange,
+  endFoundationListing,
+  markFoundationListingSold,
+  provisionNativeFoundationListing,
+  relistFoundationListing,
+  restockFoundationOrderLine,
+} from "./commerce-foundation-listing";
+export {
+  canonicalCheckoutVariantIdentity,
+  checkoutPrepareAdvisoryLockKeys,
+  classifyStripeSessionCreateFailure,
+  expireFoundationCheckoutAttempt,
+  failCheckoutAttemptAndRelease,
+  finalizeFoundationCheckoutPayment,
+  FOUNDATION_MTO_PURCHASE_CAP,
+  foundationAttemptExpiryDecision,
+  FoundationCheckoutNotConvertibleError,
+  FoundationCheckoutReuseError,
+  hashFoundationCart,
+  markCheckoutAttemptSessionOpen,
+  markCheckoutAttemptSessionUnknown,
+  newCheckoutIdempotencyKey,
+  prepareFoundationCheckout,
+  stripeCheckoutRequestOptions,
+} from "./commerce-foundation-checkout";
+export type { FoundationCheckoutSellerOrderInput } from "./commerce-foundation-checkout";
+export { reconcileStoreItemQuantities, verifyFoundationListingHealth } from "./commerce-foundation-health";

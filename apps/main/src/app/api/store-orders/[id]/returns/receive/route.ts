@@ -9,7 +9,7 @@ import {
   refundArgsFromReturnPolicy,
   refundPaidStorefrontOrder,
 } from "@/lib/stripe/refund-store-order";
-import { gateLegacyInteractiveMutation } from "@/lib/commerce-foundation-cutover-http";
+import { gateInteractiveOrFoundationWriter } from "@/lib/commerce-foundation-cutover-http";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -26,7 +26,7 @@ export async function POST(
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const blocked = await gateLegacyInteractiveMutation();
+  const blocked = await gateInteractiveOrFoundationWriter();
   if (blocked) return blocked;
 
   const sub = await prisma.subscription.findFirst({
@@ -80,6 +80,8 @@ export async function POST(
     note: current.note,
     ...refundArgs,
     restock: true,
+    restockOperationId: current.id,
+    restockKind: "PHYSICAL_RECEIPT",
   });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Prisma } from "database";
-import { gateLegacyInteractiveMutation } from "@/lib/commerce-foundation-cutover-http";
+import { prisma, Prisma, provisionNativeFoundationListing } from "database";
+import { resolveCommerceInventoryWriter } from "@/lib/commerce-foundation-cutover-http";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { containsProhibitedCategory, formatModerationErrorMessage, validateText } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
@@ -303,8 +303,8 @@ export async function POST(req: NextRequest) {
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const blocked = await gateLegacyInteractiveMutation();
-  if (blocked) return blocked;
+  const writer = await resolveCommerceInventoryWriter();
+  if (!writer.ok) return writer.response;
 
   let data: z.infer<typeof bodySchema>;
   try {
@@ -466,7 +466,9 @@ export async function POST(req: NextRequest) {
     const storedVariants = normalizedVariants ? serializeVariantMatrix(normalizedVariants) : null;
     const useOptionQuantities = hasOptionQuantities(storedVariants ?? data.variants);
     let quantity = madeToOrder
-      ? MTO_CHANNEL_QUANTITY
+      ? writer.route === "foundation"
+        ? 0
+        : MTO_CHANNEL_QUANTITY
       : useOptionQuantities
         ? sumOptionQuantities(storedVariants ?? data.variants)
         : Number(data.quantity ?? 1);
@@ -536,8 +538,7 @@ export async function POST(req: NextRequest) {
         shippingCostCents = await getShippingOptionCostCents(userId, shippingOptionId);
       }
     }
-    const item = await prisma.storeItem.create({
-      data: {
+    const createData = {
         memberId: userId,
         businessId: data.businessId || null,
         title: clampListingTitle(data.title.trim()),
@@ -572,8 +573,15 @@ export async function POST(req: NextRequest) {
               : false,
         minOfferCents: data.minOfferCents ?? null,
         slug,
-      },
-    });
+    };
+    const item =
+      writer.route === "foundation"
+        ? await prisma.$transaction(async (tx) => {
+            const created = await tx.storeItem.create({ data: createData });
+            await provisionNativeFoundationListing(tx, created.id);
+            return tx.storeItem.findUniqueOrThrow({ where: { id: created.id } });
+          })
+        : await prisma.storeItem.create({ data: createData });
     // Log activity
     const { logSellerActivity } = await import("@/lib/seller-activity-log");
     logSellerActivity(userId, "item_created", "store_item", item.id, {

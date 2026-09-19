@@ -6,6 +6,7 @@ const {
   getSessionForApi,
   requireAdmin,
   assertLegacyInteractiveMutationAllowed,
+  getCommerceFoundationCutoverState,
   CommerceFoundationCutoverBlockedError,
 } = vi.hoisted(() => {
   class CommerceFoundationCutoverBlockedError extends Error {
@@ -27,6 +28,7 @@ const {
     getSessionForApi: vi.fn(),
     requireAdmin: vi.fn(),
     assertLegacyInteractiveMutationAllowed: vi.fn(async () => {}),
+    getCommerceFoundationCutoverState: vi.fn(async () => ({ mode: "FROZEN" })),
     CommerceFoundationCutoverBlockedError,
   };
 });
@@ -35,9 +37,22 @@ vi.mock("database", () => ({
   prisma: mockPrisma,
   Prisma: {},
   assertLegacyInteractiveMutationAllowed,
+  getCommerceFoundationCutoverState,
+  commerceInventoryWriterRoute: (mode: string) =>
+    mode === "LEGACY" ? "legacy" : mode === "FOUNDATION" || mode === "UNFROZEN" ? "foundation" : "blocked",
   CommerceFoundationCutoverBlockedError,
   isCommerceFoundationCutoverBlockedError: (err: unknown) =>
     err instanceof CommerceFoundationCutoverBlockedError,
+  applyFoundationSellerQuantitySets: vi.fn(),
+  assertFoundationMatrixStructureUnchanged: vi.fn(),
+  markFoundationListingSold: vi.fn(),
+  endFoundationListing: vi.fn(),
+  relistFoundationListing: vi.fn(),
+  prepareFoundationCheckout: vi.fn(),
+  stripeCheckoutRequestOptions: (attempt: { stripeIdempotencyKey: string }) => ({
+    idempotencyKey: attempt.stripeIdempotencyKey,
+  }),
+  FoundationCheckoutReuseError: class FoundationCheckoutReuseError extends Error {},
 }));
 
 vi.mock("@/lib/mobile-auth", () => ({ getSessionForApi }));
@@ -122,6 +137,7 @@ describe("representative interactive writers", () => {
   });
 
   it("LEGACY seller edit proceeds past the cutover gate", async () => {
+    getCommerceFoundationCutoverState.mockResolvedValue({ mode: "LEGACY" });
     assertLegacyInteractiveMutationAllowed.mockResolvedValue(undefined);
     const res = await sellerPatch(
       new NextRequest("http://localhost/api/store-items/item-1", {
@@ -132,6 +148,6 @@ describe("representative interactive writers", () => {
       { params: Promise.resolve({ id: "item-1" }) }
     );
     expect(res.status).not.toBe(503);
-    expect(assertLegacyInteractiveMutationAllowed).toHaveBeenCalled();
+    expect(getCommerceFoundationCutoverState).toHaveBeenCalled();
   });
 });

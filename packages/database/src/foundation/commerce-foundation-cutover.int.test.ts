@@ -5,9 +5,13 @@ import {
   CommerceFoundationCutoverBlockedError,
   CommerceFoundationCutoverStateError,
   CommerceFoundationCutoverTransitionError,
+  CommerceFoundationWriterModeError,
+  assertFoundationInventoryWriterAllowed,
   assertLegacyDrainFinalizerAllowed,
   assertLegacyInteractiveMutationAllowed,
+  commerceInventoryWriterRoute,
   getCommerceFoundationCutoverState,
+  isFoundationInventoryWriterMode,
   transitionCommerceFoundationCutover,
 } from "../commerce-foundation-cutover";
 import { foundationTestDatabaseUrl } from "./local-url";
@@ -302,5 +306,37 @@ describe("legacy writer class gates", () => {
     const stillItem = await prisma.storeItem.findUnique({ where: { id: item.id } });
     expect(stillItem?.status).toBe("active");
     expect(stillItem?.endedAt).toBeNull();
+  });
+});
+
+describe("foundation inventory writer assertion", () => {
+  it("allows FOUNDATION and UNFROZEN only", async () => {
+    await expect(assertFoundationInventoryWriterAllowed(prisma)).rejects.toBeInstanceOf(
+      CommerceFoundationWriterModeError
+    );
+    expect(commerceInventoryWriterRoute("LEGACY")).toBe("legacy");
+    expect(commerceInventoryWriterRoute("FROZEN")).toBe("blocked");
+    expect(commerceInventoryWriterRoute("BACKFILLING")).toBe("blocked");
+    expect(commerceInventoryWriterRoute("FOUNDATION")).toBe("foundation");
+    expect(commerceInventoryWriterRoute("UNFROZEN")).toBe("foundation");
+
+    await transitionCommerceFoundationCutover(prisma, { to: "FROZEN" });
+    await expect(assertFoundationInventoryWriterAllowed(prisma)).rejects.toBeInstanceOf(
+      CommerceFoundationCutoverBlockedError
+    );
+    await transitionCommerceFoundationCutover(prisma, {
+      to: "BACKFILLING",
+      engineSha: "sha-1",
+      manifestHash: "manifest-1",
+    });
+    await expect(assertFoundationInventoryWriterAllowed(prisma)).rejects.toBeInstanceOf(
+      CommerceFoundationCutoverBlockedError
+    );
+    await transitionCommerceFoundationCutover(prisma, { to: "FOUNDATION" });
+    const foundation = await assertFoundationInventoryWriterAllowed(prisma);
+    expect(isFoundationInventoryWriterMode(foundation.mode)).toBe(true);
+    await transitionCommerceFoundationCutover(prisma, { to: "UNFROZEN" });
+    const unfrozen = await assertFoundationInventoryWriterAllowed(prisma);
+    expect(unfrozen.mode).toBe("UNFROZEN");
   });
 });

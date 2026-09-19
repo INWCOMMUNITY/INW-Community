@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Prisma } from "database";
+import { commerceInventoryWriterRoute, getCommerceFoundationCutoverState, prisma, Prisma, resolveCheckoutVariant } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { getSellerAnalyticsSource } from "@/lib/seller-analytics-source";
 import { getAvailableQuantity, getSkuPriceCents } from "@/lib/store-item-variants";
@@ -272,7 +272,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const cartData = {
+  const cartData: {
+    quantity: number;
+    variant: object | typeof Prisma.JsonNull;
+    fulfillmentType: string;
+    localDeliveryDetails: object | typeof Prisma.JsonNull;
+    pickupDetails: object | typeof Prisma.JsonNull;
+    variantId?: string;
+  } = {
     quantity: existing
       ? Math.min(existing.quantity + body.quantity, maxForThisLine)
       : Math.min(body.quantity, maxForThisLine),
@@ -289,6 +296,20 @@ export async function POST(req: NextRequest) {
         ? (existing.pickupDetails as object)
         : Prisma.JsonNull,
   };
+
+  const cutover = await getCommerceFoundationCutoverState(prisma);
+  if (commerceInventoryWriterRoute(cutover.mode) === "foundation") {
+    try {
+      const resolved = await resolveCheckoutVariant(prisma, body.storeItemId, {
+        variantId: (body as { variantId?: string }).variantId,
+        optionJson: body.variant,
+      });
+      cartData.variantId = resolved.id;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Could not resolve variant";
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+  }
 
   if (existing) {
     await prisma.cartItem.update({

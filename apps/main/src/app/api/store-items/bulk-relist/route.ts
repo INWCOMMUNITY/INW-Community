@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Prisma } from "database";
+import {
+  commerceInventoryWriterRoute,
+  FoundationInventoryError,
+  getCommerceFoundationCutoverState,
+  prisma,
+  Prisma,
+  relistFoundationListing,
+} from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { logSellerActivity } from "@/lib/seller-activity-log";
-import { gateLegacyInteractiveMutation } from "@/lib/commerce-foundation-cutover-http";
+import { gateInteractiveOrFoundationWriter } from "@/lib/commerce-foundation-cutover-http";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +31,7 @@ export async function POST(req: NextRequest) {
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const blocked = await gateLegacyInteractiveMutation();
+  const blocked = await gateInteractiveOrFoundationWriter();
   if (blocked) return blocked;
 
   let body: z.infer<typeof bodySchema>;
@@ -79,6 +86,64 @@ export async function POST(req: NextRequest) {
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     },
   });
+
+  const cutover = await getCommerceFoundationCutoverState(prisma);
+  if (commerceInventoryWriterRoute(cutover.mode) === "foundation") {
+    let relisted = 0;
+    const foundationErrors: { itemId: string; error: string }[] = [];
+    for (const item of items) {
+      try {
+        await prisma.$transaction(async (tx) => {
+          const variants = await tx.storeVariant.findMany({ where: { storeItemId: item.id } });
+          if (variants.length === 0) {
+            throw new FoundationInventoryError(
+              "foundation_state_missing",
+              `StoreItem ${item.id} has no Variants`
+            );
+          }
+          if (variants.length !== 1) {
+            throw new FoundationInventoryError(
+              "ambiguous_bulk_quantity",
+              "FOUNDATION matrix bulk relist requires per-Variant quantities"
+            );
+          }
+          await relistFoundationListing(tx, {
+            storeItemId: item.id,
+            memberId: userId,
+            commandId: `bulk-relist-${snapshot.id}:${item.id}`,
+            simpleTarget: newQuantity,
+          });
+        });
+        relisted += 1;
+      } catch (e) {
+        foundationErrors.push({
+          itemId: item.id,
+          error: e instanceof Error ? e.message : "Failed to relist",
+        });
+      }
+    }
+    await logSellerActivity(userId, "bulk_relist", "store_item", null, {
+      itemIds,
+      itemCount: relisted,
+      newQuantity,
+    });
+    if (relisted === 0) {
+      return NextResponse.json(
+        {
+          error: foundationErrors[0]?.error ?? "FOUNDATION bulk relist failed",
+          errors: foundationErrors,
+        },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json({
+      ok: true,
+      relisted,
+      notEligible: storeItemIds.length - items.length,
+      snapshotId: snapshot.id,
+      errors: foundationErrors.length > 0 ? foundationErrors : undefined,
+    });
+  }
 
   // Update all items to active with new quantity
   await prisma.storeItem.updateMany({

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { commerceInventoryWriterRoute, getCommerceFoundationCutoverState, prisma, relistFoundationListing } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, sumOptionQuantities } from "@/lib/store-item-variants";
 import { memberHasStripeConnectForStorefront } from "@/lib/store-listing-stripe-rules";
-import { gateLegacyInteractiveMutation } from "@/lib/commerce-foundation-cutover-http";
+import { gateInteractiveOrFoundationWriter } from "@/lib/commerce-foundation-cutover-http";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -38,7 +38,7 @@ export async function POST(
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const blocked = await gateLegacyInteractiveMutation();
+  const blocked = await gateInteractiveOrFoundationWriter();
   if (blocked) return blocked;
 
   const { id: itemId } = await params;
@@ -84,6 +84,32 @@ export async function POST(
       },
       { status: 403 }
     );
+  }
+
+  const cutover = await getCommerceFoundationCutoverState(prisma);
+  if (commerceInventoryWriterRoute(cutover.mode) === "foundation") {
+    try {
+      await prisma.$transaction(async (tx) => {
+        const variants = await tx.storeVariant.findMany({ where: { storeItemId: itemId } });
+        if (variants.length !== 1) {
+          throw new Error("ambiguous_bulk_quantity");
+        }
+        await relistFoundationListing(tx, {
+          storeItemId: itemId,
+          memberId: userId,
+          commandId: `relist-${itemId}`,
+          simpleTarget: perOptionQty,
+        });
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Relist failed";
+      const status = /ambiguous_bulk_quantity|structural_variant_change|foundation_state_missing/.test(msg)
+        ? 409
+        : 400;
+      return NextResponse.json({ error: msg }, { status });
+    }
+    const reloaded = await prisma.storeItem.findUniqueOrThrow({ where: { id: itemId } });
+    return NextResponse.json({ ...reloaded });
   }
 
   const update: { status: string; quantity: number; variants?: unknown } = {

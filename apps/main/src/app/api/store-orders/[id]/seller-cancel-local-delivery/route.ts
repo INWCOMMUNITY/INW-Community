@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { prisma } from "database";
+import {
+  commerceInventoryWriterRoute,
+  getCommerceFoundationCutoverState,
+  prisma,
+  restockFoundationOrderLine,
+} from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 import { refundPaidStorefrontOrder } from "@/lib/stripe/refund-store-order";
-import { gateLegacyInteractiveMutation } from "@/lib/commerce-foundation-cutover-http";
+import { gateInteractiveOrFoundationWriter } from "@/lib/commerce-foundation-cutover-http";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +27,7 @@ export async function POST(
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const blocked = await gateLegacyInteractiveMutation();
+  const blocked = await gateInteractiveOrFoundationWriter();
   if (blocked) return blocked;
 
   const { id } = await params;
@@ -71,6 +76,24 @@ export async function POST(
         where: { id: order.id },
         data: { status: "canceled", cancelReason, cancelNote: undefined },
       });
+      const cutover = await getCommerceFoundationCutoverState(tx);
+      if (commerceInventoryWriterRoute(cutover.mode) === "foundation") {
+        for (const oi of order.items) {
+          await restockFoundationOrderLine(
+            tx,
+            {
+              id: oi.id,
+              storeItemId: oi.storeItemId,
+              quantity: oi.quantity,
+              variant: oi.variant,
+              variantId: oi.variantId,
+            },
+            "UNDO_CONSUMPTION",
+            `seller-cancel-local-delivery:${order.id}`
+          );
+        }
+        return;
+      }
       const storeItemsCancel = await tx.storeItem.findMany({
         where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
       });

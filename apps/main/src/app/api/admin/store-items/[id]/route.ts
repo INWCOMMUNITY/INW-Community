@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { requireAdmin } from "@/lib/admin-auth";
 import { endStoreItemListing } from "@/lib/end-store-item-listing";
-import { gateLegacyInteractiveMutation, jsonIfCutoverBlocked } from "@/lib/commerce-foundation-cutover-http";
+import { gateInteractiveOrFoundationWriter, jsonIfCutoverBlocked } from "@/lib/commerce-foundation-cutover-http";
 
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const blocked = await gateLegacyInteractiveMutation();
+  const blocked = await gateInteractiveOrFoundationWriter();
   if (blocked) return blocked;
   const { id } = await params;
   const existing = await prisma.storeItem.findUnique({ where: { id } });

@@ -1,5 +1,11 @@
 import Stripe from "stripe";
-import { assertLegacyDrainFinalizerAllowed, prisma } from "database";
+import {
+  commerceInventoryWriterRoute,
+  failCheckoutAttemptAndRelease,
+  finalizeFoundationCheckoutPayment,
+  getCommerceFoundationCutoverState,
+  prisma,
+} from "database";
 import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
 import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
 import {
@@ -97,9 +103,13 @@ export async function fulfillStoreOrdersFromCheckoutSession(
     return { orderIds: toProcess };
   }
 
-  // CLASS 2 drain: every pending order must be eligible before any Connect transfer.
-  for (const order of ordersToFulfill) {
-    await assertLegacyDrainFinalizerAllowed(prisma, order.createdAt);
+  const cutover = await getCommerceFoundationCutoverState(prisma);
+  const writerRoute = commerceInventoryWriterRoute(cutover.mode);
+  if (writerRoute !== "foundation") {
+    for (const order of ordersToFulfill) {
+      const { assertLegacyDrainFinalizerAllowed } = await import("database");
+      await assertLegacyDrainFinalizerAllowed(prisma, order.createdAt);
+    }
   }
 
   console.info(`${log} fulfilling ${ordersToFulfill.length} pending order(s)`, {
@@ -107,45 +117,50 @@ export async function fulfillStoreOrdersFromCheckoutSession(
     orderIds: ordersToFulfill.map((o) => o.id),
   });
 
-  const uniqueStoreIds = [...new Set(ordersToFulfill.flatMap((o) => o.items.map((i) => i.storeItemId)))];
-  const storeItemsForValidation = await prisma.storeItem.findMany({
-    where: { id: { in: uniqueStoreIds } },
-  });
-  const storeItemMapValidation = new Map(storeItemsForValidation.map((s) => [s.id, s]));
-
-  const batchCheck = validateBatchStoreOrdersInventory(ordersToFulfill, storeItemMapValidation);
-  if (!batchCheck.ok) {
-    const itemTitles = [...new Set(batchCheck.titles)].join(", ");
-    try {
-      if (paymentIntentId) {
-        await stripe.refunds.create({
-          payment_intent: paymentIntentId,
-          reason: "requested_by_customer",
-        });
-      }
-    } catch (refundErr) {
-      console.error(`${log} refund failed (inventory)`, refundErr);
-    }
-    const buyerId = ordersToFulfill[0].buyerId;
-    await prisma.storeOrder.updateMany({
-      where: { id: { in: ordersToFulfill.map((o) => o.id) } },
-      data: {
-        status: "canceled",
-        cancelReason: SOLD_BEFORE_CHECKOUT_REASON,
-        cancelNote: itemTitles,
-      },
+  // FOUNDATION already held inventory at checkout. StoreItem.quantity is a compatibility
+  // projection (available), so a fully reserved last unit would look like 0 and must not
+  // trigger a sold-before-checkout refund.
+  if (writerRoute !== "foundation") {
+    const uniqueStoreIds = [...new Set(ordersToFulfill.flatMap((o) => o.items.map((i) => i.storeItemId)))];
+    const storeItemsForValidation = await prisma.storeItem.findMany({
+      where: { id: { in: uniqueStoreIds } },
     });
-    const { sendPushNotification } = await import("@/lib/send-push-notification");
-    sendPushNotification(buyerId, {
-      title: "We couldn’t finish that checkout",
-      body:
-        batchCheck.titles.length === 1
-          ? `Someone else bought “${batchCheck.titles[0]}” before payment went through — nothing was charged.`
-          : `Someone else bought these before payment went through: ${itemTitles}. You weren’t charged.`,
-      data: { screen: "my-orders" },
-      category: "commerce",
-    }).catch(() => {});
-    return { orderIds: toProcess };
+    const storeItemMapValidation = new Map(storeItemsForValidation.map((s) => [s.id, s]));
+
+    const batchCheck = validateBatchStoreOrdersInventory(ordersToFulfill, storeItemMapValidation);
+    if (!batchCheck.ok) {
+      const itemTitles = [...new Set(batchCheck.titles)].join(", ");
+      try {
+        if (paymentIntentId) {
+          await stripe.refunds.create({
+            payment_intent: paymentIntentId,
+            reason: "requested_by_customer",
+          });
+        }
+      } catch (refundErr) {
+        console.error(`${log} refund failed (inventory)`, refundErr);
+      }
+      const buyerId = ordersToFulfill[0].buyerId;
+      await prisma.storeOrder.updateMany({
+        where: { id: { in: ordersToFulfill.map((o) => o.id) } },
+        data: {
+          status: "canceled",
+          cancelReason: SOLD_BEFORE_CHECKOUT_REASON,
+          cancelNote: itemTitles,
+        },
+      });
+      const { sendPushNotification } = await import("@/lib/send-push-notification");
+      sendPushNotification(buyerId, {
+        title: "We couldn’t finish that checkout",
+        body:
+          batchCheck.titles.length === 1
+            ? `Someone else bought “${batchCheck.titles[0]}” before payment went through — nothing was charged.`
+            : `Someone else bought these before payment went through: ${itemTitles}. You weren’t charged.`,
+        data: { screen: "my-orders" },
+        category: "commerce",
+      }).catch(() => {});
+      return { orderIds: toProcess };
+    }
   }
 
   const allSoldOutIds = new Set<string>();
@@ -275,6 +290,15 @@ export async function fulfillStoreOrdersFromCheckoutSession(
           transferErr instanceof Error ? transferErr.message.slice(0, 500) : "Transfer failed",
       },
     });
+    if (writerRoute === "foundation") {
+      const attemptId = ordersToFulfill.find((o) => o.checkoutAttemptId)?.checkoutAttemptId;
+      if (attemptId) {
+        await failCheckoutAttemptAndRelease(prisma, attemptId, "STRIPE_TRANSFER_FAILED", {
+          attemptState: "CLOSED",
+          cancelReason: "Payment to seller could not be completed",
+        });
+      }
+    }
     const buyerIdFail = ordersToFulfill[0].buyerId;
     const { sendPushNotification: sendPushFail } = await import("@/lib/send-push-notification");
     sendPushFail(buyerIdFail, {
@@ -287,6 +311,17 @@ export async function fulfillStoreOrdersFromCheckoutSession(
   }
 
   if (!abortOrderFulfillment) {
+    if (writerRoute === "foundation") {
+      const attemptId = ordersToFulfill.find((o) => o.checkoutAttemptId)?.checkoutAttemptId;
+      if (!attemptId) {
+        throw new Error("FOUNDATION fulfill is missing CheckoutAttempt");
+      }
+      await finalizeFoundationCheckoutPayment(prisma, {
+        attemptId,
+        stripeCheckoutSessionId: session.id,
+        stripePaymentIntentId: paymentIntentId,
+      });
+    }
     const shipFromStripe = shippingAddressFromCheckoutSession(session);
     for (const order of ordersToFulfill) {
       const payout = payoutByOrderId.get(order.id)!;
@@ -318,7 +353,7 @@ export async function fulfillStoreOrdersFromCheckoutSession(
           where: { id: oi.storeItemId },
         });
         if (storeItem) titleByItemId.set(oi.storeItemId, storeItem.title);
-        if (storeItem) {
+        if (storeItem && writerRoute !== "foundation") {
           await applyStoreItemDecrementAfterSale(
             prisma,
             storeItem,
@@ -333,7 +368,7 @@ export async function fulfillStoreOrdersFromCheckoutSession(
           where: { id: oi.storeItemId },
           select: { quantity: true, variants: true, inventoryTracking: true },
         });
-        if (updated && shouldMarkStoreItemSoldOut(updated)) {
+        if (updated && writerRoute !== "foundation" && shouldMarkStoreItemSoldOut(updated)) {
           allSoldOutIds.add(oi.storeItemId);
           await prisma.storeItem.update({
             where: { id: oi.storeItemId },

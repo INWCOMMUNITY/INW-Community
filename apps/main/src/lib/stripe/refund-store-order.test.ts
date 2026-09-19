@@ -29,6 +29,7 @@ const {
       $transaction: vi.fn(),
     },
     assertLegacyInteractiveMutationAllowed: vi.fn(async () => {}),
+    getCommerceFoundationCutoverState: vi.fn(async () => ({ mode: "LEGACY" })),
     restockOrderLinesAfterReturn: vi.fn(async () => ["item-1"]),
     CommerceFoundationCutoverBlockedError,
   };
@@ -37,6 +38,9 @@ const {
 vi.mock("database", () => ({
   prisma: mockPrisma,
   assertLegacyInteractiveMutationAllowed,
+  getCommerceFoundationCutoverState: vi.fn(async () => ({ mode: "LEGACY" })),
+  commerceInventoryWriterRoute: (mode: string) =>
+    mode === "LEGACY" ? "legacy" : mode === "FOUNDATION" || mode === "UNFROZEN" ? "foundation" : "blocked",
   CommerceFoundationCutoverBlockedError,
 }));
 

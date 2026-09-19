@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { assertLegacyInteractiveMutationAllowed, prisma } from "database";
+import { assertLegacyInteractiveMutationAllowed, commerceInventoryWriterRoute, getCommerceFoundationCutoverState, prisma } from "database";
 import { restockOrderLinesAfterReturn } from "@/lib/store-item-restock";
 import { computeSellerTransferCents } from "@/lib/storefront-payout";
 import {
@@ -103,7 +103,13 @@ export async function refundPaidStorefrontOrder(args: {
     taxCents?: number | null;
     stripePaymentIntentId: string | null;
     stripeSellerTransferId?: string | null;
-    items: Array<{ storeItemId: string; quantity: number; variant?: unknown }>;
+    items: Array<{
+      id?: string;
+      storeItemId: string;
+      quantity: number;
+      variant?: unknown;
+      variantId?: string | null;
+    }>;
   };
   reason?: string;
   note?: string | null;
@@ -115,6 +121,8 @@ export async function refundPaidStorefrontOrder(args: {
   ledgerDebitCents?: number;
   /** When false, buyer keeps the item (courtesy refund). Default true. */
   restock?: boolean;
+  restockOperationId?: string;
+  restockKind?: "PHYSICAL_RECEIPT" | "UNDO_CONSUMPTION";
 }): Promise<{ ok: true; refunded: true; amountCents: number } | { ok: false; error: string; status: number }> {
   const { stripe, order } = args;
   if (order.status === "refunded") {
@@ -190,7 +198,15 @@ export async function refundPaidStorefrontOrder(args: {
       },
     });
     if (shouldRestock) {
-      await restockOrderLinesAfterReturn(tx, order.items);
+      const operationId =
+        args.restockOperationId ??
+        (stripeRefund?.id ? `stripe-refund:${stripeRefund.id}` : `refund:${order.id}`);
+      await restockOrderLinesAfterReturn(
+        tx,
+        order.items,
+        args.restockKind ?? "UNDO_CONSUMPTION",
+        operationId
+      );
     }
     await debitSellerLedgerForRefund(tx, order, args.ledgerDebitCents);
   });
@@ -243,7 +259,16 @@ export async function restockAfterExternalRefund(
     return false;
   }
 
-  await assertLegacyInteractiveMutationAllowed(prisma);
+  const cutover = await getCommerceFoundationCutoverState(prisma);
+  if (commerceInventoryWriterRoute(cutover.mode) !== "legacy") {
+    if (commerceInventoryWriterRoute(cutover.mode) === "foundation") {
+      // proceed to restock via helper (foundation path)
+    } else {
+      await assertLegacyInteractiveMutationAllowed(prisma);
+    }
+  } else {
+    await assertLegacyInteractiveMutationAllowed(prisma);
+  }
 
   if (stripe && order.stripeSellerTransferId) {
     await reverseConnectTransfer(stripe, order.stripeSellerTransferId);
@@ -259,7 +284,7 @@ export async function restockAfterExternalRefund(
         refundInitiatedAt: order.refundInitiatedAt ?? new Date(),
       },
     });
-    await restockOrderLinesAfterReturn(tx, order.items);
+    await restockOrderLinesAfterReturn(tx, order.items, "UNDO_CONSUMPTION", `external-refund:${order.id}`);
     await debitSellerLedgerForRefund(tx, order);
   });
   return true;

@@ -4,7 +4,10 @@ import {
   prisma,
   Prisma,
   assertLegacyDrainFinalizerAllowed,
+  commerceInventoryWriterRoute,
   durableStartedAtFromUnixSeconds,
+  finalizeFoundationCheckoutPayment,
+  getCommerceFoundationCutoverState,
   isCommerceFoundationCutoverBlockedError,
 } from "database";
 import type { Plan } from "database";
@@ -420,7 +423,9 @@ export async function POST(req: NextRequest) {
 
     const buyerId = session.metadata?.buyerId;
     const sellerId = session.metadata?.sellerId;
-    if (buyerId && sellerId && session.mode === "payment") {
+    const sessionCutover = await getCommerceFoundationCutoverState(prisma);
+    const sessionWriter = commerceInventoryWriterRoute(sessionCutover.mode);
+    if (buyerId && sellerId && session.mode === "payment" && sessionWriter !== "foundation") {
       const existing = await prisma.storeOrder.findFirst({
         where: { stripeCheckoutSessionId: session.id },
       });
@@ -732,6 +737,8 @@ export async function POST(req: NextRequest) {
     // AFTER the loop and AWAIT it, so the serverless function doesn't return before the multi-step
     // Wix write completes (fire-and-forget waitUntil was getting cut off, leaving Wix stale).
     const piSyncStoreItemIds = new Set<string>();
+    const piCutover = await getCommerceFoundationCutoverState(prisma);
+    const piWriter = commerceInventoryWriterRoute(piCutover.mode);
 
     for (const orderId of orderIdsList) {
       const order = await prisma.storeOrder.findFirst({
@@ -739,6 +746,23 @@ export async function POST(req: NextRequest) {
         include: { items: true },
       });
       if (!order) continue;
+
+      if (piWriter === "foundation") {
+        if (!order.checkoutAttemptId) {
+          console.error("[webhook] payment_intent.succeeded: FOUNDATION order missing CheckoutAttempt", {
+            orderId,
+          });
+          continue;
+        }
+        await finalizeFoundationCheckoutPayment(prisma, {
+          attemptId: order.checkoutAttemptId,
+          stripePaymentIntentId: paymentIntent.id,
+          stripeEventId: event.id,
+          eventType: event.type,
+        });
+        for (const oi of order.items) piSyncStoreItemIds.add(oi.storeItemId);
+        continue;
+      }
 
       // Idempotency: do not process the same payment twice (Stripe may redeliver payment_intent.succeeded)
       if (order.status === "paid" && order.stripePaymentIntentId === paymentIntent.id) {

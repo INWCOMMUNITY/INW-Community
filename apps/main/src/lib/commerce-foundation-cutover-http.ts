@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import {
   assertLegacyInteractiveMutationAllowed,
+  commerceInventoryWriterRoute,
+  CommerceFoundationCutoverBlockedError,
+  getCommerceFoundationCutoverState,
   isCommerceFoundationCutoverBlockedError,
   prisma,
 } from "database";
@@ -31,4 +34,27 @@ export async function gateLegacyInteractiveMutation(): Promise<NextResponse | nu
     if (blocked) return blocked;
     throw err;
   }
+}
+
+export async function resolveCommerceInventoryWriter(): Promise<
+  { ok: true; route: "legacy" | "foundation" } | { ok: false; response: NextResponse }
+> {
+  try {
+    const state = await getCommerceFoundationCutoverState(prisma);
+    const route = commerceInventoryWriterRoute(state.mode);
+    if (route === "blocked") {
+      throw new CommerceFoundationCutoverBlockedError({ mode: state.mode, writerClass: "interactive" });
+    }
+    return { ok: true, route };
+  } catch (err) {
+    const blocked = jsonIfCutoverBlocked(err);
+    if (blocked) return { ok: false, response: blocked };
+    throw err;
+  }
+}
+
+export async function gateInteractiveOrFoundationWriter(): Promise<NextResponse | null> {
+  const writer = await resolveCommerceInventoryWriter();
+  if (!writer.ok) return writer.response;
+  return null;
 }

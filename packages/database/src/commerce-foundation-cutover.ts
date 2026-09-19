@@ -117,6 +117,29 @@ export async function getCommerceFoundationCutoverState(
   };
 }
 
+export class CommerceFoundationWriterModeError extends Error {
+  readonly mode: CommerceFoundationCutoverMode;
+
+  constructor(mode: CommerceFoundationCutoverMode) {
+    super(`Foundation inventory writers are not allowed in ${mode}`);
+    this.name = "CommerceFoundationWriterModeError";
+    this.mode = mode;
+  }
+}
+
+export function isFoundationInventoryWriterMode(mode: CommerceFoundationCutoverMode): boolean {
+  return mode === "FOUNDATION" || mode === "UNFROZEN";
+}
+
+/** Explicit writer routing. Never treat non-LEGACY as foundation. */
+export function commerceInventoryWriterRoute(
+  mode: CommerceFoundationCutoverMode
+): "legacy" | "foundation" | "blocked" {
+  if (mode === "LEGACY") return "legacy";
+  if (isFoundationInventoryWriterMode(mode)) return "foundation";
+  return "blocked";
+}
+
 /** CLASS 1: new interactive / automated listing mutations. LEGACY only. */
 export async function assertLegacyInteractiveMutationAllowed(
   db: CommerceFoundationCutoverClient
@@ -124,6 +147,21 @@ export async function assertLegacyInteractiveMutationAllowed(
   const state = await getCommerceFoundationCutoverState(db);
   if (state.mode === "LEGACY") return;
   blocked(state.mode, "interactive");
+}
+
+/**
+ * Foundation/M2 inventory writers. FOUNDATION and UNFROZEN only.
+ * LEGACY is a hard integrity error (wrong writer). FROZEN/BACKFILLING are cutover blocks.
+ */
+export async function assertFoundationInventoryWriterAllowed(
+  db: CommerceFoundationCutoverClient
+): Promise<CommerceFoundationCutoverState> {
+  const state = await getCommerceFoundationCutoverState(db);
+  if (isFoundationInventoryWriterMode(state.mode)) return state;
+  if (state.mode === "FROZEN" || state.mode === "BACKFILLING") {
+    blocked(state.mode, "interactive");
+  }
+  throw new CommerceFoundationWriterModeError(state.mode);
 }
 
 /**

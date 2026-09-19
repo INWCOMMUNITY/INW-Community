@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { prisma } from "database";
+import {
+  expireFoundationCheckoutAttempt,
+  finalizeFoundationCheckoutPayment,
+  foundationAttemptExpiryDecision,
+  prisma,
+} from "database";
 import { fulfillStoreOrdersFromCheckoutSession } from "@/lib/stripe/fulfill-storefront-orders";
 
 export const maxDuration = 60;
@@ -67,7 +72,7 @@ export async function GET(req: NextRequest) {
 
   const pendingOld = await prisma.storeOrder.findMany({
     where: { status: "pending", createdAt: { lt: cutoff } },
-    select: { id: true, stripeCheckoutSessionId: true },
+    select: { id: true, stripeCheckoutSessionId: true, checkoutAttemptId: true },
   });
 
   const sessionIds = [
@@ -83,18 +88,50 @@ export async function GET(req: NextRequest) {
     fulfilledSessions = await fulfillPaidSessionsBeforeCancel(sessionIds);
   }
 
-  const pendingIdsStillCancel = pendingOld
-    .filter((o) => {
-      if (!o.stripeCheckoutSessionId?.trim()) return true;
-      return false;
-    })
-    .map((o) => o.id);
-
   const pendingWithSession = pendingOld.filter((o) => o.stripeCheckoutSessionId?.trim());
-  const cancelIds: string[] = [...pendingIdsStillCancel];
+  const cancelIds: string[] = [];
+  const skipLegacyCancel = new Set<string>();
+
+  for (const o of pendingOld) {
+    if (o.checkoutAttemptId) {
+      const attempt = await prisma.checkoutAttempt.findUnique({ where: { id: o.checkoutAttemptId } });
+      if (attempt) {
+        const decision = foundationAttemptExpiryDecision(attempt);
+        skipLegacyCancel.add(o.id);
+        if (decision === "hold") continue;
+        if (decision === "finalize") {
+          try {
+            await finalizeFoundationCheckoutPayment(prisma, {
+              attemptId: attempt.id,
+              stripeCheckoutSessionId: attempt.stripeCheckoutSessionId,
+              stripePaymentIntentId: attempt.stripePaymentIntentId,
+            });
+            if (stripe && attempt.stripeCheckoutSessionId) {
+              const cs = await stripe.checkout.sessions.retrieve(attempt.stripeCheckoutSessionId);
+              if (cs.payment_status === "paid" && cs.mode === "payment") {
+                await fulfillStoreOrdersFromCheckoutSession(stripe, cs, {
+                  logPrefix: "[expire-pending-orders]",
+                });
+              }
+            }
+          } catch (e) {
+            console.error("[expire-pending-orders] paid-but-unfinalized reconcile failed", {
+              attemptId: attempt.id,
+              error: String(e),
+            });
+          }
+          continue;
+        }
+        await expireFoundationCheckoutAttempt(prisma, attempt.id);
+        continue;
+      }
+    }
+    if (!o.stripeCheckoutSessionId?.trim()) cancelIds.push(o.id);
+  }
 
   if (stripe) {
     for (const o of pendingWithSession) {
+      if (skipLegacyCancel.has(o.id)) continue;
       const sid = o.stripeCheckoutSessionId!.trim();
       try {
         const cs = await stripe.checkout.sessions.retrieve(sid);
