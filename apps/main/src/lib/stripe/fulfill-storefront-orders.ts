@@ -1,9 +1,19 @@
 import Stripe from "stripe";
 import {
+  beginFoundationTransferAttempt,
+  classifyStripeTransferFailure,
+  completeFoundationSellerPayoutLedger,
   commerceInventoryWriterRoute,
-  failCheckoutAttemptAndRelease,
+  ensureFoundationTransferIntents,
   finalizeFoundationCheckoutPayment,
+  foundationSellerPayoutRecoveryWhere,
   getCommerceFoundationCutoverState,
+  isPermanentFoundationNonconvertibleError,
+  isRetryableFoundationCommerceError,
+  markFoundationAttemptUnfulfillable,
+  markFoundationStoreOrderPaidAfterConvert,
+  persistFoundationTransferOutcome,
+  persistFoundationTransferSuccess,
   prisma,
 } from "database";
 import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
@@ -72,13 +82,16 @@ export async function fulfillStoreOrdersFromCheckoutSession(
         ? session.payment_intent.id
         : null;
 
+  const cutover = await getCommerceFoundationCutoverState(prisma);
+  const writerRoute = commerceInventoryWriterRoute(cutover.mode);
+
   const ordersToFulfill = [];
   for (const orderId of toProcess) {
     const order = await prisma.storeOrder.findFirst({
       where: {
         id: orderId,
-        status: "pending",
         ...(options.buyerId ? { buyerId: options.buyerId } : {}),
+        ...(writerRoute === "foundation" ? foundationSellerPayoutRecoveryWhere() : { status: "pending" }),
       },
       include: { items: true },
     });
@@ -103,8 +116,6 @@ export async function fulfillStoreOrdersFromCheckoutSession(
     return { orderIds: toProcess };
   }
 
-  const cutover = await getCommerceFoundationCutoverState(prisma);
-  const writerRoute = commerceInventoryWriterRoute(cutover.mode);
   if (writerRoute !== "foundation") {
     for (const order of ordersToFulfill) {
       const { assertLegacyDrainFinalizerAllowed } = await import("database");
@@ -213,6 +224,18 @@ export async function fulfillStoreOrdersFromCheckoutSession(
     });
   }
 
+  if (writerRoute === "foundation") {
+    await fulfillFoundationPendingOrders({
+      stripe,
+      session,
+      ordersToFulfill,
+      payoutByOrderId,
+      log,
+      paymentIntentId,
+    });
+    return { orderIds: toProcess };
+  }
+
   let chargeId: string | null = null;
   if (paymentIntentId) {
     try {
@@ -290,15 +313,6 @@ export async function fulfillStoreOrdersFromCheckoutSession(
           transferErr instanceof Error ? transferErr.message.slice(0, 500) : "Transfer failed",
       },
     });
-    if (writerRoute === "foundation") {
-      const attemptId = ordersToFulfill.find((o) => o.checkoutAttemptId)?.checkoutAttemptId;
-      if (attemptId) {
-        await failCheckoutAttemptAndRelease(prisma, attemptId, "STRIPE_TRANSFER_FAILED", {
-          attemptState: "CLOSED",
-          cancelReason: "Payment to seller could not be completed",
-        });
-      }
-    }
     const buyerIdFail = ordersToFulfill[0].buyerId;
     const { sendPushNotification: sendPushFail } = await import("@/lib/send-push-notification");
     sendPushFail(buyerIdFail, {
@@ -311,17 +325,6 @@ export async function fulfillStoreOrdersFromCheckoutSession(
   }
 
   if (!abortOrderFulfillment) {
-    if (writerRoute === "foundation") {
-      const attemptId = ordersToFulfill.find((o) => o.checkoutAttemptId)?.checkoutAttemptId;
-      if (!attemptId) {
-        throw new Error("FOUNDATION fulfill is missing CheckoutAttempt");
-      }
-      await finalizeFoundationCheckoutPayment(prisma, {
-        attemptId,
-        stripeCheckoutSessionId: session.id,
-        stripePaymentIntentId: paymentIntentId,
-      });
-    }
     const shipFromStripe = shippingAddressFromCheckoutSession(session);
     for (const order of ordersToFulfill) {
       const payout = payoutByOrderId.get(order.id)!;
@@ -353,7 +356,7 @@ export async function fulfillStoreOrdersFromCheckoutSession(
           where: { id: oi.storeItemId },
         });
         if (storeItem) titleByItemId.set(oi.storeItemId, storeItem.title);
-        if (storeItem && writerRoute !== "foundation") {
+        if (storeItem) {
           await applyStoreItemDecrementAfterSale(
             prisma,
             storeItem,
@@ -368,7 +371,7 @@ export async function fulfillStoreOrdersFromCheckoutSession(
           where: { id: oi.storeItemId },
           select: { quantity: true, variants: true, inventoryTracking: true },
         });
-        if (updated && writerRoute !== "foundation" && shouldMarkStoreItemSoldOut(updated)) {
+        if (updated && shouldMarkStoreItemSoldOut(updated)) {
           allSoldOutIds.add(oi.storeItemId);
           await prisma.storeItem.update({
             where: { id: oi.storeItemId },
@@ -440,4 +443,249 @@ export async function fulfillStoreOrdersFromCheckoutSession(
   }
 
   return { orderIds: toProcess };
+}
+
+export async function ensureFoundationPayoutIntentsForAttempt(attemptId: string): Promise<void> {
+  const orders = await prisma.storeOrder.findMany({
+    where: { checkoutAttemptId: attemptId },
+    select: { id: true, sellerId: true, totalCents: true, subtotalCents: true },
+  });
+  const inputs = orders
+    .map((order) => {
+      const payout = computeSellerTransferCents(order.totalCents, order.subtotalCents);
+      if (payout.sellerTransferCents <= 0) return null;
+      return {
+        storeOrderId: order.id,
+        memberId: order.sellerId,
+        amountCents: payout.sellerTransferCents,
+        currency: "usd",
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row != null);
+  await ensureFoundationTransferIntents(prisma, inputs);
+}
+
+type FoundationPayoutRow = {
+  platformFeeCents: number;
+  salesTaxReserveCents: number;
+  sellerTransferCents: number;
+  orderTaxCents: number;
+  sellerCreditsCents: number;
+};
+
+async function retrieveChargeId(stripe: Stripe, paymentIntentId: string | null, log: string): Promise<string | null> {
+  if (!paymentIntentId) return null;
+  try {
+    const piRetrieved = await stripe.paymentIntents.retrieve(paymentIntentId, {
+      expand: ["latest_charge"],
+    });
+    const ch = piRetrieved.latest_charge;
+    return typeof ch === "string"
+      ? ch
+      : ch && typeof ch === "object" && "id" in ch
+        ? (ch as Stripe.Charge).id
+        : null;
+  } catch (piErr) {
+    console.error(`${log} retrieve PI for Connect transfer:`, piErr);
+    return null;
+  }
+}
+
+async function fulfillFoundationPendingOrders(args: {
+  stripe: Stripe;
+  session: Stripe.Checkout.Session;
+  ordersToFulfill: Array<{
+    id: string;
+    buyerId: string;
+    sellerId: string;
+    totalCents: number;
+    subtotalCents: number;
+    checkoutAttemptId?: string | null;
+    commerceStatus?: string | null;
+    shippingAddress: unknown;
+    items: Array<{ storeItemId: string; quantity: number; variant?: unknown; fulfillmentType?: string | null }>;
+  }>;
+  payoutByOrderId: Map<string, FoundationPayoutRow>;
+  log: string;
+  paymentIntentId: string | null;
+}): Promise<void> {
+  const { stripe, session, ordersToFulfill, payoutByOrderId, log, paymentIntentId } = args;
+  const attemptId = ordersToFulfill.find((o) => o.checkoutAttemptId)?.checkoutAttemptId;
+  if (!attemptId) {
+    throw new Error("FOUNDATION fulfill is missing CheckoutAttempt");
+  }
+
+  if (ordersToFulfill.some((order) => order.commerceStatus === "UNFULFILLABLE")) {
+    console.info(`${log} foundation attempt already UNFULFILLABLE; skip CONVERT and seller transfers`, {
+      attemptId,
+    });
+    return;
+  }
+
+  const intentInputs = ordersToFulfill
+    .map((order) => {
+      const payout = payoutByOrderId.get(order.id);
+      if (!payout || payout.sellerTransferCents <= 0) return null;
+      return {
+        storeOrderId: order.id,
+        memberId: order.sellerId,
+        amountCents: payout.sellerTransferCents,
+        currency: "usd",
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row != null);
+  await ensureFoundationTransferIntents(prisma, intentInputs);
+
+  try {
+    await finalizeFoundationCheckoutPayment(prisma, {
+      attemptId,
+      stripeCheckoutSessionId: session.id,
+      stripePaymentIntentId: paymentIntentId,
+    });
+  } catch (err) {
+    if (isPermanentFoundationNonconvertibleError(err)) {
+      await markFoundationAttemptUnfulfillable(prisma, attemptId);
+      console.info(`${log} foundation commerce unfulfillable; zero seller transfers`, {
+        attemptId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    if (isRetryableFoundationCommerceError(err) || !isPermanentFoundationNonconvertibleError(err)) {
+      throw err;
+    }
+    throw err;
+  }
+
+  const allPurchasedIds = [...new Set(ordersToFulfill.flatMap((o) => o.items.map((i) => i.storeItemId)))];
+  const buyerId = ordersToFulfill[0].buyerId;
+  await cleanupOtherBuyersCartsForStoreItems({
+    winningBuyerId: buyerId,
+    purchasedStoreItemIds: allPurchasedIds,
+  });
+  await prisma.cartItem.deleteMany({
+    where: { memberId: buyerId, storeItemId: { in: allPurchasedIds } },
+  });
+
+  const chargeId = await retrieveChargeId(stripe, paymentIntentId, log);
+  const sellerIdList = [...new Set(ordersToFulfill.map((o) => o.sellerId))];
+  const sellerRows = await prisma.member.findMany({
+    where: { id: { in: sellerIdList } },
+    select: { id: true, stripeConnectAccountId: true },
+  });
+  const connectBySellerId = new Map(sellerRows.map((r) => [r.id, r.stripeConnectAccountId?.trim() ?? ""]));
+  const shipFromStripe = shippingAddressFromCheckoutSession(session);
+
+  for (const order of ordersToFulfill) {
+    const payout = payoutByOrderId.get(order.id);
+    if (!payout) continue;
+    const backfillShipping =
+      shipFromStripe && storeOrderNeedsShippingBackfill(order)
+        ? { shippingAddress: shipFromStripe as object }
+        : {};
+
+    await markFoundationStoreOrderPaidAfterConvert(prisma, {
+      storeOrderId: order.id,
+      stripeCheckoutSessionId: session.id,
+      stripePaymentIntentId: paymentIntentId,
+      taxCents: payout.orderTaxCents,
+      salesTaxReserveCents: payout.salesTaxReserveCents,
+      platformFeeCents: payout.platformFeeCents,
+      shippingAddress: backfillShipping.shippingAddress ?? null,
+    });
+
+    if (payout.sellerTransferCents <= 0) {
+      continue;
+    }
+
+    const existingOp = await prisma.transferOperation.findUnique({
+      where: { storeOrderId: order.id },
+      select: { status: true, retryCount: true, stripeTransferId: true },
+    });
+    const connectId = connectBySellerId.get(order.sellerId);
+    const neverAttempted = !existingOp || (existingOp.status === "PENDING" && existingOp.retryCount === 0);
+    if ((!connectId || !chargeId) && neverAttempted && !existingOp?.stripeTransferId) {
+      await persistFoundationTransferOutcome(prisma, {
+        storeOrderId: order.id,
+        status: "FAILED",
+        lastError: !connectId ? "missing_connect_account" : "missing_charge",
+      });
+      continue;
+    }
+
+    const began = await beginFoundationTransferAttempt(prisma, { storeOrderId: order.id });
+    if (began.action === "already_succeeded") {
+      try {
+        await completeFoundationSellerPayoutLedger(prisma, {
+          storeOrderId: order.id,
+          sellerCreditsCents: payout.sellerCreditsCents,
+        });
+      } catch (paidErr) {
+        console.error(`${log} seller ledger after SUCCEEDED transfer failed`, paidErr);
+      }
+      continue;
+    }
+    if (began.action !== "provider_create") {
+      console.info(`${log} foundation transfer not attempted`, {
+        storeOrderId: order.id,
+        action: began.action,
+        reason: began.action === "operator_required" ? began.reason : began.action,
+      });
+      continue;
+    }
+
+    if (!connectId || !chargeId) {
+      await persistFoundationTransferOutcome(prisma, {
+        storeOrderId: order.id,
+        status: "FAILED",
+        lastError: !connectId ? "missing_connect_account" : "missing_charge",
+      });
+      continue;
+    }
+
+    try {
+      const tr = await stripe.transfers.create(
+        {
+          amount: began.operation.amountCents,
+          currency: began.operation.currency,
+          destination: connectId,
+          source_transaction: chargeId,
+          metadata: { orderId: order.id, transferOperationId: began.operation.id },
+        },
+        { idempotencyKey: began.operation.providerIdempotencyKey }
+      );
+      try {
+        await persistFoundationTransferSuccess(prisma, {
+          storeOrderId: order.id,
+          stripeTransferId: tr.id,
+        });
+      } catch (persistErr) {
+        console.error(`${log} persist transfer success failed`, persistErr);
+        await persistFoundationTransferOutcome(prisma, {
+          storeOrderId: order.id,
+          status: "UNCERTAIN",
+          lastError: persistErr instanceof Error ? persistErr.message : "persist_success_failed",
+        }).catch((outcomeErr) => {
+          console.error(`${log} persist UNCERTAIN after success persist failure:`, outcomeErr);
+        });
+        continue;
+      }
+      try {
+        await completeFoundationSellerPayoutLedger(prisma, {
+          storeOrderId: order.id,
+          sellerCreditsCents: payout.sellerCreditsCents,
+        });
+      } catch (paidErr) {
+        console.error(`${log} seller ledger after SUCCEEDED transfer failed`, paidErr);
+      }
+    } catch (transferErr) {
+      const kind = classifyStripeTransferFailure(transferErr);
+      console.error(`${log} foundation Connect transfer ${kind}:`, transferErr);
+      await persistFoundationTransferOutcome(prisma, {
+        storeOrderId: order.id,
+        status: kind === "failed" ? "FAILED" : "UNCERTAIN",
+        lastError: transferErr instanceof Error ? transferErr.message : String(transferErr),
+      });
+    }
+  }
 }

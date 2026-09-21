@@ -14,6 +14,7 @@ import {
   type FoundationCheckoutProviderObservation,
 } from "../commerce-foundation-checkout-reconciliation";
 import { provisionNativeFoundationListing } from "../commerce-foundation-listing";
+import { ensureFoundationTransferIntent, persistFoundationTransferSuccess } from "../commerce-foundation-transfer";
 import { foundationTestDatabaseUrl } from "./local-url";
 import { createMember, createStoreItem } from "./fixtures";
 
@@ -417,6 +418,10 @@ describe("prompt-70 foundation checkout session reconciliation", () => {
       sessionObservation(sessionId, "complete", "paid")
     );
     expect(afterPaid.classification).toBe("PAID_NOT_CONVERTIBLE");
+    expect(order?.status).toBe("canceled");
+    const afterMark = await prisma.storeOrder.findFirst({ where: { checkoutAttemptId: prepared.attemptId } });
+    expect(afterMark?.commerceStatus).toBe("UNFULFILLABLE");
+    expect(afterMark?.status).toBe("canceled");
   });
 
   it("candidate listing is bounded, oldest first, and skips fully finalized", async () => {
@@ -445,6 +450,14 @@ describe("prompt-70 foundation checkout session reconciliation", () => {
     await prisma.checkoutAttempt.update({
       where: { id: paidFinal.prepared.attemptId },
       data: { createdAt: new Date(stale.getTime() + 3000) },
+    });
+
+    const pendingPayout = await listFoundationCheckoutReconciliationCandidates(prisma, { take: 500, now: new Date() });
+    expect(pendingPayout.map((row) => row.id)).toContain(paidFinal.prepared.attemptId);
+
+    await prisma.storeOrder.updateMany({
+      where: { checkoutAttemptId: paidFinal.prepared.attemptId },
+      data: { status: "paid" },
     });
 
     const bounded = await listFoundationCheckoutReconciliationCandidates(prisma, { take: 20, now: new Date() });
@@ -513,5 +526,74 @@ describe("prompt-70 foundation checkout session reconciliation", () => {
     const { prepared } = await prepareOpenAttempt();
     const decision = await expireFoundationCheckoutAttempt(prisma, prepared.attemptId);
     expect(decision).toBe("release_and_cancel");
+  });
+
+  it("shipped FINALIZED orders with incomplete TransferOperation remain payout candidates", async () => {
+    const { ctx, prepared, sessionId } = await prepareOpenAttempt();
+    await prisma.checkoutAttempt.update({
+      where: { id: prepared.attemptId },
+      data: { paymentStatus: "PAID", stripePaymentIntentId: "pi_ship" },
+    });
+    await finalizeFoundationCheckoutPayment(prisma, {
+      attemptId: prepared.attemptId,
+      stripeCheckoutSessionId: sessionId,
+      stripePaymentIntentId: "pi_ship",
+    });
+    const order = await prisma.storeOrder.findFirst({ where: { checkoutAttemptId: prepared.attemptId } });
+    expect(order).toBeTruthy();
+    await ensureFoundationTransferIntent(prisma, {
+      storeOrderId: order!.id,
+      memberId: ctx.member.id,
+      amountCents: 990,
+    });
+    await prisma.storeOrder.update({
+      where: { id: order!.id },
+      data: { status: "shipped", commerceStatus: "FINALIZED" },
+    });
+    const classified = await applyFoundationCheckoutProviderObservation(
+      prisma,
+      prepared.attemptId,
+      sessionObservation(sessionId, "complete", "paid", { paymentIntentId: "pi_ship" })
+    );
+    expect(classified.classification).toBe("PAID_NEEDS_FULFILLMENT");
+    const candidates = await listFoundationCheckoutReconciliationCandidates(prisma, { take: 500, now: new Date() });
+    expect(candidates.map((row) => row.id)).toContain(prepared.attemptId);
+  });
+
+  it("SUCCEEDED TransferOperation with missing sale ledger remains PAID_NEEDS_FULFILLMENT", async () => {
+    const { ctx, prepared, sessionId } = await prepareOpenAttempt();
+    await prisma.checkoutAttempt.update({
+      where: { id: prepared.attemptId },
+      data: { paymentStatus: "PAID", stripePaymentIntentId: "pi_repair" },
+    });
+    await finalizeFoundationCheckoutPayment(prisma, {
+      attemptId: prepared.attemptId,
+      stripeCheckoutSessionId: sessionId,
+      stripePaymentIntentId: "pi_repair",
+    });
+    const order = await prisma.storeOrder.findFirst({ where: { checkoutAttemptId: prepared.attemptId } });
+    expect(order).toBeTruthy();
+    await ensureFoundationTransferIntent(prisma, {
+      storeOrderId: order!.id,
+      memberId: ctx.member.id,
+      amountCents: 990,
+    });
+    await persistFoundationTransferSuccess(prisma, {
+      storeOrderId: order!.id,
+      stripeTransferId: `tr_repair_${order!.id}`,
+    });
+    await prisma.storeOrder.update({
+      where: { id: order!.id },
+      data: { status: "paid", commerceStatus: "FINALIZED" },
+    });
+    expect(await prisma.sellerBalanceTransaction.count({ where: { orderId: order!.id, type: "sale" } })).toBe(0);
+    const classified = await applyFoundationCheckoutProviderObservation(
+      prisma,
+      prepared.attemptId,
+      sessionObservation(sessionId, "complete", "paid", { paymentIntentId: "pi_repair" })
+    );
+    expect(classified.classification).toBe("PAID_NEEDS_FULFILLMENT");
+    const candidates = await listFoundationCheckoutReconciliationCandidates(prisma, { take: 500, now: new Date() });
+    expect(candidates.map((row) => row.id)).toContain(prepared.attemptId);
   });
 });

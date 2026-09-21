@@ -1,5 +1,12 @@
 import type { CheckoutAttempt, CheckoutAttemptState, Prisma, PrismaClient } from "@prisma/client";
 import { lockCheckoutAttemptForUpdate, lockCutoverShare, releaseReservation } from "./commerce-foundation-inventory";
+import {
+  isFoundationBuyerSaleCompleteStatus,
+  markFoundationAttemptUnfulfillableInTx,
+  FOUNDATION_PAYOUT_UNRESOLVED_OPERATION_STATUSES,
+  foundationSucceededPayoutLocalRepairOutstanding,
+  listFoundationSucceededPayoutLocalRepairAttemptIds,
+} from "./commerce-foundation-transfer";
 
 export const FOUNDATION_CHECKOUT_RECONCILIATION_BATCH_SIZE = 20;
 export const FOUNDATION_CHECKOUT_HOLD_MS = 25 * 60 * 1000;
@@ -113,10 +120,15 @@ async function paidClassification(
 ): Promise<FoundationCheckoutReconciliationClassification> {
   const orders = await tx.storeOrder.findMany({
     where: { checkoutAttemptId: attempt.id },
-    select: { commerceStatus: true },
+    select: { commerceStatus: true, status: true },
   });
-  const commerceFinalized = orders.length > 0 && orders.every((order) => order.commerceStatus === "FINALIZED");
-  if (attempt.state === "PAID" || commerceFinalized) return "ALREADY_FINALIZED";
+  if (orders.some((order) => order.commerceStatus === "UNFULFILLABLE")) {
+    return "PAID_NOT_CONVERTIBLE";
+  }
+  const commerceFinalized =
+    orders.length > 0 && orders.every((order) => order.commerceStatus === "FINALIZED");
+  const saleComplete =
+    orders.length > 0 && orders.every((order) => isFoundationBuyerSaleCompleteStatus(order.status));
   const reservations = await tx.inventoryReservation.findMany({
     where: { checkoutAttemptId: attempt.id },
     select: { activeQty: true, releasedQty: true, convertedQty: true },
@@ -124,7 +136,24 @@ async function paidClassification(
   const releasedUnconverted = reservations.some(
     (row) => row.releasedQty > 0 && row.convertedQty === 0 && row.activeQty === 0
   );
-  if (releasedUnconverted || attempt.state === "CLOSED") return "PAID_NOT_CONVERTIBLE";
+  if (!commerceFinalized && (releasedUnconverted || attempt.state === "CLOSED")) {
+    await markFoundationAttemptUnfulfillableInTx(tx, attempt.id);
+    return "PAID_NOT_CONVERTIBLE";
+  }
+  if (commerceFinalized && saleComplete) {
+    const incompletePayout = await tx.transferOperation.findFirst({
+      where: {
+        storeOrder: { checkoutAttemptId: attempt.id },
+        status: { in: [...FOUNDATION_PAYOUT_UNRESOLVED_OPERATION_STATUSES] },
+      },
+      select: { id: true },
+    });
+    if (incompletePayout) return "PAID_NEEDS_FULFILLMENT";
+    if (await foundationSucceededPayoutLocalRepairOutstanding(tx, attempt.id)) {
+      return "PAID_NEEDS_FULFILLMENT";
+    }
+    return "ALREADY_FINALIZED";
+  }
   return "PAID_NEEDS_FULFILLMENT";
 }
 
@@ -292,6 +321,7 @@ export async function listFoundationCheckoutReconciliationCandidates(
   const now = args?.now ?? new Date();
   const take = args?.take ?? FOUNDATION_CHECKOUT_RECONCILIATION_BATCH_SIZE;
   const staleBefore = new Date(now.getTime() - FOUNDATION_CHECKOUT_HOLD_MS);
+  const localRepairAttemptIds = await listFoundationSucceededPayoutLocalRepairAttemptIds(prisma, take);
   return prisma.checkoutAttempt.findMany({
     where: {
       AND: [
@@ -305,13 +335,33 @@ export async function listFoundationCheckoutReconciliationCandidates(
             },
             {
               paymentStatus: "PAID",
-              state: { in: ["CREATED", "SESSION_OPEN", "SESSION_UNKNOWN"] },
+              state: { in: ["CREATED", "SESSION_OPEN", "SESSION_UNKNOWN", "CLOSED"] },
+            },
+            {
+              paymentStatus: "PAID",
+              storeOrders: { some: { commerceStatus: "UNFULFILLABLE" } },
+            },
+            {
+              paymentStatus: "PAID",
+              storeOrders: { some: { status: "pending", commerceStatus: "FINALIZED" } },
+            },
+            {
+              paymentStatus: "PAID",
+              storeOrders: {
+                some: {
+                  commerceStatus: "FINALIZED",
+                  transferOperation: {
+                    status: { in: [...FOUNDATION_PAYOUT_UNRESOLVED_OPERATION_STATUSES] },
+                  },
+                },
+              },
             },
             {
               paymentStatus: "PAID",
               state: "PAID",
               storeOrders: { some: { commerceStatus: { not: "FINALIZED" } } },
             },
+            ...(localRepairAttemptIds.length > 0 ? [{ id: { in: localRepairAttemptIds } }] : []),
           ],
         },
       ],

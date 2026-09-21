@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import { isFoundationSellerPayoutEligibleOrderStatus, prisma } from "database";
 import { requireAdmin } from "@/lib/admin-auth";
 import { expectedSellerTransferCents } from "@/lib/stripe/connect-payouts";
 
@@ -19,14 +19,25 @@ export async function GET(req: NextRequest) {
 
   const orders = await prisma.storeOrder.findMany({
     where: {
-      status: { in: ["paid", "shipped", "delivered", "refunded"] },
-      stripePaymentIntentId: { not: null },
-      ...(missingTransferOnly ? { stripeSellerTransferId: null } : {}),
+      OR: [
+        {
+          status: { in: ["paid", "shipped", "delivered", "refunded"] },
+          stripePaymentIntentId: { not: null },
+          ...(missingTransferOnly ? { stripeSellerTransferId: null } : {}),
+        },
+        { status: "pending", commerceStatus: { in: ["FINALIZED", "UNFULFILLABLE"] } },
+        {
+          transferOperation: {
+            status: { in: ["PENDING", "PROCESSING", "FAILED", "UNCERTAIN"] },
+          },
+        },
+      ],
     },
     select: {
       id: true,
       sellerId: true,
       status: true,
+      commerceStatus: true,
       totalCents: true,
       subtotalCents: true,
       taxCents: true,
@@ -38,17 +49,44 @@ export async function GET(req: NextRequest) {
       seller: {
         select: { email: true, firstName: true, lastName: true, stripeConnectAccountId: true },
       },
+      transferOperation: {
+        select: {
+          id: true,
+          status: true,
+          lastAttemptAt: true,
+          lastError: true,
+          stripeTransferId: true,
+          retryCount: true,
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
     take: limit,
   });
 
+  const saleRows = await prisma.sellerBalanceTransaction.findMany({
+    where: { orderId: { in: orders.map((o) => o.id) }, type: "sale" },
+    select: { orderId: true },
+  });
+  const saleOrderIds = new Set(saleRows.map((row) => row.orderId).filter((id): id is string => Boolean(id)));
+
   const rows = orders.map((o) => {
     const expectedTransferCents = expectedSellerTransferCents(o);
+    const transferId = o.transferOperation?.stripeTransferId ?? null;
+    const localPayoutRepairNeeded = Boolean(
+      o.transferOperation?.status === "SUCCEEDED" &&
+        transferId &&
+        o.commerceStatus === "FINALIZED" &&
+        isFoundationSellerPayoutEligibleOrderStatus(o.status) &&
+        (!o.stripeSellerTransferId ||
+          o.stripeSellerTransferId !== transferId ||
+          !saleOrderIds.has(o.id))
+    );
     return {
       orderId: o.id,
       createdAt: o.createdAt.toISOString(),
       status: o.status,
+      commerceStatus: o.commerceStatus,
       sellerEmail: o.seller.email,
       sellerName: `${o.seller.firstName ?? ""} ${o.seller.lastName ?? ""}`.trim(),
       connectAccountId: o.seller.stripeConnectAccountId,
@@ -61,6 +99,12 @@ export async function GET(req: NextRequest) {
       stripeSellerTransferId: o.stripeSellerTransferId,
       stripePaymentIntentId: o.stripePaymentIntentId,
       transferMissing: !o.stripeSellerTransferId,
+      localPayoutRepairNeeded,
+      transferOperationId: o.transferOperation?.id ?? null,
+      transferOperationStatus: o.transferOperation?.status ?? null,
+      transferLastAttemptAt: o.transferOperation?.lastAttemptAt?.toISOString() ?? null,
+      transferLastError: o.transferOperation?.lastError ?? null,
+      transferRetryCount: o.transferOperation?.retryCount ?? null,
     };
   });
 

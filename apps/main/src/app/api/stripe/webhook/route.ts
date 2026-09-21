@@ -9,6 +9,9 @@ import {
   finalizeFoundationCheckoutPayment,
   getCommerceFoundationCutoverState,
   isCommerceFoundationCutoverBlockedError,
+  isPermanentFoundationNonconvertibleError,
+  markFoundationAttemptUnfulfillable,
+  markFoundationStoreOrderPaidAfterConvert,
 } from "database";
 import type { Plan } from "database";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
@@ -37,6 +40,7 @@ import {
 } from "@/lib/storefront-payout";
 import { SOLD_BEFORE_CHECKOUT_REASON } from "@/lib/store-order-cancel-reasons";
 import {
+  ensureFoundationPayoutIntentsForAttempt,
   fulfillStoreOrdersFromCheckoutSession,
   syncStoreItemsAfterSale,
 } from "@/lib/stripe/fulfill-storefront-orders";
@@ -754,12 +758,38 @@ export async function POST(req: NextRequest) {
           });
           continue;
         }
-        await finalizeFoundationCheckoutPayment(prisma, {
-          attemptId: order.checkoutAttemptId,
-          stripePaymentIntentId: paymentIntent.id,
-          stripeEventId: event.id,
-          eventType: event.type,
+        if (order.commerceStatus === "UNFULFILLABLE") {
+          continue;
+        }
+        await ensureFoundationPayoutIntentsForAttempt(order.checkoutAttemptId);
+        try {
+          await finalizeFoundationCheckoutPayment(prisma, {
+            attemptId: order.checkoutAttemptId,
+            stripePaymentIntentId: paymentIntent.id,
+            stripeEventId: event.id,
+            eventType: event.type,
+          });
+        } catch (err) {
+          if (isPermanentFoundationNonconvertibleError(err)) {
+            await markFoundationAttemptUnfulfillable(prisma, order.checkoutAttemptId);
+            console.info("[webhook] payment_intent.succeeded: foundation unfulfillable", {
+              orderId,
+              attemptId: order.checkoutAttemptId,
+            });
+            continue;
+          }
+          throw err;
+        }
+        const attemptOrders = await prisma.storeOrder.findMany({
+          where: { checkoutAttemptId: order.checkoutAttemptId },
+          select: { id: true },
         });
+        for (const paidOrder of attemptOrders) {
+          await markFoundationStoreOrderPaidAfterConvert(prisma, {
+            storeOrderId: paidOrder.id,
+            stripePaymentIntentId: paymentIntent.id,
+          });
+        }
         for (const oi of order.items) piSyncStoreItemIds.add(oi.storeItemId);
         continue;
       }

@@ -1,5 +1,17 @@
 import Stripe from "stripe";
-import { assertLegacyInteractiveMutationAllowed, commerceInventoryWriterRoute, getCommerceFoundationCutoverState, prisma } from "database";
+import {
+  assertLegacyInteractiveMutationAllowed,
+  commerceInventoryWriterRoute,
+  ensureFoundationStorefrontRefundOperation,
+  FoundationRefundIntentConflictError,
+  FoundationTransferRefundBlockedError,
+  foundationStorefrontRefundIdempotencyKey,
+  getCommerceFoundationCutoverState,
+  lockFoundationPayoutOutForRefund,
+  persistFoundationRefundOutcome,
+  persistFoundationRefundSuccess,
+  prisma,
+} from "database";
 import { restockOrderLinesAfterReturn } from "@/lib/store-item-restock";
 import { computeSellerTransferCents } from "@/lib/storefront-payout";
 import {
@@ -88,6 +100,46 @@ async function debitSellerLedgerForRefund(
   });
 }
 
+function storefrontRefundKind(args: {
+  restock?: boolean;
+  restockKind?: "PHYSICAL_RECEIPT" | "UNDO_CONSUMPTION";
+  restockOperationId?: string;
+  amountCents?: number;
+  fullAmountCents: number;
+}): "FULL" | "PARTIAL" | "COURTESY" | "RETURN" {
+  if (args.restock === false) return "COURTESY";
+  if (args.restockKind === "PHYSICAL_RECEIPT" || args.restockOperationId) return "RETURN";
+  if (args.amountCents != null && args.amountCents < args.fullAmountCents) return "PARTIAL";
+  return "FULL";
+}
+
+function isUnknownRefundProviderOutcome(err: unknown): boolean {
+  const e = err as { type?: string; statusCode?: number; message?: string };
+  const msg = `${typeof e?.message === "string" ? e.message : String(err ?? "")}`;
+  if (e?.type === "StripeConnectionError" || e?.type === "StripeAPIError" || e?.type === "StripeRateLimitError") {
+    return true;
+  }
+  const status = e?.statusCode;
+  if (status === 0 || (typeof status === "number" && status >= 500)) return true;
+  return /timeout|ECONNRESET|ETIMEDOUT|network|socket/i.test(msg);
+}
+
+function isStripeRefundAlreadyRefunded(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return /already been refunded|charge already refunded/i.test(msg);
+}
+
+function isStripeRefundIdempotencyMismatch(err: unknown): boolean {
+  const e = err as { type?: string; message?: string };
+  const msg = `${typeof e?.message === "string" ? e.message : String(err ?? "")}`;
+  return (
+    e?.type === "StripeIdempotencyError" ||
+    /keys for idempotent requests|idempotent requests can only be used with the same parameters|idempotency(?: key)?(?: parameter)? mismatch/i.test(
+      msg
+    )
+  );
+}
+
 /**
  * Refund a paid storefront order on the **platform** account (facilitator Checkout),
  * reverse the Connect transfer when present, optionally restock, and flip sold_out → active.
@@ -140,11 +192,41 @@ export async function refundPaidStorefrontOrder(args: {
   const originalTransfer = sellerLedgerDebitCents(order);
   const reversalAmount = args.transferReversalCents ?? originalTransfer;
 
-  if (order.stripeSellerTransferId) {
+  const cutover = await getCommerceFoundationCutoverState(prisma);
+  const writerRoute = commerceInventoryWriterRoute(cutover.mode);
+
+  let reversalTransferId: string | null = order.stripeSellerTransferId ?? null;
+  let skipSellerLedgerDebit = false;
+
+  if (writerRoute === "foundation") {
+    try {
+      const guard = await lockFoundationPayoutOutForRefund(prisma, { storeOrderId: order.id });
+      if (guard.kind === "TRANSFER_SUCCEEDED") {
+        reversalTransferId = guard.stripeTransferId;
+      } else {
+        reversalTransferId = null;
+        skipSellerLedgerDebit = true;
+      }
+    } catch (e) {
+      if (e instanceof FoundationTransferRefundBlockedError) {
+        return {
+          ok: false,
+          error:
+            e.disposition === "TRANSFER_IN_FLIGHT" || e.disposition === "TRANSFER_UNCERTAIN"
+              ? "Seller payout is unresolved; operator reconciliation is required before refund."
+              : e.message,
+          status: 409,
+        };
+      }
+      throw e;
+    }
+  }
+
+  if (reversalTransferId) {
     try {
       await reverseConnectTransfer(
         stripe,
-        order.stripeSellerTransferId,
+        reversalTransferId,
         args.transferReversalCents != null ? reversalAmount : undefined
       );
     } catch (e) {
@@ -156,27 +238,114 @@ export async function refundPaidStorefrontOrder(args: {
     }
   }
 
-  let stripeRefund: { id?: string; status?: string | null; created?: number } | null = null;
-  try {
-    stripeRefund = await stripe.refunds.create({
-      payment_intent: order.stripePaymentIntentId,
-      amount,
-      reason: "requested_by_customer",
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Refund failed";
-    if (!/already been refunded|charge already refunded/i.test(msg)) {
-      return { ok: false, error: msg, status: 500 };
-    }
+  const refundParams = {
+    payment_intent: order.stripePaymentIntentId,
+    amount,
+    reason: "requested_by_customer" as const,
+  };
+  const durableRefundKey = foundationStorefrontRefundIdempotencyKey(order.id);
+  let refundAction: "provider_create" | "already_succeeded" = "provider_create";
+  let refundKey = durableRefundKey;
+  let existingStripeRefundId: string | null = null;
+
+  if (writerRoute === "foundation") {
     try {
-      const existing = await stripe.refunds.list({
-        payment_intent: order.stripePaymentIntentId,
-        limit: 1,
+      const refundIntent = await ensureFoundationStorefrontRefundOperation(prisma, {
+        storeOrderId: order.id,
+        memberId: order.sellerId,
+        amountCents: amount,
+        currency: "usd",
+        kind: storefrontRefundKind({
+          restock: args.restock,
+          restockKind: args.restockKind,
+          restockOperationId: args.restockOperationId,
+          amountCents: args.amountCents,
+          fullAmountCents: refundAmountCents(order),
+        }),
+        restockRequested: args.restock !== false,
+        reason: args.reason ?? null,
       });
-      stripeRefund = existing.data[0] ?? null;
-    } catch {
-      stripeRefund = null;
+      refundAction = refundIntent.action;
+      refundKey = refundIntent.operation.providerIdempotencyKey;
+      existingStripeRefundId = refundIntent.operation.stripeRefundId;
+    } catch (e) {
+      if (e instanceof FoundationRefundIntentConflictError) {
+        return { ok: false, error: e.message, status: 409 };
+      }
+      throw e;
     }
+  }
+
+  const refundRequestOptions = { idempotencyKey: refundKey };
+
+  let stripeRefund: { id?: string; status?: string | null; created?: number } | null = null;
+  if (refundAction === "already_succeeded" && existingStripeRefundId) {
+    stripeRefund = { id: existingStripeRefundId, status: "succeeded" };
+  } else {
+    try {
+      stripeRefund = await stripe.refunds.create(refundParams, refundRequestOptions);
+    } catch (e) {
+      if (isStripeRefundAlreadyRefunded(e)) {
+        try {
+          const existing = await stripe.refunds.list({
+            payment_intent: order.stripePaymentIntentId,
+            limit: 1,
+          });
+          stripeRefund = existing.data[0] ?? null;
+        } catch {
+          stripeRefund = null;
+        }
+      } else {
+        const msg = e instanceof Error ? e.message : "Refund failed";
+        const outcomeStatus = isUnknownRefundProviderOutcome(e) || isStripeRefundIdempotencyMismatch(e)
+          ? "UNCERTAIN"
+          : "FAILED";
+        if (writerRoute === "foundation") {
+          await persistFoundationRefundOutcome(prisma, {
+            storeOrderId: order.id,
+            status: outcomeStatus,
+            lastError: msg,
+          }).catch(() => {});
+        }
+        return {
+          ok: false,
+          error: isStripeRefundIdempotencyMismatch(e)
+            ? "Refund request parameters conflict with the existing refund operation"
+            : msg,
+          status: isStripeRefundIdempotencyMismatch(e) ? 409 : 500,
+        };
+      }
+    }
+  }
+
+  if (stripeRefund?.id) {
+    if (writerRoute === "foundation") {
+      try {
+        await persistFoundationRefundSuccess(prisma, {
+          storeOrderId: order.id,
+          stripeRefundId: stripeRefund.id,
+        });
+      } catch (e) {
+        if (e instanceof FoundationRefundIntentConflictError) {
+          return { ok: false, error: e.message, status: 409 };
+        }
+        await persistFoundationRefundOutcome(prisma, {
+          storeOrderId: order.id,
+          status: "UNCERTAIN",
+          lastError: e instanceof Error ? e.message : "persist_refund_success_failed",
+        }).catch(() => {});
+        return { ok: false, error: "Refund provider outcome is uncertain; retry the same refund", status: 500 };
+      }
+    }
+  } else if (refundAction !== "already_succeeded") {
+    if (writerRoute === "foundation") {
+      await persistFoundationRefundOutcome(prisma, {
+        storeOrderId: order.id,
+        status: "UNCERTAIN",
+        lastError: "refund_id_missing_after_provider",
+      }).catch(() => {});
+    }
+    return { ok: false, error: "Refund provider outcome is uncertain; retry the same refund", status: 500 };
   }
 
   const refundTimes = stripeRefund
@@ -208,7 +377,9 @@ export async function refundPaidStorefrontOrder(args: {
         operationId
       );
     }
-    await debitSellerLedgerForRefund(tx, order, args.ledgerDebitCents);
+    if (!skipSellerLedgerDebit) {
+      await debitSellerLedgerForRefund(tx, order, args.ledgerDebitCents);
+    }
   });
 
   return { ok: true, refunded: true, amountCents: amount };
@@ -262,7 +433,17 @@ export async function restockAfterExternalRefund(
   const cutover = await getCommerceFoundationCutoverState(prisma);
   if (commerceInventoryWriterRoute(cutover.mode) !== "legacy") {
     if (commerceInventoryWriterRoute(cutover.mode) === "foundation") {
-      // proceed to restock via helper (foundation path)
+      try {
+        const guard = await lockFoundationPayoutOutForRefund(prisma, { storeOrderId: order.id });
+        if (guard.kind === "TRANSFER_SUCCEEDED" && stripe) {
+          await reverseConnectTransfer(stripe, guard.stripeTransferId);
+        }
+      } catch (e) {
+        if (e instanceof FoundationTransferRefundBlockedError) {
+          return false;
+        }
+        throw e;
+      }
     } else {
       await assertLegacyInteractiveMutationAllowed(prisma);
     }
@@ -270,7 +451,7 @@ export async function restockAfterExternalRefund(
     await assertLegacyInteractiveMutationAllowed(prisma);
   }
 
-  if (stripe && order.stripeSellerTransferId) {
+  if (commerceInventoryWriterRoute(cutover.mode) !== "foundation" && stripe && order.stripeSellerTransferId) {
     await reverseConnectTransfer(stripe, order.stripeSellerTransferId);
   }
 

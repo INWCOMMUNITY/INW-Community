@@ -3,7 +3,9 @@ import type { PrismaClient } from "@prisma/client";
 import {
   applyFoundationCheckoutProviderObservation,
   foundationCheckoutReconciliationCronAllowed,
+  isFoundationBuyerSaleCompleteStatus,
   listFoundationCheckoutReconciliationCandidates,
+  foundationSucceededPayoutLocalRepairOutstanding,
   type FoundationCheckoutObservationResult,
   type FoundationCheckoutProviderObservation,
   type FoundationCheckoutReconciliationClassification,
@@ -208,11 +210,41 @@ export async function reconcileFoundationCheckoutAttempt(
     try {
       await fulfill(session);
       const after = await loadAttempt(deps.prisma, attempt.id);
+      const orders = await deps.prisma.storeOrder.findMany({
+        where: { checkoutAttemptId: attempt.id },
+        select: { status: true, commerceStatus: true },
+      });
+      const ops = await deps.prisma.transferOperation.findMany({
+        where: { storeOrder: { checkoutAttemptId: attempt.id } },
+        select: { status: true },
+      });
+      const unfulfillable = orders.some((order) => order.commerceStatus === "UNFULFILLABLE");
+      const payoutUnresolved = ops.some(
+        (op) =>
+          op.status === "PENDING" ||
+          op.status === "PROCESSING" ||
+          op.status === "UNCERTAIN" ||
+          op.status === "FAILED"
+      );
+      const localRepairOutstanding = await foundationSucceededPayoutLocalRepairOutstanding(
+        deps.prisma,
+        attempt.id
+      );
+      const saleComplete =
+        orders.length > 0 && orders.every((order) => isFoundationBuyerSaleCompleteStatus(order.status));
+      const classification: FoundationCheckoutReconciliationClassification = unfulfillable
+        ? "PAID_NOT_CONVERTIBLE"
+        : payoutUnresolved || localRepairOutstanding
+          ? "PAID_NEEDS_FULFILLMENT"
+          : saleComplete || after?.state === "PAID"
+            ? "PAID_FINALIZED"
+            : applied.classification;
       const finalized: FoundationCheckoutReconciliationResult = {
         ...applied,
-        classification: after?.state === "PAID" ? "PAID_FINALIZED" : applied.classification,
+        classification,
         state: after?.state ?? applied.state,
         paymentStatus: after?.paymentStatus ?? applied.paymentStatus,
+        retryable: classification === "PAID_NEEDS_FULFILLMENT",
       };
       logReconciliation(finalized);
       return finalized;

@@ -1,14 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockPrisma, applyFoundationCheckoutProviderObservation, listFoundationCheckoutReconciliationCandidates } =
-  vi.hoisted(() => ({
+const {
+  mockPrisma,
+  applyFoundationCheckoutProviderObservation,
+  listFoundationCheckoutReconciliationCandidates,
+  foundationSucceededPayoutLocalRepairOutstanding,
+} = vi.hoisted(() => ({
     mockPrisma: {
       checkoutAttempt: {
         findUnique: vi.fn(),
       },
+      storeOrder: {
+        findMany: vi.fn(async () => []),
+      },
+      transferOperation: {
+        findMany: vi.fn(async () => []),
+      },
     },
     applyFoundationCheckoutProviderObservation: vi.fn(),
     listFoundationCheckoutReconciliationCandidates: vi.fn(),
+    foundationSucceededPayoutLocalRepairOutstanding: vi.fn(async () => false),
   }));
 
 vi.mock("database", () => ({
@@ -16,6 +27,9 @@ vi.mock("database", () => ({
   foundationCheckoutReconciliationCronAllowed: (mode: string | null | undefined) =>
     mode === "FOUNDATION" || mode === "UNFROZEN",
   listFoundationCheckoutReconciliationCandidates,
+  isFoundationBuyerSaleCompleteStatus: (status: string) =>
+    status === "paid" || status === "shipped" || status === "delivered",
+  foundationSucceededPayoutLocalRepairOutstanding,
 }));
 
 vi.mock("@/lib/stripe/fulfill-storefront-orders", () => ({
@@ -108,6 +122,105 @@ describe("reconcileFoundationCheckoutAttempt", () => {
     });
     expect(fulfillStoreOrdersFromCheckoutSession).toHaveBeenCalledTimes(1);
     expect(result.classification).toBe("PAID_FINALIZED");
+  });
+
+  it("keeps PI-only paid sales in fulfillment while TransferOperation is incomplete", async () => {
+    const retrieve = vi.fn(async () => ({
+      id: "cs_1",
+      status: "complete",
+      payment_status: "paid",
+      url: null,
+      payment_intent: "pi_1",
+    }));
+    applyFoundationCheckoutProviderObservation.mockResolvedValue(
+      applied("PAID_NEEDS_FULFILLMENT", { paymentStatus: "PAID" })
+    );
+    mockPrisma.checkoutAttempt.findUnique
+      .mockResolvedValueOnce(attemptRow())
+      .mockResolvedValueOnce(attemptRow({ state: "PAID", paymentStatus: "PAID" }));
+    mockPrisma.storeOrder.findMany.mockResolvedValue([{ status: "paid", commerceStatus: "FINALIZED" }]);
+    mockPrisma.transferOperation.findMany.mockResolvedValue([{ status: "PENDING" }]);
+    const result = await reconcileFoundationCheckoutAttempt({
+      prisma: mockPrisma as never,
+      stripe: { checkout: { sessions: { retrieve, create: vi.fn() } } } as never,
+      attemptId: "att_1",
+    });
+    expect(fulfillStoreOrdersFromCheckoutSession).toHaveBeenCalledTimes(1);
+    expect(result.classification).toBe("PAID_NEEDS_FULFILLMENT");
+    expect(result.retryable).toBe(true);
+  });
+
+  it("keeps shipped and delivered FINALIZED sales in payout fulfillment while TransferOperation is incomplete", async () => {
+    const retrieve = vi.fn(async () => ({
+      id: "cs_1",
+      status: "complete",
+      payment_status: "paid",
+      url: null,
+      payment_intent: "pi_1",
+    }));
+    applyFoundationCheckoutProviderObservation.mockResolvedValue(
+      applied("PAID_NEEDS_FULFILLMENT", { paymentStatus: "PAID" })
+    );
+    mockPrisma.checkoutAttempt.findUnique
+      .mockResolvedValueOnce(attemptRow())
+      .mockResolvedValueOnce(attemptRow({ state: "PAID", paymentStatus: "PAID" }));
+    mockPrisma.storeOrder.findMany.mockResolvedValue([{ status: "shipped", commerceStatus: "FINALIZED" }]);
+    mockPrisma.transferOperation.findMany.mockResolvedValue([{ status: "FAILED" }]);
+    const result = await reconcileFoundationCheckoutAttempt({
+      prisma: mockPrisma as never,
+      stripe: { checkout: { sessions: { retrieve, create: vi.fn() } } } as never,
+      attemptId: "att_1",
+    });
+    expect(result.classification).toBe("PAID_NEEDS_FULFILLMENT");
+    expect(result.retryable).toBe(true);
+  });
+
+  it("invokes local payout repair for SUCCEEDED TransferOperation without a second provider retrieve create", async () => {
+    const retrieve = vi.fn(async () => ({
+      id: "cs_1",
+      status: "complete",
+      payment_status: "paid",
+      url: null,
+      payment_intent: "pi_1",
+    }));
+    applyFoundationCheckoutProviderObservation.mockResolvedValue(
+      applied("PAID_NEEDS_FULFILLMENT", { paymentStatus: "PAID" })
+    );
+    mockPrisma.checkoutAttempt.findUnique
+      .mockResolvedValueOnce(attemptRow())
+      .mockResolvedValueOnce(attemptRow({ state: "PAID", paymentStatus: "PAID" }));
+    mockPrisma.storeOrder.findMany.mockResolvedValue([{ status: "paid", commerceStatus: "FINALIZED" }]);
+    mockPrisma.transferOperation.findMany.mockResolvedValue([{ status: "SUCCEEDED" }]);
+    foundationSucceededPayoutLocalRepairOutstanding.mockResolvedValueOnce(true);
+    const result = await reconcileFoundationCheckoutAttempt({
+      prisma: mockPrisma as never,
+      stripe: { checkout: { sessions: { retrieve, create: vi.fn() } } } as never,
+      attemptId: "att_1",
+    });
+    expect(fulfillStoreOrdersFromCheckoutSession).toHaveBeenCalledTimes(1);
+    expect(retrieve).toHaveBeenCalledTimes(1);
+    expect(result.classification).toBe("PAID_NEEDS_FULFILLMENT");
+    expect(result.retryable).toBe(true);
+  });
+
+  it("PAID_NOT_CONVERTIBLE does not invoke fulfillment", async () => {
+    const retrieve = vi.fn(async () => ({
+      id: "cs_1",
+      status: "complete",
+      payment_status: "paid",
+      url: null,
+      payment_intent: "pi_1",
+    }));
+    applyFoundationCheckoutProviderObservation.mockResolvedValue(
+      applied("PAID_NOT_CONVERTIBLE", { paymentStatus: "PAID", retryable: false })
+    );
+    const result = await reconcileFoundationCheckoutAttempt({
+      prisma: mockPrisma as never,
+      stripe: { checkout: { sessions: { retrieve, create: vi.fn() } } } as never,
+      attemptId: "att_1",
+    });
+    expect(fulfillStoreOrdersFromCheckoutSession).not.toHaveBeenCalled();
+    expect(result.classification).toBe("PAID_NOT_CONVERTIBLE");
   });
 
   it("SESSION_UNKNOWN without Session id does not retrieve or create", async () => {
