@@ -149,6 +149,7 @@ model Member {
   inventoryReservations    InventoryReservation[]
   refundOperations         RefundOperation[]
   transferOperations       TransferOperation[]
+  sellerReturnEntitlementOperations SellerReturnEntitlementOperation[]
 }
 
 model WebviewBridgeToken {
@@ -1365,6 +1366,33 @@ model TransferOperation {
   @@map("transfer_operation")
 }
 
+/// Post-return seller Connect entitlement when the original full sale transfer was prevented.
+/// One per StoreOrder for v1. amountCents is the immutable post-return entitlement (DB CHECK > 0).
+model SellerReturnEntitlementOperation {
+  id                     String                   @id @default(cuid())
+  memberId               String                   @map("member_id")
+  storeOrderId           String                   @unique(map: "sreo_store_order_id_key") @map("store_order_id")
+  storeReturnId          String                   @unique(map: "sreo_store_return_id_key") @map("store_return_id")
+  providerIdempotencyKey String                   @unique(map: "sreo_provider_idempotency_key_key") @map("provider_idempotency_key")
+  stripeTransferId       String?                  @unique(map: "sreo_stripe_transfer_id_key") @map("stripe_transfer_id")
+  amountCents            Int                      @map("amount_cents")
+  currency               String                   @default("usd")
+  status                 FinancialOperationStatus @default(PENDING)
+  retryCount             Int                      @default(0) @map("retry_count")
+  lastError              String?                  @map("last_error") @db.Text
+  lastAttemptAt          DateTime?                @map("last_attempt_at")
+  succeededAt            DateTime?                @map("succeeded_at")
+  createdAt              DateTime                 @default(now()) @map("created_at")
+  updatedAt              DateTime                 @updatedAt @map("updated_at")
+
+  member      Member      @relation(fields: [memberId], references: [id], onDelete: Restrict, map: "sreo_member_id_fkey")
+  storeOrder  StoreOrder  @relation(fields: [storeOrderId], references: [id], onDelete: Restrict, map: "sreo_store_order_id_fkey")
+  storeReturn StoreReturn @relation(fields: [storeReturnId], references: [id], onDelete: Restrict, map: "sreo_store_return_id_fkey")
+
+  @@index([status, createdAt], map: "sreo_status_created_at_idx")
+  @@map("seller_return_entitlement_operation")
+}
+
 /// Temporary idempotent backfill allocation: legacy snapshot fingerprint → StoreVariant.id. Not business identity.
 model VariantBackfillMap {
   id                 String   @id @default(cuid())
@@ -1543,6 +1571,7 @@ model StoreOrder {
   reservations InventoryReservation[]
   refundOperations RefundOperation[]
   transferOperation TransferOperation?
+  sellerReturnEntitlementOperation SellerReturnEntitlementOperation?
   packageWeightOz  Float?   @map("package_weight_oz")
   packageLengthIn  Float?   @map("package_length_in")
   packageWidthIn   Float?   @map("package_width_in")
@@ -1612,7 +1641,9 @@ model StoreReturn {
 
   order          StoreOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   returnShipment Shipment?  @relation("StoreReturnShipment", fields: [returnShipmentId], references: [id], onDelete: SetNull)
+  sellerReturnEntitlementOperation SellerReturnEntitlementOperation?
 
+  @@unique([id, orderId], map: "StoreReturn_id_order_id_key")
   @@index([orderId, status])
   @@index([status])
 }

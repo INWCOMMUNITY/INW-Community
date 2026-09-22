@@ -107,6 +107,18 @@ export async function createOrder(
   });
 }
 
+export async function createStoreReturn(
+  prisma: PrismaClient,
+  args: { orderId: string; status?: string }
+) {
+  return prisma.storeReturn.create({
+    data: {
+      orderId: args.orderId,
+      status: args.status ?? "received",
+    },
+  });
+}
+
 export async function createCheckoutAttempt(
   prisma: PrismaClient,
   args: {

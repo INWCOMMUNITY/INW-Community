@@ -35,6 +35,7 @@ const M2_MIGRATION = "20260916233000_commerce_foundation_m2";
 const M3_MIGRATION = "20260916234500_commerce_foundation_m3";
 const MEMBER_DELETE_SAFETY = "20260917140000_member_delete_safety";
 const CUTOVER_STATE = "20260918183000_commerce_foundation_cutover_state";
+const SELLER_RETURN_ENTITLEMENT = "20260921220000_seller_return_entitlement_operation";
 const EXPECTED_SHARE_SHA256 =
   "d1f89b47101f513809c3e23541019bfe52e23dcea9616eadad68dc095fda1e6f";
 const BAD_FRAGMENT = `REFERENCES "member"("id")`;
@@ -222,7 +223,16 @@ function assertAppliedMigrations() {
   const finished = psql(
     "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL"
   );
-  for (const name of [SHARE_MIGRATION, REMOVE_CHANNEL_SYNC, M1_MIGRATION, M2_MIGRATION, M3_MIGRATION, MEMBER_DELETE_SAFETY, CUTOVER_STATE]) {
+  for (const name of [
+    SHARE_MIGRATION,
+    REMOVE_CHANNEL_SYNC,
+    M1_MIGRATION,
+    M2_MIGRATION,
+    M3_MIGRATION,
+    MEMBER_DELETE_SAFETY,
+    CUTOVER_STATE,
+    SELLER_RETURN_ENTITLEMENT,
+  ]) {
     if (!finished.split(/\s+/).includes(name)) {
       throw new Error(`Expected finished migration ${name} in disposable _prisma_migrations`);
     }
@@ -417,6 +427,52 @@ function assertCutoverCatalog() {
   }
 }
 
+function assertSellerReturnEntitlementCatalog() {
+  const tables = psql(
+    "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = 'seller_return_entitlement_operation'"
+  );
+  if (!tables.includes("seller_return_entitlement_operation")) {
+    throw new Error("seller_return_entitlement_operation table missing after migrate deploy");
+  }
+
+  for (const name of ["sreo_amount_positive_check", "sreo_retry_nonnegative_check"]) {
+    const found = psql(`SELECT conname FROM pg_constraint WHERE contype = 'c' AND conname = '${name}'`);
+    if (!found.includes(name)) {
+      throw new Error(`Missing seller-return-entitlement CHECK after migrate deploy: ${name}`);
+    }
+  }
+
+  for (const name of [
+    "sreo_store_order_id_key",
+    "sreo_store_return_id_key",
+    "sreo_provider_idempotency_key_key",
+    "sreo_stripe_transfer_id_key",
+    "sreo_status_created_at_idx",
+    "StoreReturn_id_order_id_key",
+  ]) {
+    const found = psql(`SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = '${name}'`);
+    if (!found.includes(name)) {
+      throw new Error(`Missing seller-return-entitlement index after migrate deploy: ${name}`);
+    }
+  }
+
+  for (const name of [
+    "sreo_member_id_fkey",
+    "sreo_store_order_id_fkey",
+    "sreo_store_return_id_fkey",
+    "sreo_store_order_id_member_id_fkey",
+    "sreo_store_return_id_store_order_id_fkey",
+  ]) {
+    const row = psql(
+      `SELECT conname || '=' || CASE confdeltype WHEN 'r' THEN 'RESTRICT' ELSE confdeltype::text END
+       FROM pg_constraint WHERE contype = 'f' AND conname = '${name}'`
+    );
+    if (!row.includes(`${name}=RESTRICT`)) {
+      throw new Error(`Expected ${name} ON DELETE RESTRICT after seller-return-entitlement, got: ${row || "(missing)"}`);
+    }
+  }
+}
+
 function assertM3Catalog() {
   const tables = psql(
     "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('stripe_event_evidence','refund_operation','transfer_operation') ORDER BY 1"
@@ -481,6 +537,7 @@ try {
   assertM3Catalog();
   assertMemberDeleteSafetyCatalog();
   assertCutoverCatalog();
+  assertSellerReturnEntitlementCatalog();
   assertTrackedShareChecksum("after migrate deploy");
 
   run("pnpm", ["exec", "prisma", "generate"]);
