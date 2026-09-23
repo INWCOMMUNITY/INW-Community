@@ -11,6 +11,7 @@ import {
   ensureFoundationStorefrontRefundOperation,
   ensureFoundationTransferIntent,
   evaluateFoundationPayoutRefundDisposition,
+  FOUNDATION_TRANSFER_IDEMPOTENCY_WINDOW_MS,
   FOUNDATION_TRANSFER_SUCCEEDED_WITHOUT_ID,
   FOUNDATION_COMPATIBILITY_TRANSFER_ID_CONFLICT,
   foundationSellerPayoutRecoveryWhere,
@@ -977,6 +978,190 @@ describe("Prompt 80 shipped/delivered payout recovery and refund retry", () => {
       restockRequested: true,
     });
     expect(already.action).toBe("already_succeeded");
+  });
+});
+
+describe("Foundation RefundOperation 23h same-key replay (real PostgreSQL)", () => {
+  const windowMs = FOUNDATION_TRANSFER_IDEMPOTENCY_WINDOW_MS;
+
+  async function seedRefundRow(args: {
+    status: "PENDING" | "PROCESSING" | "FAILED" | "UNCERTAIN" | "SUCCEEDED";
+    retryCount: number;
+    createdAt: Date;
+    stripeRefundId?: string | null;
+  }) {
+    const { seller, order } = await seedOrder();
+    await markFoundationStoreOrderPaidAfterConvert(prisma, { storeOrderId: order.id });
+    const key = foundationStorefrontRefundIdempotencyKey(order.id);
+    const row = await prisma.refundOperation.create({
+      data: {
+        memberId: seller.id,
+        storeOrderId: order.id,
+        kind: "FULL",
+        amountCents: 1000,
+        currency: "usd",
+        restockRequested: true,
+        providerIdempotencyKey: key,
+        status: args.status,
+        retryCount: args.retryCount,
+        createdAt: args.createdAt,
+        stripeRefundId: args.stripeRefundId ?? undefined,
+      },
+    });
+    return { seller, order, row, key };
+  }
+
+  it("allows a first provider attempt when retryCount is 0 even if createdAt is older than 23h", async () => {
+    const createdAt = new Date("2026-01-01T00:00:00.000Z");
+    const now = new Date(createdAt.getTime() + windowMs + 60_000);
+    const { seller, order, row, key } = await seedRefundRow({
+      status: "PENDING",
+      retryCount: 0,
+      createdAt,
+    });
+    const begun = await ensureFoundationStorefrontRefundOperation(prisma, {
+      storeOrderId: order.id,
+      memberId: seller.id,
+      amountCents: 1000,
+      kind: "FULL",
+      restockRequested: true,
+      now,
+    });
+    expect(begun.action).toBe("provider_create");
+    expect(begun.operation.id).toBe(row.id);
+    expect(begun.operation.providerIdempotencyKey).toBe(key);
+    expect(begun.operation.retryCount).toBe(1);
+    const persisted = await prisma.refundOperation.findUnique({ where: { id: row.id } });
+    expect(persisted?.createdAt.toISOString()).toBe(createdAt.toISOString());
+    expect(persisted?.providerIdempotencyKey).toBe(key);
+  });
+
+  it.each(["PROCESSING", "FAILED", "UNCERTAIN"] as const)(
+    "retries %s with the same key inside the 23h window",
+    async (status) => {
+      const createdAt = new Date("2026-01-01T00:00:00.000Z");
+      const now = new Date(createdAt.getTime() + windowMs - 1000);
+      const { seller, order, row, key } = await seedRefundRow({
+        status,
+        retryCount: 1,
+        createdAt,
+      });
+      const begun = await ensureFoundationStorefrontRefundOperation(prisma, {
+        storeOrderId: order.id,
+        memberId: seller.id,
+        amountCents: 1000,
+        kind: "FULL",
+        restockRequested: true,
+        now,
+      });
+      expect(begun.action).toBe("provider_create");
+      expect(begun.operation.providerIdempotencyKey).toBe(key);
+      expect(begun.operation.id).toBe(row.id);
+      const persisted = await prisma.refundOperation.findUnique({ where: { id: row.id } });
+      expect(persisted?.createdAt.toISOString()).toBe(createdAt.toISOString());
+      expect(persisted?.providerIdempotencyKey).toBe(key);
+    }
+  );
+
+  it.each(["PROCESSING", "FAILED", "UNCERTAIN"] as const)(
+    "blocks %s replay after 23h without rotating the key or retryCount",
+    async (status) => {
+      const createdAt = new Date("2026-01-01T00:00:00.000Z");
+      const now = new Date(createdAt.getTime() + windowMs + 1);
+      const { seller, order, row, key } = await seedRefundRow({
+        status,
+        retryCount: 1,
+        createdAt,
+      });
+      const begun = await ensureFoundationStorefrontRefundOperation(prisma, {
+        storeOrderId: order.id,
+        memberId: seller.id,
+        amountCents: 1000,
+        kind: "FULL",
+        restockRequested: true,
+        now,
+      });
+      expect(begun.action).toBe("replay_window_expired");
+      expect(begun.operation.providerIdempotencyKey).toBe(key);
+      const persisted = await prisma.refundOperation.findUnique({ where: { id: row.id } });
+      expect(persisted?.status).toBe(status);
+      expect(persisted?.retryCount).toBe(1);
+      expect(persisted?.createdAt.toISOString()).toBe(createdAt.toISOString());
+      expect(persisted?.providerIdempotencyKey).toBe(key);
+    }
+  );
+
+  it("allows replay at exactly 23h and blocks 23h + 1ms", async () => {
+    const createdAt = new Date("2026-01-01T00:00:00.000Z");
+    const exact = new Date(createdAt.getTime() + windowMs);
+    const inside = new Date(createdAt.getTime() + windowMs - 1000);
+    const { seller, order } = await seedRefundRow({
+      status: "FAILED",
+      retryCount: 1,
+      createdAt,
+    });
+    const atBoundary = await ensureFoundationStorefrontRefundOperation(prisma, {
+      storeOrderId: order.id,
+      memberId: seller.id,
+      amountCents: 1000,
+      kind: "FULL",
+      restockRequested: true,
+      now: exact,
+    });
+    expect(atBoundary.action).toBe("provider_create");
+    await prisma.refundOperation.update({
+      where: { id: atBoundary.operation.id },
+      data: { status: "FAILED", retryCount: 1 },
+    });
+    const justInside = await ensureFoundationStorefrontRefundOperation(prisma, {
+      storeOrderId: order.id,
+      memberId: seller.id,
+      amountCents: 1000,
+      kind: "FULL",
+      restockRequested: true,
+      now: inside,
+    });
+    expect(justInside.action).toBe("provider_create");
+    await prisma.refundOperation.update({
+      where: { id: justInside.operation.id },
+      data: { status: "FAILED", retryCount: 1 },
+    });
+    const expired = await ensureFoundationStorefrontRefundOperation(prisma, {
+      storeOrderId: order.id,
+      memberId: seller.id,
+      amountCents: 1000,
+      kind: "FULL",
+      restockRequested: true,
+      now: new Date(createdAt.getTime() + windowMs + 1),
+    });
+    expect(expired.action).toBe("replay_window_expired");
+  });
+
+  it("does not mint a new refund when SUCCEEDED is missing stripeRefundId", async () => {
+    const createdAt = new Date("2026-01-01T00:00:00.000Z");
+    const { seller, order, row, key } = await seedRefundRow({
+      status: "SUCCEEDED",
+      retryCount: 1,
+      createdAt,
+      stripeRefundId: null,
+    });
+    const begun = await ensureFoundationStorefrontRefundOperation(prisma, {
+      storeOrderId: order.id,
+      memberId: seller.id,
+      amountCents: 1000,
+      kind: "FULL",
+      restockRequested: true,
+      now: new Date(createdAt.getTime() + 1000),
+    });
+    expect(begun.action).toBe("operator_required");
+    if (begun.action === "operator_required") {
+      expect(begun.reason).toBe("succeeded_without_stripe_refund_id");
+    }
+    const persisted = await prisma.refundOperation.findUnique({ where: { id: row.id } });
+    expect(persisted?.status).toBe("SUCCEEDED");
+    expect(persisted?.stripeRefundId).toBeNull();
+    expect(persisted?.providerIdempotencyKey).toBe(key);
+    expect(persisted?.retryCount).toBe(1);
   });
 });
 

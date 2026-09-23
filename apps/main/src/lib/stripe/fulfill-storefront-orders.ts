@@ -35,6 +35,7 @@ import {
   computeSellerTransferCents,
 } from "@/lib/storefront-payout";
 import { SOLD_BEFORE_CHECKOUT_REASON } from "@/lib/store-order-cancel-reasons";
+import { retrieveCheckoutChargeId } from "@/lib/stripe/source-charge";
 
 type FulfillOptions = {
   /** When set (app success return), only fulfill orders owned by this buyer. */
@@ -236,23 +237,7 @@ export async function fulfillStoreOrdersFromCheckoutSession(
     return { orderIds: toProcess };
   }
 
-  let chargeId: string | null = null;
-  if (paymentIntentId) {
-    try {
-      const piRetrieved = await stripe.paymentIntents.retrieve(paymentIntentId, {
-        expand: ["latest_charge"],
-      });
-      const ch = piRetrieved.latest_charge;
-      chargeId =
-        typeof ch === "string"
-          ? ch
-          : ch && typeof ch === "object" && "id" in ch
-            ? (ch as Stripe.Charge).id
-            : null;
-    } catch (piErr) {
-      console.error(`${log} retrieve PI for Connect transfer:`, piErr);
-    }
-  }
+  const chargeId = await retrieveCheckoutChargeId(stripe, paymentIntentId, log);
 
   const sellerIdList = [...new Set(ordersToFulfill.map((o) => o.sellerId))];
   const sellerRows = await prisma.member.findMany({
@@ -473,24 +458,6 @@ type FoundationPayoutRow = {
   sellerCreditsCents: number;
 };
 
-async function retrieveChargeId(stripe: Stripe, paymentIntentId: string | null, log: string): Promise<string | null> {
-  if (!paymentIntentId) return null;
-  try {
-    const piRetrieved = await stripe.paymentIntents.retrieve(paymentIntentId, {
-      expand: ["latest_charge"],
-    });
-    const ch = piRetrieved.latest_charge;
-    return typeof ch === "string"
-      ? ch
-      : ch && typeof ch === "object" && "id" in ch
-        ? (ch as Stripe.Charge).id
-        : null;
-  } catch (piErr) {
-    console.error(`${log} retrieve PI for Connect transfer:`, piErr);
-    return null;
-  }
-}
-
 async function fulfillFoundationPendingOrders(args: {
   stripe: Stripe;
   session: Stripe.Checkout.Session;
@@ -567,7 +534,7 @@ async function fulfillFoundationPendingOrders(args: {
     where: { memberId: buyerId, storeItemId: { in: allPurchasedIds } },
   });
 
-  const chargeId = await retrieveChargeId(stripe, paymentIntentId, log);
+  const chargeId = await retrieveCheckoutChargeId(stripe, paymentIntentId, log);
   const sellerIdList = [...new Set(ordersToFulfill.map((o) => o.sellerId))];
   const sellerRows = await prisma.member.findMany({
     where: { id: { in: sellerIdList } },

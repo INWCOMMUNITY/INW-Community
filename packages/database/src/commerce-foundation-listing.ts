@@ -164,6 +164,13 @@ export async function restockFoundationOrderLine(
   if (!line.id) {
     throw new FoundationRestockReviewError("Restock requires a durable OrderItem id");
   }
+  const state = await tx.inventoryState.findUnique({
+    where: { variantId },
+    select: { mode: true },
+  });
+  if (state?.mode === "MADE_TO_ORDER") {
+    return;
+  }
   await restockTrackedVariant(tx, {
     variantId,
     qty: line.quantity,

@@ -1190,6 +1190,55 @@ describe("prompt-65 checkout idempotency / races / restock", () => {
     expect(events).toHaveLength(2);
   });
 
+  it("MTO return restock converges without tracked inventory mutation", async () => {
+    await enterFoundation();
+    const member = await createMember(prisma, "mto-restock");
+    const item = await createStoreItem(prisma, member.id, "MTO restock", {
+      quantity: 999,
+      inventoryTracking: "made_to_order",
+    });
+    const provisioned = await prisma.$transaction((tx) => provisionNativeFoundationListing(tx, item.id));
+    const variantId = provisioned.variantIds[0];
+    const buyer = await createMember(prisma, "mto-restock-buy");
+    const order = await prisma.storeOrder.create({
+      data: { buyerId: buyer.id, sellerId: member.id, totalCents: 1000, subtotalCents: 1000 },
+    });
+    const line = await prisma.orderItem.create({
+      data: {
+        orderId: order.id,
+        storeItemId: item.id,
+        quantity: 1,
+        priceCentsAtPurchase: 1000,
+        variantId,
+      },
+    });
+    const before = await prisma.inventoryState.findUnique({ where: { variantId } });
+    await prisma.$transaction((tx) =>
+      restockFoundationOrderLine(
+        tx,
+        { id: line.id, storeItemId: item.id, quantity: 1, variantId },
+        "PHYSICAL_RECEIPT",
+        `return:${order.id}`
+      )
+    );
+    await prisma.$transaction((tx) =>
+      restockFoundationOrderLine(
+        tx,
+        { id: line.id, storeItemId: item.id, quantity: 1, variantId },
+        "PHYSICAL_RECEIPT",
+        `return:${order.id}`
+      )
+    );
+    const after = await prisma.inventoryState.findUnique({ where: { variantId } });
+    expect(after?.mode).toBe("MADE_TO_ORDER");
+    expect(after?.onHand).toBeNull();
+    expect(after?.reserved).toBeNull();
+    expect(after?.availabilityVersion).toBe(before?.availabilityVersion);
+    expect(
+      await prisma.inventoryEvent.count({ where: { variantId, eventType: { in: ["PHYSICAL_RECEIPT", "UNDO_CONSUMPTION"] } } })
+    ).toBe(0);
+  });
+
   it("direct Foundation checkout above the existing MTO cap leaves no attempt", async () => {
     await enterFoundation();
     const member = await createMember(prisma, "mto-cap");

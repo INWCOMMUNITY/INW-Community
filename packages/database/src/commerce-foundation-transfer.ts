@@ -305,7 +305,8 @@ export function classifyFoundationFailedTransferRetryability(
 }
 
 /**
- * Absolute same-key replay horizon. `lastAttemptAt` is observability / PROCESSING-staleness only.
+ * Absolute same-key replay horizon for TransferOperation, SellerReturnEntitlementOperation,
+ * and Foundation RefundOperation. `lastAttemptAt` is observability / PROCESSING-staleness only.
  * retryCount == 0: first provider attempt is allowed regardless of createdAt.
  * retryCount >= 1: automatic replay only if createdAt is within 23h of now.
  */
@@ -1047,11 +1048,18 @@ export type FoundationStorefrontRefundIntentInput = {
   restockRequested: boolean;
   checkoutAttemptId?: string | null;
   reason?: string | null;
+  now?: Date;
 };
 
 export type FoundationStorefrontRefundBeginAction =
   | { action: "provider_create"; operation: RefundOperation }
-  | { action: "already_succeeded"; operation: RefundOperation };
+  | { action: "already_succeeded"; operation: RefundOperation }
+  | { action: "replay_window_expired"; operation: RefundOperation }
+  | {
+      action: "operator_required";
+      operation: RefundOperation;
+      reason: "succeeded_without_stripe_refund_id";
+    };
 
 function refundIntentParamsMatch(
   row: RefundOperation,
@@ -1113,6 +1121,25 @@ export async function ensureFoundationStorefrontRefundOperation(
 
     if (locked.status === "SUCCEEDED" && locked.stripeRefundId) {
       return { action: "already_succeeded" as const, operation: locked };
+    }
+
+    if (locked.status === "SUCCEEDED" && !locked.stripeRefundId) {
+      return {
+        action: "operator_required" as const,
+        operation: locked,
+        reason: "succeeded_without_stripe_refund_id" as const,
+      };
+    }
+
+    const now = input.now ?? new Date();
+    if (
+      !isFoundationSameKeyReplayAllowed({
+        retryCount: locked.retryCount,
+        createdAt: locked.createdAt,
+        now,
+      })
+    ) {
+      return { action: "replay_window_expired" as const, operation: locked };
     }
 
     const next = await tx.refundOperation.update({

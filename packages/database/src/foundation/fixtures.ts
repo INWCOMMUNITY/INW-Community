@@ -109,12 +109,14 @@ export async function createOrder(
 
 export async function createStoreReturn(
   prisma: PrismaClient,
-  args: { orderId: string; status?: string }
+  args: { orderId: string; status?: string; receivedAt?: Date | null; id?: string }
 ) {
   return prisma.storeReturn.create({
     data: {
+      ...(args.id ? { id: args.id } : {}),
       orderId: args.orderId,
       status: args.status ?? "received",
+      ...(args.receivedAt !== undefined ? { receivedAt: args.receivedAt } : {}),
     },
   });
 }

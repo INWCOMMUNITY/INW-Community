@@ -94,9 +94,13 @@ if (process.env.NODE_ENV !== "production") globalThis.prisma = prismaClient;
 export * from "@prisma/client";
 export {
   closeOrDeleteMemberAccount,
+  countMemberDurableCommerceEvidence,
   durableCommerceFinancialNone,
 } from "./member-account-lifecycle";
-export type { MemberAccountLifecycleResult } from "./member-account-lifecycle";
+export type {
+  MemberAccountLifecycleResult,
+  MemberDurableCommerceEvidenceCounts,
+} from "./member-account-lifecycle";
 export {
   COMMERCE_FOUNDATION_CUTOVER_SINGLETON_ID,
   CommerceFoundationCutoverBlockedError,
@@ -177,6 +181,11 @@ export type {
   FoundationCheckoutProviderObservation,
   FoundationCheckoutReconciliationClassification,
 } from "./commerce-foundation-checkout-reconciliation";
+export {
+  FOUNDATION_RETURN_SETTLEMENT_RECONCILIATION_BATCH_SIZE,
+  listFoundationReturnSettlementCandidates,
+} from "./commerce-foundation-return-reconciliation";
+export type { FoundationReturnSettlementCandidate } from "./commerce-foundation-return-reconciliation";
 export { reconcileStoreItemQuantities, verifyFoundationListingHealth } from "./commerce-foundation-health";
 export {
   beginFoundationTransferAttempt,
@@ -240,3 +249,42 @@ export type {
   FoundationTransferResetErrorCode,
   MarkFoundationStoreOrderPaidInput,
 } from "./commerce-foundation-transfer";
+export {
+  FOUNDATION_RETURN_ENTITLEMENT_IDEMPOTENCY_PREFIX,
+  FOUNDATION_RETURN_ENTITLEMENT_LEDGER_TYPE,
+  FOUNDATION_RETURN_ENTITLEMENT_SNAPSHOT_MISSING_AFTER_ATTEMPT,
+  FoundationReturnEntitlementCausalError,
+  FoundationReturnEntitlementIntentConflictError,
+  beginFoundationReturnEntitlementAttempt,
+  completeFoundationSellerReturnEntitlementLedger,
+  foundationReturnEntitlementIdempotencyKey,
+  persistFoundationReturnEntitlementOutcome,
+  persistFoundationReturnEntitlementPreflightFailure,
+  persistFoundationReturnEntitlementSuccess,
+  prepareFoundationReturnSellerSettlement,
+  evaluateFoundationReturnEntitlementResetEligibility,
+  getFoundationReturnEntitlementAdminState,
+  resetFoundationSellerReturnEntitlementForRetry,
+} from "./commerce-foundation-return-entitlement";
+export type {
+  FoundationReturnEntitlementBeginAction,
+  FoundationReturnEntitlementPreflightFailureResult,
+  FoundationReturnEntitlementProviderSnapshot,
+  PrepareFoundationReturnSellerSettlementInput,
+  PrepareFoundationReturnSellerSettlementResult,
+  FoundationReturnEntitlementAdminState,
+  FoundationReturnEntitlementResetBlockedReason,
+  FoundationReturnEntitlementResetEligibility,
+  FoundationReturnEntitlementResetResult,
+} from "./commerce-foundation-return-entitlement";
+export {
+  FOUNDATION_RETURN_LEDGER_TYPE,
+  classifySellerBalanceLedgerEvidence,
+  isFoundationReturnLedgerAnomaly,
+} from "./commerce-foundation-return-ledger-evidence";
+export type {
+  FoundationReturnLedgerEvidenceClassification,
+  FoundationReturnLedgerEvidenceResult,
+  FoundationReturnLedgerEvidenceRow,
+  FoundationReturnLedgerExactExpectation,
+} from "./commerce-foundation-return-ledger-evidence";

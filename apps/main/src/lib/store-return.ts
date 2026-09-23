@@ -32,6 +32,42 @@ export function isAwaitingReturnStatus(status: string | null | undefined): boole
   return AWAITING_RETURN_STATUSES.includes(status as StoreReturnStatus);
 }
 
+/**
+ * `received` means physical possession, not financial completion
+ * (buyer copy: "Refund is being processed.").
+ * Receive/refund may re-enter while the return is physically received
+ * but StoreReturn is not yet `refunded`.
+ */
+export function isReturnReceiveRefundRetryable(status: string | null | undefined): boolean {
+  return isAwaitingReturnStatus(status) || status === "received";
+}
+
+export type StoreReturnSellerMoneyAction = "receive" | "retry_refund";
+
+export const STORE_RETURN_RECEIVE_ACTION_LABEL = "Mark received & refund";
+export const STORE_RETURN_RETRY_REFUND_ACTION_LABEL = "Retry refund";
+
+/**
+ * Seller web/mobile money action. `received` stays physical fact;
+ * Retry refund re-enters the same receive/refund route until StoreOrder is refunded.
+ */
+export function storeReturnSellerMoneyAction(args: {
+  returnStatus?: string | null;
+  orderStatus?: string | null;
+}): StoreReturnSellerMoneyAction | null {
+  if (args.orderStatus === "refunded") return null;
+  if (args.returnStatus === "refunded") return null;
+  if (isAwaitingReturnStatus(args.returnStatus)) return "receive";
+  if (args.returnStatus === "received") return "retry_refund";
+  return null;
+}
+
+export function storeReturnSellerMoneyActionLabel(action: StoreReturnSellerMoneyAction | null): string | null {
+  if (action === "receive") return STORE_RETURN_RECEIVE_ACTION_LABEL;
+  if (action === "retry_refund") return STORE_RETURN_RETRY_REFUND_ACTION_LABEL;
+  return null;
+}
+
 export const DEFAULT_ACCEPT_RETURNS_DAYS = 30;
 export const MIN_ACCEPT_RETURNS_DAYS = 1;
 export const MAX_ACCEPT_RETURNS_DAYS = 365;
@@ -197,6 +233,21 @@ export function sellerLedgerDebitForReturnCents(args: {
     chargeReturnShipping: args.chargeReturnShipping,
     returnLabelCostCents: args.returnLabelCostCents,
   });
+}
+
+/**
+ * Seller Connect cents retained after a return: original sale transfer minus the
+ * reversal that would apply if that transfer had already succeeded.
+ * Never negative; never greater than the original transfer.
+ */
+export function postReturnSellerEntitlementCents(args: {
+  originalTransferCents: number;
+  chargeReturnShipping: boolean;
+  returnLabelCostCents?: number | null;
+}): number {
+  const original = Math.max(0, args.originalTransferCents);
+  const reversal = sellerTransferReversalCents(args);
+  return Math.max(0, original - reversal);
 }
 
 export const BUYER_RETURN_SHIPPING_WARNING =

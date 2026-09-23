@@ -35,6 +35,10 @@
     {
       "path": "/api/cron/reconcile-foundation-checkouts",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-foundation-return-settlements",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

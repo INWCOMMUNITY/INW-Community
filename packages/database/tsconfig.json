@@ -9,5 +9,10 @@
     "declaration": true,
     "outDir": "dist"
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": [
+    "src/foundation/persist-local-storefront-refund.int.test.ts",
+    "src/foundation/store-return-request.int.test.ts",
+    "src/foundation/courtesy-refund-converge.int.test.ts"
+  ]
 }

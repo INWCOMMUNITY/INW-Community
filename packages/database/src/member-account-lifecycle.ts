@@ -23,6 +23,7 @@ export function durableCommerceFinancialNone(): Prisma.MemberWhereInput {
     variantBackfillMaps: { none: {} },
     refundOperations: { none: {} },
     transferOperations: { none: {} },
+    sellerReturnEntitlementOperations: { none: {} },
     sellerBalance: { is: null },
     sellerBalanceTransactions: { none: {} },
     subscriptions: { none: {} },
@@ -33,6 +34,116 @@ export function durableCommerceFinancialNone(): Prisma.MemberWhereInput {
     shippoApiKeyEncrypted: null,
     shippoOAuthTokenEncrypted: null,
   };
+}
+
+/**
+ * Read-only durable commerce/financial evidence counts for Member retention.
+ * SellerReturnEntitlementOperation counts ANY status (no amount / transfer-id filter).
+ */
+export type MemberDurableCommerceEvidenceCounts = {
+  ordersAsBuyer: number;
+  ordersAsSeller: number;
+  storeItems: number;
+  storeVariants: number;
+  checkoutAttempts: number;
+  inventoryStates: number;
+  inventoryEvents: number;
+  inventoryReservations: number;
+  variantBackfillMaps: number;
+  refundOperations: number;
+  transferOperations: number;
+  sellerReturnEntitlementOperations: number;
+  sellerBalance: number;
+  sellerBalanceTransactions: number;
+  subscriptions: number;
+  planSwitchLogs: number;
+  reports: number;
+};
+
+export async function countMemberDurableCommerceEvidence(
+  tx: Tx | PrismaClient,
+  memberId: string
+): Promise<MemberDurableCommerceEvidenceCounts> {
+  const [
+    ordersAsBuyer,
+    ordersAsSeller,
+    storeItems,
+    storeVariants,
+    checkoutAttempts,
+    inventoryStates,
+    inventoryEvents,
+    inventoryReservations,
+    variantBackfillMaps,
+    refundOperations,
+    transferOperations,
+    sellerReturnEntitlementOperations,
+    sellerBalance,
+    sellerBalanceTransactions,
+    subscriptions,
+    planSwitchLogs,
+    reports,
+  ] = await Promise.all([
+    tx.storeOrder.count({ where: { buyerId: memberId } }),
+    tx.storeOrder.count({ where: { sellerId: memberId } }),
+    tx.storeItem.count({ where: { memberId } }),
+    tx.storeVariant.count({ where: { memberId } }),
+    tx.checkoutAttempt.count({ where: { buyerMemberId: memberId } }),
+    tx.inventoryState.count({ where: { memberId } }),
+    tx.inventoryEvent.count({ where: { memberId } }),
+    tx.inventoryReservation.count({ where: { memberId } }),
+    tx.variantBackfillMap.count({ where: { memberId } }),
+    tx.refundOperation.count({ where: { memberId } }),
+    tx.transferOperation.count({ where: { memberId } }),
+    // Unit 5D: ANY entitlement row is durable financial evidence (no status/amount/transfer-id filter).
+    tx.sellerReturnEntitlementOperation.count({ where: { memberId } }),
+    tx.sellerBalance.count({ where: { memberId } }),
+    tx.sellerBalanceTransaction.count({ where: { memberId } }),
+    tx.subscription.count({ where: { memberId } }),
+    tx.planSwitchLog.count({ where: { memberId } }),
+    tx.report.count({ where: { reporterId: memberId } }),
+  ]);
+
+  return {
+    ordersAsBuyer,
+    ordersAsSeller,
+    storeItems,
+    storeVariants,
+    checkoutAttempts,
+    inventoryStates,
+    inventoryEvents,
+    inventoryReservations,
+    variantBackfillMaps,
+    refundOperations,
+    transferOperations,
+    sellerReturnEntitlementOperations,
+    sellerBalance,
+    sellerBalanceTransactions,
+    subscriptions,
+    planSwitchLogs,
+    reports,
+  };
+}
+
+function evidenceCountTotal(counts: MemberDurableCommerceEvidenceCounts): number {
+  return (
+    counts.ordersAsBuyer +
+    counts.ordersAsSeller +
+    counts.storeItems +
+    counts.storeVariants +
+    counts.checkoutAttempts +
+    counts.inventoryStates +
+    counts.inventoryEvents +
+    counts.inventoryReservations +
+    counts.variantBackfillMaps +
+    counts.refundOperations +
+    counts.transferOperations +
+    counts.sellerReturnEntitlementOperations +
+    counts.sellerBalance +
+    counts.sellerBalanceTransactions +
+    counts.subscriptions +
+    counts.planSwitchLogs +
+    counts.reports
+  );
 }
 
 async function memberMustRetain(tx: Tx, memberId: string): Promise<boolean> {
@@ -55,61 +166,8 @@ async function memberMustRetain(tx: Tx, memberId: string): Promise<boolean> {
     return true;
   }
 
-  const [
-    ordersAsBuyer,
-    ordersAsSeller,
-    storeItems,
-    storeVariants,
-    checkoutAttempts,
-    inventoryStates,
-    inventoryEvents,
-    inventoryReservations,
-    variantBackfillMaps,
-    refundOperations,
-    transferOperations,
-    sellerBalance,
-    sellerBalanceTransactions,
-    subscriptions,
-    planSwitchLogs,
-    reports,
-  ] = await Promise.all([
-    tx.storeOrder.count({ where: { buyerId: memberId } }),
-    tx.storeOrder.count({ where: { sellerId: memberId } }),
-    tx.storeItem.count({ where: { memberId } }),
-    tx.storeVariant.count({ where: { memberId } }),
-    tx.checkoutAttempt.count({ where: { buyerMemberId: memberId } }),
-    tx.inventoryState.count({ where: { memberId } }),
-    tx.inventoryEvent.count({ where: { memberId } }),
-    tx.inventoryReservation.count({ where: { memberId } }),
-    tx.variantBackfillMap.count({ where: { memberId } }),
-    tx.refundOperation.count({ where: { memberId } }),
-    tx.transferOperation.count({ where: { memberId } }),
-    tx.sellerBalance.count({ where: { memberId } }),
-    tx.sellerBalanceTransaction.count({ where: { memberId } }),
-    tx.subscription.count({ where: { memberId } }),
-    tx.planSwitchLog.count({ where: { memberId } }),
-    tx.report.count({ where: { reporterId: memberId } }),
-  ]);
-
-  return (
-    ordersAsBuyer +
-      ordersAsSeller +
-      storeItems +
-      storeVariants +
-      checkoutAttempts +
-      inventoryStates +
-      inventoryEvents +
-      inventoryReservations +
-      variantBackfillMaps +
-      refundOperations +
-      transferOperations +
-      sellerBalance +
-      sellerBalanceTransactions +
-      subscriptions +
-      planSwitchLogs +
-      reports >
-    0
-  );
+  const counts = await countMemberDurableCommerceEvidence(tx, memberId);
+  return evidenceCountTotal(counts) > 0;
 }
 
 async function purgeDisposableCommunityContent(tx: Tx, memberId: string): Promise<void> {
