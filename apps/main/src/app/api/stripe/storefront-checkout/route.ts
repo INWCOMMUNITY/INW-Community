@@ -29,6 +29,7 @@ import {
   type LocalDeliveryDetailsJson,
 } from "@/lib/pickup-delivery-checkout";
 import { ensureStripeCustomerForStorefrontCheckout } from "@/lib/stripe-storefront-checkout-customer";
+import { storefrontCheckoutTaxShippingParams } from "@/lib/storefront-checkout-session-params";
 import { shippingCentsForSellerLines } from "@/lib/checkout-shipping-cost";
 import {
   cancelStaleBuyerPendingOrders,
@@ -532,13 +533,9 @@ export async function POST(req: NextRequest) {
       payment_method_types: ["card"],
       success_url: successUrl,
       cancel_url: `${baseUrl}/storefront?canceled=1`,
-      automatic_tax: { enabled: true },
-      // Cart/checkout in-app: tax uses Customer shipping (no Stripe shipping step). Buy It Now: collect on Stripe.
-      billing_address_collection: "required",
+      // Cart: Customer.shipping pre-synced. Buy It Now: Stripe collects shipping + customer_update.shipping=auto for Tax.
+      ...storefrontCheckoutTaxShippingParams({ deferShippingToStripe }),
       customer: customerId,
-      ...(deferShippingToStripe
-        ? { shipping_address_collection: { allowed_countries: ["US"] } }
-        : {}),
       metadata,
       ...(branding ? { branding_settings: branding } : {}),
     };
