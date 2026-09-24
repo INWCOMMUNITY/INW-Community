@@ -1,4 +1,4 @@
-import { prisma } from "database";
+import { assertLegacyInteractiveMutationAllowed, prisma } from "database";
 import { inactiveStoreItemData } from "@/lib/store-item-ended-status";
 
 /**
@@ -7,6 +7,7 @@ import { inactiveStoreItemData } from "@/lib/store-item-ended-status";
  * appear for sale. Sold items are left as-is. Allows re-onboarding afterward.
  */
 export async function disconnectStripeAndDisableListings(memberId: string): Promise<void> {
+  await assertLegacyInteractiveMutationAllowed(prisma);
   await prisma.$transaction([
     prisma.member.update({
       where: { id: memberId },

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Prisma } from "database";
+import { commerceInventoryWriterRoute, getCommerceFoundationCutoverState, prisma, Prisma, resolveCheckoutVariant } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import {
   validateRequestedFulfillment,
@@ -141,6 +141,7 @@ export async function PATCH(
     quantity?: number;
     fulfillmentType?: string | null;
     variant?: unknown;
+    variantId?: string;
     localDeliveryDetails?: unknown;
     pickupDetails?: unknown;
   } = {};
@@ -174,6 +175,20 @@ export async function PATCH(
   }
   if (body.variant !== undefined) {
     updateData.variant = body.variant ? (body.variant as object) : Prisma.JsonNull;
+  }
+
+  const cutover = await getCommerceFoundationCutoverState(prisma);
+  if (commerceInventoryWriterRoute(cutover.mode) === "foundation") {
+    try {
+      const resolved = await resolveCheckoutVariant(prisma, item.storeItemId, {
+        variantId: item.variantId,
+        optionJson: nextVariant,
+      });
+      updateData.variantId = resolved.id;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Could not resolve variant";
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
   }
   if (body.localDeliveryDetails !== undefined) {
     updateData.localDeliveryDetails = body.localDeliveryDetails as object;

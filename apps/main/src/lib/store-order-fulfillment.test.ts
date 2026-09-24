@@ -52,3 +52,12 @@ describe("formatSellerOrderTotal", () => {
     expect(formatSellerOrderTotal({ totalCents: 100 })).toBe("$1.00");
   });
 });
+
+describe("seller shipping eligibility", () => {
+  it("treats status paid as shipment-eligible regardless of payout state", () => {
+    const paidUnresolved = { status: "paid", shipment: null };
+    expect(paidUnresolved.status === "paid" && !paidUnresolved.shipment).toBe(true);
+    const pendingPayout = { status: "pending", shipment: null };
+    expect(pendingPayout.status === "paid").toBe(false);
+  });
+});

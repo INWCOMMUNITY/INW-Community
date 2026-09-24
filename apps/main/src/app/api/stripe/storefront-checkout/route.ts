@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { prisma, Prisma } from "database";
+import {
+  classifyStripeSessionCreateFailure,
+  failCheckoutAttemptAndRelease,
+  FoundationCheckoutReuseError,
+  markCheckoutAttemptSessionOpen,
+  markCheckoutAttemptSessionUnknown,
+  prepareFoundationCheckout,
+  prisma,
+  Prisma,
+  stripeCheckoutRequestOptions,
+} from "database";
+import {
+  checkoutReconciliationHttpContract,
+  reconcileFoundationCheckoutAttempt,
+} from "@/lib/stripe/reconcile-foundation-checkout-attempt";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { getStripeCheckoutBranding } from "@/lib/stripe-branding";
@@ -22,6 +36,7 @@ import {
 } from "@/lib/storefront-checkout-hold";
 import { memberHasConnectPayoutsEnabled } from "@/lib/stripe-connect-payout-gate";
 import { sellerIsAwayFromOrders } from "@/lib/seller-write-gates";
+import { resolveCommerceInventoryWriter } from "@/lib/commerce-foundation-cutover-http";
 
 /**
  * Stripe Product tax code **General - Tangible Goods** (`txcd_99999999`).
@@ -44,6 +59,8 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const writer = await resolveCommerceInventoryWriter();
+  if (!writer.ok) return writer.response;
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeSecretKey?.startsWith("sk_") || stripeSecretKey.includes("...")) {
     return NextResponse.json(
@@ -257,6 +274,23 @@ export async function POST(req: NextRequest) {
 
   const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
   const orderIds: string[] = [];
+  const foundationOrders: Array<{
+    sellerId: string;
+    subtotalCents: number;
+    shippingCostCents: number;
+    totalCents: number;
+    shippingAddress: object | null;
+    localDeliveryDetails: object | null;
+    lines: Array<{
+      storeItemId: string;
+      quantity: number;
+      priceCentsAtPurchase: number;
+      variantJson?: unknown;
+      variantId?: string | null;
+      fulfillmentType?: string | null;
+      pickupDetails?: object | null;
+    }>;
+  }> = [];
 
   for (const [sellerId, sellerItems] of bySeller) {
     let subtotalCents = 0;
@@ -266,6 +300,7 @@ export async function POST(req: NextRequest) {
       quantity: number;
       priceCentsAtPurchase: number;
       variant?: unknown;
+      variantId?: string | null;
       fulfillmentType?: string;
       pickupDetails?: object;
     }[] = [];
@@ -319,6 +354,7 @@ export async function POST(req: NextRequest) {
         quantity: item.quantity,
         priceCentsAtPurchase: priceCents,
         variant: item.variant ?? undefined,
+        variantId: cartRow?.variantId ?? null,
         fulfillmentType,
         pickupDetails:
           fulfillmentType === "pickup" && cartRow?.pickupDetails
@@ -362,35 +398,82 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const order = await prisma.storeOrder.create({
-      data: {
-        buyerId: session.user.id,
+    const order = writer.route === "legacy"
+      ? await prisma.storeOrder.create({
+          data: {
+            buyerId: session.user.id,
+            sellerId,
+            subtotalCents,
+            shippingCostCents: orderShippingCents,
+            totalCents,
+            status: "pending",
+            shippingAddress: shippingAddress ? (shippingAddress as object) : Prisma.JsonNull,
+            localDeliveryDetails:
+              normalizedLocalDelivery && hasLocalDeliveryInThisOrder
+                ? (normalizedLocalDelivery as object)
+                : Prisma.JsonNull,
+          },
+        })
+      : null;
+    if (order) {
+      orderIds.push(order.id);
+      for (const oi of orderItems) {
+        await prisma.orderItem.create({
+          data: {
+            orderId: order.id,
+            storeItemId: oi.storeItemId,
+            quantity: oi.quantity,
+            priceCentsAtPurchase: oi.priceCentsAtPurchase,
+            variant: oi.variant == null ? Prisma.JsonNull : (oi.variant as object),
+            fulfillmentType: oi.fulfillmentType ?? null,
+            pickupDetails: oi.pickupDetails ? (oi.pickupDetails as object) : Prisma.JsonNull,
+          },
+        });
+      }
+    } else {
+      foundationOrders.push({
         sellerId,
         subtotalCents,
         shippingCostCents: orderShippingCents,
         totalCents,
-        status: "pending",
-        shippingAddress: shippingAddress ? (shippingAddress as object) : Prisma.JsonNull,
+        shippingAddress: shippingAddress ? (shippingAddress as object) : null,
         localDeliveryDetails:
           normalizedLocalDelivery && hasLocalDeliveryInThisOrder
             ? (normalizedLocalDelivery as object)
-            : Prisma.JsonNull,
-      },
-    });
-    orderIds.push(order.id);
-
-    for (const oi of orderItems) {
-      await prisma.orderItem.create({
-        data: {
-          orderId: order.id,
+            : null,
+        lines: orderItems.map((oi) => ({
           storeItemId: oi.storeItemId,
           quantity: oi.quantity,
           priceCentsAtPurchase: oi.priceCentsAtPurchase,
-          variant: oi.variant == null ? Prisma.JsonNull : (oi.variant as object),
+          variantJson: oi.variant,
+          variantId: oi.variantId ?? null,
           fulfillmentType: oi.fulfillmentType ?? null,
-          pickupDetails: oi.pickupDetails ? (oi.pickupDetails as object) : Prisma.JsonNull,
-        },
+          pickupDetails: oi.pickupDetails ?? null,
+        })),
       });
+    }
+  }
+
+  let foundationAttemptId: string | null = null;
+  let preparedAttempt: Awaited<ReturnType<typeof prepareFoundationCheckout>> | null = null;
+  if (writer.route === "foundation") {
+    try {
+      preparedAttempt = await prepareFoundationCheckout(prisma, {
+        buyerMemberId: session.user.id,
+        amountCents: foundationOrders.reduce((n, o) => n + o.totalCents, 0),
+        orders: foundationOrders,
+      });
+      foundationAttemptId = preparedAttempt.attemptId;
+      orderIds.push(...preparedAttempt.orderIds);
+    } catch (e) {
+      if (e instanceof FoundationCheckoutReuseError) {
+        return NextResponse.json(
+          { error: e.code, message: e.message, retryable: false },
+          { status: 409 }
+        );
+      }
+      const msg = e instanceof Error ? e.message : "Checkout could not reserve inventory";
+      return NextResponse.json({ error: msg }, { status: 400 });
     }
   }
 
@@ -459,15 +542,102 @@ export async function POST(req: NextRequest) {
       metadata,
       ...(branding ? { branding_settings: branding } : {}),
     };
-    const checkoutSession = await stripe.checkout.sessions.create(createParams);
 
-    await prisma.storeOrder.updateMany({
-      where: { id: { in: orderIds } },
-      data: { stripeCheckoutSessionId: checkoutSession.id },
-    });
+    if (
+      preparedAttempt?.reused &&
+      (preparedAttempt.state === "SESSION_OPEN" ||
+        (preparedAttempt.state === "SESSION_UNKNOWN" && preparedAttempt.stripeCheckoutSessionId))
+    ) {
+      const reconciled = await reconcileFoundationCheckoutAttempt({
+        prisma,
+        stripe,
+        attemptId: preparedAttempt.attemptId,
+      });
+      if (reconciled.classification === "ACTIVE" && reconciled.checkoutUrl) {
+        return NextResponse.json({ url: reconciled.checkoutUrl });
+      }
+      const http = checkoutReconciliationHttpContract(reconciled);
+      return NextResponse.json(http.body, { status: http.status });
+    }
 
-    return NextResponse.json({ url: checkoutSession.url });
+    let checkoutSession: Stripe.Checkout.Session;
+    try {
+      checkoutSession = preparedAttempt
+        ? await stripe.checkout.sessions.create(
+            createParams,
+            stripeCheckoutRequestOptions(preparedAttempt)
+          )
+        : await stripe.checkout.sessions.create(createParams);
+    } catch (e) {
+      if (foundationAttemptId) {
+        const kind = classifyStripeSessionCreateFailure(e);
+        if (kind === "unknown") {
+          await markCheckoutAttemptSessionUnknown(prisma, { attemptId: foundationAttemptId });
+          return NextResponse.json(
+            { error: "checkout_session_unknown", retryable: true },
+            { status: 503 }
+          );
+        }
+        await failCheckoutAttemptAndRelease(prisma, foundationAttemptId);
+      }
+      const message = e instanceof Error ? e.message : "Checkout failed";
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+
+    try {
+      if (foundationAttemptId) {
+        await markCheckoutAttemptSessionOpen(prisma, {
+          attemptId: foundationAttemptId,
+          stripeCheckoutSessionId: checkoutSession.id,
+          stripePaymentIntentId:
+            typeof checkoutSession.payment_intent === "string" ? checkoutSession.payment_intent : null,
+        });
+      } else {
+        await prisma.storeOrder.updateMany({
+          where: { id: { in: orderIds } },
+          data: { stripeCheckoutSessionId: checkoutSession.id },
+        });
+      }
+      return NextResponse.json({ url: checkoutSession.url });
+    } catch (e) {
+      if (e instanceof FoundationCheckoutReuseError && e.code === "checkout_session_conflict") {
+        return NextResponse.json(
+          { error: e.code, message: e.message, retryable: false },
+          { status: 409 }
+        );
+      }
+      if (foundationAttemptId) {
+        try {
+          await markCheckoutAttemptSessionUnknown(prisma, {
+            attemptId: foundationAttemptId,
+            stripeCheckoutSessionId: checkoutSession.id,
+            stripePaymentIntentId:
+              typeof checkoutSession.payment_intent === "string" ? checkoutSession.payment_intent : null,
+          });
+        } catch (unknownErr) {
+          if (
+            unknownErr instanceof FoundationCheckoutReuseError &&
+            unknownErr.code === "checkout_session_conflict"
+          ) {
+            return NextResponse.json(
+              { error: unknownErr.code, message: unknownErr.message, retryable: false },
+              { status: 409 }
+            );
+          }
+          throw unknownErr;
+        }
+        return NextResponse.json(
+          { error: "checkout_session_unknown", retryable: true },
+          { status: 503 }
+        );
+      }
+      const message = e instanceof Error ? e.message : "Checkout failed";
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
   } catch (e) {
+    if (foundationAttemptId) {
+      await failCheckoutAttemptAndRelease(prisma, foundationAttemptId);
+    }
     const message = e instanceof Error ? e.message : "Checkout failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }

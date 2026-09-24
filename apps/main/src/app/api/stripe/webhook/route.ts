@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { prisma, Prisma } from "database";
+import {
+  prisma,
+  Prisma,
+  assertLegacyDrainFinalizerAllowed,
+  commerceInventoryWriterRoute,
+  durableStartedAtFromUnixSeconds,
+  finalizeFoundationCheckoutPayment,
+  getCommerceFoundationCutoverState,
+  isCommerceFoundationCutoverBlockedError,
+  isPermanentFoundationNonconvertibleError,
+  markFoundationAttemptUnfulfillable,
+  markFoundationStoreOrderPaidAfterConvert,
+} from "database";
+import type { Plan } from "database";
 import { getAvailableQuantity } from "@/lib/store-item-variants";
 import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
 import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
@@ -27,11 +40,12 @@ import {
 } from "@/lib/storefront-payout";
 import { SOLD_BEFORE_CHECKOUT_REASON } from "@/lib/store-order-cancel-reasons";
 import {
+  ensureFoundationPayoutIntentsForAttempt,
   fulfillStoreOrdersFromCheckoutSession,
   syncStoreItemsAfterSale,
 } from "@/lib/stripe/fulfill-storefront-orders";
 import { recordConnectPayoutInLedger } from "@/lib/stripe/connect-payouts";
-import type { Plan } from "database";
+import { jsonIfCutoverBlocked } from "@/lib/commerce-foundation-cutover-http";
 
 /**
  * Idempotency: Stripe may deliver the same event more than once. All handlers in this file
@@ -222,6 +236,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  try {
   /** Snapshot / v1 events that actually write or update Subscription rows (thin v2.core.* events do not). */
   const SUBSCRIPTION_RELATED_EVENT_TYPES = new Set([
     "checkout.session.completed",
@@ -412,7 +427,9 @@ export async function POST(req: NextRequest) {
 
     const buyerId = session.metadata?.buyerId;
     const sellerId = session.metadata?.sellerId;
-    if (buyerId && sellerId && session.mode === "payment") {
+    const sessionCutover = await getCommerceFoundationCutoverState(prisma);
+    const sessionWriter = commerceInventoryWriterRoute(sessionCutover.mode);
+    if (buyerId && sellerId && session.mode === "payment" && sessionWriter !== "foundation") {
       const existing = await prisma.storeOrder.findFirst({
         where: { stripeCheckoutSessionId: session.id },
       });
@@ -456,6 +473,11 @@ export async function POST(req: NextRequest) {
           orderItems = [];
         }
 
+        await assertLegacyDrainFinalizerAllowed(
+          prisma,
+          durableStartedAtFromUnixSeconds(session.created)
+        );
+
         const order = await prisma.storeOrder.create({
           data: {
             buyerId,
@@ -494,10 +516,15 @@ export async function POST(req: NextRequest) {
             where: { id: oi.storeItemId },
           });
           if (storeItem) {
-            await applyStoreItemDecrementAfterSale(prisma, storeItem, {
-              quantity: oi.quantity,
-              variant: oi.variant,
-            });
+            await applyStoreItemDecrementAfterSale(
+              prisma,
+              storeItem,
+              {
+                quantity: oi.quantity,
+                variant: oi.variant,
+              },
+              { startedAt: durableStartedAtFromUnixSeconds(session.created) }
+            );
           }
           const updated = await prisma.storeItem.findUnique({
             where: { id: oi.storeItemId },
@@ -654,12 +681,13 @@ export async function POST(req: NextRequest) {
             })
           );
         }
-        await restockAfterExternalRefund(o.id, stripe).catch((err) =>
+        await restockAfterExternalRefund(o.id, stripe).catch((err) => {
+          if (isCommerceFoundationCutoverBlockedError(err)) throw err;
           console.error("[stripe/webhook] restock after refund/dispute failed", {
             orderId: o.id,
             error: String(err),
-          })
-        );
+          });
+        });
       }
     }
   }
@@ -713,6 +741,8 @@ export async function POST(req: NextRequest) {
     // AFTER the loop and AWAIT it, so the serverless function doesn't return before the multi-step
     // Wix write completes (fire-and-forget waitUntil was getting cut off, leaving Wix stale).
     const piSyncStoreItemIds = new Set<string>();
+    const piCutover = await getCommerceFoundationCutoverState(prisma);
+    const piWriter = commerceInventoryWriterRoute(piCutover.mode);
 
     for (const orderId of orderIdsList) {
       const order = await prisma.storeOrder.findFirst({
@@ -720,6 +750,49 @@ export async function POST(req: NextRequest) {
         include: { items: true },
       });
       if (!order) continue;
+
+      if (piWriter === "foundation") {
+        if (!order.checkoutAttemptId) {
+          console.error("[webhook] payment_intent.succeeded: FOUNDATION order missing CheckoutAttempt", {
+            orderId,
+          });
+          continue;
+        }
+        if (order.commerceStatus === "UNFULFILLABLE") {
+          continue;
+        }
+        await ensureFoundationPayoutIntentsForAttempt(order.checkoutAttemptId);
+        try {
+          await finalizeFoundationCheckoutPayment(prisma, {
+            attemptId: order.checkoutAttemptId,
+            stripePaymentIntentId: paymentIntent.id,
+            stripeEventId: event.id,
+            eventType: event.type,
+          });
+        } catch (err) {
+          if (isPermanentFoundationNonconvertibleError(err)) {
+            await markFoundationAttemptUnfulfillable(prisma, order.checkoutAttemptId);
+            console.info("[webhook] payment_intent.succeeded: foundation unfulfillable", {
+              orderId,
+              attemptId: order.checkoutAttemptId,
+            });
+            continue;
+          }
+          throw err;
+        }
+        const attemptOrders = await prisma.storeOrder.findMany({
+          where: { checkoutAttemptId: order.checkoutAttemptId },
+          select: { id: true },
+        });
+        for (const paidOrder of attemptOrders) {
+          await markFoundationStoreOrderPaidAfterConvert(prisma, {
+            storeOrderId: paidOrder.id,
+            stripePaymentIntentId: paymentIntent.id,
+          });
+        }
+        for (const oi of order.items) piSyncStoreItemIds.add(oi.storeItemId);
+        continue;
+      }
 
       // Idempotency: do not process the same payment twice (Stripe may redeliver payment_intent.succeeded)
       if (order.status === "paid" && order.stripePaymentIntentId === paymentIntent.id) {
@@ -805,6 +878,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
+      await assertLegacyDrainFinalizerAllowed(prisma, order.createdAt);
       await prisma.storeOrder.update({
         where: { id: order.id },
         data: {
@@ -821,10 +895,15 @@ export async function POST(req: NextRequest) {
         });
         if (storeItem) titleByItemIdPI.set(oi.storeItemId, storeItem.title);
         if (storeItem) {
-          await applyStoreItemDecrementAfterSale(prisma, storeItem, {
-            quantity: oi.quantity,
-            variant: oi.variant,
-          });
+          await applyStoreItemDecrementAfterSale(
+            prisma,
+            storeItem,
+            {
+              quantity: oi.quantity,
+              variant: oi.variant,
+            },
+            { startedAt: order.createdAt }
+          );
         }
         const updated = await prisma.storeItem.findUnique({
           where: { id: oi.storeItemId },
@@ -996,11 +1075,17 @@ export async function POST(req: NextRequest) {
     if (subscriptionEnded) {
       const uniqueMembers = [...new Set(affectedRows.map((r) => r.memberId))];
       for (const memberId of uniqueMembers) {
-        await removeNwcMemberPerksAfterSubscriptionEnd(memberId).catch((err) =>
-          console.error("[stripe/webhook] perk cleanup", memberId, err)
-        );
+        await removeNwcMemberPerksAfterSubscriptionEnd(memberId).catch((err) => {
+          if (isCommerceFoundationCutoverBlockedError(err)) throw err;
+          console.error("[stripe/webhook] perk cleanup", memberId, err);
+        });
       }
     }
   }
   return NextResponse.json({ received: true });
+  } catch (e) {
+    const blocked = jsonIfCutoverBlocked(e);
+    if (blocked) return blocked;
+    throw e;
+  }
 }

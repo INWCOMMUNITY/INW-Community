@@ -5,6 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { restockOrderLinesAfterReturn } from "@/lib/store-item-restock";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 import { refundPaidStorefrontOrder } from "@/lib/stripe/refund-store-order";
+import { gateInteractiveOrFoundationWriter } from "@/lib/commerce-foundation-cutover-http";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,8 @@ export async function POST(
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const blocked = await gateInteractiveOrFoundationWriter();
+  if (blocked) return blocked;
 
   const { id } = await params;
   const order = await prisma.storeOrder.findFirst({
@@ -64,7 +67,12 @@ export async function POST(
           inventoryRestoredAt: new Date(),
         },
       });
-      await restockOrderLinesAfterReturn(tx, order.items);
+      await restockOrderLinesAfterReturn(
+        tx,
+        order.items,
+        "UNDO_CONSUMPTION",
+        `seller-cancel:${order.id}`
+      );
     });
   } else {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;

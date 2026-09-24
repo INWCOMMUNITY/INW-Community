@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 
 export type ListingFixture = {
   memberId: string;
@@ -27,16 +27,31 @@ export async function createMember(prisma: PrismaClient, label = "m") {
 export async function createStoreItem(
   prisma: PrismaClient,
   memberId: string,
-  title = "Foundation item"
+  title = "Foundation item",
+  extra?: {
+    quantity?: number;
+    variants?: Prisma.InputJsonValue | null;
+    inventoryTracking?: string;
+    sku?: string | null;
+    priceCents?: number;
+    photos?: string[];
+    status?: string;
+    barcode?: string | null;
+  }
 ) {
   return prisma.storeItem.create({
     data: {
       memberId,
       title,
       slug: `foundation-${nonce()}`,
-      priceCents: 1000,
-      photos: [],
-      quantity: 0,
+      priceCents: extra?.priceCents ?? 1000,
+      photos: extra?.photos ?? [],
+      quantity: extra?.quantity ?? 0,
+      ...(extra?.variants !== undefined ? { variants: extra.variants ?? undefined } : {}),
+      ...(extra?.inventoryTracking ? { inventoryTracking: extra.inventoryTracking } : {}),
+      ...(extra?.sku !== undefined ? { sku: extra.sku } : {}),
+      ...(extra?.status ? { status: extra.status } : {}),
+      ...(extra?.barcode !== undefined ? { barcode: extra.barcode } : {}),
     },
   });
 }
@@ -88,6 +103,20 @@ export async function createOrder(
       totalCents: 1000,
       subtotalCents: 1000,
       ...(args.checkoutAttemptId ? { checkoutAttemptId: args.checkoutAttemptId } : {}),
+    },
+  });
+}
+
+export async function createStoreReturn(
+  prisma: PrismaClient,
+  args: { orderId: string; status?: string; receivedAt?: Date | null; id?: string }
+) {
+  return prisma.storeReturn.create({
+    data: {
+      ...(args.id ? { id: args.id } : {}),
+      orderId: args.orderId,
+      status: args.status ?? "received",
+      ...(args.receivedAt !== undefined ? { receivedAt: args.receivedAt } : {}),
     },
   });
 }

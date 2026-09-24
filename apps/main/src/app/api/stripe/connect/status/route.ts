@@ -4,6 +4,7 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { deactivateActiveListingsIfMemberLacksConnect } from "@/lib/store-listing-stripe-rules";
 import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconnect";
+import { jsonIfCutoverBlocked } from "@/lib/commerce-foundation-cutover-http";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2024-11-20.acacia" as "2023-10-16",
@@ -23,7 +24,13 @@ export async function GET(req: NextRequest) {
   });
 
   if (!member?.stripeConnectAccountId) {
-    await deactivateActiveListingsIfMemberLacksConnect(userId);
+    try {
+      await deactivateActiveListingsIfMemberLacksConnect(userId);
+    } catch (e) {
+      const cutover = jsonIfCutoverBlocked(e);
+      if (cutover) return cutover;
+      throw e;
+    }
     return NextResponse.json({
       onboarded: false,
       accountId: null,
@@ -43,7 +50,13 @@ export async function GET(req: NextRequest) {
     const msg = e instanceof Error ? e.message : String(e);
     const accountGone = /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
     if (accountGone) {
-      await disconnectStripeAndDisableListings(userId).catch(() => {});
+      try {
+        await disconnectStripeAndDisableListings(userId);
+      } catch (e) {
+        const cutover = jsonIfCutoverBlocked(e);
+        if (cutover) return cutover;
+        throw e;
+      }
     }
     return NextResponse.json({
       onboarded: false,
@@ -52,6 +65,8 @@ export async function GET(req: NextRequest) {
     });
   }
   } catch (e) {
+    const cutover = jsonIfCutoverBlocked(e);
+    if (cutover) return cutover;
     const msg = e instanceof Error ? e.message : "Database error";
     const isConn = /P1001|ECONNREFUSED|connect/i.test(String(e));
     return NextResponse.json(

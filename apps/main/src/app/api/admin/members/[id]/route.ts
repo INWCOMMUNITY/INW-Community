@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { requireAdmin } from "@/lib/admin-auth";
 import { closeOrDeleteMemberAccountWithBilling } from "@/lib/close-or-delete-member-with-billing";
+import { jsonIfCutoverBlocked } from "@/lib/commerce-foundation-cutover-http";
 
 export async function PATCH(
   req: NextRequest,
@@ -57,6 +58,8 @@ export async function DELETE(
       billingCleanupPending: result.billingCleanupPending,
     });
   } catch (e) {
+    const cutover = jsonIfCutoverBlocked(e);
+    if (cutover) return cutover;
     console.error("[admin] member delete", id, e);
     return NextResponse.json({ error: "Could not delete member" }, { status: 500 });
   }

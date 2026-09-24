@@ -46,6 +46,7 @@ const prismaClient = (() => {
     typeof (existing as { stripeEventEvidence?: unknown }).stripeEventEvidence !== "undefined" &&
     typeof (existing as { refundOperation?: unknown }).refundOperation !== "undefined" &&
     typeof (existing as { transferOperation?: unknown }).transferOperation !== "undefined" &&
+    typeof (existing as { commerceFoundationCutover?: unknown }).commerceFoundationCutover !== "undefined" &&
     prismaHasShippingOptionCost(existing)
   ) {
     return existing;
@@ -93,6 +94,264 @@ if (process.env.NODE_ENV !== "production") globalThis.prisma = prismaClient;
 export * from "@prisma/client";
 export {
   closeOrDeleteMemberAccount,
+  countMemberDurableCommerceEvidence,
   durableCommerceFinancialNone,
 } from "./member-account-lifecycle";
-export type { MemberAccountLifecycleResult } from "./member-account-lifecycle";
+export type {
+  MemberAccountLifecycleResult,
+  MemberDurableCommerceEvidenceCounts,
+} from "./member-account-lifecycle";
+export {
+  COMMERCE_FOUNDATION_CUTOVER_SINGLETON_ID,
+  CommerceFoundationCutoverBlockedError,
+  CommerceFoundationCutoverStateError,
+  CommerceFoundationWriterModeError,
+  INVENTORY_CUTOVER_FROZEN_ERROR,
+  assertFoundationInventoryWriterAllowed,
+  assertLegacyDrainFinalizerAllowed,
+  assertLegacyInteractiveMutationAllowed,
+  commerceInventoryWriterRoute,
+  durableStartedAtFromUnixSeconds,
+  getCommerceFoundationCutoverState,
+  isCommerceFoundationCutoverBlockedError,
+  isFoundationInventoryWriterMode,
+} from "./commerce-foundation-cutover";
+export type { CommerceFoundationCutoverState, CommerceFoundationCutoverWriterClass } from "./commerce-foundation-cutover";
+export {
+  FoundationInsufficientAvailabilityError,
+  FoundationInventoryError,
+  FoundationMissingStateError,
+  FoundationReservationError,
+  FoundationRestockReviewError,
+  convertReservation,
+  holdTrackedReservation,
+  lockCheckoutAttemptForUpdate,
+  lockStoreItemForUpdate,
+  projectStoreItemQuantity,
+  releaseReservation,
+  restockTrackedVariant,
+  setTrackedOnHand,
+  trackedAvailable,
+} from "./commerce-foundation-inventory";
+export {
+  FoundationVariantResolutionError,
+  resolveCheckoutVariant,
+  resolveMatrixVariant,
+  resolveSimpleDefaultVariant,
+} from "./commerce-foundation-variant-resolution";
+export {
+  applyFoundationSellerQuantitySets,
+  assertFoundationMatrixStructureUnchanged,
+  assertNoStructuralVariantChange,
+  endFoundationListing,
+  markFoundationListingSold,
+  provisionNativeFoundationListing,
+  relistFoundationListing,
+  restockFoundationOrderLine,
+} from "./commerce-foundation-listing";
+export {
+  canonicalCheckoutVariantIdentity,
+  checkoutPrepareAdvisoryLockKeys,
+  classifyStripeSessionCreateFailure,
+  expireFoundationCheckoutAttempt,
+  failCheckoutAttemptAndRelease,
+  finalizeFoundationCheckoutPayment,
+  FOUNDATION_MTO_PURCHASE_CAP,
+  foundationAttemptExpiryDecision,
+  FoundationCheckoutNotConvertibleError,
+  FoundationCheckoutReuseError,
+  hashFoundationCart,
+  markCheckoutAttemptSessionOpen,
+  markCheckoutAttemptSessionUnknown,
+  newCheckoutIdempotencyKey,
+  prepareFoundationCheckout,
+  stripeCheckoutRequestOptions,
+} from "./commerce-foundation-checkout";
+export type { FoundationCheckoutSellerOrderInput } from "./commerce-foundation-checkout";
+export {
+  applyFoundationCheckoutProviderObservation,
+  FOUNDATION_CHECKOUT_HOLD_MS,
+  FOUNDATION_CHECKOUT_RECONCILIATION_BATCH_SIZE,
+  foundationCheckoutReconciliationCronAllowed,
+  hostedCheckoutUrlIfActive,
+  listFoundationCheckoutReconciliationCandidates,
+} from "./commerce-foundation-checkout-reconciliation";
+export type {
+  FoundationCheckoutObservationResult,
+  FoundationCheckoutProviderObservation,
+  FoundationCheckoutReconciliationClassification,
+} from "./commerce-foundation-checkout-reconciliation";
+export {
+  FOUNDATION_RETURN_SETTLEMENT_RECONCILIATION_BATCH_SIZE,
+  listFoundationReturnSettlementCandidates,
+} from "./commerce-foundation-return-reconciliation";
+export type { FoundationReturnSettlementCandidate } from "./commerce-foundation-return-reconciliation";
+export { reconcileStoreItemQuantities, verifyFoundationListingHealth } from "./commerce-foundation-health";
+export {
+  beginFoundationTransferAttempt,
+  classifyFoundationFailedTransferRetryability,
+  classifyStripeTransferFailure,
+  COMMERCE_UNFULFILLABLE_BEFORE_TRANSFER,
+  completeFoundationSellerPayoutLedger,
+  completeFoundationStoreOrderPaid,
+  ensureFoundationStorefrontRefundOperation,
+  ensureFoundationTransferIntent,
+  ensureFoundationTransferIntents,
+  evaluateFoundationPayoutRefundDisposition,
+  FOUNDATION_PAYOUT_AUTO_RETRY_OPERATION_STATUSES,
+  FOUNDATION_PAYOUT_UNRESOLVED_OPERATION_STATUSES,
+  FOUNDATION_SELLER_PAYOUT_ELIGIBLE_ORDER_STATUSES,
+  FOUNDATION_STOREFRONT_REFUND_IDEMPOTENCY_PREFIX,
+  FOUNDATION_TRANSFER_IDEMPOTENCY_WINDOW_MS,
+  FOUNDATION_TRANSFER_PROCESSING_STALE_MS,
+  FOUNDATION_TRANSFER_SUCCEEDED_WITHOUT_ID,
+  FOUNDATION_COMPATIBILITY_TRANSFER_ID_CONFLICT,
+  foundationSellerPayoutRecoveryWhere,
+  foundationStorefrontRefundIdempotencyKey,
+  foundationSucceededPayoutLocalRepairOutstanding,
+  foundationSucceededPayoutWhere,
+  foundationTransferIdempotencyKey,
+  isFoundationSucceededPayoutLocalRepairEligible,
+  listFoundationSucceededPayoutLocalRepairAttemptIds,
+  FoundationRefundIntentConflictError,
+  FoundationTransferIntentConflictError,
+  FoundationTransferOperatorRequiredError,
+  FoundationTransferRefundBlockedError,
+  FoundationTransferResetError,
+  isFoundationBuyerSaleCompleteStatus,
+  isFoundationSameKeyReplayAllowed,
+  isFoundationSellerPayoutEligibleOrderStatus,
+  isPermanentFoundationNonconvertibleError,
+  isRetryableFoundationCommerceError,
+  listFoundationPayoutReconciliation,
+  lockFoundationPayoutOutForRefund,
+  markFoundationAttemptUnfulfillable,
+  markFoundationAttemptUnfulfillableInTx,
+  markFoundationStoreOrderPaidAfterConvert,
+  OPERATOR_RESET_FOR_RETRY,
+  ORDER_REFUNDED_BEFORE_TRANSFER,
+  persistFoundationRefundOutcome,
+  persistFoundationRefundSuccess,
+  persistFoundationTransferOutcome,
+  persistFoundationTransferSuccess,
+  resetFoundationTransferForOperatorRetry,
+} from "./commerce-foundation-transfer";
+export type {
+  CompleteFoundationPaidOrderInput,
+  FoundationFailedTransferRetryability,
+  FoundationPayoutOperationView,
+  FoundationPayoutRefundDisposition,
+  FoundationPayoutRefundLockResult,
+  FoundationStorefrontRefundBeginAction,
+  FoundationStorefrontRefundIntentInput,
+  FoundationTransferBeginAction,
+  FoundationTransferIntentInput,
+  FoundationTransferResetErrorCode,
+  MarkFoundationStoreOrderPaidInput,
+} from "./commerce-foundation-transfer";
+export {
+  FOUNDATION_RETURN_ENTITLEMENT_IDEMPOTENCY_PREFIX,
+  FOUNDATION_RETURN_ENTITLEMENT_LEDGER_TYPE,
+  FOUNDATION_RETURN_ENTITLEMENT_SNAPSHOT_MISSING_AFTER_ATTEMPT,
+  FoundationReturnEntitlementCausalError,
+  FoundationReturnEntitlementIntentConflictError,
+  beginFoundationReturnEntitlementAttempt,
+  completeFoundationSellerReturnEntitlementLedger,
+  foundationReturnEntitlementIdempotencyKey,
+  persistFoundationReturnEntitlementOutcome,
+  persistFoundationReturnEntitlementPreflightFailure,
+  persistFoundationReturnEntitlementSuccess,
+  prepareFoundationReturnSellerSettlement,
+  evaluateFoundationReturnEntitlementResetEligibility,
+  getFoundationReturnEntitlementAdminState,
+  resetFoundationSellerReturnEntitlementForRetry,
+} from "./commerce-foundation-return-entitlement";
+export type {
+  FoundationReturnEntitlementBeginAction,
+  FoundationReturnEntitlementPreflightFailureResult,
+  FoundationReturnEntitlementProviderSnapshot,
+  PrepareFoundationReturnSellerSettlementInput,
+  PrepareFoundationReturnSellerSettlementResult,
+  FoundationReturnEntitlementAdminState,
+  FoundationReturnEntitlementResetBlockedReason,
+  FoundationReturnEntitlementResetEligibility,
+  FoundationReturnEntitlementResetResult,
+} from "./commerce-foundation-return-entitlement";
+export {
+  FOUNDATION_RETURN_LEDGER_TYPE,
+  classifySellerBalanceLedgerEvidence,
+  isFoundationReturnLedgerAnomaly,
+} from "./commerce-foundation-return-ledger-evidence";
+export type {
+  FoundationReturnLedgerEvidenceClassification,
+  FoundationReturnLedgerEvidenceResult,
+  FoundationReturnLedgerEvidenceRow,
+  FoundationReturnLedgerExactExpectation,
+} from "./commerce-foundation-return-ledger-evidence";
+export {
+  HISTORICAL_REFUND_COMPATIBILITY_MANIFEST_VERSION,
+  analyzeHistoricalRefundCompatibility,
+  classifyHistoricalRefundCompatibility,
+  evaluateHistoricalRefundAlreadySettled,
+  hashHistoricalRefundCompatibilityRecords,
+  isHistoricalRefundAlreadySettled,
+  isHistoricalRefundCompatibilityReviewRequired,
+  isHistoricalRefundFinancialNoOp,
+  isHistoricalRefundOrdinaryFoundationFlow,
+  loadHistoricalRefundCompatibilityEvidence,
+  loadHistoricalRefundRuntimeDecision,
+  maskStripeTransferId as maskHistoricalRefundStripeTransferId,
+  mustBlockHistoricalSellerFinancialMutation,
+  hasHistoricalLegacyReturnSettlementFingerprint,
+  hasStrongHistoricalSettledFingerprintIgnoringCanonicalOps,
+  isCanonicalFoundationOpOnlyAnomalyReasons,
+  resolveHistoricalRefundRuntimeDecision,
+  runHistoricalExternalRefundRestockBranch,
+  shouldSkipSellerLedgerDebitForHistoricalRefund,
+} from "./foundation/historical-refund-compatibility";
+export type {
+  HistoricalExternalRefundRestockBranchResult,
+  HistoricalRefundCompatibilityClassification,
+  HistoricalRefundCompatibilityEvidence,
+  HistoricalRefundCompatibilityManifest,
+  HistoricalRefundCompatibilityReasonCode,
+  HistoricalRefundCompatibilityRecord,
+  HistoricalRefundLedgerRow,
+  HistoricalRefundRuntimeAction,
+  HistoricalRefundRuntimeDecision,
+  HistoricalRefundTransferOperationEvidence,
+} from "./foundation/historical-refund-compatibility";
+export {
+  HISTORICAL_STOREFRONT_TRANSFER_CURRENCY,
+  HISTORICAL_TO_ALLOWED_APPLY_CUTOVER_MODES,
+  HISTORICAL_TO_BACKFILL_MANIFEST_VERSION,
+  analyzeHistoricalTransferOperationBackfill,
+  applyHistoricalTransferOperationBackfill,
+  buildHistoricalToPreviewManifest,
+  canReconstructHistoricalSellerTransferCents,
+  classifyHistoricalTransferOperationCandidate,
+  hashHistoricalToCandidates,
+  loadHistoricalToCandidateEvidence,
+  maskStripeTransferId,
+  reconstructHistoricalSellerTransferCents,
+  buildExpectedHistoricalTransferOperation,
+  isExactHistoricalTransferOperationMatch,
+} from "./foundation/historical-transfer-operation-backfill";
+export type {
+  AnalyzeHistoricalToBackfillInput,
+  ApplyHistoricalToBackfillInput,
+  ApplyHistoricalToBackfillResult,
+  HistoricalSaleLedgerEvidence,
+  HistoricalReturnLedgerEvidence,
+  HistoricalToAllowedApplyCutoverMode,
+  HistoricalToApplyItemResult,
+  HistoricalToApplyOutcome,
+  HistoricalToApplyOverallStatus,
+  HistoricalToCandidateEvidence,
+  HistoricalToCandidateRecord,
+  HistoricalToClassification,
+  HistoricalToExpectedCanonicalRow,
+  HistoricalToExistingRow,
+  HistoricalToReasonCode,
+  HistoricalTransferOperationBackfillManifest,
+} from "./foundation/historical-transfer-operation-backfill";

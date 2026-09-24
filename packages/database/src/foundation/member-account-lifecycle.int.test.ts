@@ -1,12 +1,19 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeOrDeleteMemberAccount, durableCommerceFinancialNone } from "../member-account-lifecycle";
+import {
+  closeOrDeleteMemberAccount,
+  countMemberDurableCommerceEvidence,
+  durableCommerceFinancialNone,
+} from "../member-account-lifecycle";
 import {
   createCheckoutAttempt,
   createListing,
   createMember,
   createOrder,
+  createRefundOperation,
   createStoreItem,
+  createStoreReturn,
+  createTransferOperation,
   createVariant,
 } from "./fixtures";
 import { foundationTestDatabaseUrl } from "./local-url";
@@ -316,5 +323,151 @@ describe("Member account lifecycle (real PostgreSQL)", () => {
     const kept = await prisma.report.findUnique({ where: { id: report.id } });
     expect(kept).not.toBeNull();
     expect(kept?.reporterId).toBe(member.id);
+  });
+});
+
+describe("Unit 5D: SellerReturnEntitlementOperation durable retention (real PostgreSQL)", () => {
+  it("filter shape: durableCommerceFinancialNone excludes entitlement ops (no status clause)", () => {
+    const filter = durableCommerceFinancialNone();
+    expect(filter.sellerReturnEntitlementOperations).toEqual({ none: {} });
+    expect(filter.transferOperations).toEqual({ none: {} });
+    expect(filter.refundOperations).toEqual({ none: {} });
+    expect(filter.storeOrdersAsSeller).toEqual({ none: {} });
+  });
+
+  let seq = 0;
+  function entitlementKey(prefix: string) {
+    seq += 1;
+    return `${prefix}_${Date.now().toString(36)}_${seq}`;
+  }
+
+  async function sellerWithEntitlement(status: "PENDING" | "PROCESSING" | "SUCCEEDED" | "FAILED" | "UNCERTAIN") {
+    const seller = await createMember(prisma, `u5d-${status.toLowerCase()}`);
+    const buyer = await createMember(prisma, `u5d-b-${status.toLowerCase()}`);
+    const order = await createOrder(prisma, { buyerId: buyer.id, sellerId: seller.id });
+    const storeReturn = await createStoreReturn(prisma, { orderId: order.id });
+    const entitlement = await prisma.sellerReturnEntitlementOperation.create({
+      data: {
+        memberId: seller.id,
+        storeOrderId: order.id,
+        storeReturnId: storeReturn.id,
+        amountCents: 1000,
+        status,
+        providerIdempotencyKey: entitlementKey(`nwc_store_return_entitlement_${status}`),
+        // No stripeTransferId — FAILED/PENDING/UNCERTAIN evidence still counts (no transfer-id filter).
+      },
+    });
+    return { seller, buyer, order, storeReturn, entitlement };
+  }
+
+  it("zero entitlement rows → entitlement evidence count is 0", async () => {
+    const member = await createMember(prisma, "u5d-zero");
+    const counts = await countMemberDurableCommerceEvidence(prisma, member.id);
+    expect(counts.sellerReturnEntitlementOperations).toBe(0);
+    const result = await closeOrDeleteMemberAccount(prisma, member.id);
+    expect(result).toEqual({ ok: true, outcome: "deleted" });
+  });
+
+  it("status matrix: ANY entitlement status forces explicit entitlement evidence count=1", async () => {
+    for (const status of ["PENDING", "PROCESSING", "FAILED", "UNCERTAIN", "SUCCEEDED"] as const) {
+      const { seller, order } = await sellerWithEntitlement(status);
+      const counts = await countMemberDurableCommerceEvidence(prisma, seller.id);
+      // Explicit entitlement contribution (StoreOrder also present; assert entitlement field itself).
+      expect(counts.sellerReturnEntitlementOperations, status).toBe(1);
+      expect(counts.ordersAsSeller, status).toBe(1);
+      // Classifier has no status / amount / transfer-id filter: raw count matches findMany without where.status.
+      const unfiltered = await prisma.sellerReturnEntitlementOperation.count({
+        where: { memberId: seller.id },
+      });
+      expect(unfiltered, status).toBe(1);
+      const byStatus = await prisma.sellerReturnEntitlementOperation.count({
+        where: { memberId: seller.id, status },
+      });
+      expect(byStatus, status).toBe(1);
+      // amountCents and stripeTransferId are not consulted by the classifier.
+      const row = await prisma.sellerReturnEntitlementOperation.findFirst({
+        where: { memberId: seller.id },
+        select: { amountCents: true, stripeTransferId: true, status: true },
+      });
+      expect(row?.status).toBe(status);
+      expect(row?.stripeTransferId).toBeNull();
+      expect(row?.amountCents).toBe(1000);
+
+      const result = await closeOrDeleteMemberAccount(prisma, seller.id);
+      expect(result, status).toEqual({ ok: true, outcome: "closed" });
+      expect(
+        (await prisma.sellerReturnEntitlementOperation.findFirst({ where: { storeOrderId: order.id } }))
+          ?.memberId
+      ).toBe(seller.id);
+    }
+  });
+
+  it("Member identity isolation: A’s entitlement does not appear in B’s evidence", async () => {
+    const a = await sellerWithEntitlement("FAILED");
+    const bSeller = await createMember(prisma, "u5d-iso-b");
+    const bBuyer = await createMember(prisma, "u5d-iso-bb");
+    const bOrder = await createOrder(prisma, { buyerId: bBuyer.id, sellerId: bSeller.id });
+    // B has an order but no entitlement.
+    const countsA = await countMemberDurableCommerceEvidence(prisma, a.seller.id);
+    const countsB = await countMemberDurableCommerceEvidence(prisma, bSeller.id);
+    expect(countsA.sellerReturnEntitlementOperations).toBe(1);
+    expect(countsB.sellerReturnEntitlementOperations).toBe(0);
+    expect(countsB.ordersAsSeller).toBe(1);
+    void bOrder;
+  });
+
+  it("durableCommerceFinancialNone excludes Members with entitlement rows", async () => {
+    const { seller } = await sellerWithEntitlement("PENDING");
+    const eligible = await prisma.member.findMany({
+      where: { id: seller.id, ...durableCommerceFinancialNone() },
+      select: { id: true },
+    });
+    expect(eligible).toEqual([]);
+  });
+
+  it("TransferOperation retention regression: transfer evidence still counted + closes", async () => {
+    const seller = await createMember(prisma, "u5d-xfer");
+    const buyer = await createMember(prisma, "u5d-xfer-b");
+    const order = await createOrder(prisma, { buyerId: buyer.id, sellerId: seller.id });
+    await createTransferOperation(prisma, {
+      memberId: seller.id,
+      storeOrderId: order.id,
+      status: "SUCCEEDED",
+      stripeTransferId: `tr_${seller.id}`,
+    });
+    const counts = await countMemberDurableCommerceEvidence(prisma, seller.id);
+    expect(counts.transferOperations).toBe(1);
+    expect(counts.sellerReturnEntitlementOperations).toBe(0);
+    const result = await closeOrDeleteMemberAccount(prisma, seller.id);
+    expect(result).toEqual({ ok: true, outcome: "closed" });
+  });
+
+  it("RefundOperation retention regression: refund evidence still counted + closes", async () => {
+    const buyer = await createMember(prisma, "u5d-ref");
+    const seller = await createMember(prisma, "u5d-ref-s");
+    const order = await createOrder(prisma, { buyerId: buyer.id, sellerId: seller.id });
+    // RefundOperation.memberId is the seller tenant (composite FK to StoreOrder seller).
+    await createRefundOperation(prisma, {
+      memberId: seller.id,
+      storeOrderId: order.id,
+      status: "SUCCEEDED",
+      stripeRefundId: `re_${seller.id}`,
+    });
+    const counts = await countMemberDurableCommerceEvidence(prisma, seller.id);
+    expect(counts.refundOperations).toBe(1);
+    expect(counts.sellerReturnEntitlementOperations).toBe(0);
+    const result = await closeOrDeleteMemberAccount(prisma, seller.id);
+    expect(result).toEqual({ ok: true, outcome: "closed" });
+  });
+
+  it("StoreOrder evidence regression: seller order alone still retains (no entitlement)", async () => {
+    const seller = await createMember(prisma, "u5d-ord");
+    const buyer = await createMember(prisma, "u5d-ord-b");
+    await createOrder(prisma, { buyerId: buyer.id, sellerId: seller.id });
+    const counts = await countMemberDurableCommerceEvidence(prisma, seller.id);
+    expect(counts.ordersAsSeller).toBe(1);
+    expect(counts.sellerReturnEntitlementOperations).toBe(0);
+    const result = await closeOrDeleteMemberAccount(prisma, seller.id);
+    expect(result).toEqual({ ok: true, outcome: "closed" });
   });
 });

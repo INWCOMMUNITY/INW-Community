@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Prisma } from "database";
+import { applyFoundationSellerQuantitySets, assertFoundationMatrixStructureUnchanged, endFoundationListing, markFoundationListingSold, prisma, Prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireAdmin } from "@/lib/admin-auth";
 import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
@@ -14,6 +14,7 @@ import {
   parseInventoryTracking,
   normalizeVariantMatrix,
   serializeVariantMatrix,
+  skuSelectionKey,
   validateVariantMatrixForSave,
 } from "@/lib/listing-variant-matrix";
 import { z } from "zod";
@@ -25,6 +26,7 @@ import { assertMemberShippingOption } from "@/lib/shipping-options";
 import { strangerMayViewStoreItemById } from "@/lib/store-item-public-access";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
 import { endStoreItemListing } from "@/lib/end-store-item-listing";
+import { gateInteractiveOrFoundationWriter, jsonIfCutoverBlocked, resolveCommerceInventoryWriter } from "@/lib/commerce-foundation-cutover-http";
 
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
@@ -111,6 +113,8 @@ export async function PATCH(
   if (!isAdmin && existing.memberId !== session.user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const writer = await resolveCommerceInventoryWriter();
+  if (!writer.ok) return writer.response;
 
   let data: z.infer<typeof bodySchema>;
   try {
@@ -408,6 +412,72 @@ export async function PATCH(
     }
   }
 
+  if (writer.route === "foundation") {
+    try {
+      const item = await prisma.$transaction(async (tx) => {
+        if (mergedStatus === "sold_out") {
+          await markFoundationListingSold(tx, {
+            storeItemId: itemId,
+            memberId: ownerId,
+            commandId: `sold-${itemId}`,
+          });
+          delete (update as { quantity?: number }).quantity;
+        } else if (data.quantity !== undefined && !hasOptionQuantities(data.variants ?? existing.variants)) {
+          await applyFoundationSellerQuantitySets(tx, {
+            storeItemId: itemId,
+            memberId: ownerId,
+            commandId: `set-${itemId}`,
+            simpleTarget: data.quantity,
+          });
+          delete (update as { quantity?: number }).quantity;
+        } else if (data.variants !== undefined && hasOptionQuantities(data.variants)) {
+          const matrix = normalizeVariantMatrix(data.variants);
+          const matrixTargets =
+            matrix?.skus.map((sku) => ({
+              fingerprint: `matrix:${skuSelectionKey(sku.options)}`,
+              targetOnHand: sku.quantity,
+            })) ?? [];
+          await assertFoundationMatrixStructureUnchanged(
+            tx,
+            itemId,
+            matrixTargets.map((target) => target.fingerprint)
+          );
+          await applyFoundationSellerQuantitySets(tx, {
+            storeItemId: itemId,
+            memberId: ownerId,
+            commandId: `set-matrix-${itemId}`,
+            matrixTargets,
+          });
+          delete (update as { quantity?: number }).quantity;
+        }
+        if (mergedStatus === "inactive") {
+          await endFoundationListing(tx, { storeItemId: itemId, currentStatus: existing.status });
+          delete (update as { status?: string; endedAt?: Date | null }).status;
+          delete (update as { endedAt?: Date | null }).endedAt;
+        }
+        return tx.storeItem.update({
+          where: { id: itemId },
+          data: update as object,
+        });
+      });
+      if (item.status === "sold_out") {
+        deleteFeedPostsForSoldItem(itemId).catch(() => {});
+      }
+      const { logSellerActivity } = await import("@/lib/seller-activity-log");
+      logSellerActivity(ownerId, "item_updated", "store_item", itemId, {
+        changedFields: Object.keys(update),
+        title: item.title,
+      });
+      return NextResponse.json({ ...item });
+    } catch (e) {
+      const cutover = jsonIfCutoverBlocked(e);
+      if (cutover) return cutover;
+      const msg = e instanceof Error ? e.message : "Update failed";
+      const status = /structural_variant_change|foundation_state_missing/.test(msg) ? 409 : 400;
+      return NextResponse.json({ error: msg }, { status });
+    }
+  }
+
   const item = await prisma.storeItem.update({
     where: { id: itemId },
     data: update as object,
@@ -446,8 +516,16 @@ export async function DELETE(
   if (!isAdmin && existing.memberId !== session.user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const blocked = await gateInteractiveOrFoundationWriter();
+  if (blocked) return blocked;
 
-  await endStoreItemListing(existing);
+  try {
+    await endStoreItemListing(existing);
+  } catch (e) {
+    const cutover = jsonIfCutoverBlocked(e);
+    if (cutover) return cutover;
+    throw e;
+  }
   const { logSellerActivity } = await import("@/lib/seller-activity-log");
   logSellerActivity(existing.memberId, "item_deleted", "store_item", id, {
     title: existing.title,

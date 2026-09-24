@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Prisma } from "database";
+import { applyFoundationSellerQuantitySets, prisma, Prisma } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
 import { endStoreItemListing } from "@/lib/end-store-item-listing";
+import { hasOptionQuantities } from "@/lib/store-item-variants";
+import {
+  gateInteractiveOrFoundationWriter,
+  jsonIfCutoverBlocked,
+  resolveCommerceInventoryWriter,
+} from "@/lib/commerce-foundation-cutover-http";
 
 export const dynamic = "force-dynamic";
 
@@ -105,6 +111,9 @@ export async function PATCH(req: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const writer = await resolveCommerceInventoryWriter();
+    if (!writer.ok) return writer.response;
+    const isFoundation = writer.route === "foundation";
 
     const body = await req.json();
     const parsed = bulkUpdateSchema.safeParse(body);
@@ -129,6 +138,7 @@ export async function PATCH(req: NextRequest) {
         title: true,
         priceCents: true,
         quantity: true,
+        variants: true,
         category: true,
         subcategory: true,
         condition: true,
@@ -139,7 +149,7 @@ export async function PATCH(req: NextRequest) {
         inStorePickupAvailable: true,
       },
     });
-    
+
     // Capture before state for snapshot
     const beforeState: Record<string, Record<string, unknown>> = {};
     for (const item of ownedItems) {
@@ -187,10 +197,45 @@ export async function PATCH(req: NextRequest) {
       updateData.inStorePickupAvailable = updates.inStorePickupAvailable;
     }
 
+    const quantityRequested = updates.quantity !== undefined || updates.quantityAdjust !== undefined;
+    if (isFoundation && quantityRequested) {
+      for (const item of ownedItems) {
+        if (hasOptionQuantities(item.variants)) {
+          result.failed++;
+          result.errors.push({
+            itemId: item.id,
+            error: "FOUNDATION bulk quantity is not supported for matrix listings",
+          });
+          continue;
+        }
+        const target =
+          updates.quantityAdjust !== undefined
+            ? Math.max(0, item.quantity + updates.quantityAdjust)
+            : updates.quantity!;
+        try {
+          await prisma.$transaction((tx) =>
+            applyFoundationSellerQuantitySets(tx, {
+              storeItemId: item.id,
+              memberId: userId,
+              commandId: `bulk-set-${item.id}`,
+              simpleTarget: target,
+            })
+          );
+          result.updated++;
+        } catch (e) {
+          result.failed++;
+          result.errors.push({
+            itemId: item.id,
+            error: e instanceof Error ? e.message : "Foundation quantity update failed",
+          });
+        }
+      }
+    }
+
     // Handle price and quantity updates per-item (may need calculation)
     const itemsNeedingIndividualUpdate =
       updates.priceChangePercent !== undefined ||
-      updates.quantityAdjust !== undefined;
+      (!isFoundation && updates.quantityAdjust !== undefined);
 
     if (itemsNeedingIndividualUpdate) {
       // Update each item individually
@@ -207,15 +252,16 @@ export async function PATCH(req: NextRequest) {
             itemUpdate.priceCents = updates.priceCents;
           }
 
-          if (updates.quantityAdjust !== undefined) {
+          if (!isFoundation && updates.quantityAdjust !== undefined) {
             const newQty = Math.max(0, item.quantity + updates.quantityAdjust);
             itemUpdate.quantity = newQty;
-          } else if (updates.quantity !== undefined) {
+          } else if (!isFoundation && updates.quantity !== undefined) {
             itemUpdate.quantity = updates.quantity;
           }
 
+          if (Object.keys(itemUpdate).length === 0) continue;
           await updateOneStoreItem(item.id, itemUpdate);
-          result.updated++;
+          if (!isFoundation || !quantityRequested) result.updated++;
         } catch (e) {
           result.failed++;
           result.errors.push({
@@ -229,14 +275,14 @@ export async function PATCH(req: NextRequest) {
       if (updates.priceCents !== undefined) {
         updateData.priceCents = updates.priceCents;
       }
-      if (updates.quantity !== undefined) {
+      if (!isFoundation && updates.quantity !== undefined) {
         updateData.quantity = updates.quantity;
       }
 
       if (Object.keys(updateData).length > 0) {
         const batchResult = await updateManyStoreItems(Array.from(ownedIds), updateData);
-        result.updated = batchResult.count;
-      } else {
+        result.updated = isFoundation && quantityRequested ? result.updated : batchResult.count;
+      } else if (!(isFoundation && quantityRequested)) {
         result.updated = ownedItems.length;
       }
     }
@@ -262,7 +308,7 @@ export async function PATCH(req: NextRequest) {
             inStorePickupAvailable: true,
           },
         });
-        
+
         const changes: Record<string, { before: Record<string, unknown>; after: Record<string, unknown> }> = {};
         for (const item of afterItems) {
           if (beforeState[item.id]) {
@@ -272,7 +318,7 @@ export async function PATCH(req: NextRequest) {
             };
           }
         }
-        
+
         const snapshot = await prisma.bulkEditSnapshot.create({
           data: {
             memberId: userId,
@@ -282,7 +328,7 @@ export async function PATCH(req: NextRequest) {
             expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
           },
         });
-        
+
         // Log activity
         const { logSellerActivity } = await import("@/lib/seller-activity-log");
         logSellerActivity(userId, "bulk_edit", "bulk_operation", snapshot.id, {
@@ -290,7 +336,7 @@ export async function PATCH(req: NextRequest) {
           itemCount: result.updated,
           changedFields: Object.keys(updates).filter((k) => updates[k as keyof typeof updates] !== undefined),
         });
-        
+
         // Check low stock for updated items
         const { checkLowStockBatch } = await import("@/lib/low-stock-alerts");
         const itemsToCheck = afterItems.map((item) => ({
@@ -298,14 +344,14 @@ export async function PATCH(req: NextRequest) {
           previousQuantity: (beforeState[item.id]?.quantity as number) ?? undefined,
         }));
         checkLowStockBatch(itemsToCheck).catch(() => {});
-        
+
         // Add snapshotId to result
         (result as Record<string, unknown>).snapshotId = snapshot.id;
       } catch (e) {
         console.warn("[bulk-update] snapshot creation failed:", e);
       }
     }
-    
+
     return NextResponse.json(result);
   } catch (e) {
     console.error("[bulk-update] error:", e);
@@ -329,6 +375,8 @@ export async function DELETE(req: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const blocked = await gateInteractiveOrFoundationWriter();
+    if (blocked) return blocked;
 
     const body = await req.json();
     const storeItemIds = z.array(z.string()).min(1).max(100).parse(body.storeItemIds);
@@ -401,6 +449,8 @@ export async function DELETE(req: NextRequest) {
       snapshotId,
     });
   } catch (e) {
+    const cutover = jsonIfCutoverBlocked(e);
+    if (cutover) return cutover;
     console.error("[bulk-delete] error:", e);
     return NextResponse.json(
       { error: "Bulk delete failed", detail: e instanceof Error ? e.message : String(e) },
