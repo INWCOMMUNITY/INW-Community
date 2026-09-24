@@ -2148,13 +2148,15 @@ enum ShopifyConnectionStatus {
 
 /// One-time OAuth state. Consumed on callback; not a connection.
 model ShopifyOAuthState {
-  id         String    @id @default(cuid())
-  nonce      String    @unique
-  memberId   String    @map("member_id")
-  shopDomain String    @map("shop_domain")
-  expiresAt  DateTime  @map("expires_at")
-  consumedAt DateTime? @map("consumed_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
+  id                 String    @id @default(cuid())
+  nonce              String    @unique
+  memberId           String    @map("member_id")
+  shopDomain         String    @map("shop_domain")
+  /// SHA-256 hex of the HttpOnly browser-binding cookie. The raw secret is never stored.
+  browserBindingHash String    @map("browser_binding_hash") @db.VarChar(64)
+  expiresAt          DateTime  @map("expires_at")
+  consumedAt         DateTime? @map("consumed_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
 
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
@@ -2164,8 +2166,8 @@ model ShopifyOAuthState {
 }
 
 /// One generation of a member's Shopify install.
-/// Partial unique index `shopify_connection_one_active_per_member_shop` (migration SQL)
-/// enforces at most one ACTIVE row per member + shop. Prisma cannot express that filter.
+/// Partial unique indexes in migration SQL, which Prisma cannot express:
+/// one ACTIVE row per member + shop, one ACTIVE row per shop domain, and one ACTIVE row per Shop GID.
 model ShopifyConnection {
   id                    String                   @id @default(cuid())
   memberId              String                   @map("member_id")

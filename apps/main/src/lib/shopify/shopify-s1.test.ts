@@ -1,4 +1,4 @@
-import { createHmac } from "crypto";
+import { createHash, createHmac } from "crypto";
 import { SignJWT } from "jose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +9,7 @@ vi.mock("database", () => ({
   prisma: {},
   createShopifyOAuthState: vi.fn(),
   consumeShopifyOAuthState: vi.fn(),
+  readShopifyOAuthBrowserBindingHash: vi.fn(),
   persistShopifyInstall: vi.fn(),
   rotateShopifyTokenMaterial: vi.fn(),
 }));
@@ -22,6 +23,7 @@ import {
   consumeShopifyOAuthState,
   createShopifyOAuthState,
   persistShopifyInstall,
+  readShopifyOAuthBrowserBindingHash,
 } from "database";
 import { exchangeShopifyAuthorizationCode } from "./client";
 import { completeShopifyOAuth, toPublicShopifyConnection } from "./connect";
@@ -31,6 +33,9 @@ import { signShopifyOAuthState, verifyShopifyOAuthState } from "./oauth-state";
 import { missingShopifyScopes } from "./scopes";
 import { normalizeShopifyShopDomain } from "./shop-domain";
 import { redactShopifySecrets } from "./redact";
+
+const BROWSER_SECRET = "ab".repeat(32);
+const BROWSER_HASH = createHash("sha256").update(BROWSER_SECRET, "utf8").digest("hex");
 
 const config = {
   clientId: "client-id",
@@ -153,6 +158,8 @@ describe("oauth callback", () => {
     vi.mocked(createShopifyOAuthState).mockReset();
     vi.mocked(consumeShopifyOAuthState).mockReset();
     vi.mocked(persistShopifyInstall).mockReset();
+    vi.mocked(readShopifyOAuthBrowserBindingHash).mockReset();
+    vi.mocked(readShopifyOAuthBrowserBindingHash).mockResolvedValue(BROWSER_HASH);
     vi.mocked(consumeShopifyOAuthState).mockResolvedValue("ok");
     vi.mocked(persistShopifyInstall).mockImplementation(async (_db, input) => ({
       id: "conn-1",
@@ -241,6 +248,7 @@ describe("oauth callback", () => {
     const params = await callbackParams();
     const connection = await completeShopifyOAuth(new URLSearchParams(params), {
       config,
+      browserBindingSecret: BROWSER_SECRET,
       fetchImpl: shopifyFetch([{ id: "gid://shopify/Location/1", name: "Main" }]),
     });
     expect(connection.shopId).toBe("gid://shopify/Shop/99");
@@ -267,6 +275,7 @@ describe("oauth callback", () => {
     const params = await callbackParams();
     await completeShopifyOAuth(new URLSearchParams(params), {
       config,
+      browserBindingSecret: BROWSER_SECRET,
       fetchImpl: shopifyFetch([
         { id: "gid://shopify/Location/1", name: "A" },
         { id: "gid://shopify/Location/2", name: "B" },
@@ -291,16 +300,43 @@ describe("oauth callback", () => {
     vi.mocked(consumeShopifyOAuthState).mockResolvedValue("rejected");
     const params = await callbackParams();
     await expect(
-      completeShopifyOAuth(new URLSearchParams(params), { config, fetchImpl: shopifyFetch([]) })
+      completeShopifyOAuth(new URLSearchParams(params), {
+        config,
+        browserBindingSecret: BROWSER_SECRET,
+        fetchImpl: shopifyFetch([]),
+      })
     ).rejects.toMatchObject({ code: "invalid_state" });
     expect(persistShopifyInstall).not.toHaveBeenCalled();
+  });
+
+  it("does not exchange a code when the browser binding cookie is missing or wrong", async () => {
+    const params = await callbackParams();
+    const fetchImpl = shopifyFetch([]);
+    await expect(
+      completeShopifyOAuth(new URLSearchParams(params), { config, fetchImpl })
+    ).rejects.toMatchObject({ code: "invalid_state" });
+    await expect(
+      completeShopifyOAuth(new URLSearchParams(params), {
+        config,
+        browserBindingSecret: "ff".repeat(32),
+        fetchImpl,
+      })
+    ).rejects.toMatchObject({ code: "invalid_state" });
+    expect(consumeShopifyOAuthState).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    const state = new URLSearchParams(params).get("state") ?? "";
+    expect(state).not.toContain(BROWSER_SECRET);
   });
 
   it("does not put the provider token in a failed exchange error", async () => {
     const params = await callbackParams();
     const fetchImpl = vi.fn(async () => jsonResponse({ access_token: ACCESS, error: ACCESS }, 400));
     await expect(
-      completeShopifyOAuth(new URLSearchParams(params), { config, fetchImpl })
+      completeShopifyOAuth(new URLSearchParams(params), {
+        config,
+        browserBindingSecret: BROWSER_SECRET,
+        fetchImpl,
+      })
     ).rejects.toThrow(/token exchange failed/i);
     try {
       await exchangeShopifyAuthorizationCode({

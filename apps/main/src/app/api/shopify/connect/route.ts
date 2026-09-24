@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { shopifyBrowserBindingCookie } from "@/lib/shopify/browser-binding";
 import { beginShopifyConnect, ShopifyConnectError } from "@/lib/shopify/connect";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 
@@ -20,8 +21,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid shop domain" }, { status: 400 });
   }
   try {
-    const { authorizeUrl } = await beginShopifyConnect(memberId, shop);
-    return NextResponse.json({ authorizeUrl });
+    const { authorizeUrl, browserBindingSecret } = await beginShopifyConnect(memberId, shop);
+    const response = NextResponse.json({ authorizeUrl });
+    const cookie = shopifyBrowserBindingCookie(browserBindingSecret);
+    response.cookies.set(cookie.name, cookie.value, cookie.options);
+    return response;
   } catch (error) {
     if (error instanceof ShopifyConnectError && error.code === "invalid_shop") {
       return NextResponse.json({ error: "Invalid shop domain" }, { status: 400 });

@@ -3,7 +3,9 @@ import {
   createShopifyOAuthState,
   persistShopifyInstall,
   prisma,
+  readShopifyOAuthBrowserBindingHash,
   rotateShopifyTokenMaterial,
+  ShopifyShopOwnershipConflictError,
   type ShopifyPublicConnection,
 } from "database";
 import { encrypt, decrypt } from "@/lib/encrypt";
@@ -25,6 +27,11 @@ import {
 } from "./oauth-state";
 import { SHOPIFY_OAUTH_STATE_TTL_MS } from "./constants";
 import { missingShopifyScopes } from "./scopes";
+import {
+  createShopifyBrowserBindingSecret,
+  hashShopifyBrowserBinding,
+  shopifyBrowserBindingMatches,
+} from "./browser-binding";
 import { normalizeShopifyShopDomain } from "./shop-domain";
 
 export type ShopifyConnectDeps = {
@@ -45,6 +52,7 @@ export class ShopifyConnectError extends Error {
       | "token_exchange"
       | "scopes"
       | "shop_identity"
+      | "shop_owned"
       | "webhook"
   ) {
     super(message);
@@ -56,18 +64,20 @@ export async function beginShopifyConnect(
   memberId: string,
   shopInput: string,
   deps: ShopifyConnectDeps = {}
-): Promise<{ authorizeUrl: string }> {
+): Promise<{ authorizeUrl: string; browserBindingSecret: string }> {
   const config = deps.config === undefined ? readShopifyAppConfig() : deps.config;
   if (!config) throw new ShopifyConnectError("Shopify is not configured", "not_configured");
   const shopDomain = normalizeShopifyShopDomain(shopInput);
   if (!shopDomain) throw new ShopifyConnectError("Invalid shop domain", "invalid_shop");
   const nonce = createShopifyOAuthNonce();
+  const browserBindingSecret = createShopifyBrowserBindingSecret();
   const now = deps.now ?? new Date();
   const state = await signShopifyOAuthState({ memberId, shopDomain, nonce });
   await createShopifyOAuthState(prisma, {
     nonce,
     memberId,
     shopDomain,
+    browserBindingHash: hashShopifyBrowserBinding(browserBindingSecret),
     expiresAt: new Date(now.getTime() + SHOPIFY_OAUTH_STATE_TTL_MS),
   });
   const url = new URL(`https://${shopDomain}/admin/oauth/authorize`);
@@ -75,7 +85,7 @@ export async function beginShopifyConnect(
   url.searchParams.set("scope", config.scopes.join(","));
   url.searchParams.set("redirect_uri", config.redirectUri);
   url.searchParams.set("state", state);
-  return { authorizeUrl: url.toString() };
+  return { authorizeUrl: url.toString(), browserBindingSecret };
 }
 
 function callbackParams(searchParams: URLSearchParams): Record<string, string> | null {
@@ -89,7 +99,7 @@ function callbackParams(searchParams: URLSearchParams): Record<string, string> |
 
 export async function completeShopifyOAuth(
   searchParams: URLSearchParams,
-  deps: ShopifyConnectDeps = {}
+  deps: ShopifyConnectDeps & { browserBindingSecret?: string | null } = {}
 ): Promise<ShopifyPublicConnection> {
   const config = deps.config === undefined ? readShopifyAppConfig() : deps.config;
   if (!config) throw new ShopifyConnectError("Shopify is not configured", "not_configured");
@@ -105,6 +115,18 @@ export async function completeShopifyOAuth(
   }
   const verified = await verifyShopifyOAuthState(state);
   if (!verified || verified.shopDomain !== shopDomain) {
+    throw new ShopifyConnectError("Invalid Shopify OAuth state", "invalid_state");
+  }
+  const browserBindingSecret = deps.browserBindingSecret ?? "";
+  const storedBindingHash = browserBindingSecret
+    ? await readShopifyOAuthBrowserBindingHash(prisma, {
+        nonce: verified.nonce,
+        memberId: verified.memberId,
+        shopDomain: verified.shopDomain,
+        now: deps.now,
+      })
+    : null;
+  if (!storedBindingHash || !shopifyBrowserBindingMatches(storedBindingHash, browserBindingSecret)) {
     throw new ShopifyConnectError("Invalid Shopify OAuth state", "invalid_state");
   }
   const consumed = await consumeShopifyOAuthState(prisma, {
@@ -167,18 +189,28 @@ export async function completeShopifyOAuth(
 
   const candidates = selectInventoryLocations(locations);
   const primaryLocationId = candidates.length === 1 ? candidates[0].id : null;
-  return persistShopifyInstall(prisma, {
-    memberId: verified.memberId,
-    shopDomain: identity.shopDomain,
-    shopId: identity.shopId,
-    accessTokenEncrypted: encrypt(tokens.accessToken),
-    refreshTokenEncrypted: encrypt(tokens.refreshToken),
-    accessTokenExpiresAt: tokens.accessTokenExpiresAt,
-    refreshTokenExpiresAt: tokens.refreshTokenExpiresAt,
-    grantedScopes: tokens.scope,
-    primaryLocationId,
-    connectedAt: deps.now,
-  });
+  try {
+    return await persistShopifyInstall(prisma, {
+      memberId: verified.memberId,
+      shopDomain: identity.shopDomain,
+      shopId: identity.shopId,
+      accessTokenEncrypted: encrypt(tokens.accessToken),
+      refreshTokenEncrypted: encrypt(tokens.refreshToken),
+      accessTokenExpiresAt: tokens.accessTokenExpiresAt,
+      refreshTokenExpiresAt: tokens.refreshTokenExpiresAt,
+      grantedScopes: tokens.scope,
+      primaryLocationId,
+      connectedAt: deps.now,
+    });
+  } catch (error) {
+    if (error instanceof ShopifyShopOwnershipConflictError) {
+      throw new ShopifyConnectError(
+        "Shopify store is already connected to another INW account.",
+        "shop_owned"
+      );
+    }
+    throw error;
+  }
 }
 
 const REFRESH_SKEW_MS = 60_000;

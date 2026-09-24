@@ -10,6 +10,7 @@ import {
   persistShopifyInstall,
   revokeActiveShopifyConnectionsForShop,
   setShopifyPrimaryLocation,
+  ShopifyShopOwnershipConflictError,
 } from "../shopify/connection";
 
 let prisma: PrismaClient;
@@ -53,6 +54,7 @@ describe("shopify connection foundation", () => {
       nonce,
       memberId: sellerA.id,
       shopDomain: shop,
+      browserBindingHash: "a".repeat(64),
       expiresAt: new Date(Date.now() + 60_000),
     });
     await expect(
@@ -67,6 +69,7 @@ describe("shopify connection foundation", () => {
       nonce: expiredNonce,
       memberId: sellerA.id,
       shopDomain: shop,
+      browserBindingHash: "b".repeat(64),
       expiresAt: new Date(Date.now() - 1000),
     });
     await expect(
@@ -154,7 +157,7 @@ describe("shopify connection foundation", () => {
 
     const reconnected = await persistShopifyInstall(prisma, installInput(sellerA.id, shop, "cipher-3"));
     expect(reconnected.generation).toBe(history + 1);
-    const revoked = await revokeActiveShopifyConnectionsForShop(prisma, shop);
+    const revoked = await revokeActiveShopifyConnectionsForShop(prisma, shop, new Date("2099-01-01T00:00:00Z"));
     expect(revoked).toBe(1);
     const revokedRow = await prisma.shopifyConnection.findUniqueOrThrow({ where: { id: reconnected.id } });
     expect(revokedRow.status).toBe("REVOKED");
@@ -166,5 +169,103 @@ describe("shopify connection foundation", () => {
     expect(await prisma.inventoryEvent.count()).toBe(beforeEvents);
     expect(await prisma.inventoryState.count()).toBe(beforeStates);
     expect(active.id).toBeTruthy();
+  });
+
+  it("allows one global ACTIVE owner and ignores a stale uninstall", async () => {
+    const sellerA = await createMember(prisma, "own-a");
+    const sellerB = await createMember(prisma, "own-b");
+    const shop = `owned-${sellerA.id.slice(-8)}.myshopify.com`;
+    const shopId = `gid://shopify/Shop/${sellerA.id.replace(/\D/g, "").slice(0, 8) || "4242"}`;
+    const beforeOrders = await prisma.storeOrder.count();
+
+    const first = await persistShopifyInstall(prisma, {
+      ...installInput(sellerA.id, shop, "cipher-a"),
+      shopId,
+      connectedAt: new Date("2026-09-24T12:00:00Z"),
+    });
+    expect(first.generation).toBe(1);
+    expect(first.status).toBe("ACTIVE");
+
+    await expect(
+      persistShopifyInstall(prisma, {
+        ...installInput(sellerB.id, shop, "cipher-b"),
+        shopId: "gid://shopify/Shop/777001",
+      })
+    ).rejects.toBeInstanceOf(ShopifyShopOwnershipConflictError);
+    await expect(
+      persistShopifyInstall(prisma, {
+        ...installInput(sellerB.id, `other-${sellerB.id.slice(-6)}.myshopify.com`, "cipher-c"),
+        shopId,
+      })
+    ).rejects.toBeInstanceOf(ShopifyShopOwnershipConflictError);
+
+    const stillA = await prisma.shopifyConnection.findUniqueOrThrow({ where: { id: first.id } });
+    expect(stillA.status).toBe("ACTIVE");
+    expect(stillA.generation).toBe(1);
+    expect(stillA.accessTokenEncrypted).toBe("cipher-a");
+
+    const raced = await Promise.allSettled([
+      persistShopifyInstall(prisma, {
+        ...installInput(sellerA.id, `race-${sellerA.id.slice(-6)}.myshopify.com`, "race-a"),
+        shopId: "gid://shopify/Shop/88001",
+      }),
+      persistShopifyInstall(prisma, {
+        ...installInput(sellerB.id, `race-${sellerA.id.slice(-6)}.myshopify.com`, "race-b"),
+        shopId: "gid://shopify/Shop/88002",
+      }),
+    ]);
+    const won = raced.filter((result) => result.status === "fulfilled");
+    const lost = raced.filter((result) => result.status === "rejected");
+    expect(won).toHaveLength(1);
+    expect(lost).toHaveLength(1);
+    expect((lost[0] as PromiseRejectedResult).reason).toBeInstanceOf(ShopifyShopOwnershipConflictError);
+    expect(
+      await prisma.shopifyConnection.count({
+        where: { shopDomain: `race-${sellerA.id.slice(-6)}.myshopify.com`, status: "ACTIVE" },
+      })
+    ).toBe(1);
+
+    const disconnected = await disconnectShopifyConnection(prisma, {
+      memberId: sellerA.id,
+      connectionId: first.id,
+    });
+    expect(disconnected?.status).toBe("DISCONNECTED");
+    const second = await persistShopifyInstall(prisma, {
+      ...installInput(sellerA.id, shop, "cipher-a2"),
+      shopId,
+      connectedAt: new Date("2026-09-24T13:00:00Z"),
+    });
+    expect(second.generation).toBe(2);
+    expect(second.status).toBe("ACTIVE");
+    expect((await prisma.shopifyConnection.findUniqueOrThrow({ where: { id: first.id } })).status).toBe(
+      "DISCONNECTED"
+    );
+
+    const stale = await revokeActiveShopifyConnectionsForShop(
+      prisma,
+      shop,
+      new Date("2026-09-24T12:30:00Z")
+    );
+    expect(stale).toBe(0);
+    expect((await prisma.shopifyConnection.findUniqueOrThrow({ where: { id: second.id } })).status).toBe(
+      "ACTIVE"
+    );
+
+    const current = await revokeActiveShopifyConnectionsForShop(
+      prisma,
+      shop,
+      new Date("2026-09-24T13:00:00Z")
+    );
+    expect(current).toBe(1);
+    expect((await prisma.shopifyConnection.findUniqueOrThrow({ where: { id: second.id } })).status).toBe(
+      "REVOKED"
+    );
+    const replay = await revokeActiveShopifyConnectionsForShop(
+      prisma,
+      shop,
+      new Date("2026-09-24T13:00:00Z")
+    );
+    expect(replay).toBe(0);
+    expect(await prisma.storeOrder.count()).toBe(beforeOrders);
   });
 });

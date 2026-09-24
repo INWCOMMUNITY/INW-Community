@@ -361,6 +361,8 @@ export {
   consumeShopifyOAuthState,
   createShopifyOAuthState,
   disconnectShopifyConnection,
+  readShopifyOAuthBrowserBindingHash,
+  ShopifyShopOwnershipConflictError,
   getActiveShopifyConnectionForMember,
   getShopifyConnectionForMember,
   listShopifyConnectionsForMember,

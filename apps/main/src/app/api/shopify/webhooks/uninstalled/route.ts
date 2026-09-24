@@ -32,6 +32,17 @@ export async function POST(req: NextRequest) {
   if (!shopDomain || (bodyShop && headerShop && bodyShop !== headerShop)) {
     return NextResponse.json({ error: "Invalid shop" }, { status: 400 });
   }
-  await revokeActiveShopifyConnectionsForShop(prisma, shopDomain);
+  const triggeredAt = parseShopifyTriggeredAt(req.headers.get("x-shopify-triggered-at"));
+  if (!triggeredAt) {
+    return NextResponse.json({ error: "Invalid webhook timestamp" }, { status: 400 });
+  }
+  await revokeActiveShopifyConnectionsForShop(prisma, shopDomain, triggeredAt);
   return NextResponse.json({ ok: true });
+}
+
+function parseShopifyTriggeredAt(value: string | null): Date | null {
+  if (!value || !value.trim()) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
 }

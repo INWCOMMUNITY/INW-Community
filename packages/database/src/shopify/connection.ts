@@ -49,22 +49,58 @@ const publicSelect = {
   updatedAt: true,
 } as const;
 
-function lockKey(memberId: string, shopDomain: string): string {
-  return `shopify:${memberId}:${shopDomain}`;
+function domainLockKey(shopDomain: string): string {
+  return `shopify-domain:${shopDomain}`;
+}
+
+function shopLockKey(shopId: string): string {
+  return `shopify-shop:${shopId}`;
+}
+
+export class ShopifyShopOwnershipConflictError extends Error {
+  constructor() {
+    super("Shopify store is already connected to another INW account.");
+    this.name = "ShopifyShopOwnershipConflictError";
+  }
 }
 
 export async function createShopifyOAuthState(
   db: ShopifyDb,
-  input: { nonce: string; memberId: string; shopDomain: string; expiresAt: Date }
+  input: {
+    nonce: string;
+    memberId: string;
+    shopDomain: string;
+    browserBindingHash: string;
+    expiresAt: Date;
+  }
 ) {
   return db.shopifyOAuthState.create({
     data: {
       nonce: input.nonce,
       memberId: input.memberId,
       shopDomain: input.shopDomain,
+      browserBindingHash: input.browserBindingHash,
       expiresAt: input.expiresAt,
     },
   });
+}
+
+/** Hash for an unconsumed, unexpired state. Null when the state cannot be used. */
+export async function readShopifyOAuthBrowserBindingHash(
+  db: ShopifyDb,
+  input: { nonce: string; memberId: string; shopDomain: string; now?: Date }
+): Promise<string | null> {
+  const row = await db.shopifyOAuthState.findFirst({
+    where: {
+      nonce: input.nonce,
+      memberId: input.memberId,
+      shopDomain: input.shopDomain,
+      consumedAt: null,
+      expiresAt: { gt: input.now ?? new Date() },
+    },
+    select: { browserBindingHash: true },
+  });
+  return row?.browserBindingHash ?? null;
 }
 
 /**
@@ -99,7 +135,17 @@ export async function persistShopifyInstall(
 ): Promise<ShopifyPublicConnection> {
   const connectedAt = input.connectedAt ?? new Date();
   return db.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey(input.memberId, input.shopDomain)}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${domainLockKey(input.shopDomain)}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${shopLockKey(input.shopId)}))`;
+    const otherOwner = await tx.shopifyConnection.findFirst({
+      where: {
+        status: "ACTIVE",
+        NOT: { memberId: input.memberId },
+        OR: [{ shopDomain: input.shopDomain }, { shopId: input.shopId }],
+      },
+      select: { id: true },
+    });
+    if (otherOwner) throw new ShopifyShopOwnershipConflictError();
     const latest = await tx.shopifyConnection.findFirst({
       where: { memberId: input.memberId, shopDomain: input.shopDomain },
       orderBy: { generation: "desc" },
@@ -179,15 +225,18 @@ export async function disconnectShopifyConnection(
   return getShopifyConnectionForMember(db, input.memberId, input.connectionId);
 }
 
-/** App uninstall: revoke every ACTIVE generation for this shop. Rows are kept. */
+/**
+ * Revoke ACTIVE generations for this shop that were connected at or before the webhook trigger.
+ * A newer reconnect (connectedAt after triggeredAt) is left unchanged.
+ */
 export async function revokeActiveShopifyConnectionsForShop(
   db: ShopifyDb,
   shopDomain: string,
-  at?: Date
+  triggeredAt: Date
 ): Promise<number> {
   const updated = await db.shopifyConnection.updateMany({
-    where: { shopDomain, status: "ACTIVE" },
-    data: { status: "REVOKED", disconnectedAt: at ?? new Date() },
+    where: { shopDomain, status: "ACTIVE", connectedAt: { lte: triggeredAt } },
+    data: { status: "REVOKED", disconnectedAt: triggeredAt },
   });
   return updated.count;
 }
