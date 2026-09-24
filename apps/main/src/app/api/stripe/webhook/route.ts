@@ -422,6 +422,8 @@ export async function POST(req: NextRequest) {
     if (session.mode === "payment" && toProcess.length > 0) {
       await fulfillStoreOrdersFromCheckoutSession(stripe, session, {
         logPrefix: "[webhook]",
+        stripeEventId: event.id,
+        eventType: event.type,
       });
     }
 

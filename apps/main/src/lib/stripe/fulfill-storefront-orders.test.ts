@@ -345,6 +345,60 @@ describe("fulfillStoreOrdersFromCheckoutSession cutover ordering", () => {
       expect.objectContaining({ storeOrderId: "ord-f" })
     );
   });
+
+  it("forwards checkout.session.completed event.id to finalize for StripeEventEvidence", async () => {
+    getCommerceFoundationCutoverState.mockResolvedValue({ mode: "FOUNDATION" });
+    mockPrisma.storeOrder.findFirst.mockResolvedValue(
+      pendingOrder({ id: "ord-f", createdAt: preFreezeCreatedAt, checkoutAttemptId: "att_1" })
+    );
+    mockPrisma.storeItem.findUnique.mockResolvedValue({
+      id: "item-1",
+      title: "Widget",
+      variants: null,
+      quantity: 1,
+      inventoryTracking: "tracked",
+    });
+    const stripe = stripeStub();
+    await fulfillStoreOrdersFromCheckoutSession(stripe as never, paidSession("ord-f", 1000) as never, {
+      stripeEventId: "evt_1UJ2uwBGz6ld2lSCEtxJingy",
+      eventType: "checkout.session.completed",
+    });
+    expect(finalizeFoundationCheckoutPayment).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        attemptId: "att_1",
+        stripeEventId: "evt_1UJ2uwBGz6ld2lSCEtxJingy",
+        eventType: "checkout.session.completed",
+      })
+    );
+  });
+
+  it("already-paid early path still forwards event id so replay records evidence", async () => {
+    getCommerceFoundationCutoverState.mockResolvedValue({ mode: "LEGACY" });
+    mockPrisma.storeOrder.findFirst.mockResolvedValue(null);
+    mockPrisma.storeOrder.findMany.mockResolvedValue([
+      {
+        id: "ord-f",
+        status: "paid",
+        checkoutAttemptId: "att_1",
+        items: [{ storeItemId: "item-1" }],
+      },
+    ]);
+    const stripe = stripeStub();
+    await fulfillStoreOrdersFromCheckoutSession(stripe as never, paidSession("ord-f", 1000) as never, {
+      stripeEventId: "evt_replay_same",
+      eventType: "checkout.session.completed",
+    });
+    expect(finalizeFoundationCheckoutPayment).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        attemptId: "att_1",
+        stripeEventId: "evt_replay_same",
+        eventType: "checkout.session.completed",
+      })
+    );
+    expect(stripe.transfers.create).not.toHaveBeenCalled();
+  });
 });
 
 describe("FOUNDATION TransferOperation orchestration", () => {

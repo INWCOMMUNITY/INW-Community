@@ -601,6 +601,9 @@ async function persistFoundationPaymentTruth(
     }
 
     if (args.stripeEventId) {
+      // Payment finalization owns the durable Stripe event receipt. Upsert is keyed by
+      // stripeEventId so webhook redelivery is exactly-once. PROCESSED = payment truth applied
+      // (including already-finalized replays that still must recognize the event).
       await tx.stripeEventEvidence.upsert({
         where: { stripeEventId: args.stripeEventId },
         create: {
@@ -608,10 +611,16 @@ async function persistFoundationPaymentTruth(
           eventType: args.eventType ?? "unknown",
           stripeCreatedAt: new Date(),
           payload: args.payload ?? {},
-          processState: "RECEIVED",
+          processState: "PROCESSED",
+          processedAt: new Date(),
           checkoutAttemptId: attempt.id,
         },
-        update: { checkoutAttemptId: attempt.id },
+        update: {
+          checkoutAttemptId: attempt.id,
+          processState: "PROCESSED",
+          processedAt: new Date(),
+          ...(args.eventType ? { eventType: args.eventType } : {}),
+        },
       });
     }
 

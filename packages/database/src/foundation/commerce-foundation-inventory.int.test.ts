@@ -1742,5 +1742,44 @@ describe("prompt-67 checkout hash / advisory lock / payment truth", () => {
       })
     ).toBe(1);
   });
+
+  it("same checkout.session.completed stripeEventId is PROCESSED exactly once on replay", async () => {
+    const ctx = await trackedSimple(1);
+    const buyer = await createMember(prisma, "evt-once");
+    const prepared = await prepareFoundationCheckout(prisma, {
+      buyerMemberId: buyer.id,
+      amountCents: 1000,
+      orders: [checkoutLines(ctx.member.id, ctx.item.id, ctx.variantId)],
+    });
+    const eventId = `evt_csc_once_${prepared.attemptId}`;
+    const first = await finalizeFoundationCheckoutPayment(prisma, {
+      attemptId: prepared.attemptId,
+      stripeCheckoutSessionId: `cs_${prepared.attemptId}`,
+      stripePaymentIntentId: `pi_${prepared.attemptId}`,
+      stripeEventId: eventId,
+      eventType: "checkout.session.completed",
+    });
+    expect(first.converted).toBe(1);
+    expect(first.alreadyFinalized).toBe(false);
+    const second = await finalizeFoundationCheckoutPayment(prisma, {
+      attemptId: prepared.attemptId,
+      stripeCheckoutSessionId: `cs_${prepared.attemptId}`,
+      stripePaymentIntentId: `pi_${prepared.attemptId}`,
+      stripeEventId: eventId,
+      eventType: "checkout.session.completed",
+    });
+    expect(second.alreadyFinalized).toBe(true);
+    expect(second.converted).toBe(0);
+    const rows = await prisma.stripeEventEvidence.findMany({ where: { stripeEventId: eventId } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.processState).toBe("PROCESSED");
+    expect(rows[0]?.checkoutAttemptId).toBe(prepared.attemptId);
+    expect(rows[0]?.eventType).toBe("checkout.session.completed");
+    expect(
+      await prisma.inventoryEvent.count({
+        where: { variantId: ctx.variantId, eventType: "RESERVATION_CONVERT" },
+      })
+    ).toBe(1);
+  });
 });
 

@@ -15,6 +15,7 @@ import {
   persistFoundationTransferOutcome,
   persistFoundationTransferSuccess,
   prisma,
+  Prisma,
 } from "database";
 import { applyStoreItemDecrementAfterSale } from "@/lib/store-item-inventory-sale";
 import { shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
@@ -41,6 +42,13 @@ type FulfillOptions = {
   /** When set (app success return), only fulfill orders owned by this buyer. */
   buyerId?: string;
   logPrefix?: string;
+  /**
+   * Stripe webhook event identity. When set (e.g. checkout.session.completed), forwarded to
+   * finalizeFoundationCheckoutPayment so StripeEventEvidence is upserted exactly once.
+   */
+  stripeEventId?: string | null;
+  eventType?: string | null;
+  payload?: Prisma.InputJsonValue;
 };
 
 /**
@@ -113,6 +121,21 @@ export async function fulfillStoreOrdersFromCheckoutSession(
         paidOrders.flatMap((o) => o.items.map((i) => i.storeItemId)),
         log
       );
+      // Replay must still durably recognize the Stripe event even when commerce is complete.
+      if (options.stripeEventId) {
+        const attemptId =
+          paidOrders.find((o) => o.checkoutAttemptId)?.checkoutAttemptId ?? null;
+        if (attemptId) {
+          await finalizeFoundationCheckoutPayment(prisma, {
+            attemptId,
+            stripeCheckoutSessionId: session.id,
+            stripePaymentIntentId: paymentIntentId,
+            stripeEventId: options.stripeEventId,
+            eventType: options.eventType ?? null,
+            ...(options.payload !== undefined ? { payload: options.payload } : {}),
+          });
+        }
+      }
     }
     return { orderIds: toProcess };
   }
@@ -233,6 +256,9 @@ export async function fulfillStoreOrdersFromCheckoutSession(
       payoutByOrderId,
       log,
       paymentIntentId,
+      stripeEventId: options.stripeEventId ?? null,
+      eventType: options.eventType ?? null,
+      payload: options.payload,
     });
     return { orderIds: toProcess };
   }
@@ -475,8 +501,21 @@ async function fulfillFoundationPendingOrders(args: {
   payoutByOrderId: Map<string, FoundationPayoutRow>;
   log: string;
   paymentIntentId: string | null;
+  stripeEventId?: string | null;
+  eventType?: string | null;
+  payload?: Prisma.InputJsonValue;
 }): Promise<void> {
-  const { stripe, session, ordersToFulfill, payoutByOrderId, log, paymentIntentId } = args;
+  const {
+    stripe,
+    session,
+    ordersToFulfill,
+    payoutByOrderId,
+    log,
+    paymentIntentId,
+    stripeEventId,
+    eventType,
+    payload,
+  } = args;
   const attemptId = ordersToFulfill.find((o) => o.checkoutAttemptId)?.checkoutAttemptId;
   if (!attemptId) {
     throw new Error("FOUNDATION fulfill is missing CheckoutAttempt");
@@ -508,6 +547,13 @@ async function fulfillFoundationPendingOrders(args: {
       attemptId,
       stripeCheckoutSessionId: session.id,
       stripePaymentIntentId: paymentIntentId,
+      ...(stripeEventId
+        ? {
+            stripeEventId,
+            eventType: eventType ?? null,
+            ...(payload !== undefined ? { payload } : {}),
+          }
+        : {}),
     });
   } catch (err) {
     if (isPermanentFoundationNonconvertibleError(err)) {
