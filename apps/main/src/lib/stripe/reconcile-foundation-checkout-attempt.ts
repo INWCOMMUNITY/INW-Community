@@ -1,5 +1,4 @@
 import Stripe from "stripe";
-import type { PrismaClient } from "@prisma/client";
 import {
   applyFoundationCheckoutProviderObservation,
   foundationCheckoutReconciliationCronAllowed,
@@ -9,6 +8,7 @@ import {
   type FoundationCheckoutObservationResult,
   type FoundationCheckoutProviderObservation,
   type FoundationCheckoutReconciliationClassification,
+  type PrismaClient,
 } from "database";
 import { fulfillStoreOrdersFromCheckoutSession } from "@/lib/stripe/fulfill-storefront-orders";
 

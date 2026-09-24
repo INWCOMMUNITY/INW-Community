@@ -1,9 +1,9 @@
-import type { PrismaClient } from "@prisma/client";
 import type Stripe from "stripe";
 import {
   foundationCheckoutReconciliationCronAllowed,
   listFoundationReturnSettlementCandidates,
   FOUNDATION_RETURN_SETTLEMENT_RECONCILIATION_BATCH_SIZE,
+  type PrismaClient,
 } from "database";
 import { completeReceivedStoreReturnSettlement } from "@/lib/store-return-settlement";
 
