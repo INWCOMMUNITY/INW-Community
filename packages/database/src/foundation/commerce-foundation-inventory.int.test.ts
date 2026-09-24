@@ -18,6 +18,7 @@ import {
   FoundationCheckoutNotConvertibleError,
   FoundationCheckoutReuseError,
   hashFoundationCart,
+  markCheckoutAttemptSessionOpen,
   markCheckoutAttemptSessionUnknown,
   prepareFoundationCheckout,
   stripeCheckoutRequestOptions,
@@ -905,7 +906,7 @@ describe("prompt-65 checkout idempotency / races / restock", () => {
     expect(await prisma.checkoutAttempt.count({ where: { buyerMemberId: buyer.id } })).toBe(1);
   });
 
-  it("SESSION_UNKNOWN without a recoverable Session id fails closed instead of creating a second attempt", async () => {
+  it("SESSION_UNKNOWN without a recoverable Session id reuses the same attempt and key (no second attempt)", async () => {
     const ctx = await trackedSimple(1);
     const buyer = await createMember(prisma, "unknown");
     const input = {
@@ -915,12 +916,150 @@ describe("prompt-65 checkout idempotency / races / restock", () => {
     };
     const prepared = await prepareFoundationCheckout(prisma, input);
     await markCheckoutAttemptSessionUnknown(prisma, { attemptId: prepared.attemptId });
-    await expect(prepareFoundationCheckout(prisma, input)).rejects.toBeInstanceOf(FoundationCheckoutReuseError);
+    const retry = await prepareFoundationCheckout(prisma, input);
+    expect(retry.reused).toBe(true);
+    expect(retry.attemptId).toBe(prepared.attemptId);
+    expect(retry.stripeIdempotencyKey).toBe(prepared.stripeIdempotencyKey);
+    expect(retry.state).toBe("SESSION_UNKNOWN");
+    expect(retry.stripeCheckoutSessionId).toBeNull();
     expect(await prisma.checkoutAttempt.count({ where: { buyerMemberId: buyer.id } })).toBe(1);
     const reservation = await prisma.inventoryReservation.findFirst({
       where: { checkoutAttemptId: prepared.attemptId },
     });
     expect(reservation?.activeQty).toBe(1);
+  });
+
+  it("idempotency mismatch / timeout classify as unknown; InvalidRequest as failed", () => {
+    expect(
+      classifyStripeSessionCreateFailure({
+        type: "StripeIdempotencyError",
+        message: "Keys for idempotent requests can only be used with the same parameters",
+      })
+    ).toBe("unknown");
+    expect(
+      classifyStripeSessionCreateFailure({
+        type: "StripeInvalidRequestError",
+        message: "Keys for idempotent requests can only be used with the same parameters",
+      })
+    ).toBe("unknown");
+    expect(classifyStripeSessionCreateFailure({ type: "StripeConnectionError" })).toBe("unknown");
+    expect(classifyStripeSessionCreateFailure({ message: "socket hang up" })).toBe("unknown");
+    expect(classifyStripeSessionCreateFailure({ type: "StripeAPIError", statusCode: 500 })).toBe("unknown");
+    expect(classifyStripeSessionCreateFailure({ type: "StripeInvalidRequestError", statusCode: 400 })).toBe(
+      "failed"
+    );
+  });
+
+  it("failCheckoutAttemptAndRelease refuses SESSION_UNKNOWN and SESSION_OPEN with known session", async () => {
+    const ctx = await trackedSimple(1);
+    const buyer = await createMember(prisma, "norelease");
+    const prepared = await prepareFoundationCheckout(prisma, {
+      buyerMemberId: buyer.id,
+      amountCents: 1000,
+      orders: [checkoutLines(ctx.member.id, ctx.item.id, ctx.variantId)],
+    });
+    await markCheckoutAttemptSessionUnknown(prisma, { attemptId: prepared.attemptId });
+    await failCheckoutAttemptAndRelease(prisma, prepared.attemptId);
+    const unknown = await prisma.checkoutAttempt.findUnique({ where: { id: prepared.attemptId } });
+    expect(unknown?.state).toBe("SESSION_UNKNOWN");
+    expect(
+      (await prisma.inventoryReservation.findFirst({ where: { checkoutAttemptId: prepared.attemptId } }))
+        ?.activeQty
+    ).toBe(1);
+
+    await markCheckoutAttemptSessionOpen(prisma, {
+      attemptId: prepared.attemptId,
+      stripeCheckoutSessionId: `cs_open_${prepared.attemptId}`,
+    });
+    await failCheckoutAttemptAndRelease(prisma, prepared.attemptId);
+    const open = await prisma.checkoutAttempt.findUnique({ where: { id: prepared.attemptId } });
+    expect(open?.state).toBe("SESSION_OPEN");
+    expect(
+      (await prisma.inventoryReservation.findFirst({ where: { checkoutAttemptId: prepared.attemptId } }))
+        ?.activeQty
+    ).toBe(1);
+  });
+
+  it("different Stripe Session id for same attempt fails closed", async () => {
+    const ctx = await trackedSimple(1);
+    const buyer = await createMember(prisma, "conflict");
+    const prepared = await prepareFoundationCheckout(prisma, {
+      buyerMemberId: buyer.id,
+      amountCents: 1000,
+      orders: [checkoutLines(ctx.member.id, ctx.item.id, ctx.variantId)],
+    });
+    await markCheckoutAttemptSessionOpen(prisma, {
+      attemptId: prepared.attemptId,
+      stripeCheckoutSessionId: `cs_a_${prepared.attemptId}`,
+    });
+    await expect(
+      markCheckoutAttemptSessionOpen(prisma, {
+        attemptId: prepared.attemptId,
+        stripeCheckoutSessionId: `cs_b_${prepared.attemptId}`,
+      })
+    ).rejects.toMatchObject({ code: "checkout_session_conflict" });
+    await expect(
+      finalizeFoundationCheckoutPayment(prisma, {
+        attemptId: prepared.attemptId,
+        stripeCheckoutSessionId: `cs_b_${prepared.attemptId}`,
+      })
+    ).rejects.toMatchObject({ code: "checkout_session_conflict" });
+    const attempt = await prisma.checkoutAttempt.findUnique({ where: { id: prepared.attemptId } });
+    expect(attempt?.stripeCheckoutSessionId).toBe(`cs_a_${prepared.attemptId}`);
+  });
+
+  it("known session completion finalizes once; webhook replay is idempotent", async () => {
+    const ctx = await trackedSimple(1);
+    const buyer = await createMember(prisma, "once");
+    const prepared = await prepareFoundationCheckout(prisma, {
+      buyerMemberId: buyer.id,
+      amountCents: 1000,
+      orders: [checkoutLines(ctx.member.id, ctx.item.id, ctx.variantId)],
+    });
+    const sessionId = `cs_once_${prepared.attemptId}`;
+    await markCheckoutAttemptSessionOpen(prisma, {
+      attemptId: prepared.attemptId,
+      stripeCheckoutSessionId: sessionId,
+    });
+    const first = await finalizeFoundationCheckoutPayment(prisma, {
+      attemptId: prepared.attemptId,
+      stripeCheckoutSessionId: sessionId,
+      stripeEventId: `evt_once_${prepared.attemptId}`,
+      eventType: "checkout.session.completed",
+    });
+    expect(first.alreadyFinalized).toBe(false);
+    expect(first.converted).toBe(1);
+    const second = await finalizeFoundationCheckoutPayment(prisma, {
+      attemptId: prepared.attemptId,
+      stripeCheckoutSessionId: sessionId,
+      stripeEventId: `evt_once_replay_${prepared.attemptId}`,
+      eventType: "checkout.session.completed",
+    });
+    expect(second.alreadyFinalized).toBe(true);
+    expect(second.converted).toBe(0);
+    expect(await prisma.storeOrder.count({ where: { checkoutAttemptId: prepared.attemptId } })).toBe(1);
+    expect(
+      await prisma.inventoryEvent.count({
+        where: { variantId: ctx.variantId, eventType: "RESERVATION_CONVERT" },
+      })
+    ).toBe(1);
+  });
+
+  it("terminal SESSION_FAILED allows a new CheckoutAttempt with a new generation key", async () => {
+    const ctx = await trackedSimple(1);
+    const buyer = await createMember(prisma, "newgen");
+    const input = {
+      buyerMemberId: buyer.id,
+      amountCents: 1000,
+      orders: [checkoutLines(ctx.member.id, ctx.item.id, ctx.variantId)],
+    };
+    const first = await prepareFoundationCheckout(prisma, input);
+    await failCheckoutAttemptAndRelease(prisma, first.attemptId);
+    const second = await prepareFoundationCheckout(prisma, input);
+    expect(second.reused).toBe(false);
+    expect(second.attemptId).not.toBe(first.attemptId);
+    expect(second.stripeIdempotencyKey).toContain("_g1");
+    expect(second.stripeIdempotencyKey).not.toBe(first.stripeIdempotencyKey);
   });
 
   it("paid finalization after RELEASE does not mark commerce FINALIZED", async () => {

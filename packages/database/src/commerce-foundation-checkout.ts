@@ -235,12 +235,8 @@ async function returnExistingAttempt(
   tx: Prisma.TransactionClient,
   attempt: CheckoutAttempt
 ): Promise<PrepareFoundationCheckoutResult> {
-  if (attempt.state === "SESSION_UNKNOWN" && !attempt.stripeCheckoutSessionId) {
-    throw new FoundationCheckoutReuseError(
-      "checkout_session_unknown",
-      "An existing checkout attempt is in SESSION_UNKNOWN without a recoverable Stripe Session id"
-    );
-  }
+  // SESSION_UNKNOWN without a persisted Session id is still the same logical attempt:
+  // callers must retry Stripe create with the same idempotency key (never mint _gN).
   const orders = await tx.storeOrder.findMany({
     where: { checkoutAttemptId: attempt.id },
     select: { id: true },
@@ -414,6 +410,15 @@ export async function markCheckoutAttemptSessionOpen(
     if (attempt.paymentStatus === "PAID" || attempt.state === "PAID" || attempt.state === "CLOSED") {
       return;
     }
+    if (
+      attempt.stripeCheckoutSessionId &&
+      attempt.stripeCheckoutSessionId !== args.stripeCheckoutSessionId
+    ) {
+      throw new FoundationCheckoutReuseError(
+        "checkout_session_conflict",
+        `CheckoutAttempt ${args.attemptId} already has a different Stripe Checkout Session`
+      );
+    }
     await tx.checkoutAttempt.update({
       where: { id: args.attemptId },
       data: {
@@ -443,6 +448,9 @@ export async function failCheckoutAttemptAndRelease(
     if (attempt.paymentStatus === "PAID" || attempt.state === "PAID") {
       return;
     }
+    // Never release holds while a provider session may still be payable / unknown.
+    if (attempt.state === "SESSION_UNKNOWN") return;
+    if (attempt.state === "SESSION_OPEN" && attempt.stripeCheckoutSessionId) return;
     const reservations = await tx.inventoryReservation.findMany({
       where: { checkoutAttemptId: attemptId, activeQty: { gt: 0 } },
     });
@@ -480,6 +488,16 @@ export async function markCheckoutAttemptSessionUnknown(
     ) {
       return;
     }
+    if (
+      attempt.stripeCheckoutSessionId &&
+      args.stripeCheckoutSessionId &&
+      attempt.stripeCheckoutSessionId !== args.stripeCheckoutSessionId
+    ) {
+      throw new FoundationCheckoutReuseError(
+        "checkout_session_conflict",
+        `CheckoutAttempt ${args.attemptId} already has a different Stripe Checkout Session`
+      );
+    }
     await tx.checkoutAttempt.update({
       where: { id: args.attemptId },
       data: {
@@ -497,11 +515,29 @@ export async function markCheckoutAttemptSessionUnknown(
   });
 }
 
+/** Matches Stripe transfer classifier: prior create may have succeeded under this key. */
+const SESSION_IDEMPOTENCY_MISMATCH_RE =
+  /keys for idempotent requests|idempotent requests can only be used with the same parameters|idempotency(?: key)?(?: parameter)? mismatch|idempotency_key_in_use/i;
+
+/**
+ * Provider-call classifier for Checkout Session create.
+ * "failed" only when evidence shows Stripe did not create a session.
+ * Idempotency mismatch / timeouts / 5xx → "unknown" (do not release holds).
+ */
 export function classifyStripeSessionCreateFailure(err: unknown): "failed" | "unknown" {
-  const e = err as { type?: string; statusCode?: number; message?: string };
+  const e = err as { type?: string; statusCode?: number; code?: string; message?: string };
+  const msg = `${typeof e?.message === "string" ? e.message : String(err ?? "")} ${e?.code ?? ""}`;
+  if (e?.type === "StripeIdempotencyError" || SESSION_IDEMPOTENCY_MISMATCH_RE.test(msg)) return "unknown";
   if (e?.type === "StripeConnectionError") return "unknown";
-  if (e?.type === "StripeAPIError" && (e.statusCode ?? 0) >= 500) return "unknown";
-  const msg = typeof e?.message === "string" ? e.message : String(err ?? "");
+  if (e?.type === "StripeRateLimitError") return "unknown";
+  if (e?.type === "StripeAuthenticationError") return "unknown";
+  if (e?.type === "StripeAPIError") return "unknown";
+  const status = e?.statusCode;
+  if (status === 0 || (status == null && /timeout|ECONNRESET|ETIMEDOUT|network|socket/i.test(msg))) {
+    return "unknown";
+  }
+  if (typeof status === "number" && status >= 500) return "unknown";
+  if (status === 429) return "unknown";
   if (/timeout|ECONNRESET|ETIMEDOUT|network|socket/i.test(msg)) return "unknown";
   return "failed";
 }
@@ -551,6 +587,17 @@ async function persistFoundationPaymentTruth(
     attempt = await tx.checkoutAttempt.findUnique({ where: { id: attempt.id } });
     if (!attempt) {
       throw new FoundationMissingStateError("CheckoutAttempt not found for foundation payment finalization");
+    }
+
+    if (
+      attempt.stripeCheckoutSessionId &&
+      args.stripeCheckoutSessionId &&
+      attempt.stripeCheckoutSessionId !== args.stripeCheckoutSessionId
+    ) {
+      throw new FoundationCheckoutReuseError(
+        "checkout_session_conflict",
+        `CheckoutAttempt ${attempt.id} already has a different Stripe Checkout Session`
+      );
     }
 
     if (args.stripeEventId) {

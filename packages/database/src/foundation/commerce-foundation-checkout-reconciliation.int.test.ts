@@ -4,7 +4,6 @@ import { COMMERCE_FOUNDATION_CUTOVER_SINGLETON_ID, transitionCommerceFoundationC
 import {
   expireFoundationCheckoutAttempt,
   finalizeFoundationCheckoutPayment,
-  FoundationCheckoutReuseError,
   prepareFoundationCheckout,
 } from "../commerce-foundation-checkout";
 import {
@@ -271,7 +270,7 @@ describe("prompt-70 foundation checkout session reconciliation", () => {
     expect(reservation?.releasedQty).toBe(1);
   });
 
-  it("SESSION_UNKNOWN without Session id never creates, releases, or fails", async () => {
+  it("SESSION_UNKNOWN without Session id never creates, releases, or fails; prepare reuses same key", async () => {
     const ctx = await trackedSimple(1);
     const buyer = await createMember(prisma, "noid");
     const input = {
@@ -289,7 +288,10 @@ describe("prompt-70 foundation checkout session reconciliation", () => {
     });
     expect(result.classification).toBe("NEEDS_OPERATOR");
     expect(result.retryable).toBe(false);
-    await expect(prepareFoundationCheckout(prisma, input)).rejects.toBeInstanceOf(FoundationCheckoutReuseError);
+    const retry = await prepareFoundationCheckout(prisma, input);
+    expect(retry.reused).toBe(true);
+    expect(retry.attemptId).toBe(prepared.attemptId);
+    expect(retry.stripeIdempotencyKey).toBe(prepared.stripeIdempotencyKey);
     const attempt = await prisma.checkoutAttempt.findUnique({ where: { id: prepared.attemptId } });
     expect(attempt?.state).toBe("SESSION_UNKNOWN");
     expect(attempt?.state).not.toBe("SESSION_FAILED");

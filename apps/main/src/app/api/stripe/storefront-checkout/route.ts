@@ -545,7 +545,8 @@ export async function POST(req: NextRequest) {
 
     if (
       preparedAttempt?.reused &&
-      (preparedAttempt.state === "SESSION_OPEN" || preparedAttempt.state === "SESSION_UNKNOWN")
+      (preparedAttempt.state === "SESSION_OPEN" ||
+        (preparedAttempt.state === "SESSION_UNKNOWN" && preparedAttempt.stripeCheckoutSessionId))
     ) {
       const reconciled = await reconcileFoundationCheckoutAttempt({
         prisma,
@@ -599,13 +600,32 @@ export async function POST(req: NextRequest) {
       }
       return NextResponse.json({ url: checkoutSession.url });
     } catch (e) {
+      if (e instanceof FoundationCheckoutReuseError && e.code === "checkout_session_conflict") {
+        return NextResponse.json(
+          { error: e.code, message: e.message, retryable: false },
+          { status: 409 }
+        );
+      }
       if (foundationAttemptId) {
-        await markCheckoutAttemptSessionUnknown(prisma, {
-          attemptId: foundationAttemptId,
-          stripeCheckoutSessionId: checkoutSession.id,
-          stripePaymentIntentId:
-            typeof checkoutSession.payment_intent === "string" ? checkoutSession.payment_intent : null,
-        });
+        try {
+          await markCheckoutAttemptSessionUnknown(prisma, {
+            attemptId: foundationAttemptId,
+            stripeCheckoutSessionId: checkoutSession.id,
+            stripePaymentIntentId:
+              typeof checkoutSession.payment_intent === "string" ? checkoutSession.payment_intent : null,
+          });
+        } catch (unknownErr) {
+          if (
+            unknownErr instanceof FoundationCheckoutReuseError &&
+            unknownErr.code === "checkout_session_conflict"
+          ) {
+            return NextResponse.json(
+              { error: unknownErr.code, message: unknownErr.message, retryable: false },
+              { status: 409 }
+            );
+          }
+          throw unknownErr;
+        }
         return NextResponse.json(
           { error: "checkout_session_unknown", retryable: true },
           { status: 503 }
