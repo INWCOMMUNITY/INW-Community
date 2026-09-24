@@ -51,6 +51,8 @@ const prismaClient = (() => {
     typeof (existing as { shopifyOAuthState?: unknown }).shopifyOAuthState !== "undefined" &&
     typeof (existing as { shopifyListingLink?: unknown }).shopifyListingLink !== "undefined" &&
     typeof (existing as { shopifyVariantMap?: unknown }).shopifyVariantMap !== "undefined" &&
+    typeof (existing as { shopifyProviderEvidence?: unknown }).shopifyProviderEvidence !== "undefined" &&
+    typeof (existing as { shopifySyncJob?: unknown }).shopifySyncJob !== "undefined" &&
     prismaHasShippingOptionCost(existing)
   ) {
     return existing;
@@ -411,3 +413,32 @@ export type {
   ShopifyMappingLookupResult,
   ShopifyVariantMappingInput,
 } from "./shopify/mapping";
+export {
+  hashShopifyWebhookPayload,
+  ingestShopifyWebhookEvidence,
+  resolveShopifyConnectionForWebhook,
+  SHOPIFY_DEDICATED_WEBHOOK_TOPICS,
+  ShopifyEvidenceIngestError,
+} from "./shopify/evidence";
+export type {
+  IngestShopifyWebhookEvidenceInput,
+  IngestShopifyWebhookEvidenceResult,
+  ShopifyEvidenceDb,
+} from "./shopify/evidence";
+export {
+  claimNextShopifySyncJob,
+  completeShopifySyncJobDead,
+  completeShopifySyncJobRetry,
+  completeShopifySyncJobSuccess,
+  enqueueShopifySyncJob,
+  hashShopifyJobPayload,
+  shopifyEvidenceJobDedupeKey,
+  shopifyJobBackoffMs,
+  ShopifySyncJobConflictError,
+} from "./shopify/jobs";
+export type {
+  EnqueueShopifySyncJobInput,
+  ShopifyJobDb,
+  ShopifyJobHandlerResult,
+  ShopifySyncJobClaim,
+} from "./shopify/jobs";

@@ -2193,6 +2193,8 @@ model ShopifyConnection {
   member      Member               @relation(fields: [memberId], references: [id], onDelete: Restrict)
   listingLinks ShopifyListingLink[]
   variantMaps  ShopifyVariantMap[]
+  providerEvidence ShopifyProviderEvidence[]
+  syncJobs         ShopifySyncJob[]
 
   /// Supports composite FKs from mapping rows so connection + member cannot drift.
   @@unique([id, memberId])
@@ -2248,5 +2250,94 @@ model ShopifyVariantMap {
   @@unique([shopifyConnectionId, shopifyInventoryItemId])
   @@index([shopifyListingLinkId])
   @@map("shopify_variant_map")
+}
+
+enum ShopifyEvidenceProcessState {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  ERROR
+
+  @@map("shopify_evidence_process_state")
+}
+
+enum ShopifySyncJobState {
+  PENDING
+  RUNNING
+  RETRY_WAIT
+  SUCCEEDED
+  DEAD
+
+  @@map("shopify_sync_job_state")
+}
+
+enum ShopifySyncJobKind {
+  PROCESS_PROVIDER_EVIDENCE
+
+  @@map("shopify_sync_job_kind")
+}
+
+/// Verified inbound Shopify webhook fact. Separate from canonical commerce state.
+model ShopifyProviderEvidence {
+  id                  String                      @id @default(cuid())
+  shopifyConnectionId String?                     @map("shopify_connection_id")
+  shopDomain          String                      @map("shop_domain")
+  topic               String
+  /// X-Shopify-Webhook-Id. Delivery dedupe identity.
+  webhookId           String                      @unique @map("webhook_id")
+  /// X-Shopify-Event-Id when present. Not unique across deliveries.
+  eventId             String?                     @map("event_id")
+  triggeredAt         DateTime                    @map("triggered_at")
+  apiVersion          String?                     @map("api_version")
+  rawBody             String                      @map("raw_body") @db.Text
+  payloadHash         String                      @map("payload_hash") @db.VarChar(64)
+  processState        ShopifyEvidenceProcessState @default(RECEIVED) @map("process_state")
+  receivedAt          DateTime                    @default(now()) @map("received_at")
+  processedAt         DateTime?                   @map("processed_at")
+  lastErrorCode       String?                     @map("last_error_code")
+  lastErrorMessage    String?                     @map("last_error_message") @db.Text
+  createdAt           DateTime                    @default(now()) @map("created_at")
+  updatedAt           DateTime                    @updatedAt @map("updated_at")
+
+  connection ShopifyConnection? @relation(fields: [shopifyConnectionId], references: [id], onDelete: Restrict)
+  syncJob    ShopifySyncJob?
+
+  @@index([shopifyConnectionId, topic, receivedAt])
+  @@index([processState, receivedAt])
+  @@index([shopDomain, triggeredAt])
+  @@index([eventId])
+  @@map("shopify_provider_evidence")
+}
+
+/// Shopify-scoped durable sync job. At-least-once; not exactly-once.
+model ShopifySyncJob {
+  id                  String             @id @default(cuid())
+  shopifyConnectionId String             @map("shopify_connection_id")
+  kind                ShopifySyncJobKind
+  dedupeKey           String             @unique @map("dedupe_key")
+  evidenceId          String?            @unique @map("evidence_id")
+  payload             Json?
+  payloadHash         String?            @map("payload_hash") @db.VarChar(64)
+  state               ShopifySyncJobState
+  attemptCount        Int                @default(0) @map("attempt_count")
+  maxAttempts         Int                @default(8) @map("max_attempts")
+  nextAttemptAt       DateTime           @map("next_attempt_at")
+  leaseOwner          String?            @map("lease_owner")
+  leaseToken          String?            @map("lease_token")
+  leaseExpiresAt      DateTime?          @map("lease_expires_at")
+  lastErrorClass      String?            @map("last_error_class")
+  lastErrorCode       String?            @map("last_error_code")
+  lastErrorMessage    String?            @map("last_error_message") @db.Text
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  completedAt         DateTime?          @map("completed_at")
+
+  connection ShopifyConnection       @relation(fields: [shopifyConnectionId], references: [id], onDelete: Restrict)
+  evidence   ShopifyProviderEvidence? @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+
+  @@index([state, nextAttemptAt])
+  @@index([leaseExpiresAt])
+  @@index([shopifyConnectionId, state])
+  @@map("shopify_sync_job")
 }
 
