@@ -58,6 +58,14 @@ function applyResult(
     case "ALREADY_COMPLETE":
       summary.alreadyComplete += 1;
       break;
+    case "HISTORICALLY_SETTLED":
+      // Financial no-op replay — not an error; StoreReturn may remain received.
+      summary.alreadyComplete += 1;
+      break;
+    case "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED":
+      // Deterministic operator block; do not treat as retryable provider failure.
+      summary.errors += 1;
+      break;
     case "NOT_RECEIVED":
       summary.notReceived += 1;
       break;

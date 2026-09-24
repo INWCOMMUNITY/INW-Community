@@ -12,6 +12,11 @@ import {
   FoundationMissingStateError,
   FoundationReservationError,
 } from "./commerce-foundation-inventory";
+import {
+  classifyHistoricalRefundCompatibility,
+  resolveHistoricalRefundRuntimeDecision,
+  loadHistoricalRefundCompatibilityEvidence,
+} from "./foundation/historical-refund-compatibility";
 
 export const FOUNDATION_TRANSFER_IDEMPOTENCY_PREFIX = "nwc_store_transfer_";
 export const FOUNDATION_STOREFRONT_REFUND_IDEMPOTENCY_PREFIX = "nwc_store_refund_";
@@ -214,6 +219,7 @@ type TransferClient = {
   storeOrder: PrismaClient["storeOrder"];
   sellerBalance: PrismaClient["sellerBalance"];
   sellerBalanceTransaction: PrismaClient["sellerBalanceTransaction"];
+  sellerReturnEntitlementOperation: PrismaClient["sellerReturnEntitlementOperation"];
   checkoutAttempt: PrismaClient["checkoutAttempt"];
   $transaction: PrismaClient["$transaction"];
   $executeRaw: PrismaClient["$executeRaw"];
@@ -939,7 +945,14 @@ export async function listFoundationPayoutReconciliation(
 
 export type FoundationPayoutRefundLockResult =
   | { kind: "TRANSFER_SUCCEEDED"; stripeTransferId: string }
-  | { kind: "LOCKED_OUT"; operation: TransferOperation | null };
+  | { kind: "LOCKED_OUT"; operation: TransferOperation | null }
+  | { kind: "HISTORICALLY_SETTLED"; storeOrderId: string; reasonCodes: string[] }
+  | {
+      kind: "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED";
+      storeOrderId: string;
+      classification: "HISTORICAL_REFUND_AMBIGUOUS" | "HISTORICAL_REFUND_ANOMALY";
+      reasonCodes: string[];
+    };
 
 /**
  * Atomically prevent a never-attempted (or definitive no-transfer) payout before a buyer refund.
@@ -955,6 +968,31 @@ export async function lockFoundationPayoutOutForRefund(
     if (!order) {
       throw new FoundationTransferRefundBlockedError("NOT_FOUNDATION_TRANSFER", "StoreOrder not found");
     }
+
+    const historicalEvidence = await loadHistoricalRefundCompatibilityEvidence(
+      tx as unknown as TransferClient,
+      args.storeOrderId
+    );
+    const historical = classifyHistoricalRefundCompatibility(historicalEvidence);
+    const historicalDecision = resolveHistoricalRefundRuntimeDecision(historical, historicalEvidence);
+    if (historicalDecision.action === "HISTORICAL_FINANCIAL_NOOP") {
+      return {
+        kind: "HISTORICALLY_SETTLED" as const,
+        storeOrderId: args.storeOrderId,
+        reasonCodes: historicalDecision.reasonCodes,
+      };
+    }
+    if (historicalDecision.action === "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED") {
+      return {
+        kind: "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED" as const,
+        storeOrderId: args.storeOrderId,
+        classification: historicalDecision.classification as
+          | "HISTORICAL_REFUND_AMBIGUOUS"
+          | "HISTORICAL_REFUND_ANOMALY",
+        reasonCodes: historicalDecision.reasonCodes,
+      };
+    }
+
     const current = await tx.transferOperation.findUnique({ where: { storeOrderId: args.storeOrderId } });
     if (current) await lockTransferOperationForUpdate(tx, current.id);
     const operation = current

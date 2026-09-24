@@ -13,6 +13,7 @@
   "exclude": [
     "src/foundation/persist-local-storefront-refund.int.test.ts",
     "src/foundation/store-return-request.int.test.ts",
-    "src/foundation/courtesy-refund-converge.int.test.ts"
+    "src/foundation/courtesy-refund-converge.int.test.ts",
+    "src/foundation/historical-refund-compatibility.int.test.ts"
   ]
 }

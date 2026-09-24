@@ -19,6 +19,11 @@ import {
   ORDER_REFUNDED_BEFORE_TRANSFER,
   type FoundationPayoutRefundDisposition,
 } from "./commerce-foundation-transfer";
+import {
+  classifyHistoricalRefundCompatibility,
+  resolveHistoricalRefundRuntimeDecision,
+  loadHistoricalRefundCompatibilityEvidence,
+} from "./foundation/historical-refund-compatibility";
 
 export const FOUNDATION_RETURN_ENTITLEMENT_IDEMPOTENCY_PREFIX = "nwc_store_return_entitlement_";
 
@@ -63,12 +68,24 @@ export type PrepareFoundationReturnSellerSettlementResult =
   | {
       kind: "NO_TRANSFER_LOCKED_OUT_ZERO_ENTITLEMENT";
       transferOperation: TransferOperation | null;
+    }
+  | {
+      kind: "HISTORICALLY_SETTLED";
+      storeOrderId: string;
+      reasonCodes: string[];
+    }
+  | {
+      kind: "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED";
+      storeOrderId: string;
+      classification: "HISTORICAL_REFUND_AMBIGUOUS" | "HISTORICAL_REFUND_ANOMALY";
+      reasonCodes: string[];
     };
 
 type ReturnEntitlementClient = {
   storeOrder: PrismaClient["storeOrder"];
   storeReturn: PrismaClient["storeReturn"];
   transferOperation: PrismaClient["transferOperation"];
+  refundOperation: PrismaClient["refundOperation"];
   sellerReturnEntitlementOperation: PrismaClient["sellerReturnEntitlementOperation"];
   sellerBalance: PrismaClient["sellerBalance"];
   sellerBalanceTransaction: PrismaClient["sellerBalanceTransaction"];
@@ -232,6 +249,30 @@ export async function prepareFoundationReturnSellerSettlement(
       throw new FoundationReturnEntitlementCausalError(
         `StoreReturn ${input.storeReturnId} must be received before seller settlement (status=${storeReturn.status})`
       );
+    }
+
+    const historicalEvidence = await loadHistoricalRefundCompatibilityEvidence(
+      tx as unknown as ReturnEntitlementClient,
+      input.storeOrderId
+    );
+    const historical = classifyHistoricalRefundCompatibility(historicalEvidence);
+    const historicalDecision = resolveHistoricalRefundRuntimeDecision(historical, historicalEvidence);
+    if (historicalDecision.action === "HISTORICAL_FINANCIAL_NOOP") {
+      return {
+        kind: "HISTORICALLY_SETTLED" as const,
+        storeOrderId: input.storeOrderId,
+        reasonCodes: historicalDecision.reasonCodes,
+      };
+    }
+    if (historicalDecision.action === "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED") {
+      return {
+        kind: "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED" as const,
+        storeOrderId: input.storeOrderId,
+        classification: historicalDecision.classification as
+          | "HISTORICAL_REFUND_AMBIGUOUS"
+          | "HISTORICAL_REFUND_ANOMALY",
+        reasonCodes: historicalDecision.reasonCodes,
+      };
     }
 
     const currentTo = await tx.transferOperation.findUnique({ where: { storeOrderId: input.storeOrderId } });

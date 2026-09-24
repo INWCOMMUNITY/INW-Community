@@ -103,6 +103,41 @@ describe("reconcileFoundationReturnSettlementBatch", () => {
     expect(summary).not.toHaveProperty("operatorRequired");
   });
 
+  it("HISTORICALLY_SETTLED replay counts as alreadyComplete, not errors", async () => {
+    listFoundationReturnSettlementCandidates.mockResolvedValue([candidate("r1"), candidate("r2")]);
+    completeReceivedStoreReturnSettlement.mockResolvedValue({
+      kind: "HISTORICALLY_SETTLED",
+      amountCents: 1000,
+    });
+    const summary = await reconcileFoundationReturnSettlementBatch({
+      prisma: {} as never,
+      stripe,
+      mode: "FOUNDATION",
+    });
+    expect(summary.alreadyComplete).toBe(2);
+    expect(summary.errors).toBe(0);
+    expect(summary.settled).toBe(0);
+  });
+
+  it("HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED surfaces as errors (operator block)", async () => {
+    listFoundationReturnSettlementCandidates.mockResolvedValue([candidate("r1")]);
+    completeReceivedStoreReturnSettlement.mockResolvedValue({
+      kind: "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED",
+      amountCents: 1000,
+      classification: "HISTORICAL_REFUND_AMBIGUOUS",
+      reasonCodes: ["RETURN_DEBIT_MISSING"],
+      error: "Historical refund compatibility requires operator review before seller settlement or buyer refund.",
+    });
+    const summary = await reconcileFoundationReturnSettlementBatch({
+      prisma: {} as never,
+      stripe,
+      mode: "FOUNDATION",
+    });
+    expect(summary.errors).toBe(1);
+    expect(summary.sellerPending).toBe(0);
+    expect(summary.settled).toBe(0);
+  });
+
   it("isolates a thrown candidate and continues the batch", async () => {
     completeReceivedStoreReturnSettlement.mockImplementation(async (args: { storeReturnId: string }) => {
       if (args.storeReturnId === "r1") throw new Error("boom");

@@ -18,6 +18,9 @@ const {
   persistFoundationRefundSuccess,
   persistFoundationRefundOutcome,
   foundationStorefrontRefundIdempotencyKey,
+  loadHistoricalRefundRuntimeDecision,
+  mustBlockHistoricalSellerFinancialMutation,
+  runHistoricalExternalRefundRestockBranch,
   FoundationTransferRefundBlockedError,
   FoundationRefundIntentConflictError,
   CommerceFoundationCutoverBlockedError,
@@ -45,6 +48,28 @@ const {
       this.name = "FoundationRefundIntentConflictError";
     }
   }
+  const loadHistoricalRefundRuntimeDecision = vi.fn(async () => ({
+    action: "CONTINUE_ORDINARY_FOUNDATION" as const,
+    classification: "NOT_HISTORICAL_LEGACY_REFUND" as const,
+    reasonCodes: [] as string[],
+    storeOrderId: "ord-1",
+  }));
+  const mustBlockHistoricalSellerFinancialMutation = vi.fn(
+    (d: { action: string }) =>
+      d.action === "HISTORICAL_FINANCIAL_NOOP" ||
+      d.action === "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED"
+  );
+  const runHistoricalExternalRefundRestockBranch = vi.fn(async () => ({
+    handled: true,
+    decision: {
+      action: "HISTORICAL_FINANCIAL_NOOP",
+      classification: "HISTORICAL_REFUND_ALREADY_SETTLED",
+      reasonCodes: [],
+      storeOrderId: "ord-1",
+    },
+    inventoryUpdated: true,
+    sellerDebitApplied: false as const,
+  }));
   return {
     mockPrisma: {
       storeOrder: { findUnique: vi.fn(), update: vi.fn() },
@@ -68,6 +93,9 @@ const {
     persistFoundationRefundOutcome: vi.fn(async () => ({})),
     foundationStorefrontRefundIdempotencyKey: (id: string) => `nwc_store_refund_${id}`,
     restockOrderLinesAfterReturn: vi.fn(async () => ["item-1"]),
+    loadHistoricalRefundRuntimeDecision,
+    mustBlockHistoricalSellerFinancialMutation,
+    runHistoricalExternalRefundRestockBranch,
     CommerceFoundationCutoverBlockedError,
     FoundationTransferRefundBlockedError,
     FoundationRefundIntentConflictError,
@@ -92,6 +120,9 @@ vi.mock("database", async () => {
     CommerceFoundationCutoverBlockedError,
     classifySellerBalanceLedgerEvidence: evidence.classifySellerBalanceLedgerEvidence,
     isFoundationReturnLedgerAnomaly: evidence.isFoundationReturnLedgerAnomaly,
+    loadHistoricalRefundRuntimeDecision,
+    mustBlockHistoricalSellerFinancialMutation,
+    runHistoricalExternalRefundRestockBranch,
   };
 });
 
@@ -247,6 +278,28 @@ function matchingReversalList(overrides?: { id?: string; amount?: number; refund
 describe("restockAfterExternalRefund cutover ordering", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    loadHistoricalRefundRuntimeDecision.mockResolvedValue({
+      action: "CONTINUE_ORDINARY_FOUNDATION",
+      classification: "NOT_HISTORICAL_LEGACY_REFUND",
+      reasonCodes: [],
+      storeOrderId: "ord-1",
+    });
+    mustBlockHistoricalSellerFinancialMutation.mockImplementation(
+      (d: { action: string }) =>
+        d.action === "HISTORICAL_FINANCIAL_NOOP" ||
+        d.action === "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED"
+    );
+    runHistoricalExternalRefundRestockBranch.mockResolvedValue({
+      handled: true,
+      decision: {
+        action: "HISTORICAL_FINANCIAL_NOOP",
+        classification: "HISTORICAL_REFUND_ALREADY_SETTLED",
+        reasonCodes: [],
+        storeOrderId: "ord-1",
+      },
+      inventoryUpdated: true,
+      sellerDebitApplied: false,
+    });
     mockPrisma.storeOrder.findUnique.mockResolvedValue(paidOrder);
     mockPersistLocalTransaction();
   });
@@ -309,6 +362,53 @@ describe("restockAfterExternalRefund cutover ordering", () => {
     expect(assertLegacyInteractiveMutationAllowed).not.toHaveBeenCalled();
     expect(stripe.transfers.createReversal).not.toHaveBeenCalled();
     expect(restockOrderLinesAfterReturn).not.toHaveBeenCalled();
+  });
+
+  it("historical SETTLED: inventory converges without seller debit or reversal", async () => {
+    loadHistoricalRefundRuntimeDecision.mockResolvedValue({
+      action: "HISTORICAL_FINANCIAL_NOOP",
+      classification: "HISTORICAL_REFUND_ALREADY_SETTLED",
+      reasonCodes: ["HISTORICAL_REFUND_ALREADY_SETTLED"],
+      storeOrderId: "ord-1",
+    });
+    getCommerceFoundationCutoverState.mockResolvedValue({ mode: "FOUNDATION" });
+    mockPrisma.storeOrder.findUnique.mockResolvedValue({
+      ...paidOrder,
+      status: "refunded",
+      inventoryRestoredAt: null,
+    });
+    const stripe = stripeStub();
+
+    await expect(restockAfterExternalRefund("ord-1", stripe as never)).resolves.toBe(true);
+
+    expect(loadHistoricalRefundRuntimeDecision).toHaveBeenCalledWith(mockPrisma, "ord-1");
+    expect(runHistoricalExternalRefundRestockBranch).toHaveBeenCalled();
+    expect(lockFoundationPayoutOutForRefund).not.toHaveBeenCalled();
+    expect(stripe.transfers.createReversal).not.toHaveBeenCalled();
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("historical AMBIGUOUS: no debit/reversal/lock; inventory branch still runs", async () => {
+    loadHistoricalRefundRuntimeDecision.mockResolvedValue({
+      action: "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED",
+      classification: "HISTORICAL_REFUND_AMBIGUOUS",
+      reasonCodes: ["RETURN_DEBIT_MISSING"],
+      storeOrderId: "ord-1",
+    });
+    getCommerceFoundationCutoverState.mockResolvedValue({ mode: "FOUNDATION" });
+    mockPrisma.storeOrder.findUnique.mockResolvedValue({
+      ...paidOrder,
+      status: "refunded",
+      inventoryRestoredAt: null,
+    });
+    const stripe = stripeStub();
+
+    await expect(restockAfterExternalRefund("ord-1", stripe as never)).resolves.toBe(true);
+
+    expect(runHistoricalExternalRefundRestockBranch).toHaveBeenCalled();
+    expect(lockFoundationPayoutOutForRefund).not.toHaveBeenCalled();
+    expect(stripe.transfers.createReversal).not.toHaveBeenCalled();
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
   });
 });
 

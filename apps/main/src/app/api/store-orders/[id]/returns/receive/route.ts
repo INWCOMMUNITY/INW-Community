@@ -26,6 +26,26 @@ function settlementHttp(result: StoreReturnSettlementResult): NextResponse {
   if (result.kind === "SETTLED" || result.kind === "ALREADY_COMPLETE") {
     return NextResponse.json({ ok: true, refunded: true, amountCents: result.amountCents });
   }
+  if (result.kind === "HISTORICALLY_SETTLED") {
+    return NextResponse.json({
+      ok: true,
+      historicallySettled: true,
+      refunded: false,
+      amountCents: result.amountCents,
+    });
+  }
+  if (result.kind === "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED") {
+    return NextResponse.json(
+      {
+        error: result.error,
+        historicallySettled: false,
+        refunded: false,
+        classification: result.classification,
+        reasonCodes: result.reasonCodes,
+      },
+      { status: 409 }
+    );
+  }
   if (result.kind === "NOT_RECEIVED") {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

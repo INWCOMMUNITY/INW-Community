@@ -22,6 +22,14 @@ import {
 export type StoreReturnSettlementResult =
   | { kind: "SETTLED"; amountCents: number; newlyFinalized: boolean }
   | { kind: "ALREADY_COMPLETE"; amountCents: number }
+  | { kind: "HISTORICALLY_SETTLED"; amountCents: number }
+  | {
+      kind: "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED";
+      amountCents: number;
+      classification: "HISTORICAL_REFUND_AMBIGUOUS" | "HISTORICAL_REFUND_ANOMALY";
+      reasonCodes: string[];
+      error: string;
+    }
   | { kind: "NOT_RECEIVED"; error: string }
   | { kind: "INVALID_AMOUNT"; error: string }
   | { kind: "UNAUTHORIZED_SELLER"; error: string }
@@ -109,9 +117,12 @@ export async function completeReceivedStoreReturnSettlement(args: {
   storeReturnId: string;
   memberId: string;
   now?: Date;
+  /** Test/injectable client; production uses package singleton. */
+  db?: typeof prisma;
 }): Promise<StoreReturnSettlementResult> {
-  const storeReturn = await prisma.storeReturn.findUnique({ where: { id: args.storeReturnId } });
-  const order = await prisma.storeOrder.findUnique({
+  const db = args.db ?? prisma;
+  const storeReturn = await db.storeReturn.findUnique({ where: { id: args.storeReturnId } });
+  const order = await db.storeOrder.findUnique({
     where: { id: args.storeOrderId },
     include: { items: true },
   });
@@ -147,7 +158,7 @@ export async function completeReceivedStoreReturnSettlement(args: {
 
   let prepared;
   try {
-    prepared = await prepareFoundationReturnSellerSettlement(prisma, {
+    prepared = await prepareFoundationReturnSellerSettlement(db, {
       storeOrderId: args.storeOrderId,
       memberId: args.memberId,
       storeReturnId: args.storeReturnId,
@@ -161,6 +172,23 @@ export async function completeReceivedStoreReturnSettlement(args: {
 
   let skipSellerLedgerDebit = true;
   let ledgerDebitCents = 0;
+
+  if (prepared.kind === "HISTORICALLY_SETTLED") {
+    // Strict R3: no entitlement, reversal, buyer refund, or ledger mutation.
+    // Do not invent StoreReturn terminal history.
+    return { kind: "HISTORICALLY_SETTLED", amountCents: amountCents ?? 0 };
+  }
+
+  if (prepared.kind === "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED") {
+    return {
+      kind: "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED",
+      amountCents: amountCents ?? 0,
+      classification: prepared.classification,
+      reasonCodes: prepared.reasonCodes,
+      error:
+        "Historical refund compatibility requires operator review before seller settlement or buyer refund.",
+    };
+  }
 
   if (prepared.kind === "ORIGINAL_TRANSFER_SUCCEEDED") {
     const reversal = await ensureStorefrontTransferReversal(args.stripe, {
@@ -236,7 +264,7 @@ export async function completeReceivedStoreReturnSettlement(args: {
     return buyerPending("Local return convergence is incomplete; retry the same refund.");
   }
 
-  const newlyFinalized = await markStoreReturnRefundedOnce(prisma, {
+  const newlyFinalized = await markStoreReturnRefundedOnce(db, {
     storeReturnId: args.storeReturnId,
     amountCents,
   });

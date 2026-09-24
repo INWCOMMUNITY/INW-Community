@@ -280,6 +280,44 @@ describe("completeReceivedStoreReturnSettlement", () => {
     );
   });
 
+  it("historical SETTLED: stops before entitlement, reversal, and buyer refund", async () => {
+    prepareFoundationReturnSellerSettlement.mockResolvedValue({
+      kind: "HISTORICALLY_SETTLED",
+      storeOrderId: "ord_1",
+      reasonCodes: ["HISTORICAL_REFUND_ALREADY_SETTLED"],
+    });
+    const result = await settle(sale100(), ret100({ refundAmountCents: 10000 }));
+    expect(result).toEqual({ kind: "HISTORICALLY_SETTLED", amountCents: 10000 });
+    expect(ensureStorefrontTransferReversal).not.toHaveBeenCalled();
+    expect(executeSellerReturnEntitlement).not.toHaveBeenCalled();
+    expect(executeStorefrontBuyerRefund).not.toHaveBeenCalled();
+    expect(persistLocalStorefrontRefundCompletion).not.toHaveBeenCalled();
+    expect(markStoreReturnRefundedOnce).not.toHaveBeenCalled();
+  });
+
+  it("historical AMBIGUOUS/ANOMALY: fail-closed review before provider or buyer refund", async () => {
+    prepareFoundationReturnSellerSettlement.mockResolvedValue({
+      kind: "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED",
+      storeOrderId: "ord_1",
+      classification: "HISTORICAL_REFUND_AMBIGUOUS",
+      reasonCodes: ["RETURN_DEBIT_MISSING"],
+    });
+    const result = await settle(sale100(), ret100({ refundAmountCents: 10000 }));
+    expect(result).toEqual({
+      kind: "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED",
+      amountCents: 10000,
+      classification: "HISTORICAL_REFUND_AMBIGUOUS",
+      reasonCodes: ["RETURN_DEBIT_MISSING"],
+      error:
+        "Historical refund compatibility requires operator review before seller settlement or buyer refund.",
+    });
+    expect(ensureStorefrontTransferReversal).not.toHaveBeenCalled();
+    expect(executeSellerReturnEntitlement).not.toHaveBeenCalled();
+    expect(executeStorefrontBuyerRefund).not.toHaveBeenCalled();
+    expect(persistLocalStorefrontRefundCompletion).not.toHaveBeenCalled();
+    expect(markStoreReturnRefundedOnce).not.toHaveBeenCalled();
+  });
+
   it("does not buyer-refund when paid-first reversal is uncertain", async () => {
     prepareFoundationReturnSellerSettlement.mockResolvedValue({
       kind: "ORIGINAL_TRANSFER_SUCCEEDED",

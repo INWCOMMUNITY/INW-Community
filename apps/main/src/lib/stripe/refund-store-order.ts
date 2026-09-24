@@ -9,10 +9,13 @@ import {
   foundationStorefrontRefundIdempotencyKey,
   getCommerceFoundationCutoverState,
   isFoundationReturnLedgerAnomaly,
+  loadHistoricalRefundRuntimeDecision,
   lockFoundationPayoutOutForRefund,
+  mustBlockHistoricalSellerFinancialMutation,
   persistFoundationRefundOutcome,
   persistFoundationRefundSuccess,
   prisma,
+  runHistoricalExternalRefundRestockBranch,
 } from "database";
 import { restockOrderLinesAfterReturn } from "@/lib/store-item-restock";
 import { computeSellerTransferCents } from "@/lib/storefront-payout";
@@ -924,9 +927,10 @@ export function refundArgsFromReturnPolicy(order: {
 /** Dashboard / charge.refunded / dispute: reverse Connect transfer, debit ledger, restock once. */
 export async function restockAfterExternalRefund(
   orderId: string,
-  stripe?: Stripe | null
+  stripe?: Stripe | null,
+  db: typeof prisma = prisma
 ): Promise<boolean> {
-  const order = await prisma.storeOrder.findUnique({
+  const order = await db.storeOrder.findUnique({
     where: { id: orderId },
     include: { items: true },
   });
@@ -936,12 +940,38 @@ export async function restockAfterExternalRefund(
     return false;
   }
 
-  const cutover = await getCommerceFoundationCutoverState(prisma);
+  // Historical fingerprint first: NOOP / REVIEW never reverse, lock TO, or debit.
+  // Inventory may still converge independently (subject to existing cutover inventory gates).
+  const historicalDecision = await loadHistoricalRefundRuntimeDecision(db, order.id);
+  if (mustBlockHistoricalSellerFinancialMutation(historicalDecision)) {
+    const cutover = await getCommerceFoundationCutoverState(db);
+    const writerRoute = commerceInventoryWriterRoute(cutover.mode);
+    if (writerRoute !== "foundation") {
+      await assertLegacyInteractiveMutationAllowed(db);
+    }
+    await runHistoricalExternalRefundRestockBranch(db, order.id, {
+      restockLines: async (tx) => {
+        await restockOrderLinesAfterReturn(
+          tx,
+          order.items,
+          "UNDO_CONSUMPTION",
+          `external-refund:${order.id}`
+        );
+      },
+    });
+    return true;
+  }
+
+  const cutover = await getCommerceFoundationCutoverState(db);
   if (commerceInventoryWriterRoute(cutover.mode) !== "legacy") {
     if (commerceInventoryWriterRoute(cutover.mode) === "foundation") {
       try {
-        const guard = await lockFoundationPayoutOutForRefund(prisma, { storeOrderId: order.id });
-        if (guard.kind === "TRANSFER_SUCCEEDED" && stripe) {
+        const guard = await lockFoundationPayoutOutForRefund(db, { storeOrderId: order.id });
+        if (guard.kind === "HISTORICALLY_SETTLED") {
+          // Defensive: should have been handled above.
+        } else if (guard.kind === "HISTORICAL_COMPATIBILITY_REVIEW_REQUIRED") {
+          return false;
+        } else if (guard.kind === "TRANSFER_SUCCEEDED" && stripe) {
           const reversal = await ensureStorefrontTransferReversal(stripe, {
             transferId: guard.stripeTransferId,
             storeOrderId: order.id,
@@ -962,13 +992,17 @@ export async function restockAfterExternalRefund(
         throw e;
       }
     } else {
-      await assertLegacyInteractiveMutationAllowed(prisma);
+      await assertLegacyInteractiveMutationAllowed(db);
     }
   } else {
-    await assertLegacyInteractiveMutationAllowed(prisma);
+    await assertLegacyInteractiveMutationAllowed(db);
   }
 
-  if (commerceInventoryWriterRoute(cutover.mode) !== "foundation" && stripe && order.stripeSellerTransferId) {
+  if (
+    commerceInventoryWriterRoute(cutover.mode) !== "foundation" &&
+    stripe &&
+    order.stripeSellerTransferId
+  ) {
     const reversal = await ensureStorefrontTransferReversal(stripe, {
       transferId: order.stripeSellerTransferId,
       storeOrderId: order.id,
@@ -983,7 +1017,7 @@ export async function restockAfterExternalRefund(
     }
   }
 
-  await prisma.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await tx.storeOrder.update({
       where: { id: order.id },
       data: {
