@@ -47,6 +47,8 @@ const prismaClient = (() => {
     typeof (existing as { refundOperation?: unknown }).refundOperation !== "undefined" &&
     typeof (existing as { transferOperation?: unknown }).transferOperation !== "undefined" &&
     typeof (existing as { commerceFoundationCutover?: unknown }).commerceFoundationCutover !== "undefined" &&
+    typeof (existing as { shopifyConnection?: unknown }).shopifyConnection !== "undefined" &&
+    typeof (existing as { shopifyOAuthState?: unknown }).shopifyOAuthState !== "undefined" &&
     prismaHasShippingOptionCost(existing)
   ) {
     return existing;
@@ -355,3 +357,20 @@ export type {
   HistoricalToReasonCode,
   HistoricalTransferOperationBackfillManifest,
 } from "./foundation/historical-transfer-operation-backfill";
+export {
+  consumeShopifyOAuthState,
+  createShopifyOAuthState,
+  disconnectShopifyConnection,
+  getActiveShopifyConnectionForMember,
+  getShopifyConnectionForMember,
+  listShopifyConnectionsForMember,
+  persistShopifyInstall,
+  revokeActiveShopifyConnectionsForShop,
+  rotateShopifyTokenMaterial,
+  setShopifyPrimaryLocation,
+} from "./shopify/connection";
+export type {
+  ShopifyDb,
+  ShopifyInstallInput,
+  ShopifyPublicConnection,
+} from "./shopify/connection";

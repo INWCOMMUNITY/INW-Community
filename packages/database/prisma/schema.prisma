@@ -150,6 +150,8 @@ model Member {
   refundOperations         RefundOperation[]
   transferOperations       TransferOperation[]
   sellerReturnEntitlementOperations SellerReturnEntitlementOperation[]
+  shopifyConnections   ShopifyConnection[]
+  shopifyOAuthStates   ShopifyOAuthState[]
 }
 
 model WebviewBridgeToken {
@@ -2133,5 +2135,60 @@ model PostPollVote {
   @@unique([optionId, memberId])
   @@index([memberId])
   @@map("post_poll_vote")
+}
+
+/// Shopify Marketplace V2 connection lifecycle. Historical generations are retained.
+enum ShopifyConnectionStatus {
+  ACTIVE
+  DISCONNECTED
+  REVOKED
+
+  @@map("shopify_connection_status")
+}
+
+/// One-time OAuth state. Consumed on callback; not a connection.
+model ShopifyOAuthState {
+  id         String    @id @default(cuid())
+  nonce      String    @unique
+  memberId   String    @map("member_id")
+  shopDomain String    @map("shop_domain")
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId, shopDomain])
+  @@index([expiresAt])
+  @@map("shopify_oauth_state")
+}
+
+/// One generation of a member's Shopify install.
+/// Partial unique index `shopify_connection_one_active_per_member_shop` (migration SQL)
+/// enforces at most one ACTIVE row per member + shop. Prisma cannot express that filter.
+model ShopifyConnection {
+  id                    String                   @id @default(cuid())
+  memberId              String                   @map("member_id")
+  shopDomain            String                   @map("shop_domain")
+  shopId                String                   @map("shop_id")
+  generation            Int
+  accessTokenEncrypted  String                   @map("access_token_encrypted") @db.Text
+  refreshTokenEncrypted String                   @map("refresh_token_encrypted") @db.Text
+  accessTokenExpiresAt  DateTime                 @map("access_token_expires_at")
+  refreshTokenExpiresAt DateTime                 @map("refresh_token_expires_at")
+  grantedScopes         String                   @map("granted_scopes") @db.Text
+  status                ShopifyConnectionStatus
+  primaryLocationId     String?                  @map("primary_location_id")
+  connectedAt           DateTime                 @map("connected_at")
+  disconnectedAt        DateTime?                @map("disconnected_at")
+  createdAt             DateTime                 @default(now()) @map("created_at")
+  updatedAt             DateTime                 @updatedAt @map("updated_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Restrict)
+
+  @@unique([memberId, shopDomain, generation])
+  @@index([memberId, status])
+  @@index([shopDomain, status])
+  @@map("shopify_connection")
 }
 
