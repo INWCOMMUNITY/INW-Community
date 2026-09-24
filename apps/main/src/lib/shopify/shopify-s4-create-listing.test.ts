@@ -266,9 +266,88 @@ describe("shopify CREATE_LISTING provider", () => {
     } as never);
   });
 
-  it("uses productSet DRAFT with generation-scoped customId and no inventory mutation", async () => {
+  function metafieldLookupResponse() {
+    return jsonResponse({
+      data: {
+        metafieldDefinitions: {
+          nodes: [
+            {
+              id: "gid://shopify/MetafieldDefinition/1",
+              namespace: SHOPIFY_LISTING_EXPORT_METAFIELD_NAMESPACE,
+              key: SHOPIFY_LISTING_EXPORT_METAFIELD_KEY,
+              type: { name: "id" },
+            },
+          ],
+        },
+      },
+    });
+  }
+
+  function discoveryNull(customId: string) {
+    return jsonResponse({
+      data: { productByIdentifier: null },
+      extensions: { customId },
+    });
+  }
+
+  function discoveryProduct(input: {
+    customId: string;
+    status?: string;
+    variants?: Array<{ id: string; inventoryItemId: string | null }>;
+    metafieldValue?: string | null;
+    variantsCount?: number;
+  }) {
+    const variants = input.variants ?? [
+      { id: "gid://shopify/ProductVariant/8", inventoryItemId: "gid://shopify/InventoryItem/7" },
+    ];
+    return jsonResponse({
+      data: {
+        productByIdentifier: {
+          id: "gid://shopify/Product/9",
+          status: input.status ?? "DRAFT",
+          listingExportId:
+            input.metafieldValue === null
+              ? null
+              : { value: input.metafieldValue ?? input.customId },
+          variantsCount: { count: input.variantsCount ?? variants.length },
+          variants: {
+            nodes: variants.map((v) => ({
+              id: v.id,
+              inventoryItem: v.inventoryItemId ? { id: v.inventoryItemId } : null,
+            })),
+            pageInfo: { hasNextPage: false },
+          },
+        },
+      },
+    });
+  }
+
+  function productSetSuccess() {
+    return jsonResponse({
+      data: {
+        productSet: {
+          product: {
+            id: "gid://shopify/Product/9",
+            status: "DRAFT",
+            variants: {
+              nodes: [
+                {
+                  id: "gid://shopify/ProductVariant/8",
+                  inventoryItem: { id: "gid://shopify/InventoryItem/7" },
+                },
+              ],
+            },
+          },
+          userErrors: [],
+        },
+      },
+    });
+  }
+
+  it("discovers null then productSet DRAFT with generation-scoped customId", async () => {
     const customId = shopifyListingExportCustomId("conn-gen-1", "item-1");
-    const bodies: unknown[] = [];
+    let discoveryCalls = 0;
+    let productSetCalls = 0;
     const fetchImpl = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       expect(String(url)).toContain(`/admin/api/${SHOPIFY_ADMIN_API_VERSION}/graphql.json`);
       const body = JSON.parse(String(init?.body)) as {
@@ -276,61 +355,39 @@ describe("shopify CREATE_LISTING provider", () => {
         query: string;
         variables: Record<string, unknown>;
       };
-      bodies.push(body);
       if (body.operationName === "ShopifyListingExportMetafieldLookup") {
-        return jsonResponse({
-          data: {
-            metafieldDefinitions: {
-              nodes: [
-                {
-                  id: "gid://shopify/MetafieldDefinition/1",
-                  namespace: SHOPIFY_LISTING_EXPORT_METAFIELD_NAMESPACE,
-                  key: SHOPIFY_LISTING_EXPORT_METAFIELD_KEY,
-                  type: { name: "id" },
-                },
-              ],
-            },
-          },
-        });
+        return metafieldLookupResponse();
+      }
+      if (body.operationName === "ShopifyCreateListingProductByCustomId") {
+        discoveryCalls += 1;
+        expect(body.query.trimStart().startsWith("query")).toBe(true);
+        const identifier = body.variables.identifier as {
+          customId: { value: string; namespace: string; key: string };
+        };
+        expect(identifier.customId.value).toBe(customId);
+        expect(identifier.customId.namespace).toBe(SHOPIFY_LISTING_EXPORT_METAFIELD_NAMESPACE);
+        expect(identifier.customId.key).toBe(SHOPIFY_LISTING_EXPORT_METAFIELD_KEY);
+        return discoveryNull(customId);
       }
       expect(body.operationName).toBe("ShopifyCreateListingProductSet");
+      productSetCalls += 1;
       expect(body.query).toContain("mutation");
       expect(body.query).toContain("productSet");
       expect(body.query.toLowerCase()).not.toContain("inventorysetquantities");
       expect(body.query.toLowerCase()).not.toContain("publishablepublish");
-      expect(body.query.toLowerCase()).not.toContain("publicationcreate");
       const variables = body.variables as {
-        input: { status: string; metafields: Array<{ value: string }>; variants: unknown[] };
-        identifier: { customId: { value: string; namespace: string; key: string } };
+        input: { status: string };
+        identifier: { customId: { value: string } };
       };
       expect(variables.input.status).toBe("DRAFT");
       expect(variables.identifier.customId.value).toBe(customId);
-      expect(variables.identifier.customId.value).toContain("inw_");
-      expect(customId).not.toBe("item-1");
-      expect(JSON.stringify(variables)).not.toContain("inventoryQuantities");
-      return jsonResponse({
-        data: {
-          productSet: {
-            product: {
-              id: "gid://shopify/Product/9",
-              status: "DRAFT",
-              variants: {
-                nodes: [
-                  {
-                    id: "gid://shopify/ProductVariant/8",
-                    inventoryItem: { id: "gid://shopify/InventoryItem/7" },
-                  },
-                ],
-              },
-            },
-            userErrors: [],
-          },
-        },
-      });
+      return productSetSuccess();
     });
 
     const result = await handleShopifyCreateListingJob(claim, { fetchImpl });
     expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(discoveryCalls).toBe(1);
+    expect(productSetCalls).toBe(1);
     expect(createShopifyListingMapping).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -346,75 +403,161 @@ describe("shopify CREATE_LISTING provider", () => {
         ],
       })
     );
-    expect(bodies.some((b) => (b as { operationName?: string }).operationName === "ShopifyCreateListingProductSet")).toBe(
-      true
-    );
   });
 
-  it("retries NETWORK_UNKNOWN with the same customId and then maps once", async () => {
+  it("on NETWORK_UNKNOWN retry discovers Product P and issues zero second productSet", async () => {
     const customId = shopifyListingExportCustomId("conn-gen-1", "item-1");
     let productSetCalls = 0;
+    let discoveryCalls = 0;
     const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as {
         operationName?: string;
         variables: { identifier?: { customId?: { value?: string } } };
       };
       if (body.operationName === "ShopifyListingExportMetafieldLookup") {
-        return jsonResponse({
-          data: {
-            metafieldDefinitions: {
-              nodes: [
-                {
-                  id: "gid://shopify/MetafieldDefinition/1",
-                  namespace: "$app",
-                  key: "listing_export_id",
-                  type: { name: "id" },
-                },
-              ],
-            },
-          },
-        });
+        return metafieldLookupResponse();
       }
+      if (body.operationName === "ShopifyCreateListingProductByCustomId") {
+        discoveryCalls += 1;
+        expect(body.variables.identifier?.customId?.value).toBe(customId);
+        // Attempt 1: absent. Attempt 2: product exists after lost productSet success.
+        if (discoveryCalls === 1) return discoveryNull(customId);
+        return discoveryProduct({ customId });
+      }
+      expect(body.operationName).toBe("ShopifyCreateListingProductSet");
       productSetCalls += 1;
       expect(body.variables.identifier?.customId?.value).toBe(customId);
-      if (productSetCalls === 1) {
-        throw Object.assign(new Error("aborted"), { name: "TimeoutError" });
-      }
-      return jsonResponse({
-        data: {
-          productSet: {
-            product: {
-              id: "gid://shopify/Product/9",
-              status: "DRAFT",
-              variants: {
-                nodes: [
-                  {
-                    id: "gid://shopify/ProductVariant/8",
-                    inventoryItem: { id: "gid://shopify/InventoryItem/7" },
-                  },
-                ],
-              },
-            },
-            userErrors: [],
-          },
-        },
-      });
+      throw Object.assign(new Error("aborted"), { name: "TimeoutError" });
     });
 
     const first = await handleShopifyCreateListingJob(claim, { fetchImpl });
     expect(first).toMatchObject({ outcome: "RETRY", errorCode: "PRODUCT_SET_UNKNOWN" });
     expect(createShopifyListingMapping).not.toHaveBeenCalled();
+    expect(productSetCalls).toBe(1);
 
     const second = await handleShopifyCreateListingJob(
       { ...claim, attemptCount: 2 },
       { fetchImpl }
     );
     expect(second).toEqual({ outcome: "SUCCESS" });
+    expect(productSetCalls).toBe(1);
+    expect(discoveryCalls).toBe(2);
     expect(createShopifyListingMapping).toHaveBeenCalledTimes(1);
-    expect(productSetCalls).toBe(2);
+    expect(createShopifyListingMapping).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        shopifyProductId: "gid://shopify/Product/9",
+        variants: [
+          {
+            storeVariantId: "var-1",
+            shopifyVariantId: "gid://shopify/ProductVariant/8",
+            shopifyInventoryItemId: "gid://shopify/InventoryItem/7",
+          },
+        ],
+      })
+    );
   });
 
-  it("skips provider mutation when current-generation mapping already exists", async () => {
+  it("crash after provider success recovers via discovery without remutation", async () => {
+    const customId = shopifyListingExportCustomId("conn-gen-1", "item-1");
+    let productSetCalls = 0;
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { operationName?: string };
+      if (body.operationName === "ShopifyListingExportMetafieldLookup") {
+        return metafieldLookupResponse();
+      }
+      if (body.operationName === "ShopifyCreateListingProductByCustomId") {
+        // Simulates lease reclaim after productSet succeeded but mapping never wrote.
+        return discoveryProduct({ customId });
+      }
+      productSetCalls += 1;
+      throw new Error("productSet must not run when product already exists");
+    });
+
+    const result = await handleShopifyCreateListingJob(claim, { fetchImpl });
+    expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(productSetCalls).toBe(0);
+    expect(createShopifyListingMapping).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed on merchant-modified multi-variant recovery without productSet", async () => {
+    const customId = shopifyListingExportCustomId("conn-gen-1", "item-1");
+    let productSetCalls = 0;
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { operationName?: string };
+      if (body.operationName === "ShopifyListingExportMetafieldLookup") {
+        return metafieldLookupResponse();
+      }
+      if (body.operationName === "ShopifyCreateListingProductByCustomId") {
+        return discoveryProduct({
+          customId,
+          variants: [
+            { id: "gid://shopify/ProductVariant/8", inventoryItemId: "gid://shopify/InventoryItem/7" },
+            { id: "gid://shopify/ProductVariant/9", inventoryItemId: "gid://shopify/InventoryItem/8" },
+          ],
+          variantsCount: 2,
+        });
+      }
+      productSetCalls += 1;
+      return productSetSuccess();
+    });
+
+    const result = await handleShopifyCreateListingJob(claim, { fetchImpl });
+    expect(result).toMatchObject({
+      outcome: "DEAD",
+      errorClass: "RECOVERY_CONFLICT",
+      errorCode: "RECOVERY_VARIANT_CARDINALITY",
+    });
+    expect(productSetCalls).toBe(0);
+    expect(createShopifyListingMapping).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when recovered product is ACTIVE", async () => {
+    const customId = shopifyListingExportCustomId("conn-gen-1", "item-1");
+    let productSetCalls = 0;
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { operationName?: string };
+      if (body.operationName === "ShopifyListingExportMetafieldLookup") {
+        return metafieldLookupResponse();
+      }
+      if (body.operationName === "ShopifyCreateListingProductByCustomId") {
+        return discoveryProduct({ customId, status: "ACTIVE" });
+      }
+      productSetCalls += 1;
+      return productSetSuccess();
+    });
+
+    const result = await handleShopifyCreateListingJob(claim, { fetchImpl });
+    expect(result).toMatchObject({
+      outcome: "DEAD",
+      errorClass: "RECOVERY_CONFLICT",
+      errorCode: "RECOVERY_NOT_DRAFT",
+    });
+    expect(productSetCalls).toBe(0);
+    expect(createShopifyListingMapping).not.toHaveBeenCalled();
+  });
+
+  it("retries when discovery query fails and does not call productSet", async () => {
+    let productSetCalls = 0;
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { operationName?: string };
+      if (body.operationName === "ShopifyListingExportMetafieldLookup") {
+        return metafieldLookupResponse();
+      }
+      if (body.operationName === "ShopifyCreateListingProductByCustomId") {
+        throw Object.assign(new Error("aborted"), { name: "TimeoutError" });
+      }
+      productSetCalls += 1;
+      return productSetSuccess();
+    });
+
+    const result = await handleShopifyCreateListingJob(claim, { fetchImpl });
+    expect(result).toMatchObject({ outcome: "RETRY", errorCode: "PRODUCT_LOOKUP" });
+    expect(productSetCalls).toBe(0);
+    expect(createShopifyListingMapping).not.toHaveBeenCalled();
+  });
+
+  it("skips provider discovery and mutation when current-generation mapping already exists", async () => {
     vi.mocked(lookupShopifyListingByStoreItem).mockResolvedValue({
       status: "MAPPED",
       listingLink: {

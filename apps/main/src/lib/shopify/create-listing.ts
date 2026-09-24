@@ -11,6 +11,7 @@ import type { ShopifyJobHandlerResult, ShopifySyncJobClaim } from "database";
 import type { ShopifyFetch } from "./admin-graphql";
 import { shopifyCreateListingDedupeKey } from "./listing-export-id";
 import { ensureShopifyListingExportMetafieldDefinition } from "./listing-metafield";
+import { lookupShopifyListingProductByCustomId } from "./listing-product-lookup";
 import { productSetShopifyDraftListing } from "./product-set-listing";
 
 export type EnqueueShopifyCreateListingResult =
@@ -145,9 +146,55 @@ export async function enqueueShopifyCreateListing(input: {
   }
 }
 
+async function persistCreateListingMapping(input: {
+  memberId: string;
+  connectionId: string;
+  storeItemId: string;
+  storeVariantId: string;
+  productId: string;
+  variantId: string;
+  inventoryItemId: string;
+}): Promise<ShopifyJobHandlerResult> {
+  try {
+    await createShopifyListingMapping(prisma, {
+      memberId: input.memberId,
+      connectionId: input.connectionId,
+      storeItemId: input.storeItemId,
+      shopifyProductId: input.productId,
+      variants: [
+        {
+          storeVariantId: input.storeVariantId,
+          shopifyVariantId: input.variantId,
+          shopifyInventoryItemId: input.inventoryItemId,
+        },
+      ],
+    });
+  } catch (error) {
+    if (error instanceof ShopifyMappingConflictError) {
+      return {
+        outcome: "DEAD",
+        errorClass: "MAPPING_CONFLICT",
+        errorCode: "MAPPING_CONFLICT",
+        errorMessage: "Shopify mapping conflict",
+      };
+    }
+    if (error instanceof ShopifyMappingError && error.code === "CONNECTION_INACTIVE") {
+      return {
+        outcome: "DEAD",
+        errorClass: "CONNECTION_INACTIVE",
+        errorCode: "CONNECTION_INACTIVE",
+        errorMessage: error.message,
+      };
+    }
+    throw error;
+  }
+  return { outcome: "SUCCESS" };
+}
+
 /**
  * CREATE_LISTING worker handler. Network outside DB transactions.
- * productSet uses generation-scoped customId so NETWORK_UNKNOWN retries are safe.
+ * Discover-first by customId before productSet so NETWORK_UNKNOWN / crash retries
+ * never blindly remutate list fields on an already-created remote product.
  */
 export async function handleShopifyCreateListingJob(
   claim: ShopifySyncJobClaim,
@@ -246,6 +293,41 @@ export async function handleShopifyCreateListingJob(
         };
   }
 
+  const discovered = await lookupShopifyListingProductByCustomId({
+    connectionId: connection.id,
+    storeItemId: storeItem.id,
+    fetchImpl: deps.fetchImpl,
+    now: deps.now,
+  });
+  if (!discovered.ok) {
+    return discovered.class === "RETRY"
+      ? {
+          outcome: "RETRY",
+          errorClass: discovered.errorClass,
+          errorCode: discovered.errorCode,
+          errorMessage: discovered.errorMessage,
+        }
+      : {
+          outcome: "DEAD",
+          errorClass: discovered.errorClass,
+          errorCode: discovered.errorCode,
+          errorMessage: discovered.errorMessage,
+        };
+  }
+
+  if (discovered.product) {
+    // READ + MAP only. Never productSet when the custom-ID product already exists.
+    return persistCreateListingMapping({
+      memberId: connection.memberId,
+      connectionId: connection.id,
+      storeItemId: storeItem.id,
+      storeVariantId: variant.id,
+      productId: discovered.product.productId,
+      variantId: discovered.product.variantId,
+      inventoryItemId: discovered.product.inventoryItemId,
+    });
+  }
+
   const remote = await productSetShopifyDraftListing({
     connectionId: connection.id,
     storeItemId: storeItem.id,
@@ -257,6 +339,7 @@ export async function handleShopifyCreateListingJob(
     now: deps.now,
   });
   if (!remote.ok) {
+    // NETWORK_UNKNOWN: leave remutation to the next job execution, which discovers first.
     return remote.class === "RETRY"
       ? {
           outcome: "RETRY",
@@ -272,39 +355,13 @@ export async function handleShopifyCreateListingJob(
         };
   }
 
-  try {
-    await createShopifyListingMapping(prisma, {
-      memberId: connection.memberId,
-      connectionId: connection.id,
-      storeItemId: storeItem.id,
-      shopifyProductId: remote.productId,
-      variants: [
-        {
-          storeVariantId: variant.id,
-          shopifyVariantId: remote.variantId,
-          shopifyInventoryItemId: remote.inventoryItemId,
-        },
-      ],
-    });
-  } catch (error) {
-    if (error instanceof ShopifyMappingConflictError) {
-      return {
-        outcome: "DEAD",
-        errorClass: "MAPPING_CONFLICT",
-        errorCode: "MAPPING_CONFLICT",
-        errorMessage: "Shopify mapping conflict",
-      };
-    }
-    if (error instanceof ShopifyMappingError && error.code === "CONNECTION_INACTIVE") {
-      return {
-        outcome: "DEAD",
-        errorClass: "CONNECTION_INACTIVE",
-        errorCode: "CONNECTION_INACTIVE",
-        errorMessage: error.message,
-      };
-    }
-    throw error;
-  }
-
-  return { outcome: "SUCCESS" };
+  return persistCreateListingMapping({
+    memberId: connection.memberId,
+    connectionId: connection.id,
+    storeItemId: storeItem.id,
+    storeVariantId: variant.id,
+    productId: remote.productId,
+    variantId: remote.variantId,
+    inventoryItemId: remote.inventoryItemId,
+  });
 }
