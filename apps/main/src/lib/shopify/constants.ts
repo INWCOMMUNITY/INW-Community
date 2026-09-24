@@ -23,4 +23,10 @@ export const SHOPIFY_LOCATION_GID_PATTERN = /^gid:\/\/shopify\/Location\/\d+$/;
 
 export const SHOPIFY_SHOP_GID_PATTERN = /^gid:\/\/shopify\/Shop\/\d+$/;
 
+export const SHOPIFY_PRODUCT_GID_PATTERN = /^gid:\/\/shopify\/Product\/\d+$/;
+
+export const SHOPIFY_PRODUCT_VARIANT_GID_PATTERN = /^gid:\/\/shopify\/ProductVariant\/\d+$/;
+
+export const SHOPIFY_INVENTORY_ITEM_GID_PATTERN = /^gid:\/\/shopify\/InventoryItem\/\d+$/;
+
 export const SHOPIFY_SELLER_RETURN_PATH = "/seller-hub/shopify";

@@ -49,6 +49,8 @@ const prismaClient = (() => {
     typeof (existing as { commerceFoundationCutover?: unknown }).commerceFoundationCutover !== "undefined" &&
     typeof (existing as { shopifyConnection?: unknown }).shopifyConnection !== "undefined" &&
     typeof (existing as { shopifyOAuthState?: unknown }).shopifyOAuthState !== "undefined" &&
+    typeof (existing as { shopifyListingLink?: unknown }).shopifyListingLink !== "undefined" &&
+    typeof (existing as { shopifyVariantMap?: unknown }).shopifyVariantMap !== "undefined" &&
     prismaHasShippingOptionCost(existing)
   ) {
     return existing;
@@ -376,3 +378,36 @@ export type {
   ShopifyInstallInput,
   ShopifyPublicConnection,
 } from "./shopify/connection";
+export {
+  assertShopifyInventoryItemGid,
+  assertShopifyProductGid,
+  assertShopifyProductVariantGid,
+  isShopifyInventoryItemGid,
+  isShopifyProductGid,
+  isShopifyProductVariantGid,
+  SHOPIFY_INVENTORY_ITEM_GID_PATTERN,
+  SHOPIFY_PRODUCT_GID_PATTERN,
+  SHOPIFY_PRODUCT_VARIANT_GID_PATTERN,
+  ShopifyGidValidationError,
+} from "./shopify/gids";
+export type { ShopifyGidResource } from "./shopify/gids";
+export {
+  createShopifyListingMapping,
+  lookupShopifyListingByProductId,
+  lookupShopifyListingByStoreItem,
+  lookupShopifyVariantByInventoryItem,
+  lookupShopifyVariantByRemoteVariant,
+  lookupShopifyVariantByStoreVariant,
+  ShopifyMappingConflictError,
+  ShopifyMappingError,
+} from "./shopify/mapping";
+export type {
+  CreateShopifyListingMappingInput,
+  ShopifyListingMappingSnapshot,
+  ShopifyMappedListing,
+  ShopifyMappedVariant,
+  ShopifyMappingCode,
+  ShopifyMappingDb,
+  ShopifyMappingLookupResult,
+  ShopifyVariantMappingInput,
+} from "./shopify/mapping";

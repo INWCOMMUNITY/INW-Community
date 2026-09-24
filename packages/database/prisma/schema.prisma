@@ -152,6 +152,8 @@ model Member {
   sellerReturnEntitlementOperations SellerReturnEntitlementOperation[]
   shopifyConnections   ShopifyConnection[]
   shopifyOAuthStates   ShopifyOAuthState[]
+  shopifyListingLinks  ShopifyListingLink[]
+  shopifyVariantMaps   ShopifyVariantMap[]
 }
 
 model WebviewBridgeToken {
@@ -1024,6 +1026,7 @@ model StoreItem {
   inventoryEvents InventoryEvent[]
   variantBackfillMaps VariantBackfillMap[]
   inventoryReservations InventoryReservation[]
+  shopifyListingLinks ShopifyListingLink[]
 
   @@unique([id, memberId])
   @@index([status, endedAt])
@@ -1152,6 +1155,7 @@ model StoreVariant {
   cartItems       CartItem[]
   backfillMaps    VariantBackfillMap[]
   reservations    InventoryReservation[]
+  shopifyVariantMaps ShopifyVariantMap[]
 
   @@unique([id, memberId])
   @@unique([id, storeItemId])
@@ -2186,11 +2190,63 @@ model ShopifyConnection {
   createdAt             DateTime                 @default(now()) @map("created_at")
   updatedAt             DateTime                 @updatedAt @map("updated_at")
 
-  member Member @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  member      Member               @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  listingLinks ShopifyListingLink[]
+  variantMaps  ShopifyVariantMap[]
 
+  /// Supports composite FKs from mapping rows so connection + member cannot drift.
+  @@unique([id, memberId])
   @@unique([memberId, shopDomain, generation])
   @@index([memberId, status])
   @@index([shopDomain, status])
   @@map("shopify_connection")
+}
+
+/// Generation-bound StoreItem ↔ Shopify Product mapping. Bound to ShopifyConnection.id.
+model ShopifyListingLink {
+  id                  String   @id @default(cuid())
+  shopifyConnectionId String   @map("shopify_connection_id")
+  memberId            String   @map("member_id")
+  storeItemId         String   @map("store_item_id")
+  shopifyProductId    String   @map("shopify_product_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  connection  ShopifyConnection   @relation(fields: [shopifyConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
+  storeItem   StoreItem           @relation(fields: [storeItemId, memberId], references: [id, memberId], onDelete: Restrict)
+  member      Member              @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  variantMaps ShopifyVariantMap[]
+
+  @@unique([shopifyConnectionId, storeItemId])
+  @@unique([shopifyConnectionId, shopifyProductId])
+  /// Supports composite FKs from ShopifyVariantMap so connection/item cannot drift.
+  @@unique([id, shopifyConnectionId, storeItemId])
+  @@index([memberId, storeItemId])
+  @@map("shopify_listing_link")
+}
+
+/// Generation-bound StoreVariant ↔ Shopify ProductVariant + InventoryItem mapping.
+model ShopifyVariantMap {
+  id                     String   @id @default(cuid())
+  shopifyConnectionId    String   @map("shopify_connection_id")
+  shopifyListingLinkId   String   @map("shopify_listing_link_id")
+  memberId               String   @map("member_id")
+  storeItemId            String   @map("store_item_id")
+  storeVariantId         String   @map("store_variant_id")
+  shopifyVariantId       String   @map("shopify_variant_id")
+  shopifyInventoryItemId String   @map("shopify_inventory_item_id")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  connection   ShopifyConnection  @relation(fields: [shopifyConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
+  listingLink  ShopifyListingLink @relation(fields: [shopifyListingLinkId, shopifyConnectionId, storeItemId], references: [id, shopifyConnectionId, storeItemId], onDelete: Restrict)
+  storeVariant StoreVariant       @relation(fields: [storeVariantId, storeItemId, memberId], references: [id, storeItemId, memberId], onDelete: Restrict)
+  member       Member             @relation(fields: [memberId], references: [id], onDelete: Restrict)
+
+  @@unique([shopifyConnectionId, storeVariantId])
+  @@unique([shopifyConnectionId, shopifyVariantId])
+  @@unique([shopifyConnectionId, shopifyInventoryItemId])
+  @@index([shopifyListingLinkId])
+  @@map("shopify_variant_map")
 }
 
