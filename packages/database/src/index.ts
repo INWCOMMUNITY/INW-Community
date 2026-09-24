@@ -419,6 +419,7 @@ export {
   resolveShopifyConnectionForWebhook,
   SHOPIFY_DEDICATED_WEBHOOK_TOPICS,
   ShopifyEvidenceIngestError,
+  ShopifyEvidenceInvariantError,
 } from "./shopify/evidence";
 export type {
   IngestShopifyWebhookEvidenceInput,

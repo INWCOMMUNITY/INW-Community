@@ -332,4 +332,73 @@ describe("shopify sync infrastructure", () => {
     expect(await prisma.storeOrder.count()).toBe(beforeOrders);
     expect(await prisma.shopifyListingLink.count()).toBe(beforeLinks);
   });
+
+  it("converges concurrent duplicate webhook deliveries to one evidence and one job", async () => {
+    const seller = await createMember(prisma, "s3-race");
+    const shop = `s3r-${seller.id.slice(-8)}.myshopify.com`;
+    const shopId = `gid://shopify/Shop/${seller.id.replace(/\D/g, "").slice(0, 8) || "4401"}`;
+    const connection = await activeConnection(
+      seller.id,
+      shop,
+      new Date("2026-09-24T12:00:00Z"),
+      shopId
+    );
+    const beforeVariants = await prisma.storeVariant.count();
+    const beforeStates = await prisma.inventoryState.count();
+    const beforeEvents = await prisma.inventoryEvent.count();
+    const beforeOrders = await prisma.storeOrder.count();
+    const beforeLinks = await prisma.shopifyListingLink.count();
+
+    const webhookId = `wh-race-${seller.id}`;
+    const eventId = `evt-race-${seller.id}`;
+    const body = JSON.stringify({ myshopify_domain: shop, id: 42 });
+    const input = {
+      shopDomain: shop,
+      topic: "products/update",
+      webhookId,
+      eventId,
+      triggeredAt: new Date("2026-09-24T12:15:00Z"),
+      apiVersion: "2026-07",
+      rawBody: body,
+    };
+
+    const [a, b] = await Promise.all([
+      ingestShopifyWebhookEvidence(prisma, input),
+      ingestShopifyWebhookEvidence(prisma, input),
+    ]);
+
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual(["CREATED", "DUPLICATE"]);
+    expect(a.evidence.id).toBe(b.evidence.id);
+    expect(a.jobId).toBeTruthy();
+    expect(b.jobId).toBe(a.jobId);
+    expect(a.evidence.shopifyConnectionId).toBe(connection.id);
+    expect(a.evidence.processState).toBe("RECEIVED");
+    expect(a.evidence.processState).not.toBe("ERROR");
+
+    expect(await prisma.shopifyProviderEvidence.count({ where: { webhookId } })).toBe(1);
+    expect(await prisma.shopifySyncJob.count({ where: { evidenceId: a.evidence.id } })).toBe(1);
+    expect(
+      (
+        await prisma.shopifySyncJob.findUniqueOrThrow({
+          where: { evidenceId: a.evidence.id },
+        })
+      ).kind
+    ).toBe("PROCESS_PROVIDER_EVIDENCE");
+
+    const otherWebhook = await ingestShopifyWebhookEvidence(prisma, {
+      ...input,
+      webhookId: `wh-race-${seller.id}-b`,
+    });
+    expect(otherWebhook.status).toBe("CREATED");
+    expect(otherWebhook.evidence.eventId).toBe(eventId);
+    expect(otherWebhook.evidence.id).not.toBe(a.evidence.id);
+    expect(await prisma.shopifyProviderEvidence.count({ where: { eventId } })).toBe(2);
+
+    expect(await prisma.storeVariant.count()).toBe(beforeVariants);
+    expect(await prisma.inventoryState.count()).toBe(beforeStates);
+    expect(await prisma.inventoryEvent.count()).toBe(beforeEvents);
+    expect(await prisma.storeOrder.count()).toBe(beforeOrders);
+    expect(await prisma.shopifyListingLink.count()).toBe(beforeLinks);
+  });
 });
