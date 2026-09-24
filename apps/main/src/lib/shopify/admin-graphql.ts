@@ -9,6 +9,7 @@ import {
 import { randomUUID } from "crypto";
 import { accessTokenForConnection, ShopifyConnectError } from "./connect";
 import { SHOPIFY_ADMIN_API_VERSION } from "./constants";
+import { handleShopifyCreateListingJob } from "./create-listing";
 import { redactShopifySecrets } from "./redact";
 
 export type ShopifyFetch = typeof fetch;
@@ -330,6 +331,7 @@ const defaultHandlers: Record<string, ShopifyJobHandler> = {
     // S3: keep RECEIVED for deferred domain processors. No canonical writes.
     return { outcome: "SUCCESS" };
   },
+  CREATE_LISTING: (claim) => handleShopifyCreateListingJob(claim),
 };
 
 /**
