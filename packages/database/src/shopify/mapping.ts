@@ -1,5 +1,9 @@
 import type { Prisma, PrismaClient, ShopifyListingLink, ShopifyVariantMap } from "@prisma/client";
 import {
+  shopifyProductContentFingerprint,
+  shopifyVariantContentFingerprint,
+} from "./content-fingerprint";
+import {
   assertShopifyInventoryItemGid,
   assertShopifyProductGid,
   assertShopifyProductVariantGid,
@@ -240,7 +244,7 @@ export async function createShopifyListingMapping(
 
     const storeItem = await tx.storeItem.findFirst({
       where: { id: input.storeItemId, memberId: input.memberId },
-      select: { id: true, memberId: true },
+      select: { id: true, memberId: true, title: true, description: true },
     });
     if (!storeItem) {
       throw new ShopifyMappingError("STORE_ITEM_NOT_FOUND", "Store item was not found for this member");
@@ -252,7 +256,7 @@ export async function createShopifyListingMapping(
         storeItemId: input.storeItemId,
         id: { in: variants.map((row) => row.storeVariantId) },
       },
-      select: { id: true },
+      select: { id: true, priceCents: true, sku: true },
     });
     if (storeVariants.length !== variants.length) {
       throw new ShopifyMappingError(
@@ -260,6 +264,7 @@ export async function createShopifyListingMapping(
         "Store variant does not belong to this store item"
       );
     }
+    const storeVariantById = new Map(storeVariants.map((row) => [row.id, row]));
 
     const existingByItem = await tx.shopifyListingLink.findFirst({
       where: { shopifyConnectionId: input.connectionId, storeItemId: input.storeItemId },
@@ -300,25 +305,44 @@ export async function createShopifyListingMapping(
     }
 
     try {
+      // S4 just verified Shopify contains this content — seed applied as first BASE.
+      const productFp = shopifyProductContentFingerprint({
+        title: storeItem.title,
+        description: storeItem.description,
+      });
+      const now = new Date();
       const listingLink = await tx.shopifyListingLink.create({
         data: {
           shopifyConnectionId: input.connectionId,
           memberId: input.memberId,
           storeItemId: input.storeItemId,
           shopifyProductId,
+          desiredProductFingerprint: productFp,
+          appliedProductFingerprint: productFp,
+          productContentAppliedAt: now,
         },
         select: listingSelect,
       });
       await tx.shopifyVariantMap.createMany({
-        data: variants.map((row) => ({
-          shopifyConnectionId: input.connectionId,
-          shopifyListingLinkId: listingLink.id,
-          memberId: input.memberId,
-          storeItemId: input.storeItemId,
-          storeVariantId: row.storeVariantId,
-          shopifyVariantId: row.shopifyVariantId,
-          shopifyInventoryItemId: row.shopifyInventoryItemId,
-        })),
+        data: variants.map((row) => {
+          const sv = storeVariantById.get(row.storeVariantId)!;
+          const variantFp = shopifyVariantContentFingerprint({
+            priceCents: sv.priceCents,
+            sku: sv.sku,
+          });
+          return {
+            shopifyConnectionId: input.connectionId,
+            shopifyListingLinkId: listingLink.id,
+            memberId: input.memberId,
+            storeItemId: input.storeItemId,
+            storeVariantId: row.storeVariantId,
+            shopifyVariantId: row.shopifyVariantId,
+            shopifyInventoryItemId: row.shopifyInventoryItemId,
+            desiredVariantFingerprint: variantFp,
+            appliedVariantFingerprint: variantFp,
+            variantContentAppliedAt: now,
+          };
+        }),
       });
       return loadListingSnapshot(tx, listingLink.id);
     } catch (error) {

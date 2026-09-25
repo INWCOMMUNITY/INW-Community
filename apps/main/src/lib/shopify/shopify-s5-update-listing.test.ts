@@ -15,6 +15,8 @@ vi.mock("database", async () => {
     },
     markShopifyProductContentApplied: vi.fn(),
     markShopifyVariantContentApplied: vi.fn(),
+    setShopifyProductContentConflict: vi.fn(),
+    setShopifyVariantContentConflict: vi.fn(),
   };
 });
 
@@ -33,6 +35,8 @@ import {
   markShopifyProductContentApplied,
   markShopifyVariantContentApplied,
   prisma,
+  setShopifyProductContentConflict,
+  setShopifyVariantContentConflict,
   shopifyMoneyFromCents,
   shopifyProductContentFingerprint,
   shopifyVariantContentFingerprint,
@@ -71,8 +75,17 @@ const listing = {
     title: "New Title",
     description: "New Desc",
   }),
-  appliedProductFingerprint: null,
-  productContentAppliedAt: null,
+  // S4-seeded BASE = last verified remote content before seller edit.
+  appliedProductFingerprint: shopifyProductContentFingerprint({
+    title: "Old Title",
+    description: "Old Desc",
+  }),
+  productContentAppliedAt: new Date("2026-09-24T12:00:00Z"),
+  productDesiredAt: new Date("2026-09-25T10:00:00Z"),
+  productContentConflict: false,
+  productConflictRemoteFingerprint: null,
+  productConflictEvidenceId: null,
+  productConflictDetectedAt: null,
 };
 
 const variantMap = {
@@ -90,8 +103,16 @@ const variantMap = {
     priceCents: 1037,
     sku: "SKU-NEW",
   }),
-  appliedVariantFingerprint: null,
-  variantContentAppliedAt: null,
+  appliedVariantFingerprint: shopifyVariantContentFingerprint({
+    priceCents: 999,
+    sku: "SKU-OLD",
+  }),
+  variantContentAppliedAt: new Date("2026-09-24T12:00:00Z"),
+  variantDesiredAt: new Date("2026-09-25T10:00:00Z"),
+  variantContentConflict: false,
+  variantConflictRemoteFingerprint: null,
+  variantConflictEvidenceId: null,
+  variantConflictDetectedAt: null,
 };
 
 const storeItem = {
@@ -212,6 +233,8 @@ function setupHappyMocks(overrides?: {
   vi.mocked(prisma.storeVariant.findFirst).mockResolvedValue(storeVariant as never);
   vi.mocked(markShopifyProductContentApplied).mockResolvedValue(undefined);
   vi.mocked(markShopifyVariantContentApplied).mockResolvedValue(undefined);
+  vi.mocked(setShopifyProductContentConflict).mockResolvedValue(undefined);
+  vi.mocked(setShopifyVariantContentConflict).mockResolvedValue(undefined);
 }
 
 describe("shopify S5 fingerprints + money", () => {
@@ -245,6 +268,8 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
     vi.mocked(prisma.storeVariant.findFirst).mockReset();
     vi.mocked(markShopifyProductContentApplied).mockReset();
     vi.mocked(markShopifyVariantContentApplied).mockReset();
+    vi.mocked(setShopifyProductContentConflict).mockReset();
+    vi.mocked(setShopifyVariantContentConflict).mockReset();
   });
 
   it("uses productUpdate + productVariantsBulkUpdate with exact GIDs and $10.37", async () => {
@@ -386,7 +411,7 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
       if (body.operationName === "ShopifyListingContentRead") {
         reads += 1;
         if (reads === 1) {
-          return remoteProduct({ title: "Old", descriptionHtml: "Old" });
+          return remoteProduct({ title: "Old Title", descriptionHtml: "Old Desc" });
         }
         return remoteProduct({
           title: "New Title",
@@ -441,7 +466,12 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
       if (body.operationName === "ShopifyListingContentRead") {
         reads += 1;
         if (reads === 1) {
-          return remoteProduct({ price: "9.99", sku: "OLD" });
+          return remoteProduct({
+            title: "New Title",
+            descriptionHtml: "New Desc",
+            price: "9.99",
+            sku: "SKU-OLD",
+          });
         }
         return remoteProduct({
           title: "New Title",
@@ -553,7 +583,7 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
       const body = JSON.parse(String(init?.body)) as { operationName?: string };
       if (body.operationName === "ShopifyListingContentRead") {
         reads += 1;
-        if (reads === 1) return remoteProduct({ title: "Old", descriptionHtml: "Old" });
+        if (reads === 1) return remoteProduct({ title: "Old Title", descriptionHtml: "Old Desc" });
         return remoteProduct({
           title: "New Title",
           descriptionHtml: "New Desc",
@@ -656,5 +686,177 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
       errorClass: "REMOTE_MISSING",
       errorCode: "REMOTE_VARIANT_MISSING",
     });
+  });
+
+  it("detects CONFLICT before webhook and skips productUpdate", async () => {
+    // BASE=A (Old), LOCAL=C (New), REMOTE=B (Shopify independent edit).
+    setupHappyMocks({
+      variantMap: {
+        desiredVariantContentVersion: 0,
+        appliedVariantContentVersion: 0,
+        desiredVariantFingerprint: null,
+      },
+    });
+    let productUpdates = 0;
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { operationName?: string };
+      if (body.operationName === "ShopifyListingContentRead") {
+        return remoteProduct({
+          title: "Shopify Independent",
+          descriptionHtml: "Remote B",
+        });
+      }
+      if (body.operationName === "ShopifyListingContentProductUpdate") {
+        productUpdates += 1;
+        return productUpdateOk();
+      }
+      throw new Error(`unexpected ${body.operationName}`);
+    });
+    const productOnlyClaim = {
+      ...claim,
+      payload: {
+        storeItemId: "item-1",
+        storeVariantId: "var-1",
+        productDesiredVersion: 2,
+        variantDesiredVersion: 0,
+      },
+    };
+    const result = await handleShopifyUpdateListingContentJob(productOnlyClaim, { fetchImpl });
+    expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(productUpdates).toBe(0);
+    expect(setShopifyProductContentConflict).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        listingLinkId: "link-1",
+        remoteFingerprint: shopifyProductContentFingerprint({
+          title: "Shopify Independent",
+          description: "Remote B",
+        }),
+      })
+    );
+    expect(markShopifyProductContentApplied).not.toHaveBeenCalled();
+  });
+
+  it("skips mutation when unresolved product conflict flag is set", async () => {
+    setupHappyMocks({
+      listing: { productContentConflict: true },
+      variantMap: {
+        desiredVariantContentVersion: 0,
+        appliedVariantContentVersion: 0,
+        desiredVariantFingerprint: null,
+      },
+    });
+    let productUpdates = 0;
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { operationName?: string };
+      if (body.operationName === "ShopifyListingContentRead") {
+        return remoteProduct({});
+      }
+      if (body.operationName === "ShopifyListingContentProductUpdate") {
+        productUpdates += 1;
+        return productUpdateOk();
+      }
+      throw new Error(`unexpected ${body.operationName}`);
+    });
+    const result = await handleShopifyUpdateListingContentJob(
+      {
+        ...claim,
+        payload: {
+          storeItemId: "item-1",
+          storeVariantId: "var-1",
+          productDesiredVersion: 2,
+          variantDesiredVersion: 0,
+        },
+      },
+      { fetchImpl }
+    );
+    expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(productUpdates).toBe(0);
+    expect(setShopifyProductContentConflict).not.toHaveBeenCalled();
+  });
+
+  it("allows LOCAL_ONLY product push while variant remains conflicted", async () => {
+    setupHappyMocks({
+      variantMap: {
+        ...variantMap,
+        variantContentConflict: true,
+        desiredVariantContentVersion: 2,
+        appliedVariantContentVersion: 0,
+      },
+    });
+    const ops: string[] = [];
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { operationName?: string };
+      ops.push(body.operationName ?? "");
+      if (body.operationName === "ShopifyListingContentRead") {
+        return remoteProduct({});
+      }
+      if (body.operationName === "ShopifyListingContentProductUpdate") {
+        return productUpdateOk();
+      }
+      throw new Error("variant must not mutate while conflicted");
+    });
+    const result = await handleShopifyUpdateListingContentJob(claim, { fetchImpl });
+    expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(ops).toEqual(["ShopifyListingContentRead", "ShopifyListingContentProductUpdate"]);
+    expect(markShopifyProductContentApplied).toHaveBeenCalledTimes(1);
+    expect(markShopifyVariantContentApplied).not.toHaveBeenCalled();
+  });
+
+  it("does not mutate on REMOTE_ONLY (leave to S6)", async () => {
+    // LOCAL == BASE (Old), REMOTE = New Shopify-only edit; job versions still stale.
+    const baseFp = shopifyProductContentFingerprint({
+      title: "Old Title",
+      description: "Old Desc",
+    });
+    setupHappyMocks({
+      listing: {
+        desiredProductContentVersion: 1,
+        appliedProductContentVersion: 0,
+        desiredProductFingerprint: baseFp,
+        appliedProductFingerprint: baseFp,
+        productDesiredAt: null,
+      },
+      variantMap: {
+        desiredVariantContentVersion: 0,
+        appliedVariantContentVersion: 0,
+        desiredVariantFingerprint: null,
+      },
+    });
+    vi.mocked(prisma.storeItem.findFirst).mockResolvedValue({
+      ...storeItem,
+      title: "Old Title",
+      description: "Old Desc",
+    } as never);
+    let productUpdates = 0;
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { operationName?: string };
+      if (body.operationName === "ShopifyListingContentRead") {
+        return remoteProduct({
+          title: "Shopify Only",
+          descriptionHtml: "Remote",
+        });
+      }
+      if (body.operationName === "ShopifyListingContentProductUpdate") {
+        productUpdates += 1;
+        return productUpdateOk();
+      }
+      throw new Error(`unexpected ${body.operationName}`);
+    });
+    const result = await handleShopifyUpdateListingContentJob(
+      {
+        ...claim,
+        payload: {
+          storeItemId: "item-1",
+          storeVariantId: "var-1",
+          productDesiredVersion: 1,
+          variantDesiredVersion: 0,
+        },
+      },
+      { fetchImpl }
+    );
+    expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(productUpdates).toBe(0);
+    expect(markShopifyProductContentApplied).not.toHaveBeenCalled();
   });
 });

@@ -414,9 +414,14 @@ export type {
   ShopifyVariantMappingInput,
 } from "./shopify/mapping";
 export {
+  clearShopifyProductContentConflict,
+  clearShopifyVariantContentConflict,
+  ensureShopifyUpdateListingContentJob,
   markShopifyProductContentApplied,
   markShopifyVariantContentApplied,
   recordShopifyListingContentDesire,
+  setShopifyProductContentConflict,
+  setShopifyVariantContentConflict,
 } from "./shopify/content-desire";
 export type {
   RecordShopifyListingContentDesireResult,
@@ -433,6 +438,11 @@ export {
   shopifyUpdateListingContentDedupeKey,
   shopifyVariantContentFingerprint,
 } from "./shopify/content-fingerprint";
+export { classifyShopifyContentSemantics } from "./shopify/content-semantic";
+export type {
+  ClassifyShopifyContentSemanticsInput,
+  ShopifyContentSemanticClass,
+} from "./shopify/content-semantic";
 export {
   applyShopifyProductsUpdateObservation,
   markShopifyEvidenceError,

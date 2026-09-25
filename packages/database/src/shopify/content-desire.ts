@@ -28,14 +28,42 @@ export type RecordShopifyListingContentDesireResult =
       syncedVariantPriceSku: boolean;
     };
 
+/** Idempotent enqueue for an existing desired version pair (no version bump). */
+export async function ensureShopifyUpdateListingContentJob(
+  db: ShopifyContentDb,
+  input: {
+    connectionId: string;
+    storeItemId: string;
+    storeVariantId: string;
+    productDesiredVersion: number;
+    variantDesiredVersion: number;
+  }
+): Promise<ShopifySyncJob> {
+  return enqueueShopifySyncJob(db, {
+    shopifyConnectionId: input.connectionId,
+    kind: "UPDATE_LISTING_CONTENT",
+    dedupeKey: shopifyUpdateListingContentDedupeKey({
+      connectionId: input.connectionId,
+      storeItemId: input.storeItemId,
+      productDesiredVersion: input.productDesiredVersion,
+      variantDesiredVersion: input.variantDesiredVersion,
+    }),
+    payload: {
+      storeItemId: input.storeItemId,
+      storeVariantId: input.storeVariantId,
+      productDesiredVersion: input.productDesiredVersion,
+      variantDesiredVersion: input.variantDesiredVersion,
+    },
+  });
+}
+
 /**
  * After a canonical StoreItem content edit, bump desired versions and enqueue
  * UPDATE_LISTING_CONTENT when a current-generation mapping exists.
  * Must run inside the same DB transaction as the canonical write.
  * No Shopify network calls.
  *
- * For simple mapped listings, StoreItem price/SKU edits are mirrored onto the
- * single mapped StoreVariant so Foundation variant identity stays aligned.
+ * A new seller edit on a conflicted group clears that group's conflict (explicit local intent).
  */
 export async function recordShopifyListingContentDesire(
   db: ShopifyContentDb,
@@ -78,7 +106,6 @@ export async function recordShopifyListingContentDesire(
     return { status: "SKIPPED", reason: "UNMAPPED" };
   }
 
-  // Serialize with S6 inbound apply so concurrent local edits cannot race remote wins.
   await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`shopify-content-inbound:${listing.id}`}))`;
   const lockedListing = await db.shopifyListingLink.findUniqueOrThrow({
     where: { id: listing.id },
@@ -120,7 +147,6 @@ export async function recordShopifyListingContentDesire(
   const nextVariantVersion = variantChanged
     ? variantMap.desiredVariantContentVersion + 1
     : variantMap.desiredVariantContentVersion;
-  // One coherent timestamp for this semantic edit (S6 most-recent comparison).
   const desiredAt = new Date();
 
   if (productChanged) {
@@ -130,6 +156,10 @@ export async function recordShopifyListingContentDesire(
         desiredProductContentVersion: nextProductVersion,
         desiredProductFingerprint: productFingerprint,
         productDesiredAt: desiredAt,
+        productContentConflict: false,
+        productConflictRemoteFingerprint: null,
+        productConflictEvidenceId: null,
+        productConflictDetectedAt: null,
       },
     });
   }
@@ -140,25 +170,20 @@ export async function recordShopifyListingContentDesire(
         desiredVariantContentVersion: nextVariantVersion,
         desiredVariantFingerprint: variantFingerprint,
         variantDesiredAt: desiredAt,
+        variantContentConflict: false,
+        variantConflictRemoteFingerprint: null,
+        variantConflictEvidenceId: null,
+        variantConflictDetectedAt: null,
       },
     });
   }
 
-  const job = await enqueueShopifySyncJob(db, {
-    shopifyConnectionId: connection.id,
-    kind: "UPDATE_LISTING_CONTENT",
-    dedupeKey: shopifyUpdateListingContentDedupeKey({
-      connectionId: connection.id,
-      storeItemId: input.storeItemId,
-      productDesiredVersion: nextProductVersion,
-      variantDesiredVersion: nextVariantVersion,
-    }),
-    payload: {
-      storeItemId: input.storeItemId,
-      storeVariantId: variantMap.storeVariantId,
-      productDesiredVersion: nextProductVersion,
-      variantDesiredVersion: nextVariantVersion,
-    },
+  const job = await ensureShopifyUpdateListingContentJob(db, {
+    connectionId: connection.id,
+    storeItemId: input.storeItemId,
+    storeVariantId: variantMap.storeVariantId,
+    productDesiredVersion: nextProductVersion,
+    variantDesiredVersion: nextVariantVersion,
   });
 
   return {
@@ -182,7 +207,6 @@ export async function markShopifyProductContentApplied(
     now?: Date;
   }
 ): Promise<void> {
-  // Advance or re-stamp same version; never move applied version backwards.
   await db.shopifyListingLink.updateMany({
     where: {
       id: input.listingLinkId,
@@ -192,6 +216,10 @@ export async function markShopifyProductContentApplied(
       appliedProductContentVersion: input.desiredVersion,
       appliedProductFingerprint: input.fingerprint,
       productContentAppliedAt: input.now ?? new Date(),
+      productContentConflict: false,
+      productConflictRemoteFingerprint: null,
+      productConflictEvidenceId: null,
+      productConflictDetectedAt: null,
     },
   });
 }
@@ -214,6 +242,80 @@ export async function markShopifyVariantContentApplied(
       appliedVariantContentVersion: input.desiredVersion,
       appliedVariantFingerprint: input.fingerprint,
       variantContentAppliedAt: input.now ?? new Date(),
+      variantContentConflict: false,
+      variantConflictRemoteFingerprint: null,
+      variantConflictEvidenceId: null,
+      variantConflictDetectedAt: null,
+    },
+  });
+}
+
+export async function setShopifyProductContentConflict(
+  db: ShopifyContentDb,
+  input: {
+    listingLinkId: string;
+    remoteFingerprint: string;
+    evidenceId?: string | null;
+    now?: Date;
+  }
+): Promise<void> {
+  await db.shopifyListingLink.update({
+    where: { id: input.listingLinkId },
+    data: {
+      productContentConflict: true,
+      productConflictRemoteFingerprint: input.remoteFingerprint,
+      productConflictEvidenceId: input.evidenceId ?? null,
+      productConflictDetectedAt: input.now ?? new Date(),
+    },
+  });
+}
+
+export async function setShopifyVariantContentConflict(
+  db: ShopifyContentDb,
+  input: {
+    variantMapId: string;
+    remoteFingerprint: string;
+    evidenceId?: string | null;
+    now?: Date;
+  }
+): Promise<void> {
+  await db.shopifyVariantMap.update({
+    where: { id: input.variantMapId },
+    data: {
+      variantContentConflict: true,
+      variantConflictRemoteFingerprint: input.remoteFingerprint,
+      variantConflictEvidenceId: input.evidenceId ?? null,
+      variantConflictDetectedAt: input.now ?? new Date(),
+    },
+  });
+}
+
+export async function clearShopifyProductContentConflict(
+  db: ShopifyContentDb,
+  listingLinkId: string
+): Promise<void> {
+  await db.shopifyListingLink.update({
+    where: { id: listingLinkId },
+    data: {
+      productContentConflict: false,
+      productConflictRemoteFingerprint: null,
+      productConflictEvidenceId: null,
+      productConflictDetectedAt: null,
+    },
+  });
+}
+
+export async function clearShopifyVariantContentConflict(
+  db: ShopifyContentDb,
+  variantMapId: string
+): Promise<void> {
+  await db.shopifyVariantMap.update({
+    where: { id: variantMapId },
+    data: {
+      variantContentConflict: false,
+      variantConflictRemoteFingerprint: null,
+      variantConflictEvidenceId: null,
+      variantConflictDetectedAt: null,
     },
   });
 }

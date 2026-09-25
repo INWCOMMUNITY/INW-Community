@@ -2,9 +2,12 @@ import {
   markShopifyProductContentApplied,
   markShopifyVariantContentApplied,
   prisma,
+  setShopifyProductContentConflict,
+  setShopifyVariantContentConflict,
   shopifyMoneyFromCents,
   shopifyProductContentFingerprint,
   shopifyVariantContentFingerprint,
+  classifyShopifyContentSemantics,
 } from "database";
 import type { ShopifyJobHandlerResult, ShopifySyncJobClaim } from "database";
 import type { ShopifyFetch } from "./admin-graphql";
@@ -513,30 +516,51 @@ export async function handleShopifyUpdateListingContentJob(
   let pendingDead: HandlerFailure | null = null;
 
   if (applyProduct) {
-    if (remoteProductFp === desiredProductFp) {
-      await markShopifyProductContentApplied(prisma, {
-        listingLinkId: listing.id,
-        desiredVersion: payload.productDesiredVersion,
-        fingerprint: desiredProductFp,
-        now: deps.now,
-      });
+    if (listing.productContentConflict) {
+      // Unresolved dual-divergence: do not overwrite remote.
+      // Terminal success — conflict owns the unresolved state (no infinite RETRY).
     } else {
-      const updated = await productUpdateScalars({
-        connectionId: connection.id,
-        productId: listing.shopifyProductId,
-        title: storeItem.title,
-        descriptionHtml: storeItem.description,
-        fetchImpl: deps.fetchImpl,
-        now: deps.now,
+      const productClass = classifyShopifyContentSemantics({
+        base: listing.appliedProductFingerprint,
+        local: desiredProductFp,
+        remote: remoteProductFp,
+        hasLocalSemanticEdit:
+          listing.desiredProductContentVersion > 0 || listing.productDesiredAt != null,
       });
-      if (!updated.ok) {
-        if (updated.outcome === "RETRY") pendingRetry = updated;
-        else pendingDead = updated;
-      } else {
+      if (productClass === "CONVERGED" || productClass === "UNCHANGED") {
         await markShopifyProductContentApplied(prisma, {
           listingLinkId: listing.id,
           desiredVersion: payload.productDesiredVersion,
           fingerprint: desiredProductFp,
+          now: deps.now,
+        });
+      } else if (productClass === "LOCAL_ONLY") {
+        const updated = await productUpdateScalars({
+          connectionId: connection.id,
+          productId: listing.shopifyProductId,
+          title: storeItem.title,
+          descriptionHtml: storeItem.description,
+          fetchImpl: deps.fetchImpl,
+          now: deps.now,
+        });
+        if (!updated.ok) {
+          if (updated.outcome === "RETRY") pendingRetry = updated;
+          else pendingDead = updated;
+        } else {
+          await markShopifyProductContentApplied(prisma, {
+            listingLinkId: listing.id,
+            desiredVersion: payload.productDesiredVersion,
+            fingerprint: desiredProductFp,
+            now: deps.now,
+          });
+        }
+      } else if (productClass === "REMOTE_ONLY") {
+        // Leave canonical application to S6; do not overwrite remote.
+      } else {
+        // CONFLICT — persist and skip mutation.
+        await setShopifyProductContentConflict(prisma, {
+          listingLinkId: listing.id,
+          remoteFingerprint: remoteProductFp,
           now: deps.now,
         });
       }
@@ -544,31 +568,50 @@ export async function handleShopifyUpdateListingContentJob(
   }
 
   if (applyVariant) {
-    if (remoteVariantFp === desiredVariantFp) {
-      await markShopifyVariantContentApplied(prisma, {
-        variantMapId: variantMap.id,
-        desiredVersion: payload.variantDesiredVersion,
-        fingerprint: desiredVariantFp,
-        now: deps.now,
-      });
+    if (variantMap.variantContentConflict) {
+      // Unresolved dual-divergence: do not overwrite remote.
     } else {
-      const updated = await variantBulkUpdateScalars({
-        connectionId: connection.id,
-        productId: listing.shopifyProductId,
-        variantId: variantMap.shopifyVariantId,
-        price: shopifyMoneyFromCents(storeVariant.priceCents),
-        sku: storeVariant.sku ?? "",
-        fetchImpl: deps.fetchImpl,
-        now: deps.now,
+      const variantClass = classifyShopifyContentSemantics({
+        base: variantMap.appliedVariantFingerprint,
+        local: desiredVariantFp,
+        remote: remoteVariantFp,
+        hasLocalSemanticEdit:
+          variantMap.desiredVariantContentVersion > 0 || variantMap.variantDesiredAt != null,
       });
-      if (!updated.ok) {
-        if (updated.outcome === "RETRY") pendingRetry = pendingRetry ?? updated;
-        else pendingDead = pendingDead ?? updated;
-      } else {
+      if (variantClass === "CONVERGED" || variantClass === "UNCHANGED") {
         await markShopifyVariantContentApplied(prisma, {
           variantMapId: variantMap.id,
           desiredVersion: payload.variantDesiredVersion,
           fingerprint: desiredVariantFp,
+          now: deps.now,
+        });
+      } else if (variantClass === "LOCAL_ONLY") {
+        const updated = await variantBulkUpdateScalars({
+          connectionId: connection.id,
+          productId: listing.shopifyProductId,
+          variantId: variantMap.shopifyVariantId,
+          price: shopifyMoneyFromCents(storeVariant.priceCents),
+          sku: storeVariant.sku ?? "",
+          fetchImpl: deps.fetchImpl,
+          now: deps.now,
+        });
+        if (!updated.ok) {
+          if (updated.outcome === "RETRY") pendingRetry = pendingRetry ?? updated;
+          else pendingDead = pendingDead ?? updated;
+        } else {
+          await markShopifyVariantContentApplied(prisma, {
+            variantMapId: variantMap.id,
+            desiredVersion: payload.variantDesiredVersion,
+            fingerprint: desiredVariantFp,
+            now: deps.now,
+          });
+        }
+      } else if (variantClass === "REMOTE_ONLY") {
+        // Leave to S6.
+      } else {
+        await setShopifyVariantContentConflict(prisma, {
+          variantMapId: variantMap.id,
+          remoteFingerprint: remoteVariantFp,
           now: deps.now,
         });
       }

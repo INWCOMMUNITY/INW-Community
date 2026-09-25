@@ -2222,6 +2222,11 @@ model ShopifyListingLink {
   productDesiredAt               DateTime? @map("product_desired_at")
   lastObservedProductFingerprint String?   @map("last_observed_product_fingerprint") @db.VarChar(64)
   lastObservedProductUpdatedAt   DateTime? @map("last_observed_product_updated_at")
+  /// S6 repair: unresolved dual-divergence product content conflict.
+  productContentConflict           Boolean   @default(false) @map("product_content_conflict")
+  productConflictRemoteFingerprint String?   @map("product_conflict_remote_fingerprint") @db.VarChar(64)
+  productConflictEvidenceId        String?   @map("product_conflict_evidence_id")
+  productConflictDetectedAt        DateTime? @map("product_conflict_detected_at")
   createdAt                    DateTime  @default(now()) @map("created_at")
   updatedAt                    DateTime  @updatedAt @map("updated_at")
 
@@ -2259,6 +2264,11 @@ model ShopifyVariantMap {
   variantDesiredAt               DateTime? @map("variant_desired_at")
   lastObservedVariantFingerprint String?   @map("last_observed_variant_fingerprint") @db.VarChar(64)
   lastObservedVariantUpdatedAt   DateTime? @map("last_observed_variant_updated_at")
+  /// S6 repair: unresolved dual-divergence variant content conflict.
+  variantContentConflict           Boolean   @default(false) @map("variant_content_conflict")
+  variantConflictRemoteFingerprint String?   @map("variant_conflict_remote_fingerprint") @db.VarChar(64)
+  variantConflictEvidenceId        String?   @map("variant_conflict_evidence_id")
+  variantConflictDetectedAt        DateTime? @map("variant_conflict_detected_at")
   createdAt                    DateTime  @default(now()) @map("created_at")
   updatedAt                    DateTime  @updatedAt @map("updated_at")
 
