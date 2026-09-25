@@ -25,6 +25,16 @@ export async function POST(req: NextRequest) {
     const response = NextResponse.json({ authorizeUrl });
     const cookie = shopifyBrowserBindingCookie(browserBindingSecret);
     response.cookies.set(cookie.name, cookie.value, cookie.options);
+    // Non-secret observability only — never log cookie value / OAuth state / secrets.
+    console.info("SHOPIFY_OAUTH_CONNECT_BINDING_ISSUED", {
+      host: req.nextUrl.host,
+      path: req.nextUrl.pathname,
+      secure: Boolean(cookie.options.secure),
+      sameSite: cookie.options.sameSite,
+      maxAge: cookie.options.maxAge,
+      cookieIssued: true,
+      cookiePath: cookie.options.path,
+    });
     return response;
   } catch (error) {
     if (error instanceof ShopifyConnectError && error.code === "invalid_shop") {

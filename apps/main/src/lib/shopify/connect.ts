@@ -42,6 +42,15 @@ export type ShopifyConnectDeps = {
   now?: Date;
 };
 
+/** Non-secret rejection reasons for OAuth state/browser-binding failures. */
+export type ShopifyOAuthStateRejectReason =
+  | "SIGNED_STATE_INVALID"
+  | "SIGNED_STATE_SHOP_MISMATCH"
+  | "BROWSER_BINDING_COOKIE_MISSING"
+  | "BROWSER_BINDING_HASH_MISMATCH"
+  | "BROWSER_BINDING_STATE_UNUSABLE"
+  | "STATE_CONSUME_REJECTED";
+
 export class ShopifyConnectError extends Error {
   constructor(
     message: string,
@@ -55,7 +64,8 @@ export class ShopifyConnectError extends Error {
       | "scopes"
       | "shop_identity"
       | "shop_owned"
-      | "webhook"
+      | "webhook",
+    readonly reason?: ShopifyOAuthStateRejectReason
   ) {
     super(message);
     this.name = "ShopifyConnectError";
@@ -116,20 +126,49 @@ export async function completeShopifyOAuth(
     throw new ShopifyConnectError("Invalid Shopify callback", "invalid_callback");
   }
   const verified = await verifyShopifyOAuthState(state);
-  if (!verified || verified.shopDomain !== shopDomain) {
-    throw new ShopifyConnectError("Invalid Shopify OAuth state", "invalid_state");
+  if (!verified) {
+    throw new ShopifyConnectError(
+      "Invalid Shopify OAuth state",
+      "invalid_state",
+      "SIGNED_STATE_INVALID"
+    );
   }
+  if (verified.shopDomain !== shopDomain) {
+    throw new ShopifyConnectError(
+      "Invalid Shopify OAuth state",
+      "invalid_state",
+      "SIGNED_STATE_SHOP_MISMATCH"
+    );
+  }
+  // Keep empty/whitespace handling identical to production (no trim).
   const browserBindingSecret = deps.browserBindingSecret ?? "";
-  const storedBindingHash = browserBindingSecret
-    ? await readShopifyOAuthBrowserBindingHash(prisma, {
-        nonce: verified.nonce,
-        memberId: verified.memberId,
-        shopDomain: verified.shopDomain,
-        now: deps.now,
-      })
-    : null;
-  if (!storedBindingHash || !shopifyBrowserBindingMatches(storedBindingHash, browserBindingSecret)) {
-    throw new ShopifyConnectError("Invalid Shopify OAuth state", "invalid_state");
+  if (!browserBindingSecret) {
+    throw new ShopifyConnectError(
+      "Invalid Shopify OAuth state",
+      "invalid_state",
+      "BROWSER_BINDING_COOKIE_MISSING"
+    );
+  }
+  const storedBindingHash = await readShopifyOAuthBrowserBindingHash(prisma, {
+    nonce: verified.nonce,
+    memberId: verified.memberId,
+    shopDomain: verified.shopDomain,
+    now: deps.now,
+  });
+  if (!storedBindingHash) {
+    // Unexpired/unconsumed row missing for this nonce — treat as unusable state.
+    throw new ShopifyConnectError(
+      "Invalid Shopify OAuth state",
+      "invalid_state",
+      "BROWSER_BINDING_STATE_UNUSABLE"
+    );
+  }
+  if (!shopifyBrowserBindingMatches(storedBindingHash, browserBindingSecret)) {
+    throw new ShopifyConnectError(
+      "Invalid Shopify OAuth state",
+      "invalid_state",
+      "BROWSER_BINDING_HASH_MISMATCH"
+    );
   }
   const consumed = await consumeShopifyOAuthState(prisma, {
     nonce: verified.nonce,
@@ -138,7 +177,11 @@ export async function completeShopifyOAuth(
     now: deps.now,
   });
   if (consumed !== "ok") {
-    throw new ShopifyConnectError("Invalid Shopify OAuth state", "invalid_state");
+    throw new ShopifyConnectError(
+      "Invalid Shopify OAuth state",
+      "invalid_state",
+      "STATE_CONSUME_REJECTED"
+    );
   }
 
   let tokens;

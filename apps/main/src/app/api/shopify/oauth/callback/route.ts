@@ -28,12 +28,27 @@ export async function GET(req: NextRequest) {
     return response;
   }
   try {
+    const bindingCookiePresent = Boolean(req.cookies.get(SHOPIFY_OAUTH_BROWSER_COOKIE)?.value);
+    console.info("SHOPIFY_OAUTH_CALLBACK_BINDING_PRESENT", {
+      host: req.nextUrl.host,
+      path: req.nextUrl.pathname,
+      bindingCookiePresent,
+    });
     await completeShopifyOAuth(req.nextUrl.searchParams, {
       browserBindingSecret: req.cookies.get(SHOPIFY_OAUTH_BROWSER_COOKIE)?.value ?? null,
     });
     return redirectToSeller(config.appUrl);
   } catch (error) {
     const code = error instanceof ShopifyConnectError ? error.code : "invalid_callback";
+    if (error instanceof ShopifyConnectError && error.code === "invalid_state" && error.reason) {
+      // Non-secret diagnostic only — never log state/code/cookie/token values.
+      console.info("SHOPIFY_OAUTH_STATE_REJECTED", {
+        reason: error.reason,
+        host: req.nextUrl.host,
+        path: req.nextUrl.pathname,
+        bindingCookiePresent: Boolean(req.cookies.get(SHOPIFY_OAUTH_BROWSER_COOKIE)?.value),
+      });
+    }
     return redirectToSeller(config.appUrl, code);
   }
 }
