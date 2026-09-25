@@ -16,6 +16,7 @@ vi.mock("@/lib/shopify/config", () => ({
     appUrl: "https://app.example.com",
     redirectUri: "https://app.example.com/api/shopify/oauth/callback",
     uninstallWebhookUri: "https://app.example.com/api/shopify/webhooks/uninstalled",
+    providerEvidenceWebhookUri: "https://app.example.com/api/shopify/webhooks/inbox",
     scopes: [],
     apiVersion: "2026-07",
   }),

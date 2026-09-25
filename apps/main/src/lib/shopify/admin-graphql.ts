@@ -11,6 +11,7 @@ import { accessTokenForConnection, ShopifyConnectError } from "./connect";
 import { SHOPIFY_ADMIN_API_VERSION } from "./constants";
 import { handleShopifyCreateListingJob } from "./create-listing";
 import { handleShopifyUpdateListingContentJob } from "./update-listing-content";
+import { handleShopifyProcessProviderEvidenceJob } from "./process-products-update";
 import { redactShopifySecrets } from "./redact";
 
 export type ShopifyFetch = typeof fetch;
@@ -301,37 +302,7 @@ export type ShopifyJobHandler = (
 ) => Promise<ShopifyJobHandlerResult>;
 
 const defaultHandlers: Record<string, ShopifyJobHandler> = {
-  PROCESS_PROVIDER_EVIDENCE: async (claim) => {
-    if (!claim.evidenceId) {
-      return {
-        outcome: "DEAD",
-        errorClass: "GRAPHQL_PERMANENT",
-        errorCode: "MISSING_EVIDENCE",
-        errorMessage: "Evidence id missing on job",
-      };
-    }
-    const evidence = await prisma.shopifyProviderEvidence.findUnique({
-      where: { id: claim.evidenceId },
-    });
-    if (!evidence) {
-      return {
-        outcome: "DEAD",
-        errorClass: "GRAPHQL_PERMANENT",
-        errorCode: "EVIDENCE_NOT_FOUND",
-        errorMessage: "Provider evidence was not found",
-      };
-    }
-    if (evidence.shopifyConnectionId !== claim.shopifyConnectionId) {
-      return {
-        outcome: "DEAD",
-        errorClass: "GRAPHQL_PERMANENT",
-        errorCode: "GENERATION_MISMATCH",
-        errorMessage: "Evidence connection does not match job connection",
-      };
-    }
-    // S3: keep RECEIVED for deferred domain processors. No canonical writes.
-    return { outcome: "SUCCESS" };
-  },
+  PROCESS_PROVIDER_EVIDENCE: (claim) => handleShopifyProcessProviderEvidenceJob(claim),
   CREATE_LISTING: (claim) => handleShopifyCreateListingJob(claim),
   UPDATE_LISTING_CONTENT: (claim) => handleShopifyUpdateListingContentJob(claim),
 };

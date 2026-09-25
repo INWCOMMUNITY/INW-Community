@@ -176,6 +176,29 @@ const WEBHOOK_MUTATION = `mutation ShopifyAppUninstalledWebhook($callbackUrl: UR
   }
 }`;
 
+const PRODUCTS_UPDATE_QUERY = `query ShopifyProductsUpdateWebhookSubscriptions {
+  webhookSubscriptions(first: 50, topics: [PRODUCTS_UPDATE]) {
+    nodes {
+      id
+      topic
+      endpoint {
+        __typename
+        ... on WebhookHttpEndpoint { callbackUrl }
+      }
+    }
+  }
+}`;
+
+const PRODUCTS_UPDATE_MUTATION = `mutation ShopifyProductsUpdateWebhook($callbackUrl: URL!) {
+  webhookSubscriptionCreate(
+    topic: PRODUCTS_UPDATE
+    webhookSubscription: { callbackUrl: $callbackUrl, format: JSON }
+  ) {
+    userErrors { field message }
+    webhookSubscription { id topic }
+  }
+}`;
+
 async function graphql<T>(input: {
   shopDomain: string;
   accessToken: string;
@@ -292,4 +315,147 @@ export async function registerShopifyUninstallWebhook(input: {
   if (!already && !data.webhookSubscriptionCreate?.webhookSubscription?.id) {
     throw new ShopifyRequestError("Shopify uninstall webhook registration failed");
   }
+}
+
+type ProductsUpdateWebhookNode = {
+  id: string;
+  topic: string;
+  endpoint: { __typename?: string; callbackUrl?: string | null } | null;
+};
+
+async function listProductsUpdateWebhookSubscriptions(input: {
+  shopDomain: string;
+  accessToken: string;
+  fetchImpl?: ShopifyFetch;
+}): Promise<ProductsUpdateWebhookNode[]> {
+  const data = await graphql<{
+    webhookSubscriptions: { nodes: ProductsUpdateWebhookNode[] };
+  }>({
+    shopDomain: input.shopDomain,
+    accessToken: input.accessToken,
+    query: PRODUCTS_UPDATE_QUERY,
+    fetchImpl: input.fetchImpl,
+  });
+  return data.webhookSubscriptions?.nodes ?? [];
+}
+
+function normalizeCallbackUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
+
+/**
+ * Ensure PRODUCTS_UPDATE delivers to the S3 provider-evidence inbox.
+ * Query-first / reuse equivalent / create if absent. Unknown create → re-query before retry.
+ */
+export async function ensureShopifyProductsUpdateWebhook(input: {
+  shopDomain: string;
+  accessToken: string;
+  callbackUrl: string;
+  fetchImpl?: ShopifyFetch;
+}): Promise<{ status: "REUSED" | "CREATED"; subscriptionId: string }> {
+  const wanted = normalizeCallbackUrl(input.callbackUrl);
+  if (!wanted) throw new ShopifyRequestError("Shopify products/update webhook callback is required");
+
+  const findEquivalent = (nodes: ProductsUpdateWebhookNode[]) => {
+    for (const node of nodes) {
+      const callback = node.endpoint?.callbackUrl
+        ? normalizeCallbackUrl(node.endpoint.callbackUrl)
+        : "";
+      if (!callback) continue;
+      if (callback === wanted) return node;
+      // Same topic, incompatible destination — fail closed (do not create duplicates).
+      throw new ShopifyRequestError(
+        "Shopify PRODUCTS_UPDATE subscription exists with an incompatible callback URL"
+      );
+    }
+    return null;
+  };
+
+  const existing = findEquivalent(
+    await listProductsUpdateWebhookSubscriptions({
+      shopDomain: input.shopDomain,
+      accessToken: input.accessToken,
+      fetchImpl: input.fetchImpl,
+    })
+  );
+  if (existing) return { status: "REUSED", subscriptionId: existing.id };
+
+  const attemptCreate = async (): Promise<"created" | "already" | "unknown"> => {
+    try {
+      const data = await graphql<{
+        webhookSubscriptionCreate: {
+          userErrors: { message: string }[];
+          webhookSubscription: { id: string } | null;
+        };
+      }>({
+        shopDomain: input.shopDomain,
+        accessToken: input.accessToken,
+        query: PRODUCTS_UPDATE_MUTATION,
+        variables: { callbackUrl: input.callbackUrl },
+        fetchImpl: input.fetchImpl,
+      });
+      const errors = data.webhookSubscriptionCreate?.userErrors ?? [];
+      const already =
+        errors.length > 0 &&
+        errors.every((error) => /already been taken|already exists/i.test(error.message));
+      if (already) return "already";
+      if (errors.length > 0) {
+        throw new ShopifyRequestError("Shopify PRODUCTS_UPDATE webhook registration failed");
+      }
+      if (!data.webhookSubscriptionCreate?.webhookSubscription?.id) return "unknown";
+      return "created";
+    } catch (error) {
+      // Definitive configuration/business failures fail closed; transport unknowns re-query.
+      if (
+        error instanceof ShopifyRequestError &&
+        /PRODUCTS_UPDATE webhook registration failed|incompatible/i.test(error.message)
+      ) {
+        throw error;
+      }
+      return "unknown";
+    }
+  };
+
+  const first = await attemptCreate();
+  if (first === "created" || first === "already") {
+    const after = findEquivalent(
+      await listProductsUpdateWebhookSubscriptions({
+        shopDomain: input.shopDomain,
+        accessToken: input.accessToken,
+        fetchImpl: input.fetchImpl,
+      })
+    );
+    if (!after) {
+      throw new ShopifyRequestError("Shopify PRODUCTS_UPDATE webhook registration failed");
+    }
+    return {
+      status: first === "created" ? "CREATED" : "REUSED",
+      subscriptionId: after.id,
+    };
+  }
+
+  // Unknown create outcome: re-query before any second create.
+  const requery = findEquivalent(
+    await listProductsUpdateWebhookSubscriptions({
+      shopDomain: input.shopDomain,
+      accessToken: input.accessToken,
+      fetchImpl: input.fetchImpl,
+    })
+  );
+  if (requery) return { status: "REUSED", subscriptionId: requery.id };
+
+  const second = await attemptCreate();
+  const finalNodes = await listProductsUpdateWebhookSubscriptions({
+    shopDomain: input.shopDomain,
+    accessToken: input.accessToken,
+    fetchImpl: input.fetchImpl,
+  });
+  const final = findEquivalent(finalNodes);
+  if (!final) {
+    throw new ShopifyRequestError("Shopify PRODUCTS_UPDATE webhook registration failed");
+  }
+  return {
+    status: second === "created" ? "CREATED" : "REUSED",
+    subscriptionId: final.id,
+  };
 }

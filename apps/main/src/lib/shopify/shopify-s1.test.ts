@@ -43,6 +43,7 @@ const config = {
   appUrl: "https://app.example.com",
   redirectUri: "https://app.example.com/api/shopify/oauth/callback",
   uninstallWebhookUri: "https://app.example.com/api/shopify/webhooks/uninstalled",
+  providerEvidenceWebhookUri: "https://app.example.com/api/shopify/webhooks/inbox",
   scopes: ["read_products", "write_products", "read_inventory", "write_inventory", "read_orders", "read_locations"],
   apiVersion: "2026-07",
 };
@@ -180,6 +181,7 @@ describe("oauth callback", () => {
   });
 
   function shopifyFetch(locations: { id: string; name: string }[]) {
+    let productsUpdateCreated = false;
     return vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       const href = String(url);
       if (href.endsWith("/admin/oauth/access_token")) {
@@ -212,7 +214,41 @@ describe("oauth callback", () => {
           },
         });
       }
+      if (body.query.includes("ShopifyProductsUpdateWebhookSubscriptions")) {
+        return jsonResponse({
+          data: {
+            webhookSubscriptions: {
+              nodes: productsUpdateCreated
+                ? [
+                    {
+                      id: "gid://shopify/WebhookSubscription/55",
+                      topic: "PRODUCTS_UPDATE",
+                      endpoint: {
+                        __typename: "WebhookHttpEndpoint",
+                        callbackUrl: config.providerEvidenceWebhookUri,
+                      },
+                    },
+                  ]
+                : [],
+            },
+          },
+        });
+      }
       if (body.query.includes("webhookSubscriptionCreate")) {
+        if (body.query.includes("PRODUCTS_UPDATE")) {
+          productsUpdateCreated = true;
+          return jsonResponse({
+            data: {
+              webhookSubscriptionCreate: {
+                userErrors: [],
+                webhookSubscription: {
+                  id: "gid://shopify/WebhookSubscription/55",
+                  topic: "PRODUCTS_UPDATE",
+                },
+              },
+            },
+          });
+        }
         return jsonResponse({
           data: {
             webhookSubscriptionCreate: {

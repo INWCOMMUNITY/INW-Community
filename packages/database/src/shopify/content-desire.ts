@@ -78,8 +78,14 @@ export async function recordShopifyListingContentDesire(
     return { status: "SKIPPED", reason: "UNMAPPED" };
   }
 
+  // Serialize with S6 inbound apply so concurrent local edits cannot race remote wins.
+  await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`shopify-content-inbound:${listing.id}`}))`;
+  const lockedListing = await db.shopifyListingLink.findUniqueOrThrow({
+    where: { id: listing.id },
+  });
+
   const variantMaps = await db.shopifyVariantMap.findMany({
-    where: { shopifyListingLinkId: listing.id, shopifyConnectionId: connection.id },
+    where: { shopifyListingLinkId: lockedListing.id, shopifyConnectionId: connection.id },
     orderBy: { createdAt: "asc" },
   });
   if (variantMaps.length !== 1) {
@@ -109,18 +115,21 @@ export async function recordShopifyListingContentDesire(
   });
 
   const nextProductVersion = productChanged
-    ? listing.desiredProductContentVersion + 1
-    : listing.desiredProductContentVersion;
+    ? lockedListing.desiredProductContentVersion + 1
+    : lockedListing.desiredProductContentVersion;
   const nextVariantVersion = variantChanged
     ? variantMap.desiredVariantContentVersion + 1
     : variantMap.desiredVariantContentVersion;
+  // One coherent timestamp for this semantic edit (S6 most-recent comparison).
+  const desiredAt = new Date();
 
   if (productChanged) {
     await db.shopifyListingLink.update({
-      where: { id: listing.id },
+      where: { id: lockedListing.id },
       data: {
         desiredProductContentVersion: nextProductVersion,
         desiredProductFingerprint: productFingerprint,
+        productDesiredAt: desiredAt,
       },
     });
   }
@@ -130,6 +139,7 @@ export async function recordShopifyListingContentDesire(
       data: {
         desiredVariantContentVersion: nextVariantVersion,
         desiredVariantFingerprint: variantFingerprint,
+        variantDesiredAt: desiredAt,
       },
     });
   }

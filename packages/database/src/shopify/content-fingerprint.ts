@@ -6,6 +6,15 @@ export function shopifyMoneyFromCents(cents: number): string {
   return (safe / 100).toFixed(2);
 }
 
+/** Parse Shopify Money/Decimal string into integer cents. Returns NaN if invalid. */
+export function shopifyCentsFromMoneyString(price: string): number {
+  const match = /^(\d+)(?:\.(\d{0,2}))?$/.exec(String(price).trim());
+  if (!match) return Number.NaN;
+  const dollars = Number.parseInt(match[1], 10);
+  const cents = Number.parseInt((match[2] || "").padEnd(2, "0").slice(0, 2) || "0", 10);
+  return dollars * 100 + cents;
+}
+
 export function normalizeShopifySku(sku: string | null | undefined): string {
   return typeof sku === "string" ? sku.trim() : "";
 }

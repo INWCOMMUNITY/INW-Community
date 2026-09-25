@@ -6,6 +6,8 @@ export type ShopifyAppConfig = {
   appUrl: string;
   redirectUri: string;
   uninstallWebhookUri: string;
+  /** S3 generic provider-evidence inbox (S6 PRODUCTS_UPDATE delivery). */
+  providerEvidenceWebhookUri: string;
   scopes: readonly string[];
   apiVersion: string;
 };
@@ -32,6 +34,7 @@ export function readShopifyAppConfig(
     appUrl,
     redirectUri: `${appUrl}/api/shopify/oauth/callback`,
     uninstallWebhookUri: `${appUrl}/api/shopify/webhooks/uninstalled`,
+    providerEvidenceWebhookUri: `${appUrl}/api/shopify/webhooks/inbox`,
     scopes: SHOPIFY_OAUTH_SCOPES,
     apiVersion: SHOPIFY_ADMIN_API_VERSION,
   };

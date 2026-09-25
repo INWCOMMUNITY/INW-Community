@@ -16,6 +16,7 @@ import {
   fetchShopifyShopIdentity,
   refreshShopifyOfflineToken,
   registerShopifyUninstallWebhook,
+  ensureShopifyProductsUpdateWebhook,
   type ShopifyFetch,
 } from "./client";
 import { verifyShopifyOAuthHmac } from "./hmac";
@@ -183,8 +184,17 @@ export async function completeShopifyOAuth(
       callbackUrl: config.uninstallWebhookUri,
       fetchImpl: deps.fetchImpl,
     });
+    await ensureShopifyProductsUpdateWebhook({
+      shopDomain,
+      accessToken: tokens.accessToken,
+      callbackUrl: config.providerEvidenceWebhookUri,
+      fetchImpl: deps.fetchImpl,
+    });
   } catch {
-    throw new ShopifyConnectError("Shopify uninstall webhook could not be registered", "webhook");
+    throw new ShopifyConnectError(
+      "Shopify webhook subscriptions could not be registered",
+      "webhook"
+    );
   }
 
   const candidates = selectInventoryLocations(locations);

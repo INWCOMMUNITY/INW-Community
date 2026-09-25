@@ -2218,6 +2218,10 @@ model ShopifyListingLink {
   desiredProductFingerprint    String?   @map("desired_product_fingerprint") @db.VarChar(64)
   appliedProductFingerprint    String?   @map("applied_product_fingerprint") @db.VarChar(64)
   productContentAppliedAt      DateTime? @map("product_content_applied_at")
+  /// S6: when the latest INW product content desire was recorded.
+  productDesiredAt               DateTime? @map("product_desired_at")
+  lastObservedProductFingerprint String?   @map("last_observed_product_fingerprint") @db.VarChar(64)
+  lastObservedProductUpdatedAt   DateTime? @map("last_observed_product_updated_at")
   createdAt                    DateTime  @default(now()) @map("created_at")
   updatedAt                    DateTime  @updatedAt @map("updated_at")
 
@@ -2251,6 +2255,10 @@ model ShopifyVariantMap {
   desiredVariantFingerprint    String?   @map("desired_variant_fingerprint") @db.VarChar(64)
   appliedVariantFingerprint    String?   @map("applied_variant_fingerprint") @db.VarChar(64)
   variantContentAppliedAt      DateTime? @map("variant_content_applied_at")
+  /// S6: when the latest INW variant content desire was recorded.
+  variantDesiredAt               DateTime? @map("variant_desired_at")
+  lastObservedVariantFingerprint String?   @map("last_observed_variant_fingerprint") @db.VarChar(64)
+  lastObservedVariantUpdatedAt   DateTime? @map("last_observed_variant_updated_at")
   createdAt                    DateTime  @default(now()) @map("created_at")
   updatedAt                    DateTime  @updatedAt @map("updated_at")
 

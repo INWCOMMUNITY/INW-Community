@@ -427,11 +427,22 @@ export {
   normalizeShopifyDescription,
   normalizeShopifySku,
   normalizeShopifyTitle,
+  shopifyCentsFromMoneyString,
   shopifyMoneyFromCents,
   shopifyProductContentFingerprint,
   shopifyUpdateListingContentDedupeKey,
   shopifyVariantContentFingerprint,
 } from "./shopify/content-fingerprint";
+export {
+  applyShopifyProductsUpdateObservation,
+  markShopifyEvidenceError,
+  markShopifyEvidenceIgnored,
+} from "./shopify/content-inbound";
+export type {
+  ApplyShopifyProductsUpdateResult,
+  ShopifyInboundDb,
+  ShopifyRemoteProductObservation,
+} from "./shopify/content-inbound";
 export {
   hashShopifyWebhookPayload,
   ingestShopifyWebhookEvidence,
