@@ -9,6 +9,7 @@ vi.mock("database", async () => {
     prisma: {
       shopifyConnection: { findUnique: vi.fn() },
       shopifyVariantMap: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+      shopifyListingLink: { findUnique: vi.fn() },
     },
     markShopifyInventoryProjectionApplied: vi.fn(async () => true),
     markShopifyInventoryProjectionRemoteDrift: vi.fn(async () => undefined),
@@ -126,6 +127,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(prisma.shopifyConnection.findUnique).mockResolvedValue(connection as never);
   vi.mocked(prisma.shopifyVariantMap.findUnique).mockResolvedValue(baseMap() as never);
+  vi.mocked(prisma.shopifyListingLink.findUnique).mockResolvedValue({
+    inventoryHealth: "HEALTHY",
+  } as never);
 });
 
 describe("handleShopifyProjectInventoryJob", () => {
@@ -153,7 +157,7 @@ describe("handleShopifyProjectInventoryJob", () => {
       baseMap({
         inventoryDesiredAvailable: 8,
         inventoryAppliedAvailable: 10,
-        inventoryDriftState: "REMOTE_DRIFT",
+        inventoryDriftState: "NONE",
       }) as never
     );
     const fetchImpl = vi.fn(async () => jsonResponse(inventoryRead(8)));

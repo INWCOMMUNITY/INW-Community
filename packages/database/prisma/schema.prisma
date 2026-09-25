@@ -2078,6 +2078,8 @@ model SellerActivityLog {
   entityId   String?  @map("entity_id")
   detail     Json?    // Structured details (before/after for edits, affected item IDs, etc.)
   metadata   Json?    // Additional context (source, user agent, etc.)
+  /// Optional durable dedupe identity (e.g. Shopify listing issue signature).
+  dedupeKey  String?  @unique @map("dedupe_key")
   createdAt  DateTime @default(now()) @map("created_at")
 
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
@@ -2206,6 +2208,25 @@ model ShopifyConnection {
   @@map("shopify_connection")
 }
 
+/// Seller-facing readiness for a new Shopify listing (publication remains explicit).
+enum ShopifyListingReadiness {
+  SYNCING
+  READY_TO_PUBLISH
+  ACTION_REQUIRED
+  CONNECTION_REQUIRED
+
+  @@map("shopify_listing_readiness")
+}
+
+/// Per-capability outbound health. Content and inventory pause independently.
+enum ShopifyCapabilityHealth {
+  HEALTHY
+  DEGRADED
+  PAUSED
+
+  @@map("shopify_capability_health")
+}
+
 /// Generation-bound StoreItem ↔ Shopify Product mapping. Bound to ShopifyConnection.id.
 model ShopifyListingLink {
   id                           String    @id @default(cuid())
@@ -2229,6 +2250,20 @@ model ShopifyListingLink {
   productConflictRemoteFingerprint String?   @map("product_conflict_remote_fingerprint") @db.VarChar(64)
   productConflictEvidenceId        String?   @map("product_conflict_evidence_id")
   productConflictDetectedAt        DateTime? @map("product_conflict_detected_at")
+  /// S9: seller-facing readiness derived from durable content/inventory/remote truth.
+  readiness                      ShopifyListingReadiness @default(SYNCING) @map("readiness")
+  contentHealth                  ShopifyCapabilityHealth @default(HEALTHY) @map("content_health")
+  inventoryHealth                ShopifyCapabilityHealth @default(HEALTHY) @map("inventory_health")
+  issueCode                      String?   @map("issue_code")
+  issueFingerprint               String?   @map("issue_fingerprint")
+  issueSeverity                  String?   @map("issue_severity")
+  issueMessage                   String?   @map("issue_message") @db.Text
+  issueFirstSeenAt               DateTime? @map("issue_first_seen_at")
+  issueLastSeenAt                DateTime? @map("issue_last_seen_at")
+  lastReconciledAt               DateTime? @map("last_reconciled_at")
+  readinessUpdatedAt             DateTime? @map("readiness_updated_at")
+  /// Last observed Shopify Product.status (DRAFT expected pre-publication; not an error alone).
+  remoteProductStatus            String?   @map("remote_product_status")
   createdAt                    DateTime  @default(now()) @map("created_at")
   updatedAt                    DateTime  @updatedAt @map("updated_at")
 
@@ -2242,6 +2277,7 @@ model ShopifyListingLink {
   /// Supports composite FKs from ShopifyVariantMap so connection/item cannot drift.
   @@unique([id, shopifyConnectionId, storeItemId])
   @@index([memberId, storeItemId])
+  @@index([shopifyConnectionId, readiness])
   @@map("shopify_listing_link")
 }
 
@@ -2359,6 +2395,7 @@ enum ShopifySyncJobKind {
   CREATE_LISTING
   UPDATE_LISTING_CONTENT
   PROJECT_INVENTORY
+  RECONCILE_LISTING
 
   @@map("shopify_sync_job_kind")
 }

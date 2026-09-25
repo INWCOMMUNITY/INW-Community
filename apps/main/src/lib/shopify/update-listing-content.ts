@@ -381,6 +381,11 @@ export async function handleShopifyUpdateListingContentJob(
     };
   }
 
+  // Listing-scoped content pause (S9). Inventory/orders remain independent.
+  if (listing.contentHealth === "PAUSED") {
+    return { outcome: "SUCCESS" };
+  }
+
   const variantMaps = await prisma.shopifyVariantMap.findMany({
     where: { shopifyListingLinkId: listing.id, shopifyConnectionId: connection.id },
     orderBy: { createdAt: "asc" },

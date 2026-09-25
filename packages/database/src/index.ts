@@ -476,6 +476,25 @@ export {
 } from "./shopify/inventory-projection";
 export type { ShopifyInventoryProjectionDecision } from "./shopify/inventory-projection";
 export {
+  classifyShopifyListingHealth,
+  enqueueDueShopifyListingReconciliations,
+  ensureShopifyReconcileListingJob,
+  persistShopifyListingHealth,
+  shopifyListingIssueDedupeKey,
+  shopifyReconcileListingDedupeKey,
+  shopifyReconcileTimeBucket,
+  toPublicShopifyListingStatus,
+} from "./shopify/listing-health";
+export type {
+  ClassifyShopifyListingHealthInput,
+  PersistShopifyListingHealthResult,
+  ShopifyHealthDb,
+  ShopifyListingHealthSnapshot,
+  ShopifyListingIssueSeverity,
+  ShopifyListingPublicStatus,
+  ShopifyListingRemoteObservation,
+} from "./shopify/listing-health";
+export {
   normalizeShopifyDescription,
   normalizeShopifySku,
   normalizeShopifyTitle,

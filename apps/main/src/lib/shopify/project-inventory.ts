@@ -504,6 +504,19 @@ export async function handleShopifyProjectInventoryJob(
     return { outcome: "SUCCESS" };
   }
 
+  // Listing-scoped inventory pause (S9). Does not block S7 sale ingestion.
+  const listingHealth = await prisma.shopifyListingLink.findUnique({
+    where: { id: variantMap.shopifyListingLinkId },
+    select: { inventoryHealth: true },
+  });
+  if (
+    listingHealth?.inventoryHealth === "PAUSED" ||
+    variantMap.inventoryDriftState === "REMOTE_DRIFT" ||
+    variantMap.inventoryDriftState === "WAITING_RECONCILIATION"
+  ) {
+    return { outcome: "SUCCESS" };
+  }
+
   // Read remote first — no DB transaction open during Shopify network.
   const read = await readRemoteInventory({
     connectionId: connection.id,
