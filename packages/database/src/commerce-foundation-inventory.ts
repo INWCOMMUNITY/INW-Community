@@ -6,12 +6,14 @@ import {
 import type { FoundationDb } from "./commerce-foundation-variant-resolution";
 
 export const FOUNDATION_SOURCE_SYSTEM = "inw";
+export const SHOPIFY_SOURCE_SYSTEM = "shopify";
 export const NATIVE_OPENING_SCOPE = "commerce-foundation-native";
 export const CHECKOUT_SCOPE = "checkout";
 export const PAYMENT_SCOPE = "payment";
 export const SELLER_SCOPE = "seller";
 export const RESTOCK_SCOPE = "restock";
 export const EXPIRE_SCOPE = "expire";
+export const MARKETPLACE_ORDER_CAUSE = "MARKETPLACE_ORDER";
 
 export class FoundationInventoryError extends Error {
   readonly code: string;
@@ -620,6 +622,113 @@ export async function restockTrackedVariant(
   const quantity = await projectStoreItemQuantity(tx, state.storeItemId);
   await maybeReactivateAfterRestock(tx, state.storeItemId);
   return { onHand: event.created ? nextOnHand : state.onHand, quantity };
+}
+
+/**
+ * Causal marketplace SALE for TRACKED_FINITE variants.
+ * Decrements onHand by qty without touching reserved (requires available >= qty).
+ * MADE_TO_ORDER: no finite onHand change and no fabricated quantity — caller records sale fact only.
+ * Idempotent via sourceSystem/sourceScope/eventType/sourceFactId causal key.
+ */
+export async function applyTrackedMarketplaceSale(
+  tx: FoundationDb,
+  args: {
+    variantId: string;
+    memberId: string;
+    qty: number;
+    /** Generation-bound scope (e.g. ShopifyConnection.id). */
+    sourceScope: string;
+    /** Durable provider line identity (e.g. orderGid:lineItemGid). */
+    sourceFactId: string;
+    metadata?: Prisma.InputJsonValue;
+  }
+): Promise<
+  | {
+      status: "APPLIED";
+      created: boolean;
+      mode: "TRACKED_FINITE";
+      inventoryEventId: string;
+      onHandAfter: number;
+    }
+  | {
+      status: "APPLIED";
+      created: boolean;
+      mode: "MADE_TO_ORDER";
+      inventoryEventId: null;
+      onHandAfter: null;
+    }
+> {
+  await lockCutoverShare(tx);
+  if (!Number.isInteger(args.qty) || args.qty < 1) {
+    throw new FoundationInventoryError("invalid_sale_qty", "SALE quantity must be an integer >= 1");
+  }
+  if (!args.sourceScope.trim() || !args.sourceFactId.trim()) {
+    throw new FoundationInventoryError("invalid_sale_source", "SALE requires sourceScope and sourceFactId");
+  }
+  const variant = await tx.storeVariant.findUnique({ where: { id: args.variantId } });
+  if (!variant) {
+    throw new FoundationMissingStateError(`StoreVariant ${args.variantId} not found`);
+  }
+  if (variant.memberId !== args.memberId) {
+    throw new FoundationInventoryError("variant_ownership", "Variant does not belong to this member");
+  }
+  await lockStoreItemForUpdate(tx, variant.storeItemId);
+  const state = await lockInventoryState(tx, args.variantId);
+  if (state.memberId !== args.memberId || state.storeItemId !== variant.storeItemId) {
+    throw new FoundationInventoryError("variant_ownership", "InventoryState ownership mismatch");
+  }
+
+  if (state.mode === "MADE_TO_ORDER") {
+    // Match checkout finalize: MTO sales do not invent finite onHand (no 999).
+    return {
+      status: "APPLIED",
+      created: false,
+      mode: "MADE_TO_ORDER",
+      inventoryEventId: null,
+      onHandAfter: null,
+    };
+  }
+
+  if (state.mode !== "TRACKED_FINITE" || state.onHand == null || state.reserved == null) {
+    throw new FoundationMissingStateError(`TRACKED InventoryState incomplete for ${args.variantId}`);
+  }
+  const available = trackedAvailable(state.onHand, state.reserved);
+  if (available < args.qty) {
+    throw new FoundationInsufficientAvailabilityError(
+      `Available ${available} is less than marketplace SALE ${args.qty}`
+    );
+  }
+  const onHandAfter = state.onHand - args.qty;
+  const event = await appendInventoryEvent(tx, {
+    memberId: state.memberId,
+    variantId: state.variantId,
+    storeItemId: state.storeItemId,
+    eventType: "SALE",
+    cause: MARKETPLACE_ORDER_CAUSE,
+    sourceSystem: SHOPIFY_SOURCE_SYSTEM,
+    sourceScope: args.sourceScope,
+    sourceFactId: args.sourceFactId,
+    requestedQty: args.qty,
+    appliedOnHandQty: args.qty,
+    appliedReservedQty: 0,
+    onHandBefore: state.onHand,
+    onHandAfter,
+    reservedBefore: state.reserved,
+    reservedAfter: state.reserved,
+    metadata: args.metadata,
+  });
+  if (event.created) {
+    await bumpVersionAndWrite(tx, state, { onHand: onHandAfter, reserved: state.reserved });
+    await projectStoreItemQuantity(tx, state.storeItemId);
+    await maybeMarkSoldOutIfPhysicallyGone(tx, state.storeItemId);
+  }
+  return {
+    status: "APPLIED",
+    created: event.created,
+    mode: "TRACKED_FINITE",
+    inventoryEventId: event.id,
+    onHandAfter: event.created ? onHandAfter : state.onHand,
+  };
 }
 
 export async function incrementAvailabilityNoopCheck(): Promise<void> {

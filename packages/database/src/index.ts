@@ -124,6 +124,7 @@ export {
 } from "./commerce-foundation-cutover";
 export type { CommerceFoundationCutoverState, CommerceFoundationCutoverWriterClass } from "./commerce-foundation-cutover";
 export {
+  applyTrackedMarketplaceSale,
   FoundationInsufficientAvailabilityError,
   FoundationInventoryError,
   FoundationMissingStateError,
@@ -133,10 +134,12 @@ export {
   holdTrackedReservation,
   lockCheckoutAttemptForUpdate,
   lockStoreItemForUpdate,
+  MARKETPLACE_ORDER_CAUSE,
   projectStoreItemQuantity,
   releaseReservation,
   restockTrackedVariant,
   setTrackedOnHand,
+  SHOPIFY_SOURCE_SYSTEM,
   trackedAvailable,
 } from "./commerce-foundation-inventory";
 export {
@@ -382,17 +385,38 @@ export type {
 } from "./shopify/connection";
 export {
   assertShopifyInventoryItemGid,
+  assertShopifyLineItemGid,
+  assertShopifyOrderGid,
   assertShopifyProductGid,
   assertShopifyProductVariantGid,
   isShopifyInventoryItemGid,
+  isShopifyLineItemGid,
+  isShopifyOrderGid,
   isShopifyProductGid,
   isShopifyProductVariantGid,
+  shopifyLineItemGidFromNumericId,
+  shopifyOrderGidFromNumericId,
+  shopifyProductVariantGidFromNumericId,
   SHOPIFY_INVENTORY_ITEM_GID_PATTERN,
+  SHOPIFY_LINE_ITEM_GID_PATTERN,
+  SHOPIFY_ORDER_GID_PATTERN,
   SHOPIFY_PRODUCT_GID_PATTERN,
   SHOPIFY_PRODUCT_VARIANT_GID_PATTERN,
   ShopifyGidValidationError,
 } from "./shopify/gids";
 export type { ShopifyGidResource } from "./shopify/gids";
+export {
+  applyShopifyPaidOrderLineSale,
+  applyShopifyPaidOrderObservation,
+  mergePaidOrderLineIdentities,
+  parseShopifyOrdersPaidWebhookBody,
+} from "./shopify/order-sale";
+export type {
+  ApplyShopifyPaidOrderLineResult,
+  ApplyShopifyPaidOrderResult,
+  ShopifyOrderSaleDb,
+  ShopifyPaidOrderLineObservation,
+} from "./shopify/order-sale";
 export {
   createShopifyListingMapping,
   lookupShopifyListingByProductId,

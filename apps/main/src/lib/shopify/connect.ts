@@ -17,6 +17,7 @@ import {
   refreshShopifyOfflineToken,
   registerShopifyUninstallWebhook,
   ensureShopifyProductsUpdateWebhook,
+  ensureShopifyOrdersPaidWebhook,
   type ShopifyFetch,
 } from "./client";
 import { verifyShopifyOAuthHmac } from "./hmac";
@@ -185,6 +186,12 @@ export async function completeShopifyOAuth(
       fetchImpl: deps.fetchImpl,
     });
     await ensureShopifyProductsUpdateWebhook({
+      shopDomain,
+      accessToken: tokens.accessToken,
+      callbackUrl: config.providerEvidenceWebhookUri,
+      fetchImpl: deps.fetchImpl,
+    });
+    await ensureShopifyOrdersPaidWebhook({
       shopDomain,
       accessToken: tokens.accessToken,
       callbackUrl: config.providerEvidenceWebhookUri,

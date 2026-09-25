@@ -182,6 +182,7 @@ describe("oauth callback", () => {
 
   function shopifyFetch(locations: { id: string; name: string }[]) {
     let productsUpdateCreated = false;
+    let ordersPaidCreated = false;
     return vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       const href = String(url);
       if (href.endsWith("/admin/oauth/access_token")) {
@@ -234,6 +235,26 @@ describe("oauth callback", () => {
           },
         });
       }
+      if (body.query.includes("ShopifyOrdersPaidWebhookSubscriptions")) {
+        return jsonResponse({
+          data: {
+            webhookSubscriptions: {
+              nodes: ordersPaidCreated
+                ? [
+                    {
+                      id: "gid://shopify/WebhookSubscription/66",
+                      topic: "ORDERS_PAID",
+                      endpoint: {
+                        __typename: "WebhookHttpEndpoint",
+                        callbackUrl: config.providerEvidenceWebhookUri,
+                      },
+                    },
+                  ]
+                : [],
+            },
+          },
+        });
+      }
       if (body.query.includes("webhookSubscriptionCreate")) {
         if (body.query.includes("PRODUCTS_UPDATE")) {
           productsUpdateCreated = true;
@@ -244,6 +265,20 @@ describe("oauth callback", () => {
                 webhookSubscription: {
                   id: "gid://shopify/WebhookSubscription/55",
                   topic: "PRODUCTS_UPDATE",
+                },
+              },
+            },
+          });
+        }
+        if (body.query.includes("ORDERS_PAID")) {
+          ordersPaidCreated = true;
+          return jsonResponse({
+            data: {
+              webhookSubscriptionCreate: {
+                userErrors: [],
+                webhookSubscription: {
+                  id: "gid://shopify/WebhookSubscription/66",
+                  topic: "ORDERS_PAID",
                 },
               },
             },

@@ -459,3 +459,162 @@ export async function ensureShopifyProductsUpdateWebhook(input: {
     subscriptionId: final.id,
   };
 }
+
+const ORDERS_PAID_QUERY = `query ShopifyOrdersPaidWebhookSubscriptions {
+  webhookSubscriptions(first: 50, topics: [ORDERS_PAID]) {
+    nodes {
+      id
+      topic
+      endpoint {
+        __typename
+        ... on WebhookHttpEndpoint { callbackUrl }
+      }
+    }
+  }
+}`;
+
+const ORDERS_PAID_MUTATION = `mutation ShopifyOrdersPaidWebhook($callbackUrl: URL!) {
+  webhookSubscriptionCreate(
+    topic: ORDERS_PAID
+    webhookSubscription: { callbackUrl: $callbackUrl, format: JSON }
+  ) {
+    userErrors { field message }
+    webhookSubscription { id topic }
+  }
+}`;
+
+type OrdersPaidWebhookNode = {
+  id: string;
+  topic: string;
+  endpoint?: { __typename?: string; callbackUrl?: string | null } | null;
+};
+
+async function listOrdersPaidWebhookSubscriptions(input: {
+  shopDomain: string;
+  accessToken: string;
+  fetchImpl?: ShopifyFetch;
+}): Promise<OrdersPaidWebhookNode[]> {
+  const data = await graphql<{
+    webhookSubscriptions: { nodes: OrdersPaidWebhookNode[] };
+  }>({
+    shopDomain: input.shopDomain,
+    accessToken: input.accessToken,
+    query: ORDERS_PAID_QUERY,
+    fetchImpl: input.fetchImpl,
+  });
+  return data.webhookSubscriptions?.nodes ?? [];
+}
+
+/**
+ * Ensure ORDERS_PAID delivers to the S3 provider-evidence inbox.
+ * Query-first / reuse equivalent / create if absent. Unknown create → re-query before retry.
+ */
+export async function ensureShopifyOrdersPaidWebhook(input: {
+  shopDomain: string;
+  accessToken: string;
+  callbackUrl: string;
+  fetchImpl?: ShopifyFetch;
+}): Promise<{ status: "REUSED" | "CREATED"; subscriptionId: string }> {
+  const wanted = normalizeCallbackUrl(input.callbackUrl);
+  if (!wanted) throw new ShopifyRequestError("Shopify orders/paid webhook callback is required");
+
+  const findEquivalent = (nodes: OrdersPaidWebhookNode[]) => {
+    for (const node of nodes) {
+      const callback = node.endpoint?.callbackUrl
+        ? normalizeCallbackUrl(node.endpoint.callbackUrl)
+        : "";
+      if (!callback) continue;
+      if (callback === wanted) return node;
+      throw new ShopifyRequestError(
+        "Shopify ORDERS_PAID subscription exists with an incompatible callback URL"
+      );
+    }
+    return null;
+  };
+
+  const existing = findEquivalent(
+    await listOrdersPaidWebhookSubscriptions({
+      shopDomain: input.shopDomain,
+      accessToken: input.accessToken,
+      fetchImpl: input.fetchImpl,
+    })
+  );
+  if (existing) return { status: "REUSED", subscriptionId: existing.id };
+
+  const attemptCreate = async (): Promise<"created" | "already" | "unknown"> => {
+    try {
+      const data = await graphql<{
+        webhookSubscriptionCreate: {
+          userErrors: { message: string }[];
+          webhookSubscription: { id: string } | null;
+        };
+      }>({
+        shopDomain: input.shopDomain,
+        accessToken: input.accessToken,
+        query: ORDERS_PAID_MUTATION,
+        variables: { callbackUrl: input.callbackUrl },
+        fetchImpl: input.fetchImpl,
+      });
+      const errors = data.webhookSubscriptionCreate?.userErrors ?? [];
+      const already =
+        errors.length > 0 &&
+        errors.every((error) => /already been taken|already exists/i.test(error.message));
+      if (already) return "already";
+      if (errors.length > 0) {
+        throw new ShopifyRequestError("Shopify ORDERS_PAID webhook registration failed");
+      }
+      if (!data.webhookSubscriptionCreate?.webhookSubscription?.id) return "unknown";
+      return "created";
+    } catch (error) {
+      if (
+        error instanceof ShopifyRequestError &&
+        /ORDERS_PAID webhook registration failed|incompatible/i.test(error.message)
+      ) {
+        throw error;
+      }
+      return "unknown";
+    }
+  };
+
+  const first = await attemptCreate();
+  if (first === "created" || first === "already") {
+    const after = findEquivalent(
+      await listOrdersPaidWebhookSubscriptions({
+        shopDomain: input.shopDomain,
+        accessToken: input.accessToken,
+        fetchImpl: input.fetchImpl,
+      })
+    );
+    if (!after) {
+      throw new ShopifyRequestError("Shopify ORDERS_PAID webhook registration failed");
+    }
+    return {
+      status: first === "created" ? "CREATED" : "REUSED",
+      subscriptionId: after.id,
+    };
+  }
+
+  const requery = findEquivalent(
+    await listOrdersPaidWebhookSubscriptions({
+      shopDomain: input.shopDomain,
+      accessToken: input.accessToken,
+      fetchImpl: input.fetchImpl,
+    })
+  );
+  if (requery) return { status: "REUSED", subscriptionId: requery.id };
+
+  const second = await attemptCreate();
+  const finalNodes = await listOrdersPaidWebhookSubscriptions({
+    shopDomain: input.shopDomain,
+    accessToken: input.accessToken,
+    fetchImpl: input.fetchImpl,
+  });
+  const final = findEquivalent(finalNodes);
+  if (!final) {
+    throw new ShopifyRequestError("Shopify ORDERS_PAID webhook registration failed");
+  }
+  return {
+    status: second === "created" ? "CREATED" : "REUSED",
+    subscriptionId: final.id,
+  };
+}

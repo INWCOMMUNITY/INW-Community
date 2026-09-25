@@ -154,6 +154,7 @@ model Member {
   shopifyOAuthStates   ShopifyOAuthState[]
   shopifyListingLinks  ShopifyListingLink[]
   shopifyVariantMaps   ShopifyVariantMap[]
+  shopifyOrderLineSaleFacts ShopifyOrderLineSaleFact[]
 }
 
 model WebviewBridgeToken {
@@ -2195,6 +2196,7 @@ model ShopifyConnection {
   variantMaps  ShopifyVariantMap[]
   providerEvidence ShopifyProviderEvidence[]
   syncJobs         ShopifySyncJob[]
+  orderLineSaleFacts ShopifyOrderLineSaleFact[]
 
   /// Supports composite FKs from mapping rows so connection + member cannot drift.
   @@unique([id, memberId])
@@ -2293,6 +2295,15 @@ enum ShopifyEvidenceProcessState {
   @@map("shopify_evidence_process_state")
 }
 
+enum ShopifyOrderLineSaleApplyState {
+  PENDING
+  APPLIED
+  UNMAPPED
+  FAILED
+
+  @@map("shopify_order_line_sale_apply_state")
+}
+
 enum ShopifySyncJobState {
   PENDING
   RUNNING
@@ -2335,12 +2346,48 @@ model ShopifyProviderEvidence {
 
   connection ShopifyConnection? @relation(fields: [shopifyConnectionId], references: [id], onDelete: Restrict)
   syncJob    ShopifySyncJob?
+  orderLineSaleFacts ShopifyOrderLineSaleFact[]
 
   @@index([shopifyConnectionId, topic, receivedAt])
   @@index([processState, receivedAt])
   @@index([shopDomain, triggeredAt])
   @@index([eventId])
   @@map("shopify_provider_evidence")
+}
+
+/// Durable Shopify paid order-line sale fact. Not an INW StoreOrder.
+/// Exactly-once inventory causality key: (connectionId, shopifyOrderId, shopifyLineItemId).
+model ShopifyOrderLineSaleFact {
+  id                  String                        @id @default(cuid())
+  shopifyConnectionId String                        @map("shopify_connection_id")
+  memberId            String                        @map("member_id")
+  shopifyOrderId      String                        @map("shopify_order_id")
+  shopifyLineItemId   String                        @map("shopify_line_item_id")
+  shopifyVariantId    String?                       @map("shopify_variant_id")
+  storeVariantId      String?                       @map("store_variant_id")
+  storeItemId         String?                       @map("store_item_id")
+  /// Quantity sold at the verified orders/paid event (not later refund-adjusted).
+  paidQuantity        Int                           @map("paid_quantity")
+  /// Quantity successfully applied to Foundation inventory (0 until applied / for failed).
+  appliedQuantity     Int                           @default(0) @map("applied_quantity")
+  applyState          ShopifyOrderLineSaleApplyState @default(PENDING) @map("apply_state")
+  inventoryEventId    String?                       @map("inventory_event_id")
+  evidenceId          String                        @map("evidence_id")
+  lastErrorCode       String?                       @map("last_error_code")
+  lastErrorMessage    String?                       @map("last_error_message") @db.Text
+  appliedAt           DateTime?                     @map("applied_at")
+  createdAt           DateTime                      @default(now()) @map("created_at")
+  updatedAt           DateTime                      @updatedAt @map("updated_at")
+
+  connection ShopifyConnection      @relation(fields: [shopifyConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
+  member     Member                 @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  evidence   ShopifyProviderEvidence @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+
+  @@unique([shopifyConnectionId, shopifyOrderId, shopifyLineItemId])
+  @@index([shopifyConnectionId, applyState])
+  @@index([evidenceId])
+  @@index([storeVariantId])
+  @@map("shopify_order_line_sale_fact")
 }
 
 /// Shopify-scoped durable sync job. At-least-once; not exactly-once.

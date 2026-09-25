@@ -9,6 +9,7 @@ import {
 import type { ShopifyJobHandlerResult, ShopifySyncJobClaim } from "database";
 import type { ShopifyFetch } from "./admin-graphql";
 import { executeShopifyAdminGraphql } from "./admin-graphql";
+import { handleShopifyOrdersPaidEvidence } from "./process-orders-paid";
 
 function parseProductGidFromEvidenceBody(rawBody: string): string | null {
   try {
@@ -220,6 +221,9 @@ export async function handleShopifyProcessProviderEvidenceJob(
   }
 
   const topic = evidence.topic.trim().toLowerCase();
+  if (topic === "orders/paid") {
+    return handleShopifyOrdersPaidEvidence(claim, evidence, deps);
+  }
   if (topic !== "products/update") {
     // Other topics remain deferred until their owned processors exist.
     return { outcome: "SUCCESS" };
