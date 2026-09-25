@@ -51,6 +51,15 @@ export type ShopifyOAuthStateRejectReason =
   | "BROWSER_BINDING_STATE_UNUSABLE"
   | "STATE_CONSUME_REJECTED";
 
+/** Non-secret shop-identity fields for SIGNED_STATE_SHOP_MISMATCH diagnostics. */
+export type ShopifyConnectShopDiagnostic = {
+  signedStateShop?: string;
+  callbackShop?: string;
+  rawCallbackShop?: string;
+  /** Truncated nonce prefix for correlating connect→callback (not the signed state token). */
+  attemptId?: string;
+};
+
 export class ShopifyConnectError extends Error {
   constructor(
     message: string,
@@ -65,7 +74,8 @@ export class ShopifyConnectError extends Error {
       | "shop_identity"
       | "shop_owned"
       | "webhook",
-    readonly reason?: ShopifyOAuthStateRejectReason
+    readonly reason?: ShopifyOAuthStateRejectReason,
+    readonly diagnostic?: ShopifyConnectShopDiagnostic
   ) {
     super(message);
     this.name = "ShopifyConnectError";
@@ -137,7 +147,13 @@ export async function completeShopifyOAuth(
     throw new ShopifyConnectError(
       "Invalid Shopify OAuth state",
       "invalid_state",
-      "SIGNED_STATE_SHOP_MISMATCH"
+      "SIGNED_STATE_SHOP_MISMATCH",
+      {
+        signedStateShop: verified.shopDomain,
+        callbackShop: shopDomain,
+        rawCallbackShop: params.shop,
+        attemptId: verified.nonce.slice(0, 8),
+      }
     );
   }
   // Keep empty/whitespace handling identical to production (no trim).

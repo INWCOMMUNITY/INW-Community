@@ -42,11 +42,16 @@ export async function GET(req: NextRequest) {
     const code = error instanceof ShopifyConnectError ? error.code : "invalid_callback";
     if (error instanceof ShopifyConnectError && error.code === "invalid_state" && error.reason) {
       // Non-secret diagnostic only — never log state/code/cookie/token values.
+      // myshopify.com hostnames are safe to log for SIGNED_STATE_SHOP_MISMATCH.
       console.info("SHOPIFY_OAUTH_STATE_REJECTED", {
         reason: error.reason,
         host: req.nextUrl.host,
         path: req.nextUrl.pathname,
         bindingCookiePresent: Boolean(req.cookies.get(SHOPIFY_OAUTH_BROWSER_COOKIE)?.value),
+        signedStateShop: error.diagnostic?.signedStateShop,
+        callbackShop: error.diagnostic?.callbackShop,
+        rawCallbackShop: error.diagnostic?.rawCallbackShop,
+        attemptId: error.diagnostic?.attemptId,
       });
     }
     return redirectToSeller(config.appUrl, code);
