@@ -10,6 +10,7 @@ import { randomUUID } from "crypto";
 import { accessTokenForConnection, ShopifyConnectError } from "./connect";
 import { SHOPIFY_ADMIN_API_VERSION } from "./constants";
 import { handleShopifyCreateListingJob } from "./create-listing";
+import { handleShopifyUpdateListingContentJob } from "./update-listing-content";
 import { redactShopifySecrets } from "./redact";
 
 export type ShopifyFetch = typeof fetch;
@@ -332,6 +333,7 @@ const defaultHandlers: Record<string, ShopifyJobHandler> = {
     return { outcome: "SUCCESS" };
   },
   CREATE_LISTING: (claim) => handleShopifyCreateListingJob(claim),
+  UPDATE_LISTING_CONTENT: (claim) => handleShopifyUpdateListingContentJob(claim),
 };
 
 /**

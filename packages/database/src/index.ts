@@ -414,6 +414,25 @@ export type {
   ShopifyVariantMappingInput,
 } from "./shopify/mapping";
 export {
+  markShopifyProductContentApplied,
+  markShopifyVariantContentApplied,
+  recordShopifyListingContentDesire,
+} from "./shopify/content-desire";
+export type {
+  RecordShopifyListingContentDesireResult,
+  ShopifyContentDb,
+  ShopifyListingContentSnapshot,
+} from "./shopify/content-desire";
+export {
+  normalizeShopifyDescription,
+  normalizeShopifySku,
+  normalizeShopifyTitle,
+  shopifyMoneyFromCents,
+  shopifyProductContentFingerprint,
+  shopifyUpdateListingContentDedupeKey,
+  shopifyVariantContentFingerprint,
+} from "./shopify/content-fingerprint";
+export {
   hashShopifyWebhookPayload,
   ingestShopifyWebhookEvidence,
   resolveShopifyConnectionForWebhook,

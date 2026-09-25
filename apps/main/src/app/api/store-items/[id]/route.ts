@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { applyFoundationSellerQuantitySets, assertFoundationMatrixStructureUnchanged, endFoundationListing, markFoundationListingSold, prisma, Prisma } from "database";
+import { applyFoundationSellerQuantitySets, assertFoundationMatrixStructureUnchanged, endFoundationListing, markFoundationListingSold, prisma, Prisma, recordShopifyListingContentDesire } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireAdmin } from "@/lib/admin-auth";
 import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
@@ -412,6 +412,13 @@ export async function PATCH(
     }
   }
 
+  const contentBefore = {
+    title: existing.title,
+    description: existing.description,
+    priceCents: existing.priceCents,
+    sku: existing.sku,
+  };
+
   if (writer.route === "foundation") {
     try {
       const item = await prisma.$transaction(async (tx) => {
@@ -455,10 +462,24 @@ export async function PATCH(
           delete (update as { status?: string; endedAt?: Date | null }).status;
           delete (update as { endedAt?: Date | null }).endedAt;
         }
-        return tx.storeItem.update({
+        const updated = await tx.storeItem.update({
           where: { id: itemId },
           data: update as object,
         });
+        // S5: same TX as canonical write — bump desired versions + enqueue UPDATE_LISTING_CONTENT.
+        // No Shopify network calls here.
+        await recordShopifyListingContentDesire(tx, {
+          memberId: ownerId,
+          storeItemId: itemId,
+          before: contentBefore,
+          after: {
+            title: updated.title,
+            description: updated.description,
+            priceCents: updated.priceCents,
+            sku: updated.sku,
+          },
+        });
+        return updated;
       });
       if (item.status === "sold_out") {
         deleteFeedPostsForSoldItem(itemId).catch(() => {});
@@ -478,9 +499,23 @@ export async function PATCH(
     }
   }
 
-  const item = await prisma.storeItem.update({
-    where: { id: itemId },
-    data: update as object,
+  const item = await prisma.$transaction(async (tx) => {
+    const updated = await tx.storeItem.update({
+      where: { id: itemId },
+      data: update as object,
+    });
+    await recordShopifyListingContentDesire(tx, {
+      memberId: ownerId,
+      storeItemId: itemId,
+      before: contentBefore,
+      after: {
+        title: updated.title,
+        description: updated.description,
+        priceCents: updated.priceCents,
+        sku: updated.sku,
+      },
+    });
+    return updated;
   });
 
   if (item.status === "sold_out") {

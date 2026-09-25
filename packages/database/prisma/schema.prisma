@@ -2206,13 +2206,20 @@ model ShopifyConnection {
 
 /// Generation-bound StoreItem ↔ Shopify Product mapping. Bound to ShopifyConnection.id.
 model ShopifyListingLink {
-  id                  String   @id @default(cuid())
-  shopifyConnectionId String   @map("shopify_connection_id")
-  memberId            String   @map("member_id")
-  storeItemId         String   @map("store_item_id")
-  shopifyProductId    String   @map("shopify_product_id")
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  id                           String    @id @default(cuid())
+  shopifyConnectionId          String    @map("shopify_connection_id")
+  memberId                     String    @map("member_id")
+  storeItemId                  String    @map("store_item_id")
+  shopifyProductId             String    @map("shopify_product_id")
+  /// S5: monotonic desired product content version (title/description).
+  desiredProductContentVersion Int       @default(0) @map("desired_product_content_version")
+  /// S5: last successfully applied product content version.
+  appliedProductContentVersion Int       @default(0) @map("applied_product_content_version")
+  desiredProductFingerprint    String?   @map("desired_product_fingerprint") @db.VarChar(64)
+  appliedProductFingerprint    String?   @map("applied_product_fingerprint") @db.VarChar(64)
+  productContentAppliedAt      DateTime? @map("product_content_applied_at")
+  createdAt                    DateTime  @default(now()) @map("created_at")
+  updatedAt                    DateTime  @updatedAt @map("updated_at")
 
   connection  ShopifyConnection   @relation(fields: [shopifyConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
   storeItem   StoreItem           @relation(fields: [storeItemId, memberId], references: [id, memberId], onDelete: Restrict)
@@ -2229,16 +2236,23 @@ model ShopifyListingLink {
 
 /// Generation-bound StoreVariant ↔ Shopify ProductVariant + InventoryItem mapping.
 model ShopifyVariantMap {
-  id                     String   @id @default(cuid())
-  shopifyConnectionId    String   @map("shopify_connection_id")
-  shopifyListingLinkId   String   @map("shopify_listing_link_id")
-  memberId               String   @map("member_id")
-  storeItemId            String   @map("store_item_id")
-  storeVariantId         String   @map("store_variant_id")
-  shopifyVariantId       String   @map("shopify_variant_id")
-  shopifyInventoryItemId String   @map("shopify_inventory_item_id")
-  createdAt              DateTime @default(now()) @map("created_at")
-  updatedAt              DateTime @updatedAt @map("updated_at")
+  id                           String    @id @default(cuid())
+  shopifyConnectionId          String    @map("shopify_connection_id")
+  shopifyListingLinkId         String    @map("shopify_listing_link_id")
+  memberId                     String    @map("member_id")
+  storeItemId                  String    @map("store_item_id")
+  storeVariantId               String    @map("store_variant_id")
+  shopifyVariantId             String    @map("shopify_variant_id")
+  shopifyInventoryItemId       String    @map("shopify_inventory_item_id")
+  /// S5: monotonic desired variant content version (price/SKU).
+  desiredVariantContentVersion Int       @default(0) @map("desired_variant_content_version")
+  /// S5: last successfully applied variant content version.
+  appliedVariantContentVersion Int       @default(0) @map("applied_variant_content_version")
+  desiredVariantFingerprint    String?   @map("desired_variant_fingerprint") @db.VarChar(64)
+  appliedVariantFingerprint    String?   @map("applied_variant_fingerprint") @db.VarChar(64)
+  variantContentAppliedAt      DateTime? @map("variant_content_applied_at")
+  createdAt                    DateTime  @default(now()) @map("created_at")
+  updatedAt                    DateTime  @updatedAt @map("updated_at")
 
   connection   ShopifyConnection  @relation(fields: [shopifyConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
   listingLink  ShopifyListingLink @relation(fields: [shopifyListingLinkId, shopifyConnectionId, storeItemId], references: [id, shopifyConnectionId, storeItemId], onDelete: Restrict)
@@ -2274,6 +2288,7 @@ enum ShopifySyncJobState {
 enum ShopifySyncJobKind {
   PROCESS_PROVIDER_EVIDENCE
   CREATE_LISTING
+  UPDATE_LISTING_CONTENT
 
   @@map("shopify_sync_job_kind")
 }
