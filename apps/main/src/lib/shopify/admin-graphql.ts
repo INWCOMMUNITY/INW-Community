@@ -12,6 +12,7 @@ import { SHOPIFY_ADMIN_API_VERSION } from "./constants";
 import { handleShopifyCreateListingJob } from "./create-listing";
 import { handleShopifyUpdateListingContentJob } from "./update-listing-content";
 import { handleShopifyProcessProviderEvidenceJob } from "./process-products-update";
+import { handleShopifyProjectInventoryJob } from "./project-inventory";
 import { redactShopifySecrets } from "./redact";
 
 export type ShopifyFetch = typeof fetch;
@@ -305,6 +306,7 @@ const defaultHandlers: Record<string, ShopifyJobHandler> = {
   PROCESS_PROVIDER_EVIDENCE: (claim) => handleShopifyProcessProviderEvidenceJob(claim),
   CREATE_LISTING: (claim) => handleShopifyCreateListingJob(claim),
   UPDATE_LISTING_CONTENT: (claim) => handleShopifyUpdateListingContentJob(claim),
+  PROJECT_INVENTORY: (claim) => handleShopifyProjectInventoryJob(claim),
 };
 
 /**

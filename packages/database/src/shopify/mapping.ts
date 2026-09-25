@@ -9,6 +9,7 @@ import {
   assertShopifyProductVariantGid,
   ShopifyGidValidationError,
 } from "./gids";
+import { seedShopifyInventoryProjectionOnMapping } from "./inventory-desire";
 
 export type ShopifyMappingDb = PrismaClient | Prisma.TransactionClient;
 
@@ -344,6 +345,20 @@ export async function createShopifyListingMapping(
           };
         }),
       });
+      // S8: seed initial inventory desire + PROJECT_INVENTORY job atomically with mapping.
+      const createdMaps = await tx.shopifyVariantMap.findMany({
+        where: { shopifyListingLinkId: listingLink.id },
+        select: { id: true, storeVariantId: true },
+      });
+      for (const map of createdMaps) {
+        await seedShopifyInventoryProjectionOnMapping(tx, {
+          connectionId: input.connectionId,
+          memberId: input.memberId,
+          storeItemId: input.storeItemId,
+          storeVariantId: map.storeVariantId,
+          variantMapId: map.id,
+        });
+      }
       return loadListingSnapshot(tx, listingLink.id);
     } catch (error) {
       if (

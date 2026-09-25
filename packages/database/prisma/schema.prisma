@@ -2245,6 +2245,25 @@ model ShopifyListingLink {
   @@map("shopify_listing_link")
 }
 
+/// One-time Shopify location inventory bootstrap state for a mapped variant.
+enum ShopifyInventoryProjectionInitState {
+  PENDING
+  INITIALIZED
+  NOT_APPLICABLE
+  FAILED
+
+  @@map("shopify_inventory_projection_init_state")
+}
+
+/// Bounded unexplained remote inventory movement observed during outbound projection.
+enum ShopifyInventoryProjectionDriftState {
+  NONE
+  REMOTE_DRIFT
+  WAITING_RECONCILIATION
+
+  @@map("shopify_inventory_projection_drift_state")
+}
+
 /// Generation-bound StoreVariant ↔ Shopify ProductVariant + InventoryItem mapping.
 model ShopifyVariantMap {
   id                           String    @id @default(cuid())
@@ -2271,6 +2290,27 @@ model ShopifyVariantMap {
   variantConflictRemoteFingerprint String?   @map("variant_conflict_remote_fingerprint") @db.VarChar(64)
   variantConflictEvidenceId        String?   @map("variant_conflict_evidence_id")
   variantConflictDetectedAt        DateTime? @map("variant_conflict_detected_at")
+  /// S8: monotonic desired sellable-quantity projection version (not a timestamp).
+  inventoryDesiredVersion          Int       @default(0) @map("inventory_desired_version")
+  /// Canonical INW sellable quantity desired at Shopify `available` (null when NOT_APPLICABLE).
+  inventoryDesiredAvailable        Int?      @map("inventory_desired_available")
+  inventoryAppliedVersion          Int       @default(0) @map("inventory_applied_version")
+  /// Last verified Shopify `available` INW knows it converged to (APPLIED_BASE).
+  inventoryAppliedAvailable        Int?      @map("inventory_applied_available")
+  inventoryLastObservedAvailable   Int?      @map("inventory_last_observed_available")
+  inventoryInitState               ShopifyInventoryProjectionInitState @default(PENDING) @map("inventory_init_state")
+  inventoryDriftState              ShopifyInventoryProjectionDriftState @default(NONE) @map("inventory_drift_state")
+  inventoryDriftCode               String?   @map("inventory_drift_code")
+  inventoryDriftMessage            String?   @map("inventory_drift_message") @db.Text
+  inventoryDriftDetectedAt         DateTime? @map("inventory_drift_detected_at")
+  inventoryDesiredAt               DateTime? @map("inventory_desired_at")
+  inventoryAppliedAt               DateTime? @map("inventory_applied_at")
+  /// Durable pending provider mutation for NETWORK_UNKNOWN retry (same intent → same key).
+  inventoryPendingMutationKind     String?   @map("inventory_pending_mutation_kind")
+  inventoryPendingIdempotencyKey   String?   @map("inventory_pending_idempotency_key")
+  inventoryPendingChangeFrom       Int?      @map("inventory_pending_change_from")
+  inventoryPendingTargetQty        Int?      @map("inventory_pending_target_qty")
+  inventoryPendingFingerprint      String?   @map("inventory_pending_fingerprint")
   createdAt                    DateTime  @default(now()) @map("created_at")
   updatedAt                    DateTime  @updatedAt @map("updated_at")
 
@@ -2318,6 +2358,7 @@ enum ShopifySyncJobKind {
   PROCESS_PROVIDER_EVIDENCE
   CREATE_LISTING
   UPDATE_LISTING_CONTENT
+  PROJECT_INVENTORY
 
   @@map("shopify_sync_job_kind")
 }

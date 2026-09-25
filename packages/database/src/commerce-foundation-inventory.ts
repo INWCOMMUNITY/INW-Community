@@ -340,6 +340,10 @@ export async function setTrackedOnHand(
   });
   if (event.created) {
     await bumpVersionAndWrite(tx, state, { onHand: args.targetOnHand, reserved: state.reserved });
+    await captureShopifyInventoryProjectionDesireAfterChange(tx, {
+      memberId: state.memberId,
+      storeVariantId: state.variantId,
+    });
   }
   const quantity = await projectStoreItemQuantity(tx, state.storeItemId);
   return {
@@ -429,6 +433,10 @@ export async function holdTrackedReservation(
   });
   if (event.created) {
     await bumpVersionAndWrite(tx, state, { onHand: state.onHand, reserved: state.reserved + args.qty });
+    await captureShopifyInventoryProjectionDesireAfterChange(tx, {
+      memberId: state.memberId,
+      storeVariantId: state.variantId,
+    });
   }
   await projectStoreItemQuantity(tx, state.storeItemId);
   return {
@@ -491,6 +499,10 @@ export async function releaseReservation(
     });
     await bumpVersionAndWrite(tx, state, { onHand: state.onHand, reserved: state.reserved - qty });
     await projectStoreItemQuantity(tx, state.storeItemId);
+    await captureShopifyInventoryProjectionDesireAfterChange(tx, {
+      memberId: state.memberId,
+      storeVariantId: state.variantId,
+    });
   }
   return { released: event.created, activeQty: 0 };
 }
@@ -618,6 +630,10 @@ export async function restockTrackedVariant(
   });
   if (event.created) {
     await bumpVersionAndWrite(tx, state, { onHand: nextOnHand, reserved: state.reserved });
+    await captureShopifyInventoryProjectionDesireAfterChange(tx, {
+      memberId: state.memberId,
+      storeVariantId: state.variantId,
+    });
   }
   const quantity = await projectStoreItemQuantity(tx, state.storeItemId);
   await maybeReactivateAfterRestock(tx, state.storeItemId);
@@ -721,6 +737,10 @@ export async function applyTrackedMarketplaceSale(
     await bumpVersionAndWrite(tx, state, { onHand: onHandAfter, reserved: state.reserved });
     await projectStoreItemQuantity(tx, state.storeItemId);
     await maybeMarkSoldOutIfPhysicallyGone(tx, state.storeItemId);
+    await captureShopifyInventoryProjectionDesireAfterChange(tx, {
+      memberId: state.memberId,
+      storeVariantId: state.variantId,
+    });
   }
   return {
     status: "APPLIED",
@@ -733,6 +753,19 @@ export async function applyTrackedMarketplaceSale(
 
 export async function incrementAvailabilityNoopCheck(): Promise<void> {
   // Documented: callers skip bumpVersionAndWrite when appendInventoryEvent returns created=false.
+}
+
+/**
+ * S8: capture Shopify inventory projection desire after sellable availability changes.
+ * Dynamic import avoids a load-time cycle with shopify/inventory-desire.
+ * No-ops when unmapped / inactive / unchanged.
+ */
+async function captureShopifyInventoryProjectionDesireAfterChange(
+  tx: FoundationDb,
+  input: { memberId: string; storeVariantId: string }
+): Promise<void> {
+  const { captureShopifyInventoryProjectionDesire } = await import("./shopify/inventory-desire");
+  await captureShopifyInventoryProjectionDesire(tx, input);
 }
 
 export type { PrismaClient };

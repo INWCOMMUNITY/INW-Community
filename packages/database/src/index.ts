@@ -454,6 +454,28 @@ export type {
   ShopifyListingContentSnapshot,
 } from "./shopify/content-desire";
 export {
+  captureShopifyInventoryProjectionDesire,
+  clearShopifyInventoryProjectionPendingMutation,
+  ensureShopifyProjectInventoryJob,
+  markShopifyInventoryProjectionApplied,
+  markShopifyInventoryProjectionRemoteDrift,
+  seedShopifyInventoryProjectionOnMapping,
+  setShopifyInventoryProjectionPendingMutation,
+} from "./shopify/inventory-desire";
+export type {
+  CaptureShopifyInventoryProjectionDesireResult,
+  ShopifyInventoryDesireDb,
+} from "./shopify/inventory-desire";
+export {
+  classifyShopifyInventoryProjectionAction,
+  shopifyInventoryActivateIdempotencyKey,
+  shopifyInventoryProjectionReferenceUri,
+  shopifyInventorySetIdempotencyKey,
+  shopifyInventoryTrackedIdempotencyKey,
+  shopifyProjectInventoryDedupeKey,
+} from "./shopify/inventory-projection";
+export type { ShopifyInventoryProjectionDecision } from "./shopify/inventory-projection";
+export {
   normalizeShopifyDescription,
   normalizeShopifySku,
   normalizeShopifyTitle,
