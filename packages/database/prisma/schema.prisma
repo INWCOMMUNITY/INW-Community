@@ -2375,6 +2375,11 @@ model ShopifyOrderLineSaleFact {
   evidenceId          String                        @map("evidence_id")
   lastErrorCode       String?                       @map("last_error_code")
   lastErrorMessage    String?                       @map("last_error_message") @db.Text
+  /// Conflicting provider replay observed against immutable causal fields (qty / variant).
+  causalConflict               Boolean   @default(false) @map("causal_conflict")
+  causalConflictCode           String?   @map("causal_conflict_code")
+  causalConflictEvidenceId     String?   @map("causal_conflict_evidence_id")
+  causalConflictDetectedAt     DateTime? @map("causal_conflict_detected_at")
   appliedAt           DateTime?                     @map("applied_at")
   createdAt           DateTime                      @default(now()) @map("created_at")
   updatedAt           DateTime                      @updatedAt @map("updated_at")

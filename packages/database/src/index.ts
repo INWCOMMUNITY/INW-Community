@@ -408,6 +408,7 @@ export type { ShopifyGidResource } from "./shopify/gids";
 export {
   applyShopifyPaidOrderLineSale,
   applyShopifyPaidOrderObservation,
+  classifyShopifySaleFactEquivalence,
   mergePaidOrderLineIdentities,
   parseShopifyOrdersPaidWebhookBody,
 } from "./shopify/order-sale";

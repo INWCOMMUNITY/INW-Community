@@ -28,7 +28,15 @@ export type ApplyShopifyPaidOrderLineResult =
   | { status: "APPLIED"; factId: string; appliedQuantity: number; inventoryEventId: string | null }
   | { status: "ALREADY_APPLIED"; factId: string; appliedQuantity: number }
   | { status: "UNMAPPED"; factId: string }
-  | { status: "FAILED"; factId: string; code: string; message: string };
+  | { status: "FAILED"; factId: string; code: string; message: string }
+  | {
+      status: "CAUSAL_FACT_CONFLICT";
+      factId: string;
+      code: string;
+      message: string;
+      appliedQuantity: number;
+      applyState: ShopifyOrderLineSaleFact["applyState"];
+    };
 
 export type ApplyShopifyPaidOrderResult = {
   status: "PROCESSED";
@@ -37,6 +45,86 @@ export type ApplyShopifyPaidOrderResult = {
 
 function lineLockKey(connectionId: string, orderId: string, lineItemId: string): string {
   return `shopify-order-line-sale:${connectionId}:${orderId}:${lineItemId}`;
+}
+
+type FactEquivalence =
+  | { status: "EXACT" }
+  | { status: "CONFLICT"; code: string; message: string };
+
+/**
+ * Immutable provider causal fields once the sale-fact identity exists:
+ * paidQuantity + shopifyVariantId (when already established).
+ * Evidence/webhook delivery IDs are intentionally excluded.
+ */
+export function classifyShopifySaleFactEquivalence(
+  existing: Pick<ShopifyOrderLineSaleFact, "paidQuantity" | "shopifyVariantId" | "storeVariantId">,
+  incoming: ShopifyPaidOrderLineObservation,
+  resolvedStoreVariantId?: string | null
+): FactEquivalence {
+  if (existing.paidQuantity !== incoming.paidQuantity) {
+    return {
+      status: "CONFLICT",
+      code: "PAID_QUANTITY_CONFLICT",
+      message: `Conflicting paidQuantity for sale fact: stored ${existing.paidQuantity}, incoming ${incoming.paidQuantity}`,
+    };
+  }
+  if (existing.shopifyVariantId != null) {
+    if (incoming.shopifyVariantId == null) {
+      return {
+        status: "CONFLICT",
+        code: "VARIANT_IDENTITY_CONFLICT",
+        message: `Incoming replay missing Shopify Variant GID; stored ${existing.shopifyVariantId}`,
+      };
+    }
+    if (incoming.shopifyVariantId !== existing.shopifyVariantId) {
+      return {
+        status: "CONFLICT",
+        code: "VARIANT_IDENTITY_CONFLICT",
+        message: `Conflicting Shopify Variant GID: stored ${existing.shopifyVariantId}, incoming ${incoming.shopifyVariantId}`,
+      };
+    }
+  }
+  if (
+    existing.storeVariantId != null &&
+    resolvedStoreVariantId != null &&
+    existing.storeVariantId !== resolvedStoreVariantId
+  ) {
+    return {
+      status: "CONFLICT",
+      code: "STORE_VARIANT_MAPPING_CONFLICT",
+      message: `Conflicting StoreVariant mapping: stored ${existing.storeVariantId}, resolved ${resolvedStoreVariantId}`,
+    };
+  }
+  return { status: "EXACT" };
+}
+
+async function recordCausalFactConflict(
+  tx: Prisma.TransactionClient,
+  fact: ShopifyOrderLineSaleFact,
+  input: {
+    evidenceId: string;
+    code: string;
+    message: string;
+  }
+): Promise<ApplyShopifyPaidOrderLineResult> {
+  const updated = await tx.shopifyOrderLineSaleFact.update({
+    where: { id: fact.id },
+    data: {
+      causalConflict: true,
+      causalConflictCode: input.code.slice(0, 64),
+      causalConflictEvidenceId: input.evidenceId,
+      causalConflictDetectedAt: new Date(),
+      // Preserve applyState / paidQuantity / shopifyVariantId / storeVariantId / appliedQuantity.
+    },
+  });
+  return {
+    status: "CAUSAL_FACT_CONFLICT",
+    factId: updated.id,
+    code: input.code,
+    message: input.message,
+    appliedQuantity: updated.appliedQuantity,
+    applyState: updated.applyState,
+  };
 }
 
 /**
@@ -120,6 +208,7 @@ export function mergePaidOrderLineIdentities(
 /**
  * Apply one paid Shopify order line as an exactly-once Foundation SALE (when mapped + tracked).
  * Network must NOT be open during this call. Idempotent on (connection, order, lineItem).
+ * Conflicting causal replays fail closed without mutating immutable fact fields or inventory.
  */
 export async function applyShopifyPaidOrderLineSale(
   db: PrismaClient,
@@ -146,42 +235,140 @@ export async function applyShopifyPaidOrderLineSale(
         },
       },
     });
-    if (existing?.applyState === "APPLIED") {
-      return {
-        status: "ALREADY_APPLIED" as const,
-        factId: existing.id,
-        appliedQuantity: existing.appliedQuantity,
-      };
+
+    if (existing) {
+      // Equivalence BEFORE any causal-field mutation or inventory effect.
+      const equiv = classifyShopifySaleFactEquivalence(existing, input.line);
+      if (equiv.status === "CONFLICT") {
+        return recordCausalFactConflict(tx, existing, {
+          evidenceId: input.evidenceId,
+          code: equiv.code,
+          message: equiv.message,
+        });
+      }
+
+      if (existing.applyState === "APPLIED") {
+        // Exact provider replay: still fail closed if resolved StoreVariant drifted.
+        const appliedProviderVariant =
+          existing.shopifyVariantId ?? input.line.shopifyVariantId;
+        if (appliedProviderVariant && existing.storeVariantId) {
+          const appliedMap = await tx.shopifyVariantMap.findFirst({
+            where: {
+              shopifyConnectionId: input.connectionId,
+              shopifyVariantId: appliedProviderVariant,
+            },
+          });
+          if (
+            appliedMap &&
+            appliedMap.memberId === input.memberId &&
+            appliedMap.storeVariantId !== existing.storeVariantId
+          ) {
+            return recordCausalFactConflict(tx, existing, {
+              evidenceId: input.evidenceId,
+              code: "STORE_VARIANT_MAPPING_CONFLICT",
+              message: `Conflicting StoreVariant mapping: stored ${existing.storeVariantId}, resolved ${appliedMap.storeVariantId}`,
+            });
+          }
+        }
+        return {
+          status: "ALREADY_APPLIED" as const,
+          factId: existing.id,
+          appliedQuantity: existing.appliedQuantity,
+        };
+      }
     }
 
     let fact: ShopifyOrderLineSaleFact;
     if (existing) {
-      fact = await tx.shopifyOrderLineSaleFact.update({
-        where: { id: existing.id },
-        data: {
-          evidenceId: input.evidenceId,
-          shopifyVariantId: input.line.shopifyVariantId ?? existing.shopifyVariantId,
-          paidQuantity: input.line.paidQuantity,
-          lastErrorCode: null,
-          lastErrorMessage: null,
-        },
-      });
+      // Exact equivalent non-APPLIED: never rewrite paidQuantity / established variant / storeVariant.
+      // May fill previously-null Shopify Variant GID when paidQuantity already matches.
+      const fillVariant =
+        existing.shopifyVariantId == null && input.line.shopifyVariantId
+          ? input.line.shopifyVariantId
+          : undefined;
+      fact =
+        fillVariant != null
+          ? await tx.shopifyOrderLineSaleFact.update({
+              where: { id: existing.id },
+              data: { shopifyVariantId: fillVariant },
+            })
+          : existing;
     } else {
-      fact = await tx.shopifyOrderLineSaleFact.create({
-        data: {
-          shopifyConnectionId: input.connectionId,
-          memberId: input.memberId,
-          shopifyOrderId: input.line.shopifyOrderId,
-          shopifyLineItemId: input.line.shopifyLineItemId,
-          shopifyVariantId: input.line.shopifyVariantId,
-          paidQuantity: input.line.paidQuantity,
-          evidenceId: input.evidenceId,
-          applyState: "PENDING",
-        },
-      });
+      try {
+        fact = await tx.shopifyOrderLineSaleFact.create({
+          data: {
+            shopifyConnectionId: input.connectionId,
+            memberId: input.memberId,
+            shopifyOrderId: input.line.shopifyOrderId,
+            shopifyLineItemId: input.line.shopifyLineItemId,
+            shopifyVariantId: input.line.shopifyVariantId,
+            paidQuantity: input.line.paidQuantity,
+            evidenceId: input.evidenceId,
+            applyState: "PENDING",
+          },
+        });
+      } catch (error) {
+        if (
+          !(
+            error &&
+            typeof error === "object" &&
+            "code" in error &&
+            (error as { code?: string }).code === "P2002"
+          )
+        ) {
+          throw error;
+        }
+        const raced = await tx.shopifyOrderLineSaleFact.findUnique({
+          where: {
+            shopifyConnectionId_shopifyOrderId_shopifyLineItemId: {
+              shopifyConnectionId: input.connectionId,
+              shopifyOrderId: input.line.shopifyOrderId,
+              shopifyLineItemId: input.line.shopifyLineItemId,
+            },
+          },
+        });
+        if (!raced) throw error;
+        const racedEquiv = classifyShopifySaleFactEquivalence(raced, input.line);
+        if (racedEquiv.status === "CONFLICT") {
+          return recordCausalFactConflict(tx, raced, {
+            evidenceId: input.evidenceId,
+            code: racedEquiv.code,
+            message: racedEquiv.message,
+          });
+        }
+        if (raced.applyState === "APPLIED") {
+          const racedProviderVariant = raced.shopifyVariantId ?? input.line.shopifyVariantId;
+          if (racedProviderVariant && raced.storeVariantId) {
+            const racedMap = await tx.shopifyVariantMap.findFirst({
+              where: {
+                shopifyConnectionId: input.connectionId,
+                shopifyVariantId: racedProviderVariant,
+              },
+            });
+            if (
+              racedMap &&
+              racedMap.memberId === input.memberId &&
+              racedMap.storeVariantId !== raced.storeVariantId
+            ) {
+              return recordCausalFactConflict(tx, raced, {
+                evidenceId: input.evidenceId,
+                code: "STORE_VARIANT_MAPPING_CONFLICT",
+                message: `Conflicting StoreVariant mapping: stored ${raced.storeVariantId}, resolved ${racedMap.storeVariantId}`,
+              });
+            }
+          }
+          return {
+            status: "ALREADY_APPLIED" as const,
+            factId: raced.id,
+            appliedQuantity: raced.appliedQuantity,
+          };
+        }
+        fact = raced;
+      }
     }
 
-    if (!input.line.shopifyVariantId) {
+    const providerVariantId = fact.shopifyVariantId ?? input.line.shopifyVariantId;
+    if (!providerVariantId) {
       const failed = await tx.shopifyOrderLineSaleFact.update({
         where: { id: fact.id },
         data: {
@@ -197,17 +384,18 @@ export async function applyShopifyPaidOrderLineSale(
     const variantMap = await tx.shopifyVariantMap.findFirst({
       where: {
         shopifyConnectionId: input.connectionId,
-        shopifyVariantId: input.line.shopifyVariantId,
+        shopifyVariantId: providerVariantId,
       },
     });
     if (!variantMap || variantMap.memberId !== input.memberId) {
       const unmapped = await tx.shopifyOrderLineSaleFact.update({
         where: { id: fact.id },
         data: {
-          applyState: "UNMAPPED",
-          shopifyVariantId: input.line.shopifyVariantId,
-          storeVariantId: null,
-          storeItemId: null,
+          applyState: fact.applyState === "APPLIED" ? fact.applyState : "UNMAPPED",
+          shopifyVariantId: providerVariantId,
+          // Do not clear an already-established storeVariantId on conflict paths; here it's unmapped.
+          storeVariantId: fact.storeVariantId,
+          storeItemId: fact.storeItemId,
           lastErrorCode: "UNMAPPED_VARIANT",
           lastErrorMessage: "No StoreVariant mapping for this Shopify ProductVariant on this connection generation",
         },
@@ -215,17 +403,27 @@ export async function applyShopifyPaidOrderLineSale(
       return { status: "UNMAPPED" as const, factId: unmapped.id };
     }
 
+    // StoreVariant consistency when fact already tied to a mapped variant.
+    const mapEquiv = classifyShopifySaleFactEquivalence(fact, input.line, variantMap.storeVariantId);
+    if (mapEquiv.status === "CONFLICT") {
+      return recordCausalFactConflict(tx, fact, {
+        evidenceId: input.evidenceId,
+        code: mapEquiv.code,
+        message: mapEquiv.message,
+      });
+    }
+
     try {
       const sale = await applyTrackedMarketplaceSale(tx, {
         variantId: variantMap.storeVariantId,
         memberId: input.memberId,
-        qty: input.line.paidQuantity,
+        qty: fact.paidQuantity,
         sourceScope: input.connectionId,
-        sourceFactId: `${input.line.shopifyOrderId}:${input.line.shopifyLineItemId}`,
+        sourceFactId: `${fact.shopifyOrderId}:${fact.shopifyLineItemId}`,
         metadata: {
-          shopifyOrderId: input.line.shopifyOrderId,
-          shopifyLineItemId: input.line.shopifyLineItemId,
-          shopifyVariantId: input.line.shopifyVariantId,
+          shopifyOrderId: fact.shopifyOrderId,
+          shopifyLineItemId: fact.shopifyLineItemId,
+          shopifyVariantId: providerVariantId,
           evidenceId: input.evidenceId,
         },
       });
@@ -234,10 +432,10 @@ export async function applyShopifyPaidOrderLineSale(
         where: { id: fact.id },
         data: {
           applyState: "APPLIED",
-          appliedQuantity: input.line.paidQuantity,
+          appliedQuantity: fact.paidQuantity,
           storeVariantId: variantMap.storeVariantId,
           storeItemId: variantMap.storeItemId,
-          shopifyVariantId: input.line.shopifyVariantId,
+          shopifyVariantId: providerVariantId,
           inventoryEventId: sale.inventoryEventId,
           appliedAt: new Date(),
           lastErrorCode: null,
@@ -262,9 +460,9 @@ export async function applyShopifyPaidOrderLineSale(
         where: { id: fact.id },
         data: {
           applyState: "FAILED",
-          storeVariantId: variantMap.storeVariantId,
-          storeItemId: variantMap.storeItemId,
-          shopifyVariantId: input.line.shopifyVariantId,
+          storeVariantId: fact.storeVariantId ?? variantMap.storeVariantId,
+          storeItemId: fact.storeItemId ?? variantMap.storeItemId,
+          shopifyVariantId: providerVariantId,
           lastErrorCode: code.slice(0, 64),
           lastErrorMessage: message.slice(0, 500),
         },

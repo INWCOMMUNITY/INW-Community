@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyShopifySaleFactEquivalence,
   mergePaidOrderLineIdentities,
   parseShopifyOrdersPaidWebhookBody,
 } from "./order-sale";
@@ -77,5 +78,75 @@ describe("mergePaidOrderLineIdentities", () => {
       shopifyVariantId: "gid://shopify/ProductVariant/9",
       paidQuantity: 5,
     });
+  });
+});
+
+describe("classifyShopifySaleFactEquivalence", () => {
+  const base = {
+    paidQuantity: 2,
+    shopifyVariantId: "gid://shopify/ProductVariant/1",
+    storeVariantId: "sv-a",
+  };
+
+  it("exact equivalent passes", () => {
+    expect(
+      classifyShopifySaleFactEquivalence(base, {
+        shopifyOrderId: "gid://shopify/Order/1",
+        shopifyLineItemId: "gid://shopify/LineItem/1",
+        shopifyVariantId: "gid://shopify/ProductVariant/1",
+        paidQuantity: 2,
+      })
+    ).toEqual({ status: "EXACT" });
+  });
+
+  it("quantity conflict", () => {
+    expect(
+      classifyShopifySaleFactEquivalence(base, {
+        shopifyOrderId: "gid://shopify/Order/1",
+        shopifyLineItemId: "gid://shopify/LineItem/1",
+        shopifyVariantId: "gid://shopify/ProductVariant/1",
+        paidQuantity: 3,
+      })
+    ).toMatchObject({ status: "CONFLICT", code: "PAID_QUANTITY_CONFLICT" });
+  });
+
+  it("variant conflict", () => {
+    expect(
+      classifyShopifySaleFactEquivalence(base, {
+        shopifyOrderId: "gid://shopify/Order/1",
+        shopifyLineItemId: "gid://shopify/LineItem/1",
+        shopifyVariantId: "gid://shopify/ProductVariant/2",
+        paidQuantity: 2,
+      })
+    ).toMatchObject({ status: "CONFLICT", code: "VARIANT_IDENTITY_CONFLICT" });
+  });
+
+  it("allows filling previously-null shopifyVariantId", () => {
+    expect(
+      classifyShopifySaleFactEquivalence(
+        { paidQuantity: 2, shopifyVariantId: null, storeVariantId: null },
+        {
+          shopifyOrderId: "gid://shopify/Order/1",
+          shopifyLineItemId: "gid://shopify/LineItem/1",
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+          paidQuantity: 2,
+        }
+      )
+    ).toEqual({ status: "EXACT" });
+  });
+
+  it("storeVariant mapping conflict when both known", () => {
+    expect(
+      classifyShopifySaleFactEquivalence(
+        base,
+        {
+          shopifyOrderId: "gid://shopify/Order/1",
+          shopifyLineItemId: "gid://shopify/LineItem/1",
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+          paidQuantity: 2,
+        },
+        "sv-b"
+      )
+    ).toMatchObject({ status: "CONFLICT", code: "STORE_VARIANT_MAPPING_CONFLICT" });
   });
 });
