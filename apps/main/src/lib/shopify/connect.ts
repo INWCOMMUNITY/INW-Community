@@ -282,13 +282,22 @@ export async function completeShopifyOAuth(
       callbackUrl: config.providerEvidenceWebhookUri,
       fetchImpl: deps.fetchImpl,
     });
-  } catch {
+  } catch (error) {
+    // Safe classification only — never log tokens/secrets/full payloads.
+    const reason =
+      error instanceof Error
+        ? error.message.slice(0, 180)
+        : "webhook_registration_failed";
+    console.info("SHOPIFY_OAUTH_WEBHOOK_FAILED", {
+      attemptId: verified.nonce.slice(0, 8),
+      canonicalShop: identity.shopDomain,
+      reason,
+    });
     throw new ShopifyConnectError(
       "Shopify webhook subscriptions could not be registered",
       "webhook"
     );
   }
-
   const candidates = selectInventoryLocations(locations);
   const primaryLocationId = candidates.length === 1 ? candidates[0].id : null;
   try {

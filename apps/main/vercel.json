@@ -21,14 +21,9 @@
       "schedule": "20 7 * * *"
     },
     {
-      "path": "/api/cron/sync-channels",
-      "schedule": "*/5 * * * *"
-    },
-    {
       "path": "/api/cron/sync-health-snapshot",
       "schedule": "0 * * * *"
-    },
-    {
+    },    {
       "path": "/api/cron/reconcile-shipments",
       "schedule": "*/15 * * * *"
     },
