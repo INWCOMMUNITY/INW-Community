@@ -113,6 +113,10 @@ export default function SellerShopifyConnectionPage() {
       <p className="mt-2 text-sm text-neutral-600">
         Connect one Shopify shop. Inventory sync uses a single location after you choose it.
       </p>
+      <p className="mt-2 text-sm text-neutral-600">
+        Enter your Shopify store address, such as your-store.myshopify.com. You can find it in
+        Shopify Admin → Settings → Domains. You may also paste your Shopify store URL.
+      </p>
       {message ? <p className="mt-4 text-sm">{message}</p> : null}
       {error ? <p className="mt-4 text-sm text-red-700">{error}</p> : null}
       <form onSubmit={onConnect} className="mt-6 flex gap-2">

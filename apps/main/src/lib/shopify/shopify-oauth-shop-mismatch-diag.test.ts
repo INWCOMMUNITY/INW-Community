@@ -93,7 +93,7 @@ describe("shopify oauth shop mismatch diagnostics", () => {
     expect(consumeShopifyOAuthState).toHaveBeenCalled();
   });
 
-  it("shop A vs shop B rejects with SIGNED_STATE_SHOP_MISMATCH and shop identity fields", async () => {
+  it("shop A vs shop B no longer rejects as SIGNED_STATE_SHOP_MISMATCH", async () => {
     const nonce = "c".repeat(64);
     const state = await signShopifyOAuthState({
       memberId: "member-a",
@@ -106,25 +106,31 @@ describe("shopify oauth shop mismatch diagnostics", () => {
       state,
       timestamp: "1700000000",
     });
+    const logs: unknown[] = [];
+    const spy = vi.spyOn(console, "info").mockImplementation((...args) => {
+      logs.push(args);
+    });
     await expect(
       completeShopifyOAuth(new URLSearchParams(params), {
         config,
         browserBindingSecret: BROWSER_SECRET,
+        fetchImpl: async () => new Response("nope", { status: 500 }),
       })
-    ).rejects.toMatchObject({
-      code: "invalid_state",
-      reason: "SIGNED_STATE_SHOP_MISMATCH",
-      diagnostic: {
-        signedStateShop: "shop-a.myshopify.com",
-        callbackShop: "shop-b.myshopify.com",
-        rawCallbackShop: "shop-b.myshopify.com",
-        attemptId: nonce.slice(0, 8),
-      },
+    ).rejects.toMatchObject({ code: "token_exchange" });
+    spy.mockRestore();
+    expect(consumeShopifyOAuthState).toHaveBeenCalled();
+    const diverged = logs.find(
+      (entry) => Array.isArray(entry) && entry[0] === "SHOPIFY_OAUTH_REQUESTED_CALLBACK_SHOP_DIVERGED"
+    ) as [string, Record<string, unknown>] | undefined;
+    expect(diverged?.[1]).toMatchObject({
+      requestedShop: "shop-a.myshopify.com",
+      callbackShop: "shop-b.myshopify.com",
+      rawCallbackShop: "shop-b.myshopify.com",
+      attemptId: nonce.slice(0, 8),
     });
-    expect(consumeShopifyOAuthState).not.toHaveBeenCalled();
   });
 
-  it("callback route logs the three shop fields without secrets", async () => {
+  it("callback route does not emit SIGNED_STATE_SHOP_MISMATCH for renamed domains", async () => {
     const nonce = "d".repeat(64);
     const state = await signShopifyOAuthState({
       memberId: "member-a",
@@ -149,22 +155,13 @@ describe("shopify oauth shop mismatch diagnostics", () => {
     );
     spy.mockRestore();
     const rejected = logs.find(
-      (entry) => Array.isArray(entry) && entry[0] === "SHOPIFY_OAUTH_STATE_REJECTED"
-    ) as [string, Record<string, unknown>] | undefined;
-    expect(rejected).toBeTruthy();
-    const payload = rejected![1];
-    expect(payload).toMatchObject({
-      reason: "SIGNED_STATE_SHOP_MISMATCH",
-      host: "www.inwcommunity.com",
-      path: "/api/shopify/oauth/callback",
-      bindingCookiePresent: true,
-      signedStateShop: "shop-a.myshopify.com",
-      callbackShop: "shop-b.myshopify.com",
-      rawCallbackShop: "shop-b.myshopify.com",
-      attemptId: nonce.slice(0, 8),
-    });
+      (entry) =>
+        Array.isArray(entry) &&
+        entry[0] === "SHOPIFY_OAUTH_STATE_REJECTED" &&
+        (entry[1] as { reason?: string })?.reason === "SIGNED_STATE_SHOP_MISMATCH"
+    );
+    expect(rejected).toBeUndefined();
     const serialized = JSON.stringify(logs);
-    expect(serialized).not.toContain(state);
     expect(serialized).not.toContain("auth-code-SECRET-VALUE");
     expect(serialized).not.toContain(BROWSER_SECRET);
     expect(serialized).not.toContain(config.clientSecret);

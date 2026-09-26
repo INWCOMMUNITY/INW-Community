@@ -6,6 +6,9 @@ import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access
 
 export const dynamic = "force-dynamic";
 
+const SHOP_DOMAIN_HELP =
+  "Enter your Shopify store as store-name.myshopify.com or paste your Shopify store URL.";
+
 export async function POST(req: NextRequest) {
   const session = await getSessionForApi(req);
   const memberId = session?.user?.id;
@@ -18,7 +21,7 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as { shop?: unknown };
     shop = typeof body.shop === "string" ? body.shop : "";
   } catch {
-    return NextResponse.json({ error: "Invalid shop domain" }, { status: 400 });
+    return NextResponse.json({ error: SHOP_DOMAIN_HELP }, { status: 400 });
   }
   try {
     const { authorizeUrl, browserBindingSecret } = await beginShopifyConnect(memberId, shop);
@@ -38,7 +41,7 @@ export async function POST(req: NextRequest) {
     return response;
   } catch (error) {
     if (error instanceof ShopifyConnectError && error.code === "invalid_shop") {
-      return NextResponse.json({ error: "Invalid shop domain" }, { status: 400 });
+      return NextResponse.json({ error: SHOP_DOMAIN_HELP }, { status: 400 });
     }
     if (error instanceof ShopifyConnectError && error.code === "not_configured") {
       return NextResponse.json({ error: "Shopify is not configured" }, { status: 503 });

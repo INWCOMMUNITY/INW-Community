@@ -18,6 +18,7 @@ import {
   registerShopifyUninstallWebhook,
   ensureShopifyProductsUpdateWebhook,
   ensureShopifyOrdersPaidWebhook,
+  ShopifyDomainAssociationError,
   type ShopifyFetch,
 } from "./client";
 import { verifyShopifyOAuthHmac } from "./hmac";
@@ -42,14 +43,16 @@ export type ShopifyConnectDeps = {
   now?: Date;
 };
 
-/** Non-secret rejection reasons for OAuth state/browser-binding failures. */
+/** Non-secret rejection reasons for OAuth state/browser-binding / shop-association failures. */
 export type ShopifyOAuthStateRejectReason =
   | "SIGNED_STATE_INVALID"
   | "SIGNED_STATE_SHOP_MISMATCH"
   | "BROWSER_BINDING_COOKIE_MISSING"
   | "BROWSER_BINDING_HASH_MISMATCH"
   | "BROWSER_BINDING_STATE_UNUSABLE"
-  | "STATE_CONSUME_REJECTED";
+  | "STATE_CONSUME_REJECTED"
+  | "REQUESTED_SHOP_NOT_ASSOCIATED"
+  | "SHOP_DOMAIN_ASSOCIATION_UNVERIFIED";
 
 /** Non-secret shop-identity fields for SIGNED_STATE_SHOP_MISMATCH diagnostics. */
 export type ShopifyConnectShopDiagnostic = {
@@ -143,18 +146,16 @@ export async function completeShopifyOAuth(
       "SIGNED_STATE_INVALID"
     );
   }
-  if (verified.shopDomain !== shopDomain) {
-    throw new ShopifyConnectError(
-      "Invalid Shopify OAuth state",
-      "invalid_state",
-      "SIGNED_STATE_SHOP_MISMATCH",
-      {
-        signedStateShop: verified.shopDomain,
-        callbackShop: shopDomain,
-        rawCallbackShop: params.shop,
-        attemptId: verified.nonce.slice(0, 8),
-      }
-    );
+  // requestedShopDomain (signed) is an onboarding routing hint only.
+  // Authoritative identity is callback shop + Admin API Shop.id / myshopifyDomain.
+  const requestedShopDomain = verified.shopDomain;
+  if (requestedShopDomain !== shopDomain) {
+    console.info("SHOPIFY_OAUTH_REQUESTED_CALLBACK_SHOP_DIVERGED", {
+      requestedShop: requestedShopDomain,
+      callbackShop: shopDomain,
+      rawCallbackShop: params.shop,
+      attemptId: verified.nonce.slice(0, 8),
+    });
   }
   // Keep empty/whitespace handling identical to production (no trim).
   const browserBindingSecret = deps.browserBindingSecret ?? "";
@@ -186,6 +187,9 @@ export async function completeShopifyOAuth(
       "BROWSER_BINDING_HASH_MISMATCH"
     );
   }
+
+  // One-time consume AFTER callback crypto/browser validation, BEFORE token exchange.
+  // Compares against requested shop from signed state — never against callback shop.
   const consumed = await consumeShopifyOAuthState(prisma, {
     nonce: verified.nonce,
     memberId: verified.memberId,
@@ -202,6 +206,7 @@ export async function completeShopifyOAuth(
 
   let tokens;
   try {
+    // Token exchange MUST use the Shopify callback shop (permanent OAuth domain).
     tokens = await exchangeShopifyAuthorizationCode({
       shopDomain,
       code,
@@ -223,35 +228,56 @@ export async function completeShopifyOAuth(
     identity = await fetchShopifyShopIdentity({
       shopDomain,
       accessToken: tokens.accessToken,
+      requestedShopDomain,
       fetchImpl: deps.fetchImpl,
     });
     locations = await fetchShopifyLocations({
-      shopDomain,
+      shopDomain: identity.shopDomain,
       accessToken: tokens.accessToken,
       fetchImpl: deps.fetchImpl,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof ShopifyDomainAssociationError) {
+      console.info("SHOPIFY_OAUTH_STATE_REJECTED", {
+        reason: error.associationReason,
+        requestedShop: requestedShopDomain,
+        callbackShop: shopDomain,
+        attemptId: verified.nonce.slice(0, 8),
+      });
+      throw new ShopifyConnectError(
+        "Shopify shop identity could not be verified",
+        "shop_identity",
+        error.associationReason
+      );
+    }
     throw new ShopifyConnectError("Shopify shop identity could not be verified", "shop_identity");
   }
   if (identity.shopDomain !== shopDomain) {
     throw new ShopifyConnectError("Shopify shop identity did not match", "shop_mismatch");
   }
+  console.info("SHOPIFY_OAUTH_REQUESTED_DOMAIN_ASSOCIATION", {
+    requestedShop: requestedShopDomain,
+    canonicalShop: identity.shopDomain,
+    shopId: identity.shopId,
+    associated: true,
+    attemptId: verified.nonce.slice(0, 8),
+  });
 
   try {
     await registerShopifyUninstallWebhook({
-      shopDomain,
+      shopDomain: identity.shopDomain,
       accessToken: tokens.accessToken,
       callbackUrl: config.uninstallWebhookUri,
       fetchImpl: deps.fetchImpl,
     });
     await ensureShopifyProductsUpdateWebhook({
-      shopDomain,
+      shopDomain: identity.shopDomain,
       accessToken: tokens.accessToken,
       callbackUrl: config.providerEvidenceWebhookUri,
       fetchImpl: deps.fetchImpl,
     });
     await ensureShopifyOrdersPaidWebhook({
-      shopDomain,
+      shopDomain: identity.shopDomain,
       accessToken: tokens.accessToken,
       callbackUrl: config.providerEvidenceWebhookUri,
       fetchImpl: deps.fetchImpl,

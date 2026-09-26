@@ -69,10 +69,12 @@ describe("shop domain", () => {
     expect(normalizeShopifyShopDomain("  My-Shop.myshopify.com ")).toBe("my-shop.myshopify.com");
   });
 
-  it("rejects arbitrary domains and injected URLs", () => {
+  it("accepts Shopify store/admin URLs and rejects arbitrary domains", () => {
+    expect(normalizeShopifyShopDomain("https://my-shop.myshopify.com/admin")).toBe(
+      "my-shop.myshopify.com"
+    );
+    expect(normalizeShopifyShopDomain("my-shop.myshopify.com?x=1")).toBe("my-shop.myshopify.com");
     expect(normalizeShopifyShopDomain("evil.com")).toBeNull();
-    expect(normalizeShopifyShopDomain("https://my-shop.myshopify.com/admin")).toBeNull();
-    expect(normalizeShopifyShopDomain("my-shop.myshopify.com?x=1")).toBeNull();
     expect(normalizeShopifyShopDomain("my-shop.myshopify.com.evil.com")).toBeNull();
     expect(normalizeShopifyShopDomain("")).toBeNull();
     expect(normalizeShopifyShopDomain("-bad.myshopify.com")).toBeNull();
@@ -358,12 +360,16 @@ describe("oauth callback", () => {
     );
   });
 
-  it("rejects a callback shop that does not match the signed state", async () => {
+  it("allows callback permanent domain to differ from requested onboarding shop", async () => {
     const params = await callbackParams("other-shop.myshopify.com");
+    // Identity mock still returns my-shop — must fail closed (callback ≠ Admin API).
     await expect(
-      completeShopifyOAuth(new URLSearchParams(params), { config, fetchImpl: shopifyFetch([]) })
-    ).rejects.toMatchObject({ code: "invalid_state" });
-    expect(consumeShopifyOAuthState).not.toHaveBeenCalled();
+      completeShopifyOAuth(new URLSearchParams(params), {
+        config,
+        browserBindingSecret: BROWSER_SECRET,
+        fetchImpl: shopifyFetch([]),
+      })
+    ).rejects.toMatchObject({ code: "shop_identity" });
     expect(persistShopifyInstall).not.toHaveBeenCalled();
   });
 

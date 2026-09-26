@@ -200,23 +200,22 @@ describe("shopify oauth invalid_state predicates", () => {
     expect(consumeShopifyOAuthState).not.toHaveBeenCalled();
   });
 
-  it("shop mismatch rejects before consume", async () => {
+  it("does not reject solely because callback permanent domain differs from requested shop", async () => {
     const params = await signedCallbackParams();
     const resigned = hmacParams({
       code: params.code,
-      shop: "other-shop.myshopify.com",
+      shop: "jpuhtv-df.myshopify.com",
       state: params.state,
       timestamp: params.timestamp,
     });
+    // Token exchange fails before identity/consume — association not reached yet.
     await expect(
       completeShopifyOAuth(new URLSearchParams(resigned), {
         config,
         browserBindingSecret: BROWSER_SECRET,
+        fetchImpl: async () => new Response("nope", { status: 500 }),
       })
-    ).rejects.toMatchObject({
-      code: "invalid_state",
-      reason: "SIGNED_STATE_SHOP_MISMATCH",
-    });
-    expect(consumeShopifyOAuthState).not.toHaveBeenCalled();
+    ).rejects.toMatchObject({ code: "token_exchange" });
+    expect(consumeShopifyOAuthState).toHaveBeenCalled();
   });
 });

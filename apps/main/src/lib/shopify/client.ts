@@ -20,6 +20,15 @@ export class ShopifyRequestError extends Error {
   }
 }
 
+export class ShopifyDomainAssociationError extends Error {
+  constructor(
+    readonly associationReason: "REQUESTED_SHOP_NOT_ASSOCIATED" | "SHOP_DOMAIN_ASSOCIATION_UNVERIFIED"
+  ) {
+    super(associationReason);
+    this.name = "ShopifyDomainAssociationError";
+  }
+}
+
 function expiresAtFromSeconds(seconds: unknown, now: Date): Date | null {
   const value = typeof seconds === "number" ? seconds : Number(seconds);
   if (!Number.isFinite(value) || value <= 0) return null;
@@ -157,7 +166,21 @@ export async function refreshShopifyOfflineToken(input: {
   };
 }
 
-const SHOP_QUERY = `query ShopifyShopIdentity { shop { id myshopifyDomain } }`;
+const SHOP_IDENTITY_QUERY = `query ShopifyShopIdentity {
+  shop {
+    id
+    myshopifyDomain
+    name
+    primaryDomain { host url }
+  }
+}`;
+
+/** Optional: may require scopes not granted; never fail closed solely on this. */
+const SHOP_DOMAINS_QUERY = `query ShopifyShopDomains {
+  shop {
+    domains { host url }
+  }
+}`;
 
 const LOCATIONS_QUERY = `query ShopifyInventoryLocations($cursor: String) {
   locations(first: 50, after: $cursor) {
@@ -237,26 +260,87 @@ async function graphql<T>(input: {
 }
 
 export async function fetchShopifyShopIdentity(input: {
+  /** Callback / API host — must equal Admin API `shop.myshopifyDomain` after canonicalize. */
   shopDomain: string;
   accessToken: string;
+  /** Seller-entered onboarding hint; required for renamed-domain association proof. */
+  requestedShopDomain?: string | null;
   fetchImpl?: ShopifyFetch;
-}): Promise<{ shopId: string; shopDomain: string }> {
-  const data = await graphql<{ shop: { id?: string; myshopifyDomain?: string } | null }>({
-    shopDomain: input.shopDomain,
+}): Promise<{
+  shopId: string;
+  shopDomain: string;
+  /** Always true when returned; renamed case throws if association cannot be proven. */
+  requestedDomainAssociated: true;
+}> {
+  const apiHost = normalizeShopifyShopDomain(input.shopDomain);
+  if (!apiHost) throw new ShopifyRequestError("Invalid shop domain");
+
+  const data = await graphql<{
+    shop: {
+      id?: string;
+      myshopifyDomain?: string;
+      name?: string;
+      primaryDomain?: { host?: string; url?: string } | null;
+    } | null;
+  }>({
+    shopDomain: apiHost,
     accessToken: input.accessToken,
-    query: SHOP_QUERY,
+    query: SHOP_IDENTITY_QUERY,
     fetchImpl: input.fetchImpl,
   });
   const shopId = data.shop?.id ?? "";
-  const shopDomain = data.shop?.myshopifyDomain ? normalizeShopifyShopDomain(data.shop.myshopifyDomain) : null;
+  const shopDomain = data.shop?.myshopifyDomain
+    ? normalizeShopifyShopDomain(data.shop.myshopifyDomain)
+    : null;
   if (!SHOPIFY_SHOP_GID_PATTERN.test(shopId) || !shopDomain) {
     throw new ShopifyRequestError("Shopify shop identity was incomplete");
   }
-  const requested = normalizeShopifyShopDomain(input.shopDomain);
-  if (shopDomain !== requested) {
+  // Fail closed: authenticated permanent domain must match the OAuth callback shop.
+  if (shopDomain !== apiHost) {
     throw new ShopifyRequestError("Shopify shop identity did not match the authorized shop");
   }
-  return { shopId, shopDomain };
+
+  const requested = input.requestedShopDomain
+    ? normalizeShopifyShopDomain(input.requestedShopDomain)
+    : null;
+
+  // Same-domain case: no domains-list requirement.
+  if (!requested || requested === shopDomain) {
+    return { shopId, shopDomain, requestedDomainAssociated: true };
+  }
+
+  // Renamed-domain case: must prove requested host appears on shop.domains.
+  let domainsData: {
+    shop: { domains?: Array<{ host?: string; url?: string } | null> | null } | null;
+  };
+  try {
+    domainsData = await graphql({
+      shopDomain: apiHost,
+      accessToken: input.accessToken,
+      query: SHOP_DOMAINS_QUERY,
+      fetchImpl: input.fetchImpl,
+    });
+  } catch {
+    throw new ShopifyDomainAssociationError("SHOP_DOMAIN_ASSOCIATION_UNVERIFIED");
+  }
+
+  const hosts = (domainsData.shop?.domains ?? [])
+    .map((d) => d?.host)
+    .filter((h): h is string => typeof h === "string" && h.length > 0);
+  if (hosts.length === 0) {
+    throw new ShopifyDomainAssociationError("SHOP_DOMAIN_ASSOCIATION_UNVERIFIED");
+  }
+
+  const associated = hosts.some((host) => {
+    const asMyshopify = normalizeShopifyShopDomain(host);
+    if (asMyshopify) return asMyshopify === requested;
+    return host.trim().toLowerCase() === requested;
+  });
+  if (!associated) {
+    throw new ShopifyDomainAssociationError("REQUESTED_SHOP_NOT_ASSOCIATED");
+  }
+
+  return { shopId, shopDomain, requestedDomainAssociated: true };
 }
 
 export async function fetchShopifyLocations(input: {
