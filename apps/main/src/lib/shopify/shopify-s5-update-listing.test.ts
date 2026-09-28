@@ -649,20 +649,23 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("fails closed when remote product is ACTIVE", async () => {
+  it("allows content update when remote product is ACTIVE", async () => {
     setupHappyMocks();
     const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as { operationName?: string };
       if (body.operationName === "ShopifyListingContentRead") {
         return remoteProduct({ status: "ACTIVE" });
       }
-      throw new Error("must not mutate ACTIVE product in S5");
+      if (body.operationName === "ShopifyListingContentProductUpdate") {
+        return productUpdateOk();
+      }
+      if (body.operationName === "ShopifyListingContentVariantUpdate") {
+        return variantUpdateOk();
+      }
+      throw new Error(`unexpected ${body.operationName}`);
     });
     const result = await handleShopifyUpdateListingContentJob(claim, { fetchImpl });
-    expect(result).toMatchObject({
-      outcome: "DEAD",
-      errorCode: "PRODUCT_NOT_DRAFT",
-    });
+    expect(result).toEqual({ outcome: "SUCCESS" });
   });
 
   it("fails closed when mapped remote variant is missing", async () => {

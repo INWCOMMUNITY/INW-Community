@@ -60,7 +60,8 @@ const PRODUCT_SET_MUTATION = `mutation ShopifyCreateListingProductSet($input: Pr
 
 /**
  * Synchronous productSet upsert by generation-scoped custom ID.
- * Creates/updates a DRAFT product only. Does not set inventory quantities or publish.
+ * Creates/updates an ACTIVE product. Does not set inventory quantities or
+ * publish to sales channels (write_publications not granted).
  */
 export async function productSetShopifyDraftListing(
   input: ShopifyProductSetListingInput
@@ -96,7 +97,7 @@ export async function productSetShopifyDraftListing(
       input: {
         title: input.title,
         descriptionHtml: input.descriptionHtml ?? undefined,
-        status: "DRAFT",
+        status: "ACTIVE",
         productOptions: [{ name: "Title", values: [{ name: "Default Title" }] }],
         variants: [
           {
@@ -166,13 +167,13 @@ export async function productSetShopifyDraftListing(
       customId,
     };
   }
-  if (String(product.status).toUpperCase() !== "DRAFT") {
+  if (String(product.status).toUpperCase() !== "ACTIVE") {
     return {
       ok: false,
       class: "DEAD",
       errorClass: "GRAPHQL_PERMANENT",
-      errorCode: "PRODUCT_NOT_DRAFT",
-      errorMessage: "Shopify productSet returned a non-DRAFT product",
+      errorCode: "PRODUCT_NOT_ACTIVE",
+      errorMessage: "Shopify productSet returned a non-ACTIVE product",
       customId,
     };
   }

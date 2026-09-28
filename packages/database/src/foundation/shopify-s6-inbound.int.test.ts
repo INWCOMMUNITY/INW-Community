@@ -729,7 +729,7 @@ describe("shopify S6 semantic three-way inbound", () => {
     });
     expect(multi).toMatchObject({ status: "ERROR", code: "VARIANT_CARDINALITY" });
 
-    // NON-DRAFT → ERROR
+    // ACTIVE products are accepted for inbound content (export path lists as ACTIVE).
     const activeEvidence = await createEvidence({
       connectionId: gen1.id,
       shopDomain: shop,
@@ -752,7 +752,7 @@ describe("shopify S6 semantic three-way inbound", () => {
         status: "ACTIVE",
       },
     });
-    expect(active).toMatchObject({ status: "ERROR", code: "PRODUCT_NOT_DRAFT" });
+    expect(active).toMatchObject({ status: "PROCESSED" });
 
     // OLD GENERATION IGNORED
     await disconnectShopifyConnection(prisma, {

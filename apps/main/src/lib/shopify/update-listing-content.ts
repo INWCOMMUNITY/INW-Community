@@ -490,12 +490,13 @@ export async function handleShopifyUpdateListingContentJob(
       errorMessage: "Remote product identity does not match mapping",
     };
   }
-  if (String(remote.product.status).toUpperCase() !== "DRAFT") {
+  const remoteStatus = String(remote.product.status).toUpperCase();
+  if (remoteStatus !== "ACTIVE" && remoteStatus !== "DRAFT") {
     return {
       outcome: "DEAD",
       errorClass: "RECOVERY_CONFLICT",
-      errorCode: "PRODUCT_NOT_DRAFT",
-      errorMessage: "Mapped Shopify product is not DRAFT; refusing content update",
+      errorCode: "PRODUCT_BAD_STATUS",
+      errorMessage: `Mapped Shopify product status is ${remoteStatus}; refusing content update`,
     };
   }
 

@@ -8,6 +8,7 @@ import {
   ShopifySyncJobConflictError,
 } from "database";
 import type { ShopifyJobHandlerResult, ShopifySyncJobClaim } from "database";
+import { ensureShopifyListingProductActive } from "./activate-listing";
 import type { ShopifyFetch } from "./admin-graphql";
 import { shopifyCreateListingDedupeKey } from "./listing-export-id";
 import { ensureShopifyListingExportMetafieldDefinition } from "./listing-metafield";
@@ -261,6 +262,27 @@ export async function handleShopifyCreateListingJob(
     storeItemId: payload.storeItemId,
   });
   if (existing.status === "MAPPED") {
+    const activated = await ensureShopifyListingProductActive({
+      connectionId: connection.id,
+      shopifyProductId: existing.listingLink.shopifyProductId,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    if (!activated.ok) {
+      return activated.class === "RETRY"
+        ? {
+            outcome: "RETRY",
+            errorClass: activated.errorClass,
+            errorCode: activated.errorCode,
+            errorMessage: activated.errorMessage,
+          }
+        : {
+            outcome: "DEAD",
+            errorClass: activated.errorClass,
+            errorCode: activated.errorCode,
+            errorMessage: activated.errorMessage,
+          };
+    }
     return { outcome: "SUCCESS" };
   }
   if (existing.status === "CONNECTION_INACTIVE") {
@@ -342,6 +364,29 @@ export async function handleShopifyCreateListingJob(
   }
 
   if (discovered.product) {
+    if (discovered.product.status === "DRAFT") {
+      const activated = await ensureShopifyListingProductActive({
+        connectionId: connection.id,
+        shopifyProductId: discovered.product.productId,
+        fetchImpl: deps.fetchImpl,
+        now: deps.now,
+      });
+      if (!activated.ok) {
+        return activated.class === "RETRY"
+          ? {
+              outcome: "RETRY",
+              errorClass: activated.errorClass,
+              errorCode: activated.errorCode,
+              errorMessage: activated.errorMessage,
+            }
+          : {
+              outcome: "DEAD",
+              errorClass: activated.errorClass,
+              errorCode: activated.errorCode,
+              errorMessage: activated.errorMessage,
+            };
+      }
+    }
     // READ + MAP only. Never productSet when the custom-ID product already exists.
     return persistCreateListingMapping({
       memberId: connection.memberId,

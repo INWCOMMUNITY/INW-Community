@@ -20,6 +20,7 @@ export type ShopifyListingProductLookupSuccess = {
     productId: string;
     variantId: string;
     inventoryItemId: string;
+    status: string;
   };
 };
 
@@ -126,13 +127,15 @@ export async function lookupShopifyListingProductByCustomId(input: {
     return { ok: true, customId, product: null };
   }
 
-  if (String(product.status).toUpperCase() !== "DRAFT") {
+  const recoveredStatus = String(product.status).toUpperCase();
+  // Accept ACTIVE (current export) and DRAFT (pre-activation legacy / mid-flight).
+  if (recoveredStatus !== "ACTIVE" && recoveredStatus !== "DRAFT") {
     return {
       ok: false,
       class: "DEAD",
       errorClass: "RECOVERY_CONFLICT",
-      errorCode: "RECOVERY_NOT_DRAFT",
-      errorMessage: "Recovered Shopify product is not DRAFT",
+      errorCode: "RECOVERY_BAD_STATUS",
+      errorMessage: `Recovered Shopify product status is ${recoveredStatus}`,
       customId,
     };
   }
@@ -182,6 +185,7 @@ export async function lookupShopifyListingProductByCustomId(input: {
         productId: assertShopifyProductGid(product.id),
         variantId: assertShopifyProductVariantGid(nodes[0].id),
         inventoryItemId: assertShopifyInventoryItemGid(nodes[0].inventoryItem.id),
+        status: recoveredStatus,
       },
     };
   } catch (error) {

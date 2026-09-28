@@ -104,15 +104,16 @@ export async function applyShopifyProductsUpdateObservation(
     return { status: "ERROR", code: "GENERATION_MISMATCH", message: "Evidence connection mismatch" };
   }
 
-  if (String(input.remote.status).toUpperCase() !== "DRAFT") {
+  const remoteStatus = String(input.remote.status).toUpperCase();
+  if (remoteStatus !== "ACTIVE" && remoteStatus !== "DRAFT") {
     await markEvidence(db, input.evidenceId, "ERROR", {
-      code: "PRODUCT_NOT_DRAFT",
-      message: "Mapped Shopify product is not DRAFT; refusing inbound content import",
+      code: "PRODUCT_BAD_STATUS",
+      message: `Mapped Shopify product status is ${remoteStatus}; refusing inbound content import`,
     });
     return {
       status: "ERROR",
-      code: "PRODUCT_NOT_DRAFT",
-      message: "Mapped Shopify product is not DRAFT",
+      code: "PRODUCT_BAD_STATUS",
+      message: `Mapped Shopify product status is ${remoteStatus}`,
     };
   }
 

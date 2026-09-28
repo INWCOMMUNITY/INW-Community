@@ -10,6 +10,7 @@ vi.mock("@/lib/storefront-seller-access", () => ({
 vi.mock("database", () => ({
   prisma: {
     shopifyConnection: { findFirst: vi.fn() },
+    shopifyListingLink: { updateMany: vi.fn(async () => ({ count: 1 })) },
   },
   ensureShopifyReconcileListingJob: vi.fn(),
 }));
@@ -21,6 +22,13 @@ vi.mock("@/lib/shopify/listing-public-view", () => ({
 }));
 vi.mock("@/lib/shopify/create-listing", () => ({
   enqueueShopifyCreateListing: vi.fn(),
+}));
+vi.mock("@/lib/shopify/activate-listing", () => ({
+  ensureShopifyListingProductActive: vi.fn(async () => ({
+    ok: true,
+    status: "ACTIVE",
+    updated: true,
+  })),
 }));
 
 import { getSessionForApi } from "@/lib/mobile-auth";
