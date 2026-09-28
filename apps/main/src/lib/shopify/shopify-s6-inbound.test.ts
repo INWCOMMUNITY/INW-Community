@@ -234,33 +234,56 @@ describe("ensureShopifyProductsUpdateWebhook", () => {
     expect(creates).toBeGreaterThanOrEqual(1);
   });
 
-  it("fails closed on incompatible existing callback URL", async () => {
-    const fetchImpl = vi.fn(async () =>
-      jsonResponse({
-        data: {
-          webhookSubscriptions: {
-            nodes: [
-              {
-                id: "gid://shopify/WebhookSubscription/1",
-                topic: "PRODUCTS_UPDATE",
-                endpoint: {
-                  __typename: "WebhookHttpEndpoint",
-                  callbackUrl: "https://evil.example.com/hook",
+  it("retargets incompatible existing callback URL to the wanted inbox", async () => {
+    let lists = 0;
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { query: string };
+      if (body.query.includes("ShopifyProductsUpdateWebhookSubscriptions")) {
+        lists += 1;
+        return jsonResponse({
+          data: {
+            webhookSubscriptions: {
+              nodes: [
+                {
+                  id: "gid://shopify/WebhookSubscription/1",
+                  topic: "PRODUCTS_UPDATE",
+                  endpoint: {
+                    __typename: "WebhookHttpEndpoint",
+                    callbackUrl:
+                      lists === 1
+                        ? "https://evil.example.com/hook"
+                        : "https://app.example.com/api/shopify/webhooks/inbox",
+                  },
                 },
-              },
-            ],
+              ],
+            },
+          },
+        });
+      }
+      expect(body.query).toContain("webhookSubscriptionUpdate");
+      return jsonResponse({
+        data: {
+          webhookSubscriptionUpdate: {
+            userErrors: [],
+            webhookSubscription: {
+              id: "gid://shopify/WebhookSubscription/1",
+              topic: "PRODUCTS_UPDATE",
+              uri: "https://app.example.com/api/shopify/webhooks/inbox",
+            },
           },
         },
-      })
-    );
-    await expect(
-      ensureShopifyProductsUpdateWebhook({
-        shopDomain: "my-shop.myshopify.com",
-        accessToken: ACCESS,
-        callbackUrl: "https://app.example.com/api/shopify/webhooks/inbox",
-        fetchImpl,
-      })
-    ).rejects.toThrow(/incompatible/i);
+      });
+    });
+    const result = await ensureShopifyProductsUpdateWebhook({
+      shopDomain: "my-shop.myshopify.com",
+      accessToken: ACCESS,
+      callbackUrl: "https://app.example.com/api/shopify/webhooks/inbox",
+      fetchImpl,
+    });
+    expect(result).toEqual({
+      status: "UPDATED",
+      subscriptionId: "gid://shopify/WebhookSubscription/1",
+    });
   });
 });
 
