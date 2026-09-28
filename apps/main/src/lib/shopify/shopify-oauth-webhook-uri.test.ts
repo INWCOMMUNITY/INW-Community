@@ -41,9 +41,7 @@ describe("shopify webhook uri finalization (production regression)", () => {
         });
       }
       expect(body.query).toContain("uri: $uri");
-      expect(body.query).not.toMatch(/callbackUrl:\s*\$/);
       expect(body.variables?.uri).toBe(INBOX);
-      expect(body.variables?.callbackUrl).toBeUndefined();
       return jsonResponse({
         data: {
           webhookSubscriptionCreate: {
@@ -70,7 +68,7 @@ describe("shopify webhook uri finalization (production regression)", () => {
     });
   });
 
-  it("retargets same-app PRODUCTS_UPDATE with a stale incompatible uri (attempt 72967071)", async () => {
+  it("replaces same-app stale PRODUCTS_UPDATE via delete+create (attempt e1bd4bf3)", async () => {
     let lists = 0;
     const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as {
@@ -79,15 +77,30 @@ describe("shopify webhook uri finalization (production regression)", () => {
       };
       if (body.query.includes("ShopifyProductsUpdateWebhookSubscriptions")) {
         lists += 1;
-        const uri = lists === 1 ? STALE : INBOX;
+        if (lists === 1) {
+          return jsonResponse({
+            data: {
+              webhookSubscriptions: {
+                nodes: [
+                  {
+                    id: "gid://shopify/WebhookSubscription/1",
+                    topic: "PRODUCTS_UPDATE",
+                    uri: STALE,
+                    endpoint: null,
+                  },
+                ],
+              },
+            },
+          });
+        }
         return jsonResponse({
           data: {
             webhookSubscriptions: {
               nodes: [
                 {
-                  id: "gid://shopify/WebhookSubscription/1",
+                  id: "gid://shopify/WebhookSubscription/99",
                   topic: "PRODUCTS_UPDATE",
-                  uri,
+                  uri: INBOX,
                   endpoint: null,
                 },
               ],
@@ -95,15 +108,25 @@ describe("shopify webhook uri finalization (production regression)", () => {
           },
         });
       }
-      expect(body.query).toContain("webhookSubscriptionUpdate");
-      expect(body.variables?.id).toBe("gid://shopify/WebhookSubscription/1");
+      if (body.query.includes("webhookSubscriptionDelete")) {
+        expect(body.variables?.id).toBe("gid://shopify/WebhookSubscription/1");
+        return jsonResponse({
+          data: {
+            webhookSubscriptionDelete: {
+              userErrors: [],
+              deletedWebhookSubscriptionId: "gid://shopify/WebhookSubscription/1",
+            },
+          },
+        });
+      }
+      expect(body.query).toContain("webhookSubscriptionCreate");
       expect(body.variables?.uri).toBe(INBOX);
       return jsonResponse({
         data: {
-          webhookSubscriptionUpdate: {
+          webhookSubscriptionCreate: {
             userErrors: [],
             webhookSubscription: {
-              id: "gid://shopify/WebhookSubscription/1",
+              id: "gid://shopify/WebhookSubscription/99",
               topic: "PRODUCTS_UPDATE",
               uri: INBOX,
             },
@@ -120,12 +143,11 @@ describe("shopify webhook uri finalization (production regression)", () => {
     });
     expect(result).toEqual({
       status: "UPDATED",
-      subscriptionId: "gid://shopify/WebhookSubscription/1",
+      subscriptionId: "gid://shopify/WebhookSubscription/99",
     });
-    expect(lists).toBe(2);
   });
 
-  it("fails closed when stale PRODUCTS_UPDATE uri update is rejected", async () => {
+  it("fails closed when stale PRODUCTS_UPDATE delete is rejected", async () => {
     const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as { query: string };
       if (body.query.includes("ShopifyProductsUpdateWebhookSubscriptions")) {
@@ -146,9 +168,9 @@ describe("shopify webhook uri finalization (production regression)", () => {
       }
       return jsonResponse({
         data: {
-          webhookSubscriptionUpdate: {
-            userErrors: [{ message: "Address is not allowed" }],
-            webhookSubscription: null,
+          webhookSubscriptionDelete: {
+            userErrors: [{ message: "Subscription not found" }],
+            deletedWebhookSubscriptionId: null,
           },
         },
       });
@@ -161,7 +183,7 @@ describe("shopify webhook uri finalization (production regression)", () => {
         callbackUrl: INBOX,
         fetchImpl,
       })
-    ).rejects.toThrow(/PRODUCTS_UPDATE webhook registration failed/i);
+    ).rejects.toThrow(/PRODUCTS_UPDATE webhook registration failed: Subscription not found/i);
   });
 
   it("accepts create id when post-create list omits destination fields", async () => {

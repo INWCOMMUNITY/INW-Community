@@ -234,39 +234,62 @@ describe("ensureShopifyProductsUpdateWebhook", () => {
     expect(creates).toBeGreaterThanOrEqual(1);
   });
 
-  it("retargets incompatible existing callback URL to the wanted inbox", async () => {
+  it("replaces incompatible existing callback URL via delete+create", async () => {
     let lists = 0;
     const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as { query: string };
       if (body.query.includes("ShopifyProductsUpdateWebhookSubscriptions")) {
         lists += 1;
+        if (lists === 1) {
+          return jsonResponse({
+            data: {
+              webhookSubscriptions: {
+                nodes: [
+                  {
+                    id: "gid://shopify/WebhookSubscription/1",
+                    topic: "PRODUCTS_UPDATE",
+                    endpoint: {
+                      __typename: "WebhookHttpEndpoint",
+                      callbackUrl: "https://evil.example.com/hook",
+                    },
+                  },
+                ],
+              },
+            },
+          });
+        }
         return jsonResponse({
           data: {
             webhookSubscriptions: {
               nodes: [
                 {
-                  id: "gid://shopify/WebhookSubscription/1",
+                  id: "gid://shopify/WebhookSubscription/2",
                   topic: "PRODUCTS_UPDATE",
-                  endpoint: {
-                    __typename: "WebhookHttpEndpoint",
-                    callbackUrl:
-                      lists === 1
-                        ? "https://evil.example.com/hook"
-                        : "https://app.example.com/api/shopify/webhooks/inbox",
-                  },
+                  uri: "https://app.example.com/api/shopify/webhooks/inbox",
+                  endpoint: null,
                 },
               ],
             },
           },
         });
       }
-      expect(body.query).toContain("webhookSubscriptionUpdate");
+      if (body.query.includes("webhookSubscriptionDelete")) {
+        return jsonResponse({
+          data: {
+            webhookSubscriptionDelete: {
+              userErrors: [],
+              deletedWebhookSubscriptionId: "gid://shopify/WebhookSubscription/1",
+            },
+          },
+        });
+      }
+      expect(body.query).toContain("webhookSubscriptionCreate");
       return jsonResponse({
         data: {
-          webhookSubscriptionUpdate: {
+          webhookSubscriptionCreate: {
             userErrors: [],
             webhookSubscription: {
-              id: "gid://shopify/WebhookSubscription/1",
+              id: "gid://shopify/WebhookSubscription/2",
               topic: "PRODUCTS_UPDATE",
               uri: "https://app.example.com/api/shopify/webhooks/inbox",
             },
@@ -282,7 +305,7 @@ describe("ensureShopifyProductsUpdateWebhook", () => {
     });
     expect(result).toEqual({
       status: "UPDATED",
-      subscriptionId: "gid://shopify/WebhookSubscription/1",
+      subscriptionId: "gid://shopify/WebhookSubscription/2",
     });
   });
 });

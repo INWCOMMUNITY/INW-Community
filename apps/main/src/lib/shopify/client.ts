@@ -253,7 +253,8 @@ async function graphql<T>(input: {
     throw new ShopifyRequestError(`Shopify GraphQL failed (${response.status})`);
   }
   const body = (await readJson(response)) as { data?: T; errors?: unknown } | null;
-  if (!body?.data || body.errors) {
+  // Shopify may return field warnings in `errors` alongside usable `data`.
+  if (!body?.data) {
     throw new ShopifyRequestError("Shopify GraphQL returned errors");
   }
   return body.data;
@@ -427,46 +428,59 @@ function classifyWebhookDestinations(
   const stale: WebhookSubscriptionNode[] = [];
   for (const node of nodes) {
     const destination = webhookNodeDestination(node);
-    if (!destination) continue;
+    // Empty destination still blocks create ("already taken") — treat as stale to replace.
+    if (!destination) {
+      stale.push(node);
+      continue;
+    }
     if (destination === wanted) match = node;
     else stale.push(node);
   }
   return { match, stale };
 }
 
-const WEBHOOK_UPDATE_MUTATION = `mutation ShopifyWebhookSubscriptionUpdate($id: ID!, $uri: String!) {
-  webhookSubscriptionUpdate(
-    id: $id
-    webhookSubscription: { uri: $uri, format: JSON }
-  ) {
+function shopifyUserErrorDetail(errors: { message: string }[]): string {
+  return errors
+    .map((error) => error.message.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .join("; ");
+}
+
+const WEBHOOK_DELETE_MUTATION = `mutation ShopifyWebhookSubscriptionDelete($id: ID!) {
+  webhookSubscriptionDelete(id: $id) {
     userErrors { field message }
-    webhookSubscription { id topic uri }
+    deletedWebhookSubscriptionId
   }
 }`;
 
-async function updateShopifyWebhookSubscriptionUri(input: {
+async function deleteShopifyWebhookSubscription(input: {
   shopDomain: string;
   accessToken: string;
   subscriptionId: string;
-  uri: string;
   topicLabel: "PRODUCTS_UPDATE" | "ORDERS_PAID";
   fetchImpl?: ShopifyFetch;
 }): Promise<void> {
   const data = await graphql<{
-    webhookSubscriptionUpdate: {
+    webhookSubscriptionDelete: {
       userErrors: { message: string }[];
-      webhookSubscription: { id: string } | null;
+      deletedWebhookSubscriptionId: string | null;
     };
   }>({
     shopDomain: input.shopDomain,
     accessToken: input.accessToken,
-    query: WEBHOOK_UPDATE_MUTATION,
-    variables: { id: input.subscriptionId, uri: input.uri },
+    query: WEBHOOK_DELETE_MUTATION,
+    variables: { id: input.subscriptionId },
     fetchImpl: input.fetchImpl,
   });
-  const errors = data.webhookSubscriptionUpdate?.userErrors ?? [];
-  if (errors.length > 0 || !data.webhookSubscriptionUpdate?.webhookSubscription?.id) {
-    throw new ShopifyRequestError(`Shopify ${input.topicLabel} webhook registration failed`);
+  const errors = data.webhookSubscriptionDelete?.userErrors ?? [];
+  if (errors.length > 0 || !data.webhookSubscriptionDelete?.deletedWebhookSubscriptionId) {
+    const detail = shopifyUserErrorDetail(errors);
+    throw new ShopifyRequestError(
+      detail
+        ? `Shopify ${input.topicLabel} webhook registration failed: ${detail}`
+        : `Shopify ${input.topicLabel} webhook registration failed`
+    );
   }
 }
 
@@ -486,37 +500,72 @@ async function listProductsUpdateWebhookSubscriptions(input: {
   return data.webhookSubscriptions?.nodes ?? [];
 }
 
-async function retargetStaleWebhookSubscriptions(input: {
+/**
+ * Same-app stale destinations cannot remain (they block create).
+ * Delete then recreate at the canonical inbox URI — more reliable than update when
+ * prior installs used deprecated callbackUrl / preview hosts.
+ */
+async function replaceStaleWebhookSubscriptions(input: {
   shopDomain: string;
   accessToken: string;
   callbackUrl: string;
   topicLabel: "PRODUCTS_UPDATE" | "ORDERS_PAID";
+  createMutation: string;
   stale: WebhookSubscriptionNode[];
   list: () => Promise<WebhookSubscriptionNode[]>;
   fetchImpl?: ShopifyFetch;
 }): Promise<{ status: "UPDATED"; subscriptionId: string }> {
   for (const node of input.stale) {
-    await updateShopifyWebhookSubscriptionUri({
+    await deleteShopifyWebhookSubscription({
       shopDomain: input.shopDomain,
       accessToken: input.accessToken,
       subscriptionId: node.id,
-      uri: input.callbackUrl,
       topicLabel: input.topicLabel,
       fetchImpl: input.fetchImpl,
     });
   }
+
+  const data = await graphql<{
+    webhookSubscriptionCreate: {
+      userErrors: { message: string }[];
+      webhookSubscription: { id: string } | null;
+    };
+  }>({
+    shopDomain: input.shopDomain,
+    accessToken: input.accessToken,
+    query: input.createMutation,
+    variables: { uri: input.callbackUrl },
+    fetchImpl: input.fetchImpl,
+  });
+  const errors = data.webhookSubscriptionCreate?.userErrors ?? [];
+  const already =
+    errors.length > 0 &&
+    errors.every((error) => /already been taken|already exists/i.test(error.message));
+  if (errors.length > 0 && !already) {
+    const detail = shopifyUserErrorDetail(errors);
+    throw new ShopifyRequestError(
+      detail
+        ? `Shopify ${input.topicLabel} webhook registration failed: ${detail}`
+        : `Shopify ${input.topicLabel} webhook registration failed`
+    );
+  }
+  const createdId = data.webhookSubscriptionCreate?.webhookSubscription?.id ?? null;
   const wanted = normalizeWebhookUri(input.callbackUrl);
   const after = classifyWebhookDestinations(await input.list(), wanted);
-  if (!after.match || after.stale.length > 0) {
+  if (after.stale.length > 0) {
     throw new ShopifyRequestError(`Shopify ${input.topicLabel} webhook registration failed`);
   }
-  return { status: "UPDATED", subscriptionId: after.match.id };
+  if (after.match) return { status: "UPDATED", subscriptionId: after.match.id };
+  if (createdId) return { status: "UPDATED", subscriptionId: createdId };
+  if (already) {
+    throw new ShopifyRequestError(`Shopify ${input.topicLabel} webhook registration failed`);
+  }
+  throw new ShopifyRequestError(`Shopify ${input.topicLabel} webhook registration failed`);
 }
 
 /**
  * Ensure PRODUCTS_UPDATE delivers to the S3 provider-evidence inbox.
- * Query-first / reuse / retarget same-app stale URI / create if absent.
- * Shop-scoped subscriptions belong to this app — stale preview/legacy URIs are updated.
+ * Query-first / reuse / replace same-app stale URI / create if absent.
  */
 export async function ensureShopifyProductsUpdateWebhook(input: {
   shopDomain: string;
@@ -539,11 +588,12 @@ export async function ensureShopifyProductsUpdateWebhook(input: {
     return { status: "REUSED", subscriptionId: initial.match.id };
   }
   if (initial.stale.length > 0) {
-    return retargetStaleWebhookSubscriptions({
+    return replaceStaleWebhookSubscriptions({
       shopDomain: input.shopDomain,
       accessToken: input.accessToken,
       callbackUrl: input.callbackUrl,
       topicLabel: "PRODUCTS_UPDATE",
+      createMutation: PRODUCTS_UPDATE_MUTATION,
       stale: initial.stale,
       list,
       fetchImpl: input.fetchImpl,
@@ -575,7 +625,12 @@ export async function ensureShopifyProductsUpdateWebhook(input: {
         errors.every((error) => /already been taken|already exists/i.test(error.message));
       if (already) return { status: "already" };
       if (errors.length > 0) {
-        throw new ShopifyRequestError("Shopify PRODUCTS_UPDATE webhook registration failed");
+        const detail = shopifyUserErrorDetail(errors);
+        throw new ShopifyRequestError(
+          detail
+            ? `Shopify PRODUCTS_UPDATE webhook registration failed: ${detail}`
+            : "Shopify PRODUCTS_UPDATE webhook registration failed"
+        );
       }
       const id = data.webhookSubscriptionCreate?.webhookSubscription?.id;
       if (!id) return { status: "unknown" };
@@ -597,14 +652,16 @@ export async function ensureShopifyProductsUpdateWebhook(input: {
     return { status: "CREATED", subscriptionId: after.match?.id ?? first.id };
   }
   if (first.status === "already") {
-    const after = classifyWebhookDestinations(await list(), wanted);
-    if (after.stale.length > 0) {
-      return retargetStaleWebhookSubscriptions({
+    const nodes = await list();
+    const after = classifyWebhookDestinations(nodes, wanted);
+    if (after.stale.length > 0 || (!after.match && nodes.length > 0)) {
+      return replaceStaleWebhookSubscriptions({
         shopDomain: input.shopDomain,
         accessToken: input.accessToken,
         callbackUrl: input.callbackUrl,
         topicLabel: "PRODUCTS_UPDATE",
-        stale: after.stale,
+        createMutation: PRODUCTS_UPDATE_MUTATION,
+        stale: after.stale.length > 0 ? after.stale : nodes,
         list,
         fetchImpl: input.fetchImpl,
       });
@@ -615,17 +672,19 @@ export async function ensureShopifyProductsUpdateWebhook(input: {
     return { status: "REUSED", subscriptionId: after.match.id };
   }
 
-  const requery = classifyWebhookDestinations(await list(), wanted);
+  const requeryNodes = await list();
+  const requery = classifyWebhookDestinations(requeryNodes, wanted);
   if (requery.match && requery.stale.length === 0) {
     return { status: "REUSED", subscriptionId: requery.match.id };
   }
-  if (requery.stale.length > 0) {
-    return retargetStaleWebhookSubscriptions({
+  if (requery.stale.length > 0 || requeryNodes.length > 0) {
+    return replaceStaleWebhookSubscriptions({
       shopDomain: input.shopDomain,
       accessToken: input.accessToken,
       callbackUrl: input.callbackUrl,
       topicLabel: "PRODUCTS_UPDATE",
-      stale: requery.stale,
+      createMutation: PRODUCTS_UPDATE_MUTATION,
+      stale: requery.stale.length > 0 ? requery.stale : requeryNodes,
       list,
       fetchImpl: input.fetchImpl,
     });
@@ -636,22 +695,7 @@ export async function ensureShopifyProductsUpdateWebhook(input: {
     const after = classifyWebhookDestinations(await list(), wanted);
     return { status: "CREATED", subscriptionId: after.match?.id ?? second.id };
   }
-  const final = classifyWebhookDestinations(await list(), wanted);
-  if (final.stale.length > 0) {
-    return retargetStaleWebhookSubscriptions({
-      shopDomain: input.shopDomain,
-      accessToken: input.accessToken,
-      callbackUrl: input.callbackUrl,
-      topicLabel: "PRODUCTS_UPDATE",
-      stale: final.stale,
-      list,
-      fetchImpl: input.fetchImpl,
-    });
-  }
-  if (!final.match) {
-    throw new ShopifyRequestError("Shopify PRODUCTS_UPDATE webhook registration failed");
-  }
-  return { status: "REUSED", subscriptionId: final.match.id };
+  throw new ShopifyRequestError("Shopify PRODUCTS_UPDATE webhook registration failed");
 }
 
 const ORDERS_PAID_QUERY = `query ShopifyOrdersPaidWebhookSubscriptions {
@@ -696,7 +740,7 @@ async function listOrdersPaidWebhookSubscriptions(input: {
 
 /**
  * Ensure ORDERS_PAID delivers to the S3 provider-evidence inbox.
- * Query-first / reuse / retarget same-app stale URI / create if absent.
+ * Query-first / reuse / replace same-app stale URI / create if absent.
  */
 export async function ensureShopifyOrdersPaidWebhook(input: {
   shopDomain: string;
@@ -719,11 +763,12 @@ export async function ensureShopifyOrdersPaidWebhook(input: {
     return { status: "REUSED", subscriptionId: initial.match.id };
   }
   if (initial.stale.length > 0) {
-    return retargetStaleWebhookSubscriptions({
+    return replaceStaleWebhookSubscriptions({
       shopDomain: input.shopDomain,
       accessToken: input.accessToken,
       callbackUrl: input.callbackUrl,
       topicLabel: "ORDERS_PAID",
+      createMutation: ORDERS_PAID_MUTATION,
       stale: initial.stale,
       list,
       fetchImpl: input.fetchImpl,
@@ -755,7 +800,12 @@ export async function ensureShopifyOrdersPaidWebhook(input: {
         errors.every((error) => /already been taken|already exists/i.test(error.message));
       if (already) return { status: "already" };
       if (errors.length > 0) {
-        throw new ShopifyRequestError("Shopify ORDERS_PAID webhook registration failed");
+        const detail = shopifyUserErrorDetail(errors);
+        throw new ShopifyRequestError(
+          detail
+            ? `Shopify ORDERS_PAID webhook registration failed: ${detail}`
+            : "Shopify ORDERS_PAID webhook registration failed"
+        );
       }
       const id = data.webhookSubscriptionCreate?.webhookSubscription?.id;
       if (!id) return { status: "unknown" };
@@ -777,14 +827,16 @@ export async function ensureShopifyOrdersPaidWebhook(input: {
     return { status: "CREATED", subscriptionId: after.match?.id ?? first.id };
   }
   if (first.status === "already") {
-    const after = classifyWebhookDestinations(await list(), wanted);
-    if (after.stale.length > 0) {
-      return retargetStaleWebhookSubscriptions({
+    const nodes = await list();
+    const after = classifyWebhookDestinations(nodes, wanted);
+    if (after.stale.length > 0 || (!after.match && nodes.length > 0)) {
+      return replaceStaleWebhookSubscriptions({
         shopDomain: input.shopDomain,
         accessToken: input.accessToken,
         callbackUrl: input.callbackUrl,
         topicLabel: "ORDERS_PAID",
-        stale: after.stale,
+        createMutation: ORDERS_PAID_MUTATION,
+        stale: after.stale.length > 0 ? after.stale : nodes,
         list,
         fetchImpl: input.fetchImpl,
       });
@@ -795,17 +847,19 @@ export async function ensureShopifyOrdersPaidWebhook(input: {
     return { status: "REUSED", subscriptionId: after.match.id };
   }
 
-  const requery = classifyWebhookDestinations(await list(), wanted);
+  const requeryNodes = await list();
+  const requery = classifyWebhookDestinations(requeryNodes, wanted);
   if (requery.match && requery.stale.length === 0) {
     return { status: "REUSED", subscriptionId: requery.match.id };
   }
-  if (requery.stale.length > 0) {
-    return retargetStaleWebhookSubscriptions({
+  if (requery.stale.length > 0 || requeryNodes.length > 0) {
+    return replaceStaleWebhookSubscriptions({
       shopDomain: input.shopDomain,
       accessToken: input.accessToken,
       callbackUrl: input.callbackUrl,
       topicLabel: "ORDERS_PAID",
-      stale: requery.stale,
+      createMutation: ORDERS_PAID_MUTATION,
+      stale: requery.stale.length > 0 ? requery.stale : requeryNodes,
       list,
       fetchImpl: input.fetchImpl,
     });
@@ -816,20 +870,5 @@ export async function ensureShopifyOrdersPaidWebhook(input: {
     const after = classifyWebhookDestinations(await list(), wanted);
     return { status: "CREATED", subscriptionId: after.match?.id ?? second.id };
   }
-  const final = classifyWebhookDestinations(await list(), wanted);
-  if (final.stale.length > 0) {
-    return retargetStaleWebhookSubscriptions({
-      shopDomain: input.shopDomain,
-      accessToken: input.accessToken,
-      callbackUrl: input.callbackUrl,
-      topicLabel: "ORDERS_PAID",
-      stale: final.stale,
-      list,
-      fetchImpl: input.fetchImpl,
-    });
-  }
-  if (!final.match) {
-    throw new ShopifyRequestError("Shopify ORDERS_PAID webhook registration failed");
-  }
-  return { status: "REUSED", subscriptionId: final.match.id };
+  throw new ShopifyRequestError("Shopify ORDERS_PAID webhook registration failed");
 }
