@@ -438,6 +438,22 @@ export type {
   ShopifyMappingLookupResult,
   ShopifyVariantMappingInput,
 } from "./shopify/mapping";
+export { createShopifyImportedListingMapping } from "./shopify/import-mapping";
+export type {
+  CreateShopifyImportedListingMappingInput,
+  ShopifyImportMappingDb,
+} from "./shopify/import-mapping";
+export {
+  beginShopifyListingImportAttempt,
+  completeShopifyListingImportAttempt,
+  failShopifyListingImportAttempt,
+} from "./shopify/import-attempt";
+export type {
+  BeginShopifyListingImportAttemptResult,
+  ShopifyImportAttemptDb,
+} from "./shopify/import-attempt";
+export { reconcileShopifyImportBootstrapSales } from "./shopify/import-bootstrap";
+export type { ReconcileShopifyImportBootstrapResult } from "./shopify/import-bootstrap";
 export {
   clearShopifyProductContentConflict,
   clearShopifyVariantContentConflict,

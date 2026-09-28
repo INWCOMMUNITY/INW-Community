@@ -29,4 +29,5 @@ export const SHOPIFY_PRODUCT_VARIANT_GID_PATTERN = /^gid:\/\/shopify\/ProductVar
 
 export const SHOPIFY_INVENTORY_ITEM_GID_PATTERN = /^gid:\/\/shopify\/InventoryItem\/\d+$/;
 
-export const SHOPIFY_SELLER_RETURN_PATH = "/seller-hub/shopify";
+/** OAuth return lands on Apps Airport Shopify connection settings. */
+export const SHOPIFY_SELLER_RETURN_PATH = "/seller-hub/apps/shopify/settings";

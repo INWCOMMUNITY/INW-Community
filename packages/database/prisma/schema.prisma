@@ -155,6 +155,7 @@ model Member {
   shopifyListingLinks  ShopifyListingLink[]
   shopifyVariantMaps   ShopifyVariantMap[]
   shopifyOrderLineSaleFacts ShopifyOrderLineSaleFact[]
+  shopifyListingImportAttempts ShopifyListingImportAttempt[]
 }
 
 model WebviewBridgeToken {
@@ -2199,6 +2200,7 @@ model ShopifyConnection {
   providerEvidence ShopifyProviderEvidence[]
   syncJobs         ShopifySyncJob[]
   orderLineSaleFacts ShopifyOrderLineSaleFact[]
+  listingImportAttempts ShopifyListingImportAttempt[]
 
   /// Supports composite FKs from mapping rows so connection + member cannot drift.
   @@unique([id, memberId])
@@ -2206,6 +2208,52 @@ model ShopifyConnection {
   @@index([memberId, status])
   @@index([shopDomain, status])
   @@map("shopify_connection")
+}
+
+/// How a ShopifyListingLink entered INW (export create vs Shopify→INW import).
+enum ShopifyListingImportSource {
+  NATIVE
+  SHOPIFY_IMPORT
+
+  @@map("shopify_listing_import_source")
+}
+
+/// Durable import attempt identity for connection + Shopify Product GID.
+enum ShopifyListingImportAttemptStatus {
+  STARTED
+  COMPLETED
+  FAILED
+
+  @@map("shopify_listing_import_attempt_status")
+}
+
+/// Exactly-once import attempt + bootstrap cutoff for order-race handling.
+model ShopifyListingImportAttempt {
+  id                    String                            @id @default(cuid())
+  shopifyConnectionId   String                            @map("shopify_connection_id")
+  memberId              String                            @map("member_id")
+  shopifyProductId      String                            @map("shopify_product_id")
+  shopifyVariantId      String?                           @map("shopify_variant_id")
+  shopifyInventoryItemId String?                          @map("shopify_inventory_item_id")
+  status                ShopifyListingImportAttemptStatus @default(STARTED)
+  /// Seller-authoritative stock mode for this import: PHYSICAL | MADE_TO_ORDER
+  stockMode             String                            @map("stock_mode")
+  /// Orders with evidence.triggeredAt < this are treated as already in the Shopify inventory snapshot.
+  bootstrapStartedAt    DateTime                          @map("bootstrap_started_at")
+  storeItemId           String?                           @map("store_item_id")
+  listingLinkId         String?                           @map("listing_link_id")
+  failureCode           String?                           @map("failure_code")
+  failureMessage        String?                           @map("failure_message") @db.Text
+  createdAt             DateTime                          @default(now()) @map("created_at")
+  updatedAt             DateTime                          @updatedAt @map("updated_at")
+
+  connection ShopifyConnection @relation(fields: [shopifyConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
+  member     Member            @relation(fields: [memberId], references: [id], onDelete: Restrict)
+
+  @@unique([shopifyConnectionId, shopifyProductId])
+  @@index([shopifyConnectionId, status])
+  @@index([memberId, status])
+  @@map("shopify_listing_import_attempt")
 }
 
 /// Seller-facing readiness for a new Shopify listing (publication remains explicit).
@@ -2264,6 +2312,11 @@ model ShopifyListingLink {
   readinessUpdatedAt             DateTime? @map("readiness_updated_at")
   /// Last observed Shopify Product.status (DRAFT expected pre-publication; not an error alone).
   remoteProductStatus            String?   @map("remote_product_status")
+  /// NATIVE = exported/created from INW; SHOPIFY_IMPORT = imported from Shopify.
+  importSource                   ShopifyListingImportSource @default(NATIVE) @map("import_source")
+  importedAt                     DateTime? @map("imported_at")
+  /// Snapshot of import bootstrap cutoff used for S7 pre/post sale handling.
+  importBootstrapStartedAt       DateTime? @map("import_bootstrap_started_at")
   createdAt                    DateTime  @default(now()) @map("created_at")
   updatedAt                    DateTime  @updatedAt @map("updated_at")
 
@@ -2376,6 +2429,8 @@ enum ShopifyOrderLineSaleApplyState {
   APPLIED
   UNMAPPED
   FAILED
+  /// Sale occurred before import bootstrap cutoff and is represented by opening stock.
+  PRE_BOOTSTRAP_ACKED
 
   @@map("shopify_order_line_sale_apply_state")
 }

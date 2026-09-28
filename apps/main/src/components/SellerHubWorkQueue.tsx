@@ -107,6 +107,12 @@ export function SellerHubWorkQueue({
           description: "View and edit your listings.",
         },
         {
+          label: "Apps Airport",
+          href: "/seller-hub/apps",
+          icon: "apps",
+          description: "Connect Shopify and manage marketplace sync.",
+        },
+        {
           label: "Fulfillment",
           href: "/seller-hub/orders",
           icon: "receipt",

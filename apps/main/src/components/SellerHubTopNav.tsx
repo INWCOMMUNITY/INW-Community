@@ -116,6 +116,7 @@ export function SellerHubTopNav() {
 
   const navItems: NavItem[] = [
     { href: "/seller-hub", label: "Seller Hub", icon: "globe-outline" },
+    { href: "/seller-hub/apps", label: "Apps Airport", icon: "apps-outline" },
     { label: "Listings", icon: "cube-outline", children: listingsChildren },
     { label: "Orders", icon: "receipt-outline", children: ordersChildren },
     { label: "Store", icon: "storefront-outline", children: storeChildren },

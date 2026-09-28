@@ -247,7 +247,7 @@ export async function applyShopifyPaidOrderLineSale(
         });
       }
 
-      if (existing.applyState === "APPLIED") {
+      if (existing.applyState === "APPLIED" || existing.applyState === "PRE_BOOTSTRAP_ACKED") {
         // Exact provider replay: still fail closed if resolved StoreVariant drifted.
         const appliedProviderVariant =
           existing.shopifyVariantId ?? input.line.shopifyVariantId;
@@ -336,7 +336,7 @@ export async function applyShopifyPaidOrderLineSale(
             message: racedEquiv.message,
           });
         }
-        if (raced.applyState === "APPLIED") {
+        if (raced.applyState === "APPLIED" || raced.applyState === "PRE_BOOTSTRAP_ACKED") {
           const racedProviderVariant = raced.shopifyVariantId ?? input.line.shopifyVariantId;
           if (racedProviderVariant && raced.storeVariantId) {
             const racedMap = await tx.shopifyVariantMap.findFirst({
