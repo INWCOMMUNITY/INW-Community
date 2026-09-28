@@ -128,6 +128,32 @@ export async function enqueueShopifyCreateListing(input: {
         storeVariantId: variants[0].id,
       },
     });
+    // Seller retry after a permanent failure: same dedupeKey returns the DEAD row.
+    // Re-arm it so cron can claim again (idempotent enqueue alone would no-op).
+    if (job.state === "DEAD") {
+      const revived = await prisma.shopifySyncJob.updateMany({
+        where: { id: job.id, state: "DEAD" },
+        data: {
+          state: "PENDING",
+          attemptCount: 0,
+          nextAttemptAt: new Date(),
+          completedAt: null,
+          leaseOwner: null,
+          leaseToken: null,
+          leaseExpiresAt: null,
+          lastErrorClass: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+        },
+      });
+      if (revived.count !== 1) {
+        return {
+          status: "ERROR",
+          code: "CONFLICT",
+          message: "A conflicting Shopify listing job already exists",
+        };
+      }
+    }
     return {
       status: "QUEUED",
       connectionId: connection.id,

@@ -11,6 +11,7 @@ vi.mock("database", async () => {
       storeItem: { findFirst: vi.fn() },
       storeVariant: { findMany: vi.fn() },
       shopifyProviderEvidence: { findUnique: vi.fn() },
+      shopifySyncJob: { updateMany: vi.fn() },
     },
     lookupShopifyListingByStoreItem: vi.fn(),
     createShopifyListingMapping: vi.fn(),
@@ -96,6 +97,7 @@ describe("shopify CREATE_LISTING enqueue gates", () => {
     vi.mocked(prisma.storeVariant.findMany).mockReset();
     vi.mocked(lookupShopifyListingByStoreItem).mockReset();
     vi.mocked(enqueueShopifySyncJob).mockReset();
+    vi.mocked(prisma.shopifySyncJob.updateMany).mockReset();
   });
 
   it("queues a CREATE_LISTING job for the seller's simple item", async () => {
@@ -111,6 +113,7 @@ describe("shopify CREATE_LISTING enqueue gates", () => {
       id: "job-1",
       shopifyConnectionId: "conn-gen-1",
       kind: "CREATE_LISTING",
+      state: "PENDING",
       dedupeKey: shopifyCreateListingDedupeKey("conn-gen-1", "item-1"),
       payload: { storeItemId: "item-1", storeVariantId: "var-1" },
     } as never);
@@ -134,9 +137,51 @@ describe("shopify CREATE_LISTING enqueue gates", () => {
         payload: { storeItemId: "item-1", storeVariantId: "var-1" },
       })
     );
+    expect(prisma.shopifySyncJob.updateMany).not.toHaveBeenCalled();
     expect(JSON.stringify(vi.mocked(enqueueShopifySyncJob).mock.calls[0][1].payload)).not.toMatch(
       /shpat_|token|secret/i
     );
+  });
+
+  it("revives a DEAD CREATE_LISTING job on seller retry", async () => {
+    vi.mocked(prisma.shopifyConnection.findFirst).mockResolvedValue(connection as never);
+    vi.mocked(prisma.storeItem.findFirst).mockResolvedValue({
+      id: "item-1",
+      memberId: "member-a",
+      status: "active",
+    } as never);
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([{ id: "var-1" }] as never);
+    vi.mocked(lookupShopifyListingByStoreItem).mockResolvedValue({ status: "UNMAPPED" });
+    vi.mocked(enqueueShopifySyncJob).mockResolvedValue({
+      id: "job-dead",
+      shopifyConnectionId: "conn-gen-1",
+      kind: "CREATE_LISTING",
+      state: "DEAD",
+      dedupeKey: shopifyCreateListingDedupeKey("conn-gen-1", "item-1"),
+      payload: { storeItemId: "item-1", storeVariantId: "var-1" },
+      lastErrorCode: "METAFIELD_MISMATCH",
+    } as never);
+    vi.mocked(prisma.shopifySyncJob.updateMany).mockResolvedValue({ count: 1 } as never);
+
+    const result = await enqueueShopifyCreateListing({
+      memberId: "member-a",
+      storeItemId: "item-1",
+    });
+    expect(result).toEqual({
+      status: "QUEUED",
+      connectionId: "conn-gen-1",
+      storeItemId: "item-1",
+      jobId: "job-dead",
+    });
+    expect(prisma.shopifySyncJob.updateMany).toHaveBeenCalledWith({
+      where: { id: "job-dead", state: "DEAD" },
+      data: expect.objectContaining({
+        state: "PENDING",
+        attemptCount: 0,
+        completedAt: null,
+        lastErrorCode: null,
+      }),
+    });
   });
 
   it("rejects another seller's store item", async () => {
@@ -376,10 +421,11 @@ describe("shopify CREATE_LISTING provider", () => {
       expect(body.query.toLowerCase()).not.toContain("inventorysetquantities");
       expect(body.query.toLowerCase()).not.toContain("publishablepublish");
       const variables = body.variables as {
-        input: { status: string };
+        input: { status: string; metafields?: unknown };
         identifier: { customId: { value: string } };
       };
       expect(variables.input.status).toBe("DRAFT");
+      expect(variables.input.metafields).toBeUndefined();
       expect(variables.identifier.customId.value).toBe(customId);
       return productSetSuccess();
     });

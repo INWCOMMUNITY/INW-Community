@@ -89,18 +89,14 @@ export async function productSetShopifyDraftListing(
           value: customId,
         },
       },
+      // Do not send input.metafields when identifying by customId.
+      // productSet treats metafields as a full replace; a non-matching entry
+      // returns METAFIELD_MISMATCH ("metafields must contain the customId value").
+      // Shopify writes the customId from identifier on create (official upsert pattern).
       input: {
         title: input.title,
         descriptionHtml: input.descriptionHtml ?? undefined,
         status: "DRAFT",
-        metafields: [
-          {
-            namespace: SHOPIFY_LISTING_EXPORT_METAFIELD_NAMESPACE,
-            key: SHOPIFY_LISTING_EXPORT_METAFIELD_KEY,
-            type: "id",
-            value: customId,
-          },
-        ],
         productOptions: [{ name: "Title", values: [{ name: "Default Title" }] }],
         variants: [
           {
