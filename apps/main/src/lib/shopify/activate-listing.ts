@@ -13,8 +13,9 @@ export type EnsureShopifyListingActiveResult =
 
 /**
  * Ensure a mapped Shopify product is ACTIVE (listed), not DRAFT.
- * Read-then-write; no-op when already ACTIVE. Does not publish to sales channels
- * (requires write_publications, which is not in the granted scope set).
+ * Read-then-write; no-op when already ACTIVE. Sales-channel publication is
+ * handled separately by ensureShopifyListingActiveAndPublishedToOnlineStore
+ * (requires write_publications).
  */
 export async function ensureShopifyListingProductActive(input: {
   connectionId: string;

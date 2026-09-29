@@ -133,7 +133,7 @@ describe("handleShopifyReconcileListingJob", () => {
         data: {
           product: {
             id: "gid://shopify/Product/9",
-            status: "DRAFT",
+            status: "ACTIVE",
             title: "T",
             descriptionHtml: "",
             variants: {
@@ -164,7 +164,12 @@ describe("handleShopifyReconcileListingJob", () => {
       "ShopifyListingReconcileRead"
     );
     expect(String((fetchImpl.mock.calls[0][1] as RequestInit).body)).not.toContain("mutation");
-    expect(persistShopifyListingHealth).toHaveBeenCalled();
+    expect(persistShopifyListingHealth).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        health: expect.objectContaining({ readiness: "READY_TO_PUBLISH" }),
+      })
+    );
     expect(notifyShopifyListingIssueOnce).not.toHaveBeenCalled();
   });
 

@@ -60,9 +60,9 @@ const PRODUCT_SET_MUTATION = `mutation ShopifyCreateListingProductSet($input: Pr
 
 /**
  * Synchronous productSet upsert by generation-scoped custom ID.
- * Creates/updates a DRAFT product (UI draft contract through initial content
- * convergence). Does not set inventory quantities or publish to sales channels
- * (write_publications not granted).
+ * Creates the remote product as DRAFT so it is not purchasable until inventory
+ * is initialized and PUBLISH_LISTING activates + publishes to Online Store.
+ * Does not set inventory quantities or publish to sales channels.
  */
 export async function productSetShopifyDraftListing(
   input: ShopifyProductSetListingInput

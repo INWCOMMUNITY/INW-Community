@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 /**
  * Seller-safe Shopify listing readiness for current-generation mappings only.
  * Never exposes tokens or provider secrets.
- * Does not mutate remote product status (DRAFT stays DRAFT until explicit activation).
+ * Does not mutate remote product status or sales-channel publication.
  */
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);

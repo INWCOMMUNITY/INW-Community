@@ -483,6 +483,11 @@ export type {
   ShopifyInventoryDesireDb,
 } from "./shopify/inventory-desire";
 export {
+  ensureShopifyPublishListingJob,
+  shopifyPublishListingDedupeKey,
+} from "./shopify/publish-desire";
+export type { ShopifyPublishJobDb } from "./shopify/publish-desire";
+export {
   classifyShopifyInventoryProjectionAction,
   shopifyInventoryActivateIdempotencyKey,
   shopifyInventoryProjectionReferenceUri,

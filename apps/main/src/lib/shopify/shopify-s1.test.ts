@@ -44,7 +44,16 @@ const config = {
   redirectUri: "https://app.example.com/api/shopify/oauth/callback",
   uninstallWebhookUri: "https://app.example.com/api/shopify/webhooks/uninstalled",
   providerEvidenceWebhookUri: "https://app.example.com/api/shopify/webhooks/inbox",
-  scopes: ["read_products", "write_products", "read_inventory", "write_inventory", "read_orders", "read_locations"],
+  scopes: [
+    "read_products",
+    "write_products",
+    "read_inventory",
+    "write_inventory",
+    "read_publications",
+    "write_publications",
+    "read_orders",
+    "read_locations",
+  ],
   apiVersion: "2026-07",
 };
 
@@ -116,7 +125,7 @@ describe("oauth state", () => {
 
 describe("scopes and locations", () => {
   it("treats write as satisfying the matching read scope", () => {
-    expect(missingShopifyScopes("write_products,write_inventory,read_orders,read_locations")).toEqual([]);
+    expect(missingShopifyScopes("write_products,write_inventory,write_publications,read_orders,read_locations")).toEqual([]);
   });
 
   it("keeps only active online merchant locations", () => {

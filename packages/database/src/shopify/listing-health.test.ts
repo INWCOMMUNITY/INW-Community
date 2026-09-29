@@ -37,7 +37,22 @@ const healthyRemote = {
 };
 
 describe("classifyShopifyListingHealth", () => {
-  it("healthy physical DRAFT → READY_TO_PUBLISH", () => {
+  it("healthy physical ACTIVE → READY_TO_PUBLISH (Published)", () => {
+    const health = classifyShopifyListingHealth({
+      connectionStatus: "ACTIVE",
+      primaryLocationId: "gid://shopify/Location/1",
+      listing: baseListing,
+      variantMap: baseVariant,
+      hasCausalSaleConflict: false,
+      remote: { ...healthyRemote, productStatus: "ACTIVE" },
+    });
+    expect(health.readiness).toBe("READY_TO_PUBLISH");
+    expect(health.issueCode).toBeNull();
+    expect(health.blockContentOutbound).toBe(false);
+    expect(health.blockInventoryOutbound).toBe(false);
+  });
+
+  it("healthy physical DRAFT stays SYNCING until publication", () => {
     const health = classifyShopifyListingHealth({
       connectionStatus: "ACTIVE",
       primaryLocationId: "gid://shopify/Location/1",
@@ -46,13 +61,11 @@ describe("classifyShopifyListingHealth", () => {
       hasCausalSaleConflict: false,
       remote: healthyRemote,
     });
-    expect(health.readiness).toBe("READY_TO_PUBLISH");
+    expect(health.readiness).toBe("SYNCING");
     expect(health.issueCode).toBeNull();
-    expect(health.blockContentOutbound).toBe(false);
-    expect(health.blockInventoryOutbound).toBe(false);
   });
 
-  it("healthy MTO with NOT_APPLICABLE inventory → READY_TO_PUBLISH", () => {
+  it("healthy MTO with NOT_APPLICABLE inventory + ACTIVE → READY_TO_PUBLISH", () => {
     const health = classifyShopifyListingHealth({
       connectionStatus: "ACTIVE",
       primaryLocationId: "gid://shopify/Location/1",
@@ -66,7 +79,12 @@ describe("classifyShopifyListingHealth", () => {
         inventoryAppliedAvailable: null,
       },
       hasCausalSaleConflict: false,
-      remote: { ...healthyRemote, remoteAvailable: null, inventoryLevelExists: false },
+      remote: {
+        ...healthyRemote,
+        productStatus: "ACTIVE",
+        remoteAvailable: null,
+        inventoryLevelExists: false,
+      },
     });
     expect(health.readiness).toBe("READY_TO_PUBLISH");
   });

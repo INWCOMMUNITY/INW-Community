@@ -16,6 +16,7 @@ vi.mock("database", async () => {
     lookupShopifyListingByStoreItem: vi.fn(),
     createShopifyListingMapping: vi.fn(),
     enqueueShopifySyncJob: vi.fn(),
+    ensureShopifyPublishListingJob: vi.fn(),
   };
 });
 
@@ -33,6 +34,7 @@ vi.mock("./connect", () => ({
 import {
   createShopifyListingMapping,
   enqueueShopifySyncJob,
+  ensureShopifyPublishListingJob,
   lookupShopifyListingByStoreItem,
   prisma,
 } from "database";
@@ -309,6 +311,13 @@ describe("shopify CREATE_LISTING provider", () => {
       },
       variantMaps: [],
     } as never);
+    vi.mocked(ensureShopifyPublishListingJob).mockReset();
+    vi.mocked(ensureShopifyPublishListingJob).mockResolvedValue({
+      id: "publish-job-1",
+      state: "PENDING",
+      kind: "PUBLISH_LISTING",
+      dedupeKey: "PUBLISH_LISTING:conn-gen-1:item-1",
+    } as never);
   });
 
   function metafieldLookupResponse() {
@@ -447,6 +456,14 @@ describe("shopify CREATE_LISTING provider", () => {
             shopifyInventoryItemId: "gid://shopify/InventoryItem/7",
           },
         ],
+      })
+    );
+    expect(ensureShopifyPublishListingJob).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        connectionId: "conn-gen-1",
+        storeItemId: "item-1",
+        listingLinkId: "link-1",
       })
     );
   });
@@ -649,5 +666,6 @@ describe("shopify CREATE_LISTING provider", () => {
     expect(result).toEqual({ outcome: "SUCCESS" });
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(createShopifyListingMapping).not.toHaveBeenCalled();
+    expect(ensureShopifyPublishListingJob).not.toHaveBeenCalled();
   });
 });

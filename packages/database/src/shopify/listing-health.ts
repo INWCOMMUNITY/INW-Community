@@ -368,11 +368,27 @@ export function classifyShopifyListingHealth(
     };
   }
 
-  // DRAFT is expected pre-publication. Unexpected statuses are informational only unless blocking.
-  if (remoteStatus && remoteStatus !== "DRAFT" && remoteStatus !== "ACTIVE") {
+  // DRAFT after inventory/content convergence means publication is still pending
+  // (or a seller intentionally set Draft). ACTIVE is the healthy live export state.
+  // Content sync never forces ACTIVE/publication; Sync's PUBLISH_LISTING does.
+  if (remoteStatus === "DRAFT") {
+    return {
+      readiness: "SYNCING",
+      contentHealth: "HEALTHY",
+      inventoryHealth: "HEALTHY",
+      issueCode: null,
+      issueFingerprint: null,
+      issueSeverity: null,
+      issueMessage: null,
+      blockContentOutbound: false,
+      blockInventoryOutbound: false,
+      remoteProductStatus: remoteStatus,
+    };
+  }
+  if (remoteStatus && remoteStatus !== "ACTIVE") {
     return issue(
       "UNEXPECTED_PRODUCT_STATUS",
-      `Shopify product status is ${remoteStatus}. Review before publishing from INW.`,
+      `Shopify product status is ${remoteStatus}. Review this listing in Shopify Admin.`,
       "WARNING",
       {
         contentHealth: "DEGRADED",

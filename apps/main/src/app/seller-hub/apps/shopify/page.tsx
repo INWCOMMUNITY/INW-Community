@@ -86,7 +86,7 @@ export default function AppsAirportShopifyPage() {
     {
       href: APPS_AIRPORT_SHOPIFY_SYNC_PATH,
       label: "Sync a listing",
-      description: "Export a new INW listing to Shopify as a draft.",
+      description: "Export a new INW listing to Shopify as ACTIVE and published to Online Store.",
       enabled: uiStatus === "connected",
     },
     {

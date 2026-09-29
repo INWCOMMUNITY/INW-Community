@@ -71,7 +71,7 @@ export function shopifyConnectionStatusLabel(status: ShopifyConnectionUiStatus):
 export function shopifyReadinessLabel(readiness: string | null | undefined): string {
   switch (readiness) {
     case "READY_TO_PUBLISH":
-      return "Ready to publish";
+      return "Published";
     case "ACTION_REQUIRED":
       return "Needs attention";
     case "CONNECTION_REQUIRED":
@@ -100,10 +100,11 @@ export function shopifyHealthLabel(health: string | null | undefined): string {
 export type ShopifySyncProgressStep =
   | "preparing"
   | "queued"
-  | "creating_draft"
+  | "creating_product"
   | "mapping"
   | "inventory_initializing"
-  | "ready_to_publish"
+  | "publishing"
+  | "published"
   | "needs_attention"
   | "already_mapped";
 
@@ -113,14 +114,16 @@ export function shopifySyncProgressLabel(step: ShopifySyncProgressStep): string 
       return "Preparing";
     case "queued":
       return "Queued";
-    case "creating_draft":
-      return "Creating Shopify draft";
+    case "creating_product":
+      return "Creating Shopify product";
     case "mapping":
       return "Mapping";
     case "inventory_initializing":
-      return "Inventory initializing";
-    case "ready_to_publish":
-      return "Ready to publish";
+      return "Initializing inventory";
+    case "publishing":
+      return "Publishing to Online Store";
+    case "published":
+      return "Published to Online Store";
     case "needs_attention":
       return "Needs attention";
     case "already_mapped":
@@ -133,18 +136,26 @@ export function resolveShopifySyncProgress(input: {
   listing?: {
     readiness?: string | null;
     inventoryInitState?: string | null;
+    remoteProductStatus?: string | null;
   } | null;
 }): ShopifySyncProgressStep {
   if (input.enqueueStatus === "already_mapped" && !input.listing) return "already_mapped";
   if (!input.listing) {
-    if (input.enqueueStatus === "queued") return "creating_draft";
+    if (input.enqueueStatus === "queued") return "creating_product";
     return "preparing";
   }
-  if (input.listing.readiness === "READY_TO_PUBLISH") return "ready_to_publish";
+  if (input.listing.readiness === "READY_TO_PUBLISH") return "published";
   if (input.listing.readiness === "ACTION_REQUIRED" || input.listing.readiness === "CONNECTION_REQUIRED") {
     return "needs_attention";
   }
   if (input.listing.inventoryInitState === "PENDING") return "inventory_initializing";
+  if (
+    input.listing.inventoryInitState === "INITIALIZED" ||
+    input.listing.inventoryInitState === "NOT_APPLICABLE"
+  ) {
+    const remote = String(input.listing.remoteProductStatus ?? "").toUpperCase();
+    if (remote !== "ACTIVE") return "publishing";
+  }
   if (input.listing.readiness === "SYNCING") return "mapping";
   return "queued";
 }

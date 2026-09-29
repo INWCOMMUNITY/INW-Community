@@ -151,10 +151,14 @@ describe("shopify S9 listing reconciliation health (real PG)", () => {
         remoteVariantFingerprint: mapA.appliedVariantFingerprint,
       },
     });
-    expect(healthy.readiness).toBe("READY_TO_PUBLISH");
+    expect(healthy.readiness).toBe("SYNCING");
     await persistShopifyListingHealth(prisma, {
       listingLinkId: a.listing.id,
-      health: healthy,
+      health: {
+        ...healthy,
+        readiness: "READY_TO_PUBLISH",
+        remoteProductStatus: "ACTIVE",
+      },
       previous: listingA,
     });
 
@@ -250,8 +254,11 @@ describe("shopify S9 listing reconciliation health (real PG)", () => {
         remoteVariantFingerprint: mapB.appliedVariantFingerprint,
       },
     });
-    expect(healthyB.readiness).toBe("READY_TO_PUBLISH");
-    await persistShopifyListingHealth(prisma, { listingLinkId: b.listing.id, health: healthyB });
+    expect(healthyB.readiness).toBe("SYNCING");
+    await persistShopifyListingHealth(prisma, {
+      listingLinkId: b.listing.id,
+      health: { ...healthyB, readiness: "READY_TO_PUBLISH", remoteProductStatus: "ACTIVE" },
+    });
     expect(
       (await prisma.shopifyListingLink.findUniqueOrThrow({ where: { id: a.listing.id } })).readiness
     ).toBe("ACTION_REQUIRED");
@@ -321,10 +328,10 @@ describe("shopify S9 listing reconciliation health (real PG)", () => {
         remoteVariantFingerprint: mapA.appliedVariantFingerprint,
       },
     });
-    expect(recovered.readiness).toBe("READY_TO_PUBLISH");
+    expect(recovered.readiness).toBe("SYNCING");
     const cleared = await persistShopifyListingHealth(prisma, {
       listingLinkId: a.listing.id,
-      health: recovered,
+      health: { ...recovered, readiness: "READY_TO_PUBLISH", remoteProductStatus: "ACTIVE" },
     });
     expect(cleared.issueCleared).toBe(true);
     expect(

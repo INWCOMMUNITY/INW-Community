@@ -64,9 +64,9 @@ describe("Shopify connection UI status", () => {
 });
 
 describe("Shopify sync progress and labels", () => {
-  it("does not treat enqueue alone as ready", () => {
+  it("does not treat enqueue alone as published", () => {
     expect(resolveShopifySyncProgress({ enqueueStatus: "queued", listing: null })).toBe(
-      "creating_draft"
+      "creating_product"
     );
     expect(
       resolveShopifySyncProgress({
@@ -77,13 +77,23 @@ describe("Shopify sync progress and labels", () => {
     expect(
       resolveShopifySyncProgress({
         enqueueStatus: "queued",
+        listing: {
+          readiness: "SYNCING",
+          inventoryInitState: "INITIALIZED",
+          remoteProductStatus: "DRAFT",
+        },
+      })
+    ).toBe("publishing");
+    expect(
+      resolveShopifySyncProgress({
+        enqueueStatus: "queued",
         listing: { readiness: "READY_TO_PUBLISH", inventoryInitState: "INITIALIZED" },
       })
-    ).toBe("ready_to_publish");
+    ).toBe("published");
   });
 
   it("preserves backend readiness truth in labels", () => {
-    expect(shopifyReadinessLabel("READY_TO_PUBLISH")).toBe("Ready to publish");
+    expect(shopifyReadinessLabel("READY_TO_PUBLISH")).toBe("Published");
     expect(shopifyReadinessLabel("ACTION_REQUIRED")).toBe("Needs attention");
   });
 

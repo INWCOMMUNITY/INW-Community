@@ -2256,7 +2256,8 @@ model ShopifyListingImportAttempt {
   @@map("shopify_listing_import_attempt")
 }
 
-/// Seller-facing readiness for a new Shopify listing (publication remains explicit).
+/// Seller-facing readiness for a mapped Shopify listing.
+/// READY_TO_PUBLISH means the listing is healthy and live (ACTIVE); export publishes during Sync.
 enum ShopifyListingReadiness {
   SYNCING
   READY_TO_PUBLISH
@@ -2310,7 +2311,7 @@ model ShopifyListingLink {
   issueLastSeenAt                DateTime? @map("issue_last_seen_at")
   lastReconciledAt               DateTime? @map("last_reconciled_at")
   readinessUpdatedAt             DateTime? @map("readiness_updated_at")
-  /// Last observed Shopify Product.status (DRAFT expected pre-publication; not an error alone).
+  /// Last observed Shopify Product.status (ACTIVE expected after Sync publication).
   remoteProductStatus            String?   @map("remote_product_status")
   /// NATIVE = exported/created from INW; SHOPIFY_IMPORT = imported from Shopify.
   importSource                   ShopifyListingImportSource @default(NATIVE) @map("import_source")
@@ -2450,6 +2451,7 @@ enum ShopifySyncJobKind {
   CREATE_LISTING
   UPDATE_LISTING_CONTENT
   PROJECT_INVENTORY
+  PUBLISH_LISTING
   RECONCILE_LISTING
 
   @@map("shopify_sync_job_kind")

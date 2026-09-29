@@ -11,6 +11,8 @@ export const SHOPIFY_OAUTH_SCOPES = [
   "write_products",
   "read_inventory",
   "write_inventory",
+  "read_publications",
+  "write_publications",
   "read_orders",
   "read_locations",
 ] as const;

@@ -27,6 +27,7 @@ type ListingStatus = {
   storeItemId: string;
   readiness: string;
   inventoryInitState: string | null;
+  remoteProductStatus?: string | null;
   issueMessage: string | null;
 };
 
@@ -88,7 +89,7 @@ export default function AppsAirportShopifySyncPage() {
       setProgress(step);
       if (listing?.issueMessage) setProgressDetail(listing.issueMessage);
       if (
-        step === "ready_to_publish" ||
+        step === "published" ||
         step === "needs_attention" ||
         (enqueueStatus === "already_mapped" && listing)
       ) {
@@ -145,7 +146,7 @@ export default function AppsAirportShopifySyncPage() {
   return (
     <AppsAirportChrome
       title="Sync a listing"
-      subtitle="Choose an active INW listing that is not already mapped, then export it to Shopify as a draft."
+      subtitle="Choose an active INW listing that is not already mapped, then export it to Shopify as an ACTIVE product published to your Online Store."
       crumbs={[
         { href: APPS_AIRPORT_SHOPIFY_PATH, label: "Shopify" },
         { href: `${APPS_AIRPORT_SHOPIFY_PATH}/sync`, label: "Sync" },
@@ -187,7 +188,7 @@ export default function AppsAirportShopifySyncPage() {
             Sync status: {shopifySyncProgressLabel(progress)}
           </p>
           {progressDetail ? <p className="mt-1 text-sm text-neutral-600">{progressDetail}</p> : null}
-          {(progress === "ready_to_publish" ||
+          {(progress === "published" ||
             progress === "needs_attention" ||
             progress === "already_mapped") && (
             <Link

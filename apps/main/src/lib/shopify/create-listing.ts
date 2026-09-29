@@ -13,6 +13,7 @@ import { shopifyCreateListingDedupeKey } from "./listing-export-id";
 import { ensureShopifyListingExportMetafieldDefinition } from "./listing-metafield";
 import { lookupShopifyListingProductByCustomId } from "./listing-product-lookup";
 import { productSetShopifyDraftListing } from "./product-set-listing";
+import { enqueueShopifyPublishListingAfterMapping } from "./publish-listing-job";
 
 export type EnqueueShopifyCreateListingResult =
   | {
@@ -181,8 +182,9 @@ async function persistCreateListingMapping(input: {
   variantId: string;
   inventoryItemId: string;
 }): Promise<ShopifyJobHandlerResult> {
+  let listingLinkId: string;
   try {
-    await createShopifyListingMapping(prisma, {
+    const mapped = await createShopifyListingMapping(prisma, {
       memberId: input.memberId,
       connectionId: input.connectionId,
       storeItemId: input.storeItemId,
@@ -195,6 +197,7 @@ async function persistCreateListingMapping(input: {
         },
       ],
     });
+    listingLinkId = mapped.listingLink.id;
   } catch (error) {
     if (error instanceof ShopifyMappingConflictError) {
       return {
@@ -213,6 +216,22 @@ async function persistCreateListingMapping(input: {
       };
     }
     throw error;
+  }
+
+  // Inventory init (PROJECT_INVENTORY) is seeded inside mapping. Publication waits
+  // on INITIALIZED / NOT_APPLICABLE before ACTIVE + Online Store publish.
+  const publish = await enqueueShopifyPublishListingAfterMapping({
+    connectionId: input.connectionId,
+    storeItemId: input.storeItemId,
+    listingLinkId,
+  });
+  if (!publish.ok) {
+    return {
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: "PUBLISH_ENQUEUE_FAILED",
+      errorMessage: publish.errorMessage,
+    };
   }
   return { outcome: "SUCCESS" };
 }
@@ -261,8 +280,8 @@ export async function handleShopifyCreateListingJob(
     storeItemId: payload.storeItemId,
   });
   if (existing.status === "MAPPED") {
-    // Already mapped for this generation. Preserve remote status (including DRAFT);
-    // do not promote to ACTIVE during create/retry.
+    // Already mapped for this generation. Do not create another product, do not
+    // auto-publish existing drafts, and do not change INW listing status.
     return { outcome: "SUCCESS" };
   }
   if (existing.status === "CONNECTION_INACTIVE") {
@@ -344,8 +363,9 @@ export async function handleShopifyCreateListingJob(
   }
 
   if (discovered.product) {
-    // READ + MAP only. Never productSet when the custom-ID product already exists.
-    // Preserve remote DRAFT/ACTIVE; do not promote status during create recovery.
+    // READ + MAP only for the custom-ID product. Publication is enqueued after
+    // mapping so inventory can initialize before Online Store publish. Remutation
+    // is never issued when the product already exists (duplicate-safe).
     return persistCreateListingMapping({
       memberId: connection.memberId,
       connectionId: connection.id,
