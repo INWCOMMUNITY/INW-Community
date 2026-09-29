@@ -27,30 +27,94 @@ export function normalizeShopifyDescription(description: string | null | undefin
   return typeof description === "string" ? description : "";
 }
 
+export function normalizeShopifyVendor(vendor: string | null | undefined): string {
+  return typeof vendor === "string" ? vendor.trim() : "";
+}
+
+export function normalizeShopifyBarcode(barcode: string | null | undefined): string {
+  return typeof barcode === "string" ? barcode.trim() : "";
+}
+
+export function normalizeShopifyTags(tags: string[] | null | undefined): string[] {
+  if (!Array.isArray(tags)) return [];
+  return tags
+    .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+export function normalizeShopifyPhotoUrls(photos: string[] | null | undefined): string[] {
+  if (!Array.isArray(photos)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of photos) {
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+export function normalizeShopifyAspects(aspects: unknown): Array<{ name: string; value: string }> {
+  if (!Array.isArray(aspects)) return [];
+  const rows: Array<{ name: string; value: string }> = [];
+  for (const entry of aspects) {
+    if (!entry || typeof entry !== "object") continue;
+    const rec = entry as Record<string, unknown>;
+    const name = typeof rec.name === "string" ? rec.name.trim() : "";
+    const value =
+      typeof rec.value === "string"
+        ? rec.value.trim()
+        : rec.value != null
+          ? String(rec.value).trim()
+          : "";
+    if (!name || !value) continue;
+    rows.push({ name, value });
+  }
+  return rows.sort((a, b) => a.name.localeCompare(b.name) || a.value.localeCompare(b.value));
+}
+
 function sha256Hex(canonical: string): string {
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
-/** Product content fingerprint: title + description only. */
+/** Product content fingerprint: title, description, photos, vendor, tags, aspects. */
 export function shopifyProductContentFingerprint(input: {
   title: string | null | undefined;
   description: string | null | undefined;
+  photos?: string[] | null | undefined;
+  vendor?: string | null | undefined;
+  tags?: string[] | null | undefined;
+  aspects?: unknown;
 }): string {
   const payload = {
     title: normalizeShopifyTitle(input.title),
     description: normalizeShopifyDescription(input.description),
+    photos: normalizeShopifyPhotoUrls(input.photos),
+    vendor: normalizeShopifyVendor(input.vendor),
+    tags: normalizeShopifyTags(input.tags),
+    aspects: normalizeShopifyAspects(input.aspects),
   };
   return sha256Hex(JSON.stringify(payload));
 }
 
-/** Variant content fingerprint: price (Shopify decimal) + SKU only. */
+/** Variant content fingerprint: price, SKU, barcode, compare-at. */
 export function shopifyVariantContentFingerprint(input: {
   priceCents: number;
   sku: string | null | undefined;
+  barcode?: string | null | undefined;
+  compareAtPriceCents?: number | null | undefined;
 }): string {
   const payload = {
     price: shopifyMoneyFromCents(input.priceCents),
     sku: normalizeShopifySku(input.sku),
+    barcode: normalizeShopifyBarcode(input.barcode),
+    compareAtPrice:
+      typeof input.compareAtPriceCents === "number" && Number.isFinite(input.compareAtPriceCents)
+        ? shopifyMoneyFromCents(input.compareAtPriceCents)
+        : "",
   };
   return sha256Hex(JSON.stringify(payload));
 }

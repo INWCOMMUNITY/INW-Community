@@ -9,6 +9,7 @@ import {
   assertShopifyProductVariantGid,
   ShopifyGidValidationError,
 } from "./gids";
+import { seedShopifyListingFieldConvergence } from "./field-state";
 import {
   ShopifyMappingConflictError,
   ShopifyMappingError,
@@ -234,6 +235,18 @@ export async function createShopifyImportedListingMapping(
       inventoryDriftState: "NONE",
       ...inventorySeed,
     },
+  });
+
+  await seedShopifyListingFieldConvergence(tx, {
+    connectionId: input.connectionId,
+    listingLinkId: listingLink.id,
+    memberId: input.memberId,
+    storeItemId: input.storeItemId,
+    storeVariantId: storeVariant.id,
+    title: storeItem.title,
+    description: storeItem.description,
+    priceCents: storeVariant.priceCents,
+    sku: storeVariant.sku,
   });
 
   const variantMaps = await tx.shopifyVariantMap.findMany({

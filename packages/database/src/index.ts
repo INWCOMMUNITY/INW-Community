@@ -525,6 +525,51 @@ export {
   shopifyUpdateListingContentDedupeKey,
   shopifyVariantContentFingerprint,
 } from "./shopify/content-fingerprint";
+export {
+  planShopifyFieldLevelSync,
+  SHOPIFY_PRODUCT_FIELD_KEYS,
+  SHOPIFY_VARIANT_FIELD_KEYS,
+} from "./shopify/field-semantic";
+export type {
+  ShopifyAdaptiveFieldKey,
+  ShopifyFieldObservation,
+  ShopifyFieldPlan,
+  ShopifyFieldSemanticAction,
+} from "./shopify/field-semantic";
+export {
+  shopifyDescriptionFieldFingerprint,
+  shopifyFieldFingerprint,
+  normalizeShopifyDescriptionHtmlForCompare,
+} from "./shopify/field-fingerprint";
+export {
+  loadShopifyFieldStates,
+  markShopifyFieldsApplied,
+  persistShopifyFieldPlans,
+  seedShopifyListingFieldConvergence,
+} from "./shopify/field-state";
+export type { ShopifyFieldStateDb } from "./shopify/field-state";
+export { planShopifyOutboundContentFields } from "./shopify/content-outbound-fields";
+export type { ShopifyOutboundFieldPlan } from "./shopify/content-outbound-fields";
+export {
+  matchRemoteShopifyMediaToMaps,
+  planShopifyMediaDesireFromPhotos,
+  shopifyMediaContentSha256,
+  shopifyMediaIdentityFingerprint,
+  upsertShopifyMediaDesireMaps,
+} from "./shopify/media-map";
+export type { ShopifyMediaDesireRow, ShopifyMediaMapDb } from "./shopify/media-map";
+export {
+  classifyShopifyDirectInventoryEdit,
+  shouldPauseInventoryForDirectShopifyEdit,
+} from "./shopify/inventory-direct-edit";
+export type { ShopifyDirectInventoryEditClass } from "./shopify/inventory-direct-edit";
+export {
+  normalizeShopifyAspects,
+  normalizeShopifyBarcode,
+  normalizeShopifyPhotoUrls,
+  normalizeShopifyTags,
+  normalizeShopifyVendor,
+} from "./shopify/content-fingerprint";
 export { classifyShopifyContentSemantics } from "./shopify/content-semantic";
 export type {
   ClassifyShopifyContentSemanticsInput,

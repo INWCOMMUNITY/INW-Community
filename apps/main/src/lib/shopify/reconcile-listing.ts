@@ -228,12 +228,17 @@ export async function handleShopifyReconcileListingJob(
     where: { shopifyListingLinkId: listing.id, shopifyConnectionId: connection.id },
     orderBy: { createdAt: "asc" },
   });
-  if (variantMaps.length !== 1) {
+  const fieldConflictRows = await prisma.shopifyListingFieldState.findMany({
+    where: { shopifyListingLinkId: listing.id, conflict: true },
+    select: { fieldKey: true },
+  });
+  const fieldConflictKeys = fieldConflictRows.map((row) => row.fieldKey);
+  if (variantMaps.length === 0) {
     const health = classifyShopifyListingHealth({
       connectionStatus: connection.status,
       primaryLocationId: connection.primaryLocationId,
       listing,
-      variantMap: variantMaps[0] ?? {
+      variantMap: {
         desiredVariantContentVersion: 0,
         appliedVariantContentVersion: 0,
         desiredVariantFingerprint: null,
@@ -247,11 +252,12 @@ export async function handleShopifyReconcileListingJob(
         inventoryDriftState: "NONE",
       },
       hasCausalSaleConflict: false,
+      fieldConflictKeys,
       remote: {
         productExists: true,
         productStatus: listing.remoteProductStatus,
-        variantCount: Math.max(2, variantMaps.length),
-        mappedVariantPresent: variantMaps.length === 1,
+        variantCount: 0,
+        mappedVariantPresent: false,
         inventoryItemMatches: false,
         inventoryTracked: null,
         inventoryLevelExists: null,
@@ -316,7 +322,12 @@ export async function handleShopifyReconcileListingJob(
     listing,
     variantMap,
     hasCausalSaleConflict: Boolean(causalConflict),
-    remote: remoteRead.remote,
+    fieldConflictKeys,
+    remote: {
+      ...remoteRead.remote,
+      variantCount: Math.max(remoteRead.remote.variantCount, variantMaps.length),
+      mappedVariantPresent: true,
+    },
   });
 
   const persisted = await persistShopifyListingHealth(prisma, {

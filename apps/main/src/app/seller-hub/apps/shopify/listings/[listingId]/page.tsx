@@ -39,6 +39,9 @@ type ListingDetail = {
   updatedAt: string;
   blockContentOutbound: boolean;
   blockInventoryOutbound: boolean;
+  fieldConflicts?: string[];
+  productContentConflict?: boolean;
+  variantContentConflict?: boolean;
   importSource?: string | null;
   importedAt?: string | null;
 };
@@ -189,6 +192,22 @@ export default function AppsAirportShopifyListingDetailPage() {
                   {listing.blockContentOutbound ? " (outbound paused)" : ""}
                 </dd>
               </div>
+              {(listing.fieldConflicts && listing.fieldConflicts.length > 0) ||
+              listing.productContentConflict ||
+              listing.variantContentConflict ? (
+                <div>
+                  <dt className="text-neutral-500">Field conflicts</dt>
+                  <dd className="text-amber-900">
+                    {(listing.fieldConflicts && listing.fieldConflicts.length > 0
+                      ? listing.fieldConflicts
+                      : [
+                          listing.productContentConflict ? "PRODUCT" : null,
+                          listing.variantContentConflict ? "VARIANT" : null,
+                        ].filter(Boolean)
+                    ).join(", ")}
+                  </dd>
+                </div>
+              ) : null}
               <div>
                 <dt className="text-neutral-500">Inventory health</dt>
                 <dd>

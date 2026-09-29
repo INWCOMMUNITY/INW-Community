@@ -9,7 +9,9 @@ import {
   assertShopifyProductVariantGid,
   ShopifyGidValidationError,
 } from "./gids";
+import { seedShopifyListingFieldConvergence } from "./field-state";
 import { seedShopifyInventoryProjectionOnMapping } from "./inventory-desire";
+import { planShopifyMediaDesireFromPhotos, upsertShopifyMediaDesireMaps } from "./media-map";
 
 export type ShopifyMappingDb = PrismaClient | Prisma.TransactionClient;
 
@@ -245,7 +247,7 @@ export async function createShopifyListingMapping(
 
     const storeItem = await tx.storeItem.findFirst({
       where: { id: input.storeItemId, memberId: input.memberId },
-      select: { id: true, memberId: true, title: true, description: true },
+      select: { id: true, memberId: true, title: true, description: true, photos: true },
     });
     if (!storeItem) {
       throw new ShopifyMappingError("STORE_ITEM_NOT_FOUND", "Store item was not found for this member");
@@ -357,6 +359,34 @@ export async function createShopifyListingMapping(
           storeItemId: input.storeItemId,
           storeVariantId: map.storeVariantId,
           variantMapId: map.id,
+        });
+      }
+      // Seed per-field BASE at first convergence (single-variant export path).
+      if (createdMaps.length === 1) {
+        const only = createdMaps[0];
+        const sv = storeVariantById.get(only.storeVariantId)!;
+        await seedShopifyListingFieldConvergence(tx, {
+          connectionId: input.connectionId,
+          listingLinkId: listingLink.id,
+          memberId: input.memberId,
+          storeItemId: input.storeItemId,
+          storeVariantId: only.storeVariantId,
+          title: storeItem.title,
+          description: storeItem.description,
+          priceCents: sv.priceCents,
+          sku: sv.sku,
+        });
+      }
+      // Seed durable media identity maps (URLs are source hints only).
+      const mediaPlan = planShopifyMediaDesireFromPhotos(storeItem.photos, []);
+      if (mediaPlan.desired.length > 0) {
+        await upsertShopifyMediaDesireMaps(tx, {
+          connectionId: input.connectionId,
+          listingLinkId: listingLink.id,
+          memberId: input.memberId,
+          storeItemId: input.storeItemId,
+          desired: mediaPlan.desired,
+          removeInwMediaIds: [],
         });
       }
       return loadListingSnapshot(tx, listingLink.id);

@@ -10,11 +10,22 @@ vi.mock("database", async () => {
       shopifyConnection: { findUnique: vi.fn() },
       shopifyListingLink: { findUnique: vi.fn() },
       shopifyVariantMap: { findMany: vi.fn() },
+      shopifyListingFieldState: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn(),
+        updateMany: vi.fn(),
+      },
+      shopifyMediaMap: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn(),
+        updateMany: vi.fn(),
+      },
       storeItem: { findFirst: vi.fn() },
       storeVariant: { findFirst: vi.fn() },
     },
     markShopifyProductContentApplied: vi.fn(),
     markShopifyVariantContentApplied: vi.fn(),
+    markShopifyFieldsApplied: vi.fn(),
     setShopifyProductContentConflict: vi.fn(),
     setShopifyVariantContentConflict: vi.fn(),
   };
@@ -122,6 +133,7 @@ const storeItem = {
   description: "New Desc",
   priceCents: 1037,
   sku: "SKU-NEW",
+  photos: [] as string[],
 };
 
 const storeVariant = {

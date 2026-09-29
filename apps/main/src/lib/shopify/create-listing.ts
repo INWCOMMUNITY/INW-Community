@@ -218,6 +218,31 @@ async function persistCreateListingMapping(input: {
     throw error;
   }
 
+  // Push durable-mapped photos after product create (incremental media API; not productSet).
+  const storeItemForMedia = await prisma.storeItem.findFirst({
+    where: { id: input.storeItemId, memberId: input.memberId },
+    select: { photos: true },
+  });
+  if (storeItemForMedia?.photos?.length) {
+    const { syncShopifyListingMedia } = await import("./sync-listing-media");
+    const media = await syncShopifyListingMedia({
+      connectionId: input.connectionId,
+      listingLinkId,
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+      productId: input.productId,
+      photos: storeItemForMedia.photos,
+    });
+    if (!media.ok && media.outcome === "RETRY") {
+      return {
+        outcome: "RETRY",
+        errorClass: media.errorClass,
+        errorCode: media.errorCode,
+        errorMessage: media.errorMessage,
+      };
+    }
+  }
+
   // Inventory init (PROJECT_INVENTORY) is seeded inside mapping. Publication waits
   // on INITIALIZED / NOT_APPLICABLE before ACTIVE + Online Store publish.
   const publish = await enqueueShopifyPublishListingAfterMapping({

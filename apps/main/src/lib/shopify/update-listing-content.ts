@@ -1,6 +1,10 @@
 import {
   markShopifyProductContentApplied,
   markShopifyVariantContentApplied,
+  markShopifyFieldsApplied,
+  loadShopifyFieldStates,
+  persistShopifyFieldPlans,
+  planShopifyOutboundContentFields,
   prisma,
   setShopifyProductContentConflict,
   setShopifyVariantContentConflict,
@@ -12,6 +16,7 @@ import {
 import type { ShopifyJobHandlerResult, ShopifySyncJobClaim } from "database";
 import type { ShopifyFetch } from "./admin-graphql";
 import { executeShopifyAdminGraphql } from "./admin-graphql";
+import { syncShopifyListingMedia } from "./sync-listing-media";
 
 function parseUpdatePayload(payload: unknown): {
   storeItemId: string;
@@ -163,11 +168,18 @@ async function readMappedListingContent(input: {
 async function productUpdateScalars(input: {
   connectionId: string;
   productId: string;
-  title: string;
-  descriptionHtml: string | null;
+  /** Omit to leave remote title untouched (field-level push). */
+  title?: string;
+  /** Omit to leave remote description untouched (field-level push). */
+  descriptionHtml?: string | null;
   fetchImpl?: ShopifyFetch;
   now?: Date;
 }): Promise<{ ok: true } | ({ ok: false } & HandlerFailure)> {
+  const product: Record<string, unknown> = { id: input.productId };
+  if (input.title !== undefined) product.title = input.title;
+  if (input.descriptionHtml !== undefined) {
+    product.descriptionHtml = input.descriptionHtml ?? "";
+  }
   const result = await executeShopifyAdminGraphql<{
     productUpdate: {
       product: { id: string } | null;
@@ -183,13 +195,7 @@ async function productUpdateScalars(input: {
         userErrors { field message code }
       }
     }`,
-    variables: {
-      product: {
-        id: input.productId,
-        title: input.title,
-        descriptionHtml: input.descriptionHtml ?? "",
-      },
-    },
+    variables: { product },
     fetchImpl: input.fetchImpl,
     now: input.now,
   });
@@ -244,11 +250,19 @@ async function variantBulkUpdateScalars(input: {
   connectionId: string;
   productId: string;
   variantId: string;
-  price: string;
-  sku: string;
+  /** Omit to leave remote price untouched (field-level push). */
+  price?: string;
+  /** Omit to leave remote SKU untouched (field-level push). */
+  sku?: string;
   fetchImpl?: ShopifyFetch;
   now?: Date;
 }): Promise<{ ok: true } | ({ ok: false } & HandlerFailure)> {
+  const variant: Record<string, unknown> = { id: input.variantId };
+  if (input.price !== undefined) variant.price = input.price;
+  if (input.sku !== undefined) {
+    // 2026-07: SKU lives on InventoryItemInput, not ProductVariantsBulkInput root.
+    variant.inventoryItem = { sku: input.sku ? input.sku : null };
+  }
   const result = await executeShopifyAdminGraphql<{
     productVariantsBulkUpdate: {
       productVariants: Array<{ id: string }> | null;
@@ -266,16 +280,7 @@ async function variantBulkUpdateScalars(input: {
     }`,
     variables: {
       productId: input.productId,
-      variants: [
-        {
-          id: input.variantId,
-          price: input.price,
-          // 2026-07: SKU lives on InventoryItemInput, not ProductVariantsBulkInput root.
-          inventoryItem: {
-            sku: input.sku ? input.sku : null,
-          },
-        },
-      ],
+      variants: [variant],
     },
     fetchImpl: input.fetchImpl,
     now: input.now,
@@ -390,15 +395,16 @@ export async function handleShopifyUpdateListingContentJob(
     where: { shopifyListingLinkId: listing.id, shopifyConnectionId: connection.id },
     orderBy: { createdAt: "asc" },
   });
-  if (variantMaps.length !== 1 || variantMaps[0].storeVariantId !== payload.storeVariantId) {
+  const variantMap =
+    variantMaps.find((row) => row.storeVariantId === payload.storeVariantId) ?? null;
+  if (!variantMap) {
     return {
       outcome: "DEAD",
       errorClass: "GRAPHQL_PERMANENT",
       errorCode: "UNSUPPORTED_VARIANTS",
-      errorMessage: "Mapped listing no longer has exactly one matching variant",
+      errorMessage: "Mapped listing has no variant map matching the job payload",
     };
   }
-  const variantMap = variantMaps[0];
 
   const applyProduct =
     payload.productDesiredVersion === listing.desiredProductContentVersion &&
@@ -518,34 +524,91 @@ export async function handleShopifyUpdateListingContentJob(
     sku: remote.product.variant.sku,
   });
 
+  const fieldStates = await loadShopifyFieldStates(prisma, listing.id);
+  const byKey = new Map(fieldStates.map((s) => [`${s.fieldKey}:${s.storeVariantId}`, s]));
+  const hasFieldBases = ["TITLE", "DESCRIPTION", "PRICE", "SKU"].every((key) => {
+    const variantId = key === "PRICE" || key === "SKU" ? variantMap.storeVariantId : "";
+    return byKey.has(`${key}:${variantId}`);
+  });
+
   let pendingRetry: HandlerFailure | null = null;
   let pendingDead: HandlerFailure | null = null;
 
-  if (applyProduct) {
-    if (listing.productContentConflict) {
-      // Unresolved dual-divergence: do not overwrite remote.
-      // Terminal success — conflict owns the unresolved state (no infinite RETRY).
-    } else {
-      const productClass = classifyShopifyContentSemantics({
-        base: listing.appliedProductFingerprint,
-        local: desiredProductFp,
-        remote: remoteProductFp,
+  if (hasFieldBases) {
+    // Adaptive field-level push: only mutate LOCAL_ONLY fields.
+    const fieldPlan = planShopifyOutboundContentFields({
+      title: {
+        base: byKey.get("TITLE:")?.baseFingerprint ?? null,
+        local: storeItem.title,
+        remote: remote.product.title,
         hasLocalSemanticEdit:
           listing.desiredProductContentVersion > 0 || listing.productDesiredAt != null,
-      });
-      if (productClass === "CONVERGED" || productClass === "UNCHANGED") {
+      },
+      description: {
+        base: byKey.get("DESCRIPTION:")?.baseFingerprint ?? null,
+        local: storeItem.description,
+        remote: remote.product.descriptionHtml,
+        hasLocalSemanticEdit:
+          listing.desiredProductContentVersion > 0 || listing.productDesiredAt != null,
+      },
+      price: {
+        storeVariantId: variantMap.storeVariantId,
+        base: byKey.get(`PRICE:${variantMap.storeVariantId}`)?.baseFingerprint ?? null,
+        localCents: storeVariant.priceCents,
+        remoteCents: remotePriceCents,
+        hasLocalSemanticEdit:
+          variantMap.desiredVariantContentVersion > 0 || variantMap.variantDesiredAt != null,
+      },
+      sku: {
+        storeVariantId: variantMap.storeVariantId,
+        base: byKey.get(`SKU:${variantMap.storeVariantId}`)?.baseFingerprint ?? null,
+        local: storeVariant.sku,
+        remote: remote.product.variant.sku,
+        hasLocalSemanticEdit:
+          variantMap.desiredVariantContentVersion > 0 || variantMap.variantDesiredAt != null,
+      },
+    });
+
+    await persistShopifyFieldPlans(prisma, {
+      connectionId: connection.id,
+      listingLinkId: listing.id,
+      memberId: connection.memberId,
+      storeItemId: payload.storeItemId,
+      plans: fieldPlan.plans,
+      now: deps.now,
+    });
+
+    if (applyProduct && !listing.productContentConflict) {
+      if (fieldPlan.productConflict) {
+        await setShopifyProductContentConflict(prisma, {
+          listingLinkId: listing.id,
+          remoteFingerprint: remoteProductFp,
+          now: deps.now,
+        });
+      } else if (fieldPlan.productConverged) {
         await markShopifyProductContentApplied(prisma, {
           listingLinkId: listing.id,
           desiredVersion: payload.productDesiredVersion,
           fingerprint: desiredProductFp,
           now: deps.now,
         });
-      } else if (productClass === "LOCAL_ONLY") {
+        await markShopifyFieldsApplied(prisma, {
+          listingLinkId: listing.id,
+          fields: fieldPlan.plans
+            .filter((p) => p.field === "TITLE" || p.field === "DESCRIPTION")
+            .map((p) => ({
+              field: p.field as "TITLE" | "DESCRIPTION",
+              fingerprint: p.local,
+            })),
+        });
+      } else if (fieldPlan.needsProductMutation) {
         const updated = await productUpdateScalars({
           connectionId: connection.id,
           productId: listing.shopifyProductId,
-          title: storeItem.title,
-          descriptionHtml: storeItem.description,
+          ...(fieldPlan.pushTitle ? { title: storeItem.title } : {}),
+          ...(fieldPlan.pushDescription
+            ? { descriptionHtml: storeItem.description }
+            : {}),
           fetchImpl: deps.fetchImpl,
           now: deps.now,
         });
@@ -559,45 +622,62 @@ export async function handleShopifyUpdateListingContentJob(
             fingerprint: desiredProductFp,
             now: deps.now,
           });
+          const applied = fieldPlan.plans
+            .filter(
+              (p) =>
+                (p.field === "TITLE" && fieldPlan.pushTitle) ||
+                (p.field === "DESCRIPTION" && fieldPlan.pushDescription) ||
+                ((p.field === "TITLE" || p.field === "DESCRIPTION") &&
+                  (p.action === "CONVERGED" || p.action === "UNCHANGED"))
+            )
+            .map((p) => ({
+              field: p.field as "TITLE" | "DESCRIPTION",
+              fingerprint: p.local,
+            }));
+          if (applied.length > 0) {
+            await markShopifyFieldsApplied(prisma, {
+              listingLinkId: listing.id,
+              fields: applied,
+            });
+          }
         }
-      } else if (productClass === "REMOTE_ONLY") {
-        // Leave canonical application to S6; do not overwrite remote.
-      } else {
-        // CONFLICT — persist and skip mutation.
-        await setShopifyProductContentConflict(prisma, {
-          listingLinkId: listing.id,
-          remoteFingerprint: remoteProductFp,
+      }
+      // REMOTE_ONLY product fields: leave to S6 inbound.
+    }
+
+    if (applyVariant && !variantMap.variantContentConflict) {
+      if (fieldPlan.variantConflict) {
+        await setShopifyVariantContentConflict(prisma, {
+          variantMapId: variantMap.id,
+          remoteFingerprint: remoteVariantFp,
           now: deps.now,
         });
-      }
-    }
-  }
-
-  if (applyVariant) {
-    if (variantMap.variantContentConflict) {
-      // Unresolved dual-divergence: do not overwrite remote.
-    } else {
-      const variantClass = classifyShopifyContentSemantics({
-        base: variantMap.appliedVariantFingerprint,
-        local: desiredVariantFp,
-        remote: remoteVariantFp,
-        hasLocalSemanticEdit:
-          variantMap.desiredVariantContentVersion > 0 || variantMap.variantDesiredAt != null,
-      });
-      if (variantClass === "CONVERGED" || variantClass === "UNCHANGED") {
+      } else if (fieldPlan.variantConverged) {
         await markShopifyVariantContentApplied(prisma, {
           variantMapId: variantMap.id,
           desiredVersion: payload.variantDesiredVersion,
           fingerprint: desiredVariantFp,
           now: deps.now,
         });
-      } else if (variantClass === "LOCAL_ONLY") {
+        await markShopifyFieldsApplied(prisma, {
+          listingLinkId: listing.id,
+          fields: fieldPlan.plans
+            .filter((p) => p.field === "PRICE" || p.field === "SKU")
+            .map((p) => ({
+              field: p.field as "PRICE" | "SKU",
+              storeVariantId: variantMap.storeVariantId,
+              fingerprint: p.local,
+            })),
+        });
+      } else if (fieldPlan.needsVariantMutation) {
         const updated = await variantBulkUpdateScalars({
           connectionId: connection.id,
           productId: listing.shopifyProductId,
           variantId: variantMap.shopifyVariantId,
-          price: shopifyMoneyFromCents(storeVariant.priceCents),
-          sku: storeVariant.sku ?? "",
+          ...(fieldPlan.pushPrice
+            ? { price: shopifyMoneyFromCents(storeVariant.priceCents) }
+            : {}),
+          ...(fieldPlan.pushSku ? { sku: storeVariant.sku ?? "" } : {}),
           fetchImpl: deps.fetchImpl,
           now: deps.now,
         });
@@ -611,16 +691,147 @@ export async function handleShopifyUpdateListingContentJob(
             fingerprint: desiredVariantFp,
             now: deps.now,
           });
+          const applied = fieldPlan.plans
+            .filter(
+              (p) =>
+                (p.field === "PRICE" && fieldPlan.pushPrice) ||
+                (p.field === "SKU" && fieldPlan.pushSku) ||
+                ((p.field === "PRICE" || p.field === "SKU") &&
+                  (p.action === "CONVERGED" || p.action === "UNCHANGED"))
+            )
+            .map((p) => ({
+              field: p.field as "PRICE" | "SKU",
+              storeVariantId: variantMap.storeVariantId,
+              fingerprint: p.local,
+            }));
+          if (applied.length > 0) {
+            await markShopifyFieldsApplied(prisma, {
+              listingLinkId: listing.id,
+              fields: applied,
+            });
+          }
         }
-      } else if (variantClass === "REMOTE_ONLY") {
-        // Leave to S6.
-      } else {
-        await setShopifyVariantContentConflict(prisma, {
-          variantMapId: variantMap.id,
-          remoteFingerprint: remoteVariantFp,
-          now: deps.now,
-        });
       }
+    }
+  } else {
+    // Legacy group-level path until field BASE rows are seeded.
+    if (applyProduct) {
+      if (listing.productContentConflict) {
+        // Unresolved dual-divergence: do not overwrite remote.
+      } else {
+        const productClass = classifyShopifyContentSemantics({
+          base: listing.appliedProductFingerprint,
+          local: desiredProductFp,
+          remote: remoteProductFp,
+          hasLocalSemanticEdit:
+            listing.desiredProductContentVersion > 0 || listing.productDesiredAt != null,
+        });
+        if (productClass === "CONVERGED" || productClass === "UNCHANGED") {
+          await markShopifyProductContentApplied(prisma, {
+            listingLinkId: listing.id,
+            desiredVersion: payload.productDesiredVersion,
+            fingerprint: desiredProductFp,
+            now: deps.now,
+          });
+        } else if (productClass === "LOCAL_ONLY") {
+          const updated = await productUpdateScalars({
+            connectionId: connection.id,
+            productId: listing.shopifyProductId,
+            title: storeItem.title,
+            descriptionHtml: storeItem.description,
+            fetchImpl: deps.fetchImpl,
+            now: deps.now,
+          });
+          if (!updated.ok) {
+            if (updated.outcome === "RETRY") pendingRetry = updated;
+            else pendingDead = updated;
+          } else {
+            await markShopifyProductContentApplied(prisma, {
+              listingLinkId: listing.id,
+              desiredVersion: payload.productDesiredVersion,
+              fingerprint: desiredProductFp,
+              now: deps.now,
+            });
+          }
+        } else if (productClass === "REMOTE_ONLY") {
+          // Leave canonical application to S6; do not overwrite remote.
+        } else {
+          await setShopifyProductContentConflict(prisma, {
+            listingLinkId: listing.id,
+            remoteFingerprint: remoteProductFp,
+            now: deps.now,
+          });
+        }
+      }
+    }
+
+    if (applyVariant) {
+      if (variantMap.variantContentConflict) {
+        // Unresolved dual-divergence: do not overwrite remote.
+      } else {
+        const variantClass = classifyShopifyContentSemantics({
+          base: variantMap.appliedVariantFingerprint,
+          local: desiredVariantFp,
+          remote: remoteVariantFp,
+          hasLocalSemanticEdit:
+            variantMap.desiredVariantContentVersion > 0 || variantMap.variantDesiredAt != null,
+        });
+        if (variantClass === "CONVERGED" || variantClass === "UNCHANGED") {
+          await markShopifyVariantContentApplied(prisma, {
+            variantMapId: variantMap.id,
+            desiredVersion: payload.variantDesiredVersion,
+            fingerprint: desiredVariantFp,
+            now: deps.now,
+          });
+        } else if (variantClass === "LOCAL_ONLY") {
+          const updated = await variantBulkUpdateScalars({
+            connectionId: connection.id,
+            productId: listing.shopifyProductId,
+            variantId: variantMap.shopifyVariantId,
+            price: shopifyMoneyFromCents(storeVariant.priceCents),
+            sku: storeVariant.sku ?? "",
+            fetchImpl: deps.fetchImpl,
+            now: deps.now,
+          });
+          if (!updated.ok) {
+            if (updated.outcome === "RETRY") pendingRetry = pendingRetry ?? updated;
+            else pendingDead = pendingDead ?? updated;
+          } else {
+            await markShopifyVariantContentApplied(prisma, {
+              variantMapId: variantMap.id,
+              desiredVersion: payload.variantDesiredVersion,
+              fingerprint: desiredVariantFp,
+              now: deps.now,
+            });
+          }
+        } else if (variantClass === "REMOTE_ONLY") {
+          // Leave to S6.
+        } else {
+          await setShopifyVariantContentConflict(prisma, {
+            variantMapId: variantMap.id,
+            remoteFingerprint: remoteVariantFp,
+            now: deps.now,
+          });
+        }
+      }
+    }
+  }
+
+  // Adaptive media push (durable map). Never uses productSet media replace.
+  if (applyProduct && !listing.productContentConflict && !pendingRetry && !pendingDead) {
+    const mediaSync = await syncShopifyListingMedia({
+      connectionId: connection.id,
+      listingLinkId: listing.id,
+      memberId: connection.memberId,
+      storeItemId: payload.storeItemId,
+      productId: listing.shopifyProductId,
+      photos: storeItem.photos,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    if (!mediaSync.ok) {
+      if (mediaSync.outcome === "RETRY") pendingRetry = mediaSync;
+      else pendingDead = mediaSync;
     }
   }
 

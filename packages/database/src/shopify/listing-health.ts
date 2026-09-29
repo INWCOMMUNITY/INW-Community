@@ -66,6 +66,8 @@ export type ClassifyShopifyListingHealthInput = {
     | "inventoryDriftState"
   >;
   hasCausalSaleConflict: boolean;
+  /** Per-field conflict keys (TITLE, PRICE, …) from ShopifyListingFieldState. */
+  fieldConflictKeys?: string[];
   remote?: ShopifyListingRemoteObservation | null;
 };
 
@@ -184,16 +186,24 @@ export function classifyShopifyListingHealth(
     );
   }
 
-  if (input.listing.productContentConflict || input.variantMap.variantContentConflict) {
+  const fieldConflicts = (input.fieldConflictKeys ?? []).filter(Boolean);
+  if (
+    input.listing.productContentConflict ||
+    input.variantMap.variantContentConflict ||
+    fieldConflicts.length > 0
+  ) {
     const which = [
       input.listing.productContentConflict ? "product" : null,
       input.variantMap.variantContentConflict ? "variant" : null,
+      ...fieldConflicts.map((key) => `field:${key}`),
     ]
       .filter(Boolean)
       .join("+");
+    const fieldLabel =
+      fieldConflicts.length > 0 ? ` Conflicting fields: ${fieldConflicts.join(", ")}.` : "";
     return issue(
       "CONTENT_CONFLICT",
-      "INW found conflicting Shopify and INW edits for this listing. Make a new edit in INW to choose the INW version.",
+      `INW found conflicting Shopify and INW edits for this listing. Make a new edit in INW to choose the INW version.${fieldLabel}`,
       "ACTION_REQUIRED",
       {
         contentHealth: "PAUSED",

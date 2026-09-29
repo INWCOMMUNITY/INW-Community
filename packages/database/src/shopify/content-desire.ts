@@ -1,9 +1,11 @@
 import type { Prisma, PrismaClient, ShopifySyncJob } from "@prisma/client";
 import {
+  normalizeShopifyPhotoUrls,
   shopifyProductContentFingerprint,
   shopifyUpdateListingContentDedupeKey,
   shopifyVariantContentFingerprint,
 } from "./content-fingerprint";
+import { planShopifyMediaDesireFromPhotos, upsertShopifyMediaDesireMaps } from "./media-map";
 import { enqueueShopifySyncJob } from "./jobs";
 
 export type ShopifyContentDb = PrismaClient | Prisma.TransactionClient;
@@ -13,6 +15,8 @@ export type ShopifyListingContentSnapshot = {
   description: string | null;
   priceCents: number;
   sku: string | null;
+  /** Optional — when omitted, photos are treated as unchanged. */
+  photos?: string[] | null;
 };
 
 export type RecordShopifyListingContentDesireResult =
@@ -74,9 +78,21 @@ export async function recordShopifyListingContentDesire(
     after: ShopifyListingContentSnapshot;
   }
 ): Promise<RecordShopifyListingContentDesireResult> {
+  const beforePhotos =
+    input.before.photos !== undefined
+      ? normalizeShopifyPhotoUrls(input.before.photos)
+      : null;
+  const afterPhotos =
+    input.after.photos !== undefined ? normalizeShopifyPhotoUrls(input.after.photos) : null;
+  const photosChanged =
+    beforePhotos != null &&
+    afterPhotos != null &&
+    JSON.stringify(beforePhotos) !== JSON.stringify(afterPhotos);
+
   const productChanged =
     input.before.title !== input.after.title ||
-    (input.before.description ?? null) !== (input.after.description ?? null);
+    (input.before.description ?? null) !== (input.after.description ?? null) ||
+    photosChanged;
   const variantChanged =
     input.before.priceCents !== input.after.priceCents ||
     (input.before.sku ?? null) !== (input.after.sku ?? null);
@@ -115,26 +131,61 @@ export async function recordShopifyListingContentDesire(
     where: { shopifyListingLinkId: lockedListing.id, shopifyConnectionId: connection.id },
     orderBy: { createdAt: "asc" },
   });
-  if (variantMaps.length !== 1) {
+  if (variantMaps.length === 0) {
     return { status: "SKIPPED", reason: "UNSUPPORTED" };
   }
-  const variantMap = variantMaps[0];
+  // Prefer the variant whose mapped StoreVariant matches the edited canonical price/sku row
+  // when exactly one map shares the after price+sku; else use the first map (product-only edits).
+  let variantMap = variantMaps[0];
+  if (variantChanged && variantMaps.length > 1) {
+    const match = variantMaps.find((row) => row.storeVariantId);
+    // Keep first map for product-scoped jobs; per-variant price edits are applied below
+    // onto every mapped StoreVariant that still mirrors the StoreItem scalar snapshot.
+    variantMap = match ?? variantMaps[0];
+  }
 
   let syncedVariantPriceSku = false;
   if (variantChanged) {
-    await db.storeVariant.update({
-      where: { id: variantMap.storeVariantId },
-      data: {
-        priceCents: input.after.priceCents,
-        sku: input.after.sku,
-      },
-    });
-    syncedVariantPriceSku = true;
+    // Single-variant listings: keep StoreVariant in lockstep with StoreItem scalars.
+    // Multi-variant: only update the StoreVariant that currently matches the before snapshot
+    // (seller edited the StoreItem scalar facade for that mapped row).
+    if (variantMaps.length === 1) {
+      await db.storeVariant.update({
+        where: { id: variantMap.storeVariantId },
+        data: {
+          priceCents: input.after.priceCents,
+          sku: input.after.sku,
+        },
+      });
+      syncedVariantPriceSku = true;
+    } else {
+      const mirrored = await db.storeVariant.findMany({
+        where: {
+          id: { in: variantMaps.map((row) => row.storeVariantId) },
+          priceCents: input.before.priceCents,
+          sku: input.before.sku,
+        },
+        select: { id: true },
+      });
+      if (mirrored.length === 1) {
+        await db.storeVariant.update({
+          where: { id: mirrored[0].id },
+          data: {
+            priceCents: input.after.priceCents,
+            sku: input.after.sku,
+          },
+        });
+        variantMap =
+          variantMaps.find((row) => row.storeVariantId === mirrored[0].id) ?? variantMap;
+        syncedVariantPriceSku = true;
+      }
+    }
   }
 
   const productFingerprint = shopifyProductContentFingerprint({
     title: input.after.title,
     description: input.after.description,
+    photos: afterPhotos ?? undefined,
   });
   const variantFingerprint = shopifyVariantContentFingerprint({
     priceCents: input.after.priceCents,
@@ -162,6 +213,41 @@ export async function recordShopifyListingContentDesire(
         productConflictDetectedAt: null,
       },
     });
+    // Explicit local intent clears field-level TITLE/DESCRIPTION/MEDIA conflicts.
+    await db.shopifyListingFieldState.updateMany({
+      where: {
+        shopifyListingLinkId: lockedListing.id,
+        storeVariantId: "",
+        fieldKey: { in: ["TITLE", "DESCRIPTION", "MEDIA"] },
+      },
+      data: {
+        conflict: false,
+        conflictRemoteFingerprint: null,
+        conflictEvidenceId: null,
+        conflictDetectedAt: null,
+      },
+    });
+
+    if (photosChanged && afterPhotos) {
+      const existingMaps = await db.shopifyMediaMap.findMany({
+        where: { shopifyListingLinkId: lockedListing.id },
+        select: {
+          inwMediaId: true,
+          sourceUrl: true,
+          status: true,
+          position: true,
+        },
+      });
+      const mediaPlan = planShopifyMediaDesireFromPhotos(afterPhotos, existingMaps);
+      await upsertShopifyMediaDesireMaps(db, {
+        connectionId: connection.id,
+        listingLinkId: lockedListing.id,
+        memberId: input.memberId,
+        storeItemId: input.storeItemId,
+        desired: mediaPlan.desired,
+        removeInwMediaIds: mediaPlan.toRemove,
+      });
+    }
   }
   if (variantChanged) {
     await db.shopifyVariantMap.update({
@@ -174,6 +260,19 @@ export async function recordShopifyListingContentDesire(
         variantConflictRemoteFingerprint: null,
         variantConflictEvidenceId: null,
         variantConflictDetectedAt: null,
+      },
+    });
+    await db.shopifyListingFieldState.updateMany({
+      where: {
+        shopifyListingLinkId: lockedListing.id,
+        storeVariantId: variantMap.storeVariantId,
+        fieldKey: { in: ["PRICE", "SKU"] },
+      },
+      data: {
+        conflict: false,
+        conflictRemoteFingerprint: null,
+        conflictEvidenceId: null,
+        conflictDetectedAt: null,
       },
     });
   }
