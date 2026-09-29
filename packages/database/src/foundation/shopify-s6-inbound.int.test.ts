@@ -230,7 +230,7 @@ describe("shopify S6 semantic three-way inbound", () => {
         sku: "S6-SKU",
       }),
     });
-    expect(echo).toMatchObject({ status: "PROCESSED", productAction: "UNCHANGED" });
+    expect(echo).toMatchObject({ status: "PROCESSED", productAction: "CONVERGED" });
     expect(
       await prisma.shopifySyncJob.count({
         where: { shopifyConnectionId: gen1.id, kind: "UPDATE_LISTING_CONTENT" },
@@ -438,7 +438,7 @@ describe("shopify S6 semantic three-way inbound", () => {
         sku: "S6-SKU",
       }),
     });
-    expect(conflict).toMatchObject({ status: "PROCESSED", productAction: "CONFLICT" });
+    expect(conflict).toMatchObject({ status: "PROCESSED", productAction: "FIELD_CONFLICT" });
     const afterConflict = await prisma.shopifyListingLink.findUniqueOrThrow({
       where: { id: listing.id },
     });
@@ -476,7 +476,7 @@ describe("shopify S6 semantic three-way inbound", () => {
         productUpdatedAt: new Date("2099-12-31T00:00:00Z"),
       }),
     });
-    expect(clock).toMatchObject({ status: "PROCESSED", productAction: "CONFLICT" });
+    expect(clock).toMatchObject({ status: "PROCESSED", productAction: "FIELD_CONFLICT" });
     expect((await prisma.storeItem.findUniqueOrThrow({ where: { id: item.id } })).title).toBe(
       "INW Conflict C"
     );
@@ -508,7 +508,29 @@ describe("shopify S6 semantic three-way inbound", () => {
     expect(afterConverge.productContentConflict).toBe(false);
     expect(afterConverge.appliedProductFingerprint).toBe(localC);
 
-    // Re-seed CONFLICT then REMOTE RETURNS TO BASE → LOCAL_ONLY + ensure job
+    // Re-seed CONFLICT then REMOTE RETURNS TO BASE → LOCAL_ONLY + ensure job.
+    // Field BASE must match group applied BASE (Shopify Title / Shopify Desc).
+    const { shopifyFieldFingerprint, shopifyDescriptionFieldFingerprint } = await import(
+      "../shopify/field-fingerprint"
+    );
+    await prisma.shopifyListingFieldState.updateMany({
+      where: { shopifyListingLinkId: listing.id, fieldKey: "TITLE" },
+      data: {
+        baseFingerprint: shopifyFieldFingerprint("TITLE", "Shopify Title"),
+        localFingerprint: shopifyFieldFingerprint("TITLE", "INW Conflict C"),
+        remoteFingerprint: shopifyFieldFingerprint("TITLE", "Shopify Conflict B"),
+        conflict: true,
+      },
+    });
+    await prisma.shopifyListingFieldState.updateMany({
+      where: { shopifyListingLinkId: listing.id, fieldKey: "DESCRIPTION" },
+      data: {
+        baseFingerprint: shopifyDescriptionFieldFingerprint("Shopify Desc"),
+        localFingerprint: shopifyDescriptionFieldFingerprint("Shopify Desc"),
+        remoteFingerprint: shopifyDescriptionFieldFingerprint("Shopify Desc"),
+        conflict: false,
+      },
+    });
     await prisma.shopifyListingLink.update({
       where: { id: listing.id },
       data: {
@@ -638,7 +660,7 @@ describe("shopify S6 semantic three-way inbound", () => {
     });
     expect(split).toMatchObject({
       status: "PROCESSED",
-      productAction: "CONFLICT",
+      productAction: "FIELD_CONFLICT",
       variantAction: "LOCAL_ONLY",
     });
     const afterSplitLink = await prisma.shopifyListingLink.findUniqueOrThrow({
@@ -690,7 +712,8 @@ describe("shopify S6 semantic three-way inbound", () => {
       shopifyProductContentFingerprint({ title: "P-Resolved-D", description: "D" })
     );
 
-    // MULTI-VARIANT DRIFT → ERROR
+    // MULTI-VARIANT REMOTE: mapped variant content still applies; unmapped siblings are not a hard ERROR.
+    // Topology import of new Shopify variants is handled by reconcile / import paths, not this content gate.
     const multiEvidence = await createEvidence({
       connectionId: gen1.id,
       shopDomain: shop,
@@ -727,7 +750,8 @@ describe("shopify S6 semantic three-way inbound", () => {
         ],
       },
     });
-    expect(multi).toMatchObject({ status: "ERROR", code: "VARIANT_CARDINALITY" });
+    expect(multi).toMatchObject({ status: "PROCESSED" });
+    expect(multi).not.toMatchObject({ code: "VARIANT_CARDINALITY" });
 
     // ACTIVE products are accepted for inbound content (export path lists as ACTIVE).
     const activeEvidence = await createEvidence({
@@ -989,7 +1013,7 @@ describe("shopify S6 semantic three-way inbound", () => {
         ],
       },
     });
-    expect(c3).toMatchObject({ status: "PROCESSED", productAction: "CONFLICT" });
+    expect(c3).toMatchObject({ status: "PROCESSED", productAction: "FIELD_CONFLICT" });
     expect(
       (await prisma.shopifyListingLink.findUniqueOrThrow({ where: { id: listing.id } }))
         .productContentConflict

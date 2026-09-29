@@ -1,5 +1,6 @@
 import {
   planShopifyMediaDesireFromPhotos,
+  planVariantMediaAssociations,
   prisma,
   upsertShopifyMediaDesireMaps,
 } from "database";
@@ -254,4 +255,122 @@ export async function syncShopifyListingMedia(input: {
   }
 
   return { ok: true, added: plan.toAdd.length, removed: plan.toRemove.length };
+}
+
+/**
+ * Associate existing product media with mapped variants via productVariantsBulkUpdate.mediaId.
+ * Never re-uploads media merely to associate. Uses durable ShopifyMediaMap GIDs.
+ */
+export async function syncShopifyVariantMediaAssociations(input: {
+  connectionId: string;
+  listingLinkId: string;
+  productId: string;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<{ ok: true; associated: number } | ({ ok: false } & HandlerFailure)> {
+  const variantMaps = await prisma.shopifyVariantMap.findMany({
+    where: { shopifyListingLinkId: input.listingLinkId },
+    select: { storeVariantId: true, shopifyVariantId: true },
+  });
+  if (variantMaps.length < 1) return { ok: true, associated: 0 };
+
+  const storeVariants = await prisma.storeVariant.findMany({
+    where: { id: { in: variantMaps.map((m) => m.storeVariantId) } },
+    select: { id: true, photos: true },
+  });
+  const mediaMaps = await prisma.shopifyMediaMap.findMany({
+    where: { shopifyListingLinkId: input.listingLinkId, status: "ACTIVE" },
+    select: {
+      inwMediaId: true,
+      sourceUrl: true,
+      shopifyMediaId: true,
+      status: true,
+      storeVariantId: true,
+    },
+  });
+
+  const plans = planVariantMediaAssociations({
+    variants: storeVariants.map((v) => ({ storeVariantId: v.id, photos: v.photos ?? [] })),
+    mediaMaps,
+  });
+
+  const byStoreVariant = new Map(variantMaps.map((m) => [m.storeVariantId, m.shopifyVariantId]));
+  const bulk: Array<{ id: string; mediaId: string }> = [];
+  for (const plan of plans) {
+    const shopifyVariantId = byStoreVariant.get(plan.storeVariantId);
+    const mediaId = plan.shopifyMediaIds[0];
+    if (!shopifyVariantId || !mediaId) continue;
+    bulk.push({ id: shopifyVariantId, mediaId });
+    // Persist marketplace-neutral association hint on durable media maps.
+    for (const inwMediaId of plan.inwMediaIds) {
+      await prisma.shopifyMediaMap.updateMany({
+        where: {
+          shopifyListingLinkId: input.listingLinkId,
+          inwMediaId,
+        },
+        data: { storeVariantId: plan.storeVariantId },
+      });
+    }
+  }
+
+  if (bulk.length < 1) return { ok: true, associated: 0 };
+
+  const result = await executeShopifyAdminGraphql<{
+    productVariantsBulkUpdate: {
+      productVariants: Array<{ id: string }> | null;
+      userErrors: Array<{ field?: string[] | null; message: string; code?: string | null }>;
+    };
+  }>({
+    connectionId: input.connectionId,
+    operationType: "mutation",
+    operationName: "ShopifyVariantMediaAssociate",
+    document: `mutation ShopifyVariantMediaAssociate($productId: ID!, $variants: [ProductVariantsBulkInput!]!, $allowPartialUpdates: Boolean) {
+      productVariantsBulkUpdate(productId: $productId, variants: $variants, allowPartialUpdates: $allowPartialUpdates) {
+        productVariants { id }
+        userErrors { field message code }
+      }
+    }`,
+    variables: {
+      productId: input.productId,
+      variants: bulk,
+      allowPartialUpdates: false,
+    },
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+
+  if (!result.ok) {
+    if (
+      result.class === "THROTTLED" ||
+      result.class === "TRANSIENT_PROVIDER" ||
+      result.class === "NETWORK_UNKNOWN" ||
+      result.outcomeUnknown
+    ) {
+      return {
+        ok: false,
+        outcome: "RETRY",
+        errorClass: result.class,
+        errorCode: "VARIANT_MEDIA_ASSOCIATE",
+        errorMessage: result.message,
+      };
+    }
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: result.class,
+      errorCode: "VARIANT_MEDIA_ASSOCIATE",
+      errorMessage: result.message,
+    };
+  }
+  const userErrors = result.data?.productVariantsBulkUpdate.userErrors ?? [];
+  if (userErrors.length > 0) {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: (userErrors[0]?.code ?? "VARIANT_MEDIA_USER_ERROR").slice(0, 64),
+      errorMessage: (userErrors[0]?.message ?? "variant media associate user error").slice(0, 500),
+    };
+  }
+  return { ok: true, associated: bulk.length };
 }

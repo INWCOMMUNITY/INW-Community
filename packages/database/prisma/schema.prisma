@@ -1063,6 +1063,8 @@ enum InventoryEventType {
   PHYSICAL_RECEIPT
   OPENING_BALANCE
   CORRECTION
+  /// Proven marketplace (e.g. Shopify) manual quantity edit after causal closure.
+  MARKETPLACE_QUANTITY_EDIT
 
   @@map("inventory_event_type")
 }

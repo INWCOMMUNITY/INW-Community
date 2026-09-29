@@ -13,6 +13,7 @@ import type { ShopifyListingRemoteObservation } from "database";
 import type { ShopifyFetch } from "./admin-graphql";
 import { executeShopifyAdminGraphql } from "./admin-graphql";
 import { notifyShopifyListingIssueOnce } from "./listing-issue-notify";
+import { syncShopifyListingTopology } from "./sync-listing-topology";
 
 function parseReconcilePayload(payload: unknown): { listingLinkId: string; storeItemId: string } | null {
   if (!payload || typeof payload !== "object") return null;
@@ -287,7 +288,54 @@ export async function handleShopifyReconcileListingJob(
     return { outcome: "SUCCESS" };
   }
 
-  const variantMap = variantMaps[0];
+  // Topology recover: add/import/rename/reorder before health snapshot.
+  const allStoreVariants = await prisma.storeVariant.findMany({
+    where: { storeItemId: listing.storeItemId, memberId: listing.memberId },
+    select: { id: true, options: true, priceCents: true, sku: true },
+  });
+  const mapByStoreVariant = new Map(
+    variantMaps.map((m) => [m.storeVariantId, m.shopifyVariantId] as const)
+  );
+  const localTopology = allStoreVariants.map((sv) => {
+    const optsJson =
+      typeof sv.options === "string"
+        ? (JSON.parse(sv.options) as Record<string, string>)
+        : ((sv.options ?? {}) as Record<string, string>);
+    return {
+      storeVariantId: sv.id,
+      selectedOptions: Object.entries(optsJson).map(([name, value]) => ({
+        name,
+        value: String(value),
+      })),
+      priceCents: sv.priceCents,
+      sku: sv.sku,
+      shopifyVariantId: mapByStoreVariant.get(sv.id) ?? null,
+    };
+  });
+  const topologySync = await syncShopifyListingTopology({
+    connectionId: connection.id,
+    memberId: listing.memberId,
+    listingLinkId: listing.id,
+    productId: listing.shopifyProductId,
+    storeItemId: listing.storeItemId,
+    localVariants: localTopology,
+    fetchImpl: opts?.fetchImpl,
+    now: opts?.now,
+  });
+  if (!topologySync.ok) {
+    return {
+      outcome: topologySync.outcome,
+      errorClass: topologySync.errorClass,
+      errorCode: topologySync.errorCode,
+      errorMessage: topologySync.errorMessage,
+    };
+  }
+
+  const refreshedMaps = await prisma.shopifyVariantMap.findMany({
+    where: { shopifyListingLinkId: listing.id, shopifyConnectionId: connection.id },
+    orderBy: { createdAt: "asc" },
+  });
+  const variantMap = refreshedMaps[0] ?? variantMaps[0];
 
   const causalConflict = await prisma.shopifyOrderLineSaleFact.findFirst({
     where: {
@@ -325,8 +373,8 @@ export async function handleShopifyReconcileListingJob(
     fieldConflictKeys,
     remote: {
       ...remoteRead.remote,
-      variantCount: Math.max(remoteRead.remote.variantCount, variantMaps.length),
-      mappedVariantPresent: true,
+      mappedVariantCount: refreshedMaps.length,
+      mappedVariantPresent: remoteRead.remote.mappedVariantPresent,
     },
   });
 

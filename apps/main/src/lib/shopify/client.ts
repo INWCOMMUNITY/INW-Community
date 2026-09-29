@@ -458,7 +458,7 @@ async function deleteShopifyWebhookSubscription(input: {
   shopDomain: string;
   accessToken: string;
   subscriptionId: string;
-  topicLabel: "PRODUCTS_UPDATE" | "ORDERS_PAID";
+  topicLabel: "PRODUCTS_UPDATE" | "ORDERS_PAID" | "INVENTORY_LEVELS_UPDATE";
   fetchImpl?: ShopifyFetch;
 }): Promise<void> {
   const data = await graphql<{
@@ -509,7 +509,7 @@ async function replaceStaleWebhookSubscriptions(input: {
   shopDomain: string;
   accessToken: string;
   callbackUrl: string;
-  topicLabel: "PRODUCTS_UPDATE" | "ORDERS_PAID";
+  topicLabel: "PRODUCTS_UPDATE" | "ORDERS_PAID" | "INVENTORY_LEVELS_UPDATE";
   createMutation: string;
   stale: WebhookSubscriptionNode[];
   list: () => Promise<WebhookSubscriptionNode[]>;
@@ -871,4 +871,181 @@ export async function ensureShopifyOrdersPaidWebhook(input: {
     return { status: "CREATED", subscriptionId: after.match?.id ?? second.id };
   }
   throw new ShopifyRequestError("Shopify ORDERS_PAID webhook registration failed");
+}
+
+const INVENTORY_LEVELS_UPDATE_QUERY = `query ShopifyInventoryLevelsUpdateWebhookSubscriptions {
+  webhookSubscriptions(first: 50, topics: [INVENTORY_LEVELS_UPDATE]) {
+    nodes {
+      id
+      topic
+      uri
+      endpoint {
+        __typename
+        ... on WebhookHttpEndpoint { callbackUrl }
+      }
+    }
+  }
+}`;
+
+const INVENTORY_LEVELS_UPDATE_MUTATION = `mutation ShopifyInventoryLevelsUpdateWebhook($uri: String!) {
+  webhookSubscriptionCreate(
+    topic: INVENTORY_LEVELS_UPDATE
+    webhookSubscription: { uri: $uri, format: JSON }
+  ) {
+    userErrors { field message }
+    webhookSubscription { id topic uri }
+  }
+}`;
+
+async function listInventoryLevelsUpdateWebhookSubscriptions(input: {
+  shopDomain: string;
+  accessToken: string;
+  fetchImpl?: ShopifyFetch;
+}): Promise<WebhookSubscriptionNode[]> {
+  const data = await graphql<{
+    webhookSubscriptions: { nodes: WebhookSubscriptionNode[] };
+  }>({
+    shopDomain: input.shopDomain,
+    accessToken: input.accessToken,
+    query: INVENTORY_LEVELS_UPDATE_QUERY,
+    fetchImpl: input.fetchImpl,
+  });
+  return data.webhookSubscriptions?.nodes ?? [];
+}
+
+/**
+ * Ensure INVENTORY_LEVELS_UPDATE delivers to the S3 provider-evidence inbox.
+ * Requires existing read_inventory scope. Query-first / reuse / replace / create.
+ */
+export async function ensureShopifyInventoryLevelsUpdateWebhook(input: {
+  shopDomain: string;
+  accessToken: string;
+  callbackUrl: string;
+  fetchImpl?: ShopifyFetch;
+}): Promise<{ status: "REUSED" | "CREATED" | "UPDATED"; subscriptionId: string }> {
+  const wanted = normalizeWebhookUri(input.callbackUrl);
+  if (!wanted) {
+    throw new ShopifyRequestError("Shopify inventory_levels/update webhook callback is required");
+  }
+
+  const list = () =>
+    listInventoryLevelsUpdateWebhookSubscriptions({
+      shopDomain: input.shopDomain,
+      accessToken: input.accessToken,
+      fetchImpl: input.fetchImpl,
+    });
+
+  const initial = classifyWebhookDestinations(await list(), wanted);
+  if (initial.match && initial.stale.length === 0) {
+    return { status: "REUSED", subscriptionId: initial.match.id };
+  }
+  if (initial.stale.length > 0) {
+    return replaceStaleWebhookSubscriptions({
+      shopDomain: input.shopDomain,
+      accessToken: input.accessToken,
+      callbackUrl: input.callbackUrl,
+      topicLabel: "INVENTORY_LEVELS_UPDATE",
+      createMutation: INVENTORY_LEVELS_UPDATE_MUTATION,
+      stale: initial.stale,
+      list,
+      fetchImpl: input.fetchImpl,
+    });
+  }
+
+  type CreateOutcome =
+    | { status: "created"; id: string }
+    | { status: "already" }
+    | { status: "unknown" };
+
+  const attemptCreate = async (): Promise<CreateOutcome> => {
+    try {
+      const data = await graphql<{
+        webhookSubscriptionCreate: {
+          userErrors: { message: string }[];
+          webhookSubscription: { id: string } | null;
+        };
+      }>({
+        shopDomain: input.shopDomain,
+        accessToken: input.accessToken,
+        query: INVENTORY_LEVELS_UPDATE_MUTATION,
+        variables: { uri: input.callbackUrl },
+        fetchImpl: input.fetchImpl,
+      });
+      const errors = data.webhookSubscriptionCreate?.userErrors ?? [];
+      const already =
+        errors.length > 0 &&
+        errors.every((error) => /already been taken|already exists/i.test(error.message));
+      if (already) return { status: "already" };
+      if (errors.length > 0) {
+        const detail = shopifyUserErrorDetail(errors);
+        throw new ShopifyRequestError(
+          detail
+            ? `Shopify INVENTORY_LEVELS_UPDATE webhook registration failed: ${detail}`
+            : "Shopify INVENTORY_LEVELS_UPDATE webhook registration failed"
+        );
+      }
+      const id = data.webhookSubscriptionCreate?.webhookSubscription?.id;
+      if (!id) return { status: "unknown" };
+      return { status: "created", id };
+    } catch (error) {
+      if (
+        error instanceof ShopifyRequestError &&
+        /INVENTORY_LEVELS_UPDATE webhook registration failed/i.test(error.message)
+      ) {
+        throw error;
+      }
+      return { status: "unknown" };
+    }
+  };
+
+  const first = await attemptCreate();
+  if (first.status === "created") {
+    const after = classifyWebhookDestinations(await list(), wanted);
+    return { status: "CREATED", subscriptionId: after.match?.id ?? first.id };
+  }
+  if (first.status === "already") {
+    const nodes = await list();
+    const after = classifyWebhookDestinations(nodes, wanted);
+    if (after.stale.length > 0 || (!after.match && nodes.length > 0)) {
+      return replaceStaleWebhookSubscriptions({
+        shopDomain: input.shopDomain,
+        accessToken: input.accessToken,
+        callbackUrl: input.callbackUrl,
+        topicLabel: "INVENTORY_LEVELS_UPDATE",
+        createMutation: INVENTORY_LEVELS_UPDATE_MUTATION,
+        stale: after.stale.length > 0 ? after.stale : nodes,
+        list,
+        fetchImpl: input.fetchImpl,
+      });
+    }
+    if (!after.match) {
+      throw new ShopifyRequestError("Shopify INVENTORY_LEVELS_UPDATE webhook registration failed");
+    }
+    return { status: "REUSED", subscriptionId: after.match.id };
+  }
+
+  const requeryNodes = await list();
+  const requery = classifyWebhookDestinations(requeryNodes, wanted);
+  if (requery.match && requery.stale.length === 0) {
+    return { status: "REUSED", subscriptionId: requery.match.id };
+  }
+  if (requery.stale.length > 0 || requeryNodes.length > 0) {
+    return replaceStaleWebhookSubscriptions({
+      shopDomain: input.shopDomain,
+      accessToken: input.accessToken,
+      callbackUrl: input.callbackUrl,
+      topicLabel: "INVENTORY_LEVELS_UPDATE",
+      createMutation: INVENTORY_LEVELS_UPDATE_MUTATION,
+      stale: requery.stale.length > 0 ? requery.stale : requeryNodes,
+      list,
+      fetchImpl: input.fetchImpl,
+    });
+  }
+
+  const second = await attemptCreate();
+  if (second.status === "created") {
+    const after = classifyWebhookDestinations(await list(), wanted);
+    return { status: "CREATED", subscriptionId: after.match?.id ?? second.id };
+  }
+  throw new ShopifyRequestError("Shopify INVENTORY_LEVELS_UPDATE webhook registration failed");
 }

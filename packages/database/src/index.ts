@@ -124,6 +124,7 @@ export {
 } from "./commerce-foundation-cutover";
 export type { CommerceFoundationCutoverState, CommerceFoundationCutoverWriterClass } from "./commerce-foundation-cutover";
 export {
+  applyTrackedMarketplaceQuantityEdit,
   applyTrackedMarketplaceSale,
   FoundationInsufficientAvailabilityError,
   FoundationInventoryError,
@@ -135,6 +136,8 @@ export {
   lockCheckoutAttemptForUpdate,
   lockStoreItemForUpdate,
   MARKETPLACE_ORDER_CAUSE,
+  MARKETPLACE_QUANTITY_EDIT_CAUSE,
+  MARKETPLACE_QUANTITY_EDIT_SCOPE,
   projectStoreItemQuantity,
   releaseReservation,
   restockTrackedVariant,
@@ -419,6 +422,7 @@ export type {
   ShopifyPaidOrderLineObservation,
 } from "./shopify/order-sale";
 export {
+  appendShopifyVariantMaps,
   createShopifyListingMapping,
   lookupShopifyListingByProductId,
   lookupShopifyListingByStoreItem,
@@ -563,6 +567,33 @@ export {
   shouldPauseInventoryForDirectShopifyEdit,
 } from "./shopify/inventory-direct-edit";
 export type { ShopifyDirectInventoryEditClass } from "./shopify/inventory-direct-edit";
+export { applyShopifyInventoryLevelObservation } from "./shopify/inventory-levels-inbound";
+export type {
+  ApplyShopifyInventoryLevelResult,
+  ShopifyInventoryLevelObservation,
+  ShopifyInventoryLevelsDb,
+} from "./shopify/inventory-levels-inbound";
+export { applyShopifyMediaInbound } from "./shopify/media-inbound";
+export type { ShopifyMediaInboundDb, ShopifyRemoteMediaNode } from "./shopify/media-inbound";
+export { planVariantMediaAssociations } from "./shopify/variant-media";
+export type { VariantMediaAssociationPlan } from "./shopify/variant-media";
+export {
+  correlateVariantsByOptionCombination,
+  planShopifyTopologyDiff,
+  shopifyOptionCombinationKey,
+  shopifyTopologyToInwMatrix,
+  SHOPIFY_MAX_OPTION_DIMENSIONS,
+  SHOPIFY_MAX_VARIANTS,
+  validateShopifyImportTopology,
+} from "./shopify/variant-topology";
+export type {
+  ShopifyOptionAxis,
+  ShopifyRemoteVariantSnap,
+  ShopifyTopologyDiffPlan,
+  ShopifyTopologyLocalVariant,
+  ShopifyTopologyRemoteOption,
+  ShopifyTopologyValidation,
+} from "./shopify/variant-topology";
 export {
   normalizeShopifyAspects,
   normalizeShopifyBarcode,

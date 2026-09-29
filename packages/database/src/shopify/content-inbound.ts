@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient, ShopifyProviderEvidence } from "@prisma/client";
 import { applyShopifyFieldLevelContentInbound } from "./content-inbound-fields";
 import { shopifyCentsFromMoneyString } from "./content-fingerprint";
+import { applyShopifyMediaInbound, type ShopifyRemoteMediaNode } from "./media-inbound";
 
 export type ShopifyInboundDb = PrismaClient | Prisma.TransactionClient;
 
@@ -19,6 +20,7 @@ export type ShopifyRemoteProductObservation = {
     updatedAt: Date;
     inventoryItemId: string | null;
   }>;
+  media?: ShopifyRemoteMediaNode[];
 };
 
 export type ApplyShopifyProductsUpdateResult =
@@ -59,6 +61,12 @@ export async function applyShopifyProductsUpdateObservation(
     listingLinkId: string;
     mappedVariantId: string;
     mappedStoreVariantId: string;
+    /**
+     * When provided, apply independent PRICE/SKU semantics for every mapped variant
+     * present on the remote product (multi-variant field isolation).
+     * Product TITLE/DESCRIPTION/MEDIA still apply once.
+     */
+    allMappedVariants?: Array<{ shopifyVariantId: string; storeVariantId: string }>;
     remote: ShopifyRemoteProductObservation;
   }
 ): Promise<ApplyShopifyProductsUpdateResult> {
@@ -104,22 +112,23 @@ export async function applyShopifyProductsUpdateObservation(
     };
   }
 
-  if (input.remote.variants.length !== 1) {
+  if (input.remote.variants.length < 1) {
     await markEvidence(db, input.evidenceId, "ERROR", {
       code: "VARIANT_CARDINALITY",
-      message: `Expected exactly one Shopify variant, found ${input.remote.variants.length}`,
+      message: "Remote product has no variants",
     });
     return {
       status: "ERROR",
       code: "VARIANT_CARDINALITY",
-      message: "Mapped listing no longer has exactly one Shopify variant",
+      message: "Remote product has no variants",
     };
   }
-  const remoteVariant = input.remote.variants[0];
-  if (remoteVariant.id !== input.mappedVariantId) {
+  const remoteVariant =
+    input.remote.variants.find((row) => row.id === input.mappedVariantId) ?? null;
+  if (!remoteVariant) {
     await markEvidence(db, input.evidenceId, "ERROR", {
       code: "VARIANT_GID_MISMATCH",
-      message: "Remote variant identity does not match mapping",
+      message: "Mapped Shopify variant GID missing from remote product",
     });
     return { status: "ERROR", code: "VARIANT_GID_MISMATCH", message: "Variant GID mismatch" };
   }
@@ -206,11 +215,75 @@ export async function applyShopifyProductsUpdateObservation(
       },
     });
 
+    // Additional mapped variants: independent PRICE/SKU only (product fields already applied).
+    const extraMaps = (input.allMappedVariants ?? []).filter(
+      (row) => row.storeVariantId !== input.mappedStoreVariantId
+    );
+    const variantActions = [variantAction];
+    for (const extra of extraMaps) {
+      const remoteExtra = input.remote.variants.find((row) => row.id === extra.shopifyVariantId);
+      if (!remoteExtra?.inventoryItemId) continue;
+      const extraPrice = shopifyCentsFromMoneyString(remoteExtra.price);
+      if (!Number.isFinite(extraPrice)) continue;
+      const extraMap = await tx.shopifyVariantMap.findFirst({
+        where: {
+          shopifyListingLinkId: input.listingLinkId,
+          shopifyConnectionId: input.connectionId,
+          storeVariantId: extra.storeVariantId,
+        },
+      });
+      const extraStoreVariant = await tx.storeVariant.findFirst({
+        where: {
+          id: extra.storeVariantId,
+          storeItemId: listing.storeItemId,
+          memberId: listing.memberId,
+        },
+      });
+      if (!extraMap || !extraStoreVariant) continue;
+      const listingNow = await tx.shopifyListingLink.findUniqueOrThrow({
+        where: { id: listing.id },
+      });
+      const itemNow = await tx.storeItem.findFirstOrThrow({
+        where: { id: listing.storeItemId, memberId: listing.memberId },
+      });
+      const extraResult = await applyShopifyFieldLevelContentInbound(tx, {
+        evidenceId: input.evidenceId,
+        connectionId: input.connectionId,
+        listing: listingNow,
+        variantMap: extraMap,
+        storeItem: itemNow,
+        storeVariant: extraStoreVariant,
+        remote: {
+          title: input.remote.title,
+          descriptionHtml: input.remote.descriptionHtml,
+          updatedAt: input.remote.updatedAt,
+          priceCents: extraPrice,
+          sku: remoteExtra.sku,
+          variantUpdatedAt: remoteExtra.updatedAt,
+        },
+      });
+      variantActions.push(`${extra.storeVariantId}:${extraResult.variantAction}`);
+    }
+
+    let mediaAction = "MEDIA_SKIPPED";
+    if (input.remote.media) {
+      const mediaResult = await applyShopifyMediaInbound(tx, {
+        evidenceId: input.evidenceId,
+        connectionId: input.connectionId,
+        listingLinkId: listing.id,
+        memberId: listing.memberId,
+        storeItemId: listing.storeItemId,
+        remoteMedia: input.remote.media,
+      });
+      mediaAction = mediaResult.action;
+    }
+
     await markEvidence(tx, input.evidenceId, "PROCESSED");
     return {
       status: "PROCESSED" as const,
-      productAction,
-      variantAction,
+      productAction:
+        mediaAction === "MEDIA_SKIPPED" ? productAction : `${productAction}+${mediaAction}`,
+      variantAction: variantActions.join("|"),
     };
   });
 }

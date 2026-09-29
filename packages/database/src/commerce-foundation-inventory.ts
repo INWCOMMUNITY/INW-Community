@@ -14,6 +14,8 @@ export const SELLER_SCOPE = "seller";
 export const RESTOCK_SCOPE = "restock";
 export const EXPIRE_SCOPE = "expire";
 export const MARKETPLACE_ORDER_CAUSE = "MARKETPLACE_ORDER";
+export const MARKETPLACE_QUANTITY_EDIT_CAUSE = "MARKETPLACE_QUANTITY_EDIT";
+export const MARKETPLACE_QUANTITY_EDIT_SCOPE = "marketplace-quantity-edit";
 
 export class FoundationInventoryError extends Error {
   readonly code: string;
@@ -748,6 +750,116 @@ export async function applyTrackedMarketplaceSale(
     mode: "TRACKED_FINITE",
     inventoryEventId: event.id,
     onHandAfter: event.created ? onHandAfter : state.onHand,
+  };
+}
+
+/**
+ * Proven marketplace manual quantity edit (e.g. Shopify seller stock change).
+ * Applies SET-to-target semantics through Foundation (never LWW outside this path).
+ * Idempotent via sourceSystem/sourceScope/eventType/sourceFactId.
+ * Call only after causal sale/echo reconciliation proves the delta is a manual edit.
+ */
+export async function applyTrackedMarketplaceQuantityEdit(
+  tx: FoundationDb,
+  args: {
+    variantId: string;
+    memberId: string;
+    /** Absolute onHand target after the marketplace edit. */
+    targetOnHand: number;
+    /** Generation-bound scope (e.g. ShopifyConnection.id). */
+    sourceScope: string;
+    /** Durable provider observation identity (e.g. evidenceId or inventoryLevelGid:observed). */
+    sourceFactId: string;
+    metadata?: Prisma.InputJsonValue;
+  }
+): Promise<
+  | {
+      status: "APPLIED";
+      created: boolean;
+      mode: "TRACKED_FINITE";
+      inventoryEventId: string;
+      onHandAfter: number;
+    }
+  | {
+      status: "SKIPPED";
+      reason: "MTO" | "ALREADY_AT_TARGET";
+    }
+> {
+  await lockCutoverShare(tx);
+  if (!Number.isInteger(args.targetOnHand) || args.targetOnHand < 0) {
+    throw new FoundationInventoryError(
+      "invalid_marketplace_qty_edit",
+      "MARKETPLACE_QUANTITY_EDIT target must be an integer >= 0"
+    );
+  }
+  if (!args.sourceScope.trim() || !args.sourceFactId.trim()) {
+    throw new FoundationInventoryError(
+      "invalid_marketplace_qty_edit_source",
+      "MARKETPLACE_QUANTITY_EDIT requires sourceScope and sourceFactId"
+    );
+  }
+  const variant = await tx.storeVariant.findUnique({ where: { id: args.variantId } });
+  if (!variant) {
+    throw new FoundationMissingStateError(`StoreVariant ${args.variantId} not found`);
+  }
+  if (variant.memberId !== args.memberId) {
+    throw new FoundationInventoryError("variant_ownership", "Variant does not belong to this member");
+  }
+  await lockStoreItemForUpdate(tx, variant.storeItemId);
+  const state = await lockInventoryState(tx, args.variantId);
+  if (state.memberId !== args.memberId) {
+    throw new FoundationInventoryError("variant_ownership", "InventoryState ownership mismatch");
+  }
+  if (state.mode === "MADE_TO_ORDER") {
+    return { status: "SKIPPED", reason: "MTO" };
+  }
+  if (state.mode !== "TRACKED_FINITE" || state.onHand == null || state.reserved == null) {
+    throw new FoundationMissingStateError(`TRACKED InventoryState incomplete for ${args.variantId}`);
+  }
+  if (args.targetOnHand < state.reserved) {
+    throw new FoundationInventoryError(
+      "marketplace_qty_edit_below_reserved",
+      `Cannot apply marketplace qty ${args.targetOnHand} below reserved ${state.reserved}`
+    );
+  }
+  if (args.targetOnHand === state.onHand) {
+    return { status: "SKIPPED", reason: "ALREADY_AT_TARGET" };
+  }
+  const applied = Math.abs(args.targetOnHand - state.onHand);
+  const event = await appendInventoryEvent(tx, {
+    memberId: state.memberId,
+    variantId: state.variantId,
+    storeItemId: state.storeItemId,
+    eventType: "MARKETPLACE_QUANTITY_EDIT",
+    cause: MARKETPLACE_QUANTITY_EDIT_CAUSE,
+    sourceSystem: SHOPIFY_SOURCE_SYSTEM,
+    sourceScope: args.sourceScope,
+    sourceFactId: args.sourceFactId,
+    requestedQty: args.targetOnHand,
+    appliedOnHandQty: applied,
+    appliedReservedQty: 0,
+    onHandBefore: state.onHand,
+    onHandAfter: args.targetOnHand,
+    reservedBefore: state.reserved,
+    reservedAfter: state.reserved,
+    targetOnHand: args.targetOnHand,
+    metadata: args.metadata,
+  });
+  if (event.created) {
+    await bumpVersionAndWrite(tx, state, { onHand: args.targetOnHand, reserved: state.reserved });
+    await projectStoreItemQuantity(tx, state.storeItemId);
+    await maybeMarkSoldOutIfPhysicallyGone(tx, state.storeItemId);
+    await captureShopifyInventoryProjectionDesireAfterChange(tx, {
+      memberId: state.memberId,
+      storeVariantId: state.variantId,
+    });
+  }
+  return {
+    status: "APPLIED",
+    created: event.created,
+    mode: "TRACKED_FINITE",
+    inventoryEventId: event.id,
+    onHandAfter: args.targetOnHand,
   };
 }
 

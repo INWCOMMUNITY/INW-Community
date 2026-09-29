@@ -21,7 +21,7 @@ vi.mock("database", async () => {
         updateMany: vi.fn(),
       },
       storeItem: { findFirst: vi.fn() },
-      storeVariant: { findFirst: vi.fn() },
+      storeVariant: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     },
     markShopifyProductContentApplied: vi.fn(),
     markShopifyVariantContentApplied: vi.fn(),
@@ -30,6 +30,11 @@ vi.mock("database", async () => {
     setShopifyVariantContentConflict: vi.fn(),
   };
 });
+
+vi.mock("./sync-listing-media", () => ({
+  syncShopifyListingMedia: vi.fn(async () => ({ ok: true, added: 0, removed: 0 })),
+  syncShopifyVariantMediaAssociations: vi.fn(async () => ({ ok: true, associated: 0 })),
+}));
 
 vi.mock("./connect", () => ({
   accessTokenForConnection: vi.fn(async () => ACCESS),

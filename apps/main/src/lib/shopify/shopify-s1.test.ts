@@ -194,6 +194,7 @@ describe("oauth callback", () => {
   function shopifyFetch(locations: { id: string; name: string }[]) {
     let productsUpdateCreated = false;
     let ordersPaidCreated = false;
+    let inventoryLevelsCreated = false;
     return vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       const href = String(url);
       if (href.endsWith("/admin/oauth/access_token")) {
@@ -266,6 +267,26 @@ describe("oauth callback", () => {
           },
         });
       }
+      if (body.query.includes("ShopifyInventoryLevelsUpdateWebhookSubscriptions")) {
+        return jsonResponse({
+          data: {
+            webhookSubscriptions: {
+              nodes: inventoryLevelsCreated
+                ? [
+                    {
+                      id: "gid://shopify/WebhookSubscription/77",
+                      topic: "INVENTORY_LEVELS_UPDATE",
+                      endpoint: {
+                        __typename: "WebhookHttpEndpoint",
+                        callbackUrl: config.providerEvidenceWebhookUri,
+                      },
+                    },
+                  ]
+                : [],
+            },
+          },
+        });
+      }
       if (body.query.includes("webhookSubscriptionCreate")) {
         if (body.query.includes("PRODUCTS_UPDATE")) {
           productsUpdateCreated = true;
@@ -290,6 +311,20 @@ describe("oauth callback", () => {
                 webhookSubscription: {
                   id: "gid://shopify/WebhookSubscription/66",
                   topic: "ORDERS_PAID",
+                },
+              },
+            },
+          });
+        }
+        if (body.query.includes("INVENTORY_LEVELS_UPDATE")) {
+          inventoryLevelsCreated = true;
+          return jsonResponse({
+            data: {
+              webhookSubscriptionCreate: {
+                userErrors: [],
+                webhookSubscription: {
+                  id: "gid://shopify/WebhookSubscription/77",
+                  topic: "INVENTORY_LEVELS_UPDATE",
                 },
               },
             },

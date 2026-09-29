@@ -10,8 +10,10 @@ vi.mock("database", async () => {
       shopifyConnection: { findUnique: vi.fn() },
       shopifyListingLink: { findFirst: vi.fn(), findUnique: vi.fn() },
       shopifyVariantMap: { findMany: vi.fn() },
+      shopifyListingFieldState: { findMany: vi.fn().mockResolvedValue([]) },
       shopifyOrderLineSaleFact: { findFirst: vi.fn() },
       storeItem: { findUnique: vi.fn() },
+      storeVariant: { findMany: vi.fn().mockResolvedValue([]) },
     },
     persistShopifyListingHealth: vi.fn(async () => ({
       previous: { readiness: "SYNCING", issueCode: null, issueFingerprint: null },
@@ -38,6 +40,14 @@ vi.mock("./connect", () => ({
 
 vi.mock("./listing-issue-notify", () => ({
   notifyShopifyListingIssueOnce: vi.fn(async () => ({ created: false })),
+}));
+
+vi.mock("./sync-listing-topology", () => ({
+  syncShopifyListingTopology: vi.fn(async () => ({
+    ok: true,
+    plan: { kind: "NOOP" },
+    importedStoreVariantIds: [],
+  })),
 }));
 
 import { persistShopifyListingHealth, prisma } from "database";

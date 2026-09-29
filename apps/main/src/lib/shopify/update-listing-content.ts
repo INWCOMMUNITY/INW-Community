@@ -16,7 +16,10 @@ import {
 import type { ShopifyJobHandlerResult, ShopifySyncJobClaim } from "database";
 import type { ShopifyFetch } from "./admin-graphql";
 import { executeShopifyAdminGraphql } from "./admin-graphql";
-import { syncShopifyListingMedia } from "./sync-listing-media";
+import {
+  syncShopifyListingMedia,
+  syncShopifyVariantMediaAssociations,
+} from "./sync-listing-media";
 
 function parseUpdatePayload(payload: unknown): {
   storeItemId: string;
@@ -272,8 +275,8 @@ async function variantBulkUpdateScalars(input: {
     connectionId: input.connectionId,
     operationType: "mutation",
     operationName: "ShopifyListingContentVariantUpdate",
-    document: `mutation ShopifyListingContentVariantUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+    document: `mutation ShopifyListingContentVariantUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!, $allowPartialUpdates: Boolean) {
+      productVariantsBulkUpdate(productId: $productId, variants: $variants, allowPartialUpdates: $allowPartialUpdates) {
         productVariants { id price sku }
         userErrors { field message code }
       }
@@ -281,6 +284,8 @@ async function variantBulkUpdateScalars(input: {
     variables: {
       productId: input.productId,
       variants: [variant],
+      // Fail as a unit — partial success would desync canonical/provider representation.
+      allowPartialUpdates: false,
     },
     fetchImpl: input.fetchImpl,
     now: input.now,
@@ -832,6 +837,18 @@ export async function handleShopifyUpdateListingContentJob(
     if (!mediaSync.ok) {
       if (mediaSync.outcome === "RETRY") pendingRetry = mediaSync;
       else pendingDead = mediaSync;
+    } else {
+      const variantMedia = await syncShopifyVariantMediaAssociations({
+        connectionId: connection.id,
+        listingLinkId: listing.id,
+        productId: listing.shopifyProductId,
+        fetchImpl: deps.fetchImpl,
+        now: deps.now,
+      });
+      if (!variantMedia.ok) {
+        if (variantMedia.outcome === "RETRY") pendingRetry = variantMedia;
+        else pendingDead = variantMedia;
+      }
     }
   }
 

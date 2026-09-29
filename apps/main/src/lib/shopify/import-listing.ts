@@ -2,16 +2,20 @@ import {
   assertShopifyProductGid,
   beginShopifyListingImportAttempt,
   completeShopifyListingImportAttempt,
+  correlateVariantsByOptionCombination,
   createShopifyImportedListingMapping,
   failShopifyListingImportAttempt,
   prisma,
   provisionNativeFoundationListing,
   reconcileShopifyImportBootstrapSales,
+  shopifyTopologyToInwMatrix,
   ShopifyMappingConflictError,
   ShopifyMappingError,
+  validateShopifyImportTopology,
 } from "database";
 import type { ShopifyFetch } from "./admin-graphql";
 import { fetchShopifyImportProductDetail } from "./import-discovery";
+import type { ShopifyImportCandidate } from "./import-discovery";
 
 export type ImportShopifyListingStockMode = "PHYSICAL" | "MADE_TO_ORDER";
 
@@ -57,14 +61,18 @@ async function runBootstrapReconcile(input: {
   };
 }
 
+function isMultiVariant(snap: ShopifyImportCandidate): boolean {
+  return snap.variants.length > 1;
+}
+
 /**
- * Import one simple Shopify product into INW with exact provider mapping.
+ * Import one Shopify product (simple or multi-variant) into INW with exact provider mapping.
  *
  * Order of operations (launch-critical):
  * 1. Durably commit import attempt + bootstrapStartedAt (no network)
  * 2. Fresh Shopify provider re-read / inventory snapshot (outside DB TX)
- * 3. Atomic canonical write: StoreItem + Variant + opening + mapping + baselines + COMPLETED
- * 4. Reconcile durable ORDERS_PAID facts against the same cutoff (idempotent; safe to retry)
+ * 3. Atomic canonical write: StoreItem + Variant(s) + opening + mapping + baselines + COMPLETED
+ * 4. Reconcile durable ORDERS_PAID facts against the same cutoff PER variant (idempotent; safe to retry)
  */
 export async function importShopifyListing(input: {
   memberId: string;
@@ -128,7 +136,6 @@ export async function importShopifyListing(input: {
         message: "Import changed while processing; refresh and retry.",
       };
     }
-    // Crash recovery: always re-run idempotent sale reconcile with the ORIGINAL cutoff.
     let bootstrap = { preBootstrapAcked: 0, postBootstrapApplied: 0 };
     if (attempt.shopifyVariantId) {
       bootstrap = await runBootstrapReconcile({
@@ -166,7 +173,6 @@ export async function importShopifyListing(input: {
   });
   if (fresh.status === "ERROR") {
     if (fresh.code === "ALREADY_MAPPED") {
-      // Mapping appeared between begin and snapshot — heal via begin's mapping check on retry.
       const healed = await beginShopifyListingImportAttempt(prisma, {
         memberId: input.memberId,
         connectionId: connection.id,
@@ -230,8 +236,63 @@ export async function importShopifyListing(input: {
       message: "Import changed while processing; refresh and retry.",
     };
   }
+  if (!snap.supported) {
+    await failShopifyListingImportAttempt(prisma, {
+      attemptId: attempt.id,
+      code: "UNSUPPORTED_PRODUCT",
+      message: snap.unsupportedReason ?? "Product became unsupported during import.",
+    });
+    return {
+      status: "ERROR",
+      code: "UNSUPPORTED_PRODUCT",
+      message: snap.unsupportedReason ?? "Product became unsupported during import.",
+    };
+  }
+
+  const multi = isMultiVariant(snap);
+
+  const connectionWithLocation = {
+    id: connection.id,
+    primaryLocationId: connection.primaryLocationId!,
+  };
+
+  // ── Multi-variant import ──
+  if (multi) {
+    return importMultiVariant({
+      snap,
+      attempt,
+      connection: connectionWithLocation,
+      productId,
+      bootstrapStartedAt,
+      stockMode: input.stockMode,
+      memberId: input.memberId,
+    });
+  }
+
+  // ── Simple single-variant import (preserved) ──
+  return importSingleVariant({
+    snap,
+    attempt,
+    connection: connectionWithLocation,
+    productId,
+    bootstrapStartedAt,
+    stockMode: input.stockMode,
+    memberId: input.memberId,
+  });
+}
+
+async function importSingleVariant(ctx: {
+  snap: ShopifyImportCandidate;
+  attempt: { id: string; bootstrapStartedAt: Date };
+  connection: { id: string; primaryLocationId: string };
+  productId: string;
+  bootstrapStartedAt: Date;
+  stockMode: ImportShopifyListingStockMode;
+  memberId: string;
+}): Promise<ImportShopifyListingResult> {
+  const { snap, attempt, connection, productId, bootstrapStartedAt, stockMode, memberId } = ctx;
+
   if (
-    !snap.supported ||
     !snap.shopifyVariantId ||
     !snap.shopifyInventoryItemId ||
     snap.priceCents == null
@@ -247,7 +308,8 @@ export async function importShopifyListing(input: {
       message: snap.unsupportedReason ?? "Product became unsupported during import.",
     };
   }
-  if (input.stockMode === "PHYSICAL") {
+
+  if (stockMode === "PHYSICAL") {
     if (snap.primaryLocationAvailable == null || snap.primaryLocationAvailable < 0) {
       await failShopifyListingImportAttempt(prisma, {
         attemptId: attempt.id,
@@ -262,13 +324,11 @@ export async function importShopifyListing(input: {
     }
   }
 
-  const openingQty =
-    input.stockMode === "PHYSICAL" ? Math.trunc(snap.primaryLocationAvailable ?? 0) : 0;
-  const inventoryTracking = input.stockMode === "PHYSICAL" ? "tracked" : "made_to_order";
-  const inventoryMode = input.stockMode === "PHYSICAL" ? "TRACKED_FINITE" : "MADE_TO_ORDER";
+  const openingQty = stockMode === "PHYSICAL" ? Math.trunc(snap.primaryLocationAvailable ?? 0) : 0;
+  const inventoryTracking = stockMode === "PHYSICAL" ? "tracked" : "made_to_order";
+  const inventoryMode = stockMode === "PHYSICAL" ? "TRACKED_FINITE" : "MADE_TO_ORDER";
   const title = snap.title.slice(0, 200);
   const description = snap.descriptionHtml.trim().length > 0 ? snap.descriptionHtml : null;
-  // Featured image is referenced by URL only (existing listing media semantics). No remote fetch.
   const photos = snap.imageUrl ? [snap.imageUrl] : [];
   const sku = snap.sku ? snap.sku.trim().slice(0, 50) || null : null;
 
@@ -278,13 +338,9 @@ export async function importShopifyListing(input: {
     | null = null;
 
   try {
-    // 3) Canonical write atomic: listing + foundation opening + mapping/baselines + COMPLETED.
     created = await prisma.$transaction(async (tx) => {
       const existingMap = await tx.shopifyListingLink.findFirst({
-        where: {
-          shopifyConnectionId: connection.id,
-          shopifyProductId: productId,
-        },
+        where: { shopifyConnectionId: connection.id, shopifyProductId: productId },
         select: { id: true, storeItemId: true },
       });
       if (existingMap) {
@@ -295,16 +351,12 @@ export async function importShopifyListing(input: {
           storeItemId: existingMap.storeItemId,
           listingLinkId: existingMap.id,
         });
-        return {
-          already: true as const,
-          storeItemId: existingMap.storeItemId,
-          listingLinkId: existingMap.id,
-        };
+        return { already: true as const, storeItemId: existingMap.storeItemId, listingLinkId: existingMap.id };
       }
 
       const storeItem = await tx.storeItem.create({
         data: {
-          memberId: input.memberId,
+          memberId,
           title,
           description,
           photos,
@@ -325,7 +377,7 @@ export async function importShopifyListing(input: {
       }
 
       const mapping = await createShopifyImportedListingMapping(tx, {
-        memberId: input.memberId,
+        memberId,
         connectionId: connection.id,
         storeItemId: storeItem.id,
         shopifyProductId: productId,
@@ -338,7 +390,7 @@ export async function importShopifyListing(input: {
         ],
         remoteProductStatus: snap.status,
         importBootstrapStartedAt: bootstrapStartedAt,
-        remoteAvailable: input.stockMode === "PHYSICAL" ? openingQty : null,
+        remoteAvailable: stockMode === "PHYSICAL" ? openingQty : null,
         inventoryMode,
       });
 
@@ -350,11 +402,7 @@ export async function importShopifyListing(input: {
         listingLinkId: mapping.listingLink.id,
       });
 
-      return {
-        already: false as const,
-        storeItemId: storeItem.id,
-        listingLinkId: mapping.listingLink.id,
-      };
+      return { already: false as const, storeItemId: storeItem.id, listingLinkId: mapping.listingLink.id };
     });
   } catch (error) {
     const code =
@@ -363,9 +411,7 @@ export async function importShopifyListing(input: {
         : error instanceof ShopifyMappingError
           ? error.code
           : "IMPORT_FAILED";
-    const message =
-      error instanceof Error ? error.message : "Import failed. Refresh and try again.";
-    // Only fails STARTED attempts — never downgrades COMPLETED.
+    const message = error instanceof Error ? error.message : "Import failed. Refresh and try again.";
     await failShopifyListingImportAttempt(prisma, {
       attemptId: attempt.id,
       code,
@@ -374,17 +420,14 @@ export async function importShopifyListing(input: {
     return {
       status: "ERROR",
       code,
-      message:
-        code === "ALREADY_MAPPED"
-          ? "This Shopify product is already synced."
-          : message.slice(0, 300),
+      message: code === "ALREADY_MAPPED" ? "This Shopify product is already synced." : message.slice(0, 300),
     };
   }
 
-  // 4) Sale reconcile after canonical commit. Failures must NOT undo COMPLETED import.
+  // 4) Sale reconcile after canonical commit.
   const bootstrap = await runBootstrapReconcile({
     connectionId: connection.id,
-    memberId: input.memberId,
+    memberId,
     shopifyVariantId: snap.shopifyVariantId!,
     bootstrapStartedAt,
   });
@@ -395,5 +438,264 @@ export async function importShopifyListing(input: {
     listingLinkId: created.listingLinkId,
     shopifyProductId: productId,
     bootstrap,
+  };
+}
+
+async function importMultiVariant(ctx: {
+  snap: ShopifyImportCandidate;
+  attempt: { id: string; bootstrapStartedAt: Date };
+  connection: { id: string; primaryLocationId: string };
+  productId: string;
+  bootstrapStartedAt: Date;
+  stockMode: ImportShopifyListingStockMode;
+  memberId: string;
+}): Promise<ImportShopifyListingResult> {
+  const { snap, attempt, connection, productId, bootstrapStartedAt, stockMode, memberId } = ctx;
+
+  if (snap.axes.length === 0 || snap.variants.length === 0 || !snap.matrix) {
+    await failShopifyListingImportAttempt(prisma, {
+      attemptId: attempt.id,
+      code: "TOPOLOGY_INVALID",
+      message: "Multi-variant product topology is invalid.",
+    });
+    return { status: "ERROR", code: "TOPOLOGY_INVALID", message: "Multi-variant product topology is invalid." };
+  }
+
+  // Re-validate topology
+  const topo = validateShopifyImportTopology({
+    axes: snap.axes,
+    variants: snap.variants.map((v) => ({
+      shopifyVariantId: v.shopifyVariantId,
+      shopifyInventoryItemId: v.shopifyInventoryItemId,
+      selectedOptions: v.selectedOptions,
+      priceCents: v.priceCents,
+      sku: v.sku,
+      available: v.primaryLocationAvailable,
+      tracked: v.inventoryTracked,
+    })),
+  });
+  if (!topo.ok) {
+    await failShopifyListingImportAttempt(prisma, {
+      attemptId: attempt.id,
+      code: topo.code,
+      message: topo.message,
+    });
+    return { status: "ERROR", code: topo.code, message: topo.message };
+  }
+
+  if (stockMode === "PHYSICAL") {
+    for (const v of snap.variants) {
+      if (v.inventoryTracked && (v.primaryLocationAvailable == null || v.primaryLocationAvailable < 0)) {
+        await failShopifyListingImportAttempt(prisma, {
+          attemptId: attempt.id,
+          code: "INVENTORY_UNAVAILABLE",
+          message: "Inventory unavailable at selected Shopify location for one or more variants.",
+        });
+        return {
+          status: "ERROR",
+          code: "INVENTORY_UNAVAILABLE",
+          message: "Inventory unavailable at selected Shopify location for one or more variants.",
+        };
+      }
+    }
+  }
+
+  const inventoryTracking = stockMode === "PHYSICAL" ? "tracked" : "made_to_order";
+  const inventoryMode = stockMode === "PHYSICAL" ? "TRACKED_FINITE" : "MADE_TO_ORDER";
+  const title = snap.title.slice(0, 200);
+  const description = snap.descriptionHtml.trim().length > 0 ? snap.descriptionHtml : null;
+  const photos = snap.imageUrl ? [snap.imageUrl] : [];
+
+  const matrix = shopifyTopologyToInwMatrix({
+    axes: topo.axes,
+    variants: topo.variants,
+    inventoryTracking,
+  });
+
+  const totalQty = matrix.skus.reduce((sum, s) => sum + s.quantity, 0);
+
+  let created:
+    | { already: true; storeItemId: string; listingLinkId: string; variantMappings: Array<{ storeVariantId: string; shopifyVariantId: string }> }
+    | { already: false; storeItemId: string; listingLinkId: string; variantMappings: Array<{ storeVariantId: string; shopifyVariantId: string }> }
+    | null = null;
+
+  try {
+    created = await prisma.$transaction(async (tx) => {
+      const existingMap = await tx.shopifyListingLink.findFirst({
+        where: { shopifyConnectionId: connection.id, shopifyProductId: productId },
+        select: { id: true, storeItemId: true },
+      });
+      if (existingMap) {
+        const firstVariant = snap.variants[0]!;
+        await completeShopifyListingImportAttempt(tx, {
+          attemptId: attempt.id,
+          shopifyVariantId: firstVariant.shopifyVariantId,
+          shopifyInventoryItemId: firstVariant.shopifyInventoryItemId,
+          storeItemId: existingMap.storeItemId,
+          listingLinkId: existingMap.id,
+        });
+        return {
+          already: true as const,
+          storeItemId: existingMap.storeItemId,
+          listingLinkId: existingMap.id,
+          variantMappings: [],
+        };
+      }
+
+      const storeItem = await tx.storeItem.create({
+        data: {
+          memberId,
+          title,
+          description,
+          photos,
+          priceCents: snap.priceCents ?? matrix.skus[0]?.priceCents ?? 0,
+          quantity: totalQty,
+          inventoryTracking,
+          sku: null,
+          status: "active",
+          slug: uniqueSlug(slugify(title)),
+          condition: "new",
+          variants: JSON.stringify(matrix),
+        },
+        select: { id: true },
+      });
+
+      const provisioned = await provisionNativeFoundationListing(tx, storeItem.id);
+      if (provisioned.variantIds.length !== snap.variants.length) {
+        throw new Error(
+          `Imported listing provisioned ${provisioned.variantIds.length} variants; expected ${snap.variants.length}`
+        );
+      }
+
+      // Correlate provisioned INW variants to Shopify variants by option combination
+      const inwVariants = await tx.storeVariant.findMany({
+        where: { storeItemId: storeItem.id, memberId },
+        select: { id: true, options: true },
+        orderBy: { createdAt: "asc" },
+      });
+
+      const requestedForCorrelation = inwVariants.map((sv) => {
+        const opts = typeof sv.options === "string" ? JSON.parse(sv.options) : sv.options;
+        const selectedOptions = Object.entries(opts as Record<string, string>).map(([name, value]) => ({
+          name,
+          value: String(value),
+        }));
+        return { storeVariantId: sv.id, selectedOptions };
+      });
+
+      const remoteForCorrelation = snap.variants.map((v) => ({
+        shopifyVariantId: v.shopifyVariantId,
+        shopifyInventoryItemId: v.shopifyInventoryItemId,
+        selectedOptions: v.selectedOptions,
+      }));
+
+      const correlation = correlateVariantsByOptionCombination({
+        requested: requestedForCorrelation,
+        remote: remoteForCorrelation,
+      });
+
+      if (!correlation.ok) {
+        throw new ShopifyMappingError(
+          "INVALID_VARIANTS",
+          `Variant correlation failed: ${correlation.message}`
+        );
+      }
+
+      const perVariantAvailable = correlation.pairs.map((pair) => {
+        const remoteV = snap.variants.find((v) => v.shopifyVariantId === pair.shopifyVariantId);
+        if (!remoteV) return null;
+        return stockMode === "PHYSICAL" ? Math.trunc(remoteV.primaryLocationAvailable ?? 0) : null;
+      });
+
+      const mapping = await createShopifyImportedListingMapping(tx, {
+        memberId,
+        connectionId: connection.id,
+        storeItemId: storeItem.id,
+        shopifyProductId: productId,
+        variants: correlation.pairs.map((p) => ({
+          storeVariantId: p.storeVariantId,
+          shopifyVariantId: p.shopifyVariantId,
+          shopifyInventoryItemId: p.shopifyInventoryItemId,
+        })),
+        remoteProductStatus: snap.status,
+        importBootstrapStartedAt: bootstrapStartedAt,
+        remoteAvailable: perVariantAvailable,
+        inventoryMode,
+      });
+
+      const firstPair = correlation.pairs[0]!;
+      await completeShopifyListingImportAttempt(tx, {
+        attemptId: attempt.id,
+        shopifyVariantId: firstPair.shopifyVariantId,
+        shopifyInventoryItemId: firstPair.shopifyInventoryItemId,
+        storeItemId: storeItem.id,
+        listingLinkId: mapping.listingLink.id,
+      });
+
+      return {
+        already: false as const,
+        storeItemId: storeItem.id,
+        listingLinkId: mapping.listingLink.id,
+        variantMappings: correlation.pairs.map((p) => ({
+          storeVariantId: p.storeVariantId,
+          shopifyVariantId: p.shopifyVariantId,
+        })),
+      };
+    });
+  } catch (error) {
+    const code =
+      error instanceof ShopifyMappingConflictError
+        ? "ALREADY_MAPPED"
+        : error instanceof ShopifyMappingError
+          ? error.code
+          : "IMPORT_FAILED";
+    const message = error instanceof Error ? error.message : "Import failed. Refresh and try again.";
+    await failShopifyListingImportAttempt(prisma, {
+      attemptId: attempt.id,
+      code,
+      message,
+    }).catch(() => undefined);
+    return {
+      status: "ERROR",
+      code,
+      message: code === "ALREADY_MAPPED" ? "This Shopify product is already synced." : message.slice(0, 300),
+    };
+  }
+
+  // 4) Sale reconcile PER variant after canonical commit.
+  let totalPreAcked = 0;
+  let totalPostApplied = 0;
+
+  if (!created.already && created.variantMappings.length > 0) {
+    for (const pair of created.variantMappings) {
+      const bootstrap = await runBootstrapReconcile({
+        connectionId: connection.id,
+        memberId,
+        shopifyVariantId: pair.shopifyVariantId,
+        bootstrapStartedAt,
+      });
+      totalPreAcked += bootstrap.preBootstrapAcked;
+      totalPostApplied += bootstrap.postBootstrapApplied;
+    }
+  } else if (snap.variants[0]) {
+    const bootstrap = await runBootstrapReconcile({
+      connectionId: connection.id,
+      memberId,
+      shopifyVariantId: snap.variants[0].shopifyVariantId,
+      bootstrapStartedAt,
+    });
+    totalPreAcked = bootstrap.preBootstrapAcked;
+    totalPostApplied = bootstrap.postBootstrapApplied;
+  }
+
+  return {
+    status: created.already ? "ALREADY_IMPORTED" : "IMPORTED",
+    storeItemId: created.storeItemId,
+    listingLinkId: created.listingLinkId,
+    shopifyProductId: productId,
+    bootstrap: {
+      preBootstrapAcked: totalPreAcked,
+      postBootstrapApplied: totalPostApplied,
+    },
   };
 }

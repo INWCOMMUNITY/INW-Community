@@ -36,12 +36,14 @@ async function resetSingleton() {
   `;
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   const url = foundationTestDatabaseUrl();
   prisma = new PrismaClient({
     datasources: { db: { url } },
     log: ["error"],
   });
+  // Prior foundation files may leave FOUNDATION; migration-legacy assertion needs a clean start.
+  await resetSingleton();
 });
 
 afterEach(async () => {
