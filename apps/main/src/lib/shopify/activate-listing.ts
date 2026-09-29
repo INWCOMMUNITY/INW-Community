@@ -79,16 +79,18 @@ export async function ensureShopifyListingProductActive(input: {
   const update = await executeShopifyAdminGraphql<{
     productUpdate: {
       product: { id: string; status: string } | null;
-      userErrors: Array<{ field?: string[] | null; message: string; code?: string | null }>;
+      // productUpdate returns [UserError!]! (field+message only; no code).
+      userErrors: Array<{ field?: string[] | null; message: string }>;
     };
   }>({
     connectionId: input.connectionId,
     operationType: "mutation",
     operationName: "ShopifyListingProductActivate",
+    // Selecting `code` yields GraphQL top-level errors on HTTP 200 and DEAD publication.
     document: `mutation ShopifyListingProductActivate($input: ProductInput!) {
       productUpdate(input: $input) {
         product { id status }
-        userErrors { field message code }
+        userErrors { field message }
       }
     }`,
     variables: {
@@ -127,16 +129,14 @@ export async function ensureShopifyListingProductActive(input: {
 
   const userErrors = update.data?.productUpdate.userErrors ?? [];
   if (userErrors.length > 0) {
-    const code = userErrors[0]?.code ?? "PRODUCT_ACTIVATE_USER_ERROR";
-    const retryable = /throttl|timeout|unavailable|try again/i.test(
-      `${code} ${userErrors[0]?.message ?? ""}`
-    );
+    const message = userErrors[0]?.message ?? "Shopify productUpdate user error";
+    const retryable = /throttl|timeout|unavailable|try again/i.test(message);
     return {
       ok: false,
       class: retryable ? "RETRY" : "DEAD",
       errorClass: retryable ? "THROTTLED" : "GRAPHQL_PERMANENT",
-      errorCode: code.slice(0, 64),
-      errorMessage: (userErrors[0]?.message ?? "Shopify productUpdate user error").slice(0, 500),
+      errorCode: retryable ? "THROTTLED" : "PRODUCT_ACTIVATE_USER_ERROR",
+      errorMessage: message.slice(0, 500),
     };
   }
 

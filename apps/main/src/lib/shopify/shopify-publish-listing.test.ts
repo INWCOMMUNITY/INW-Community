@@ -230,6 +230,8 @@ describe("PUBLISH_LISTING / Online Store export publication", () => {
         });
       }
       if (body.operationName === "ShopifyListingProductActivate") {
+        expect(body.query).toContain("userErrors { field message }");
+        expect(body.query).not.toMatch(/userErrors\s*\{\s*field\s+message\s+code\s*\}/);
         expect(body.variables).toMatchObject({
           input: { id: "gid://shopify/Product/9", status: "ACTIVE" },
         });
