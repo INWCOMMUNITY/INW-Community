@@ -7,6 +7,26 @@ vi.mock("database", async () => {
   return {
     ...actual,
     prisma: {
+      $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({
+        shopifyMediaMap: {
+          findMany: vi.fn().mockResolvedValue([]),
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+          update: vi.fn(),
+          upsert: vi.fn(),
+        },
+        shopifyListingFieldState: {
+          findMany: vi.fn().mockResolvedValue([]),
+          findUnique: vi.fn().mockResolvedValue(null),
+          upsert: vi.fn(),
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
+        storeItem: { findUniqueOrThrow: vi.fn().mockResolvedValue({ photos: [] }) },
+        storeVariant: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          update: vi.fn(),
+        },
+        shopifyProviderEvidence: { update: vi.fn() },
+      })),
       shopifyConnection: { findUnique: vi.fn() },
       shopifyListingLink: { findFirst: vi.fn(), findUnique: vi.fn() },
       shopifyVariantMap: { findMany: vi.fn() },
@@ -24,6 +44,14 @@ vi.mock("database", async () => {
     })),
     ensureShopifyUpdateListingContentJob: vi.fn(),
     ensureShopifyProjectInventoryJob: vi.fn(),
+    applyShopifyMediaInbound: vi.fn(async () => ({ action: "MEDIA_UNCHANGED", photos: [] })),
+    applyShopifyVariantMediaInbound: vi.fn(async () => ({
+      action: "VARIANT_MEDIA_UNCHANGED",
+      updatedVariants: 0,
+      conflicts: 0,
+      echoes: 0,
+      skippedUnresolved: 0,
+    })),
   };
 });
 
@@ -138,8 +166,35 @@ beforeEach(() => {
 
 describe("handleShopifyReconcileListingJob", () => {
   it("healthy physical listing persists READY_TO_PUBLISH with zero mutations", async () => {
-    const fetchImpl = vi.fn(async () =>
-      jsonResponse({
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = String(init?.body ?? "");
+      if (body.includes("ShopifyInboundListingContentRead")) {
+        return jsonResponse({
+          data: {
+            product: {
+              id: "gid://shopify/Product/9",
+              status: "ACTIVE",
+              title: "T",
+              descriptionHtml: "",
+              updatedAt: "2026-09-28T12:00:00.000Z",
+              variants: {
+                nodes: [
+                  {
+                    id: "gid://shopify/ProductVariant/8",
+                    price: "12.00",
+                    sku: "SKU",
+                    updatedAt: "2026-09-28T12:00:00.000Z",
+                    inventoryItem: { id: "gid://shopify/InventoryItem/7" },
+                    media: { nodes: [] },
+                  },
+                ],
+              },
+              media: { nodes: [] },
+            },
+          },
+        });
+      }
+      return jsonResponse({
         data: {
           product: {
             id: "gid://shopify/Product/9",
@@ -166,14 +221,14 @@ describe("handleShopifyReconcileListingJob", () => {
             },
           },
         },
-      })
-    );
+      });
+    });
     const result = await handleShopifyReconcileListingJob(claim(), { fetchImpl, notify: true });
     expect(result).toEqual({ outcome: "SUCCESS" });
-    expect(String((fetchImpl.mock.calls[0][1] as RequestInit).body)).toContain(
-      "ShopifyListingReconcileRead"
-    );
-    expect(String((fetchImpl.mock.calls[0][1] as RequestInit).body)).not.toContain("mutation");
+    const bodies = fetchImpl.mock.calls.map((c) => String((c[1] as RequestInit).body));
+    expect(bodies.some((b) => b.includes("ShopifyInboundListingContentRead"))).toBe(true);
+    expect(bodies.some((b) => b.includes("ShopifyListingReconcileRead"))).toBe(true);
+    expect(bodies.every((b) => !b.includes("mutation"))).toBe(true);
     expect(persistShopifyListingHealth).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -205,8 +260,35 @@ describe("handleShopifyReconcileListingJob", () => {
       issueCleared: false,
       issueOpened: true,
     } as never);
-    const fetchImpl = vi.fn(async () =>
-      jsonResponse({
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = String(init?.body ?? "");
+      if (body.includes("ShopifyInboundListingContentRead")) {
+        return jsonResponse({
+          data: {
+            product: {
+              id: "gid://shopify/Product/9",
+              status: "DRAFT",
+              title: "T",
+              descriptionHtml: "",
+              updatedAt: "2026-09-28T12:00:00.000Z",
+              variants: {
+                nodes: [
+                  {
+                    id: "gid://shopify/ProductVariant/8",
+                    price: "12.00",
+                    sku: "SKU",
+                    updatedAt: "2026-09-28T12:00:00.000Z",
+                    inventoryItem: { id: "gid://shopify/InventoryItem/7" },
+                    media: { nodes: [] },
+                  },
+                ],
+              },
+              media: { nodes: [] },
+            },
+          },
+        });
+      }
+      return jsonResponse({
         data: {
           product: {
             id: "gid://shopify/Product/9",
@@ -233,13 +315,13 @@ describe("handleShopifyReconcileListingJob", () => {
             },
           },
         },
-      })
-    );
+      });
+    });
     const result = await handleShopifyReconcileListingJob(claim(), { fetchImpl });
     expect(result).toEqual({ outcome: "SUCCESS" });
-    expect(String((fetchImpl.mock.calls[0][1] as RequestInit).body)).not.toContain(
-      "inventorySetQuantities"
-    );
+    expect(
+      fetchImpl.mock.calls.every((c) => !String((c[1] as RequestInit).body).includes("inventorySetQuantities"))
+    ).toBe(true);
     expect(notifyShopifyListingIssueOnce).toHaveBeenCalledWith(
       expect.objectContaining({ issueCode: "INVENTORY_REMOTE_DRIFT" })
     );

@@ -294,7 +294,11 @@ export async function applyShopifyProductsUpdateObservation(
     let variantMediaAction = "VARIANT_MEDIA_SKIPPED";
     if (remoteVariantMedia.length > 0) {
       const variantMedia = await applyShopifyVariantMediaInbound(tx, {
+        connectionId: input.connectionId,
         listingLinkId: listing.id,
+        memberId: listing.memberId,
+        storeItemId: listing.storeItemId,
+        evidenceId: input.evidenceId,
         mappedVariants: mappedForMedia,
         remoteVariantMedia,
       });

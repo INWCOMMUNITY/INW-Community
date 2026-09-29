@@ -577,12 +577,17 @@ export { applyShopifyMediaInbound } from "./shopify/media-inbound";
 export type { ShopifyMediaInboundDb, ShopifyRemoteMediaNode } from "./shopify/media-inbound";
 export {
   applyShopifyVariantMediaInbound,
+  classifyVariantMediaInbound,
   planVariantMediaAssociations,
   planVariantMediaInboundAssociations,
+  seedShopifyVariantMediaConvergence,
+  variantMediaLocalFingerprint,
+  variantMediaRemoteFingerprint,
 } from "./shopify/variant-media";
 export type {
   ShopifyVariantMediaInboundDb,
   VariantMediaAssociationPlan,
+  VariantMediaInboundClass,
 } from "./shopify/variant-media";
 export {
   correlateVariantsByOptionCombination,

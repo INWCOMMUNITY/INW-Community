@@ -8,11 +8,15 @@ import {
   prisma,
   provisionNativeFoundationListing,
   reconcileShopifyImportBootstrapSales,
+  seedShopifyVariantMediaConvergence,
+  shopifyMediaContentSha256,
   shopifyTopologyToInwMatrix,
   ShopifyMappingConflictError,
   ShopifyMappingError,
+  upsertShopifyMediaDesireMaps,
   validateShopifyImportTopology,
 } from "database";
+import { randomUUID } from "crypto";
 import type { ShopifyFetch } from "./admin-graphql";
 import { fetchShopifyImportProductDetail } from "./import-discovery";
 import type { ShopifyImportCandidate } from "./import-discovery";
@@ -621,6 +625,80 @@ async function importMultiVariant(ctx: {
         importBootstrapStartedAt: bootstrapStartedAt,
         remoteAvailable: perVariantAvailable,
         inventoryMode,
+      });
+
+      // Seed durable product media maps + per-variant association BASE=LOCAL=REMOTE.
+      // No outbound media association write on import.
+      const productMedia =
+        snap.productMedia.length > 0
+          ? snap.productMedia
+          : snap.imageUrl
+            ? [{ shopifyMediaId: `import-featured:${productId}`, sourceUrl: snap.imageUrl }]
+            : [];
+      const desiredMedia = productMedia.map((m, position) => {
+        const sourceUrl = m.sourceUrl?.trim() || `shopify-media:${m.shopifyMediaId}`;
+        return {
+          inwMediaId: randomUUID().replace(/-/g, "").slice(0, 24),
+          sourceUrl,
+          contentSha256: shopifyMediaContentSha256(sourceUrl),
+          position,
+        };
+      });
+      if (desiredMedia.length > 0) {
+        await upsertShopifyMediaDesireMaps(tx, {
+          connectionId: connection.id,
+          listingLinkId: mapping.listingLink.id,
+          memberId,
+          storeItemId: storeItem.id,
+          desired: desiredMedia,
+          removeInwMediaIds: [],
+        });
+        for (let i = 0; i < productMedia.length; i += 1) {
+          const media = productMedia[i]!;
+          const desire = desiredMedia[i]!;
+          if (media.shopifyMediaId.startsWith("import-featured:")) continue;
+          await tx.shopifyMediaMap.updateMany({
+            where: {
+              shopifyListingLinkId: mapping.listingLink.id,
+              inwMediaId: desire.inwMediaId,
+            },
+            data: { shopifyMediaId: media.shopifyMediaId, status: "ACTIVE" },
+          });
+        }
+      }
+
+      const mapsAfter = await tx.shopifyMediaMap.findMany({
+        where: { shopifyListingLinkId: mapping.listingLink.id, status: "ACTIVE" },
+        select: { inwMediaId: true, sourceUrl: true, shopifyMediaId: true, status: true },
+      });
+      const byMediaGid = new Map(
+        mapsAfter
+          .filter((m) => m.shopifyMediaId)
+          .map((m) => [m.shopifyMediaId!, m] as const)
+      );
+      const associations = correlation.pairs.map((pair) => {
+        const remote = snap.variants.find((v) => v.shopifyVariantId === pair.shopifyVariantId);
+        const mediaIds = remote?.mediaIds ?? [];
+        const photos: string[] = [];
+        const inwMediaIds: string[] = [];
+        for (const mediaId of mediaIds) {
+          const map = byMediaGid.get(mediaId);
+          if (!map) continue;
+          inwMediaIds.push(map.inwMediaId);
+          if (map.sourceUrl?.trim()) photos.push(map.sourceUrl.trim());
+        }
+        return {
+          storeVariantId: pair.storeVariantId,
+          photos,
+          inwMediaIds,
+        };
+      });
+      await seedShopifyVariantMediaConvergence(tx, {
+        connectionId: connection.id,
+        listingLinkId: mapping.listingLink.id,
+        memberId,
+        storeItemId: storeItem.id,
+        associations,
       });
 
       const firstPair = correlation.pairs[0]!;

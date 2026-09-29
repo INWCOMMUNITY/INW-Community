@@ -41,6 +41,8 @@ export type ShopifyImportCandidate = {
   primaryLocationAvailable: number | null;
   recommendedStockMode: "PHYSICAL" | "MADE_TO_ORDER" | null;
   imageUrl: string | null;
+  /** Durable Product media nodes when available (import detail re-fetch). */
+  productMedia: Array<{ shopifyMediaId: string; sourceUrl: string | null }>;
   /** Multi-variant topology: present when axes.length > 0 or variantCount > 1. */
   variants: ShopifyImportCandidateVariant[];
   axes: ShopifyOptionAxis[];
@@ -75,6 +77,12 @@ type GraphqlProductNode = {
   hasOnlyDefaultVariant: boolean | null;
   totalVariants: number | null;
   featuredImage: { url: string | null } | null;
+  media?: {
+    nodes: Array<{
+      id: string;
+      preview?: { image?: { url: string | null } | null } | null;
+    }>;
+  } | null;
   options?: Array<{ name: string; position: number; values: string[] }> | null;
   variants: {
     nodes: Array<{
@@ -115,6 +123,10 @@ function unsupportedBase(
     primaryLocationAvailable: null,
     recommendedStockMode: null,
     imageUrl: node.featuredImage?.url ?? null,
+    productMedia: (node.media?.nodes ?? []).map((m) => ({
+      shopifyMediaId: m.id,
+      sourceUrl: m.preview?.image?.url ?? null,
+    })),
     variants: [],
     axes: [],
     matrix: null,
@@ -340,6 +352,10 @@ function classifyCandidate(node: GraphqlProductNode): ShopifyImportCandidate {
     requiresShipping: firstVariant?.requiresShipping ?? null,
     primaryLocationAvailable: firstVariant?.primaryLocationAvailable ?? null,
     recommendedStockMode: anyTracked ? "PHYSICAL" : "MADE_TO_ORDER",
+    productMedia: (node.media?.nodes ?? []).map((m) => ({
+      shopifyMediaId: m.id,
+      sourceUrl: m.preview?.image?.url ?? null,
+    })),
     variants: candidateVariants,
     axes: topo.axes,
     matrix,
@@ -550,6 +566,12 @@ export async function fetchShopifyImportProductDetail(input: {
         hasOnlyDefaultVariant
         totalVariants
         featuredImage { url }
+        media(first: 50) {
+          nodes {
+            id
+            preview { image { url } }
+          }
+        }
         options { name position values }
         variants(first: 100) {
           nodes {

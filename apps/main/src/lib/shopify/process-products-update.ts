@@ -30,7 +30,8 @@ function parseProductGidFromEvidenceBody(rawBody: string): string | null {
   return null;
 }
 
-async function readRemoteProductForInbound(input: {
+/** Authoritative product re-fetch for inbound content/media (also used by S9 recovery). */
+export async function readRemoteProductForInbound(input: {
   connectionId: string;
   productId: string;
   fetchImpl?: ShopifyFetch;

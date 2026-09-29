@@ -13,10 +13,12 @@ vi.mock("database", async () => {
     },
     beginShopifyListingImportAttempt: vi.fn(),
     completeShopifyListingImportAttempt: vi.fn(),
-    failShopifyListingImportAttempt: vi.fn(),
+    failShopifyListingImportAttempt: vi.fn(async () => undefined),
     createShopifyImportedListingMapping: vi.fn(),
     provisionNativeFoundationListing: vi.fn(),
     reconcileShopifyImportBootstrapSales: vi.fn(),
+    upsertShopifyMediaDesireMaps: vi.fn(async () => undefined),
+    seedShopifyVariantMediaConvergence: vi.fn(async () => undefined),
     validateShopifyImportTopology: actual.validateShopifyImportTopology,
     correlateVariantsByOptionCombination: actual.correlateVariantsByOptionCombination,
     shopifyTopologyToInwMatrix: actual.shopifyTopologyToInwMatrix,
@@ -55,6 +57,7 @@ const candidate = {
   primaryLocationAvailable: 10,
   recommendedStockMode: "PHYSICAL" as const,
   imageUrl: null,
+  productMedia: [],
   variants: [],
   axes: [],
   matrix: null,
@@ -76,6 +79,7 @@ const multiCandidate = {
   primaryLocationAvailable: 5,
   recommendedStockMode: "PHYSICAL" as const,
   imageUrl: null,
+  productMedia: [],
   variants: [
     {
       shopifyVariantId: "gid://shopify/ProductVariant/10",
@@ -248,6 +252,10 @@ describe("importShopifyListing launch invariants", () => {
       const tx = {
         shopifyListingLink: { findFirst: vi.fn().mockResolvedValue(null) },
         storeItem: { create: vi.fn().mockResolvedValue({ id: "item-1" }) },
+        shopifyMediaMap: {
+          findMany: vi.fn().mockResolvedValue([]),
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
       };
       vi.mocked(provisionNativeFoundationListing).mockResolvedValue({
         variantIds: ["var-1"],
@@ -329,6 +337,10 @@ describe("importShopifyListing launch invariants", () => {
             { id: "sv-1", options: JSON.stringify({ Size: "S" }) },
             { id: "sv-2", options: JSON.stringify({ Size: "M" }) },
           ]),
+        },
+        shopifyMediaMap: {
+          findMany: vi.fn().mockResolvedValue([]),
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
         },
       };
       vi.mocked(provisionNativeFoundationListing).mockResolvedValue({

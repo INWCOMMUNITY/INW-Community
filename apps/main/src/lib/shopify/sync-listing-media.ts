@@ -1,7 +1,10 @@
 import {
+  markShopifyFieldsApplied,
+  persistShopifyFieldPlans,
   planShopifyMediaDesireFromPhotos,
   planVariantMediaAssociations,
   prisma,
+  shopifyMediaIdentityFingerprint,
   upsertShopifyMediaDesireMaps,
 } from "database";
 import type { ShopifyFetch } from "./admin-graphql";
@@ -268,8 +271,17 @@ export async function syncShopifyVariantMediaAssociations(input: {
   fetchImpl?: ShopifyFetch;
   now?: Date;
 }): Promise<{ ok: true; associated: number } | ({ ok: false } & HandlerFailure)> {
+  const listing = await prisma.shopifyListingLink.findFirst({
+    where: { id: input.listingLinkId, shopifyConnectionId: input.connectionId },
+    select: { id: true, memberId: true, storeItemId: true },
+  });
+  if (!listing) return { ok: true, associated: 0 };
+
   const variantMaps = await prisma.shopifyVariantMap.findMany({
-    where: { shopifyListingLinkId: input.listingLinkId },
+    where: {
+      shopifyListingLinkId: input.listingLinkId,
+      shopifyConnectionId: input.connectionId,
+    },
     select: { storeVariantId: true, shopifyVariantId: true },
   });
   if (variantMaps.length < 1) return { ok: true, associated: 0 };
@@ -289,6 +301,16 @@ export async function syncShopifyVariantMediaAssociations(input: {
     },
   });
 
+  const fieldStates = await prisma.shopifyListingFieldState.findMany({
+    where: {
+      shopifyListingLinkId: input.listingLinkId,
+      fieldKey: "MEDIA",
+      storeVariantId: { in: variantMaps.map((m) => m.storeVariantId) },
+    },
+    select: { storeVariantId: true, baseFingerprint: true, localFingerprint: true },
+  });
+  const fieldByVariant = new Map(fieldStates.map((s) => [s.storeVariantId, s]));
+
   const plans = planVariantMediaAssociations({
     variants: storeVariants.map((v) => ({ storeVariantId: v.id, photos: v.photos ?? [] })),
     mediaMaps,
@@ -296,11 +318,17 @@ export async function syncShopifyVariantMediaAssociations(input: {
 
   const byStoreVariant = new Map(variantMaps.map((m) => [m.storeVariantId, m.shopifyVariantId]));
   const bulk: Array<{ id: string; mediaId: string }> = [];
+  const pushedPlans: typeof plans = [];
   for (const plan of plans) {
     const shopifyVariantId = byStoreVariant.get(plan.storeVariantId);
     const mediaId = plan.shopifyMediaIds[0];
     if (!shopifyVariantId || !mediaId) continue;
+    const localFp = shopifyMediaIdentityFingerprint(plan.inwMediaIds);
+    const field = fieldByVariant.get(plan.storeVariantId);
+    // Skip when already converged (import seed / prior outbound) — avoids echo churn.
+    if (field?.baseFingerprint && field.baseFingerprint === localFp) continue;
     bulk.push({ id: shopifyVariantId, mediaId });
+    pushedPlans.push(plan);
     // Persist marketplace-neutral association hint on durable media maps.
     for (const inwMediaId of plan.inwMediaIds) {
       await prisma.shopifyMediaMap.updateMany({
@@ -372,5 +400,32 @@ export async function syncShopifyVariantMediaAssociations(input: {
       errorMessage: (userErrors[0]?.message ?? "variant media associate user error").slice(0, 500),
     };
   }
+
+  // Narrow baseline: mark MEDIA BASE=LOCAL=REMOTE so PRODUCTS_UPDATE echo is confirmation-only.
+  for (const plan of pushedPlans) {
+    const fp = shopifyMediaIdentityFingerprint(plan.inwMediaIds);
+    await persistShopifyFieldPlans(prisma, {
+      connectionId: input.connectionId,
+      listingLinkId: input.listingLinkId,
+      memberId: listing.memberId,
+      storeItemId: listing.storeItemId,
+      plans: [
+        {
+          field: "MEDIA",
+          storeVariantId: plan.storeVariantId,
+          class: "UNCHANGED",
+          action: "UNCHANGED",
+          base: fp,
+          local: fp,
+          remote: fp,
+        },
+      ],
+    });
+    await markShopifyFieldsApplied(prisma, {
+      listingLinkId: input.listingLinkId,
+      fields: [{ field: "MEDIA", storeVariantId: plan.storeVariantId, fingerprint: fp }],
+    });
+  }
+
   return { ok: true, associated: bulk.length };
 }

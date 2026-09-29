@@ -1,4 +1,6 @@
 import {
+  applyShopifyMediaInbound,
+  applyShopifyVariantMediaInbound,
   ensureShopifyProjectInventoryJob,
   ensureShopifyUpdateListingContentJob,
   persistShopifyListingHealth,
@@ -14,6 +16,7 @@ import type { ShopifyFetch } from "./admin-graphql";
 import { executeShopifyAdminGraphql } from "./admin-graphql";
 import { notifyShopifyListingIssueOnce } from "./listing-issue-notify";
 import { syncShopifyListingTopology } from "./sync-listing-topology";
+import { readRemoteProductForInbound } from "./process-products-update";
 
 function parseReconcilePayload(payload: unknown): { listingLinkId: string; storeItemId: string } | null {
   if (!payload || typeof payload !== "object") return null;
@@ -337,6 +340,49 @@ export async function handleShopifyReconcileListingJob(
   });
   const variantMap = refreshedMaps[0] ?? variantMaps[0];
 
+  // Recover product media + Variant↔Media associations after topology maps exist.
+  // Order: product media ingest first, then exact GID associations (Parts 12 / 16).
+  const mediaRead = await readRemoteProductForInbound({
+    connectionId: connection.id,
+    productId: listing.shopifyProductId,
+    fetchImpl: opts?.fetchImpl,
+    now: opts?.now,
+  });
+  if (mediaRead.ok) {
+    await prisma.$transaction(async (tx) => {
+      await applyShopifyMediaInbound(tx, {
+        evidenceId: `reconcile-media:${listing.id}`,
+        connectionId: connection.id,
+        listingLinkId: listing.id,
+        memberId: listing.memberId,
+        storeItemId: listing.storeItemId,
+        remoteMedia: mediaRead.product.media,
+      });
+      await applyShopifyVariantMediaInbound(tx, {
+        connectionId: connection.id,
+        listingLinkId: listing.id,
+        memberId: listing.memberId,
+        storeItemId: listing.storeItemId,
+        evidenceId: `reconcile-variant-media:${listing.id}`,
+        mappedVariants: refreshedMaps.map((map) => ({
+          shopifyVariantId: map.shopifyVariantId,
+          storeVariantId: map.storeVariantId,
+        })),
+        remoteVariantMedia: mediaRead.product.variants.map((row) => ({
+          shopifyVariantId: row.id,
+          shopifyMediaIds: row.mediaIds,
+        })),
+      });
+    });
+  }
+
+  // Re-read field conflicts after media / variant-media apply so NEEDS_ATTENTION is current.
+  const fieldConflictRowsAfterMedia = await prisma.shopifyListingFieldState.findMany({
+    where: { shopifyListingLinkId: listing.id, conflict: true },
+    select: { fieldKey: true },
+  });
+  const fieldConflictKeysAfterMedia = fieldConflictRowsAfterMedia.map((row) => row.fieldKey);
+
   const causalConflict = await prisma.shopifyOrderLineSaleFact.findFirst({
     where: {
       shopifyConnectionId: connection.id,
@@ -370,7 +416,7 @@ export async function handleShopifyReconcileListingJob(
     listing,
     variantMap,
     hasCausalSaleConflict: Boolean(causalConflict),
-    fieldConflictKeys,
+    fieldConflictKeys: fieldConflictKeysAfterMedia,
     remote: {
       ...remoteRead.remote,
       mappedVariantCount: refreshedMaps.length,
