@@ -227,6 +227,7 @@ function SellerHubContent() {
       { label: "Manage Store", href: "/seller-hub/store/manage", icon: "list" },
       { label: "Payouts", href: "/seller-hub/store/payouts", icon: "wallet" },
       { label: "Storefront Info", href: "/seller-hub/store", icon: "storefront" },
+      { label: "Shopify", href: "/seller-hub/shopify", icon: "bag-handle" },
       { label: "Analytics", href: "/seller-hub/analytics", icon: "analytics-outline" },
       { label: "Data Tools", href: "/seller-hub/data-tools", icon: "download-outline" },
       {

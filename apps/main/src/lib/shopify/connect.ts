@@ -1,6 +1,7 @@
 import {
   consumeShopifyOAuthState,
   createShopifyOAuthState,
+  ensureShopifyRemountListingsJob,
   persistShopifyInstall,
   prisma,
   readShopifyOAuthBrowserBindingHash,
@@ -301,7 +302,7 @@ export async function completeShopifyOAuth(
   const candidates = selectInventoryLocations(locations);
   const primaryLocationId = candidates.length === 1 ? candidates[0].id : null;
   try {
-    return await persistShopifyInstall(prisma, {
+    const installed = await persistShopifyInstall(prisma, {
       memberId: verified.memberId,
       shopDomain: identity.shopDomain,
       shopId: identity.shopId,
@@ -313,6 +314,15 @@ export async function completeShopifyOAuth(
       primaryLocationId,
       connectedAt: deps.now,
     });
+    // Same member+shop reconnect: remount prior NATIVE mappings onto this generation.
+    if (installed.generation > 1) {
+      await ensureShopifyRemountListingsJob(prisma, {
+        connectionId: installed.id,
+        memberId: installed.memberId,
+        shopId: installed.shopId,
+      });
+    }
+    return installed;
   } catch (error) {
     if (error instanceof ShopifyShopOwnershipConflictError) {
       throw new ShopifyConnectError(

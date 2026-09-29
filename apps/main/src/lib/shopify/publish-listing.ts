@@ -403,3 +403,159 @@ export async function ensureShopifyListingActiveAndPublishedToOnlineStore(input:
     alreadyPublished: false,
   };
 }
+
+export type ShopifyListingPublicationMutationResult =
+  | { ok: true }
+  | {
+      ok: false;
+      class: "RETRY" | "DEAD";
+      errorClass: string;
+      errorCode: string;
+      errorMessage: string;
+    };
+
+/**
+ * Remove a product from the Online Store sales channel. Does not delete the product.
+ */
+export async function unpublishShopifyListingFromOnlineStore(input: {
+  connectionId: string;
+  shopifyProductId: string;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<ShopifyListingPublicationMutationResult> {
+  const publication = await resolveShopifyOnlineStorePublicationId({
+    connectionId: input.connectionId,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (!publication.ok) return publication;
+
+  const unpublish = await executeShopifyAdminGraphql<{
+    publishableUnpublish: {
+      publishable: { publishedOnPublication: boolean } | null;
+      userErrors: Array<{ field?: string[] | null; message: string }>;
+    };
+  }>({
+    connectionId: input.connectionId,
+    operationType: "mutation",
+    operationName: "ShopifyListingPublishableUnpublish",
+    document: `mutation ShopifyListingPublishableUnpublish($id: ID!, $publicationId: ID!, $input: [PublicationInput!]!) {
+      publishableUnpublish(id: $id, input: $input) {
+        publishable {
+          publishedOnPublication(publicationId: $publicationId)
+        }
+        userErrors { field message }
+      }
+    }`,
+    variables: {
+      id: input.shopifyProductId,
+      publicationId: publication.publicationId,
+      input: [{ publicationId: publication.publicationId }],
+    },
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+
+  if (!unpublish.ok) {
+    if (
+      unpublish.class === "THROTTLED" ||
+      unpublish.class === "TRANSIENT_PROVIDER" ||
+      unpublish.class === "NETWORK_UNKNOWN" ||
+      unpublish.outcomeUnknown
+    ) {
+      return {
+        ok: false,
+        class: "RETRY",
+        errorClass: unpublish.class,
+        errorCode: "UNPUBLISH_UPDATE",
+        errorMessage: unpublish.message,
+      };
+    }
+    return {
+      ok: false,
+      class: "DEAD",
+      errorClass: unpublish.class,
+      errorCode: "UNPUBLISH_UPDATE",
+      errorMessage: unpublish.message,
+    };
+  }
+
+  const userErrors = unpublish.data?.publishableUnpublish?.userErrors ?? [];
+  if (userErrors.length > 0) {
+    const message = userErrors.map((e) => e.message).join("; ");
+    return {
+      ok: false,
+      class: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: "UNPUBLISH_USER_ERROR",
+      errorMessage: message.slice(0, 500),
+    };
+  }
+
+  return { ok: true };
+}
+
+export async function deleteShopifyProduct(input: {
+  connectionId: string;
+  shopifyProductId: string;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<ShopifyListingPublicationMutationResult> {
+  const result = await executeShopifyAdminGraphql<{
+    productDelete: {
+      deletedProductId: string | null;
+      userErrors: Array<{ field?: string[] | null; message: string }>;
+    };
+  }>({
+    connectionId: input.connectionId,
+    operationType: "mutation",
+    operationName: "ShopifyListingProductDelete",
+    document: `mutation ShopifyListingProductDelete($input: ProductDeleteInput!) {
+      productDelete(input: $input) {
+        deletedProductId
+        userErrors { field message }
+      }
+    }`,
+    variables: { input: { id: input.shopifyProductId } },
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+
+  if (!result.ok) {
+    if (
+      result.class === "THROTTLED" ||
+      result.class === "TRANSIENT_PROVIDER" ||
+      result.class === "NETWORK_UNKNOWN" ||
+      result.outcomeUnknown
+    ) {
+      return {
+        ok: false,
+        class: "RETRY",
+        errorClass: result.class,
+        errorCode: "PRODUCT_DELETE",
+        errorMessage: result.message,
+      };
+    }
+    return {
+      ok: false,
+      class: "DEAD",
+      errorClass: result.class,
+      errorCode: "PRODUCT_DELETE",
+      errorMessage: result.message,
+    };
+  }
+
+  const userErrors = result.data?.productDelete?.userErrors ?? [];
+  if (userErrors.length > 0) {
+    const message = userErrors.map((e) => e.message).join("; ");
+    return {
+      ok: false,
+      class: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: "PRODUCT_DELETE_USER_ERROR",
+      errorMessage: message.slice(0, 500),
+    };
+  }
+
+  return { ok: true };
+}

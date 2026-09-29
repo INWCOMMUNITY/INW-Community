@@ -31,6 +31,14 @@ vi.mock("./connect", () => ({
   },
 }));
 
+vi.mock("@/lib/listing-photo-rehost", () => ({
+  ensureInwHostedListingPhotos: vi.fn(async (photos: string[]) => photos),
+}));
+
+vi.mock("./sync-listing-media", () => ({
+  syncShopifyListingMedia: vi.fn(async () => ({ ok: true, replaced: false, mediaCount: 0 })),
+}));
+
 import {
   markShopifyProductContentApplied,
   markShopifyVariantContentApplied,
@@ -74,11 +82,19 @@ const listing = {
   desiredProductFingerprint: shopifyProductContentFingerprint({
     title: "New Title",
     description: "New Desc",
+    photos: [],
+    vendor: null,
+    tags: [],
+    aspects: [],
   }),
   // S4-seeded BASE = last verified remote content before seller edit.
   appliedProductFingerprint: shopifyProductContentFingerprint({
     title: "Old Title",
     description: "Old Desc",
+    photos: [],
+    vendor: null,
+    tags: [],
+    aspects: [],
   }),
   productContentAppliedAt: new Date("2026-09-24T12:00:00Z"),
   productDesiredAt: new Date("2026-09-25T10:00:00Z"),
@@ -122,6 +138,12 @@ const storeItem = {
   description: "New Desc",
   priceCents: 1037,
   sku: "SKU-NEW",
+  photos: [] as string[],
+  vendor: null as string | null,
+  tags: [] as string[],
+  aspects: [] as unknown[],
+  barcode: null as string | null,
+  compareAtPriceCents: null as number | null,
 };
 
 const storeVariant = {
@@ -130,6 +152,8 @@ const storeVariant = {
   storeItemId: "item-1",
   priceCents: 1037,
   sku: "SKU-NEW",
+  barcode: null as string | null,
+  compareAtPriceCents: null as number | null,
 };
 
 const claim = {
@@ -165,9 +189,13 @@ function remoteProduct(input: {
   descriptionHtml?: string | null;
   price?: string;
   sku?: string | null;
+  barcode?: string | null;
+  compareAtPrice?: string | null;
   status?: string;
   productId?: string;
   variantId?: string;
+  vendor?: string | null;
+  tags?: string[];
 }) {
   return jsonResponse({
     data: {
@@ -176,17 +204,28 @@ function remoteProduct(input: {
         status: input.status ?? "DRAFT",
         title: input.title ?? "Old Title",
         descriptionHtml: input.descriptionHtml ?? "Old Desc",
+        vendor: input.vendor ?? null,
+        tags: input.tags ?? [],
+        metafield: { value: "[]" },
         variants: {
           nodes: [
             {
               id: input.variantId ?? "gid://shopify/ProductVariant/8",
               price: input.price ?? "9.99",
               sku: input.sku ?? "SKU-OLD",
+              barcode: input.barcode ?? null,
+              compareAtPrice: input.compareAtPrice ?? null,
             },
           ],
         },
       },
     },
+  });
+}
+
+function aspectsMetafieldOk() {
+  return jsonResponse({
+    data: { metafieldsSet: { userErrors: [] } },
   });
 }
 
@@ -291,11 +330,15 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
           id: "gid://shopify/Product/9",
           title: "New Title",
           descriptionHtml: "New Desc",
+          tags: [],
         });
         expect(product).not.toHaveProperty("status");
         expect(JSON.stringify(body)).not.toMatch(/productSet/i);
         expect(JSON.stringify(body)).not.toMatch(/publish|inventorySet|inventoryAdjust/i);
         return productUpdateOk();
+      }
+      if (body.operationName === "ShopifyListingContentAspectsMetafield") {
+        return aspectsMetafieldOk();
       }
       expect(body.operationName).toBe("ShopifyListingContentVariantUpdate");
       const variants = body.variables.variants as Array<Record<string, unknown>>;
@@ -304,6 +347,8 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
         {
           id: "gid://shopify/ProductVariant/8",
           price: "10.37",
+          barcode: null,
+          compareAtPrice: null,
           inventoryItem: { sku: "SKU-NEW" },
         },
       ]);
@@ -316,6 +361,7 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
     expect(ops).toEqual([
       "ShopifyListingContentRead",
       "ShopifyListingContentProductUpdate",
+      "ShopifyListingContentAspectsMetafield",
       "ShopifyListingContentVariantUpdate",
     ]);
     expect(markShopifyProductContentApplied).toHaveBeenCalledWith(
@@ -423,6 +469,9 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
       if (body.operationName === "ShopifyListingContentProductUpdate") {
         productUpdateCalls += 1;
         throw Object.assign(new Error("aborted"), { name: "TimeoutError" });
+      }
+      if (body.operationName === "ShopifyListingContentAspectsMetafield") {
+        return aspectsMetafieldOk();
       }
       throw new Error(`unexpected ${body.operationName}`);
     });
@@ -534,6 +583,9 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
         productUpdates += 1;
         return productUpdateOk();
       }
+      if (body.operationName === "ShopifyListingContentAspectsMetafield") {
+        return aspectsMetafieldOk();
+      }
       if (body.operationName === "ShopifyListingContentVariantUpdate") {
         variantUpdates += 1;
         if (variantUpdates === 1) {
@@ -594,6 +646,9 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
       if (body.operationName === "ShopifyListingContentProductUpdate") {
         productUpdates += 1;
         return productUpdateOk();
+      }
+      if (body.operationName === "ShopifyListingContentAspectsMetafield") {
+        return aspectsMetafieldOk();
       }
       throw new Error(`unexpected ${body.operationName}`);
     });
@@ -658,6 +713,9 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
       }
       if (body.operationName === "ShopifyListingContentProductUpdate") {
         return productUpdateOk();
+      }
+      if (body.operationName === "ShopifyListingContentAspectsMetafield") {
+        return aspectsMetafieldOk();
       }
       if (body.operationName === "ShopifyListingContentVariantUpdate") {
         return variantUpdateOk();
@@ -734,6 +792,10 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
         remoteFingerprint: shopifyProductContentFingerprint({
           title: "Shopify Independent",
           description: "Remote B",
+          photos: [],
+          vendor: null,
+          tags: [],
+          aspects: [],
         }),
       })
     );
@@ -797,11 +859,18 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
       if (body.operationName === "ShopifyListingContentProductUpdate") {
         return productUpdateOk();
       }
+      if (body.operationName === "ShopifyListingContentAspectsMetafield") {
+        return aspectsMetafieldOk();
+      }
       throw new Error("variant must not mutate while conflicted");
     });
     const result = await handleShopifyUpdateListingContentJob(claim, { fetchImpl });
     expect(result).toEqual({ outcome: "SUCCESS" });
-    expect(ops).toEqual(["ShopifyListingContentRead", "ShopifyListingContentProductUpdate"]);
+    expect(ops).toEqual([
+      "ShopifyListingContentRead",
+      "ShopifyListingContentProductUpdate",
+      "ShopifyListingContentAspectsMetafield",
+    ]);
     expect(markShopifyProductContentApplied).toHaveBeenCalledTimes(1);
     expect(markShopifyVariantContentApplied).not.toHaveBeenCalled();
   });
@@ -811,6 +880,10 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
     const baseFp = shopifyProductContentFingerprint({
       title: "Old Title",
       description: "Old Desc",
+      photos: [],
+      vendor: null,
+      tags: [],
+      aspects: [],
     });
     setupHappyMocks({
       listing: {

@@ -31,6 +31,10 @@ vi.mock("./connect", () => ({
   },
 }));
 
+vi.mock("@/lib/listing-photo-rehost", () => ({
+  ensureInwHostedListingPhotos: vi.fn(async (photos: string[]) => photos),
+}));
+
 import {
   createShopifyListingMapping,
   enqueueShopifySyncJob,
@@ -136,7 +140,11 @@ describe("shopify CREATE_LISTING enqueue gates", () => {
         shopifyConnectionId: "conn-gen-1",
         kind: "CREATE_LISTING",
         dedupeKey: "CREATE_LISTING:conn-gen-1:item-1",
-        payload: { storeItemId: "item-1", storeVariantId: "var-1" },
+        payload: {
+          storeItemId: "item-1",
+          storeVariantIds: ["var-1"],
+          storeVariantId: "var-1",
+        },
       })
     );
     expect(prisma.shopifySyncJob.updateMany).not.toHaveBeenCalled();
@@ -219,7 +227,7 @@ describe("shopify CREATE_LISTING enqueue gates", () => {
     expect(enqueueShopifySyncJob).not.toHaveBeenCalled();
   });
 
-  it("rejects zero or multiple variants before provider work", async () => {
+  it("queues multi-variant listings (up to 100)", async () => {
     vi.mocked(prisma.shopifyConnection.findFirst).mockResolvedValue(connection as never);
     vi.mocked(prisma.storeItem.findFirst).mockResolvedValue({
       id: "item-1",
@@ -227,9 +235,38 @@ describe("shopify CREATE_LISTING enqueue gates", () => {
       status: "active",
     } as never);
     vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
-      { id: "var-1" },
-      { id: "var-2" },
+      { id: "var-1", options: { Size: "M" } },
+      { id: "var-2", options: { Size: "L" } },
     ] as never);
+    vi.mocked(lookupShopifyListingByStoreItem).mockResolvedValue({ status: "UNMAPPED" });
+    vi.mocked(enqueueShopifySyncJob).mockResolvedValue({
+      id: "job-multi",
+      state: "PENDING",
+    } as never);
+    const result = await enqueueShopifyCreateListing({
+      memberId: "member-a",
+      storeItemId: "item-1",
+    });
+    expect(result).toMatchObject({ status: "QUEUED", jobId: "job-multi" });
+    expect(enqueueShopifySyncJob).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          storeItemId: "item-1",
+          storeVariantIds: ["var-1", "var-2"],
+        }),
+      })
+    );
+  });
+
+  it("rejects when there are no active variants", async () => {
+    vi.mocked(prisma.shopifyConnection.findFirst).mockResolvedValue(connection as never);
+    vi.mocked(prisma.storeItem.findFirst).mockResolvedValue({
+      id: "item-1",
+      memberId: "member-a",
+      status: "active",
+    } as never);
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([]);
     const result = await enqueueShopifyCreateListing({
       memberId: "member-a",
       storeItemId: "item-1",
@@ -295,9 +332,25 @@ describe("shopify CREATE_LISTING provider", () => {
       title: "Blue Mug",
       description: "<p>Nice</p>",
       status: "active",
+      photos: [],
+      vendor: null,
+      tags: [],
+      aspects: null,
+      barcode: null,
+      compareAtPriceCents: null,
     } as never);
     vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
-      { id: "var-1", priceCents: 1250, sku: "SKU-1", memberId: "member-a", storeItemId: "item-1" },
+      {
+        id: "var-1",
+        priceCents: 1250,
+        sku: "SKU-1",
+        barcode: null,
+        compareAtPriceCents: null,
+        options: {},
+        memberId: "member-a",
+        storeItemId: "item-1",
+        status: "ACTIVE",
+      },
     ] as never);
     vi.mocked(createShopifyListingMapping).mockResolvedValue({
       listingLink: {
@@ -387,6 +440,8 @@ describe("shopify CREATE_LISTING provider", () => {
               nodes: [
                 {
                   id: "gid://shopify/ProductVariant/8",
+                  sku: "SKU-1",
+                  selectedOptions: [{ name: "Title", value: "Default Title" }],
                   inventoryItem: { id: "gid://shopify/InventoryItem/7" },
                 },
               ],
@@ -559,6 +614,40 @@ describe("shopify CREATE_LISTING provider", () => {
             { id: "gid://shopify/ProductVariant/9", inventoryItemId: "gid://shopify/InventoryItem/8" },
           ],
           variantsCount: 2,
+        });
+      }
+      if (body.operationName === "ShopifyListingProductIdByCustomId") {
+        return jsonResponse({
+          data: {
+            productByIdentifier: {
+              id: "gid://shopify/Product/9",
+              status: "ACTIVE",
+            },
+          },
+        });
+      }
+      if (body.operationName === "ShopifyCreateListingRecoverVariants") {
+        return jsonResponse({
+          data: {
+            product: {
+              variants: {
+                nodes: [
+                  {
+                    id: "gid://shopify/ProductVariant/8",
+                    sku: "SKU-1",
+                    selectedOptions: [{ name: "Title", value: "Default Title" }],
+                    inventoryItem: { id: "gid://shopify/InventoryItem/7" },
+                  },
+                  {
+                    id: "gid://shopify/ProductVariant/9",
+                    sku: "SKU-2",
+                    selectedOptions: [{ name: "Title", value: "Other" }],
+                    inventoryItem: { id: "gid://shopify/InventoryItem/8" },
+                  },
+                ],
+              },
+            },
+          },
         });
       }
       productSetCalls += 1;

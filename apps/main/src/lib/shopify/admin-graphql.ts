@@ -15,6 +15,7 @@ import { handleShopifyProcessProviderEvidenceJob } from "./process-products-upda
 import { handleShopifyProjectInventoryJob } from "./project-inventory";
 import { handleShopifyPublishListingJob } from "./publish-listing-job";
 import { handleShopifyReconcileListingJob } from "./reconcile-listing";
+import { handleShopifyRemountListingsJob } from "./remount-listings";
 import { redactShopifySecrets } from "./redact";
 
 export type ShopifyFetch = typeof fetch;
@@ -320,6 +321,7 @@ const defaultHandlers: Record<string, ShopifyJobHandler> = {
   PROJECT_INVENTORY: (claim) => handleShopifyProjectInventoryJob(claim),
   PUBLISH_LISTING: (claim) => handleShopifyPublishListingJob(claim),
   RECONCILE_LISTING: (claim) => handleShopifyReconcileListingJob(claim),
+  REMOUNT_LISTINGS: (claim) => handleShopifyRemountListingsJob(claim),
 };
 
 /**

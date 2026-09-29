@@ -74,7 +74,18 @@ async function updateOneStoreItem(id: string, data: Record<string, unknown>) {
 async function updateStoreItemWithShopifyDesire(input: {
   itemId: string;
   memberId: string;
-  before: { title: string; description: string | null; priceCents: number; sku: string | null };
+  before: {
+    title: string;
+    description: string | null;
+    priceCents: number;
+    sku: string | null;
+    photos: string[];
+    vendor: string | null;
+    tags: string[];
+    aspects: unknown;
+    barcode: string | null;
+    compareAtPriceCents: number | null;
+  };
   data: Record<string, unknown>;
 }) {
   await prisma.$transaction(async (tx) => {
@@ -101,6 +112,12 @@ async function updateStoreItemWithShopifyDesire(input: {
         description: updated.description,
         priceCents: updated.priceCents,
         sku: updated.sku,
+        photos: updated.photos,
+        vendor: updated.vendor,
+        tags: updated.tags,
+        aspects: updated.aspects,
+        barcode: updated.barcode,
+        compareAtPriceCents: updated.compareAtPriceCents,
       },
     });
   });
@@ -185,6 +202,12 @@ export async function PATCH(req: NextRequest) {
         shippingDisabled: true,
         localDeliveryAvailable: true,
         inStorePickupAvailable: true,
+        photos: true,
+        vendor: true,
+        tags: true,
+        aspects: true,
+        barcode: true,
+        compareAtPriceCents: true,
       },
     });
 
@@ -311,6 +334,12 @@ export async function PATCH(req: NextRequest) {
                 description: item.description,
                 priceCents: item.priceCents,
                 sku: item.sku,
+                photos: item.photos,
+                vendor: item.vendor,
+                tags: item.tags,
+                aspects: item.aspects,
+                barcode: item.barcode,
+                compareAtPriceCents: item.compareAtPriceCents,
               },
               data: itemUpdate,
             });

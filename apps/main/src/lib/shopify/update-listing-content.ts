@@ -1,17 +1,29 @@
 import {
+  classifyShopifyContentSemantics,
+  classifyShopifyListingHealth,
   markShopifyProductContentApplied,
   markShopifyVariantContentApplied,
+  normalizeShopifyAspects,
+  normalizeShopifyPhotoUrls,
+  normalizeShopifyTags,
+  persistShopifyListingHealth,
   prisma,
   setShopifyProductContentConflict,
   setShopifyVariantContentConflict,
+  shopifyCentsFromMoneyString,
   shopifyMoneyFromCents,
   shopifyProductContentFingerprint,
   shopifyVariantContentFingerprint,
-  classifyShopifyContentSemantics,
 } from "database";
 import type { ShopifyJobHandlerResult, ShopifySyncJobClaim } from "database";
+import { ensureInwHostedListingPhotos } from "@/lib/listing-photo-rehost";
 import type { ShopifyFetch } from "./admin-graphql";
 import { executeShopifyAdminGraphql } from "./admin-graphql";
+import {
+  SHOPIFY_ASPECTS_METAFIELD_KEY,
+  SHOPIFY_ASPECTS_METAFIELD_NAMESPACE,
+} from "./product-set-listing";
+import { syncShopifyListingMedia } from "./sync-listing-media";
 
 function parseUpdatePayload(payload: unknown): {
   storeItemId: string;
@@ -40,12 +52,13 @@ function parseUpdatePayload(payload: unknown): {
   return { storeItemId, storeVariantId, productDesiredVersion, variantDesiredVersion };
 }
 
-function shopifyPriceStringToCents(price: string): number {
-  const match = /^(\d+)(?:\.(\d{0,2}))?$/.exec(String(price).trim());
-  if (!match) return Number.NaN;
-  const dollars = Number.parseInt(match[1], 10);
-  const cents = Number.parseInt((match[2] || "").padEnd(2, "0").slice(0, 2) || "0", 10);
-  return dollars * 100 + cents;
+function aspectsFromMetafieldValue(value: string | null | undefined): unknown {
+  if (!value) return [];
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return [];
+  }
 }
 
 type HandlerFailure = {
@@ -69,7 +82,16 @@ async function readMappedListingContent(input: {
         status: string;
         title: string;
         descriptionHtml: string | null;
-        variant: { id: string; price: string; sku: string | null };
+        vendor: string | null;
+        tags: string[];
+        aspects: unknown;
+        variant: {
+          id: string;
+          price: string;
+          sku: string | null;
+          barcode: string | null;
+          compareAtPrice: string | null;
+        };
       };
     }
   | { ok: false } & HandlerFailure
@@ -80,7 +102,18 @@ async function readMappedListingContent(input: {
       status: string;
       title: string;
       descriptionHtml: string | null;
-      variants: { nodes: Array<{ id: string; price: string; sku: string | null }> };
+      vendor: string | null;
+      tags: string[];
+      metafield: { value: string } | null;
+      variants: {
+        nodes: Array<{
+          id: string;
+          price: string;
+          sku: string | null;
+          barcode: string | null;
+          compareAtPrice: string | null;
+        }>;
+      };
     } | null;
   }>({
     connectionId: input.connectionId,
@@ -92,8 +125,13 @@ async function readMappedListingContent(input: {
         status
         title
         descriptionHtml
+        vendor
+        tags
+        metafield(namespace: "${SHOPIFY_ASPECTS_METAFIELD_NAMESPACE}", key: "${SHOPIFY_ASPECTS_METAFIELD_KEY}") {
+          value
+        }
         variants(first: 10) {
-          nodes { id price sku }
+          nodes { id price sku barcode compareAtPrice }
         }
       }
     }`,
@@ -155,6 +193,9 @@ async function readMappedListingContent(input: {
       status: product.status,
       title: product.title,
       descriptionHtml: product.descriptionHtml,
+      vendor: product.vendor,
+      tags: product.tags ?? [],
+      aspects: aspectsFromMetafieldValue(product.metafield?.value),
       variant,
     },
   };
@@ -165,9 +206,13 @@ async function productUpdateScalars(input: {
   productId: string;
   title: string;
   descriptionHtml: string | null;
+  vendor: string | null;
+  tags: string[] | null | undefined;
   fetchImpl?: ShopifyFetch;
   now?: Date;
 }): Promise<{ ok: true } | ({ ok: false } & HandlerFailure)> {
+  const vendor = typeof input.vendor === "string" ? input.vendor.trim() : "";
+  const tags = normalizeShopifyTags(input.tags);
   const result = await executeShopifyAdminGraphql<{
     productUpdate: {
       product: { id: string } | null;
@@ -188,6 +233,8 @@ async function productUpdateScalars(input: {
         id: input.productId,
         title: input.title,
         descriptionHtml: input.descriptionHtml ?? "",
+        ...(vendor ? { vendor } : {}),
+        ...(tags.length ? { tags } : { tags: [] }),
       },
     },
     fetchImpl: input.fetchImpl,
@@ -240,12 +287,87 @@ async function productUpdateScalars(input: {
   return { ok: true };
 }
 
+async function productSetAspectsMetafield(input: {
+  connectionId: string;
+  productId: string;
+  aspects: unknown;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<{ ok: true } | ({ ok: false } & HandlerFailure)> {
+  const aspects = normalizeShopifyAspects(input.aspects);
+  const result = await executeShopifyAdminGraphql<{
+    metafieldsSet: {
+      userErrors: Array<{ field?: string[] | null; message: string; code?: string | null }>;
+    } | null;
+  }>({
+    connectionId: input.connectionId,
+    operationType: "mutation",
+    operationName: "ShopifyListingContentAspectsMetafield",
+    document: `mutation ShopifyListingContentAspectsMetafield($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
+        userErrors { field message code }
+      }
+    }`,
+    variables: {
+      metafields: [
+        {
+          ownerId: input.productId,
+          namespace: SHOPIFY_ASPECTS_METAFIELD_NAMESPACE,
+          key: SHOPIFY_ASPECTS_METAFIELD_KEY,
+          type: "json",
+          value: JSON.stringify(aspects),
+        },
+      ],
+    },
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+
+  if (!result.ok) {
+    if (
+      result.class === "THROTTLED" ||
+      result.class === "TRANSIENT_PROVIDER" ||
+      result.class === "NETWORK_UNKNOWN" ||
+      result.outcomeUnknown
+    ) {
+      return {
+        ok: false,
+        outcome: "RETRY",
+        errorClass: result.class,
+        errorCode: result.outcomeUnknown ? "ASPECTS_METAFIELD_UNKNOWN" : result.class,
+        errorMessage: result.message,
+      };
+    }
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: result.class,
+      errorCode: "ASPECTS_METAFIELD",
+      errorMessage: result.message,
+    };
+  }
+
+  const userErrors = result.data?.metafieldsSet?.userErrors ?? [];
+  if (userErrors.length > 0) {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: (userErrors[0]?.code ?? "ASPECTS_METAFIELD_USER_ERROR").slice(0, 64),
+      errorMessage: (userErrors[0]?.message ?? "metafieldsSet user error").slice(0, 500),
+    };
+  }
+  return { ok: true };
+}
+
 async function variantBulkUpdateScalars(input: {
   connectionId: string;
   productId: string;
   variantId: string;
   price: string;
   sku: string;
+  barcode: string;
+  compareAtPrice: string | null;
   fetchImpl?: ShopifyFetch;
   now?: Date;
 }): Promise<{ ok: true } | ({ ok: false } & HandlerFailure)> {
@@ -270,6 +392,8 @@ async function variantBulkUpdateScalars(input: {
         {
           id: input.variantId,
           price: input.price,
+          barcode: input.barcode ? input.barcode : null,
+          compareAtPrice: input.compareAtPrice,
           // 2026-07: SKU lives on InventoryItemInput, not ProductVariantsBulkInput root.
           inventoryItem: {
             sku: input.sku ? input.sku : null,
@@ -316,6 +440,43 @@ async function variantBulkUpdateScalars(input: {
     };
   }
   return { ok: true };
+}
+
+async function syncListingMediaFromStoreItem(input: {
+  connectionId: string;
+  shopifyProductId: string;
+  photos: string[] | null | undefined;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<{ ok: true } | ({ ok: false } & HandlerFailure)> {
+  let hostedPhotos = normalizeShopifyPhotoUrls(input.photos);
+  try {
+    hostedPhotos = await ensureInwHostedListingPhotos(hostedPhotos);
+  } catch (error) {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: "PHOTO_REHOST",
+      errorMessage: (error instanceof Error ? error.message : "Photo rehost failed").slice(0, 500),
+    };
+  }
+
+  const media = await syncShopifyListingMedia({
+    connectionId: input.connectionId,
+    shopifyProductId: input.shopifyProductId,
+    photos: hostedPhotos,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (media.ok) return { ok: true };
+  return {
+    ok: false,
+    outcome: media.class === "RETRY" ? "RETRY" : "DEAD",
+    errorClass: media.errorClass,
+    errorCode: media.errorCode,
+    errorMessage: media.errorMessage,
+  };
 }
 
 function failureResult(failure: HandlerFailure): ShopifyJobHandlerResult {
@@ -439,13 +600,23 @@ export async function handleShopifyUpdateListingContentJob(
     };
   }
 
+  const variantBarcode = storeVariant.barcode ?? storeItem.barcode;
+  const variantCompareAtPriceCents =
+    storeVariant.compareAtPriceCents ?? storeItem.compareAtPriceCents;
+
   const desiredProductFp = shopifyProductContentFingerprint({
     title: storeItem.title,
     description: storeItem.description,
+    photos: storeItem.photos,
+    vendor: storeItem.vendor,
+    tags: storeItem.tags,
+    aspects: storeItem.aspects,
   });
   const desiredVariantFp = shopifyVariantContentFingerprint({
     priceCents: storeVariant.priceCents,
     sku: storeVariant.sku,
+    barcode: variantBarcode,
+    compareAtPriceCents: variantCompareAtPriceCents,
   });
 
   if (
@@ -503,8 +674,12 @@ export async function handleShopifyUpdateListingContentJob(
   const remoteProductFp = shopifyProductContentFingerprint({
     title: remote.product.title,
     description: remote.product.descriptionHtml,
+    vendor: remote.product.vendor,
+    tags: remote.product.tags,
+    aspects: remote.product.aspects,
+    photos: normalizeShopifyPhotoUrls(storeItem.photos),
   });
-  const remotePriceCents = shopifyPriceStringToCents(remote.product.variant.price);
+  const remotePriceCents = shopifyCentsFromMoneyString(remote.product.variant.price);
   if (!Number.isFinite(remotePriceCents)) {
     return {
       outcome: "DEAD",
@@ -513,13 +688,77 @@ export async function handleShopifyUpdateListingContentJob(
       errorMessage: "Remote Shopify variant price could not be parsed",
     };
   }
+  const remoteCompareAtCents =
+    remote.product.variant.compareAtPrice != null
+      ? shopifyCentsFromMoneyString(remote.product.variant.compareAtPrice)
+      : null;
   const remoteVariantFp = shopifyVariantContentFingerprint({
     priceCents: remotePriceCents,
     sku: remote.product.variant.sku,
+    barcode: remote.product.variant.barcode,
+    compareAtPriceCents:
+      remoteCompareAtCents != null && Number.isFinite(remoteCompareAtCents)
+        ? remoteCompareAtCents
+        : null,
   });
 
   let pendingRetry: HandlerFailure | null = null;
   let pendingDead: HandlerFailure | null = null;
+
+  const persistMediaSyncDead = async (failure: HandlerFailure) => {
+    const healthBase = classifyShopifyListingHealth({
+      connectionStatus: connection.status,
+      primaryLocationId: connection.primaryLocationId,
+      listing,
+      variantMap,
+      hasCausalSaleConflict: false,
+      remote: {
+        productExists: true,
+        productStatus: remoteStatus,
+        variantCount: 1,
+        mappedVariantPresent: true,
+        inventoryItemMatches: true,
+        inventoryTracked: variantMap.inventoryInitState === "INITIALIZED" ? true : null,
+        inventoryLevelExists: variantMap.inventoryInitState === "INITIALIZED",
+        remoteAvailable: variantMap.inventoryLastObservedAvailable,
+        remoteProductFingerprint: remoteProductFp,
+        remoteVariantFingerprint: remoteVariantFp,
+      },
+    });
+    await persistShopifyListingHealth(prisma, {
+      listingLinkId: listing.id,
+      health: {
+        ...healthBase,
+        readiness: "ACTION_REQUIRED",
+        contentHealth: "DEGRADED",
+        issueCode: failure.errorCode.slice(0, 64),
+        issueFingerprint: `content-media:${failure.errorCode}`,
+        issueSeverity: "ACTION_REQUIRED",
+        issueMessage: failure.errorMessage.slice(0, 1000),
+        remoteProductStatus: remoteStatus,
+      },
+      previous: listing,
+      now: deps.now,
+    });
+  };
+
+  const runProductMediaSync = async (): Promise<boolean> => {
+    const media = await syncListingMediaFromStoreItem({
+      connectionId: connection.id,
+      shopifyProductId: listing.shopifyProductId,
+      photos: storeItem.photos,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    if (media.ok) return true;
+    if (media.outcome === "RETRY") {
+      pendingRetry = pendingRetry ?? media;
+      return false;
+    }
+    await persistMediaSyncDead(media);
+    pendingDead = pendingDead ?? media;
+    return false;
+  };
 
   if (applyProduct) {
     if (listing.productContentConflict) {
@@ -534,18 +773,26 @@ export async function handleShopifyUpdateListingContentJob(
           listing.desiredProductContentVersion > 0 || listing.productDesiredAt != null,
       });
       if (productClass === "CONVERGED" || productClass === "UNCHANGED") {
-        await markShopifyProductContentApplied(prisma, {
-          listingLinkId: listing.id,
-          desiredVersion: payload.productDesiredVersion,
-          fingerprint: desiredProductFp,
-          now: deps.now,
-        });
+        let productApplied = true;
+        if (desiredProductFp !== listing.appliedProductFingerprint) {
+          productApplied = await runProductMediaSync();
+        }
+        if (productApplied) {
+          await markShopifyProductContentApplied(prisma, {
+            listingLinkId: listing.id,
+            desiredVersion: payload.productDesiredVersion,
+            fingerprint: desiredProductFp,
+            now: deps.now,
+          });
+        }
       } else if (productClass === "LOCAL_ONLY") {
         const updated = await productUpdateScalars({
           connectionId: connection.id,
           productId: listing.shopifyProductId,
           title: storeItem.title,
           descriptionHtml: storeItem.description,
+          vendor: storeItem.vendor,
+          tags: storeItem.tags,
           fetchImpl: deps.fetchImpl,
           now: deps.now,
         });
@@ -553,12 +800,27 @@ export async function handleShopifyUpdateListingContentJob(
           if (updated.outcome === "RETRY") pendingRetry = updated;
           else pendingDead = updated;
         } else {
-          await markShopifyProductContentApplied(prisma, {
-            listingLinkId: listing.id,
-            desiredVersion: payload.productDesiredVersion,
-            fingerprint: desiredProductFp,
+          const aspectsSet = await productSetAspectsMetafield({
+            connectionId: connection.id,
+            productId: listing.shopifyProductId,
+            aspects: storeItem.aspects,
+            fetchImpl: deps.fetchImpl,
             now: deps.now,
           });
+          if (!aspectsSet.ok) {
+            if (aspectsSet.outcome === "RETRY") pendingRetry = pendingRetry ?? aspectsSet;
+            else pendingDead = pendingDead ?? aspectsSet;
+          } else {
+            const mediaOk = await runProductMediaSync();
+            if (mediaOk) {
+              await markShopifyProductContentApplied(prisma, {
+                listingLinkId: listing.id,
+                desiredVersion: payload.productDesiredVersion,
+                fingerprint: desiredProductFp,
+                now: deps.now,
+              });
+            }
+          }
         }
       } else if (productClass === "REMOTE_ONLY") {
         // Leave canonical application to S6; do not overwrite remote.
@@ -592,12 +854,19 @@ export async function handleShopifyUpdateListingContentJob(
           now: deps.now,
         });
       } else if (variantClass === "LOCAL_ONLY") {
+        const compareAtMoney =
+          typeof variantCompareAtPriceCents === "number" &&
+          Number.isFinite(variantCompareAtPriceCents)
+            ? shopifyMoneyFromCents(variantCompareAtPriceCents)
+            : null;
         const updated = await variantBulkUpdateScalars({
           connectionId: connection.id,
           productId: listing.shopifyProductId,
           variantId: variantMap.shopifyVariantId,
           price: shopifyMoneyFromCents(storeVariant.priceCents),
           sku: storeVariant.sku ?? "",
+          barcode: variantBarcode ?? "",
+          compareAtPrice: compareAtMoney,
           fetchImpl: deps.fetchImpl,
           now: deps.now,
         });

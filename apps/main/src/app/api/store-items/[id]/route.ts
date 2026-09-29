@@ -417,6 +417,12 @@ export async function PATCH(
     description: existing.description,
     priceCents: existing.priceCents,
     sku: existing.sku,
+    photos: existing.photos,
+    vendor: existing.vendor,
+    tags: existing.tags,
+    aspects: existing.aspects,
+    barcode: existing.barcode,
+    compareAtPriceCents: existing.compareAtPriceCents,
   };
 
   if (writer.route === "foundation") {
@@ -477,6 +483,12 @@ export async function PATCH(
             description: updated.description,
             priceCents: updated.priceCents,
             sku: updated.sku,
+            photos: updated.photos,
+            vendor: updated.vendor,
+            tags: updated.tags,
+            aspects: updated.aspects,
+            barcode: updated.barcode,
+            compareAtPriceCents: updated.compareAtPriceCents,
           },
         });
         return updated;
@@ -513,6 +525,12 @@ export async function PATCH(
         description: updated.description,
         priceCents: updated.priceCents,
         sku: updated.sku,
+        photos: updated.photos,
+        vendor: updated.vendor,
+        tags: updated.tags,
+        aspects: updated.aspects,
+        barcode: updated.barcode,
+        compareAtPriceCents: updated.compareAtPriceCents,
       },
     });
     return updated;

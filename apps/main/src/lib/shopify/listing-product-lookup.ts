@@ -65,16 +65,17 @@ const PRODUCT_BY_CUSTOM_ID_QUERY = `query ShopifyCreateListingProductByCustomId(
 }`;
 
 /**
- * Discover an existing Shopify product by the generation-scoped S4 custom ID.
+ * Discover an existing Shopify product by an explicit export custom ID value.
+ * Used by CREATE_LISTING (current generation) and REMOUNT (prior generation).
  * Read-only. Never mutates list fields.
  */
-export async function lookupShopifyListingProductByCustomId(input: {
+export async function lookupShopifyListingProductByCustomIdValue(input: {
   connectionId: string;
-  storeItemId: string;
+  customId: string;
   fetchImpl?: ShopifyFetch;
   now?: Date;
 }): Promise<ShopifyListingProductLookupSuccess | ShopifyListingProductLookupFailure> {
-  const customId = shopifyListingExportCustomId(input.connectionId, input.storeItemId);
+  const customId = input.customId;
   const result = await executeShopifyAdminGraphql<{
     productByIdentifier: ProductByIdentifierNode | null;
   }>({
@@ -195,6 +196,113 @@ export async function lookupShopifyListingProductByCustomId(input: {
       errorClass: "RECOVERY_CONFLICT",
       errorCode: error instanceof ShopifyGidValidationError ? "INVALID_SHOPIFY_GID" : "RECOVERY_IDENTITY",
       errorMessage: error instanceof Error ? error.message : "Invalid recovered Shopify GIDs",
+      customId,
+    };
+  }
+}
+
+/**
+ * Discover an existing Shopify product by the generation-scoped S4 custom ID.
+ * Read-only. Never mutates list fields.
+ */
+export async function lookupShopifyListingProductByCustomId(input: {
+  connectionId: string;
+  storeItemId: string;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<ShopifyListingProductLookupSuccess | ShopifyListingProductLookupFailure> {
+  return lookupShopifyListingProductByCustomIdValue({
+    connectionId: input.connectionId,
+    customId: shopifyListingExportCustomId(input.connectionId, input.storeItemId),
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+}
+
+/**
+ * Lightweight customId → product id lookup (any variant count).
+ * Used when multi-variant recovery cannot use the 1-variant gate.
+ */
+export async function lookupShopifyListingProductIdByCustomId(input: {
+  connectionId: string;
+  storeItemId: string;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<
+  | { ok: true; customId: string; productId: string | null; status: string | null }
+  | {
+      ok: false;
+      class: "RETRY" | "DEAD";
+      errorClass: string;
+      errorCode: string;
+      errorMessage: string;
+      customId: string;
+    }
+> {
+  const customId = shopifyListingExportCustomId(input.connectionId, input.storeItemId);
+  const result = await executeShopifyAdminGraphql<{
+    productByIdentifier: { id: string; status: string } | null;
+  }>({
+    connectionId: input.connectionId,
+    operationType: "query",
+    operationName: "ShopifyListingProductIdByCustomId",
+    document: `query ShopifyListingProductIdByCustomId($identifier: ProductIdentifierInput!) {
+      productByIdentifier(identifier: $identifier) { id status }
+    }`,
+    variables: {
+      identifier: {
+        customId: {
+          namespace: SHOPIFY_LISTING_EXPORT_METAFIELD_NAMESPACE,
+          key: SHOPIFY_LISTING_EXPORT_METAFIELD_KEY,
+          value: customId,
+        },
+      },
+    },
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+
+  if (!result.ok) {
+    if (
+      result.class === "THROTTLED" ||
+      result.class === "TRANSIENT_PROVIDER" ||
+      result.class === "NETWORK_UNKNOWN"
+    ) {
+      return {
+        ok: false,
+        class: "RETRY",
+        errorClass: result.class,
+        errorCode: "PRODUCT_LOOKUP",
+        errorMessage: result.message,
+        customId,
+      };
+    }
+    return {
+      ok: false,
+      class: "DEAD",
+      errorClass: result.class,
+      errorCode: "PRODUCT_LOOKUP",
+      errorMessage: result.message,
+      customId,
+    };
+  }
+
+  const product = result.data?.productByIdentifier ?? null;
+  if (!product) return { ok: true, customId, productId: null, status: null };
+  try {
+    return {
+      ok: true,
+      customId,
+      productId: assertShopifyProductGid(product.id),
+      status: String(product.status).toUpperCase(),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      class: "DEAD",
+      errorClass: "RECOVERY_CONFLICT",
+      errorCode: "INVALID_SHOPIFY_GID",
+      errorMessage: error instanceof Error ? error.message : "Invalid product GID",
       customId,
     };
   }

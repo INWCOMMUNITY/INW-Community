@@ -13,6 +13,12 @@ export type ShopifyListingContentSnapshot = {
   description: string | null;
   priceCents: number;
   sku: string | null;
+  photos?: string[] | null;
+  vendor?: string | null;
+  tags?: string[] | null;
+  aspects?: unknown;
+  barcode?: string | null;
+  compareAtPriceCents?: number | null;
 };
 
 export type RecordShopifyListingContentDesireResult =
@@ -76,10 +82,16 @@ export async function recordShopifyListingContentDesire(
 ): Promise<RecordShopifyListingContentDesireResult> {
   const productChanged =
     input.before.title !== input.after.title ||
-    (input.before.description ?? null) !== (input.after.description ?? null);
+    (input.before.description ?? null) !== (input.after.description ?? null) ||
+    JSON.stringify(input.before.photos ?? []) !== JSON.stringify(input.after.photos ?? []) ||
+    (input.before.vendor ?? null) !== (input.after.vendor ?? null) ||
+    JSON.stringify(input.before.tags ?? []) !== JSON.stringify(input.after.tags ?? []) ||
+    JSON.stringify(input.before.aspects ?? null) !== JSON.stringify(input.after.aspects ?? null);
   const variantChanged =
     input.before.priceCents !== input.after.priceCents ||
-    (input.before.sku ?? null) !== (input.after.sku ?? null);
+    (input.before.sku ?? null) !== (input.after.sku ?? null) ||
+    (input.before.barcode ?? null) !== (input.after.barcode ?? null) ||
+    (input.before.compareAtPriceCents ?? null) !== (input.after.compareAtPriceCents ?? null);
 
   if (!productChanged && !variantChanged) {
     return { status: "SKIPPED", reason: "NO_CONTENT_CHANGE" };
@@ -127,6 +139,10 @@ export async function recordShopifyListingContentDesire(
       data: {
         priceCents: input.after.priceCents,
         sku: input.after.sku,
+        ...(input.after.barcode !== undefined ? { barcode: input.after.barcode } : {}),
+        ...(input.after.compareAtPriceCents !== undefined
+          ? { compareAtPriceCents: input.after.compareAtPriceCents }
+          : {}),
       },
     });
     syncedVariantPriceSku = true;
@@ -135,10 +151,16 @@ export async function recordShopifyListingContentDesire(
   const productFingerprint = shopifyProductContentFingerprint({
     title: input.after.title,
     description: input.after.description,
+    photos: input.after.photos,
+    vendor: input.after.vendor,
+    tags: input.after.tags,
+    aspects: input.after.aspects,
   });
   const variantFingerprint = shopifyVariantContentFingerprint({
     priceCents: input.after.priceCents,
     sku: input.after.sku,
+    barcode: input.after.barcode,
+    compareAtPriceCents: input.after.compareAtPriceCents,
   });
 
   const nextProductVersion = productChanged

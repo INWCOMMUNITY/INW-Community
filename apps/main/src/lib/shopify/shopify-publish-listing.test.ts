@@ -314,6 +314,52 @@ describe("PUBLISH_LISTING / Online Store export publication", () => {
     );
   });
 
+  it("does not succeed when Online Store publication is not confirmed after publishablePublish", async () => {
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { operationName?: string };
+      if (body.operationName === "ShopifyOnlineStorePublicationLookup") {
+        return publicationsResponse();
+      }
+      if (body.operationName === "ShopifyListingPublicationState") {
+        return jsonResponse({
+          data: {
+            product: {
+              id: "gid://shopify/Product/9",
+              status: "ACTIVE",
+              publishedOnPublication: false,
+            },
+          },
+        });
+      }
+      if (body.operationName === "ShopifyListingPublishablePublish") {
+        return jsonResponse({
+          data: {
+            publishablePublish: {
+              publishable: { publishedOnPublication: false },
+              userErrors: [],
+            },
+          },
+        });
+      }
+      throw new Error(`unexpected op ${body.operationName}`);
+    });
+
+    const result = await handleShopifyPublishListingJob(claim, { fetchImpl });
+    expect(result).toMatchObject({
+      outcome: "DEAD",
+      errorCode: "PUBLISH_NOT_CONFIRMED",
+    });
+    expect(persistShopifyListingHealth).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        health: expect.objectContaining({
+          readiness: "ACTION_REQUIRED",
+          issueCode: "PUBLISH_NOT_CONFIRMED",
+        }),
+      })
+    );
+  });
+
   it("is idempotent when already ACTIVE and published (no duplicate publish)", async () => {
     let publishCalls = 0;
     const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {

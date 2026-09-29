@@ -245,7 +245,16 @@ export async function createShopifyListingMapping(
 
     const storeItem = await tx.storeItem.findFirst({
       where: { id: input.storeItemId, memberId: input.memberId },
-      select: { id: true, memberId: true, title: true, description: true },
+      select: {
+        id: true,
+        memberId: true,
+        title: true,
+        description: true,
+        photos: true,
+        vendor: true,
+        tags: true,
+        aspects: true,
+      },
     });
     if (!storeItem) {
       throw new ShopifyMappingError("STORE_ITEM_NOT_FOUND", "Store item was not found for this member");
@@ -257,7 +266,7 @@ export async function createShopifyListingMapping(
         storeItemId: input.storeItemId,
         id: { in: variants.map((row) => row.storeVariantId) },
       },
-      select: { id: true, priceCents: true, sku: true },
+      select: { id: true, priceCents: true, sku: true, barcode: true, compareAtPriceCents: true },
     });
     if (storeVariants.length !== variants.length) {
       throw new ShopifyMappingError(
@@ -310,6 +319,10 @@ export async function createShopifyListingMapping(
       const productFp = shopifyProductContentFingerprint({
         title: storeItem.title,
         description: storeItem.description,
+        photos: storeItem.photos,
+        vendor: storeItem.vendor,
+        tags: storeItem.tags,
+        aspects: storeItem.aspects,
       });
       const now = new Date();
       const listingLink = await tx.shopifyListingLink.create({
@@ -330,6 +343,8 @@ export async function createShopifyListingMapping(
           const variantFp = shopifyVariantContentFingerprint({
             priceCents: sv.priceCents,
             sku: sv.sku,
+            barcode: sv.barcode,
+            compareAtPriceCents: sv.compareAtPriceCents,
           });
           return {
             shopifyConnectionId: input.connectionId,

@@ -9,9 +9,11 @@ import {
 } from "database";
 import type { ShopifyJobHandlerResult, ShopifySyncJobClaim } from "database";
 import type { ShopifyFetch } from "./admin-graphql";
+import { executeShopifyAdminGraphql } from "./admin-graphql";
 import { shopifyCreateListingDedupeKey } from "./listing-export-id";
 import { ensureShopifyListingExportMetafieldDefinition } from "./listing-metafield";
-import { lookupShopifyListingProductByCustomId } from "./listing-product-lookup";
+import { lookupShopifyListingProductByCustomId, lookupShopifyListingProductIdByCustomId } from "./listing-product-lookup";
+import { ensureInwHostedListingPhotos } from "@/lib/listing-photo-rehost";
 import { productSetShopifyDraftListing } from "./product-set-listing";
 import { enqueueShopifyPublishListingAfterMapping } from "./publish-listing-job";
 
@@ -42,14 +44,34 @@ export type EnqueueShopifyCreateListingResult =
 
 function parseCreateListingPayload(payload: unknown): {
   storeItemId: string;
-  storeVariantId: string;
+  storeVariantIds: string[];
 } | null {
   if (!payload || typeof payload !== "object") return null;
   const row = payload as Record<string, unknown>;
   const storeItemId = typeof row.storeItemId === "string" ? row.storeItemId : "";
+  if (!storeItemId) return null;
+  if (Array.isArray(row.storeVariantIds)) {
+    const storeVariantIds = row.storeVariantIds.filter(
+      (id): id is string => typeof id === "string" && id.length > 0
+    );
+    if (storeVariantIds.length === 0) return null;
+    return { storeItemId, storeVariantIds };
+  }
+  // Legacy single-variant payload.
   const storeVariantId = typeof row.storeVariantId === "string" ? row.storeVariantId : "";
-  if (!storeItemId || !storeVariantId) return null;
-  return { storeItemId, storeVariantId };
+  if (!storeVariantId) return null;
+  return { storeItemId, storeVariantIds: [storeVariantId] };
+}
+
+function parseVariantOptions(options: unknown): Record<string, string> {
+  if (!options || typeof options !== "object" || Array.isArray(options)) return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(options as Record<string, unknown>)) {
+    const name = String(key).trim();
+    const val = value == null ? "" : String(value).trim();
+    if (name && val) out[name] = val;
+  }
+  return out;
 }
 
 /**
@@ -87,15 +109,22 @@ export async function enqueueShopifyCreateListing(input: {
   }
 
   const variants = await prisma.storeVariant.findMany({
-    where: { storeItemId: storeItem.id, memberId: input.memberId },
-    select: { id: true },
-    orderBy: { createdAt: "asc" },
+    where: { storeItemId: storeItem.id, memberId: input.memberId, status: "ACTIVE" },
+    select: { id: true, options: true },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   });
-  if (variants.length !== 1) {
+  if (variants.length === 0) {
     return {
       status: "ERROR",
       code: "UNSUPPORTED_VARIANTS",
-      message: "Shopify export currently supports simple listings with exactly one variant",
+      message: "Shopify export requires at least one active variant",
+    };
+  }
+  if (variants.length > 100) {
+    return {
+      status: "ERROR",
+      code: "UNSUPPORTED_VARIANTS",
+      message: "Shopify export supports at most 100 variants",
     };
   }
 
@@ -126,11 +155,11 @@ export async function enqueueShopifyCreateListing(input: {
       dedupeKey: shopifyCreateListingDedupeKey(connection.id, storeItem.id),
       payload: {
         storeItemId: storeItem.id,
-        storeVariantId: variants[0].id,
+        storeVariantIds: variants.map((row) => row.id),
+        // Keep legacy key for older workers during rollout.
+        storeVariantId: variants[0]!.id,
       },
     });
-    // Seller retry after a permanent failure: same dedupeKey returns the DEAD row.
-    // Re-arm it so cron can claim again (idempotent enqueue alone would no-op).
     if (job.state === "DEAD") {
       const revived = await prisma.shopifySyncJob.updateMany({
         where: { id: job.id, state: "DEAD" },
@@ -177,10 +206,12 @@ async function persistCreateListingMapping(input: {
   memberId: string;
   connectionId: string;
   storeItemId: string;
-  storeVariantId: string;
   productId: string;
-  variantId: string;
-  inventoryItemId: string;
+  variants: Array<{
+    storeVariantId: string;
+    variantId: string;
+    inventoryItemId: string;
+  }>;
 }): Promise<ShopifyJobHandlerResult> {
   let listingLinkId: string;
   try {
@@ -189,13 +220,11 @@ async function persistCreateListingMapping(input: {
       connectionId: input.connectionId,
       storeItemId: input.storeItemId,
       shopifyProductId: input.productId,
-      variants: [
-        {
-          storeVariantId: input.storeVariantId,
-          shopifyVariantId: input.variantId,
-          shopifyInventoryItemId: input.inventoryItemId,
-        },
-      ],
+      variants: input.variants.map((row) => ({
+        storeVariantId: row.storeVariantId,
+        shopifyVariantId: row.variantId,
+        shopifyInventoryItemId: row.inventoryItemId,
+      })),
     });
     listingLinkId = mapped.listingLink.id;
   } catch (error) {
@@ -218,8 +247,6 @@ async function persistCreateListingMapping(input: {
     throw error;
   }
 
-  // Inventory init (PROJECT_INVENTORY) is seeded inside mapping. Publication waits
-  // on INITIALIZED / NOT_APPLICABLE before ACTIVE + Online Store publish.
   const publish = await enqueueShopifyPublishListingAfterMapping({
     connectionId: input.connectionId,
     storeItemId: input.storeItemId,
@@ -234,6 +261,90 @@ async function persistCreateListingMapping(input: {
     };
   }
   return { outcome: "SUCCESS" };
+}
+
+async function readRemoteVariantsForRecovery(input: {
+  connectionId: string;
+  productId: string;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<
+  | {
+      ok: true;
+      variants: Array<{
+        id: string;
+        sku: string | null;
+        selectedOptions: Array<{ name: string; value: string }>;
+        inventoryItemId: string;
+      }>;
+    }
+  | { ok: false; class: "RETRY" | "DEAD"; errorClass: string; errorCode: string; errorMessage: string }
+> {
+  const result = await executeShopifyAdminGraphql<{
+    product: {
+      variants: {
+        nodes: Array<{
+          id: string;
+          sku: string | null;
+          selectedOptions: Array<{ name: string; value: string }>;
+          inventoryItem: { id: string } | null;
+        }>;
+      };
+    } | null;
+  }>({
+    connectionId: input.connectionId,
+    operationType: "query",
+    operationName: "ShopifyCreateListingRecoverVariants",
+    document: `query ShopifyCreateListingRecoverVariants($id: ID!) {
+      product(id: $id) {
+        variants(first: 100) {
+          nodes {
+            id
+            sku
+            selectedOptions { name value }
+            inventoryItem { id }
+          }
+        }
+      }
+    }`,
+    variables: { id: input.productId },
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (!result.ok) {
+    if (
+      result.class === "THROTTLED" ||
+      result.class === "TRANSIENT_PROVIDER" ||
+      result.class === "NETWORK_UNKNOWN"
+    ) {
+      return {
+        ok: false,
+        class: "RETRY",
+        errorClass: result.class,
+        errorCode: "RECOVERY_VARIANTS",
+        errorMessage: result.message,
+      };
+    }
+    return {
+      ok: false,
+      class: "DEAD",
+      errorClass: result.class,
+      errorCode: "RECOVERY_VARIANTS",
+      errorMessage: result.message,
+    };
+  }
+  const nodes = result.data?.product?.variants?.nodes ?? [];
+  return {
+    ok: true,
+    variants: nodes
+      .filter((row) => row.inventoryItem?.id)
+      .map((row) => ({
+        id: row.id,
+        sku: row.sku,
+        selectedOptions: row.selectedOptions ?? [],
+        inventoryItemId: row.inventoryItem!.id,
+      })),
+  };
 }
 
 /**
@@ -280,8 +391,6 @@ export async function handleShopifyCreateListingJob(
     storeItemId: payload.storeItemId,
   });
   if (existing.status === "MAPPED") {
-    // Already mapped for this generation. Do not create another product, do not
-    // auto-publish existing drafts, and do not change INW listing status.
     return { outcome: "SUCCESS" };
   }
   if (existing.status === "CONNECTION_INACTIVE") {
@@ -306,18 +415,22 @@ export async function handleShopifyCreateListingJob(
   }
 
   const variants = await prisma.storeVariant.findMany({
-    where: { storeItemId: storeItem.id, memberId: connection.memberId },
-    orderBy: { createdAt: "asc" },
+    where: {
+      storeItemId: storeItem.id,
+      memberId: connection.memberId,
+      id: { in: payload.storeVariantIds },
+      status: "ACTIVE",
+    },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   });
-  if (variants.length !== 1 || variants[0].id !== payload.storeVariantId) {
+  if (variants.length !== payload.storeVariantIds.length || variants.length === 0) {
     return {
       outcome: "DEAD",
       errorClass: "GRAPHQL_PERMANENT",
       errorCode: "UNSUPPORTED_VARIANTS",
-      errorMessage: "Store item no longer has exactly one matching variant",
+      errorMessage: "Store item variants no longer match the queued export payload",
     };
   }
-  const variant = variants[0];
 
   const ensured = await ensureShopifyListingExportMetafieldDefinition({
     connectionId: connection.id,
@@ -346,7 +459,34 @@ export async function handleShopifyCreateListingJob(
     fetchImpl: deps.fetchImpl,
     now: deps.now,
   });
-  if (!discovered.ok) {
+
+  let recoveredProductId: string | null = null;
+  if (discovered.ok && discovered.product) {
+    recoveredProductId = discovered.product.productId;
+  } else if (!discovered.ok && discovered.errorCode === "RECOVERY_VARIANT_CARDINALITY") {
+    const byId = await lookupShopifyListingProductIdByCustomId({
+      connectionId: connection.id,
+      storeItemId: storeItem.id,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    if (!byId.ok) {
+      return byId.class === "RETRY"
+        ? {
+            outcome: "RETRY",
+            errorClass: byId.errorClass,
+            errorCode: byId.errorCode,
+            errorMessage: byId.errorMessage,
+          }
+        : {
+            outcome: "DEAD",
+            errorClass: byId.errorClass,
+            errorCode: byId.errorCode,
+            errorMessage: byId.errorMessage,
+          };
+    }
+    recoveredProductId = byId.productId;
+  } else if (!discovered.ok) {
     return discovered.class === "RETRY"
       ? {
           outcome: "RETRY",
@@ -362,19 +502,96 @@ export async function handleShopifyCreateListingJob(
         };
   }
 
-  if (discovered.product) {
-    // READ + MAP only for the custom-ID product. Publication is enqueued after
-    // mapping so inventory can initialize before Online Store publish. Remutation
-    // is never issued when the product already exists (duplicate-safe).
+  if (recoveredProductId) {
+    if (discovered.ok && discovered.product && variants.length === 1) {
+      return persistCreateListingMapping({
+        memberId: connection.memberId,
+        connectionId: connection.id,
+        storeItemId: storeItem.id,
+        productId: discovered.product.productId,
+        variants: [
+          {
+            storeVariantId: variants[0]!.id,
+            variantId: discovered.product.variantId,
+            inventoryItemId: discovered.product.inventoryItemId,
+          },
+        ],
+      });
+    }
+    const recovered = await readRemoteVariantsForRecovery({
+      connectionId: connection.id,
+      productId: recoveredProductId,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    if (!recovered.ok) {
+      return recovered.class === "RETRY"
+        ? {
+            outcome: "RETRY",
+            errorClass: recovered.errorClass,
+            errorCode: recovered.errorCode,
+            errorMessage: recovered.errorMessage,
+          }
+        : {
+            outcome: "DEAD",
+            errorClass: recovered.errorClass,
+            errorCode: recovered.errorCode,
+            errorMessage: recovered.errorMessage,
+          };
+    }
+    if (recovered.variants.length !== variants.length) {
+      return {
+        outcome: "DEAD",
+        errorClass: "RECOVERY_CONFLICT",
+        errorCode: "RECOVERY_VARIANT_CARDINALITY",
+        errorMessage:
+          "Recovered Shopify product variant count does not match the INW listing; refusing duplicate-safe remutation",
+      };
+    }
+    const mappedVariants: Array<{
+      storeVariantId: string;
+      variantId: string;
+      inventoryItemId: string;
+    }> = [];
+    const remaining = [...recovered.variants];
+    for (const sv of variants) {
+      const opts = parseVariantOptions(sv.options);
+      const idx = remaining.findIndex((node) => {
+        if (sv.sku && node.sku && node.sku.trim() === sv.sku.trim()) return true;
+        const nodeOpts = Object.fromEntries(
+          node.selectedOptions.map((o) => [o.name.trim(), o.value.trim()])
+        );
+        return Object.entries(opts).every(([name, value]) => nodeOpts[name] === value);
+      });
+      if (idx < 0) {
+        return {
+          outcome: "DEAD",
+          errorClass: "RECOVERY_CONFLICT",
+          errorCode: "RECOVERY_VARIANT_MATCH",
+          errorMessage: "Could not match recovered Shopify variants to INW variants",
+        };
+      }
+      const [node] = remaining.splice(idx, 1);
+      mappedVariants.push({
+        storeVariantId: sv.id,
+        variantId: node!.id,
+        inventoryItemId: node!.inventoryItemId,
+      });
+    }
     return persistCreateListingMapping({
       memberId: connection.memberId,
       connectionId: connection.id,
       storeItemId: storeItem.id,
-      storeVariantId: variant.id,
-      productId: discovered.product.productId,
-      variantId: discovered.product.variantId,
-      inventoryItemId: discovered.product.inventoryItemId,
+      productId: recoveredProductId,
+      variants: mappedVariants,
     });
+  }
+
+  let photos = storeItem.photos ?? [];
+  try {
+    photos = await ensureInwHostedListingPhotos(photos);
+  } catch {
+    // Keep original URLs; Shopify still needs absolute HTTPS.
   }
 
   const remote = await productSetShopifyDraftListing({
@@ -382,13 +599,22 @@ export async function handleShopifyCreateListingJob(
     storeItemId: storeItem.id,
     title: storeItem.title,
     descriptionHtml: storeItem.description,
-    priceCents: variant.priceCents,
-    sku: variant.sku,
+    photos,
+    vendor: storeItem.vendor,
+    tags: storeItem.tags,
+    aspects: storeItem.aspects,
+    variants: variants.map((row) => ({
+      storeVariantId: row.id,
+      priceCents: row.priceCents,
+      sku: row.sku,
+      barcode: row.barcode ?? storeItem.barcode,
+      compareAtPriceCents: row.compareAtPriceCents ?? storeItem.compareAtPriceCents,
+      options: parseVariantOptions(row.options),
+    })),
     fetchImpl: deps.fetchImpl,
     now: deps.now,
   });
   if (!remote.ok) {
-    // NETWORK_UNKNOWN: leave remutation to the next job execution, which discovers first.
     return remote.class === "RETRY"
       ? {
           outcome: "RETRY",
@@ -408,9 +634,7 @@ export async function handleShopifyCreateListingJob(
     memberId: connection.memberId,
     connectionId: connection.id,
     storeItemId: storeItem.id,
-    storeVariantId: variant.id,
     productId: remote.productId,
-    variantId: remote.variantId,
-    inventoryItemId: remote.inventoryItemId,
+    variants: remote.variants,
   });
 }

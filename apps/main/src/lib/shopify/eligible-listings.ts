@@ -9,11 +9,18 @@ export type ShopifyEligibleListing = {
   quantity: number;
   status: string;
   updatedAt: string;
+  variantCount: number;
+  /** When false, List on Shopify should show an explicit block reason. */
+  supported: boolean;
+  unsupportedReason: string | null;
 };
 
+const MAX_SHOPIFY_VARIANTS = 100;
+
 /**
- * Active, simple (exactly one variant) INW listings for the seller that are not
- * already mapped on the current ACTIVE Shopify connection generation.
+ * Active INW listings for the seller that are not already mapped on the current
+ * ACTIVE Shopify connection generation. Multi-variant listings are eligible when
+ * they have 1–100 ACTIVE variants.
  */
 export async function listEligibleShopifyExportListings(input: {
   memberId: string;
@@ -44,6 +51,7 @@ export async function listEligibleShopifyExportListings(input: {
       status: true,
       updatedAt: true,
       storeVariants: {
+        where: { status: "ACTIVE" },
         select: { id: true },
         orderBy: { createdAt: "asc" },
       },
@@ -52,9 +60,18 @@ export async function listEligibleShopifyExportListings(input: {
     take: 200,
   });
 
-  return items
-    .filter((item) => item.storeVariants.length === 1)
-    .map((item) => ({
+  return items.map((item) => {
+    const variantCount = item.storeVariants.length;
+    let supported = true;
+    let unsupportedReason: string | null = null;
+    if (variantCount === 0) {
+      supported = false;
+      unsupportedReason = "Listing has no active variants";
+    } else if (variantCount > MAX_SHOPIFY_VARIANTS) {
+      supported = false;
+      unsupportedReason = `Shopify export supports at most ${MAX_SHOPIFY_VARIANTS} variants`;
+    }
+    return {
       storeItemId: item.id,
       title: item.title,
       slug: item.slug,
@@ -63,5 +80,9 @@ export async function listEligibleShopifyExportListings(input: {
       quantity: item.quantity,
       status: item.status,
       updatedAt: item.updatedAt.toISOString(),
-    }));
+      variantCount,
+      supported,
+      unsupportedReason,
+    };
+  });
 }

@@ -16,7 +16,7 @@ describe("listEligibleShopifyExportListings", () => {
     vi.mocked(prisma.storeItem.findMany).mockReset();
   });
 
-  it("excludes already-mapped listings and multi-variant items", async () => {
+  it("includes multi-variant items as supported and excludes mapped ones", async () => {
     vi.mocked(prisma.shopifyListingLink.findMany).mockResolvedValue([
       { storeItemId: "mapped-1" },
     ] as never);
@@ -73,13 +73,56 @@ describe("listEligibleShopifyExportListings", () => {
         quantity: 3,
         status: "active",
         updatedAt: "2026-09-28T00:00:00.000Z",
+        variantCount: 1,
+        supported: true,
+        unsupportedReason: null,
+      },
+      {
+        storeItemId: "multi-1",
+        title: "Multi",
+        slug: "multi",
+        sku: null,
+        priceCents: 2000,
+        quantity: 1,
+        status: "active",
+        updatedAt: "2026-09-28T00:00:00.000Z",
+        variantCount: 2,
+        supported: true,
+        unsupportedReason: null,
       },
     ]);
   });
 
+  it("marks zero-variant listings unsupported", async () => {
+    vi.mocked(prisma.shopifyListingLink.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.storeItem.findMany).mockResolvedValue([
+      {
+        id: "empty-1",
+        title: "Empty",
+        slug: "empty",
+        sku: null,
+        priceCents: 500,
+        quantity: 0,
+        status: "active",
+        updatedAt: new Date("2026-09-28T00:00:00.000Z"),
+        storeVariants: [],
+      },
+    ] as never);
+
+    const rows = await listEligibleShopifyExportListings({
+      memberId: "member-a",
+      connectionId: "conn-1",
+    });
+    expect(rows[0]).toMatchObject({
+      storeItemId: "empty-1",
+      supported: false,
+      unsupportedReason: "Listing has no active variants",
+    });
+  });
+
   it("does not apply notIn when there are no mappings", async () => {
-    vi.mocked(prisma.shopifyListingLink.findMany).mockResolvedValue([] as never);
-    vi.mocked(prisma.storeItem.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.shopifyListingLink.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.storeItem.findMany).mockResolvedValue([]);
     await listEligibleShopifyExportListings({
       memberId: "member-a",
       connectionId: "conn-1",

@@ -975,7 +975,7 @@ model StoreItem {
   compareAtPriceCents Int?     @map("compare_at_price_cents")
   variants            Json?    // matrix { axes, skus } or legacy [{ name, options }]
   /// Item specifics / product aspects: [{ name: "Brand", value: "Nike" }, ...].
-  /// Maps to eBay product.aspects; ignored by Etsy/Wix/Shopify adapters.
+  /// Maps to eBay product.aspects; Shopify outbound maps to `inw.aspects_json` metafield.
   aspects             Json?    @map("aspects")
   /// Comma-separated or array of searchable tags. Maps to Shopify tags, used for smart collections.
   tags                String[] @default([])
@@ -2453,6 +2453,8 @@ enum ShopifySyncJobKind {
   PROJECT_INVENTORY
   PUBLISH_LISTING
   RECONCILE_LISTING
+  /// After reconnect: remount prior NATIVE mappings onto the new ACTIVE generation.
+  REMOUNT_LISTINGS
 
   @@map("shopify_sync_job_kind")
 }

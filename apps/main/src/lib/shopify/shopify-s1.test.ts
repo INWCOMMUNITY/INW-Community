@@ -12,6 +12,7 @@ vi.mock("database", () => ({
   readShopifyOAuthBrowserBindingHash: vi.fn(),
   persistShopifyInstall: vi.fn(),
   rotateShopifyTokenMaterial: vi.fn(),
+  ensureShopifyRemountListingsJob: vi.fn(async () => ({ id: "remount-job-1" })),
 }));
 
 vi.mock("@/lib/encrypt", () => ({

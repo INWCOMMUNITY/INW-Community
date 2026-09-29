@@ -488,6 +488,11 @@ export {
 } from "./shopify/publish-desire";
 export type { ShopifyPublishJobDb } from "./shopify/publish-desire";
 export {
+  ensureShopifyRemountListingsJob,
+  shopifyRemountListingsDedupeKey,
+} from "./shopify/remount-desire";
+export type { ShopifyRemountJobDb } from "./shopify/remount-desire";
+export {
   classifyShopifyInventoryProjectionAction,
   shopifyInventoryActivateIdempotencyKey,
   shopifyInventoryProjectionReferenceUri,
@@ -516,9 +521,14 @@ export type {
   ShopifyListingRemoteObservation,
 } from "./shopify/listing-health";
 export {
+  normalizeShopifyAspects,
+  normalizeShopifyBarcode,
   normalizeShopifyDescription,
+  normalizeShopifyPhotoUrls,
   normalizeShopifySku,
+  normalizeShopifyTags,
   normalizeShopifyTitle,
+  normalizeShopifyVendor,
   shopifyCentsFromMoneyString,
   shopifyMoneyFromCents,
   shopifyProductContentFingerprint,
