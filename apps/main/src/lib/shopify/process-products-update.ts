@@ -50,6 +50,7 @@ async function readRemoteProductForInbound(input: {
           sku: string | null;
           updatedAt: Date;
           inventoryItemId: string | null;
+          mediaIds: string[];
         }>;
         media: Array<{
           shopifyMediaId: string;
@@ -82,6 +83,7 @@ async function readRemoteProductForInbound(input: {
           sku: string | null;
           updatedAt: string;
           inventoryItem: { id: string } | null;
+          media?: { nodes: Array<{ id: string }> } | null;
         }>;
       };
       media: {
@@ -110,6 +112,7 @@ async function readRemoteProductForInbound(input: {
             sku
             updatedAt
             inventoryItem { id }
+            media(first: 10) { nodes { id } }
           }
         }
         media(first: 50) {
@@ -180,6 +183,7 @@ async function readRemoteProductForInbound(input: {
       sku: row.sku,
       updatedAt: Number.isNaN(variantUpdatedAt.getTime()) ? updatedAt : variantUpdatedAt,
       inventoryItemId: row.inventoryItem?.id ?? null,
+      mediaIds: (row.media?.nodes ?? []).map((m) => m.id).filter(Boolean),
     };
   });
   const media = (product.media?.nodes ?? []).map((row, index) => ({
@@ -374,7 +378,14 @@ export async function handleShopifyProcessProviderEvidenceJob(
       title: remote.product.title,
       descriptionHtml: remote.product.descriptionHtml,
       updatedAt: remote.product.updatedAt,
-      variants: remote.product.variants,
+      variants: remote.product.variants.map((row) => ({
+        id: row.id,
+        price: row.price,
+        sku: row.sku,
+        updatedAt: row.updatedAt,
+        inventoryItemId: row.inventoryItemId,
+        mediaIds: row.mediaIds,
+      })),
       media: remote.product.media,
     },
   });

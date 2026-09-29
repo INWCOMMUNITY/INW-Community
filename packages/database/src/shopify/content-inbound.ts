@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient, ShopifyProviderEvidence } from "@prisma/clie
 import { applyShopifyFieldLevelContentInbound } from "./content-inbound-fields";
 import { shopifyCentsFromMoneyString } from "./content-fingerprint";
 import { applyShopifyMediaInbound, type ShopifyRemoteMediaNode } from "./media-inbound";
+import { applyShopifyVariantMediaInbound } from "./variant-media";
 
 export type ShopifyInboundDb = PrismaClient | Prisma.TransactionClient;
 
@@ -19,6 +20,8 @@ export type ShopifyRemoteProductObservation = {
     /** Diagnostic only — never used for winner selection. */
     updatedAt: Date;
     inventoryItemId: string | null;
+    /** Exact Product media GIDs associated to this ProductVariant (never inferred by SKU). */
+    mediaIds?: string[];
   }>;
   media?: ShopifyRemoteMediaNode[];
 };
@@ -278,11 +281,34 @@ export async function applyShopifyProductsUpdateObservation(
       mediaAction = mediaResult.action;
     }
 
+    // Variant↔media: apply after product media maps exist so Media GIDs resolve durably.
+    const mappedForMedia =
+      input.allMappedVariants ??
+      [{ shopifyVariantId: input.mappedVariantId, storeVariantId: input.mappedStoreVariantId }];
+    const remoteVariantMedia = input.remote.variants
+      .filter((row) => Array.isArray(row.mediaIds))
+      .map((row) => ({
+        shopifyVariantId: row.id,
+        shopifyMediaIds: row.mediaIds ?? [],
+      }));
+    let variantMediaAction = "VARIANT_MEDIA_SKIPPED";
+    if (remoteVariantMedia.length > 0) {
+      const variantMedia = await applyShopifyVariantMediaInbound(tx, {
+        listingLinkId: listing.id,
+        mappedVariants: mappedForMedia,
+        remoteVariantMedia,
+      });
+      variantMediaAction = variantMedia.action;
+    }
+
+    const mediaParts = [mediaAction, variantMediaAction].filter(
+      (part) => part !== "MEDIA_SKIPPED" && part !== "VARIANT_MEDIA_SKIPPED"
+    );
     await markEvidence(tx, input.evidenceId, "PROCESSED");
     return {
       status: "PROCESSED" as const,
       productAction:
-        mediaAction === "MEDIA_SKIPPED" ? productAction : `${productAction}+${mediaAction}`,
+        mediaParts.length === 0 ? productAction : `${productAction}+${mediaParts.join("+")}`,
       variantAction: variantActions.join("|"),
     };
   });

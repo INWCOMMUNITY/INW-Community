@@ -575,8 +575,15 @@ export type {
 } from "./shopify/inventory-levels-inbound";
 export { applyShopifyMediaInbound } from "./shopify/media-inbound";
 export type { ShopifyMediaInboundDb, ShopifyRemoteMediaNode } from "./shopify/media-inbound";
-export { planVariantMediaAssociations } from "./shopify/variant-media";
-export type { VariantMediaAssociationPlan } from "./shopify/variant-media";
+export {
+  applyShopifyVariantMediaInbound,
+  planVariantMediaAssociations,
+  planVariantMediaInboundAssociations,
+} from "./shopify/variant-media";
+export type {
+  ShopifyVariantMediaInboundDb,
+  VariantMediaAssociationPlan,
+} from "./shopify/variant-media";
 export {
   correlateVariantsByOptionCombination,
   planShopifyTopologyDiff,
