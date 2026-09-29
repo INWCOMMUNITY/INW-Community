@@ -308,6 +308,8 @@ describe("handleShopifyProjectInventoryJob", () => {
       }
       expect(body.query).toContain("inventoryActivate");
       expect(body.query).toContain("@idempotent");
+      // UserError has no `code`; selecting it DEAD-fails TRACKED/ACTIVATE on HTTP 200.
+      expect(body.query).not.toMatch(/userErrors\s*\{\s*field\s+message\s+code\s*\}/);
       expect(body.variables.available).toBe(10);
       return jsonResponse({
         data: {
@@ -333,6 +335,50 @@ describe("handleShopifyProjectInventoryJob", () => {
       expect.anything(),
       expect.objectContaining({ available: 10, desiredVersion: 1 })
     );
+  });
+
+  it("enableTracked mutation omits UserError.code (schema has field+message only)", async () => {
+    vi.mocked(prisma.shopifyVariantMap.findUnique).mockResolvedValue(
+      baseMap({
+        inventoryInitState: "PENDING",
+        inventoryDesiredVersion: 1,
+        inventoryDesiredAvailable: 3,
+        inventoryAppliedVersion: 0,
+        inventoryAppliedAvailable: null,
+      }) as never
+    );
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (String(body.query).includes("ShopifyInventoryProjectionRead")) {
+        return jsonResponse(inventoryRead(null, false, false));
+      }
+      expect(body.query).toContain("inventoryItemUpdate");
+      expect(body.query).toContain("userErrors { field message }");
+      expect(body.query).not.toMatch(/userErrors\s*\{\s*field\s+message\s+code\s*\}/);
+      expect(body.variables.input).toEqual({ tracked: true });
+      return jsonResponse({
+        data: {
+          inventoryItemUpdate: {
+            inventoryItem: { id: "gid://shopify/InventoryItem/7", tracked: true },
+            userErrors: [],
+          },
+        },
+      });
+    });
+    const result = await handleShopifyProjectInventoryJob(
+      claim({
+        payload: { storeItemId: "item-1", storeVariantId: "var-1", inventoryDesiredVersion: 1 },
+        dedupeKey: "PROJECT_INVENTORY:conn-s8:var-1:v1",
+      }),
+      { fetchImpl }
+    );
+    // After enabling tracked, job retries for re-read before activate.
+    expect(result).toMatchObject({
+      outcome: "RETRY",
+      errorCode: "TRACKED_ENABLED_REREAD",
+    });
+    expect(markShopifyInventoryProjectionApplied).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it("MTO NOT_APPLICABLE skips network", async () => {

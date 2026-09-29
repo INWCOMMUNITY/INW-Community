@@ -269,6 +269,13 @@ export async function executeShopifyAdminGraphql<TData = unknown>(
   const errors = Array.isArray(body?.errors) ? body.errors : [];
   if (!response.ok || errors.length > 0) {
     const classified = classifyGraphqlErrors(response.status, errors, cost);
+    const firstErrorMessage =
+      errors.length > 0 &&
+      errors[0] &&
+      typeof errors[0] === "object" &&
+      typeof (errors[0] as { message?: unknown }).message === "string"
+        ? String((errors[0] as { message: string }).message).slice(0, 240)
+        : null;
     return {
       ok: false,
       class: classified,
@@ -281,7 +288,9 @@ export async function executeShopifyAdminGraphql<TData = unknown>(
       message: safeMessage(
         classified === "THROTTLED"
           ? "Shopify GraphQL throttled"
-          : `Shopify GraphQL request failed (${response.status})`
+          : firstErrorMessage
+            ? `Shopify GraphQL request failed (${response.status}): ${firstErrorMessage}`
+            : `Shopify GraphQL request failed (${response.status})`
       ),
     };
   }

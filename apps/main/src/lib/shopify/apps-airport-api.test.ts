@@ -23,13 +23,6 @@ vi.mock("@/lib/shopify/listing-public-view", () => ({
 vi.mock("@/lib/shopify/create-listing", () => ({
   enqueueShopifyCreateListing: vi.fn(),
 }));
-vi.mock("@/lib/shopify/activate-listing", () => ({
-  ensureShopifyListingProductActive: vi.fn(async () => ({
-    ok: true,
-    status: "ACTIVE",
-    updated: true,
-  })),
-}));
 
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
@@ -48,6 +41,7 @@ describe("Apps Airport Shopify read APIs", () => {
     } as never);
     vi.mocked(memberHasStorefrontListingAccess).mockResolvedValue(true);
     vi.mocked(prisma.shopifyConnection.findFirst).mockReset();
+    vi.mocked(prisma.shopifyListingLink.updateMany).mockClear();
     vi.mocked(listEligibleShopifyExportListings).mockReset();
     vi.mocked(listShopifySellerListingViews).mockReset();
     vi.mocked(enqueueShopifyCreateListing).mockReset();
@@ -152,6 +146,59 @@ describe("Apps Airport Shopify read APIs", () => {
     const body = await response.json();
     expect(body.listings[0].title).toBe("Mug");
     expect(body.shopDomain).toBe("demo.myshopify.com");
+    expect(body.listings[0].remoteProductStatus).toBe("DRAFT");
+    expect(prisma.shopifyListingLink.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("does not promote DRAFT listings to ACTIVE on listings GET", async () => {
+    vi.mocked(prisma.shopifyConnection.findFirst).mockResolvedValue({
+      id: "conn-1",
+      status: "ACTIVE",
+      shopDomain: "demo.myshopify.com",
+      generation: 2,
+      primaryLocationId: "gid://shopify/Location/1",
+    } as never);
+    vi.mocked(listShopifySellerListingViews).mockResolvedValue([
+      {
+        listingLinkId: "link-1",
+        storeItemId: "item-1",
+        shopifyProductId: "gid://shopify/Product/1",
+        readiness: "SYNCING",
+        contentHealth: "HEALTHY",
+        inventoryHealth: "DEGRADED",
+        issueCode: null,
+        issueSeverity: null,
+        issueMessage: null,
+        lastReconciledAt: null,
+        remoteProductStatus: "DRAFT",
+        blockContentOutbound: false,
+        blockInventoryOutbound: false,
+        title: "Draft Mug",
+        slug: "draft-mug",
+        sku: "SKU1",
+        priceCents: 100,
+        quantity: 3,
+        storeItemStatus: "active",
+        shopifyVariantId: "gid://shopify/ProductVariant/1",
+        storeVariantId: "var-1",
+        inventoryDesiredAvailable: 3,
+        inventoryAppliedAvailable: null,
+        inventoryInitState: "PENDING",
+        inventoryDriftState: "NONE",
+        importSource: "NATIVE",
+        importedAt: null,
+        updatedAt: "2026-09-28T00:00:00.000Z",
+      },
+    ] as never);
+
+    const response = await listingsGet(
+      new NextRequest("https://app.example.com/api/shopify/listings")
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.listings[0].remoteProductStatus).toBe("DRAFT");
+    expect(body.listings[0].inventoryAppliedAvailable).toBeNull();
+    expect(prisma.shopifyListingLink.updateMany).not.toHaveBeenCalled();
   });
 
   it("rejects other sellers without storefront access", async () => {

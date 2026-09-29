@@ -373,7 +373,7 @@ describe("shopify CREATE_LISTING provider", () => {
         productSet: {
           product: {
             id: "gid://shopify/Product/9",
-            status: "ACTIVE",
+            status: "DRAFT",
             variants: {
               nodes: [
                 {
@@ -389,7 +389,7 @@ describe("shopify CREATE_LISTING provider", () => {
     });
   }
 
-  it("discovers null then productSet ACTIVE with generation-scoped customId", async () => {
+  it("discovers null then productSet DRAFT with generation-scoped customId", async () => {
     const customId = shopifyListingExportCustomId("conn-gen-1", "item-1");
     let discoveryCalls = 0;
     let productSetCalls = 0;
@@ -424,7 +424,7 @@ describe("shopify CREATE_LISTING provider", () => {
         input: { status: string; metafields?: unknown };
         identifier: { customId: { value: string } };
       };
-      expect(variables.input.status).toBe("ACTIVE");
+      expect(variables.input.status).toBe("DRAFT");
       expect(variables.input.metafields).toBeUndefined();
       expect(variables.identifier.customId.value).toBe(customId);
       return productSetSuccess();
@@ -558,6 +558,35 @@ describe("shopify CREATE_LISTING provider", () => {
     expect(createShopifyListingMapping).not.toHaveBeenCalled();
   });
 
+  it("recovers a DRAFT product by customId without remutation or status promotion", async () => {
+    const customId = shopifyListingExportCustomId("conn-gen-1", "item-1");
+    let productSetCalls = 0;
+    let activateCalls = 0;
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { operationName?: string; query?: string };
+      if (body.operationName === "ShopifyListingExportMetafieldLookup") {
+        return metafieldLookupResponse();
+      }
+      if (body.operationName === "ShopifyCreateListingProductByCustomId") {
+        return discoveryProduct({ customId, status: "DRAFT" });
+      }
+      if (
+        body.operationName === "ShopifyListingProductActivate" ||
+        String(body.query ?? "").includes("productUpdate")
+      ) {
+        activateCalls += 1;
+      }
+      productSetCalls += 1;
+      return productSetSuccess();
+    });
+
+    const result = await handleShopifyCreateListingJob(claim, { fetchImpl });
+    expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(productSetCalls).toBe(0);
+    expect(activateCalls).toBe(0);
+    expect(createShopifyListingMapping).toHaveBeenCalled();
+  });
+
   it("recovers an ACTIVE product by customId without remutation", async () => {
     const customId = shopifyListingExportCustomId("conn-gen-1", "item-1");
     let productSetCalls = 0;
@@ -613,16 +642,12 @@ describe("shopify CREATE_LISTING provider", () => {
       },
       variantMaps: [],
     });
-    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as { operationName?: string };
-      expect(body.operationName).toBe("ShopifyListingProductStatusLookup");
-      return jsonResponse({
-        data: { product: { id: "gid://shopify/Product/9", status: "ACTIVE" } },
-      });
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("provider must not be called for already-mapped create");
     });
     const result = await handleShopifyCreateListingJob(claim, { fetchImpl });
     expect(result).toEqual({ outcome: "SUCCESS" });
-    expect(fetchImpl).toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
     expect(createShopifyListingMapping).not.toHaveBeenCalled();
   });
 });

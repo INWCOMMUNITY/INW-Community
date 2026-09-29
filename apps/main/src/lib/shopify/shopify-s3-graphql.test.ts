@@ -130,6 +130,8 @@ describe("shopify admin graphql client", () => {
       ),
     });
     expect(gqlError.class).toBe("AUTH");
+    expect(gqlError.message).toContain("Shopify GraphQL request failed (200)");
+    expect(gqlError.message).toContain("bad");
 
     const throttled = await executeShopifyAdminGraphql({
       connectionId: "conn-1",

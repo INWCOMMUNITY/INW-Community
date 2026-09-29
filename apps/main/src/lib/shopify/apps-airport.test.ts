@@ -12,6 +12,7 @@ import {
   shopifyAdminProductUrl,
   shopifyConnectionStatusLabel,
   shopifyReadinessLabel,
+  formatShopifyObservedQuantity,
 } from "./apps-airport";
 
 describe("Apps Airport routes", () => {
@@ -91,5 +92,26 @@ describe("Shopify sync progress and labels", () => {
       shopifyAdminProductUrl("demo.myshopify.com", "gid://shopify/Product/123")
     ).toBe("https://demo.myshopify.com/admin/products/123");
     expect(shopifyAdminProductUrl("custom.example.com", "gid://shopify/Product/123")).toBeNull();
+  });
+
+  it("never presents desired quantity as verified Shopify stock", () => {
+    expect(
+      formatShopifyObservedQuantity({
+        inventoryAppliedAvailable: null,
+        inventoryDesiredAvailable: 3,
+      })
+    ).toBe("— (desired 3)");
+    expect(
+      formatShopifyObservedQuantity({
+        inventoryAppliedAvailable: 3,
+        inventoryDesiredAvailable: 3,
+      })
+    ).toBe("3");
+    expect(
+      formatShopifyObservedQuantity({
+        inventoryAppliedAvailable: null,
+        inventoryDesiredAvailable: null,
+      })
+    ).toBe("—");
   });
 });

@@ -9,6 +9,7 @@ import {
   APPS_AIRPORT_SHOPIFY_SETTINGS_PATH,
   APPS_AIRPORT_SHOPIFY_SYNC_PATH,
   formatCents,
+  formatShopifyObservedQuantity,
   shopifyHealthLabel,
   shopifyReadinessLabel,
 } from "@/lib/shopify/apps-airport";
@@ -148,7 +149,11 @@ export default function AppsAirportShopifyListingsPage() {
                   <td className="py-3 pr-3">
                     <div>INW: {row.quantity}</div>
                     <div className="text-neutral-600">
-                      Shopify: {row.inventoryAppliedAvailable ?? row.inventoryDesiredAvailable ?? "—"}
+                      Shopify:{" "}
+                      {formatShopifyObservedQuantity({
+                        inventoryAppliedAvailable: row.inventoryAppliedAvailable,
+                        inventoryDesiredAvailable: row.inventoryDesiredAvailable,
+                      })}
                     </div>
                   </td>
                   <td className="py-3 pr-3">{shopifyHealthLabel(row.contentHealth)}</td>

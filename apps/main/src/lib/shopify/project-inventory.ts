@@ -164,10 +164,12 @@ async function enableTracked(input: {
     connectionId: input.connectionId,
     operationType: "mutation",
     operationName: "ShopifyInventoryItemEnableTracked",
+    // UserError has field+message only (no code). Selecting `code` yields GraphQL
+    // top-level errors on HTTP 200 and permanent TRACKED_UPDATE DEAD.
     document: `mutation ShopifyInventoryItemEnableTracked($id: ID!, $input: InventoryItemInput!) {
       inventoryItemUpdate(id: $id, input: $input) {
         inventoryItem { id tracked }
-        userErrors { field message code }
+        userErrors { field message }
       }
     }`,
     variables: {
@@ -251,13 +253,14 @@ async function activateInventory(input: {
     connectionId: input.connectionId,
     operationType: "mutation",
     operationName: "ShopifyInventoryActivate",
+    // inventoryActivate returns [UserError!]! (no code). Keep selection field+message.
     document: `mutation ShopifyInventoryActivate($inventoryItemId: ID!, $locationId: ID!, $available: Int, $idempotencyKey: String!) {
       inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId, available: $available) @idempotent(key: $idempotencyKey) {
         inventoryLevel {
           id
           quantities(names: ["available"]) { name quantity }
         }
-        userErrors { field message code }
+        userErrors { field message }
       }
     }`,
     variables: {

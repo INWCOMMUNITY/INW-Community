@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, ensureShopifyReconcileListingJob } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
-import { ensureShopifyListingProductActive } from "@/lib/shopify/activate-listing";
 import { listShopifySellerListingViews } from "@/lib/shopify/listing-public-view";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +9,7 @@ export const dynamic = "force-dynamic";
 /**
  * Seller-safe Shopify listing readiness for current-generation mappings only.
  * Never exposes tokens or provider secrets.
+ * Does not mutate remote product status (DRAFT stays DRAFT until explicit activation).
  */
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -51,22 +51,6 @@ export async function GET(req: NextRequest) {
     listings = listings.filter((row) => row.storeItemId === storeItemId);
   }
 
-  // Promote legacy DRAFT exports to ACTIVE (listed) when the seller views synced listings.
-  for (const row of listings.slice(0, 20)) {
-    const remoteStatus = String(row.remoteProductStatus ?? "").toUpperCase();
-    if (remoteStatus === "ACTIVE") continue;
-    const activated = await ensureShopifyListingProductActive({
-      connectionId: connection.id,
-      shopifyProductId: row.shopifyProductId,
-    });
-    if (activated.ok) {
-      await prisma.shopifyListingLink.updateMany({
-        where: { id: row.listingLinkId, shopifyConnectionId: connection.id },
-        data: { remoteProductStatus: "ACTIVE" },
-      });
-    }
-  }
-
   if (refresh) {
     for (const row of listings.slice(0, 20)) {
       await ensureShopifyReconcileListingJob(prisma, {
@@ -76,14 +60,6 @@ export async function GET(req: NextRequest) {
         bucket: `on-demand-${Date.now()}`,
       });
     }
-    listings = await listShopifySellerListingViews({
-      memberId,
-      connectionId: connection.id,
-    });
-    if (storeItemId) {
-      listings = listings.filter((row) => row.storeItemId === storeItemId);
-    }
-  } else {
     listings = await listShopifySellerListingViews({
       memberId,
       connectionId: connection.id,

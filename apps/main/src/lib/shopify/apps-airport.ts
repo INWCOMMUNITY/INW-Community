@@ -166,3 +166,26 @@ export function formatCents(cents: number | null | undefined): string {
   if (typeof cents !== "number" || !Number.isFinite(cents)) return "—";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
+
+/**
+ * Synced Listings "Shopify" quantity: only show verified applied/observed stock.
+ * Never fall back desired→Shopify qty (that falsely reported Healthy qty while PENDING).
+ */
+export function formatShopifyObservedQuantity(input: {
+  inventoryAppliedAvailable: number | null | undefined;
+  inventoryDesiredAvailable?: number | null | undefined;
+}): string {
+  if (
+    typeof input.inventoryAppliedAvailable === "number" &&
+    Number.isFinite(input.inventoryAppliedAvailable)
+  ) {
+    return String(input.inventoryAppliedAvailable);
+  }
+  if (
+    typeof input.inventoryDesiredAvailable === "number" &&
+    Number.isFinite(input.inventoryDesiredAvailable)
+  ) {
+    return `— (desired ${input.inventoryDesiredAvailable})`;
+  }
+  return "—";
+}
