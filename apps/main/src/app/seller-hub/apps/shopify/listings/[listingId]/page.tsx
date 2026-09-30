@@ -4,12 +4,14 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
+import { ShopifyListingActionButtons } from "@/components/apps-airport/ShopifyListingActionButtons";
 import {
   APPS_AIRPORT_SHOPIFY_LISTINGS_PATH,
   APPS_AIRPORT_SHOPIFY_PATH,
   formatCents,
-  shopifyAdminProductUrl,
   shopifyHealthLabel,
+  shopifyListingStatusChipClass,
+  shopifyListingUiStatus,
   shopifyReadinessLabel,
 } from "@/lib/shopify/apps-airport";
 
@@ -39,9 +41,6 @@ type ListingDetail = {
   updatedAt: string;
   blockContentOutbound: boolean;
   blockInventoryOutbound: boolean;
-  fieldConflicts?: string[];
-  productContentConflict?: boolean;
-  variantContentConflict?: boolean;
   importSource?: string | null;
   importedAt?: string | null;
 };
@@ -93,8 +92,6 @@ export default function AppsAirportShopifyListingDetailPage() {
   useEffect(() => {
     void load(false);
   }, [load]);
-
-  const adminUrl = shopifyAdminProductUrl(shopDomain, listing?.shopifyProductId);
 
   return (
     <AppsAirportChrome
@@ -192,22 +189,6 @@ export default function AppsAirportShopifyListingDetailPage() {
                   {listing.blockContentOutbound ? " (outbound paused)" : ""}
                 </dd>
               </div>
-              {(listing.fieldConflicts && listing.fieldConflicts.length > 0) ||
-              listing.productContentConflict ||
-              listing.variantContentConflict ? (
-                <div>
-                  <dt className="text-neutral-500">Field conflicts</dt>
-                  <dd className="text-amber-900">
-                    {(listing.fieldConflicts && listing.fieldConflicts.length > 0
-                      ? listing.fieldConflicts
-                      : [
-                          listing.productContentConflict ? "PRODUCT" : null,
-                          listing.variantContentConflict ? "VARIANT" : null,
-                        ].filter(Boolean)
-                    ).join(", ")}
-                  </dd>
-                </div>
-              ) : null}
               <div>
                 <dt className="text-neutral-500">Inventory health</dt>
                 <dd>
@@ -249,36 +230,55 @@ export default function AppsAirportShopifyListingDetailPage() {
             </dl>
           </section>
 
-          <div className="flex flex-wrap gap-3">
-            <Link href={`/seller-hub/store/${listing.storeItemId}`} className="btn" prefetch={false}>
-              View / edit INW listing
-            </Link>
+          <section
+            className="rounded-[10px] border-2 p-5"
+            style={{ borderColor: "var(--color-primary)" }}
+          >
+            <h2 className="font-bold mb-3" style={{ color: "var(--color-heading)" }}>
+              Actions
+            </h2>
+            {(() => {
+              const status = shopifyListingUiStatus({
+                readiness: listing.readiness,
+                contentHealth: listing.contentHealth,
+                inventoryHealth: listing.inventoryHealth,
+                issueCode: listing.issueCode,
+              });
+              return (
+                <>
+                  <p className="text-sm text-neutral-600 mb-3 flex items-center gap-2">
+                    Status:{" "}
+                    <span
+                      className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${shopifyListingStatusChipClass(status)}`}
+                    >
+                      {status}
+                    </span>
+                  </p>
+                  <ShopifyListingActionButtons
+                    storeItemId={listing.storeItemId}
+                    shopDomain={shopDomain}
+                    shopifyProductId={listing.shopifyProductId}
+                    preferStorefront={status === "Live"}
+                    onActionComplete={() => void load(true)}
+                  />
+                </>
+              );
+            })()}
             <button
               type="button"
-              className="btn border border-gray-300 bg-white hover:bg-gray-50"
+              className="btn border border-gray-300 bg-white hover:bg-gray-50 mt-4"
               style={{ color: "var(--color-heading)" }}
               disabled={refreshing}
               onClick={() => void load(true)}
             >
               {refreshing ? "Refreshing…" : "Refresh / reconcile"}
             </button>
-            {adminUrl ? (
-              <a
-                href={adminUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn border border-gray-300 bg-white hover:bg-gray-50"
-                style={{ color: "var(--color-heading)" }}
-              >
-                Open in Shopify Admin
-              </a>
-            ) : null}
             {listing.contentHealth === "PAUSED" || listing.readiness === "ACTION_REQUIRED" ? (
-              <p className="text-sm text-neutral-600 self-center">
+              <p className="mt-3 text-sm text-neutral-600">
                 Content conflicts are resolved by editing the INW listing, then refreshing status.
               </p>
             ) : null}
-          </div>
+          </section>
         </div>
       ) : null}
     </AppsAirportChrome>

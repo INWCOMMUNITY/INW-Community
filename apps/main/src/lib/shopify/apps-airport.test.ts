@@ -93,7 +93,7 @@ describe("Shopify sync progress and labels", () => {
   });
 
   it("preserves backend readiness truth in labels", () => {
-    expect(shopifyReadinessLabel("READY_TO_PUBLISH")).toBe("Published");
+    expect(shopifyReadinessLabel("READY_TO_PUBLISH")).toBe("Live");
     expect(shopifyReadinessLabel("ACTION_REQUIRED")).toBe("Needs attention");
   });
 

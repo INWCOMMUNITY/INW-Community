@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
+import { ShopifyListingActionButtons } from "@/components/apps-airport/ShopifyListingActionButtons";
 import {
   APPS_AIRPORT_SHOPIFY_LISTINGS_PATH,
   APPS_AIRPORT_SHOPIFY_PATH,
@@ -11,12 +12,14 @@ import {
   formatCents,
   formatShopifyObservedQuantity,
   shopifyHealthLabel,
-  shopifyReadinessLabel,
+  shopifyListingStatusChipClass,
+  shopifyListingUiStatus,
 } from "@/lib/shopify/apps-airport";
 
 type ListingRow = {
   listingLinkId: string;
   storeItemId: string;
+  shopifyProductId: string;
   title: string;
   priceCents: number;
   quantity: number;
@@ -28,6 +31,7 @@ type ListingRow = {
   inventoryAppliedAvailable: number | null;
   lastReconciledAt: string | null;
   updatedAt: string;
+  issueCode: string | null;
   issueMessage: string | null;
   importSource?: string | null;
 };
@@ -38,6 +42,7 @@ export default function AppsAirportShopifyListingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [shopDomain, setShopDomain] = useState<string | null>(null);
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
@@ -54,9 +59,11 @@ export default function AppsAirportShopifyListingsPage() {
       }
       const body = (await response.json()) as {
         connectionStatus: string;
+        shopDomain?: string | null;
         listings: ListingRow[];
       };
       setConnectionStatus(body.connectionStatus);
+      setShopDomain(body.shopDomain ?? null);
       setListings(body.listings ?? []);
     } catch {
       setError("Could not load synced listings.");
@@ -81,7 +88,7 @@ export default function AppsAirportShopifyListingsPage() {
     >
       <div className="mb-6 flex flex-wrap gap-3">
         <Link href={APPS_AIRPORT_SHOPIFY_SYNC_PATH} className="btn" prefetch={false}>
-          Sync a listing
+          List on Shopify
         </Link>
         <button
           type="button"
@@ -111,9 +118,9 @@ export default function AppsAirportShopifyListingsPage() {
         <p className="text-sm text-neutral-600">
           No synced listings yet.{" "}
           <Link href={APPS_AIRPORT_SHOPIFY_SYNC_PATH} className="underline" prefetch={false}>
-            Sync a listing
+            List on Shopify
           </Link>{" "}
-          to create your first Shopify draft mapping.
+          to create your first Shopify mapping.
         </p>
       ) : null}
 
@@ -128,13 +135,20 @@ export default function AppsAirportShopifyListingsPage() {
                 <th className="py-2 pr-3 font-semibold">Inventory</th>
                 <th className="py-2 pr-3 font-semibold">Content</th>
                 <th className="py-2 pr-3 font-semibold">Inv. health</th>
-                <th className="py-2 pr-3 font-semibold">Readiness</th>
+                <th className="py-2 pr-3 font-semibold">Live</th>
                 <th className="py-2 pr-3 font-semibold">Updated</th>
-                <th className="py-2 font-semibold">Action</th>
+                <th className="py-2 font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {listings.map((row) => (
+              {listings.map((row) => {
+                const status = shopifyListingUiStatus({
+                  readiness: row.readiness,
+                  contentHealth: row.contentHealth,
+                  inventoryHealth: row.inventoryHealth,
+                  issueCode: row.issueCode,
+                });
+                return (
                 <tr key={row.listingLinkId} className="border-b border-neutral-200 align-top">
                   <td className="py-3 pr-3">
                     <div className="font-medium">{row.title}</div>
@@ -159,7 +173,11 @@ export default function AppsAirportShopifyListingsPage() {
                   <td className="py-3 pr-3">{shopifyHealthLabel(row.contentHealth)}</td>
                   <td className="py-3 pr-3">{shopifyHealthLabel(row.inventoryHealth)}</td>
                   <td className="py-3 pr-3">
-                    <div>{shopifyReadinessLabel(row.readiness)}</div>
+                    <span
+                      className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${shopifyListingStatusChipClass(status)}`}
+                    >
+                      {status}
+                    </span>
                     {row.issueMessage ? (
                       <div className="mt-1 text-xs text-amber-800 max-w-[14rem]">{row.issueMessage}</div>
                     ) : null}
@@ -169,18 +187,18 @@ export default function AppsAirportShopifyListingsPage() {
                       ? new Date(row.lastReconciledAt).toLocaleString()
                       : new Date(row.updatedAt).toLocaleString()}
                   </td>
-                  <td className="py-3">
-                    <Link
-                      href={`${APPS_AIRPORT_SHOPIFY_LISTINGS_PATH}/${row.storeItemId}`}
-                      className="underline"
-                      style={{ color: "var(--color-primary)" }}
-                      prefetch={false}
-                    >
-                      Manage
-                    </Link>
+                  <td className="py-3 min-w-[8rem]">
+                    <ShopifyListingActionButtons
+                      storeItemId={row.storeItemId}
+                      shopDomain={shopDomain}
+                      shopifyProductId={row.shopifyProductId}
+                      preferStorefront={status === "Live"}
+                      onActionComplete={() => void load(true)}
+                    />
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

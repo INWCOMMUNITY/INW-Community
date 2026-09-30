@@ -21,6 +21,9 @@ type EligibleListing = {
   priceCents: number;
   quantity: number;
   status: string;
+  variantCount?: number;
+  supported?: boolean;
+  unsupportedReason?: string | null;
 };
 
 type ListingStatus = {
@@ -145,11 +148,11 @@ export default function AppsAirportShopifySyncPage() {
 
   return (
     <AppsAirportChrome
-      title="Sync a listing"
+      title="List on Shopify"
       subtitle="Choose an active INW listing that is not already mapped, then export it to Shopify as an ACTIVE product published to your Online Store."
       crumbs={[
         { href: APPS_AIRPORT_SHOPIFY_PATH, label: "Shopify" },
-        { href: `${APPS_AIRPORT_SHOPIFY_PATH}/sync`, label: "Sync" },
+        { href: `${APPS_AIRPORT_SHOPIFY_PATH}/sync`, label: "List on Shopify" },
       ]}
     >
       {connectionStatus === "CONNECTION_REQUIRED" ? (
@@ -206,8 +209,8 @@ export default function AppsAirportShopifySyncPage() {
 
       {!loading && connectionStatus === "ACTIVE" && listings.length === 0 ? (
         <p className="text-sm text-neutral-600">
-          No eligible listings right now. Sync supports active simple listings with exactly one
-          variant that are not already mapped to this Shopify connection.
+          No eligible listings right now. List on Shopify supports active INW listings (up to 100
+          variants) that are not already mapped to this Shopify connection.
         </p>
       ) : null}
 
@@ -219,12 +222,15 @@ export default function AppsAirportShopifySyncPage() {
                 <th className="py-2 pr-4 font-semibold">INW listing</th>
                 <th className="py-2 pr-4 font-semibold">Price</th>
                 <th className="py-2 pr-4 font-semibold">Inventory</th>
+                <th className="py-2 pr-4 font-semibold">Variants</th>
                 <th className="py-2 pr-4 font-semibold">SKU</th>
                 <th className="py-2 font-semibold">Action</th>
               </tr>
             </thead>
             <tbody>
-              {listings.map((listing) => (
+              {listings.map((listing) => {
+                const supported = listing.supported !== false;
+                return (
                 <tr key={listing.storeItemId} className="border-b border-neutral-200">
                   <td className="py-3 pr-4">
                     <Link
@@ -235,22 +241,31 @@ export default function AppsAirportShopifySyncPage() {
                     >
                       {listing.title}
                     </Link>
+                    {!supported && listing.unsupportedReason ? (
+                      <p className="mt-1 text-xs text-amber-800">{listing.unsupportedReason}</p>
+                    ) : null}
                   </td>
                   <td className="py-3 pr-4">{formatCents(listing.priceCents)}</td>
                   <td className="py-3 pr-4">{listing.quantity}</td>
+                  <td className="py-3 pr-4">{listing.variantCount ?? "—"}</td>
                   <td className="py-3 pr-4">{listing.sku ?? "—"}</td>
                   <td className="py-3">
                     <button
                       type="button"
                       className="btn"
-                      disabled={!inventoryReady || syncingId === listing.storeItemId}
+                      disabled={
+                        !inventoryReady ||
+                        !supported ||
+                        syncingId === listing.storeItemId
+                      }
                       onClick={() => void onSync(listing.storeItemId)}
                     >
-                      {syncingId === listing.storeItemId ? "Syncing…" : "Sync to Shopify"}
+                      {syncingId === listing.storeItemId ? "Listing…" : "List on Shopify"}
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
