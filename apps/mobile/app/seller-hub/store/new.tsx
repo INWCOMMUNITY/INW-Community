@@ -108,19 +108,26 @@ export default function ListItemScreen() {
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const params = useLocalSearchParams<{ draftId?: string; edit?: string; condition?: string; listingType?: string }>();
+  const params = useLocalSearchParams<{
+    draftId?: string;
+    edit?: string;
+    similar?: string;
+    condition?: string;
+    listingType?: string;
+  }>();
   const draftId = params.draftId;
   const editId = params.edit?.trim() || undefined;
+  const similarId = !editId ? params.similar?.trim() || undefined : undefined;
   const conditionParam =
     params.condition === "used" || params.listingType === "resale" ? "used" : "new";
   const placeholderColor = PLACEHOLDER_COLOR;
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      title: editId ? "Edit Item" : "List an Item",
+      title: editId ? "Edit Item" : similarId ? "Sell Similar" : "List an Item",
       contentStyle: { backgroundColor: "#fff" },
     });
-  }, [navigation, editId]);
+  }, [navigation, editId, similarId]);
 
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [storeCategories, setStoreCategories] = useState<StoreCategoryOption[]>([]);
@@ -334,6 +341,82 @@ export default function ListItemScreen() {
           setEditLoading(false);
           setLoadedDraft(true);
         });
+    } else if (similarId && !loadedDraft) {
+      setEditLoading(true);
+      apiGet<{
+        title: string;
+        description: string | null;
+        photos: string[];
+        category: string | null;
+        secondaryCategory?: string | null;
+        subcategory: string | null;
+        priceCents: number;
+        quantity: number;
+        shippingDisabled: boolean;
+        shippingCostCents: number | null;
+        shippingOptionId: string | null;
+        shippingPolicy: string | null;
+        localDeliveryAvailable: boolean;
+        localDeliveryFeeCents: number | null;
+        localDeliveryTerms: string | null;
+        inStorePickupAvailable: boolean;
+        pickupTerms: string | null;
+        businessId: string | null;
+        variants: unknown;
+        inventoryTracking?: string | null;
+        condition?: "new" | "used";
+        acceptOffers?: boolean;
+        useSellerProfileShipping?: boolean;
+        useSellerProfileLocalDelivery?: boolean;
+        useSellerProfilePickup?: boolean;
+      }>(`/api/store-items/${similarId}`)
+        .then((item) => {
+          setTitle(item.title ?? "");
+          setSku("");
+          setDescription(item.description ?? "");
+          setPhotos(item.photos ?? []);
+          setCategory(item.category ?? "");
+          setSecondaryCategory(item.secondaryCategory ?? "");
+          setSubcategory(item.subcategory ?? "");
+          setPriceCents(item.priceCents != null ? (item.priceCents / 100).toFixed(2) : "");
+          setQuantity(String(Math.max(1, item.quantity ?? 1)));
+          setShippingDisabled(item.shippingDisabled ?? false);
+          setShippingCostDollars(
+            item.shippingCostCents != null && item.shippingCostCents > 0
+              ? (item.shippingCostCents / 100).toFixed(2)
+              : ""
+          );
+          setShippingFree(item.shippingCostCents === 0);
+          setShippingOptionId(item.shippingOptionId ?? "");
+          setShippingPolicy(item.shippingPolicy ?? "");
+          setLocalDeliveryAvailable(item.localDeliveryAvailable ?? false);
+          setLocalDeliveryFeeDollars(
+            item.localDeliveryFeeCents != null && item.localDeliveryFeeCents > 0
+              ? (item.localDeliveryFeeCents / 100).toFixed(2)
+              : ""
+          );
+          setLocalDeliveryTerms(item.localDeliveryTerms ?? "");
+          setInStorePickupAvailable(item.inStorePickupAvailable ?? false);
+          setPickupTerms(item.pickupTerms ?? "");
+          setBusinessId(item.businessId ?? null);
+          const parsed = parseVariantsToEditor(item.variants);
+          setInventoryMode(parsed.mode);
+          setVariantAxes(parsed.axes);
+          setVariantSkus(parsed.skus);
+          setInventoryTracking(parseInventoryTracking(item.inventoryTracking));
+          if (item.condition === "used" || item.condition === "new") setCondition(item.condition);
+          if (typeof item.acceptOffers === "boolean") setAcceptOffers(item.acceptOffers);
+          if (item.useSellerProfileShipping !== undefined) setUseSellerProfileShipping(item.useSellerProfileShipping);
+          if (item.useSellerProfileLocalDelivery !== undefined) {
+            setUseSellerProfileLocalDelivery(item.useSellerProfileLocalDelivery);
+          }
+          if (item.useSellerProfilePickup !== undefined) setUseSellerProfilePickup(item.useSellerProfilePickup);
+        })
+        .catch(() => setError("Failed to load item to copy"))
+        .finally(() => {
+          setEditLoading(false);
+          setLoadedDraft(true);
+        });
     } else if (draftId && !loadedDraft) {
       getDraft(draftId).then((draft) => {
         if (draft) {
@@ -369,10 +452,10 @@ export default function ListItemScreen() {
         }
         setLoadedDraft(true);
       });
-    } else if (!draftId && !editId) {
+    } else if (!draftId && !editId && !similarId) {
       setLoadedDraft(true);
     }
-  }, [draftId, editId, loadedDraft]);
+  }, [draftId, editId, similarId, loadedDraft]);
 
   useEffect(() => {
     if (editId) return;

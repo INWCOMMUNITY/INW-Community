@@ -17,7 +17,7 @@ const bulkUpdateSchema = z.object({
     category: z.string().nullable().optional(),
     subcategory: z.string().nullable().optional(),
     condition: z.enum(["new", "used"]).optional(),
-    status: z.enum(["active", "inactive", "draft"]).optional(),
+    status: z.enum(["active", "inactive", "draft", "sold_out"]).optional(),
     shippingCostCents: z.number().min(0).nullable().optional(),
     shippingDisabled: z.boolean().optional(),
     localDeliveryAvailable: z.boolean().optional(),
@@ -298,6 +298,13 @@ export async function PATCH(req: NextRequest) {
           previousQuantity: (beforeState[item.id]?.quantity as number) ?? undefined,
         }));
         checkLowStockBatch(itemsToCheck).catch(() => {});
+
+        if (updates.status === "sold_out") {
+          const { deleteFeedPostsForSoldItem } = await import("@/lib/delete-posts-for-sold-item");
+          for (const id of ownedIds) {
+            deleteFeedPostsForSoldItem(id).catch(() => {});
+          }
+        }
         
         // Add snapshotId to result
         (result as Record<string, unknown>).snapshotId = snapshot.id;

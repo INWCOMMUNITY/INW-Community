@@ -19,6 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import { buildProductPath } from "@/lib/product-referrer";
+import { getDrafts, deleteDraft, type StoreItemDraft } from "@/lib/drafts";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -27,10 +28,12 @@ interface StoreItem {
   id: string;
   title: string;
   slug: string;
+  sku?: string | null;
   priceCents: number;
   quantity: number;
   status: string;
   photos: string[];
+  views30d?: number;
   soldOrderId?: string;
   soldAt?: string;
 }
@@ -39,6 +42,8 @@ interface ConnectStatus {
   onboarded: boolean;
   chargesEnabled: boolean;
 }
+
+type ItemsTab = "active" | "ended" | "sold" | "drafts";
 
 function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -49,10 +54,11 @@ function resolvePhotoUrl(path: string | undefined): string | undefined {
   return path.startsWith("http") ? path : `${siteBase}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
-const ITEMS_TABS: { key: "active" | "ended" | "sold"; label: string }[] = [
+const ITEMS_TABS: { key: ItemsTab; label: string }[] = [
   { key: "active", label: "Active" },
   { key: "ended", label: "Ended" },
   { key: "sold", label: "Sold" },
+  { key: "drafts", label: "Drafts" },
 ];
 
 function statusLabel(item: StoreItem): string {
@@ -67,21 +73,23 @@ export default function MyItemsScreen() {
   const navigation = useNavigation();
   const params = useLocalSearchParams<{ listingType?: string; tab?: string }>();
   const listingType = params.listingType === "resale" ? "resale" : undefined;
-  const initialTab =
+  const initialTab: ItemsTab =
     params.tab === "sold"
       ? "sold"
       : params.tab === "ended"
         ? "ended"
-        : "active";
+        : params.tab === "drafts"
+          ? "drafts"
+          : "active";
   const [items, setItems] = useState<StoreItem[]>([]);
+  const [drafts, setDrafts] = useState<StoreItemDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [connectStatus, setConnectStatus] = useState<ConnectStatus | null>(null);
   const [actingId, setActingId] = useState<string | null>(null);
+  const [bulkActing, setBulkActing] = useState(false);
   const [menuItemId, setMenuItemId] = useState<string | null>(null);
-
-  type ItemsTab = "active" | "ended" | "sold";
   const [itemsTab, setItemsTab] = useState<ItemsTab>(initialTab);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState("");
@@ -89,7 +97,11 @@ export default function MyItemsScreen() {
     active: number;
     ended: number;
     sold: number;
+    drafts: number;
   } | null>(null);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkPrice, setBulkPrice] = useState("");
+  const [bulkQty, setBulkQty] = useState("");
 
   useLayoutEffect(() => {
     const listButton = (
@@ -127,35 +139,62 @@ export default function MyItemsScreen() {
       ? "&filter=active"
       : itemsTab === "ended"
         ? "&filter=ended"
-        : "&filter=sold");
+        : itemsTab === "sold"
+          ? "&filter=sold"
+          : "");
 
   const load = useCallback(() => {
     setFetchError(null);
+    if (itemsTab === "drafts") {
+      Promise.all([
+        getDrafts(),
+        apiGet<ConnectStatus | { error: string }>("/api/stripe/connect/status").catch(() => null),
+        apiGet<{ active?: number; ended?: number; sold?: number }>(
+          "/api/store-items?mine=1&counts=1"
+        ).catch(() => null),
+      ])
+        .then(([draftList, statusData, countsData]) => {
+          setDrafts(draftList);
+          setItems([]);
+          if (statusData && "chargesEnabled" in statusData) {
+            setConnectStatus(statusData as ConnectStatus);
+          }
+          setTabCounts({
+            active: Number(countsData?.active) || 0,
+            ended: Number(countsData?.ended) || 0,
+            sold: Number(countsData?.sold) || 0,
+            drafts: draftList.length,
+          });
+        })
+        .finally(() => {
+          setLoading(false);
+          setRefreshing(false);
+        });
+      return;
+    }
+
     Promise.allSettled([
       apiGet<StoreItem[] | { error: string }>(itemsUrl),
       apiGet<ConnectStatus | { error: string }>("/api/stripe/connect/status"),
-      apiGet<{
-        active?: number;
-        ended?: number;
-        sold?: number;
-      }>("/api/store-items?mine=1&counts=1"),
+      apiGet<{ active?: number; ended?: number; sold?: number }>(
+        "/api/store-items?mine=1&counts=1"
+      ),
+      getDrafts(),
     ])
-      .then(([itemsResult, statusResult, countsResult]) => {
+      .then(([itemsResult, statusResult, countsResult, draftsResult]) => {
+        const draftList = draftsResult.status === "fulfilled" ? draftsResult.value : [];
         if (itemsResult.status === "fulfilled") {
           const data = itemsResult.value;
           if (Array.isArray(data)) {
             setItems(data);
           } else {
-            setFetchError(
-              (data as { error?: string })?.error ?? "Failed to load items."
-            );
+            setFetchError((data as { error?: string })?.error ?? "Failed to load items.");
             setItems([]);
           }
         } else {
           setItems([]);
           setFetchError(
-            (itemsResult.reason as { error?: string })?.error ??
-              "Failed to load items."
+            (itemsResult.reason as { error?: string })?.error ?? "Failed to load items."
           );
         }
 
@@ -170,16 +209,14 @@ export default function MyItemsScreen() {
           setConnectStatus(null);
         }
 
-        if (countsResult.status === "fulfilled") {
-          const data = countsResult.value;
-          if (data && typeof data.active === "number") {
-            setTabCounts({
-              active: data.active,
-              ended: Number(data.ended) || 0,
-              sold: Number(data.sold) || 0,
-            });
-          }
-        }
+        const counts =
+          countsResult.status === "fulfilled" ? countsResult.value : null;
+        setTabCounts({
+          active: Number(counts?.active) || 0,
+          ended: Number(counts?.ended) || 0,
+          sold: Number(counts?.sold) || 0,
+          drafts: draftList.length,
+        });
       })
       .catch(() => {
         setItems([]);
@@ -190,11 +227,13 @@ export default function MyItemsScreen() {
         setLoading(false);
         setRefreshing(false);
       });
-  }, [itemsUrl]);
+  }, [itemsUrl, itemsTab]);
 
-  useFocusEffect(useCallback(() => {
-    load();
-  }, [load]));
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   useEffect(() => {
     load();
@@ -211,8 +250,18 @@ export default function MyItemsScreen() {
   const visibleItems = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return items;
-    return items.filter((i) => i.title.toLowerCase().includes(q));
+    return items.filter(
+      (i) =>
+        i.title.toLowerCase().includes(q) ||
+        (i.sku ?? "").toLowerCase().includes(q)
+    );
   }, [items, search]);
+
+  const visibleDrafts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return drafts;
+    return drafts.filter((d) => (d.title || "Untitled").toLowerCase().includes(q));
+  }, [drafts, search]);
 
   const allVisibleSelected =
     visibleItems.length > 0 && visibleItems.every((i) => selectedIds.includes(i.id));
@@ -237,18 +286,13 @@ export default function MyItemsScreen() {
         { returnBaseUrl: siteBase, mobileReturnPath: "/seller-hub" }
       );
       if (data.url) {
-        const webUrl =
-          `/web?url=${encodeURIComponent(data.url)}&title=${encodeURIComponent("Payment setup")}`;
+        const webUrl = `/web?url=${encodeURIComponent(data.url)}&title=${encodeURIComponent("Payment setup")}`;
         router.push(webUrl as never);
       } else {
-        setFetchError(
-          data.error ?? "Payment setup failed. Check Stripe configuration."
-        );
+        setFetchError(data.error ?? "Payment setup failed. Check Stripe configuration.");
       }
     } catch (e) {
-      setFetchError(
-        (e as { error?: string })?.error ?? "Payment setup failed."
-      );
+      setFetchError((e as { error?: string })?.error ?? "Payment setup failed.");
     }
   };
 
@@ -256,61 +300,146 @@ export default function MyItemsScreen() {
     router.push(`/seller-hub/store/new?edit=${itemId}` as never);
   };
 
+  const openSimilar = (itemId: string) => {
+    router.push(`/seller-hub/store/new?similar=${itemId}` as never);
+  };
+
   const openListing = (item: StoreItem) => {
     router.push(buildProductPath(item.slug, { type: "my-items" }) as never);
   };
 
-  const markAsSold = async (id: string) => {
-    setActingId(id);
+  const markAsSold = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setBulkActing(true);
     try {
-      await apiPatch(`/api/store-items/${id}`, { status: "sold_out" });
-      setItems((prev) => prev.filter((i) => i.id !== id));
-      Alert.alert(
-        "Marked as sold",
-        "This item has been moved to Sold Items.",
-        [
-          { text: "OK" },
-          {
-            text: "View Sold Items",
-            onPress: () => (router.push as (href: string) => void)("/seller-hub/store/items?tab=sold"),
-          },
-        ]
-      );
+      if (ids.length === 1) {
+        await apiPatch(`/api/store-items/${ids[0]}`, { status: "sold_out" });
+      } else {
+        await apiPatch("/api/store-items/bulk", {
+          storeItemIds: ids,
+          updates: { status: "sold_out" },
+        });
+      }
+      setSelectedIds([]);
+      Alert.alert("Marked as sold", `${ids.length} item${ids.length === 1 ? "" : "s"} moved to Sold.`);
+      load();
     } catch (e) {
-      const err = e as { error?: string };
-      Alert.alert("Error", err.error ?? "Failed to mark as sold");
+      Alert.alert("Error", (e as { error?: string }).error ?? "Failed to mark as sold");
     } finally {
+      setBulkActing(false);
       setActingId(null);
     }
   };
 
-  const endListing = (id: string) => {
-    setMenuItemId(null);
-    Alert.alert("End listing", "This will remove the item from your active listings.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "End",
-        style: "destructive",
-        onPress: async () => {
-          setActingId(id);
-          try {
-            await apiPatch(`/api/store-items/${id}`, { status: "inactive" });
-            Alert.alert("Ended", "Listing has been ended.");
-            load();
-          } catch (e) {
-            const err = e as { error?: string };
-            Alert.alert("Error", err.error ?? "Failed to end listing");
-          } finally {
-            setActingId(null);
-          }
+  const endListings = (ids: string[]) => {
+    Alert.alert(
+      ids.length === 1 ? "End listing" : "End listings",
+      `Remove ${ids.length} listing${ids.length === 1 ? "" : "s"} from your active items?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "End",
+          style: "destructive",
+          onPress: async () => {
+            setBulkActing(true);
+            try {
+              if (ids.length === 1) {
+                await apiPatch(`/api/store-items/${ids[0]}`, { status: "inactive" });
+              } else {
+                await apiDelete("/api/store-items/bulk", { storeItemIds: ids });
+              }
+              setSelectedIds([]);
+              Alert.alert("Ended", "Listing(s) moved to Ended.");
+              load();
+            } catch (e) {
+              Alert.alert("Error", (e as { error?: string }).error ?? "Failed to end listing");
+            } finally {
+              setBulkActing(false);
+            }
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
-  const confirmMarkAsSold = (id: string) => {
-    setMenuItemId(null);
-    void markAsSold(id);
+  const relistItems = (ids: string[]) => {
+    Alert.alert(
+      ids.length === 1 ? "Relist item" : "Relist items",
+      `Put ${ids.length} item${ids.length === 1 ? "" : "s"} back on sale with quantity 1?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Relist",
+          onPress: async () => {
+            setBulkActing(true);
+            try {
+              const res = await apiPost<{ ok: boolean; relisted: number }>(
+                "/api/store-items/bulk-relist",
+                { storeItemIds: ids, quantity: 1 }
+              );
+              if (res.ok) {
+                setSelectedIds([]);
+                Alert.alert("Relisted", `${res.relisted} item${res.relisted === 1 ? "" : "s"} active again.`, [
+                  { text: "OK" },
+                  { text: "View Active", onPress: () => setItemsTab("active") },
+                ]);
+                load();
+              }
+            } catch (e) {
+              Alert.alert("Error", (e as { error?: string }).error ?? "Failed to relist");
+            } finally {
+              setBulkActing(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const shareToFeed = async (ids: string[]) => {
+    setBulkActing(true);
+    try {
+      await apiPost("/api/store-items/share-to-feed", { storeItemIds: ids });
+      Alert.alert("Shared", "Listing(s) shared to the community feed.");
+      setSelectedIds([]);
+    } catch (e) {
+      Alert.alert("Error", (e as { error?: string }).error ?? "Failed to share");
+    } finally {
+      setBulkActing(false);
+    }
+  };
+
+  const applyBulkEdit = async () => {
+    const updates: { priceCents?: number; quantity?: number } = {};
+    const price = parseFloat(bulkPrice);
+    const qty = parseInt(bulkQty, 10);
+    if (bulkPrice.trim() && !Number.isNaN(price) && price > 0) {
+      updates.priceCents = Math.round(price * 100);
+    }
+    if (bulkQty.trim() && !Number.isNaN(qty) && qty >= 0) {
+      updates.quantity = qty;
+    }
+    if (!updates.priceCents && updates.quantity === undefined) {
+      Alert.alert("Nothing to update", "Enter a price and/or quantity.");
+      return;
+    }
+    setBulkActing(true);
+    try {
+      await apiPatch("/api/store-items/bulk", {
+        storeItemIds: selectedIds,
+        updates,
+      });
+      setBulkEditOpen(false);
+      setBulkPrice("");
+      setBulkQty("");
+      setSelectedIds([]);
+      Alert.alert("Updated", "Selected listings were updated.");
+      load();
+    } catch (e) {
+      Alert.alert("Error", (e as { error?: string }).error ?? "Bulk edit failed");
+    } finally {
+      setBulkActing(false);
+    }
   };
 
   const deleteItem = (id: string) => {
@@ -330,8 +459,7 @@ export default function MyItemsScreen() {
               setItems((prev) => prev.filter((i) => i.id !== id));
               load();
             } catch (e) {
-              const err = e as { error?: string };
-              Alert.alert("Error", err.error ?? "Failed to delete");
+              Alert.alert("Error", (e as { error?: string }).error ?? "Failed to delete");
             } finally {
               setActingId(null);
             }
@@ -341,46 +469,24 @@ export default function MyItemsScreen() {
     );
   };
 
-  const relistItem = (id: string) => {
-    setMenuItemId(null);
-    Alert.alert(
-      "Relist item",
-      "This will put the item back on sale with a quantity of 1.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Relist",
-          onPress: async () => {
-            setActingId(id);
-            try {
-              const res = await apiPost<{ ok: boolean; relisted: number }>(
-                "/api/store-items/bulk-relist",
-                { storeItemIds: [id], quantity: 1 }
-              );
-              if (res.ok) {
-                Alert.alert("Relisted", "Item is now active again.", [
-                  { text: "OK" },
-                  { text: "View Active Items", onPress: () => setItemsTab("active") },
-                ]);
-                load();
-              }
-            } catch (e) {
-              const err = e as { error?: string };
-              Alert.alert("Error", err.error ?? "Failed to relist");
-            } finally {
-              setActingId(null);
-            }
-          },
+  const removeDraft = (draft: StoreItemDraft) => {
+    Alert.alert("Delete draft?", `Remove "${draft.title || "Untitled"}"?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          await deleteDraft(draft.id);
+          setDrafts((prev) => prev.filter((d) => d.id !== draft.id));
+          setTabCounts((prev) =>
+            prev ? { ...prev, drafts: Math.max(0, prev.drafts - 1) } : prev
+          );
         },
-      ]
-    );
+      },
+    ]);
   };
 
-  const openMenu = (id: string) => {
-    setMenuItemId(id);
-  };
-
-  if (loading && items.length === 0) {
+  if (loading && items.length === 0 && drafts.length === 0) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -393,7 +499,11 @@ export default function MyItemsScreen() {
       ? { title: "No ended listings", body: "Ended listings stay here so you can relist them." }
       : itemsTab === "sold"
         ? { title: "No sold items yet", body: "Sold listings will land here after checkout." }
-        : { title: "No items yet", body: "List your first item to start selling." };
+        : itemsTab === "drafts"
+          ? { title: "No drafts yet", body: "Save a draft while listing to finish it later." }
+          : { title: "No items yet", body: "List your first item to start selling." };
+
+  const showBulkBar = itemsTab !== "drafts" && selectedIds.length > 0;
 
   return (
     <View style={styles.container}>
@@ -408,10 +518,14 @@ export default function MyItemsScreen() {
               style={[styles.tab, active && styles.tabActive]}
               onPress={() => setItemsTab(t.key)}
             >
-              <Text style={[styles.tabText, active && styles.tabTextActive]}>{t.label}</Text>
+              <Text style={[styles.tabText, active && styles.tabTextActive]} numberOfLines={1}>
+                {t.label}
+              </Text>
               {showCount ? (
                 <View style={[styles.tabCount, active && styles.tabCountActive]}>
-                  <Text style={[styles.tabCountText, active && styles.tabCountTextActive]}>{count}</Text>
+                  <Text style={[styles.tabCountText, active && styles.tabCountTextActive]}>
+                    {count}
+                  </Text>
                 </View>
               ) : null}
             </Pressable>
@@ -424,7 +538,7 @@ export default function MyItemsScreen() {
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder="Search titles"
+          placeholder={itemsTab === "drafts" ? "Search drafts" : "Search title or SKU"}
           placeholderTextColor="#888"
           style={styles.searchInput}
           autoCorrect={false}
@@ -439,7 +553,7 @@ export default function MyItemsScreen() {
         </View>
       )}
 
-      {(!connectStatus?.onboarded || !connectStatus?.chargesEnabled) && (
+      {(!connectStatus?.onboarded || !connectStatus?.chargesEnabled) && itemsTab !== "drafts" && (
         <View style={styles.connectBanner}>
           <Text style={styles.connectBannerTitle}>Complete payment setup</Text>
           <Text style={styles.connectBannerText}>
@@ -454,7 +568,66 @@ export default function MyItemsScreen() {
         </View>
       )}
 
-      {items.length === 0 ? (
+      {itemsTab === "drafts" ? (
+        visibleDrafts.length === 0 ? (
+          <View style={styles.empty}>
+            <Ionicons name="document-outline" size={36} color={theme.colors.gold} />
+            <Text style={styles.emptyTitle}>{emptyCopy.title}</Text>
+            <Text style={styles.emptyBody}>{emptyCopy.body}</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={visibleDrafts}
+            keyExtractor={(d) => d.id}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => {
+                  setRefreshing(true);
+                  load();
+                }}
+              />
+            }
+            contentContainerStyle={styles.list}
+            renderItem={({ item }) => {
+              const photoUrl = resolvePhotoUrl(item.photos?.[0]);
+              return (
+                <View style={styles.card}>
+                  <Pressable
+                    style={styles.cardMain}
+                    onPress={() =>
+                      router.push(`/seller-hub/store/new?draftId=${item.id}` as never)
+                    }
+                  >
+                    <View style={styles.thumbWrap}>
+                      {photoUrl ? (
+                        <Image source={{ uri: photoUrl }} style={styles.thumb} resizeMode="cover" />
+                      ) : (
+                        <View style={[styles.thumb, styles.thumbPlaceholder]} />
+                      )}
+                    </View>
+                    <View style={styles.cardBody}>
+                      <Text style={styles.cardTitle} numberOfLines={2}>
+                        {item.title || "Untitled draft"}
+                      </Text>
+                      <Text style={styles.cardMeta}>
+                        Saved{" "}
+                        {new Date(item.savedAt).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </Text>
+                    </View>
+                  </Pressable>
+                  <Pressable style={styles.menuBtn} onPress={() => removeDraft(item)}>
+                    <Ionicons name="trash-outline" size={20} color="#dc2626" />
+                  </Pressable>
+                </View>
+              );
+            }}
+          />
+        )
+      ) : items.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name="cube-outline" size={36} color={theme.colors.gold} />
           <Text style={styles.emptyTitle}>{emptyCopy.title}</Text>
@@ -465,9 +638,15 @@ export default function MyItemsScreen() {
           data={visibleItems}
           keyExtractor={(i) => i.id}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                load();
+              }}
+            />
           }
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, showBulkBar && { paddingBottom: 96 }]}
           ListHeaderComponent={
             <Pressable style={styles.selectAllRow} onPress={toggleSelectAll}>
               <Ionicons
@@ -485,6 +664,7 @@ export default function MyItemsScreen() {
             const selected = selectedIds.includes(item.id);
             const photoUrl = resolvePhotoUrl(item.photos?.[0]);
             const status = statusLabel(item);
+            const views = item.views30d ?? 0;
             return (
               <View style={[styles.card, selected && styles.cardSelected]}>
                 <Pressable onPress={() => toggleSelect(item.id)} style={styles.checkboxHit}>
@@ -508,25 +688,54 @@ export default function MyItemsScreen() {
                     )}
                   </View>
                   <View style={styles.cardBody}>
-                    <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
+                    <Text style={styles.cardTitle} numberOfLines={2}>
+                      {item.title}
+                    </Text>
                     <Text style={styles.cardPrice}>{formatPrice(item.priceCents)}</Text>
                     {itemsTab === "sold" && item.soldAt ? (
                       <Text style={styles.cardMeta}>
-                        Sold {new Date(item.soldAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                        Sold{" "}
+                        {new Date(item.soldAt).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
                       </Text>
                     ) : (
                       <View style={styles.chipRow}>
-                        <View style={[styles.statusChip, status === "Active" && styles.statusChipActive]}>
-                          <Text style={[styles.statusChipText, status === "Active" && styles.statusChipTextActive]}>
+                        <View
+                          style={[styles.statusChip, status === "Active" && styles.statusChipActive]}
+                        >
+                          <Text
+                            style={[
+                              styles.statusChipText,
+                              status === "Active" && styles.statusChipTextActive,
+                            ]}
+                          >
                             {status}
                           </Text>
                         </View>
                         <Text style={styles.cardMeta}>{item.quantity} in stock</Text>
                       </View>
                     )}
+                    <Text style={styles.viewsMeta}>
+                      {views} view{views === 1 ? "" : "s"} (30d)
+                    </Text>
+                    {(itemsTab === "ended" || itemsTab === "sold") && (
+                      <Pressable
+                        style={styles.relistChip}
+                        onPress={() => relistItems([item.id])}
+                      >
+                        <Text style={styles.relistChipText}>Relist</Text>
+                      </Pressable>
+                    )}
                     {itemsTab === "sold" && item.soldOrderId && (
                       <Pressable
-                        onPress={() => (router.push as (href: string) => void)(`/seller-hub/orders/${item.soldOrderId}`)}
+                        onPress={() =>
+                          (router.push as (href: string) => void)(
+                            `/seller-hub/orders/${item.soldOrderId}`
+                          )
+                        }
                       >
                         <Text style={styles.viewOrderLink}>View order</Text>
                       </Pressable>
@@ -535,8 +744,8 @@ export default function MyItemsScreen() {
                 </Pressable>
                 <Pressable
                   style={({ pressed }) => [styles.menuBtn, pressed && { opacity: 0.8 }]}
-                  onPress={() => openMenu(item.id)}
-                  disabled={!!actingId}
+                  onPress={() => setMenuItemId(item.id)}
+                  disabled={!!actingId || bulkActing}
                 >
                   {actingId === item.id ? (
                     <ActivityIndicator size="small" color={theme.colors.primary} />
@@ -550,23 +759,102 @@ export default function MyItemsScreen() {
         />
       )}
 
-      <Modal visible={!!menuItemId} transparent animationType="fade" onRequestClose={() => setMenuItemId(null)}>
+      {showBulkBar ? (
+        <View style={styles.bulkBar}>
+          <Text style={styles.bulkBarLabel}>{selectedIds.length} selected</Text>
+          <View style={styles.bulkActions}>
+            {(itemsTab === "ended" || itemsTab === "sold") && (
+              <Pressable
+                style={styles.bulkBtn}
+                disabled={bulkActing}
+                onPress={() => relistItems(selectedIds)}
+              >
+                <Text style={styles.bulkBtnText}>Relist</Text>
+              </Pressable>
+            )}
+            {itemsTab === "active" && (
+              <>
+                <Pressable
+                  style={styles.bulkBtn}
+                  disabled={bulkActing}
+                  onPress={() => {
+                    setBulkPrice("");
+                    setBulkQty("");
+                    setBulkEditOpen(true);
+                  }}
+                >
+                  <Text style={styles.bulkBtnText}>Edit</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.bulkBtn}
+                  disabled={bulkActing}
+                  onPress={() => endListings(selectedIds)}
+                >
+                  <Text style={styles.bulkBtnText}>End</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.bulkBtn}
+                  disabled={bulkActing}
+                  onPress={() => markAsSold(selectedIds)}
+                >
+                  <Text style={styles.bulkBtnTextGreen}>Sold</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.bulkBtn}
+                  disabled={bulkActing}
+                  onPress={() => shareToFeed(selectedIds)}
+                >
+                  <Text style={styles.bulkBtnText}>Share</Text>
+                </Pressable>
+              </>
+            )}
+            {selectedIds.length === 1 && (
+              <Pressable
+                style={styles.bulkBtn}
+                disabled={bulkActing}
+                onPress={() => openSimilar(selectedIds[0])}
+              >
+                <Text style={styles.bulkBtnText}>Similar</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      ) : null}
+
+      <Modal
+        visible={!!menuItemId}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuItemId(null)}
+      >
         <Pressable style={styles.menuBackdrop} onPress={() => setMenuItemId(null)}>
           <View style={styles.menuPanel} onStartShouldSetResponder={() => true}>
-            {itemsTab === "sold" && items.find((i) => i.id === menuItemId)?.soldOrderId && (
+            {itemsTab === "sold" &&
+              items.find((i) => i.id === menuItemId)?.soldOrderId && (
+                <Pressable
+                  style={styles.menuOption}
+                  onPress={() => {
+                    const orderId = items.find((i) => i.id === menuItemId)?.soldOrderId;
+                    setMenuItemId(null);
+                    if (orderId) {
+                      (router.push as (href: string) => void)(`/seller-hub/orders/${orderId}`);
+                    }
+                  }}
+                >
+                  <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>
+                    View Order
+                  </Text>
+                </Pressable>
+              )}
+            {(itemsTab === "sold" || itemsTab === "ended") && menuItemId && (
               <Pressable
                 style={styles.menuOption}
                 onPress={() => {
-                  const orderId = items.find((i) => i.id === menuItemId)?.soldOrderId;
+                  const id = menuItemId;
                   setMenuItemId(null);
-                  if (orderId) (router.push as (href: string) => void)(`/seller-hub/orders/${orderId}`);
+                  relistItems([id]);
                 }}
               >
-                <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>View Order</Text>
-              </Pressable>
-            )}
-            {(itemsTab === "sold" || itemsTab === "ended") && menuItemId && (
-              <Pressable style={styles.menuOption} onPress={() => relistItem(menuItemId)}>
                 <Text style={styles.menuOptionTextGreen}>Relist Item</Text>
               </Pressable>
             )}
@@ -575,15 +863,34 @@ export default function MyItemsScreen() {
                 <Pressable
                   style={styles.menuOption}
                   onPress={() => {
-                    setMenuItemId(null);
                     const menuItem = items.find((i) => i.id === menuItemId);
+                    setMenuItemId(null);
                     if (menuItem) openListing(menuItem);
                   }}
                 >
-                  <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>View Listing</Text>
+                  <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>
+                    View Listing
+                  </Text>
                 </Pressable>
-                <Pressable style={styles.menuOption} onPress={() => { openEdit(menuItemId); setMenuItemId(null); }}>
+                <Pressable
+                  style={styles.menuOption}
+                  onPress={() => {
+                    openEdit(menuItemId);
+                    setMenuItemId(null);
+                  }}
+                >
                   <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>Edit</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.menuOption}
+                  onPress={() => {
+                    openSimilar(menuItemId);
+                    setMenuItemId(null);
+                  }}
+                >
+                  <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>
+                    Sell Similar
+                  </Text>
                 </Pressable>
                 <Pressable
                   style={styles.menuOption}
@@ -592,26 +899,93 @@ export default function MyItemsScreen() {
                     router.push(`/seller-hub/quantity-history/${menuItemId}` as never);
                   }}
                 >
-                  <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>View History</Text>
+                  <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>
+                    View History
+                  </Text>
                 </Pressable>
               </>
             )}
             {itemsTab !== "sold" && (
-              <Pressable style={styles.menuOption} onPress={() => { if (menuItemId) confirmMarkAsSold(menuItemId); }}>
+              <Pressable
+                style={styles.menuOption}
+                onPress={() => {
+                  if (menuItemId) {
+                    setMenuItemId(null);
+                    void markAsSold([menuItemId]);
+                  }
+                }}
+              >
                 <Text style={styles.menuOptionTextGreen}>Mark Sold</Text>
               </Pressable>
             )}
             {itemsTab === "active" && (
-              <Pressable style={styles.menuOption} onPress={() => menuItemId && endListing(menuItemId)}>
-                <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>End Listing</Text>
+              <Pressable
+                style={styles.menuOption}
+                onPress={() => {
+                  if (menuItemId) {
+                    setMenuItemId(null);
+                    endListings([menuItemId]);
+                  }
+                }}
+              >
+                <Text style={[styles.menuOptionText, { color: theme.colors.primary }]}>
+                  End Listing
+                </Text>
               </Pressable>
             )}
-            <Pressable style={styles.menuOption} onPress={() => menuItemId && deleteItem(menuItemId)}>
+            <Pressable
+              style={styles.menuOption}
+              onPress={() => menuItemId && deleteItem(menuItemId)}
+            >
               <Text style={styles.menuOptionTextRed}>Delete</Text>
             </Pressable>
             <Pressable style={styles.menuOption} onPress={() => setMenuItemId(null)}>
               <Text style={styles.menuOptionText}>Cancel</Text>
             </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={bulkEditOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBulkEditOpen(false)}
+      >
+        <Pressable style={styles.menuBackdrop} onPress={() => setBulkEditOpen(false)}>
+          <View style={styles.bulkEditPanel} onStartShouldSetResponder={() => true}>
+            <Text style={styles.bulkEditTitle}>Edit {selectedIds.length} listings</Text>
+            <Text style={styles.bulkEditHint}>Leave a field blank to keep its current value.</Text>
+            <Text style={styles.bulkEditLabel}>Price ($)</Text>
+            <TextInput
+              value={bulkPrice}
+              onChangeText={setBulkPrice}
+              keyboardType="decimal-pad"
+              placeholder="e.g. 24.99"
+              placeholderTextColor="#888"
+              style={styles.bulkEditInput}
+            />
+            <Text style={styles.bulkEditLabel}>Quantity</Text>
+            <TextInput
+              value={bulkQty}
+              onChangeText={setBulkQty}
+              keyboardType="number-pad"
+              placeholder="e.g. 3"
+              placeholderTextColor="#888"
+              style={styles.bulkEditInput}
+            />
+            <View style={styles.bulkEditActions}>
+              <Pressable style={styles.bulkEditCancel} onPress={() => setBulkEditOpen(false)}>
+                <Text style={styles.menuOptionText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.connectBtn, bulkActing && { opacity: 0.6 }]}
+                disabled={bulkActing}
+                onPress={() => void applyBulkEdit()}
+              >
+                <Text style={styles.connectBtnText}>{bulkActing ? "Saving…" : "Apply"}</Text>
+              </Pressable>
+            </View>
           </View>
         </Pressable>
       </Modal>
@@ -621,55 +995,225 @@ export default function MyItemsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.pageBackground },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: theme.colors.pageBackground },
-  tabBar: { flexDirection: "row", backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e6e0d6", paddingHorizontal: 8 },
-  tab: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: "transparent" },
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: theme.colors.pageBackground,
+  },
+  tabBar: {
+    flexDirection: "row",
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e6e0d6",
+    paddingHorizontal: 4,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    paddingVertical: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+  },
   tabActive: { borderBottomColor: theme.colors.primary },
-  tabText: { fontSize: 13, fontWeight: "600", color: "#666" },
+  tabText: { fontSize: 12, fontWeight: "600", color: "#666" },
   tabTextActive: { color: theme.colors.primary },
-  tabCount: { minWidth: 18, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 999, backgroundColor: theme.colors.cream, alignItems: "center" },
+  tabCount: {
+    minWidth: 16,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 999,
+    backgroundColor: theme.colors.cream,
+    alignItems: "center",
+  },
   tabCountActive: { backgroundColor: theme.colors.primary },
   tabCountText: { fontSize: 10, fontWeight: "700", color: theme.colors.primary },
   tabCountTextActive: { color: "#fff" },
-  searchWrap: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginTop: 12, marginBottom: 8, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e6e0d6", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
+  searchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#e6e0d6",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
   searchInput: { flex: 1, fontSize: 14, color: theme.colors.heading, padding: 0 },
-  errorBanner: { marginHorizontal: 16, marginBottom: 8, padding: 12, backgroundColor: "#fef2f2", borderRadius: 10, borderWidth: 1, borderColor: "#fecaca" },
+  errorBanner: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    padding: 12,
+    backgroundColor: "#fef2f2",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#fecaca",
+  },
   errorText: { fontSize: 14, color: "#b91c1c" },
-  connectBanner: { marginHorizontal: 16, marginBottom: 8, padding: 12, backgroundColor: "#fffbeb", borderRadius: 10, borderWidth: 1, borderColor: "#fde68a" },
+  connectBanner: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    padding: 12,
+    backgroundColor: "#fffbeb",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#fde68a",
+  },
   connectBannerTitle: { fontSize: 14, fontWeight: "700", color: "#92400e", marginBottom: 4 },
   connectBannerText: { fontSize: 13, color: "#92400e", marginBottom: 10 },
-  connectBtn: { alignSelf: "flex-start", paddingVertical: 8, paddingHorizontal: 14, backgroundColor: theme.colors.primary, borderRadius: 8 },
+  connectBtn: {
+    alignSelf: "flex-start",
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    backgroundColor: theme.colors.primary,
+    borderRadius: 8,
+  },
   connectBtnText: { color: "#fff", fontWeight: "600", fontSize: 13 },
   empty: { flex: 1, padding: 32, alignItems: "center", justifyContent: "center" },
-  emptyTitle: { marginTop: 10, fontSize: 16, fontWeight: "700", color: theme.colors.heading, textAlign: "center" },
+  emptyTitle: {
+    marginTop: 10,
+    fontSize: 16,
+    fontWeight: "700",
+    color: theme.colors.heading,
+    textAlign: "center",
+  },
   emptyBody: { marginTop: 6, fontSize: 14, color: "#666", textAlign: "center", lineHeight: 20 },
   list: { padding: 16, paddingBottom: 40 },
   selectAllRow: { flexDirection: "row", alignItems: "center", marginBottom: 12, gap: 8 },
   selectAllText: { fontSize: 13, color: "#666", fontWeight: "600" },
-  card: { flexDirection: "row", alignItems: "flex-start", backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e6e0d6", padding: 10, marginBottom: 10 },
+  card: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e6e0d6",
+    padding: 10,
+    marginBottom: 10,
+  },
   cardSelected: { borderColor: theme.colors.primary, backgroundColor: "#f7f6f2" },
   checkboxHit: { paddingTop: 6, paddingRight: 6 },
-  cardMain: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  thumbWrap: { width: 72, height: 72, borderRadius: 8, overflow: "hidden", backgroundColor: "#ece8e0" },
+  cardMain: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  thumbWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "#ece8e0",
+  },
   thumb: { width: 72, height: 72 },
   thumbPlaceholder: { backgroundColor: "#ece8e0" },
-  soldStamp: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(93, 79, 64, 0.72)", alignItems: "center", justifyContent: "center" },
-  soldStampText: { color: "#fff", fontSize: 11, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase" },
+  soldStamp: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(93, 79, 64, 0.72)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  soldStampText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
   cardBody: { flex: 1, minWidth: 0 },
   cardTitle: { fontSize: 15, fontWeight: "700", color: theme.colors.heading, lineHeight: 20 },
   cardPrice: { marginTop: 3, fontSize: 15, fontWeight: "700", color: theme.colors.earth },
   cardMeta: { fontSize: 12, color: "#666" },
+  viewsMeta: { marginTop: 4, fontSize: 12, color: "#888" },
   chipRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 },
-  statusChip: { backgroundColor: "#f3f1ed", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
+  statusChip: {
+    backgroundColor: "#f3f1ed",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
   statusChipActive: { backgroundColor: theme.colors.cream },
   statusChipText: { fontSize: 11, fontWeight: "700", color: "#555" },
   statusChipTextActive: { color: theme.colors.earth },
+  relistChip: {
+    alignSelf: "flex-start",
+    marginTop: 8,
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  relistChipText: { color: "#fff", fontSize: 12, fontWeight: "700" },
   viewOrderLink: { fontSize: 12, color: theme.colors.primary, marginTop: 6, fontWeight: "700" },
   menuBtn: { padding: 8, marginLeft: 4 },
-  menuBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center", padding: 24 },
+  menuBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
   menuPanel: { backgroundColor: "#fff", borderRadius: 12, minWidth: 200, paddingVertical: 8 },
   menuOption: { paddingVertical: 14, paddingHorizontal: 20 },
   menuOptionText: { fontSize: 16, color: "#333" },
   menuOptionTextGreen: { fontSize: 16, color: "#059669", fontWeight: "600" },
   menuOptionTextRed: { fontSize: 16, color: "#dc2626", fontWeight: "600" },
+  bulkBar: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    bottom: 12,
+    backgroundColor: "#1f2937",
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  bulkBarLabel: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  bulkActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  bulkBtn: {
+    backgroundColor: "rgba(255,255,255,0.12)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  bulkBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  bulkBtnTextGreen: { color: "#6ee7b7", fontSize: 13, fontWeight: "700" },
+  bulkEditPanel: {
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    padding: 20,
+    width: "100%",
+    maxWidth: 360,
+  },
+  bulkEditTitle: { fontSize: 17, fontWeight: "700", color: theme.colors.heading },
+  bulkEditHint: { marginTop: 4, marginBottom: 12, fontSize: 13, color: "#666" },
+  bulkEditLabel: { fontSize: 13, fontWeight: "600", color: "#444", marginBottom: 4 },
+  bulkEditInput: {
+    borderWidth: 1,
+    borderColor: "#e6e0d6",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+    fontSize: 15,
+    color: theme.colors.heading,
+  },
+  bulkEditActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 4,
+  },
+  bulkEditCancel: { paddingVertical: 8, paddingHorizontal: 12 },
 });

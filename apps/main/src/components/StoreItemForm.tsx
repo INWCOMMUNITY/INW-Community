@@ -65,7 +65,8 @@ interface Business {
 
 interface StoreItemFormProps {
   existing?: {
-    id: string;
+    /** Present for edit; omit when prefilling a new listing (Sell similar). */
+    id?: string;
     slug?: string;
     businessId: string | null;
     title: string;
@@ -91,18 +92,20 @@ interface StoreItemFormProps {
     acceptOffers?: boolean;
     minOfferCents?: number | null;
     sku?: string | null;
+    aspects?: { name: string; value: string }[] | null;
   };
   /** Redirect after successful create/update (default: /seller-hub/store/items). */
   successRedirect?: string;
 }
 
 export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps) {
+  const isEdit = Boolean(existing?.id);
   const router = useRouter();
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [businessId, setBusinessId] = useState(existing?.businessId ?? "");
   const [condition, setCondition] = useState<"new" | "used">(existing?.condition ?? "new");
   const [title, setTitle] = useState(existing?.title ?? "");
-  const [sku, setSku] = useState(existing?.sku ?? "");
+  const [sku, setSku] = useState(isEdit ? (existing?.sku ?? "") : "");
   const [description, setDescription] = useState(existing?.description ?? "");
   const [photos, setPhotos] = useState<string[]>(existing?.photos ?? []);
   const [category, setCategory] = useState(existing?.category ?? "");
@@ -302,15 +305,14 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         issues.push(`${file.name}: unsupported format`);
         continue;
       }
-      const ext = mime.split("/")[1];
       if (file.size > MAX_LISTING_PHOTO_BYTES) {
         issues.push(
-          `${file.name} is too large (${formatListingPhotoSizeLabel(file.size)})`
+          `${file.name} is too large (max ${formatListingPhotoSizeLabel()})`
         );
         continue;
       }
       try {
-        const url = await uploadListingPhoto(file, ext);
+        const url = await uploadListingPhoto(file);
         uploaded.push(url);
       } catch (err) {
         issues.push(err instanceof Error ? err.message : "Upload failed");
@@ -439,8 +441,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
 
     setSubmitting(true);
     try {
-      const url = existing ? `/api/store-items/${existing.id}` : "/api/store-items";
-      const method = existing ? "PATCH" : "POST";
+      const url = isEdit && existing?.id ? `/api/store-items/${existing.id}` : "/api/store-items";
+      const method = isEdit && existing?.id ? "PATCH" : "POST";
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -466,7 +468,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         return;
       }
 
-      setEditSuccess(!!existing);
+      setEditSuccess(isEdit);
       setSuccessItemId(data.id ?? existing?.id ?? null);
       setSuccessItemSlug(data.slug ?? existing?.slug ?? null);
       setFeedShareDone(false);
@@ -952,9 +954,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                                   setShippingCostDollars((selected.shippingCostCents / 100).toFixed(2));
                                 }
                               }}
-                              required={!existing}
+                              required={!isEdit}
                             >
-                              <option value="">{existing ? "None (INW defaults)" : "Select a package"}</option>
+                              <option value="">{isEdit ? "None (INW defaults)" : "Select a package"}</option>
                               {shippingOptions.map((opt) => (
                                 <option key={opt.id} value={opt.id}>
                                   {opt.name}
@@ -1149,7 +1151,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           }
           footer={
             <ListingSaveBar
-              isEdit={!!existing}
+              isEdit={isEdit}
               submitting={submitting}
               error={error}
               backHref={successRedirect ?? "/seller-hub/store/items"}
