@@ -269,6 +269,32 @@ export async function syncShopifyListingMedia(input: {
     }
   }
 
+  // Advance product MEDIA BASE so PRODUCTS_UPDATE echo is confirmation-only
+  // (avoids CONVERGED/PULL rewriting StoreItem.photos after a successful push).
+  const mediaFp = plan.mediaFingerprint;
+  await persistShopifyFieldPlans(prisma, {
+    connectionId: input.connectionId,
+    listingLinkId: input.listingLinkId,
+    memberId: input.memberId,
+    storeItemId: input.storeItemId,
+    plans: [
+      {
+        field: "MEDIA",
+        storeVariantId: "",
+        class: "UNCHANGED",
+        action: "UNCHANGED",
+        base: mediaFp,
+        local: mediaFp,
+        remote: mediaFp,
+      },
+    ],
+    now: input.now,
+  });
+  await markShopifyFieldsApplied(prisma, {
+    listingLinkId: input.listingLinkId,
+    fields: [{ field: "MEDIA", fingerprint: mediaFp }],
+  });
+
   return { ok: true, added: plan.toAdd.length, removed: plan.toRemove.length };
 }
 
