@@ -475,6 +475,18 @@ export function planShopifyTopologyDiff(input: {
     }
   }
 
+  // Include option values from mapped locals too so new-axis creates list every value
+  // (e.g. Size S from mapped Red/S + Size M from unmapped Red/M), not only unmapped rows.
+  if (createVariants.length > 0) {
+    for (const row of mappedLocal) {
+      for (const opt of row.selectedOptions) {
+        if (!opt.name || !opt.value) continue;
+        if (!createOptionValueSet.has(opt.name)) createOptionValueSet.set(opt.name, new Set());
+        createOptionValueSet.get(opt.name)!.add(opt.value);
+      }
+    }
+  }
+
   for (const rem of remote) {
     if (mappedGids.has(rem.shopifyVariantId) || claimedRemoteGids.has(rem.shopifyVariantId)) {
       continue;

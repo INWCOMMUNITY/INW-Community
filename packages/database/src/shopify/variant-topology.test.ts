@@ -650,7 +650,7 @@ describe("planShopifyTopologyDiff", () => {
       expect.arrayContaining([
         expect.objectContaining({
           optionName: "Size",
-          values: expect.arrayContaining(["M"]),
+          values: expect.arrayContaining(["S", "M"]),
         }),
       ])
     );
