@@ -3,6 +3,7 @@ import {
   correlateVariantsByOptionCombination,
   isShopifyDefaultTitleOnly,
   planShopifyTopologyDiff,
+  Prisma,
   prisma,
   projectStoreItemQuantity,
   shopifyCentsFromMoneyString,
@@ -378,7 +379,7 @@ async function rebuildStoreItemVariantsFromRemote(input: {
     await prisma.$transaction(async (tx) => {
       await tx.storeItem.update({
         where: { id: input.storeItemId },
-        data: { variants: null },
+        data: { variants: Prisma.JsonNull },
       });
       await projectStoreItemQuantity(tx, input.storeItemId);
     });
