@@ -33,6 +33,22 @@ describe("planShopifyMediaDesireFromPhotos", () => {
     ]);
   });
 
+  it("reuses position-matched identity when source URL drifted to CDN", () => {
+    const first = planShopifyMediaDesireFromPhotos(["https://cdn.example/blob.jpg"], []);
+    const afterCdnRewrite = planShopifyMediaDesireFromPhotos(["https://cdn.example/blob.jpg"], [
+      {
+        inwMediaId: first.desired[0].inwMediaId,
+        sourceUrl: "https://cdn.shopify.com/s/files/rewritten.jpg",
+        status: "ACTIVE",
+        position: 0,
+        shopifyMediaId: "gid://shopify/MediaImage/1",
+      },
+    ]);
+    expect(afterCdnRewrite.desired[0].inwMediaId).toBe(first.desired[0].inwMediaId);
+    expect(afterCdnRewrite.toAdd).toHaveLength(0);
+    expect(afterCdnRewrite.toRemove).toHaveLength(0);
+  });
+
   it("retries create when ACTIVE map has no Shopify GID", () => {
     const first = planShopifyMediaDesireFromPhotos(["https://cdn.example/a.jpg"], []);
     const retry = planShopifyMediaDesireFromPhotos(["https://cdn.example/a.jpg"], [

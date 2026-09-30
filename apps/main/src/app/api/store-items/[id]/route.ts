@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import {
   applyFoundationSellerQuantitySets,
@@ -436,14 +437,15 @@ export async function PATCH(
           await markFoundationListingSold(tx, {
             storeItemId: itemId,
             memberId: ownerId,
-            commandId: `sold-${itemId}`,
+            // Unique per request — sticky ids make later SET/SOLD events no-ops.
+            commandId: `sold-${itemId}-${randomUUID()}`,
           });
           delete (update as { quantity?: number }).quantity;
         } else if (data.quantity !== undefined && !hasOptionQuantities(data.variants ?? existing.variants)) {
           await applyFoundationSellerQuantitySets(tx, {
             storeItemId: itemId,
             memberId: ownerId,
-            commandId: `set-${itemId}`,
+            commandId: `set-${itemId}-${randomUUID()}`,
             simpleTarget: data.quantity,
           });
           delete (update as { quantity?: number }).quantity;
@@ -462,7 +464,7 @@ export async function PATCH(
           await applyFoundationSellerQuantitySets(tx, {
             storeItemId: itemId,
             memberId: ownerId,
-            commandId: `set-matrix-${itemId}`,
+            commandId: `set-matrix-${itemId}-${randomUUID()}`,
             matrixTargets,
           });
           delete (update as { quantity?: number }).quantity;

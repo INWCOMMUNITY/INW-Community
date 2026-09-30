@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { applyFoundationSellerQuantitySets, prisma, Prisma, recordShopifyListingContentDesire } from "database";
 import { z } from "zod";
@@ -255,7 +256,8 @@ export async function PATCH(req: NextRequest) {
             applyFoundationSellerQuantitySets(tx, {
               storeItemId: item.id,
               memberId: userId,
-              commandId: `bulk-set-${item.id}`,
+              // Unique per request — sticky ids make later quantity SETs no-ops.
+              commandId: `bulk-set-${item.id}-${randomUUID()}`,
               simpleTarget: target,
             })
           );

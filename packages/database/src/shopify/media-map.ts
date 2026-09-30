@@ -49,8 +49,20 @@ export function planShopifyMediaDesireFromPhotos(
       .map((row) => [row.sourceUrl!.trim(), row])
   );
 
+  const claimed = new Set<string>();
   const desired: ShopifyMediaDesireRow[] = urls.map((url, position) => {
-    const prior = byUrl.get(url);
+    const byExact = byUrl.get(url);
+    let prior =
+      byExact && !claimed.has(byExact.inwMediaId) ? byExact : undefined;
+    // CDN rewrite / sourceUrl drift: reuse unclaimed ACTIVE map at this position
+    // so inbound URL changes do not invent a new durable identity.
+    if (!prior) {
+      prior = active.find((row) => row.position === position && !claimed.has(row.inwMediaId));
+    }
+    if (!prior && urls.length === active.length) {
+      prior = active.find((row) => !claimed.has(row.inwMediaId));
+    }
+    if (prior) claimed.add(prior.inwMediaId);
     const inwMediaId = prior?.inwMediaId ?? randomUUID().replace(/-/g, "").slice(0, 24);
     return {
       inwMediaId,
