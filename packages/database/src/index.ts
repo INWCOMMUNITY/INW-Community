@@ -139,6 +139,7 @@ export {
   MARKETPLACE_QUANTITY_EDIT_CAUSE,
   MARKETPLACE_QUANTITY_EDIT_SCOPE,
   projectStoreItemQuantity,
+  projectStoreItemVariantsMatrix,
   releaseReservation,
   restockTrackedVariant,
   setTrackedOnHand,

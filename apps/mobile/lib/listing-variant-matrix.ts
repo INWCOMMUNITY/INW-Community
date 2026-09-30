@@ -648,7 +648,19 @@ function applyAxisPhotosToMissingSkus(
 export function normalizeVariantMatrix(raw: unknown): VariantMatrix | null {
   if (raw == null) return null;
 
-  const obj = asRecord(raw);
+  // Prisma Json sometimes persisted as a stringified object (Shopify topology bug).
+  let value: unknown = raw;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    try {
+      value = JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
+  }
+
+  const obj = asRecord(value);
   if (obj && Array.isArray(obj.axes)) {
     const axes: VariantAxisDef[] = [];
     for (const a of obj.axes) {
@@ -672,8 +684,8 @@ export function normalizeVariantMatrix(raw: unknown): VariantMatrix | null {
     return withMatrixMeta(withPhotos, obj);
   }
 
-  if (Array.isArray(raw) && raw.length > 0) {
-    return legacyArrayToMatrix(raw);
+  if (Array.isArray(value) && value.length > 0) {
+    return legacyArrayToMatrix(value);
   }
   return null;
 }

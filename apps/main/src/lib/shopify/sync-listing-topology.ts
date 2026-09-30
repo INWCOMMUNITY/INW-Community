@@ -212,6 +212,64 @@ async function productOptionsCreate(input: {
   return { ok: true };
 }
 
+/** Add option values onto an existing ProductOption (INW→Shopify outbound). */
+async function productOptionAddValues(input: {
+  connectionId: string;
+  productId: string;
+  optionId: string;
+  values: Array<{ name: string }>;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<{ ok: true } | ({ ok: false } & HandlerFailure)> {
+  if (input.values.length < 1) return { ok: true };
+  const result = await executeShopifyAdminGraphql<{
+    productOptionUpdate: {
+      userErrors: Array<{ field?: string[] | null; message: string; code?: string | null }>;
+    };
+  }>({
+    connectionId: input.connectionId,
+    operationType: "mutation",
+    operationName: "ShopifyProductOptionAddValues",
+    document: `mutation ShopifyProductOptionAddValues($productId: ID!, $option: OptionUpdateInput!, $optionValuesToAdd: [OptionValueCreateInput!]) {
+      productOptionUpdate(productId: $productId, option: $option, optionValuesToAdd: $optionValuesToAdd) {
+        userErrors { field message code }
+      }
+    }`,
+    variables: {
+      productId: input.productId,
+      option: { id: input.optionId },
+      optionValuesToAdd: input.values,
+    },
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (!result.ok) {
+    return {
+      ok: false,
+      outcome:
+        result.class === "THROTTLED" ||
+        result.class === "TRANSIENT_PROVIDER" ||
+        result.class === "NETWORK_UNKNOWN"
+          ? "RETRY"
+          : "DEAD",
+      errorClass: result.class,
+      errorCode: "OPTION_VALUES_ADD",
+      errorMessage: result.message,
+    };
+  }
+  const errors = result.data?.productOptionUpdate.userErrors ?? [];
+  if (errors.length > 0) {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: (errors[0]?.code ?? "OPTION_VALUES_ADD_USER_ERROR").slice(0, 64),
+      errorMessage: (errors[0]?.message ?? "productOptionUpdate user error").slice(0, 500),
+    };
+  }
+  return { ok: true };
+}
+
 async function productOptionsReorder(input: {
   connectionId: string;
   productId: string;
@@ -429,10 +487,11 @@ async function rebuildStoreItemVariantsFromRemote(input: {
     await tx.storeItem.update({
       where: { id: input.storeItemId },
       data: {
-        variants: JSON.stringify({
+        // Persist Json object — never JSON.stringify (double-encodes; mobile falls to simple qty).
+        variants: {
           ...matrix,
           skus,
-        }),
+        },
         ...(matrix.skus[0]?.priceCents != null && matrix.skus[0].priceCents > 0
           ? { priceCents: matrix.skus[0].priceCents }
           : {}),
@@ -486,6 +545,14 @@ export async function syncShopifyListingTopology(input: {
   });
 
   if (plan.kind === "NOOP") {
+    // Still refresh seller-facing matrix (fixes string-encoded Json + stale SKU qtys).
+    await rebuildStoreItemVariantsFromRemote({
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+      listingLinkId: input.listingLinkId,
+      connectionId: input.connectionId,
+      topology: remoteRead.topology,
+    });
     return { ok: true, plan, importedStoreVariantIds: [] };
   }
   if (plan.kind === "CONFLICT") {
@@ -505,11 +572,13 @@ export async function syncShopifyListingTopology(input: {
   // MUTATE — never productSet partial.
   void plan.forbidProductSetPartial;
 
-  // Ensure new option values exist before bulk create.
+  // Ensure new option values exist before bulk create (new axes AND values on existing axes).
   if (plan.createOptionValues.length > 0) {
-    const existingNames = new Set(remoteRead.topology.options.map((o) => o.name.trim()));
+    const remoteByName = new Map(
+      remoteRead.topology.options.map((o) => [o.name.trim(), o] as const)
+    );
     const newAxes = plan.createOptionValues
-      .filter((row) => !existingNames.has(row.optionName))
+      .filter((row) => !remoteByName.has(row.optionName))
       .map((row) => ({
         name: row.optionName,
         values: row.values.map((name) => ({ name })),
@@ -523,6 +592,25 @@ export async function syncShopifyListingTopology(input: {
         now: input.now,
       });
       if (!created.ok) return created;
+    }
+    for (const row of plan.createOptionValues) {
+      const existing = remoteByName.get(row.optionName);
+      if (!existing) continue;
+      const have = new Set(existing.optionValues.map((v) => v.name.trim().toLowerCase()));
+      const missing = row.values
+        .map((name) => name.trim())
+        .filter((name) => name && !have.has(name.toLowerCase()))
+        .map((name) => ({ name }));
+      if (missing.length < 1) continue;
+      const added = await productOptionAddValues({
+        connectionId: input.connectionId,
+        productId: input.productId,
+        optionId: existing.id,
+        values: missing,
+        fetchImpl: input.fetchImpl,
+        now: input.now,
+      });
+      if (!added.ok) return added;
     }
   }
 

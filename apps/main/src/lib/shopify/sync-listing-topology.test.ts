@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { planShopifyTopologyDiff } from "database";
 
 const executeShopifyAdminGraphql = vi.fn();
 
@@ -7,6 +6,42 @@ vi.mock("./admin-graphql", () => ({
   executeShopifyAdminGraphql: (...args: unknown[]) => executeShopifyAdminGraphql(...args),
 }));
 
+vi.mock("database", async () => {
+  const actual = await vi.importActual<typeof import("database")>("database");
+  return {
+    ...actual,
+    prisma: {
+      storeItem: {
+        findFirst: vi.fn(async () => ({ inventoryTracking: "tracked" })),
+        update: vi.fn(async () => ({})),
+      },
+      shopifyVariantMap: { findMany: vi.fn(async () => []) },
+      shopifyListingLink: { update: vi.fn(async () => ({})) },
+      storeVariant: {
+        create: vi.fn(),
+        updateMany: vi.fn(),
+      },
+      inventoryState: { create: vi.fn() },
+      $transaction: vi.fn(async (fn: (tx: unknown) => unknown) =>
+        fn({
+          storeItem: {
+            update: vi.fn(async () => ({})),
+            findUnique: vi.fn(async () => ({
+              inventoryTracking: "tracked",
+              variants: null,
+            })),
+          },
+          inventoryState: { findMany: vi.fn(async () => []) },
+          storeVariant: { findMany: vi.fn(async () => []) },
+        })
+      ),
+    },
+    projectStoreItemQuantity: vi.fn(async () => 0),
+    appendShopifyVariantMaps: vi.fn(async () => ({})),
+  };
+});
+
+import { planShopifyTopologyDiff } from "database";
 import {
   readShopifyProductTopology,
   syncShopifyListingTopology,

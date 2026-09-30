@@ -361,8 +361,14 @@ export async function handleShopifyProcessProviderEvidenceJob(
   // Pull Shopify→INW variant topology on every products/update (NOOP when unchanged).
   // Covers new GIDs, retired maps, and same-GID option conversions (Title→Size, renames).
   {
+    // ACTIVE only — RETIRED orphans (replaced Shopify GIDs) must not be planned as
+    // outbound createVariants (causes NEED_TO_ADD_OPTION_VALUES and blocks inbound pull).
     const allStoreVariants = await prisma.storeVariant.findMany({
-      where: { storeItemId: listing.storeItemId, memberId: listing.memberId },
+      where: {
+        storeItemId: listing.storeItemId,
+        memberId: listing.memberId,
+        status: "ACTIVE",
+      },
       select: { id: true, options: true, priceCents: true, sku: true },
     });
     const mapByStoreVariant = new Map(

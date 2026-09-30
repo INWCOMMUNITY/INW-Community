@@ -515,6 +515,98 @@ describe("planShopifyTopologyDiff", () => {
     expect(plan.kind).toBe("NOOP");
   });
 
+  it("treats unmapped empty local as outbound create (callers must exclude RETIRED)", () => {
+    const plan = planShopifyTopologyDiff({
+      localVariants: [
+        {
+          storeVariantId: "sv-retired-default",
+          selectedOptions: [],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: null,
+        },
+        {
+          storeVariantId: "sv-red",
+          selectedOptions: [{ name: "Color", value: "Red" }],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+      ],
+      remoteVariants: [
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/1",
+          selectedOptions: [{ name: "Color", value: "Red" }],
+          priceCents: 1000,
+          sku: null,
+          available: 3,
+          tracked: true,
+        },
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/2",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/2",
+          selectedOptions: [{ name: "Color", value: "Blue" }],
+          priceCents: 1000,
+          sku: null,
+          available: 5,
+          tracked: true,
+        },
+      ],
+    });
+    expect(plan.kind).toBe("MUTATE");
+    if (plan.kind !== "MUTATE") return;
+    // Empty unmapped local cannot correlate to Color:Blue → plans outbound create.
+    expect(plan.createVariants.some((v) => v.storeVariantId === "sv-retired-default")).toBe(
+      true
+    );
+    expect(plan.importRemoteVariants.map((v) => v.shopifyVariantId)).toContain(
+      "gid://shopify/ProductVariant/2"
+    );
+  });
+
+  it("ACTIVE-only locals with full remote maps plan NOOP (no false outbound create)", () => {
+    const plan = planShopifyTopologyDiff({
+      localVariants: [
+        {
+          storeVariantId: "sv-red",
+          selectedOptions: [{ name: "Color", value: "Red" }],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+        {
+          storeVariantId: "sv-blue",
+          selectedOptions: [{ name: "Color", value: "Blue" }],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/2",
+        },
+      ],
+      remoteVariants: [
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/1",
+          selectedOptions: [{ name: "Color", value: "Red" }],
+          priceCents: 1000,
+          sku: null,
+          available: 3,
+          tracked: true,
+        },
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/2",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/2",
+          selectedOptions: [{ name: "Color", value: "Blue" }],
+          priceCents: 1000,
+          sku: null,
+          available: 5,
+          tracked: true,
+        },
+      ],
+    });
+    expect(plan.kind).toBe("NOOP");
+  });
+
   it("pulls simple→multi option conversion on the same mapped GID", () => {
     const plan = planShopifyTopologyDiff({
       localVariants: [

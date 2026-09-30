@@ -293,8 +293,13 @@ export async function handleShopifyReconcileListingJob(
   }
 
   // Topology recover: add/import/rename/reorder before health snapshot.
+  // ACTIVE only — RETIRED orphans must not be planned as outbound creates.
   const allStoreVariants = await prisma.storeVariant.findMany({
-    where: { storeItemId: listing.storeItemId, memberId: listing.memberId },
+    where: {
+      storeItemId: listing.storeItemId,
+      memberId: listing.memberId,
+      status: "ACTIVE",
+    },
     select: { id: true, options: true, priceCents: true, sku: true },
   });
   const mapByStoreVariant = new Map(
