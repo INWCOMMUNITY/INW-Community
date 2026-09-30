@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { applyFoundationSellerQuantitySets, assertFoundationMatrixStructureUnchanged, endFoundationListing, markFoundationListingSold, prisma, Prisma, recordShopifyListingContentDesire } from "database";
+import {
+  applyFoundationSellerQuantitySets,
+  assertFoundationMatrixStructureUnchanged,
+  endFoundationListing,
+  markFoundationListingSold,
+  prisma,
+  Prisma,
+  recordShopifyDirtyMappedVariantContentDesires,
+  recordShopifyListingContentDesire,
+} from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireAdmin } from "@/lib/admin-auth";
 import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
@@ -458,6 +467,42 @@ export async function PATCH(
           });
           delete (update as { quantity?: number }).quantity;
         }
+        // Keep StoreVariant price/SKU rows aligned with matrix JSON (Shopify reads StoreVariant).
+        if (data.variants !== undefined) {
+          const matrix = normalizeVariantMatrix(data.variants);
+          if (matrix) {
+            const storeVariants = await tx.storeVariant.findMany({
+              where: { storeItemId: itemId, memberId: ownerId },
+              select: { id: true, options: true, priceCents: true, sku: true },
+            });
+            const byFp = new Map<string, (typeof storeVariants)[number]>(
+              storeVariants.map((v) => {
+                const opts =
+                  typeof v.options === "string"
+                    ? (JSON.parse(v.options) as Record<string, string>)
+                    : ((v.options ?? {}) as Record<string, string>);
+                return [`matrix:${skuSelectionKey(opts)}`, v];
+              })
+            );
+            for (const sku of matrix.skus) {
+              const fp = `matrix:${skuSelectionKey(sku.options)}`;
+              const row = byFp.get(fp);
+              if (!row) continue;
+              const nextPrice =
+                typeof sku.priceCents === "number" && Number.isFinite(sku.priceCents) && sku.priceCents > 0
+                  ? Math.round(sku.priceCents)
+                  : row.priceCents;
+              const nextSku =
+                typeof sku.sku === "string" ? sku.sku.trim() || null : row.sku;
+              if (nextPrice !== row.priceCents || nextSku !== row.sku) {
+                await tx.storeVariant.update({
+                  where: { id: row.id },
+                  data: { priceCents: nextPrice, sku: nextSku },
+                });
+              }
+            }
+          }
+        }
         if (mergedStatus === "inactive") {
           await endFoundationListing(tx, { storeItemId: itemId, currentStatus: existing.status });
           delete (update as { status?: string; endedAt?: Date | null }).status;
@@ -481,6 +526,10 @@ export async function PATCH(
             photos: updated.photos,
           },
         });
+        await recordShopifyDirtyMappedVariantContentDesires(tx, {
+          memberId: ownerId,
+          storeItemId: itemId,
+        });
         return updated;
       });
       if (item.status === "sold_out") {
@@ -502,6 +551,40 @@ export async function PATCH(
   }
 
   const item = await prisma.$transaction(async (tx) => {
+    if (data.variants !== undefined) {
+      const matrix = normalizeVariantMatrix(data.variants);
+      if (matrix) {
+        const storeVariants = await tx.storeVariant.findMany({
+          where: { storeItemId: itemId, memberId: ownerId },
+          select: { id: true, options: true, priceCents: true, sku: true },
+        });
+        const byFp = new Map<string, (typeof storeVariants)[number]>(
+          storeVariants.map((v) => {
+            const opts =
+              typeof v.options === "string"
+                ? (JSON.parse(v.options) as Record<string, string>)
+                : ((v.options ?? {}) as Record<string, string>);
+            return [`matrix:${skuSelectionKey(opts)}`, v];
+          })
+        );
+        for (const sku of matrix.skus) {
+          const fp = `matrix:${skuSelectionKey(sku.options)}`;
+          const row = byFp.get(fp);
+          if (!row) continue;
+          const nextPrice =
+            typeof sku.priceCents === "number" && Number.isFinite(sku.priceCents) && sku.priceCents > 0
+              ? Math.round(sku.priceCents)
+              : row.priceCents;
+          const nextSku = typeof sku.sku === "string" ? sku.sku.trim() || null : row.sku;
+          if (nextPrice !== row.priceCents || nextSku !== row.sku) {
+            await tx.storeVariant.update({
+              where: { id: row.id },
+              data: { priceCents: nextPrice, sku: nextSku },
+            });
+          }
+        }
+      }
+    }
     const updated = await tx.storeItem.update({
       where: { id: itemId },
       data: update as object,
@@ -517,6 +600,10 @@ export async function PATCH(
         sku: updated.sku,
         photos: updated.photos,
       },
+    });
+    await recordShopifyDirtyMappedVariantContentDesires(tx, {
+      memberId: ownerId,
+      storeItemId: itemId,
     });
     return updated;
   });

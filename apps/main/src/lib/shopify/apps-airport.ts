@@ -163,12 +163,30 @@ export function shopifyListingUiStatus(input: {
     input.contentHealth === "PAUSED" ||
     input.inventoryHealth === "PAUSED" ||
     input.contentHealth === "DEGRADED" ||
-    input.inventoryHealth === "DEGRADED"
+    input.inventoryHealth === "DEGRADED" ||
+    code === "INVENTORY_REMOTE_DRIFT" ||
+    code.startsWith("INVENTORY_")
   ) {
     return "Needs attention";
   }
   if (input.readiness === "READY_TO_PUBLISH") return "Live";
   return "Syncing";
+}
+
+/** Seller-facing detail under Needs attention (never raw GraphQL codes alone). */
+export function shopifyListingIssueSellerDetail(input: {
+  issueCode?: string | null;
+  issueMessage?: string | null;
+}): string | null {
+  const code = String(input.issueCode ?? "");
+  if (code === "INVENTORY_REMOTE_DRIFT") {
+    return (
+      input.issueMessage?.trim() ||
+      "Shopify quantity differs from INW. Qty sync is paused until this is reconciled."
+    );
+  }
+  const msg = input.issueMessage?.trim();
+  return msg || null;
 }
 
 /** @deprecated Prefer shopifyListingUiStatus — kept for older call sites. */

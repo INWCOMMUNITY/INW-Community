@@ -122,8 +122,12 @@ export function shopifyVariantContentFingerprint(input: {
 export function shopifyUpdateListingContentDedupeKey(input: {
   connectionId: string;
   storeItemId: string;
+  storeVariantId?: string;
   productDesiredVersion: number;
   variantDesiredVersion: number;
 }): string {
-  return `UPDATE_LISTING_CONTENT:${input.connectionId}:${input.storeItemId}:p${input.productDesiredVersion}:v${input.variantDesiredVersion}`;
+  const variantPart = input.storeVariantId?.trim()
+    ? `${input.storeVariantId.trim()}:`
+    : "";
+  return `UPDATE_LISTING_CONTENT:${input.connectionId}:${input.storeItemId}:${variantPart}p${input.productDesiredVersion}:v${input.variantDesiredVersion}`;
 }

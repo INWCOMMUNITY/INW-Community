@@ -432,30 +432,33 @@ export async function handleShopifyReconcileListingJob(
   });
 
   // Idempotently ensure missing outbound work for EXISTING desired versions only (no version bump).
-  if (
-    !health.blockContentOutbound &&
-    (listing.desiredProductContentVersion > listing.appliedProductContentVersion ||
-      variantMap.desiredVariantContentVersion > variantMap.appliedVariantContentVersion)
-  ) {
-    await ensureShopifyUpdateListingContentJob(prisma, {
-      connectionId: connection.id,
-      storeItemId: listing.storeItemId,
-      storeVariantId: variantMap.storeVariantId,
-      productDesiredVersion: listing.desiredProductContentVersion,
-      variantDesiredVersion: variantMap.desiredVariantContentVersion,
-    });
-  }
-  if (
-    !health.blockInventoryOutbound &&
-    variantMap.inventoryInitState !== "NOT_APPLICABLE" &&
-    variantMap.inventoryDesiredVersion > variantMap.inventoryAppliedVersion
-  ) {
-    await ensureShopifyProjectInventoryJob(prisma, {
-      connectionId: connection.id,
-      storeItemId: listing.storeItemId,
-      storeVariantId: variantMap.storeVariantId,
-      inventoryDesiredVersion: variantMap.inventoryDesiredVersion,
-    });
+  // Recover every mapped variant — not just the first — so sibling qty/price lag is not stranded.
+  for (const map of refreshedMaps) {
+    if (
+      !health.blockContentOutbound &&
+      (listing.desiredProductContentVersion > listing.appliedProductContentVersion ||
+        map.desiredVariantContentVersion > map.appliedVariantContentVersion)
+    ) {
+      await ensureShopifyUpdateListingContentJob(prisma, {
+        connectionId: connection.id,
+        storeItemId: listing.storeItemId,
+        storeVariantId: map.storeVariantId,
+        productDesiredVersion: listing.desiredProductContentVersion,
+        variantDesiredVersion: map.desiredVariantContentVersion,
+      });
+    }
+    if (
+      !health.blockInventoryOutbound &&
+      map.inventoryInitState !== "NOT_APPLICABLE" &&
+      map.inventoryDesiredVersion > map.inventoryAppliedVersion
+    ) {
+      await ensureShopifyProjectInventoryJob(prisma, {
+        connectionId: connection.id,
+        storeItemId: listing.storeItemId,
+        storeVariantId: map.storeVariantId,
+        inventoryDesiredVersion: map.inventoryDesiredVersion,
+      });
+    }
   }
 
   if ((opts?.notify ?? true) && persisted.issueOpened && health.issueCode && health.issueFingerprint) {

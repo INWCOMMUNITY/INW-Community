@@ -257,28 +257,16 @@ async function persistCreateListingMapping(input: {
     throw error;
   }
 
-  const storeItemForMedia = await prisma.storeItem.findFirst({
-    where: { id: input.storeItemId, memberId: input.memberId },
-    select: { photos: true },
+  const mediaResult = await syncCreateListingMediaAndAssociations({
+    connectionId: input.connectionId,
+    listingLinkId,
+    memberId: input.memberId,
+    storeItemId: input.storeItemId,
+    productId: input.productId,
   });
-  if (storeItemForMedia?.photos?.length) {
-    const { syncShopifyListingMedia } = await import("./sync-listing-media");
-    const media = await syncShopifyListingMedia({
-      connectionId: input.connectionId,
-      listingLinkId,
-      memberId: input.memberId,
-      storeItemId: input.storeItemId,
-      productId: input.productId,
-      photos: storeItemForMedia.photos,
-    });
-    if (!media.ok && media.outcome === "RETRY") {
-      return {
-        outcome: "RETRY",
-        errorClass: media.errorClass,
-        errorCode: media.errorCode,
-        errorMessage: media.errorMessage,
-      };
-    }
+  if (!mediaResult.ok) {
+    const { ok: _ok, ...failure } = mediaResult;
+    return failure;
   }
 
   const publish = await enqueueShopifyPublishListingAfterMapping({
@@ -338,28 +326,16 @@ async function persistMultiVariantCreateListingMapping(input: {
     throw error;
   }
 
-  const storeItemForMedia = await prisma.storeItem.findFirst({
-    where: { id: input.storeItemId, memberId: input.memberId },
-    select: { photos: true },
+  const mediaResult = await syncCreateListingMediaAndAssociations({
+    connectionId: input.connectionId,
+    listingLinkId,
+    memberId: input.memberId,
+    storeItemId: input.storeItemId,
+    productId: input.productId,
   });
-  if (storeItemForMedia?.photos?.length) {
-    const { syncShopifyListingMedia } = await import("./sync-listing-media");
-    const media = await syncShopifyListingMedia({
-      connectionId: input.connectionId,
-      listingLinkId,
-      memberId: input.memberId,
-      storeItemId: input.storeItemId,
-      productId: input.productId,
-      photos: storeItemForMedia.photos,
-    });
-    if (!media.ok && media.outcome === "RETRY") {
-      return {
-        outcome: "RETRY",
-        errorClass: media.errorClass,
-        errorCode: media.errorCode,
-        errorMessage: media.errorMessage,
-      };
-    }
+  if (!mediaResult.ok) {
+    const { ok: _ok, ...failure } = mediaResult;
+    return failure;
   }
 
   const publish = await enqueueShopifyPublishListingAfterMapping({
@@ -376,6 +352,57 @@ async function persistMultiVariantCreateListingMapping(input: {
     };
   }
   return { outcome: "SUCCESS" };
+}
+
+async function syncCreateListingMediaAndAssociations(input: {
+  connectionId: string;
+  listingLinkId: string;
+  memberId: string;
+  storeItemId: string;
+  productId: string;
+}): Promise<{ ok: true } | ({ ok: false } & ShopifyJobHandlerResult)> {
+  const storeItemForMedia = await prisma.storeItem.findFirst({
+    where: { id: input.storeItemId, memberId: input.memberId },
+    select: { photos: true },
+  });
+  const photos = storeItemForMedia?.photos ?? [];
+  if (photos.length > 0) {
+    const { syncShopifyListingMedia, syncShopifyVariantMediaAssociations } = await import(
+      "./sync-listing-media"
+    );
+    const media = await syncShopifyListingMedia({
+      connectionId: input.connectionId,
+      listingLinkId: input.listingLinkId,
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+      productId: input.productId,
+      photos,
+    });
+    if (!media.ok) {
+      return {
+        ok: false,
+        outcome: media.outcome,
+        errorClass: media.errorClass,
+        errorCode: media.errorCode,
+        errorMessage: media.errorMessage,
+      };
+    }
+    const variantMedia = await syncShopifyVariantMediaAssociations({
+      connectionId: input.connectionId,
+      listingLinkId: input.listingLinkId,
+      productId: input.productId,
+    });
+    if (!variantMedia.ok) {
+      return {
+        ok: false,
+        outcome: variantMedia.outcome,
+        errorClass: variantMedia.errorClass,
+        errorCode: variantMedia.errorCode,
+        errorMessage: variantMedia.errorMessage,
+      };
+    }
+  }
+  return { ok: true };
 }
 
 /**

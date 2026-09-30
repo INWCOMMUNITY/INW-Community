@@ -455,6 +455,8 @@ export async function handleShopifyUpdateListingContentJob(
   const desiredProductFp = shopifyProductContentFingerprint({
     title: storeItem.title,
     description: storeItem.description,
+    // Must match recordShopifyListingContentDesire / mapping seed inputs.
+    photos: storeItem.photos,
   });
   const desiredVariantFp = shopifyVariantContentFingerprint({
     priceCents: storeVariant.priceCents,
@@ -821,6 +823,68 @@ export async function handleShopifyUpdateListingContentJob(
           });
         }
       }
+    }
+  }
+
+  // Push sibling mapped variants that are still dirty (matrix price/SKU edits).
+  if (!pendingRetry && !pendingDead) {
+    const dirtySiblings = (
+      await prisma.shopifyVariantMap.findMany({
+        where: {
+          shopifyListingLinkId: listing.id,
+          shopifyConnectionId: connection.id,
+          NOT: { id: variantMap.id },
+        },
+      })
+    ).filter(
+      (m) =>
+        m.id !== variantMap.id &&
+        m.desiredVariantContentVersion > m.appliedVariantContentVersion &&
+        !m.variantContentConflict
+    );
+
+    for (const sib of dirtySiblings) {
+      const sibVariant = await prisma.storeVariant.findFirst({
+        where: {
+          id: sib.storeVariantId,
+          storeItemId: payload.storeItemId,
+          memberId: connection.memberId,
+        },
+      });
+      if (!sibVariant) continue;
+      const sibFp = shopifyVariantContentFingerprint({
+        priceCents: sibVariant.priceCents,
+        sku: sibVariant.sku,
+      });
+      if (sib.desiredVariantFingerprint && sib.desiredVariantFingerprint !== sibFp) {
+        pendingDead = {
+          outcome: "DEAD",
+          errorClass: "GRAPHQL_PERMANENT",
+          errorCode: "VARIANT_DESIRE_MISMATCH",
+          errorMessage: `Sibling variant ${sib.storeVariantId} desire fingerprint mismatch`,
+        };
+        break;
+      }
+      const updated = await variantBulkUpdateScalars({
+        connectionId: connection.id,
+        productId: listing.shopifyProductId,
+        variantId: sib.shopifyVariantId,
+        price: shopifyMoneyFromCents(sibVariant.priceCents),
+        sku: sibVariant.sku ?? "",
+        fetchImpl: deps.fetchImpl,
+        now: deps.now,
+      });
+      if (!updated.ok) {
+        if (updated.outcome === "RETRY") pendingRetry = updated;
+        else pendingDead = updated;
+        break;
+      }
+      await markShopifyVariantContentApplied(prisma, {
+        variantMapId: sib.id,
+        desiredVersion: sib.desiredVariantContentVersion,
+        fingerprint: sibFp,
+        now: deps.now,
+      });
     }
   }
 

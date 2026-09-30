@@ -309,9 +309,11 @@ export async function createShopifyListingMapping(
 
     try {
       // S4 just verified Shopify contains this content — seed applied as first BASE.
+      // Include photos so desire/worker fingerprints stay consistent (media push is separate).
       const productFp = shopifyProductContentFingerprint({
         title: storeItem.title,
         description: storeItem.description,
+        photos: storeItem.photos,
       });
       const now = new Date();
       const listingLink = await tx.shopifyListingLink.create({

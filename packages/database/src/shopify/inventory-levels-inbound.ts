@@ -203,7 +203,13 @@ export async function applyShopifyInventoryLevelObservation(
       return { status: "ECHO_CONFIRMED" };
     }
 
-    const desireVersion = Math.max(variantMap.inventoryDesiredVersion, 1);
+    // applyTrackedMarketplaceQuantityEdit → setTrackedOnHand may bump desire + enqueue
+    // PROJECT_INVENTORY. Re-read so we never roll inventoryDesiredVersion backward
+    // (stale pre-capture version caused DESIRE_VERSION_AHEAD on the new job).
+    const mapAfter = await db.shopifyVariantMap.findUniqueOrThrow({
+      where: { id: variantMap.id },
+    });
+    const desireVersion = Math.max(mapAfter.inventoryDesiredVersion, 1);
     await db.shopifyVariantMap.update({
       where: { id: variantMap.id },
       data: {
@@ -217,6 +223,11 @@ export async function applyShopifyInventoryLevelObservation(
         inventoryAppliedAvailable: remote,
         inventoryAppliedVersion: desireVersion,
         inventoryAppliedAt: new Date(),
+        inventoryPendingMutationKind: null,
+        inventoryPendingIdempotencyKey: null,
+        inventoryPendingChangeFrom: null,
+        inventoryPendingTargetQty: null,
+        inventoryPendingFingerprint: null,
       },
     });
     return {

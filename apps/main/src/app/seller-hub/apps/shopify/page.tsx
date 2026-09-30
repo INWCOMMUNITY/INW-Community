@@ -14,6 +14,7 @@ import {
   formatSyncedWithChannels,
   shopifyConnectionStatusLabel,
   shopifyListingStatusChipClass,
+  shopifyListingIssueSellerDetail,
   shopifyListingUiStatus,
   shopifyRemountSellerCopy,
   type ShopifyListingUiStatus,
@@ -267,9 +268,17 @@ export default function AppsAirportShopifyPage() {
                 >
                   {row.title}
                 </Link>
-                {row.issueMessage && status !== "Live" ? (
-                  <div className="mt-1 text-xs text-amber-800 max-w-[16rem]">{row.issueMessage}</div>
-                ) : null}
+                {status !== "Live"
+                  ? (() => {
+                      const detail = shopifyListingIssueSellerDetail({
+                        issueCode: row.issueCode,
+                        issueMessage: row.issueMessage,
+                      });
+                      return detail ? (
+                        <div className="mt-1 text-xs text-amber-800 max-w-[16rem]">{detail}</div>
+                      ) : null;
+                    })()
+                  : null}
               </td>
               <td className="py-3 pr-3">
                 <span

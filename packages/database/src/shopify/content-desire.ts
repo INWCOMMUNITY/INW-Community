@@ -49,6 +49,7 @@ export async function ensureShopifyUpdateListingContentJob(
     dedupeKey: shopifyUpdateListingContentDedupeKey({
       connectionId: input.connectionId,
       storeItemId: input.storeItemId,
+      storeVariantId: input.storeVariantId,
       productDesiredVersion: input.productDesiredVersion,
       variantDesiredVersion: input.variantDesiredVersion,
     }),
@@ -295,6 +296,112 @@ export async function recordShopifyListingContentDesire(
     jobId: job.id,
     syncedVariantPriceSku,
   };
+}
+
+/**
+ * After StoreVariant price/SKU rows change (matrix edits), bump desire on every
+ * mapped variant whose canonical fingerprint differs from applied/desired and
+ * enqueue per-variant UPDATE_LISTING_CONTENT jobs.
+ */
+export async function recordShopifyDirtyMappedVariantContentDesires(
+  db: ShopifyContentDb,
+  input: { memberId: string; storeItemId: string }
+): Promise<{ status: "SKIPPED" | "RECORDED"; dirtyCount: number }> {
+  const connection = await db.shopifyConnection.findFirst({
+    where: { memberId: input.memberId, status: "ACTIVE" },
+    orderBy: { connectedAt: "desc" },
+    select: { id: true },
+  });
+  if (!connection) return { status: "SKIPPED", dirtyCount: 0 };
+
+  const listing = await db.shopifyListingLink.findUnique({
+    where: {
+      shopifyConnectionId_storeItemId: {
+        shopifyConnectionId: connection.id,
+        storeItemId: input.storeItemId,
+      },
+    },
+  });
+  if (!listing) return { status: "SKIPPED", dirtyCount: 0 };
+
+  const variantMaps = await db.shopifyVariantMap.findMany({
+    where: { shopifyListingLinkId: listing.id, shopifyConnectionId: connection.id },
+  });
+  if (variantMaps.length < 1) return { status: "SKIPPED", dirtyCount: 0 };
+
+  const storeVariants = await db.storeVariant.findMany({
+    where: { id: { in: variantMaps.map((m) => m.storeVariantId) } },
+    select: { id: true, priceCents: true, sku: true },
+  });
+  const byId = new Map(storeVariants.map((v) => [v.id, v]));
+  const desiredAt = new Date();
+  let dirtyCount = 0;
+
+  for (const map of variantMaps) {
+    const sv = byId.get(map.storeVariantId);
+    if (!sv) continue;
+    const fingerprint = shopifyVariantContentFingerprint({
+      priceCents: sv.priceCents,
+      sku: sv.sku,
+    });
+    if (
+      fingerprint === map.desiredVariantFingerprint &&
+      map.desiredVariantContentVersion > map.appliedVariantContentVersion
+    ) {
+      // Already desired; ensure job exists.
+      await ensureShopifyUpdateListingContentJob(db, {
+        connectionId: connection.id,
+        storeItemId: input.storeItemId,
+        storeVariantId: map.storeVariantId,
+        productDesiredVersion: listing.desiredProductContentVersion,
+        variantDesiredVersion: map.desiredVariantContentVersion,
+      });
+      continue;
+    }
+    if (
+      fingerprint === map.appliedVariantFingerprint &&
+      map.desiredVariantContentVersion <= map.appliedVariantContentVersion
+    ) {
+      continue;
+    }
+
+    const nextVersion = map.desiredVariantContentVersion + 1;
+    await db.shopifyVariantMap.update({
+      where: { id: map.id },
+      data: {
+        desiredVariantContentVersion: nextVersion,
+        desiredVariantFingerprint: fingerprint,
+        variantDesiredAt: desiredAt,
+        variantContentConflict: false,
+        variantConflictRemoteFingerprint: null,
+        variantConflictEvidenceId: null,
+        variantConflictDetectedAt: null,
+      },
+    });
+    await db.shopifyListingFieldState.updateMany({
+      where: {
+        shopifyListingLinkId: listing.id,
+        storeVariantId: map.storeVariantId,
+        fieldKey: { in: ["PRICE", "SKU"] },
+      },
+      data: {
+        conflict: false,
+        conflictRemoteFingerprint: null,
+        conflictEvidenceId: null,
+        conflictDetectedAt: null,
+      },
+    });
+    await ensureShopifyUpdateListingContentJob(db, {
+      connectionId: connection.id,
+      storeItemId: input.storeItemId,
+      storeVariantId: map.storeVariantId,
+      productDesiredVersion: listing.desiredProductContentVersion,
+      variantDesiredVersion: nextVersion,
+    });
+    dirtyCount += 1;
+  }
+
+  return { status: dirtyCount > 0 ? "RECORDED" : "SKIPPED", dirtyCount };
 }
 
 export async function markShopifyProductContentApplied(

@@ -157,7 +157,7 @@ export async function createShopifyImportedListingMapping(
 
   const storeItem = await tx.storeItem.findFirst({
     where: { id: input.storeItemId, memberId: input.memberId },
-    select: { id: true, title: true, description: true },
+    select: { id: true, title: true, description: true, photos: true },
   });
   if (!storeItem) {
     throw new ShopifyMappingError("STORE_ITEM_NOT_FOUND", "Store item was not found for this member");
@@ -227,6 +227,7 @@ export async function createShopifyImportedListingMapping(
   const productFp = shopifyProductContentFingerprint({
     title: storeItem.title,
     description: storeItem.description,
+    photos: storeItem.photos,
   });
 
   const listingLink = await tx.shopifyListingLink.create({

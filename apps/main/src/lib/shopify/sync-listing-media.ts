@@ -9,6 +9,7 @@ import {
 } from "database";
 import type { ShopifyFetch } from "./admin-graphql";
 import { executeShopifyAdminGraphql } from "./admin-graphql";
+import { resolveShopifyMediaSourceUrls } from "./media-source-url";
 
 type HandlerFailure = {
   outcome: "RETRY" | "DEAD";
@@ -32,6 +33,17 @@ export async function syncShopifyListingMedia(input: {
   fetchImpl?: ShopifyFetch;
   now?: Date;
 }): Promise<{ ok: true; added: number; removed: number } | ({ ok: false } & HandlerFailure)> {
+  const resolvedPhotos = resolveShopifyMediaSourceUrls(input.photos);
+  if (!resolvedPhotos.ok) {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: resolvedPhotos.code,
+      errorMessage: resolvedPhotos.message,
+    };
+  }
+
   const existing = await prisma.shopifyMediaMap.findMany({
     where: { shopifyListingLinkId: input.listingLinkId },
     select: {
@@ -43,7 +55,7 @@ export async function syncShopifyListingMedia(input: {
     },
   });
 
-  const plan = planShopifyMediaDesireFromPhotos(input.photos, existing);
+  const plan = planShopifyMediaDesireFromPhotos(resolvedPhotos.urls, existing);
   await upsertShopifyMediaDesireMaps(prisma, {
     connectionId: input.connectionId,
     listingLinkId: input.listingLinkId,

@@ -194,6 +194,7 @@ export async function applyShopifyFieldLevelContentInbound(
   const productFp = shopifyProductContentFingerprint({
     title: itemAfter.title,
     description: itemAfter.description,
+    photos: itemAfter.photos,
   });
   const variantFp = shopifyVariantContentFingerprint({
     priceCents: variantAfter.priceCents,
