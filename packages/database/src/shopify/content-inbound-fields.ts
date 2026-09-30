@@ -29,6 +29,8 @@ export async function applyShopifyFieldLevelContentInbound(
   tx: Tx,
   input: {
     evidenceId: string;
+    /** Webhook triggeredAt — used to ignore stale echoes after a successful outbound apply. */
+    evidenceTriggeredAt?: Date | null;
     connectionId: string;
     listing: {
       id: string;
@@ -37,6 +39,7 @@ export async function applyShopifyFieldLevelContentInbound(
       shopifyConnectionId: string;
       desiredProductContentVersion: number;
       appliedProductContentVersion: number;
+      productContentAppliedAt?: Date | null;
       appliedProductFingerprint: string | null;
       desiredProductContentVersionBump?: number;
     };
@@ -45,6 +48,7 @@ export async function applyShopifyFieldLevelContentInbound(
       storeVariantId: string;
       desiredVariantContentVersion: number;
       appliedVariantContentVersion: number;
+      variantContentAppliedAt?: Date | null;
       appliedVariantFingerprint: string | null;
     };
     storeItem: {
@@ -84,6 +88,26 @@ export async function applyShopifyFieldLevelContentInbound(
   const skuLocal = shopifyFieldFingerprint("SKU", input.storeVariant.sku);
   const skuRemote = shopifyFieldFingerprint("SKU", input.remote.sku);
 
+  const productOutboundPending =
+    input.listing.desiredProductContentVersion > input.listing.appliedProductContentVersion;
+  const variantOutboundPending =
+    input.variantMap.desiredVariantContentVersion > input.variantMap.appliedVariantContentVersion;
+
+  const evidenceTriggeredAt =
+    input.evidenceTriggeredAt instanceof Date && !Number.isNaN(input.evidenceTriggeredAt.getTime())
+      ? input.evidenceTriggeredAt
+      : null;
+  const isStaleVersus = (appliedAt: Date | null | undefined): boolean => {
+    if (!evidenceTriggeredAt || !(appliedAt instanceof Date) || Number.isNaN(appliedAt.getTime())) {
+      return false;
+    }
+    return evidenceTriggeredAt.getTime() < appliedAt.getTime();
+  };
+  const productPullBlocked =
+    productOutboundPending || isStaleVersus(input.listing.productContentAppliedAt);
+  const variantPullBlocked =
+    variantOutboundPending || isStaleVersus(input.variantMap.variantContentAppliedAt);
+
   const baseOrNull = (field: string, storeVariantId: string, fallbackGroup: string | null) => {
     const row = byKey.get(`${field}:${storeVariantId}`);
     if (row?.baseFingerprint) return row.baseFingerprint;
@@ -98,14 +122,14 @@ export async function applyShopifyFieldLevelContentInbound(
       base: baseOrNull("TITLE", "", input.listing.appliedProductFingerprint),
       local: titleLocal,
       remote: titleRemote,
-      hasLocalSemanticEdit: input.listing.desiredProductContentVersion > 0,
+      hasLocalSemanticEdit: productOutboundPending,
     },
     {
       field: "DESCRIPTION",
       base: baseOrNull("DESCRIPTION", "", input.listing.appliedProductFingerprint),
       local: descLocal,
       remote: descRemote,
-      hasLocalSemanticEdit: input.listing.desiredProductContentVersion > 0,
+      hasLocalSemanticEdit: productOutboundPending,
     },
     {
       field: "PRICE",
@@ -113,7 +137,7 @@ export async function applyShopifyFieldLevelContentInbound(
       base: baseOrNull("PRICE", input.variantMap.storeVariantId, input.variantMap.appliedVariantFingerprint),
       local: priceLocal,
       remote: priceRemote,
-      hasLocalSemanticEdit: input.variantMap.desiredVariantContentVersion > 0,
+      hasLocalSemanticEdit: variantOutboundPending,
     },
     {
       field: "SKU",
@@ -121,7 +145,7 @@ export async function applyShopifyFieldLevelContentInbound(
       base: baseOrNull("SKU", input.variantMap.storeVariantId, input.variantMap.appliedVariantFingerprint),
       local: skuLocal,
       remote: skuRemote,
-      hasLocalSemanticEdit: input.variantMap.desiredVariantContentVersion > 0,
+      hasLocalSemanticEdit: variantOutboundPending,
     },
   ];
 
@@ -144,7 +168,15 @@ export async function applyShopifyFieldLevelContentInbound(
     fingerprint: string;
   }> = [];
 
-  for (const row of plan.pullFields) {
+  // Suppress REMOTE_ONLY apply while outbound is in flight, or when the webhook
+  // predates our last successful apply (stale echo → price/qty snap-back).
+  const pullFields = plan.pullFields.filter((row) => {
+    if (row.field === "TITLE" || row.field === "DESCRIPTION") return !productPullBlocked;
+    if (row.field === "PRICE" || row.field === "SKU") return !variantPullBlocked;
+    return true;
+  });
+
+  for (const row of pullFields) {
     if (row.field === "TITLE") {
       storeItemPatch.title = input.remote.title;
       appliedFields.push({ field: "TITLE", fingerprint: titleRemote });
@@ -211,10 +243,8 @@ export async function applyShopifyFieldLevelContentInbound(
     (p) => p.field === "TITLE" || p.field === "DESCRIPTION"
   );
   const variantPush = plan.pushFields.some((p) => p.field === "PRICE" || p.field === "SKU");
-  const productPulled = plan.pullFields.some(
-    (p) => p.field === "TITLE" || p.field === "DESCRIPTION"
-  );
-  const variantPulled = plan.pullFields.some((p) => p.field === "PRICE" || p.field === "SKU");
+  const productPulled = pullFields.some((p) => p.field === "TITLE" || p.field === "DESCRIPTION");
+  const variantPulled = pullFields.some((p) => p.field === "PRICE" || p.field === "SKU");
 
   let productDesiredVersion = input.listing.desiredProductContentVersion;
   let productAppliedVersion = input.listing.appliedProductContentVersion;

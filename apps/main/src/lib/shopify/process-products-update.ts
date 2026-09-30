@@ -11,6 +11,7 @@ import type { ShopifyFetch } from "./admin-graphql";
 import { executeShopifyAdminGraphql } from "./admin-graphql";
 import { handleShopifyOrdersPaidEvidence } from "./process-orders-paid";
 import { handleShopifyInventoryLevelsEvidence } from "./process-inventory-levels";
+import { syncShopifyListingTopology } from "./sync-listing-topology";
 
 function parseProductGidFromEvidenceBody(rawBody: string): string | null {
   try {
@@ -307,7 +308,7 @@ export async function handleShopifyProcessProviderEvidenceJob(
     return { outcome: "SUCCESS" };
   }
 
-  const variantMaps = await prisma.shopifyVariantMap.findMany({
+  let variantMaps = await prisma.shopifyVariantMap.findMany({
     where: { shopifyListingLinkId: listing.id, shopifyConnectionId: connection.id },
     orderBy: { createdAt: "asc" },
   });
@@ -322,7 +323,7 @@ export async function handleShopifyProcessProviderEvidenceJob(
   }
   // Apply product + first mapped variant content; additional mapped variants are
   // reconciled via S9 / subsequent evidence. Media inbound runs with product fields.
-  const variantMap = variantMaps[0];
+  let variantMap = variantMaps[0];
 
   const remote = await readRemoteProductForInbound({
     connectionId: connection.id,
@@ -355,6 +356,72 @@ export async function handleShopifyProcessProviderEvidenceJob(
       "Remote product identity does not match mapping"
     );
     return { outcome: "SUCCESS" };
+  }
+
+  // Pull Shopify→INW variant topology on every products/update (NOOP when unchanged).
+  // Covers new GIDs, retired maps, and same-GID option conversions (Title→Size, renames).
+  {
+    // ACTIVE only — RETIRED orphans (replaced Shopify GIDs) must not be planned as
+    // outbound createVariants (causes NEED_TO_ADD_OPTION_VALUES and blocks inbound pull).
+    const allStoreVariants = await prisma.storeVariant.findMany({
+      where: {
+        storeItemId: listing.storeItemId,
+        memberId: listing.memberId,
+        status: "ACTIVE",
+      },
+      select: { id: true, options: true, priceCents: true, sku: true },
+    });
+    const mapByStoreVariant = new Map(
+      variantMaps.map((m) => [m.storeVariantId, m.shopifyVariantId] as const)
+    );
+    const localTopology = allStoreVariants.map((sv) => {
+      const optsJson =
+        typeof sv.options === "string"
+          ? (JSON.parse(sv.options) as Record<string, string>)
+          : ((sv.options ?? {}) as Record<string, string>);
+      return {
+        storeVariantId: sv.id,
+        selectedOptions: Object.entries(optsJson).map(([name, value]) => ({
+          name,
+          value: String(value),
+        })),
+        priceCents: sv.priceCents,
+        sku: sv.sku,
+        shopifyVariantId: mapByStoreVariant.get(sv.id) ?? null,
+      };
+    });
+    const topologySync = await syncShopifyListingTopology({
+      connectionId: connection.id,
+      memberId: listing.memberId,
+      listingLinkId: listing.id,
+      productId: listing.shopifyProductId,
+      storeItemId: listing.storeItemId,
+      localVariants: localTopology,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    if (!topologySync.ok) {
+      if (topologySync.outcome === "RETRY") {
+        return {
+          outcome: "RETRY",
+          errorClass: topologySync.errorClass,
+          errorCode: topologySync.errorCode,
+          errorMessage: topologySync.errorMessage,
+        };
+      }
+      await markShopifyEvidenceError(
+        prisma,
+        evidence.id,
+        topologySync.errorCode,
+        topologySync.errorMessage
+      );
+      return { outcome: "SUCCESS" };
+    }
+    variantMaps = await prisma.shopifyVariantMap.findMany({
+      where: { shopifyListingLinkId: listing.id, shopifyConnectionId: connection.id },
+      orderBy: { createdAt: "asc" },
+    });
+    variantMap = variantMaps[0] ?? variantMap;
   }
 
   // Prefer the mapped variant present on the remote product (multi-variant safe).

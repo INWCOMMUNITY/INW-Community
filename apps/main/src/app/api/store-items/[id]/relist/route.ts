@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { commerceInventoryWriterRoute, getCommerceFoundationCutoverState, prisma, relistFoundationListing } from "database";
 import { z } from "zod";
@@ -97,7 +98,7 @@ export async function POST(
         await relistFoundationListing(tx, {
           storeItemId: itemId,
           memberId: userId,
-          commandId: `relist-${itemId}`,
+          commandId: `relist-${itemId}-${randomUUID()}`,
           simpleTarget: perOptionQty,
         });
       });

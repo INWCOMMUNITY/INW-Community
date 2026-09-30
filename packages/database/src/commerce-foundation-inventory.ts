@@ -1,4 +1,4 @@
-import type { InventoryEventType, InventoryMode, Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, type InventoryEventType, type InventoryMode, type PrismaClient } from "@prisma/client";
 import {
   COMMERCE_FOUNDATION_CUTOVER_SINGLETON_ID,
   assertFoundationInventoryWriterAllowed,
@@ -204,6 +204,188 @@ export async function appendInventoryEvent(
   }
 }
 
+function parseVariantOptions(raw: Prisma.JsonValue): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const name = String(k ?? "").trim();
+    const val = v != null ? String(v).trim() : "";
+    if (name && val) out[name] = val;
+  }
+  return out;
+}
+
+function coerceVariantsMatrixJson(raw: Prisma.JsonValue | null | undefined): Record<string, unknown> | null {
+  if (raw == null) return null;
+  let value: unknown = raw;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const obj = value as Record<string, unknown>;
+  if (!Array.isArray(obj.axes)) return null;
+  return obj;
+}
+
+function optionComboKey(options: Record<string, string>): string {
+  return Object.keys(options)
+    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+    .map((k) => `${k.trim().toLowerCase()}=${String(options[k] ?? "").trim().toLowerCase()}`)
+    .join("|");
+}
+
+/**
+ * Keep seller-facing StoreItem.variants matrix SKU quantities aligned with ACTIVE
+ * InventoryState. Also rewrites string-encoded Json blobs to real Json objects.
+ */
+export async function projectStoreItemVariantsMatrix(
+  tx: FoundationDb,
+  storeItemId: string
+): Promise<void> {
+  const item = await tx.storeItem.findUnique({
+    where: { id: storeItemId },
+    select: { variants: true, inventoryTracking: true },
+  });
+  if (!item || item.inventoryTracking === "made_to_order") return;
+
+  const variants = await tx.storeVariant.findMany({
+    where: { storeItemId, status: "ACTIVE" },
+    select: {
+      id: true,
+      options: true,
+      priceCents: true,
+      sku: true,
+      inventoryState: { select: { onHand: true, reserved: true, mode: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const live = variants
+    .map((v) => {
+      const options = parseVariantOptions(v.options);
+      const state = v.inventoryState;
+      let quantity = 0;
+      if (state?.mode === "TRACKED_FINITE" && state.onHand != null && state.reserved != null) {
+        quantity = Math.max(0, trackedAvailable(state.onHand, state.reserved));
+      }
+      return {
+        storeVariantId: v.id,
+        options,
+        quantity,
+        priceCents: v.priceCents,
+        sku: v.sku,
+      };
+    })
+    .filter((row) => Object.keys(row.options).length > 0);
+
+  if (live.length === 0) {
+    // Simple listing: clear string-encoded / stale matrix so UI stays in simple mode.
+    if (typeof item.variants === "string" || coerceVariantsMatrixJson(item.variants)) {
+      await tx.storeItem.update({
+        where: { id: storeItemId },
+        data: { variants: Prisma.JsonNull },
+      });
+    }
+    return;
+  }
+
+  const existing = coerceVariantsMatrixJson(item.variants);
+  const byId = new Map(live.map((row) => [row.storeVariantId, row] as const));
+  const byCombo = new Map(live.map((row) => [optionComboKey(row.options), row] as const));
+
+  let axes: Array<{ name: string; values: string[] }>;
+  let skus: Array<Record<string, unknown>>;
+
+  if (existing && Array.isArray(existing.skus) && existing.skus.length > 0) {
+    axes = (existing.axes as Array<{ name: string; values: string[] }>).map((a) => ({
+      name: a.name,
+      values: [...(a.values ?? [])],
+    }));
+    skus = [];
+    const seen = new Set<string>();
+    for (const rawSku of existing.skus as Array<Record<string, unknown>>) {
+      const opts =
+        rawSku.options && typeof rawSku.options === "object" && !Array.isArray(rawSku.options)
+          ? parseVariantOptions(rawSku.options as Prisma.JsonValue)
+          : {};
+      const match =
+        (typeof rawSku.storeVariantId === "string" ? byId.get(rawSku.storeVariantId) : undefined) ??
+        byCombo.get(optionComboKey(opts));
+      if (!match) {
+        skus.push(rawSku);
+        continue;
+      }
+      seen.add(match.storeVariantId);
+      skus.push({
+        ...rawSku,
+        options: match.options,
+        quantity: match.quantity,
+        storeVariantId: match.storeVariantId,
+        priceCents:
+          typeof rawSku.priceCents === "number" && rawSku.priceCents > 0
+            ? rawSku.priceCents
+            : match.priceCents,
+        ...(match.sku ? { sku: match.sku } : {}),
+      });
+    }
+    for (const row of live) {
+      if (seen.has(row.storeVariantId)) continue;
+      skus.push({
+        options: row.options,
+        quantity: row.quantity,
+        priceCents: row.priceCents,
+        storeVariantId: row.storeVariantId,
+        ...(row.sku ? { sku: row.sku } : {}),
+      });
+      for (const [name, value] of Object.entries(row.options)) {
+        let axis = axes.find((a) => a.name === name);
+        if (!axis) {
+          axis = { name, values: [] };
+          axes.push(axis);
+        }
+        if (!axis.values.includes(value)) axis.values.push(value);
+      }
+    }
+  } else {
+    const axisNames = new Set<string>();
+    for (const row of live) {
+      for (const name of Object.keys(row.options)) axisNames.add(name);
+    }
+    axes = [...axisNames].sort((a, b) => a.localeCompare(b)).map((name) => ({
+      name,
+      values: [...new Set(live.map((row) => row.options[name]).filter(Boolean))] as string[],
+    }));
+    skus = live.map((row) => ({
+      options: row.options,
+      quantity: row.quantity,
+      priceCents: row.priceCents,
+      storeVariantId: row.storeVariantId,
+      ...(row.sku ? { sku: row.sku } : {}),
+    }));
+  }
+
+  const prices = new Set(skus.map((s) => Number(s.priceCents) || 0));
+  const qtys = new Set(skus.map((s) => Number(s.quantity) || 0));
+  const skuCodes = new Set(skus.map((s) => String(s.sku ?? "")));
+
+  await tx.storeItem.update({
+    where: { id: storeItemId },
+    data: {
+      variants: {
+        axes,
+        skus,
+        pricesVary: prices.size > 1,
+        quantitiesVary: qtys.size > 1,
+        skusVary: skuCodes.size > 1,
+      } as Prisma.InputJsonValue,
+    },
+  });
+}
+
 export async function projectStoreItemQuantity(tx: FoundationDb, storeItemId: string): Promise<number> {
   await lockStoreItemForUpdate(tx, storeItemId);
   const item = await tx.storeItem.findUnique({
@@ -217,7 +399,9 @@ export async function projectStoreItemQuantity(tx: FoundationDb, storeItemId: st
     await tx.storeItem.update({ where: { id: storeItemId }, data: { quantity: 0 } });
     return 0;
   }
-  const states = await tx.inventoryState.findMany({ where: { storeItemId } });
+  const states = await tx.inventoryState.findMany({
+    where: { storeItemId, variant: { status: "ACTIVE" } },
+  });
   let sum = 0;
   for (const state of states) {
     if (state.mode === "MADE_TO_ORDER") continue;
@@ -227,11 +411,14 @@ export async function projectStoreItemQuantity(tx: FoundationDb, storeItemId: st
     sum += Math.max(0, trackedAvailable(state.onHand, state.reserved));
   }
   await tx.storeItem.update({ where: { id: storeItemId }, data: { quantity: sum } });
+  await projectStoreItemVariantsMatrix(tx, storeItemId);
   return sum;
 }
 
 export async function sumTrackedOnHand(tx: FoundationDb, storeItemId: string): Promise<number> {
-  const states = await tx.inventoryState.findMany({ where: { storeItemId } });
+  const states = await tx.inventoryState.findMany({
+    where: { storeItemId, variant: { status: "ACTIVE" } },
+  });
   let sum = 0;
   for (const state of states) {
     if (state.mode !== "TRACKED_FINITE") continue;

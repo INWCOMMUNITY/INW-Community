@@ -110,13 +110,16 @@ export async function applyShopifyMediaInbound(
     const mapped = byGid.get(remote.shopifyMediaId);
     if (!mapped) continue;
     remoteOrderedIds.push(mapped.inwMediaId);
-    if (mapped.sourceUrl) remotePhotos.push(mapped.sourceUrl);
-    else if (remote.sourceUrl) remotePhotos.push(remote.sourceUrl.trim());
+    // Prefer durable INW source URL. Shopify CDN rewrites must not replace
+    // the seller's blob URL or desire planning invents new media identities.
+    const keptSourceUrl = mapped.sourceUrl?.trim() || remote.sourceUrl?.trim() || null;
+    if (keptSourceUrl) remotePhotos.push(keptSourceUrl);
     await db.shopifyMediaMap.update({
       where: { id: mapped.id },
       data: {
         position: remote.position,
-        sourceUrl: remote.sourceUrl?.trim() || mapped.sourceUrl,
+        // Keep existing INW URL when present; only fill when map had none.
+        sourceUrl: mapped.sourceUrl?.trim() || remote.sourceUrl?.trim() || mapped.sourceUrl,
         altText: remote.altText ?? mapped.altText,
       },
     });
@@ -173,9 +176,19 @@ export async function applyShopifyMediaInbound(
     return { action: "MEDIA_CONFLICT", photos: storeItem.photos };
   }
 
-  if (mediaPlan.action === "PULL_REMOTE" || mediaPlan.action === "CONVERGED") {
+  if (mediaPlan.action === "CONVERGED") {
+    // Identities already match — do not rewrite StoreItem.photos (Shopify CDN URLs
+    // would snap the listing UI and break URL-based desire reuse).
+    await markShopifyFieldsApplied(db, {
+      listingLinkId: input.listingLinkId,
+      fields: [{ field: "MEDIA", fingerprint: shopifyMediaIdentityFingerprint(remoteOrderedIds) }],
+    });
+    return { action: "MEDIA_CONVERGED", photos: storeItem.photos };
+  }
+
+  if (mediaPlan.action === "PULL_REMOTE") {
     // Mark removed maps and update canonical photo URLs from remote order.
-    if (mediaPlan.action === "PULL_REMOTE" && removedLocally.length > 0) {
+    if (removedLocally.length > 0) {
       await db.shopifyMediaMap.updateMany({
         where: {
           shopifyListingLinkId: input.listingLinkId,
@@ -193,10 +206,7 @@ export async function applyShopifyMediaInbound(
       listingLinkId: input.listingLinkId,
       fields: [{ field: "MEDIA", fingerprint: shopifyMediaIdentityFingerprint(remoteOrderedIds) }],
     });
-    return {
-      action: mediaPlan.action === "PULL_REMOTE" ? "MEDIA_PULL" : "MEDIA_CONVERGED",
-      photos,
-    };
+    return { action: "MEDIA_PULL", photos };
   }
 
   // LOCAL_ONLY / PUSH — leave photos; outbound sync will push.

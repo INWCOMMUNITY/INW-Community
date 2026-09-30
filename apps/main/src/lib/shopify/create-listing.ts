@@ -104,7 +104,7 @@ export async function enqueueShopifyCreateListing(input: {
   }
 
   const variants = await prisma.storeVariant.findMany({
-    where: { storeItemId: storeItem.id, memberId: input.memberId },
+    where: { storeItemId: storeItem.id, memberId: input.memberId, status: "ACTIVE" },
     select: { id: true, options: true },
     orderBy: { createdAt: "asc" },
   });
@@ -472,7 +472,7 @@ export async function handleShopifyCreateListingJob(
   }
 
   const variants = await prisma.storeVariant.findMany({
-    where: { storeItemId: storeItem.id, memberId: connection.memberId },
+    where: { storeItemId: storeItem.id, memberId: connection.memberId, status: "ACTIVE" },
     orderBy: { createdAt: "asc" },
   });
 

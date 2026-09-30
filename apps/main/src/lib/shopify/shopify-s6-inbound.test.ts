@@ -11,6 +11,7 @@ vi.mock("database", async () => {
       shopifyConnection: { findUnique: vi.fn() },
       shopifyListingLink: { findUnique: vi.fn() },
       shopifyVariantMap: { findMany: vi.fn() },
+      storeVariant: { findMany: vi.fn() },
       shopifySyncJob: { count: vi.fn() },
     },
     applyShopifyProductsUpdateObservation: vi.fn(),
@@ -18,6 +19,14 @@ vi.mock("database", async () => {
     markShopifyEvidenceError: vi.fn(),
   };
 });
+
+vi.mock("./sync-listing-topology", () => ({
+  syncShopifyListingTopology: vi.fn(async () => ({
+    ok: true,
+    plan: { kind: "NOOP" },
+    importedStoreVariantIds: [],
+  })),
+}));
 
 vi.mock("./connect", () => ({
   accessTokenForConnection: vi.fn(async () => ACCESS),
@@ -40,6 +49,7 @@ import {
 } from "database";
 import { handleShopifyProcessProviderEvidenceJob } from "./process-products-update";
 import { ensureShopifyProductsUpdateWebhook } from "./client";
+import { syncShopifyListingTopology } from "./sync-listing-topology";
 
 const connection = {
   id: "conn-gen-1",
@@ -316,6 +326,21 @@ describe("shopify PROCESS_PROVIDER_EVIDENCE products/update", () => {
     vi.mocked(prisma.shopifyConnection.findUnique).mockReset();
     vi.mocked(prisma.shopifyListingLink.findUnique).mockReset();
     vi.mocked(prisma.shopifyVariantMap.findMany).mockReset();
+    vi.mocked(prisma.storeVariant.findMany).mockReset();
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
+      {
+        id: "var-1",
+        options: {},
+        priceCents: 1037,
+        sku: "SKU-R",
+      },
+    ] as never);
+    vi.mocked(syncShopifyListingTopology).mockReset();
+    vi.mocked(syncShopifyListingTopology).mockResolvedValue({
+      ok: true,
+      plan: { kind: "NOOP" },
+      importedStoreVariantIds: [],
+    } as never);
     vi.mocked(applyShopifyProductsUpdateObservation).mockReset();
     vi.mocked(markShopifyEvidenceIgnored).mockReset();
     vi.mocked(markShopifyEvidenceError).mockReset();

@@ -40,6 +40,20 @@ import {
 } from "./store-item-variants";
 
 describe("normalizeVariantMatrix", () => {
+  it("accepts stringified matrix Json (Shopify topology double-encode)", () => {
+    const matrix = normalizeVariantMatrix(
+      JSON.stringify({
+        axes: [{ name: "Color", values: ["Red", "Blue"] }],
+        skus: [
+          { options: { Color: "Red" }, quantity: 3 },
+          { options: { Color: "Blue" }, quantity: 6 },
+        ],
+      })
+    );
+    expect(matrix?.skus).toHaveLength(2);
+    expect(matrix?.skus[0]?.quantity).toBe(3);
+  });
+
   it("keeps a Size × Color SKU matrix", () => {
     const matrix = normalizeVariantMatrix({
       axes: [

@@ -201,8 +201,13 @@ export async function applyShopifyProductsUpdateObservation(
       };
     }
 
+    const evidenceRow = await tx.shopifyProviderEvidence.findUnique({
+      where: { id: input.evidenceId },
+      select: { triggeredAt: true },
+    });
     const { productAction, variantAction } = await applyShopifyFieldLevelContentInbound(tx, {
       evidenceId: input.evidenceId,
+      evidenceTriggeredAt: evidenceRow?.triggeredAt ?? null,
       connectionId: input.connectionId,
       listing,
       variantMap,
@@ -251,6 +256,7 @@ export async function applyShopifyProductsUpdateObservation(
       });
       const extraResult = await applyShopifyFieldLevelContentInbound(tx, {
         evidenceId: input.evidenceId,
+        evidenceTriggeredAt: evidenceRow?.triggeredAt ?? null,
         connectionId: input.connectionId,
         listing: listingNow,
         variantMap: extraMap,

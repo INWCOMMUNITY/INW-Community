@@ -559,7 +559,7 @@ async function importMultiVariant(ctx: {
           status: "active",
           slug: uniqueSlug(slugify(title)),
           condition: "new",
-          variants: JSON.stringify(matrix),
+          variants: matrix as object,
         },
         select: { id: true },
       });

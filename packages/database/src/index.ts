@@ -139,6 +139,7 @@ export {
   MARKETPLACE_QUANTITY_EDIT_CAUSE,
   MARKETPLACE_QUANTITY_EDIT_SCOPE,
   projectStoreItemQuantity,
+  projectStoreItemVariantsMatrix,
   releaseReservation,
   restockTrackedVariant,
   setTrackedOnHand,
@@ -466,6 +467,7 @@ export {
   markShopifyVariantContentApplied,
   recordShopifyListingContentDesire,
   recordShopifyDirtyMappedVariantContentDesires,
+  requeueShopifyContentForUnpushedMedia,
   setShopifyProductContentConflict,
   setShopifyVariantContentConflict,
 } from "./shopify/content-desire";
@@ -592,8 +594,10 @@ export type {
 } from "./shopify/variant-media";
 export {
   correlateVariantsByOptionCombination,
+  isShopifyDefaultTitleOnly,
   planShopifyTopologyDiff,
   shopifyOptionCombinationKey,
+  shopifySelectedOptionsToInwOptions,
   shopifyTopologyToInwMatrix,
   SHOPIFY_MAX_OPTION_DIMENSIONS,
   SHOPIFY_MAX_VARIANTS,

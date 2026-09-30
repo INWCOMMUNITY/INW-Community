@@ -29,7 +29,11 @@ export function shopifyMediaIdentityFingerprint(inwMediaIds: string[]): string {
  */
 export function planShopifyMediaDesireFromPhotos(
   photos: string[] | null | undefined,
-  existing: Array<Pick<ShopifyMediaMap, "inwMediaId" | "sourceUrl" | "status" | "position">>
+  existing: Array<
+    Pick<ShopifyMediaMap, "inwMediaId" | "sourceUrl" | "status" | "position"> & {
+      shopifyMediaId?: string | null;
+    }
+  >
 ): {
   desired: ShopifyMediaDesireRow[];
   mediaFingerprint: string;
@@ -45,8 +49,20 @@ export function planShopifyMediaDesireFromPhotos(
       .map((row) => [row.sourceUrl!.trim(), row])
   );
 
+  const claimed = new Set<string>();
   const desired: ShopifyMediaDesireRow[] = urls.map((url, position) => {
-    const prior = byUrl.get(url);
+    const byExact = byUrl.get(url);
+    let prior =
+      byExact && !claimed.has(byExact.inwMediaId) ? byExact : undefined;
+    // CDN rewrite / sourceUrl drift: reuse unclaimed ACTIVE map at this position
+    // so inbound URL changes do not invent a new durable identity.
+    if (!prior) {
+      prior = active.find((row) => row.position === position && !claimed.has(row.inwMediaId));
+    }
+    if (!prior && urls.length === active.length) {
+      prior = active.find((row) => !claimed.has(row.inwMediaId));
+    }
+    if (prior) claimed.add(prior.inwMediaId);
     const inwMediaId = prior?.inwMediaId ?? randomUUID().replace(/-/g, "").slice(0, 24);
     return {
       inwMediaId,
@@ -62,10 +78,22 @@ export function planShopifyMediaDesireFromPhotos(
     .map((row) => row.inwMediaId);
 
   const existingById = new Map(active.map((row) => [row.inwMediaId, row]));
-  const toAdd = desired.filter((row) => !existingById.has(row.inwMediaId));
+  // Create (or retry create) whenever there is no remote Shopify media GID yet.
+  // Previously ACTIVE maps without shopifyMediaId were treated as already uploaded,
+  // so UPDATE_LISTING_CONTENT could SUCCEED while photos never reached Shopify.
+  const toAdd = desired.filter((row) => {
+    const prior = existingById.get(row.inwMediaId);
+    if (!prior) return true;
+    return !(typeof prior.shopifyMediaId === "string" && prior.shopifyMediaId.length > 0);
+  });
   const toReorder = desired.filter((row) => {
     const prior = existingById.get(row.inwMediaId);
-    return prior != null && prior.position !== row.position;
+    return (
+      prior != null &&
+      typeof prior.shopifyMediaId === "string" &&
+      prior.shopifyMediaId.length > 0 &&
+      prior.position !== row.position
+    );
   });
 
   const mediaFingerprint = shopifyMediaIdentityFingerprint(desired.map((row) => row.inwMediaId));
