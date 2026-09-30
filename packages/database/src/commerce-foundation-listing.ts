@@ -192,7 +192,11 @@ export async function applyFoundationSellerQuantitySets(
 ): Promise<void> {
   await lockCutoverShare(tx);
   await lockStoreItemForUpdate(tx, args.storeItemId);
-  const variants = await tx.storeVariant.findMany({ where: { storeItemId: args.storeItemId } });
+  // RETIRED variants (e.g. Shopify GID replaced during topology sync) must not
+  // participate in structure checks or quantity SET fan-out.
+  const variants = await tx.storeVariant.findMany({
+    where: { storeItemId: args.storeItemId, status: "ACTIVE" },
+  });
   if (variants.length === 0) {
     throw new FoundationMissingStateError(`StoreItem ${args.storeItemId} has no Variants`);
   }
@@ -255,7 +259,9 @@ export async function assertFoundationMatrixStructureUnchanged(
   storeItemId: string,
   nextFingerprints: string[]
 ): Promise<void> {
-  const variants = await tx.storeVariant.findMany({ where: { storeItemId } });
+  const variants = await tx.storeVariant.findMany({
+    where: { storeItemId, status: "ACTIVE" },
+  });
   assertNoStructuralVariantChange(
     variants.map((variant) => optionFingerprintOf(variant.options)),
     nextFingerprints
@@ -268,7 +274,9 @@ export async function markFoundationListingSold(
 ): Promise<void> {
   await lockCutoverShare(tx);
   await lockStoreItemForUpdate(tx, args.storeItemId);
-  const variants = await tx.storeVariant.findMany({ where: { storeItemId: args.storeItemId } });
+  const variants = await tx.storeVariant.findMany({
+    where: { storeItemId: args.storeItemId, status: "ACTIVE" },
+  });
   if (variants.length === 0) {
     throw new FoundationMissingStateError(`StoreItem ${args.storeItemId} has no Variants`);
   }
@@ -333,9 +341,28 @@ export async function relistFoundationListing(
     where: { id: args.storeItemId },
     data: { status: "active", endedAt: null },
   });
-  await tx.storeVariant.updateMany({
+  // Only reactivate variants that are part of this relist SET. Do not resurrect
+  // topology-retired orphans (Shopify GID replaced) that are absent from targets.
+  const allVariants = await tx.storeVariant.findMany({
     where: { storeItemId: args.storeItemId },
-    data: { status: "ACTIVE", retiredAt: null },
+    select: { id: true, options: true, isDefault: true, status: true },
   });
+  const reactivateIds = new Set<string>();
+  if (args.matrixTargets) {
+    const byFp = new Map(allVariants.map((v) => [optionFingerprintOf(v.options), v]));
+    for (const target of args.matrixTargets) {
+      const variant = byFp.get(target.fingerprint);
+      if (variant) reactivateIds.add(variant.id);
+    }
+  } else {
+    const defaults = allVariants.filter((v) => v.isDefault);
+    if (defaults.length === 1) reactivateIds.add(defaults[0]!.id);
+  }
+  if (reactivateIds.size > 0) {
+    await tx.storeVariant.updateMany({
+      where: { id: { in: [...reactivateIds] } },
+      data: { status: "ACTIVE", retiredAt: null },
+    });
+  }
   await applyFoundationSellerQuantitySets(tx, args);
 }

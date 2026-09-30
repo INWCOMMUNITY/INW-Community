@@ -474,7 +474,7 @@ export async function PATCH(
           const matrix = normalizeVariantMatrix(data.variants);
           if (matrix) {
             const storeVariants = await tx.storeVariant.findMany({
-              where: { storeItemId: itemId, memberId: ownerId },
+              where: { storeItemId: itemId, memberId: ownerId, status: "ACTIVE" },
               select: { id: true, options: true, priceCents: true, sku: true },
             });
             const byFp = new Map<string, (typeof storeVariants)[number]>(
@@ -557,7 +557,7 @@ export async function PATCH(
       const matrix = normalizeVariantMatrix(data.variants);
       if (matrix) {
         const storeVariants = await tx.storeVariant.findMany({
-          where: { storeItemId: itemId, memberId: ownerId },
+          where: { storeItemId: itemId, memberId: ownerId, status: "ACTIVE" },
           select: { id: true, options: true, priceCents: true, sku: true },
         });
         const byFp = new Map<string, (typeof storeVariants)[number]>(

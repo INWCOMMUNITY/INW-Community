@@ -233,7 +233,9 @@ export async function projectStoreItemQuantity(tx: FoundationDb, storeItemId: st
 }
 
 export async function sumTrackedOnHand(tx: FoundationDb, storeItemId: string): Promise<number> {
-  const states = await tx.inventoryState.findMany({ where: { storeItemId } });
+  const states = await tx.inventoryState.findMany({
+    where: { storeItemId, variant: { status: "ACTIVE" } },
+  });
   let sum = 0;
   for (const state of states) {
     if (state.mode !== "TRACKED_FINITE") continue;
