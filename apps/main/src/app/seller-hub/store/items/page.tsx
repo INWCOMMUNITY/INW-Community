@@ -180,6 +180,17 @@ function MyItemsPageInner() {
     setSelectedIds((prev) => prev.filter((id) => items.some((i) => i.id === id)));
   }, [items]);
 
+  useEffect(() => {
+    if (!menuOpenId) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(`[data-item-menu="${menuOpenId}"]`)) return;
+      setMenuOpenId(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [menuOpenId]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return items;
@@ -321,11 +332,11 @@ function MyItemsPageInner() {
 
   return (
     <div className="w-full min-w-0 max-w-5xl mx-auto" data-testid="seller-hub-my-items">
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
         <div>
           <h1 className="text-2xl font-bold text-[var(--color-heading)]">My Items</h1>
-          <p className="text-sm text-gray-600 mt-1">
-            Manage, bulk-edit, relist, and sell similar listings.
+          <p className="text-sm text-gray-500 mt-1">
+            Select items to bulk edit, or use Edit / View on each row.
           </p>
         </div>
         <Link href="/seller-hub/store/new" className="btn shrink-0">
@@ -348,7 +359,11 @@ function MyItemsPageInner() {
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-2 mb-3" role="tablist" aria-label="Listing status">
+      <div
+        className="mb-4 flex flex-wrap gap-1 border-b border-gray-200"
+        role="tablist"
+        aria-label="Listing status"
+      >
         {ITEMS_TABS.map((t) => {
           const count =
             counts == null
@@ -367,15 +382,19 @@ function MyItemsPageInner() {
               type="button"
               role="tab"
               aria-selected={selected}
-              className={`px-3 py-1.5 rounded-lg text-sm font-semibold border-2 transition ${
+              className={`px-3 py-2.5 text-sm font-semibold border-b-2 -mb-px transition ${
                 selected
-                  ? "bg-[var(--color-primary)] text-white border-[var(--color-primary)]"
-                  : "bg-white text-[var(--color-heading)] border-[var(--color-primary)]"
+                  ? "border-[var(--color-primary)] text-[var(--color-primary)]"
+                  : "border-transparent text-gray-500 hover:text-[var(--color-heading)]"
               }`}
               onClick={() => setTabAndUrl(t.key)}
             >
               {t.label}
-              {count != null ? ` (${count})` : ""}
+              {count != null ? (
+                <span className={`ml-1.5 tabular-nums ${selected ? "opacity-90" : "text-gray-400"}`}>
+                  {count}
+                </span>
+              ) : null}
             </button>
           );
         })}
@@ -391,11 +410,11 @@ function MyItemsPageInner() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by title or SKU"
-          className="w-full max-w-md rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          className="w-full max-w-md rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm shadow-sm"
           disabled={tab === "drafts"}
         />
         {tab !== "drafts" && filtered.length > 0 ? (
-          <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+          <label className="inline-flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
             <input
               type="checkbox"
               checked={allVisibleSelected}
@@ -409,7 +428,7 @@ function MyItemsPageInner() {
       </div>
 
       {showBulkBar ? (
-        <div className="mb-4 sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-xl bg-gray-900 text-white px-3 py-2.5 shadow-lg">
+        <div className="mb-4 sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-xl bg-[var(--color-heading)] text-white px-3 py-2.5 shadow-md">
           <span className="text-xs font-semibold mr-1">{selectedIds.length} selected</span>
           {(tab === "ended" || tab === "sold") && (
             <button
@@ -549,21 +568,20 @@ function MyItemsPageInner() {
         </div>
       ) : null}
 
-      <ul className="space-y-3">
+      <ul className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white overflow-hidden">
         {filtered.map((item) => {
           const photo = Array.isArray(item.photos) ? item.photos[0] : undefined;
           const selected = selectedIds.includes(item.id);
           const views = item.views30d ?? 0;
+          const status = statusLabel(item);
           return (
-            <li key={item.id} className="relative">
-              <div
-                className={`flex gap-3 p-3 rounded-[10px] border-2 transition ${
-                  selected
-                    ? "border-[var(--color-primary)] bg-[var(--color-section-alt)]"
-                    : "border-[var(--color-primary)] bg-white"
-                }`}
-              >
-                <label className="flex items-start pt-1 cursor-pointer shrink-0">
+            <li
+              key={item.id}
+              className={`relative ${selected ? "bg-[var(--color-section-alt)]" : "bg-white"}`}
+              data-item-menu={item.id}
+            >
+              <div className="flex items-center gap-3 px-3 py-3 sm:px-4">
+                <label className="flex items-center cursor-pointer shrink-0 self-stretch">
                   <input
                     type="checkbox"
                     checked={selected}
@@ -572,66 +590,107 @@ function MyItemsPageInner() {
                     aria-label={`Select ${item.title}`}
                   />
                 </label>
-                <Link href={itemEditHref(item)} className="flex gap-3 min-w-0 flex-1 hover:opacity-90">
-                  <div className="w-16 h-16 rounded-lg bg-gray-100 overflow-hidden shrink-0">
-                    {photo ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={photo} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-gray-400">
-                        <IonIcon name="image-outline" size={22} />
-                      </div>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-semibold text-[var(--color-heading)] truncate">
-                      {item.title}
+
+                <div className="w-14 h-14 rounded-md bg-gray-100 overflow-hidden shrink-0 border border-gray-100">
+                  {photo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={photo} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-300">
+                      <IonIcon name="image-outline" size={20} />
                     </div>
-                    <div className="text-sm text-gray-600 mt-0.5">
-                      {formatPrice(item.priceCents)}
-                      {tab !== "sold" ? ` · Qty ${item.quantity}` : null}
-                      {` · ${statusLabel(item)}`}
-                      {` · ${views} view${views === 1 ? "" : "s"} (30d)`}
-                    </div>
-                    {tab === "sold" && item.soldAt ? (
-                      <div className="text-xs text-gray-500 mt-0.5">
-                        Sold on {new Date(item.soldAt).toLocaleDateString()}
-                      </div>
-                    ) : null}
-                  </div>
-                </Link>
-                <div className="flex flex-col items-end gap-1 shrink-0">
-                  {(tab === "ended" || tab === "sold") && (
-                    <button
-                      type="button"
-                      disabled={acting}
-                      className="text-xs font-bold text-white bg-[var(--color-primary)] px-2.5 py-1 rounded-md disabled:opacity-50"
-                      onClick={() => relist([item.id])}
-                    >
-                      Relist
-                    </button>
                   )}
-                  <button
-                    type="button"
-                    className="p-1.5 text-gray-500 hover:text-[var(--color-heading)]"
-                    aria-label="More actions"
-                    onClick={() => setMenuOpenId(menuOpenId === item.id ? null : item.id)}
-                  >
-                    <IonIcon name="ellipsis-vertical" size={18} />
-                  </button>
                 </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-[var(--color-heading)] leading-snug line-clamp-2">
+                    {item.title}
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-600">
+                    <span className="font-semibold text-[var(--color-heading)]">
+                      {formatPrice(item.priceCents)}
+                    </span>
+                    {tab !== "sold" ? <span className="text-gray-300">·</span> : null}
+                    {tab !== "sold" ? <span>Qty {item.quantity}</span> : null}
+                    <span className="text-gray-300">·</span>
+                    <span
+                      className={
+                        status === "Active"
+                          ? "text-emerald-700 font-medium"
+                          : status === "Out of stock"
+                            ? "text-amber-700 font-medium"
+                            : "text-gray-500 font-medium"
+                      }
+                    >
+                      {status}
+                    </span>
+                    <span className="text-gray-300">·</span>
+                    <span className="text-gray-500">
+                      {views} view{views === 1 ? "" : "s"} (30d)
+                    </span>
+                  </div>
+                  {tab === "sold" && item.soldAt ? (
+                    <div className="text-xs text-gray-500 mt-1">
+                      Sold on {new Date(item.soldAt).toLocaleDateString()}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                    <Link
+                      href={itemEditHref(item)}
+                      className="font-semibold text-[var(--color-primary)] hover:underline"
+                    >
+                      Edit
+                    </Link>
+                    {item.slug ? (
+                      <Link
+                        href={`/storefront/${item.slug}?from=my-items`}
+                        className="font-medium text-gray-600 hover:underline"
+                      >
+                        View
+                      </Link>
+                    ) : null}
+                    {(tab === "ended" || tab === "sold") && (
+                      <button
+                        type="button"
+                        disabled={acting}
+                        className="font-semibold text-emerald-700 hover:underline disabled:opacity-50"
+                        onClick={() => relist([item.id])}
+                      >
+                        Relist
+                      </button>
+                    )}
+                    <Link
+                      href={`/seller-hub/store/new?similar=${item.id}`}
+                      className="font-medium text-gray-600 hover:underline"
+                    >
+                      Sell similar
+                    </Link>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="p-2 rounded-md text-gray-400 hover:text-[var(--color-heading)] hover:bg-gray-100 shrink-0"
+                  aria-label="More actions"
+                  aria-expanded={menuOpenId === item.id}
+                  onClick={() => setMenuOpenId(menuOpenId === item.id ? null : item.id)}
+                >
+                  <IonIcon name="ellipsis-vertical" size={18} />
+                </button>
               </div>
+
               {menuOpenId === item.id ? (
-                <div className="absolute right-3 top-14 z-20 min-w-[180px] rounded-lg border border-gray-200 bg-white shadow-lg py-1">
+                <div className="absolute right-3 top-12 z-20 min-w-[180px] rounded-lg border border-gray-200 bg-white shadow-lg py-1">
                   <Link
                     href={itemEditHref(item)}
-                    className="block px-3 py-2 text-sm hover:bg-gray-50 text-[var(--color-primary)] font-medium"
+                    className="block px-3 py-2 text-sm hover:bg-gray-50 font-medium"
                   >
-                    Edit
+                    Edit listing
                   </Link>
                   <Link
                     href={`/seller-hub/store/new?similar=${item.id}`}
-                    className="block px-3 py-2 text-sm hover:bg-gray-50 text-[var(--color-primary)] font-medium"
+                    className="block px-3 py-2 text-sm hover:bg-gray-50"
                   >
                     Sell similar
                   </Link>
