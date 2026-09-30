@@ -365,8 +365,10 @@ export function planShopifyTopologyDiff(input: {
     }
   }
 
-  // Option label drift on the same GID → pull REMOTE options onto StoreVariant.
-  // (Shopify is the observed source for inbound topology; never push local labels here.)
+  // Same GID option drift:
+  // - Pull REMOTE when Shopify covers/expands local axes (rename, simple→multi, Color→Color+Size).
+  // - Keep LOCAL when INW is a strict axis superset (outbound expansion; do not clobber).
+  // - Conflict only when axes are incompatible (neither covers the other).
   const renameOptionValues: Array<{
     shopifyVariantId: string;
     storeVariantId: string;
@@ -383,20 +385,27 @@ export function planShopifyTopologyDiff(input: {
     const remoteKey = shopifyOptionCombinationKey(rem.selectedOptions);
     if (localKey === remoteKey) continue;
 
-    const localNames = new Set(row.selectedOptions.map((o) => o.name));
-    const remoteNames = new Set(rem.selectedOptions.map((o) => o.name));
-    const namesMatch =
-      localNames.size === remoteNames.size &&
-      [...localNames].every((n) => remoteNames.has(n));
+    const localNames = new Set(
+      row.selectedOptions.map((o) => normalizeOptionName(o.name)).filter(Boolean)
+    );
+    const remoteNames = new Set(
+      rem.selectedOptions.map((o) => normalizeOptionName(o.name)).filter(Boolean)
+    );
+    const remoteCoversLocal =
+      localSimple || [...localNames].every((n) => remoteNames.has(n));
+    const localCoversRemote =
+      remoteSimple || [...remoteNames].every((n) => localNames.has(n));
 
-    // Simple → multi-option on the same GID (common Shopify edit) is a pull, not a conflict.
-    if (!namesMatch && !localSimple && !remoteSimple) {
+    if (!remoteCoversLocal && !localCoversRemote) {
       return {
         kind: "CONFLICT",
         code: "TOPOLOGY_AXIS_CONFLICT",
         message: `Mapped variant ${row.shopifyVariantId} changed option axes incompatibly`,
       };
     }
+
+    // Local expanded beyond remote on this GID — leave StoreVariant options for outbound path.
+    if (!remoteCoversLocal && localCoversRemote) continue;
 
     renameOptionValues.push({
       shopifyVariantId: row.shopifyVariantId!,

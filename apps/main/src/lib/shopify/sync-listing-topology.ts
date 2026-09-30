@@ -24,6 +24,25 @@ type HandlerFailure = {
   errorMessage: string;
 };
 
+/** Clear stale topology conflict once inbound planning no longer conflicts. */
+async function clearResolvedTopologyConflict(listingLinkId: string): Promise<void> {
+  await prisma.shopifyListingLink.updateMany({
+    where: {
+      id: listingLinkId,
+      issueCode: "TOPOLOGY_AXIS_CONFLICT",
+    },
+    data: {
+      readiness: "SYNCING",
+      contentHealth: "HEALTHY",
+      issueCode: null,
+      issueSeverity: null,
+      issueMessage: null,
+      issueFingerprint: null,
+      issueLastSeenAt: null,
+    },
+  });
+}
+
 type RemoteTopology = {
   options: Array<{
     id: string;
@@ -553,6 +572,7 @@ export async function syncShopifyListingTopology(input: {
       connectionId: input.connectionId,
       topology: remoteRead.topology,
     });
+    await clearResolvedTopologyConflict(input.listingLinkId);
     return { ok: true, plan, importedStoreVariantIds: [] };
   }
   if (plan.kind === "CONFLICT") {
@@ -791,5 +811,6 @@ export async function syncShopifyListingTopology(input: {
     }
   }
 
+  await clearResolvedTopologyConflict(input.listingLinkId);
   return { ok: true, plan, importedStoreVariantIds };
 }
