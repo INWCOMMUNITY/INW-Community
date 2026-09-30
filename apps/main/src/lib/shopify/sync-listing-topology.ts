@@ -654,7 +654,7 @@ export async function syncShopifyListingTopology(input: {
     });
   }
 
-  // Retire mappings for provider-deleted variants without destroying canonical StoreVariant.
+  // Retire mappings for provider-deleted variants; mark StoreVariant RETIRED so qty projection drops it.
   for (const row of plan.retireMappings) {
     await prisma.shopifyVariantMap.deleteMany({
       where: {
@@ -663,6 +663,15 @@ export async function syncShopifyListingTopology(input: {
         shopifyVariantId: row.shopifyVariantId,
         storeVariantId: row.storeVariantId,
       },
+    });
+    await prisma.storeVariant.updateMany({
+      where: {
+        id: row.storeVariantId,
+        storeItemId: input.storeItemId,
+        memberId: input.memberId,
+        status: "ACTIVE",
+      },
+      data: { status: "RETIRED", retiredAt: input.now ?? new Date() },
     });
   }
 

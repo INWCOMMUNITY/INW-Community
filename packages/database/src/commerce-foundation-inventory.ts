@@ -217,7 +217,9 @@ export async function projectStoreItemQuantity(tx: FoundationDb, storeItemId: st
     await tx.storeItem.update({ where: { id: storeItemId }, data: { quantity: 0 } });
     return 0;
   }
-  const states = await tx.inventoryState.findMany({ where: { storeItemId } });
+  const states = await tx.inventoryState.findMany({
+    where: { storeItemId, variant: { status: "ACTIVE" } },
+  });
   let sum = 0;
   for (const state of states) {
     if (state.mode === "MADE_TO_ORDER") continue;
