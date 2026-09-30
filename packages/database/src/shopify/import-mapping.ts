@@ -9,12 +9,14 @@ import {
   assertShopifyProductVariantGid,
   ShopifyGidValidationError,
 } from "./gids";
+import { seedShopifyListingFieldConvergence } from "./field-state";
 import {
   ShopifyMappingConflictError,
   ShopifyMappingError,
   type ShopifyListingMappingSnapshot,
   type ShopifyVariantMappingInput,
 } from "./mapping";
+import { SHOPIFY_MAX_VARIANTS } from "./variant-topology";
 
 export type ShopifyImportMappingDb = PrismaClient | Prisma.TransactionClient;
 
@@ -26,8 +28,12 @@ export type CreateShopifyImportedListingMappingInput = {
   variants: ShopifyVariantMappingInput[];
   remoteProductStatus: string | null;
   importBootstrapStartedAt: Date;
-  /** PHYSICAL sellable at primary location; null for MTO. */
-  remoteAvailable: number | null;
+  /**
+   * Per-variant opening available quantity at primary location.
+   * Parallel array (same order as `variants`), OR a single scalar applied to all.
+   * null entries → MTO / not tracked for that variant.
+   */
+  remoteAvailable: number | null | (number | null)[];
   inventoryMode: "TRACKED_FINITE" | "MADE_TO_ORDER";
 };
 
@@ -54,19 +60,39 @@ const variantSelect = {
   updatedAt: true,
 } as const;
 
+function resolvePerVariantAvailable(
+  remoteAvailable: number | null | (number | null)[],
+  variantCount: number
+): (number | null)[] {
+  if (Array.isArray(remoteAvailable)) {
+    if (remoteAvailable.length !== variantCount) {
+      throw new ShopifyMappingError(
+        "INVALID_VARIANTS",
+        `remoteAvailable array length ${remoteAvailable.length} does not match variant count ${variantCount}`
+      );
+    }
+    return remoteAvailable;
+  }
+  return Array.from({ length: variantCount }, () => remoteAvailable);
+}
+
 /**
  * Create mapping for a Shopify→INW import inside an existing transaction.
- * Seeds S5 BASE=LOCAL=REMOTE fingerprints and S8 INITIALIZED / NOT_APPLICABLE baselines.
- * Does NOT enqueue PROJECT_INVENTORY or UPDATE_LISTING_CONTENT.
+ * Seeds S5 BASE=LOCAL=REMOTE fingerprints (first variant only) and S8 INITIALIZED / NOT_APPLICABLE baselines per variant.
+ * Supports 1..100 variants. Does NOT enqueue PROJECT_INVENTORY or UPDATE_LISTING_CONTENT.
  */
 export async function createShopifyImportedListingMapping(
   tx: ShopifyImportMappingDb,
   input: CreateShopifyImportedListingMappingInput
 ): Promise<ShopifyListingMappingSnapshot> {
-  if (!input.variants || input.variants.length !== 1) {
+  if (
+    !input.variants ||
+    input.variants.length < 1 ||
+    input.variants.length > SHOPIFY_MAX_VARIANTS
+  ) {
     throw new ShopifyMappingError(
       "INVALID_VARIANTS",
-      "Shopify import currently supports exactly one variant mapping"
+      `Shopify import requires 1–${SHOPIFY_MAX_VARIANTS} variant mappings; got ${input.variants?.length ?? 0}`
     );
   }
 
@@ -80,17 +106,45 @@ export async function createShopifyImportedListingMapping(
     throw error;
   }
 
-  const variant = input.variants[0]!;
-  let shopifyVariantId: string;
-  let shopifyInventoryItemId: string;
-  try {
-    shopifyVariantId = assertShopifyProductVariantGid(variant.shopifyVariantId.trim());
-    shopifyInventoryItemId = assertShopifyInventoryItemGid(variant.shopifyInventoryItemId.trim());
-  } catch (error) {
-    if (error instanceof ShopifyGidValidationError) {
-      throw new ShopifyMappingError("INVALID_SHOPIFY_GID", error.message);
+  const perVariantAvailable = resolvePerVariantAvailable(
+    input.remoteAvailable,
+    input.variants.length
+  );
+
+  const validatedVariants: Array<{
+    storeVariantId: string;
+    shopifyVariantId: string;
+    shopifyInventoryItemId: string;
+  }> = [];
+  const seenStoreVariants = new Set<string>();
+  const seenShopifyVariants = new Set<string>();
+  const seenInventoryItems = new Set<string>();
+
+  for (const variant of input.variants) {
+    let shopifyVariantId: string;
+    let shopifyInventoryItemId: string;
+    try {
+      shopifyVariantId = assertShopifyProductVariantGid(variant.shopifyVariantId.trim());
+      shopifyInventoryItemId = assertShopifyInventoryItemGid(variant.shopifyInventoryItemId.trim());
+    } catch (error) {
+      if (error instanceof ShopifyGidValidationError) {
+        throw new ShopifyMappingError("INVALID_SHOPIFY_GID", error.message);
+      }
+      throw error;
     }
-    throw error;
+    if (seenStoreVariants.has(variant.storeVariantId)) {
+      throw new ShopifyMappingConflictError("Duplicate StoreVariant in import mapping");
+    }
+    if (seenShopifyVariants.has(shopifyVariantId)) {
+      throw new ShopifyMappingConflictError("Duplicate Shopify ProductVariant in import mapping");
+    }
+    if (seenInventoryItems.has(shopifyInventoryItemId)) {
+      throw new ShopifyMappingConflictError("Duplicate Shopify InventoryItem in import mapping");
+    }
+    seenStoreVariants.add(variant.storeVariantId);
+    seenShopifyVariants.add(shopifyVariantId);
+    seenInventoryItems.add(shopifyInventoryItemId);
+    validatedVariants.push({ storeVariantId: variant.storeVariantId, shopifyVariantId, shopifyInventoryItemId });
   }
 
   const connection = await tx.shopifyConnection.findFirst({
@@ -109,21 +163,23 @@ export async function createShopifyImportedListingMapping(
     throw new ShopifyMappingError("STORE_ITEM_NOT_FOUND", "Store item was not found for this member");
   }
 
-  const storeVariant = await tx.storeVariant.findFirst({
+  const storeVariants = await tx.storeVariant.findMany({
     where: {
-      id: variant.storeVariantId,
-      storeItemId: input.storeItemId,
       memberId: input.memberId,
+      storeItemId: input.storeItemId,
+      id: { in: validatedVariants.map((v) => v.storeVariantId) },
     },
     select: { id: true, priceCents: true, sku: true },
   });
-  if (!storeVariant) {
+  if (storeVariants.length !== validatedVariants.length) {
     throw new ShopifyMappingError(
       "STORE_VARIANT_NOT_FOUND",
       "Store variant does not belong to this store item"
     );
   }
+  const storeVariantById = new Map(storeVariants.map((sv) => [sv.id, sv]));
 
+  // Idempotent already-mapped path
   const existingByProduct = await tx.shopifyListingLink.findFirst({
     where: { shopifyConnectionId: input.connectionId, shopifyProductId },
     select: { id: true, storeItemId: true },
@@ -151,23 +207,26 @@ export async function createShopifyImportedListingMapping(
     throw new ShopifyMappingConflictError("Store item is already mapped on this connection");
   }
 
-  const conflict = await tx.shopifyVariantMap.findFirst({
-    where: {
-      shopifyConnectionId: input.connectionId,
-      OR: [{ storeVariantId: storeVariant.id }, { shopifyVariantId }, { shopifyInventoryItemId }],
-    },
-    select: { id: true },
-  });
-  if (conflict) throw new ShopifyMappingConflictError();
+  // Check all variant identity collisions at once
+  for (const v of validatedVariants) {
+    const conflict = await tx.shopifyVariantMap.findFirst({
+      where: {
+        shopifyConnectionId: input.connectionId,
+        OR: [
+          { storeVariantId: v.storeVariantId },
+          { shopifyVariantId: v.shopifyVariantId },
+          { shopifyInventoryItemId: v.shopifyInventoryItemId },
+        ],
+      },
+      select: { id: true },
+    });
+    if (conflict) throw new ShopifyMappingConflictError();
+  }
 
   const now = new Date();
   const productFp = shopifyProductContentFingerprint({
     title: storeItem.title,
     description: storeItem.description,
-  });
-  const variantFp = shopifyVariantContentFingerprint({
-    priceCents: storeVariant.priceCents,
-    sku: storeVariant.sku,
   });
 
   const listingLink = await tx.shopifyListingLink.create({
@@ -194,47 +253,74 @@ export async function createShopifyImportedListingMapping(
     select: listingSelect,
   });
 
-  const inventorySeed =
-    input.inventoryMode === "MADE_TO_ORDER"
-      ? {
-          inventoryInitState: "NOT_APPLICABLE" as const,
-          inventoryDesiredVersion: 0,
-          inventoryDesiredAvailable: null as number | null,
-          inventoryAppliedVersion: 0,
-          inventoryAppliedAvailable: null as number | null,
-          inventoryLastObservedAvailable: null as number | null,
-          inventoryDesiredAt: now,
-          inventoryAppliedAt: now,
-        }
-      : {
-          inventoryInitState: "INITIALIZED" as const,
-          inventoryDesiredVersion: 1,
-          inventoryDesiredAvailable: input.remoteAvailable,
-          inventoryAppliedVersion: 1,
-          inventoryAppliedAvailable: input.remoteAvailable,
-          inventoryLastObservedAvailable: input.remoteAvailable,
-          inventoryDesiredAt: now,
-          inventoryAppliedAt: now,
-        };
+  // Create all variant maps with per-variant inventory baselines
+  for (let i = 0; i < validatedVariants.length; i++) {
+    const v = validatedVariants[i]!;
+    const sv = storeVariantById.get(v.storeVariantId)!;
+    const available = perVariantAvailable[i] ?? null;
+    const variantFp = shopifyVariantContentFingerprint({
+      priceCents: sv.priceCents,
+      sku: sv.sku,
+    });
 
-  await tx.shopifyVariantMap.create({
-    data: {
-      shopifyConnectionId: input.connectionId,
-      shopifyListingLinkId: listingLink.id,
+    const inventorySeed =
+      input.inventoryMode === "MADE_TO_ORDER"
+        ? {
+            inventoryInitState: "NOT_APPLICABLE" as const,
+            inventoryDesiredVersion: 0,
+            inventoryDesiredAvailable: null as number | null,
+            inventoryAppliedVersion: 0,
+            inventoryAppliedAvailable: null as number | null,
+            inventoryLastObservedAvailable: null as number | null,
+            inventoryDesiredAt: now,
+            inventoryAppliedAt: now,
+          }
+        : {
+            inventoryInitState: "INITIALIZED" as const,
+            inventoryDesiredVersion: 1,
+            inventoryDesiredAvailable: available,
+            inventoryAppliedVersion: 1,
+            inventoryAppliedAvailable: available,
+            inventoryLastObservedAvailable: available,
+            inventoryDesiredAt: now,
+            inventoryAppliedAt: now,
+          };
+
+    await tx.shopifyVariantMap.create({
+      data: {
+        shopifyConnectionId: input.connectionId,
+        shopifyListingLinkId: listingLink.id,
+        memberId: input.memberId,
+        storeItemId: input.storeItemId,
+        storeVariantId: v.storeVariantId,
+        shopifyVariantId: v.shopifyVariantId,
+        shopifyInventoryItemId: v.shopifyInventoryItemId,
+        desiredVariantFingerprint: variantFp,
+        appliedVariantFingerprint: variantFp,
+        lastObservedVariantFingerprint: variantFp,
+        lastObservedVariantUpdatedAt: now,
+        variantContentAppliedAt: now,
+        inventoryDriftState: "NONE",
+        ...inventorySeed,
+      },
+    });
+  }
+
+  // Seed field convergence for every imported variant (product fields upsert idempotently).
+  for (const v of validatedVariants) {
+    const sv = storeVariantById.get(v.storeVariantId)!;
+    await seedShopifyListingFieldConvergence(tx, {
+      connectionId: input.connectionId,
+      listingLinkId: listingLink.id,
       memberId: input.memberId,
       storeItemId: input.storeItemId,
-      storeVariantId: storeVariant.id,
-      shopifyVariantId,
-      shopifyInventoryItemId,
-      desiredVariantFingerprint: variantFp,
-      appliedVariantFingerprint: variantFp,
-      lastObservedVariantFingerprint: variantFp,
-      lastObservedVariantUpdatedAt: now,
-      variantContentAppliedAt: now,
-      inventoryDriftState: "NONE",
-      ...inventorySeed,
-    },
-  });
+      storeVariantId: sv.id,
+      title: storeItem.title,
+      description: storeItem.description,
+      priceCents: sv.priceCents,
+      sku: sv.sku,
+    });
+  }
 
   const variantMaps = await tx.shopifyVariantMap.findMany({
     where: { shopifyListingLinkId: listingLink.id },

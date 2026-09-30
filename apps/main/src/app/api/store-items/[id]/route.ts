@@ -417,6 +417,7 @@ export async function PATCH(
     description: existing.description,
     priceCents: existing.priceCents,
     sku: existing.sku,
+    photos: existing.photos,
   };
 
   if (writer.route === "foundation") {
@@ -477,6 +478,7 @@ export async function PATCH(
             description: updated.description,
             priceCents: updated.priceCents,
             sku: updated.sku,
+            photos: updated.photos,
           },
         });
         return updated;
@@ -513,6 +515,7 @@ export async function PATCH(
         description: updated.description,
         priceCents: updated.priceCents,
         sku: updated.sku,
+        photos: updated.photos,
       },
     });
     return updated;

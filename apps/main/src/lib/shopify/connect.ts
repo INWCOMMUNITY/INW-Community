@@ -18,6 +18,7 @@ import {
   registerShopifyUninstallWebhook,
   ensureShopifyProductsUpdateWebhook,
   ensureShopifyOrdersPaidWebhook,
+  ensureShopifyInventoryLevelsUpdateWebhook,
   ShopifyDomainAssociationError,
   type ShopifyFetch,
 } from "./client";
@@ -277,6 +278,12 @@ export async function completeShopifyOAuth(
       fetchImpl: deps.fetchImpl,
     });
     await ensureShopifyOrdersPaidWebhook({
+      shopDomain: identity.shopDomain,
+      accessToken: tokens.accessToken,
+      callbackUrl: config.providerEvidenceWebhookUri,
+      fetchImpl: deps.fetchImpl,
+    });
+    await ensureShopifyInventoryLevelsUpdateWebhook({
       shopDomain: identity.shopDomain,
       accessToken: tokens.accessToken,
       callbackUrl: config.providerEvidenceWebhookUri,

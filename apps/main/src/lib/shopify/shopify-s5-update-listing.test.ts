@@ -10,15 +10,31 @@ vi.mock("database", async () => {
       shopifyConnection: { findUnique: vi.fn() },
       shopifyListingLink: { findUnique: vi.fn() },
       shopifyVariantMap: { findMany: vi.fn() },
+      shopifyListingFieldState: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn(),
+        updateMany: vi.fn(),
+      },
+      shopifyMediaMap: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn(),
+        updateMany: vi.fn(),
+      },
       storeItem: { findFirst: vi.fn() },
-      storeVariant: { findFirst: vi.fn() },
+      storeVariant: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     },
     markShopifyProductContentApplied: vi.fn(),
     markShopifyVariantContentApplied: vi.fn(),
+    markShopifyFieldsApplied: vi.fn(),
     setShopifyProductContentConflict: vi.fn(),
     setShopifyVariantContentConflict: vi.fn(),
   };
 });
+
+vi.mock("./sync-listing-media", () => ({
+  syncShopifyListingMedia: vi.fn(async () => ({ ok: true, added: 0, removed: 0 })),
+  syncShopifyVariantMediaAssociations: vi.fn(async () => ({ ok: true, associated: 0 })),
+}));
 
 vi.mock("./connect", () => ({
   accessTokenForConnection: vi.fn(async () => ACCESS),
@@ -122,6 +138,7 @@ const storeItem = {
   description: "New Desc",
   priceCents: 1037,
   sku: "SKU-NEW",
+  photos: [] as string[],
 };
 
 const storeVariant = {

@@ -10,6 +10,7 @@ import type { ShopifyJobHandlerResult, ShopifySyncJobClaim } from "database";
 import type { ShopifyFetch } from "./admin-graphql";
 import { executeShopifyAdminGraphql } from "./admin-graphql";
 import { handleShopifyOrdersPaidEvidence } from "./process-orders-paid";
+import { handleShopifyInventoryLevelsEvidence } from "./process-inventory-levels";
 
 function parseProductGidFromEvidenceBody(rawBody: string): string | null {
   try {
@@ -29,7 +30,8 @@ function parseProductGidFromEvidenceBody(rawBody: string): string | null {
   return null;
 }
 
-async function readRemoteProductForInbound(input: {
+/** Authoritative product re-fetch for inbound content/media (also used by S9 recovery). */
+export async function readRemoteProductForInbound(input: {
   connectionId: string;
   productId: string;
   fetchImpl?: ShopifyFetch;
@@ -49,6 +51,13 @@ async function readRemoteProductForInbound(input: {
           sku: string | null;
           updatedAt: Date;
           inventoryItemId: string | null;
+          mediaIds: string[];
+        }>;
+        media: Array<{
+          shopifyMediaId: string;
+          sourceUrl: string | null;
+          position: number;
+          altText: string | null;
         }>;
       };
     }
@@ -75,6 +84,14 @@ async function readRemoteProductForInbound(input: {
           sku: string | null;
           updatedAt: string;
           inventoryItem: { id: string } | null;
+          media?: { nodes: Array<{ id: string }> } | null;
+        }>;
+      };
+      media: {
+        nodes: Array<{
+          id: string;
+          alt: string | null;
+          preview?: { image?: { url: string | null } | null } | null;
         }>;
       };
     } | null;
@@ -89,13 +106,21 @@ async function readRemoteProductForInbound(input: {
         title
         descriptionHtml
         updatedAt
-        variants(first: 10) {
+        variants(first: 100) {
           nodes {
             id
             price
             sku
             updatedAt
             inventoryItem { id }
+            media(first: 10) { nodes { id } }
+          }
+        }
+        media(first: 50) {
+          nodes {
+            id
+            alt
+            preview { image { url } }
           }
         }
       }
@@ -159,8 +184,15 @@ async function readRemoteProductForInbound(input: {
       sku: row.sku,
       updatedAt: Number.isNaN(variantUpdatedAt.getTime()) ? updatedAt : variantUpdatedAt,
       inventoryItemId: row.inventoryItem?.id ?? null,
+      mediaIds: (row.media?.nodes ?? []).map((m) => m.id).filter(Boolean),
     };
   });
+  const media = (product.media?.nodes ?? []).map((row, index) => ({
+    shopifyMediaId: row.id,
+    sourceUrl: row.preview?.image?.url ?? null,
+    position: index,
+    altText: row.alt,
+  }));
 
   return {
     ok: true,
@@ -171,6 +203,7 @@ async function readRemoteProductForInbound(input: {
       descriptionHtml: product.descriptionHtml,
       updatedAt,
       variants,
+      media,
     },
   };
 }
@@ -224,6 +257,9 @@ export async function handleShopifyProcessProviderEvidenceJob(
   if (topic === "orders/paid") {
     return handleShopifyOrdersPaidEvidence(claim, evidence, deps);
   }
+  if (topic === "inventory_levels/update") {
+    return handleShopifyInventoryLevelsEvidence(claim, evidence, deps);
+  }
   if (topic !== "products/update") {
     // Other topics remain deferred until their owned processors exist.
     return { outcome: "SUCCESS" };
@@ -275,15 +311,17 @@ export async function handleShopifyProcessProviderEvidenceJob(
     where: { shopifyListingLinkId: listing.id, shopifyConnectionId: connection.id },
     orderBy: { createdAt: "asc" },
   });
-  if (variantMaps.length !== 1) {
+  if (variantMaps.length < 1) {
     await markShopifyEvidenceError(
       prisma,
       evidence.id,
       "UNSUPPORTED_VARIANTS",
-      "Mapped listing does not have exactly one StoreVariant mapping"
+      "Mapped listing has no StoreVariant mappings"
     );
     return { outcome: "SUCCESS" };
   }
+  // Apply product + first mapped variant content; additional mapped variants are
+  // reconciled via S9 / subsequent evidence. Media inbound runs with product fields.
   const variantMap = variantMaps[0];
 
   const remote = await readRemoteProductForInbound({
@@ -319,19 +357,37 @@ export async function handleShopifyProcessProviderEvidenceJob(
     return { outcome: "SUCCESS" };
   }
 
+  // Prefer the mapped variant present on the remote product (multi-variant safe).
+  const activeMap =
+    variantMaps.find((map) =>
+      remote.product.variants.some((row) => row.id === map.shopifyVariantId)
+    ) ?? variantMap;
+
   const applied = await applyShopifyProductsUpdateObservation(prisma, {
     evidenceId: evidence.id,
     connectionId: connection.id,
     listingLinkId: listing.id,
-    mappedVariantId: variantMap.shopifyVariantId,
-    mappedStoreVariantId: variantMap.storeVariantId,
+    mappedVariantId: activeMap.shopifyVariantId,
+    mappedStoreVariantId: activeMap.storeVariantId,
+    allMappedVariants: variantMaps.map((map) => ({
+      shopifyVariantId: map.shopifyVariantId,
+      storeVariantId: map.storeVariantId,
+    })),
     remote: {
       productId: remote.product.id,
       status: remote.product.status,
       title: remote.product.title,
       descriptionHtml: remote.product.descriptionHtml,
       updatedAt: remote.product.updatedAt,
-      variants: remote.product.variants,
+      variants: remote.product.variants.map((row) => ({
+        id: row.id,
+        price: row.price,
+        sku: row.sku,
+        updatedAt: row.updatedAt,
+        inventoryItemId: row.inventoryItemId,
+        mediaIds: row.mediaIds,
+      })),
+      media: remote.product.media,
     },
   });
 

@@ -1,19 +1,8 @@
 import type { Prisma, PrismaClient, ShopifyProviderEvidence } from "@prisma/client";
-import {
-  clearShopifyProductContentConflict,
-  clearShopifyVariantContentConflict,
-  ensureShopifyUpdateListingContentJob,
-  markShopifyProductContentApplied,
-  markShopifyVariantContentApplied,
-  setShopifyProductContentConflict,
-  setShopifyVariantContentConflict,
-} from "./content-desire";
-import {
-  shopifyCentsFromMoneyString,
-  shopifyProductContentFingerprint,
-  shopifyVariantContentFingerprint,
-} from "./content-fingerprint";
-import { classifyShopifyContentSemantics } from "./content-semantic";
+import { applyShopifyFieldLevelContentInbound } from "./content-inbound-fields";
+import { shopifyCentsFromMoneyString } from "./content-fingerprint";
+import { applyShopifyMediaInbound, type ShopifyRemoteMediaNode } from "./media-inbound";
+import { applyShopifyVariantMediaInbound } from "./variant-media";
 
 export type ShopifyInboundDb = PrismaClient | Prisma.TransactionClient;
 
@@ -31,7 +20,10 @@ export type ShopifyRemoteProductObservation = {
     /** Diagnostic only — never used for winner selection. */
     updatedAt: Date;
     inventoryItemId: string | null;
+    /** Exact Product media GIDs associated to this ProductVariant (never inferred by SKU). */
+    mediaIds?: string[];
   }>;
+  media?: ShopifyRemoteMediaNode[];
 };
 
 export type ApplyShopifyProductsUpdateResult =
@@ -61,7 +53,7 @@ function markEvidence(
 }
 
 /**
- * Apply a re-read Shopify product observation using three-way semantic classification.
+ * Apply a re-read Shopify product observation using field-level three-way classification.
  * Fingerprints only for winner selection — never Product/Variant.updatedAt.
  */
 export async function applyShopifyProductsUpdateObservation(
@@ -72,6 +64,12 @@ export async function applyShopifyProductsUpdateObservation(
     listingLinkId: string;
     mappedVariantId: string;
     mappedStoreVariantId: string;
+    /**
+     * When provided, apply independent PRICE/SKU semantics for every mapped variant
+     * present on the remote product (multi-variant field isolation).
+     * Product TITLE/DESCRIPTION/MEDIA still apply once.
+     */
+    allMappedVariants?: Array<{ shopifyVariantId: string; storeVariantId: string }>;
     remote: ShopifyRemoteProductObservation;
   }
 ): Promise<ApplyShopifyProductsUpdateResult> {
@@ -117,22 +115,23 @@ export async function applyShopifyProductsUpdateObservation(
     };
   }
 
-  if (input.remote.variants.length !== 1) {
+  if (input.remote.variants.length < 1) {
     await markEvidence(db, input.evidenceId, "ERROR", {
       code: "VARIANT_CARDINALITY",
-      message: `Expected exactly one Shopify variant, found ${input.remote.variants.length}`,
+      message: "Remote product has no variants",
     });
     return {
       status: "ERROR",
       code: "VARIANT_CARDINALITY",
-      message: "Mapped listing no longer has exactly one Shopify variant",
+      message: "Remote product has no variants",
     };
   }
-  const remoteVariant = input.remote.variants[0];
-  if (remoteVariant.id !== input.mappedVariantId) {
+  const remoteVariant =
+    input.remote.variants.find((row) => row.id === input.mappedVariantId) ?? null;
+  if (!remoteVariant) {
     await markEvidence(db, input.evidenceId, "ERROR", {
       code: "VARIANT_GID_MISMATCH",
-      message: "Remote variant identity does not match mapping",
+      message: "Mapped Shopify variant GID missing from remote product",
     });
     return { status: "ERROR", code: "VARIANT_GID_MISMATCH", message: "Variant GID mismatch" };
   }
@@ -156,15 +155,6 @@ export async function applyShopifyProductsUpdateObservation(
     });
     return { status: "ERROR", code: "REMOTE_PRICE_INVALID", message: "Invalid remote price" };
   }
-
-  const remoteProductFp = shopifyProductContentFingerprint({
-    title: input.remote.title,
-    description: input.remote.descriptionHtml,
-  });
-  const remoteVariantFp = shopifyVariantContentFingerprint({
-    priceCents: remotePriceCents,
-    sku: remoteVariant.sku,
-  });
 
   return db.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${contentInboundLockKey(input.listingLinkId)}))`;
@@ -211,220 +201,119 @@ export async function applyShopifyProductsUpdateObservation(
       };
     }
 
-    const localProductFp =
-      listing.desiredProductFingerprint ??
-      shopifyProductContentFingerprint({
-        title: storeItem.title,
-        description: storeItem.description,
-      });
-    const localVariantFp =
-      variantMap.desiredVariantFingerprint ??
-      shopifyVariantContentFingerprint({
-        priceCents: storeVariant.priceCents,
-        sku: storeVariant.sku,
-      });
-
-    const productBase = listing.appliedProductFingerprint;
-    const variantBase = variantMap.appliedVariantFingerprint;
-    const hasLocalProductEdit =
-      listing.desiredProductContentVersion > 0 || listing.productDesiredAt != null;
-    const hasLocalVariantEdit =
-      variantMap.desiredVariantContentVersion > 0 || variantMap.variantDesiredAt != null;
-
-    let productAction = "NONE";
-    let variantAction = "NONE";
-
-    // ---- PRODUCT group (fingerprints only) ----
-    const productClass = classifyShopifyContentSemantics({
-      base: productBase,
-      local: localProductFp,
-      remote: remoteProductFp,
-      hasLocalSemanticEdit: hasLocalProductEdit,
+    const { productAction, variantAction } = await applyShopifyFieldLevelContentInbound(tx, {
+      evidenceId: input.evidenceId,
+      connectionId: input.connectionId,
+      listing,
+      variantMap,
+      storeItem,
+      storeVariant,
+      remote: {
+        title: input.remote.title,
+        descriptionHtml: input.remote.descriptionHtml,
+        updatedAt: input.remote.updatedAt,
+        priceCents: remotePriceCents,
+        sku: remoteVariant.sku,
+        variantUpdatedAt: remoteVariant.updatedAt,
+      },
     });
 
-    // Always record diagnostic observation timestamps (not winners).
-    const productObservation = {
-      lastObservedProductFingerprint: remoteProductFp,
-      lastObservedProductUpdatedAt: input.remote.updatedAt,
-    };
-
-    if (productClass === "UNCHANGED") {
-      await tx.shopifyListingLink.update({
-        where: { id: listing.id },
-        data: productObservation,
+    // Additional mapped variants: independent PRICE/SKU only (product fields already applied).
+    const extraMaps = (input.allMappedVariants ?? []).filter(
+      (row) => row.storeVariantId !== input.mappedStoreVariantId
+    );
+    const variantActions = [variantAction];
+    for (const extra of extraMaps) {
+      const remoteExtra = input.remote.variants.find((row) => row.id === extra.shopifyVariantId);
+      if (!remoteExtra?.inventoryItemId) continue;
+      const extraPrice = shopifyCentsFromMoneyString(remoteExtra.price);
+      if (!Number.isFinite(extraPrice)) continue;
+      const extraMap = await tx.shopifyVariantMap.findFirst({
+        where: {
+          shopifyListingLinkId: input.listingLinkId,
+          shopifyConnectionId: input.connectionId,
+          storeVariantId: extra.storeVariantId,
+        },
       });
-      productAction = "UNCHANGED";
-    } else if (productClass === "CONVERGED") {
-      await markShopifyProductContentApplied(tx, {
-        listingLinkId: listing.id,
-        desiredVersion: listing.desiredProductContentVersion,
-        fingerprint: remoteProductFp,
-      });
-      await tx.shopifyListingLink.update({
-        where: { id: listing.id },
-        data: productObservation,
-      });
-      productAction = "CONVERGED";
-    } else if (productClass === "LOCAL_ONLY") {
-      await clearShopifyProductContentConflict(tx, listing.id);
-      await tx.shopifyListingLink.update({
-        where: { id: listing.id },
-        data: productObservation,
-      });
-      // Ensure durable outbound work for current desired versions (no version bump).
-      if (listing.desiredProductContentVersion > listing.appliedProductContentVersion) {
-        await ensureShopifyUpdateListingContentJob(tx, {
-          connectionId: listing.shopifyConnectionId,
+      const extraStoreVariant = await tx.storeVariant.findFirst({
+        where: {
+          id: extra.storeVariantId,
           storeItemId: listing.storeItemId,
-          storeVariantId: variantMap.storeVariantId,
-          productDesiredVersion: listing.desiredProductContentVersion,
-          variantDesiredVersion: variantMap.desiredVariantContentVersion,
-        });
-      }
-      productAction = "LOCAL_ONLY";
-    } else if (productClass === "REMOTE_ONLY") {
-      const nextVersion = listing.desiredProductContentVersion + 1;
-      await tx.storeItem.update({
-        where: { id: storeItem.id },
-        data: {
+          memberId: listing.memberId,
+        },
+      });
+      if (!extraMap || !extraStoreVariant) continue;
+      const listingNow = await tx.shopifyListingLink.findUniqueOrThrow({
+        where: { id: listing.id },
+      });
+      const itemNow = await tx.storeItem.findFirstOrThrow({
+        where: { id: listing.storeItemId, memberId: listing.memberId },
+      });
+      const extraResult = await applyShopifyFieldLevelContentInbound(tx, {
+        evidenceId: input.evidenceId,
+        connectionId: input.connectionId,
+        listing: listingNow,
+        variantMap: extraMap,
+        storeItem: itemNow,
+        storeVariant: extraStoreVariant,
+        remote: {
           title: input.remote.title,
-          description: input.remote.descriptionHtml?.trim() ? input.remote.descriptionHtml : null,
+          descriptionHtml: input.remote.descriptionHtml,
+          updatedAt: input.remote.updatedAt,
+          priceCents: extraPrice,
+          sku: remoteExtra.sku,
+          variantUpdatedAt: remoteExtra.updatedAt,
         },
       });
-      await tx.shopifyListingLink.update({
-        where: { id: listing.id },
-        data: {
-          desiredProductContentVersion: nextVersion,
-          appliedProductContentVersion: nextVersion,
-          desiredProductFingerprint: remoteProductFp,
-          appliedProductFingerprint: remoteProductFp,
-          productDesiredAt: new Date(),
-          productContentAppliedAt: new Date(),
-          productContentConflict: false,
-          productConflictRemoteFingerprint: null,
-          productConflictEvidenceId: null,
-          productConflictDetectedAt: null,
-          ...productObservation,
-        },
-      });
-      productAction = "REMOTE_ONLY";
-    } else {
-      // CONFLICT
-      await setShopifyProductContentConflict(tx, {
+      variantActions.push(`${extra.storeVariantId}:${extraResult.variantAction}`);
+    }
+
+    let mediaAction = "MEDIA_SKIPPED";
+    if (input.remote.media) {
+      const mediaResult = await applyShopifyMediaInbound(tx, {
+        evidenceId: input.evidenceId,
+        connectionId: input.connectionId,
         listingLinkId: listing.id,
-        remoteFingerprint: remoteProductFp,
-        evidenceId: input.evidenceId,
+        memberId: listing.memberId,
+        storeItemId: listing.storeItemId,
+        remoteMedia: input.remote.media,
       });
-      await tx.shopifyListingLink.update({
-        where: { id: listing.id },
-        data: productObservation,
-      });
-      productAction = "CONFLICT";
+      mediaAction = mediaResult.action;
     }
 
-    // ---- VARIANT group ----
-    const variantClass = classifyShopifyContentSemantics({
-      base: variantBase,
-      local: localVariantFp,
-      remote: remoteVariantFp,
-      hasLocalSemanticEdit: hasLocalVariantEdit,
-    });
-
-    const variantObservation = {
-      lastObservedVariantFingerprint: remoteVariantFp,
-      lastObservedVariantUpdatedAt: remoteVariant.updatedAt,
-    };
-
-    // Re-read listing versions after product updates for job enqueue.
-    const listingAfterProduct = await tx.shopifyListingLink.findUniqueOrThrow({
-      where: { id: listing.id },
-    });
-    const variantAfterProduct = await tx.shopifyVariantMap.findUniqueOrThrow({
-      where: { id: variantMap.id },
-    });
-
-    if (variantClass === "UNCHANGED") {
-      await tx.shopifyVariantMap.update({
-        where: { id: variantMap.id },
-        data: variantObservation,
-      });
-      variantAction = "UNCHANGED";
-    } else if (variantClass === "CONVERGED") {
-      await markShopifyVariantContentApplied(tx, {
-        variantMapId: variantMap.id,
-        desiredVersion: variantAfterProduct.desiredVariantContentVersion,
-        fingerprint: remoteVariantFp,
-      });
-      await tx.shopifyVariantMap.update({
-        where: { id: variantMap.id },
-        data: variantObservation,
-      });
-      variantAction = "CONVERGED";
-    } else if (variantClass === "LOCAL_ONLY") {
-      await clearShopifyVariantContentConflict(tx, variantMap.id);
-      await tx.shopifyVariantMap.update({
-        where: { id: variantMap.id },
-        data: variantObservation,
-      });
-      if (
-        variantAfterProduct.desiredVariantContentVersion >
-        variantAfterProduct.appliedVariantContentVersion
-      ) {
-        await ensureShopifyUpdateListingContentJob(tx, {
-          connectionId: listingAfterProduct.shopifyConnectionId,
-          storeItemId: listingAfterProduct.storeItemId,
-          storeVariantId: variantMap.storeVariantId,
-          productDesiredVersion: listingAfterProduct.desiredProductContentVersion,
-          variantDesiredVersion: variantAfterProduct.desiredVariantContentVersion,
-        });
-      }
-      variantAction = "LOCAL_ONLY";
-    } else if (variantClass === "REMOTE_ONLY") {
-      const nextVersion = variantAfterProduct.desiredVariantContentVersion + 1;
-      const sku = remoteVariant.sku?.trim() ? remoteVariant.sku.trim() : null;
-      await tx.storeItem.update({
-        where: { id: storeItem.id },
-        data: { priceCents: remotePriceCents, sku },
-      });
-      await tx.storeVariant.update({
-        where: { id: storeVariant.id },
-        data: { priceCents: remotePriceCents, sku },
-      });
-      await tx.shopifyVariantMap.update({
-        where: { id: variantMap.id },
-        data: {
-          desiredVariantContentVersion: nextVersion,
-          appliedVariantContentVersion: nextVersion,
-          desiredVariantFingerprint: remoteVariantFp,
-          appliedVariantFingerprint: remoteVariantFp,
-          variantDesiredAt: new Date(),
-          variantContentAppliedAt: new Date(),
-          variantContentConflict: false,
-          variantConflictRemoteFingerprint: null,
-          variantConflictEvidenceId: null,
-          variantConflictDetectedAt: null,
-          ...variantObservation,
-        },
-      });
-      variantAction = "REMOTE_ONLY";
-    } else {
-      await setShopifyVariantContentConflict(tx, {
-        variantMapId: variantMap.id,
-        remoteFingerprint: remoteVariantFp,
+    // Variant↔media: apply after product media maps exist so Media GIDs resolve durably.
+    const mappedForMedia =
+      input.allMappedVariants ??
+      [{ shopifyVariantId: input.mappedVariantId, storeVariantId: input.mappedStoreVariantId }];
+    const remoteVariantMedia = input.remote.variants
+      .filter((row) => Array.isArray(row.mediaIds))
+      .map((row) => ({
+        shopifyVariantId: row.id,
+        shopifyMediaIds: row.mediaIds ?? [],
+      }));
+    let variantMediaAction = "VARIANT_MEDIA_SKIPPED";
+    if (remoteVariantMedia.length > 0) {
+      const variantMedia = await applyShopifyVariantMediaInbound(tx, {
+        connectionId: input.connectionId,
+        listingLinkId: listing.id,
+        memberId: listing.memberId,
+        storeItemId: listing.storeItemId,
         evidenceId: input.evidenceId,
+        mappedVariants: mappedForMedia,
+        remoteVariantMedia,
       });
-      await tx.shopifyVariantMap.update({
-        where: { id: variantMap.id },
-        data: variantObservation,
-      });
-      variantAction = "CONFLICT";
+      variantMediaAction = variantMedia.action;
     }
 
+    const mediaParts = [mediaAction, variantMediaAction].filter(
+      (part) => part !== "MEDIA_SKIPPED" && part !== "VARIANT_MEDIA_SKIPPED"
+    );
     await markEvidence(tx, input.evidenceId, "PROCESSED");
     return {
       status: "PROCESSED" as const,
-      productAction,
-      variantAction,
+      productAction:
+        mediaParts.length === 0 ? productAction : `${productAction}+${mediaParts.join("+")}`,
+      variantAction: variantActions.join("|"),
     };
   });
 }

@@ -1063,6 +1063,8 @@ enum InventoryEventType {
   PHYSICAL_RECEIPT
   OPENING_BALANCE
   CORRECTION
+  /// Proven marketplace (e.g. Shopify) manual quantity edit after causal closure.
+  MARKETPLACE_QUANTITY_EDIT
 
   @@map("inventory_event_type")
 }
@@ -2325,6 +2327,8 @@ model ShopifyListingLink {
   storeItem   StoreItem           @relation(fields: [storeItemId, memberId], references: [id, memberId], onDelete: Restrict)
   member      Member              @relation(fields: [memberId], references: [id], onDelete: Restrict)
   variantMaps ShopifyVariantMap[]
+  fieldStates ShopifyListingFieldState[]
+  mediaMaps   ShopifyMediaMap[]
 
   @@unique([shopifyConnectionId, storeItemId])
   @@unique([shopifyConnectionId, shopifyProductId])
@@ -2333,6 +2337,88 @@ model ShopifyListingLink {
   @@index([memberId, storeItemId])
   @@index([shopifyConnectionId, readiness])
   @@map("shopify_listing_link")
+}
+
+/// Per-field semantic BASE/LOCAL/REMOTE state for adaptive content sync.
+enum ShopifyContentFieldKey {
+  TITLE
+  DESCRIPTION
+  MEDIA
+  VENDOR
+  TAGS
+  ASPECTS
+  PRICE
+  SKU
+  BARCODE
+  COMPARE_AT
+
+  @@map("shopify_content_field_key")
+}
+
+model ShopifyListingFieldState {
+  id                         String                 @id @default(cuid())
+  shopifyConnectionId        String                 @map("shopify_connection_id")
+  shopifyListingLinkId       String                 @map("shopify_listing_link_id")
+  memberId                   String                 @map("member_id")
+  storeItemId                String                 @map("store_item_id")
+  /// Empty string for product-scoped fields; StoreVariant.id for variant fields.
+  storeVariantId             String                 @default("") @map("store_variant_id")
+  fieldKey                   ShopifyContentFieldKey @map("field_key")
+  baseFingerprint            String?                @map("base_fingerprint") @db.VarChar(64)
+  localFingerprint           String?                @map("local_fingerprint") @db.VarChar(64)
+  remoteFingerprint          String?                @map("remote_fingerprint") @db.VarChar(64)
+  conflict                   Boolean                @default(false)
+  conflictRemoteFingerprint  String?                @map("conflict_remote_fingerprint") @db.VarChar(64)
+  conflictEvidenceId         String?                @map("conflict_evidence_id")
+  conflictDetectedAt         DateTime?              @map("conflict_detected_at")
+  createdAt                  DateTime               @default(now()) @map("created_at")
+  updatedAt                  DateTime               @updatedAt @map("updated_at")
+
+  listingLink ShopifyListingLink @relation(fields: [shopifyListingLinkId], references: [id], onDelete: Cascade)
+
+  @@unique([shopifyListingLinkId, storeVariantId, fieldKey])
+  @@index([shopifyListingLinkId, conflict])
+  @@index([shopifyConnectionId, storeItemId])
+  @@map("shopify_listing_field_state")
+}
+
+enum ShopifyMediaMapStatus {
+  ACTIVE
+  REMOVED
+  PENDING_REMOTE
+  PENDING_LOCAL
+
+  @@map("shopify_media_map_status")
+}
+
+/// Durable INW media identity ↔ Shopify Media/File GID mapping.
+/// Never use URL alone as identity.
+model ShopifyMediaMap {
+  id                   String                @id @default(cuid())
+  shopifyConnectionId  String                @map("shopify_connection_id")
+  shopifyListingLinkId String                @map("shopify_listing_link_id")
+  memberId             String                @map("member_id")
+  storeItemId          String                @map("store_item_id")
+  /// Null = product-level media; set when associated to a specific variant.
+  storeVariantId       String?               @map("store_variant_id")
+  /// Durable INW media identity (cuid). Not a URL.
+  inwMediaId           String                @map("inw_media_id")
+  sourceUrl            String?               @map("source_url") @db.Text
+  contentSha256        String?               @map("content_sha256") @db.VarChar(64)
+  shopifyMediaId       String?               @map("shopify_media_id")
+  shopifyFileId        String?               @map("shopify_file_id")
+  position             Int                   @default(0)
+  altText              String?               @map("alt_text")
+  status               ShopifyMediaMapStatus @default(ACTIVE)
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+
+  listingLink ShopifyListingLink @relation(fields: [shopifyListingLinkId], references: [id], onDelete: Cascade)
+
+  @@unique([shopifyListingLinkId, inwMediaId])
+  @@index([shopifyListingLinkId, status, position])
+  @@index([shopifyConnectionId, shopifyMediaId])
+  @@map("shopify_media_map")
 }
 
 /// One-time Shopify location inventory bootstrap state for a mapped variant.

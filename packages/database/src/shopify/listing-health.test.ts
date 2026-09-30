@@ -134,17 +134,32 @@ describe("classifyShopifyListingHealth", () => {
     expect(health.blockInventoryOutbound).toBe(true);
   });
 
-  it("multi-variant structural drift pauses content", () => {
+  it("fully mapped multi-variant product is not structural pause", () => {
     const health = classifyShopifyListingHealth({
       connectionStatus: "ACTIVE",
       primaryLocationId: "gid://shopify/Location/1",
       listing: baseListing,
       variantMap: baseVariant,
       hasCausalSaleConflict: false,
-      remote: { ...healthyRemote, variantCount: 2 },
+      remote: { ...healthyRemote, variantCount: 3, mappedVariantCount: 3 },
     });
-    expect(health.issueCode).toBe("STRUCTURAL_MULTI_VARIANT");
-    expect(health.contentHealth).toBe("PAUSED");
+    expect(health.issueCode).not.toBe("STRUCTURAL_MULTI_VARIANT");
+    expect(health.issueCode).not.toBe("TOPOLOGY_UNMAPPED_VARIANTS");
+    expect(health.blockContentOutbound).toBe(false);
+  });
+
+  it("unmapped remote sibling variants degrade topology until reconcile", () => {
+    const health = classifyShopifyListingHealth({
+      connectionStatus: "ACTIVE",
+      primaryLocationId: "gid://shopify/Location/1",
+      listing: baseListing,
+      variantMap: baseVariant,
+      hasCausalSaleConflict: false,
+      remote: { ...healthyRemote, variantCount: 2, mappedVariantCount: 1 },
+    });
+    expect(health.issueCode).toBe("TOPOLOGY_UNMAPPED_VARIANTS");
+    expect(health.contentHealth).toBe("DEGRADED");
+    expect(health.blockContentOutbound).toBe(false);
   });
 
   it("sale-fact causal conflict pauses inventory readiness", () => {

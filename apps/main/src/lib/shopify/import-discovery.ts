@@ -4,8 +4,25 @@ import {
   assertShopifyProductGid,
   assertShopifyProductVariantGid,
   shopifyCentsFromMoneyString,
+  shopifyTopologyToInwMatrix,
+  validateShopifyImportTopology,
+  SHOPIFY_MAX_OPTION_DIMENSIONS,
+  SHOPIFY_MAX_VARIANTS,
 } from "database";
+import type { ShopifyOptionAxis, ShopifyRemoteVariantSnap } from "database";
 import { executeShopifyAdminGraphql, type ShopifyFetch } from "./admin-graphql";
+
+export type ShopifyImportCandidateVariant = {
+  shopifyVariantId: string;
+  shopifyInventoryItemId: string;
+  priceCents: number;
+  sku: string | null;
+  inventoryTracked: boolean;
+  requiresShipping: boolean | null;
+  primaryLocationAvailable: number | null;
+  selectedOptions: Array<{ name: string; value: string }>;
+  mediaIds: string[];
+};
 
 export type ShopifyImportCandidate = {
   shopifyProductId: string;
@@ -14,6 +31,7 @@ export type ShopifyImportCandidate = {
   status: string;
   supported: boolean;
   unsupportedReason: string | null;
+  /** Backward-compat: first variant price (or null). */
   priceCents: number | null;
   sku: string | null;
   shopifyVariantId: string | null;
@@ -23,6 +41,12 @@ export type ShopifyImportCandidate = {
   primaryLocationAvailable: number | null;
   recommendedStockMode: "PHYSICAL" | "MADE_TO_ORDER" | null;
   imageUrl: string | null;
+  /** Durable Product media nodes when available (import detail re-fetch). */
+  productMedia: Array<{ shopifyMediaId: string; sourceUrl: string | null }>;
+  /** Multi-variant topology: present when axes.length > 0 or variantCount > 1. */
+  variants: ShopifyImportCandidateVariant[];
+  axes: ShopifyOptionAxis[];
+  matrix: ReturnType<typeof import("database").shopifyTopologyToInwMatrix> | null;
 };
 
 export type DiscoverShopifyImportCandidatesResult =
@@ -53,11 +77,20 @@ type GraphqlProductNode = {
   hasOnlyDefaultVariant: boolean | null;
   totalVariants: number | null;
   featuredImage: { url: string | null } | null;
+  media?: {
+    nodes: Array<{
+      id: string;
+      preview?: { image?: { url: string | null } | null } | null;
+    }>;
+  } | null;
+  options?: Array<{ name: string; position: number; values: string[] }> | null;
   variants: {
     nodes: Array<{
       id: string;
       price: string | null;
       sku: string | null;
+      selectedOptions?: Array<{ name: string; value: string }> | null;
+      media?: { nodes: Array<{ id: string }> } | null;
       inventoryItem: {
         id: string;
         tracked: boolean | null;
@@ -70,16 +103,11 @@ type GraphqlProductNode = {
   } | null;
 };
 
-function classifyCandidate(node: GraphqlProductNode): ShopifyImportCandidate {
-  const productId = (() => {
-    try {
-      return assertShopifyProductGid(node.id);
-    } catch {
-      return null;
-    }
-  })();
-
-  const base: ShopifyImportCandidate = {
+function unsupportedBase(
+  node: GraphqlProductNode,
+  productId: string | null
+): ShopifyImportCandidate {
+  return {
     shopifyProductId: productId ?? node.id,
     title: (node.title ?? "").trim() || "Untitled",
     descriptionHtml: typeof node.descriptionHtml === "string" ? node.descriptionHtml : "",
@@ -95,8 +123,39 @@ function classifyCandidate(node: GraphqlProductNode): ShopifyImportCandidate {
     primaryLocationAvailable: null,
     recommendedStockMode: null,
     imageUrl: node.featuredImage?.url ?? null,
+    productMedia: (node.media?.nodes ?? []).map((m) => ({
+      shopifyMediaId: m.id,
+      sourceUrl: m.preview?.image?.url ?? null,
+    })),
+    variants: [],
+    axes: [],
+    matrix: null,
   };
+}
 
+function extractAvailable(
+  inventoryItem: {
+    inventoryLevel: { quantities: Array<{ name: string; quantity: number | null }> } | null;
+  } | null
+): number | null {
+  const available =
+    inventoryItem?.inventoryLevel?.quantities?.find((q) => q.name === "available")?.quantity ??
+    null;
+  return typeof available === "number" && Number.isFinite(available)
+    ? Math.trunc(available)
+    : null;
+}
+
+function classifyCandidate(node: GraphqlProductNode): ShopifyImportCandidate {
+  const productId = (() => {
+    try {
+      return assertShopifyProductGid(node.id);
+    } catch {
+      return null;
+    }
+  })();
+
+  const base = unsupportedBase(node, productId);
   if (!productId) {
     return { ...base, unsupportedReason: "Shopify product identity is invalid." };
   }
@@ -106,72 +165,200 @@ function classifyCandidate(node: GraphqlProductNode): ShopifyImportCandidate {
       ? node.totalVariants
       : node.variants?.nodes?.length ?? 0;
   const onlyDefault = node.hasOnlyDefaultVariant === true;
-  if (!onlyDefault || variantCount !== 1) {
-    return {
-      ...base,
-      unsupportedReason: "Multiple variants are not supported yet.",
-    };
-  }
+  const variantNodes = node.variants?.nodes ?? [];
 
-  const variant = node.variants?.nodes?.[0] ?? null;
-  if (!variant) {
-    return { ...base, unsupportedReason: "Shopify product has no importable variant." };
-  }
-
-  let variantId: string;
-  let inventoryItemId: string;
-  try {
-    variantId = assertShopifyProductVariantGid(variant.id);
-    if (!variant.inventoryItem?.id) {
-      return { ...base, unsupportedReason: "Shopify inventory item identity is missing." };
+  // ── Simple single-variant path (backward compat) ──
+  if (onlyDefault && variantCount === 1) {
+    const variant = variantNodes[0] ?? null;
+    if (!variant) {
+      return { ...base, unsupportedReason: "Shopify product has no importable variant." };
     }
-    inventoryItemId = assertShopifyInventoryItemGid(variant.inventoryItem.id);
-  } catch {
-    return { ...base, unsupportedReason: "Shopify variant or inventory identity is invalid." };
-  }
 
-  const priceCents = shopifyCentsFromMoneyString(variant.price ?? "");
-  if (!Number.isFinite(priceCents) || priceCents < 1) {
+    let variantId: string;
+    let inventoryItemId: string;
+    try {
+      variantId = assertShopifyProductVariantGid(variant.id);
+      if (!variant.inventoryItem?.id) {
+        return { ...base, unsupportedReason: "Shopify inventory item identity is missing." };
+      }
+      inventoryItemId = assertShopifyInventoryItemGid(variant.inventoryItem.id);
+    } catch {
+      return {
+        ...base,
+        unsupportedReason: "Shopify variant or inventory identity is invalid.",
+      };
+    }
+
+    const priceCents = shopifyCentsFromMoneyString(variant.price ?? "");
+    if (!Number.isFinite(priceCents) || priceCents < 1) {
+      return {
+        ...base,
+        shopifyVariantId: variantId,
+        shopifyInventoryItemId: inventoryItemId,
+        unsupportedReason: "Price is missing or incompatible with INW money model.",
+      };
+    }
+
+    const tracked = Boolean(variant.inventoryItem?.tracked);
+    const availableQty = extractAvailable(variant.inventoryItem);
+
+    if (tracked && availableQty == null) {
+      return {
+        ...base,
+        shopifyVariantId: variantId,
+        shopifyInventoryItemId: inventoryItemId,
+        priceCents,
+        sku: variant.sku?.trim() || null,
+        inventoryTracked: tracked,
+        requiresShipping: variant.inventoryItem?.requiresShipping ?? null,
+        unsupportedReason: "Inventory unavailable at selected Shopify location.",
+      };
+    }
+
     return {
       ...base,
+      supported: true,
+      unsupportedReason: null,
+      priceCents,
+      sku: variant.sku?.trim() || null,
       shopifyVariantId: variantId,
       shopifyInventoryItemId: inventoryItemId,
-      unsupportedReason: "Price is missing or incompatible with INW money model.",
+      inventoryTracked: tracked,
+      requiresShipping: variant.inventoryItem?.requiresShipping ?? null,
+      primaryLocationAvailable: availableQty,
+      recommendedStockMode: tracked ? "PHYSICAL" : "MADE_TO_ORDER",
     };
   }
 
-  const tracked = Boolean(variant.inventoryItem?.tracked);
-  const available =
-    variant.inventoryItem?.inventoryLevel?.quantities?.find((q) => q.name === "available")
-      ?.quantity ?? null;
-  const availableQty =
-    typeof available === "number" && Number.isFinite(available) ? Math.trunc(available) : null;
-
-  if (tracked && availableQty == null) {
+  // ── Multi-variant path ──
+  const options = node.options ?? [];
+  if (options.length < 1 || options.length > SHOPIFY_MAX_OPTION_DIMENSIONS) {
     return {
       ...base,
+      unsupportedReason: `Product has ${options.length} option dimensions; INW supports 1–${SHOPIFY_MAX_OPTION_DIMENSIONS}.`,
+    };
+  }
+  if (variantCount < 1 || variantCount > SHOPIFY_MAX_VARIANTS) {
+    return {
+      ...base,
+      unsupportedReason: `Product has ${variantCount} variants; INW supports 1–${SHOPIFY_MAX_VARIANTS}.`,
+    };
+  }
+  if (variantNodes.length !== variantCount) {
+    return {
+      ...base,
+      unsupportedReason: `Shopify returned partial variant data (${variantNodes.length}/${variantCount}); product too large for current query.`,
+    };
+  }
+
+  const axes: ShopifyOptionAxis[] = options.map((o) => ({
+    name: o.name,
+    position: o.position,
+    values: o.values,
+  }));
+
+  const snaps: ShopifyRemoteVariantSnap[] = [];
+  const candidateVariants: ShopifyImportCandidateVariant[] = [];
+  let allTracked = true;
+  let anyTracked = false;
+
+  for (const vn of variantNodes) {
+    let variantId: string;
+    let inventoryItemId: string;
+    try {
+      variantId = assertShopifyProductVariantGid(vn.id);
+      if (!vn.inventoryItem?.id) {
+        return { ...base, unsupportedReason: "A variant is missing inventory item identity." };
+      }
+      inventoryItemId = assertShopifyInventoryItemGid(vn.inventoryItem.id);
+    } catch {
+      return { ...base, unsupportedReason: "A variant has an invalid Shopify identity." };
+    }
+
+    const priceCents = shopifyCentsFromMoneyString(vn.price ?? "");
+    if (!Number.isFinite(priceCents) || priceCents < 1) {
+      return {
+        ...base,
+        unsupportedReason: `Variant ${variantId} has an invalid or missing price.`,
+      };
+    }
+
+    const tracked = Boolean(vn.inventoryItem?.tracked);
+    if (tracked) anyTracked = true;
+    else allTracked = false;
+    const available = extractAvailable(vn.inventoryItem);
+    const selectedOptions = vn.selectedOptions ?? [];
+    const mediaIds = (vn.media?.nodes ?? []).map((m) => m.id);
+
+    snaps.push({
+      shopifyVariantId: variantId,
+      shopifyInventoryItemId: inventoryItemId,
+      selectedOptions,
+      priceCents,
+      sku: vn.sku?.trim() || null,
+      available,
+      tracked,
+      mediaIds,
+    });
+
+    candidateVariants.push({
       shopifyVariantId: variantId,
       shopifyInventoryItemId: inventoryItemId,
       priceCents,
-      sku: variant.sku?.trim() || null,
+      sku: vn.sku?.trim() || null,
       inventoryTracked: tracked,
-      requiresShipping: variant.inventoryItem?.requiresShipping ?? null,
-      unsupportedReason: "Inventory unavailable at selected Shopify location.",
-    };
+      requiresShipping: vn.inventoryItem?.requiresShipping ?? null,
+      primaryLocationAvailable: available,
+      selectedOptions,
+      mediaIds,
+    });
   }
 
+  const topo = validateShopifyImportTopology({ axes, variants: snaps });
+  if (!topo.ok) {
+    return { ...base, unsupportedReason: `${topo.code}: ${topo.message}` };
+  }
+
+  // Check if any tracked variant is missing availability
+  if (anyTracked) {
+    for (const cv of candidateVariants) {
+      if (cv.inventoryTracked && cv.primaryLocationAvailable == null) {
+        return {
+          ...base,
+          unsupportedReason:
+            "Inventory unavailable at selected Shopify location for one or more variants.",
+        };
+      }
+    }
+  }
+
+  const inventoryTracking = anyTracked ? ("tracked" as const) : ("made_to_order" as const);
+  const matrix = shopifyTopologyToInwMatrix({
+    axes: topo.axes,
+    variants: topo.variants,
+    inventoryTracking,
+  });
+
+  const firstVariant = candidateVariants[0] ?? null;
   return {
     ...base,
     supported: true,
     unsupportedReason: null,
-    priceCents,
-    sku: variant.sku?.trim() || null,
-    shopifyVariantId: variantId,
-    shopifyInventoryItemId: inventoryItemId,
-    inventoryTracked: tracked,
-    requiresShipping: variant.inventoryItem?.requiresShipping ?? null,
-    primaryLocationAvailable: availableQty,
-    recommendedStockMode: tracked ? "PHYSICAL" : "MADE_TO_ORDER",
+    priceCents: firstVariant?.priceCents ?? null,
+    sku: firstVariant?.sku ?? null,
+    shopifyVariantId: firstVariant?.shopifyVariantId ?? null,
+    shopifyInventoryItemId: firstVariant?.shopifyInventoryItemId ?? null,
+    inventoryTracked: anyTracked,
+    requiresShipping: firstVariant?.requiresShipping ?? null,
+    primaryLocationAvailable: firstVariant?.primaryLocationAvailable ?? null,
+    recommendedStockMode: anyTracked ? "PHYSICAL" : "MADE_TO_ORDER",
+    productMedia: (node.media?.nodes ?? []).map((m) => ({
+      shopifyMediaId: m.id,
+      sourceUrl: m.preview?.image?.url ?? null,
+    })),
+    variants: candidateVariants,
+    axes: topo.axes,
+    matrix,
   };
 }
 
@@ -232,11 +419,14 @@ export async function discoverShopifyImportCandidates(input: {
           hasOnlyDefaultVariant
           totalVariants
           featuredImage { url }
-          variants(first: 2) {
+          options { name position values }
+          variants(first: 100) {
             nodes {
               id
               price
               sku
+              selectedOptions { name value }
+              media(first: 10) { nodes { id } }
               inventoryItem {
                 id
                 tracked
@@ -376,11 +566,20 @@ export async function fetchShopifyImportProductDetail(input: {
         hasOnlyDefaultVariant
         totalVariants
         featuredImage { url }
-        variants(first: 2) {
+        media(first: 50) {
+          nodes {
+            id
+            preview { image { url } }
+          }
+        }
+        options { name position values }
+        variants(first: 100) {
           nodes {
             id
             price
             sku
+            selectedOptions { name value }
+            media(first: 10) { nodes { id } }
             inventoryItem {
               id
               tracked

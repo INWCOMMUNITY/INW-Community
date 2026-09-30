@@ -104,6 +104,7 @@ describe("shopify oauth rename / permanent domain identity", () => {
     const shopId = opts.shopId ?? "gid://shopify/Shop/99";
     let productsUpdateCreated = false;
     let ordersPaidCreated = false;
+    let inventoryLevelsCreated = false;
     return vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       const href = String(url);
       if (href.endsWith("/admin/oauth/access_token")) {
@@ -199,7 +200,27 @@ describe("shopify oauth rename / permanent domain identity", () => {
           },
         });
       }
-      if (body.query.includes("PRODUCTS_UPDATE")) {
+      if (body.query.includes("ShopifyInventoryLevelsUpdateWebhookSubscriptions")) {
+        return jsonResponse({
+          data: {
+            webhookSubscriptions: {
+              nodes: inventoryLevelsCreated
+                ? [
+                    {
+                      id: "gid://shopify/WebhookSubscription/77",
+                      topic: "INVENTORY_LEVELS_UPDATE",
+                      endpoint: {
+                        __typename: "WebhookHttpEndpoint",
+                        callbackUrl: config.providerEvidenceWebhookUri,
+                      },
+                    },
+                  ]
+                : [],
+            },
+          },
+        });
+      }
+      if (body.query.includes("PRODUCTS_UPDATE") && body.query.includes("webhookSubscriptionCreate")) {
         productsUpdateCreated = true;
         return jsonResponse({
           data: {
@@ -213,7 +234,7 @@ describe("shopify oauth rename / permanent domain identity", () => {
           },
         });
       }
-      if (body.query.includes("ORDERS_PAID")) {
+      if (body.query.includes("ORDERS_PAID") && body.query.includes("webhookSubscriptionCreate")) {
         ordersPaidCreated = true;
         return jsonResponse({
           data: {
@@ -222,6 +243,20 @@ describe("shopify oauth rename / permanent domain identity", () => {
               webhookSubscription: {
                 id: "gid://shopify/WebhookSubscription/66",
                 topic: "ORDERS_PAID",
+              },
+            },
+          },
+        });
+      }
+      if (body.query.includes("INVENTORY_LEVELS_UPDATE") && body.query.includes("webhookSubscriptionCreate")) {
+        inventoryLevelsCreated = true;
+        return jsonResponse({
+          data: {
+            webhookSubscriptionCreate: {
+              userErrors: [],
+              webhookSubscription: {
+                id: "gid://shopify/WebhookSubscription/77",
+                topic: "INVENTORY_LEVELS_UPDATE",
               },
             },
           },

@@ -124,6 +124,7 @@ export {
 } from "./commerce-foundation-cutover";
 export type { CommerceFoundationCutoverState, CommerceFoundationCutoverWriterClass } from "./commerce-foundation-cutover";
 export {
+  applyTrackedMarketplaceQuantityEdit,
   applyTrackedMarketplaceSale,
   FoundationInsufficientAvailabilityError,
   FoundationInventoryError,
@@ -135,6 +136,8 @@ export {
   lockCheckoutAttemptForUpdate,
   lockStoreItemForUpdate,
   MARKETPLACE_ORDER_CAUSE,
+  MARKETPLACE_QUANTITY_EDIT_CAUSE,
+  MARKETPLACE_QUANTITY_EDIT_SCOPE,
   projectStoreItemQuantity,
   releaseReservation,
   restockTrackedVariant,
@@ -419,6 +422,7 @@ export type {
   ShopifyPaidOrderLineObservation,
 } from "./shopify/order-sale";
 export {
+  appendShopifyVariantMaps,
   createShopifyListingMapping,
   lookupShopifyListingByProductId,
   lookupShopifyListingByStoreItem,
@@ -524,6 +528,90 @@ export {
   shopifyProductContentFingerprint,
   shopifyUpdateListingContentDedupeKey,
   shopifyVariantContentFingerprint,
+} from "./shopify/content-fingerprint";
+export {
+  planShopifyFieldLevelSync,
+  SHOPIFY_PRODUCT_FIELD_KEYS,
+  SHOPIFY_VARIANT_FIELD_KEYS,
+} from "./shopify/field-semantic";
+export type {
+  ShopifyAdaptiveFieldKey,
+  ShopifyFieldObservation,
+  ShopifyFieldPlan,
+  ShopifyFieldSemanticAction,
+} from "./shopify/field-semantic";
+export {
+  shopifyDescriptionFieldFingerprint,
+  shopifyFieldFingerprint,
+  normalizeShopifyDescriptionHtmlForCompare,
+} from "./shopify/field-fingerprint";
+export {
+  loadShopifyFieldStates,
+  markShopifyFieldsApplied,
+  persistShopifyFieldPlans,
+  seedShopifyListingFieldConvergence,
+} from "./shopify/field-state";
+export type { ShopifyFieldStateDb } from "./shopify/field-state";
+export { planShopifyOutboundContentFields } from "./shopify/content-outbound-fields";
+export type { ShopifyOutboundFieldPlan } from "./shopify/content-outbound-fields";
+export {
+  matchRemoteShopifyMediaToMaps,
+  planShopifyMediaDesireFromPhotos,
+  shopifyMediaContentSha256,
+  shopifyMediaIdentityFingerprint,
+  upsertShopifyMediaDesireMaps,
+} from "./shopify/media-map";
+export type { ShopifyMediaDesireRow, ShopifyMediaMapDb } from "./shopify/media-map";
+export {
+  classifyShopifyDirectInventoryEdit,
+  shouldPauseInventoryForDirectShopifyEdit,
+} from "./shopify/inventory-direct-edit";
+export type { ShopifyDirectInventoryEditClass } from "./shopify/inventory-direct-edit";
+export { applyShopifyInventoryLevelObservation } from "./shopify/inventory-levels-inbound";
+export type {
+  ApplyShopifyInventoryLevelResult,
+  ShopifyInventoryLevelObservation,
+  ShopifyInventoryLevelsDb,
+} from "./shopify/inventory-levels-inbound";
+export { applyShopifyMediaInbound } from "./shopify/media-inbound";
+export type { ShopifyMediaInboundDb, ShopifyRemoteMediaNode } from "./shopify/media-inbound";
+export {
+  applyShopifyVariantMediaInbound,
+  classifyVariantMediaInbound,
+  planVariantMediaAssociations,
+  planVariantMediaInboundAssociations,
+  seedShopifyVariantMediaConvergence,
+  variantMediaLocalFingerprint,
+  variantMediaRemoteFingerprint,
+} from "./shopify/variant-media";
+export type {
+  ShopifyVariantMediaInboundDb,
+  VariantMediaAssociationPlan,
+  VariantMediaInboundClass,
+} from "./shopify/variant-media";
+export {
+  correlateVariantsByOptionCombination,
+  planShopifyTopologyDiff,
+  shopifyOptionCombinationKey,
+  shopifyTopologyToInwMatrix,
+  SHOPIFY_MAX_OPTION_DIMENSIONS,
+  SHOPIFY_MAX_VARIANTS,
+  validateShopifyImportTopology,
+} from "./shopify/variant-topology";
+export type {
+  ShopifyOptionAxis,
+  ShopifyRemoteVariantSnap,
+  ShopifyTopologyDiffPlan,
+  ShopifyTopologyLocalVariant,
+  ShopifyTopologyRemoteOption,
+  ShopifyTopologyValidation,
+} from "./shopify/variant-topology";
+export {
+  normalizeShopifyAspects,
+  normalizeShopifyBarcode,
+  normalizeShopifyPhotoUrls,
+  normalizeShopifyTags,
+  normalizeShopifyVendor,
 } from "./shopify/content-fingerprint";
 export { classifyShopifyContentSemantics } from "./shopify/content-semantic";
 export type {

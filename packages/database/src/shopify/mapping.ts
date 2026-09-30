@@ -9,7 +9,9 @@ import {
   assertShopifyProductVariantGid,
   ShopifyGidValidationError,
 } from "./gids";
+import { seedShopifyListingFieldConvergence } from "./field-state";
 import { seedShopifyInventoryProjectionOnMapping } from "./inventory-desire";
+import { planShopifyMediaDesireFromPhotos, upsertShopifyMediaDesireMaps } from "./media-map";
 
 export type ShopifyMappingDb = PrismaClient | Prisma.TransactionClient;
 
@@ -245,7 +247,7 @@ export async function createShopifyListingMapping(
 
     const storeItem = await tx.storeItem.findFirst({
       where: { id: input.storeItemId, memberId: input.memberId },
-      select: { id: true, memberId: true, title: true, description: true },
+      select: { id: true, memberId: true, title: true, description: true, photos: true },
     });
     if (!storeItem) {
       throw new ShopifyMappingError("STORE_ITEM_NOT_FOUND", "Store item was not found for this member");
@@ -359,6 +361,34 @@ export async function createShopifyListingMapping(
           variantMapId: map.id,
         });
       }
+      // Seed per-field BASE at first convergence for every mapped variant.
+      // Product TITLE/DESCRIPTION upserts are idempotent across variants.
+      for (const map of createdMaps) {
+        const sv = storeVariantById.get(map.storeVariantId)!;
+        await seedShopifyListingFieldConvergence(tx, {
+          connectionId: input.connectionId,
+          listingLinkId: listingLink.id,
+          memberId: input.memberId,
+          storeItemId: input.storeItemId,
+          storeVariantId: map.storeVariantId,
+          title: storeItem.title,
+          description: storeItem.description,
+          priceCents: sv.priceCents,
+          sku: sv.sku,
+        });
+      }
+      // Seed durable media identity maps (URLs are source hints only).
+      const mediaPlan = planShopifyMediaDesireFromPhotos(storeItem.photos, []);
+      if (mediaPlan.desired.length > 0) {
+        await upsertShopifyMediaDesireMaps(tx, {
+          connectionId: input.connectionId,
+          listingLinkId: listingLink.id,
+          memberId: input.memberId,
+          storeItemId: input.storeItemId,
+          desired: mediaPlan.desired,
+          removeInwMediaIds: [],
+        });
+      }
       return loadListingSnapshot(tx, listingLink.id);
     } catch (error) {
       if (
@@ -371,6 +401,125 @@ export async function createShopifyListingMapping(
       }
       throw error;
     }
+  });
+}
+
+/**
+ * Append variant maps onto an EXISTING listing link (topology expansion / import).
+ * Exact GID pairs are idempotent. Never matches by SKU/title/price.
+ */
+export async function appendShopifyVariantMaps(
+  db: PrismaClient,
+  input: {
+    memberId: string;
+    connectionId: string;
+    listingLinkId: string;
+    variants: ShopifyVariantMappingInput[];
+  }
+): Promise<ShopifyListingMappingSnapshot> {
+  const variants = normalizeVariantInputs(input.variants);
+  return db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${mappingLockKey(input.connectionId)}))`;
+
+    const listing = await tx.shopifyListingLink.findFirst({
+      where: {
+        id: input.listingLinkId,
+        shopifyConnectionId: input.connectionId,
+        memberId: input.memberId,
+      },
+      select: { ...listingSelect, storeItemId: true },
+    });
+    if (!listing) {
+      throw new ShopifyMappingError("STORE_ITEM_NOT_FOUND", "Listing link was not found for append");
+    }
+
+    const storeVariants = await tx.storeVariant.findMany({
+      where: {
+        memberId: input.memberId,
+        storeItemId: listing.storeItemId,
+        id: { in: variants.map((row) => row.storeVariantId) },
+      },
+      select: { id: true, priceCents: true, sku: true },
+    });
+    if (storeVariants.length !== variants.length) {
+      throw new ShopifyMappingError(
+        "STORE_VARIANT_NOT_FOUND",
+        "Store variant does not belong to this store item"
+      );
+    }
+    const storeVariantById = new Map(storeVariants.map((row) => [row.id, row]));
+    const storeItem = await tx.storeItem.findFirstOrThrow({
+      where: { id: listing.storeItemId, memberId: input.memberId },
+      select: { title: true, description: true },
+    });
+
+    const now = new Date();
+    for (const row of variants) {
+      const existingExact = await tx.shopifyVariantMap.findFirst({
+        where: {
+          shopifyConnectionId: input.connectionId,
+          storeVariantId: row.storeVariantId,
+          shopifyVariantId: row.shopifyVariantId,
+          shopifyInventoryItemId: row.shopifyInventoryItemId,
+        },
+        select: { id: true },
+      });
+      if (existingExact) continue;
+
+      const conflict = await tx.shopifyVariantMap.findFirst({
+        where: {
+          shopifyConnectionId: input.connectionId,
+          OR: [
+            { storeVariantId: row.storeVariantId },
+            { shopifyVariantId: row.shopifyVariantId },
+            { shopifyInventoryItemId: row.shopifyInventoryItemId },
+          ],
+        },
+        select: { id: true },
+      });
+      if (conflict) throw new ShopifyMappingConflictError();
+
+      const sv = storeVariantById.get(row.storeVariantId)!;
+      const variantFp = shopifyVariantContentFingerprint({
+        priceCents: sv.priceCents,
+        sku: sv.sku,
+      });
+      const created = await tx.shopifyVariantMap.create({
+        data: {
+          shopifyConnectionId: input.connectionId,
+          shopifyListingLinkId: listing.id,
+          memberId: input.memberId,
+          storeItemId: listing.storeItemId,
+          storeVariantId: row.storeVariantId,
+          shopifyVariantId: row.shopifyVariantId,
+          shopifyInventoryItemId: row.shopifyInventoryItemId,
+          desiredVariantFingerprint: variantFp,
+          appliedVariantFingerprint: variantFp,
+          variantContentAppliedAt: now,
+        },
+        select: { id: true, storeVariantId: true },
+      });
+      await seedShopifyInventoryProjectionOnMapping(tx, {
+        connectionId: input.connectionId,
+        memberId: input.memberId,
+        storeItemId: listing.storeItemId,
+        storeVariantId: created.storeVariantId,
+        variantMapId: created.id,
+      });
+      await seedShopifyListingFieldConvergence(tx, {
+        connectionId: input.connectionId,
+        listingLinkId: listing.id,
+        memberId: input.memberId,
+        storeItemId: listing.storeItemId,
+        storeVariantId: created.storeVariantId,
+        title: storeItem.title,
+        description: storeItem.description,
+        priceCents: sv.priceCents,
+        sku: sv.sku,
+      });
+    }
+
+    return loadListingSnapshot(tx, listing.id);
   });
 }
 

@@ -18,6 +18,8 @@ export type ShopifyListingRemoteObservation = {
   productExists: boolean;
   productStatus: string | null;
   variantCount: number;
+  /** Count of current-generation ShopifyVariantMap rows for this listing. */
+  mappedVariantCount?: number;
   mappedVariantPresent: boolean;
   inventoryItemMatches: boolean;
   inventoryTracked: boolean | null;
@@ -26,6 +28,9 @@ export type ShopifyListingRemoteObservation = {
   remoteProductFingerprint: string | null;
   remoteVariantFingerprint: string | null;
 };
+
+/** Shopify Admin hard ceiling; INW adapter refuses larger topologies. */
+const SHOPIFY_VARIANT_HARD_CEILING = 100;
 
 export type ShopifyListingHealthSnapshot = {
   readiness: ShopifyListingReadiness;
@@ -66,6 +71,8 @@ export type ClassifyShopifyListingHealthInput = {
     | "inventoryDriftState"
   >;
   hasCausalSaleConflict: boolean;
+  /** Per-field conflict keys (TITLE, PRICE, …) from ShopifyListingFieldState. */
+  fieldConflictKeys?: string[];
   remote?: ShopifyListingRemoteObservation | null;
 };
 
@@ -136,17 +143,39 @@ export function classifyShopifyListingHealth(
     );
   }
 
-  if (remote && remote.variantCount > 1) {
+  if (remote && remote.variantCount > SHOPIFY_VARIANT_HARD_CEILING) {
     return issue(
-      "STRUCTURAL_MULTI_VARIANT",
-      "Shopify product structure changed (multiple variants). Automatic content updates are paused.",
+      "STRUCTURAL_VARIANT_LIMIT",
+      `Shopify product has ${remote.variantCount} variants; INW supports at most ${SHOPIFY_VARIANT_HARD_CEILING}.`,
       "ACTION_REQUIRED",
       {
         contentHealth: "PAUSED",
-        inventoryHealth: "DEGRADED",
+        inventoryHealth: "PAUSED",
         blockContentOutbound: true,
-        blockInventoryOutbound: false,
+        blockInventoryOutbound: true,
         fingerprintParts: [`variants:${remote.variantCount}`],
+        remoteProductStatus: remoteStatus,
+      }
+    );
+  }
+
+  const mappedCount = remote?.mappedVariantCount;
+  if (
+    remote &&
+    typeof mappedCount === "number" &&
+    mappedCount >= 1 &&
+    remote.variantCount > mappedCount
+  ) {
+    return issue(
+      "TOPOLOGY_UNMAPPED_VARIANTS",
+      "Shopify has variants that are not yet mapped to INW. Topology import/reconcile is required before full sync.",
+      "ACTION_REQUIRED",
+      {
+        contentHealth: "DEGRADED",
+        inventoryHealth: "DEGRADED",
+        blockContentOutbound: false,
+        blockInventoryOutbound: false,
+        fingerprintParts: [`remote:${remote.variantCount}`, `mapped:${mappedCount}`],
         remoteProductStatus: remoteStatus,
       }
     );
@@ -184,16 +213,24 @@ export function classifyShopifyListingHealth(
     );
   }
 
-  if (input.listing.productContentConflict || input.variantMap.variantContentConflict) {
+  const fieldConflicts = (input.fieldConflictKeys ?? []).filter(Boolean);
+  if (
+    input.listing.productContentConflict ||
+    input.variantMap.variantContentConflict ||
+    fieldConflicts.length > 0
+  ) {
     const which = [
       input.listing.productContentConflict ? "product" : null,
       input.variantMap.variantContentConflict ? "variant" : null,
+      ...fieldConflicts.map((key) => `field:${key}`),
     ]
       .filter(Boolean)
       .join("+");
+    const fieldLabel =
+      fieldConflicts.length > 0 ? ` Conflicting fields: ${fieldConflicts.join(", ")}.` : "";
     return issue(
       "CONTENT_CONFLICT",
-      "INW found conflicting Shopify and INW edits for this listing. Make a new edit in INW to choose the INW version.",
+      `INW found conflicting Shopify and INW edits for this listing. Make a new edit in INW to choose the INW version.${fieldLabel}`,
       "ACTION_REQUIRED",
       {
         contentHealth: "PAUSED",

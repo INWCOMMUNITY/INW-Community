@@ -13,6 +13,10 @@ export type ShopifyListingSellerView = ShopifyListingPublicStatus & {
   inventoryAppliedAvailable: number | null;
   inventoryInitState: string | null;
   inventoryDriftState: string | null;
+  /** Adaptive field-level conflicts (TITLE, DESCRIPTION, PRICE, SKU, MEDIA, …). */
+  fieldConflicts: string[];
+  productContentConflict: boolean;
+  variantContentConflict: boolean;
   importSource: "NATIVE" | "SHOPIFY_IMPORT" | string;
   importedAt: string | null;
   updatedAt: string;
@@ -50,9 +54,14 @@ export async function listShopifySellerListingViews(input: {
           inventoryAppliedAvailable: true,
           inventoryInitState: true,
           inventoryDriftState: true,
+          variantContentConflict: true,
         },
         orderBy: { createdAt: "asc" },
         take: 1,
+      },
+      fieldStates: {
+        where: { conflict: true },
+        select: { fieldKey: true },
       },
     },
     orderBy: { updatedAt: "desc" },
@@ -75,6 +84,9 @@ export async function listShopifySellerListingViews(input: {
       inventoryAppliedAvailable: variant?.inventoryAppliedAvailable ?? null,
       inventoryInitState: variant?.inventoryInitState ?? null,
       inventoryDriftState: variant?.inventoryDriftState ?? null,
+      fieldConflicts: row.fieldStates.map((f) => f.fieldKey),
+      productContentConflict: row.productContentConflict,
+      variantContentConflict: variant?.variantContentConflict ?? false,
       importSource: row.importSource,
       importedAt: row.importedAt?.toISOString() ?? null,
       updatedAt: row.updatedAt.toISOString(),

@@ -9,13 +9,19 @@ vi.mock("database", async () => {
       shopifyConnection: { findFirst: vi.fn() },
       shopifyListingLink: { findFirst: vi.fn() },
       storeItem: { create: vi.fn() },
+      storeVariant: { findMany: vi.fn() },
     },
     beginShopifyListingImportAttempt: vi.fn(),
     completeShopifyListingImportAttempt: vi.fn(),
-    failShopifyListingImportAttempt: vi.fn(),
+    failShopifyListingImportAttempt: vi.fn(async () => undefined),
     createShopifyImportedListingMapping: vi.fn(),
     provisionNativeFoundationListing: vi.fn(),
     reconcileShopifyImportBootstrapSales: vi.fn(),
+    upsertShopifyMediaDesireMaps: vi.fn(async () => undefined),
+    seedShopifyVariantMediaConvergence: vi.fn(async () => undefined),
+    validateShopifyImportTopology: actual.validateShopifyImportTopology,
+    correlateVariantsByOptionCombination: actual.correlateVariantsByOptionCombination,
+    shopifyTopologyToInwMatrix: actual.shopifyTopologyToInwMatrix,
   };
 });
 
@@ -51,6 +57,64 @@ const candidate = {
   primaryLocationAvailable: 10,
   recommendedStockMode: "PHYSICAL" as const,
   imageUrl: null,
+  productMedia: [],
+  variants: [],
+  axes: [],
+  matrix: null,
+};
+
+const multiCandidate = {
+  shopifyProductId: "gid://shopify/Product/500",
+  title: "T-Shirt",
+  descriptionHtml: "<p>A shirt</p>",
+  status: "ACTIVE",
+  supported: true,
+  unsupportedReason: null,
+  priceCents: 2000,
+  sku: null,
+  shopifyVariantId: "gid://shopify/ProductVariant/10",
+  shopifyInventoryItemId: "gid://shopify/InventoryItem/10",
+  inventoryTracked: true,
+  requiresShipping: true,
+  primaryLocationAvailable: 5,
+  recommendedStockMode: "PHYSICAL" as const,
+  imageUrl: null,
+  productMedia: [],
+  variants: [
+    {
+      shopifyVariantId: "gid://shopify/ProductVariant/10",
+      shopifyInventoryItemId: "gid://shopify/InventoryItem/10",
+      priceCents: 2000,
+      sku: "SHIRT-S",
+      inventoryTracked: true,
+      requiresShipping: true,
+      primaryLocationAvailable: 5,
+      selectedOptions: [{ name: "Size", value: "S" }],
+      mediaIds: [],
+    },
+    {
+      shopifyVariantId: "gid://shopify/ProductVariant/11",
+      shopifyInventoryItemId: "gid://shopify/InventoryItem/11",
+      priceCents: 2500,
+      sku: "SHIRT-M",
+      inventoryTracked: true,
+      requiresShipping: true,
+      primaryLocationAvailable: 3,
+      selectedOptions: [{ name: "Size", value: "M" }],
+      mediaIds: [],
+    },
+  ],
+  axes: [{ name: "Size", position: 1, values: ["S", "M"] }],
+  matrix: {
+    axes: [{ name: "Size", values: ["S", "M"] }],
+    skus: [
+      { options: { Size: "S" }, quantity: 5, priceCents: 2000, sku: "SHIRT-S" },
+      { options: { Size: "M" }, quantity: 3, priceCents: 2500, sku: "SHIRT-M" },
+    ],
+    pricesVary: true,
+    quantitiesVary: true,
+    skusVary: true,
+  },
 };
 
 describe("importShopifyListing launch invariants", () => {
@@ -188,6 +252,10 @@ describe("importShopifyListing launch invariants", () => {
       const tx = {
         shopifyListingLink: { findFirst: vi.fn().mockResolvedValue(null) },
         storeItem: { create: vi.fn().mockResolvedValue({ id: "item-1" }) },
+        shopifyMediaMap: {
+          findMany: vi.fn().mockResolvedValue([]),
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
       };
       vi.mocked(provisionNativeFoundationListing).mockResolvedValue({
         variantIds: ["var-1"],
@@ -217,7 +285,7 @@ describe("importShopifyListing launch invariants", () => {
     expect(failShopifyListingImportAttempt).not.toHaveBeenCalled();
   });
 
-  it("rejects unsupported multi-variant products from fresh provider re-read", async () => {
+  it("rejects unsupported products from fresh provider re-read", async () => {
     vi.mocked(beginShopifyListingImportAttempt).mockResolvedValue({
       status: "READY",
       reusedCompleted: false,
@@ -233,7 +301,7 @@ describe("importShopifyListing launch invariants", () => {
       candidate: {
         ...candidate,
         supported: false,
-        unsupportedReason: "Multiple variants are not supported yet.",
+        unsupportedReason: "Product has 4 option dimensions; INW supports 1–3.",
       },
     });
     const result = await importShopifyListing({
@@ -243,5 +311,68 @@ describe("importShopifyListing launch invariants", () => {
     });
     expect(result).toMatchObject({ status: "ERROR", code: "UNSUPPORTED_PRODUCT" });
     expect(failShopifyListingImportAttempt).toHaveBeenCalled();
+  });
+
+  it("imports multi-variant product with per-variant bootstrap reconcile", async () => {
+    vi.mocked(beginShopifyListingImportAttempt).mockResolvedValue({
+      status: "READY",
+      reusedCompleted: false,
+      attempt: {
+        id: "attempt-1",
+        bootstrapStartedAt: new Date("2026-09-28T12:00:00.000Z"),
+      } as never,
+    });
+    vi.mocked(fetchShopifyImportProductDetail).mockResolvedValue({
+      status: "OK",
+      connectionId: "conn-1",
+      primaryLocationId: "gid://shopify/Location/1",
+      candidate: multiCandidate,
+    });
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        shopifyListingLink: { findFirst: vi.fn().mockResolvedValue(null) },
+        storeItem: { create: vi.fn().mockResolvedValue({ id: "item-multi" }) },
+        storeVariant: {
+          findMany: vi.fn().mockResolvedValue([
+            { id: "sv-1", options: JSON.stringify({ Size: "S" }) },
+            { id: "sv-2", options: JSON.stringify({ Size: "M" }) },
+          ]),
+        },
+        shopifyMediaMap: {
+          findMany: vi.fn().mockResolvedValue([]),
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
+      };
+      vi.mocked(provisionNativeFoundationListing).mockResolvedValue({
+        variantIds: ["sv-1", "sv-2"],
+        kind: "matrix",
+      });
+      vi.mocked(createShopifyImportedListingMapping).mockResolvedValue({
+        listingLink: { id: "link-multi" },
+        variantMaps: [],
+      } as never);
+      vi.mocked(completeShopifyListingImportAttempt).mockResolvedValue({} as never);
+      return fn(tx);
+    });
+    vi.mocked(reconcileShopifyImportBootstrapSales).mockResolvedValue({
+      preBootstrapAcked: 0,
+      postBootstrapApplied: 0,
+      postBootstrapAlreadyApplied: 0,
+      postBootstrapFailed: 0,
+      postBootstrapUnmapped: 0,
+    });
+
+    const result = await importShopifyListing({
+      memberId: "member-a",
+      shopifyProductId: multiCandidate.shopifyProductId,
+      stockMode: "PHYSICAL",
+    });
+
+    expect(result.status).toBe("IMPORTED");
+    if (result.status !== "IMPORTED") return;
+    expect(result.storeItemId).toBe("item-multi");
+    expect(result.listingLinkId).toBe("link-multi");
+    // Should reconcile per variant
+    expect(reconcileShopifyImportBootstrapSales).toHaveBeenCalledTimes(2);
   });
 });

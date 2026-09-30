@@ -439,6 +439,6 @@ describe("shopify S9 listing reconciliation health (real PG)", () => {
         remoteVariantFingerprint: mto.variantMap.appliedVariantFingerprint,
       },
     });
-    expect(mtoHealth.readiness).toBe("READY_TO_PUBLISH");
+    expect(mtoHealth.readiness).toBe("SYNCING"); // DRAFT + converged content => publication pending
   });
 });

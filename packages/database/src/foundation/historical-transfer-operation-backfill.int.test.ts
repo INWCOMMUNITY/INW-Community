@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { COMMERCE_FOUNDATION_CUTOVER_SINGLETON_ID } from "../commerce-foundation-cutover";
 import {
   evaluateFoundationPayoutRefundDisposition,
   beginFoundationTransferAttempt,
@@ -21,11 +22,29 @@ import {
 
 let prisma: PrismaClient;
 
-beforeAll(() => {
+async function resetCutoverToLegacy() {
+  await prisma.$executeRaw`
+    INSERT INTO "commerce_foundation_cutover" ("id", "mode", "updated_at")
+    VALUES (${COMMERCE_FOUNDATION_CUTOVER_SINGLETON_ID}, 'LEGACY', CURRENT_TIMESTAMP)
+    ON CONFLICT ("id") DO UPDATE SET
+      "mode" = 'LEGACY',
+      "frozen_at" = NULL,
+      "backfilled_at" = NULL,
+      "foundation_at" = NULL,
+      "unfrozen_at" = NULL,
+      "engine_sha" = NULL,
+      "manifest_hash" = NULL,
+      "updated_at" = CURRENT_TIMESTAMP
+  `;
+}
+
+beforeAll(async () => {
   prisma = new PrismaClient({
     datasources: { db: { url: foundationTestDatabaseUrl() } },
     log: ["error"],
   });
+  // Historical backfill refuses FOUNDATION; isolate from prior enterFoundation suites.
+  await resetCutoverToLegacy();
 });
 
 afterAll(async () => {
