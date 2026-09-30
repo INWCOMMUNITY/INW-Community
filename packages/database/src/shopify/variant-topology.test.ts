@@ -454,7 +454,7 @@ describe("planShopifyTopologyDiff", () => {
     );
   });
 
-  it("renames option value while preserving mapped GID identity", () => {
+  it("pulls remote option value onto mapped GID (Shopify→INW)", () => {
     const plan = planShopifyTopologyDiff({
       localVariants: [
         {
@@ -483,7 +483,80 @@ describe("planShopifyTopologyDiff", () => {
     expect(plan.renameOptionValues[0].shopifyVariantId).toBe(
       "gid://shopify/ProductVariant/9"
     );
+    expect(plan.renameOptionValues[0].optionValues).toEqual([
+      { optionName: "Color", name: "Blue" },
+    ]);
     expect(plan.createVariants).toHaveLength(0);
+  });
+
+  it("treats empty INW options as equivalent to Shopify Title/Default Title", () => {
+    const plan = planShopifyTopologyDiff({
+      localVariants: [
+        {
+          storeVariantId: "sv-1",
+          selectedOptions: [],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+      ],
+      remoteVariants: [
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/1",
+          selectedOptions: [{ name: "Title", value: "Default Title" }],
+          priceCents: 1000,
+          sku: null,
+          available: 2,
+          tracked: true,
+        },
+      ],
+    });
+    expect(plan.kind).toBe("NOOP");
+  });
+
+  it("pulls simple→multi option conversion on the same mapped GID", () => {
+    const plan = planShopifyTopologyDiff({
+      localVariants: [
+        {
+          storeVariantId: "sv-1",
+          selectedOptions: [],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+      ],
+      remoteVariants: [
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/1",
+          selectedOptions: [{ name: "Size", value: "S" }],
+          priceCents: 1000,
+          sku: null,
+          available: 2,
+          tracked: true,
+        },
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/2",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/2",
+          selectedOptions: [{ name: "Size", value: "M" }],
+          priceCents: 1100,
+          sku: null,
+          available: 3,
+          tracked: true,
+        },
+      ],
+    });
+    expect(plan.kind).toBe("MUTATE");
+    if (plan.kind !== "MUTATE") return;
+    expect(plan.renameOptionValues).toHaveLength(1);
+    expect(plan.renameOptionValues[0].optionValues).toEqual([
+      { optionName: "Size", name: "S" },
+    ]);
+    expect(plan.importRemoteVariants).toHaveLength(1);
+    expect(plan.importRemoteVariants[0].shopifyVariantId).toBe(
+      "gid://shopify/ProductVariant/2"
+    );
   });
 
   it("plans reorder when desired option order differs", () => {

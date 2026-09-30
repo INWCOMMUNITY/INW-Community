@@ -593,8 +593,10 @@ export type {
 } from "./shopify/variant-media";
 export {
   correlateVariantsByOptionCombination,
+  isShopifyDefaultTitleOnly,
   planShopifyTopologyDiff,
   shopifyOptionCombinationKey,
+  shopifySelectedOptionsToInwOptions,
   shopifyTopologyToInwMatrix,
   SHOPIFY_MAX_OPTION_DIMENSIONS,
   SHOPIFY_MAX_VARIANTS,

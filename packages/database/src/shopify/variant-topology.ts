@@ -46,6 +46,30 @@ export function shopifyOptionCombinationKey(
     .join("|");
 }
 
+/** Shopify single-variant "Title / Default Title" is equivalent to INW empty options. */
+export function isShopifyDefaultTitleOnly(
+  selectedOptions: Array<{ name: string; value: string }>
+): boolean {
+  if (selectedOptions.length === 0) return true;
+  if (selectedOptions.length !== 1) return false;
+  return (
+    normalizeOptionName(selectedOptions[0]!.name) === "Title" &&
+    normalizeOptionValue(selectedOptions[0]!.value) === "Default Title"
+  );
+}
+
+/** Options map for StoreVariant — collapse Shopify default title to `{}`. */
+export function shopifySelectedOptionsToInwOptions(
+  selectedOptions: Array<{ name: string; value: string }>
+): Record<string, string> {
+  if (isShopifyDefaultTitleOnly(selectedOptions)) return {};
+  const options: Record<string, string> = {};
+  for (const opt of selectedOptions) {
+    options[normalizeOptionName(opt.name)] = normalizeOptionValue(opt.value);
+  }
+  return options;
+}
+
 export function validateShopifyImportTopology(input: {
   axes: ShopifyOptionAxis[];
   variants: ShopifyRemoteVariantSnap[];
@@ -341,7 +365,8 @@ export function planShopifyTopologyDiff(input: {
     }
   }
 
-  // Renames: same GID, option value text changed.
+  // Option label drift on the same GID → pull REMOTE options onto StoreVariant.
+  // (Shopify is the observed source for inbound topology; never push local labels here.)
   const renameOptionValues: Array<{
     shopifyVariantId: string;
     storeVariantId: string;
@@ -350,31 +375,37 @@ export function planShopifyTopologyDiff(input: {
   for (const row of mappedLocal) {
     const rem = remoteByGid.get(row.shopifyVariantId!);
     if (!rem) continue;
+    const localSimple = isShopifyDefaultTitleOnly(row.selectedOptions);
+    const remoteSimple = isShopifyDefaultTitleOnly(rem.selectedOptions);
+    // Empty INW options ↔ Shopify Title/Default Title are equivalent.
+    if (localSimple && remoteSimple) continue;
     const localKey = shopifyOptionCombinationKey(row.selectedOptions);
     const remoteKey = shopifyOptionCombinationKey(rem.selectedOptions);
-    if (localKey !== remoteKey) {
-      // Same GID with different option text → treat as rename if axis names match.
-      const localNames = new Set(row.selectedOptions.map((o) => o.name));
-      const remoteNames = new Set(rem.selectedOptions.map((o) => o.name));
-      const namesMatch =
-        localNames.size === remoteNames.size &&
-        [...localNames].every((n) => remoteNames.has(n));
-      if (!namesMatch) {
-        return {
-          kind: "CONFLICT",
-          code: "TOPOLOGY_AXIS_CONFLICT",
-          message: `Mapped variant ${row.shopifyVariantId} changed option axes incompatibly`,
-        };
-      }
-      renameOptionValues.push({
-        shopifyVariantId: row.shopifyVariantId!,
-        storeVariantId: row.storeVariantId,
-        optionValues: row.selectedOptions.map((o) => ({
-          optionName: o.name,
-          name: o.value,
-        })),
-      });
+    if (localKey === remoteKey) continue;
+
+    const localNames = new Set(row.selectedOptions.map((o) => o.name));
+    const remoteNames = new Set(rem.selectedOptions.map((o) => o.name));
+    const namesMatch =
+      localNames.size === remoteNames.size &&
+      [...localNames].every((n) => remoteNames.has(n));
+
+    // Simple → multi-option on the same GID (common Shopify edit) is a pull, not a conflict.
+    if (!namesMatch && !localSimple && !remoteSimple) {
+      return {
+        kind: "CONFLICT",
+        code: "TOPOLOGY_AXIS_CONFLICT",
+        message: `Mapped variant ${row.shopifyVariantId} changed option axes incompatibly`,
+      };
     }
+
+    renameOptionValues.push({
+      shopifyVariantId: row.shopifyVariantId!,
+      storeVariantId: row.storeVariantId,
+      optionValues: rem.selectedOptions.map((o) => ({
+        optionName: o.name,
+        name: o.value,
+      })),
+    });
   }
 
   // Remote unmapped GIDs / local unmapped combos.

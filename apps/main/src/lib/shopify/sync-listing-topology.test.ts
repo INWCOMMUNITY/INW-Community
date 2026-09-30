@@ -338,7 +338,7 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
       localVariants: [
         {
           storeVariantId: "sv-1",
-          selectedOptions: [{ name: "Title", value: "Default Title" }],
+          selectedOptions: [],
           priceCents: 299,
           sku: "SKU",
           shopifyVariantId: "gid://shopify/ProductVariant/8",
