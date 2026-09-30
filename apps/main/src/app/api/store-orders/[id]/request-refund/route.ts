@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
-import { buyerCanRequestRefund, isActiveStoreReturnStatus, isReturnWindowOpen } from "@/lib/store-return";
-import { pickCurrentOutboundShipment } from "@/lib/store-order-shipments";
+import { createBuyerRequestedStoreReturn } from "@/lib/store-return-request";
 import { notifySellerReturnRequested } from "@/lib/store-return-notify";
+import { prisma } from "database";
 
 export const dynamic = "force-dynamic";
 
@@ -28,67 +27,6 @@ export async function POST(
   }
 
   const { id } = await params;
-  const order = await prisma.storeOrder.findFirst({
-    where: { id, buyerId: session.user.id },
-    include: {
-      buyer: { select: { firstName: true, lastName: true } },
-      seller: { select: { acceptReturns: true, acceptReturnsDays: true } },
-      storeReturns: { orderBy: { createdAt: "desc" }, take: 1 },
-      items: { select: { fulfillmentType: true } },
-      shipments: { select: { createdAt: true, kind: true, supersededAt: true, trackingStatus: true } },
-    },
-  });
-  if (!order) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
-  }
-  if (order.status === "refunded") {
-    return NextResponse.json({ error: "Order already refunded" }, { status: 400 });
-  }
-  const latest = order.storeReturns[0] ?? null;
-  const outbound = pickCurrentOutboundShipment(order.shipments);
-  const refundCheck = {
-    status: order.status,
-    isCashOrder: !order.stripePaymentIntentId,
-    stripePaymentIntentId: order.stripePaymentIntentId,
-    sellerAcceptsReturns: order.seller.acceptReturns,
-    sellerAcceptsReturnsDays: order.seller.acceptReturnsDays,
-    storeReturn: latest,
-    refundRequestedAt: latest ? null : order.refundRequestedAt,
-    createdAt: order.createdAt,
-    items: order.items,
-    pickupSellerConfirmedAt: order.pickupSellerConfirmedAt,
-    pickupBuyerConfirmedAt: order.pickupBuyerConfirmedAt,
-    deliveryConfirmedAt: order.deliveryConfirmedAt,
-    deliveryBuyerConfirmedAt: order.deliveryBuyerConfirmedAt,
-    shipment: outbound,
-  };
-  if (!buyerCanRequestRefund(refundCheck)) {
-    if (order.seller.acceptReturns === false) {
-      return NextResponse.json(
-        { error: "This seller does not accept returns." },
-        { status: 400 }
-      );
-    }
-    if (!order.stripePaymentIntentId) {
-      return NextResponse.json(
-        { error: "This order has no card payment to refund." },
-        { status: 400 }
-      );
-    }
-    if (latest && isActiveStoreReturnStatus(latest.status)) {
-      return NextResponse.json({ error: "A return is already in progress" }, { status: 400 });
-    }
-    if (!isReturnWindowOpen(refundCheck, order.seller.acceptReturnsDays)) {
-      return NextResponse.json(
-        { error: "This seller’s return window has ended." },
-        { status: 400 }
-      );
-    }
-    return NextResponse.json(
-      { error: "You can request a return after the order has shipped or been delivered." },
-      { status: 400 }
-    );
-  }
 
   let body: { reason?: string; otherReason?: string; note?: string } = {};
   try {
@@ -107,32 +45,64 @@ export async function POST(
           ? "Other"
           : reasonVal
       : null;
-  const refundReason = [reason, note].filter(Boolean).join(note ? " | Note: " : "") || undefined;
 
-  const now = new Date();
-  const storeReturn = await prisma.$transaction(async (tx) => {
-    const created = await tx.storeReturn.create({
-      data: {
-        orderId: order.id,
-        status: "requested",
-        reason: refundReason ?? reason ?? null,
-        note,
-        requestedAt: now,
-      },
-    });
-    await tx.storeOrder.update({
-      where: { id: order.id },
-      data: { refundRequestedAt: now, refundReason: refundReason || undefined },
-    });
-    return created;
+  const result = await createBuyerRequestedStoreReturn(prisma, {
+    orderId: id,
+    buyerId: session.user.id,
+    reason,
+    note,
   });
 
-  const buyerName = `${order.buyer.firstName} ${order.buyer.lastName}`.trim() || "A buyer";
-  notifySellerReturnRequested(order.sellerId, order.id, buyerName);
+  if (!result.ok) {
+    if (result.error === "not_found") {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+    if (result.error === "already_refunded") {
+      return NextResponse.json({ error: "Order already refunded" }, { status: 400 });
+    }
+    if (result.error === "already_in_progress") {
+      return NextResponse.json({ error: "A return is already in progress" }, { status: 400 });
+    }
+    if (result.error === "seller_no_returns") {
+      return NextResponse.json(
+        { error: "This seller does not accept returns." },
+        { status: 400 }
+      );
+    }
+    if (result.error === "no_card_payment") {
+      return NextResponse.json(
+        { error: "This order has no card payment to refund." },
+        { status: 400 }
+      );
+    }
+    if (result.error === "window_ended") {
+      return NextResponse.json(
+        { error: "This seller’s return window has ended." },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json(
+      { error: "You can request a return after the order has shipped or been delivered." },
+      { status: 400 }
+    );
+  }
+
+  const order = await prisma.storeOrder.findUnique({
+    where: { id },
+    select: {
+      sellerId: true,
+      buyer: { select: { firstName: true, lastName: true } },
+    },
+  });
+  if (order) {
+    const buyerName =
+      `${order.buyer.firstName} ${order.buyer.lastName}`.trim() || "A buyer";
+    notifySellerReturnRequested(order.sellerId, id, buyerName);
+  }
 
   return NextResponse.json({
     ok: true,
-    storeReturn,
+    storeReturn: result.storeReturn,
     message: "Refund request submitted. The seller will review.",
   });
 }

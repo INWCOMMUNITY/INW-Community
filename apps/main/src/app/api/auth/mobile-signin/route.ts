@@ -31,8 +31,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "INVALID_CREDENTIALS" }, { status: 401 });
     }
 
-    if (member.status === "suspended") {
-      return NextResponse.json({ error: "Account suspended" }, { status: 403 });
+    if (member.status === "suspended" || member.status === "closed") {
+      return NextResponse.json(
+        { error: member.status === "closed" ? "Account closed" : "Account suspended" },
+        { status: 403 }
+      );
     }
 
     const ok = await bcrypt.compare(password, member.passwordHash);

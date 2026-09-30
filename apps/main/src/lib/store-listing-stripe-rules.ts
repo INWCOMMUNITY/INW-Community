@@ -1,4 +1,4 @@
-import { prisma } from "database";
+import { assertLegacyInteractiveMutationAllowed, prisma } from "database";
 import { inactiveStoreItemData } from "@/lib/store-item-ended-status";
 import { isMadeToOrderTracking } from "@/lib/listing-variant-matrix";
 
@@ -34,6 +34,7 @@ export function wouldBePubliclyBrowsableLive(
 export async function deactivateActiveListingsIfMemberLacksConnect(memberId: string): Promise<void> {
   const has = await memberHasStripeConnectForStorefront(memberId);
   if (has) return;
+  await assertLegacyInteractiveMutationAllowed(prisma);
   await prisma.storeItem.updateMany({
     where: { memberId, status: "active" },
     data: inactiveStoreItemData(),

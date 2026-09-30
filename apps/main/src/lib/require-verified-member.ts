@@ -34,7 +34,7 @@ export async function requireVerifiedActiveMember(
     };
   }
 
-  if (member.status === "suspended") {
+  if (member.status === "suspended" || member.status === "closed") {
     return {
       ok: false,
       response: NextResponse.json(

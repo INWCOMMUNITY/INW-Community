@@ -117,13 +117,29 @@ export function ProfileForm() {
   async function handleDeleteAccount() {
     if (!deleteConfirm) return;
     setDeleting(true);
+    setError("");
     try {
       const res = await fetch("/api/me/delete", { method: "POST" });
-      if (res.ok) {
-        await signOut({ redirect: false });
-        router.push("/");
-        router.refresh();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(getErrorMessage(data.error, "Could not close your account. Try again."));
+        return;
       }
+      const outcome = data.outcome as string | undefined;
+      if (outcome !== "deleted" && outcome !== "closed") {
+        setError("Could not close your account. Try again.");
+        return;
+      }
+      if (outcome === "closed" && data.billingCleanupPending === true) {
+        window.alert(
+          "Your account has been closed, but we could not confirm cancellation of your active subscription. Please contact support so we can make sure no further billing occurs."
+        );
+      }
+      await signOut({ redirect: false });
+      router.push("/");
+      router.refresh();
+    } catch {
+      setError("Could not close your account. Try again.");
     } finally {
       setDeleting(false);
     }
@@ -309,7 +325,9 @@ export function ProfileForm() {
       <div className="mt-12 pt-8 border-t">
         <p className="text-sm font-medium text-gray-700 mb-2">Delete account</p>
         <p className="text-sm text-gray-500 mb-2">
-          Permanently delete your account and all saved items. This cannot be undone.
+          Close your account. Community content is removed. If you have orders or listings, those
+          records are kept and the account is closed so history remains available. If you have no
+          protected commerce or financial history, the account is permanently deleted.
         </p>
         {!deleteConfirm ? (
           <button

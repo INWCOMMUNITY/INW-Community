@@ -107,6 +107,20 @@ export async function createOrder(
   });
 }
 
+export async function createStoreReturn(
+  prisma: PrismaClient,
+  args: { orderId: string; status?: string; receivedAt?: Date | null; id?: string }
+) {
+  return prisma.storeReturn.create({
+    data: {
+      ...(args.id ? { id: args.id } : {}),
+      orderId: args.orderId,
+      status: args.status ?? "received",
+      ...(args.receivedAt !== undefined ? { receivedAt: args.receivedAt } : {}),
+    },
+  });
+}
+
 export async function createCheckoutAttempt(
   prisma: PrismaClient,
   args: {
@@ -306,7 +320,13 @@ export async function expectRejects(
     if (kind === "check" && isCheckViolation(err)) return err;
     if (kind === "restrict") {
       const msg = dbMessage(err);
-      if (isFkViolation(err) || msg.includes("23503") || /restrict|referenced/i.test(msg)) {
+      const code = dbCode(err);
+      if (
+        isFkViolation(err) ||
+        code === "P2014" ||
+        msg.includes("23503") ||
+        /restrict|referenced|required relation/i.test(msg)
+      ) {
         return err;
       }
     }

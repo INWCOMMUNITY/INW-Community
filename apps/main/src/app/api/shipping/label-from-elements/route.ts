@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
     },
     include: {
       shipments: true,
-      storeReturns: { orderBy: { createdAt: "desc" }, take: 1 },
+      storeReturns: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1 },
       items: {
         select: {
           fulfillmentType: true,

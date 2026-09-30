@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Prisma } from "database";
+import { prisma, Prisma, provisionNativeFoundationListing } from "database";
+import { resolveCommerceInventoryWriter } from "@/lib/commerce-foundation-cutover-http";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { containsProhibitedCategory, formatModerationErrorMessage, validateText } from "@/lib/content-moderation";
 import { createFlaggedContent } from "@/lib/flag-content";
@@ -169,40 +170,19 @@ export async function GET(req: NextRequest) {
         id: true,
         title: true,
         slug: true,
-        sku: true,
         priceCents: true,
         quantity: true,
         status: true,
         photos: true,
         localDeliveryAvailable: true,
         aspects: true,
-        createdAt: true,
       },
       orderBy: { createdAt: "desc" },
     });
 
-    const itemIds = items.map((i) => i.id);
-    const viewsByItem = new Map<string, number>();
-    if (itemIds.length > 0) {
-      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const viewRows = await prisma.sellerAnalyticsEvent.groupBy({
-        by: ["storeItemId"],
-        where: {
-          memberId: userId,
-          storeItemId: { in: itemIds },
-          eventType: "listing_view",
-          createdAt: { gte: since },
-        },
-        _count: { _all: true },
-      });
-      for (const row of viewRows) {
-        if (row.storeItemId) viewsByItem.set(row.storeItemId, row._count._all);
-      }
-    }
-
     // For sold items, attach last order id and date so seller can link to order and see "Sold on [date]"
-    const lastOrderByItem = new Map<string, { orderId: string; soldAt: string }>();
     if (items.length > 0 && (soldOnly || filter === "sold")) {
+      const itemIds = items.map((i) => i.id);
       const orderItems = await prisma.orderItem.findMany({
         where: {
           storeItemId: { in: itemIds },
@@ -211,6 +191,7 @@ export async function GET(req: NextRequest) {
         include: { order: { select: { id: true, updatedAt: true } } },
         orderBy: { order: { updatedAt: "desc" } },
       });
+      const lastOrderByItem = new Map<string, { orderId: string; soldAt: string }>();
       for (const oi of orderItems) {
         if (!lastOrderByItem.has(oi.storeItemId)) {
           lastOrderByItem.set(oi.storeItemId, {
@@ -219,18 +200,23 @@ export async function GET(req: NextRequest) {
           });
         }
       }
+      return NextResponse.json(
+        items.map((i) => {
+          const sold = lastOrderByItem.get(i.id);
+          const mapped = {
+            ...i,
+            photos: Array.isArray(i.photos) ? (i.photos as string[]).slice(0, 1) : [],
+          };
+          return sold ? { ...mapped, soldOrderId: sold.orderId, soldAt: sold.soldAt } : mapped;
+        })
+      );
     }
 
     return NextResponse.json(
-      items.map((i) => {
-        const sold = lastOrderByItem.get(i.id);
-        return {
-          ...i,
-          photos: Array.isArray(i.photos) ? (i.photos as string[]).slice(0, 1) : [],
-          views30d: viewsByItem.get(i.id) ?? 0,
-          ...(sold ? { soldOrderId: sold.orderId, soldAt: sold.soldAt } : {}),
-        };
-      })
+      items.map((i) => ({
+        ...i,
+        photos: Array.isArray(i.photos) ? (i.photos as string[]).slice(0, 1) : [],
+      }))
     );
   }
 
@@ -317,6 +303,8 @@ export async function POST(req: NextRequest) {
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const writer = await resolveCommerceInventoryWriter();
+  if (!writer.ok) return writer.response;
 
   let data: z.infer<typeof bodySchema>;
   try {
@@ -478,7 +466,9 @@ export async function POST(req: NextRequest) {
     const storedVariants = normalizedVariants ? serializeVariantMatrix(normalizedVariants) : null;
     const useOptionQuantities = hasOptionQuantities(storedVariants ?? data.variants);
     let quantity = madeToOrder
-      ? MTO_CHANNEL_QUANTITY
+      ? writer.route === "foundation"
+        ? 0
+        : MTO_CHANNEL_QUANTITY
       : useOptionQuantities
         ? sumOptionQuantities(storedVariants ?? data.variants)
         : Number(data.quantity ?? 1);
@@ -548,8 +538,7 @@ export async function POST(req: NextRequest) {
         shippingCostCents = await getShippingOptionCostCents(userId, shippingOptionId);
       }
     }
-    const item = await prisma.storeItem.create({
-      data: {
+    const createData = {
         memberId: userId,
         businessId: data.businessId || null,
         title: clampListingTitle(data.title.trim()),
@@ -584,8 +573,15 @@ export async function POST(req: NextRequest) {
               : false,
         minOfferCents: data.minOfferCents ?? null,
         slug,
-      },
-    });
+    };
+    const item =
+      writer.route === "foundation"
+        ? await prisma.$transaction(async (tx) => {
+            const created = await tx.storeItem.create({ data: createData });
+            await provisionNativeFoundationListing(tx, created.id);
+            return tx.storeItem.findUniqueOrThrow({ where: { id: created.id } });
+          })
+        : await prisma.storeItem.create({ data: createData });
     // Log activity
     const { logSellerActivity } = await import("@/lib/seller-activity-log");
     logSellerActivity(userId, "item_created", "store_item", item.id, {

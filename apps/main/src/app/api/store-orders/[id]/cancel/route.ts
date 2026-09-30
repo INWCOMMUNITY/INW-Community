@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { restockOrderLinesAfterReturn } from "@/lib/store-item-restock";
 import { refundPaidStorefrontOrder } from "@/lib/stripe/refund-store-order";
+import { gateInteractiveOrFoundationWriter } from "@/lib/commerce-foundation-cutover-http";
 
 const CANCEL_REASONS = [
   "Changed my mind",
@@ -31,6 +32,8 @@ export async function POST(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const blocked = await gateInteractiveOrFoundationWriter();
+  if (blocked) return blocked;
 
   let body: { reason?: string; otherReason?: string; note?: string } = {};
   try {
@@ -77,7 +80,12 @@ export async function POST(
           inventoryRestoredAt: new Date(),
         },
       });
-      await restockOrderLinesAfterReturn(tx, order.items);
+      await restockOrderLinesAfterReturn(
+        tx,
+        order.items,
+        "UNDO_CONSUMPTION",
+        `buyer-cancel:${order.id}`
+      );
     });
     return NextResponse.json({ ok: true, refunded: false });
   }

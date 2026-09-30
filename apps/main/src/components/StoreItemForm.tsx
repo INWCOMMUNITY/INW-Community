@@ -114,7 +114,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     const c = existing?.category ?? "";
     return !!c && !STORE_CATEGORIES.some((x) => x.label === c);
   });
-  const [aspects, setAspects] = useState<ListingAspect[]>([]);
+  const [aspects, setAspects] = useState<ListingAspect[]>(() =>
+    Array.isArray(existing?.aspects)
+      ? existing.aspects.map((a) => ({ name: String(a.name ?? ""), value: String(a.value ?? "") }))
+      : []
+  );
   const [priceDollars, setPriceDollars] = useState(
     existing ? (existing.priceCents / 100).toFixed(2) : ""
   );
@@ -300,14 +304,14 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     const issues: string[] = [];
 
     for (const file of files) {
-      const mime = listingPhotoEffectiveMime(file.name, file.type);
+      const mime = listingPhotoEffectiveMime(file.type, file.name);
       if (!mime) {
         issues.push(`${file.name}: unsupported format`);
         continue;
       }
       if (file.size > MAX_LISTING_PHOTO_BYTES) {
         issues.push(
-          `${file.name} is too large (max ${formatListingPhotoSizeLabel()})`
+          `${file.name} is too large (${formatListingPhotoSizeLabel()})`
         );
         continue;
       }

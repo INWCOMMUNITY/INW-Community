@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Prisma } from "database";
+import { applyFoundationSellerQuantitySets, prisma, Prisma, recordShopifyListingContentDesire } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
 import { endStoreItemListing } from "@/lib/end-store-item-listing";
+import { hasOptionQuantities } from "@/lib/store-item-variants";
+import {
+  gateInteractiveOrFoundationWriter,
+  jsonIfCutoverBlocked,
+  resolveCommerceInventoryWriter,
+} from "@/lib/commerce-foundation-cutover-http";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +70,42 @@ async function updateOneStoreItem(id: string, data: Record<string, unknown>) {
   }
 }
 
+/** Canonical price update + S5 desire/job capture in one DB transaction. */
+async function updateStoreItemWithShopifyDesire(input: {
+  itemId: string;
+  memberId: string;
+  before: { title: string; description: string | null; priceCents: number; sku: string | null };
+  data: Record<string, unknown>;
+}) {
+  await prisma.$transaction(async (tx) => {
+    let updated;
+    try {
+      updated = await tx.storeItem.update({
+        where: { id: input.itemId },
+        data: input.data,
+      });
+    } catch (e) {
+      if (!isEndedAtWriteError(e) || input.data.endedAt === undefined) throw e;
+      const { endedAt: _endedAt, ...rest } = input.data;
+      updated = await tx.storeItem.update({
+        where: { id: input.itemId },
+        data: rest,
+      });
+    }
+    await recordShopifyListingContentDesire(tx, {
+      memberId: input.memberId,
+      storeItemId: input.itemId,
+      before: input.before,
+      after: {
+        title: updated.title,
+        description: updated.description,
+        priceCents: updated.priceCents,
+        sku: updated.sku,
+      },
+    });
+  });
+}
+
 /**
  * PATCH /api/store-items/bulk
  *
@@ -105,6 +147,9 @@ export async function PATCH(req: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const writer = await resolveCommerceInventoryWriter();
+    if (!writer.ok) return writer.response;
+    const isFoundation = writer.route === "foundation";
 
     const body = await req.json();
     const parsed = bulkUpdateSchema.safeParse(body);
@@ -127,8 +172,11 @@ export async function PATCH(req: NextRequest) {
       select: {
         id: true,
         title: true,
+        description: true,
+        sku: true,
         priceCents: true,
         quantity: true,
+        variants: true,
         category: true,
         subcategory: true,
         condition: true,
@@ -139,7 +187,7 @@ export async function PATCH(req: NextRequest) {
         inStorePickupAvailable: true,
       },
     });
-    
+
     // Capture before state for snapshot
     const beforeState: Record<string, Record<string, unknown>> = {};
     for (const item of ownedItems) {
@@ -187,13 +235,51 @@ export async function PATCH(req: NextRequest) {
       updateData.inStorePickupAvailable = updates.inStorePickupAvailable;
     }
 
-    // Handle price and quantity updates per-item (may need calculation)
-    const itemsNeedingIndividualUpdate =
-      updates.priceChangePercent !== undefined ||
-      updates.quantityAdjust !== undefined;
+    const quantityRequested = updates.quantity !== undefined || updates.quantityAdjust !== undefined;
+    if (isFoundation && quantityRequested) {
+      for (const item of ownedItems) {
+        if (hasOptionQuantities(item.variants)) {
+          result.failed++;
+          result.errors.push({
+            itemId: item.id,
+            error: "FOUNDATION bulk quantity is not supported for matrix listings",
+          });
+          continue;
+        }
+        const target =
+          updates.quantityAdjust !== undefined
+            ? Math.max(0, item.quantity + updates.quantityAdjust)
+            : updates.quantity!;
+        try {
+          await prisma.$transaction((tx) =>
+            applyFoundationSellerQuantitySets(tx, {
+              storeItemId: item.id,
+              memberId: userId,
+              commandId: `bulk-set-${item.id}`,
+              simpleTarget: target,
+            })
+          );
+          result.updated++;
+        } catch (e) {
+          result.failed++;
+          result.errors.push({
+            itemId: item.id,
+            error: e instanceof Error ? e.message : "Foundation quantity update failed",
+          });
+        }
+      }
+    }
 
-    if (itemsNeedingIndividualUpdate) {
-      // Update each item individually
+    // Handle price and quantity updates per-item (may need calculation)
+    const priceRequested =
+      updates.priceCents !== undefined || updates.priceChangePercent !== undefined;
+    const itemsNeedingIndividualUpdate =
+      priceRequested ||
+      updates.priceChangePercent !== undefined ||
+      (!isFoundation && updates.quantityAdjust !== undefined);
+
+    if (itemsNeedingIndividualUpdate || priceRequested) {
+      // Update each item individually so S5 desire/job capture stays in the same TX.
       for (const item of ownedItems) {
         try {
           const itemUpdate: Record<string, unknown> = { ...updateData };
@@ -207,15 +293,31 @@ export async function PATCH(req: NextRequest) {
             itemUpdate.priceCents = updates.priceCents;
           }
 
-          if (updates.quantityAdjust !== undefined) {
+          if (!isFoundation && updates.quantityAdjust !== undefined) {
             const newQty = Math.max(0, item.quantity + updates.quantityAdjust);
             itemUpdate.quantity = newQty;
-          } else if (updates.quantity !== undefined) {
+          } else if (!isFoundation && updates.quantity !== undefined) {
             itemUpdate.quantity = updates.quantity;
           }
 
-          await updateOneStoreItem(item.id, itemUpdate);
-          result.updated++;
+          if (Object.keys(itemUpdate).length === 0) continue;
+
+          if (priceRequested) {
+            await updateStoreItemWithShopifyDesire({
+              itemId: item.id,
+              memberId: userId,
+              before: {
+                title: item.title,
+                description: item.description,
+                priceCents: item.priceCents,
+                sku: item.sku,
+              },
+              data: itemUpdate,
+            });
+          } else {
+            await updateOneStoreItem(item.id, itemUpdate);
+          }
+          if (!isFoundation || !quantityRequested) result.updated++;
         } catch (e) {
           result.failed++;
           result.errors.push({
@@ -225,18 +327,15 @@ export async function PATCH(req: NextRequest) {
         }
       }
     } else {
-      // Batch update all items at once
-      if (updates.priceCents !== undefined) {
-        updateData.priceCents = updates.priceCents;
-      }
-      if (updates.quantity !== undefined) {
+      // Batch update all items at once (non-S5 fields only; price uses per-item path above)
+      if (!isFoundation && updates.quantity !== undefined) {
         updateData.quantity = updates.quantity;
       }
 
       if (Object.keys(updateData).length > 0) {
         const batchResult = await updateManyStoreItems(Array.from(ownedIds), updateData);
-        result.updated = batchResult.count;
-      } else {
+        result.updated = isFoundation && quantityRequested ? result.updated : batchResult.count;
+      } else if (!(isFoundation && quantityRequested)) {
         result.updated = ownedItems.length;
       }
     }
@@ -262,7 +361,7 @@ export async function PATCH(req: NextRequest) {
             inStorePickupAvailable: true,
           },
         });
-        
+
         const changes: Record<string, { before: Record<string, unknown>; after: Record<string, unknown> }> = {};
         for (const item of afterItems) {
           if (beforeState[item.id]) {
@@ -272,7 +371,7 @@ export async function PATCH(req: NextRequest) {
             };
           }
         }
-        
+
         const snapshot = await prisma.bulkEditSnapshot.create({
           data: {
             memberId: userId,
@@ -282,7 +381,7 @@ export async function PATCH(req: NextRequest) {
             expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
           },
         });
-        
+
         // Log activity
         const { logSellerActivity } = await import("@/lib/seller-activity-log");
         logSellerActivity(userId, "bulk_edit", "bulk_operation", snapshot.id, {
@@ -290,7 +389,7 @@ export async function PATCH(req: NextRequest) {
           itemCount: result.updated,
           changedFields: Object.keys(updates).filter((k) => updates[k as keyof typeof updates] !== undefined),
         });
-        
+
         // Check low stock for updated items
         const { checkLowStockBatch } = await import("@/lib/low-stock-alerts");
         const itemsToCheck = afterItems.map((item) => ({
@@ -305,14 +404,14 @@ export async function PATCH(req: NextRequest) {
             deleteFeedPostsForSoldItem(id).catch(() => {});
           }
         }
-        
+
         // Add snapshotId to result
         (result as Record<string, unknown>).snapshotId = snapshot.id;
       } catch (e) {
         console.warn("[bulk-update] snapshot creation failed:", e);
       }
     }
-    
+
     return NextResponse.json(result);
   } catch (e) {
     console.error("[bulk-update] error:", e);
@@ -336,6 +435,8 @@ export async function DELETE(req: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const blocked = await gateInteractiveOrFoundationWriter();
+    if (blocked) return blocked;
 
     const body = await req.json();
     const storeItemIds = z.array(z.string()).min(1).max(100).parse(body.storeItemIds);
@@ -408,6 +509,8 @@ export async function DELETE(req: NextRequest) {
       snapshotId,
     });
   } catch (e) {
+    const cutover = jsonIfCutoverBlocked(e);
+    if (cutover) return cutover;
     console.error("[bulk-delete] error:", e);
     return NextResponse.json(
       { error: "Bulk delete failed", detail: e instanceof Error ? e.message : String(e) },

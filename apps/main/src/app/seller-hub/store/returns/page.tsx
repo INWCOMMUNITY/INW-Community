@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { orderCanBuyReturnLabel, returnRefundAmountCents, storeReturnBuyerLabel } from "@/lib/store-return";
+import { orderCanBuyReturnLabel, returnRefundAmountCents, storeReturnBuyerLabel, storeReturnSellerMoneyAction, storeReturnSellerMoneyActionLabel } from "@/lib/store-return";
 
 interface OrderItem {
   id: string;
@@ -112,6 +112,7 @@ export default function RequestedReturnsPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setActionError((data as { error?: string }).error ?? "Action failed");
+        load();
         return;
       }
       const approvedOrder = orders.find((o) => o.id === orderId);
@@ -124,6 +125,7 @@ export default function RequestedReturnsPage() {
       load();
     } catch {
       setActionError("Connection failed.");
+      load();
     } finally {
       setBusyId(null);
     }
@@ -178,8 +180,12 @@ export default function RequestedReturnsPage() {
             const proposed = returnRefundAmountCents({
               totalCents: order.totalCents,
               taxCents: order.taxCents,
-              chargeReturnShipping: ret?.chargeReturnShipping === true,
+              chargeReturnShipping: Boolean(ret?.chargeReturnShipping),
               returnLabelCostCents: labelCost,
+            });
+            const moneyAction = storeReturnSellerMoneyAction({
+              returnStatus: ret?.status,
+              orderStatus: order.status,
             });
             const busy = busyId === order.id;
             return (
@@ -270,15 +276,17 @@ export default function RequestedReturnsPage() {
                           Open return label PDF
                         </a>
                       ) : null}
-                      <button
-                        type="button"
-                        disabled={busy}
-                        className="btn text-sm py-2 px-3"
-                        onClick={() => postAction(order.id, "/returns/receive")}
-                      >
-                        {busy ? "Refunding…" : "Mark received & refund"}
-                      </button>
                     </>
+                  ) : null}
+                  {moneyAction ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="btn text-sm py-2 px-3"
+                      onClick={() => postAction(order.id, "/returns/receive")}
+                    >
+                      {busy ? "Refunding…" : storeReturnSellerMoneyActionLabel(moneyAction)}
+                    </button>
                   ) : null}
                 </div>
                 {declineFor === order.id ? (

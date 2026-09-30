@@ -8,6 +8,9 @@ import { AdminPauseSubscriptionButton } from "../AdminPauseSubscriptionButton";
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL || "http://localhost:3000";
 
+const DELETE_CONFIRM =
+  "Accounts without protected commerce or financial history may be permanently deleted. Accounts with protected history are closed and access is disabled while required records are retained. This is separate from Suspend.";
+
 export function AdminMemberActions({
   memberId,
   status,
@@ -77,11 +80,7 @@ export function AdminMemberActions({
   }
 
   async function handleDelete() {
-    if (
-      !confirm(
-        "Delete this member? Their profile (including name, city, bio, and any directory data), posts, groups they created, follows, businesses, and other data tied to their account will be removed. This cannot be undone."
-      )
-    )
+    if (!confirm(DELETE_CONFIRM))
       return;
     setLoading(true);
     try {
@@ -90,7 +89,13 @@ export function AdminMemberActions({
         });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        onDeleted?.();
+        if (data.outcome === "deleted") {
+          onDeleted?.();
+        } else if (data.billingCleanupPending === true) {
+          alert(
+            "Account closed, but subscription cancellation could not be confirmed. Billing cleanup is still pending."
+          );
+        }
         router.refresh();
       } else alert(data.error ?? "Delete failed");
     } finally {

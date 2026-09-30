@@ -16,7 +16,7 @@ export function generatePasswordResetRawToken(): string {
 }
 
 /**
- * Issue a reset token and send email only if the member still exists and is not suspended.
+ * Issue a reset token and send email only if the member still exists and is not suspended or closed.
  * Always uses the email stored on the row (never trusts a caller-supplied address).
  */
 export async function issuePasswordReset(memberId: string): Promise<void> {
@@ -24,7 +24,7 @@ export async function issuePasswordReset(memberId: string): Promise<void> {
     where: { id: memberId },
     select: { id: true, email: true, status: true },
   });
-  if (!member || member.status === "suspended") {
+  if (!member || member.status === "suspended" || member.status === "closed") {
     return;
   }
 

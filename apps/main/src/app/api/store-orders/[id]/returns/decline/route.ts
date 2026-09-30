@@ -37,7 +37,12 @@ export async function POST(
   const { id } = await params;
   const order = await prisma.storeOrder.findFirst({
     where: { id, sellerId: userId },
-    include: { storeReturns: { orderBy: { createdAt: "desc" }, take: 1 } },
+    include: {
+      storeReturns: {
+        orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }],
+        take: 1,
+      },
+    },
   });
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });

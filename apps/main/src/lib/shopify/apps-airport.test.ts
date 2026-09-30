@@ -1,0 +1,127 @@
+import { describe, expect, it } from "vitest";
+import {
+  APPS_AIRPORT_MARKETPLACES,
+  APPS_AIRPORT_PATH,
+  APPS_AIRPORT_SHOPIFY_IMPORT_PATH,
+  APPS_AIRPORT_SHOPIFY_LISTINGS_PATH,
+  APPS_AIRPORT_SHOPIFY_PATH,
+  APPS_AIRPORT_SHOPIFY_SETTINGS_PATH,
+  APPS_AIRPORT_SHOPIFY_SYNC_PATH,
+  classifyShopifyConnectionUi,
+  resolveShopifySyncProgress,
+  shopifyAdminProductUrl,
+  shopifyConnectionStatusLabel,
+  shopifyReadinessLabel,
+  formatShopifyObservedQuantity,
+} from "./apps-airport";
+
+describe("Apps Airport routes", () => {
+  it("exposes first-class seller navigation paths under /seller-hub/apps", () => {
+    expect(APPS_AIRPORT_PATH).toBe("/seller-hub/apps");
+    expect(APPS_AIRPORT_SHOPIFY_PATH).toBe("/seller-hub/apps/shopify");
+    expect(APPS_AIRPORT_SHOPIFY_SYNC_PATH).toBe("/seller-hub/apps/shopify/sync");
+    expect(APPS_AIRPORT_SHOPIFY_LISTINGS_PATH).toBe("/seller-hub/apps/shopify/listings");
+    expect(APPS_AIRPORT_SHOPIFY_IMPORT_PATH).toBe("/seller-hub/apps/shopify/import");
+    expect(APPS_AIRPORT_SHOPIFY_SETTINGS_PATH).toBe("/seller-hub/apps/shopify/settings");
+  });
+
+  it("lists Shopify as available and other marketplaces as coming later", () => {
+    const shopify = APPS_AIRPORT_MARKETPLACES.find((m) => m.id === "shopify");
+    expect(shopify?.availability).toBe("available");
+    expect(shopify?.href).toBe(APPS_AIRPORT_SHOPIFY_PATH);
+    for (const id of ["ebay", "etsy", "wix"] as const) {
+      expect(APPS_AIRPORT_MARKETPLACES.find((m) => m.id === id)?.availability).toBe("coming_later");
+    }
+  });
+});
+
+describe("Shopify connection UI status", () => {
+  it("marks disconnected when no active connection", () => {
+    expect(classifyShopifyConnectionUi(null)).toBe("disconnected");
+    expect(classifyShopifyConnectionUi({ status: "DISCONNECTED" })).toBe("disconnected");
+    expect(shopifyConnectionStatusLabel("disconnected")).toBe("Not connected");
+  });
+
+  it("marks needs attention when location is missing", () => {
+    expect(
+      classifyShopifyConnectionUi({
+        status: "ACTIVE",
+        inventoryReady: false,
+        locationSelectionRequired: true,
+      })
+    ).toBe("needs_attention");
+  });
+
+  it("marks connected when active and inventory ready", () => {
+    expect(
+      classifyShopifyConnectionUi({
+        status: "ACTIVE",
+        inventoryReady: true,
+        locationSelectionRequired: false,
+      })
+    ).toBe("connected");
+  });
+});
+
+describe("Shopify sync progress and labels", () => {
+  it("does not treat enqueue alone as published", () => {
+    expect(resolveShopifySyncProgress({ enqueueStatus: "queued", listing: null })).toBe(
+      "creating_product"
+    );
+    expect(
+      resolveShopifySyncProgress({
+        enqueueStatus: "queued",
+        listing: { readiness: "SYNCING", inventoryInitState: "PENDING" },
+      })
+    ).toBe("inventory_initializing");
+    expect(
+      resolveShopifySyncProgress({
+        enqueueStatus: "queued",
+        listing: {
+          readiness: "SYNCING",
+          inventoryInitState: "INITIALIZED",
+          remoteProductStatus: "DRAFT",
+        },
+      })
+    ).toBe("publishing");
+    expect(
+      resolveShopifySyncProgress({
+        enqueueStatus: "queued",
+        listing: { readiness: "READY_TO_PUBLISH", inventoryInitState: "INITIALIZED" },
+      })
+    ).toBe("published");
+  });
+
+  it("preserves backend readiness truth in labels", () => {
+    expect(shopifyReadinessLabel("READY_TO_PUBLISH")).toBe("Live");
+    expect(shopifyReadinessLabel("ACTION_REQUIRED")).toBe("Needs attention");
+  });
+
+  it("builds a safe Shopify Admin product URL", () => {
+    expect(
+      shopifyAdminProductUrl("demo.myshopify.com", "gid://shopify/Product/123")
+    ).toBe("https://demo.myshopify.com/admin/products/123");
+    expect(shopifyAdminProductUrl("custom.example.com", "gid://shopify/Product/123")).toBeNull();
+  });
+
+  it("never presents desired quantity as verified Shopify stock", () => {
+    expect(
+      formatShopifyObservedQuantity({
+        inventoryAppliedAvailable: null,
+        inventoryDesiredAvailable: 3,
+      })
+    ).toBe("— (desired 3)");
+    expect(
+      formatShopifyObservedQuantity({
+        inventoryAppliedAvailable: 3,
+        inventoryDesiredAvailable: 3,
+      })
+    ).toBe("3");
+    expect(
+      formatShopifyObservedQuantity({
+        inventoryAppliedAvailable: null,
+        inventoryDesiredAvailable: null,
+      })
+    ).toBe("—");
+  });
+});

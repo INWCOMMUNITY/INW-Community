@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, Prisma } from "database";
+import {
+  applyFoundationSellerQuantitySets,
+  assertFoundationMatrixStructureUnchanged,
+  endFoundationListing,
+  markFoundationListingSold,
+  prisma,
+  Prisma,
+  recordShopifyDirtyMappedVariantContentDesires,
+  recordShopifyListingContentDesire,
+} from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireAdmin } from "@/lib/admin-auth";
 import { deleteFeedPostsForSoldItem } from "@/lib/delete-posts-for-sold-item";
@@ -14,6 +23,7 @@ import {
   parseInventoryTracking,
   normalizeVariantMatrix,
   serializeVariantMatrix,
+  skuSelectionKey,
   validateVariantMatrixForSave,
 } from "@/lib/listing-variant-matrix";
 import { z } from "zod";
@@ -25,6 +35,7 @@ import { assertMemberShippingOption } from "@/lib/shipping-options";
 import { strangerMayViewStoreItemById } from "@/lib/store-item-public-access";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
 import { endStoreItemListing } from "@/lib/end-store-item-listing";
+import { gateInteractiveOrFoundationWriter, jsonIfCutoverBlocked, resolveCommerceInventoryWriter } from "@/lib/commerce-foundation-cutover-http";
 
 const bodySchema = z.object({
   businessId: z.string().nullable().optional(),
@@ -111,6 +122,8 @@ export async function PATCH(
   if (!isAdmin && existing.memberId !== session.user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const writer = await resolveCommerceInventoryWriter();
+  if (!writer.ok) return writer.response;
 
   let data: z.infer<typeof bodySchema>;
   try {
@@ -408,9 +421,191 @@ export async function PATCH(
     }
   }
 
-  const item = await prisma.storeItem.update({
-    where: { id: itemId },
-    data: update as object,
+  const contentBefore = {
+    title: existing.title,
+    description: existing.description,
+    priceCents: existing.priceCents,
+    sku: existing.sku,
+    photos: existing.photos,
+  };
+
+  if (writer.route === "foundation") {
+    try {
+      const item = await prisma.$transaction(async (tx) => {
+        if (mergedStatus === "sold_out") {
+          await markFoundationListingSold(tx, {
+            storeItemId: itemId,
+            memberId: ownerId,
+            commandId: `sold-${itemId}`,
+          });
+          delete (update as { quantity?: number }).quantity;
+        } else if (data.quantity !== undefined && !hasOptionQuantities(data.variants ?? existing.variants)) {
+          await applyFoundationSellerQuantitySets(tx, {
+            storeItemId: itemId,
+            memberId: ownerId,
+            commandId: `set-${itemId}`,
+            simpleTarget: data.quantity,
+          });
+          delete (update as { quantity?: number }).quantity;
+        } else if (data.variants !== undefined && hasOptionQuantities(data.variants)) {
+          const matrix = normalizeVariantMatrix(data.variants);
+          const matrixTargets =
+            matrix?.skus.map((sku) => ({
+              fingerprint: `matrix:${skuSelectionKey(sku.options)}`,
+              targetOnHand: sku.quantity,
+            })) ?? [];
+          await assertFoundationMatrixStructureUnchanged(
+            tx,
+            itemId,
+            matrixTargets.map((target) => target.fingerprint)
+          );
+          await applyFoundationSellerQuantitySets(tx, {
+            storeItemId: itemId,
+            memberId: ownerId,
+            commandId: `set-matrix-${itemId}`,
+            matrixTargets,
+          });
+          delete (update as { quantity?: number }).quantity;
+        }
+        // Keep StoreVariant price/SKU rows aligned with matrix JSON (Shopify reads StoreVariant).
+        if (data.variants !== undefined) {
+          const matrix = normalizeVariantMatrix(data.variants);
+          if (matrix) {
+            const storeVariants = await tx.storeVariant.findMany({
+              where: { storeItemId: itemId, memberId: ownerId },
+              select: { id: true, options: true, priceCents: true, sku: true },
+            });
+            const byFp = new Map<string, (typeof storeVariants)[number]>(
+              storeVariants.map((v) => {
+                const opts =
+                  typeof v.options === "string"
+                    ? (JSON.parse(v.options) as Record<string, string>)
+                    : ((v.options ?? {}) as Record<string, string>);
+                return [`matrix:${skuSelectionKey(opts)}`, v];
+              })
+            );
+            for (const sku of matrix.skus) {
+              const fp = `matrix:${skuSelectionKey(sku.options)}`;
+              const row = byFp.get(fp);
+              if (!row) continue;
+              const nextPrice =
+                typeof sku.priceCents === "number" && Number.isFinite(sku.priceCents) && sku.priceCents > 0
+                  ? Math.round(sku.priceCents)
+                  : row.priceCents;
+              const nextSku =
+                typeof sku.sku === "string" ? sku.sku.trim() || null : row.sku;
+              if (nextPrice !== row.priceCents || nextSku !== row.sku) {
+                await tx.storeVariant.update({
+                  where: { id: row.id },
+                  data: { priceCents: nextPrice, sku: nextSku },
+                });
+              }
+            }
+          }
+        }
+        if (mergedStatus === "inactive") {
+          await endFoundationListing(tx, { storeItemId: itemId, currentStatus: existing.status });
+          delete (update as { status?: string; endedAt?: Date | null }).status;
+          delete (update as { endedAt?: Date | null }).endedAt;
+        }
+        const updated = await tx.storeItem.update({
+          where: { id: itemId },
+          data: update as object,
+        });
+        // S5: same TX as canonical write — bump desired versions + enqueue UPDATE_LISTING_CONTENT.
+        // No Shopify network calls here.
+        await recordShopifyListingContentDesire(tx, {
+          memberId: ownerId,
+          storeItemId: itemId,
+          before: contentBefore,
+          after: {
+            title: updated.title,
+            description: updated.description,
+            priceCents: updated.priceCents,
+            sku: updated.sku,
+            photos: updated.photos,
+          },
+        });
+        await recordShopifyDirtyMappedVariantContentDesires(tx, {
+          memberId: ownerId,
+          storeItemId: itemId,
+        });
+        return updated;
+      });
+      if (item.status === "sold_out") {
+        deleteFeedPostsForSoldItem(itemId).catch(() => {});
+      }
+      const { logSellerActivity } = await import("@/lib/seller-activity-log");
+      logSellerActivity(ownerId, "item_updated", "store_item", itemId, {
+        changedFields: Object.keys(update),
+        title: item.title,
+      });
+      return NextResponse.json({ ...item });
+    } catch (e) {
+      const cutover = jsonIfCutoverBlocked(e);
+      if (cutover) return cutover;
+      const msg = e instanceof Error ? e.message : "Update failed";
+      const status = /structural_variant_change|foundation_state_missing/.test(msg) ? 409 : 400;
+      return NextResponse.json({ error: msg }, { status });
+    }
+  }
+
+  const item = await prisma.$transaction(async (tx) => {
+    if (data.variants !== undefined) {
+      const matrix = normalizeVariantMatrix(data.variants);
+      if (matrix) {
+        const storeVariants = await tx.storeVariant.findMany({
+          where: { storeItemId: itemId, memberId: ownerId },
+          select: { id: true, options: true, priceCents: true, sku: true },
+        });
+        const byFp = new Map<string, (typeof storeVariants)[number]>(
+          storeVariants.map((v) => {
+            const opts =
+              typeof v.options === "string"
+                ? (JSON.parse(v.options) as Record<string, string>)
+                : ((v.options ?? {}) as Record<string, string>);
+            return [`matrix:${skuSelectionKey(opts)}`, v];
+          })
+        );
+        for (const sku of matrix.skus) {
+          const fp = `matrix:${skuSelectionKey(sku.options)}`;
+          const row = byFp.get(fp);
+          if (!row) continue;
+          const nextPrice =
+            typeof sku.priceCents === "number" && Number.isFinite(sku.priceCents) && sku.priceCents > 0
+              ? Math.round(sku.priceCents)
+              : row.priceCents;
+          const nextSku = typeof sku.sku === "string" ? sku.sku.trim() || null : row.sku;
+          if (nextPrice !== row.priceCents || nextSku !== row.sku) {
+            await tx.storeVariant.update({
+              where: { id: row.id },
+              data: { priceCents: nextPrice, sku: nextSku },
+            });
+          }
+        }
+      }
+    }
+    const updated = await tx.storeItem.update({
+      where: { id: itemId },
+      data: update as object,
+    });
+    await recordShopifyListingContentDesire(tx, {
+      memberId: ownerId,
+      storeItemId: itemId,
+      before: contentBefore,
+      after: {
+        title: updated.title,
+        description: updated.description,
+        priceCents: updated.priceCents,
+        sku: updated.sku,
+        photos: updated.photos,
+      },
+    });
+    await recordShopifyDirtyMappedVariantContentDesires(tx, {
+      memberId: ownerId,
+      storeItemId: itemId,
+    });
+    return updated;
   });
 
   if (item.status === "sold_out") {
@@ -446,8 +641,16 @@ export async function DELETE(
   if (!isAdmin && existing.memberId !== session.user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const blocked = await gateInteractiveOrFoundationWriter();
+  if (blocked) return blocked;
 
-  await endStoreItemListing(existing);
+  try {
+    await endStoreItemListing(existing);
+  } catch (e) {
+    const cutover = jsonIfCutoverBlocked(e);
+    if (cutover) return cutover;
+    throw e;
+  }
   const { logSellerActivity } = await import("@/lib/seller-activity-log");
   logSellerActivity(existing.memberId, "item_deleted", "store_item", id, {
     title: existing.title,

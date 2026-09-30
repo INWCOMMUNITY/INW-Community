@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import {
+  commerceInventoryWriterRoute,
+  getCommerceFoundationCutoverState,
+  prisma,
+  restockFoundationOrderLine,
+} from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { hasOptionQuantities, incrementOptionQuantity } from "@/lib/store-item-variants";
+import { gateInteractiveOrFoundationWriter } from "@/lib/commerce-foundation-cutover-http";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +23,8 @@ export async function POST(
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const blocked = await gateInteractiveOrFoundationWriter();
+  if (blocked) return blocked;
 
   const { id } = await params;
   const order = await prisma.storeOrder.findFirst({
@@ -50,6 +58,24 @@ export async function POST(
       where: { id: order.id },
       data: { inventoryRestoredAt: new Date() },
     });
+    const cutover = await getCommerceFoundationCutoverState(tx);
+    if (commerceInventoryWriterRoute(cutover.mode) === "foundation") {
+      for (const oi of order.items) {
+        await restockFoundationOrderLine(
+          tx,
+          {
+            id: oi.id,
+            storeItemId: oi.storeItemId,
+            quantity: oi.quantity,
+            variant: oi.variant,
+            variantId: oi.variantId,
+          },
+          "UNDO_CONSUMPTION",
+          `order-relist:${order.id}`
+        );
+      }
+      return;
+    }
     const storeItemsRelist = await tx.storeItem.findMany({
       where: { id: { in: order.items.map((oi) => oi.storeItemId) } },
     });

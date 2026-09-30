@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "database";
+import {
+  applyFoundationSellerQuantitySets,
+  commerceInventoryWriterRoute,
+  FoundationInventoryError,
+  getCommerceFoundationCutoverState,
+  prisma,
+  recordShopifyListingContentDesire,
+} from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { logSellerActivity } from "@/lib/seller-activity-log";
+import { gateInteractiveOrFoundationWriter } from "@/lib/commerce-foundation-cutover-http";
+import { hasOptionQuantities } from "@/lib/store-item-variants";
+import { normalizeVariantMatrix, skuSelectionKey } from "@/lib/listing-variant-matrix";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +28,8 @@ export async function POST(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const blocked = await gateInteractiveOrFoundationWriter();
+  if (blocked) return blocked;
 
   const { id } = await params;
 
@@ -65,6 +77,8 @@ export async function POST(
   let restored = 0;
   let failed = 0;
   const errors: { itemId: string; error: string }[] = [];
+  const cutover = await getCommerceFoundationCutoverState(prisma);
+  const isFoundation = commerceInventoryWriterRoute(cutover.mode) === "foundation";
 
   if (snapshot.operation === "bulk_edit") {
     // Restore each item to its before state
@@ -76,6 +90,9 @@ export async function POST(
         const updateData: Record<string, unknown> = {};
         const allowedFields = [
           "title",
+          "description",
+          "sku",
+          "photos",
           "priceCents",
           "quantity",
           "category",
@@ -104,11 +121,106 @@ export async function POST(
           failed++;
           continue;
         }
-        
-        await prisma.storeItem.update({
-          where: { id: itemId },
-          data: updateData,
-        });
+
+        const contentBefore = {
+          title: item.title,
+          description: item.description,
+          priceCents: item.priceCents,
+          sku: item.sku,
+          photos: item.photos,
+        };
+
+        if (isFoundation) {
+          await prisma.$transaction(async (tx) => {
+            const variants = await tx.storeVariant.findMany({ where: { storeItemId: itemId } });
+            if (variants.length === 0) {
+              throw new FoundationInventoryError(
+                "foundation_state_missing",
+                `StoreItem ${itemId} has no Variants`
+              );
+            }
+            const snapshotQty = typeof before.quantity === "number" ? before.quantity : null;
+            const snapshotVariants = before.variants;
+            if (variants.length === 1 && variants[0].isDefault) {
+              if (snapshotQty == null) {
+                throw new FoundationInventoryError(
+                  "ambiguous_bulk_quantity",
+                  "SIMPLE bulk undo snapshot is missing quantity"
+                );
+              }
+              await applyFoundationSellerQuantitySets(tx, {
+                storeItemId: itemId,
+                memberId: session.user.id,
+                commandId: `bulk-undo-${id}:${itemId}`,
+                simpleTarget: snapshotQty,
+              });
+            } else if (hasOptionQuantities(snapshotVariants)) {
+              const matrix = normalizeVariantMatrix(snapshotVariants);
+              const matrixTargets =
+                matrix?.skus.map((sku) => ({
+                  fingerprint: `matrix:${skuSelectionKey(sku.options)}`,
+                  targetOnHand: sku.quantity,
+                })) ?? [];
+              if (matrixTargets.length === 0) {
+                throw new FoundationInventoryError(
+                  "ambiguous_bulk_quantity",
+                  "MATRIX bulk undo snapshot has no combination quantities"
+                );
+              }
+              await applyFoundationSellerQuantitySets(tx, {
+                storeItemId: itemId,
+                memberId: session.user.id,
+                commandId: `bulk-undo-${id}:${itemId}`,
+                matrixTargets,
+              });
+            } else {
+              throw new FoundationInventoryError(
+                "ambiguous_bulk_quantity",
+                "MATRIX bulk undo cannot restore inventory from parent quantity alone"
+              );
+            }
+            delete updateData.quantity;
+            const updated =
+              Object.keys(updateData).length > 0
+                ? await tx.storeItem.update({
+                    where: { id: itemId },
+                    data: updateData,
+                  })
+                : item;
+            // Same TX as canonical restore — enqueue Shopify content desire when mapped.
+            await recordShopifyListingContentDesire(tx, {
+              memberId: session.user.id,
+              storeItemId: itemId,
+              before: contentBefore,
+              after: {
+                title: updated.title,
+                description: updated.description,
+                priceCents: updated.priceCents,
+                sku: updated.sku,
+                photos: updated.photos,
+              },
+            });
+          });
+        } else {
+          await prisma.$transaction(async (tx) => {
+            const updated = await tx.storeItem.update({
+              where: { id: itemId },
+              data: updateData,
+            });
+            await recordShopifyListingContentDesire(tx, {
+              memberId: session.user.id,
+              storeItemId: itemId,
+              before: contentBefore,
+              after: {
+                title: updated.title,
+                description: updated.description,
+                priceCents: updated.priceCents,
+                sku: updated.sku,
+                photos: updated.photos,
+              },
+            });
+          });
+        }
         
         restored++;
       } catch (e) {

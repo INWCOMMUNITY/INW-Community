@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
   }
 
   const member = await prisma.member.findUnique({ where: { id: row.memberId } });
-  if (!member || member.status === "suspended") {
+  if (!member || member.status === "suspended" || member.status === "closed") {
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
@@ -62,6 +62,7 @@ export async function GET(req: NextRequest) {
       picture: member.profilePhotoUrl ?? undefined,
       sub: member.id,
       id: member.id,
+      authEpoch: member.authEpoch,
     },
     secret,
     maxAge: SESSION_MAX_AGE_SEC,

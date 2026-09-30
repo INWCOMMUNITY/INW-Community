@@ -1,5 +1,5 @@
 import type { Prisma } from "database";
-import { prisma } from "database";
+import { prisma, durableCommerceFinancialNone } from "database";
 
 /** Residents who never verify email are removed after this window (business/seller signups are excluded). */
 export const UNVERIFIED_RESIDENT_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
@@ -13,15 +13,11 @@ export function staleUnverifiedResidentWhere(cutoff: Date): Prisma.MemberWhereIn
     emailVerifiedAt: null,
     OR: [{ signupIntent: null }, { signupIntent: "resident" }],
     createdAt: { lt: cutoff },
-    subscriptions: { none: {} },
+    status: { not: "closed" },
     businesses: { none: {} },
     posts: { none: {} },
     blogs: { none: {} },
-    storeItemsSold: { none: {} },
-    storeOrdersAsBuyer: { none: {} },
-    storeOrdersAsSeller: { none: {} },
-    stripeCustomerId: null,
-    stripeConnectAccountId: null,
+    ...durableCommerceFinancialNone(),
   };
 }
 

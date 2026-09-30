@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { requireAdmin } from "@/lib/admin-auth";
 import { inactiveStoreItemData } from "@/lib/store-item-ended-status";
+import { gateLegacyInteractiveMutation, jsonIfCutoverBlocked } from "@/lib/commerce-foundation-cutover-http";
 
 export async function GET(req: NextRequest) {
   if (!(await requireAdmin(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -32,6 +33,10 @@ export async function PATCH(req: NextRequest) {
 
     if (status === "removed" && row.contentId) {
       const contentId = row.contentId;
+      if (row.contentType === "store_item") {
+        const blocked = await gateLegacyInteractiveMutation();
+        if (blocked) return blocked;
+      }
       switch (row.contentType) {
         case "post":
           await prisma.post.deleteMany({ where: { id: contentId } });
@@ -63,7 +68,9 @@ export async function PATCH(req: NextRequest) {
       data: { status },
     });
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (e) {
+    const cutover = jsonIfCutoverBlocked(e);
+    if (cutover) return cutover;
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 }

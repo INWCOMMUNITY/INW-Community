@@ -188,13 +188,26 @@ export function SellerHubMobileDrawer({
             href="/seller-hub"
             prefetch={false}
             onClick={onClose}
-            className="flex items-center gap-3 py-2.5 px-3 rounded-md hover:bg-gray-100 mb-4"
+            className="flex items-center gap-3 py-2.5 px-3 rounded-md hover:bg-gray-100 mb-2"
           >
             <span className="w-[22px] shrink-0 flex justify-center">
               <IonIcon name="globe-outline" size={22} className="text-[var(--color-primary)]" />
             </span>
             <span className="text-[15px] font-semibold" style={{ color: "var(--color-heading)" }}>
               Seller Hub
+            </span>
+          </Link>
+          <Link
+            href="/seller-hub/apps"
+            prefetch={false}
+            onClick={onClose}
+            className="flex items-center gap-3 py-2.5 px-3 rounded-md hover:bg-gray-100 mb-4"
+          >
+            <span className="w-[22px] shrink-0 flex justify-center">
+              <IonIcon name="apps-outline" size={22} className="text-[var(--color-primary)]" />
+            </span>
+            <span className="text-[15px] font-semibold" style={{ color: "var(--color-heading)" }}>
+              Apps Airport
             </span>
           </Link>
           <Section

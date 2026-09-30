@@ -4,6 +4,7 @@ import { prisma } from "database";
 import bcrypt from "bcryptjs";
 import { prismaWhereMemberSubscribeTierPerksAccess } from "@/lib/subscribe-plan-access";
 import { memberHasAppAccess } from "@/lib/member-public-visibility";
+import { memberAllowsIssuedSession } from "@/lib/member-auth-access";
 
 /** For Vercel logs: correlate failures without printing full login ids in every case. */
 function redactLoginId(id: string): string {
@@ -41,8 +42,8 @@ export const authOptions = {
             console.error(`[auth][credentials] reject NO_MEMBER login=${who} (no Member row, case-insensitive)`);
             return null;
           }
-          if (member.status === "suspended") {
-            console.error(`[auth][credentials] reject SUSPENDED login=${who} memberId=${member.id}`);
+          if (member.status === "suspended" || member.status === "closed") {
+            console.error(`[auth][credentials] reject ${member.status.toUpperCase()} login=${who} memberId=${member.id}`);
             return null;
           }
           let passwordOk = false;
@@ -83,6 +84,23 @@ export const authOptions = {
       if (user) {
         token.id = user.id;
         token.email = user.email;
+        const row = await prisma.member.findUnique({
+          where: { id: user.id as string },
+          select: { authEpoch: true, status: true },
+        });
+        if (!row || row.status === "closed") {
+          return {};
+        }
+        token.authEpoch = row.authEpoch;
+        return token;
+      }
+      const memberId = token.id as string | undefined;
+      if (!memberId) {
+        return {};
+      }
+      const allowed = await memberAllowsIssuedSession(memberId, token.authEpoch);
+      if (!allowed.ok) {
+        return {};
       }
       return token;
     },
@@ -90,6 +108,10 @@ export const authOptions = {
     async session({ session, token }: any) {
       if (!session.user) return session;
       const memberId = token.id as string | undefined;
+      if (!memberId) {
+        delete (session as { user?: unknown }).user;
+        return session;
+      }
       const tokenEmail = token.email as string | undefined;
       if (tokenEmail && !session.user.email) {
         (session.user as { email?: string }).email = tokenEmail;

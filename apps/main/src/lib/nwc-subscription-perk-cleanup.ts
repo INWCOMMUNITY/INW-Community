@@ -1,4 +1,4 @@
-import { prisma } from "database";
+import { assertLegacyInteractiveMutationAllowed, prisma } from "database";
 import { inactiveStoreItemData } from "@/lib/store-item-ended-status";
 import {
   NWC_PAID_PLAN_ACCESS_STATUSES,
@@ -29,6 +29,7 @@ export async function removeNwcMemberPerksAfterSubscriptionEnd(memberId: string)
   if (await memberHasAnyActiveNwcPlan(memberId)) return;
 
   await prisma.$transaction(async (tx) => {
+    await assertLegacyInteractiveMutationAllowed(tx);
     await tx.storeItem.updateMany({
       where: {
         memberId,

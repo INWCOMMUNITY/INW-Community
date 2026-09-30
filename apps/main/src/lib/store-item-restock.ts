@@ -1,4 +1,10 @@
 import type { Prisma } from "database";
+import {
+  commerceInventoryWriterRoute,
+  getCommerceFoundationCutoverState,
+  restockFoundationOrderLine,
+  assertLegacyInteractiveMutationAllowed,
+} from "database";
 import { hasOptionQuantities, incrementOptionQuantity, shouldMarkStoreItemSoldOut } from "@/lib/store-item-variants";
 
 type Tx = {
@@ -14,14 +20,38 @@ type Tx = {
   };
 };
 
+export type RestockLine = {
+  id?: string;
+  storeItemId: string;
+  quantity: number;
+  variant?: unknown;
+  variantId?: string | null;
+};
+
 /**
  * Restore inventory after refund/cancel. When qty becomes > 0, flip sold_out → active
  * so the listing is not stuck hidden on INW and sibling channels.
  */
 export async function restockStoreItemAfterReturn(
   tx: Tx,
-  line: { storeItemId: string; quantity: number; variant?: unknown }
+  line: RestockLine,
+  kind: "PHYSICAL_RECEIPT" | "UNDO_CONSUMPTION" = "UNDO_CONSUMPTION",
+  operationId?: string
 ): Promise<{ status: string; quantity: number }> {
+  const state = await getCommerceFoundationCutoverState(tx as never);
+  const route = commerceInventoryWriterRoute(state.mode);
+  if (route === "foundation") {
+    if (!operationId) {
+      throw new Error("FOUNDATION restock requires a durable operation identity");
+    }
+    await restockFoundationOrderLine(tx as never, line, kind, operationId);
+    const updated = await tx.storeItem.findUnique({
+      where: { id: line.storeItemId },
+      select: { id: true, variants: true, quantity: true, status: true },
+    });
+    return { status: updated?.status ?? "missing", quantity: updated?.quantity ?? 0 };
+  }
+  await assertLegacyInteractiveMutationAllowed(tx as never);
   const storeItem = await tx.storeItem.findUnique({
     where: { id: line.storeItemId },
     select: { id: true, variants: true, quantity: true, status: true },
@@ -70,11 +100,13 @@ export async function restockStoreItemAfterReturn(
 
 export async function restockOrderLinesAfterReturn(
   tx: Tx,
-  items: Array<{ storeItemId: string; quantity: number; variant?: unknown }>
+  items: RestockLine[],
+  kind: "PHYSICAL_RECEIPT" | "UNDO_CONSUMPTION" = "UNDO_CONSUMPTION",
+  operationId?: string
 ): Promise<string[]> {
   const restockedIds: string[] = [];
   for (const oi of items) {
-    await restockStoreItemAfterReturn(tx, oi);
+    await restockStoreItemAfterReturn(tx, oi, kind, operationId);
     restockedIds.push(oi.storeItemId);
   }
   return restockedIds;

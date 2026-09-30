@@ -1,0 +1,131 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
+import {
+  APPS_AIRPORT_MARKETPLACES,
+  APPS_AIRPORT_SHOPIFY_PATH,
+  APPS_AIRPORT_SHOPIFY_SETTINGS_PATH,
+  classifyShopifyConnectionUi,
+  shopifyConnectionStatusLabel,
+} from "@/lib/shopify/apps-airport";
+
+type PublicConnection = {
+  id: string;
+  shopDomain: string;
+  status: "ACTIVE" | "DISCONNECTED" | "REVOKED";
+  inventoryReady: boolean;
+  locationSelectionRequired: boolean;
+  generation: number;
+};
+
+export default function AppsAirportPage() {
+  const [connections, setConnections] = useState<PublicConnection[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    void fetch("/api/shopify/connection", { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) {
+          setError("Could not load marketplace connections.");
+          return;
+        }
+        const body = (await response.json()) as { connections: PublicConnection[] };
+        setConnections(body.connections);
+      })
+      .catch(() => setError("Could not load marketplace connections."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const activeShopify = connections.find((c) => c.status === "ACTIVE") ?? null;
+  const shopifyUi = classifyShopifyConnectionUi(activeShopify);
+
+  return (
+    <AppsAirportChrome
+      title="Apps Airport"
+      subtitle="Connect marketplaces and manage synced listings from one place."
+    >
+      {error ? <p className="mb-4 text-sm text-red-700">{error}</p> : null}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        {APPS_AIRPORT_MARKETPLACES.map((app) => {
+          const isShopify = app.id === "shopify";
+          return (
+            <article
+              key={app.id}
+              className="rounded-[10px] border-2 p-5 bg-white flex flex-col"
+              style={{ borderColor: "var(--color-primary)" }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <h2
+                  className="text-xl font-bold"
+                  style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
+                >
+                  {app.name}
+                </h2>
+                {isShopify ? (
+                  <span
+                    className="text-xs font-semibold px-2 py-1 rounded"
+                    style={{
+                      backgroundColor:
+                        shopifyUi === "connected"
+                          ? "#e8f5e9"
+                          : shopifyUi === "needs_attention"
+                            ? "#fff8e1"
+                            : "#f5f5f5",
+                      color: "var(--color-heading)",
+                    }}
+                  >
+                    {loading ? "…" : shopifyConnectionStatusLabel(shopifyUi)}
+                  </span>
+                ) : (
+                  <span className="text-xs font-semibold px-2 py-1 rounded bg-neutral-100 text-neutral-600">
+                    Coming later
+                  </span>
+                )}
+              </div>
+              <p className="mt-2 text-sm text-neutral-600 flex-1">{app.description}</p>
+              {isShopify ? (
+                <>
+                  <p className="mt-3 text-sm text-neutral-700">
+                    {activeShopify
+                      ? `Shop: ${activeShopify.shopDomain}`
+                      : "No Shopify shop connected yet."}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    {activeShopify ? (
+                      <Link href={APPS_AIRPORT_SHOPIFY_PATH} className="btn" prefetch={false}>
+                        Manage
+                      </Link>
+                    ) : (
+                      <Link
+                        href={APPS_AIRPORT_SHOPIFY_SETTINGS_PATH}
+                        className="btn"
+                        prefetch={false}
+                      >
+                        Connect
+                      </Link>
+                    )}
+                    {activeShopify && shopifyUi === "needs_attention" ? (
+                      <Link
+                        href={APPS_AIRPORT_SHOPIFY_SETTINGS_PATH}
+                        className="btn border border-gray-300 bg-white hover:bg-gray-50"
+                        prefetch={false}
+                        style={{ color: "var(--color-heading)" }}
+                      >
+                        Finish setup
+                      </Link>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <p className="mt-4 text-sm text-neutral-500">Not available yet.</p>
+              )}
+            </article>
+          );
+        })}
+      </div>
+    </AppsAirportChrome>
+  );
+}

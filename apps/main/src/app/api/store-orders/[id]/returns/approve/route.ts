@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
-import { isActiveStoreReturnStatus } from "@/lib/store-return";
+import { ACTIVE_STORE_RETURN_STATUSES, isActiveStoreReturnStatus } from "@/lib/store-return";
+import { LATEST_STORE_RETURN_ORDER_BY } from "@/lib/store-return-order";
 import { notifyBuyerReturnApproved } from "@/lib/store-return-notify";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +29,7 @@ export async function POST(
   const order = await prisma.storeOrder.findFirst({
     where: { id, sellerId: userId },
     include: {
-      storeReturns: { orderBy: { createdAt: "desc" }, take: 1 },
+      storeReturns: { orderBy: [...LATEST_STORE_RETURN_ORDER_BY], take: 1 },
       seller: { select: { chargeReturnShipping: true } },
       items: { select: { fulfillmentType: true } },
     },
@@ -57,6 +58,29 @@ export async function POST(
         },
       })
     : await prisma.$transaction(async (tx) => {
+        // StoreOrder first — same lock order as request-refund / receive / Unit 2–4.
+        await tx.$executeRaw`SELECT 1 FROM "StoreOrder" WHERE "id" = ${order.id} FOR UPDATE`;
+        const active = await tx.storeReturn.findFirst({
+          where: {
+            orderId: order.id,
+            status: { in: [...ACTIVE_STORE_RETURN_STATUSES] },
+          },
+          orderBy: [...LATEST_STORE_RETURN_ORDER_BY],
+        });
+        if (active) {
+          if (active.status === "requested") {
+            return tx.storeReturn.update({
+              where: { id: active.id },
+              data: {
+                status: "awaiting_return",
+                requireReturn: true,
+                chargeReturnShipping: order.seller.chargeReturnShipping,
+                approvedAt: now,
+              },
+            });
+          }
+          return active;
+        }
         const created = await tx.storeReturn.create({
           data: {
             orderId: order.id,

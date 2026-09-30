@@ -35,11 +35,19 @@ export async function POST(req: NextRequest) {
 
     const member = await prisma.member.findUnique({
       where: { id },
-      select: { id: true, status: true, lastLogin: true },
+      select: { id: true, status: true, lastLogin: true, authEpoch: true },
     });
 
-    if (!member || member.status === "suspended") {
+    if (!member || member.status === "suspended" || member.status === "closed") {
       return NextResponse.json({ error: "Account not found or suspended" }, { status: 401 });
+    }
+
+    const tokenEpoch =
+      typeof payload.authEpoch === "number" && Number.isFinite(payload.authEpoch)
+        ? Math.trunc(payload.authEpoch)
+        : 0;
+    if (tokenEpoch !== member.authEpoch) {
+      return NextResponse.json({ error: "Invalid or expired token" }, { status: 401 });
     }
 
     const cutoff = new Date();
@@ -75,6 +83,7 @@ export async function POST(req: NextRequest) {
       name,
       isSubscriber: !!subTier,
       subscriptionPlan: effectivePlan ?? undefined,
+      authEpoch: member.authEpoch,
     });
 
     return NextResponse.json({ token });

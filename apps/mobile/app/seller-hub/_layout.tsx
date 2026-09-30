@@ -27,6 +27,7 @@ function useHeaderTitle() {
   if (path.includes("before-you-start") || String(last) === "before-you-start") return "Before You Start";
   if (path.includes("seller-page-settings") || String(last) === "seller-page-settings") return "Seller Page Settings";
   if (path.includes("quantity-history")) return "Quantity History";
+  if (path.includes("shopify") || String(last) === "shopify") return "Shopify";
   return "Seller Hub";
 }
 

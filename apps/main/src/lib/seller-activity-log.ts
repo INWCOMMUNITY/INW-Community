@@ -88,6 +88,46 @@ export function logSellerActivity(
 }
 
 /**
+ * Idempotent seller activity create by durable dedupeKey.
+ * Returns true when a new row was created.
+ */
+export async function logSellerActivityOnce(input: {
+  memberId: string;
+  action: SellerActivityAction;
+  entityType: EntityType;
+  entityId?: string | null;
+  dedupeKey: string;
+  detail?: ActivityDetail | null;
+  metadata?: ActivityMetadata | null;
+}): Promise<boolean> {
+  try {
+    await prisma.sellerActivityLog.create({
+      data: {
+        memberId: input.memberId,
+        action: input.action,
+        entityType: input.entityType,
+        entityId: input.entityId ?? null,
+        dedupeKey: input.dedupeKey,
+        detail: input.detail != null ? (input.detail as Prisma.InputJsonValue) : undefined,
+        metadata: input.metadata != null ? (input.metadata as Prisma.InputJsonValue) : undefined,
+      },
+    });
+    return true;
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2002"
+    ) {
+      return false;
+    }
+    console.error("[seller-activity-log] Failed to log activity once:", error);
+    return false;
+  }
+}
+
+/**
  * Create a detail object for item updates, showing before/after changes.
  */
 export function createUpdateDetail(

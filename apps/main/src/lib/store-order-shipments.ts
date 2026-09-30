@@ -1,5 +1,7 @@
 /** Current outbound / return shipment helpers after Shipment became 1:many. */
 
+import { LATEST_STORE_RETURN_ORDER_BY, pickLatestStoreReturn } from "@/lib/store-return-order";
+
 export const OUTBOUND_SHIPMENT_KINDS = ["outbound", "replacement"] as const;
 
 export type ShipmentKindPick = {
@@ -53,15 +55,17 @@ export const whereHasCurrentOutboundShipment = {
 export const storeOrderShipmentInclude = {
   shipments: { orderBy: { createdAt: "desc" as const } },
   storeReturns: {
-    orderBy: { createdAt: "desc" as const },
-    include: { returnShipment: true },
+    orderBy: LATEST_STORE_RETURN_ORDER_BY,
+    include: { returnShipment: true as const },
   },
-} as const;
+};
 
 export function serializeOrderShipments<
   T extends {
     shipments?: Parameters<typeof pickCurrentOutboundShipment>[0];
     storeReturns?: Array<{
+      id: string;
+      createdAt: Date | string;
       returnShipment?: unknown;
       [key: string]: unknown;
     }>;
@@ -72,7 +76,7 @@ export function serializeOrderShipments<
   storeReturn: T["storeReturns"] extends Array<infer R> ? R | null : null;
 } {
   const { shipments, storeReturns, ...rest } = order;
-  const latestReturn = storeReturns?.[0] ?? null;
+  const latestReturn = pickLatestStoreReturn(storeReturns);
   return {
     ...rest,
     shipment: pickCurrentOutboundShipment(shipments),

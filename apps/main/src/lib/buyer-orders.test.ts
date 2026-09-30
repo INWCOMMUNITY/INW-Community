@@ -179,6 +179,8 @@ describe("partitionBuyerOrders", () => {
     expect(parts.canceled.map((o) => o.id)).toEqual(["c", "r"]);
     expect(parts.all.map((o) => o.id)).toEqual(["p", "s", "d", "c", "r"]);
     expect(orderMatchesBuyerTab(paid, "to_receive")).toBe(true);
+    expect(orderMatchesBuyerTab(order({ id: "payout-pending", status: "paid" }), "to_receive")).toBe(true);
+    expect(orderMatchesBuyerTab(order({ id: "unpaid", status: "pending" }), "to_receive")).toBe(false);
     expect(emptyBuyerTabCopy("all").title).toBe("No orders yet");
   });
 });

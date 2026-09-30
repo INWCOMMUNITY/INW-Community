@@ -1,4 +1,5 @@
 import type { PrismaClient } from "database";
+import { assertLegacyDrainFinalizerAllowed } from "database";
 import {
   ConcurrentModificationError,
   InsufficientStockError,
@@ -34,11 +35,14 @@ const MAX_RETRIES = 3;
 export async function applyStoreItemDecrementAfterSale(
   prisma: Pick<PrismaClient, "storeItem">,
   storeItem: StoreItemRow,
-  line: { quantity: number; variant: unknown }
+  line: { quantity: number; variant: unknown },
+  drain: { startedAt: Date | null | undefined }
 ): Promise<void> {
   const sold = line.quantity;
   if (sold < 1) return;
   if (isMadeToOrderTracking(storeItem.inventoryTracking)) return;
+
+  await assertLegacyDrainFinalizerAllowed(prisma as never, drain.startedAt);
 
   let currentItem = storeItem;
   let attempt = 0;

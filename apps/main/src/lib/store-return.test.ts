@@ -4,12 +4,18 @@ import {
   clampAcceptReturnsDays,
   isActiveStoreReturnStatus,
   isAwaitingReturnStatus,
+  isReturnReceiveRefundRetryable,
   isReturnWindowOpen,
   orderCanBuyReturnLabel,
   returnRefundAmountCents,
   returnWindowEndsAt,
+  postReturnSellerEntitlementCents,
   sellerTransferReversalCents,
   storeReturnBuyerLabel,
+  storeReturnSellerMoneyAction,
+  storeReturnSellerMoneyActionLabel,
+  STORE_RETURN_RECEIVE_ACTION_LABEL,
+  STORE_RETURN_RETRY_REFUND_ACTION_LABEL,
 } from "./store-return";
 
 describe("return refund math", () => {
@@ -62,6 +68,63 @@ describe("return refund math", () => {
       })
     ).toBe(9400);
   });
+
+  it("post-return seller entitlement is original minus reversal ($100/$10)", () => {
+    expect(
+      postReturnSellerEntitlementCents({
+        originalTransferCents: 9900,
+        chargeReturnShipping: true,
+        returnLabelCostCents: 1000,
+      })
+    ).toBe(1000);
+  });
+
+  it("caps post-return entitlement at the original transfer when the label is larger ($5/$9)", () => {
+    expect(
+      postReturnSellerEntitlementCents({
+        originalTransferCents: 495,
+        chargeReturnShipping: true,
+        returnLabelCostCents: 900,
+      })
+    ).toBe(495);
+  });
+
+  it("is zero when return shipping is not charged or the label is zero", () => {
+    expect(
+      postReturnSellerEntitlementCents({
+        originalTransferCents: 9900,
+        chargeReturnShipping: false,
+        returnLabelCostCents: 1000,
+      })
+    ).toBe(0);
+    expect(
+      postReturnSellerEntitlementCents({
+        originalTransferCents: 9900,
+        chargeReturnShipping: true,
+        returnLabelCostCents: 0,
+      })
+    ).toBe(0);
+  });
+
+  it("equals the original transfer when the label equals the payout", () => {
+    expect(
+      postReturnSellerEntitlementCents({
+        originalTransferCents: 495,
+        chargeReturnShipping: true,
+        returnLabelCostCents: 495,
+      })
+    ).toBe(495);
+  });
+
+  it("is zero when the original transfer is zero", () => {
+    expect(
+      postReturnSellerEntitlementCents({
+        originalTransferCents: 0,
+        chargeReturnShipping: true,
+        returnLabelCostCents: 1000,
+      })
+    ).toBe(0);
+  });
 });
 
 describe("return status", () => {
@@ -71,6 +134,12 @@ describe("return status", () => {
     expect(isActiveStoreReturnStatus("declined")).toBe(false);
     expect(isAwaitingReturnStatus("awaiting_return")).toBe(true);
     expect(isAwaitingReturnStatus("requested")).toBe(false);
+    expect(isAwaitingReturnStatus("received")).toBe(false);
+    expect(isReturnReceiveRefundRetryable("awaiting_return")).toBe(true);
+    expect(isReturnReceiveRefundRetryable("in_transit")).toBe(true);
+    expect(isReturnReceiveRefundRetryable("received")).toBe(true);
+    expect(isReturnReceiveRefundRetryable("refunded")).toBe(false);
+    expect(isReturnReceiveRefundRetryable("requested")).toBe(false);
   });
 
   it("allows a buyer request after ship, and again after a decline", () => {
@@ -93,6 +162,20 @@ describe("return status", () => {
         storeReturn: { status: "declined" },
       })
     ).toBe(true);
+    expect(
+      buyerCanRequestRefund({
+        status: "delivered",
+        isCashOrder: false,
+        storeReturn: { status: "received" },
+      })
+    ).toBe(false);
+    expect(
+      buyerCanRequestRefund({
+        status: "delivered",
+        isCashOrder: false,
+        storeReturn: { status: "refunded" },
+      })
+    ).toBe(false);
   });
 
   it("blocks requests after the seller return window", () => {
@@ -151,7 +234,9 @@ describe("return status", () => {
     ).toBe(false);
   });
 
-  it("points the buyer to print the label once it exists", () => {
+  it("points the buyer to physical receipt vs refund completion", () => {
+    expect(storeReturnBuyerLabel("received")).toBe("Seller received your return. Refund is being processed.");
+    expect(storeReturnBuyerLabel("refunded")).toMatch(/Refund Initiated/);
     expect(storeReturnBuyerLabel("awaiting_return")).toBe(
       "Return approved. A return label will appear on this order when the seller sends it."
     );
@@ -175,5 +260,42 @@ describe("return status", () => {
     expect(clampAcceptReturnsDays(undefined)).toBe(30);
     expect(clampAcceptReturnsDays(0)).toBe(1);
     expect(clampAcceptReturnsDays(400)).toBe(365);
+  });
+});
+
+describe("storeReturnSellerMoneyAction", () => {
+  it("shows Mark received & refund while goods are still inbound", () => {
+    expect(
+      storeReturnSellerMoneyAction({ returnStatus: "awaiting_return", orderStatus: "shipped" })
+    ).toBe("receive");
+    expect(
+      storeReturnSellerMoneyAction({ returnStatus: "in_transit", orderStatus: "delivered" })
+    ).toBe("receive");
+    expect(storeReturnSellerMoneyActionLabel("receive")).toBe(STORE_RETURN_RECEIVE_ACTION_LABEL);
+  });
+
+  it("shows Retry refund after physical receipt while the order is not refunded", () => {
+    expect(
+      storeReturnSellerMoneyAction({ returnStatus: "received", orderStatus: "delivered" })
+    ).toBe("retry_refund");
+    expect(storeReturnSellerMoneyActionLabel("retry_refund")).toBe(STORE_RETURN_RETRY_REFUND_ACTION_LABEL);
+  });
+
+  it("hides money actions once the order or return is refunded", () => {
+    expect(
+      storeReturnSellerMoneyAction({ returnStatus: "received", orderStatus: "refunded" })
+    ).toBeNull();
+    expect(
+      storeReturnSellerMoneyAction({ returnStatus: "refunded", orderStatus: "refunded" })
+    ).toBeNull();
+    expect(
+      storeReturnSellerMoneyAction({ returnStatus: "refunded", orderStatus: "delivered" })
+    ).toBeNull();
+  });
+
+  it("hides money actions for requested, declined, and canceled", () => {
+    expect(storeReturnSellerMoneyAction({ returnStatus: "requested", orderStatus: "shipped" })).toBeNull();
+    expect(storeReturnSellerMoneyAction({ returnStatus: "declined", orderStatus: "shipped" })).toBeNull();
+    expect(storeReturnSellerMoneyAction({ returnStatus: "canceled", orderStatus: "shipped" })).toBeNull();
   });
 });

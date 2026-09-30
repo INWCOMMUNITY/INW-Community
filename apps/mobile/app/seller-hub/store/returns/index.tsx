@@ -15,6 +15,10 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
+import {
+  storeReturnSellerMoneyAction,
+  storeReturnSellerMoneyActionLabel,
+} from "@/lib/store-return-seller-action";
 
 interface OrderItem {
   id: string;
@@ -100,6 +104,7 @@ export default function ReturnsScreen() {
       load();
     } catch (e: unknown) {
       setError((e as { error?: string }).error ?? "Action failed");
+      load();
     } finally {
       setBusyId(null);
     }
@@ -131,6 +136,10 @@ export default function ReturnsScreen() {
           const ret = order.storeReturn;
           const busy = busyId === order.id;
           const hasShip = order.items.some((i) => (i.fulfillmentType ?? "ship") === "ship");
+          const moneyAction = storeReturnSellerMoneyAction({
+            returnStatus: ret?.status,
+            orderStatus: order.status,
+          });
           return (
             <View key={order.id} style={styles.card}>
               <Text style={styles.buyer}>
@@ -178,24 +187,30 @@ export default function ReturnsScreen() {
                   </Pressable>
                 </View>
               ) : null}
-              {ret?.status === "awaiting_return" || ret?.status === "in_transit" ? (
+              {hasShip &&
+              (ret?.status === "awaiting_return" || ret?.status === "in_transit") &&
+              !order.returnShipment?.labelUrl ? (
                 <View style={styles.actions}>
-                  {hasShip && !order.returnShipment?.labelUrl ? (
-                    <Pressable
-                      style={styles.btn}
-                      onPress={() =>
-                        router.push(`/seller-hub/shippo-order/${order.id}?mode=return` as never)
-                      }
-                    >
-                      <Text style={styles.btnText}>Send Buyer Return Label</Text>
-                    </Pressable>
-                  ) : null}
+                  <Pressable
+                    style={styles.btn}
+                    onPress={() =>
+                      router.push(`/seller-hub/shippo-order/${order.id}?mode=return` as never)
+                    }
+                  >
+                    <Text style={styles.btnText}>Send Buyer Return Label</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+              {moneyAction ? (
+                <View style={styles.actions}>
                   <Pressable
                     style={styles.btn}
                     disabled={busy}
                     onPress={() => act(order.id, "/returns/receive")}
                   >
-                    <Text style={styles.btnText}>{busy ? "Refunding…" : "Mark received & refund"}</Text>
+                    <Text style={styles.btnText}>
+                      {busy ? "Refunding…" : storeReturnSellerMoneyActionLabel(moneyAction)}
+                    </Text>
                   </Pressable>
                 </View>
               ) : null}
