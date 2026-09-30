@@ -53,6 +53,7 @@ import {
   prisma,
   setShopifyProductContentConflict,
   setShopifyVariantContentConflict,
+  shopifyFieldFingerprint,
   shopifyMoneyFromCents,
   shopifyProductContentFingerprint,
   shopifyVariantContentFingerprint,
@@ -281,6 +282,8 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
     vi.mocked(prisma.shopifyConnection.findUnique).mockReset();
     vi.mocked(prisma.shopifyListingLink.findUnique).mockReset();
     vi.mocked(prisma.shopifyVariantMap.findMany).mockReset();
+    vi.mocked(prisma.shopifyListingFieldState.findMany).mockReset();
+    vi.mocked(prisma.shopifyListingFieldState.findMany).mockResolvedValue([]);
     vi.mocked(prisma.storeItem.findFirst).mockReset();
     vi.mocked(prisma.storeVariant.findFirst).mockReset();
     vi.mocked(markShopifyProductContentApplied).mockReset();
@@ -296,6 +299,7 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
       expect(String(_url)).toContain(`/admin/api/${SHOPIFY_ADMIN_API_VERSION}/graphql.json`);
       const body = JSON.parse(String(init?.body)) as {
         operationName?: string;
+        query?: string;
         variables: Record<string, unknown>;
       };
       ops.push(body.operationName ?? "");
@@ -303,6 +307,9 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
         return remoteProduct({});
       }
       if (body.operationName === "ShopifyListingContentProductUpdate") {
+        // 2026-07: productUpdate.userErrors is generic UserError — field+message only.
+        expect(body.query).toContain("userErrors { field message }");
+        expect(body.query).not.toMatch(/userErrors\s*\{\s*field\s+message\s+code\s*\}/);
         const product = body.variables.product as Record<string, unknown>;
         expect(product).toEqual({
           id: "gid://shopify/Product/9",
@@ -315,6 +322,8 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
         return productUpdateOk();
       }
       expect(body.operationName).toBe("ShopifyListingContentVariantUpdate");
+      // 2026-07: productVariantsBulkUpdate.userErrors is ProductVariantsBulkUpdateUserError — code is valid.
+      expect(body.query).toMatch(/userErrors\s*\{\s*field\s+message\s+code\s*\}/);
       const variants = body.variables.variants as Array<Record<string, unknown>>;
       expect(body.variables.productId).toBe("gid://shopify/Product/9");
       expect(variants).toEqual([
@@ -351,6 +360,140 @@ describe("shopify UPDATE_LISTING_CONTENT handler", () => {
         fingerprint: variantMap.desiredVariantFingerprint,
       })
     );
+  });
+
+  it("LOCAL_ONLY title push uses 2026-07 UserError-safe productUpdate and succeeds", async () => {
+    const oldTitleFp = shopifyProductContentFingerprint({
+      title: "Old Title",
+      description: "Old Desc",
+    });
+    const newTitleOnlyFp = shopifyProductContentFingerprint({
+      title: "INW QA Adaptive Sync Cert 20260930-01 Title A",
+      description: "Old Desc",
+    });
+    setupHappyMocks({
+      listing: {
+        desiredProductContentVersion: 1,
+        appliedProductContentVersion: 0,
+        desiredProductFingerprint: newTitleOnlyFp,
+        appliedProductFingerprint: oldTitleFp,
+      },
+      variantMap: {
+        desiredVariantContentVersion: 0,
+        appliedVariantContentVersion: 0,
+      },
+    });
+    vi.mocked(prisma.storeItem.findFirst).mockResolvedValue({
+      ...storeItem,
+      title: "INW QA Adaptive Sync Cert 20260930-01 Title A",
+      description: "Old Desc",
+    } as never);
+    const titleBase = shopifyFieldFingerprint("TITLE", "Old Title");
+    const descBase = shopifyFieldFingerprint("DESCRIPTION", "Old Desc");
+    const priceBase = shopifyFieldFingerprint("PRICE", 999);
+    const skuBase = shopifyFieldFingerprint("SKU", "SKU-OLD");
+    // Seed field BASE rows so adaptive LOCAL_ONLY title planning is used.
+    vi.mocked(prisma.shopifyListingFieldState.findMany).mockResolvedValue([
+      {
+        fieldKey: "TITLE",
+        storeVariantId: "",
+        baseFingerprint: titleBase,
+        localFingerprint: titleBase,
+        remoteFingerprint: titleBase,
+        conflict: false,
+      },
+      {
+        fieldKey: "DESCRIPTION",
+        storeVariantId: "",
+        baseFingerprint: descBase,
+        localFingerprint: descBase,
+        remoteFingerprint: descBase,
+        conflict: false,
+      },
+      {
+        fieldKey: "PRICE",
+        storeVariantId: "var-1",
+        baseFingerprint: priceBase,
+        localFingerprint: priceBase,
+        remoteFingerprint: priceBase,
+        conflict: false,
+      },
+      {
+        fieldKey: "SKU",
+        storeVariantId: "var-1",
+        baseFingerprint: skuBase,
+        localFingerprint: skuBase,
+        remoteFingerprint: skuBase,
+        conflict: false,
+      },
+    ] as never);
+
+    let productUpdateCalls = 0;
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        operationName?: string;
+        query?: string;
+        variables: Record<string, unknown>;
+      };
+      if (body.operationName === "ShopifyListingContentRead") {
+        return remoteProduct({
+          title: "Old Title",
+          descriptionHtml: "Old Desc",
+          price: "9.99",
+          sku: "SKU-OLD",
+        });
+      }
+      if (body.operationName === "ShopifyListingContentProductUpdate") {
+        productUpdateCalls += 1;
+        expect(body.query).toContain("userErrors { field message }");
+        expect(body.query).not.toMatch(/userErrors\s*\{\s*field\s+message\s+code\s*\}/);
+        const product = body.variables.product as Record<string, unknown>;
+        expect(product).toEqual({
+          id: "gid://shopify/Product/9",
+          title: "INW QA Adaptive Sync Cert 20260930-01 Title A",
+        });
+        expect(product).not.toHaveProperty("descriptionHtml");
+        // 2026-07-shaped success: generic UserError list without code.
+        return jsonResponse({
+          data: {
+            productUpdate: {
+              product: {
+                id: "gid://shopify/Product/9",
+                title: "INW QA Adaptive Sync Cert 20260930-01 Title A",
+                descriptionHtml: "Old Desc",
+                status: "ACTIVE",
+              },
+              userErrors: [],
+            },
+          },
+        });
+      }
+      throw new Error(`unexpected ${body.operationName}`);
+    });
+
+    const result = await handleShopifyUpdateListingContentJob(
+      {
+        ...claim,
+        dedupeKey: "UPDATE_LISTING_CONTENT:conn-gen-1:item-1:p1:v0",
+        payload: {
+          storeItemId: "item-1",
+          storeVariantId: "var-1",
+          productDesiredVersion: 1,
+          variantDesiredVersion: 0,
+        },
+      },
+      { fetchImpl }
+    );
+    expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(productUpdateCalls).toBe(1);
+    expect(markShopifyProductContentApplied).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        listingLinkId: "link-1",
+        desiredVersion: 1,
+      })
+    );
+    expect(markShopifyVariantContentApplied).not.toHaveBeenCalled();
   });
 
   it("skips mutations when remote already matches desired and advances applied", async () => {

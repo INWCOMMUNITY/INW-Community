@@ -183,10 +183,12 @@ async function productUpdateScalars(input: {
   if (input.descriptionHtml !== undefined) {
     product.descriptionHtml = input.descriptionHtml ?? "";
   }
+  // Admin API 2026-07: productUpdate.userErrors is generic UserError (field+message only).
+  // Do NOT select `code` — that field exists on specialized error types, not UserError.
   const result = await executeShopifyAdminGraphql<{
     productUpdate: {
       product: { id: string } | null;
-      userErrors: Array<{ field?: string[] | null; message: string; code?: string | null }>;
+      userErrors: Array<{ field?: string[] | null; message: string }>;
     };
   }>({
     connectionId: input.connectionId,
@@ -195,7 +197,7 @@ async function productUpdateScalars(input: {
     document: `mutation ShopifyListingContentProductUpdate($product: ProductUpdateInput!) {
       productUpdate(product: $product) {
         product { id title descriptionHtml status }
-        userErrors { field message code }
+        userErrors { field message }
       }
     }`,
     variables: { product },
@@ -233,7 +235,7 @@ async function productUpdateScalars(input: {
       ok: false,
       outcome: "DEAD",
       errorClass: "GRAPHQL_PERMANENT",
-      errorCode: (userErrors[0]?.code ?? "PRODUCT_UPDATE_USER_ERROR").slice(0, 64),
+      errorCode: "PRODUCT_UPDATE_USER_ERROR",
       errorMessage: (userErrors[0]?.message ?? "productUpdate user error").slice(0, 500),
     };
   }
