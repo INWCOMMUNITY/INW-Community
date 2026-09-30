@@ -466,6 +466,7 @@ export {
   markShopifyVariantContentApplied,
   recordShopifyListingContentDesire,
   recordShopifyDirtyMappedVariantContentDesires,
+  requeueShopifyContentForUnpushedMedia,
   setShopifyProductContentConflict,
   setShopifyVariantContentConflict,
 } from "./shopify/content-desire";

@@ -237,6 +237,7 @@ export async function recordShopifyListingContentDesire(
           sourceUrl: true,
           status: true,
           position: true,
+          shopifyMediaId: true,
         },
       });
       const mediaPlan = planShopifyMediaDesireFromPhotos(afterPhotos, existingMaps);
@@ -295,6 +296,122 @@ export async function recordShopifyListingContentDesire(
     variantDesiredVersion: nextVariantVersion,
     jobId: job.id,
     syncedVariantPriceSku,
+  };
+}
+
+/**
+ * Re-drive UPDATE_LISTING_CONTENT when durable media maps still need Shopify create
+ * (ACTIVE/pending rows without shopifyMediaId, or photos with no maps yet).
+ * Safe to call from reconcile or a one-shot repair — no Shopify network I/O.
+ */
+export async function requeueShopifyContentForUnpushedMedia(
+  db: ShopifyContentDb,
+  input: {
+    connectionId: string;
+    listingLinkId: string;
+    storeItemId: string;
+    memberId: string;
+  }
+): Promise<
+  | { status: "SKIPPED"; reason: "LISTING_MISSING" | "NO_MEDIA_WORK" | "UNSUPPORTED" }
+  | {
+      status: "RECORDED";
+      productDesiredVersion: number;
+      variantDesiredVersion: number;
+      jobId: string;
+      toAdd: number;
+    }
+> {
+  const listing = await db.shopifyListingLink.findFirst({
+    where: {
+      id: input.listingLinkId,
+      shopifyConnectionId: input.connectionId,
+      storeItemId: input.storeItemId,
+    },
+  });
+  if (!listing) return { status: "SKIPPED", reason: "LISTING_MISSING" };
+
+  const storeItem = await db.storeItem.findUnique({
+    where: { id: input.storeItemId },
+    select: { photos: true, title: true, description: true },
+  });
+  if (!storeItem) return { status: "SKIPPED", reason: "LISTING_MISSING" };
+
+  const photos = normalizeShopifyPhotoUrls(storeItem.photos);
+  const existingMaps = await db.shopifyMediaMap.findMany({
+    where: { shopifyListingLinkId: listing.id },
+    select: {
+      inwMediaId: true,
+      sourceUrl: true,
+      status: true,
+      position: true,
+      shopifyMediaId: true,
+    },
+  });
+  const mediaPlan = planShopifyMediaDesireFromPhotos(photos, existingMaps);
+  if (
+    mediaPlan.toAdd.length === 0 &&
+    mediaPlan.toRemove.length === 0 &&
+    mediaPlan.toReorder.length === 0
+  ) {
+    return { status: "SKIPPED", reason: "NO_MEDIA_WORK" };
+  }
+
+  const variantMap = await db.shopifyVariantMap.findFirst({
+    where: { shopifyListingLinkId: listing.id, shopifyConnectionId: input.connectionId },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!variantMap) return { status: "SKIPPED", reason: "UNSUPPORTED" };
+
+  await upsertShopifyMediaDesireMaps(db, {
+    connectionId: input.connectionId,
+    listingLinkId: listing.id,
+    memberId: input.memberId,
+    storeItemId: input.storeItemId,
+    desired: mediaPlan.desired,
+    removeInwMediaIds: mediaPlan.toRemove,
+  });
+
+  const productFingerprint = shopifyProductContentFingerprint({
+    title: storeItem.title,
+    description: storeItem.description,
+    photos,
+  });
+  const nextProductVersion =
+    listing.desiredProductContentVersion > listing.appliedProductContentVersion
+      ? listing.desiredProductContentVersion
+      : listing.desiredProductContentVersion + 1;
+  const desiredAt = new Date();
+
+  if (nextProductVersion !== listing.desiredProductContentVersion) {
+    await db.shopifyListingLink.update({
+      where: { id: listing.id },
+      data: {
+        desiredProductContentVersion: nextProductVersion,
+        desiredProductFingerprint: productFingerprint,
+        productDesiredAt: desiredAt,
+        productContentConflict: false,
+        productConflictRemoteFingerprint: null,
+        productConflictEvidenceId: null,
+        productConflictDetectedAt: null,
+      },
+    });
+  }
+
+  const job = await ensureShopifyUpdateListingContentJob(db, {
+    connectionId: input.connectionId,
+    storeItemId: input.storeItemId,
+    storeVariantId: variantMap.storeVariantId,
+    productDesiredVersion: nextProductVersion,
+    variantDesiredVersion: variantMap.desiredVariantContentVersion,
+  });
+
+  return {
+    status: "RECORDED",
+    productDesiredVersion: nextProductVersion,
+    variantDesiredVersion: variantMap.desiredVariantContentVersion,
+    jobId: job.id,
+    toAdd: mediaPlan.toAdd.length,
   };
 }
 

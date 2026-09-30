@@ -6,6 +6,7 @@ import {
   persistShopifyListingHealth,
   classifyShopifyListingHealth,
   prisma,
+  requeueShopifyContentForUnpushedMedia,
   shopifyProductContentFingerprint,
   shopifyVariantContentFingerprint,
   shopifyCentsFromMoneyString,
@@ -459,6 +460,17 @@ export async function handleShopifyReconcileListingJob(
         inventoryDesiredVersion: map.inventoryDesiredVersion,
       });
     }
+  }
+
+  // Photos that never landed on Shopify leave ACTIVE maps without a GID. Content
+  // versions can look converged while productCreateMedia still needs a retry.
+  if (!health.blockContentOutbound) {
+    await requeueShopifyContentForUnpushedMedia(prisma, {
+      connectionId: connection.id,
+      listingLinkId: listing.id,
+      storeItemId: listing.storeItemId,
+      memberId: connection.memberId,
+    });
   }
 
   if ((opts?.notify ?? true) && persisted.issueOpened && health.issueCode && health.issueFingerprint) {

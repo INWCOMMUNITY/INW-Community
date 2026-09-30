@@ -16,11 +16,12 @@ describe("planShopifyMediaDesireFromPhotos", () => {
 
     const second = planShopifyMediaDesireFromPhotos(
       ["https://cdn.example/b.jpg", "https://cdn.example/a.jpg"],
-      first.desired.map((row) => ({
+      first.desired.map((row, index) => ({
         inwMediaId: row.inwMediaId,
         sourceUrl: row.sourceUrl,
         status: "ACTIVE" as const,
         position: row.position,
+        shopifyMediaId: `gid://shopify/MediaImage/${index + 1}`,
       }))
     );
     expect(second.toAdd).toHaveLength(0);
@@ -32,6 +33,23 @@ describe("planShopifyMediaDesireFromPhotos", () => {
     ]);
   });
 
+  it("retries create when ACTIVE map has no Shopify GID", () => {
+    const first = planShopifyMediaDesireFromPhotos(["https://cdn.example/a.jpg"], []);
+    const retry = planShopifyMediaDesireFromPhotos(["https://cdn.example/a.jpg"], [
+      {
+        inwMediaId: first.desired[0].inwMediaId,
+        sourceUrl: "https://cdn.example/a.jpg",
+        status: "ACTIVE",
+        position: 0,
+        shopifyMediaId: null,
+      },
+    ]);
+    expect(retry.toAdd).toHaveLength(1);
+    expect(retry.toAdd[0].inwMediaId).toBe(first.desired[0].inwMediaId);
+    expect(retry.toReorder).toHaveLength(0);
+    expect(retry.desired[0].inwMediaId).toBe(first.desired[0].inwMediaId);
+  });
+
   it("marks removed photos without recycling identity", () => {
     const first = planShopifyMediaDesireFromPhotos(["https://cdn.example/a.jpg"], []);
     const second = planShopifyMediaDesireFromPhotos([], [
@@ -40,6 +58,7 @@ describe("planShopifyMediaDesireFromPhotos", () => {
         sourceUrl: "https://cdn.example/a.jpg",
         status: "ACTIVE",
         position: 0,
+        shopifyMediaId: "gid://shopify/MediaImage/1",
       },
     ]);
     expect(second.toRemove).toEqual([first.desired[0].inwMediaId]);
