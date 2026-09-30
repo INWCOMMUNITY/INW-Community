@@ -5,6 +5,7 @@ import {
   FoundationInventoryError,
   getCommerceFoundationCutoverState,
   prisma,
+  recordShopifyListingContentDesire,
 } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { logSellerActivity } from "@/lib/seller-activity-log";
@@ -89,6 +90,9 @@ export async function POST(
         const updateData: Record<string, unknown> = {};
         const allowedFields = [
           "title",
+          "description",
+          "sku",
+          "photos",
           "priceCents",
           "quantity",
           "category",
@@ -117,6 +121,14 @@ export async function POST(
           failed++;
           continue;
         }
+
+        const contentBefore = {
+          title: item.title,
+          description: item.description,
+          priceCents: item.priceCents,
+          sku: item.sku,
+          photos: item.photos,
+        };
 
         if (isFoundation) {
           await prisma.$transaction(async (tx) => {
@@ -168,17 +180,45 @@ export async function POST(
               );
             }
             delete updateData.quantity;
-            if (Object.keys(updateData).length > 0) {
-              await tx.storeItem.update({
-                where: { id: itemId },
-                data: updateData,
-              });
-            }
+            const updated =
+              Object.keys(updateData).length > 0
+                ? await tx.storeItem.update({
+                    where: { id: itemId },
+                    data: updateData,
+                  })
+                : item;
+            // Same TX as canonical restore — enqueue Shopify content desire when mapped.
+            await recordShopifyListingContentDesire(tx, {
+              memberId: session.user.id,
+              storeItemId: itemId,
+              before: contentBefore,
+              after: {
+                title: updated.title,
+                description: updated.description,
+                priceCents: updated.priceCents,
+                sku: updated.sku,
+                photos: updated.photos,
+              },
+            });
           });
         } else {
-          await prisma.storeItem.update({
-            where: { id: itemId },
-            data: updateData,
+          await prisma.$transaction(async (tx) => {
+            const updated = await tx.storeItem.update({
+              where: { id: itemId },
+              data: updateData,
+            });
+            await recordShopifyListingContentDesire(tx, {
+              memberId: session.user.id,
+              storeItemId: itemId,
+              before: contentBefore,
+              after: {
+                title: updated.title,
+                description: updated.description,
+                priceCents: updated.priceCents,
+                sku: updated.sku,
+                photos: updated.photos,
+              },
+            });
           });
         }
         

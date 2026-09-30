@@ -141,6 +141,16 @@ export async function handleShopifyInventoryLevelsEvidence(
     return { outcome: "SUCCESS" };
   }
 
+  // Pending ORDERS_PAID may still explain the delta — retry without finalizing evidence.
+  if (result.status === "WAITING_ORDER") {
+    return {
+      outcome: "RETRY",
+      errorClass: "TRANSIENT_PROVIDER",
+      errorCode: result.code,
+      errorMessage: "Inventory observation waiting for ORDERS_PAID causality",
+    };
+  }
+
   await prisma.shopifyProviderEvidence.update({
     where: { id: evidence.id },
     data: {

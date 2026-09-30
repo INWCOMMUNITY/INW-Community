@@ -94,4 +94,51 @@ describe("adaptive cross-field merge", () => {
     expect(plan.pushFields).toHaveLength(0);
     expect(plan.pullFields).toHaveLength(0);
   });
+
+  it("bidirectional LWW: Shopify-only title edit pulls into INW", () => {
+    const plan = planShopifyFieldLevelSync([
+      {
+        field: "TITLE",
+        base: shopifyFieldFingerprint("TITLE", "Old"),
+        local: shopifyFieldFingerprint("TITLE", "Old"),
+        remote: shopifyFieldFingerprint("TITLE", "Shopify Newer"),
+        hasLocalSemanticEdit: false,
+      },
+    ]);
+    expect(plan.anyConflict).toBe(false);
+    expect(plan.pullFields.map((p) => p.field)).toEqual(["TITLE"]);
+    expect(plan.pushFields).toHaveLength(0);
+  });
+
+  it("bidirectional LWW: later INW title after Shopify base pushes outbound", () => {
+    // After Shopify edit was pulled, BASE=LOCAL=REMOTE=Shopify. Then INW edits again.
+    const plan = planShopifyFieldLevelSync([
+      {
+        field: "TITLE",
+        base: shopifyFieldFingerprint("TITLE", "Shopify Newer"),
+        local: shopifyFieldFingerprint("TITLE", "INW Newest"),
+        remote: shopifyFieldFingerprint("TITLE", "Shopify Newer"),
+        hasLocalSemanticEdit: true,
+      },
+    ]);
+    expect(plan.anyConflict).toBe(false);
+    expect(plan.pushFields.map((p) => p.field)).toEqual(["TITLE"]);
+    expect(plan.pullFields).toHaveLength(0);
+  });
+
+  it("bidirectional LWW: self-echo of INW push is converged not a pull", () => {
+    const plan = planShopifyFieldLevelSync([
+      {
+        field: "TITLE",
+        base: shopifyFieldFingerprint("TITLE", "Old"),
+        local: shopifyFieldFingerprint("TITLE", "INW Title"),
+        remote: shopifyFieldFingerprint("TITLE", "INW Title"),
+        hasLocalSemanticEdit: true,
+      },
+    ]);
+    expect(plan.anyConflict).toBe(false);
+    expect(plan.pushFields).toHaveLength(0);
+    expect(plan.pullFields).toHaveLength(0);
+    expect(plan.plans[0]?.action).toMatch(/CONVERGED|UNCHANGED/);
+  });
 });

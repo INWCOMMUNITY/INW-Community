@@ -27,6 +27,9 @@ export type ShopifyInventoryLevelObservation = {
 export type ApplyShopifyInventoryLevelResult =
   | { status: "APPLIED_EDIT"; created: boolean; onHandAfter: number }
   | { status: "ECHO_CONFIRMED" }
+  | { status: "SALE_EXPLAINED" }
+  | { status: "WAITING_ORDER"; code: "WAITING_ORDER_CAUSALITY" }
+  /** @deprecated Prefer SALE_EXPLAINED or WAITING_ORDER; retained for callers. */
   | { status: "SALE_PENDING_OR_EXPLAINED" }
   | { status: "PAUSED_UNCERTAIN"; code: string }
   | { status: "IGNORED"; reason: string };
@@ -111,21 +114,50 @@ export async function applyShopifyInventoryLevelObservation(
       code: "WAITING_ORDER_CAUSALITY",
       message: "Inventory delta observed while order evidence may still explain it",
     });
-    return { status: "SALE_PENDING_OR_EXPLAINED" };
+    // Do not finalize evidence — caller should RETRY after ORDERS_PAID processes.
+    return { status: "WAITING_ORDER", code: "WAITING_ORDER_CAUSALITY" };
+  }
+
+  let explainedSaleDelta = input.explainedSaleDelta ?? null;
+  if (explainedSaleDelta == null && variantMap.inventoryAppliedAvailable != null) {
+    const since = variantMap.inventoryAppliedAt ?? undefined;
+    const saleFacts = await db.shopifyOrderLineSaleFact.findMany({
+      where: {
+        shopifyConnectionId: input.connectionId,
+        storeVariantId: variantMap.storeVariantId,
+        applyState: "APPLIED",
+        ...(since ? { appliedAt: { gt: since } } : {}),
+      },
+      select: { appliedQuantity: true, paidQuantity: true },
+    });
+    if (saleFacts.length > 0) {
+      const sold = saleFacts.reduce(
+        (sum, row) => sum + (row.appliedQuantity > 0 ? row.appliedQuantity : row.paidQuantity),
+        0
+      );
+      if (sold > 0) explainedSaleDelta = -sold;
+    }
   }
 
   const cls = classifyShopifyDirectInventoryEdit({
     remoteAvailable: remote,
     desiredAvailable: variantMap.inventoryDesiredAvailable,
     appliedAvailable: variantMap.inventoryAppliedAvailable,
-    explainedDelta: input.explainedSaleDelta,
+    explainedDelta: explainedSaleDelta,
   });
 
   if (cls === "MATCHES_DESIRED" || cls === "MATCHES_APPLIED_BASE") {
     return { status: "ECHO_CONFIRMED" };
   }
   if (cls === "EXPLAINED_BY_SALE") {
-    return { status: "SALE_PENDING_OR_EXPLAINED" };
+    // Sale already applied in Foundation; confirm observed remote without MQE.
+    await markShopifyInventoryProjectionApplied(db, {
+      variantMapId: variantMap.id,
+      desiredVersion: Math.max(variantMap.inventoryDesiredVersion, 1),
+      available: remote,
+      observedAvailable: remote,
+    });
+    return { status: "SALE_EXPLAINED" };
   }
   if (cls !== "UNEXPLAINED_REMOTE_EDIT" && !shouldPauseInventoryForDirectShopifyEdit(cls)) {
     return { status: "IGNORED", reason: cls };

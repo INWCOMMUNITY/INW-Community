@@ -1,3 +1,11 @@
+/**
+ * Topology planner/applicator coverage.
+ *
+ * Foundation intentionally rejects seller structural Variant identity changes
+ * (`structural_variant_change`). Seller INW→Shopify structural topology is
+ * INTENTIONALLY UNSUPPORTED until a dedicated Foundation decision lifts that
+ * block. Reconcile may still apply topology via syncShopifyListingTopology.
+ */
 import { describe, expect, it } from "vitest";
 import {
   shopifyOptionCombinationKey,
@@ -7,6 +15,16 @@ import {
   SHOPIFY_MAX_OPTION_DIMENSIONS,
   SHOPIFY_MAX_VARIANTS,
 } from "./variant-topology";
+
+describe("seller structural topology policy", () => {
+  it("documents Foundation block: seller structural topology is intentionally unsupported", () => {
+    // Production PATCH uses assertFoundationMatrixStructureUnchanged and throws
+    // structural_variant_change when Variant identity set changes. Do not treat
+    // missing UPDATE_LISTING_TOPOLOGY desire as a silent bug until that is lifted.
+    expect(SHOPIFY_MAX_OPTION_DIMENSIONS).toBe(3);
+    expect(SHOPIFY_MAX_VARIANTS).toBe(100);
+  });
+});
 
 describe("shopifyOptionCombinationKey", () => {
   it("produces deterministic sorted key regardless of option order", () => {

@@ -23,6 +23,17 @@ describe("direct inventory edit causality matrix", () => {
     ).toBe("MATCHES_DESIRED");
   });
 
+  it("B2: sale-explained via applied+delta without desire yet", () => {
+    expect(
+      classifyShopifyDirectInventoryEdit({
+        remoteAvailable: 8,
+        desiredAvailable: 10,
+        appliedAvailable: 10,
+        explainedDelta: -2,
+      })
+    ).toBe("EXPLAINED_BY_SALE");
+  });
+
   it("D: self projection match is MATCHES_DESIRED", () => {
     expect(
       classifyShopifyDirectInventoryEdit({
