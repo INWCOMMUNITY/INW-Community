@@ -24,7 +24,8 @@ type RemoteTopology = {
     id: string;
     name: string;
     position: number;
-    optionValues: Array<{ id: string; name: string; position?: number }>;
+    /** Ordered as returned by Shopify Admin API 2026-07 (no ProductOptionValue.position). */
+    optionValues: Array<{ id: string; name: string; hasVariants?: boolean }>;
   }>;
   variants: Array<{
     id: string;
@@ -51,7 +52,7 @@ export async function readShopifyProductTopology(input: {
         id: string;
         name: string;
         position: number;
-        optionValues: Array<{ id: string; name: string; position: number }>;
+        optionValues: Array<{ id: string; name: string; hasVariants?: boolean }>;
       }>;
       variants: {
         nodes: Array<{
@@ -68,13 +69,14 @@ export async function readShopifyProductTopology(input: {
     connectionId: input.connectionId,
     operationType: "query",
     operationName: "ShopifyProductTopologyRead",
+    // Admin API 2026-07: ProductOption.position exists; ProductOptionValue.position does not.
     document: `query ShopifyProductTopologyRead($id: ID!) {
       product(id: $id) {
         options {
           id
           name
           position
-          optionValues { id name position }
+          optionValues { id name hasVariants }
         }
         variants(first: 100) {
           nodes {
@@ -442,7 +444,12 @@ export async function syncShopifyListingTopology(input: {
       id: o.id,
       name: o.name,
       position: o.position,
-      values: o.optionValues.map((v) => ({ id: v.id, name: v.name, position: v.position })),
+      // Preserve Shopify's returned optionValues list order (no provider value.position field).
+      values: o.optionValues.map((v, index) => ({
+        id: v.id,
+        name: v.name,
+        position: index + 1,
+      })),
     })),
     desiredOptionOrder: input.desiredOptionOrder,
   });
