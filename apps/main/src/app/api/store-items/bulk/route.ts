@@ -1,6 +1,12 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { applyFoundationSellerQuantitySets, prisma, Prisma, recordShopifyListingContentDesire } from "database";
+import {
+  applyFoundationSellerQuantitySets,
+  prisma,
+  Prisma,
+  recordShopifyDirtyMappedVariantContentDesires,
+  recordShopifyListingContentDesire,
+} from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
@@ -103,6 +109,11 @@ async function updateStoreItemWithShopifyDesire(input: {
         priceCents: updated.priceCents,
         sku: updated.sku,
       },
+    });
+    // Match single-item PATCH: matrix price/SKU dirty maps need per-variant content jobs.
+    await recordShopifyDirtyMappedVariantContentDesires(tx, {
+      memberId: input.memberId,
+      storeItemId: input.itemId,
     });
   });
 }

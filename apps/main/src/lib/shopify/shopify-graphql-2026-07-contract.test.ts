@@ -49,8 +49,9 @@ describe("Shopify Admin GraphQL 2026-07 selection contracts", () => {
     const topology = read("sync-listing-topology.ts");
     expect(topology).toContain("ShopifyProductOptionsCreate");
     expect(topology).toMatch(
-      /mutation ShopifyProductOptionsCreate[\s\S]*?userErrors \{ field message code \}/
+      /mutation ShopifyProductOptionsCreate[\s\S]*?variantStrategy[\s\S]*?userErrors \{ field message code \}/
     );
+    expect(topology).toMatch(/variantStrategy:\s*"LEAVE_AS_IS"/);
     expect(topology).toMatch(
       /mutation ShopifyProductOptionsReorder[\s\S]*?userErrors \{ field message code \}/
     );

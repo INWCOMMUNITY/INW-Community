@@ -82,7 +82,7 @@ async function readRemoteListingObservation(input: {
         status
         title
         descriptionHtml
-        variants(first: 10) {
+        variants(first: 100) {
           nodes {
             id
             price
@@ -339,6 +339,12 @@ export async function handleShopifyReconcileListingJob(
       errorMessage: topologySync.errorMessage,
     };
   }
+  // Topology CONFLICT already wrote ACTION_REQUIRED on the listing. Do not continue
+  // into classifyShopifyListingHealth — that path does not know TOPOLOGY_* codes and
+  // would wipe the pause (false READY_TO_PUBLISH).
+  if (topologySync.plan.kind === "CONFLICT") {
+    return { outcome: "SUCCESS" };
+  }
 
   const refreshedMaps = await prisma.shopifyVariantMap.findMany({
     where: { shopifyListingLinkId: listing.id, shopifyConnectionId: connection.id },
@@ -392,7 +398,7 @@ export async function handleShopifyReconcileListingJob(
   const causalConflict = await prisma.shopifyOrderLineSaleFact.findFirst({
     where: {
       shopifyConnectionId: connection.id,
-      storeVariantId: variantMap.storeVariantId,
+      storeVariantId: { in: refreshedMaps.map((m) => m.storeVariantId) },
       causalConflict: true,
     },
     select: { id: true },
@@ -421,6 +427,7 @@ export async function handleShopifyReconcileListingJob(
     primaryLocationId: connection.primaryLocationId,
     listing,
     variantMap,
+    variantMaps: refreshedMaps,
     hasCausalSaleConflict: Boolean(causalConflict),
     fieldConflictKeys: fieldConflictKeysAfterMedia,
     remote: {

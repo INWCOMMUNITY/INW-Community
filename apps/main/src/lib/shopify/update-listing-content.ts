@@ -100,7 +100,7 @@ async function readMappedListingContent(input: {
         status
         title
         descriptionHtml
-        variants(first: 10) {
+        variants(first: 100) {
           nodes { id price sku }
         }
       }

@@ -24,6 +24,84 @@ type HandlerFailure = {
   errorMessage: string;
 };
 
+/** Clear stale topology conflict once inbound planning no longer conflicts. */
+async function clearResolvedTopologyConflict(listingLinkId: string): Promise<void> {
+  await prisma.shopifyListingLink.updateMany({
+    where: {
+      id: listingLinkId,
+      issueCode: "TOPOLOGY_AXIS_CONFLICT",
+    },
+    data: {
+      readiness: "SYNCING",
+      contentHealth: "HEALTHY",
+      issueCode: null,
+      issueSeverity: null,
+      issueMessage: null,
+      issueFingerprint: null,
+      issueLastSeenAt: null,
+    },
+  });
+}
+
+/**
+ * After inbound option pull on a mapped GID, adopt Shopify available into INW
+ * so matrix/onHand match remote and we do not immediately re-project a stale Color qty.
+ */
+async function adoptRemoteAvailableOntoMappedVariant(input: {
+  storeVariantId: string;
+  listingLinkId: string;
+  connectionId: string;
+  shopifyVariantId: string;
+  available: number;
+}): Promise<void> {
+  const state = await prisma.inventoryState.findUnique({
+    where: { variantId: input.storeVariantId },
+    select: { mode: true, reserved: true },
+  });
+  if (!state || state.mode !== "TRACKED_FINITE") return;
+  const reserved = state.reserved ?? 0;
+  const onHand = Math.max(0, input.available + reserved);
+  await prisma.inventoryState.update({
+    where: { variantId: input.storeVariantId },
+    data: { onHand, reserved },
+  });
+  const map = await prisma.shopifyVariantMap.findFirst({
+    where: {
+      shopifyListingLinkId: input.listingLinkId,
+      shopifyConnectionId: input.connectionId,
+      storeVariantId: input.storeVariantId,
+      shopifyVariantId: input.shopifyVariantId,
+    },
+    select: {
+      id: true,
+      inventoryDesiredVersion: true,
+      inventoryAppliedVersion: true,
+    },
+  });
+  if (!map) return;
+  const version = Math.max(map.inventoryDesiredVersion, map.inventoryAppliedVersion, 1);
+  await prisma.shopifyVariantMap.update({
+    where: { id: map.id },
+    data: {
+      inventoryDesiredAvailable: input.available,
+      inventoryDesiredVersion: version,
+      inventoryAppliedAvailable: input.available,
+      inventoryAppliedVersion: version,
+      inventoryInitState: "INITIALIZED",
+      inventoryDriftState: "NONE",
+      inventoryDriftCode: null,
+      inventoryDriftMessage: null,
+      inventoryDriftDetectedAt: null,
+      inventoryPendingMutationKind: null,
+      inventoryPendingIdempotencyKey: null,
+      inventoryPendingChangeFrom: null,
+      inventoryPendingTargetQty: null,
+      inventoryPendingFingerprint: null,
+      inventoryAppliedAt: new Date(),
+    },
+  });
+}
+
 type RemoteTopology = {
   options: Array<{
     id: string;
@@ -176,12 +254,18 @@ async function productOptionsCreate(input: {
     connectionId: input.connectionId,
     operationType: "mutation",
     operationName: "ShopifyProductOptionsCreate",
-    document: `mutation ShopifyProductOptionsCreate($productId: ID!, $options: [OptionCreateInput!]!) {
-      productOptionsCreate(productId: $productId, options: $options) {
+    // LEAVE_AS_IS: add axes without auto-creating the cartesian product; existing
+    // variants receive the first new value until bulk create/update assigns the rest.
+    document: `mutation ShopifyProductOptionsCreate($productId: ID!, $options: [OptionCreateInput!]!, $variantStrategy: ProductOptionCreateVariantStrategy) {
+      productOptionsCreate(productId: $productId, options: $options, variantStrategy: $variantStrategy) {
         userErrors { field message code }
       }
     }`,
-    variables: { productId: input.productId, options: input.options },
+    variables: {
+      productId: input.productId,
+      options: input.options,
+      variantStrategy: "LEAVE_AS_IS",
+    },
     fetchImpl: input.fetchImpl,
     now: input.now,
   });
@@ -545,14 +629,30 @@ export async function syncShopifyListingTopology(input: {
   });
 
   if (plan.kind === "NOOP") {
-    // Still refresh seller-facing matrix (fixes string-encoded Json + stale SKU qtys).
-    await rebuildStoreItemVariantsFromRemote({
-      memberId: input.memberId,
-      storeItemId: input.storeItemId,
-      listingLinkId: input.listingLinkId,
-      connectionId: input.connectionId,
-      topology: remoteRead.topology,
-    });
+    // Refresh matrix from remote unless INW is a strict axis superset (do not clobber).
+    const remoteAxisNames = new Set(
+      toRemoteSnaps(remoteRead.topology).flatMap((v) =>
+        v.selectedOptions.map((o) => o.name.trim().toLowerCase()).filter(Boolean)
+      )
+    );
+    const localAxisNames = new Set(
+      input.localVariants.flatMap((v) =>
+        v.selectedOptions.map((o) => o.name.trim().toLowerCase()).filter(Boolean)
+      )
+    );
+    const localStrictSuperset =
+      localAxisNames.size > remoteAxisNames.size &&
+      [...remoteAxisNames].every((n) => localAxisNames.has(n));
+    if (!localStrictSuperset) {
+      await rebuildStoreItemVariantsFromRemote({
+        memberId: input.memberId,
+        storeItemId: input.storeItemId,
+        listingLinkId: input.listingLinkId,
+        connectionId: input.connectionId,
+        topology: remoteRead.topology,
+      });
+    }
+    await clearResolvedTopologyConflict(input.listingLinkId);
     return { ok: true, plan, importedStoreVariantIds: [] };
   }
   if (plan.kind === "CONFLICT") {
@@ -615,6 +715,11 @@ export async function syncShopifyListingTopology(input: {
   }
 
   // Pull remote option labels onto mapped StoreVariants (inbound). Do not push to Shopify.
+  // Also adopt remote available into InventoryState so Color→Size×Color does not leave
+  // stale Color-only onHand while Shopify Small/etc quantities differ.
+  const remoteSnapByGid = new Map(
+    toRemoteSnaps(remoteRead.topology).map((row) => [row.shopifyVariantId, row] as const)
+  );
   for (const row of plan.renameOptionValues) {
     const options = shopifySelectedOptionsToInwOptions(
       row.optionValues.map((ov) => ({ name: ov.optionName, value: ov.name }))
@@ -627,6 +732,16 @@ export async function syncShopifyListingTopology(input: {
       },
       data: { options },
     });
+    const rem = remoteSnapByGid.get(row.shopifyVariantId);
+    if (rem && typeof rem.available === "number" && Number.isFinite(rem.available)) {
+      await adoptRemoteAvailableOntoMappedVariant({
+        storeVariantId: row.storeVariantId,
+        listingLinkId: input.listingLinkId,
+        connectionId: input.connectionId,
+        shopifyVariantId: row.shopifyVariantId,
+        available: Math.max(0, Math.trunc(rem.available)),
+      });
+    }
   }
 
   if (plan.reorderOptionNames && plan.reorderOptionNames.length > 0) {
@@ -740,6 +855,17 @@ export async function syncShopifyListingTopology(input: {
         },
       ],
     });
+    // Heal inventory_levels race: webhooks that arrived before the map were IGNORED.
+    // Topology already observed available — adopt it so qty converges without evidence replay.
+    if (typeof rem.available === "number" && Number.isFinite(rem.available)) {
+      await adoptRemoteAvailableOntoMappedVariant({
+        storeVariantId,
+        listingLinkId: input.listingLinkId,
+        connectionId: input.connectionId,
+        shopifyVariantId: rem.shopifyVariantId,
+        available: Math.max(0, Math.trunc(rem.available)),
+      });
+    }
   }
 
   // Retire mappings for provider-deleted variants; mark StoreVariant RETIRED so qty projection drops it.
@@ -791,5 +917,6 @@ export async function syncShopifyListingTopology(input: {
     }
   }
 
+  await clearResolvedTopologyConflict(input.listingLinkId);
   return { ok: true, plan, importedStoreVariantIds };
 }

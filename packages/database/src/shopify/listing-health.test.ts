@@ -187,4 +187,36 @@ describe("classifyShopifyListingHealth", () => {
     expect(health.readiness).toBe("SYNCING");
     expect(health.issueCode).toBeNull();
   });
+
+  it("sibling variant inventory drift surfaces even when primary map is healthy", () => {
+    const health = classifyShopifyListingHealth({
+      connectionStatus: "ACTIVE",
+      primaryLocationId: "gid://shopify/Location/1",
+      listing: baseListing,
+      variantMap: baseVariant,
+      variantMaps: [
+        baseVariant,
+        { ...baseVariant, inventoryDriftState: "REMOTE_DRIFT", inventoryDesiredAvailable: 3 },
+      ],
+      hasCausalSaleConflict: false,
+      remote: { ...healthyRemote, productStatus: "ACTIVE" },
+    });
+    expect(health.issueCode).toBe("INVENTORY_REMOTE_DRIFT");
+    expect(health.inventoryHealth).toBe("PAUSED");
+    expect(health.blockInventoryOutbound).toBe(true);
+  });
+
+  it("sibling variant content conflict surfaces even when primary map is clean", () => {
+    const health = classifyShopifyListingHealth({
+      connectionStatus: "ACTIVE",
+      primaryLocationId: "gid://shopify/Location/1",
+      listing: baseListing,
+      variantMap: baseVariant,
+      variantMaps: [baseVariant, { ...baseVariant, variantContentConflict: true }],
+      hasCausalSaleConflict: false,
+      remote: healthyRemote,
+    });
+    expect(health.issueCode).toBe("CONTENT_CONFLICT");
+    expect(health.blockContentOutbound).toBe(true);
+  });
 });

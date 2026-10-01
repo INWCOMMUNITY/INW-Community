@@ -57,6 +57,7 @@ export async function applyShopifyFieldLevelContentInbound(
       description: string | null;
       priceCents: number;
       sku: string | null;
+      photos?: unknown;
     };
     storeVariant: {
       id: string;
@@ -286,7 +287,26 @@ export async function applyShopifyFieldLevelContentInbound(
     await clearShopifyVariantContentConflict(tx, input.variantMap.id);
   }
 
-  const productFullySynced = !productPush && !productConflict;
+  // Do not mark product content applied while local photos still need Shopify create.
+  // TITLE/DESCRIPTION-only convergence used to advance appliedProductContentVersion and
+  // skip UPDATE_LISTING_CONTENT media push until a later reconcile requeue.
+  const photos = Array.isArray(input.storeItem.photos) ? input.storeItem.photos : [];
+  const hasLocalPhotos = photos.some((u) => typeof u === "string" && u.trim().length > 0);
+  let mediaPushPending = false;
+  if (hasLocalPhotos) {
+    const mediaMaps = await tx.shopifyMediaMap.findMany({
+      where: { shopifyListingLinkId: input.listing.id },
+      select: { shopifyMediaId: true, status: true },
+    });
+    mediaPushPending =
+      mediaMaps.length === 0 ||
+      mediaMaps.some(
+        (m) =>
+          (m.status === "ACTIVE" || m.status === "PENDING_LOCAL") &&
+          (m.shopifyMediaId == null || m.shopifyMediaId === "")
+      );
+  }
+  const productFullySynced = !productPush && !productConflict && !mediaPushPending;
   const variantFullySynced = !variantPush && !variantConflict;
 
   await tx.shopifyListingLink.update({

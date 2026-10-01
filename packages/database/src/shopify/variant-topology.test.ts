@@ -607,6 +607,130 @@ describe("planShopifyTopologyDiff", () => {
     expect(plan.kind).toBe("NOOP");
   });
 
+  it("keeps local Color+Size when remote is still Color-only on same GID (outbound expansion)", () => {
+    const plan = planShopifyTopologyDiff({
+      localVariants: [
+        {
+          storeVariantId: "sv-red-s",
+          selectedOptions: [
+            { name: "Color", value: "Red" },
+            { name: "Size", value: "S" },
+          ],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+        {
+          storeVariantId: "sv-red-m",
+          selectedOptions: [
+            { name: "Color", value: "Red" },
+            { name: "Size", value: "M" },
+          ],
+          priceCents: 1100,
+          sku: null,
+          shopifyVariantId: null,
+        },
+      ],
+      remoteVariants: [
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/1",
+          selectedOptions: [{ name: "Color", value: "Red" }],
+          priceCents: 1000,
+          sku: null,
+          available: 3,
+          tracked: true,
+        },
+      ],
+    });
+    expect(plan.kind).toBe("MUTATE");
+    if (plan.kind !== "MUTATE") return;
+    expect(plan.renameOptionValues).toHaveLength(0);
+    expect(plan.createOptionValues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          optionName: "Size",
+          values: expect.arrayContaining(["S", "M"]),
+        }),
+      ])
+    );
+    expect(plan.createVariants).toHaveLength(1);
+    expect(plan.createVariants[0].storeVariantId).toBe("sv-red-m");
+  });
+
+  it("pulls Color→Color+Size axis expansion on the same mapped GID (no conflict)", () => {
+    const plan = planShopifyTopologyDiff({
+      localVariants: [
+        {
+          storeVariantId: "sv-red",
+          selectedOptions: [{ name: "Color", value: "Red" }],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+        {
+          storeVariantId: "sv-blue",
+          selectedOptions: [{ name: "Color", value: "Blue" }],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/2",
+        },
+      ],
+      remoteVariants: [
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/1",
+          selectedOptions: [
+            { name: "Color", value: "Red" },
+            { name: "Size", value: "S" },
+          ],
+          priceCents: 1000,
+          sku: null,
+          available: 3,
+          tracked: true,
+        },
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/2",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/2",
+          selectedOptions: [
+            { name: "Color", value: "Blue" },
+            { name: "Size", value: "S" },
+          ],
+          priceCents: 1000,
+          sku: null,
+          available: 5,
+          tracked: true,
+        },
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/3",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/3",
+          selectedOptions: [
+            { name: "Color", value: "Red" },
+            { name: "Size", value: "M" },
+          ],
+          priceCents: 1100,
+          sku: null,
+          available: 2,
+          tracked: true,
+        },
+      ],
+    });
+    expect(plan.kind).toBe("MUTATE");
+    if (plan.kind !== "MUTATE") return;
+    expect(plan.renameOptionValues).toHaveLength(2);
+    expect(plan.renameOptionValues[0].optionValues).toEqual(
+      expect.arrayContaining([
+        { optionName: "Color", name: "Red" },
+        { optionName: "Size", name: "S" },
+      ])
+    );
+    expect(plan.importRemoteVariants).toHaveLength(1);
+    expect(plan.importRemoteVariants[0].shopifyVariantId).toBe(
+      "gid://shopify/ProductVariant/3"
+    );
+    expect(plan.createVariants).toHaveLength(0);
+  });
+
   it("pulls simple→multi option conversion on the same mapped GID", () => {
     const plan = planShopifyTopologyDiff({
       localVariants: [
