@@ -9,7 +9,11 @@ const mainRoot = path.resolve(repoRoot, "apps/main");
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["src/foundation/**/*.int.test.ts", "src/shopify/**/*.test.ts"],
+    include: [
+      "src/foundation/**/*.int.test.ts",
+      "src/shopify/**/*.test.ts",
+      "src/etsy/**/*.test.ts",
+    ],
     fileParallelism: false,
     sequence: { concurrent: false },
     testTimeout: 60_000,

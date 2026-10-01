@@ -8,7 +8,7 @@ import {
   replaceEtsyListingVariantMaps,
   type EtsyJobHandlerResult,
 } from "database";
-import { skuSelectionKey } from "@/lib/listing-variant-matrix";
+import { optionValuesKey, skuSelectionKey } from "@/lib/listing-variant-matrix";
 import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
 import {
@@ -95,7 +95,10 @@ export function mapsMatchLocalCombos(input: {
         : undefined
     );
     if (Object.keys(mapOpts).length === 0) return false;
-    if (skuSelectionKey(localOpts) !== skuSelectionKey(mapOpts)) return false;
+    // Axis rename (Color → Primary color) must not look like a topology mismatch.
+    if (skuSelectionKey(localOpts) === skuSelectionKey(mapOpts)) continue;
+    if (optionValuesKey(localOpts) === optionValuesKey(mapOpts)) continue;
+    return false;
   }
   return true;
 }
@@ -165,15 +168,11 @@ export async function rematchEtsyVariantMapsByOptions(input: {
         etsyOfferingId: p.etsyOfferingId,
         propertyValuesJson: (p.propertyValuesJson as never) ?? undefined,
         remoteSku: p.remoteSku,
+        // Seed applied/desired from Etsy observation — do not capture INW desire here
+        // (that enqueued PROJECT_INVENTORY and overwrote seller qty edits on Etsy).
         remoteAvailable: p.remoteAvailable,
       })),
     });
-    for (const p of correlation.pairs) {
-      await captureEtsyInventoryProjectionDesire(tx, {
-        memberId: input.memberId,
-        storeVariantId: p.storeVariantId,
-      });
-    }
   });
   return { rematched: true, pairCount: correlation.pairs.length };
 }
@@ -296,11 +295,16 @@ export async function syncEtsyListingVariantTopology(input: {
       remote: remoteProducts,
       now: input.now,
     });
-    if (rematched.rematched || mapsOk) {
-      return rematched.rematched
-        ? { status: "REMATCHED", pairCount: rematched.pairCount }
-        : { status: "NOOP", reason: "ALREADY_ALIGNED" };
+    if (rematched.rematched) {
+      return { status: "REMATCHED", pairCount: rematched.pairCount };
     }
+    // Combos already match Etsy. Never fall through to a full inventory PUT just because
+    // stored property_values labels (Color vs Primary color) are stale — that PUT was
+    // overwriting seller qty/price edits on Etsy before inbound poll could apply them.
+    return {
+      status: "NOOP",
+      reason: mapsOk ? "ALREADY_ALIGNED" : "COMBOS_MATCH_STALE_MAP_LABELS",
+    };
   }
 
   // INW matrix diverges from Etsy (or maps incomplete) — push full Size×Color products[].

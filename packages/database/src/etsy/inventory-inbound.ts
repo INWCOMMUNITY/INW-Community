@@ -98,12 +98,17 @@ export async function applyEtsyOfferingInventoryObservation(
     }
   }
 
-  const cls = classifyShopifyDirectInventoryEdit({
-    remoteAvailable: remote,
-    desiredAvailable: variantMap.inventoryDesiredAvailable,
-    appliedAvailable: variantMap.inventoryAppliedAvailable,
-    explainedDelta: explainedSaleDelta,
-  });
+  // Shared Shopify classifier treats null/null as NO_CHANGE. For Etsy poll bootstrap
+  // (import/create never seeded applied), the first remote observation must apply.
+  const cls =
+    variantMap.inventoryAppliedAvailable == null && variantMap.inventoryDesiredAvailable == null
+      ? "UNEXPLAINED_REMOTE_EDIT"
+      : classifyShopifyDirectInventoryEdit({
+          remoteAvailable: remote,
+          desiredAvailable: variantMap.inventoryDesiredAvailable,
+          appliedAvailable: variantMap.inventoryAppliedAvailable,
+          explainedDelta: explainedSaleDelta,
+        });
 
   if (cls === "MATCHES_DESIRED" || cls === "MATCHES_APPLIED_BASE" || cls === "NO_CHANGE") {
     // Remote still at applied base while INW desire is ahead — re-queue outbound so cron pushes qty.

@@ -505,7 +505,9 @@ export type {
 } from "./etsy/inventory-inbound";
 export {
   enqueueDueEtsyListingContentPolls,
+  etsyListingContentPollWindowStartMs,
   etsyPollListingContentDedupeKey,
+  isEtsyListingContentPollDue,
   markEtsyListingContentPollComplete,
 } from "./etsy/listing-content-poll";
 export {

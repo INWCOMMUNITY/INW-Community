@@ -7,10 +7,12 @@ import {
 import { runNextEtsySyncJob } from "@/lib/etsy/worker";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /**
  * Protected Etsy sync worker. Callers must supply CRON_SECRET.
  * Discovers due listing content polls + reconciles, then drains sync jobs.
+ * Claim priority: outbound mutations → evidence → POLL inbound → RECONCILE.
  */
 async function handle(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -32,7 +34,6 @@ async function handle(req: NextRequest) {
   });
 
   const results: Array<{ jobId: string; finalized: boolean; outcome: string }> = [];
-  // Prefer draining seller-facing outbound jobs; polls/reconcile are lower priority in claim.
   for (let i = 0; i < 40; i += 1) {
     const ran = await runNextEtsySyncJob({ workerId: `cron-etsy-${i}` });
     if (!ran.claimed) break;

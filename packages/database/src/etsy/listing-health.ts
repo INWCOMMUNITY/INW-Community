@@ -200,13 +200,27 @@ export async function enqueueDueEtsyListingReconciliations(
 
   let enqueued = 0;
   for (const link of links) {
-    await ensureEtsyReconcileListingJob(db, {
+    const before = await db.etsySyncJob.findUnique({
+      where: {
+        dedupeKey: etsyReconcileListingDedupeKey({
+          connectionId: link.etsyConnectionId,
+          listingLinkId: link.id,
+          bucket,
+        }),
+      },
+      select: { id: true, state: true },
+    });
+    const job = await ensureEtsyReconcileListingJob(db, {
       connectionId: link.etsyConnectionId,
       listingLinkId: link.id,
       storeItemId: link.storeItemId,
       bucket,
     });
-    enqueued += 1;
+    if (!before && job.state === "PENDING") {
+      enqueued += 1;
+    } else if (before && before.state !== "PENDING" && job.state === "PENDING") {
+      enqueued += 1;
+    }
   }
   return { enqueued };
 }

@@ -201,7 +201,9 @@ export async function claimNextEtsySyncJob(
           WHEN CAST('PROJECT_INVENTORY' AS etsy_sync_job_kind) THEN 0
           WHEN CAST('CREATE_LISTING' AS etsy_sync_job_kind) THEN 0
           WHEN CAST('PROCESS_PROVIDER_EVIDENCE' AS etsy_sync_job_kind) THEN 1
-          ELSE 2
+          WHEN CAST('POLL_LISTING_CONTENT' AS etsy_sync_job_kind) THEN 2
+          WHEN CAST('RECONCILE_LISTING' AS etsy_sync_job_kind) THEN 3
+          ELSE 4
         END,
         next_attempt_at ASC
       FOR UPDATE SKIP LOCKED

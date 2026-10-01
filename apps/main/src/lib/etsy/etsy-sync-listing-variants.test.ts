@@ -60,6 +60,26 @@ describe("etsy Size×Color topology helpers", () => {
     ).toBe(false);
   });
 
+  it("treats Color vs Primary color map labels as matching via values", () => {
+    const variants = [
+      { id: "v1", options: { Size: "S", "Primary color": "Red" }, priceCents: 1000, sku: null },
+    ];
+    expect(
+      mapsMatchLocalCombos({
+        maps: [
+          {
+            storeVariantId: "v1",
+            propertyValuesJson: [
+              { property_name: "Size", values: ["S"] },
+              { property_name: "Color", values: ["Red"] },
+            ],
+          },
+        ],
+        variants,
+      })
+    ).toBe(true);
+  });
+
   it("reads remote product combo keys from property_values", () => {
     const keys = remoteProductComboKeys([
       {

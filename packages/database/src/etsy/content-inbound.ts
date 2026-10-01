@@ -67,6 +67,15 @@ function parseStoreVariantOptionsJson(raw: unknown): Record<string, string> | nu
   return Object.keys(out).length > 0 ? out : null;
 }
 
+/** Axis-name-independent match key (Color vs Primary color). */
+function optionValuesKey(options: Record<string, string>): string {
+  return Object.values(options)
+    .map((v) => String(v ?? "").trim().toLowerCase())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b))
+    .join("\u0001");
+}
+
 /**
  * When Etsy product/offering ids drift but Size×Color options still match INW,
  * rewrite map ids so price/qty inbound keeps working.
@@ -87,9 +96,14 @@ async function rematchVariantMapsByOptions(
   const byStoreId = new Map(input.storeVariants.map((v) => [v.id, v]));
   const remoteByOffering = new Map(input.remoteVariants.map((v) => [v.etsyOfferingId, v]));
   const remoteByCombo = new Map<string, (typeof input.remoteVariants)[number]>();
+  const remoteByValues = new Map<string, (typeof input.remoteVariants)[number]>();
   for (const remote of input.remoteVariants) {
     if (!remote.options || Object.keys(remote.options).length < 1) continue;
     remoteByCombo.set(optionFingerprint(remote.options), remote);
+    const valuesKey = optionValuesKey(remote.options);
+    if (valuesKey && !remoteByValues.has(valuesKey)) {
+      remoteByValues.set(valuesKey, remote);
+    }
   }
   let rematched = 0;
   for (const map of input.variantMaps) {
@@ -98,7 +112,9 @@ async function rematchVariantMapsByOptions(
     if (!storeVariant) continue;
     const localOpts = parseStoreVariantOptionsJson(storeVariant.options);
     if (!localOpts) continue;
-    const remote = remoteByCombo.get(optionFingerprint(localOpts));
+    const remote =
+      remoteByCombo.get(optionFingerprint(localOpts)) ??
+      remoteByValues.get(optionValuesKey(localOpts));
     if (!remote) continue;
     if (remote.etsyProductId === map.etsyProductId && remote.etsyOfferingId === map.etsyOfferingId) {
       continue;
@@ -229,12 +245,18 @@ export async function applyEtsyListingContentInbound(
     description: input.remote.description,
     photos: remotePhotos,
   });
-  const desiredProductFp = listing.desiredProductFingerprint ?? localProductFp;
+  // When desire is ahead of applied, LWW uses desire fingerprint. When synced, classify
+  // against canonical StoreItem so a stale desire fingerprint cannot mask Etsy edits.
+  const desireAhead =
+    listing.desiredProductContentVersion > listing.appliedProductContentVersion;
+  const desiredProductFp = desireAhead
+    ? (listing.desiredProductFingerprint ?? localProductFp)
+    : localProductFp;
   const productClass = classifyEtsyContentSemantics({
     base: listing.appliedProductFingerprint,
     local: desiredProductFp,
     remote: remoteProductFp,
-    hasLocalSemanticEdit: listing.desiredProductContentVersion > listing.appliedProductContentVersion,
+    hasLocalSemanticEdit: desireAhead,
   });
 
   const variantClasses: string[] = [];
@@ -352,12 +374,16 @@ export async function applyEtsyListingContentInbound(
       priceCents: remoteVariant.priceCents,
       sku: remoteVariant.sku,
     });
-    const desiredVariantFp = map.desiredVariantFingerprint ?? localVariantFp;
+    const variantDesireAhead =
+      map.desiredVariantContentVersion > map.appliedVariantContentVersion;
+    const desiredVariantFp = variantDesireAhead
+      ? (map.desiredVariantFingerprint ?? localVariantFp)
+      : localVariantFp;
     const variantClass = classifyEtsyContentSemantics({
       base: map.appliedVariantFingerprint,
       local: desiredVariantFp,
       remote: remoteVariantFp,
-      hasLocalSemanticEdit: map.desiredVariantContentVersion > map.appliedVariantContentVersion,
+      hasLocalSemanticEdit: variantDesireAhead,
     });
     variantClasses.push(variantClass);
     if (variantClass === "CONFLICT") anyConflict = true;

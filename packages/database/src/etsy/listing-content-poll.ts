@@ -3,11 +3,34 @@ import { enqueueEtsySyncJob } from "./jobs";
 
 export type EtsyPollDb = PrismaClient;
 
-const DEFAULT_POLL_INTERVAL_MS = 5 * 60 * 1000;
+/** Match Vercel `/api/cron/etsy-sync-jobs` minutely schedule. */
+const DEFAULT_POLL_INTERVAL_MS = 60 * 1000;
+/**
+ * Keep the connection poll lease long enough that a queued POLL behind outbound
+ * work is not treated as abandoned and double-enqueued.
+ */
 const DEFAULT_LEASE_MS = 4 * 60 * 1000;
 
 export function etsyPollListingContentDedupeKey(connectionId: string, windowStartMs: number): string {
   return `POLL_LISTING_CONTENT:${connectionId}:${windowStartMs}`;
+}
+
+export function etsyListingContentPollWindowStartMs(nowMs: number, intervalMs: number): number {
+  const safeInterval = Math.max(1, intervalMs);
+  return Math.floor(nowMs / safeInterval) * safeInterval;
+}
+
+/**
+ * Due once per schedule window: if we have not completed a poll since this
+ * window started, enqueue. Avoids the old "now minus interval" skew that stretched
+ * five-minute cron gaps to about ten minutes.
+ */
+export function isEtsyListingContentPollDue(input: {
+  lastPolledAt: Date | null | undefined;
+  windowStartMs: number;
+}): boolean {
+  if (input.lastPolledAt == null) return true;
+  return input.lastPolledAt.getTime() < input.windowStartMs;
 }
 
 /**
@@ -22,26 +45,37 @@ export async function enqueueDueEtsyListingContentPolls(
   const intervalMs = input?.intervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const leaseMs = input?.leaseMs ?? DEFAULT_LEASE_MS;
   const limit = Math.max(1, Math.min(50, input?.limit ?? 20));
-  const dueBefore = new Date(now.getTime() - intervalMs);
   const leaseUntil = new Date(now.getTime() + leaseMs);
-  const windowStartMs = Math.floor(now.getTime() / intervalMs) * intervalMs;
+  const windowStartMs = etsyListingContentPollWindowStartMs(now.getTime(), intervalMs);
+  const windowStart = new Date(windowStartMs);
 
   return db.$transaction(async (tx) => {
     const due = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT id
-      FROM etsy_connection
-      WHERE status = CAST('ACTIVE' AS etsy_connection_status)
+      SELECT c.id
+      FROM etsy_connection c
+      WHERE c.status = CAST('ACTIVE' AS etsy_connection_status)
         AND (
-          listing_content_last_polled_at IS NULL
-          OR listing_content_last_polled_at <= ${dueBefore}
+          c.listing_content_last_polled_at IS NULL
+          OR c.listing_content_last_polled_at < ${windowStart}
         )
         AND (
-          listing_content_poll_lease_expires_at IS NULL
-          OR listing_content_poll_lease_expires_at < ${now}
+          c.listing_content_poll_lease_expires_at IS NULL
+          OR c.listing_content_poll_lease_expires_at < ${now}
         )
-      ORDER BY listing_content_last_polled_at ASC NULLS FIRST
+        AND NOT EXISTS (
+          SELECT 1
+          FROM etsy_sync_job j
+          WHERE j.etsy_connection_id = c.id
+            AND j.kind = CAST('POLL_LISTING_CONTENT' AS etsy_sync_job_kind)
+            AND (
+              j.state = CAST('PENDING' AS etsy_sync_job_state)
+              OR j.state = CAST('RUNNING' AS etsy_sync_job_state)
+              OR j.state = CAST('RETRY_WAIT' AS etsy_sync_job_state)
+            )
+        )
+      ORDER BY c.listing_content_last_polled_at ASC NULLS FIRST
       LIMIT ${limit}
-      FOR UPDATE SKIP LOCKED
+      FOR UPDATE OF c SKIP LOCKED
     `;
 
     const connectionIds: string[] = [];
@@ -50,13 +84,15 @@ export async function enqueueDueEtsyListingContentPolls(
         where: { id: row.id },
         data: { listingContentPollLeaseExpiresAt: leaseUntil },
       });
-      await enqueueEtsySyncJob(tx, {
+      const job = await enqueueEtsySyncJob(tx, {
         etsyConnectionId: row.id,
         kind: "POLL_LISTING_CONTENT",
         dedupeKey: etsyPollListingContentDedupeKey(row.id, windowStartMs),
         payload: { connectionId: row.id, windowStartMs },
       });
-      connectionIds.push(row.id);
+      if (job.state === "PENDING") {
+        connectionIds.push(row.id);
+      }
     }
 
     return { enqueued: connectionIds.length, connectionIds };

@@ -42,7 +42,7 @@
     },
     {
       "path": "/api/cron/etsy-sync-jobs",
-      "schedule": "*/5 * * * *"
+      "schedule": "* * * * *"
     }
   ]
 }
