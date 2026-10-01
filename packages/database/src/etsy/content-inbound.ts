@@ -21,6 +21,8 @@ export type EtsyRemoteListingObservation = {
     etsyOfferingId: string;
     priceCents: number;
     sku: string | null;
+    /** Sellable quantity on the Etsy offering when present in inventory GET. */
+    quantity?: number | null;
   }>;
 };
 

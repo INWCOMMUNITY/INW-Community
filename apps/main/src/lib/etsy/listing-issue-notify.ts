@@ -49,7 +49,7 @@ export async function notifyEtsyListingIssueOnce(input: {
       errorMessage: input.message,
       itemTitles: [title],
     },
-    metadata: { source: "etsy-sync" },
+    metadata: { source: "cron" },
   });
 
   if (created) {

@@ -490,6 +490,14 @@ export type {
   EtsyRemoteListingObservation,
 } from "./etsy/content-inbound";
 export {
+  applyEtsyListingInventoryInbound,
+  applyEtsyOfferingInventoryObservation,
+} from "./etsy/inventory-inbound";
+export type {
+  ApplyEtsyInventoryObservationResult,
+  EtsyInventoryInboundDb,
+} from "./etsy/inventory-inbound";
+export {
   enqueueDueEtsyListingContentPolls,
   etsyPollListingContentDedupeKey,
   markEtsyListingContentPollComplete,

@@ -977,10 +977,12 @@ export async function applyTrackedMarketplaceQuantityEdit(
     memberId: string;
     /** Absolute onHand target after the marketplace edit. */
     targetOnHand: number;
-    /** Generation-bound scope (e.g. ShopifyConnection.id). */
+    /** Generation-bound scope (e.g. ShopifyConnection.id / EtsyConnection.id). */
     sourceScope: string;
     /** Durable provider observation identity (e.g. evidenceId or inventoryLevelGid:observed). */
     sourceFactId: string;
+    /** Defaults to Shopify for backward compatibility with existing callers/tests. */
+    sourceSystem?: string;
     metadata?: Prisma.InputJsonValue;
   }
 ): Promise<
@@ -1009,6 +1011,7 @@ export async function applyTrackedMarketplaceQuantityEdit(
       "MARKETPLACE_QUANTITY_EDIT requires sourceScope and sourceFactId"
     );
   }
+  const sourceSystem = args.sourceSystem?.trim() || SHOPIFY_SOURCE_SYSTEM;
   const variant = await tx.storeVariant.findUnique({ where: { id: args.variantId } });
   if (!variant) {
     throw new FoundationMissingStateError(`StoreVariant ${args.variantId} not found`);
@@ -1043,7 +1046,7 @@ export async function applyTrackedMarketplaceQuantityEdit(
     storeItemId: state.storeItemId,
     eventType: "MARKETPLACE_QUANTITY_EDIT",
     cause: MARKETPLACE_QUANTITY_EDIT_CAUSE,
-    sourceSystem: SHOPIFY_SOURCE_SYSTEM,
+    sourceSystem,
     sourceScope: args.sourceScope,
     sourceFactId: args.sourceFactId,
     requestedQty: args.targetOnHand,

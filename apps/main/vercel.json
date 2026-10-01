@@ -41,7 +41,7 @@
     },
     {
       "path": "/api/cron/etsy-sync-jobs",
-      "schedule": "* * * * *"
+      "schedule": "*/5 * * * *"
     }
   ]
 }

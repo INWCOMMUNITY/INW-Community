@@ -1,5 +1,6 @@
 import {
   applyEtsyListingContentInbound,
+  applyEtsyListingInventoryInbound,
   etsyCentsFromMoney,
   markEtsyListingContentPollComplete,
   prisma,
@@ -26,6 +27,7 @@ type RemoteInventory = {
     sku?: string | null;
     offerings?: Array<{
       offering_id?: number | string;
+      quantity?: number;
       price?: number | string | { amount?: number; divisor?: number };
     }>;
   }>;
@@ -119,11 +121,16 @@ async function fetchRemoteObservation(input: {
             : null,
       });
       if (!Number.isFinite(priceCents)) continue;
+      const quantity =
+        typeof offering.quantity === "number" && Number.isFinite(offering.quantity)
+          ? Math.max(0, Math.trunc(offering.quantity))
+          : null;
       variants.push({
         etsyProductId: productId,
         etsyOfferingId: offeringId,
         priceCents,
         sku: typeof product.sku === "string" ? product.sku : null,
+        quantity,
       });
     }
   }
@@ -148,7 +155,8 @@ async function fetchRemoteObservation(input: {
 
 /**
  * POLL_LISTING_CONTENT handler.
- * Re-reads mapped Etsy listings, applies inbound with echo suppression, fans out Shopify desires.
+ * Re-reads mapped Etsy listings, applies content + inventory inbound (Etsy→INW),
+ * fans out Shopify desires when remote wins. Echo-suppresses outbound loops.
  * Only marks the connection poll complete when every listing fetch succeeds (no cursor advance on failure).
  */
 export async function handleEtsyPollListingContentJob(
@@ -194,6 +202,17 @@ export async function handleEtsyPollListingContentJob(
         memberId: connection.memberId,
         listingLinkId: link.id,
         remote: fetched.remote,
+        now: deps.now,
+      });
+      await applyEtsyListingInventoryInbound(tx, {
+        connectionId: connection.id,
+        memberId: connection.memberId,
+        listingLinkId: link.id,
+        etsyListingId: link.etsyListingId,
+        variants: fetched.remote.variants.map((v) => ({
+          etsyOfferingId: v.etsyOfferingId,
+          quantity: v.quantity ?? null,
+        })),
         now: deps.now,
       });
     });
