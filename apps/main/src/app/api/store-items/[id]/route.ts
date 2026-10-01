@@ -7,6 +7,8 @@ import {
   markFoundationListingSold,
   prisma,
   Prisma,
+  recordEtsyDirtyMappedVariantContentDesires,
+  recordEtsyListingContentDesire,
   recordShopifyDirtyMappedVariantContentDesires,
   recordShopifyListingContentDesire,
 } from "database";
@@ -514,21 +516,32 @@ export async function PATCH(
           where: { id: itemId },
           data: update as object,
         });
-        // S5: same TX as canonical write — bump desired versions + enqueue UPDATE_LISTING_CONTENT.
-        // No Shopify network calls here.
+        // S5/E5: same TX as canonical write — bump desired versions + enqueue UPDATE_LISTING_CONTENT.
+        // No marketplace network calls here.
+        const afterSnapshot = {
+          title: updated.title,
+          description: updated.description,
+          priceCents: updated.priceCents,
+          sku: updated.sku,
+          photos: updated.photos,
+        };
         await recordShopifyListingContentDesire(tx, {
           memberId: ownerId,
           storeItemId: itemId,
           before: contentBefore,
-          after: {
-            title: updated.title,
-            description: updated.description,
-            priceCents: updated.priceCents,
-            sku: updated.sku,
-            photos: updated.photos,
-          },
+          after: afterSnapshot,
         });
         await recordShopifyDirtyMappedVariantContentDesires(tx, {
+          memberId: ownerId,
+          storeItemId: itemId,
+        });
+        await recordEtsyListingContentDesire(tx, {
+          memberId: ownerId,
+          storeItemId: itemId,
+          before: contentBefore,
+          after: afterSnapshot,
+        });
+        await recordEtsyDirtyMappedVariantContentDesires(tx, {
           memberId: ownerId,
           storeItemId: itemId,
         });
@@ -591,19 +604,30 @@ export async function PATCH(
       where: { id: itemId },
       data: update as object,
     });
+    const afterSnapshot = {
+      title: updated.title,
+      description: updated.description,
+      priceCents: updated.priceCents,
+      sku: updated.sku,
+      photos: updated.photos,
+    };
     await recordShopifyListingContentDesire(tx, {
       memberId: ownerId,
       storeItemId: itemId,
       before: contentBefore,
-      after: {
-        title: updated.title,
-        description: updated.description,
-        priceCents: updated.priceCents,
-        sku: updated.sku,
-        photos: updated.photos,
-      },
+      after: afterSnapshot,
     });
     await recordShopifyDirtyMappedVariantContentDesires(tx, {
+      memberId: ownerId,
+      storeItemId: itemId,
+    });
+    await recordEtsyListingContentDesire(tx, {
+      memberId: ownerId,
+      storeItemId: itemId,
+      before: contentBefore,
+      after: afterSnapshot,
+    });
+    await recordEtsyDirtyMappedVariantContentDesires(tx, {
       memberId: ownerId,
       storeItemId: itemId,
     });

@@ -517,10 +517,22 @@ function LoginForm() {
             <IonIcon name="arrow-back" size={20} />
             Back
           </button>
-          <h1 className="text-2xl font-bold mb-6 w-full text-center" style={{ color: "var(--color-heading)" }}>
-            Sign in as{" "}
-            {PLAN_DISPLAY_NAMES[(selectedPlan ?? planFromQuery ?? "subscribe") as Plan]}
-          </h1>
+          <div className="flex flex-col items-center mb-6">
+            <Image
+              src="/nwc-logo-circle-crop.png"
+              alt="Northwest Community"
+              width={140}
+              height={140}
+              className="object-contain mb-3"
+            />
+            <h1 className="text-2xl font-bold text-center" style={{ color: "var(--color-heading)" }}>
+              Northwest Community
+            </h1>
+            <p className="text-base mt-3 text-center w-full font-semibold" style={{ color: "var(--color-heading)" }}>
+              Sign in as{" "}
+              {PLAN_DISPLAY_NAMES[(selectedPlan ?? planFromQuery ?? "subscribe") as Plan]}
+            </p>
+          </div>
           {fromSignup && (
             <p className="mb-4 p-3 rounded-lg text-sm w-full" style={{ backgroundColor: "var(--color-section-alt)", color: "var(--color-primary)" }}>
               Account created. Sign in below to continue to Inland Northwest Community.
@@ -528,11 +540,11 @@ function LoginForm() {
           )}
           <form onSubmit={handleSignInSubmit} className="space-y-4 w-full">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium mb-1">Email or username</label>
+              <label htmlFor="email" className="block text-sm font-medium mb-1">Email</label>
               <input
                 id="email"
-                type="text"
-                autoComplete="username"
+                type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => {
                   const v = e.target.value;
@@ -569,7 +581,7 @@ function LoginForm() {
             </div>
             {loginError === "unknown_email" ? (
               <div className="text-red-600 text-sm space-y-1">
-                <p>That email or login ID is not registered. New to NWC?</p>
+                <p>That email is not registered. New to NWC?</p>
                 <p>
                   <Link
                     href={signUpHrefForPlan(selectedPlan)}

@@ -4,6 +4,11 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { IonIcon } from "@/components/IonIcon";
+import {
+  formatSyncedWithChannels,
+  type AppsAirportChannelId,
+} from "@/lib/shopify/apps-airport";
+import { ShareListingsToFeedPrompt } from "@/components/feed/ShareListingsToFeedPrompt";
 
 type ItemsTab = "active" | "ended" | "sold" | "drafts";
 
@@ -19,6 +24,8 @@ type MyStoreItem = {
   views30d?: number;
   soldOrderId?: string;
   soldAt?: string;
+  /** Where the listing is live — INW always; Shopify when linked. */
+  channels?: AppsAirportChannelId[];
 };
 
 const ITEMS_TABS: { key: ItemsTab; label: string }[] = [
@@ -41,6 +48,19 @@ function statusLabel(item: MyStoreItem): string {
 
 function itemEditHref(item: MyStoreItem): string {
   return `/seller-hub/store/${item.id}`;
+}
+
+function statusChipClass(status: string): string {
+  if (status === "Active") {
+    return "border-amber-200 bg-amber-50 text-amber-900";
+  }
+  if (status === "Out of stock") {
+    return "border-amber-300 bg-amber-100 text-amber-950";
+  }
+  if (status === "Sold") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-900";
+  }
+  return "border-neutral-200 bg-neutral-50 text-neutral-700";
 }
 
 function MyItemsPageInner() {
@@ -69,10 +89,8 @@ function MyItemsPageInner() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [acting, setActing] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
-  const [bulkEditOpen, setBulkEditOpen] = useState(false);
-  const [bulkPrice, setBulkPrice] = useState("");
-  const [bulkQty, setBulkQty] = useState("");
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [feedShareIds, setFeedShareIds] = useState<string[]>([]);
 
   useEffect(() => {
     const t = searchParams.get("tab");
@@ -233,17 +251,6 @@ function MyItemsPageInner() {
     }
   };
 
-  const bulkPatch = async (ids: string[], updates: Record<string, unknown>) => {
-    const res = await fetch("/api/store-items/bulk", {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ storeItemIds: ids, updates }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error((data as { error?: string }).error ?? "Bulk update failed");
-  };
-
   const endListings = (ids: string[]) => {
     if (!confirm(`End ${ids.length} listing${ids.length === 1 ? "" : "s"}?`)) return;
     void runAction(async () => {
@@ -273,12 +280,6 @@ function MyItemsPageInner() {
     }, "Listing(s) ended.");
   };
 
-  const markSold = (ids: string[]) => {
-    void runAction(async () => {
-      await bulkPatch(ids, { status: "sold_out" });
-    }, "Marked as sold.");
-  };
-
   const relist = (ids: string[]) => {
     if (!confirm(`Relist ${ids.length} item${ids.length === 1 ? "" : "s"} with quantity 1?`)) return;
     void runAction(async () => {
@@ -293,50 +294,32 @@ function MyItemsPageInner() {
     }, "Relisted successfully.");
   };
 
-  const shareToFeed = (ids: string[]) => {
-    void runAction(async () => {
-      const res = await fetch("/api/store-items/share-to-feed", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storeItemIds: ids }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((data as { error?: string }).error ?? "Failed to share");
-    }, "Shared to feed.");
+  const openShareToFeed = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setMenuOpenId(null);
+    setFeedShareIds(ids);
   };
 
-  const applyBulkEdit = () => {
-    const updates: { priceCents?: number; quantity?: number } = {};
-    const price = parseFloat(bulkPrice);
-    const qty = parseInt(bulkQty, 10);
-    if (bulkPrice.trim() && !Number.isNaN(price) && price > 0) {
-      updates.priceCents = Math.round(price * 100);
-    }
-    if (bulkQty.trim() && !Number.isNaN(qty) && qty >= 0) {
-      updates.quantity = qty;
-    }
-    if (!updates.priceCents && updates.quantity === undefined) {
-      setFetchError("Enter a price and/or quantity to update.");
-      return;
-    }
-    void runAction(async () => {
-      await bulkPatch(selectedIds, updates);
-      setBulkEditOpen(false);
-      setBulkPrice("");
-      setBulkQty("");
-    }, "Selected listings updated.");
-  };
-
-  const showBulkBar = tab !== "drafts" && selectedIds.length > 0;
+  const summaryCounts = counts ?? { active: 0, ended: 0, sold: 0 };
+  const hasSelection = tab !== "drafts" && selectedIds.length > 0;
 
   return (
-    <div className="w-full min-w-0 max-w-5xl mx-auto" data-testid="seller-hub-my-items">
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
+    <div className="w-full min-w-0" data-testid="seller-hub-my-items">
+      <ShareListingsToFeedPrompt
+        open={feedShareIds.length > 0}
+        storeItemIds={feedShareIds}
+        onClose={() => setFeedShareIds([])}
+        onSuccess={() => {
+          setFeedShareIds([]);
+          setSelectedIds([]);
+          setActionMessage("Shared to feed.");
+        }}
+      />
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>
           <h1 className="text-2xl font-bold text-[var(--color-heading)]">My Items</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Select items to bulk edit, or use Edit / View on each row.
+          <p className="text-sm text-neutral-600 mt-1">
+            Your INW storefront listings — use Manage on each item, or select rows for quick actions.
           </p>
         </div>
         <Link href="/seller-hub/store/new" className="btn shrink-0">
@@ -359,11 +342,16 @@ function MyItemsPageInner() {
         </div>
       ) : null}
 
-      <div
-        className="mb-4 flex flex-wrap gap-1 border-b border-gray-200"
-        role="tablist"
-        aria-label="Listing status"
-      >
+      <div className="mb-2">
+        <h2 className="font-bold" style={{ color: "var(--color-heading)" }}>
+          Your listings
+        </h2>
+        <div className="text-sm text-neutral-600">
+          {summaryCounts.active} active · {summaryCounts.ended} ended · {summaryCounts.sold} sold
+        </div>
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-2" role="tablist" aria-label="Listing status">
         {ITEMS_TABS.map((t) => {
           const count =
             counts == null
@@ -382,25 +370,21 @@ function MyItemsPageInner() {
               type="button"
               role="tab"
               aria-selected={selected}
-              className={`px-3 py-2.5 text-sm font-semibold border-b-2 -mb-px transition ${
+              className={`rounded-full border-2 px-5 py-2.5 text-sm font-semibold transition ${
                 selected
-                  ? "border-[var(--color-primary)] text-[var(--color-primary)]"
-                  : "border-transparent text-gray-500 hover:text-[var(--color-heading)]"
+                  ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-white"
+                  : "border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50"
               }`}
               onClick={() => setTabAndUrl(t.key)}
             >
               {t.label}
-              {count != null ? (
-                <span className={`ml-1.5 tabular-nums ${selected ? "opacity-90" : "text-gray-400"}`}>
-                  {count}
-                </span>
-              ) : null}
+              {count != null ? ` (${count})` : ""}
             </button>
           );
         })}
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      <div className="mb-4 flex flex-wrap items-center gap-3 min-h-[2.75rem]">
         <label className="sr-only" htmlFor="my-items-search">
           Search items
         </label>
@@ -410,339 +394,280 @@ function MyItemsPageInner() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by title or SKU"
-          className="w-full max-w-md rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm shadow-sm"
+          className="w-full max-w-md rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm"
           disabled={tab === "drafts"}
         />
         {tab !== "drafts" && filtered.length > 0 ? (
-          <label className="inline-flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+          <label className="inline-flex items-center gap-2 text-sm text-neutral-700 cursor-pointer">
             <input
               type="checkbox"
               checked={allVisibleSelected}
               onChange={toggleSelectAll}
-              className="rounded border-gray-300"
+              className="h-4 w-4 rounded border-neutral-300"
             />
             Select all
             {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
           </label>
         ) : null}
-      </div>
-
-      {showBulkBar ? (
-        <div className="mb-4 sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-xl bg-[var(--color-heading)] text-white px-3 py-2.5 shadow-md">
-          <span className="text-xs font-semibold mr-1">{selectedIds.length} selected</span>
-          {(tab === "ended" || tab === "sold") && (
+        {hasSelection ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            {(tab === "ended" || tab === "sold") && (
+              <button
+                type="button"
+                disabled={acting}
+                className="rounded-md bg-[var(--color-earth)] px-3 py-1.5 font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                onClick={() => relist(selectedIds)}
+              >
+                Relist
+              </button>
+            )}
+            {tab === "active" && (
+              <>
+                <button
+                  type="button"
+                  disabled={acting}
+                  className="rounded-md bg-[var(--color-earth)] px-3 py-1.5 font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                  onClick={() => endListings(selectedIds)}
+                >
+                  End
+                </button>
+                <button
+                  type="button"
+                  disabled={acting}
+                  className="rounded-md bg-[var(--color-earth)] px-3 py-1.5 font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                  onClick={() => openShareToFeed(selectedIds)}
+                >
+                  Share to feed
+                </button>
+              </>
+            )}
             <button
               type="button"
               disabled={acting}
-              className="rounded-md bg-white/15 px-3 py-1.5 text-xs font-bold hover:bg-white/25 disabled:opacity-50"
-              onClick={() => relist(selectedIds)}
+              className="rounded-md bg-[var(--color-earth)] px-3 py-1.5 font-semibold text-white hover:opacity-90 disabled:opacity-50"
+              onClick={() =>
+                setActionMessage("Manage 3rd Parties — coming soon. Tell us what this should do next.")
+              }
             >
-              Relist
+              Manage 3rd Parties
             </button>
-          )}
-          {tab === "active" && (
-            <>
-              <button
-                type="button"
-                disabled={acting}
-                className="rounded-md bg-white/15 px-3 py-1.5 text-xs font-bold hover:bg-white/25 disabled:opacity-50"
-                onClick={() => {
-                  setBulkPrice("");
-                  setBulkQty("");
-                  setBulkEditOpen(true);
-                }}
+            {selectedIds.length === 1 ? (
+              <Link
+                href={`/seller-hub/store/new?similar=${selectedIds[0]}`}
+                className="rounded-md bg-[var(--color-earth)] px-3 py-1.5 font-semibold text-white hover:opacity-90"
               >
-                Edit price/qty
-              </button>
-              <button
-                type="button"
-                disabled={acting}
-                className="rounded-md bg-white/15 px-3 py-1.5 text-xs font-bold hover:bg-white/25 disabled:opacity-50"
-                onClick={() => endListings(selectedIds)}
-              >
-                End
-              </button>
-              <button
-                type="button"
-                disabled={acting}
-                className="rounded-md bg-emerald-500/30 px-3 py-1.5 text-xs font-bold text-emerald-100 hover:bg-emerald-500/40 disabled:opacity-50"
-                onClick={() => markSold(selectedIds)}
-              >
-                Mark sold
-              </button>
-              <button
-                type="button"
-                disabled={acting}
-                className="rounded-md bg-white/15 px-3 py-1.5 text-xs font-bold hover:bg-white/25 disabled:opacity-50"
-                onClick={() => shareToFeed(selectedIds)}
-              >
-                Share to feed
-              </button>
-            </>
-          )}
-          {selectedIds.length === 1 ? (
-            <Link
-              href={`/seller-hub/store/new?similar=${selectedIds[0]}`}
-              className="rounded-md bg-white/15 px-3 py-1.5 text-xs font-bold hover:bg-white/25"
-            >
-              Sell similar
-            </Link>
-          ) : null}
-        </div>
-      ) : null}
-
-      {bulkEditOpen ? (
-        <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-          <h2 className="font-semibold text-[var(--color-heading)] mb-1">
-            Edit {selectedIds.length} listings
-          </h2>
-          <p className="text-xs text-gray-500 mb-3">Leave a field blank to keep its current value.</p>
-          <div className="flex flex-wrap gap-3 items-end">
-            <label className="text-sm">
-              <span className="block text-gray-600 mb-1">Price ($)</span>
-              <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={bulkPrice}
-                onChange={(e) => setBulkPrice(e.target.value)}
-                className="rounded-lg border border-gray-300 px-3 py-2 w-32"
-                placeholder="24.99"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="block text-gray-600 mb-1">Quantity</span>
-              <input
-                type="number"
-                min="0"
-                step="1"
-                value={bulkQty}
-                onChange={(e) => setBulkQty(e.target.value)}
-                className="rounded-lg border border-gray-300 px-3 py-2 w-28"
-                placeholder="3"
-              />
-            </label>
-            <button type="button" className="btn" disabled={acting} onClick={applyBulkEdit}>
-              Apply
-            </button>
-            <button
-              type="button"
-              className="text-sm text-gray-600 underline"
-              onClick={() => setBulkEditOpen(false)}
-            >
-              Cancel
-            </button>
+                Sell similar
+              </Link>
+            ) : null}
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
-      {loading ? <p className="text-sm text-gray-600">Loading items…</p> : null}
+      {loading ? <p className="text-sm text-neutral-600">Loading items…</p> : null}
       {fetchError ? <p className="text-sm text-red-700">{fetchError}</p> : null}
 
       {tab === "drafts" && !loading ? (
-        <div className="rounded-lg border border-dashed border-gray-300 p-6 text-center">
-          <p className="text-sm text-gray-700 mb-2 font-semibold">Drafts live in the mobile app</p>
-          <p className="text-sm text-gray-600 mb-4">
+        <div
+          className="rounded-[10px] border-2 border-dashed p-6 text-center"
+          style={{ borderColor: "var(--color-primary)" }}
+        >
+          <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
+            Drafts live in the mobile app
+          </p>
+          <p className="mt-2 text-sm text-neutral-600 max-w-md mx-auto">
             Save unfinished listings on iOS/Android, then resume them from My Items → Drafts.
           </p>
-          <Link href="/seller-hub/store/new" className="btn">
+          <Link href="/seller-hub/store/new" className="btn mt-4 inline-block">
             Start a new listing
           </Link>
         </div>
       ) : null}
 
       {!loading && !fetchError && tab !== "drafts" && filtered.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-gray-300 p-6 text-center">
-          <p className="text-sm text-gray-700 mb-3">
+        <div
+          className="rounded-[10px] border-2 border-dashed p-6 text-center"
+          style={{ borderColor: "var(--color-primary)" }}
+        >
+          <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
             {tab === "active"
-              ? "No active listings yet."
+              ? "No active listings yet"
               : tab === "ended"
-                ? "No ended listings."
-                : "No sold listings yet."}
+                ? "No ended listings"
+                : "No sold listings yet"}
           </p>
           {tab === "active" ? (
-            <Link href="/seller-hub/store/new" className="btn">
+            <Link href="/seller-hub/store/new" className="btn mt-4 inline-block">
               Create your first listing
             </Link>
           ) : null}
         </div>
       ) : null}
 
-      <ul className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white overflow-hidden">
-        {filtered.map((item) => {
-          const photo = Array.isArray(item.photos) ? item.photos[0] : undefined;
-          const selected = selectedIds.includes(item.id);
-          const views = item.views30d ?? 0;
-          const status = statusLabel(item);
-          return (
-            <li
-              key={item.id}
-              className={`relative ${selected ? "bg-[var(--color-section-alt)]" : "bg-white"}`}
-              data-item-menu={item.id}
-            >
-              <div className="flex items-center gap-3 px-3 py-3 sm:px-4">
-                <label className="flex items-center cursor-pointer shrink-0 self-stretch">
-                  <input
-                    type="checkbox"
-                    checked={selected}
-                    onChange={() => toggleSelect(item.id)}
-                    className="rounded border-gray-300"
-                    aria-label={`Select ${item.title}`}
-                  />
-                </label>
-
-                <div className="w-14 h-14 rounded-md bg-gray-100 overflow-hidden shrink-0 border border-gray-100">
-                  {photo ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={photo} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-300">
-                      <IonIcon name="image-outline" size={20} />
-                    </div>
-                  )}
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <div className="font-semibold text-[var(--color-heading)] leading-snug line-clamp-2">
-                    {item.title}
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-600">
-                    <span className="font-semibold text-[var(--color-heading)]">
-                      {formatPrice(item.priceCents)}
-                    </span>
-                    {tab !== "sold" ? <span className="text-gray-300">·</span> : null}
-                    {tab !== "sold" ? <span>Qty {item.quantity}</span> : null}
-                    <span className="text-gray-300">·</span>
-                    <span
-                      className={
-                        status === "Active"
-                          ? "text-emerald-700 font-medium"
-                          : status === "Out of stock"
-                            ? "text-amber-700 font-medium"
-                            : "text-gray-500 font-medium"
-                      }
-                    >
-                      {status}
-                    </span>
-                    <span className="text-gray-300">·</span>
-                    <span className="text-gray-500">
-                      {views} view{views === 1 ? "" : "s"} (30d)
-                    </span>
-                  </div>
-                  {tab === "sold" && item.soldAt ? (
-                    <div className="text-xs text-gray-500 mt-1">
-                      Sold on {new Date(item.soldAt).toLocaleDateString()}
-                    </div>
-                  ) : null}
-
-                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                    <Link
-                      href={itemEditHref(item)}
-                      className="font-semibold text-[var(--color-primary)] hover:underline"
-                    >
-                      Edit
-                    </Link>
-                    {item.slug ? (
-                      <Link
-                        href={`/storefront/${item.slug}?from=my-items`}
-                        className="font-medium text-gray-600 hover:underline"
-                      >
-                        View
-                      </Link>
-                    ) : null}
-                    {(tab === "ended" || tab === "sold") && (
-                      <button
-                        type="button"
-                        disabled={acting}
-                        className="font-semibold text-emerald-700 hover:underline disabled:opacity-50"
-                        onClick={() => relist([item.id])}
-                      >
-                        Relist
-                      </button>
-                    )}
-                    <Link
-                      href={`/seller-hub/store/new?similar=${item.id}`}
-                      className="font-medium text-gray-600 hover:underline"
-                    >
-                      Sell similar
-                    </Link>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  className="p-2 rounded-md text-gray-400 hover:text-[var(--color-heading)] hover:bg-gray-100 shrink-0"
-                  aria-label="More actions"
-                  aria-expanded={menuOpenId === item.id}
-                  onClick={() => setMenuOpenId(menuOpenId === item.id ? null : item.id)}
-                >
-                  <IonIcon name="ellipsis-vertical" size={18} />
-                </button>
-              </div>
-
-              {menuOpenId === item.id ? (
-                <div className="absolute right-3 top-12 z-20 min-w-[180px] rounded-lg border border-gray-200 bg-white shadow-lg py-1">
-                  <Link
-                    href={itemEditHref(item)}
-                    className="block px-3 py-2 text-sm hover:bg-gray-50 font-medium"
+      {!loading && !fetchError && tab !== "drafts" && filtered.length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm border-collapse">
+            <thead>
+              <tr className="border-b text-left" style={{ borderColor: "var(--color-primary)" }}>
+                <th className="py-2 pr-3 w-10">
+                  <span className="sr-only">Select</span>
+                </th>
+                <th className="py-2 pr-3 font-semibold">Listing</th>
+                <th className="py-2 pr-3 font-semibold">Status</th>
+                <th className="py-2 pr-3 font-semibold">Qty</th>
+                <th className="py-2 pr-3 font-semibold">Price</th>
+                <th className="py-2 pr-3 font-semibold">Listed on</th>
+                <th className="py-2 pr-3 font-semibold">Views (30d)</th>
+                <th className="py-2 font-semibold">Manage</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((item) => {
+                const photo = Array.isArray(item.photos) ? item.photos[0] : undefined;
+                const selected = selectedIds.includes(item.id);
+                const views = item.views30d ?? 0;
+                const status = statusLabel(item);
+                const listedOn = formatSyncedWithChannels(
+                  Array.isArray(item.channels) && item.channels.length > 0
+                    ? item.channels
+                    : ["inw"]
+                );
+                return (
+                  <tr
+                    key={item.id}
+                    className={`border-b border-neutral-200 align-middle ${
+                      selected ? "bg-[var(--color-section-alt)]" : ""
+                    }`}
+                    data-item-menu={item.id}
                   >
-                    Edit listing
-                  </Link>
-                  <Link
-                    href={`/seller-hub/store/new?similar=${item.id}`}
-                    className="block px-3 py-2 text-sm hover:bg-gray-50"
-                  >
-                    Sell similar
-                  </Link>
-                  {item.slug ? (
-                    <Link
-                      href={`/storefront/${item.slug}?from=my-items`}
-                      className="block px-3 py-2 text-sm hover:bg-gray-50"
-                    >
-                      View listing
-                    </Link>
-                  ) : null}
-                  {tab === "sold" && item.soldOrderId ? (
-                    <Link
-                      href={`/seller-hub/orders/${item.soldOrderId}`}
-                      className="block px-3 py-2 text-sm hover:bg-gray-50"
-                    >
-                      View order
-                    </Link>
-                  ) : null}
-                  {(tab === "ended" || tab === "sold") && (
-                    <button
-                      type="button"
-                      className="block w-full text-left px-3 py-2 text-sm text-emerald-700 font-semibold hover:bg-gray-50"
-                      onClick={() => relist([item.id])}
-                    >
-                      Relist
-                    </button>
-                  )}
-                  {tab !== "sold" && (
-                    <button
-                      type="button"
-                      className="block w-full text-left px-3 py-2 text-sm text-emerald-700 font-semibold hover:bg-gray-50"
-                      onClick={() => markSold([item.id])}
-                    >
-                      Mark sold
-                    </button>
-                  )}
-                  {tab === "active" && (
-                    <button
-                      type="button"
-                      className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
-                      onClick={() => endListings([item.id])}
-                    >
-                      End listing
-                    </button>
-                  )}
-                </div>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
+                    <td className="py-3 pr-3">
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => toggleSelect(item.id)}
+                        className="h-4 w-4 rounded border-neutral-300"
+                        aria-label={`Select ${item.title}`}
+                      />
+                    </td>
+                    <td className="py-3 pr-3">
+                      <div className="flex items-center gap-3 min-w-[14rem]">
+                        <div className="w-12 h-12 rounded-md bg-neutral-100 overflow-hidden shrink-0">
+                          {photo ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={photo} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-neutral-300">
+                              <IonIcon name="image-outline" size={18} />
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <Link
+                            href={item.slug ? `/storefront/${item.slug}?from=my-items` : itemEditHref(item)}
+                            className="font-medium underline line-clamp-2"
+                            style={{ color: "var(--color-primary)" }}
+                          >
+                            {item.title}
+                          </Link>
+                          {tab === "sold" && item.soldAt ? (
+                            <div className="mt-0.5 text-xs text-neutral-500">
+                              Sold {new Date(item.soldAt).toLocaleDateString()}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3 pr-3">
+                      <span
+                        className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${statusChipClass(status)}`}
+                      >
+                        {status}
+                      </span>
+                    </td>
+                    <td className="py-3 pr-3 whitespace-nowrap">
+                      {tab === "sold" ? "—" : item.quantity}
+                    </td>
+                    <td className="py-3 pr-3 whitespace-nowrap">{formatPrice(item.priceCents)}</td>
+                    <td className="py-3 pr-3 text-neutral-700 whitespace-nowrap">{listedOn}</td>
+                    <td className="py-3 pr-3 whitespace-nowrap text-neutral-700">{views}</td>
+                    <td className="py-3 relative">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {(tab === "ended" || tab === "sold") && (
+                          <button
+                            type="button"
+                            disabled={acting}
+                            className="btn text-xs px-3 py-1.5 disabled:opacity-50"
+                            onClick={() => relist([item.id])}
+                          >
+                            Relist
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="btn text-xs px-3 py-1.5"
+                          aria-expanded={menuOpenId === item.id}
+                          onClick={() => setMenuOpenId(menuOpenId === item.id ? null : item.id)}
+                        >
+                          Manage
+                        </button>
+                      </div>
+                      {menuOpenId === item.id ? (
+                        <div className="absolute right-0 top-12 z-20 min-w-[180px] rounded-lg border border-neutral-200 bg-white shadow-lg py-1">
+                          <Link
+                            href={itemEditHref(item)}
+                            className="block px-3 py-2 text-sm hover:bg-neutral-50 font-medium"
+                          >
+                            Edit listing
+                          </Link>
+                          <Link
+                            href={`/seller-hub/store/new?similar=${item.id}`}
+                            className="block px-3 py-2 text-sm hover:bg-neutral-50"
+                          >
+                            Sell similar
+                          </Link>
+                          {item.slug ? (
+                            <Link
+                              href={`/storefront/${item.slug}?from=my-items`}
+                              className="block px-3 py-2 text-sm hover:bg-neutral-50"
+                            >
+                              View listing
+                            </Link>
+                          ) : null}
+                          {tab === "sold" && item.soldOrderId ? (
+                            <Link
+                              href={`/seller-hub/orders/${item.soldOrderId}`}
+                              className="block px-3 py-2 text-sm hover:bg-neutral-50"
+                            >
+                              View order
+                            </Link>
+                          ) : null}
+                          {(tab === "ended" || tab === "sold") && (
+                            <button
+                              type="button"
+                              className="block w-full text-left px-3 py-2 text-sm text-emerald-700 font-semibold hover:bg-neutral-50"
+                              onClick={() => relist([item.id])}
+                            >
+                              Relist
+                            </button>
+                          )}
+                          {tab === "active" && (
+                            <button
+                              type="button"
+                              className="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50"
+                              onClick={() => endListings([item.id])}
+                            >
+                              End listing
+                            </button>
+                          )}
+                        </div>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </div>
   );
 }

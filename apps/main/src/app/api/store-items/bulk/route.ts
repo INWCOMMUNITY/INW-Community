@@ -4,6 +4,7 @@ import {
   applyFoundationSellerQuantitySets,
   prisma,
   Prisma,
+  recordEtsyListingContentDesire,
   recordShopifyDirtyMappedVariantContentDesires,
   recordShopifyListingContentDesire,
 } from "database";
@@ -99,16 +100,23 @@ async function updateStoreItemWithShopifyDesire(input: {
         data: rest,
       });
     }
+    const after = {
+      title: updated.title,
+      description: updated.description,
+      priceCents: updated.priceCents,
+      sku: updated.sku,
+    };
     await recordShopifyListingContentDesire(tx, {
       memberId: input.memberId,
       storeItemId: input.itemId,
       before: input.before,
-      after: {
-        title: updated.title,
-        description: updated.description,
-        priceCents: updated.priceCents,
-        sku: updated.sku,
-      },
+      after,
+    });
+    await recordEtsyListingContentDesire(tx, {
+      memberId: input.memberId,
+      storeItemId: input.itemId,
+      before: input.before,
+      after,
     });
     // Match single-item PATCH: matrix price/SKU dirty maps need per-variant content jobs.
     await recordShopifyDirtyMappedVariantContentDesires(tx, {
