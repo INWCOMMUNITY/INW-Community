@@ -38,6 +38,8 @@ import { APPS_AIRPORT_SHOPIFY_SETTINGS_PATH } from "@/lib/shopify/apps-airport";
 import {
   APPS_AIRPORT_ETSY_LISTINGS_PATH,
   APPS_AIRPORT_ETSY_SETTINGS_PATH,
+  APPS_AIRPORT_ETSY_SYNC_PATH,
+  etsyListingIsPubliclyViewable,
 } from "@/lib/etsy/apps-airport";
 import { LISTING_SKU_MAX } from "@/lib/listing-sku";
 import {
@@ -171,6 +173,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [etsyConnActive, setEtsyConnActive] = useState(false);
   const [etsyShippingProfileReady, setEtsyShippingProfileReady] = useState(false);
   const [etsyMappedListingId, setEtsyMappedListingId] = useState<string | null>(null);
+  const [etsyMappedLive, setEtsyMappedLive] = useState(false);
   const [etsyLinkChecked, setEtsyLinkChecked] = useState(() => !existing?.id);
   const [shopifyConn, setShopifyConn] = useState<{
     status: string;
@@ -366,6 +369,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     const storeItemId = existing?.id;
     if (!storeItemId || !etsyConnActive) {
       setEtsyMappedListingId(null);
+      setEtsyMappedLive(false);
       setEtsyLinkChecked(true);
       return;
     }
@@ -378,15 +382,20 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       .then((r) => (r.ok ? r.json() : null))
       .then(
         (data: {
-          listing?: { etsyListingId?: string | null } | null;
+          listing?: {
+            etsyListingId?: string | null;
+            remoteListingState?: string | null;
+          } | null;
         } | null) => {
           if (cancelled) return;
           const mappedId =
             typeof data?.listing?.etsyListingId === "string" && data.listing.etsyListingId
               ? data.listing.etsyListingId
               : null;
+          const live = etsyListingIsPubliclyViewable(data?.listing?.remoteListingState);
           setEtsyMappedListingId(mappedId);
-          if (mappedId) {
+          setEtsyMappedLive(Boolean(mappedId && live));
+          if (mappedId && live) {
             setListOnEtsy(false);
           }
           setEtsyLinkChecked(true);
@@ -395,6 +404,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       .catch(() => {
         if (!cancelled) {
           setEtsyMappedListingId(null);
+          setEtsyMappedLive(false);
           setEtsyLinkChecked(true);
         }
       });
@@ -1148,14 +1158,16 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 <ListingFormSection
                   title="Etsy"
                   description={
-                    etsyMappedListingId
-                      ? "This INW listing is already linked to your Etsy shop."
-                      : "Optional. Saves How it’s made and queues the listing on Etsy when you save."
+                    etsyMappedLive
+                      ? "This INW listing is live on your Etsy shop."
+                      : etsyMappedListingId
+                        ? "Linked to Etsy but not live yet — finish List on Etsy until it is active (not draft)."
+                        : "Optional. Saves How it’s made and queues the listing on Etsy when you save."
                   }
                 >
                   {!etsyLinkChecked ? (
                     <p className={listingHintClass}>Checking Etsy link…</p>
-                  ) : etsyMappedListingId ? (
+                  ) : etsyMappedLive ? (
                     <div className="space-y-3">
                       <p className={listingHintClass}>
                         Linked to Etsy listing #{etsyMappedListingId}. Updates sync from this INW
@@ -1170,6 +1182,20 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                     </div>
                   ) : (
                     <>
+                      {etsyMappedListingId ? (
+                        <div className="mb-3 space-y-2">
+                          <p className={listingHintClass}>
+                            Linked to Etsy listing #{etsyMappedListingId}, but it is not live yet.
+                            Finish publishing below, or open List on Etsy.
+                          </p>
+                          <Link
+                            href={APPS_AIRPORT_ETSY_SYNC_PATH}
+                            className="action-pill action-pill-sm btn-pill-outline inline-flex"
+                          >
+                            Open List on Etsy
+                          </Link>
+                        </div>
+                      ) : null}
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
@@ -1177,7 +1203,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                           onChange={(e) => setListOnEtsy(e.target.checked)}
                           className="rounded"
                         />
-                        <span className="font-medium text-sm">List on Etsy</span>
+                        <span className="font-medium text-sm">
+                          {etsyMappedListingId ? "Finish List on Etsy" : "List on Etsy"}
+                        </span>
                       </label>
                       {listOnEtsy ? (
                         <div className="mt-4 space-y-4 border-t border-neutral-200 pt-4">

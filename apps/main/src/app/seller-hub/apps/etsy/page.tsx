@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppsAirportChannelHub } from "@/components/apps-airport/AppsAirportChannelHub";
 import { AppsAirportSyncedListings } from "@/components/apps-airport/AppsAirportSyncedListings";
+import { EtsyListingActionButtons } from "@/components/etsy/EtsyListingActionButtons";
 import {
   APPS_AIRPORT_ETSY_HUB,
   appsAirportEtsyHubTitle,
@@ -233,7 +234,7 @@ export default function AppsAirportEtsyPage() {
               <th className="py-2 pr-3 font-semibold">Status</th>
               <th className="py-2 pr-3 font-semibold">Qty</th>
               <th className="py-2 pr-3 font-semibold">Price</th>
-              <th className="py-2 font-semibold">Etsy</th>
+              <th className="py-2 font-semibold">Manage</th>
             </>
           }
         >
@@ -262,40 +263,53 @@ export default function AppsAirportEtsyPage() {
               <td className="py-3 pr-3 whitespace-nowrap">{row.quantity ?? "—"}</td>
               <td className="py-3 pr-3">{formatEtsyCents(row.priceCents)}</td>
               <td className="py-3">
-                {(() => {
-                  const publicUrl = etsyListingPublicUrl({
-                    etsyListingId: row.etsyListingId,
-                    remoteListingState: row.remoteListingState,
-                  });
-                  if (publicUrl) {
+                <div className="flex flex-col gap-2 items-start">
+                  {(() => {
+                    const publicUrl = etsyListingPublicUrl({
+                      etsyListingId: row.etsyListingId,
+                      remoteListingState: row.remoteListingState,
+                    });
+                    if (publicUrl) {
+                      return (
+                        <a
+                          href={publicUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs underline"
+                          style={{ color: "var(--color-primary)" }}
+                        >
+                          View on Etsy
+                        </a>
+                      );
+                    }
+                    if (row.etsyListingId) {
+                      return (
+                        <span className="text-xs text-neutral-500">Not live on Etsy yet</span>
+                      );
+                    }
                     return (
-                      <a
-                        href={publicUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <Link
+                        href={hub.listItemsPath}
                         className="text-xs underline"
                         style={{ color: "var(--color-primary)" }}
+                        prefetch={false}
                       >
-                        View on Etsy
-                      </a>
+                        Retry list
+                      </Link>
                     );
-                  }
-                  if (row.etsyListingId) {
-                    return (
-                      <span className="text-xs text-neutral-500">Not live on Etsy yet</span>
-                    );
-                  }
-                  return (
-                    <Link
-                      href={hub.listItemsPath}
-                      className="text-xs underline"
-                      style={{ color: "var(--color-primary)" }}
-                      prefetch={false}
-                    >
-                      Retry list
-                    </Link>
-                  );
-                })()}
+                  })()}
+                  {row.etsyListingId ? (
+                    <EtsyListingActionButtons
+                      storeItemId={row.storeItemId}
+                      etsyListingId={row.etsyListingId}
+                      remoteListingState={row.remoteListingState}
+                      onActionComplete={(message) => {
+                        setToast(message ?? "Updated");
+                        void load();
+                      }}
+                    />
+                  ) : null}
+                </div>
               </td>
             </tr>
           ))}

@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AppsAirportChannelHub } from "@/components/apps-airport/AppsAirportChannelHub";
+import { EtsyListingActionButtons } from "@/components/etsy/EtsyListingActionButtons";
 import {
   APPS_AIRPORT_ETSY_HUB,
   etsyListingPublicUrl,
@@ -28,31 +29,45 @@ export default function AppsAirportEtsyListingsPage() {
   const hub = APPS_AIRPORT_ETSY_HUB;
   const [listings, setListings] = useState<ListingRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [shopName, setShopName] = useState<string | null>(null);
   const [lastPolledAt, setLastPolledAt] = useState<string | null>(null);
 
-  useEffect(() => {
-    void fetch("/api/etsy/listings", { credentials: "include" })
-      .then(async (response) => {
-        if (!response.ok) {
-          setError("Could not load Etsy listings.");
-          return;
-        }
-        const body = (await response.json()) as {
-          connection: {
-            shopName: string | null;
-            listingContentLastPolledAt: string | null;
-          } | null;
-          listings: ListingRow[];
-        };
-        setShopName(body.connection?.shopName ?? null);
-        setLastPolledAt(body.connection?.listingContentLastPolledAt ?? null);
-        setListings(body.listings);
-      })
-      .catch(() => setError("Could not load Etsy listings."))
-      .finally(() => setLoading(false));
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const response = await fetch("/api/etsy/listings", { credentials: "include" });
+      if (!response.ok) {
+        setError("Could not load Etsy listings.");
+        return;
+      }
+      const body = (await response.json()) as {
+        connection: {
+          shopName: string | null;
+          listingContentLastPolledAt: string | null;
+        } | null;
+        listings: ListingRow[];
+      };
+      setShopName(body.connection?.shopName ?? null);
+      setLastPolledAt(body.connection?.listingContentLastPolledAt ?? null);
+      setListings(body.listings);
+    } catch {
+      setError("Could not load Etsy listings.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 3500);
+    return () => window.clearTimeout(t);
+  }, [toast]);
 
   return (
     <AppsAirportChannelHub
@@ -69,6 +84,14 @@ export default function AppsAirportEtsyListingsPage() {
       ]}
     >
       {error ? <p className="mb-4 text-sm text-neutral-800">{error}</p> : null}
+      {toast ? (
+        <p
+          className="mb-4 rounded-[8px] border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
+          role="status"
+        >
+          {toast}
+        </p>
+      ) : null}
       {!loading && shopName ? (
         <p className="mb-4 text-sm text-neutral-600">
           Shop: {shopName}
@@ -127,28 +150,39 @@ export default function AppsAirportEtsyListingsPage() {
                 {row.issueMessage ? (
                   <p className="mt-1 text-xs text-amber-800">{row.issueMessage}</p>
                 ) : null}
-                {(() => {
-                  const publicUrl = etsyListingPublicUrl({
-                    etsyListingId: row.etsyListingId,
-                    remoteListingState: row.remoteListingState,
-                  });
-                  if (publicUrl) {
-                    return (
-                      <a
-                        href={publicUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-1 inline-block text-xs underline"
-                        style={{ color: "var(--color-primary)" }}
-                      >
-                        View on Etsy
-                      </a>
-                    );
-                  }
-                  return (
-                    <p className="mt-1 text-xs text-neutral-500">Not live on Etsy yet</p>
-                  );
-                })()}
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  {(() => {
+                    const publicUrl = etsyListingPublicUrl({
+                      etsyListingId: row.etsyListingId,
+                      remoteListingState: row.remoteListingState,
+                    });
+                    if (publicUrl) {
+                      return (
+                        <a
+                          href={publicUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs underline"
+                          style={{ color: "var(--color-primary)" }}
+                        >
+                          View on Etsy
+                        </a>
+                      );
+                    }
+                    return <p className="text-xs text-neutral-500">Not live on Etsy yet</p>;
+                  })()}
+                  {row.etsyListingId ? (
+                    <EtsyListingActionButtons
+                      storeItemId={row.storeItemId}
+                      etsyListingId={row.etsyListingId}
+                      remoteListingState={row.remoteListingState}
+                      onActionComplete={(message) => {
+                        setToast(message ?? "Updated");
+                        void load();
+                      }}
+                    />
+                  ) : null}
+                </div>
               </li>
             );
           })}

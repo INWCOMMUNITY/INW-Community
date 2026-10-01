@@ -40,6 +40,11 @@ type EligibleListing = {
   howItsMadeMissing?: string[];
   supported?: boolean;
   unsupportedReason?: string | null;
+  linkedButNotLive?: boolean;
+  etsyListingId?: string | null;
+  remoteListingState?: string | null;
+  issueCode?: string | null;
+  issueMessage?: string | null;
 };
 
 export default function AppsAirportEtsySyncPage() {
@@ -229,7 +234,7 @@ export default function AppsAirportEtsySyncPage() {
   return (
     <AppsAirportChrome
       title="List on Etsy"
-      subtitle="Choose an INW listing, complete How it’s made, then publish it to your Etsy shop."
+      subtitle="Choose an INW listing, complete How it’s made, then publish it live to your Etsy shop. Draft or unfinished attempts stay here until they are active on Etsy."
       crumbs={[
         { href: APPS_AIRPORT_ETSY_PATH, label: "Etsy" },
         { href: APPS_AIRPORT_ETSY_SYNC_PATH, label: "List on Etsy" },
@@ -295,7 +300,7 @@ export default function AppsAirportEtsySyncPage() {
 
       {!loading && connectionStatus === "ACTIVE" && listings.length === 0 ? (
         <p className="text-sm text-neutral-600">
-          No eligible listings. Active INW items that are not already linked to Etsy will appear here.
+          No eligible listings. Active INW items appear here until they are live on Etsy.
         </p>
       ) : null}
 
@@ -319,13 +324,25 @@ export default function AppsAirportEtsySyncPage() {
                   shippingReady &&
                   (listing.variantCount ?? 0) >= 1 &&
                   listing.photosReady !== false;
+                const remote = String(listing.remoteListingState ?? "").toLowerCase();
                 const statusLabel = !shippingReady
                   ? "Shipping profile needed"
                   : listing.unsupportedReason
                     ? listing.unsupportedReason
-                    : readyToList
-                      ? "Ready To List"
-                      : "Info Needed";
+                    : listing.linkedButNotLive
+                      ? remote === "draft"
+                        ? "Draft on Etsy — finish to go live"
+                        : listing.issueMessage?.trim() ||
+                          "Linked but not live — finish listing"
+                      : readyToList
+                        ? "Ready To List"
+                        : "Info Needed";
+                const actionLabel =
+                  syncingId === listing.storeItemId
+                    ? "Listing…"
+                    : listing.linkedButNotLive
+                      ? "Finish listing"
+                      : "List on Etsy";
                 return (
                   <tr key={listing.storeItemId} className="border-b border-neutral-200">
                     <td className="py-3 pr-4">
@@ -337,6 +354,11 @@ export default function AppsAirportEtsySyncPage() {
                       >
                         {listing.title}
                       </Link>
+                      {listing.linkedButNotLive ? (
+                        <div className="mt-1 text-xs text-amber-800">
+                          Stays on this list until the Etsy listing is active (not draft).
+                        </div>
+                      ) : null}
                     </td>
                     <td className="py-3 pr-4">{formatEtsyCents(listing.priceCents)}</td>
                     <td className="py-3 pr-4">
@@ -350,7 +372,7 @@ export default function AppsAirportEtsySyncPage() {
                         disabled={!canOpen || syncingId === listing.storeItemId}
                         onClick={() => openListModal(listing)}
                       >
-                        {syncingId === listing.storeItemId ? "Listing…" : "List on Etsy"}
+                        {actionLabel}
                       </button>
                     </td>
                   </tr>
@@ -377,6 +399,12 @@ export default function AppsAirportEtsySyncPage() {
               List on Etsy
             </h3>
             <p className="mt-1 text-sm text-neutral-600">{modalListing.title}</p>
+            {modalListing.linkedButNotLive ? (
+              <p className="mt-2 text-sm text-amber-800">
+                This listing is linked but not live on Etsy yet. Publishing again finishes photos
+                and activation — drafts are not treated as live.
+              </p>
+            ) : null}
             <div className="mt-4">
               <EtsyHowItsMadeFields
                 value={howItsMade}
@@ -393,7 +421,7 @@ export default function AppsAirportEtsySyncPage() {
                 disabled={Boolean(syncingId)}
                 onClick={() => void onConfirmList()}
               >
-                {syncingId ? "Listing…" : "Publish to Etsy"}
+                {syncingId ? "Listing…" : modalListing.linkedButNotLive ? "Finish & publish" : "Publish to Etsy"}
               </button>
               <button
                 type="button"

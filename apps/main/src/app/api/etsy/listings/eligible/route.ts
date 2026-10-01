@@ -6,13 +6,14 @@ import {
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "@/lib/etsy/taxonomy-default";
-import { ETSY_PLATFORM_DEFAULT_TAXONOMY_ID } from "@/lib/etsy/apps-airport";
+import { etsyListingIsPubliclyViewable } from "@/lib/etsy/apps-airport";
 
 export const dynamic = "force-dynamic";
 
 /**
- * List INW store items eligible to publish to Etsy (not already mapped on ACTIVE connection).
- * Includes How it's made readiness for UI gating.
+ * List INW store items eligible to publish to Etsy.
+ * Live (`remoteListingState=active`) maps are excluded; drafts / failed activates stay
+ * so sellers can finish List on Etsy until the remote listing is active.
  */
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);
@@ -43,9 +44,25 @@ export async function GET(req: NextRequest) {
 
   const mapped = await prisma.etsyListingLink.findMany({
     where: { etsyConnectionId: connection.id, memberId },
-    select: { storeItemId: true },
+    select: {
+      storeItemId: true,
+      etsyListingId: true,
+      remoteListingState: true,
+      readiness: true,
+      issueCode: true,
+      issueMessage: true,
+    },
   });
-  const mappedIds = new Set(mapped.map((m) => m.storeItemId));
+  const liveMappedIds = new Set(
+    mapped
+      .filter((m) => etsyListingIsPubliclyViewable(m.remoteListingState))
+      .map((m) => m.storeItemId)
+  );
+  const nonLiveByStoreItemId = new Map(
+    mapped
+      .filter((m) => !etsyListingIsPubliclyViewable(m.remoteListingState))
+      .map((m) => [m.storeItemId, m] as const)
+  );
   const taxonomyFallback = resolveEtsyTaxonomyFallback(connection.defaultTaxonomyId);
 
   const items = await prisma.storeItem.findMany({
@@ -75,8 +92,9 @@ export async function GET(req: NextRequest) {
   });
 
   const listings = items
-    .filter((item) => !mappedIds.has(item.id))
+    .filter((item) => !liveMappedIds.has(item.id))
     .map((item) => {
+      const existing = nonLiveByStoreItemId.get(item.id) ?? null;
       const how = resolveEtsyHowItsMadeForCreate({
         etsyWhoMade: item.etsyWhoMade,
         etsyWhenMade: item.etsyWhenMade,
@@ -114,6 +132,11 @@ export async function GET(req: NextRequest) {
         howItsMadeMissing: how.ok ? [] : how.missing,
         supported: how.ok && item._count.storeVariants >= 1 && photosReady,
         unsupportedReason,
+        linkedButNotLive: Boolean(existing),
+        etsyListingId: existing?.etsyListingId ?? null,
+        remoteListingState: existing?.remoteListingState ?? null,
+        issueCode: existing?.issueCode ?? null,
+        issueMessage: existing?.issueMessage ?? null,
       };
     });
 

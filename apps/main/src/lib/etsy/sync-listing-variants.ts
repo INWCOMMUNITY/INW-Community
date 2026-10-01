@@ -89,7 +89,7 @@ export function mapsMatchLocalCombos(input: {
     const mapOpts = optionsFromEtsyPropertyValues(
       Array.isArray(map.propertyValuesJson)
         ? (map.propertyValuesJson as EtsyRemoteInventoryProduct["property_values"])
-        : null
+        : undefined
     );
     if (Object.keys(mapOpts).length === 0) return false;
     if (skuSelectionKey(localOpts) !== skuSelectionKey(mapOpts)) return false;
