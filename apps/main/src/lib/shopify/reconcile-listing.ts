@@ -82,7 +82,7 @@ async function readRemoteListingObservation(input: {
         status
         title
         descriptionHtml
-        variants(first: 10) {
+        variants(first: 100) {
           nodes {
             id
             price
@@ -338,6 +338,12 @@ export async function handleShopifyReconcileListingJob(
       errorCode: topologySync.errorCode,
       errorMessage: topologySync.errorMessage,
     };
+  }
+  // Topology CONFLICT already wrote ACTION_REQUIRED on the listing. Do not continue
+  // into classifyShopifyListingHealth — that path does not know TOPOLOGY_* codes and
+  // would wipe the pause (false READY_TO_PUBLISH).
+  if (topologySync.plan.kind === "CONFLICT") {
+    return { outcome: "SUCCESS" };
   }
 
   const refreshedMaps = await prisma.shopifyVariantMap.findMany({

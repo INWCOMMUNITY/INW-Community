@@ -2,5 +2,43 @@
   "buildCommand": "node scripts/vercel-build.mjs",
   "outputDirectory": "apps/main/.next",
   "installCommand": "pnpm install",
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/cron/renewal-reminder",
+      "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/expire-pending-orders",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/delete-stale-unverified-residents",
+      "schedule": "15 7 * * *"
+    },
+    {
+      "path": "/api/cron/delete-ended-listings",
+      "schedule": "20 7 * * *"
+    },
+    {
+      "path": "/api/cron/sync-health-snapshot",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-shipments",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-foundation-checkouts",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-foundation-return-settlements",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/shopify-sync-jobs",
+      "schedule": "* * * * *"
+    }
+  ]
 }
