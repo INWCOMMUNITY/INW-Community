@@ -1151,6 +1151,82 @@ describe("prompt-65 checkout idempotency / races / restock", () => {
     expect(projected?.quantity).toBe(available);
   });
 
+  it("projectStoreItemQuantity mirrors ACTIVE InventoryState into variants.skus[] and rewrites string Json", async () => {
+    await enterFoundation();
+    const member = await createMember(prisma, "matproj");
+    const item = await createStoreItem(prisma, member.id, "MatrixProj", {
+      quantity: 5,
+      variants: {
+        axes: [{ name: "Color", values: ["Red", "Blue"] }],
+        skus: [
+          { options: { Color: "Red" }, quantity: 2 },
+          { options: { Color: "Blue" }, quantity: 3 },
+        ],
+      },
+    });
+    await prisma.$transaction((tx) => provisionNativeFoundationListing(tx, item.id));
+    const optioned = await prisma.storeVariant.findMany({
+      where: { storeItemId: item.id, status: "ACTIVE" },
+      select: { id: true, options: true },
+    });
+    const red = optioned.find((v) => (v.options as { Color?: string })?.Color === "Red")?.id;
+    const blue = optioned.find((v) => (v.options as { Color?: string })?.Color === "Blue")?.id;
+    expect(red && blue).toBeTruthy();
+    // Simulate legacy Shopify double-encode: Prisma Json column holding a string.
+    await prisma.storeItem.update({
+      where: { id: item.id },
+      data: {
+        variants: JSON.stringify({
+          axes: [{ name: "Color", values: ["Red", "Blue"] }],
+          skus: [
+            { options: { Color: "Red" }, quantity: 99 },
+            { options: { Color: "Blue" }, quantity: 99 },
+          ],
+        }) as unknown as object,
+      },
+    });
+    await prisma.$transaction((tx) =>
+      setTrackedOnHand(tx, { variantId: red!, targetOnHand: 4, commandId: `matproj-red-${item.id}` })
+    );
+    await prisma.$transaction((tx) =>
+      setTrackedOnHand(tx, { variantId: blue!, targetOnHand: 6, commandId: `matproj-blue-${item.id}` })
+    );
+    // Retire a phantom third variant — must not appear / must not affect matrix.
+    const retired = await prisma.storeVariant.create({
+      data: {
+        memberId: member.id,
+        storeItemId: item.id,
+        options: { Color: "Green" },
+        priceCents: 1000,
+        status: "RETIRED",
+      },
+    });
+    await prisma.inventoryState.create({
+      data: {
+        memberId: member.id,
+        storeItemId: item.id,
+        variantId: retired.id,
+        mode: "TRACKED_FINITE",
+        onHand: 50,
+        reserved: 0,
+      },
+    });
+    await prisma.$transaction((tx) => projectStoreItemQuantity(tx, item.id));
+    const projected = await prisma.storeItem.findUnique({ where: { id: item.id } });
+    expect(typeof projected?.variants).toBe("object");
+    expect(projected?.variants).not.toBeNull();
+    const matrix = projected?.variants as {
+      axes: Array<{ name: string; values: string[] }>;
+      skus: Array<{ options: Record<string, string>; quantity: number }>;
+    };
+    expect(matrix.axes?.[0]?.name).toBe("Color");
+    const byColor = new Map(matrix.skus.map((s) => [s.options.Color, s.quantity]));
+    expect(byColor.get("Red")).toBe(4);
+    expect(byColor.get("Blue")).toBe(6);
+    expect(byColor.has("Green")).toBe(false);
+    expect(projected?.quantity).toBe(10);
+  });
+
   it("Mark Sold with an active HOLD rejects and leaves reservation/status unchanged", async () => {
     const ctx = await trackedSimple(1);
     const buyer = await createMember(prisma, "sold-hold");

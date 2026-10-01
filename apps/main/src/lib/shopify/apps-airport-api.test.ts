@@ -23,6 +23,13 @@ vi.mock("@/lib/shopify/listing-public-view", () => ({
 vi.mock("@/lib/shopify/create-listing", () => ({
   enqueueShopifyCreateListing: vi.fn(),
 }));
+vi.mock("@/lib/shopify/listing-actions", () => ({
+  runShopifyListingAction: vi.fn(),
+  getShopifyListingViewUrl: vi.fn(),
+}));
+vi.mock("@/lib/shopify/export-readiness", () => ({
+  getShopifyExportReadiness: vi.fn(),
+}));
 
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
@@ -30,9 +37,14 @@ import { prisma } from "database";
 import { listEligibleShopifyExportListings } from "@/lib/shopify/eligible-listings";
 import { listShopifySellerListingViews } from "@/lib/shopify/listing-public-view";
 import { enqueueShopifyCreateListing } from "@/lib/shopify/create-listing";
+import { getShopifyListingViewUrl, runShopifyListingAction } from "@/lib/shopify/listing-actions";
+import { getShopifyExportReadiness } from "@/lib/shopify/export-readiness";
 import { GET as eligibleGet } from "@/app/api/shopify/listings/eligible/route";
 import { GET as listingsGet } from "@/app/api/shopify/listings/route";
 import { POST as createListingPost } from "@/app/api/shopify/listings/create/route";
+import { POST as listingActionsPost } from "@/app/api/shopify/listings/[id]/actions/route";
+import { GET as listingViewUrlGet } from "@/app/api/shopify/listings/[id]/view-url/route";
+import { GET as exportReadinessGet } from "@/app/api/shopify/listings/[id]/export-readiness/route";
 
 describe("Apps Airport Shopify read APIs", () => {
   beforeEach(() => {
@@ -45,6 +57,9 @@ describe("Apps Airport Shopify read APIs", () => {
     vi.mocked(listEligibleShopifyExportListings).mockReset();
     vi.mocked(listShopifySellerListingViews).mockReset();
     vi.mocked(enqueueShopifyCreateListing).mockReset();
+    vi.mocked(runShopifyListingAction).mockReset();
+    vi.mocked(getShopifyListingViewUrl).mockReset();
+    vi.mocked(getShopifyExportReadiness).mockReset();
   });
 
   it("returns CONNECTION_REQUIRED for eligible listings without an active connection", async () => {
@@ -227,5 +242,62 @@ describe("Apps Airport Shopify read APIs", () => {
       memberId: "member-a",
       storeItemId: "item-1",
     });
+  });
+
+  it("returns export readiness for a store item", async () => {
+    vi.mocked(getShopifyExportReadiness).mockResolvedValue({
+      canList: true,
+      alreadyMapped: false,
+      connectionId: "conn-1",
+      shopDomain: "demo.myshopify.com",
+      inventoryReady: true,
+      locationSelectionRequired: false,
+      shopifyProductId: null,
+      variantCount: 1,
+      blockers: [],
+    });
+    const response = await exportReadinessGet(
+      new NextRequest("https://app.example.com/api/shopify/listings/item-1/export-readiness"),
+      { params: Promise.resolve({ id: "item-1" }) }
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ canList: true, variantCount: 1 });
+  });
+
+  it("routes listing manage actions", async () => {
+    vi.mocked(runShopifyListingAction).mockResolvedValue({
+      ok: true,
+      message: "Reload queued",
+    });
+    const response = await listingActionsPost(
+      new NextRequest("https://app.example.com/api/shopify/listings/item-1/actions", {
+        method: "POST",
+        body: JSON.stringify({ action: "retry" }),
+      }),
+      { params: Promise.resolve({ id: "item-1" }) }
+    );
+    expect(response.status).toBe(200);
+    expect(runShopifyListingAction).toHaveBeenCalledWith({
+      memberId: "member-a",
+      storeItemId: "item-1",
+      action: "retry",
+      confirmDelete: false,
+    });
+  });
+
+  it("returns view-url for a mapped listing", async () => {
+    vi.mocked(getShopifyListingViewUrl).mockResolvedValue({
+      ok: true,
+      primaryUrl: "https://demo.myshopify.com/admin/products/1",
+      adminUrl: "https://demo.myshopify.com/admin/products/1",
+      storefrontUrl: null,
+    });
+    const response = await listingViewUrlGet(
+      new NextRequest("https://app.example.com/api/shopify/listings/item-1/view-url"),
+      { params: Promise.resolve({ id: "item-1" }) }
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.adminUrl).toContain("/admin/products/1");
   });
 });

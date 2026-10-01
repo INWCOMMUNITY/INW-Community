@@ -108,8 +108,11 @@ describe("shopify CREATE_LISTING enqueue gates", () => {
       id: "item-1",
       memberId: "member-a",
       status: "active",
+      title: "Mug",
     } as never);
-    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([{ id: "var-1" }] as never);
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
+      { id: "var-1", options: {}, priceCents: 1000 },
+    ] as never);
     vi.mocked(lookupShopifyListingByStoreItem).mockResolvedValue({ status: "UNMAPPED" });
     vi.mocked(enqueueShopifySyncJob).mockResolvedValue({
       id: "job-1",
@@ -151,8 +154,11 @@ describe("shopify CREATE_LISTING enqueue gates", () => {
       id: "item-1",
       memberId: "member-a",
       status: "active",
+      title: "Mug",
     } as never);
-    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([{ id: "var-1" }] as never);
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
+      { id: "var-1", options: {}, priceCents: 1000 },
+    ] as never);
     vi.mocked(lookupShopifyListingByStoreItem).mockResolvedValue({ status: "UNMAPPED" });
     vi.mocked(enqueueShopifySyncJob).mockResolvedValue({
       id: "job-dead",
@@ -225,10 +231,11 @@ describe("shopify CREATE_LISTING enqueue gates", () => {
       id: "item-1",
       memberId: "member-a",
       status: "active",
+      title: "Mug",
     } as never);
     vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
-      { id: "var-1" },
-      { id: "var-2" },
+      { id: "var-1", options: {}, priceCents: 1000 },
+      { id: "var-2", options: {}, priceCents: 1000 },
     ] as never);
     const result = await enqueueShopifyCreateListing({
       memberId: "member-a",
@@ -238,14 +245,51 @@ describe("shopify CREATE_LISTING enqueue gates", () => {
     expect(enqueueShopifySyncJob).not.toHaveBeenCalled();
   });
 
+  it("rejects missing title or price before enqueue", async () => {
+    vi.mocked(prisma.shopifyConnection.findFirst).mockResolvedValue(connection as never);
+    vi.mocked(prisma.storeItem.findFirst).mockResolvedValue({
+      id: "item-1",
+      memberId: "member-a",
+      status: "active",
+      title: "   ",
+    } as never);
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
+      { id: "var-1", options: {}, priceCents: 1000 },
+    ] as never);
+    const missingTitle = await enqueueShopifyCreateListing({
+      memberId: "member-a",
+      storeItemId: "item-1",
+    });
+    expect(missingTitle).toMatchObject({ status: "ERROR", code: "MISSING_TITLE" });
+
+    vi.mocked(prisma.storeItem.findFirst).mockResolvedValue({
+      id: "item-1",
+      memberId: "member-a",
+      status: "active",
+      title: "Mug",
+    } as never);
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
+      { id: "var-1", options: {}, priceCents: 0 },
+    ] as never);
+    const missingPrice = await enqueueShopifyCreateListing({
+      memberId: "member-a",
+      storeItemId: "item-1",
+    });
+    expect(missingPrice).toMatchObject({ status: "ERROR", code: "MISSING_PRICE" });
+    expect(enqueueShopifySyncJob).not.toHaveBeenCalled();
+  });
+
   it("returns already mapped for the current generation without enqueue", async () => {
     vi.mocked(prisma.shopifyConnection.findFirst).mockResolvedValue(connection as never);
     vi.mocked(prisma.storeItem.findFirst).mockResolvedValue({
       id: "item-1",
       memberId: "member-a",
       status: "active",
+      title: "Mug",
     } as never);
-    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([{ id: "var-1" }] as never);
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
+      { id: "var-1", options: {}, priceCents: 1000 },
+    ] as never);
     vi.mocked(lookupShopifyListingByStoreItem).mockResolvedValue({
       status: "MAPPED",
       listingLink: {

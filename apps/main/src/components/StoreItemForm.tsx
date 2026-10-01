@@ -34,6 +34,7 @@ import {
 import { ListingConditionToggle } from "@/components/store-item/ListingConditionToggle";
 import { ListingPhotoGallery } from "@/components/store-item/ListingPhotoGallery";
 import { ListingSaveBar } from "@/components/store-item/ListingSaveBar";
+import { APPS_AIRPORT_SHOPIFY_SETTINGS_PATH } from "@/lib/shopify/apps-airport";
 import { LISTING_SKU_MAX } from "@/lib/listing-sku";
 import {
   listingHintClass,
@@ -170,6 +171,15 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         (typeof existing?.etsyTaxonomyId === "number" && existing.etsyTaxonomyId > 0)
     )
   );
+  const [shopifyConn, setShopifyConn] = useState<{
+    status: string;
+    inventoryReady: boolean;
+    locationSelectionRequired: boolean;
+  } | null>(null);
+  const [listOnShopifyAfterSave, setListOnShopifyAfterSave] = useState(false);
+  const [shopifyMappedProductId, setShopifyMappedProductId] = useState<string | null>(null);
+  const [shopifyBusy, setShopifyBusy] = useState(false);
+  const [shopifyMessage, setShopifyMessage] = useState<string | null>(null);
   const initialMatrix = initEditorFromVariants(existing?.variants);
   const [optionsEnabled, setOptionsEnabled] = useState(initialMatrix.optionsEnabled);
   const [variantAxes, setVariantAxes] = useState<VariantAxisDef[]>(initialMatrix.axes);
@@ -272,6 +282,135 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       })
       .catch(() => {});
   }, [existing]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/shopify/connection", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (data: {
+          connections?: Array<{
+            status: string;
+            inventoryReady?: boolean;
+            locationSelectionRequired?: boolean;
+            primaryLocationId?: string | null;
+          }>;
+        } | null) => {
+          if (cancelled || !data) return;
+          const conn =
+            data.connections?.find((c) => c.status === "ACTIVE") ?? data.connections?.[0] ?? null;
+          if (!conn || conn.status !== "ACTIVE") {
+            setShopifyConn(null);
+            return;
+          }
+          setShopifyConn({
+            status: conn.status,
+            inventoryReady: Boolean(conn.inventoryReady ?? conn.primaryLocationId),
+            locationSelectionRequired: Boolean(
+              conn.locationSelectionRequired ?? !conn.primaryLocationId
+            ),
+          });
+        }
+      )
+      .catch(() => {
+        if (!cancelled) setShopifyConn(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const storeItemId = existing?.id;
+    if (!storeItemId || shopifyConn?.status !== "ACTIVE") {
+      setShopifyMappedProductId(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/shopify/listings/${storeItemId}/export-readiness`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (data: { alreadyMapped?: boolean; shopifyProductId?: string | null } | null) => {
+          if (cancelled || !data) return;
+          setShopifyMappedProductId(
+            data.alreadyMapped ? data.shopifyProductId ?? "mapped" : null
+          );
+        }
+      )
+      .catch(() => {
+        if (!cancelled) setShopifyMappedProductId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [existing?.id, shopifyConn?.status]);
+
+  const enqueueShopifyListing = useCallback(async (storeItemId: string): Promise<string | null> => {
+    const res = await fetch("/api/shopify/listings/create", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ storeItemId }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      status?: string;
+      shopifyProductId?: string;
+      error?: string;
+    };
+    if (!res.ok) {
+      return body.error ?? "Could not list on Shopify";
+    }
+    if (body.status === "already_mapped") {
+      setShopifyMappedProductId(body.shopifyProductId ?? "mapped");
+      return "Already on Shopify";
+    }
+    return "Listing queued for Shopify — sync usually finishes within a minute";
+  }, []);
+
+  const handleListOnShopifyClick = useCallback(async () => {
+    const storeItemId = existing?.id;
+    if (!storeItemId) return;
+    setShopifyBusy(true);
+    setShopifyMessage(null);
+    try {
+      const message = await enqueueShopifyListing(storeItemId);
+      if (message) setShopifyMessage(message);
+      const readiness = await fetch(`/api/shopify/listings/${storeItemId}/export-readiness`, {
+        credentials: "include",
+      }).then((r) => (r.ok ? r.json() : null));
+      if (readiness?.alreadyMapped) {
+        setShopifyMappedProductId(readiness.shopifyProductId ?? "mapped");
+      }
+    } catch {
+      setShopifyMessage("Could not list on Shopify");
+    } finally {
+      setShopifyBusy(false);
+    }
+  }, [existing?.id, enqueueShopifyListing]);
+
+  const handleViewOnShopifyClick = useCallback(async () => {
+    const storeItemId = existing?.id;
+    if (!storeItemId) return;
+    setShopifyBusy(true);
+    setShopifyMessage(null);
+    try {
+      const res = await fetch(`/api/shopify/listings/${storeItemId}/view-url`, {
+        credentials: "include",
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        primaryUrl?: string | null;
+        adminUrl?: string | null;
+        error?: string;
+      };
+      const url = body.primaryUrl || body.adminUrl;
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
+      else setShopifyMessage(body.error ?? "Could not open Shopify product");
+    } catch {
+      setShopifyMessage("Could not open Shopify product");
+    } finally {
+      setShopifyBusy(false);
+    }
+  }, [existing?.id]);
 
   useLockBodyScroll(showSuccessModal);
 
@@ -540,6 +679,17 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         }
       }
 
+      let shopifyDetail: string | null = null;
+      if (
+        savedId &&
+        !isEdit &&
+        listOnShopifyAfterSave &&
+        shopifyConn?.status === "ACTIVE" &&
+        shopifyConn.inventoryReady
+      ) {
+        shopifyDetail = await enqueueShopifyListing(savedId);
+      }
+
       setEditSuccess(isEdit);
       setSuccessItemId(data.id ?? existing?.id ?? null);
       setSuccessItemSlug(data.slug ?? existing?.slug ?? null);
@@ -549,9 +699,12 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         setPhotos(data.photos);
       }
       setSuccessDetail(
-        existing
-          ? "Your changes have been saved on INW."
-          : "Your listing is now live on INW."
+        [
+          existing ? "Your changes have been saved on INW." : "Your listing is now live on INW.",
+          shopifyDetail,
+        ]
+          .filter(Boolean)
+          .join(" ")
       );
       setShowSuccessModal(true);
     } catch (err) {
@@ -875,6 +1028,65 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                   </div>
                 ) : null}
               </ListingFormSection>
+
+              {shopifyConn?.status === "ACTIVE" ? (
+                <ListingFormSection
+                  title="List on Shopify"
+                  description="Optional. Publish this INW listing to your connected Shopify shop."
+                >
+                  {shopifyConn.locationSelectionRequired || !shopifyConn.inventoryReady ? (
+                    <div className="space-y-2">
+                      <p className={listingHintClass}>
+                        Select a primary Shopify location before listing.
+                      </p>
+                      <Link
+                        href={APPS_AIRPORT_SHOPIFY_SETTINGS_PATH}
+                        className="action-pill action-pill-sm btn-pill-outline inline-flex"
+                      >
+                        Open Shopify settings
+                      </Link>
+                    </div>
+                  ) : isEdit && existing?.id ? (
+                    <div className="space-y-3">
+                      {shopifyMappedProductId ? (
+                        <>
+                          <p className={listingHintClass}>This listing is linked to Shopify.</p>
+                          <button
+                            type="button"
+                            disabled={shopifyBusy}
+                            onClick={() => void handleViewOnShopifyClick()}
+                            className="action-pill action-pill-sm btn-pill-filled disabled:opacity-60"
+                          >
+                            {shopifyBusy ? "Opening…" : "View on Shopify"}
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={shopifyBusy}
+                          onClick={() => void handleListOnShopifyClick()}
+                          className="action-pill action-pill-sm btn-pill-filled disabled:opacity-60"
+                        >
+                          {shopifyBusy ? "Listing…" : "List on Shopify"}
+                        </button>
+                      )}
+                      {shopifyMessage ? (
+                        <p className={listingHintClass}>{shopifyMessage}</p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={listOnShopifyAfterSave}
+                        onChange={(e) => setListOnShopifyAfterSave(e.target.checked)}
+                        className="rounded"
+                      />
+                      <span className="font-medium text-sm">List on Shopify after save</span>
+                    </label>
+                  )}
+                </ListingFormSection>
+              ) : null}
 
               <ListingFormSection title="Pricing & Inventory">
                 <div>

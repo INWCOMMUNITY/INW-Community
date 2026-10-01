@@ -49,10 +49,14 @@ export async function POST(req: NextRequest) {
   const status =
     result.code === "NOT_FOUND"
       ? 404
-      : result.code === "CONNECTION_INACTIVE" || result.code === "LOCATION_REQUIRED"
+      : result.code === "CONNECTION_INACTIVE" ||
+          result.code === "LOCATION_REQUIRED" ||
+          result.code === "UNSUPPORTED_VARIANTS" ||
+          result.code === "INACTIVE" ||
+          result.code === "MISSING_TITLE" ||
+          result.code === "MISSING_PRICE" ||
+          result.code === "CONFLICT"
         ? 409
-        : result.code === "UNSUPPORTED_VARIANTS" || result.code === "CONFLICT"
-          ? 409
-          : 400;
+        : 400;
   return NextResponse.json({ error: result.message, code: result.code }, { status });
 }

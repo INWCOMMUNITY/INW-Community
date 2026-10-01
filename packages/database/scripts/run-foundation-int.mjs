@@ -565,8 +565,12 @@ try {
   assertTrackedShareChecksum("after migrate deploy");
 
   run("pnpm", ["exec", "prisma", "generate"]);
-  console.log("[foundation-int] vitest against migrate-deploy database");
-  run("pnpm", ["exec", "vitest", "run", "--config", "vitest.config.ts"]);
+  const vitestExtra = process.argv.slice(2);
+  console.log(
+    "[foundation-int] vitest against migrate-deploy database",
+    vitestExtra.length ? `(filter: ${vitestExtra.join(" ")})` : "(full suite)"
+  );
+  run("pnpm", ["exec", "vitest", "run", "--config", "vitest.config.ts", ...vitestExtra]);
 
   assertTrackedShareChecksum("after tests");
   assertTrackedShareUnchangedInGit();

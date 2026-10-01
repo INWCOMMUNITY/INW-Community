@@ -49,12 +49,84 @@ function webAccessKey(key: string): { accessKey?: string } {
   return { accessKey: key };
 }
 
-export function parseVariantsToEditor(raw: unknown): {
+export type FoundationVariantHydrate = {
+  id?: string;
+  options?: unknown;
+  quantity?: number;
+  priceCents?: number;
+  sku?: string | null;
+};
+
+function parseOptionsRecord(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const name = String(k ?? "").trim();
+    const val = v != null ? String(v).trim() : "";
+    if (name && val) out[name] = val;
+  }
+  return out;
+}
+
+/** Rebuild a matrix from ACTIVE foundation variants when StoreItem.variants is missing/unreadable. */
+export function matrixFromFoundationVariants(
+  rows: FoundationVariantHydrate[] | null | undefined
+): ReturnType<typeof normalizeVariantMatrix> {
+  if (!rows?.length) return null;
+  const live = rows
+    .map((row) => {
+      const options = parseOptionsRecord(row.options);
+      return {
+        storeVariantId: typeof row.id === "string" ? row.id : undefined,
+        options,
+        quantity:
+          typeof row.quantity === "number" && Number.isFinite(row.quantity)
+            ? Math.max(0, Math.round(row.quantity))
+            : 0,
+        priceCents:
+          typeof row.priceCents === "number" && Number.isFinite(row.priceCents)
+            ? Math.max(0, Math.round(row.priceCents))
+            : 0,
+        sku: typeof row.sku === "string" && row.sku.trim() ? row.sku.trim() : undefined,
+      };
+    })
+    .filter((row) => Object.keys(row.options).length > 0);
+  // Multi-variant listings only — single default/empty-option SKU stays simple mode.
+  if (live.length < 2) return null;
+
+  const axisNames = new Set<string>();
+  for (const row of live) {
+    for (const name of Object.keys(row.options)) axisNames.add(name);
+  }
+  const axes: VariantAxisDef[] = [...axisNames]
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => ({
+      name,
+      values: [...new Set(live.map((row) => row.options[name]).filter(Boolean))] as string[],
+    }));
+  if (axes.length === 0) return null;
+
+  return normalizeVariantMatrix({
+    axes,
+    skus: live.map((row) => ({
+      options: row.options,
+      quantity: row.quantity,
+      priceCents: row.priceCents,
+      ...(row.storeVariantId ? { storeVariantId: row.storeVariantId } : {}),
+      ...(row.sku ? { sku: row.sku } : {}),
+    })),
+  });
+}
+
+export function parseVariantsToEditor(
+  raw: unknown,
+  foundationVariants?: FoundationVariantHydrate[] | null
+): {
   mode: InventoryMode;
   axes: VariantAxisDef[];
   skus: EditorSkuRow[];
 } {
-  const matrix = normalizeVariantMatrix(raw);
+  const matrix = normalizeVariantMatrix(raw) ?? matrixFromFoundationVariants(foundationVariants);
   if (!matrix || matrix.axes.length === 0) {
     return { mode: "simple", axes: [], skus: [] };
   }

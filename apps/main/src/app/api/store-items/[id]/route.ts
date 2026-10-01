@@ -85,6 +85,19 @@ export async function GET(
     include: {
       member: { select: { id: true, firstName: true, lastName: true } },
       business: { select: { id: true, name: true, slug: true } },
+      storeVariants: {
+        where: { status: "ACTIVE" },
+        select: {
+          id: true,
+          options: true,
+          priceCents: true,
+          sku: true,
+          inventoryState: {
+            select: { onHand: true, reserved: true, mode: true },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
   if (!item) {
@@ -101,8 +114,28 @@ export async function GET(
   ) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  const { storeVariants, ...rest } = item;
   return NextResponse.json({
-    ...item,
+    ...rest,
+    // Seller editor hydrate: ACTIVE optioned variants + live sellable qty (foundation SoT).
+    storeVariants: storeVariants.map((v) => {
+      const state = v.inventoryState;
+      let quantity = 0;
+      if (
+        state?.mode === "TRACKED_FINITE" &&
+        state.onHand != null &&
+        state.reserved != null
+      ) {
+        quantity = Math.max(0, state.onHand - state.reserved);
+      }
+      return {
+        id: v.id,
+        options: v.options,
+        priceCents: v.priceCents,
+        sku: v.sku,
+        quantity,
+      };
+    }),
   });
 }
 

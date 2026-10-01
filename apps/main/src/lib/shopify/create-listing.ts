@@ -44,6 +44,9 @@ export type EnqueueShopifyCreateListingResult =
         | "CONNECTION_INACTIVE"
         | "LOCATION_REQUIRED"
         | "UNSUPPORTED_VARIANTS"
+        | "INACTIVE"
+        | "MISSING_TITLE"
+        | "MISSING_PRICE"
         | "CONFLICT";
       message: string;
     };
@@ -97,15 +100,29 @@ export async function enqueueShopifyCreateListing(input: {
 
   const storeItem = await prisma.storeItem.findFirst({
     where: { id: input.storeItemId, memberId: input.memberId },
-    select: { id: true, status: true },
+    select: { id: true, status: true, title: true },
   });
   if (!storeItem) {
     return { status: "ERROR", code: "NOT_FOUND", message: "Store item was not found" };
   }
+  if (storeItem.status === "inactive") {
+    return {
+      status: "ERROR",
+      code: "INACTIVE",
+      message: "Only active listings can be listed on Shopify",
+    };
+  }
+  if (!storeItem.title?.trim()) {
+    return {
+      status: "ERROR",
+      code: "MISSING_TITLE",
+      message: "Add a title before listing on Shopify",
+    };
+  }
 
   const variants = await prisma.storeVariant.findMany({
     where: { storeItemId: storeItem.id, memberId: input.memberId, status: "ACTIVE" },
-    select: { id: true, options: true },
+    select: { id: true, options: true, priceCents: true },
     orderBy: { createdAt: "asc" },
   });
   if (variants.length < 1 || variants.length > SHOPIFY_MAX_VARIANTS) {
@@ -113,6 +130,13 @@ export async function enqueueShopifyCreateListing(input: {
       status: "ERROR",
       code: "UNSUPPORTED_VARIANTS",
       message: `Shopify export supports 1–${SHOPIFY_MAX_VARIANTS} variants; found ${variants.length}`,
+    };
+  }
+  if (variants.some((v) => !(typeof v.priceCents === "number" && v.priceCents > 0))) {
+    return {
+      status: "ERROR",
+      code: "MISSING_PRICE",
+      message: "Every variant needs a price greater than zero",
     };
   }
 

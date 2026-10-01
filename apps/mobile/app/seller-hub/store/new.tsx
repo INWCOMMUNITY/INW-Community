@@ -14,8 +14,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
+  Linking,
 } from "react-native";
-import { useRouter, useLocalSearchParams } from "expo-router";
+import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useNavigation, usePreventRemove } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -184,8 +185,136 @@ export default function ListItemScreen() {
   const [feedShareBusy, setFeedShareBusy] = useState(false);
   const [feedShareDone, setFeedShareDone] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
+  const [shopifyConn, setShopifyConn] = useState<{
+    status: string;
+    inventoryReady: boolean;
+    locationSelectionRequired: boolean;
+    shopDomain?: string | null;
+  } | null>(null);
+  const [shopifyBusy, setShopifyBusy] = useState(false);
+  const [shopifyMessage, setShopifyMessage] = useState<string | null>(null);
+  const [shopifyMappedProductId, setShopifyMappedProductId] = useState<string | null>(null);
   const isExitingRef = useRef(false);
   const submittedRef = useRef(false);
+
+  const effectiveStoreItemId = editId ?? createdItemId ?? null;
+  const shopifyConnected = shopifyConn?.status === "ACTIVE";
+
+  const refreshShopifyReadiness = useCallback(async (storeItemId: string | null) => {
+    if (!storeItemId) {
+      setShopifyMappedProductId(null);
+      return;
+    }
+    try {
+      const readiness = await apiGet<{
+        alreadyMapped?: boolean;
+        shopifyProductId?: string | null;
+        blockers?: Array<{ code: string; message: string }>;
+      }>(`/api/shopify/listings/${storeItemId}/export-readiness`);
+      setShopifyMappedProductId(
+        readiness.alreadyMapped ? readiness.shopifyProductId ?? "mapped" : null
+      );
+    } catch {
+      /* keep prior mapped state */
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      apiGet<{
+        connections?: Array<{
+          status: string;
+          inventoryReady?: boolean;
+          locationSelectionRequired?: boolean;
+          shopDomain?: string | null;
+          primaryLocationId?: string | null;
+        }>;
+      }>("/api/shopify/connection")
+        .then((res) => {
+          if (cancelled) return;
+          const conn =
+            res.connections?.find((c) => c.status === "ACTIVE") ?? res.connections?.[0] ?? null;
+          if (!conn) {
+            setShopifyConn(null);
+            return;
+          }
+          setShopifyConn({
+            status: conn.status,
+            inventoryReady: Boolean(conn.inventoryReady ?? conn.primaryLocationId),
+            locationSelectionRequired: Boolean(
+              conn.locationSelectionRequired ?? !conn.primaryLocationId
+            ),
+            shopDomain: conn.shopDomain ?? null,
+          });
+        })
+        .catch(() => {
+          if (!cancelled) setShopifyConn(null);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
+
+  useEffect(() => {
+    if (!shopifyConnected) return;
+    void refreshShopifyReadiness(effectiveStoreItemId);
+  }, [shopifyConnected, effectiveStoreItemId, refreshShopifyReadiness]);
+
+  const handleListOnShopify = useCallback(async () => {
+    if (!effectiveStoreItemId) {
+      setShopifyMessage("Save the listing first");
+      return;
+    }
+    if (shopifyConn?.locationSelectionRequired || !shopifyConn?.inventoryReady) {
+      setShopifyMessage("Select a primary Shopify location in Seller Hub → Shopify");
+      return;
+    }
+    setShopifyBusy(true);
+    setShopifyMessage(null);
+    try {
+      const res = await apiPost<{
+        status?: string;
+        shopifyProductId?: string;
+        jobId?: string;
+        error?: string;
+        code?: string;
+      }>("/api/shopify/listings/create", { storeItemId: effectiveStoreItemId });
+      if (res.status === "already_mapped") {
+        setShopifyMappedProductId(res.shopifyProductId ?? "mapped");
+        setShopifyMessage("Already on Shopify");
+      } else if (res.status === "queued") {
+        setShopifyMessage("Listing queued for Shopify — sync usually finishes within a minute");
+        await refreshShopifyReadiness(effectiveStoreItemId);
+      } else {
+        setShopifyMessage("Listing queued for Shopify");
+      }
+    } catch (e) {
+      setShopifyMessage((e as { error?: string })?.error ?? "Could not list on Shopify");
+    } finally {
+      setShopifyBusy(false);
+    }
+  }, [effectiveStoreItemId, shopifyConn, refreshShopifyReadiness]);
+
+  const handleViewOnShopify = useCallback(async () => {
+    if (!effectiveStoreItemId) return;
+    setShopifyBusy(true);
+    setShopifyMessage(null);
+    try {
+      const body = await apiGet<{
+        primaryUrl?: string | null;
+        adminUrl?: string | null;
+      }>(`/api/shopify/listings/${effectiveStoreItemId}/view-url`);
+      const url = body.primaryUrl || body.adminUrl;
+      if (url) await Linking.openURL(url);
+      else setShopifyMessage("Could not open Shopify product");
+    } catch (e) {
+      setShopifyMessage((e as { error?: string })?.error ?? "Could not open Shopify product");
+    } finally {
+      setShopifyBusy(false);
+    }
+  }, [effectiveStoreItemId]);
 
   const filteredStoreCategories = useMemo(() => {
     const q = categorySearch.trim().toLowerCase();
@@ -288,6 +417,13 @@ export default function ListItemScreen() {
         pickupTerms: string | null;
         businessId: string | null;
         variants: unknown;
+        storeVariants?: Array<{
+          id?: string;
+          options?: unknown;
+          quantity?: number;
+          priceCents?: number;
+          sku?: string | null;
+        }>;
         inventoryTracking?: string | null;
         condition?: "new" | "used";
         acceptOffers?: boolean;
@@ -325,7 +461,7 @@ export default function ListItemScreen() {
           setInStorePickupAvailable(item.inStorePickupAvailable ?? false);
           setPickupTerms(item.pickupTerms ?? "");
           setBusinessId(item.businessId ?? null);
-          const parsed = parseVariantsToEditor(item.variants);
+          const parsed = parseVariantsToEditor(item.variants, item.storeVariants);
           setInventoryMode(parsed.mode);
           setVariantAxes(parsed.axes);
           setVariantSkus(parsed.skus);
@@ -363,6 +499,13 @@ export default function ListItemScreen() {
         pickupTerms: string | null;
         businessId: string | null;
         variants: unknown;
+        storeVariants?: Array<{
+          id?: string;
+          options?: unknown;
+          quantity?: number;
+          priceCents?: number;
+          sku?: string | null;
+        }>;
         inventoryTracking?: string | null;
         condition?: "new" | "used";
         acceptOffers?: boolean;
@@ -399,7 +542,7 @@ export default function ListItemScreen() {
           setInStorePickupAvailable(item.inStorePickupAvailable ?? false);
           setPickupTerms(item.pickupTerms ?? "");
           setBusinessId(item.businessId ?? null);
-          const parsed = parseVariantsToEditor(item.variants);
+          const parsed = parseVariantsToEditor(item.variants, item.storeVariants);
           setInventoryMode(parsed.mode);
           setVariantAxes(parsed.axes);
           setVariantSkus(parsed.skus);
@@ -936,6 +1079,63 @@ export default function ListItemScreen() {
             placeholderColor={placeholderColor}
           />
 
+          {shopifyConnected && (
+            <View style={styles.channelSection}>
+              <Text style={styles.sectionTitle}>Channels</Text>
+              {!effectiveStoreItemId ? (
+                <Text style={styles.hint}>Save the listing first to list it on Shopify.</Text>
+              ) : shopifyConn?.locationSelectionRequired || !shopifyConn?.inventoryReady ? (
+                <>
+                  <Text style={styles.hint}>
+                    Select a primary Shopify location before listing.
+                  </Text>
+                  <Pressable
+                    style={({ pressed }) => [styles.channelSecondaryBtn, pressed && { opacity: 0.8 }]}
+                    onPress={() => router.push("/seller-hub/shopify" as never)}
+                  >
+                    <Text style={styles.channelSecondaryBtnText}>Open Shopify settings</Text>
+                  </Pressable>
+                </>
+              ) : shopifyMappedProductId ? (
+                <>
+                  <Text style={styles.hint}>This listing is linked to Shopify.</Text>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.channelPrimaryBtn,
+                      pressed && { opacity: 0.8 },
+                      shopifyBusy && styles.submitDisabled,
+                    ]}
+                    onPress={() => void handleViewOnShopify()}
+                    disabled={shopifyBusy}
+                  >
+                    {shopifyBusy ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={styles.channelPrimaryBtnText}>View on Shopify</Text>
+                    )}
+                  </Pressable>
+                </>
+              ) : (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.channelPrimaryBtn,
+                    pressed && { opacity: 0.8 },
+                    shopifyBusy && styles.submitDisabled,
+                  ]}
+                  onPress={() => void handleListOnShopify()}
+                  disabled={shopifyBusy}
+                >
+                  {shopifyBusy ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={styles.channelPrimaryBtnText}>List on Shopify</Text>
+                  )}
+                </Pressable>
+              )}
+              {shopifyMessage ? <Text style={styles.channelMessage}>{shopifyMessage}</Text> : null}
+            </View>
+          )}
+
           <Text style={styles.label}>Category</Text>
           {storeCategories.length > 0 && (
             <>
@@ -1110,6 +1310,31 @@ const styles = StyleSheet.create({
   typeBtnTextActive: { color: "#fff", fontWeight: "600", fontSize: 16 },
   section: { borderTopWidth: 1, borderTopColor: "#eee", paddingTop: 16, marginTop: 8, marginBottom: 16 },
   sectionTitle: { fontSize: 16, fontWeight: "700", color: "#000", marginBottom: 12 },
+  channelSection: {
+    marginTop: 8,
+    marginBottom: 20,
+    paddingTop: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#e5e5e5",
+  },
+  channelPrimaryBtn: {
+    backgroundColor: defaultTheme.colors.primary,
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  channelPrimaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  channelSecondaryBtn: {
+    borderWidth: 1,
+    borderColor: defaultTheme.colors.primary,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  channelSecondaryBtnText: { color: defaultTheme.colors.primary, fontSize: 15, fontWeight: "600" },
+  channelMessage: { marginTop: 8, fontSize: 13, color: "#404040", lineHeight: 18 },
   switchRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
   switchLabel: { fontSize: 14, color: "#000", flex: 1 },
   bizRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },

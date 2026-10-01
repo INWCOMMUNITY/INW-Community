@@ -45,6 +45,7 @@ export async function listEligibleShopifyExportListings(input: {
       status: true,
       updatedAt: true,
       storeVariants: {
+        where: { status: "ACTIVE" },
         select: { id: true, options: true },
         orderBy: { createdAt: "asc" },
       },
