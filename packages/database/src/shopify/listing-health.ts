@@ -45,6 +45,21 @@ export type ShopifyListingHealthSnapshot = {
   remoteProductStatus: string | null;
 };
 
+export type ShopifyListingHealthVariantMapFacts = Pick<
+  ShopifyVariantMap,
+  | "desiredVariantContentVersion"
+  | "appliedVariantContentVersion"
+  | "desiredVariantFingerprint"
+  | "appliedVariantFingerprint"
+  | "variantContentConflict"
+  | "inventoryInitState"
+  | "inventoryDesiredVersion"
+  | "inventoryAppliedVersion"
+  | "inventoryDesiredAvailable"
+  | "inventoryAppliedAvailable"
+  | "inventoryDriftState"
+>;
+
 export type ClassifyShopifyListingHealthInput = {
   connectionStatus: "ACTIVE" | "DISCONNECTED" | "REVOKED" | string;
   primaryLocationId: string | null;
@@ -56,20 +71,13 @@ export type ClassifyShopifyListingHealthInput = {
     | "appliedProductFingerprint"
     | "productContentConflict"
   >;
-  variantMap: Pick<
-    ShopifyVariantMap,
-    | "desiredVariantContentVersion"
-    | "appliedVariantContentVersion"
-    | "desiredVariantFingerprint"
-    | "appliedVariantFingerprint"
-    | "variantContentConflict"
-    | "inventoryInitState"
-    | "inventoryDesiredVersion"
-    | "inventoryAppliedVersion"
-    | "inventoryDesiredAvailable"
-    | "inventoryAppliedAvailable"
-    | "inventoryDriftState"
-  >;
+  /**
+   * Primary map used for remote inventory observation (usually maps[0]).
+   * Prefer also passing `variantMaps` so sibling drift/conflict is not masked.
+   */
+  variantMap: ShopifyListingHealthVariantMapFacts;
+  /** All mapped variants for this listing — aggregated for health when provided. */
+  variantMaps?: ShopifyListingHealthVariantMapFacts[];
   hasCausalSaleConflict: boolean;
   /** Per-field conflict keys (TITLE, PRICE, …) from ShopifyListingFieldState. */
   fieldConflictKeys?: string[];
@@ -213,15 +221,21 @@ export function classifyShopifyListingHealth(
     );
   }
 
+  const allMaps =
+    input.variantMaps && input.variantMaps.length > 0
+      ? input.variantMaps
+      : [input.variantMap];
+  const anyVariantContentConflict = allMaps.some((m) => m.variantContentConflict);
+
   const fieldConflicts = (input.fieldConflictKeys ?? []).filter(Boolean);
   if (
     input.listing.productContentConflict ||
-    input.variantMap.variantContentConflict ||
+    anyVariantContentConflict ||
     fieldConflicts.length > 0
   ) {
     const which = [
       input.listing.productContentConflict ? "product" : null,
-      input.variantMap.variantContentConflict ? "variant" : null,
+      anyVariantContentConflict ? "variant" : null,
       ...fieldConflicts.map((key) => `field:${key}`),
     ]
       .filter(Boolean)
@@ -259,10 +273,24 @@ export function classifyShopifyListingHealth(
     );
   }
 
+  // Aggregate inventory health across all maps; remote level observation still uses primary map.
   const inv = input.variantMap;
-  if (inv.inventoryInitState === "NOT_APPLICABLE") {
-    // MTO — inventory projection correctly skipped.
-  } else if (inv.inventoryDriftState === "REMOTE_DRIFT" || inv.inventoryDriftState === "WAITING_RECONCILIATION") {
+  const driftedSibling = allMaps.find(
+    (m) =>
+      m.inventoryDriftState === "REMOTE_DRIFT" || m.inventoryDriftState === "WAITING_RECONCILIATION"
+  );
+  const failedSibling = allMaps.find((m) => m.inventoryInitState === "FAILED");
+  const pendingSibling = allMaps.find((m) => m.inventoryInitState === "PENDING");
+  const laggingSibling = allMaps.find(
+    (m) =>
+      m.inventoryInitState === "INITIALIZED" &&
+      (m.inventoryDesiredVersion !== m.inventoryAppliedVersion ||
+        m.inventoryDesiredAvailable !== m.inventoryAppliedAvailable)
+  );
+
+  if (allMaps.every((m) => m.inventoryInitState === "NOT_APPLICABLE")) {
+    // All MTO — inventory projection correctly skipped.
+  } else if (driftedSibling) {
     return issue(
       "INVENTORY_REMOTE_DRIFT",
       "Shopify inventory changed unexpectedly for this listing. INW paused quantity updates to avoid overwriting a possible sale.",
@@ -273,14 +301,14 @@ export function classifyShopifyListingHealth(
         blockContentOutbound: false,
         blockInventoryOutbound: true,
         fingerprintParts: [
-          `desired:${String(inv.inventoryDesiredAvailable)}`,
-          `applied:${String(inv.inventoryAppliedAvailable)}`,
+          `desired:${String(driftedSibling.inventoryDesiredAvailable)}`,
+          `applied:${String(driftedSibling.inventoryAppliedAvailable)}`,
           `remote:${String(remote?.remoteAvailable ?? "local")}`,
         ],
         remoteProductStatus: remoteStatus,
       }
     );
-  } else if (inv.inventoryInitState === "FAILED") {
+  } else if (failedSibling) {
     return issue(
       "INVENTORY_INIT_FAILED",
       "Shopify inventory initialization failed for this listing. Quantity updates are paused.",
@@ -294,7 +322,7 @@ export function classifyShopifyListingHealth(
         remoteProductStatus: remoteStatus,
       }
     );
-  } else if (inv.inventoryInitState === "PENDING") {
+  } else if (pendingSibling) {
     return {
       readiness: "SYNCING",
       contentHealth: "HEALTHY",
@@ -307,7 +335,7 @@ export function classifyShopifyListingHealth(
       blockInventoryOutbound: false,
       remoteProductStatus: remoteStatus,
     };
-  } else if (inv.inventoryInitState === "INITIALIZED") {
+  } else if (allMaps.some((m) => m.inventoryInitState === "INITIALIZED")) {
     if (!input.primaryLocationId) {
       return issue(
         "PRIMARY_LOCATION_MISSING",
@@ -323,10 +351,7 @@ export function classifyShopifyListingHealth(
         }
       );
     }
-    if (
-      inv.inventoryDesiredVersion !== inv.inventoryAppliedVersion ||
-      inv.inventoryDesiredAvailable !== inv.inventoryAppliedAvailable
-    ) {
+    if (laggingSibling) {
       return {
         readiness: "SYNCING",
         contentHealth: "HEALTHY",
@@ -382,13 +407,16 @@ export function classifyShopifyListingHealth(
     }
   }
 
+  const variantContentConverged = allMaps.every(
+    (m) =>
+      m.desiredVariantContentVersion === m.appliedVariantContentVersion &&
+      (m.desiredVariantFingerprint ?? null) === (m.appliedVariantFingerprint ?? null)
+  );
   const contentConverged =
     input.listing.desiredProductContentVersion === input.listing.appliedProductContentVersion &&
-    input.variantMap.desiredVariantContentVersion === input.variantMap.appliedVariantContentVersion &&
+    variantContentConverged &&
     (input.listing.desiredProductFingerprint ?? null) ===
-      (input.listing.appliedProductFingerprint ?? null) &&
-    (input.variantMap.desiredVariantFingerprint ?? null) ===
-      (input.variantMap.appliedVariantFingerprint ?? null);
+      (input.listing.appliedProductFingerprint ?? null);
 
   if (!contentConverged) {
     return {

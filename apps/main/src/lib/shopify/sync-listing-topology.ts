@@ -855,6 +855,17 @@ export async function syncShopifyListingTopology(input: {
         },
       ],
     });
+    // Heal inventory_levels race: webhooks that arrived before the map were IGNORED.
+    // Topology already observed available — adopt it so qty converges without evidence replay.
+    if (typeof rem.available === "number" && Number.isFinite(rem.available)) {
+      await adoptRemoteAvailableOntoMappedVariant({
+        storeVariantId,
+        listingLinkId: input.listingLinkId,
+        connectionId: input.connectionId,
+        shopifyVariantId: rem.shopifyVariantId,
+        available: Math.max(0, Math.trunc(rem.available)),
+      });
+    }
   }
 
   // Retire mappings for provider-deleted variants; mark StoreVariant RETIRED so qty projection drops it.

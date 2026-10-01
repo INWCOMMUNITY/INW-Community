@@ -398,7 +398,7 @@ export async function handleShopifyReconcileListingJob(
   const causalConflict = await prisma.shopifyOrderLineSaleFact.findFirst({
     where: {
       shopifyConnectionId: connection.id,
-      storeVariantId: variantMap.storeVariantId,
+      storeVariantId: { in: refreshedMaps.map((m) => m.storeVariantId) },
       causalConflict: true,
     },
     select: { id: true },
@@ -427,6 +427,7 @@ export async function handleShopifyReconcileListingJob(
     primaryLocationId: connection.primaryLocationId,
     listing,
     variantMap,
+    variantMaps: refreshedMaps,
     hasCausalSaleConflict: Boolean(causalConflict),
     fieldConflictKeys: fieldConflictKeysAfterMedia,
     remote: {

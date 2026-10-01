@@ -52,8 +52,10 @@ async function handle(req: NextRequest) {
     now: new Date(),
   });
 
+  // Process more than a trickle per minute tick so multi-variant import/expand
+  // bursts (evidence + PROJECT_INVENTORY × N) do not sit for many minutes.
   const results: Array<{ jobId: string; finalized: boolean; outcome: string }> = [];
-  for (let i = 0; i < 10; i += 1) {
+  for (let i = 0; i < 25; i += 1) {
     const ran = await runNextShopifySyncJob({ workerId: `cron-shopify-${i}` });
     if (!ran.claimed) break;
     results.push({

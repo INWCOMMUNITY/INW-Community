@@ -104,6 +104,25 @@ export async function enqueueShopifySyncJob(
         input.shopifyConnectionId === existing.shopifyConnectionId &&
         (input.evidenceId ?? null) === (existing.evidenceId ?? null)
       ) {
+        // Resurrect sticky DEAD rows when desire is re-ensured (same dedupe/version).
+        // Without this, ensure* looks successful but claimNext never picks DEAD jobs.
+        if (existing.state === "DEAD") {
+          return db.shopifySyncJob.update({
+            where: { id: existing.id },
+            data: {
+              state: "PENDING",
+              attemptCount: 0,
+              nextAttemptAt: input.nextAttemptAt ?? new Date(),
+              leaseOwner: null,
+              leaseToken: null,
+              leaseExpiresAt: null,
+              lastErrorClass: null,
+              lastErrorCode: null,
+              lastErrorMessage: null,
+              completedAt: null,
+            },
+          });
+        }
         return existing;
       }
     }
