@@ -138,7 +138,7 @@ export default function AppsAirportEtsyPage() {
   return (
     <AppsAirportChannelHub
       title={appsAirportEtsyHubTitle(hub.displayName, statusLabel)}
-      subtitle="Your INW listings linked to Etsy — Live means ready to sell on Etsy."
+      subtitle="INW listings linked to Etsy, plus any List on Etsy attempts that still need attention."
       crumbs={[{ href: hub.hubPath, label: hub.displayName }]}
       statusDetail={
         !loading && connected ? (
@@ -259,15 +259,26 @@ export default function AppsAirportEtsyPage() {
               <td className="py-3 pr-3 whitespace-nowrap">{row.quantity ?? "—"}</td>
               <td className="py-3 pr-3">{formatEtsyCents(row.priceCents)}</td>
               <td className="py-3">
-                <a
-                  href={`https://www.etsy.com/listing/${row.etsyListingId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs underline"
-                  style={{ color: "var(--color-primary)" }}
-                >
-                  View on Etsy
-                </a>
+                {row.etsyListingId ? (
+                  <a
+                    href={`https://www.etsy.com/listing/${row.etsyListingId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs underline"
+                    style={{ color: "var(--color-primary)" }}
+                  >
+                    View on Etsy
+                  </a>
+                ) : (
+                  <Link
+                    href={hub.listItemsPath}
+                    className="text-xs underline"
+                    style={{ color: "var(--color-primary)" }}
+                    prefetch={false}
+                  >
+                    Retry list
+                  </Link>
+                )}
               </td>
             </tr>
           ))}

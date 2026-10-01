@@ -170,6 +170,7 @@ describe("etsy UPDATE_LISTING_CONTENT handler", () => {
     expect(etsyConnectionRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         method: "PATCH",
+        bodyEncoding: "form",
         body: expect.objectContaining({ title: "New Title" }),
       })
     );

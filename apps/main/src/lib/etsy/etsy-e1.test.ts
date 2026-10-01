@@ -121,8 +121,14 @@ describe("oauth state", () => {
 
 describe("scopes", () => {
   it("requires every requested scope to be granted", () => {
-    expect(missingEtsyScopes("listings_r listings_w shops_r transactions_r")).toEqual([]);
-    expect(missingEtsyScopes("listings_r shops_r")).toEqual(["listings_w", "transactions_r"]);
+    expect(
+      missingEtsyScopes("listings_r listings_w shops_r shops_w transactions_r")
+    ).toEqual([]);
+    expect(missingEtsyScopes("listings_r shops_r")).toEqual([
+      "listings_w",
+      "shops_w",
+      "transactions_r",
+    ]);
   });
 });
 

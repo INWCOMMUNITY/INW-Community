@@ -47,3 +47,21 @@ export function parseEtsyRetryAfterMs(headers: Headers, fallbackMs: number): num
   }
   return fallbackMs;
 }
+
+/** Prefer Etsy's `error` / `error_description` body so 400s are actionable. */
+export function messageFromEtsyErrorBody(status: number, bodyText: string): string {
+  const trimmed = bodyText.trim();
+  if (!trimmed) return redactEtsySecrets(`Etsy API ${status}`);
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    const detail =
+      (typeof parsed.error === "string" && parsed.error.trim()) ||
+      (typeof parsed.error_description === "string" && parsed.error_description.trim()) ||
+      (typeof parsed.message === "string" && parsed.message.trim()) ||
+      null;
+    if (detail) return redactEtsySecrets(`Etsy API ${status}: ${detail}`);
+  } catch {
+    // non-JSON body
+  }
+  return redactEtsySecrets(`Etsy API ${status}: ${trimmed.slice(0, 300)}`);
+}

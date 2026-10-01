@@ -64,12 +64,15 @@ function sha256Hex(canonical: string): string {
 export function etsyProductContentFingerprint(input: {
   title: string | null | undefined;
   description: string | null | undefined;
+  /** Accepted for call-site compatibility; ignored until durable Etsy media mapping exists. */
   photos?: string[] | null | undefined;
 }): string {
+  // Photos are intentionally omitted: INW URLs never equal Etsy CDN URLs, so including
+  // them caused permanent CONTENT_CONFLICT / blocked title sync after every photo desire.
+  void input.photos;
   const payload = {
     title: normalizeEtsyTitle(input.title),
     description: normalizeEtsyDescription(input.description),
-    photos: normalizeEtsyPhotoUrls(input.photos),
   };
   return sha256Hex(JSON.stringify(payload));
 }

@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import {
   applyFoundationSellerQuantitySets,
   assertFoundationMatrixStructureUnchanged,
@@ -38,6 +39,19 @@ import { assertMemberShippingOption } from "@/lib/shipping-options";
 import { strangerMayViewStoreItemById } from "@/lib/store-item-public-access";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
 import { endStoreItemListing } from "@/lib/end-store-item-listing";
+import { runNextEtsySyncJob } from "@/lib/etsy/worker";
+
+/** Drain queued Etsy content/inventory jobs after an INW edit (don't wait only on cron). */
+function kickEtsySyncJobsAfterEdit() {
+  waitUntil(
+    (async () => {
+      for (let i = 0; i < 8; i += 1) {
+        const ran = await runNextEtsySyncJob({ workerId: `etsy-edit-inline-${i}` });
+        if (!ran.claimed) break;
+      }
+    })()
+  );
+}
 import { gateInteractiveOrFoundationWriter, jsonIfCutoverBlocked, resolveCommerceInventoryWriter } from "@/lib/commerce-foundation-cutover-http";
 
 const bodySchema = z.object({
@@ -588,6 +602,7 @@ export async function PATCH(
         changedFields: Object.keys(update),
         title: item.title,
       });
+      kickEtsySyncJobsAfterEdit();
       return NextResponse.json({ ...item });
     } catch (e) {
       const cutover = jsonIfCutoverBlocked(e);
@@ -678,6 +693,7 @@ export async function PATCH(
     title: item.title,
   });
 
+  kickEtsySyncJobsAfterEdit();
   return NextResponse.json({ ...item });
 }
 

@@ -32,7 +32,7 @@ async function handle(req: NextRequest) {
   });
 
   const results: Array<{ jobId: string; finalized: boolean; outcome: string }> = [];
-  for (let i = 0; i < 10; i += 1) {
+  for (let i = 0; i < 25; i += 1) {
     const ran = await runNextEtsySyncJob({ workerId: `cron-etsy-${i}` });
     if (!ran.claimed) break;
     results.push({

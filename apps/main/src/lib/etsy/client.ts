@@ -8,6 +8,7 @@ import {
   classifyEtsyHttpStatus,
   EtsyRequestError,
   isEtsyRetryableErrorClass,
+  messageFromEtsyErrorBody,
   parseEtsyRetryAfterMs,
   type EtsyErrorClass,
 } from "./errors";
@@ -215,9 +216,9 @@ export async function etsyApplicationRequest<T = unknown>(input: {
           ? backoffMs(attempt, null)
           : null;
 
-    // Drain body without logging secrets.
+    let bodyText = "";
     try {
-      await response.text();
+      bodyText = await response.text();
     } catch {
       // ignore
     }
@@ -227,7 +228,7 @@ export async function etsyApplicationRequest<T = unknown>(input: {
       class: errorClass,
       httpStatus: response.status,
       data: null,
-      message: redactEtsySecrets(`Etsy API ${response.status}`),
+      message: messageFromEtsyErrorBody(response.status, bodyText),
       retryAfterMs,
       rateLimit,
     };

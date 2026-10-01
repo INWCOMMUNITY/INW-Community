@@ -534,6 +534,10 @@ export async function setTrackedOnHand(
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
+    await captureEtsyInventoryProjectionDesireAfterChange(tx, {
+      memberId: state.memberId,
+      storeVariantId: state.variantId,
+    });
   }
   const quantity = await projectStoreItemQuantity(tx, state.storeItemId);
   return {
@@ -627,6 +631,10 @@ export async function holdTrackedReservation(
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
+    await captureEtsyInventoryProjectionDesireAfterChange(tx, {
+      memberId: state.memberId,
+      storeVariantId: state.variantId,
+    });
   }
   await projectStoreItemQuantity(tx, state.storeItemId);
   return {
@@ -690,6 +698,10 @@ export async function releaseReservation(
     await bumpVersionAndWrite(tx, state, { onHand: state.onHand, reserved: state.reserved - qty });
     await projectStoreItemQuantity(tx, state.storeItemId);
     await captureShopifyInventoryProjectionDesireAfterChange(tx, {
+      memberId: state.memberId,
+      storeVariantId: state.variantId,
+    });
+    await captureEtsyInventoryProjectionDesireAfterChange(tx, {
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
@@ -821,6 +833,10 @@ export async function restockTrackedVariant(
   if (event.created) {
     await bumpVersionAndWrite(tx, state, { onHand: nextOnHand, reserved: state.reserved });
     await captureShopifyInventoryProjectionDesireAfterChange(tx, {
+      memberId: state.memberId,
+      storeVariantId: state.variantId,
+    });
+    await captureEtsyInventoryProjectionDesireAfterChange(tx, {
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
@@ -1045,6 +1061,10 @@ export async function applyTrackedMarketplaceQuantityEdit(
     await projectStoreItemQuantity(tx, state.storeItemId);
     await maybeMarkSoldOutIfPhysicallyGone(tx, state.storeItemId);
     await captureShopifyInventoryProjectionDesireAfterChange(tx, {
+      memberId: state.memberId,
+      storeVariantId: state.variantId,
+    });
+    await captureEtsyInventoryProjectionDesireAfterChange(tx, {
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });

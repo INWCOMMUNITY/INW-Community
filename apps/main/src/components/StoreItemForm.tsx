@@ -35,6 +35,10 @@ import { ListingConditionToggle } from "@/components/store-item/ListingCondition
 import { ListingPhotoGallery } from "@/components/store-item/ListingPhotoGallery";
 import { ListingSaveBar } from "@/components/store-item/ListingSaveBar";
 import { APPS_AIRPORT_SHOPIFY_SETTINGS_PATH } from "@/lib/shopify/apps-airport";
+import {
+  APPS_AIRPORT_ETSY_LISTINGS_PATH,
+  APPS_AIRPORT_ETSY_SETTINGS_PATH,
+} from "@/lib/etsy/apps-airport";
 import { LISTING_SKU_MAX } from "@/lib/listing-sku";
 import {
   listingHintClass,
@@ -163,14 +167,10 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [etsyHowItsMade, setEtsyHowItsMade] = useState<EtsyHowItsMadeFormValue>(() =>
     emptyEtsyHowItsMadeFormValue(existing)
   );
-  const [listOnEtsy, setListOnEtsy] = useState(() =>
-    Boolean(
-      existing?.etsyWhoMade ||
-        existing?.etsyWhenMade ||
-        typeof existing?.etsyIsSupply === "boolean" ||
-        (typeof existing?.etsyTaxonomyId === "number" && existing.etsyTaxonomyId > 0)
-    )
-  );
+  const [listOnEtsy, setListOnEtsy] = useState(false);
+  const [etsyConnActive, setEtsyConnActive] = useState(false);
+  const [etsyMappedListingId, setEtsyMappedListingId] = useState<string | null>(null);
+  const [etsyLinkChecked, setEtsyLinkChecked] = useState(() => !existing?.id);
   const [shopifyConn, setShopifyConn] = useState<{
     status: string;
     inventoryReady: boolean;
@@ -319,6 +319,66 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/etsy/connection", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (data: { connections?: Array<{ status?: string }> } | null) => {
+          if (cancelled || !data) return;
+          const active = Boolean(data.connections?.some((c) => c.status === "ACTIVE"));
+          setEtsyConnActive(active);
+        }
+      )
+      .catch(() => {
+        if (!cancelled) setEtsyConnActive(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const storeItemId = existing?.id;
+    if (!storeItemId || !etsyConnActive) {
+      setEtsyMappedListingId(null);
+      setEtsyLinkChecked(true);
+      return;
+    }
+    let cancelled = false;
+    setEtsyLinkChecked(false);
+    fetch(
+      `/api/etsy/listings/create-status?storeItemId=${encodeURIComponent(storeItemId)}`,
+      { credentials: "include" }
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (data: {
+          listing?: { etsyListingId?: string | null } | null;
+        } | null) => {
+          if (cancelled) return;
+          const mappedId =
+            typeof data?.listing?.etsyListingId === "string" && data.listing.etsyListingId
+              ? data.listing.etsyListingId
+              : null;
+          setEtsyMappedListingId(mappedId);
+          if (mappedId) {
+            setListOnEtsy(false);
+          }
+          setEtsyLinkChecked(true);
+        }
+      )
+      .catch(() => {
+        if (!cancelled) {
+          setEtsyMappedListingId(null);
+          setEtsyLinkChecked(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [existing?.id, etsyConnActive]);
 
   useEffect(() => {
     const storeItemId = existing?.id;
@@ -1031,30 +1091,66 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 </div>
               </ListingFormSection>
 
-              <ListingFormSection
-                title="List on Etsy"
-                description="Optional. Saves How it’s made and queues the listing on Etsy when you save."
-              >
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={listOnEtsy}
-                    onChange={(e) => setListOnEtsy(e.target.checked)}
-                    className="rounded"
-                  />
-                  <span className="font-medium text-sm">List on Etsy</span>
-                </label>
-                {listOnEtsy ? (
-                  <div className="mt-4 space-y-4 border-t border-neutral-200 pt-4">
-                    <EtsyHowItsMadeFields
-                      value={etsyHowItsMade}
-                      onChange={setEtsyHowItsMade}
-                      madeToOrder={inventoryTracking === INVENTORY_TRACKING_MADE_TO_ORDER}
-                      embedded
-                    />
-                  </div>
-                ) : null}
-              </ListingFormSection>
+              {etsyConnActive ? (
+                <ListingFormSection
+                  title="Etsy"
+                  description={
+                    etsyMappedListingId
+                      ? "This INW listing is already linked to your Etsy shop."
+                      : "Optional. Saves How it’s made and queues the listing on Etsy when you save."
+                  }
+                >
+                  {!etsyLinkChecked ? (
+                    <p className={listingHintClass}>Checking Etsy link…</p>
+                  ) : etsyMappedListingId ? (
+                    <div className="space-y-3">
+                      <p className={listingHintClass}>
+                        Linked to Etsy listing #{etsyMappedListingId}. Updates sync from this INW
+                        listing.
+                      </p>
+                      <Link
+                        href={APPS_AIRPORT_ETSY_LISTINGS_PATH}
+                        className="action-pill action-pill-sm btn-pill-outline inline-flex"
+                      >
+                        View linked listings
+                      </Link>
+                    </div>
+                  ) : (
+                    <>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={listOnEtsy}
+                          onChange={(e) => setListOnEtsy(e.target.checked)}
+                          className="rounded"
+                        />
+                        <span className="font-medium text-sm">List on Etsy</span>
+                      </label>
+                      {listOnEtsy ? (
+                        <div className="mt-4 space-y-4 border-t border-neutral-200 pt-4">
+                          <EtsyHowItsMadeFields
+                            value={etsyHowItsMade}
+                            onChange={setEtsyHowItsMade}
+                            madeToOrder={inventoryTracking === INVENTORY_TRACKING_MADE_TO_ORDER}
+                            embedded
+                          />
+                          <p className={listingHintClass}>
+                            Need a shipping profile? Set it in{" "}
+                            <Link
+                              href={APPS_AIRPORT_ETSY_SETTINGS_PATH}
+                              className="underline"
+                              style={{ color: "var(--color-primary)" }}
+                            >
+                              Connection Settings
+                            </Link>
+                            .
+                          </p>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </ListingFormSection>
+              ) : null}
 
               {shopifyConn?.status === "ACTIVE" ? (
                 <ListingFormSection

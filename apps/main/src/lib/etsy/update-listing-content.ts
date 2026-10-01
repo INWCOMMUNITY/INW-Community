@@ -301,6 +301,7 @@ export async function handleEtsyUpdateListingContentJob(
           ...(titleNeedsPatch ? { title: localTitle } : {}),
           ...(descriptionNeedsPatch ? { description: localDescription } : {}),
         },
+        bodyEncoding: "form",
         maxAttempts: 1,
         fetchImpl: deps.fetchImpl,
         now: deps.now,
@@ -310,23 +311,34 @@ export async function handleEtsyUpdateListingContentJob(
       }
     }
 
-    // E5 photo push: upload missing desired URLs. Does not delete remote extras.
+    // Best-effort photo push. Never block title/description apply — INW URLs rarely
+    // match Etsy CDN URLs, and image_url upload is not reliably supported for all hosts.
     const remoteSet = new Set(remotePhotos);
     for (const url of desiredPhotos) {
       if (remoteSet.has(url)) continue;
+      if (!/^https?:\/\//i.test(url)) continue;
+      if (/etsystatic\.com|etsyimg\.com/i.test(url)) continue;
       const upload = await etsyConnectionRequest({
         connectionId: connection.id,
         memberId: connection.memberId,
         method: "POST",
         path: `${listingPath}/images`,
         body: { image_url: url },
+        bodyEncoding: "form",
         maxAttempts: 1,
         fetchImpl: deps.fetchImpl,
         now: deps.now,
       });
       if (!upload.ok) {
-        // Photo endpoint may reject URL uploads; retryable provider errors bubble.
-        return classifyFailure(upload.class, upload.retryAfterMs);
+        if (
+          upload.class === "THROTTLED" ||
+          upload.class === "TRANSIENT" ||
+          upload.class === "NETWORK"
+        ) {
+          return classifyFailure(upload.class, upload.retryAfterMs);
+        }
+        // Permanent photo failure: title/desc already applied; finish product desire.
+        break;
       }
     }
 

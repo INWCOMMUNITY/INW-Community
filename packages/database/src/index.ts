@@ -533,6 +533,7 @@ export type {
 export {
   classifyEtsyListingHealth,
   enqueueDueEtsyListingReconciliations,
+  etsyListingIssueDedupeKey,
   etsyReconcileListingDedupeKey,
   persistEtsyListingHealth,
   reconcileEtsyListingHealthFromDb,

@@ -230,4 +230,15 @@ export async function reconcileEtsyListingHealthFromDb(
   return health;
 }
 
+/** Stable seller-activity / push dedupe for Etsy listing issues (mapped or create-failed). */
+export function etsyListingIssueDedupeKey(input: {
+  connectionId: string;
+  /** Listing link id, or `create-job:<jobId>` / `store-item:<id>` for unmapped creates. */
+  subjectId: string;
+  issueCode: string;
+  issueFingerprint: string;
+}): string {
+  return `etsy-issue:${input.connectionId}:${input.subjectId}:${input.issueCode}:${input.issueFingerprint}`;
+}
+
 export type { Prisma };

@@ -1,0 +1,15 @@
+---
+description: Keep Shopify listing-actions type fix when deploying Etsy/commerce work to production
+alwaysApply: true
+---
+
+# Preserve production Shopify typefix on deploy
+
+Before any push to `main` / production:
+
+1. Fetch and merge or rebase onto **current** `origin/main` first.
+2. Never force-push or reset `main` behind `aff1b745` (`fix: type loadMappedListing status for Shopify listing actions`).
+3. If `apps/main/src/lib/shopify/listing-actions.ts` conflicts, keep the explicit `loadMappedListing` return union with error branch `{ error: string; status: number }`.
+4. Preflight: `git merge-base --is-ancestor aff1b745 HEAD` must succeed.
+
+Missing this fix breaks the Vercel production Next.js typecheck.

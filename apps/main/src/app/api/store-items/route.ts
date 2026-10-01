@@ -34,6 +34,7 @@ import {
   getStorefrontBrowseMeta,
 } from "@/lib/storefront-browse-data";
 import { shopifyListingUiStatus } from "@/lib/shopify/apps-airport";
+import { etsyListingUiStatus } from "@/lib/etsy/apps-airport";
 
 /** Ensure storefront listing is always fresh so newly listed items appear immediately. */
 export const dynamic = "force-dynamic";
@@ -182,16 +183,40 @@ export async function GET(req: NextRequest) {
     });
 
     const itemIds = items.map((i) => i.id);
-    /** Where each listing is sellable: INW always; Shopify only when live on the ACTIVE connection. */
-    const channelsByItemId = new Map<string, Array<"inw" | "shopify">>(
+    type ListingChannel = "inw" | "shopify" | "etsy";
+    /** Where each listing is sellable: INW always; Shopify/Etsy when Live on an ACTIVE connection. */
+    const channelsByItemId = new Map<string, ListingChannel[]>(
       itemIds.map((id) => [id, ["inw"]])
     );
+    const viewsByItemId = new Map<string, number>();
     if (itemIds.length > 0) {
-      const activeShopify = await prisma.shopifyConnection.findFirst({
-        where: { memberId: userId, status: "ACTIVE" },
-        orderBy: { connectedAt: "desc" },
-        select: { id: true },
-      });
+      const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const [activeShopify, activeEtsy, viewGroups] = await Promise.all([
+        prisma.shopifyConnection.findFirst({
+          where: { memberId: userId, status: "ACTIVE" },
+          orderBy: { connectedAt: "desc" },
+          select: { id: true },
+        }),
+        prisma.etsyConnection.findFirst({
+          where: { memberId: userId, status: "ACTIVE" },
+          orderBy: { connectedAt: "desc" },
+          select: { id: true },
+        }),
+        prisma.sellerAnalyticsEvent.groupBy({
+          by: ["storeItemId"],
+          where: {
+            memberId: userId,
+            storeItemId: { in: itemIds },
+            eventType: "listing_view",
+            createdAt: { gte: since30d },
+          },
+          _count: { _all: true },
+        }),
+      ]);
+      for (const row of viewGroups) {
+        if (row.storeItemId) viewsByItemId.set(row.storeItemId, row._count._all);
+      }
+
       if (activeShopify) {
         const shopifyLinks = await prisma.shopifyListingLink.findMany({
           where: {
@@ -214,14 +239,51 @@ export async function GET(req: NextRequest) {
             inventoryHealth: link.inventoryHealth,
             issueCode: link.issueCode,
           });
-          // Only count Shopify when the listing is Live on Online Store.
           if (ui !== "Live") continue;
           const channels = channelsByItemId.get(link.storeItemId) ?? ["inw"];
           if (!channels.includes("shopify")) channels.push("shopify");
           channelsByItemId.set(link.storeItemId, channels);
         }
       }
+
+      if (activeEtsy) {
+        const etsyLinks = await prisma.etsyListingLink.findMany({
+          where: {
+            storeItemId: { in: itemIds },
+            memberId: userId,
+            etsyConnectionId: activeEtsy.id,
+          },
+          select: {
+            storeItemId: true,
+            readiness: true,
+            contentHealth: true,
+            inventoryHealth: true,
+            issueCode: true,
+            storeItem: { select: { status: true } },
+          },
+        });
+        for (const link of etsyLinks) {
+          const ui = etsyListingUiStatus({
+            readiness: link.readiness,
+            contentHealth: link.contentHealth,
+            inventoryHealth: link.inventoryHealth,
+            issueCode: link.issueCode,
+            storeItemStatus: link.storeItem.status,
+          });
+          if (ui !== "Live") continue;
+          const channels = channelsByItemId.get(link.storeItemId) ?? ["inw"];
+          if (!channels.includes("etsy")) channels.push("etsy");
+          channelsByItemId.set(link.storeItemId, channels);
+        }
+      }
     }
+
+    const mapMineItem = (i: (typeof items)[number]) => ({
+      ...i,
+      photos: Array.isArray(i.photos) ? (i.photos as string[]).slice(0, 1) : [],
+      channels: channelsByItemId.get(i.id) ?? ["inw"],
+      views30d: viewsByItemId.get(i.id) ?? 0,
+    });
 
     // For sold items, attach last order id and date so seller can link to order and see "Sold on [date]"
     if (items.length > 0 && (soldOnly || filter === "sold")) {
@@ -245,23 +307,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         items.map((i) => {
           const sold = lastOrderByItem.get(i.id);
-          const mapped = {
-            ...i,
-            photos: Array.isArray(i.photos) ? (i.photos as string[]).slice(0, 1) : [],
-            channels: channelsByItemId.get(i.id) ?? ["inw"],
-          };
+          const mapped = mapMineItem(i);
           return sold ? { ...mapped, soldOrderId: sold.orderId, soldAt: sold.soldAt } : mapped;
         })
       );
     }
 
-    return NextResponse.json(
-      items.map((i) => ({
-        ...i,
-        photos: Array.isArray(i.photos) ? (i.photos as string[]).slice(0, 1) : [],
-        channels: channelsByItemId.get(i.id) ?? ["inw"],
-      }))
-    );
+    return NextResponse.json(items.map(mapMineItem));
   }
 
   const localDelivery = searchParams.get("localDelivery");

@@ -19,6 +19,7 @@ type Candidate = {
   priceCents: number | null;
   quantity: number | null;
   sku: string | null;
+  imageUrl: string | null;
   recommendedStockMode: "PHYSICAL" | "MADE_TO_ORDER" | null;
 };
 
@@ -241,7 +242,21 @@ export default function AppsAirportEtsyImportPage() {
                 <tbody>
                   {candidates.map((candidate) => (
                     <tr key={candidate.etsyListingId} className="border-t border-neutral-100">
-                      <td className="px-3 py-2">{candidate.title}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-3 min-w-0">
+                          {candidate.imageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={candidate.imageUrl}
+                              alt=""
+                              className="h-12 w-12 shrink-0 rounded object-cover border border-neutral-200"
+                            />
+                          ) : (
+                            <div className="h-12 w-12 shrink-0 rounded border border-neutral-200 bg-neutral-50" />
+                          )}
+                          <span className="truncate">{candidate.title}</span>
+                        </div>
+                      </td>
                       <td className="px-3 py-2">{candidate.state}</td>
                       <td className="px-3 py-2">{formatEtsyCents(candidate.priceCents)}</td>
                       <td className="px-3 py-2">{candidate.quantity ?? "—"}</td>
@@ -288,12 +303,26 @@ export default function AppsAirportEtsyImportPage() {
           {reviewLoading ? <p className="text-sm text-neutral-600">Loading listing details…</p> : null}
           {selected ? (
             <>
-              <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
-                {selected.title}
-              </p>
-              <p className="text-sm text-neutral-600">
-                {formatEtsyCents(selected.priceCents)} · qty {selected.quantity ?? "—"}
-              </p>
+              <div className="flex items-start gap-4">
+                {selected.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={selected.imageUrl}
+                    alt=""
+                    className="h-28 w-28 shrink-0 rounded-[10px] object-cover border border-neutral-200"
+                  />
+                ) : (
+                  <div className="h-28 w-28 shrink-0 rounded-[10px] border border-neutral-200 bg-neutral-50" />
+                )}
+                <div className="min-w-0">
+                  <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
+                    {selected.title}
+                  </p>
+                  <p className="mt-1 text-sm text-neutral-600">
+                    {formatEtsyCents(selected.priceCents)} · qty {selected.quantity ?? "—"}
+                  </p>
+                </div>
+              </div>
               <p className="text-sm text-neutral-600">
                 Choose how INW should track inventory for this imported listing.
               </p>

@@ -6,6 +6,7 @@ export const ETSY_OAUTH_SCOPES = [
   "listings_r",
   "listings_w",
   "shops_r",
+  "shops_w",
   "transactions_r",
 ] as const;
 

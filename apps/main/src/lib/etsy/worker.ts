@@ -13,6 +13,7 @@ import { handleEtsyPollListingContentJob } from "./poll-listing-content";
 import { handleEtsyProjectInventoryJob } from "./project-inventory";
 import { handleEtsyReconcileListingJob } from "./reconcile-listing";
 import { handleEtsyUpdateListingContentJob } from "./update-listing-content";
+import { notifyEtsySyncJobDeadOnce } from "./listing-issue-notify";
 
 export type EtsyJobHandler = (claim: EtsySyncJobClaim) => Promise<EtsyJobHandlerResult>;
 
@@ -74,8 +75,28 @@ export async function runNextEtsySyncJob(input?: {
     finalized = await completeEtsySyncJobSuccess(prisma, claim, input?.now);
   } else if (result.outcome === "RETRY") {
     finalized = await completeEtsySyncJobRetry(prisma, claim, result, input?.now);
+    // Max-attempts exhaustion finalizes as DEAD inside completeEtsySyncJobRetry.
+    if (finalized) {
+      const refreshed = await prisma.etsySyncJob.findUnique({
+        where: { id: claim.id },
+        select: { state: true, lastErrorClass: true, lastErrorCode: true, lastErrorMessage: true },
+      });
+      if (refreshed?.state === "DEAD") {
+        await notifyEtsySyncJobDeadOnce({
+          claim,
+          result: {
+            errorClass: refreshed.lastErrorClass ?? result.errorClass,
+            errorCode: refreshed.lastErrorCode ?? result.errorCode ?? undefined,
+            errorMessage: refreshed.lastErrorMessage ?? result.errorMessage,
+          },
+        }).catch(() => undefined);
+      }
+    }
   } else {
     finalized = await completeEtsySyncJobDead(prisma, claim, result, input?.now);
+    if (finalized) {
+      await notifyEtsySyncJobDeadOnce({ claim, result }).catch(() => undefined);
+    }
   }
 
   return { claimed: true, jobId: claim.id, finalized, result };

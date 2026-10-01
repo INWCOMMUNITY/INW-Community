@@ -173,6 +173,7 @@ describe("etsyApplicationRequest", () => {
     });
     expect(result.ok).toBe(false);
     expect(result.class).toBe("PERMANENT");
+    expect(result.message).toBe("Etsy API 400: bad");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

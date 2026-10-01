@@ -14,6 +14,8 @@ import {
 import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
 import { resolveEtsyTaxonomyFallback } from "./taxonomy-default";
+import { resolveEtsyReadinessStateId } from "./readiness-state";
+import { notifyEtsyListingIssueOnce } from "./listing-issue-notify";
 
 export type EnqueueEtsyCreateListingResult =
   | {
@@ -294,6 +296,29 @@ export async function handleEtsyCreateListingJob(
     };
   }
 
+  const readiness = await resolveEtsyReadinessStateId({
+    connectionId: connection.id,
+    memberId: connection.memberId,
+    shopId: connection.shopId,
+    whenMade: how.whenMade,
+    inventoryTracking: storeItem.inventoryTracking,
+    fetchImpl: deps.fetchImpl,
+    now: deps.now,
+  });
+  if (!readiness.ok) {
+    return {
+      outcome: "DEAD",
+      errorClass: readiness.code === "AUTH" ? "AUTH" : "PERMANENT",
+      errorCode:
+        readiness.code === "AUTH"
+          ? "AUTH"
+          : readiness.code === "PROVIDER_ERROR"
+            ? "PROVIDER_ERROR"
+            : "READINESS_STATE_REQUIRED",
+      errorMessage: readiness.message,
+    };
+  }
+
   const qty =
     storeItem.inventoryTracking === "made_to_order"
       ? Math.max(1, storeItem.quantity || 1)
@@ -310,6 +335,7 @@ export async function handleEtsyCreateListingJob(
     taxonomy_id: how.taxonomyId,
     is_supply: how.isSupply,
     type: "physical",
+    readiness_state_id: readiness.readinessStateId,
   };
   if (connection.defaultShippingProfileId) {
     createBody.shipping_profile_id = connection.defaultShippingProfileId;
@@ -324,6 +350,7 @@ export async function handleEtsyCreateListingJob(
     memberId: connection.memberId,
     method: "POST",
     path: `/shops/${encodeURIComponent(connection.shopId)}/listings`,
+    query: { legacy: false },
     body: createBody,
     bodyEncoding: "form",
     maxAttempts: 1,
@@ -467,9 +494,11 @@ export async function handleEtsyCreateListingJob(
       memberId: connection.memberId,
       method: "PATCH",
       path: `/shops/${encodeURIComponent(connection.shopId)}/listings/${encodeURIComponent(etsyListingId)}`,
+      query: { legacy: false },
       body: {
         state: "active",
         shipping_profile_id: connection.defaultShippingProfileId,
+        readiness_state_id: readiness.readinessStateId,
         who_made: how.whoMade,
         when_made: how.whenMade,
         is_supply: how.isSupply,
@@ -492,27 +521,62 @@ export async function handleEtsyCreateListingJob(
     ) {
       return classifyFailure(activate.class, activate.retryAfterMs, activate.message);
     } else {
+      const issueMessage =
+        activate.message.slice(0, 500) || "Created as draft; could not activate on Etsy";
       await prisma.etsyListingLink.updateMany({
         where: { etsyConnectionId: connection.id, etsyListingId },
         data: {
           remoteListingState: "draft",
           readiness: "ACTION_REQUIRED",
           issueCode: "ACTIVATE_FAILED",
-          issueMessage: activate.message.slice(0, 500) || "Created as draft; could not activate on Etsy",
+          issueMessage,
         },
       });
+      const link = await prisma.etsyListingLink.findFirst({
+        where: { etsyConnectionId: connection.id, etsyListingId },
+        select: { id: true },
+      });
+      if (link) {
+        await notifyEtsyListingIssueOnce({
+          memberId: connection.memberId,
+          storeItemId: storeItem.id,
+          connectionId: connection.id,
+          subjectId: link.id,
+          issueCode: "ACTIVATE_FAILED",
+          issueFingerprint: issueMessage,
+          severity: "ACTION_REQUIRED",
+          message: issueMessage,
+        }).catch(() => undefined);
+      }
     }
   } else {
+    const issueMessage =
+      "Listing created as an Etsy draft. Set a default shipping profile on the Etsy connection to activate.";
     await prisma.etsyListingLink.updateMany({
       where: { etsyConnectionId: connection.id, etsyListingId },
       data: {
         remoteListingState: "draft",
         readiness: "ACTION_REQUIRED",
         issueCode: "SHIPPING_PROFILE_REQUIRED",
-        issueMessage:
-          "Listing created as an Etsy draft. Set a default shipping profile on the Etsy connection to activate.",
+        issueMessage,
       },
     });
+    const link = await prisma.etsyListingLink.findFirst({
+      where: { etsyConnectionId: connection.id, etsyListingId },
+      select: { id: true },
+    });
+    if (link) {
+      await notifyEtsyListingIssueOnce({
+        memberId: connection.memberId,
+        storeItemId: storeItem.id,
+        connectionId: connection.id,
+        subjectId: link.id,
+        issueCode: "SHIPPING_PROFILE_REQUIRED",
+        issueFingerprint: issueMessage,
+        severity: "ACTION_REQUIRED",
+        message: issueMessage,
+      }).catch(() => undefined);
+    }
   }
 
   return { outcome: "SUCCESS" };

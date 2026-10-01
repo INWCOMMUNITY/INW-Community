@@ -4,6 +4,7 @@ import {
   applyFoundationSellerQuantitySets,
   prisma,
   Prisma,
+  recordEtsyDirtyMappedVariantContentDesires,
   recordEtsyListingContentDesire,
   recordShopifyDirtyMappedVariantContentDesires,
   recordShopifyListingContentDesire,
@@ -120,6 +121,10 @@ async function updateStoreItemWithShopifyDesire(input: {
     });
     // Match single-item PATCH: matrix price/SKU dirty maps need per-variant content jobs.
     await recordShopifyDirtyMappedVariantContentDesires(tx, {
+      memberId: input.memberId,
+      storeItemId: input.itemId,
+    });
+    await recordEtsyDirtyMappedVariantContentDesires(tx, {
       memberId: input.memberId,
       storeItemId: input.itemId,
     });
