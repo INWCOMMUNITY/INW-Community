@@ -375,6 +375,13 @@ export async function applyFoundationSellerCollapseToSimple(
   const nextSku =
     args.sku !== undefined ? (typeof args.sku === "string" ? args.sku.trim() || null : null) : survivor.sku;
 
+  // Partial unique index store_variant_one_default_per_item (store_item_id WHERE is_default).
+  // Clear every default on this item first — including RETIRED rows — then promote survivor.
+  await tx.storeVariant.updateMany({
+    where: { storeItemId: args.storeItemId, isDefault: true },
+    data: { isDefault: false },
+  });
+
   if (!alreadySimple) {
     await tx.storeVariant.update({
       where: { id: survivor.id },
@@ -399,11 +406,7 @@ export async function applyFoundationSellerCollapseToSimple(
       await tx.etsyVariantMap.deleteMany({ where: { storeVariantId: { in: retireIds } } });
       await tx.shopifyVariantMap.deleteMany({ where: { storeVariantId: { in: retireIds } } });
     }
-  } else if (
-    survivor.priceCents !== nextPrice ||
-    survivor.sku !== nextSku ||
-    !survivor.isDefault
-  ) {
+  } else {
     await tx.storeVariant.update({
       where: { id: survivor.id },
       data: {
@@ -643,7 +646,7 @@ export async function applyFoundationSellerMatrixStructure(
     const now = new Date();
     await tx.storeVariant.updateMany({
       where: { id: { in: retireIds } },
-      data: { status: "RETIRED", retiredAt: now },
+      data: { status: "RETIRED", retiredAt: now, isDefault: false },
     });
     retired = retireIds.length;
     await tx.etsyVariantMap.deleteMany({ where: { storeVariantId: { in: retireIds } } });
@@ -712,7 +715,7 @@ export async function endFoundationListing(
   });
   await tx.storeVariant.updateMany({
     where: { storeItemId: args.storeItemId, status: "ACTIVE" },
-    data: { status: "RETIRED", retiredAt: now },
+    data: { status: "RETIRED", retiredAt: now, isDefault: false },
   });
 }
 

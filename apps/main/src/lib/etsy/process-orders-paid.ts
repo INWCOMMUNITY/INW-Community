@@ -12,9 +12,11 @@ type ReceiptTransaction = {
   transaction_id?: number | string;
   listing_id?: number | string;
   product_id?: number | string;
-  product_data?: { product_id?: number | string };
+  offering_id?: number | string;
+  product_data?: { product_id?: number | string; offering_id?: number | string };
   quantity?: number;
   sku?: string | null;
+  variations?: Array<{ formatted_name?: string; formatted_value?: string; property_name?: string; values?: string[] }>;
 };
 
 type ReceiptPayload = {
@@ -147,12 +149,26 @@ export async function handleEtsyOrderPaidEvidence(input: {
     const productIdRaw = tx.product_id ?? tx.product_data?.product_id;
     const productId =
       productIdRaw != null && /^\d+$/.test(String(productIdRaw)) ? String(productIdRaw) : null;
+    const offeringRaw = tx.offering_id ?? tx.product_data?.offering_id;
+    const offeringId =
+      offeringRaw != null && /^\d+$/.test(String(offeringRaw)) ? String(offeringRaw) : null;
+    const options: Record<string, string> = {};
+    for (const variation of tx.variations ?? []) {
+      const name = (variation.formatted_name || variation.property_name || "").trim();
+      const value = (
+        variation.formatted_value ||
+        (Array.isArray(variation.values) ? variation.values[0] : "") ||
+        ""
+      ).trim();
+      if (name && value) options[name] = value;
+    }
     lines.push({
       etsyReceiptId: receiptId,
       etsyTransactionId: transactionId,
       etsyListingId: listingId,
       etsyProductId: productId,
-      etsyOfferingId: null,
+      etsyOfferingId: offeringId,
+      options: Object.keys(options).length > 0 ? options : null,
       paidQuantity: qty,
       triggeredAt: input.triggeredAt,
     });

@@ -2,10 +2,11 @@ import {
   ETSY_ORDER_WEBHOOK_TOPICS,
   normalizeEtsyWebhookTopic,
   prisma,
+  restockEtsyCanceledReceipt,
   type EtsyJobHandlerResult,
   type EtsySyncJobClaim,
 } from "database";
-import { handleEtsyOrderPaidEvidence } from "./process-orders-paid";
+import { handleEtsyOrderPaidEvidence, parseEtsyOrderPaidWebhookBody } from "./process-orders-paid";
 import type { EtsyFetch } from "./client";
 
 /**
@@ -153,7 +154,17 @@ export async function handleEtsyProcessProviderEvidenceJob(
     });
   }
 
-  // order.canceled / shipped / delivered — acknowledge only until later stages.
+  if (topic === "order.canceled" && evidence.etsyConnectionId) {
+    const parsed = parseEtsyOrderPaidWebhookBody(evidence.rawBody);
+    if (parsed.receiptId && /^\d+$/.test(parsed.receiptId)) {
+      await restockEtsyCanceledReceipt(prisma, {
+        connectionId: evidence.etsyConnectionId,
+        etsyReceiptId: parsed.receiptId,
+      });
+    }
+  }
+
+  // shipped / delivered — acknowledge without inventory mutation.
   await prisma.etsyProviderEvidence.update({
     where: { id: evidence.id },
     data: {

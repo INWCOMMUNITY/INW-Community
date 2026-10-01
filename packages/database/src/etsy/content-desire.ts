@@ -672,6 +672,7 @@ export async function recordEtsyListingVariantTopologyDesire(
     payload: {
       listingLinkId: lockedListing.id,
       storeItemId: input.storeItemId,
+      pushTopology: true,
     },
   });
 

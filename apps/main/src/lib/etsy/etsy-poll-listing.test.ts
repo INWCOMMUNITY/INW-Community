@@ -102,6 +102,7 @@ describe("etsy POLL_LISTING_CONTENT handler", () => {
       status: "ACTIVE",
     } as never);
     vi.mocked(prisma.storeVariant.count).mockResolvedValue(1);
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([{ options: {} }] as never);
     vi.mocked(prisma.etsyVariantMap.count).mockResolvedValue(1);
   });
 

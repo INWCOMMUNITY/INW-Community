@@ -6,7 +6,6 @@ import {
   markEtsyListingContentPollComplete,
   prisma,
   reconcileEtsyListingHealthFromDb,
-  resolveEtsyHowItsMadeForCreate,
   type EtsyJobHandlerResult,
   type EtsyRemoteListingObservation,
   type EtsySyncJobClaim,
@@ -14,12 +13,11 @@ import {
 import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
 import { optionsFromEtsyPropertyValues } from "./listing-variants";
+import { skuSelectionKey } from "@/lib/listing-variant-matrix";
 import {
   isSyncEtsyVariantTopologyFailure,
   syncEtsyListingVariantTopology,
 } from "./sync-listing-variants";
-import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "./taxonomy-default";
-import { resolveEtsyReadinessStateId } from "./readiness-state";
 
 const MAX_LISTINGS_PER_POLL = 25;
 
@@ -153,7 +151,6 @@ async function fetchRemoteObservation(input: {
             ? offering.price
             : null,
       });
-      if (!Number.isFinite(priceCents)) continue;
       const quantity =
         typeof offering.quantity === "number" && Number.isFinite(offering.quantity)
           ? Math.max(0, Math.trunc(offering.quantity))
@@ -161,7 +158,7 @@ async function fetchRemoteObservation(input: {
       variants.push({
         etsyProductId: productId,
         etsyOfferingId: offeringId,
-        priceCents,
+        priceCents: Number.isFinite(priceCents) && priceCents > 0 ? Math.round(priceCents) : 0,
         sku: typeof product.sku === "string" ? product.sku : null,
         quantity,
         options: Object.keys(options).length > 0 ? options : null,
@@ -283,83 +280,76 @@ export async function handleEtsyPollListingContentJob(
       remoteProductCount: remoteProductCountEarly,
     }).catch(() => undefined);
 
-    // Size×Color: when INW ACTIVE variants and Etsy products diverge, remesh/push via cron.
-    // Also push multi→simple collapse when INW is one variant but Etsy still has variations.
-    const activeVariantCount = await prisma.storeVariant.count({
+    // Etsy-first structure: pull into Foundation. Never PUT INW topology from the poll.
+    const activeVariants = await prisma.storeVariant.findMany({
       where: {
         storeItemId: link.storeItemId,
         memberId: connection.memberId,
         status: "ACTIVE",
       },
+      select: { options: true },
     });
+    const localComboKeys = activeVariants
+      .map((v) => {
+        const raw = v.options;
+        const opts =
+          raw && typeof raw === "object" && !Array.isArray(raw)
+            ? (raw as Record<string, string>)
+            : {};
+        return skuSelectionKey(opts);
+      })
+      .filter((key) => key.length > 0)
+      .sort();
+    const remoteComboKeys = [
+      ...new Set(
+        fetched.remote.variants
+          .map((v) => skuSelectionKey(v.options ?? {}))
+          .filter((key) => key.length > 0)
+      ),
+    ].sort();
     const mapCount = await prisma.etsyVariantMap.count({
       where: { etsyListingLinkId: link.id, etsyConnectionId: connection.id },
     });
     const remoteProductCount = remoteProductCountEarly;
-    const needsTopologySync =
-      (activeVariantCount > 1 &&
-        (mapCount !== activeVariantCount || remoteProductCount !== activeVariantCount)) ||
-      (activeVariantCount === 1 && remoteProductCount > 1) ||
-      (activeVariantCount >= 1 && mapCount !== activeVariantCount);
-    if (needsTopologySync) {
+    const structureDiverged =
+      localComboKeys.join("\n") !== remoteComboKeys.join("\n") ||
+      activeVariants.length !== remoteProductCount ||
+      mapCount !== activeVariants.length;
+    if (structureDiverged) {
       const storeItem = await prisma.storeItem.findFirst({
         where: { id: link.storeItemId, memberId: connection.memberId },
-        select: {
-          inventoryTracking: true,
-          etsyTaxonomyId: true,
-          etsyWhoMade: true,
-          etsyWhenMade: true,
-          etsyIsSupply: true,
-        },
+        select: { inventoryTracking: true },
       });
       if (storeItem) {
-        const how = resolveEtsyHowItsMadeForCreate({
-          etsyWhoMade: storeItem.etsyWhoMade,
-          etsyWhenMade: storeItem.etsyWhenMade,
-          etsyIsSupply: storeItem.etsyIsSupply,
-          etsyTaxonomyId: sanitizeEtsyTaxonomyId(storeItem.etsyTaxonomyId),
-          defaultTaxonomyId: resolveEtsyTaxonomyFallback(connection.defaultTaxonomyId),
+        const synced = await syncEtsyListingVariantTopology({
+          connectionId: connection.id,
+          memberId: connection.memberId,
+          listingLinkId: link.id,
+          storeItemId: link.storeItemId,
+          etsyListingId: link.etsyListingId,
+          taxonomyId: 0,
+          readinessStateId: 0,
           inventoryTracking: storeItem.inventoryTracking,
+          direction: "pull",
+          fetchImpl: deps.fetchImpl,
+          now: deps.now,
         });
-        if (how.ok) {
-          const readiness = await resolveEtsyReadinessStateId({
-            connectionId: connection.id,
-            memberId: connection.memberId,
-            shopId: connection.shopId,
-            whenMade: how.whenMade,
-            inventoryTracking: storeItem.inventoryTracking,
-            fetchImpl: deps.fetchImpl,
-            now: deps.now,
-          });
-          if (readiness.ok) {
-            const synced = await syncEtsyListingVariantTopology({
-              connectionId: connection.id,
-              memberId: connection.memberId,
-              listingLinkId: link.id,
-              storeItemId: link.storeItemId,
-              etsyListingId: link.etsyListingId,
-              taxonomyId: how.taxonomyId,
-              readinessStateId: readiness.readinessStateId,
-              inventoryTracking: storeItem.inventoryTracking,
-              fetchImpl: deps.fetchImpl,
-              now: deps.now,
-            });
-            if (isSyncEtsyVariantTopologyFailure(synced) && synced.outcome === "RETRY") {
-              return synced;
-            }
-            const remoteAfter =
-              !isSyncEtsyVariantTopologyFailure(synced) && synced.status === "PUSHED"
-                ? activeVariantCount
-                : remoteProductCount;
-            await reconcileEtsyListingHealthFromDb(prisma, {
-              connectionId: connection.id,
-              listingLinkId: link.id,
-              remoteProductCount: remoteAfter,
-            }).catch(() => undefined);
-          }
+        if (isSyncEtsyVariantTopologyFailure(synced) && synced.outcome === "RETRY") {
+          return synced;
         }
       }
     }
+
+    await reconcileEtsyListingHealthFromDb(prisma, {
+      connectionId: connection.id,
+      listingLinkId: link.id,
+      remoteProductCount,
+      remoteComboKeys,
+      remoteOfferings: fetched.remote.variants.map((v) => ({
+        etsyOfferingId: v.etsyOfferingId,
+        quantity: v.quantity ?? null,
+      })),
+    }).catch(() => undefined);
 
     // NATIVE drafts: re-queue create so photos upload and listing goes live.
     const remoteState = String(fetched.remote.state ?? link.remoteListingState ?? "")

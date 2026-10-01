@@ -9,6 +9,20 @@ import type {
 import { enqueueEtsySyncJob } from "./jobs";
 import { etsyVariantContentFingerprint } from "./content-fingerprint";
 
+function comboKeyOf(raw: unknown): string {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
+  const options = raw as Record<string, unknown>;
+  return Object.keys(options)
+    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+    .map((key) => {
+      const name = key.trim().toLowerCase();
+      const value = String(options[key] ?? "").trim().toLowerCase();
+      return name && value ? `${name}=${value}` : "";
+    })
+    .filter(Boolean)
+    .join("|");
+}
+
 export type EtsyHealthDb = PrismaClient | Prisma.TransactionClient;
 
 export type EtsyListingHealthSnapshot = {
@@ -50,6 +64,8 @@ export function classifyEtsyListingHealth(input: {
   topologyDiverged?: boolean;
   /** Observed remote price/SKU fingerprint differs from local without a pending INW push. */
   contentObservationDiverged?: boolean;
+  /** Observed sellable qty differs from foundation without a pending INW qty push. */
+  inventoryObservationDiverged?: boolean;
 }): EtsyListingHealthSnapshot {
   if (input.connectionStatus !== "ACTIVE") {
     return {
@@ -102,6 +118,17 @@ export function classifyEtsyListingHealth(input: {
       issueCode: "CONTENT_OBSERVATION_DIVERGED",
       issueMessage:
         "Etsy price/SKU does not match INW. Needs attention until both marketplaces show the same values.",
+    };
+  }
+
+  if (input.inventoryObservationDiverged) {
+    return {
+      readiness: "ACTION_REQUIRED",
+      contentHealth: input.listing.contentHealth,
+      inventoryHealth: "DEGRADED",
+      issueCode: "INVENTORY_OBSERVATION_DIVERGED",
+      issueMessage:
+        "Etsy quantity does not match INW. Needs attention until both marketplaces show the same stock.",
     };
   }
 
@@ -262,6 +289,10 @@ export async function reconcileEtsyListingHealthFromDb(
     listingLinkId: string;
     /** When known from a live poll, compare to ACTIVE INW variant count. */
     remoteProductCount?: number;
+    /** Option combo keys (skuSelectionKey) for remote products that have variations. */
+    remoteComboKeys?: string[];
+    /** Live offering quantities from the poll inventory GET. */
+    remoteOfferings?: Array<{ etsyOfferingId: string; quantity: number | null }>;
   }
 ): Promise<EtsyListingHealthSnapshot | null> {
   const connection = await db.etsyConnection.findUnique({
@@ -288,16 +319,34 @@ export async function reconcileEtsyListingHealthFromDb(
 
   const activeVariants = await db.storeVariant.findMany({
     where: { storeItemId: listing.storeItemId, status: "ACTIVE" },
-    select: { id: true, priceCents: true, sku: true, options: true },
+    select: {
+      id: true,
+      priceCents: true,
+      sku: true,
+      options: true,
+      inventoryState: { select: { onHand: true, reserved: true, mode: true } },
+    },
   });
   const activeIds = new Set(activeVariants.map((v) => v.id));
   const mapIds = new Set(variantMaps.map((m) => m.storeVariantId));
+  const localComboKeys = activeVariants
+    .map((v) => comboKeyOf(v.options))
+    .filter((key) => key.length > 0)
+    .sort();
+  const remoteComboKeys = input.remoteComboKeys ? [...input.remoteComboKeys].sort() : null;
+  const mappedOfferingIds = new Set(variantMaps.map((m) => m.etsyOfferingId));
+  const unmappedRemote =
+    input.remoteOfferings?.filter(
+      (row) => row.etsyOfferingId && !mappedOfferingIds.has(row.etsyOfferingId)
+    ) ?? [];
   const topologyDiverged =
     activeVariants.length !== variantMaps.length ||
     [...activeIds].some((id) => !mapIds.has(id)) ||
     [...mapIds].some((id) => !activeIds.has(id)) ||
     (typeof input.remoteProductCount === "number" &&
-      input.remoteProductCount !== activeVariants.length);
+      input.remoteProductCount !== activeVariants.length) ||
+    (remoteComboKeys != null && remoteComboKeys.join("\n") !== localComboKeys.join("\n")) ||
+    unmappedRemote.length > 0;
 
   const byVariantId = new Map(activeVariants.map((v) => [v.id, v] as const));
   let contentObservationDiverged = false;
@@ -320,6 +369,36 @@ export async function reconcileEtsyListingHealthFromDb(
     }
   }
 
+  const remoteQtyByOffering = new Map(
+    (input.remoteOfferings ?? [])
+      .filter((row) => row.quantity != null)
+      .map((row) => [row.etsyOfferingId, row.quantity as number] as const)
+  );
+  let inventoryObservationDiverged = false;
+  if (remoteQtyByOffering.size > 0) {
+    const byVariant = new Map(activeVariants.map((v) => [v.id, v] as const));
+    for (const map of variantMaps) {
+      const remoteQty = remoteQtyByOffering.get(map.etsyOfferingId);
+      if (remoteQty == null) continue;
+      const pushing =
+        map.inventoryDesiredVersion > map.inventoryAppliedVersion ||
+        (map.inventoryDesiredAvailable != null &&
+          map.inventoryDesiredAvailable !== map.inventoryAppliedAvailable &&
+          map.inventoryDesiredVersion > 0);
+      if (pushing) continue;
+      const local = byVariant.get(map.storeVariantId);
+      const state = local?.inventoryState;
+      if (!state || state.mode !== "TRACKED_FINITE" || state.onHand == null || state.reserved == null) {
+        continue;
+      }
+      const sellable = Math.max(0, state.onHand - state.reserved);
+      if (sellable !== remoteQty) {
+        inventoryObservationDiverged = true;
+        break;
+      }
+    }
+  }
+
   const health = classifyEtsyListingHealth({
     connectionStatus: connection.status,
     listing,
@@ -327,6 +406,7 @@ export async function reconcileEtsyListingHealthFromDb(
     hasCausalSaleConflict: saleConflict > 0,
     topologyDiverged,
     contentObservationDiverged,
+    inventoryObservationDiverged,
   });
   await persistEtsyListingHealth(db, { listingLinkId: listing.id, health });
   return health;

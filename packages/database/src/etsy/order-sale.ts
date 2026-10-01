@@ -4,9 +4,19 @@ import {
   ETSY_SOURCE_SYSTEM,
   FoundationInsufficientAvailabilityError,
   FoundationInventoryError,
+  restockTrackedVariant,
 } from "../commerce-foundation-inventory";
 
 export type EtsyOrderSaleDb = PrismaClient | Prisma.TransactionClient;
+
+function optionValuesKey(raw: unknown): string {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
+  return Object.values(raw as Record<string, unknown>)
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join("|");
+}
 
 export type EtsyPaidOrderLineObservation = {
   etsyReceiptId: string;
@@ -14,6 +24,8 @@ export type EtsyPaidOrderLineObservation = {
   etsyListingId: string | null;
   etsyProductId: string | null;
   etsyOfferingId: string | null;
+  /** Variation labels from the receipt when offering id is absent. */
+  options?: Record<string, string> | null;
   paidQuantity: number;
   /** When set, sales at/before this cutoff ack without deducting (import opening stock). */
   importBootstrapStartedAt?: Date | null;
@@ -262,6 +274,29 @@ export async function applyEtsyPaidOrderLineSale(
         },
       });
     }
+    if (!variantMap && input.line.etsyListingId != null && input.line.options) {
+      const valueKey = optionValuesKey(input.line.options);
+      if (valueKey) {
+        const link = await tx.etsyListingLink.findFirst({
+          where: {
+            etsyConnectionId: input.connectionId,
+            etsyListingId: input.line.etsyListingId,
+          },
+          include: { variantMaps: true },
+        });
+        const maps = link?.variantMaps ?? [];
+        const variants = await tx.storeVariant.findMany({
+          where: { id: { in: maps.map((map) => map.storeVariantId) }, status: "ACTIVE" },
+          select: { id: true, options: true },
+        });
+        const variantById = new Map(variants.map((row) => [row.id, row] as const));
+        const matched = maps.filter((map) => {
+          const variant = variantById.get(map.storeVariantId);
+          return variant != null && optionValuesKey(variant.options) === valueKey;
+        });
+        if (matched.length === 1) variantMap = matched[0]!;
+      }
+    }
     if (!variantMap && input.line.etsyListingId != null) {
       const link = await tx.etsyListingLink.findFirst({
         where: {
@@ -412,4 +447,41 @@ export async function applyEtsyPaidOrderObservation(
     );
   }
   return { status: "PROCESSED", lines };
+}
+
+/**
+ * Undo APPLIED Etsy sale facts for a canceled receipt. Idempotent via restock sourceFactId.
+ */
+export async function restockEtsyCanceledReceipt(
+  db: PrismaClient,
+  input: { connectionId: string; etsyReceiptId: string }
+): Promise<{ restocked: number }> {
+  const facts = await db.etsyOrderLineSaleFact.findMany({
+    where: {
+      etsyConnectionId: input.connectionId,
+      etsyReceiptId: input.etsyReceiptId,
+      applyState: "APPLIED",
+      appliedQuantity: { gt: 0 },
+      storeVariantId: { not: null },
+    },
+  });
+  let restocked = 0;
+  for (const fact of facts) {
+    if (!fact.storeVariantId) continue;
+    try {
+      await db.$transaction(async (tx) => {
+        await restockTrackedVariant(tx, {
+          variantId: fact.storeVariantId!,
+          qty: fact.appliedQuantity,
+          kind: "UNDO_CONSUMPTION",
+          sourceFactId: `etsy-cancel:${fact.etsyReceiptId}:${fact.etsyTransactionId}`,
+          cause: "REFUND",
+        });
+      });
+      restocked += 1;
+    } catch {
+      // Made-to-order or missing inventory state cannot restock; leave the sale fact applied.
+    }
+  }
+  return { restocked };
 }

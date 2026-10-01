@@ -515,6 +515,7 @@ export {
   applyEtsyPaidOrderLineSale,
   applyEtsyPaidOrderObservation,
   classifyEtsySaleFactEquivalence,
+  restockEtsyCanceledReceipt,
 } from "./etsy/order-sale";
 export type {
   ApplyEtsyPaidOrderLineResult,

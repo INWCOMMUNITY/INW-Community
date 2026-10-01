@@ -326,11 +326,9 @@ export async function projectStoreItemVariantsMatrix(
         options: match.options,
         quantity: match.quantity,
         storeVariantId: match.storeVariantId,
-        priceCents:
-          typeof rawSku.priceCents === "number" && rawSku.priceCents > 0
-            ? rawSku.priceCents
-            : match.priceCents,
-        ...(match.sku ? { sku: match.sku } : {}),
+        // Foundation StoreVariant is SoT — never keep a stale JSON price/sku over the row.
+        priceCents: match.priceCents,
+        ...(match.sku ? { sku: match.sku } : { sku: null }),
       });
     }
     for (const row of live) {
@@ -373,6 +371,9 @@ export async function projectStoreItemVariantsMatrix(
   const qtys = new Set(skus.map((s) => Number(s.quantity) || 0));
   const skuCodes = new Set(skus.map((s) => String(s.sku ?? "")));
 
+  const positivePrices = [...prices].filter((p) => Number.isFinite(p) && p > 0);
+  const facadePrice = positivePrices.length > 0 ? Math.min(...positivePrices) : null;
+
   await tx.storeItem.update({
     where: { id: storeItemId },
     data: {
@@ -383,6 +384,7 @@ export async function projectStoreItemVariantsMatrix(
         quantitiesVary: qtys.size > 1,
         skusVary: skuCodes.size > 1,
       } as Prisma.InputJsonValue,
+      ...(facadePrice != null ? { priceCents: facadePrice } : {}),
     },
   });
 }

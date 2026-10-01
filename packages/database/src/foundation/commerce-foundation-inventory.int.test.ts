@@ -1229,6 +1229,52 @@ describe("prompt-65 checkout idempotency / races / restock", () => {
     expect(projected?.quantity).toBe(10);
   });
 
+  it("projectStoreItemQuantity prefers foundation StoreVariant price over stale variants JSON", async () => {
+    await enterFoundation();
+    const member = await createMember(prisma, "priceproj");
+    const item = await createStoreItem(prisma, member.id, "PriceProj", {
+      quantity: 2,
+      priceCents: 999,
+      variants: {
+        axes: [{ name: "Size", values: ["S", "M"] }],
+        skus: [
+          { options: { Size: "S" }, quantity: 1, priceCents: 900 },
+          { options: { Size: "M" }, quantity: 1, priceCents: 900 },
+        ],
+      },
+    });
+    await prisma.$transaction((tx) => provisionNativeFoundationListing(tx, item.id));
+    const optioned = await prisma.storeVariant.findMany({
+      where: { storeItemId: item.id, status: "ACTIVE" },
+      select: { id: true, options: true },
+    });
+    const s = optioned.find((v) => (v.options as { Size?: string })?.Size === "S")?.id;
+    const m = optioned.find((v) => (v.options as { Size?: string })?.Size === "M")?.id;
+    expect(s && m).toBeTruthy();
+    await prisma.storeVariant.update({ where: { id: s! }, data: { priceCents: 150 } });
+    await prisma.storeVariant.update({ where: { id: m! }, data: { priceCents: 250 } });
+    await prisma.storeItem.update({
+      where: { id: item.id },
+      data: {
+        variants: {
+          axes: [{ name: "Size", values: ["S", "M"] }],
+          skus: [
+            { options: { Size: "S" }, quantity: 1, priceCents: 900, storeVariantId: s },
+            { options: { Size: "M" }, quantity: 1, priceCents: 900, storeVariantId: m },
+          ],
+        },
+      },
+    });
+    await prisma.$transaction((tx) => projectStoreItemQuantity(tx, item.id));
+    const projected = await prisma.storeItem.findUniqueOrThrow({ where: { id: item.id } });
+    const matrix = projected.variants as {
+      skus: Array<{ options: Record<string, string>; priceCents: number }>;
+    };
+    const bySize = new Map(matrix.skus.map((row) => [row.options.Size, row.priceCents]));
+    expect(bySize.get("S")).toBe(150);
+    expect(bySize.get("M")).toBe(250);
+  });
+
   it("Mark Sold with an active HOLD rejects and leaves reservation/status unchanged", async () => {
     const ctx = await trackedSimple(1);
     const buyer = await createMember(prisma, "sold-hold");
@@ -1364,6 +1410,58 @@ describe("prompt-65 checkout idempotency / races / restock", () => {
     expect(updated.variants).toBeNull();
     expect(updated.quantity).toBe(7);
     expect(updated.priceCents).toBe(1200);
+  });
+
+  it("FOUNDATION collapse clears leftover RETIRED isDefault before promoting survivor", async () => {
+    await resetSingleton();
+    await enterFoundation();
+    const member = await createMember(prisma, "collapse-stale-default");
+    const item = await createStoreItem(prisma, member.id, "StaleDefault", {
+      quantity: 2,
+      priceCents: 1500,
+      variants: {
+        axes: [{ name: "Size", values: ["S", "M"] }],
+        skus: [
+          { options: { Size: "S" }, quantity: 1, priceCents: 400 },
+          { options: { Size: "M" }, quantity: 1, priceCents: 600 },
+        ],
+      },
+    });
+    await prisma.$transaction((tx) => provisionNativeFoundationListing(tx, item.id));
+    const variants = await prisma.storeVariant.findMany({
+      where: { storeItemId: item.id, status: "ACTIVE" },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(variants.length).toBeGreaterThanOrEqual(2);
+
+    // Simulate pre-fix retire that left isDefault=true on a RETIRED row
+    // (partial unique index store_variant_one_default_per_item).
+    await prisma.storeVariant.updateMany({
+      where: { storeItemId: item.id },
+      data: { isDefault: false },
+    });
+    await prisma.storeVariant.update({
+      where: { id: variants[0]!.id },
+      data: { status: "RETIRED", retiredAt: new Date(), isDefault: true },
+    });
+
+    const result = await prisma.$transaction((tx) =>
+      applyFoundationSellerCollapseToSimple(tx, {
+        storeItemId: item.id,
+        memberId: member.id,
+        commandId: `collapse-stale-${item.id}`,
+        simpleTarget: 4,
+        priceCents: 1500,
+      })
+    );
+    expect(result.structureChanged).toBe(true);
+
+    const defaults = await prisma.storeVariant.findMany({
+      where: { storeItemId: item.id, isDefault: true },
+    });
+    expect(defaults).toHaveLength(1);
+    expect(defaults[0]!.status).toBe("ACTIVE");
+    expect(Object.keys((defaults[0]!.options ?? {}) as object)).toHaveLength(0);
   });
 
   it("FOUNDATION matrix rematches Color↔Primary color by option values", async () => {

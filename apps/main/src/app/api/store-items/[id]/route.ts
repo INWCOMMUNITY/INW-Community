@@ -9,6 +9,7 @@ import {
   markFoundationListingSold,
   prisma,
   Prisma,
+  projectStoreItemQuantity,
   recordEtsyDirtyMappedVariantContentDesires,
   recordEtsyListingContentDesire,
   recordEtsyListingVariantTopologyDesire,
@@ -530,6 +531,7 @@ export async function PATCH(
               });
             }
             delete (update as { quantity?: number }).quantity;
+            delete (update as { variants?: unknown }).variants;
           } else if (data.quantity !== undefined) {
             await applyFoundationSellerQuantitySets(tx, {
               storeItemId: itemId,
@@ -571,6 +573,8 @@ export async function PATCH(
             });
           }
           delete (update as { quantity?: number }).quantity;
+          // Foundation projection owns StoreItem.variants JSON after matrix write.
+          delete (update as { variants?: unknown }).variants;
         } else if (data.variants !== undefined) {
           // Structure already applied above when option quantities are present.
           // Price/SKU-only matrix payloads still align StoreVariant rows.
@@ -617,14 +621,19 @@ export async function PATCH(
           where: { id: itemId },
           data: update as object,
         });
+        // Always reproject quantity + variants JSON from ACTIVE InventoryState so a
+        // stale simple facade cannot survive after foundation matrix writes / failed
+        // client payloads that still include variants:null.
+        await projectStoreItemQuantity(tx, itemId);
+        const projected = await tx.storeItem.findUniqueOrThrow({ where: { id: itemId } });
         // S5/E5: same TX as canonical write — bump desired versions + enqueue UPDATE_LISTING_CONTENT.
         // No marketplace network calls here.
         const afterSnapshot = {
-          title: updated.title,
-          description: updated.description,
-          priceCents: updated.priceCents,
-          sku: updated.sku,
-          photos: updated.photos,
+          title: projected.title,
+          description: projected.description,
+          priceCents: projected.priceCents,
+          sku: projected.sku,
+          photos: projected.photos,
         };
         await recordShopifyListingContentDesire(tx, {
           memberId: ownerId,
@@ -646,7 +655,7 @@ export async function PATCH(
           memberId: ownerId,
           storeItemId: itemId,
         });
-        return updated;
+        return projected;
       });
       if (item.status === "sold_out") {
         deleteFeedPostsForSoldItem(itemId).catch(() => {});

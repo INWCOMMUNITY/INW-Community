@@ -3,7 +3,10 @@
  * PUT full inventory products[] when local combo set diverges; rematch maps by options when ids drift.
  */
 import {
+  applyFoundationSellerCollapseToSimple,
+  applyFoundationSellerMatrixStructure,
   captureEtsyInventoryProjectionDesire,
+  etsyCentsFromMoney,
   prisma,
   replaceEtsyListingVariantMaps,
   type EtsyJobHandlerResult,
@@ -30,6 +33,7 @@ export type SyncEtsyVariantTopologyResult =
   | { status: "NOOP"; reason: string }
   | { status: "REMATCHED"; pairCount: number }
   | { status: "PUSHED"; pairCount: number }
+  | { status: "PULLED"; pairCount: number }
   | Extract<EtsyJobHandlerResult, { outcome: "RETRY" | "DEAD" }>;
 
 function classifyFailure(
@@ -178,10 +182,177 @@ export async function rematchEtsyVariantMapsByOptions(input: {
   return { rematched: true, pairCount: correlation.pairs.length };
 }
 
+function offeringPriceCents(price: unknown): number {
+  if (price && typeof price === "object") {
+    const row = price as { amount?: number; divisor?: number };
+    const cents = etsyCentsFromMoney({ amount: row.amount, divisor: row.divisor });
+    if (Number.isFinite(cents) && cents > 0) return Math.round(cents);
+  }
+  if (typeof price === "number" && Number.isFinite(price) && price > 0) {
+    return Math.max(1, Math.round(price * 100));
+  }
+  return 1;
+}
+
 /**
- * Sync INW ACTIVE StoreVariants (Size×Color matrix) onto a mapped Etsy listing.
- * - Rematch when remote already has the same option combos
- * - PUT full products[] when remote structure diverges or maps are incomplete
+ * Etsy changed Size×Color (or collapsed to simple). Adopt remote products into Foundation
+ * and remap. Does not PUT inventory back to Etsy.
+ */
+async function pullRemoteTopologyIntoFoundation(input: {
+  connectionId: string;
+  memberId: string;
+  listingLinkId: string;
+  storeItemId: string;
+  remoteProducts: EtsyRemoteInventoryProduct[];
+}): Promise<SyncEtsyVariantTopologyResult> {
+  const commandId = `etsy-pull:${input.listingLinkId}:${Date.now()}`;
+  const optioned = input.remoteProducts
+    .map((product) => {
+      const options = optionsFromEtsyPropertyValues(product.property_values);
+      const offering =
+        (product.offerings ?? []).find((o) => o?.is_enabled !== false) ?? product.offerings?.[0];
+      const quantity =
+        typeof offering?.quantity === "number" && Number.isFinite(offering.quantity)
+          ? Math.max(0, Math.trunc(offering.quantity))
+          : 0;
+      return {
+        product,
+        options,
+        quantity,
+        priceCents: offeringPriceCents(offering?.price),
+        sku: typeof product.sku === "string" ? product.sku : null,
+      };
+    })
+    .filter((row) => Object.keys(row.options).length > 0);
+
+  try {
+    if (optioned.length === 0) {
+      const product = input.remoteProducts[0];
+      const offering =
+        (product?.offerings ?? []).find((o) => o?.is_enabled !== false) ?? product?.offerings?.[0];
+      const quantity =
+        typeof offering?.quantity === "number" && Number.isFinite(offering.quantity)
+          ? Math.max(1, Math.trunc(offering.quantity))
+          : 1;
+      await prisma.$transaction((tx) =>
+        applyFoundationSellerCollapseToSimple(tx, {
+          storeItemId: input.storeItemId,
+          memberId: input.memberId,
+          commandId,
+          simpleTarget: quantity,
+          priceCents: offeringPriceCents(offering?.price),
+          sku: typeof product?.sku === "string" ? product.sku : null,
+        })
+      );
+    } else {
+      await prisma.$transaction((tx) =>
+        applyFoundationSellerMatrixStructure(tx, {
+          storeItemId: input.storeItemId,
+          memberId: input.memberId,
+          commandId,
+          matrixTargets: optioned.map((row) => ({
+            fingerprint: `matrix:${skuSelectionKey(row.options)}`,
+            options: row.options,
+            targetOnHand: row.quantity,
+            priceCents: row.priceCents,
+            sku: row.sku,
+          })),
+        })
+      );
+    }
+  } catch (error) {
+    return {
+      outcome: "DEAD",
+      errorClass: "PERMANENT",
+      errorCode: "TOPOLOGY_PULL_FAILED",
+      errorMessage: error instanceof Error ? error.message.slice(0, 500) : "Could not adopt Etsy variant structure",
+    };
+  }
+
+  const storeVariants = await prisma.storeVariant.findMany({
+    where: { storeItemId: input.storeItemId, memberId: input.memberId, status: "ACTIVE" },
+    select: { id: true, options: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const requested = storeVariants
+    .map((v) => {
+      const options = parseStoreVariantOptions(v.options);
+      if (!options || Object.keys(options).length === 0) return null;
+      return { storeVariantId: v.id, options };
+    })
+    .filter((row): row is { storeVariantId: string; options: Record<string, string> } => row != null);
+
+  if (optioned.length === 0) {
+    const survivor = storeVariants[0];
+    const product = input.remoteProducts[0];
+    const offering =
+      (product?.offerings ?? []).find((o) => o?.is_enabled !== false) ?? product?.offerings?.[0];
+    const productId = String(product?.product_id ?? "").trim();
+    const offeringId = String(offering?.offering_id ?? "").trim();
+    if (!survivor || !/^\d+$/.test(productId) || !/^\d+$/.test(offeringId)) {
+      return {
+        outcome: "DEAD",
+        errorClass: "PERMANENT",
+        errorCode: "TOPOLOGY_PULL_UNMAPPED",
+        errorMessage: "Etsy simple inventory is missing product/offering ids after pull",
+      };
+    }
+    await prisma.$transaction((tx) =>
+      replaceEtsyListingVariantMaps(tx, {
+        listingLinkId: input.listingLinkId,
+        connectionId: input.connectionId,
+        memberId: input.memberId,
+        storeItemId: input.storeItemId,
+        variants: [
+          {
+            storeVariantId: survivor.id,
+            etsyProductId: productId,
+            etsyOfferingId: offeringId,
+            remoteSku: typeof product?.sku === "string" ? product.sku : null,
+            remoteAvailable:
+              typeof offering?.quantity === "number" ? Math.max(0, Math.trunc(offering.quantity)) : null,
+          },
+        ],
+      })
+    );
+    return { status: "PULLED", pairCount: 1 };
+  }
+
+  const correlation = correlateEtsyProductsToStoreVariants({
+    requested,
+    remote: input.remoteProducts,
+  });
+  if (!correlation.ok) {
+    return {
+      outcome: "DEAD",
+      errorClass: "PERMANENT",
+      errorCode: "TOPOLOGY_PULL_UNMAPPED",
+      errorMessage: "Pulled Etsy variations could not be remapped to StoreVariants",
+    };
+  }
+  await prisma.$transaction((tx) =>
+    replaceEtsyListingVariantMaps(tx, {
+      listingLinkId: input.listingLinkId,
+      connectionId: input.connectionId,
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+      variants: correlation.pairs.map((p) => ({
+        storeVariantId: p.storeVariantId,
+        etsyProductId: p.etsyProductId,
+        etsyOfferingId: p.etsyOfferingId,
+        propertyValuesJson: p.propertyValuesJson,
+        remoteSku: p.remoteSku,
+        remoteAvailable: p.remoteAvailable,
+      })),
+    })
+  );
+  return { status: "PULLED", pairCount: correlation.pairs.length };
+}
+
+/**
+ * Sync Size×Color between INW StoreVariants and Etsy products[].
+ * direction "pull" (cron default): adopt Etsy structure into Foundation when combos diverge.
+ * direction "push": seller topology desire — PUT INW products[] onto Etsy.
  */
 export async function syncEtsyListingVariantTopology(input: {
   connectionId: string;
@@ -192,7 +363,9 @@ export async function syncEtsyListingVariantTopology(input: {
   taxonomyId: number;
   readinessStateId: number | string;
   inventoryTracking: string;
-  /** Force PUT even when maps already look complete. */
+  /** Seller edit asked to overwrite Etsy. Cron observe/pull must not set this. */
+  direction?: "push" | "pull";
+  /** Force PUT even when maps already look complete. Only honored for direction "push". */
   forcePush?: boolean;
   fetchImpl?: EtsyFetch;
   now?: Date;
@@ -269,7 +442,16 @@ export async function syncEtsyListingVariantTopology(input: {
         const opts = optionsFromEtsyPropertyValues(p.property_values);
         return Object.keys(opts).length > 0;
       });
-    if (!remoteIsMulti && !input.forcePush) {
+    if (remoteIsMulti && input.direction !== "push") {
+      return pullRemoteTopologyIntoFoundation({
+        connectionId: input.connectionId,
+        memberId: input.memberId,
+        listingLinkId: input.listingLinkId,
+        storeItemId: input.storeItemId,
+        remoteProducts,
+      });
+    }
+    if (!remoteIsMulti && !(input.direction === "push" && input.forcePush)) {
       // Already a single offering on Etsy — rematch the one map if needed.
       const survivor = variantRows[0]!;
       const product = remoteProducts[0];
@@ -303,10 +485,6 @@ export async function syncEtsyListingVariantTopology(input: {
                         : null,
                   },
                 ],
-              });
-              await captureEtsyInventoryProjectionDesire(tx, {
-                memberId: input.memberId,
-                storeVariantId: survivor.id,
               });
             });
             return { status: "REMATCHED", pairCount: 1 };
@@ -409,10 +587,6 @@ export async function syncEtsyListingVariantTopology(input: {
             },
           ],
         });
-        await captureEtsyInventoryProjectionDesire(tx, {
-          memberId: input.memberId,
-          storeVariantId: survivor.id,
-        });
       });
     } catch (error) {
       return {
@@ -461,8 +635,8 @@ export async function syncEtsyListingVariantTopology(input: {
     options: parseStoreVariantOptions(v.options)!,
   }));
 
-  // Deprecated Size=100 (etc.) must be rebuilt — rematch-only would keep failing on PUT.
-  if (combosMatch && !input.forcePush && !hasDeprecatedProperties) {
+  // Same option combos: rematch ids only. Never PUT just because map labels are stale.
+  if (combosMatch && !hasDeprecatedProperties && !(input.direction === "push" && input.forcePush)) {
     const rematched = await rematchEtsyVariantMapsByOptions({
       connectionId: input.connectionId,
       memberId: input.memberId,
@@ -482,6 +656,17 @@ export async function syncEtsyListingVariantTopology(input: {
       status: "NOOP",
       reason: mapsOk ? "ALREADY_ALIGNED" : "COMBOS_MATCH_STALE_MAP_LABELS",
     };
+  }
+
+  // Structure diverges. Cron adopts Etsy into Foundation. Seller topology desire pushes INW.
+  if (input.direction !== "push") {
+    return pullRemoteTopologyIntoFoundation({
+      connectionId: input.connectionId,
+      memberId: input.memberId,
+      listingLinkId: input.listingLinkId,
+      storeItemId: input.storeItemId,
+      remoteProducts,
+    });
   }
 
   // INW matrix diverges from Etsy (or maps incomplete) — push full Size×Color products[].

@@ -284,13 +284,14 @@ export async function handleEtsyProjectInventoryJob(
             taxonomyId: how.taxonomyId,
             readinessStateId: readiness.readinessStateId,
             inventoryTracking: storeItem.inventoryTracking,
+            direction: "pull",
             fetchImpl: deps.fetchImpl,
             now: deps.now,
           });
           if (isSyncEtsyVariantTopologyFailure(synced)) {
             return synced;
           }
-          if (synced.status === "REMATCHED" || synced.status === "PUSHED") {
+          if (synced.status === "REMATCHED" || synced.status === "PUSHED" || synced.status === "PULLED") {
             return {
               outcome: "RETRY",
               errorClass: "TRANSIENT",

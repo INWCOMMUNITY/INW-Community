@@ -10,6 +10,7 @@ import {
 import { ensureEtsyUpdateListingContentJob } from "./content-desire";
 import { recordShopifyListingContentDesire } from "../shopify/content-desire";
 import { optionFingerprint } from "../foundation/backfill/analyze";
+import { projectStoreItemQuantity } from "../commerce-foundation-inventory";
 
 export type EtsyInboundDb = PrismaClient | Prisma.TransactionClient;
 
@@ -543,6 +544,10 @@ export async function applyEtsyListingContentInbound(
       }
     }
   }
+
+  // Storefront reads StoreItem.variants / quantity — rebuild from ACTIVE InventoryState
+  // so optioned foundation rows never leave a stale simple facade after price-only inbound.
+  await projectStoreItemQuantity(db, storeItem.id);
 
   let shopifyDesireRecorded = false;
   if (appliedRemoteProduct || appliedRemoteVariant) {

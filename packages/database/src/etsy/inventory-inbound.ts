@@ -3,6 +3,7 @@ import {
   applyTrackedMarketplaceQuantityEdit,
   ETSY_SOURCE_SYSTEM,
   MARKETPLACE_QUANTITY_EDIT_SCOPE,
+  projectStoreItemQuantity,
 } from "../commerce-foundation-inventory";
 import { classifyShopifyDirectInventoryEdit } from "../shopify/inventory-direct-edit";
 import {
@@ -73,7 +74,21 @@ export async function applyEtsyOfferingInventoryObservation(
     return { status: "ECHO_CONFIRMED" };
   }
 
-  if (input.hasPendingOrderEvidence) {
+  const pendingPaidEvidence = await db.etsyProviderEvidence.count({
+    where: {
+      etsyConnectionId: input.connectionId,
+      processState: "RECEIVED",
+      topic: "order.paid",
+    },
+  });
+  const pendingVariantSales = await db.etsyOrderLineSaleFact.count({
+    where: {
+      etsyConnectionId: input.connectionId,
+      applyState: "PENDING",
+      storeVariantId: variantMap.storeVariantId,
+    },
+  });
+  if (pendingPaidEvidence > 0 || pendingVariantSales > 0 || input.hasPendingOrderEvidence) {
     return { status: "WAITING_ORDER", code: "WAITING_ORDER_CAUSALITY" };
   }
 
@@ -85,7 +100,7 @@ export async function applyEtsyOfferingInventoryObservation(
         etsyConnectionId: input.connectionId,
         storeVariantId: variantMap.storeVariantId,
         applyState: "APPLIED",
-        ...(since ? { appliedAt: { gt: since } } : {}),
+        ...(since ? { appliedAt: { gte: since } } : {}),
       },
       select: { appliedQuantity: true, paidQuantity: true },
     });
@@ -172,6 +187,18 @@ export async function applyEtsyOfferingInventoryObservation(
     });
 
     if (applied.status === "SKIPPED") {
+      const desireVersion = Math.max(variantMap.inventoryDesiredVersion, 1);
+      await db.etsyVariantMap.update({
+        where: { id: variantMap.id },
+        data: {
+          inventoryDesiredAvailable: remote,
+          inventoryDesiredVersion: desireVersion,
+          inventoryAppliedAvailable: remote,
+          inventoryAppliedVersion: desireVersion,
+          inventoryAppliedAt: input.now ?? new Date(),
+          inventoryDesiredAt: variantMap.inventoryDesiredAt ?? input.now ?? new Date(),
+        },
+      });
       return { status: "ECHO_CONFIRMED" };
     }
 
@@ -217,15 +244,6 @@ export async function applyEtsyListingInventoryInbound(
     now?: Date;
   }
 ): Promise<{ applied: number; waitingOrder: number }> {
-  const pendingSales = await db.etsyOrderLineSaleFact.count({
-    where: {
-      etsyConnectionId: input.connectionId,
-      applyState: "PENDING",
-      etsyListingId: input.etsyListingId,
-    },
-  });
-  const hasPendingOrderEvidence = pendingSales > 0;
-
   let applied = 0;
   let waitingOrder = 0;
   for (const variant of input.variants) {
@@ -237,12 +255,21 @@ export async function applyEtsyListingInventoryInbound(
       etsyListingId: input.etsyListingId,
       etsyOfferingId: variant.etsyOfferingId,
       remoteAvailable: variant.quantity,
-      hasPendingOrderEvidence,
       now: input.now,
     });
     if (result.status === "APPLIED_EDIT") applied += 1;
     if (result.status === "WAITING_ORDER") waitingOrder += 1;
   }
+
+  // Echo-only polls still heal StoreItem.quantity / variants JSON when foundation drifted.
+  const listing = await db.etsyListingLink.findFirst({
+    where: { id: input.listingLinkId, etsyConnectionId: input.connectionId },
+    select: { storeItemId: true },
+  });
+  if (listing?.storeItemId) {
+    await projectStoreItemQuantity(db, listing.storeItemId);
+  }
+
   return { applied, waitingOrder };
 }
 

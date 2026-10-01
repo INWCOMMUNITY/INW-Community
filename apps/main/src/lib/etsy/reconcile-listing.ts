@@ -14,13 +14,17 @@ import {
   syncEtsyListingVariantTopology,
 } from "./sync-listing-variants";
 
-function parsePayload(payload: unknown): { listingLinkId: string; storeItemId: string } | null {
+function parsePayload(payload: unknown): {
+  listingLinkId: string;
+  storeItemId: string;
+  pushTopology: boolean;
+} | null {
   if (!payload || typeof payload !== "object") return null;
   const row = payload as Record<string, unknown>;
   const listingLinkId = typeof row.listingLinkId === "string" ? row.listingLinkId : "";
   const storeItemId = typeof row.storeItemId === "string" ? row.storeItemId : "";
   if (!listingLinkId || !storeItemId) return null;
-  return { listingLinkId, storeItemId };
+  return { listingLinkId, storeItemId, pushTopology: row.pushTopology === true };
 }
 
 /** RECONCILE_LISTING: remesh Size×Color maps, refresh health, re-ensure outbound jobs. */
@@ -89,28 +93,31 @@ export async function handleEtsyReconcileListingJob(
       defaultTaxonomyId: resolveEtsyTaxonomyFallback(connection.defaultTaxonomyId),
       inventoryTracking: storeItem.inventoryTracking,
     });
-    if (how.ok) {
-      const readiness = await resolveEtsyReadinessStateId({
-        connectionId: connection.id,
-        memberId: connection.memberId,
-        shopId: connection.shopId,
-        whenMade: how.whenMade,
-        inventoryTracking: storeItem.inventoryTracking,
-      });
-      if (readiness.ok) {
-        const synced = await syncEtsyListingVariantTopology({
+    const readiness = how.ok
+      ? await resolveEtsyReadinessStateId({
           connectionId: connection.id,
           memberId: connection.memberId,
-          listingLinkId: listing.id,
-          storeItemId: storeItem.id,
-          etsyListingId: listing.etsyListingId,
-          taxonomyId: how.taxonomyId,
-          readinessStateId: readiness.readinessStateId,
+          shopId: connection.shopId,
+          whenMade: how.whenMade,
           inventoryTracking: storeItem.inventoryTracking,
-        });
-        if (isSyncEtsyVariantTopologyFailure(synced)) {
-          return synced;
-        }
+        })
+      : null;
+    const canPush = Boolean(payload.pushTopology && how.ok && readiness?.ok);
+    const canPull = !payload.pushTopology;
+    if (canPush || canPull) {
+      const synced = await syncEtsyListingVariantTopology({
+        connectionId: connection.id,
+        memberId: connection.memberId,
+        listingLinkId: listing.id,
+        storeItemId: storeItem.id,
+        etsyListingId: listing.etsyListingId,
+        taxonomyId: how.ok ? how.taxonomyId : 0,
+        readinessStateId: readiness?.ok ? readiness.readinessStateId : 0,
+        inventoryTracking: storeItem.inventoryTracking,
+        direction: canPush ? "push" : "pull",
+      });
+      if (isSyncEtsyVariantTopologyFailure(synced)) {
+        return synced;
       }
     }
   }

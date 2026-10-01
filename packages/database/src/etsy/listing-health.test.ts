@@ -48,6 +48,18 @@ describe("classifyEtsyListingHealth divergence", () => {
     expect(health.issueCode).toBe("CONTENT_OBSERVATION_DIVERGED");
   });
 
+  it("flags INVENTORY_OBSERVATION_DIVERGED when observed qty differs", () => {
+    const health = classifyEtsyListingHealth({
+      connectionStatus: "ACTIVE",
+      listing: baseListing,
+      variantMaps: [baseMap],
+      hasCausalSaleConflict: false,
+      inventoryObservationDiverged: true,
+    });
+    expect(health.readiness).toBe("ACTION_REQUIRED");
+    expect(health.issueCode).toBe("INVENTORY_OBSERVATION_DIVERGED");
+  });
+
   it("stays healthy when channels match", () => {
     const health = classifyEtsyListingHealth({
       connectionStatus: "ACTIVE",
