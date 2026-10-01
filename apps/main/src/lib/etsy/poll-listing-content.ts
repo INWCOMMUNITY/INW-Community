@@ -273,12 +273,18 @@ export async function handleEtsyPollListingContentJob(
 
     // Refresh Apps Airport health after inbound so completed qty/content sync
     // clears stale INVENTORY_SYNC_PENDING / CONTENT_SYNC_PENDING banners.
+    // Pass live remote product count so multi↔simple mismatches need attention.
+    const remoteProductCountEarly = new Set(
+      fetched.remote.variants.map((v) => v.etsyProductId)
+    ).size;
     await reconcileEtsyListingHealthFromDb(prisma, {
       connectionId: connection.id,
       listingLinkId: link.id,
+      remoteProductCount: remoteProductCountEarly,
     }).catch(() => undefined);
 
     // Size×Color: when INW ACTIVE variants and Etsy products diverge, remesh/push via cron.
+    // Also push multi→simple collapse when INW is one variant but Etsy still has variations.
     const activeVariantCount = await prisma.storeVariant.count({
       where: {
         storeItemId: link.storeItemId,
@@ -289,11 +295,13 @@ export async function handleEtsyPollListingContentJob(
     const mapCount = await prisma.etsyVariantMap.count({
       where: { etsyListingLinkId: link.id, etsyConnectionId: connection.id },
     });
-    const remoteProductCount = new Set(fetched.remote.variants.map((v) => v.etsyProductId)).size;
-    if (
-      activeVariantCount > 1 &&
-      (mapCount !== activeVariantCount || remoteProductCount !== activeVariantCount)
-    ) {
+    const remoteProductCount = remoteProductCountEarly;
+    const needsTopologySync =
+      (activeVariantCount > 1 &&
+        (mapCount !== activeVariantCount || remoteProductCount !== activeVariantCount)) ||
+      (activeVariantCount === 1 && remoteProductCount > 1) ||
+      (activeVariantCount >= 1 && mapCount !== activeVariantCount);
+    if (needsTopologySync) {
       const storeItem = await prisma.storeItem.findFirst({
         where: { id: link.storeItemId, memberId: connection.memberId },
         select: {
@@ -339,6 +347,15 @@ export async function handleEtsyPollListingContentJob(
             if (isSyncEtsyVariantTopologyFailure(synced) && synced.outcome === "RETRY") {
               return synced;
             }
+            const remoteAfter =
+              !isSyncEtsyVariantTopologyFailure(synced) && synced.status === "PUSHED"
+                ? activeVariantCount
+                : remoteProductCount;
+            await reconcileEtsyListingHealthFromDb(prisma, {
+              connectionId: connection.id,
+              listingLinkId: link.id,
+              remoteProductCount: remoteAfter,
+            }).catch(() => undefined);
           }
         }
       }

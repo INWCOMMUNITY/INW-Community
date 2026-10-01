@@ -37,6 +37,7 @@ import {
   trackedAvailable,
 } from "../commerce-foundation-inventory";
 import {
+  applyFoundationSellerCollapseToSimple,
   applyFoundationSellerMatrixStructure,
   applyFoundationSellerQuantitySets,
   assertFoundationMatrixStructureUnchanged,
@@ -1315,6 +1316,54 @@ describe("prompt-65 checkout idempotency / races / restock", () => {
       where: { variantId: active.find((v) => JSON.stringify(v.options).includes("S"))!.id },
     });
     expect(qtyS?.onHand).toBe(3);
+  });
+
+  it("FOUNDATION collapses matrix → simple and clears variants JSON (no Etsy snap-back seed)", async () => {
+    await resetSingleton();
+    await enterFoundation();
+    const member = await createMember(prisma, "collapse");
+    const item = await createStoreItem(prisma, member.id, "Collapse", {
+      quantity: 2,
+      priceCents: 1200,
+      variants: {
+        axes: [{ name: "Size", values: ["S", "M"] }],
+        skus: [
+          { options: { Size: "S" }, quantity: 1, priceCents: 300 },
+          { options: { Size: "M" }, quantity: 1, priceCents: 500 },
+        ],
+      },
+    });
+    await prisma.$transaction((tx) => provisionNativeFoundationListing(tx, item.id));
+    expect(
+      await prisma.storeVariant.count({ where: { storeItemId: item.id, status: "ACTIVE" } })
+    ).toBe(2);
+
+    const result = await prisma.$transaction((tx) =>
+      applyFoundationSellerCollapseToSimple(tx, {
+        storeItemId: item.id,
+        memberId: member.id,
+        commandId: `collapse-${item.id}`,
+        simpleTarget: 7,
+        priceCents: 1200,
+      })
+    );
+    expect(result.structureChanged).toBe(true);
+    expect(result.retired).toBe(1);
+
+    const active = await prisma.storeVariant.findMany({
+      where: { storeItemId: item.id, status: "ACTIVE" },
+    });
+    expect(active).toHaveLength(1);
+    expect(active[0]!.isDefault).toBe(true);
+    expect(Object.keys((active[0]!.options ?? {}) as object)).toHaveLength(0);
+    const inv = await prisma.inventoryState.findUniqueOrThrow({
+      where: { variantId: active[0]!.id },
+    });
+    expect(inv.onHand).toBe(7);
+    const updated = await prisma.storeItem.findUniqueOrThrow({ where: { id: item.id } });
+    expect(updated.variants).toBeNull();
+    expect(updated.quantity).toBe(7);
+    expect(updated.priceCents).toBe(1200);
   });
 
   it("FOUNDATION matrix rematches Color↔Primary color by option values", async () => {

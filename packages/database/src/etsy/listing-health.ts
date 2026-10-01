@@ -7,6 +7,7 @@ import type {
   PrismaClient,
 } from "@prisma/client";
 import { enqueueEtsySyncJob } from "./jobs";
+import { etsyVariantContentFingerprint } from "./content-fingerprint";
 
 export type EtsyHealthDb = PrismaClient | Prisma.TransactionClient;
 
@@ -39,9 +40,16 @@ export function classifyEtsyListingHealth(input: {
       | "inventoryAppliedVersion"
       | "inventoryDesiredAvailable"
       | "inventoryAppliedAvailable"
+      | "lastObservedVariantFingerprint"
+      | "appliedVariantFingerprint"
+      | "desiredVariantFingerprint"
     >
   >;
   hasCausalSaleConflict: boolean;
+  /** Remote product/offering topology does not match ACTIVE INW variants. */
+  topologyDiverged?: boolean;
+  /** Observed remote price/SKU fingerprint differs from local without a pending INW push. */
+  contentObservationDiverged?: boolean;
 }): EtsyListingHealthSnapshot {
   if (input.connectionStatus !== "ACTIVE") {
     return {
@@ -72,6 +80,28 @@ export function classifyEtsyListingHealth(input: {
       inventoryHealth: input.listing.inventoryHealth,
       issueCode: "VARIANT_CONTENT_CONFLICT",
       issueMessage: "An Etsy variant price/SKU conflict needs review",
+    };
+  }
+
+  if (input.topologyDiverged) {
+    return {
+      readiness: "ACTION_REQUIRED",
+      contentHealth: "DEGRADED",
+      inventoryHealth: "DEGRADED",
+      issueCode: "TOPOLOGY_DIVERGED",
+      issueMessage:
+        "INW and Etsy variant structure do not match (options vs simple). Needs attention until both sides align.",
+    };
+  }
+
+  if (input.contentObservationDiverged) {
+    return {
+      readiness: "ACTION_REQUIRED",
+      contentHealth: "DEGRADED",
+      inventoryHealth: input.listing.inventoryHealth,
+      issueCode: "CONTENT_OBSERVATION_DIVERGED",
+      issueMessage:
+        "Etsy price/SKU does not match INW. Needs attention until both marketplaces show the same values.",
     };
   }
 
@@ -227,7 +257,12 @@ export async function enqueueDueEtsyListingReconciliations(
 
 export async function reconcileEtsyListingHealthFromDb(
   db: EtsyHealthDb,
-  input: { connectionId: string; listingLinkId: string }
+  input: {
+    connectionId: string;
+    listingLinkId: string;
+    /** When known from a live poll, compare to ACTIVE INW variant count. */
+    remoteProductCount?: number;
+  }
 ): Promise<EtsyListingHealthSnapshot | null> {
   const connection = await db.etsyConnection.findUnique({
     where: { id: input.connectionId },
@@ -251,11 +286,47 @@ export async function reconcileEtsyListingHealthFromDb(
     },
   });
 
+  const activeVariants = await db.storeVariant.findMany({
+    where: { storeItemId: listing.storeItemId, status: "ACTIVE" },
+    select: { id: true, priceCents: true, sku: true, options: true },
+  });
+  const activeIds = new Set(activeVariants.map((v) => v.id));
+  const mapIds = new Set(variantMaps.map((m) => m.storeVariantId));
+  const topologyDiverged =
+    activeVariants.length !== variantMaps.length ||
+    [...activeIds].some((id) => !mapIds.has(id)) ||
+    [...mapIds].some((id) => !activeIds.has(id)) ||
+    (typeof input.remoteProductCount === "number" &&
+      input.remoteProductCount !== activeVariants.length);
+
+  const byVariantId = new Map(activeVariants.map((v) => [v.id, v] as const));
+  let contentObservationDiverged = false;
+  for (const map of variantMaps) {
+    const desireAhead = map.desiredVariantContentVersion > map.appliedVariantContentVersion;
+    if (desireAhead || map.variantContentConflict) continue;
+    const observed = map.lastObservedVariantFingerprint;
+    if (!observed) continue;
+    const local = byVariantId.get(map.storeVariantId);
+    if (!local) continue;
+    const localFp = etsyVariantContentFingerprint({
+      priceCents: local.priceCents,
+      sku: local.sku,
+    });
+    // Observed remote fingerprint differs from what INW currently has, and we are not
+    // pushing an INW edit — channels are not identical → Needs attention.
+    if (observed !== localFp) {
+      contentObservationDiverged = true;
+      break;
+    }
+  }
+
   const health = classifyEtsyListingHealth({
     connectionStatus: connection.status,
     listing,
     variantMaps,
     hasCausalSaleConflict: saleConflict > 0,
+    topologyDiverged,
+    contentObservationDiverged,
   });
   await persistEtsyListingHealth(db, { listingLinkId: listing.id, health });
   return health;

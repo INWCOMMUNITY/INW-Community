@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import {
+  applyFoundationSellerCollapseToSimple,
   applyFoundationSellerMatrixStructure,
   applyFoundationSellerQuantitySets,
   endFoundationListing,
@@ -491,7 +492,10 @@ export async function PATCH(
             commandId: `sold-${itemId}-${randomUUID()}`,
           });
           delete (update as { quantity?: number }).quantity;
-        } else if (data.quantity !== undefined && !hasOptionQuantities(data.variants ?? existing.variants)) {
+        } else if (
+          data.variants === null ||
+          (data.quantity !== undefined && !hasOptionQuantities(data.variants ?? existing.variants))
+        ) {
           const activeVariants = await tx.storeVariant.findMany({
             where: { storeItemId: itemId, status: "ACTIVE" },
             select: { id: true, isDefault: true, options: true },
@@ -502,21 +506,39 @@ export async function PATCH(
               const opts = (v.options ?? {}) as Record<string, unknown>;
               return opts && typeof opts === "object" && Object.keys(opts).length > 0;
             });
+          const simpleQty =
+            typeof data.quantity === "number" && Number.isFinite(data.quantity)
+              ? Math.max(0, Math.trunc(data.quantity))
+              : existing.quantity;
           if (matrixActive && data.variants === null) {
-            throw Object.assign(
-              new Error(
-                "This listing has size/color options. Keep Options enabled to edit stock, or remove options intentionally with a full matrix save."
-              ),
-              { code: "ambiguous_bulk_quantity" }
-            );
+            // Options disabled: collapse Size×Color → one simple variant and push topology.
+            const collapsed = await applyFoundationSellerCollapseToSimple(tx, {
+              storeItemId: itemId,
+              memberId: ownerId,
+              commandId: `collapse-${itemId}-${randomUUID()}`,
+              simpleTarget: Math.max(1, simpleQty),
+              priceCents:
+                typeof data.priceCents === "number" && data.priceCents > 0
+                  ? data.priceCents
+                  : existing.priceCents,
+              sku: data.sku !== undefined ? data.sku : existing.sku,
+            });
+            if (collapsed.structureChanged) {
+              await recordEtsyListingVariantTopologyDesire(tx, {
+                memberId: ownerId,
+                storeItemId: itemId,
+              });
+            }
+            delete (update as { quantity?: number }).quantity;
+          } else if (data.quantity !== undefined) {
+            await applyFoundationSellerQuantitySets(tx, {
+              storeItemId: itemId,
+              memberId: ownerId,
+              commandId: `set-${itemId}-${randomUUID()}`,
+              simpleTarget: data.quantity,
+            });
+            delete (update as { quantity?: number }).quantity;
           }
-          await applyFoundationSellerQuantitySets(tx, {
-            storeItemId: itemId,
-            memberId: ownerId,
-            commandId: `set-${itemId}-${randomUUID()}`,
-            simpleTarget: data.quantity,
-          });
-          delete (update as { quantity?: number }).quantity;
         } else if (data.variants !== undefined && hasOptionQuantities(data.variants)) {
           const matrix = normalizeVariantMatrix(data.variants);
           const facadePrice =

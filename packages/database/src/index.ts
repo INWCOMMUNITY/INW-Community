@@ -155,6 +155,7 @@ export {
 } from "./commerce-foundation-variant-resolution";
 export {
   applyFoundationSellerQuantitySets,
+  applyFoundationSellerCollapseToSimple,
   applyFoundationSellerMatrixStructure,
   assertFoundationMatrixStructureUnchanged,
   assertNoStructuralVariantChange,

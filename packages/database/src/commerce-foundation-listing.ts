@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { analyzeStoreItem } from "./foundation/backfill/analyze";
 import { matrixFingerprint } from "./foundation/backfill/analyze";
 import type { PlannedVariant } from "./foundation/backfill/types";
@@ -306,6 +306,139 @@ export type FoundationMatrixSkuTarget = {
  * the next option-combination set. Creates InventoryState for new rows, retires
  * removed ACTIVE rows, reactivates matching RETIRED rows, then SETs onHand.
  */
+/**
+ * Seller turned off Size/Color options: keep one default StoreVariant (empty options),
+ * retire the rest, clear StoreItem.variants JSON, and SET simple onHand.
+ * Callers must enqueue marketplace topology desire when structureChanged.
+ */
+export async function applyFoundationSellerCollapseToSimple(
+  tx: FoundationDb,
+  args: {
+    storeItemId: string;
+    memberId: string;
+    commandId: string;
+    simpleTarget: number;
+    priceCents?: number;
+    sku?: string | null;
+  }
+): Promise<{ survivorVariantId: string; retired: number; structureChanged: boolean }> {
+  await lockCutoverShare(tx);
+  await lockStoreItemForUpdate(tx, args.storeItemId);
+
+  if (!Number.isInteger(args.simpleTarget) || args.simpleTarget < 0) {
+    throw new FoundationInventoryError(
+      "invalid_set_target",
+      "SIMPLE collapse requires an integer onHand >= 0"
+    );
+  }
+
+  const item = await tx.storeItem.findUnique({
+    where: { id: args.storeItemId },
+    select: {
+      id: true,
+      memberId: true,
+      inventoryTracking: true,
+      priceCents: true,
+      sku: true,
+    },
+  });
+  if (!item || item.memberId !== args.memberId) {
+    throw new FoundationMissingStateError(`StoreItem ${args.storeItemId} not found`);
+  }
+  if (item.inventoryTracking === "made_to_order") {
+    throw new FoundationInventoryError(
+      "mto_set_forbidden",
+      "Cannot collapse made-to-order listings via simple quantity SET"
+    );
+  }
+
+  const active = await tx.storeVariant.findMany({
+    where: { storeItemId: args.storeItemId, status: "ACTIVE" },
+    orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+  });
+  if (active.length < 1) {
+    throw new FoundationMissingStateError(`StoreItem ${args.storeItemId} has no ACTIVE Variants`);
+  }
+
+  const hasOptions = (raw: Prisma.JsonValue) => Object.keys(optionsRecordOf(raw)).length > 0;
+  const alreadySimple = active.length === 1 && !hasOptions(active[0]!.options);
+  const survivor = alreadySimple
+    ? active[0]!
+    : active.find((v) => v.isDefault) ?? active[0]!;
+
+  const nextPrice =
+    typeof args.priceCents === "number" && Number.isFinite(args.priceCents) && args.priceCents > 0
+      ? Math.round(args.priceCents)
+      : survivor.priceCents > 0
+        ? survivor.priceCents
+        : item.priceCents;
+  const nextSku =
+    args.sku !== undefined ? (typeof args.sku === "string" ? args.sku.trim() || null : null) : survivor.sku;
+
+  if (!alreadySimple) {
+    await tx.storeVariant.update({
+      where: { id: survivor.id },
+      data: {
+        options: {},
+        isDefault: true,
+        priceCents: nextPrice,
+        sku: nextSku,
+        status: "ACTIVE",
+        retiredAt: null,
+      },
+    });
+
+    const toRetire = active.filter((v) => v.id !== survivor.id);
+    if (toRetire.length > 0) {
+      const retireIds = toRetire.map((v) => v.id);
+      const now = new Date();
+      await tx.storeVariant.updateMany({
+        where: { id: { in: retireIds } },
+        data: { status: "RETIRED", retiredAt: now, isDefault: false },
+      });
+      await tx.etsyVariantMap.deleteMany({ where: { storeVariantId: { in: retireIds } } });
+      await tx.shopifyVariantMap.deleteMany({ where: { storeVariantId: { in: retireIds } } });
+    }
+  } else if (
+    survivor.priceCents !== nextPrice ||
+    survivor.sku !== nextSku ||
+    !survivor.isDefault
+  ) {
+    await tx.storeVariant.update({
+      where: { id: survivor.id },
+      data: {
+        priceCents: nextPrice,
+        sku: nextSku,
+        isDefault: true,
+        options: {},
+      },
+    });
+  }
+
+  await setTrackedOnHand(tx, {
+    variantId: survivor.id,
+    targetOnHand: args.simpleTarget,
+    commandId: `${args.commandId}:${survivor.id}`,
+    memberId: args.memberId,
+  });
+
+  await tx.storeItem.update({
+    where: { id: args.storeItemId },
+    data: {
+      variants: Prisma.JsonNull,
+      priceCents: nextPrice,
+      sku: nextSku,
+    },
+  });
+  await projectStoreItemQuantity(tx, args.storeItemId);
+
+  return {
+    survivorVariantId: survivor.id,
+    retired: alreadySimple ? 0 : Math.max(0, active.length - 1),
+    structureChanged: !alreadySimple,
+  };
+}
+
 export async function applyFoundationSellerMatrixStructure(
   tx: FoundationDb,
   args: {

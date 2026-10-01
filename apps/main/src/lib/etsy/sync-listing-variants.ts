@@ -20,6 +20,7 @@ import {
   optionsFromEtsyPropertyValues,
   parseStoreVariantOptions,
   resolveEtsyVariationPropertyIds,
+  sellableQtyForEtsyVariant,
   validateEtsyExportVariants,
   type EtsyRemoteInventoryProduct,
   type EtsyStoreVariantRow,
@@ -246,7 +247,183 @@ export async function syncEtsyListingVariantTopology(input: {
     };
   }
   if (!gate.multi) {
-    return { status: "NOOP", reason: "SINGLE_VARIANT" };
+    // Local is simple/single. If Etsy still has variations, push collapse — never NOOP
+    // while remote stays multi (that left INW "synced" while channels diverged).
+    const inventoryRes = await etsyConnectionRequest<{ products?: EtsyRemoteInventoryProduct[] }>({
+      connectionId: input.connectionId,
+      memberId: input.memberId,
+      method: "GET",
+      path: `/listings/${encodeURIComponent(input.etsyListingId)}/inventory`,
+      query: { max_variations_supported: 3 },
+      maxAttempts: 3,
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+    });
+    if (!inventoryRes.ok || !inventoryRes.data?.products) {
+      return classifyFailure(inventoryRes.class, inventoryRes.retryAfterMs, inventoryRes.message);
+    }
+    const remoteProducts = inventoryRes.data.products;
+    const remoteIsMulti =
+      remoteProducts.length > 1 ||
+      remoteProducts.some((p) => {
+        const opts = optionsFromEtsyPropertyValues(p.property_values);
+        return Object.keys(opts).length > 0;
+      });
+    if (!remoteIsMulti && !input.forcePush) {
+      // Already a single offering on Etsy — rematch the one map if needed.
+      const survivor = variantRows[0]!;
+      const product = remoteProducts[0];
+      const offering =
+        (product?.offerings ?? []).find((o) => o?.is_enabled !== false) ?? product?.offerings?.[0];
+      const productId = String(product?.product_id ?? "").trim();
+      const offeringId = String(offering?.offering_id ?? "").trim();
+      if (/^\d+$/.test(productId) && /^\d+$/.test(offeringId)) {
+        const mapOk =
+          maps.length === 1 &&
+          maps[0]!.storeVariantId === survivor.id &&
+          maps[0]!.etsyProductId === productId &&
+          maps[0]!.etsyOfferingId === offeringId;
+        if (!mapOk) {
+          try {
+            await prisma.$transaction(async (tx) => {
+              await replaceEtsyListingVariantMaps(tx, {
+                listingLinkId: input.listingLinkId,
+                connectionId: input.connectionId,
+                memberId: input.memberId,
+                storeItemId: input.storeItemId,
+                variants: [
+                  {
+                    storeVariantId: survivor.id,
+                    etsyProductId: productId,
+                    etsyOfferingId: offeringId,
+                    remoteSku: typeof product?.sku === "string" ? product.sku : null,
+                    remoteAvailable:
+                      typeof offering?.quantity === "number"
+                        ? Math.max(0, Math.trunc(offering.quantity))
+                        : null,
+                  },
+                ],
+              });
+              await captureEtsyInventoryProjectionDesire(tx, {
+                memberId: input.memberId,
+                storeVariantId: survivor.id,
+              });
+            });
+            return { status: "REMATCHED", pairCount: 1 };
+          } catch (error) {
+            return {
+              outcome: "DEAD",
+              errorClass: "PERMANENT",
+              errorCode: "MAPPING_FAILED",
+              errorMessage:
+                error instanceof Error ? error.message.slice(0, 500) : "Simple variant remap failed",
+            };
+          }
+        }
+      }
+      return { status: "NOOP", reason: "SINGLE_VARIANT" };
+    }
+
+    const survivor = variantRows[0]!;
+    const qty = sellableQtyForEtsyVariant(survivor, input.inventoryTracking);
+    const put = await etsyConnectionRequest<{ products?: EtsyRemoteInventoryProduct[] }>({
+      connectionId: input.connectionId,
+      memberId: input.memberId,
+      method: "PUT",
+      path: `/listings/${encodeURIComponent(input.etsyListingId)}/inventory`,
+      query: ETSY_INVENTORY_QUERY,
+      body: toEtsyInventoryPutBody({
+        products: [
+          {
+            sku: (survivor.sku ?? "").trim(),
+            property_values: [],
+            offerings: [
+              {
+                price: Math.max(0.2, survivor.priceCents / 100),
+                quantity: Math.max(0, qty),
+                is_enabled: true,
+                readiness_state_id: input.readinessStateId,
+              },
+            ],
+          },
+        ],
+        price_on_property: [],
+        quantity_on_property: [],
+        sku_on_property: [],
+      }),
+      maxAttempts: 1,
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+    });
+    if (!put.ok) {
+      return classifyFailure(put.class, put.retryAfterMs, put.message);
+    }
+
+    const afterRes = await etsyConnectionRequest<{ products?: EtsyRemoteInventoryProduct[] }>({
+      connectionId: input.connectionId,
+      memberId: input.memberId,
+      method: "GET",
+      path: `/listings/${encodeURIComponent(input.etsyListingId)}/inventory`,
+      query: { max_variations_supported: 3 },
+      maxAttempts: 3,
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+    });
+    if (!afterRes.ok || !afterRes.data?.products?.length) {
+      return classifyFailure(
+        afterRes.class || "PERMANENT",
+        afterRes.retryAfterMs,
+        afterRes.message || "Could not read inventory after simple topology PUT"
+      );
+    }
+    const product = afterRes.data.products[0]!;
+    const offering =
+      (product.offerings ?? []).find((o) => o?.is_enabled !== false) ?? product.offerings?.[0];
+    const productId = String(product.product_id ?? "").trim();
+    const offeringId = String(offering?.offering_id ?? "").trim();
+    if (!/^\d+$/.test(productId) || !/^\d+$/.test(offeringId)) {
+      return {
+        outcome: "DEAD",
+        errorClass: "PERMANENT",
+        errorCode: "INVENTORY_SHAPE",
+        errorMessage: "Etsy product/offering ids missing after simple inventory PUT",
+      };
+    }
+    try {
+      await prisma.$transaction(async (tx) => {
+        await replaceEtsyListingVariantMaps(tx, {
+          listingLinkId: input.listingLinkId,
+          connectionId: input.connectionId,
+          memberId: input.memberId,
+          storeItemId: input.storeItemId,
+          variants: [
+            {
+              storeVariantId: survivor.id,
+              etsyProductId: productId,
+              etsyOfferingId: offeringId,
+              remoteSku: typeof product.sku === "string" ? product.sku : null,
+              remoteAvailable:
+                typeof offering?.quantity === "number"
+                  ? Math.max(0, Math.trunc(offering.quantity))
+                  : null,
+            },
+          ],
+        });
+        await captureEtsyInventoryProjectionDesire(tx, {
+          memberId: input.memberId,
+          storeVariantId: survivor.id,
+        });
+      });
+    } catch (error) {
+      return {
+        outcome: "DEAD",
+        errorClass: "PERMANENT",
+        errorCode: "MAPPING_FAILED",
+        errorMessage:
+          error instanceof Error ? error.message.slice(0, 500) : "Simple variant remap failed",
+      };
+    }
+    return { status: "PUSHED", pairCount: 1 };
   }
 
   const localKeys = localVariantComboKeys(variantRows);

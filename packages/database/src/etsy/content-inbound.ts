@@ -411,6 +411,21 @@ export async function applyEtsyListingContentInbound(
         },
       });
       appliedRemoteVariant = true;
+    } else if (variantClass === "CONVERGED" && localVariantFp !== remoteVariantFp) {
+      // Desire fingerprint matched remote but StoreVariant row still differs (facade desire
+      // bump without row write). Never advance applied without making canonical match remote.
+      const nextPrice =
+        Number.isFinite(remoteVariant.priceCents) && remoteVariant.priceCents > 0
+          ? Math.round(remoteVariant.priceCents)
+          : storeVariant.priceCents;
+      await db.storeVariant.update({
+        where: { id: storeVariant.id },
+        data: {
+          priceCents: nextPrice,
+          sku: remoteVariant.sku,
+        },
+      });
+      appliedRemoteVariant = true;
     } else if (
       (variantClass === "CONVERGED" || variantClass === "UNCHANGED") &&
       remoteVariant.options &&
@@ -490,10 +505,9 @@ export async function applyEtsyListingContentInbound(
     }
   }
 
-  // Roll StoreItem.priceCents up from ACTIVE variants (min = listing "from" price).
-  // Qty inbound already updates StoreItem.quantity; price must do the same for Airport/UI.
-  // Single-variant also mirrors SKU onto the StoreItem facade.
-  if (appliedRemoteVariant) {
+  // Keep StoreItem.priceCents = min ACTIVE variant ("from" price) whenever variants
+  // were touched — and also heal a stale facade after unchanged observations.
+  {
     const activeVariants = await db.storeVariant.findMany({
       where: {
         storeItemId: storeItem.id,
@@ -509,13 +523,24 @@ export async function applyEtsyListingContentInbound(
       .map((p) => Math.trunc(p));
     if (positivePrices.length > 0) {
       const facadePrice = Math.min(...positivePrices);
-      await db.storeItem.update({
-        where: { id: storeItem.id },
-        data: {
-          priceCents: facadePrice,
-          ...(activeVariants.length === 1 ? { sku: activeVariants[0]!.sku } : {}),
-        },
-      });
+      const skuPatch =
+        activeVariants.length === 1 ? { sku: activeVariants[0]!.sku } : {};
+      const facadeStale =
+        storeItem.priceCents !== facadePrice ||
+        (activeVariants.length === 1 && storeItem.sku !== activeVariants[0]!.sku);
+      if (appliedRemoteVariant || facadeStale) {
+        await db.storeItem.update({
+          where: { id: storeItem.id },
+          data: {
+            priceCents: facadePrice,
+            ...skuPatch,
+          },
+        });
+        if (facadeStale && !appliedRemoteVariant) {
+          // Facade-only heal still fans out to Shopify when listing price column moved.
+          appliedRemoteVariant = true;
+        }
+      }
     }
   }
 
