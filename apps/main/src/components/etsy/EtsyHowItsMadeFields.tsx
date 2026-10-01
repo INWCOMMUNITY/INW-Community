@@ -104,29 +104,6 @@ export function EtsyHowItsMadeFields({ value, onChange, madeToOrder, embedded = 
           </select>
         )}
       </div>
-
-      <div className="mt-4">
-        <label className={listingLabelClass} htmlFor="etsyTaxonomyId">
-          Etsy taxonomy ID
-        </label>
-        <input
-          id="etsyTaxonomyId"
-          type="text"
-          inputMode="numeric"
-          className={`${listingInputClass} max-w-xs`}
-          value={value.etsyTaxonomyId}
-          onChange={(e) =>
-            onChange({
-              ...value,
-              etsyTaxonomyId: e.target.value.replace(/\D/g, "").slice(0, 12),
-            })
-          }
-          placeholder="Optional if shop default is set"
-        />
-        <p className="mt-1 text-xs text-neutral-500">
-          Leave blank to use your Etsy connection default taxonomy.
-        </p>
-      </div>
     </>
   );
 

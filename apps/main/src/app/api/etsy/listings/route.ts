@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
       issueMessage: true,
       importSource: true,
       updatedAt: true,
-      storeItem: { select: { title: true, status: true } },
+      storeItem: { select: { title: true, status: true, priceCents: true, quantity: true } },
     },
   });
 
@@ -60,6 +60,8 @@ export async function GET(req: NextRequest) {
       etsyListingId: row.etsyListingId,
       title: row.storeItem.title,
       storeItemStatus: row.storeItem.status,
+      priceCents: row.storeItem.priceCents,
+      quantity: row.storeItem.quantity,
       readiness: row.readiness,
       contentHealth: row.contentHealth,
       inventoryHealth: row.inventoryHealth,

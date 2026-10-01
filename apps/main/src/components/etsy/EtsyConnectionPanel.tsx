@@ -18,7 +18,7 @@ type PublicConnection = {
 type ShippingProfile = { id: string; title: string };
 
 export function EtsyConnectionPanel({
-  heading = "Connection settings",
+  heading = "Connection Settings",
   showHeading = true,
 }: {
   heading?: string;
@@ -30,7 +30,6 @@ export function EtsyConnectionPanel({
   const [loading, setLoading] = useState(true);
   const [profiles, setProfiles] = useState<ShippingProfile[]>([]);
   const [defaultShippingProfileId, setDefaultShippingProfileId] = useState("");
-  const [defaultTaxonomyId, setDefaultTaxonomyId] = useState("");
   const [savingDefaults, setSavingDefaults] = useState(false);
 
   async function load() {
@@ -52,18 +51,13 @@ export function EtsyConnectionPanel({
         const profilesBody = (await profilesRes.json()) as {
           profiles: ShippingProfile[];
           defaultShippingProfileId: string | null;
-          defaultTaxonomyId: number | null;
         };
         setProfiles(profilesBody.profiles ?? []);
         setDefaultShippingProfileId(profilesBody.defaultShippingProfileId ?? "");
-        setDefaultTaxonomyId(
-          profilesBody.defaultTaxonomyId != null ? String(profilesBody.defaultTaxonomyId) : ""
-        );
       }
     } else {
       setProfiles([]);
       setDefaultShippingProfileId("");
-      setDefaultTaxonomyId("");
     }
   }
 
@@ -129,7 +123,6 @@ export function EtsyConnectionPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           defaultShippingProfileId: defaultShippingProfileId || null,
-          defaultTaxonomyId: defaultTaxonomyId || null,
         }),
       });
       if (!response.ok) {
@@ -183,8 +176,8 @@ export function EtsyConnectionPanel({
           ) : (
             <button
               type="button"
-              className="btn border border-gray-300 bg-white hover:bg-gray-50"
-              style={{ color: "var(--color-heading)" }}
+              className="btn"
+              style={{ color: "#fff" }}
               onClick={() => void onDisconnect(active.id)}
             >
               Disconnect
@@ -196,15 +189,14 @@ export function EtsyConnectionPanel({
       {active ? (
         <div className="mt-4 rounded-[10px] border border-neutral-200 p-4 space-y-3">
           <p className="text-sm font-semibold" style={{ color: "var(--color-heading)" }}>
-            Publish defaults
+            Publish Defaults
           </p>
           <p className="text-xs text-neutral-500">
-            Required before List on Etsy. Shipping profile activates new listings; taxonomy is the
-            fallback category when a listing omits one.
+            Required before List on Etsy. Shipping profile activates new listings.
           </p>
           <div>
             <label className="block text-sm font-medium mb-1" htmlFor="etsyShippingProfile">
-              Default shipping profile
+              Default Shipping Profile
             </label>
             <select
               id="etsyShippingProfile"
@@ -220,27 +212,13 @@ export function EtsyConnectionPanel({
               ))}
             </select>
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1" htmlFor="etsyTaxonomyDefault">
-              Default taxonomy ID
-            </label>
-            <input
-              id="etsyTaxonomyDefault"
-              type="text"
-              inputMode="numeric"
-              className="w-full border rounded px-2 py-1.5 text-sm"
-              value={defaultTaxonomyId}
-              onChange={(e) => setDefaultTaxonomyId(e.target.value.replace(/\D/g, "").slice(0, 12))}
-              placeholder="e.g. 69150467"
-            />
-          </div>
           <button
             type="button"
             className="btn"
             disabled={savingDefaults}
             onClick={() => void onSaveDefaults()}
           >
-            {savingDefaults ? "Saving…" : "Save defaults"}
+            {savingDefaults ? "Saving…" : "Save Defaults"}
           </button>
         </div>
       ) : null}

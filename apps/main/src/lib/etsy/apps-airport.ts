@@ -9,6 +9,8 @@ export const APPS_AIRPORT_ETSY_IMPORT_PATH = `${APPS_AIRPORT_ETSY_PATH}/import`;
 
 export type EtsyConnectionUiStatus = "connected" | "disconnected";
 
+export type EtsyListingUiStatus = "Live" | "Needs attention" | "Unpublished" | "Syncing";
+
 export function classifyEtsyConnectionUi(input: {
   status?: string | null;
 } | null): EtsyConnectionUiStatus {
@@ -32,6 +34,49 @@ export function appsAirportEtsyHubTitle(
   return `${displayName} (${connectionStatusLabel})`;
 }
 
+export function etsyListingUiStatus(input: {
+  readiness?: string | null;
+  contentHealth?: string | null;
+  inventoryHealth?: string | null;
+  issueCode?: string | null;
+  storeItemStatus?: string | null;
+}): EtsyListingUiStatus {
+  if (input.storeItemStatus === "ended" || input.storeItemStatus === "draft") {
+    return "Unpublished";
+  }
+  if (
+    input.readiness === "ACTION_REQUIRED" ||
+    input.readiness === "CONNECTION_REQUIRED" ||
+    input.contentHealth === "PAUSED" ||
+    input.inventoryHealth === "PAUSED" ||
+    input.contentHealth === "DEGRADED" ||
+    input.inventoryHealth === "DEGRADED" ||
+    Boolean(input.issueCode)
+  ) {
+    return "Needs attention";
+  }
+  if (input.readiness === "READY_TO_PUBLISH") return "Live";
+  return "Syncing";
+}
+
+export function etsyListingStatusChipClass(status: EtsyListingUiStatus): string {
+  switch (status) {
+    case "Live":
+      return "bg-[var(--color-section-alt)] text-[var(--color-heading)] border-[var(--color-heading)]/25";
+    case "Unpublished":
+      return "bg-neutral-100 text-neutral-700 border-neutral-300";
+    case "Needs attention":
+      return "bg-amber-50 text-amber-900 border-amber-200";
+    case "Syncing":
+      return "bg-sky-50 text-sky-900 border-sky-200";
+  }
+}
+
+export function formatEtsyCents(cents: number | null | undefined): string {
+  if (cents == null || !Number.isFinite(cents)) return "—";
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
 export const APPS_AIRPORT_ETSY_HUB = {
   id: "etsy" as const,
   displayName: "Etsy",
@@ -49,3 +94,9 @@ export const APPS_AIRPORT_ETSY_HUB = {
 
 /** True once E4 import routes are live. */
 export const ETSY_IMPORT_ENABLED = true;
+
+/**
+ * Silent platform taxonomy fallback when listing + connection omit taxonomy_id.
+ * Overridable via ETSY_DEFAULT_TAXONOMY_ID. Leaf: Art & Collectibles › Collectibles.
+ */
+export const ETSY_PLATFORM_DEFAULT_TAXONOMY_ID = 69150467;

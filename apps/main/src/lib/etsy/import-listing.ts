@@ -224,7 +224,15 @@ export async function importEtsyListing(input: {
             }))
           : pairByOptions(storeVariants, snap.variants);
 
-      if (pairs.length !== snap.variants.length) {
+      // Simple listings: one INW variant ↔ first Etsy offering when option matching fails.
+      const resolvedPairs =
+        pairs.length === snap.variants.length
+          ? pairs
+          : storeVariants.length === 1 && snap.variants.length === 1
+            ? [{ storeVariantId: storeVariants[0]!.id, remote: snap.variants[0]! }]
+            : pairs;
+
+      if (resolvedPairs.length !== snap.variants.length) {
         throw new EtsyMappingError(
           "VARIANT_CORRELATION_FAILED",
           "Could not correlate INW variants to Etsy offerings"
@@ -233,7 +241,7 @@ export async function importEtsyListing(input: {
 
       // Apply opening quantities onto foundation inventory for PHYSICAL imports.
       if (input.stockMode === "PHYSICAL") {
-        for (const pair of pairs) {
+        for (const pair of resolvedPairs) {
           await tx.inventoryState.updateMany({
             where: { variantId: pair.storeVariantId },
             data: { onHand: Math.max(0, pair.remote.quantity), reserved: 0 },
@@ -252,7 +260,7 @@ export async function importEtsyListing(input: {
         etsyListingId: listingId,
         remoteListingState: snap.state,
         importBootstrapStartedAt: bootstrapStartedAt,
-        variants: pairs.map((pair) => ({
+        variants: resolvedPairs.map((pair) => ({
           storeVariantId: pair.storeVariantId,
           etsyProductId: pair.remote.etsyProductId,
           etsyOfferingId: pair.remote.etsyOfferingId,
@@ -266,8 +274,8 @@ export async function importEtsyListing(input: {
         attemptId: attempt.id,
         storeItemId: storeItem.id,
         listingLinkId: mapping.listingLinkId,
-        etsyProductId: pairs[0]?.remote.etsyProductId,
-        etsyOfferingId: pairs[0]?.remote.etsyOfferingId,
+        etsyProductId: resolvedPairs[0]?.remote.etsyProductId,
+        etsyOfferingId: resolvedPairs[0]?.remote.etsyOfferingId,
       });
 
       return {

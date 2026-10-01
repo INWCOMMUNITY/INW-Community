@@ -136,19 +136,20 @@ function toCandidateFromListing(row: EtsyListingRow): EtsyImportCandidate {
         ? row.listing_id.trim()
         : "";
   const photos = listingPhotos(row);
+  // Discover list does not include inventory; Review/import hydrates and re-validates.
   return {
     etsyListingId: listingId,
     title: (typeof row.title === "string" ? row.title : "").trim() || "Untitled",
     description: typeof row.description === "string" ? row.description : "",
     state: typeof row.state === "string" ? row.state : "unknown",
-    supported: false,
-    unsupportedReason: "Inventory detail not loaded",
+    supported: true,
+    unsupportedReason: null,
     priceCents: moneyToCents(row.price),
     quantity: typeof row.quantity === "number" ? row.quantity : null,
     sku: typeof row.sku === "string" ? row.sku : null,
     imageUrl: photos[0] ?? null,
     photos,
-    recommendedStockMode: null,
+    recommendedStockMode: "PHYSICAL",
     variants: [],
     axes: [],
   };
@@ -168,23 +169,26 @@ export function hydrateEtsyCandidateWithInventory(
   }
 
   const variants: EtsyImportCandidateVariant[] = [];
-  for (const product of products) {
+  for (const [productIndex, product] of products.entries()) {
     const productId =
       typeof product.product_id === "number"
         ? String(product.product_id)
         : typeof product.product_id === "string"
           ? product.product_id.trim()
-          : "";
-    const offering = Array.isArray(product.offerings) ? product.offerings[0] : null;
+          : `p${productIndex}`;
+    const offerings = Array.isArray(product.offerings) ? product.offerings : [];
+    const offering =
+      offerings.find((o) => o?.is_enabled !== false) ?? offerings[0] ?? null;
     const offeringId =
       typeof offering?.offering_id === "number"
         ? String(offering.offering_id)
         : typeof offering?.offering_id === "string"
           ? offering.offering_id.trim()
           : "";
-    if (!productId || !offeringId) continue;
+    if (!offeringId) continue;
     const priceCents = moneyToCents(offering?.price) ?? base.priceCents ?? 0;
-    const quantity = typeof offering?.quantity === "number" ? Math.max(0, Math.trunc(offering.quantity)) : 0;
+    const quantity =
+      typeof offering?.quantity === "number" ? Math.max(0, Math.trunc(offering.quantity)) : 0;
     const skuRaw = typeof product.sku === "string" ? product.sku.trim() : "";
     variants.push({
       etsyProductId: productId,
@@ -198,7 +202,10 @@ export function hydrateEtsyCandidateWithInventory(
     });
   }
 
-  if (variants.length === 0) {
+  const enabledVariants = variants.filter((v) => v.enabled);
+  const usableVariants = enabledVariants.length > 0 ? enabledVariants : variants;
+
+  if (usableVariants.length === 0) {
     return {
       ...base,
       supported: false,
@@ -206,27 +213,27 @@ export function hydrateEtsyCandidateWithInventory(
     };
   }
 
-  const axes = buildAxes(variants);
+  const axes = buildAxes(usableVariants);
   if (axes.length > 3) {
     return {
       ...base,
       supported: false,
       unsupportedReason: "More than 3 variation axes are not supported",
-      variants,
+      variants: usableVariants,
       axes,
     };
   }
 
-  const totalQty = variants.reduce((sum, v) => sum + v.quantity, 0);
+  const totalQty = usableVariants.reduce((sum, v) => sum + v.quantity, 0);
   return {
     ...base,
     supported: true,
     unsupportedReason: null,
-    priceCents: variants[0]?.priceCents ?? base.priceCents,
+    priceCents: usableVariants[0]?.priceCents ?? base.priceCents,
     quantity: totalQty,
-    sku: variants[0]?.sku ?? base.sku,
+    sku: usableVariants[0]?.sku ?? base.sku,
     recommendedStockMode: "PHYSICAL",
-    variants,
+    variants: usableVariants,
     axes,
   };
 }
@@ -258,9 +265,8 @@ export async function discoverEtsyImportCandidates(input: {
     connectionId: connection.id,
     memberId: input.memberId,
     method: "GET",
-    path: `/shops/${encodeURIComponent(connection.shopId)}/listings`,
+    path: `/shops/${encodeURIComponent(connection.shopId)}/listings/active`,
     query: {
-      state: "active",
       limit,
       offset,
       includes: "Images",
@@ -269,14 +275,50 @@ export async function discoverEtsyImportCandidates(input: {
   });
 
   if (!result.ok) {
-    return {
-      status: "ERROR",
-      code: result.class === "AUTH" ? "UNAUTHORIZED" : result.class === "NOT_CONFIGURED" ? "NOT_CONFIGURED" : "PROVIDER_ERROR",
-      message: result.message || "Could not list Etsy listings.",
-    };
+    // Fallback for shops where /listings/active is unavailable.
+    const fallback = await etsyConnectionRequest<{
+      count?: number;
+      results?: EtsyListingRow[];
+    }>({
+      connectionId: connection.id,
+      memberId: input.memberId,
+      method: "GET",
+      path: `/shops/${encodeURIComponent(connection.shopId)}/listings`,
+      query: {
+        state: "active",
+        limit,
+        offset,
+        includes: "Images",
+      },
+      maxAttempts: 2,
+    });
+    if (!fallback.ok) {
+      return {
+        status: "ERROR",
+        code:
+          result.class === "AUTH" || fallback.class === "AUTH"
+            ? "UNAUTHORIZED"
+            : result.class === "NOT_CONFIGURED" || fallback.class === "NOT_CONFIGURED"
+              ? "NOT_CONFIGURED"
+              : "PROVIDER_ERROR",
+        message:
+          fallback.message ||
+          result.message ||
+          "Could not list Etsy listings. Reconnect Etsy if this keeps failing.",
+      };
+    }
+    return buildDiscoverResult(connection, fallback.data?.results ?? [], limit, offset);
   }
 
-  const rows = Array.isArray(result.data?.results) ? result.data!.results! : [];
+  return buildDiscoverResult(connection, result.data?.results ?? [], limit, offset);
+}
+
+async function buildDiscoverResult(
+  connection: { id: string; shopId: string; shopName: string | null },
+  rows: EtsyListingRow[],
+  limit: number,
+  offset: number
+): Promise<Extract<DiscoverEtsyImportCandidatesResult, { status: "OK" }>> {
   const mappedIds = new Set(
     (
       await prisma.etsyListingLink.findMany({
@@ -342,7 +384,10 @@ export async function fetchEtsyImportListingDetail(input: {
     return {
       status: "ERROR",
       code: listingRes.class === "AUTH" ? "UNAUTHORIZED" : "PROVIDER_ERROR",
-      message: listingRes.message || "Could not load Etsy listing.",
+      message:
+        listingRes.class === "AUTH"
+          ? "Etsy authorization expired. Reconnect in Connection Settings."
+          : listingRes.message || "Could not load Etsy listing.",
     };
   }
 
@@ -351,14 +396,16 @@ export async function fetchEtsyImportListingDetail(input: {
     memberId: input.memberId,
     method: "GET",
     path: `/listings/${encodeURIComponent(listingId)}/inventory`,
-    query: { max_variations_supported: 3 },
     maxAttempts: 3,
   });
   if (!inventoryRes.ok) {
     return {
       status: "ERROR",
       code: inventoryRes.class === "AUTH" ? "UNAUTHORIZED" : "PROVIDER_ERROR",
-      message: inventoryRes.message || "Could not load Etsy inventory.",
+      message:
+        inventoryRes.class === "AUTH"
+          ? "Etsy authorization expired. Reconnect in Connection Settings."
+          : inventoryRes.message || "Could not load Etsy inventory.",
     };
   }
 

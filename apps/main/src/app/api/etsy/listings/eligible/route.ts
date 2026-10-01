@@ -5,6 +5,7 @@ import {
 } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
+import { resolveEtsyTaxonomyFallback } from "@/lib/etsy/taxonomy-default";
 
 export const dynamic = "force-dynamic";
 
@@ -44,12 +45,7 @@ export async function GET(req: NextRequest) {
     select: { storeItemId: true },
   });
   const mappedIds = new Set(mapped.map((m) => m.storeItemId));
-
-  const envTaxonomy =
-    typeof process.env.ETSY_DEFAULT_TAXONOMY_ID === "string" &&
-    /^\d+$/.test(process.env.ETSY_DEFAULT_TAXONOMY_ID.trim())
-      ? Number.parseInt(process.env.ETSY_DEFAULT_TAXONOMY_ID.trim(), 10)
-      : null;
+  const taxonomyFallback = resolveEtsyTaxonomyFallback(connection.defaultTaxonomyId);
 
   const items = await prisma.storeItem.findMany({
     where: {
@@ -84,7 +80,7 @@ export async function GET(req: NextRequest) {
         etsyWhenMade: item.etsyWhenMade,
         etsyIsSupply: item.etsyIsSupply,
         etsyTaxonomyId: item.etsyTaxonomyId,
-        defaultTaxonomyId: connection.defaultTaxonomyId ?? envTaxonomy,
+        defaultTaxonomyId: taxonomyFallback,
         inventoryTracking: item.inventoryTracking,
       });
       return {
@@ -118,7 +114,7 @@ export async function GET(req: NextRequest) {
       shopId: connection.shopId,
       shopName: connection.shopName,
       defaultShippingProfileId: connection.defaultShippingProfileId,
-      defaultTaxonomyId: connection.defaultTaxonomyId ?? envTaxonomy,
+      defaultTaxonomyId: taxonomyFallback,
       shippingProfileReady: Boolean(connection.defaultShippingProfileId),
     },
     listings,

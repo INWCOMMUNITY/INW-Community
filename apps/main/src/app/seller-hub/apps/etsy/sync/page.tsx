@@ -4,10 +4,16 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
 import {
+  emptyEtsyHowItsMadeFormValue,
+  EtsyHowItsMadeFields,
+  type EtsyHowItsMadeFormValue,
+} from "@/components/etsy/EtsyHowItsMadeFields";
+import {
   APPS_AIRPORT_ETSY_LISTINGS_PATH,
   APPS_AIRPORT_ETSY_PATH,
   APPS_AIRPORT_ETSY_SETTINGS_PATH,
   APPS_AIRPORT_ETSY_SYNC_PATH,
+  formatEtsyCents,
 } from "@/lib/etsy/apps-airport";
 
 type EligibleListing = {
@@ -19,15 +25,16 @@ type EligibleListing = {
   quantity: number;
   status: string;
   variantCount?: number;
+  inventoryTracking?: string | null;
+  etsyWhoMade?: string | null;
+  etsyWhenMade?: string | null;
+  etsyIsSupply?: boolean | null;
+  etsyTaxonomyId?: number | null;
   howItsMadeReady?: boolean;
   howItsMadeMissing?: string[];
   supported?: boolean;
   unsupportedReason?: string | null;
 };
-
-function formatCents(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
 
 export default function AppsAirportEtsySyncPage() {
   const [listings, setListings] = useState<EligibleListing[]>([]);
@@ -37,6 +44,10 @@ export default function AppsAirportEtsySyncPage() {
   const [loading, setLoading] = useState(true);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [modalListing, setModalListing] = useState<EligibleListing | null>(null);
+  const [howItsMade, setHowItsMade] = useState<EtsyHowItsMadeFormValue>(
+    emptyEtsyHowItsMadeFormValue()
+  );
 
   const loadEligible = useCallback(async () => {
     setLoading(true);
@@ -66,16 +77,67 @@ export default function AppsAirportEtsySyncPage() {
     void loadEligible();
   }, [loadEligible]);
 
-  async function onList(storeItemId: string) {
+  function openListModal(listing: EligibleListing) {
     setError(null);
     setStatusMessage(null);
-    setSyncingId(storeItemId);
+    setModalListing(listing);
+    setHowItsMade(
+      emptyEtsyHowItsMadeFormValue({
+        etsyWhoMade: listing.etsyWhoMade,
+        etsyWhenMade: listing.etsyWhenMade,
+        etsyIsSupply: listing.etsyIsSupply,
+        etsyTaxonomyId: listing.etsyTaxonomyId,
+      })
+    );
+  }
+
+  function closeModal() {
+    if (syncingId) return;
+    setModalListing(null);
+  }
+
+  async function onConfirmList() {
+    if (!modalListing) return;
+    if (!howItsMade.etsyWhoMade) {
+      setError("Choose who made it.");
+      return;
+    }
+    if (howItsMade.etsyIsSupply !== true && howItsMade.etsyIsSupply !== false) {
+      setError("Choose whether this is a finished product or a supply/tool.");
+      return;
+    }
+    const madeToOrder = modalListing.inventoryTracking === "made_to_order";
+    if (!madeToOrder && !howItsMade.etsyWhenMade) {
+      setError("Choose when it was made.");
+      return;
+    }
+
+    setError(null);
+    setStatusMessage(null);
+    setSyncingId(modalListing.storeItemId);
     try {
+      const attrsRes = await fetch(`/api/store-items/${modalListing.storeItemId}/etsy-attributes`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          etsyWhoMade: howItsMade.etsyWhoMade,
+          etsyWhenMade: madeToOrder ? "made_to_order" : howItsMade.etsyWhenMade || null,
+          etsyIsSupply: howItsMade.etsyIsSupply,
+          etsyTaxonomyId: null,
+        }),
+      });
+      if (!attrsRes.ok) {
+        const attrsBody = (await attrsRes.json().catch(() => ({}))) as { error?: string };
+        setError(attrsBody.error ?? "Could not save How it’s made.");
+        return;
+      }
+
       const response = await fetch("/api/etsy/listings/create", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storeItemId }),
+        body: JSON.stringify({ storeItemId: modalListing.storeItemId }),
       });
       const body = (await response.json()) as {
         status?: string;
@@ -92,6 +154,7 @@ export default function AppsAirportEtsySyncPage() {
       } else if (body.status === "queued") {
         setStatusMessage("Queued. The Etsy worker will create the listing shortly.");
       }
+      setModalListing(null);
       await loadEligible();
     } catch {
       setError("Could not start Etsy listing.");
@@ -103,7 +166,7 @@ export default function AppsAirportEtsySyncPage() {
   return (
     <AppsAirportChrome
       title="List on Etsy"
-      subtitle="Choose an INW listing with How it’s made completed, then publish it to your Etsy shop."
+      subtitle="Choose an INW listing, complete How it’s made, then publish it to your Etsy shop."
       crumbs={[
         { href: APPS_AIRPORT_ETSY_PATH, label: "Etsy" },
         { href: APPS_AIRPORT_ETSY_SYNC_PATH, label: "List on Etsy" },
@@ -115,7 +178,7 @@ export default function AppsAirportEtsySyncPage() {
             Connect Etsy first
           </p>
           <Link href={APPS_AIRPORT_ETSY_SETTINGS_PATH} className="btn mt-4 inline-block" prefetch={false}>
-            Connection settings
+            Connection Settings
           </Link>
         </div>
       ) : null}
@@ -124,7 +187,7 @@ export default function AppsAirportEtsySyncPage() {
         <div className="mb-6 rounded-[10px] border-2 border-amber-300 bg-amber-50 p-4 text-sm">
           Choose a default Etsy shipping profile in{" "}
           <Link href={APPS_AIRPORT_ETSY_SETTINGS_PATH} className="underline" prefetch={false}>
-            Connection settings
+            Connection Settings
           </Link>{" "}
           before listing.
         </div>
@@ -161,7 +224,8 @@ export default function AppsAirportEtsySyncPage() {
             </thead>
             <tbody>
               {listings.map((listing) => {
-                const supported = listing.supported !== false && Boolean(listing.howItsMadeReady);
+                const readyToList = Boolean(listing.howItsMadeReady);
+                const canOpen = shippingReady && (listing.variantCount ?? 0) >= 1;
                 return (
                   <tr key={listing.storeItemId} className="border-b border-neutral-200">
                     <td className="py-3 pr-4">
@@ -173,17 +237,19 @@ export default function AppsAirportEtsySyncPage() {
                       >
                         {listing.title}
                       </Link>
-                      {!supported && listing.unsupportedReason ? (
+                      {!readyToList && listing.unsupportedReason ? (
                         <p className="mt-1 text-xs text-amber-800">{listing.unsupportedReason}</p>
                       ) : null}
                     </td>
-                    <td className="py-3 pr-4">{formatCents(listing.priceCents)}</td>
+                    <td className="py-3 pr-4">{formatEtsyCents(listing.priceCents)}</td>
                     <td className="py-3 pr-4">
-                      {listing.howItsMadeReady ? (
-                        <span className="text-xs uppercase tracking-wide text-neutral-500">Ready</span>
+                      {readyToList ? (
+                        <span className="text-xs uppercase tracking-wide text-neutral-500">
+                          Ready to list
+                        </span>
                       ) : (
                         <span className="text-xs text-amber-800">
-                          Missing {(listing.howItsMadeMissing ?? []).join(", ") || "fields"}
+                          Missing {(listing.howItsMadeMissing ?? []).filter((m) => m !== "taxonomy_id").join(", ") || "fields"}
                         </span>
                       )}
                     </td>
@@ -191,10 +257,8 @@ export default function AppsAirportEtsySyncPage() {
                       <button
                         type="button"
                         className="btn"
-                        disabled={
-                          !shippingReady || !supported || syncingId === listing.storeItemId
-                        }
-                        onClick={() => void onList(listing.storeItemId)}
+                        disabled={!canOpen || syncingId === listing.storeItemId}
+                        onClick={() => openListModal(listing)}
                       >
                         {syncingId === listing.storeItemId ? "Listing…" : "List on Etsy"}
                       </button>
@@ -204,6 +268,54 @@ export default function AppsAirportEtsySyncPage() {
               })}
             </tbody>
           </table>
+        </div>
+      ) : null}
+
+      {modalListing ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 overflow-y-auto">
+          <div
+            className="w-full max-w-lg rounded-[12px] bg-white p-5 shadow-lg"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="etsy-list-modal-title"
+          >
+            <h3
+              id="etsy-list-modal-title"
+              className="text-lg font-semibold"
+              style={{ color: "var(--color-heading)" }}
+            >
+              List on Etsy
+            </h3>
+            <p className="mt-1 text-sm text-neutral-600">{modalListing.title}</p>
+            <div className="mt-4">
+              <EtsyHowItsMadeFields
+                value={howItsMade}
+                onChange={setHowItsMade}
+                madeToOrder={modalListing.inventoryTracking === "made_to_order"}
+                embedded
+              />
+            </div>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                type="button"
+                className="btn"
+                style={{ color: "#fff" }}
+                disabled={Boolean(syncingId)}
+                onClick={() => void onConfirmList()}
+              >
+                {syncingId ? "Listing…" : "Publish to Etsy"}
+              </button>
+              <button
+                type="button"
+                className="btn border border-gray-300 bg-white hover:bg-gray-50"
+                style={{ color: "var(--color-heading)" }}
+                disabled={Boolean(syncingId)}
+                onClick={closeModal}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </AppsAirportChrome>

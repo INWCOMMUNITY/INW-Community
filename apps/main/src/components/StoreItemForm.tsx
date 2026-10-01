@@ -367,6 +367,34 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     return "Listing queued for Shopify — sync usually finishes within a minute";
   }, []);
 
+  const enqueueEtsyListing = useCallback(async (storeItemId: string): Promise<string | null> => {
+    const res = await fetch("/api/etsy/listings/create", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ storeItemId }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      status?: string;
+      error?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      if (body.code === "SHIPPING_PROFILE_REQUIRED") {
+        return (
+          body.error ??
+          "Set a default Etsy shipping profile in Apps Airport → Etsy → Connection Settings, then try again."
+        );
+      }
+      return body.error ?? "Could not list on Etsy";
+    }
+    if (body.status === "already_mapped") return "Already on Etsy";
+    if (body.status === "queued") {
+      return "Listing queued for Etsy — sync usually finishes within a minute";
+    }
+    return "Etsy listing request sent";
+  }, []);
+
   const handleListOnShopifyClick = useCallback(async () => {
     const storeItemId = existing?.id;
     if (!storeItemId) return;
@@ -651,11 +679,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       }
 
       const savedId = data.id ?? existing?.id ?? null;
+      let etsyDetail: string | null = null;
       if (savedId && listOnEtsy) {
-        const taxonomy =
-          etsyHowItsMade.etsyTaxonomyId.trim() && /^\d+$/.test(etsyHowItsMade.etsyTaxonomyId.trim())
-            ? Number.parseInt(etsyHowItsMade.etsyTaxonomyId.trim(), 10)
-            : null;
         const attrsRes = await fetch(`/api/store-items/${savedId}/etsy-attributes`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -666,7 +691,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 ? "made_to_order"
                 : etsyHowItsMade.etsyWhenMade || null,
             etsyIsSupply: etsyHowItsMade.etsyIsSupply,
-            etsyTaxonomyId: taxonomy,
+            etsyTaxonomyId: null,
           }),
         });
         if (!attrsRes.ok) {
@@ -677,6 +702,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           );
           return;
         }
+        etsyDetail = await enqueueEtsyListing(savedId);
       }
 
       let shopifyDetail: string | null = null;
@@ -701,6 +727,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       setSuccessDetail(
         [
           existing ? "Your changes have been saved on INW." : "Your listing is now live on INW.",
+          etsyDetail,
           shopifyDetail,
         ]
           .filter(Boolean)
@@ -1006,7 +1033,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
 
               <ListingFormSection
                 title="List on Etsy"
-                description="Optional. Turn on to collect Etsy’s How it’s made fields before you publish from Apps Airport."
+                description="Optional. Saves How it’s made and queues the listing on Etsy when you save."
               >
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input

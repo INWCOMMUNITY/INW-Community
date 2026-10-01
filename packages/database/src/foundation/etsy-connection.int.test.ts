@@ -6,7 +6,6 @@ import {
   consumeEtsyOAuthState,
   createEtsyOAuthState,
   disconnectEtsyConnection,
-  getEtsyConnectionForMember,
   persistEtsyInstall,
   EtsyShopOwnershipConflictError,
 } from "../etsy/connection";
@@ -81,8 +80,11 @@ describe("etsy connection foundation", () => {
 
     const second = await persistEtsyInstall(prisma, installInput(sellerA.id, shopId, "2001", "cipher-2"));
     expect(second.generation).toBe(2);
-    const previous = await getEtsyConnectionForMember(prisma, sellerA.id, first.id);
-    expect(previous?.status).toBe("DISCONNECTED");
+    const previous = await prisma.etsyConnection.findUniqueOrThrow({ where: { id: first.id } });
+    expect(previous.status).toBe("DISCONNECTED");
+    expect(previous.accessTokenEncrypted).toBe("");
+    expect(previous.refreshTokenEncrypted).toBe("");
+    expect(previous.shopName).toBeNull();
 
     await expect(
       persistEtsyInstall(prisma, installInput(sellerB.id, shopId, "2002", "cipher-b"))
@@ -93,5 +95,12 @@ describe("etsy connection foundation", () => {
       connectionId: second.id,
     });
     expect(disconnected?.status).toBe("DISCONNECTED");
+    const wiped = await prisma.etsyConnection.findUniqueOrThrow({ where: { id: second.id } });
+    expect(wiped.accessTokenEncrypted).toBe("");
+    expect(wiped.refreshTokenEncrypted).toBe("");
+    expect(wiped.grantedScopes).toBe("");
+    expect(wiped.shopName).toBeNull();
+    expect(wiped.defaultTaxonomyId).toBeNull();
+    expect(wiped.defaultShippingProfileId).toBeNull();
   });
 });

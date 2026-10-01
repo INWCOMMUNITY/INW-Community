@@ -13,6 +13,7 @@ import {
 } from "database";
 import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
+import { resolveEtsyTaxonomyFallback } from "./taxonomy-default";
 
 export type EnqueueEtsyCreateListingResult =
   | {
@@ -126,18 +127,12 @@ export async function enqueueEtsyCreateListing(input: {
     };
   }
 
-  const envTaxonomy =
-    typeof process.env.ETSY_DEFAULT_TAXONOMY_ID === "string" &&
-    /^\d+$/.test(process.env.ETSY_DEFAULT_TAXONOMY_ID.trim())
-      ? Number.parseInt(process.env.ETSY_DEFAULT_TAXONOMY_ID.trim(), 10)
-      : null;
-
   const how = resolveEtsyHowItsMadeForCreate({
     etsyWhoMade: storeItem.etsyWhoMade,
     etsyWhenMade: storeItem.etsyWhenMade,
     etsyIsSupply: storeItem.etsyIsSupply,
     etsyTaxonomyId: storeItem.etsyTaxonomyId,
-    defaultTaxonomyId: connection.defaultTaxonomyId ?? envTaxonomy,
+    defaultTaxonomyId: resolveEtsyTaxonomyFallback(connection.defaultTaxonomyId),
     inventoryTracking: storeItem.inventoryTracking,
   });
   if (!how.ok) {
@@ -282,17 +277,12 @@ export async function handleEtsyCreateListingJob(
     };
   }
 
-  const envTaxonomy =
-    typeof process.env.ETSY_DEFAULT_TAXONOMY_ID === "string" &&
-    /^\d+$/.test(process.env.ETSY_DEFAULT_TAXONOMY_ID.trim())
-      ? Number.parseInt(process.env.ETSY_DEFAULT_TAXONOMY_ID.trim(), 10)
-      : null;
   const how = resolveEtsyHowItsMadeForCreate({
     etsyWhoMade: storeItem.etsyWhoMade,
     etsyWhenMade: storeItem.etsyWhenMade,
     etsyIsSupply: storeItem.etsyIsSupply,
     etsyTaxonomyId: storeItem.etsyTaxonomyId,
-    defaultTaxonomyId: connection.defaultTaxonomyId ?? envTaxonomy,
+    defaultTaxonomyId: resolveEtsyTaxonomyFallback(connection.defaultTaxonomyId),
     inventoryTracking: storeItem.inventoryTracking,
   });
   if (!how.ok) {

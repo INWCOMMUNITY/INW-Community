@@ -5,7 +5,7 @@ import { APPS_AIRPORT_ETSY_PATH } from "@/lib/etsy/apps-airport";
 export default function AppsAirportEtsySettingsPage() {
   return (
     <AppsAirportChrome
-      title="Etsy connection settings"
+      title="Etsy Connection Settings"
       subtitle="Connect your Etsy shop, set shipping/taxonomy defaults, then list items from Apps Airport."
       crumbs={[
         { href: APPS_AIRPORT_ETSY_PATH, label: "Etsy" },

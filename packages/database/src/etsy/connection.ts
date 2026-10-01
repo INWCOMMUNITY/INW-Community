@@ -57,6 +57,24 @@ function userLockKey(etsyUserId: string): string {
   return `etsy-user:${etsyUserId}`;
 }
 
+/** Cleared auth/profile fields so a disconnected generation cannot be reused without OAuth. */
+function etsyDisconnectWipeData(at: Date) {
+  return {
+    status: "DISCONNECTED" as const,
+    disconnectedAt: at,
+    accessTokenEncrypted: "",
+    refreshTokenEncrypted: "",
+    accessTokenExpiresAt: at,
+    refreshTokenExpiresAt: at,
+    grantedScopes: "",
+    shopName: null,
+    defaultTaxonomyId: null,
+    defaultShippingProfileId: null,
+    listingContentLastPolledAt: null,
+    listingContentPollLeaseExpiresAt: null,
+  };
+}
+
 export class EtsyShopOwnershipConflictError extends Error {
   constructor() {
     super("Etsy shop is already connected to another INW account.");
@@ -162,7 +180,7 @@ export async function persistEtsyInstall(
         shopId: input.shopId,
         status: "ACTIVE",
       },
-      data: { status: "DISCONNECTED", disconnectedAt: connectedAt },
+      data: etsyDisconnectWipeData(connectedAt),
     });
     return tx.etsyConnection.create({
       data: {
@@ -223,7 +241,7 @@ export async function disconnectEtsyConnection(
   const at = input.at ?? new Date();
   const updated = await db.etsyConnection.updateMany({
     where: { id: input.connectionId, memberId: input.memberId, status: "ACTIVE" },
-    data: { status: "DISCONNECTED", disconnectedAt: at },
+    data: etsyDisconnectWipeData(at),
   });
   if (updated.count !== 1) return null;
   return getEtsyConnectionForMember(db, input.memberId, input.connectionId);

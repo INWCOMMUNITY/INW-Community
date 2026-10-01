@@ -7,6 +7,7 @@ import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
 import {
   APPS_AIRPORT_ETSY_PATH,
   APPS_AIRPORT_ETSY_SETTINGS_PATH,
+  formatEtsyCents,
 } from "@/lib/etsy/apps-airport";
 
 type Candidate = {
@@ -23,11 +24,6 @@ type Candidate = {
 
 type StockMode = "PHYSICAL" | "MADE_TO_ORDER";
 
-function formatCents(cents: number | null): string {
-  if (cents == null) return "—";
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
 export default function AppsAirportEtsyImportPage() {
   const router = useRouter();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -39,6 +35,7 @@ export default function AppsAirportEtsyImportPage() {
   const [selected, setSelected] = useState<Candidate | null>(null);
   const [stockMode, setStockMode] = useState<StockMode | null>(null);
   const [importing, setImporting] = useState(false);
+  const [reviewLoading, setReviewLoading] = useState(false);
   const [step, setStep] = useState<"discover" | "review">("discover");
 
   const load = useCallback(async (nextOffset = 0, append = false) => {
@@ -56,8 +53,12 @@ export default function AppsAirportEtsyImportPage() {
         pageInfo?: { hasNextPage?: boolean; offset?: number };
       };
       if (!response.ok) {
-        if (body.code === "CONNECTION_REQUIRED") {
-          setConnectionError(body.error ?? "Connect Etsy first.");
+        if (body.code === "CONNECTION_REQUIRED" || body.code === "UNAUTHORIZED") {
+          setConnectionError(
+            body.code === "UNAUTHORIZED"
+              ? "Etsy authorization expired. Reconnect, then try Import again."
+              : (body.error ?? "Connect Etsy first.")
+          );
         } else {
           setError(body.error ?? "Could not load Etsy listings.");
         }
@@ -80,16 +81,55 @@ export default function AppsAirportEtsyImportPage() {
     void load(0, false);
   }, [load]);
 
-  function openReview(candidate: Candidate) {
-    setSelected(candidate);
-    setStockMode(candidate.recommendedStockMode ?? "PHYSICAL");
-    setStep("review");
+  async function openReview(candidate: Candidate) {
     setError(null);
+    setReviewLoading(true);
+    setStep("review");
+    setSelected(null);
+    setStockMode(null);
+    try {
+      const response = await fetch(
+        `/api/etsy/import/candidates?etsyListingId=${encodeURIComponent(candidate.etsyListingId)}`,
+        { credentials: "include" }
+      );
+      const body = (await response.json()) as {
+        error?: string;
+        code?: string;
+        candidate?: Candidate;
+      };
+      if (!response.ok || !body.candidate) {
+        if (body.code === "UNAUTHORIZED" || body.code === "CONNECTION_REQUIRED") {
+          setConnectionError(
+            body.error ?? "Reconnect Etsy in Connection Settings, then try again."
+          );
+          setStep("discover");
+          return;
+        }
+        setError(body.error ?? "Could not load listing details.");
+        setStep("discover");
+        return;
+      }
+      if (!body.candidate.supported) {
+        setError(
+          body.candidate.unsupportedReason ??
+            "This Etsy listing cannot be imported into INW."
+        );
+        setStep("discover");
+        return;
+      }
+      setSelected(body.candidate);
+      setStockMode(body.candidate.recommendedStockMode ?? "PHYSICAL");
+    } catch {
+      setError("Could not load listing details.");
+      setStep("discover");
+    } finally {
+      setReviewLoading(false);
+    }
   }
 
   async function onImport() {
     if (!selected || !stockMode) {
-      setError("Needs stock-mode selection.");
+      setError("Choose a stock mode before importing.");
       return;
     }
     setImporting(true);
@@ -108,9 +148,16 @@ export default function AppsAirportEtsyImportPage() {
         error?: string;
         storeItemId?: string;
         status?: string;
+        code?: string;
       };
       if (!response.ok || !body.storeItemId) {
-        setError(body.error ?? "Import failed.");
+        if (body.code === "UNAUTHORIZED" || body.code === "CONNECTION_REQUIRED") {
+          setConnectionError(
+            body.error ?? "Reconnect Etsy in Connection Settings, then try again."
+          );
+        } else {
+          setError(body.error ?? "Import failed.");
+        }
         return;
       }
       router.push(`${APPS_AIRPORT_ETSY_PATH}?imported=${encodeURIComponent(body.storeItemId)}`);
@@ -139,7 +186,7 @@ export default function AppsAirportEtsyImportPage() {
             style={{ color: "var(--color-primary)" }}
             prefetch={false}
           >
-            Connection settings
+            Connection Settings
           </Link>
         </p>
       ) : null}
@@ -171,10 +218,15 @@ export default function AppsAirportEtsyImportPage() {
                     <tr key={candidate.etsyListingId} className="border-t border-neutral-100">
                       <td className="px-3 py-2">{candidate.title}</td>
                       <td className="px-3 py-2">{candidate.state}</td>
-                      <td className="px-3 py-2">{formatCents(candidate.priceCents)}</td>
+                      <td className="px-3 py-2">{formatEtsyCents(candidate.priceCents)}</td>
                       <td className="px-3 py-2">{candidate.quantity ?? "—"}</td>
                       <td className="px-3 py-2 text-right">
-                        <button type="button" className="btn" onClick={() => openReview(candidate)}>
+                        <button
+                          type="button"
+                          className="btn"
+                          disabled={reviewLoading}
+                          onClick={() => void openReview(candidate)}
+                        >
                           Review
                         </button>
                       </td>
@@ -198,52 +250,69 @@ export default function AppsAirportEtsyImportPage() {
             </button>
           ) : null}
         </>
-      ) : (
-        <div className="max-w-lg">
-          <button
-            type="button"
-            className="mb-4 text-sm underline"
-            style={{ color: "var(--color-primary)" }}
-            onClick={() => setStep("discover")}
-          >
-            ← Back to listings
-          </button>
-          <h2 className="text-lg font-semibold" style={{ color: "var(--color-heading)" }}>
-            {selected?.title}
-          </h2>
-          <p className="mt-2 text-sm text-neutral-600">
-            Choose how INW should track inventory for this imported listing.
-          </p>
-          <div className="mt-4 space-y-2">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="radio"
-                name="stockMode"
-                checked={stockMode === "PHYSICAL"}
-                onChange={() => setStockMode("PHYSICAL")}
-              />
-              Physical (tracked quantity)
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="radio"
-                name="stockMode"
-                checked={stockMode === "MADE_TO_ORDER"}
-                onChange={() => setStockMode("MADE_TO_ORDER")}
-              />
-              Made to order (no stock decrement)
-            </label>
-          </div>
-          <button
-            type="button"
-            className="btn mt-6"
-            disabled={importing || !stockMode}
-            onClick={() => void onImport()}
-          >
-            {importing ? "Importing…" : "Import to INW"}
-          </button>
+      ) : null}
+
+      {step === "review" ? (
+        <div className="max-w-lg space-y-4">
+          {reviewLoading ? <p className="text-sm text-neutral-600">Loading listing details…</p> : null}
+          {selected ? (
+            <>
+              <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
+                {selected.title}
+              </p>
+              <p className="text-sm text-neutral-600">
+                {formatEtsyCents(selected.priceCents)} · qty {selected.quantity ?? "—"}
+              </p>
+              <p className="text-sm text-neutral-600">
+                Choose how INW should track inventory for this imported listing.
+              </p>
+              <fieldset className="space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="stockMode"
+                    checked={stockMode === "PHYSICAL"}
+                    onChange={() => setStockMode("PHYSICAL")}
+                  />
+                  <span className="text-sm">Physical stock (tracked quantity)</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="stockMode"
+                    checked={stockMode === "MADE_TO_ORDER"}
+                    onChange={() => setStockMode("MADE_TO_ORDER")}
+                  />
+                  <span className="text-sm">Made to order</span>
+                </label>
+              </fieldset>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={importing || !stockMode}
+                  onClick={() => void onImport()}
+                >
+                  {importing ? "Importing…" : "Import to INW"}
+                </button>
+                <button
+                  type="button"
+                  className="btn border border-gray-300 bg-white hover:bg-gray-50"
+                  style={{ color: "var(--color-heading)" }}
+                  disabled={importing}
+                  onClick={() => {
+                    setStep("discover");
+                    setSelected(null);
+                    setError(null);
+                  }}
+                >
+                  Back
+                </button>
+              </div>
+            </>
+          ) : null}
         </div>
-      )}
+      ) : null}
     </AppsAirportChrome>
   );
 }

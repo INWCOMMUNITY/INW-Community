@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AppsAirportChannelHub } from "@/components/apps-airport/AppsAirportChannelHub";
-import { APPS_AIRPORT_ETSY_HUB } from "@/lib/etsy/apps-airport";
+import {
+  APPS_AIRPORT_ETSY_HUB,
+  etsyListingStatusChipClass,
+  etsyListingUiStatus,
+} from "@/lib/etsy/apps-airport";
 
 type ListingRow = {
   id: string;
@@ -15,6 +19,7 @@ type ListingRow = {
   inventoryHealth: string;
   issueCode: string | null;
   issueMessage: string | null;
+  storeItemStatus?: string | null;
 };
 
 export default function AppsAirportEtsyListingsPage() {
@@ -50,13 +55,14 @@ export default function AppsAirportEtsyListingsPage() {
   return (
     <AppsAirportChannelHub
       title="Etsy mapped listings"
-      subtitle="Readiness from the latest reconcile. Import more from Etsy anytime."
+      subtitle="Live means ready on Etsy. Needs attention includes draft or activation failures."
       crumbs={[
         { href: hub.hubPath, label: hub.displayName },
         { href: hub.listingsPath, label: "Listings" },
       ]}
       actions={[
         { label: hub.importLabel, href: hub.importPath },
+        { label: hub.listItemsLabel, href: hub.listItemsPath },
         { label: hub.settingsLabel, href: hub.settingsPath },
       ]}
     >
@@ -80,27 +86,51 @@ export default function AppsAirportEtsyListingsPage() {
       ) : null}
       {!loading && listings.length > 0 ? (
         <ul className="space-y-3">
-          {listings.map((row) => (
-            <li key={row.id} className="border-b border-neutral-200 pb-3">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <Link
-                  href={`/seller-hub/listings/${row.storeItemId}`}
-                  className="text-sm font-medium underline"
+          {listings.map((row) => {
+            const status = etsyListingUiStatus({
+              readiness: row.readiness,
+              contentHealth: row.contentHealth,
+              inventoryHealth: row.inventoryHealth,
+              issueCode: row.issueCode,
+              storeItemStatus: row.storeItemStatus,
+            });
+            return (
+              <li key={row.id} className="border-b border-neutral-200 pb-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <Link
+                    href={`/seller-hub/store/${row.storeItemId}`}
+                    className="text-sm font-medium underline"
+                    style={{ color: "var(--color-primary)" }}
+                    prefetch={false}
+                  >
+                    {row.title}
+                  </Link>
+                  <span
+                    className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${etsyListingStatusChipClass(status)}`}
+                  >
+                    {status}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-neutral-500">
+                  Etsy #{row.etsyListingId} · content {row.contentHealth} · inventory{" "}
+                  {row.inventoryHealth}
+                  {row.readiness === "ACTION_REQUIRED" ? " · may still be draft on Etsy" : null}
+                </p>
+                {row.issueMessage ? (
+                  <p className="mt-1 text-xs text-amber-800">{row.issueMessage}</p>
+                ) : null}
+                <a
+                  href={`https://www.etsy.com/listing/${row.etsyListingId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-block text-xs underline"
                   style={{ color: "var(--color-primary)" }}
-                  prefetch={false}
                 >
-                  {row.title}
-                </Link>
-                <span className="text-xs uppercase tracking-wide text-neutral-500">{row.readiness}</span>
-              </div>
-              <p className="mt-1 text-xs text-neutral-500">
-                Etsy #{row.etsyListingId} · content {row.contentHealth} · inventory {row.inventoryHealth}
-              </p>
-              {row.issueMessage ? (
-                <p className="mt-1 text-xs text-amber-800">{row.issueMessage}</p>
-              ) : null}
-            </li>
-          ))}
+                  View on Etsy
+                </a>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </AppsAirportChannelHub>
