@@ -7,7 +7,6 @@ import type { FoundationDb } from "./commerce-foundation-variant-resolution";
 
 export const FOUNDATION_SOURCE_SYSTEM = "inw";
 export const SHOPIFY_SOURCE_SYSTEM = "shopify";
-export const ETSY_SOURCE_SYSTEM = "etsy";
 export const NATIVE_OPENING_SCOPE = "commerce-foundation-native";
 export const CHECKOUT_SCOPE = "checkout";
 export const PAYMENT_SCOPE = "payment";
@@ -530,7 +529,7 @@ export async function setTrackedOnHand(
   });
   if (event.created) {
     await bumpVersionAndWrite(tx, state, { onHand: args.targetOnHand, reserved: state.reserved });
-    await captureMarketplaceInventoryProjectionDesiresAfterChange(tx, {
+    await captureShopifyInventoryProjectionDesireAfterChange(tx, {
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
@@ -623,7 +622,7 @@ export async function holdTrackedReservation(
   });
   if (event.created) {
     await bumpVersionAndWrite(tx, state, { onHand: state.onHand, reserved: state.reserved + args.qty });
-    await captureMarketplaceInventoryProjectionDesiresAfterChange(tx, {
+    await captureShopifyInventoryProjectionDesireAfterChange(tx, {
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
@@ -689,7 +688,7 @@ export async function releaseReservation(
     });
     await bumpVersionAndWrite(tx, state, { onHand: state.onHand, reserved: state.reserved - qty });
     await projectStoreItemQuantity(tx, state.storeItemId);
-    await captureMarketplaceInventoryProjectionDesiresAfterChange(tx, {
+    await captureShopifyInventoryProjectionDesireAfterChange(tx, {
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
@@ -820,7 +819,7 @@ export async function restockTrackedVariant(
   });
   if (event.created) {
     await bumpVersionAndWrite(tx, state, { onHand: nextOnHand, reserved: state.reserved });
-    await captureMarketplaceInventoryProjectionDesiresAfterChange(tx, {
+    await captureShopifyInventoryProjectionDesireAfterChange(tx, {
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
@@ -842,12 +841,10 @@ export async function applyTrackedMarketplaceSale(
     variantId: string;
     memberId: string;
     qty: number;
-    /** Generation-bound scope (e.g. ShopifyConnection.id / EtsyConnection.id). */
+    /** Generation-bound scope (e.g. ShopifyConnection.id). */
     sourceScope: string;
-    /** Durable provider line identity (e.g. orderGid:lineItemGid / receiptId:transactionId). */
+    /** Durable provider line identity (e.g. orderGid:lineItemGid). */
     sourceFactId: string;
-    /** Defaults to shopify for backward compatibility. */
-    sourceSystem?: string;
     metadata?: Prisma.InputJsonValue;
   }
 ): Promise<
@@ -873,7 +870,6 @@ export async function applyTrackedMarketplaceSale(
   if (!args.sourceScope.trim() || !args.sourceFactId.trim()) {
     throw new FoundationInventoryError("invalid_sale_source", "SALE requires sourceScope and sourceFactId");
   }
-  const sourceSystem = (args.sourceSystem ?? SHOPIFY_SOURCE_SYSTEM).trim() || SHOPIFY_SOURCE_SYSTEM;
   const variant = await tx.storeVariant.findUnique({ where: { id: args.variantId } });
   if (!variant) {
     throw new FoundationMissingStateError(`StoreVariant ${args.variantId} not found`);
@@ -914,7 +910,7 @@ export async function applyTrackedMarketplaceSale(
     storeItemId: state.storeItemId,
     eventType: "SALE",
     cause: MARKETPLACE_ORDER_CAUSE,
-    sourceSystem,
+    sourceSystem: SHOPIFY_SOURCE_SYSTEM,
     sourceScope: args.sourceScope,
     sourceFactId: args.sourceFactId,
     requestedQty: args.qty,
@@ -930,7 +926,7 @@ export async function applyTrackedMarketplaceSale(
     await bumpVersionAndWrite(tx, state, { onHand: onHandAfter, reserved: state.reserved });
     await projectStoreItemQuantity(tx, state.storeItemId);
     await maybeMarkSoldOutIfPhysicallyGone(tx, state.storeItemId);
-    await captureMarketplaceInventoryProjectionDesiresAfterChange(tx, {
+    await captureShopifyInventoryProjectionDesireAfterChange(tx, {
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
@@ -1040,7 +1036,7 @@ export async function applyTrackedMarketplaceQuantityEdit(
     await bumpVersionAndWrite(tx, state, { onHand: args.targetOnHand, reserved: state.reserved });
     await projectStoreItemQuantity(tx, state.storeItemId);
     await maybeMarkSoldOutIfPhysicallyGone(tx, state.storeItemId);
-    await captureMarketplaceInventoryProjectionDesiresAfterChange(tx, {
+    await captureShopifyInventoryProjectionDesireAfterChange(tx, {
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
@@ -1059,8 +1055,8 @@ export async function incrementAvailabilityNoopCheck(): Promise<void> {
 }
 
 /**
- * Capture marketplace inventory projection desires after sellable availability changes.
- * Dynamic imports avoid load-time cycles with desire modules.
+ * S8: capture Shopify inventory projection desire after sellable availability changes.
+ * Dynamic import avoids a load-time cycle with shopify/inventory-desire.
  * No-ops when unmapped / inactive / unchanged.
  */
 async function captureShopifyInventoryProjectionDesireAfterChange(
@@ -1069,22 +1065,6 @@ async function captureShopifyInventoryProjectionDesireAfterChange(
 ): Promise<void> {
   const { captureShopifyInventoryProjectionDesire } = await import("./shopify/inventory-desire");
   await captureShopifyInventoryProjectionDesire(tx, input);
-}
-
-async function captureEtsyInventoryProjectionDesireAfterChange(
-  tx: FoundationDb,
-  input: { memberId: string; storeVariantId: string }
-): Promise<void> {
-  const { captureEtsyInventoryProjectionDesire } = await import("./etsy/inventory-desire");
-  await captureEtsyInventoryProjectionDesire(tx, input);
-}
-
-async function captureMarketplaceInventoryProjectionDesiresAfterChange(
-  tx: FoundationDb,
-  input: { memberId: string; storeVariantId: string }
-): Promise<void> {
-  await captureShopifyInventoryProjectionDesireAfterChange(tx, input);
-  await captureEtsyInventoryProjectionDesireAfterChange(tx, input);
 }
 
 export type { PrismaClient };

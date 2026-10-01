@@ -1,27 +1,12 @@
 import { Alert } from "react-native";
-
-type ShareListingsOpener = (storeItemIds: string[]) => void;
-
-let shareListingsOpener: ShareListingsOpener | null = null;
-
-/** Register the global create-post share opener (set from CreatePostProvider host). */
-export function setShareListingsToFeedOpener(opener: ShareListingsOpener | null): void {
-  shareListingsOpener = opener;
-}
+import { apiPost } from "@/lib/api";
 
 /** Keep in sync with LISTING_FEED_COLLECTION_MIN in apps/main. */
 const COLLECTION_MIN = 3;
 
-/** Opens the feed composer for listing shares when available; falls back to a confirm alert. */
 export function promptShareListingsToFeed(storeItemIds: string[]): void {
   const ids = storeItemIds.filter(Boolean);
   if (ids.length === 0) return;
-
-  if (shareListingsOpener) {
-    shareListingsOpener(ids);
-    return;
-  }
-
   const title =
     ids.length >= COLLECTION_MIN
       ? "Share collection on community feed?"
@@ -39,10 +24,9 @@ export function promptShareListingsToFeed(storeItemIds: string[]): void {
     {
       text: "Share",
       onPress: () => {
-        Alert.alert(
-          "Share to feed",
-          "Open Community and use Create Post, or try again after the app finishes loading."
-        );
+        void apiPost("/api/store-items/share-to-feed", { storeItemIds: ids }).catch(() => {
+          Alert.alert("Could not share", "Try again from the listing later.");
+        });
       },
     },
   ]);

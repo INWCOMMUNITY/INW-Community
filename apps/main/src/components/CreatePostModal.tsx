@@ -33,8 +33,6 @@ interface CreatePostModalProps {
   sharedBusinessId?: string;
   /** Business name to show when posting as business. */
   sharedBusinessName?: string;
-  /** Share these listings to the feed with the create-post composer. */
-  sharedStoreItemIds?: string[];
   /** When set and no sharedBusinessId, show this message instead of the form (e.g. "Set up your business to post from Seller Hub"). */
   noBusinessMessage?: string;
   /** Not used when onSuccess is used; kept for form internal use if needed. */
@@ -56,7 +54,6 @@ export function CreatePostModal({
   groupId,
   sharedBusinessId,
   sharedBusinessName,
-  sharedStoreItemIds,
   noBusinessMessage,
   returnTo,
   editPost,
@@ -90,11 +87,7 @@ export function CreatePostModal({
     >
       <div className="sticky top-0 z-10 bg-white border-b px-6 py-4 flex items-center justify-between gap-4">
         <h2 id="create-post-modal-title" className="text-xl font-bold">
-          {editPost
-            ? "Edit post"
-            : sharedStoreItemIds && sharedStoreItemIds.length > 0
-              ? "Share to Community Feed"
-              : "Create Post"}
+          {editPost ? "Edit post" : "Create Post"}
         </h2>
         <button
           type="button"
@@ -119,12 +112,7 @@ export function CreatePostModal({
           </>
         ) : (
           <CreatePostForm
-            key={
-              editPost?.id ??
-              (sharedStoreItemIds?.length
-                ? `share-${sharedStoreItemIds.join(",")}`
-                : "create")
-            }
+            key={editPost?.id ?? "create"}
             initialGroupId={editPost ? (editPost.groupId ?? "") : groupId}
             initialSharedBusinessId={
               editPost?.type === "shared_business" && editPost.sourceBusiness?.id
@@ -136,7 +124,6 @@ export function CreatePostModal({
                 ? editPost.sourceBusiness.name
                 : sharedBusinessName
             }
-            sharedStoreItemIds={editPost ? undefined : sharedStoreItemIds}
             returnTo={returnTo ?? "/my-community/feed"}
             onSuccess={handleSuccess}
             onCancel={onClose}

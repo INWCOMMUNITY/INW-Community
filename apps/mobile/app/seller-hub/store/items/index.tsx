@@ -20,30 +20,9 @@ import { theme } from "@/lib/theme";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import { buildProductPath } from "@/lib/product-referrer";
 import { getDrafts, deleteDraft, type StoreItemDraft } from "@/lib/drafts";
-import { useCreatePost } from "@/contexts/CreatePostContext";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
-
-type ListingChannelId = "inw" | "shopify" | "ebay" | "etsy" | "wix";
-
-const CHANNEL_LABELS: Record<ListingChannelId, string> = {
-  inw: "INW",
-  shopify: "Shopify",
-  ebay: "eBay",
-  etsy: "Etsy",
-  wix: "Wix",
-};
-
-function formatListedOn(channels?: ListingChannelId[]): string {
-  const rest = new Set<ListingChannelId>();
-  for (const id of channels ?? []) {
-    if (id !== "inw") rest.add(id);
-  }
-  return ["inw", ...rest]
-    .map((id) => CHANNEL_LABELS[id])
-    .join(", ");
-}
 
 interface StoreItem {
   id: string;
@@ -57,7 +36,6 @@ interface StoreItem {
   views30d?: number;
   soldOrderId?: string;
   soldAt?: string;
-  channels?: ListingChannelId[];
 }
 
 interface ConnectStatus {
@@ -93,7 +71,6 @@ function statusLabel(item: StoreItem): string {
 export default function MyItemsScreen() {
   const router = useRouter();
   const navigation = useNavigation();
-  const createPost = useCreatePost();
   const params = useLocalSearchParams<{ listingType?: string; tab?: string }>();
   const listingType = params.listingType === "resale" ? "resale" : undefined;
   const initialTab: ItemsTab =
@@ -122,6 +99,10 @@ export default function MyItemsScreen() {
     sold: number;
     drafts: number;
   } | null>(null);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkPrice, setBulkPrice] = useState("");
+  const [bulkQty, setBulkQty] = useState("");
+
   useLayoutEffect(() => {
     const listButton = (
       <Pressable
@@ -327,6 +308,29 @@ export default function MyItemsScreen() {
     router.push(buildProductPath(item.slug, { type: "my-items" }) as never);
   };
 
+  const markAsSold = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setBulkActing(true);
+    try {
+      if (ids.length === 1) {
+        await apiPatch(`/api/store-items/${ids[0]}`, { status: "sold_out" });
+      } else {
+        await apiPatch("/api/store-items/bulk", {
+          storeItemIds: ids,
+          updates: { status: "sold_out" },
+        });
+      }
+      setSelectedIds([]);
+      Alert.alert("Marked as sold", `${ids.length} item${ids.length === 1 ? "" : "s"} moved to Sold.`);
+      load();
+    } catch (e) {
+      Alert.alert("Error", (e as { error?: string }).error ?? "Failed to mark as sold");
+    } finally {
+      setBulkActing(false);
+      setActingId(null);
+    }
+  };
+
   const endListings = (ids: string[]) => {
     Alert.alert(
       ids.length === 1 ? "End listing" : "End listings",
@@ -392,15 +396,50 @@ export default function MyItemsScreen() {
     );
   };
 
-  const shareToFeed = (ids: string[]) => {
-    if (ids.length === 0) return;
-    setMenuItemId(null);
-    if (createPost?.openShareListingsToFeed) {
-      createPost.openShareListingsToFeed(ids);
+  const shareToFeed = async (ids: string[]) => {
+    setBulkActing(true);
+    try {
+      await apiPost("/api/store-items/share-to-feed", { storeItemIds: ids });
+      Alert.alert("Shared", "Listing(s) shared to the community feed.");
       setSelectedIds([]);
+    } catch (e) {
+      Alert.alert("Error", (e as { error?: string }).error ?? "Failed to share");
+    } finally {
+      setBulkActing(false);
+    }
+  };
+
+  const applyBulkEdit = async () => {
+    const updates: { priceCents?: number; quantity?: number } = {};
+    const price = parseFloat(bulkPrice);
+    const qty = parseInt(bulkQty, 10);
+    if (bulkPrice.trim() && !Number.isNaN(price) && price > 0) {
+      updates.priceCents = Math.round(price * 100);
+    }
+    if (bulkQty.trim() && !Number.isNaN(qty) && qty >= 0) {
+      updates.quantity = qty;
+    }
+    if (!updates.priceCents && updates.quantity === undefined) {
+      Alert.alert("Nothing to update", "Enter a price and/or quantity.");
       return;
     }
-    Alert.alert("Share to feed", "Open Community to share with a caption and tags.");
+    setBulkActing(true);
+    try {
+      await apiPatch("/api/store-items/bulk", {
+        storeItemIds: selectedIds,
+        updates,
+      });
+      setBulkEditOpen(false);
+      setBulkPrice("");
+      setBulkQty("");
+      setSelectedIds([]);
+      Alert.alert("Updated", "Selected listings were updated.");
+      load();
+    } catch (e) {
+      Alert.alert("Error", (e as { error?: string }).error ?? "Bulk edit failed");
+    } finally {
+      setBulkActing(false);
+    }
   };
 
   const deleteItem = (id: string) => {
@@ -680,9 +719,6 @@ export default function MyItemsScreen() {
                       </View>
                     )}
                     <Text style={styles.viewsMeta}>
-                      Listed on: {formatListedOn(item.channels)}
-                    </Text>
-                    <Text style={styles.viewsMeta}>
                       {views} view{views === 1 ? "" : "s"} (30d)
                     </Text>
                     {(itemsTab === "ended" || itemsTab === "sold") && (
@@ -741,9 +777,27 @@ export default function MyItemsScreen() {
                 <Pressable
                   style={styles.bulkBtn}
                   disabled={bulkActing}
+                  onPress={() => {
+                    setBulkPrice("");
+                    setBulkQty("");
+                    setBulkEditOpen(true);
+                  }}
+                >
+                  <Text style={styles.bulkBtnText}>Edit</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.bulkBtn}
+                  disabled={bulkActing}
                   onPress={() => endListings(selectedIds)}
                 >
                   <Text style={styles.bulkBtnText}>End</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.bulkBtn}
+                  disabled={bulkActing}
+                  onPress={() => markAsSold(selectedIds)}
+                >
+                  <Text style={styles.bulkBtnTextGreen}>Sold</Text>
                 </Pressable>
                 <Pressable
                   style={styles.bulkBtn}
@@ -754,15 +808,6 @@ export default function MyItemsScreen() {
                 </Pressable>
               </>
             )}
-            <Pressable
-              style={styles.bulkBtn}
-              disabled={bulkActing}
-              onPress={() =>
-                Alert.alert("Manage 3rd Parties", "Coming soon — tell us what this should do next.")
-              }
-            >
-              <Text style={styles.bulkBtnText}>Manage 3rd Parties</Text>
-            </Pressable>
             {selectedIds.length === 1 && (
               <Pressable
                 style={styles.bulkBtn}
@@ -860,6 +905,19 @@ export default function MyItemsScreen() {
                 </Pressable>
               </>
             )}
+            {itemsTab !== "sold" && (
+              <Pressable
+                style={styles.menuOption}
+                onPress={() => {
+                  if (menuItemId) {
+                    setMenuItemId(null);
+                    void markAsSold([menuItemId]);
+                  }
+                }}
+              >
+                <Text style={styles.menuOptionTextGreen}>Mark Sold</Text>
+              </Pressable>
+            )}
             {itemsTab === "active" && (
               <Pressable
                 style={styles.menuOption}
@@ -888,6 +946,49 @@ export default function MyItemsScreen() {
         </Pressable>
       </Modal>
 
+      <Modal
+        visible={bulkEditOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBulkEditOpen(false)}
+      >
+        <Pressable style={styles.menuBackdrop} onPress={() => setBulkEditOpen(false)}>
+          <View style={styles.bulkEditPanel} onStartShouldSetResponder={() => true}>
+            <Text style={styles.bulkEditTitle}>Edit {selectedIds.length} listings</Text>
+            <Text style={styles.bulkEditHint}>Leave a field blank to keep its current value.</Text>
+            <Text style={styles.bulkEditLabel}>Price ($)</Text>
+            <TextInput
+              value={bulkPrice}
+              onChangeText={setBulkPrice}
+              keyboardType="decimal-pad"
+              placeholder="e.g. 24.99"
+              placeholderTextColor="#888"
+              style={styles.bulkEditInput}
+            />
+            <Text style={styles.bulkEditLabel}>Quantity</Text>
+            <TextInput
+              value={bulkQty}
+              onChangeText={setBulkQty}
+              keyboardType="number-pad"
+              placeholder="e.g. 3"
+              placeholderTextColor="#888"
+              style={styles.bulkEditInput}
+            />
+            <View style={styles.bulkEditActions}>
+              <Pressable style={styles.bulkEditCancel} onPress={() => setBulkEditOpen(false)}>
+                <Text style={styles.menuOptionText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.connectBtn, bulkActing && { opacity: 0.6 }]}
+                disabled={bulkActing}
+                onPress={() => void applyBulkEdit()}
+              >
+                <Text style={styles.connectBtnText}>{bulkActing ? "Saving…" : "Apply"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1071,21 +1172,48 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
     bottom: 12,
-    backgroundColor: theme.colors.pageBackground,
+    backgroundColor: "#1f2937",
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 8,
-    borderWidth: 1,
-    borderColor: "#e6e0d6",
   },
-  bulkBarLabel: { color: theme.colors.heading, fontSize: 12, fontWeight: "600" },
+  bulkBarLabel: { color: "#fff", fontSize: 12, fontWeight: "600" },
   bulkActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   bulkBtn: {
-    backgroundColor: theme.colors.earth,
+    backgroundColor: "rgba(255,255,255,0.12)",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
   },
   bulkBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  bulkBtnTextGreen: { color: "#6ee7b7", fontSize: 13, fontWeight: "700" },
+  bulkEditPanel: {
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    padding: 20,
+    width: "100%",
+    maxWidth: 360,
+  },
+  bulkEditTitle: { fontSize: 17, fontWeight: "700", color: theme.colors.heading },
+  bulkEditHint: { marginTop: 4, marginBottom: 12, fontSize: 13, color: "#666" },
+  bulkEditLabel: { fontSize: 13, fontWeight: "600", color: "#444", marginBottom: 4 },
+  bulkEditInput: {
+    borderWidth: 1,
+    borderColor: "#e6e0d6",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+    fontSize: 15,
+    color: theme.colors.heading,
+  },
+  bulkEditActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 4,
+  },
+  bulkEditCancel: { paddingVertical: 8, paddingHorizontal: 12 },
 });

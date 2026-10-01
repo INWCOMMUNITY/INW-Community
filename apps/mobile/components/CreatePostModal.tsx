@@ -25,7 +25,6 @@ import { uploadPostMediaFile } from "@/lib/upload-post-media";
 import { useAuth } from "@/contexts/AuthContext";
 import { PostEventAsPickerPanel } from "@/components/PostEventAsPickerModal";
 import { createPost, updatePost, type FeedPost } from "@/lib/feed-api";
-import { apiPost } from "@/lib/api";
 import { useEventInvitePopupSuppression } from "@/contexts/EventInvitePopupSuppressionContext";
 import { ScaledImageFit } from "@/components/ScaledImageFit";
 import { Video, ResizeMode } from "expo-av";
@@ -105,8 +104,6 @@ interface CreatePostModalProps {
   allowBusinessPostsInGroup?: boolean;
   /** When set, submit PATCHes this post (author-only on server). */
   editingPost?: FeedPost | null;
-  /** When set, share these store listings via share-to-feed with caption/tags/etc. */
-  sharedStoreItemIds?: string[] | null;
 }
 
 export function CreatePostModal({
@@ -117,7 +114,6 @@ export function CreatePostModal({
   initialGroupId = null,
   allowBusinessPostsInGroup = true,
   editingPost = null,
-  sharedStoreItemIds = null,
 }: CreatePostModalProps) {
   const insets = useSafeAreaInsets();
   const { member } = useAuth();
@@ -164,8 +160,6 @@ export function CreatePostModal({
   >([]);
 
   const isEditing = !!editingPost;
-  const listingShareIds = (sharedStoreItemIds ?? []).filter(Boolean);
-  const isListingShare = listingShareIds.length > 0 && !isEditing;
   const profileDisplayNameForPicker =
     `${member?.firstName ?? ""} ${member?.lastName ?? ""}`.trim() || "Your profile";
 
@@ -186,10 +180,6 @@ export function CreatePostModal({
   useEffect(() => {
     if (!visible || composePhase !== "checking") return;
     if (editingPost) {
-      setComposePhase("ready");
-      return;
-    }
-    if (listingShareIds.length > 0) {
       setComposePhase("ready");
       return;
     }
@@ -235,7 +225,6 @@ export function CreatePostModal({
     initialBusinessForPost?.id,
     initialGroupId,
     allowBusinessPostsInGroup,
-    listingShareIds.length,
   ]);
 
   useEffect(() => {
@@ -484,11 +473,11 @@ export function CreatePostModal({
     setError("");
     const hasContent = content.trim() || photos.length > 0 || videos.length > 0;
     const hasPoll = pollEnabled && pollQuestion.trim() && pollOptions.filter((o) => o.trim()).length >= 2;
-    if (!isListingShare && !hasContent && !hasPoll) {
+    if (!hasContent && !hasPoll) {
       setError("Add some text, photos, video, or a poll to post.");
       return;
     }
-    if (pollEnabled && !isListingShare) {
+    if (pollEnabled) {
       if (!pollQuestion.trim()) {
         setError("Add a question for your poll.");
         return;
@@ -509,16 +498,6 @@ export function CreatePostModal({
           tags: selectedTags,
           taggedMemberIds: selectedFriends.map((f) => f.id),
           taggedBusinessIds: taggedBusiness ? [taggedBusiness.id] : [],
-        });
-      } else if (isListingShare) {
-        await apiPost("/api/store-items/share-to-feed", {
-          storeItemIds: listingShareIds,
-          content: content.trim() || null,
-          photos: photos.length ? photos : undefined,
-          videos: videos.length ? videos : undefined,
-          tags: selectedTags.length ? selectedTags : undefined,
-          taggedMemberIds: selectedFriends.length ? selectedFriends.map((f) => f.id) : undefined,
-          ...(initialGroupId ? { groupId: initialGroupId } : {}),
         });
       } else {
         const validPollOptions = pollOptions.filter((o) => o.trim());
@@ -545,11 +524,7 @@ export function CreatePostModal({
       setError(
         thrownErrorMessage(
           e,
-          isEditing
-            ? "Failed to update post. Try again."
-            : isListingShare
-              ? "Failed to share to feed. Try again."
-              : "Failed to create post. Try again."
+          isEditing ? "Failed to update post. Try again." : "Failed to create post. Try again."
         )
       );
     } finally {
@@ -642,21 +617,19 @@ export function CreatePostModal({
           >
             <Text style={styles.cancelBtnText}>Cancel</Text>
           </Pressable>
-          <Text style={styles.headerTitle}>
-            {isEditing ? "Edit post" : isListingShare ? "Share to Feed" : "Create Post"}
-          </Text>
+          <Text style={styles.headerTitle}>{isEditing ? "Edit post" : "Create Post"}</Text>
           <Pressable
             onPress={handleSubmit}
             disabled={
               submitting ||
               composePhase === "checking" ||
-              (!isListingShare && !content.trim() && photos.length === 0 && videos.length === 0)
+              (!content.trim() && photos.length === 0 && videos.length === 0)
             }
             style={({ pressed }) => [
               styles.submitBtn,
               (submitting ||
                 composePhase === "checking" ||
-                (!isListingShare && !content.trim() && photos.length === 0 && videos.length === 0)) &&
+                (!content.trim() && photos.length === 0 && videos.length === 0)) &&
                 styles.submitBtnDisabled,
               pressed && styles.pressed,
             ]}
@@ -664,9 +637,7 @@ export function CreatePostModal({
             {submitting ? (
               <ActivityIndicator size="small" color={theme.colors.buttonText} />
             ) : (
-              <Text style={styles.submitBtnText}>
-                {isEditing ? "Save" : isListingShare ? "Share" : "Post"}
-              </Text>
+              <Text style={styles.submitBtnText}>{isEditing ? "Save" : "Post"}</Text>
             )}
           </Pressable>
         </View>
@@ -682,21 +653,9 @@ export function CreatePostModal({
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          {isListingShare ? (
-            <View style={styles.listingShareBanner}>
-              <Text style={styles.listingShareBannerText}>
-                Sharing {listingShareIds.length} listing
-                {listingShareIds.length === 1 ? "" : "s"} to the Community Feed. Caption, tags, and
-                friends are optional.
-              </Text>
-            </View>
-          ) : null}
-
           <TextInput
             style={styles.textInput}
-            placeholder={
-              isListingShare ? "Add a caption for your listing post..." : "What's on your mind?"
-            }
+            placeholder="What's on your mind?"
             placeholderTextColor={theme.colors.placeholder}
             value={content}
             onChangeText={setContent}
@@ -1223,20 +1182,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-  },
-  listingShareBanner: {
-    backgroundColor: "#f5f1ea",
-    borderWidth: 1,
-    borderColor: "#e6e0d6",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 12,
-  },
-  listingShareBannerText: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: theme.colors.heading,
   },
   textInput: {
     fontSize: 16,
