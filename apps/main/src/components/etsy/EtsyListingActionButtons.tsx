@@ -35,26 +35,31 @@ export function EtsyListingActionButtons({
 
   async function callAction(
     action: "retry" | "remove",
-    extra?: { confirmDelete?: boolean },
-    successMessage?: string
+    extra?: { confirmDelete?: boolean }
   ) {
     setBusy(action);
     setError(null);
     try {
-      const response = await fetch(`/api/etsy/listings/${storeItemId}/actions`, {
+      const response = await fetch(`/api/etsy/listings/${encodeURIComponent(storeItemId)}/actions`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...extra }),
       });
-      const body = (await response.json()) as { error?: string; ok?: boolean };
-      if (!response.ok) {
-        setError(body.error ?? "Action failed");
+      let body: { error?: string; message?: string | null; ok?: boolean } = {};
+      try {
+        body = (await response.json()) as typeof body;
+      } catch {
+        setError(`Action failed (HTTP ${response.status})`);
         return;
       }
-      onActionComplete?.(successMessage);
+      if (!response.ok) {
+        setError(body.error?.trim() || `Action failed (HTTP ${response.status})`);
+        return;
+      }
+      onActionComplete?.(body.message?.trim() || undefined);
     } catch {
-      setError("Action failed");
+      setError("Action failed — network error");
     } finally {
       setBusy(null);
     }
@@ -63,22 +68,17 @@ export function EtsyListingActionButtons({
   function onRemoveFromEtsy() {
     const unlink = window.confirm(
       "Remove from Etsy sync?\n\n" +
-        "• OK — Unlink this INW listing from Etsy. Sync stops; the INW listing stays.\n" +
-        "• Cancel — keep the link."
+        "This unlinks the INW listing from Etsy (INW listing stays).\n\n" +
+        "• OK — continue\n" +
+        "• Cancel — keep the link"
     );
     if (!unlink) return;
     const alsoDelete = window.confirm(
-      "Also delete the listing on Etsy?\n\n" +
-        "• OK — permanently delete the Etsy listing (when Etsy allows it).\n" +
-        "• Cancel — only remove the INW ↔ Etsy link (listing stays on Etsy)."
+      "Also try to delete the listing on Etsy?\n\n" +
+        "• OK — deactivate/delete on Etsy when allowed, then unlink in INW\n" +
+        "• Cancel — only unlink in INW (Etsy listing stays)"
     );
-    void callAction(
-      "remove",
-      { confirmDelete: alsoDelete },
-      alsoDelete
-        ? "Removed from Etsy and unlinked in INW"
-        : "Unlinked from Etsy (listing left on Etsy)"
-    );
+    void callAction("remove", { confirmDelete: alsoDelete });
   }
 
   const items: AppsAirportManageMenuItem[] = [
@@ -123,7 +123,7 @@ export function EtsyListingActionButtons({
             kind: "action" as const,
             id: "retry",
             label: "Retry publish",
-            onSelect: () => void callAction("retry", undefined, "List on Etsy queued"),
+            onSelect: () => void callAction("retry"),
           },
         ] satisfies AppsAirportManageMenuItem[])
       : []),

@@ -90,6 +90,7 @@ export function logSellerActivity(
 /**
  * Idempotent seller activity create by durable dedupeKey.
  * Returns true when a new row was created.
+ * Uses skipDuplicates so concurrent workers do not emit Prisma P2002 noise.
  */
 export async function logSellerActivityOnce(input: {
   memberId: string;
@@ -101,18 +102,21 @@ export async function logSellerActivityOnce(input: {
   metadata?: ActivityMetadata | null;
 }): Promise<boolean> {
   try {
-    await prisma.sellerActivityLog.create({
-      data: {
-        memberId: input.memberId,
-        action: input.action,
-        entityType: input.entityType,
-        entityId: input.entityId ?? null,
-        dedupeKey: input.dedupeKey,
-        detail: input.detail != null ? (input.detail as Prisma.InputJsonValue) : undefined,
-        metadata: input.metadata != null ? (input.metadata as Prisma.InputJsonValue) : undefined,
-      },
+    const result = await prisma.sellerActivityLog.createMany({
+      data: [
+        {
+          memberId: input.memberId,
+          action: input.action,
+          entityType: input.entityType,
+          entityId: input.entityId ?? null,
+          dedupeKey: input.dedupeKey,
+          detail: input.detail != null ? (input.detail as Prisma.InputJsonValue) : undefined,
+          metadata: input.metadata != null ? (input.metadata as Prisma.InputJsonValue) : undefined,
+        },
+      ],
+      skipDuplicates: true,
     });
-    return true;
+    return result.count > 0;
   } catch (error) {
     if (
       error &&

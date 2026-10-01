@@ -8,6 +8,7 @@ import {
   normalizeEtsyTitle,
 } from "./content-fingerprint";
 import { enqueueEtsySyncJob } from "./jobs";
+import { reconcileEtsyListingHealthFromDb } from "./listing-health";
 
 export type EtsyContentDb = PrismaClient | Prisma.TransactionClient;
 
@@ -288,6 +289,12 @@ export async function recordEtsyListingContentDesire(
     });
     jobId = job.id;
   }
+
+  // Flip Apps Airport off Live immediately — do not wait for the worker.
+  await reconcileEtsyListingHealthFromDb(db, {
+    connectionId: connection.id,
+    listingLinkId: lockedListing.id,
+  }).catch(() => undefined);
 
   return {
     status: "RECORDED",
@@ -580,6 +587,11 @@ export async function recordEtsyHowItsMadeDesire(
     productDesiredVersion: nextProductVersion,
     variantDesiredVersion: variantMap.desiredVariantContentVersion,
   });
+
+  await reconcileEtsyListingHealthFromDb(db, {
+    connectionId: connection.id,
+    listingLinkId: lockedListing.id,
+  }).catch(() => undefined);
 
   return {
     status: "RECORDED",

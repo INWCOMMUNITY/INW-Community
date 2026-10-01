@@ -122,6 +122,23 @@ export async function notifyEtsySyncJobDeadOnce(input: {
     select: { id: true },
   });
 
+  if (link) {
+    const isContent = input.claim.kind === "UPDATE_LISTING_CONTENT";
+    const isInventory = input.claim.kind === "PROJECT_INVENTORY";
+    if (isContent || isInventory) {
+      await prisma.etsyListingLink.update({
+        where: { id: link.id },
+        data: {
+          readiness: "ACTION_REQUIRED",
+          ...(isContent ? { contentHealth: "DEGRADED" as const } : {}),
+          ...(isInventory ? { inventoryHealth: "DEGRADED" as const } : {}),
+          issueCode: isContent ? "CONTENT_UPDATE_FAILED" : "INVENTORY_UPDATE_FAILED",
+          issueMessage: message,
+        },
+      });
+    }
+  }
+
   const subjectId = link?.id ?? `create-job:${input.claim.id}`;
   const fingerprint = `${input.claim.kind}:${issueCode}:${message}`.slice(0, 200);
 

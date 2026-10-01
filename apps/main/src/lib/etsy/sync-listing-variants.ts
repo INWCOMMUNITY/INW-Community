@@ -14,6 +14,9 @@ import type { EtsyFetch } from "./client";
 import {
   buildEtsyInventoryProductsPayload,
   correlateEtsyProductsToStoreVariants,
+  ETSY_INVENTORY_QUERY,
+  toEtsyInventoryPutBody,
+  inventoryHasDeprecatedEtsyProperties,
   optionsFromEtsyPropertyValues,
   parseStoreVariantOptions,
   resolveEtsyVariationPropertyIds,
@@ -275,13 +278,15 @@ export async function syncEtsyListingVariantTopology(input: {
   const remoteKeys = remoteProductComboKeys(remoteProducts);
   const mapsOk = mapsMatchLocalCombos({ maps, variants: variantRows });
   const combosMatch = sameKeySet(localKeys, remoteKeys);
+  const hasDeprecatedProperties = inventoryHasDeprecatedEtsyProperties(remoteProducts);
 
   const requested = variantRows.map((v) => ({
     storeVariantId: v.id,
     options: parseStoreVariantOptions(v.options)!,
   }));
 
-  if (combosMatch && !input.forcePush) {
+  // Deprecated Size=100 (etc.) must be rebuilt — rematch-only would keep failing on PUT.
+  if (combosMatch && !input.forcePush && !hasDeprecatedProperties) {
     const rematched = await rematchEtsyVariantMapsByOptions({
       connectionId: input.connectionId,
       memberId: input.memberId,
@@ -320,13 +325,8 @@ export async function syncEtsyListingVariantTopology(input: {
     memberId: input.memberId,
     method: "PUT",
     path: `/listings/${encodeURIComponent(input.etsyListingId)}/inventory`,
-    query: { max_variations_supported: 3 },
-    body: {
-      products: payloadInventory.products,
-      price_on_property: payloadInventory.price_on_property,
-      quantity_on_property: payloadInventory.quantity_on_property,
-      sku_on_property: payloadInventory.sku_on_property,
-    },
+    query: ETSY_INVENTORY_QUERY,
+    body: toEtsyInventoryPutBody(payloadInventory),
     maxAttempts: 1,
     fetchImpl: input.fetchImpl,
     now: input.now,

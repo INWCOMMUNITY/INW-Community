@@ -87,13 +87,14 @@ export function classifyEtsyListingHealth(input: {
 
   if (contentPending || inventoryPending) {
     return {
-      readiness: "SYNCING",
+      // Pending outbound must never read as Live — Apps Airport keys off readiness.
+      readiness: "ACTION_REQUIRED",
       contentHealth: contentPending ? "DEGRADED" : "HEALTHY",
       inventoryHealth: inventoryPending ? "DEGRADED" : "HEALTHY",
       issueCode: contentPending ? "CONTENT_SYNC_PENDING" : "INVENTORY_SYNC_PENDING",
       issueMessage: contentPending
-        ? "Outbound content sync is in progress"
-        : "Outbound inventory sync is in progress",
+        ? "INW changes have not finished syncing to Etsy yet"
+        : "INW quantity has not finished syncing to Etsy yet",
     };
   }
 

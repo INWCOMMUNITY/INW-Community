@@ -47,7 +47,7 @@ describe("runEtsyListingAction", () => {
       id: "link-1",
       storeItemId: "item-1",
       etsyListingId: "999",
-      remoteListingState: "draft",
+      remoteListingState: "active",
     } as never);
     vi.mocked(prisma.etsySyncJob.updateMany).mockResolvedValue({ count: 1 } as never);
   });
@@ -68,13 +68,13 @@ describe("runEtsyListingAction", () => {
     expect(prisma.etsySyncJob.updateMany).toHaveBeenCalled();
   });
 
-  it("deletes remote listing then unlinks when confirmDelete is true", async () => {
+  it("still unlinks when remote delete fails", async () => {
     vi.mocked(etsyConnectionRequest).mockResolvedValue({
-      ok: true,
-      class: "SUCCESS",
-      httpStatus: 204,
+      ok: false,
+      class: "CLIENT",
+      httpStatus: 400,
       data: null,
-      message: "",
+      message: "property ids 100 are deprecated",
       retryAfterMs: null,
       rateLimit: null,
     });
@@ -85,15 +85,40 @@ describe("runEtsyListingAction", () => {
       confirmDelete: true,
     });
     expect(result.ok).toBe(true);
-    expect(etsyConnectionRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: "DELETE",
-        path: "/listings/999",
-      })
-    );
+    if (result.ok) {
+      expect(result.message).toContain("Unlinked in INW");
+      expect(result.message).toContain("not deleted");
+    }
+    expect(prisma.$transaction).toHaveBeenCalled();
+  });
+
+  it("unlinks even when Etsy app config is missing", async () => {
+    vi.mocked(etsyConnectionRequest).mockResolvedValue({
+      ok: false,
+      class: "NOT_CONFIGURED",
+      httpStatus: null,
+      data: null,
+      message: "Etsy is not configured",
+      retryAfterMs: null,
+      rateLimit: null,
+    });
+    const result = await runEtsyListingAction({
+      memberId: "m1",
+      storeItemId: "item-1",
+      action: "remove",
+      confirmDelete: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(prisma.$transaction).toHaveBeenCalled();
   });
 
   it("retries create for non-live mappings", async () => {
+    vi.mocked(prisma.etsyListingLink.findFirst).mockResolvedValue({
+      id: "link-1",
+      storeItemId: "item-1",
+      etsyListingId: "999",
+      remoteListingState: "draft",
+    } as never);
     vi.mocked(enqueueEtsyCreateListing).mockResolvedValue({
       status: "QUEUED",
       connectionId: "conn-1",

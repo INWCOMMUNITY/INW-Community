@@ -290,14 +290,17 @@ describe("etsy UPDATE_LISTING_CONTENT handler", () => {
     const result = await handleEtsyUpdateListingContentJob(claim);
     expect(result).toEqual({ outcome: "SUCCESS" });
     const putCall = vi.mocked(etsyConnectionRequest).mock.calls.find((c) => c[0]?.method === "PUT");
-    expect(putCall?.[0]?.body).toMatchObject({
-      products: expect.arrayContaining([
-        expect.objectContaining({ product_id: 10 }),
-        expect.objectContaining({ product_id: 11 }),
-      ]),
-      price_on_property: [1],
-    });
-    expect((putCall?.[0]?.body as { products: unknown[] }).products).toHaveLength(2);
+    const body = putCall?.[0]?.body as {
+      products: Array<{ product_id?: number; sku: string; offerings: Array<{ price: number; offering_id?: number }> }>;
+      price_on_property: number[];
+    };
+    expect(body.products).toHaveLength(2);
+    expect(body.price_on_property).toEqual([1]);
+    expect(body.products.map((product) => product.sku).sort()).toEqual(["OTHER", "SKU"]);
+    expect(body.products.every((product) => product.product_id == null)).toBe(true);
+    expect(body.products.every((product) => typeof product.offerings[0]?.price === "number")).toBe(true);
+    expect(body.products.every((product) => product.offerings[0]?.offering_id == null)).toBe(true);
+    expect(putCall?.[0]?.query).toEqual({ max_variations_supported: 3 });
     expect(markEtsyVariantContentApplied).toHaveBeenCalled();
   });
 });

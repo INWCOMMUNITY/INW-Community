@@ -108,23 +108,20 @@ describe("etsy PROJECT_INVENTORY handler", () => {
     const result = await handleEtsyProjectInventoryJob(claim);
     expect(result).toEqual({ outcome: "SUCCESS" });
     const put = vi.mocked(etsyConnectionRequest).mock.calls.find((c) => c[0]?.method === "PUT");
-    expect((put?.[0]?.body as { products: unknown[] }).products).toHaveLength(2);
-    expect(put?.[0]?.body).toMatchObject({
-      products: expect.arrayContaining([
-        expect.objectContaining({
-          product_id: 10,
-          offerings: [
-            expect.objectContaining({ offering_id: 20, quantity: 0, price: 1 }),
-          ],
-        }),
-        expect.objectContaining({
-          product_id: 11,
-          offerings: [
-            expect.objectContaining({ offering_id: 21, quantity: 1, price: 2 }),
-          ],
-        }),
-      ]),
-    });
+    const body = put?.[0]?.body as {
+      products: Array<{
+        product_id?: number;
+        offerings: Array<{ quantity: number; price: number; offering_id?: number }>;
+      }>;
+      quantity_on_property: number[];
+    };
+    expect(body.products).toHaveLength(2);
+    expect(body.quantity_on_property).toEqual([1]);
+    expect(body.products.map((product) => product.offerings[0]?.quantity).sort()).toEqual([0, 1]);
+    expect(body.products.map((product) => product.offerings[0]?.price).sort()).toEqual([1, 2]);
+    expect(body.products.every((product) => product.product_id == null)).toBe(true);
+    expect(body.products.every((product) => product.offerings[0]?.offering_id == null)).toBe(true);
+    expect(put?.[0]?.query).toEqual({ max_variations_supported: 3 });
     expect(markEtsyInventoryProjectionApplied).toHaveBeenCalled();
   });
 });

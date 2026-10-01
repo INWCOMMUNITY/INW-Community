@@ -55,16 +55,40 @@ async function loadMappedListing(input: {
   return { connection, listing };
 }
 
+/**
+ * Best-effort remote delete. Never blocks local unlink — Etsy often refuses DELETE
+ * on active listings, and app config may be missing while the DB link still exists.
+ */
 async function deleteRemoteEtsyListing(input: {
   connectionId: string;
   memberId: string;
+  shopId: string;
   etsyListingId: string;
+  remoteListingState?: string | null;
   fetchImpl?: EtsyFetch;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+}): Promise<{ deleted: boolean; detail: string | null }> {
   const listingId = String(input.etsyListingId ?? "").trim();
   if (!/^\d+$/.test(listingId)) {
-    return { ok: true };
+    return { deleted: true, detail: null };
   }
+
+  // Active listings often cannot be deleted until deactivated.
+  if (etsyListingIsPubliclyViewable(input.remoteListingState)) {
+    const deactivate = await etsyConnectionRequest({
+      connectionId: input.connectionId,
+      memberId: input.memberId,
+      method: "PATCH",
+      path: `/shops/${encodeURIComponent(input.shopId)}/listings/${encodeURIComponent(listingId)}`,
+      bodyEncoding: "form",
+      body: { state: "inactive" },
+      maxAttempts: 1,
+      fetchImpl: input.fetchImpl,
+    });
+    if (!deactivate.ok && deactivate.class !== "NOT_CONFIGURED") {
+      // Continue to DELETE anyway — some shops allow direct delete.
+    }
+  }
+
   const result = await etsyConnectionRequest({
     connectionId: input.connectionId,
     memberId: input.memberId,
@@ -74,16 +98,12 @@ async function deleteRemoteEtsyListing(input: {
     fetchImpl: input.fetchImpl,
   });
   if (result.ok || result.httpStatus === 404) {
-    return { ok: true };
+    return { deleted: true, detail: null };
   }
-  // Already gone / not deletable in current state — still allow local unlink when caller chooses.
-  if (
-    result.httpStatus === 409 ||
-    /already|not found|cannot be deleted|can't be deleted/i.test(result.message)
-  ) {
-    return { ok: false, error: result.message };
-  }
-  return { ok: false, error: result.message || "Could not delete Etsy listing" };
+  return {
+    deleted: false,
+    detail: result.message?.trim() || `Etsy delete failed (${result.class})`,
+  };
 }
 
 async function deleteListingMapping(listingLinkId: string): Promise<void> {
@@ -124,69 +144,82 @@ export async function runEtsyListingAction(input: {
   confirmDelete?: boolean;
   fetchImpl?: EtsyFetch;
 }): Promise<EtsyListingActionResult> {
-  const loaded = await loadMappedListing({
-    memberId: input.memberId,
-    storeItemId: input.storeItemId,
-  });
-  if ("error" in loaded) {
-    return { ok: false, status: loaded.status, error: loaded.error };
-  }
-  const { connection, listing } = loaded;
+  try {
+    const loaded = await loadMappedListing({
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+    });
+    if ("error" in loaded) {
+      return { ok: false, status: loaded.status, error: loaded.error };
+    }
+    const { connection, listing } = loaded;
 
-  if (input.action === "retry") {
-    if (etsyListingIsPubliclyViewable(listing.remoteListingState)) {
+    if (input.action === "retry") {
+      if (etsyListingIsPubliclyViewable(listing.remoteListingState)) {
+        return {
+          ok: false,
+          status: 409,
+          error: "Listing is already live on Etsy",
+          code: "ALREADY_LIVE",
+        };
+      }
+      const queued = await enqueueEtsyCreateListing({
+        memberId: input.memberId,
+        storeItemId: listing.storeItemId,
+      });
+      if (queued.status === "QUEUED") {
+        return { ok: true, message: "List on Etsy queued" };
+      }
+      if (queued.status === "ALREADY_MAPPED") {
+        return { ok: true, message: "Already live on Etsy" };
+      }
       return {
         ok: false,
-        status: 409,
-        error: "Listing is already live on Etsy",
-        code: "ALREADY_LIVE",
+        status: 400,
+        error: queued.message,
+        code: queued.code,
       };
     }
-    const queued = await enqueueEtsyCreateListing({
-      memberId: input.memberId,
+
+    // remove — local unlink is the seller-facing success; remote delete is best-effort.
+    let remoteDetail: string | null = null;
+    let remoteDeleted = false;
+    if (input.confirmDelete) {
+      const remote = await deleteRemoteEtsyListing({
+        connectionId: connection.id,
+        memberId: input.memberId,
+        shopId: connection.shopId,
+        etsyListingId: listing.etsyListingId,
+        remoteListingState: listing.remoteListingState,
+        fetchImpl: input.fetchImpl,
+      });
+      remoteDeleted = remote.deleted;
+      remoteDetail = remote.detail;
+    }
+
+    await stopPendingCreateJob({
+      connectionId: connection.id,
       storeItemId: listing.storeItemId,
     });
-    if (queued.status === "QUEUED") {
-      return { ok: true, message: "List on Etsy queued" };
+    await deleteListingMapping(listing.id);
+
+    if (!input.confirmDelete) {
+      return { ok: true, message: "Unlinked from Etsy (listing left on Etsy)" };
     }
-    if (queued.status === "ALREADY_MAPPED") {
-      return { ok: true, message: "Already live on Etsy" };
+    if (remoteDeleted) {
+      return { ok: true, message: "Removed from Etsy and unlinked in INW" };
     }
     return {
-      ok: false,
-      status: 400,
-      error: queued.message,
-      code: queued.code,
+      ok: true,
+      message: remoteDetail
+        ? `Unlinked in INW. Etsy listing was not deleted: ${remoteDetail}`
+        : "Unlinked in INW. Etsy listing was not deleted.",
     };
+  } catch (error) {
+    const message =
+      error instanceof Error && error.message.trim()
+        ? error.message.trim()
+        : "Could not remove Etsy listing link";
+    return { ok: false, status: 500, error: message, code: "REMOVE_FAILED" };
   }
-
-  // remove
-  if (input.confirmDelete) {
-    const deleted = await deleteRemoteEtsyListing({
-      connectionId: connection.id,
-      memberId: input.memberId,
-      etsyListingId: listing.etsyListingId,
-      fetchImpl: input.fetchImpl,
-    });
-    if (!deleted.ok) {
-      return {
-        ok: false,
-        status: 502,
-        error: deleted.error,
-        code: "LISTING_DELETE_FAILED",
-      };
-    }
-  }
-
-  await stopPendingCreateJob({
-    connectionId: connection.id,
-    storeItemId: listing.storeItemId,
-  });
-  await deleteListingMapping(listing.id);
-  return {
-    ok: true,
-    message: input.confirmDelete
-      ? "Removed from Etsy and unlinked in INW"
-      : "Unlinked from Etsy (listing left on Etsy)",
-  };
 }

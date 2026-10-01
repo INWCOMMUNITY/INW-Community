@@ -15,6 +15,7 @@ import {
   isSyncEtsyVariantTopologyFailure,
   syncEtsyListingVariantTopology,
 } from "./sync-listing-variants";
+import { ETSY_INVENTORY_QUERY, toEtsyInventoryPutBody } from "./listing-variants";
 
 function parsePayload(payload: unknown): {
   storeItemId: string;
@@ -40,14 +41,15 @@ function parsePayload(payload: unknown): {
 
 function classifyFailure(
   apiClass: string,
-  retryAfterMs: number | null
+  retryAfterMs: number | null,
+  message?: string | null
 ): Extract<EtsyJobHandlerResult, { outcome: "RETRY" | "DEAD" }> {
   if (apiClass === "THROTTLED" || apiClass === "TRANSIENT" || apiClass === "NETWORK") {
     return {
       outcome: "RETRY",
       errorClass: apiClass,
       errorCode: apiClass,
-      errorMessage: `Etsy provider ${apiClass}`,
+      errorMessage: message?.trim() || `Etsy provider ${apiClass}`,
       retryAt: retryAfterMs != null ? new Date(Date.now() + retryAfterMs) : undefined,
     };
   }
@@ -56,14 +58,15 @@ function classifyFailure(
       outcome: "DEAD",
       errorClass: apiClass,
       errorCode: apiClass,
-      errorMessage: `Etsy authorization unavailable (${apiClass})`,
+      errorMessage:
+        message?.trim() || `Etsy authorization unavailable (${apiClass})`,
     };
   }
   return {
     outcome: "DEAD",
     errorClass: apiClass || "PERMANENT",
     errorCode: apiClass || "PROVIDER_ERROR",
-    errorMessage: "Etsy inventory projection failed permanently",
+    errorMessage: message?.trim() || "Etsy inventory projection failed permanently",
   };
 }
 
@@ -186,7 +189,7 @@ export async function handleEtsyProjectInventoryJob(
     now: deps.now,
   });
   if (!inventoryRes.ok || !inventoryRes.data?.products) {
-    return classifyFailure(inventoryRes.class, inventoryRes.retryAfterMs);
+    return classifyFailure(inventoryRes.class, inventoryRes.retryAfterMs, inventoryRes.message);
   }
 
   const products = inventoryRes.data.products;
@@ -304,18 +307,19 @@ export async function handleEtsyProjectInventoryJob(
       memberId: connection.memberId,
       method: "PUT",
       path: `/listings/${encodeURIComponent(listing.etsyListingId)}/inventory`,
-      body: {
+      query: ETSY_INVENTORY_QUERY,
+      body: toEtsyInventoryPutBody({
         products: nextProducts,
         price_on_property: inventoryRes.data.price_on_property ?? [],
         quantity_on_property: inventoryRes.data.quantity_on_property ?? [],
         sku_on_property: inventoryRes.data.sku_on_property ?? [],
-      },
+      }),
       maxAttempts: 1,
       fetchImpl: deps.fetchImpl,
       now: deps.now,
     });
     if (!put.ok) {
-      return classifyFailure(put.class, put.retryAfterMs);
+      return classifyFailure(put.class, put.retryAfterMs, put.message);
     }
   }
 

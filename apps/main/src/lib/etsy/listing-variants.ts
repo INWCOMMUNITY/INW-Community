@@ -2,10 +2,11 @@
  * INW StoreVariant.options → Etsy listing inventory products[] (Size×Color matrix).
  * Mirrors Shopify multi-variant export correlation, via Etsy PUT inventory.
  */
-import { trackedAvailable } from "database";
+import { etsyCentsFromMoney, trackedAvailable } from "database";
 import {
   MAX_ETSY_AXES,
   MAX_ETSY_SKUS_ALL_PROPERTIES,
+  optionValuesKey,
   skuSelectionKey,
   type VariantMatrix,
 } from "@/lib/listing-variant-matrix";
@@ -76,6 +77,10 @@ const FALLBACK_PROPERTY_IDS: Record<string, number> = {
  * Prefer these over deprecated legacy Size (100) when taxonomy has no usable property.
  */
 const CUSTOM_VARIATION_PROPERTY_IDS = [513, 514, 516] as const;
+const CUSTOM_VARIATION_PROPERTY_ID_SET = new Set<number>(CUSTOM_VARIATION_PROPERTY_IDS);
+
+/** Required on inventory reads/writes that use a third variation axis. */
+export const ETSY_INVENTORY_QUERY = { max_variations_supported: 3 } as const;
 
 /** Property ids Etsy currently rejects on inventory writes. */
 const DEPRECATED_VARIATION_PROPERTY_IDS = new Set<number>([100]);
@@ -131,6 +136,238 @@ export function pickEtsyVariationPropertyId(input: {
   for (let i = 0; i < want.length; i += 1) hash = (hash * 31 + want.charCodeAt(i)) | 0;
   const synthetic = 900_000_000 + (Math.abs(hash) % 50_000_000);
   return { propertyId: synthetic, scaleId: null, source: "custom" };
+}
+
+type InventoryPropertyValueLike = {
+  property_id?: number;
+  property_name?: string;
+  values?: string[];
+  value_ids?: number[];
+  scale_id?: number | null;
+};
+
+/** True when any product still carries a deprecated variation property (e.g. Size=100). */
+export function inventoryHasDeprecatedEtsyProperties(
+  products: Array<{ property_values?: InventoryPropertyValueLike[] | null }>
+): boolean {
+  for (const product of products) {
+    for (const pv of product.property_values ?? []) {
+      const id = Number(pv.property_id);
+      if (Number.isFinite(id) && isDeprecatedEtsyVariationPropertyId(id)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Rewrite deprecated property ids (notably Size=100) before inventory PUT.
+ * Keeps option names/values; clears stale value_ids/scales tied to the old property.
+ */
+export function sanitizeDeprecatedEtsyInventoryProperties<
+  T extends { property_values?: InventoryPropertyValueLike[] | null },
+>(input: {
+  products: T[];
+  price_on_property?: number[] | null;
+  quantity_on_property?: number[] | null;
+  sku_on_property?: number[] | null;
+}): {
+  products: T[];
+  price_on_property: number[];
+  quantity_on_property: number[];
+  sku_on_property: number[];
+  rewritten: boolean;
+} {
+  const idRemap = new Map<number, number>();
+  const used = new Set<number>();
+
+  for (const product of input.products) {
+    for (const pv of product.property_values ?? []) {
+      const id = Number(pv.property_id);
+      if (Number.isFinite(id) && !isDeprecatedEtsyVariationPropertyId(id)) {
+        used.add(id);
+      }
+    }
+  }
+
+  function mapId(oldId: number, axisName: string): number {
+    const existing = idRemap.get(oldId);
+    if (existing != null) return existing;
+    const picked = pickEtsyVariationPropertyId({
+      axisName,
+      usedPropertyIds: used,
+    });
+    idRemap.set(oldId, picked.propertyId);
+    used.add(picked.propertyId);
+    return picked.propertyId;
+  }
+
+  let rewritten = false;
+  const products = input.products.map((product) => {
+    const propertyValues = product.property_values;
+    if (!Array.isArray(propertyValues) || propertyValues.length === 0) return product;
+    let touched = false;
+    const nextValues = propertyValues.map((pv) => {
+      const id = Number(pv.property_id);
+      if (!Number.isFinite(id) || !isDeprecatedEtsyVariationPropertyId(id)) return pv;
+      touched = true;
+      rewritten = true;
+      const nextId = mapId(id, String(pv.property_name ?? "Size"));
+      return {
+        ...pv,
+        property_id: nextId,
+        value_ids: [] as number[],
+        scale_id: null,
+      };
+    });
+    return touched ? { ...product, property_values: nextValues } : product;
+  });
+
+  const remapList = (ids: number[] | null | undefined): number[] =>
+    (ids ?? []).map((id) => {
+      const n = Number(id);
+      if (!Number.isFinite(n) || !isDeprecatedEtsyVariationPropertyId(n)) return n;
+      rewritten = true;
+      return mapId(n, "Size");
+    });
+
+  return {
+    products,
+    price_on_property: remapList(input.price_on_property),
+    quantity_on_property: remapList(input.quantity_on_property),
+    sku_on_property: remapList(input.sku_on_property),
+    rewritten,
+  };
+}
+
+type InventoryOfferingLike = {
+  offering_id?: unknown;
+  is_deleted?: boolean;
+  price?: unknown;
+  quantity?: number;
+  is_enabled?: boolean;
+  readiness_state_id?: number | string;
+};
+
+type InventoryProductLike = {
+  sku?: string | null;
+  product_id?: unknown;
+  is_deleted?: boolean;
+  property_values?: InventoryPropertyValueLike[] | null;
+  offerings?: InventoryOfferingLike[] | null;
+};
+
+export type EtsyInventoryPutProduct = {
+  sku: string;
+  property_values: Array<{
+    property_id: number;
+    property_name: string;
+    values: string[];
+    value_ids: number[];
+    scale_id?: number;
+  }>;
+  offerings: Array<{
+    price: number;
+    quantity: number;
+    is_enabled: boolean;
+    readiness_state_id?: number | string;
+  }>;
+};
+
+export type EtsyInventoryPutBody = {
+  products: EtsyInventoryPutProduct[];
+  price_on_property: number[];
+  quantity_on_property: number[];
+  sku_on_property: number[];
+};
+
+function offeringPriceDollars(price: unknown): number {
+  if (price && typeof price === "object") {
+    const money = price as { amount?: number; divisor?: number };
+    const cents = etsyCentsFromMoney({ amount: money.amount, divisor: money.divisor });
+    if (Number.isFinite(cents) && cents > 0) return Math.max(0.2, cents / 100);
+  }
+  if (typeof price === "number" && Number.isFinite(price) && price > 0) {
+    return Math.max(0.2, price);
+  }
+  if (typeof price === "string") {
+    const cents = etsyCentsFromMoney({ price });
+    if (Number.isFinite(cents) && cents > 0) return Math.max(0.2, cents / 100);
+  }
+  return 0.2;
+}
+
+function cleanPropertyValue(pv: InventoryPropertyValueLike): EtsyInventoryPutProduct["property_values"][number] | null {
+  const propertyId = Number(pv.property_id);
+  if (!Number.isFinite(propertyId) || isDeprecatedEtsyVariationPropertyId(propertyId)) return null;
+  const values = (pv.values ?? []).map((value) => String(value)).filter((value) => value.length > 0);
+  if (values.length === 0) return null;
+  const name = String(pv.property_name ?? "").trim() || "Variation";
+  const clearValueIds =
+    CUSTOM_VARIATION_PROPERTY_ID_SET.has(propertyId) || !Array.isArray(pv.value_ids);
+  const valueIds = clearValueIds
+    ? []
+    : pv.value_ids!.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+  const scaleId = typeof pv.scale_id === "number" ? pv.scale_id : Number.NaN;
+  return {
+    property_id: propertyId,
+    property_name: name,
+    values,
+    value_ids: valueIds,
+    ...(Number.isFinite(scaleId) ? { scale_id: scaleId } : {}),
+  };
+}
+
+/**
+ * Etsy updateListingInventory body. Full products[] replace.
+ * Strips GET-only fields (product_id, offering_id, money objects, is_deleted)
+ * and rewrites deprecated property ids before the request is sent.
+ */
+export function toEtsyInventoryPutBody(input: {
+  products: InventoryProductLike[];
+  price_on_property?: number[] | null;
+  quantity_on_property?: number[] | null;
+  sku_on_property?: number[] | null;
+}): EtsyInventoryPutBody {
+  const sanitized = sanitizeDeprecatedEtsyInventoryProperties({
+    products: input.products,
+    price_on_property: input.price_on_property,
+    quantity_on_property: input.quantity_on_property,
+    sku_on_property: input.sku_on_property,
+  });
+
+  const products: EtsyInventoryPutProduct[] = [];
+  for (const product of sanitized.products) {
+    if (product.is_deleted) continue;
+    const offerings = (product.offerings ?? [])
+      .filter((offering) => offering?.is_deleted !== true)
+      .map((offering) => {
+        const readiness = offering.readiness_state_id;
+        return {
+          price: offeringPriceDollars(offering.price),
+          quantity:
+            typeof offering.quantity === "number" && Number.isFinite(offering.quantity)
+              ? Math.max(0, Math.trunc(offering.quantity))
+              : 0,
+          is_enabled: offering.is_enabled !== false,
+          ...(readiness != null && readiness !== "" ? { readiness_state_id: readiness } : {}),
+        };
+      });
+    if (offerings.length === 0) continue;
+    products.push({
+      sku: String(product.sku ?? "").trim(),
+      property_values: (product.property_values ?? [])
+        .map((pv) => cleanPropertyValue(pv))
+        .filter((pv): pv is EtsyInventoryPutProduct["property_values"][number] => pv != null),
+      offerings,
+    });
+  }
+
+  return {
+    products,
+    price_on_property: sanitized.price_on_property,
+    quantity_on_property: sanitized.quantity_on_property,
+    sku_on_property: sanitized.sku_on_property,
+  };
 }
 
 export function parseStoreVariantOptions(raw: unknown): Record<string, string> | null {
@@ -380,8 +617,37 @@ export function optionsFromEtsyPropertyValues(
   return options;
 }
 
+function propertyValuesForStorage(
+  propertyValues: EtsyRemoteInventoryProduct["property_values"]
+): EtsyRemoteInventoryProduct["property_values"] {
+  const sanitized = sanitizeDeprecatedEtsyInventoryProperties({
+    products: [{ property_values: propertyValues ?? [] }],
+  });
+  return sanitized.products[0]?.property_values ?? propertyValues;
+}
+
+function uniqueProductIndex(
+  products: EtsyRemoteInventoryProduct[],
+  keyFor: (product: EtsyRemoteInventoryProduct) => string
+): Map<string, EtsyRemoteInventoryProduct> {
+  const counts = new Map<string, number>();
+  for (const product of products) {
+    const key = keyFor(product);
+    if (!key) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const index = new Map<string, EtsyRemoteInventoryProduct>();
+  for (const product of products) {
+    const key = keyFor(product);
+    if (!key || counts.get(key) !== 1) continue;
+    index.set(key, product);
+  }
+  return index;
+}
+
 /**
  * Correlate remote Etsy products to StoreVariants by option combination key.
+ * Name+value first; unique value-set when Etsy renames axes but keeps the values.
  */
 export function correlateEtsyProductsToStoreVariants(input: {
   requested: Array<{ storeVariantId: string; options: Record<string, string> }>;
@@ -406,11 +672,13 @@ export function correlateEtsyProductsToStoreVariants(input: {
       message: `Requested ${input.requested.length} variants but Etsy returned ${input.remote.length} products`,
     };
   }
-  const byCombo = new Map<string, EtsyRemoteInventoryProduct>();
-  for (const product of input.remote) {
-    const opts = optionsFromEtsyPropertyValues(product.property_values);
-    byCombo.set(skuSelectionKey(opts), product);
-  }
+  const byName = uniqueProductIndex(input.remote, (product) =>
+    skuSelectionKey(optionsFromEtsyPropertyValues(product.property_values))
+  );
+  const byValues = uniqueProductIndex(input.remote, (product) =>
+    optionValuesKey(optionsFromEtsyPropertyValues(product.property_values))
+  );
+  const used = new Set<EtsyRemoteInventoryProduct>();
   const pairs: Array<{
     storeVariantId: string;
     etsyProductId: string;
@@ -420,16 +688,20 @@ export function correlateEtsyProductsToStoreVariants(input: {
     remoteAvailable: number | null;
   }> = [];
   for (const req of input.requested) {
-    const key = skuSelectionKey(req.options);
-    const match = byCombo.get(key);
+    const nameKey = skuSelectionKey(req.options);
+    const valueKey = optionValuesKey(req.options);
+    const named = byName.get(nameKey);
+    const valued = valueKey ? byValues.get(valueKey) : undefined;
+    const match =
+      named && !used.has(named) ? named : valued && !used.has(valued) ? valued : undefined;
     if (!match) {
       return {
         ok: false,
         code: "OPTION_CORRELATION_FAILED",
-        message: `No Etsy product for combination ${key}`,
+        message: `No Etsy product for combination ${nameKey}`,
       };
     }
-    byCombo.delete(key);
+    used.add(match);
     const productId = String(match.product_id ?? "").trim();
     const offering =
       (match.offerings ?? []).find((o) => o?.is_enabled !== false) ?? match.offerings?.[0];
@@ -445,7 +717,7 @@ export function correlateEtsyProductsToStoreVariants(input: {
       storeVariantId: req.storeVariantId,
       etsyProductId: productId,
       etsyOfferingId: offeringId,
-      propertyValuesJson: match.property_values,
+      propertyValuesJson: propertyValuesForStorage(match.property_values),
       remoteSku: typeof match.sku === "string" ? match.sku : null,
       remoteAvailable:
         typeof offering?.quantity === "number" ? Math.max(0, Math.trunc(offering.quantity)) : null,

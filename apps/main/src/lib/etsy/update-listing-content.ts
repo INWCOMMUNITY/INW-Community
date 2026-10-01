@@ -26,6 +26,7 @@ import {
   isSyncEtsyVariantTopologyFailure,
   syncEtsyListingVariantTopology,
 } from "./sync-listing-variants";
+import { ETSY_INVENTORY_QUERY, toEtsyInventoryPutBody } from "./listing-variants";
 
 function parseUpdatePayload(payload: unknown): {
   storeItemId: string;
@@ -56,14 +57,15 @@ function parseUpdatePayload(payload: unknown): {
 
 function classifyFailure(
   apiClass: string,
-  retryAfterMs: number | null
+  retryAfterMs: number | null,
+  message?: string | null
 ): Extract<EtsyJobHandlerResult, { outcome: "RETRY" | "DEAD" }> {
   if (apiClass === "THROTTLED" || apiClass === "TRANSIENT" || apiClass === "NETWORK") {
     return {
       outcome: "RETRY",
       errorClass: apiClass,
       errorCode: apiClass,
-      errorMessage: `Etsy provider ${apiClass}`,
+      errorMessage: message?.trim() || `Etsy provider ${apiClass}`,
       retryAt: retryAfterMs != null ? new Date(Date.now() + retryAfterMs) : undefined,
     };
   }
@@ -72,14 +74,15 @@ function classifyFailure(
       outcome: "DEAD",
       errorClass: apiClass,
       errorCode: apiClass,
-      errorMessage: `Etsy authorization unavailable (${apiClass})`,
+      errorMessage:
+        message?.trim() || `Etsy authorization unavailable (${apiClass})`,
     };
   }
   return {
     outcome: "DEAD",
     errorClass: apiClass || "PERMANENT",
     errorCode: apiClass || "PROVIDER_ERROR",
-    errorMessage: "Etsy content update failed permanently",
+    errorMessage: message?.trim() || "Etsy content update failed permanently",
   };
 }
 
@@ -293,7 +296,7 @@ export async function handleEtsyUpdateListingContentJob(
       now: deps.now,
     });
     if (!remoteRes.ok || !remoteRes.data) {
-      return classifyFailure(remoteRes.class, remoteRes.retryAfterMs);
+      return classifyFailure(remoteRes.class, remoteRes.retryAfterMs, remoteRes.message);
     }
 
     const remoteTitle = normalizeEtsyTitle(remoteRes.data.title);
@@ -355,7 +358,7 @@ export async function handleEtsyUpdateListingContentJob(
         now: deps.now,
       });
       if (!patch.ok) {
-        return classifyFailure(patch.class, patch.retryAfterMs);
+        return classifyFailure(patch.class, patch.retryAfterMs, patch.message);
       }
     }
 
@@ -394,7 +397,7 @@ export async function handleEtsyUpdateListingContentJob(
           howPatch.class === "TRANSIENT" ||
           howPatch.class === "NETWORK")
       ) {
-        return classifyFailure(howPatch.class, howPatch.retryAfterMs);
+        return classifyFailure(howPatch.class, howPatch.retryAfterMs, howPatch.message);
       }
     }
 
@@ -449,7 +452,7 @@ export async function handleEtsyUpdateListingContentJob(
       now: deps.now,
     });
     if (!inventoryRes.ok || !inventoryRes.data?.products) {
-      return classifyFailure(inventoryRes.class, inventoryRes.retryAfterMs);
+      return classifyFailure(inventoryRes.class, inventoryRes.retryAfterMs, inventoryRes.message);
     }
 
     const products = inventoryRes.data.products;
@@ -594,18 +597,19 @@ export async function handleEtsyUpdateListingContentJob(
         memberId: connection.memberId,
         method: "PUT",
         path: `/listings/${encodeURIComponent(listing.etsyListingId)}/inventory`,
-        body: {
+        query: ETSY_INVENTORY_QUERY,
+        body: toEtsyInventoryPutBody({
           products: nextProducts,
           price_on_property: inventoryRes.data.price_on_property ?? [],
           quantity_on_property: inventoryRes.data.quantity_on_property ?? [],
           sku_on_property: inventoryRes.data.sku_on_property ?? [],
-        },
+        }),
         maxAttempts: 1,
         fetchImpl: deps.fetchImpl,
         now: deps.now,
       });
       if (!put.ok) {
-        return classifyFailure(put.class, put.retryAfterMs);
+        return classifyFailure(put.class, put.retryAfterMs, put.message);
       }
     }
 

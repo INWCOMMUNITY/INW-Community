@@ -109,8 +109,7 @@ export async function handleEtsyReconcileListingJob(
           inventoryTracking: storeItem.inventoryTracking,
         });
         if (isSyncEtsyVariantTopologyFailure(synced)) {
-          // Topology drift should not permanently kill reconcile — surface and continue for scalars.
-          if (synced.outcome === "RETRY") return synced;
+          return synced;
         }
       }
     }

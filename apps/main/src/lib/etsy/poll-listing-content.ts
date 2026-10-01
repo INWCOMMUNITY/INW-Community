@@ -54,16 +54,19 @@ type RemoteInventory = {
   }>;
 };
 
+const CONNECTION_LEVEL_FAILURES = new Set(["AUTH", "CONNECTION_INACTIVE", "NOT_CONFIGURED"]);
+
 function classifyFailure(
   apiClass: string,
-  retryAfterMs: number | null
+  retryAfterMs: number | null,
+  message?: string | null
 ): Extract<EtsyJobHandlerResult, { outcome: "RETRY" | "DEAD" }> {
   if (apiClass === "THROTTLED" || apiClass === "TRANSIENT" || apiClass === "NETWORK") {
     return {
       outcome: "RETRY",
       errorClass: apiClass,
       errorCode: apiClass,
-      errorMessage: `Etsy provider ${apiClass}`,
+      errorMessage: message?.trim() || `Etsy provider ${apiClass}`,
       retryAt: retryAfterMs != null ? new Date(Date.now() + retryAfterMs) : undefined,
     };
   }
@@ -72,14 +75,14 @@ function classifyFailure(
       outcome: "DEAD",
       errorClass: apiClass,
       errorCode: apiClass,
-      errorMessage: `Etsy authorization unavailable (${apiClass})`,
+      errorMessage: message?.trim() || `Etsy authorization unavailable (${apiClass})`,
     };
   }
   return {
     outcome: "DEAD",
     errorClass: apiClass || "PERMANENT",
     errorCode: apiClass || "PROVIDER_ERROR",
-    errorMessage: "Etsy listing poll failed permanently",
+    errorMessage: message?.trim() || "Etsy listing poll failed permanently",
   };
 }
 
@@ -106,7 +109,10 @@ async function fetchRemoteObservation(input: {
     now: input.now,
   });
   if (!listingRes.ok || !listingRes.data) {
-    return { ok: false, failure: classifyFailure(listingRes.class, listingRes.retryAfterMs) };
+    return {
+      ok: false,
+      failure: classifyFailure(listingRes.class, listingRes.retryAfterMs, listingRes.message),
+    };
   }
 
   const inventoryRes = await etsyConnectionRequest<RemoteInventory>({
@@ -120,7 +126,10 @@ async function fetchRemoteObservation(input: {
     now: input.now,
   });
   if (!inventoryRes.ok || !inventoryRes.data) {
-    return { ok: false, failure: classifyFailure(inventoryRes.class, inventoryRes.retryAfterMs) };
+    return {
+      ok: false,
+      failure: classifyFailure(inventoryRes.class, inventoryRes.retryAfterMs, inventoryRes.message),
+    };
   }
 
   const variants: EtsyRemoteListingObservation["variants"] = [];
@@ -181,7 +190,8 @@ async function fetchRemoteObservation(input: {
  * POLL_LISTING_CONTENT handler.
  * Re-reads mapped Etsy listings, applies content + inventory inbound (Etsy→INW),
  * fans out Shopify desires when remote wins. Echo-suppresses outbound loops.
- * Only marks the connection poll complete when every listing fetch succeeds (no cursor advance on failure).
+ * A listing-local failure is stored on that link and the poll continues.
+ * Auth, config, and transient failures still stop the job so the watermark does not advance.
  */
 export async function handleEtsyPollListingContentJob(
   claim: EtsySyncJobClaim,
@@ -222,8 +232,20 @@ export async function handleEtsyPollListingContentJob(
       now: deps.now,
     });
     if (!fetched.ok) {
-      // Do not advance poll watermark — retry whole job.
-      return fetched.failure;
+      const failure = fetched.failure;
+      if (failure.outcome === "RETRY" || CONNECTION_LEVEL_FAILURES.has(failure.errorClass)) {
+        return failure;
+      }
+      await prisma.etsyListingLink.update({
+        where: { id: link.id },
+        data: {
+          readiness: "ACTION_REQUIRED",
+          contentHealth: "DEGRADED",
+          issueCode: "LISTING_POLL_FAILED",
+          issueMessage: (failure.errorMessage || "Etsy listing poll failed").slice(0, 500),
+        },
+      });
+      continue;
     }
 
     await prisma.$transaction(async (tx) => {

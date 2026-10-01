@@ -59,7 +59,7 @@ describe("classifyEtsyListingHealth", () => {
       variantMaps: [{ ...baseVariant, inventoryDesiredVersion: 3, inventoryAppliedVersion: 2 }],
       hasCausalSaleConflict: false,
     });
-    expect(health.readiness).toBe("SYNCING");
+    expect(health.readiness).toBe("ACTION_REQUIRED");
     expect(health.issueCode).toBe("INVENTORY_SYNC_PENDING");
   });
 });

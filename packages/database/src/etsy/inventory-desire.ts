@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient, EtsySyncJob } from "@prisma/client";
 import { trackedAvailable } from "../commerce-foundation-inventory";
 import { enqueueEtsySyncJob } from "./jobs";
+import { reconcileEtsyListingHealthFromDb } from "./listing-health";
 
 export type EtsyInventoryDesireDb = PrismaClient | Prisma.TransactionClient;
 
@@ -166,6 +167,11 @@ export async function captureEtsyInventoryProjectionDesire(
     storeVariantId: locked.storeVariantId,
     inventoryDesiredVersion: nextVersion,
   });
+
+  await reconcileEtsyListingHealthFromDb(db, {
+    connectionId: connection.id,
+    listingLinkId: locked.etsyListingLinkId,
+  }).catch(() => undefined);
 
   return {
     status: "RECORDED",
