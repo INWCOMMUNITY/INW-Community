@@ -3,6 +3,51 @@ import {
   resolveEtsyHowItsMadeForCreate,
   ETSY_WHO_MADE_LABELS,
 } from "database";
+import {
+  ETSY_DEFAULT_PACKAGE,
+  resolveEtsyListingPackageFields,
+} from "./listing-package";
+
+describe("resolveEtsyListingPackageFields", () => {
+  it("defaults when no shipping option measurements exist", () => {
+    const pkg = resolveEtsyListingPackageFields(null);
+    expect(pkg.source).toBe("default");
+    expect(pkg.item_weight).toBe(ETSY_DEFAULT_PACKAGE.weightOz);
+    expect(pkg.item_weight_unit).toBe("oz");
+    expect(pkg.item_length).toBe(ETSY_DEFAULT_PACKAGE.lengthIn);
+    expect(pkg.item_width).toBe(ETSY_DEFAULT_PACKAGE.widthIn);
+    expect(pkg.item_height).toBe(ETSY_DEFAULT_PACKAGE.heightIn);
+    expect(pkg.item_dimensions_unit).toBe("in");
+  });
+
+  it("uses shipping option measurements when complete", () => {
+    const pkg = resolveEtsyListingPackageFields({
+      weightOz: 12,
+      lengthIn: 10,
+      widthIn: 7,
+      heightIn: 3,
+    });
+    expect(pkg.source).toBe("shipping_option");
+    expect(pkg.item_weight).toBe(12);
+    expect(pkg.item_length).toBe(10);
+    expect(pkg.item_width).toBe(7);
+    expect(pkg.item_height).toBe(3);
+  });
+
+  it("fills missing measurements from defaults", () => {
+    const pkg = resolveEtsyListingPackageFields({
+      weightOz: 16,
+      lengthIn: null,
+      widthIn: 5,
+      heightIn: null,
+    });
+    expect(pkg.source).toBe("mixed");
+    expect(pkg.item_weight).toBe(16);
+    expect(pkg.item_width).toBe(5);
+    expect(pkg.item_length).toBe(ETSY_DEFAULT_PACKAGE.lengthIn);
+    expect(pkg.item_height).toBe(ETSY_DEFAULT_PACKAGE.heightIn);
+  });
+});
 
 describe("resolveEtsyHowItsMadeForCreate", () => {
   it("requires who, what, when, and taxonomy", () => {

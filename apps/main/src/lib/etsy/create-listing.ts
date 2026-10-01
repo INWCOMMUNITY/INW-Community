@@ -16,6 +16,7 @@ import type { EtsyFetch } from "./client";
 import { resolveEtsyTaxonomyFallback } from "./taxonomy-default";
 import { resolveEtsyReadinessStateId } from "./readiness-state";
 import { notifyEtsyListingIssueOnce } from "./listing-issue-notify";
+import { resolveEtsyListingPackageFields } from "./listing-package";
 
 export type EnqueueEtsyCreateListingResult =
   | {
@@ -269,6 +270,16 @@ export async function handleEtsyCreateListingJob(
 
   const storeItem = await prisma.storeItem.findFirst({
     where: { id: payload.storeItemId, memberId: connection.memberId },
+    include: {
+      shippingOption: {
+        select: {
+          weightOz: true,
+          lengthIn: true,
+          widthIn: true,
+          heightIn: true,
+        },
+      },
+    },
   });
   if (!storeItem) {
     return {
@@ -324,6 +335,7 @@ export async function handleEtsyCreateListingJob(
       ? Math.max(1, storeItem.quantity || 1)
       : Math.max(1, storeItem.quantity || 1);
   const price = storeItem.priceCents / 100;
+  const packageFields = resolveEtsyListingPackageFields(storeItem.shippingOption);
 
   const createBody: Record<string, unknown> = {
     quantity: qty,
@@ -336,6 +348,12 @@ export async function handleEtsyCreateListingJob(
     is_supply: how.isSupply,
     type: "physical",
     readiness_state_id: readiness.readinessStateId,
+    item_weight: packageFields.item_weight,
+    item_weight_unit: packageFields.item_weight_unit,
+    item_length: packageFields.item_length,
+    item_width: packageFields.item_width,
+    item_height: packageFields.item_height,
+    item_dimensions_unit: packageFields.item_dimensions_unit,
   };
   if (connection.defaultShippingProfileId) {
     createBody.shipping_profile_id = connection.defaultShippingProfileId;
@@ -503,6 +521,12 @@ export async function handleEtsyCreateListingJob(
         when_made: how.whenMade,
         is_supply: how.isSupply,
         taxonomy_id: how.taxonomyId,
+        item_weight: packageFields.item_weight,
+        item_weight_unit: packageFields.item_weight_unit,
+        item_length: packageFields.item_length,
+        item_width: packageFields.item_width,
+        item_height: packageFields.item_height,
+        item_dimensions_unit: packageFields.item_dimensions_unit,
       },
       bodyEncoding: "form",
       maxAttempts: 1,
