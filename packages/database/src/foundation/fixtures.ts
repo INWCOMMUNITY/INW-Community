@@ -64,6 +64,7 @@ export async function createVariant(
     isDefault?: boolean;
     sku?: string | null;
     priceCents?: number;
+    options?: Record<string, string>;
   }
 ) {
   return prisma.storeVariant.create({
@@ -73,7 +74,7 @@ export async function createVariant(
       isDefault: args.isDefault ?? false,
       sku: args.sku ?? null,
       priceCents: args.priceCents ?? 1000,
-      options: {},
+      options: args.options ?? {},
     },
   });
 }

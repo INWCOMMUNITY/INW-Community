@@ -410,16 +410,6 @@ export async function applyEtsyListingContentInbound(
           ...(optionsChanged ? { options: remoteOptions } : {}),
         },
       });
-      // Keep StoreItem scalar facade in sync for single-variant listings.
-      if (variantMaps.length === 1) {
-        await db.storeItem.update({
-          where: { id: storeItem.id },
-          data: {
-            priceCents: nextPrice,
-            sku: remoteVariant.sku,
-          },
-        });
-      }
       appliedRemoteVariant = true;
     } else if (
       (variantClass === "CONVERGED" || variantClass === "UNCHANGED") &&
@@ -495,6 +485,35 @@ export async function applyEtsyListingContentInbound(
         data: {
           lastObservedVariantFingerprint: remoteVariantFp,
           lastObservedVariantUpdatedAt: now,
+        },
+      });
+    }
+  }
+
+  // Roll StoreItem.priceCents up from ACTIVE variants (min = listing "from" price).
+  // Qty inbound already updates StoreItem.quantity; price must do the same for Airport/UI.
+  // Single-variant also mirrors SKU onto the StoreItem facade.
+  if (appliedRemoteVariant) {
+    const activeVariants = await db.storeVariant.findMany({
+      where: {
+        storeItemId: storeItem.id,
+        memberId: input.memberId,
+        status: "ACTIVE",
+      },
+      select: { priceCents: true, sku: true },
+      orderBy: { createdAt: "asc" },
+    });
+    const positivePrices = activeVariants
+      .map((row) => row.priceCents)
+      .filter((p) => Number.isFinite(p) && p > 0)
+      .map((p) => Math.trunc(p));
+    if (positivePrices.length > 0) {
+      const facadePrice = Math.min(...positivePrices);
+      await db.storeItem.update({
+        where: { id: storeItem.id },
+        data: {
+          priceCents: facadePrice,
+          ...(activeVariants.length === 1 ? { sku: activeVariants[0]!.sku } : {}),
         },
       });
     }

@@ -275,4 +275,147 @@ describe("etsy E6 inbound listing content", () => {
     const unchanged = await prisma.storeItem.findUniqueOrThrow({ where: { id: item.id } });
     expect(unchanged.title).toBe("Desired Title");
   });
+
+  it("rolls StoreItem.priceCents to min ACTIVE variant after multi-variant REMOTE_ONLY price pull", async () => {
+    const seller = await createMember(prisma, "etsy-e6-mv-price");
+    const shopId = `7${seller.id.replace(/\D/g, "").slice(-7) || "5566778"}`;
+    const etsyConn = await persistEtsyInstall(prisma, {
+      memberId: seller.id,
+      etsyUserId: `8${shopId.slice(-6)}`,
+      shopId,
+      shopName: "MV Price Shop",
+      accessTokenEncrypted: "cipher-a",
+      refreshTokenEncrypted: "cipher-r",
+      accessTokenExpiresAt: new Date("2026-09-30T13:00:00Z"),
+      refreshTokenExpiresAt: new Date("2026-12-29T00:00:00Z"),
+      grantedScopes: "listings_r listings_w shops_r transactions_r",
+    });
+
+    // Stale listing facade (600) while variants are cheaper — mirrors Bro drift.
+    const item = await createStoreItem(prisma, seller.id, "MV Price Item", {
+      priceCents: 600,
+      sku: null,
+    });
+    await prisma.storeItem.update({
+      where: { id: item.id },
+      data: { description: "MV", photos: [] },
+    });
+    const vSmall = await createVariant(prisma, {
+      memberId: seller.id,
+      storeItemId: item.id,
+      isDefault: true,
+      sku: null,
+      priceCents: 300,
+      options: { Size: "Small" },
+    });
+    const vLarge = await createVariant(prisma, {
+      memberId: seller.id,
+      storeItemId: item.id,
+      isDefault: false,
+      sku: null,
+      priceCents: 500,
+      options: { Size: "Large" },
+    });
+
+    const listingId = `99${shopId.slice(-5)}`;
+    const mapping = await createEtsyImportedListingMapping(prisma, {
+      memberId: seller.id,
+      connectionId: etsyConn.id,
+      storeItemId: item.id,
+      etsyListingId: listingId,
+      remoteListingState: "active",
+      importBootstrapStartedAt: new Date("2026-09-30T12:00:00Z"),
+      variants: [
+        {
+          storeVariantId: vSmall.id,
+          etsyProductId: "1001",
+          etsyOfferingId: "1002",
+          remoteSku: null,
+          remoteAvailable: 2,
+        },
+        {
+          storeVariantId: vLarge.id,
+          etsyProductId: "1003",
+          etsyOfferingId: "1004",
+          remoteSku: null,
+          remoteAvailable: 2,
+        },
+      ],
+    });
+
+    const baseProduct = etsyProductContentFingerprint({
+      title: "MV Price Item",
+      description: "MV",
+      photos: [],
+    });
+    const baseSmall = etsyVariantContentFingerprint({ priceCents: 300, sku: null });
+    const baseLarge = etsyVariantContentFingerprint({ priceCents: 500, sku: null });
+    await prisma.etsyListingLink.update({
+      where: { id: mapping.listingLinkId },
+      data: {
+        appliedProductFingerprint: baseProduct,
+        desiredProductFingerprint: baseProduct,
+        appliedProductContentVersion: 1,
+        desiredProductContentVersion: 1,
+      },
+    });
+    await prisma.etsyVariantMap.updateMany({
+      where: { etsyListingLinkId: mapping.listingLinkId, storeVariantId: vSmall.id },
+      data: {
+        appliedVariantFingerprint: baseSmall,
+        desiredVariantFingerprint: baseSmall,
+        appliedVariantContentVersion: 1,
+        desiredVariantContentVersion: 1,
+      },
+    });
+    await prisma.etsyVariantMap.updateMany({
+      where: { etsyListingLinkId: mapping.listingLinkId, storeVariantId: vLarge.id },
+      data: {
+        appliedVariantFingerprint: baseLarge,
+        desiredVariantFingerprint: baseLarge,
+        appliedVariantContentVersion: 1,
+        desiredVariantContentVersion: 1,
+      },
+    });
+
+    const result = await prisma.$transaction((tx) =>
+      applyEtsyListingContentInbound(tx, {
+        connectionId: etsyConn.id,
+        memberId: seller.id,
+        listingLinkId: mapping.listingLinkId,
+        remote: {
+          etsyListingId: listingId,
+          title: "MV Price Item",
+          description: "MV",
+          photos: [],
+          variants: [
+            {
+              etsyProductId: "1001",
+              etsyOfferingId: "1002",
+              priceCents: 350,
+              sku: null,
+              options: { Size: "Small" },
+            },
+            {
+              etsyProductId: "1003",
+              etsyOfferingId: "1004",
+              priceCents: 550,
+              sku: null,
+              options: { Size: "Large" },
+            },
+          ],
+        },
+      })
+    );
+
+    expect(result.status).toBe("APPLIED");
+    const updatedSmall = await prisma.storeVariant.findUniqueOrThrow({ where: { id: vSmall.id } });
+    const updatedLarge = await prisma.storeVariant.findUniqueOrThrow({ where: { id: vLarge.id } });
+    expect(updatedSmall.priceCents).toBe(350);
+    expect(updatedLarge.priceCents).toBe(550);
+
+    const updatedItem = await prisma.storeItem.findUniqueOrThrow({ where: { id: item.id } });
+    // Listing facade must follow min ACTIVE variant so Airport price column moves with Etsy edits.
+    expect(updatedItem.priceCents).toBe(350);
+  });
 });
