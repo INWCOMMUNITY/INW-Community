@@ -128,7 +128,7 @@ export default function SellerProfilePage() {
 
       <div className="mb-4 rounded-xl border border-[#e6e0d6] bg-white p-4">
         <p className="mb-3 text-sm font-bold" style={{ color: "var(--color-heading)" }}>
-          {doneCount === checks.length ? "Looking sharp" : `${doneCount} of ${checks.length} shopper magnets`}
+          {doneCount === checks.length ? "Looking Sharp!" : `${doneCount} of ${checks.length} shopper magnets`}
         </p>
         <div className="flex flex-wrap gap-2">
           {checks.map((c) => (
