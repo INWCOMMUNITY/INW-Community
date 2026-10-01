@@ -5,6 +5,7 @@ import {
   etsyCentsFromMoney,
   markEtsyListingContentPollComplete,
   prisma,
+  reconcileEtsyListingHealthFromDb,
   resolveEtsyHowItsMadeForCreate,
   type EtsyJobHandlerResult,
   type EtsyRemoteListingObservation,
@@ -269,6 +270,13 @@ export async function handleEtsyPollListingContentJob(
         now: deps.now,
       });
     });
+
+    // Refresh Apps Airport health after inbound so completed qty/content sync
+    // clears stale INVENTORY_SYNC_PENDING / CONTENT_SYNC_PENDING banners.
+    await reconcileEtsyListingHealthFromDb(prisma, {
+      connectionId: connection.id,
+      listingLinkId: link.id,
+    }).catch(() => undefined);
 
     // Size×Color: when INW ACTIVE variants and Etsy products diverge, remesh/push via cron.
     const activeVariantCount = await prisma.storeVariant.count({

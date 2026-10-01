@@ -158,9 +158,17 @@ export async function handleEtsyProjectInventoryJob(
     payload.inventoryDesiredVersion < variantMap.inventoryDesiredVersion ||
     payload.inventoryDesiredVersion <= variantMap.inventoryAppliedVersion
   ) {
+    await reconcileEtsyListingHealthFromDb(prisma, {
+      connectionId: connection.id,
+      listingLinkId: listing.id,
+    }).catch(() => undefined);
     return { outcome: "SUCCESS" };
   }
   if (payload.inventoryDesiredVersion !== variantMap.inventoryDesiredVersion) {
+    await reconcileEtsyListingHealthFromDb(prisma, {
+      connectionId: connection.id,
+      listingLinkId: listing.id,
+    }).catch(() => undefined);
     return { outcome: "SUCCESS" };
   }
   if (
