@@ -3,11 +3,21 @@ import { fetchListingPhotoSource, optimizeListingPhoto } from "@/lib/listing-pho
 import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
 
-const MAX_ETSY_LISTING_IMAGES = 10;
+export const MAX_ETSY_LISTING_IMAGES = 10;
+
+function isUploadableInwPhotoUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url) && !/etsystatic\.com|etsyimg\.com/i.test(url);
+}
+
+type RemoteListingImage = {
+  listing_image_id?: number | string;
+  rank?: number;
+};
 
 /**
- * Download INW listing photos and upload binary images to an Etsy draft listing.
- * Etsy requires at least one image before a listing can be activated.
+ * Download INW listing photos and upload binary images to an Etsy listing.
+ * Always overwrites ranks 1..N so a prior partial upload cannot strand missing photos.
+ * Deletes remote images beyond the desired set when possible.
  */
 export async function uploadEtsyListingPhotosFromUrls(input: {
   connectionId: string;
@@ -19,8 +29,7 @@ export async function uploadEtsyListingPhotosFromUrls(input: {
   now?: Date;
 }): Promise<{ uploaded: number; attempted: number; lastError: string | null }> {
   const urls = normalizeEtsyPhotoUrls(input.photos)
-    .filter((url) => /^https?:\/\//i.test(url))
-    .filter((url) => !/etsystatic\.com|etsyimg\.com/i.test(url))
+    .filter(isUploadableInwPhotoUrl)
     .slice(0, MAX_ETSY_LISTING_IMAGES);
 
   let uploaded = 0;
@@ -41,7 +50,8 @@ export async function uploadEtsyListingPhotosFromUrls(input: {
           : new Blob([bytes], { type: "image/jpeg" });
       form.append("image", blob, filename);
       form.append("rank", String(i + 1));
-      form.append("overwrite", i === 0 ? "true" : "false");
+      // Always overwrite so create/update can fill ranks left empty by a partial earlier run.
+      form.append("overwrite", "true");
 
       const res = await etsyConnectionRequest({
         connectionId: input.connectionId,
@@ -68,7 +78,55 @@ export async function uploadEtsyListingPhotosFromUrls(input: {
     }
   }
 
+  if (uploaded > 0) {
+    await deleteEtsyListingImagesBeyondRank({
+      connectionId: input.connectionId,
+      memberId: input.memberId,
+      shopId: input.shopId,
+      etsyListingId: input.etsyListingId,
+      keepThroughRank: uploaded,
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+    }).catch(() => undefined);
+  }
+
   return { uploaded, attempted: urls.length, lastError };
+}
+
+async function deleteEtsyListingImagesBeyondRank(input: {
+  connectionId: string;
+  memberId: string;
+  shopId: string;
+  etsyListingId: string;
+  keepThroughRank: number;
+  fetchImpl?: EtsyFetch;
+  now?: Date;
+}): Promise<void> {
+  const listed = await etsyConnectionRequest<{ results?: RemoteListingImage[] }>({
+    connectionId: input.connectionId,
+    memberId: input.memberId,
+    method: "GET",
+    path: `/listings/${encodeURIComponent(input.etsyListingId)}/images`,
+    maxAttempts: 2,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (!listed.ok || !Array.isArray(listed.data?.results)) return;
+
+  for (const image of listed.data.results) {
+    const rank = typeof image.rank === "number" ? image.rank : Number(image.rank);
+    const imageId = String(image.listing_image_id ?? "").trim();
+    if (!imageId || !Number.isFinite(rank) || rank <= input.keepThroughRank) continue;
+    await etsyConnectionRequest({
+      connectionId: input.connectionId,
+      memberId: input.memberId,
+      method: "DELETE",
+      path: `/shops/${encodeURIComponent(input.shopId)}/listings/${encodeURIComponent(input.etsyListingId)}/images/${encodeURIComponent(imageId)}`,
+      maxAttempts: 1,
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+    }).catch(() => undefined);
+  }
 }
 
 /** True when Etsy listing already has at least one image. */

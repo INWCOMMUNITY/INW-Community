@@ -97,12 +97,13 @@ async function fetchRemoteObservation(input: {
   | { ok: true; remote: EtsyRemoteListingObservation }
   | { ok: false; failure: Extract<EtsyJobHandlerResult, { outcome: "RETRY" | "DEAD" }> }
 > {
-  const listingPath = `/shops/${encodeURIComponent(input.shopId)}/listings/${encodeURIComponent(input.etsyListingId)}`;
+  // Canonical getListing — shop-scoped GET 404s for some live listings while
+  // /listings/{id}/inventory still succeeds (same pattern as UPDATE_LISTING_CONTENT).
   const listingRes = await etsyConnectionRequest<RemoteListing>({
     connectionId: input.connectionId,
     memberId: input.memberId,
     method: "GET",
-    path: listingPath,
+    path: `/listings/${encodeURIComponent(input.etsyListingId)}`,
     query: { includes: "Images" },
     maxAttempts: 3,
     fetchImpl: input.fetchImpl,

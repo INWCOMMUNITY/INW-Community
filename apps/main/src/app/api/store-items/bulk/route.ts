@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import {
   applyFoundationSellerQuantitySets,
   prisma,
@@ -19,8 +20,20 @@ import {
   jsonIfCutoverBlocked,
   resolveCommerceInventoryWriter,
 } from "@/lib/commerce-foundation-cutover-http";
+import { runNextEtsySyncJob } from "@/lib/etsy/worker";
 
 export const dynamic = "force-dynamic";
+
+function kickEtsySyncJobsAfterEdit() {
+  waitUntil(
+    (async () => {
+      for (let i = 0; i < 24; i += 1) {
+        const ran = await runNextEtsySyncJob({ workerId: `etsy-bulk-inline-${i}` });
+        if (!ran.claimed) break;
+      }
+    })()
+  );
+}
 
 const bulkUpdateSchema = z.object({
   storeItemIds: z.array(z.string()).min(1).max(100),
@@ -438,6 +451,7 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
+    kickEtsySyncJobsAfterEdit();
     return NextResponse.json(result);
   } catch (e) {
     console.error("[bulk-update] error:", e);

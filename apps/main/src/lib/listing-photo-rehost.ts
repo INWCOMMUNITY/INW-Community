@@ -16,6 +16,8 @@ function isInwHostedPhotoUrl(url: string): boolean {
 function isMarketplaceCdnPhotoUrl(url: string): boolean {
   const patterns = [
     /i\.etsystatic\.com/i,
+    /etsystatic\.com/i,
+    /etsyimg\.com/i,
     /i\.ebayimg\.com/i,
     /cdn\.shopify\.com/i,
     /static\.wixstatic\.com/i,
@@ -23,7 +25,10 @@ function isMarketplaceCdnPhotoUrl(url: string): boolean {
   return patterns.some((pattern) => pattern.test(url));
 }
 
-/** Copy marketplace CDNs onto INW Blob once — never when the listing already has INW files. */
+/**
+ * True when the gallery is entirely marketplace CDN photos (no INW blobs yet).
+ * Used by import/bootstrap gates; sync rehost is per-URL via ensureInwHostedListingPhotos.
+ */
 export function shouldCopyMarketplacePhotosToInw(photos: string[]): boolean {
   const urls = photos.filter((url) => typeof url === "string" && url.trim().length > 0);
   if (urls.length === 0) return false;
@@ -53,14 +58,18 @@ async function copyMarketplacePhotoToInw(sourceUrl: string, index: number): Prom
 }
 
 /**
- * One-time copy of external CDN photos onto INW-hosted files.
- * Leaves URLs unchanged when INW blobs already exist or Blob is not configured.
+ * Copy marketplace CDN photos onto INW-hosted files (per URL).
+ * Leaves already-INW and non-marketplace URLs unchanged.
  */
 export async function ensureInwHostedListingPhotos(photos: string[]): Promise<string[]> {
-  if (!shouldCopyMarketplacePhotosToInw(photos)) return photos;
   const out: string[] = [];
   for (let i = 0; i < photos.length; i++) {
-    const url = photos[i]!.trim();
+    const url = typeof photos[i] === "string" ? photos[i]!.trim() : "";
+    if (!url) continue;
+    if (isInwHostedPhotoUrl(url) || !isMarketplaceCdnPhotoUrl(url)) {
+      out.push(url);
+      continue;
+    }
     const hosted = await copyMarketplacePhotoToInw(url, i);
     out.push(hosted || url);
   }

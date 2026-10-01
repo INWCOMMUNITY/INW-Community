@@ -8,7 +8,7 @@ describe("shouldCopyMarketplacePhotosToInw", () => {
     ).toBe(true);
   });
 
-  it("does not recopy when INW already hosts a photo", () => {
+  it("does not treat mixed INW+marketplace galleries as bootstrap-all-copy", () => {
     expect(
       shouldCopyMarketplacePhotosToInw([
         "https://abc.public.blob.vercel-storage.com/clock.jpg",

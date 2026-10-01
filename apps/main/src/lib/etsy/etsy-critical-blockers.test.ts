@@ -57,7 +57,7 @@ describe("etsy inbound title length", () => {
 });
 
 describe("listing photo rehost gates", () => {
-  it("rehosts only when every photo is marketplace CDN and none are INW-hosted", () => {
+  it("detects all-marketplace galleries for bootstrap copy", () => {
     expect(
       shouldCopyMarketplacePhotosToInw([
         "https://i.etsystatic.com/a.jpg",

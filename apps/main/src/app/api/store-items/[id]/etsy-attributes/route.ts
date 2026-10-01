@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import {
   isEtsyWhenMade,
   isEtsyWhoMade,
@@ -7,8 +8,20 @@ import {
 } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
+import { runNextEtsySyncJob } from "@/lib/etsy/worker";
 
 export const dynamic = "force-dynamic";
+
+function kickEtsySyncJobsAfterEdit() {
+  waitUntil(
+    (async () => {
+      for (let i = 0; i < 16; i += 1) {
+        const ran = await runNextEtsySyncJob({ workerId: `etsy-attrs-inline-${i}` });
+        if (!ran.claimed) break;
+      }
+    })()
+  );
+}
 
 /**
  * Persist Etsy How it's made + taxonomy fields on a StoreItem before CREATE_LISTING.
@@ -143,5 +156,6 @@ export async function PATCH(
     return storeItem;
   });
 
+  kickEtsySyncJobsAfterEdit();
   return NextResponse.json({ storeItem: updated });
 }

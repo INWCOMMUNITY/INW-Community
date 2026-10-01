@@ -8,7 +8,7 @@ vi.mock("database", async () => {
       etsyConnection: { findUnique: vi.fn() },
       etsyListingLink: { findUnique: vi.fn() },
       etsyVariantMap: { findMany: vi.fn() },
-      storeItem: { findFirst: vi.fn() },
+      storeItem: { findFirst: vi.fn(), update: vi.fn() },
       storeVariant: { findFirst: vi.fn() },
     },
     markEtsyProductContentApplied: vi.fn(),
@@ -22,6 +22,14 @@ vi.mock("./connection-request", () => ({
   etsyConnectionRequest: vi.fn(),
 }));
 
+vi.mock("./listing-images", () => ({
+  uploadEtsyListingPhotosFromUrls: vi.fn(),
+}));
+
+vi.mock("@/lib/listing-photo-rehost", () => ({
+  ensureInwHostedListingPhotos: vi.fn(async (photos: string[]) => photos ?? []),
+}));
+
 import {
   etsyProductContentFingerprint,
   etsyVariantContentFingerprint,
@@ -30,6 +38,7 @@ import {
   prisma,
 } from "database";
 import { etsyConnectionRequest } from "./connection-request";
+import { uploadEtsyListingPhotosFromUrls } from "./listing-images";
 import { handleEtsyUpdateListingContentJob } from "./update-listing-content";
 
 const claimBase = {
@@ -59,8 +68,10 @@ describe("etsy UPDATE_LISTING_CONTENT handler", () => {
     vi.mocked(prisma.etsyListingLink.findUnique).mockReset();
     vi.mocked(prisma.etsyVariantMap.findMany).mockReset();
     vi.mocked(prisma.storeItem.findFirst).mockReset();
+    vi.mocked(prisma.storeItem.update).mockReset();
     vi.mocked(prisma.storeVariant.findFirst).mockReset();
     vi.mocked(etsyConnectionRequest).mockReset();
+    vi.mocked(uploadEtsyListingPhotosFromUrls).mockReset();
     vi.mocked(markEtsyProductContentApplied).mockReset();
     vi.mocked(markEtsyVariantContentApplied).mockReset();
   });
@@ -302,5 +313,90 @@ describe("etsy UPDATE_LISTING_CONTENT handler", () => {
     expect(body.products.every((product) => product.offerings[0]?.offering_id == null)).toBe(true);
     expect(putCall?.[0]?.query).toEqual({ max_variations_supported: 3 });
     expect(markEtsyVariantContentApplied).toHaveBeenCalled();
+  });
+
+  it("GETs listing via /listings/{id} and does not block apply on incomplete photos", async () => {
+    const title = "Photo Title";
+    const description = "Body";
+    const photos = ["https://cdn.inw.example/a.jpg", "https://cdn.inw.example/b.jpg"];
+    const desiredFp = etsyProductContentFingerprint({ title, description, photos });
+
+    vi.mocked(prisma.etsyConnection.findUnique).mockResolvedValue({
+      id: "conn-1",
+      memberId: "m1",
+      shopId: "99",
+      status: "ACTIVE",
+    } as never);
+    vi.mocked(prisma.etsyListingLink.findUnique).mockResolvedValue({
+      id: "link-1",
+      etsyListingId: "555",
+      contentHealth: "HEALTHY",
+      desiredProductContentVersion: 1,
+      appliedProductContentVersion: 0,
+      desiredProductFingerprint: desiredFp,
+      appliedProductFingerprint: null,
+    } as never);
+    vi.mocked(prisma.etsyVariantMap.findMany).mockResolvedValue([
+      {
+        id: "map-1",
+        storeVariantId: "var-1",
+        etsyProductId: "1",
+        etsyOfferingId: "2",
+        desiredVariantContentVersion: 0,
+        appliedVariantContentVersion: 0,
+        desiredVariantFingerprint: null,
+        appliedVariantFingerprint: null,
+      },
+    ] as never);
+    vi.mocked(prisma.storeItem.findFirst).mockResolvedValue({
+      id: "item-1",
+      title,
+      description,
+      photos,
+      priceCents: 1000,
+      sku: "SKU",
+    } as never);
+    vi.mocked(prisma.storeVariant.findFirst).mockResolvedValue({
+      id: "var-1",
+      priceCents: 1000,
+      sku: "SKU",
+    } as never);
+    vi.mocked(prisma.storeItem.update).mockResolvedValue({} as never);
+    vi.mocked(uploadEtsyListingPhotosFromUrls).mockResolvedValue({
+      uploaded: 1,
+      attempted: 2,
+      lastError: "Etsy image upload failed (CLIENT)",
+    });
+
+    vi.mocked(etsyConnectionRequest)
+      .mockResolvedValueOnce({
+        ok: true,
+        class: "SUCCESS",
+        httpStatus: 200,
+        data: { title: "Old", description: "Body", images: [] },
+        message: "ok",
+        retryAfterMs: null,
+        rateLimit: null,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        class: "SUCCESS",
+        httpStatus: 200,
+        data: {},
+        message: "ok",
+        retryAfterMs: null,
+        rateLimit: null,
+      });
+
+    const result = await handleEtsyUpdateListingContentJob(claimBase);
+    expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(etsyConnectionRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "GET",
+        path: "/listings/555",
+      })
+    );
+    expect(uploadEtsyListingPhotosFromUrls).toHaveBeenCalled();
+    expect(markEtsyProductContentApplied).toHaveBeenCalled();
   });
 });

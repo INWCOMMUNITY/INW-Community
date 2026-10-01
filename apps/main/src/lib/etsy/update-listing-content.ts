@@ -20,6 +20,7 @@ import {
 import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
 import { uploadEtsyListingPhotosFromUrls } from "./listing-images";
+import { ensureInwHostedListingPhotos } from "@/lib/listing-photo-rehost";
 import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "./taxonomy-default";
 import { resolveEtsyReadinessStateId } from "./readiness-state";
 import {
@@ -282,14 +283,17 @@ export async function handleEtsyUpdateListingContentJob(
     });
   }
 
-  const listingPath = `/shops/${encodeURIComponent(connection.shopId)}/listings/${encodeURIComponent(listing.etsyListingId)}`;
+  // PATCH stays shop-scoped; GET uses canonical getListing — shop-scoped GET 404s
+  // for some live listings while /listings/{id}/inventory still works.
+  const listingGetPath = `/listings/${encodeURIComponent(listing.etsyListingId)}`;
+  const listingPatchPath = `/shops/${encodeURIComponent(connection.shopId)}/listings/${encodeURIComponent(listing.etsyListingId)}`;
 
   if (applyProduct) {
     const remoteRes = await etsyConnectionRequest<RemoteListing>({
       connectionId: connection.id,
       memberId: connection.memberId,
       method: "GET",
-      path: listingPath,
+      path: listingGetPath,
       query: { includes: "Images", legacy: false },
       maxAttempts: 3,
       fetchImpl: deps.fetchImpl,
@@ -346,7 +350,7 @@ export async function handleEtsyUpdateListingContentJob(
         connectionId: connection.id,
         memberId: connection.memberId,
         method: "PATCH",
-        path: listingPath,
+        path: listingPatchPath,
         query: { legacy: false },
         body: {
           ...(titleNeedsPatch ? { title: localTitle.slice(0, 140) } : {}),
@@ -382,7 +386,7 @@ export async function handleEtsyUpdateListingContentJob(
         connectionId: connection.id,
         memberId: connection.memberId,
         method: "PATCH",
-        path: listingPath,
+        path: listingPatchPath,
         query: { legacy: false },
         body: howMadeBody,
         bodyEncoding: "form",
@@ -401,9 +405,19 @@ export async function handleEtsyUpdateListingContentJob(
       }
     }
 
-    // Photos are omitted from product fingerprints; push best-effort.
-    // Permanent upload failure must not leave title sync stuck as "in progress".
-    const needsPhotoPush = desiredPhotos.some(
+    // Photos are omitted from product fingerprints; push best-effort full gallery.
+    // Never leave title/price applied state stuck behind incomplete media uploads.
+    const photosForUpload = await ensureInwHostedListingPhotos(desiredPhotos);
+    if (
+      photosForUpload.length > 0 &&
+      JSON.stringify(photosForUpload) !== JSON.stringify(storeItem.photos ?? [])
+    ) {
+      await prisma.storeItem.update({
+        where: { id: storeItem.id },
+        data: { photos: photosForUpload },
+      });
+    }
+    const needsPhotoPush = photosForUpload.some(
       (url) => /^https?:\/\//i.test(url) && !/etsystatic\.com|etsyimg\.com/i.test(url)
     );
     if (needsPhotoPush) {
@@ -412,10 +426,25 @@ export async function handleEtsyUpdateListingContentJob(
         memberId: connection.memberId,
         shopId: connection.shopId,
         etsyListingId: listing.etsyListingId,
-        photos: desiredPhotos,
+        photos: photosForUpload,
         fetchImpl: deps.fetchImpl,
         now: deps.now,
       });
+      if (uploaded.attempted > 0 && uploaded.uploaded < uploaded.attempted) {
+        const message =
+          uploaded.lastError?.slice(0, 400) ||
+          `Only ${uploaded.uploaded} of ${uploaded.attempted} photos uploaded to Etsy`;
+        // Only true provider flaps should delay content applied; incomplete galleries
+        // must not block INW title/price from clearing "in progress".
+        if (/throttl|timeout|network|429|5\d\d/i.test(message)) {
+          return {
+            outcome: "RETRY",
+            errorClass: "TRANSIENT",
+            errorCode: "PHOTO_UPLOAD_TRANSIENT",
+            errorMessage: message,
+          };
+        }
+      }
       if (uploaded.attempted > 0 && uploaded.uploaded < 1) {
         const message =
           uploaded.lastError?.slice(0, 400) ||

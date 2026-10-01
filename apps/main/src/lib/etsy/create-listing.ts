@@ -866,68 +866,88 @@ async function finalizeEtsyListingActivation(input: {
     return { outcome: "SUCCESS" };
   }
 
-  let hasImages = await etsyListingHasImages({
+  // Always push the full INW gallery (overwrite ranks). A prior partial upload must not
+  // leave hasImages=true and skip the remaining photos.
+  const photosForUpload = await ensureInwHostedListingPhotos(storeItem.photos ?? []);
+  if (
+    photosForUpload.length > 0 &&
+    JSON.stringify(photosForUpload) !== JSON.stringify(storeItem.photos ?? [])
+  ) {
+    await prisma.storeItem.update({
+      where: { id: storeItem.id },
+      data: { photos: photosForUpload },
+    });
+  }
+  const uploaded = await uploadEtsyListingPhotosFromUrls({
     connectionId: connection.id,
     memberId: connection.memberId,
+    shopId: connection.shopId,
     etsyListingId,
+    photos: photosForUpload,
     fetchImpl: input.fetchImpl,
     now: input.now,
   });
-  if (!hasImages) {
-    const photosForUpload = await ensureInwHostedListingPhotos(storeItem.photos ?? []);
-    if (
-      photosForUpload.length > 0 &&
-      JSON.stringify(photosForUpload) !== JSON.stringify(storeItem.photos ?? [])
-    ) {
-      await prisma.storeItem.update({
-        where: { id: storeItem.id },
-        data: { photos: photosForUpload },
-      });
+  if (uploaded.attempted > 0 && uploaded.uploaded < uploaded.attempted) {
+    const message =
+      uploaded.lastError?.slice(0, 400) ||
+      `Only ${uploaded.uploaded} of ${uploaded.attempted} photos uploaded to Etsy`;
+    if (/throttl|timeout|network|429|5\d\d/i.test(message)) {
+      return {
+        outcome: "RETRY",
+        errorClass: "TRANSIENT",
+        errorCode: "PHOTO_UPLOAD_TRANSIENT",
+        errorMessage: message,
+      };
     }
-    const uploaded = await uploadEtsyListingPhotosFromUrls({
+    return {
+      outcome: "RETRY",
+      errorClass: "TRANSIENT",
+      errorCode: "PHOTO_UPLOAD_INCOMPLETE",
+      errorMessage: message,
+    };
+  }
+  const hasImages =
+    uploaded.uploaded > 0 ||
+    (await etsyListingHasImages({
       connectionId: connection.id,
       memberId: connection.memberId,
-      shopId: connection.shopId,
       etsyListingId,
-      photos: photosForUpload,
       fetchImpl: input.fetchImpl,
       now: input.now,
+    }));
+  if (!hasImages) {
+    const issueMessage = (
+      uploaded.attempted < 1
+        ? "Add at least one photo on INW before activating on Etsy."
+        : uploaded.lastError ||
+          "Could not upload listing photos to Etsy. Use publicly reachable INW-hosted photos (Connection Settings → Linked Listings will show IMAGES_REQUIRED until fixed)."
+    ).slice(0, 500);
+    await prisma.etsyListingLink.updateMany({
+      where: { etsyConnectionId: connection.id, etsyListingId },
+      data: {
+        remoteListingState: "draft",
+        readiness: "ACTION_REQUIRED",
+        issueCode: "IMAGES_REQUIRED",
+        issueMessage,
+      },
     });
-    hasImages = uploaded.uploaded > 0;
-    if (!hasImages) {
-      const issueMessage = (
-        uploaded.attempted < 1
-          ? "Add at least one photo on INW before activating on Etsy."
-          : uploaded.lastError ||
-            "Could not upload listing photos to Etsy. Use publicly reachable INW-hosted photos (Connection Settings → Linked Listings will show IMAGES_REQUIRED until fixed)."
-      ).slice(0, 500);
-      await prisma.etsyListingLink.updateMany({
-        where: { etsyConnectionId: connection.id, etsyListingId },
-        data: {
-          remoteListingState: "draft",
-          readiness: "ACTION_REQUIRED",
-          issueCode: "IMAGES_REQUIRED",
-          issueMessage,
-        },
-      });
-      const link = await prisma.etsyListingLink.findFirst({
-        where: { etsyConnectionId: connection.id, etsyListingId },
-        select: { id: true },
-      });
-      if (link) {
-        await notifyEtsyListingIssueOnce({
-          memberId: connection.memberId,
-          storeItemId: storeItem.id,
-          connectionId: connection.id,
-          subjectId: link.id,
-          issueCode: "IMAGES_REQUIRED",
-          issueFingerprint: issueMessage,
-          severity: "ACTION_REQUIRED",
-          message: issueMessage,
-        }).catch(() => undefined);
-      }
-      return { outcome: "SUCCESS" };
+    const link = await prisma.etsyListingLink.findFirst({
+      where: { etsyConnectionId: connection.id, etsyListingId },
+      select: { id: true },
+    });
+    if (link) {
+      await notifyEtsyListingIssueOnce({
+        memberId: connection.memberId,
+        storeItemId: storeItem.id,
+        connectionId: connection.id,
+        subjectId: link.id,
+        issueCode: "IMAGES_REQUIRED",
+        issueFingerprint: issueMessage,
+        severity: "ACTION_REQUIRED",
+        message: issueMessage,
+      }).catch(() => undefined);
     }
+    return { outcome: "SUCCESS" };
   }
 
   const activate = await etsyConnectionRequest<{ state?: string }>({
