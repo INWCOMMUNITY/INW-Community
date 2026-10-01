@@ -212,7 +212,7 @@ export async function enqueueDueEtsyListingReconciliations(
 }
 
 export async function reconcileEtsyListingHealthFromDb(
-  db: PrismaClient,
+  db: EtsyHealthDb,
   input: { connectionId: string; listingLinkId: string }
 ): Promise<EtsyListingHealthSnapshot | null> {
   const connection = await db.etsyConnection.findUnique({

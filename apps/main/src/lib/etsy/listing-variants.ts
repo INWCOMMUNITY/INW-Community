@@ -252,7 +252,7 @@ type InventoryProductLike = {
   sku?: string | null;
   product_id?: unknown;
   is_deleted?: boolean;
-  property_values?: InventoryPropertyValueLike[] | null;
+  property_values?: InventoryPropertyValueLike[] | null | unknown;
   offerings?: InventoryOfferingLike[] | null;
 };
 
@@ -328,8 +328,14 @@ export function toEtsyInventoryPutBody(input: {
   quantity_on_property?: number[] | null;
   sku_on_property?: number[] | null;
 }): EtsyInventoryPutBody {
+  const normalizedProducts = input.products.map((product) => ({
+    ...product,
+    property_values: Array.isArray(product.property_values)
+      ? (product.property_values as InventoryPropertyValueLike[])
+      : null,
+  }));
   const sanitized = sanitizeDeprecatedEtsyInventoryProperties({
-    products: input.products,
+    products: normalizedProducts,
     price_on_property: input.price_on_property,
     quantity_on_property: input.quantity_on_property,
     sku_on_property: input.sku_on_property,
