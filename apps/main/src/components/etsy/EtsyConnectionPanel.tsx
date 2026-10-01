@@ -71,7 +71,19 @@ export function EtsyConnectionPanel({
     const params = new URLSearchParams(window.location.search);
     if (params.get("etsy") === "connected") setMessage("Etsy connected.");
     const oauthError = params.get("etsy_error");
-    if (oauthError) setError("Etsy connection was not completed.");
+    if (oauthError) {
+      const messages: Record<string, string> = {
+        invalid_state:
+          "Etsy connection could not be verified (browser session mismatch). Try Connect Etsy again from this same browser tab.",
+        invalid_callback: "Etsy returned an incomplete authorization. Try connecting again.",
+        token_exchange: "Etsy token exchange failed. Check API keys and try again.",
+        scopes: "Etsy did not grant the required shop scopes. Re-approve all requested permissions.",
+        shop_identity: "Could not verify your Etsy shop after login.",
+        shop_owned: "That Etsy shop is already connected to another INW account.",
+        not_configured: "Etsy is not configured on this environment.",
+      };
+      setError(messages[oauthError] ?? `Etsy connection was not completed (${oauthError}).`);
+    }
     void load();
   }, []);
 
