@@ -37,6 +37,19 @@ export default async function EditStoreItemPage({
 
   const item = await prisma.storeItem.findFirst({
     where: { id: params.id, memberId: session.user.id },
+    include: {
+      storeVariants: {
+        where: { status: "ACTIVE" },
+        select: {
+          id: true,
+          options: true,
+          priceCents: true,
+          sku: true,
+          inventoryState: { select: { onHand: true, mode: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+    },
   });
   if (!item) {
     notFound();
@@ -62,6 +75,14 @@ export default async function EditStoreItemPage({
             subcategory: item.subcategory,
             priceCents: item.priceCents,
             variants: item.variants,
+            storeVariants: item.storeVariants.map((v) => ({
+              id: v.id,
+              options: v.options,
+              priceCents: v.priceCents,
+              sku: v.sku,
+              onHand: v.inventoryState?.onHand ?? null,
+              mode: v.inventoryState?.mode ?? null,
+            })),
             quantity: item.quantity,
             inventoryTracking: item.inventoryTracking,
             status: item.status,

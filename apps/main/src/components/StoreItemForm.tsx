@@ -89,6 +89,14 @@ interface StoreItemFormProps {
     subcategory: string | null;
     priceCents: number;
     variants: unknown;
+    storeVariants?: Array<{
+      id?: string;
+      options?: unknown;
+      priceCents?: number | null;
+      sku?: string | null;
+      onHand?: number | null;
+      mode?: string | null;
+    }> | null;
     quantity: number;
     inventoryTracking?: string | null;
     status: string;
@@ -184,7 +192,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [shopifyMappedProductId, setShopifyMappedProductId] = useState<string | null>(null);
   const [shopifyBusy, setShopifyBusy] = useState(false);
   const [shopifyMessage, setShopifyMessage] = useState<string | null>(null);
-  const initialMatrix = initEditorFromVariants(existing?.variants);
+  const initialMatrix = initEditorFromVariants(existing?.variants, existing?.storeVariants);
   const [optionsEnabled, setOptionsEnabled] = useState(initialMatrix.optionsEnabled);
   const [variantAxes, setVariantAxes] = useState<VariantAxisDef[]>(initialMatrix.axes);
   const [variantSkus, setVariantSkus] = useState<EditorSkuRow[]>(initialMatrix.skus);

@@ -492,6 +492,24 @@ export async function PATCH(
           });
           delete (update as { quantity?: number }).quantity;
         } else if (data.quantity !== undefined && !hasOptionQuantities(data.variants ?? existing.variants)) {
+          const activeVariants = await tx.storeVariant.findMany({
+            where: { storeItemId: itemId, status: "ACTIVE" },
+            select: { id: true, isDefault: true, options: true },
+          });
+          const matrixActive =
+            activeVariants.length > 1 ||
+            activeVariants.some((v) => {
+              const opts = (v.options ?? {}) as Record<string, unknown>;
+              return opts && typeof opts === "object" && Object.keys(opts).length > 0;
+            });
+          if (matrixActive && data.variants === null) {
+            throw Object.assign(
+              new Error(
+                "This listing has size/color options. Keep Options enabled to edit stock, or remove options intentionally with a full matrix save."
+              ),
+              { code: "ambiguous_bulk_quantity" }
+            );
+          }
           await applyFoundationSellerQuantitySets(tx, {
             storeItemId: itemId,
             memberId: ownerId,
@@ -622,6 +640,26 @@ export async function PATCH(
       const cutover = jsonIfCutoverBlocked(e);
       if (cutover) return cutover;
       const msg = e instanceof Error ? e.message : "Update failed";
+      const code =
+        e && typeof e === "object" && "code" in e ? String((e as { code?: string }).code ?? "") : "";
+      if (code === "ambiguous_bulk_quantity" || /ambiguous_bulk_quantity/.test(msg)) {
+        return NextResponse.json(
+          {
+            error:
+              "This listing has size/color options. Edit quantity on each option (or keep Options enabled) instead of a single stock number.",
+          },
+          { status: 409 }
+        );
+      }
+      if (code === "set_below_reserved" || /set_below_reserved|below reserved/.test(msg)) {
+        return NextResponse.json(
+          {
+            error:
+              "Quantity can’t go below units already reserved in open checkouts. Wait for those to finish or set a higher quantity.",
+          },
+          { status: 409 }
+        );
+      }
       const status = /structural_variant_change|foundation_state_missing/.test(msg) ? 409 : 400;
       return NextResponse.json({ error: msg }, { status });
     }

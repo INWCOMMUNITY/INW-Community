@@ -45,6 +45,31 @@ function optionFingerprintOf(raw: Prisma.JsonValue): string {
   return Object.keys(options).length === 0 ? "simple:default" : matrixFingerprint(options);
 }
 
+/** Value-only key so Color vs Primary color with the same values rematch. */
+function optionValuesKeyOf(raw: Prisma.JsonValue | Record<string, string>): string {
+  const options =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : null;
+  if (!options) return "";
+  return Object.values(options)
+    .map((v) => String(v ?? "").trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join("|");
+}
+
+function optionsRecordOf(raw: Prisma.JsonValue): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const options: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const name = String(k ?? "").trim();
+    const val = v != null ? String(v).trim() : "";
+    if (name && val) options[name] = val;
+  }
+  return options;
+}
+
 export async function provisionNativeFoundationListing(
   tx: FoundationDb,
   storeItemId: string
@@ -336,25 +361,42 @@ export async function applyFoundationSellerMatrixStructure(
     orderBy: { createdAt: "asc" },
   });
   const activeBefore = existing.filter((v) => v.status === "ACTIVE");
+  const beforeValueKeys = activeBefore.map((v) => optionValuesKeyOf(v.options)).filter(Boolean).sort();
+  const afterValueKeys = args.matrixTargets
+    .map((t) => optionValuesKeyOf(t.options))
+    .filter(Boolean)
+    .sort();
   const beforeFingerprints = activeBefore.map((v) => optionFingerprintOf(v.options)).sort();
-  const afterFingerprints = [...nextFingerprints].sort();
+  const afterFingerprints = [...args.matrixTargets.map((t) => t.fingerprint)].sort();
+  // Identity change = option VALUE set changed. Axis renames (Color↔Primary color) rematch in place.
   const structureChanged =
-    beforeFingerprints.length !== afterFingerprints.length ||
-    beforeFingerprints.some((fp, i) => fp !== afterFingerprints[i]);
+    beforeValueKeys.length !== afterValueKeys.length ||
+    beforeValueKeys.some((k, i) => k !== afterValueKeys[i]);
+  const axisNamesChanged =
+    !structureChanged &&
+    (beforeFingerprints.length !== afterFingerprints.length ||
+      beforeFingerprints.some((fp, i) => fp !== afterFingerprints[i]));
 
   const byFp = new Map<string, (typeof existing)[number]>();
+  const byValues = new Map<string, (typeof existing)[number]>();
   for (const row of existing) {
     const fp = optionFingerprintOf(row.options);
-    const prior = byFp.get(fp);
-    // Prefer ACTIVE over RETIRED when duplicate fingerprints exist historically.
-    if (!prior || (prior.status !== "ACTIVE" && row.status === "ACTIVE")) {
+    const priorFp = byFp.get(fp);
+    if (!priorFp || (priorFp.status !== "ACTIVE" && row.status === "ACTIVE")) {
       byFp.set(fp, row);
+    }
+    const vk = optionValuesKeyOf(row.options);
+    if (!vk) continue;
+    const priorVk = byValues.get(vk);
+    if (!priorVk || (priorVk.status !== "ACTIVE" && row.status === "ACTIVE")) {
+      byValues.set(vk, row);
     }
   }
 
   let created = 0;
   let reactivated = 0;
   let sortOrder = existing.reduce((max, v) => Math.max(max, v.sortOrder ?? 0), 0);
+  const claimedIds = new Set<string>();
 
   for (const target of args.matrixTargets) {
     const opts = target.options;
@@ -371,7 +413,14 @@ export async function applyFoundationSellerMatrixStructure(
         : 1;
     const sku = target.sku?.trim() || null;
     const onHand = Math.max(0, Math.trunc(target.targetOnHand));
-    let row = byFp.get(target.fingerprint);
+    const valueKey = optionValuesKeyOf(opts);
+
+    let row: (typeof existing)[number] | undefined = byFp.get(target.fingerprint);
+    if (row && claimedIds.has(row.id)) row = undefined;
+    if (!row && valueKey) {
+      const byValue = byValues.get(valueKey);
+      if (byValue && !claimedIds.has(byValue.id)) row = byValue;
+    }
 
     if (!row) {
       sortOrder += 1;
@@ -397,6 +446,7 @@ export async function applyFoundationSellerMatrixStructure(
       );
       row = await tx.storeVariant.findUniqueOrThrow({ where: { id: variantId } });
       byFp.set(target.fingerprint, row);
+      if (valueKey) byValues.set(valueKey, row);
       created += 1;
     } else if (row.status !== "ACTIVE") {
       await tx.storeVariant.update({
@@ -413,19 +463,35 @@ export async function applyFoundationSellerMatrixStructure(
       reactivated += 1;
       row = { ...row, status: "ACTIVE", priceCents, sku, options: opts, isDefault: false };
       byFp.set(target.fingerprint, row);
+      if (valueKey) byValues.set(valueKey, row);
     } else {
-      if (row.priceCents !== priceCents || row.sku !== sku) {
+      const prevOpts = optionsRecordOf(row.options);
+      const optionsChanged = optionFingerprintOf(row.options) !== target.fingerprint;
+      if (
+        row.priceCents !== priceCents ||
+        row.sku !== sku ||
+        row.isDefault ||
+        optionsChanged
+      ) {
         await tx.storeVariant.update({
           where: { id: row.id },
-          data: { priceCents, sku, options: opts, isDefault: false },
+          data: {
+            priceCents,
+            sku,
+            options: opts,
+            isDefault: false,
+          },
         });
-      } else if (row.isDefault) {
-        await tx.storeVariant.update({
-          where: { id: row.id },
-          data: { isDefault: false, options: opts },
-        });
+        row = { ...row, priceCents, sku, options: opts, isDefault: false };
+        // Refresh indexes when axis names move (Color → Primary color).
+        if (optionsChanged) {
+          byFp.delete(optionFingerprintOf(prevOpts as unknown as Prisma.JsonValue));
+          byFp.set(target.fingerprint, row);
+        }
       }
     }
+
+    claimedIds.add(row.id);
 
     if (mode === "TRACKED_FINITE") {
       await setTrackedOnHand(tx, {
@@ -437,8 +503,7 @@ export async function applyFoundationSellerMatrixStructure(
     }
   }
 
-  const nextSet = new Set(nextFingerprints);
-  const toRetire = activeBefore.filter((v) => !nextSet.has(optionFingerprintOf(v.options)));
+  const toRetire = activeBefore.filter((v) => !claimedIds.has(v.id));
   let retired = 0;
   if (toRetire.length > 0) {
     const retireIds = toRetire.map((v) => v.id);
@@ -448,13 +513,17 @@ export async function applyFoundationSellerMatrixStructure(
       data: { status: "RETIRED", retiredAt: now },
     });
     retired = retireIds.length;
-    // Drop marketplace maps for retired identities so outbound remesh can rebuild.
     await tx.etsyVariantMap.deleteMany({ where: { storeVariantId: { in: retireIds } } });
     await tx.shopifyVariantMap.deleteMany({ where: { storeVariantId: { in: retireIds } } });
   }
 
   await projectStoreItemQuantity(tx, args.storeItemId);
-  return { created, retired, reactivated, structureChanged };
+  return {
+    created,
+    retired,
+    reactivated,
+    structureChanged: structureChanged || axisNamesChanged,
+  };
 }
 
 export async function markFoundationListingSold(

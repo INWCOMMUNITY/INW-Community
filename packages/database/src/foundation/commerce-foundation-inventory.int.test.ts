@@ -1317,6 +1317,68 @@ describe("prompt-65 checkout idempotency / races / restock", () => {
     expect(qtyS?.onHand).toBe(3);
   });
 
+  it("FOUNDATION matrix rematches Color↔Primary color by option values", async () => {
+    await resetSingleton();
+    await enterFoundation();
+    const member = await createMember(prisma, "rename-axis");
+    const item = await createStoreItem(prisma, member.id, "Rename", {
+      quantity: 4,
+      variants: {
+        axes: [
+          { name: "Primary color", values: ["Red", "Blue"] },
+          { name: "Size", values: ["S"] },
+        ],
+        skus: [
+          { options: { "Primary color": "Red", Size: "S" }, quantity: 2 },
+          { options: { "Primary color": "Blue", Size: "S" }, quantity: 2 },
+        ],
+      },
+    });
+    await prisma.$transaction((tx) => provisionNativeFoundationListing(tx, item.id));
+    const before = await prisma.storeVariant.findMany({
+      where: { storeItemId: item.id, status: "ACTIVE" },
+      select: { id: true },
+    });
+    expect(before).toHaveLength(2);
+
+    const result = await prisma.$transaction((tx) =>
+      applyFoundationSellerMatrixStructure(tx, {
+        storeItemId: item.id,
+        memberId: member.id,
+        commandId: `rename-${item.id}`,
+        matrixTargets: [
+          {
+            fingerprint: "matrix:color=red|size=s",
+            options: { Color: "Red", Size: "S" },
+            targetOnHand: 5,
+            priceCents: item.priceCents,
+            sku: null,
+          },
+          {
+            fingerprint: "matrix:color=blue|size=s",
+            options: { Color: "Blue", Size: "S" },
+            targetOnHand: 6,
+            priceCents: item.priceCents,
+            sku: null,
+          },
+        ],
+      })
+    );
+    expect(result.created).toBe(0);
+    expect(result.retired).toBe(0);
+    const after = await prisma.storeVariant.findMany({
+      where: { storeItemId: item.id, status: "ACTIVE" },
+      select: { id: true, options: true },
+    });
+    expect(after.map((v) => v.id).sort()).toEqual(before.map((v) => v.id).sort());
+    expect(
+      after.every((v) => {
+        const opts = (v.options ?? {}) as Record<string, string>;
+        return Object.prototype.hasOwnProperty.call(opts, "Color");
+      })
+    ).toBe(true);
+  });
+
   it("FOUNDATION matrix structural drop is still detectable via assert helper", async () => {
     await resetSingleton();
     await enterFoundation();

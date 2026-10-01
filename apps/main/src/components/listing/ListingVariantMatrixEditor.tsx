@@ -29,12 +29,91 @@ const PRESETS = ["Size", "Color", "Material"];
 
 export type EditorSkuRow = VariantSkuRow & { enabled: boolean };
 
-export function initEditorFromVariants(raw: unknown): {
+export type FoundationVariantHydrate = {
+  id?: string;
+  options?: unknown;
+  priceCents?: number | null;
+  sku?: string | null;
+  onHand?: number | null;
+  quantity?: number | null;
+  mode?: string | null;
+};
+
+function parseOptionsRecord(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const name = String(k ?? "").trim();
+    const val = v != null ? String(v).trim() : "";
+    if (name && val) out[name] = val;
+  }
+  return out;
+}
+
+/** Rebuild matrix from ACTIVE foundation variants when StoreItem.variants is missing/stale. */
+export function matrixFromFoundationVariants(
+  rows: FoundationVariantHydrate[] | null | undefined
+): ReturnType<typeof normalizeVariantMatrix> {
+  if (!rows?.length) return null;
+  const live = rows
+    .map((row) => {
+      const options = parseOptionsRecord(row.options);
+      const qty =
+        typeof row.onHand === "number" && Number.isFinite(row.onHand)
+          ? Math.max(0, Math.round(row.onHand))
+          : typeof row.quantity === "number" && Number.isFinite(row.quantity)
+            ? Math.max(0, Math.round(row.quantity))
+            : 0;
+      return {
+        storeVariantId: typeof row.id === "string" ? row.id : undefined,
+        options,
+        quantity: qty,
+        priceCents:
+          typeof row.priceCents === "number" && Number.isFinite(row.priceCents)
+            ? Math.max(0, Math.round(row.priceCents))
+            : 0,
+        sku: typeof row.sku === "string" && row.sku.trim() ? row.sku.trim() : undefined,
+      };
+    })
+    .filter((row) => Object.keys(row.options).length > 0);
+  if (live.length < 2) return null;
+
+  const axisNames = new Set<string>();
+  for (const row of live) {
+    for (const name of Object.keys(row.options)) axisNames.add(name);
+  }
+  const axes: VariantAxisDef[] = [...axisNames]
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => ({
+      name,
+      values: [...new Set(live.map((row) => row.options[name]).filter(Boolean))] as string[],
+    }));
+  if (axes.length === 0) return null;
+
+  return normalizeVariantMatrix({
+    axes,
+    skus: live.map((row) => ({
+      options: row.options,
+      quantity: row.quantity,
+      priceCents: row.priceCents,
+      ...(row.storeVariantId ? { storeVariantId: row.storeVariantId } : {}),
+      ...(row.sku ? { sku: row.sku } : {}),
+    })),
+  });
+}
+
+export function initEditorFromVariants(
+  raw: unknown,
+  foundationVariants?: FoundationVariantHydrate[] | null
+): {
   optionsEnabled: boolean;
   axes: VariantAxisDef[];
   skus: EditorSkuRow[];
 } {
-  const matrix = normalizeVariantMatrix(raw);
+  // Prefer foundation ACTIVE optioned rows when present — they are inventory truth
+  // (Etsy may use "Primary color" while StoreItem.variants still says "Color").
+  const matrix =
+    matrixFromFoundationVariants(foundationVariants) ?? normalizeVariantMatrix(raw);
   if (!matrix || matrix.axes.length === 0) {
     return { optionsEnabled: false, axes: [], skus: [] };
   }
