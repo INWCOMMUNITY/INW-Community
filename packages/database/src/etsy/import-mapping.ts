@@ -150,6 +150,45 @@ export async function createEtsyImportedListingMapping(
   };
 }
 
+/**
+ * Replace all variant maps on an existing listing link (NATIVE multi-variant repair).
+ */
+export async function replaceEtsyListingVariantMaps(
+  tx: EtsyMappingDb,
+  input: {
+    listingLinkId: string;
+    connectionId: string;
+    memberId: string;
+    storeItemId: string;
+    variants: EtsyVariantMappingInput[];
+  }
+): Promise<{ variantMapIds: string[] }> {
+  if (!input.variants?.length) {
+    throw new EtsyMappingError("INVALID_VARIANTS", "Etsy remap requires at least one variant mapping");
+  }
+  await tx.etsyVariantMap.deleteMany({ where: { etsyListingLinkId: input.listingLinkId } });
+  const variantMapIds: string[] = [];
+  for (const variant of input.variants) {
+    const map = await tx.etsyVariantMap.create({
+      data: {
+        etsyConnectionId: input.connectionId,
+        etsyListingLinkId: input.listingLinkId,
+        memberId: input.memberId,
+        storeItemId: input.storeItemId,
+        storeVariantId: variant.storeVariantId.trim(),
+        etsyProductId: String(variant.etsyProductId).trim(),
+        etsyOfferingId: String(variant.etsyOfferingId).trim(),
+        propertyValuesJson: variant.propertyValuesJson ?? undefined,
+        remoteSku: variant.remoteSku?.trim() || null,
+        inventoryDesiredAvailable: variant.remoteAvailable ?? null,
+        inventoryAppliedAvailable: variant.remoteAvailable ?? null,
+      },
+    });
+    variantMapIds.push(map.id);
+  }
+  return { variantMapIds };
+}
+
 export async function lookupEtsyListingByRemoteId(
   db: EtsyMappingDb,
   input: { connectionId: string; etsyListingId: string }

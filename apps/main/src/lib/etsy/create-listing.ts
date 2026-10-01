@@ -7,6 +7,7 @@ import {
   lookupEtsyListingByRemoteId,
   prisma,
   provisionNativeFoundationListing,
+  replaceEtsyListingVariantMaps,
   resolveEtsyHowItsMadeForCreate,
   type EtsyJobHandlerResult,
   type EtsySyncJobClaim,
@@ -15,10 +16,23 @@ import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
 import { resolveEtsyListingPackageFields } from "./listing-package";
 import { etsyListingHasImages, uploadEtsyListingPhotosFromUrls } from "./listing-images";
+import { ensureInwHostedListingPhotos } from "@/lib/listing-photo-rehost";
 import { ETSY_PLATFORM_DEFAULT_TAXONOMY_ID } from "./apps-airport";
 import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "./taxonomy-default";
 import { resolveEtsyReadinessStateId } from "./readiness-state";
 import { notifyEtsyListingIssueOnce } from "./listing-issue-notify";
+import {
+  buildEtsyInventoryProductsPayload,
+  correlateEtsyProductsToStoreVariants,
+  parseStoreVariantOptions,
+  resolveEtsyVariationPropertyIds,
+  validateEtsyExportVariants,
+  type EtsyRemoteInventoryProduct,
+} from "./listing-variants";
+import {
+  isSyncEtsyVariantTopologyFailure,
+  syncEtsyListingVariantTopology,
+} from "./sync-listing-variants";
 
 export type EnqueueEtsyCreateListingResult =
   | {
@@ -169,7 +183,7 @@ export async function enqueueEtsyCreateListing(input: {
 
   const variants = await prisma.storeVariant.findMany({
     where: { storeItemId: storeItem.id, memberId: input.memberId, status: "ACTIVE" },
-    select: { id: true },
+    select: { id: true, options: true, priceCents: true, sku: true },
     orderBy: { createdAt: "asc" },
   });
   if (variants.length < 1 || variants.length > 400) {
@@ -177,6 +191,14 @@ export async function enqueueEtsyCreateListing(input: {
       status: "ERROR",
       code: "UNSUPPORTED_VARIANTS",
       message: `Etsy export supports 1–400 variants; found ${variants.length}`,
+    };
+  }
+  const gate = validateEtsyExportVariants({ variants });
+  if (!gate.ok) {
+    return {
+      status: "ERROR",
+      code: "UNSUPPORTED_VARIANTS",
+      message: gate.message,
     };
   }
 
@@ -353,8 +375,21 @@ export async function handleEtsyCreateListingJob(
 
   const packageFields = resolveEtsyListingPackageFields(storeItem.shippingOption);
 
-  // Already mapped draft / failed activate — upload photos and try activate again.
+  // Already mapped draft / failed activate — expand flattened multi-variant maps, then activate.
   if (already) {
+    const expanded = await expandFlattenedEtsyNativeVariantMaps({
+      connection,
+      storeItem,
+      listingLinkId: already.id,
+      etsyListingId: already.etsyListingId,
+      how,
+      readinessStateId: readiness.readinessStateId,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    if (expanded && expanded.outcome !== "CONTINUE") {
+      return expanded;
+    }
     return finalizeEtsyListingActivation({
       connection,
       storeItem,
@@ -478,37 +513,15 @@ export async function handleEtsyCreateListingJob(
     return { outcome: "SUCCESS" };
   }
 
-  // Read inventory to capture product/offering ids for mapping.
-  const inventoryRes = await etsyConnectionRequest<{
-    products?: Array<{
-      product_id?: number | string;
-      sku?: string | null;
-      offerings?: Array<{ offering_id?: number | string; quantity?: number }>;
-    }>;
-  }>({
-    connectionId: connection.id,
-    memberId: connection.memberId,
-    method: "GET",
-    path: `/listings/${encodeURIComponent(etsyListingId)}/inventory`,
-    query: { max_variations_supported: 3 },
-    maxAttempts: 3,
-    fetchImpl: deps.fetchImpl,
-    now: deps.now,
-  });
-  if (!inventoryRes.ok || !inventoryRes.data?.products?.length) {
-    return classifyFailure(
-      inventoryRes.class || "PERMANENT",
-      inventoryRes.retryAfterMs,
-      inventoryRes.message || "Could not read inventory after create"
-    );
-  }
-
   const storeVariants = await prisma.storeVariant.findMany({
     where: {
       id: { in: payload.storeVariantIds },
       storeItemId: storeItem.id,
       memberId: connection.memberId,
       status: "ACTIVE",
+    },
+    include: {
+      inventoryState: { select: { mode: true, onHand: true, reserved: true } },
     },
     orderBy: { createdAt: "asc" },
   });
@@ -521,16 +534,160 @@ export async function handleEtsyCreateListingJob(
     };
   }
 
-  // Simple listings: Etsy returns one product/offering. Multi-variant structural sync is E8+.
-  const firstProduct = inventoryRes.data.products[0]!;
-  const firstOffering = firstProduct.offerings?.[0];
-  if (!firstOffering?.offering_id || firstProduct.product_id == null) {
+  const variantRows = storeVariants.map((v) => ({
+    id: v.id,
+    options: v.options,
+    priceCents: v.priceCents,
+    sku: v.sku,
+    inventory: v.inventoryState
+      ? {
+          mode: v.inventoryState.mode,
+          onHand: v.inventoryState.onHand,
+          reserved: v.inventoryState.reserved,
+        }
+      : null,
+  }));
+  const gate = validateEtsyExportVariants({ variants: variantRows });
+  if (!gate.ok) {
     return {
       outcome: "DEAD",
       errorClass: "PERMANENT",
-      errorCode: "INVENTORY_SHAPE",
-      errorMessage: "Etsy listing inventory missing product/offering identities",
+      errorCode: "UNSUPPORTED_VARIANTS",
+      errorMessage: gate.message,
     };
+  }
+
+  let mappingVariants: Array<{
+    storeVariantId: string;
+    etsyProductId: string;
+    etsyOfferingId: string;
+    propertyValuesJson?: unknown;
+    remoteSku?: string | null;
+    remoteAvailable?: number | null;
+  }>;
+
+  if (gate.multi) {
+    const taxonomyId =
+      (typeof createBody.taxonomy_id === "number" ? createBody.taxonomy_id : null) ?? how.taxonomyId;
+    const propertyMap = await resolveEtsyVariationPropertyIds({
+      connectionId: connection.id,
+      memberId: connection.memberId,
+      taxonomyId,
+      axisNames: gate.axisNames,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    const payloadInventory = buildEtsyInventoryProductsPayload({
+      variants: variantRows,
+      inventoryTracking: storeItem.inventoryTracking,
+      axisNames: gate.axisNames,
+      propertyMap,
+      readinessStateId: readiness.readinessStateId,
+    });
+    const put = await etsyConnectionRequest<{ products?: EtsyRemoteInventoryProduct[] }>({
+      connectionId: connection.id,
+      memberId: connection.memberId,
+      method: "PUT",
+      path: `/listings/${encodeURIComponent(etsyListingId)}/inventory`,
+      query: { max_variations_supported: 3 },
+      body: {
+        products: payloadInventory.products,
+        price_on_property: payloadInventory.price_on_property,
+        quantity_on_property: payloadInventory.quantity_on_property,
+        sku_on_property: payloadInventory.sku_on_property,
+      },
+      maxAttempts: 1,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    if (!put.ok) {
+      return classifyFailure(put.class, put.retryAfterMs, put.message);
+    }
+    const inventoryRes = await etsyConnectionRequest<{ products?: EtsyRemoteInventoryProduct[] }>({
+      connectionId: connection.id,
+      memberId: connection.memberId,
+      method: "GET",
+      path: `/listings/${encodeURIComponent(etsyListingId)}/inventory`,
+      query: { max_variations_supported: 3 },
+      maxAttempts: 3,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    if (!inventoryRes.ok || !inventoryRes.data?.products?.length) {
+      return classifyFailure(
+        inventoryRes.class || "PERMANENT",
+        inventoryRes.retryAfterMs,
+        inventoryRes.message || "Could not read inventory after multi-variant PUT"
+      );
+    }
+    const requested = variantRows.map((v) => ({
+      storeVariantId: v.id,
+      options: parseStoreVariantOptions(v.options)!,
+    }));
+    const correlation = correlateEtsyProductsToStoreVariants({
+      requested,
+      remote: inventoryRes.data.products,
+    });
+    if (!correlation.ok) {
+      return {
+        outcome: "DEAD",
+        errorClass: "PERMANENT",
+        errorCode: correlation.code,
+        errorMessage: correlation.message,
+      };
+    }
+    mappingVariants = correlation.pairs.map((p) => ({
+      storeVariantId: p.storeVariantId,
+      etsyProductId: p.etsyProductId,
+      etsyOfferingId: p.etsyOfferingId,
+      propertyValuesJson: p.propertyValuesJson ?? undefined,
+      remoteSku: p.remoteSku,
+      remoteAvailable: p.remoteAvailable,
+    }));
+  } else {
+    const inventoryRes = await etsyConnectionRequest<{
+      products?: Array<{
+        product_id?: number | string;
+        sku?: string | null;
+        offerings?: Array<{ offering_id?: number | string; quantity?: number }>;
+      }>;
+    }>({
+      connectionId: connection.id,
+      memberId: connection.memberId,
+      method: "GET",
+      path: `/listings/${encodeURIComponent(etsyListingId)}/inventory`,
+      query: { max_variations_supported: 3 },
+      maxAttempts: 3,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+    if (!inventoryRes.ok || !inventoryRes.data?.products?.length) {
+      return classifyFailure(
+        inventoryRes.class || "PERMANENT",
+        inventoryRes.retryAfterMs,
+        inventoryRes.message || "Could not read inventory after create"
+      );
+    }
+    const firstProduct = inventoryRes.data.products[0]!;
+    const firstOffering = firstProduct.offerings?.[0];
+    if (!firstOffering?.offering_id || firstProduct.product_id == null) {
+      return {
+        outcome: "DEAD",
+        errorClass: "PERMANENT",
+        errorCode: "INVENTORY_SHAPE",
+        errorMessage: "Etsy listing inventory missing product/offering identities",
+      };
+    }
+    mappingVariants = [
+      {
+        storeVariantId: storeVariants[0]!.id,
+        etsyProductId: String(firstProduct.product_id),
+        etsyOfferingId: String(firstOffering.offering_id),
+        remoteSku: typeof firstProduct.sku === "string" ? firstProduct.sku : storeItem.sku,
+        remoteAvailable:
+          typeof firstOffering.quantity === "number" ? firstOffering.quantity : storeItem.quantity,
+      },
+    ];
   }
 
   try {
@@ -545,7 +702,13 @@ export async function handleEtsyCreateListingJob(
         variantIds = provisioned.variantIds.length ? provisioned.variantIds : variantIds;
       }
 
-      const primaryVariantId = variantIds[0]!;
+      // Prefer mapping rows we built; fall back to provisioned primary order.
+      const byId = new Map(mappingVariants.map((m) => [m.storeVariantId, m]));
+      const ordered = variantIds
+        .map((id) => byId.get(id))
+        .filter((m): m is (typeof mappingVariants)[number] => Boolean(m));
+      const variantsForMap = ordered.length ? ordered : mappingVariants;
+
       await createEtsyImportedListingMapping(tx, {
         memberId: connection.memberId,
         connectionId: connection.id,
@@ -554,22 +717,22 @@ export async function handleEtsyCreateListingJob(
         remoteListingState: createData.state ?? "draft",
         importBootstrapStartedAt: deps.now ?? new Date(),
         importSource: "NATIVE",
-        variants: [
-          {
-            storeVariantId: primaryVariantId,
-            etsyProductId: String(firstProduct.product_id),
-            etsyOfferingId: String(firstOffering.offering_id),
-            remoteSku: typeof firstProduct.sku === "string" ? firstProduct.sku : storeItem.sku,
-            remoteAvailable:
-              typeof firstOffering.quantity === "number" ? firstOffering.quantity : storeItem.quantity,
-          },
-        ],
+        variants: variantsForMap.map((m) => ({
+          storeVariantId: m.storeVariantId,
+          etsyProductId: m.etsyProductId,
+          etsyOfferingId: m.etsyOfferingId,
+          propertyValuesJson: (m.propertyValuesJson as never) ?? undefined,
+          remoteSku: m.remoteSku,
+          remoteAvailable: m.remoteAvailable,
+        })),
       });
 
-      await captureEtsyInventoryProjectionDesire(tx, {
-        memberId: connection.memberId,
-        storeVariantId: primaryVariantId,
-      });
+      for (const m of variantsForMap) {
+        await captureEtsyInventoryProjectionDesire(tx, {
+          memberId: connection.memberId,
+          storeVariantId: m.storeVariantId,
+        });
+      }
     });
   } catch (error) {
     if (error instanceof EtsyMappingConflictError) {
@@ -595,6 +758,61 @@ export async function handleEtsyCreateListingJob(
     fetchImpl: deps.fetchImpl,
     now: deps.now,
   });
+}
+
+/**
+ * When a NATIVE listing was mapped 1:1 but INW has a Size×Color matrix, PUT full
+ * inventory products[] and replace etsyVariantMap rows.
+ */
+async function expandFlattenedEtsyNativeVariantMaps(input: {
+  connection: {
+    id: string;
+    memberId: string;
+    shopId: string;
+  };
+  storeItem: {
+    id: string;
+    inventoryTracking: string;
+  };
+  listingLinkId: string;
+  etsyListingId: string;
+  how: { taxonomyId: number };
+  readinessStateId: number | string;
+  fetchImpl?: EtsyFetch;
+  now?: Date;
+}): Promise<Extract<EtsyJobHandlerResult, { outcome: "RETRY" | "DEAD" }> | { outcome: "CONTINUE" } | null> {
+  const maps = await prisma.etsyVariantMap.findMany({
+    where: { etsyListingLinkId: input.listingLinkId, etsyConnectionId: input.connection.id },
+    select: { id: true },
+  });
+  const storeVariantCount = await prisma.storeVariant.count({
+    where: {
+      storeItemId: input.storeItem.id,
+      memberId: input.connection.memberId,
+      status: "ACTIVE",
+    },
+  });
+  if (storeVariantCount <= 1 || maps.length >= storeVariantCount) {
+    return { outcome: "CONTINUE" };
+  }
+
+  const synced = await syncEtsyListingVariantTopology({
+    connectionId: input.connection.id,
+    memberId: input.connection.memberId,
+    listingLinkId: input.listingLinkId,
+    storeItemId: input.storeItem.id,
+    etsyListingId: input.etsyListingId,
+    taxonomyId: input.how.taxonomyId,
+    readinessStateId: input.readinessStateId,
+    inventoryTracking: input.storeItem.inventoryTracking,
+    forcePush: true,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (isSyncEtsyVariantTopologyFailure(synced)) {
+    return synced;
+  }
+  return { outcome: "CONTINUE" };
 }
 
 async function finalizeEtsyListingActivation(input: {
@@ -659,12 +877,22 @@ async function finalizeEtsyListingActivation(input: {
     now: input.now,
   });
   if (!hasImages) {
+    const photosForUpload = await ensureInwHostedListingPhotos(storeItem.photos ?? []);
+    if (
+      photosForUpload.length > 0 &&
+      JSON.stringify(photosForUpload) !== JSON.stringify(storeItem.photos ?? [])
+    ) {
+      await prisma.storeItem.update({
+        where: { id: storeItem.id },
+        data: { photos: photosForUpload },
+      });
+    }
     const uploaded = await uploadEtsyListingPhotosFromUrls({
       connectionId: connection.id,
       memberId: connection.memberId,
       shopId: connection.shopId,
       etsyListingId,
-      photos: storeItem.photos,
+      photos: photosForUpload,
       fetchImpl: input.fetchImpl,
       now: input.now,
     });
@@ -674,7 +902,7 @@ async function finalizeEtsyListingActivation(input: {
         uploaded.attempted < 1
           ? "Add at least one photo on INW before activating on Etsy."
           : uploaded.lastError ||
-            "Could not upload listing photos to Etsy. Check that photo URLs are publicly reachable."
+            "Could not upload listing photos to Etsy. Use publicly reachable INW-hosted photos (Connection Settings → Linked Listings will show IMAGES_REQUIRED until fixed)."
       ).slice(0, 500);
       await prisma.etsyListingLink.updateMany({
         where: { etsyConnectionId: connection.id, etsyListingId },

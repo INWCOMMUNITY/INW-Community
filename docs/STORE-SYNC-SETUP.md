@@ -72,7 +72,7 @@ Do this once before connecting any marketplace.
 | Register as developer (if needed) | [etsy.com/developers/register](https://www.etsy.com/developers/register) |
 | **Callback URL to register** | `https://www.inwcommunity.com/api/etsy/oauth/callback` |
 | Legacy callback (still accepted) | `https://www.inwcommunity.com/api/channels/etsy/callback` |
-| Optional webhook URL | `https://www.inwcommunity.com/api/etsy/webhooks/inbox` |
+| Order webhook URL (required for SALE-causal qty) | `https://www.inwcommunity.com/api/etsy/webhooks/inbox` |
 | Local dev callback (optional) | `http://localhost:3000/api/etsy/oauth/callback` |
 
 ### B — To-do checklist
@@ -82,7 +82,7 @@ Do this once before connecting any marketplace.
 - [ ] B3 Register OAuth callback URL (exact match required)
 - [ ] B4 Copy Keystring + Shared secret → Vercel
 - [ ] B5 Redeploy main app
-- [ ] B6 (Optional) Webhooks + `ETSY_WEBHOOK_SECRET`
+- [ ] B6 Webhooks + `ETSY_WEBHOOK_SECRET` (required for SALE-causal qty; without it, poll uses MQE)
 - [ ] B7 Test: Connect → Import → Create → Sell on Etsy & INW → Disconnect
 
 ### B — Find API keys (numbered clicks)
@@ -104,10 +104,12 @@ Do this once before connecting any marketplace.
 8. **`ETSY_REDIRECT_URI`:**
    - Paste: `https://www.inwcommunity.com/api/etsy/oauth/callback`
 9. **`ETSY_CLIENT_ID` (optional):** Only if Etsy shows a **different** Client ID than the keystring. Usually leave blank.
-10. **`ETSY_WEBHOOK_SECRET` (optional):** Only if you configure webhooks in Etsy pointing to our webhook URL → copy Etsy’s signing secret.
+10. **`ETSY_WEBHOOK_SECRET` (required for sale-causal qty):** Configure Etsy order webhooks pointing to `https://www.inwcommunity.com/api/etsy/webhooks/inbox`, then copy Etsy’s signing secret. Without this, Etsy quantity drops observed on poll become marketplace quantity edits (MQE), not SALE facts — residual oversell risk.
 11. **`ETSY_DEFAULT_TAXONOMY_ID` (optional):** A default category number from [Etsy taxonomy API](https://developers.etsy.com/documentation/reference#operation/getSellerTaxonomyNodes).
 
-**Scopes our app uses:** `listings_r`, `listings_w`, `transactions_r`, `shops_r`
+**Scopes our app uses:** `listings_r`, `listings_w`, `transactions_r`, `shops_r`, `shops_w`
+
+Reconnect Etsy in Apps Airport if an older connection was granted without `shops_w` (needed for readiness-state create).
 
 ### B — Paste into Vercel
 
@@ -117,42 +119,58 @@ Do this once before connecting any marketplace.
 | `ETSY_CLIENT_SECRET` | Yes | Shared secret |
 | `ETSY_REDIRECT_URI` | Yes | `https://www.inwcommunity.com/api/etsy/oauth/callback` |
 | `ETSY_CLIENT_ID` | No | Only if ≠ keystring |
-| `ETSY_WEBHOOK_SECRET` | No | Webhook signing secret |
+| `ETSY_WEBHOOK_SECRET` | Yes for SALE-causal qty | Webhook signing secret |
 | `ETSY_DEFAULT_TAXONOMY_ID` | No | Category id number |
+| `CRON_SECRET` | Yes | Shared with other crons; Bearer auth for `/api/cron/etsy-sync-jobs` |
+| `ENCRYPTION_KEY` | Yes | Token encryption at rest |
 
-### B — Two-way sync (Etsy → INW)
+### B — Two-way sync (Etsy ↔ INW)
 
-**Problem:** Etsy webhooks primarily deliver order events, not listing edit notifications. This means edits made on Etsy don't automatically sync to INW.
+**How it runs in production:** Vercel cron hits `/api/cron/etsy-sync-jobs` every **5 minutes** (root `vercel.json` + `apps/main/vercel.json`). That worker drains:
 
-**Solution:** Enable `CHANNEL_CRON_SYNC_ENABLED=true` in Vercel to run full two-way catalog reconcile every 5 minutes.
+- `CREATE_LISTING` / `UPDATE_LISTING_CONTENT` / `PROJECT_INVENTORY` (outbound)
+- `POLL_LISTING_CONTENT` (Etsy → INW title/desc/price/SKU/qty + photos observation)
+- `RECONCILE_LISTING` / `PROCESS_PROVIDER_EVIDENCE` (health + order evidence)
 
-| Vercel name | Value | What it does |
-|-------------|-------|--------------|
-| `CHANNEL_CRON_SYNC_ENABLED` | `true` | Enables full two-way sync for Etsy, eBay, Wix, Shopify |
+Outbound edits also get a short **inline drain** after List on Etsy / store-item save. **Inbound poll and order evidence still need the cron.**
 
-After setting, **redeploy** the main app. The cron runs every 5 minutes and will:
-- Pull content changes from Etsy → INW (title, description, price, photos)
-- Push INW changes → Etsy (most recent wins)
-- Sync quantity on divergence
+Do **not** use `CHANNEL_CRON_SYNC_ENABLED` for Etsy V2 sync — that flag is for the legacy `/api/cron/sync-channels` reconcile path, not `etsy-sync-jobs`.
 
-**If connect or listing fails:** Confirm `ETSY_REDIRECT_URI` is exactly `/api/etsy/oauth/callback`, the seller has an Etsy shipping profile selected in Connection settings, and How it’s made is filled on the INW listing.
+**Qty quality:** Paid-order webhooks → sale facts → Foundation. Without webhooks, unexplained remote qty changes apply as MQE. Treat `ETSY_WEBHOOK_SECRET` + registered order topics as required before calling qty “production-ready.”
+
+**If connect or listing fails:** Confirm `ETSY_REDIRECT_URI` is exactly `/api/etsy/oauth/callback`, the seller has an Etsy shipping profile selected in Connection settings, How it’s made is filled on the INW listing, and photos are publicly reachable (INW-hosted preferred).
 
 ### B — Tell sellers
 
 - [ ] They need at least one **shipping profile** on Etsy, or synced listings stay **drafts** until they add one.
-- [ ] Edits on Etsy sync to INW within ~5 minutes (when `CHANNEL_CRON_SYNC_ENABLED=true`)
-- [ ] Edits on INW sync to Etsy immediately
+- [ ] Edits on Etsy sync to INW within ~5 minutes (via `etsy-sync-jobs` poll).
+- [ ] Edits on INW sync to Etsy after save (inline drain + cron backlog).
+- [ ] Live / View on Etsy only when Etsy reports the listing **active** (not draft).
 
 ### B — Test in app
 
-1. Seller Hub → **Sync Stores** → **Connect Etsy**
-2. **Import existing listings**
-3. Create/edit item with Etsy sync on
-4. Sell on Etsy → INW quantity drops (~15 min, or faster with webhook)
-5. Sell on INW → Etsy quantity drops
-6. **Disconnect** → Etsy listing stays; sync stops
+1. Seller Hub → **Apps Airport** → **Connect Etsy** (scopes include `shops_w`)
+2. Connection Settings → default **shipping profile**
+3. **Import** an active listing (Size×Color if available)
+4. Create/list item with How it’s made + photos → expect **active** / Live (not draft / `IMAGES_REQUIRED`)
+5. Edit INW title + qty → Etsy updates after cron/inline drain
+6. Edit Etsy title → INW within ~5 minutes
+7. Sell on Etsy (webhook) → INW quantity drops as SALE (not MQE)
+8. Sell on INW → Etsy quantity drops
+9. **Disconnect** → Etsy listing stays; sync stops
 
-**You're done with Etsy when:** Connect works, import works, and a test sale updates quantity both ways.
+### B — Pre-deploy smoke checklist
+
+- [ ] Vercel Cron UI lists `/api/cron/etsy-sync-jobs` (every 5m) and a manual run returns JSON with `discovered`/`processed` using `Authorization: Bearer $CRON_SECRET`
+- [ ] Env present: `ETSY_API_KEY`, `ETSY_CLIENT_SECRET`, `ETSY_REDIRECT_URI` (or `ETSY_APP_URL`), `CRON_SECRET`, `ENCRYPTION_KEY`
+- [ ] Etsy order webhooks → `/api/etsy/webhooks/inbox` + `ETSY_WEBHOOK_SECRET` set
+- [ ] OAuth grant includes `shops_w` (reconnect if needed)
+- [ ] Seller smoke: shipping profile → how-made → photos → List → `remoteListingState=active`
+- [ ] Title + qty both directions; paid order applies as SALE when webhooks live
+- [ ] Import one active multi-variant Size×Color listing
+- [ ] Before merge to `main`: `git merge-base --is-ancestor aff1b745 HEAD` succeeds; keep Shopify `listing-actions.ts` `loadMappedListing` error `{ error: string; status: number }` if conflicted
+
+**You're done with Etsy when:** Connect works, import works, cron drains jobs, Live requires active, and a test sale updates quantity both ways with SALE causality (webhooks).
 
 ---
 

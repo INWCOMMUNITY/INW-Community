@@ -212,7 +212,9 @@ describe("enqueueEtsyCreateListing gates", () => {
       etsyIsSupply: false,
       etsyTaxonomyId: 10,
     } as never);
-    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([{ id: "var-1" }] as never);
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
+      { id: "var-1", options: null, priceCents: 1200, sku: null },
+    ] as never);
     vi.mocked(enqueueEtsySyncJob).mockResolvedValue({ id: "job-1" } as never);
 
     const result = await enqueueEtsyCreateListing({ memberId: "m1", storeItemId: "item-1" });
@@ -224,5 +226,36 @@ describe("enqueueEtsyCreateListing gates", () => {
         etsyConnectionId: "conn-1",
       })
     );
+  });
+
+  it("rejects multi-variant List on Etsy when options are missing", async () => {
+    vi.mocked(prisma.etsyConnection.findFirst).mockResolvedValue({
+      id: "conn-1",
+      defaultTaxonomyId: 10,
+      defaultShippingProfileId: "sp-1",
+    } as never);
+    vi.mocked(prisma.etsyListingLink.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.storeItem.findFirst).mockResolvedValue({
+      id: "item-1",
+      status: "active",
+      title: "Tee",
+      description: "Nice",
+      priceCents: 1200,
+      quantity: 30,
+      inventoryTracking: "tracked",
+      photos: ["https://cdn.example/tee.jpg"],
+      etsyWhoMade: "i_did",
+      etsyWhenMade: "2020_2026",
+      etsyIsSupply: false,
+      etsyTaxonomyId: 10,
+    } as never);
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
+      { id: "var-1", options: null, priceCents: 1000, sku: null },
+      { id: "var-2", options: null, priceCents: 1000, sku: null },
+    ] as never);
+
+    const result = await enqueueEtsyCreateListing({ memberId: "m1", storeItemId: "item-1" });
+    expect(result.status).toBe("ERROR");
+    if (result.status === "ERROR") expect(result.code).toBe("UNSUPPORTED_VARIANTS");
   });
 });

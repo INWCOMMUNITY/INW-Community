@@ -444,6 +444,7 @@ export {
 export type { BeginEtsyListingImportAttemptResult } from "./etsy/import-attempt";
 export {
   createEtsyImportedListingMapping,
+  replaceEtsyListingVariantMaps,
   lookupEtsyListingByRemoteId,
   EtsyMappingConflictError,
   EtsyMappingError,
@@ -469,12 +470,14 @@ export {
   markEtsyProductContentApplied,
   markEtsyVariantContentApplied,
   recordEtsyDirtyMappedVariantContentDesires,
+  recordEtsyHowItsMadeDesire,
   recordEtsyListingContentDesire,
   setEtsyProductContentConflict,
   setEtsyVariantContentConflict,
 } from "./etsy/content-desire";
 export type {
   EtsyContentDb,
+  EtsyHowItsMadeSnapshot,
   EtsyListingContentSnapshot,
   RecordEtsyListingContentDesireResult,
 } from "./etsy/content-desire";

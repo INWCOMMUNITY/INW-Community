@@ -1,12 +1,20 @@
 import {
+  etsyCentsFromMoney,
   markEtsyInventoryProjectionApplied,
   prisma,
   reconcileEtsyListingHealthFromDb,
+  resolveEtsyHowItsMadeForCreate,
   type EtsyJobHandlerResult,
   type EtsySyncJobClaim,
 } from "database";
 import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
+import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "./taxonomy-default";
+import { resolveEtsyReadinessStateId } from "./readiness-state";
+import {
+  isSyncEtsyVariantTopologyFailure,
+  syncEtsyListingVariantTopology,
+} from "./sync-listing-variants";
 
 function parsePayload(payload: unknown): {
   storeItemId: string;
@@ -188,6 +196,24 @@ export async function handleEtsyProjectInventoryJob(
     const productId = String(product.product_id ?? "");
     const offerings = (product.offerings ?? []).map((offering) => {
       const offeringId = String(offering.offering_id ?? "");
+      const priceObj =
+        offering.price && typeof offering.price === "object"
+          ? (offering.price as { amount?: number; divisor?: number })
+          : null;
+      const cents = etsyCentsFromMoney({
+        amount: priceObj?.amount,
+        divisor: priceObj?.divisor,
+        price:
+          typeof offering.price === "number" || typeof offering.price === "string"
+            ? offering.price
+            : null,
+      });
+      const priceDollars =
+        Number.isFinite(cents) && cents > 0
+          ? cents / 100
+          : typeof offering.price === "number"
+            ? offering.price
+            : undefined;
       if (productId === variantMap.etsyProductId && offeringId === variantMap.etsyOfferingId) {
         matched = true;
         remoteQty = typeof offering.quantity === "number" ? offering.quantity : null;
@@ -195,14 +221,75 @@ export async function handleEtsyProjectInventoryJob(
           ...offering,
           quantity: desiredQty,
           is_enabled: offering.is_enabled ?? true,
+          ...(priceDollars != null ? { price: priceDollars } : {}),
         };
       }
-      return offering;
+      return {
+        ...offering,
+        is_enabled: offering.is_enabled ?? true,
+        ...(priceDollars != null ? { price: priceDollars } : {}),
+      };
     });
     return { ...product, offerings };
   });
 
   if (!matched) {
+    const storeItem = await prisma.storeItem.findFirst({
+      where: { id: payload.storeItemId, memberId: connection.memberId },
+      select: {
+        inventoryTracking: true,
+        etsyTaxonomyId: true,
+        etsyWhoMade: true,
+        etsyWhenMade: true,
+        etsyIsSupply: true,
+      },
+    });
+    if (storeItem) {
+      const how = resolveEtsyHowItsMadeForCreate({
+        etsyWhoMade: storeItem.etsyWhoMade,
+        etsyWhenMade: storeItem.etsyWhenMade,
+        etsyIsSupply: storeItem.etsyIsSupply,
+        etsyTaxonomyId: sanitizeEtsyTaxonomyId(storeItem.etsyTaxonomyId),
+        defaultTaxonomyId: resolveEtsyTaxonomyFallback(connection.defaultTaxonomyId),
+        inventoryTracking: storeItem.inventoryTracking,
+      });
+      if (how.ok) {
+        const readiness = await resolveEtsyReadinessStateId({
+          connectionId: connection.id,
+          memberId: connection.memberId,
+          shopId: connection.shopId,
+          whenMade: how.whenMade,
+          inventoryTracking: storeItem.inventoryTracking,
+          fetchImpl: deps.fetchImpl,
+          now: deps.now,
+        });
+        if (readiness.ok) {
+          const synced = await syncEtsyListingVariantTopology({
+            connectionId: connection.id,
+            memberId: connection.memberId,
+            listingLinkId: listing.id,
+            storeItemId: payload.storeItemId,
+            etsyListingId: listing.etsyListingId,
+            taxonomyId: how.taxonomyId,
+            readinessStateId: readiness.readinessStateId,
+            inventoryTracking: storeItem.inventoryTracking,
+            fetchImpl: deps.fetchImpl,
+            now: deps.now,
+          });
+          if (isSyncEtsyVariantTopologyFailure(synced)) {
+            return synced;
+          }
+          if (synced.status === "REMATCHED" || synced.status === "PUSHED") {
+            return {
+              outcome: "RETRY",
+              errorClass: "TRANSIENT",
+              errorCode: "VARIANT_MAP_REFRESHED",
+              errorMessage: "Etsy variant maps remeshed; retry inventory projection with fresh offering ids",
+            };
+          }
+        }
+      }
+    }
     return {
       outcome: "DEAD",
       errorClass: "PERMANENT",

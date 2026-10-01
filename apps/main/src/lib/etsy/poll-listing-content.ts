@@ -5,12 +5,20 @@ import {
   etsyCentsFromMoney,
   markEtsyListingContentPollComplete,
   prisma,
+  resolveEtsyHowItsMadeForCreate,
   type EtsyJobHandlerResult,
   type EtsyRemoteListingObservation,
   type EtsySyncJobClaim,
 } from "database";
 import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
+import { optionsFromEtsyPropertyValues } from "./listing-variants";
+import {
+  isSyncEtsyVariantTopologyFailure,
+  syncEtsyListingVariantTopology,
+} from "./sync-listing-variants";
+import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "./taxonomy-default";
+import { resolveEtsyReadinessStateId } from "./readiness-state";
 
 const MAX_LISTINGS_PER_POLL = 25;
 
@@ -31,6 +39,13 @@ type RemoteInventory = {
   products?: Array<{
     product_id?: number | string;
     sku?: string | null;
+    property_values?: Array<{
+      property_id?: number;
+      property_name?: string;
+      values?: string[];
+      value_ids?: number[];
+      scale_id?: number | null;
+    }>;
     offerings?: Array<{
       offering_id?: number | string;
       quantity?: number;
@@ -111,6 +126,7 @@ async function fetchRemoteObservation(input: {
   const variants: EtsyRemoteListingObservation["variants"] = [];
   for (const product of inventoryRes.data.products ?? []) {
     const productId = String(product.product_id ?? "");
+    const options = optionsFromEtsyPropertyValues(product.property_values);
     for (const offering of product.offerings ?? []) {
       const offeringId = String(offering.offering_id ?? "");
       if (!productId || !offeringId) continue;
@@ -137,6 +153,7 @@ async function fetchRemoteObservation(input: {
         priceCents,
         sku: typeof product.sku === "string" ? product.sku : null,
         quantity,
+        options: Object.keys(options).length > 0 ? options : null,
       });
     }
   }
@@ -229,6 +246,72 @@ export async function handleEtsyPollListingContentJob(
         now: deps.now,
       });
     });
+
+    // Size×Color: when INW ACTIVE variants and Etsy products diverge, remesh/push via cron.
+    const activeVariantCount = await prisma.storeVariant.count({
+      where: {
+        storeItemId: link.storeItemId,
+        memberId: connection.memberId,
+        status: "ACTIVE",
+      },
+    });
+    const mapCount = await prisma.etsyVariantMap.count({
+      where: { etsyListingLinkId: link.id, etsyConnectionId: connection.id },
+    });
+    const remoteProductCount = new Set(fetched.remote.variants.map((v) => v.etsyProductId)).size;
+    if (
+      activeVariantCount > 1 &&
+      (mapCount !== activeVariantCount || remoteProductCount !== activeVariantCount)
+    ) {
+      const storeItem = await prisma.storeItem.findFirst({
+        where: { id: link.storeItemId, memberId: connection.memberId },
+        select: {
+          inventoryTracking: true,
+          etsyTaxonomyId: true,
+          etsyWhoMade: true,
+          etsyWhenMade: true,
+          etsyIsSupply: true,
+        },
+      });
+      if (storeItem) {
+        const how = resolveEtsyHowItsMadeForCreate({
+          etsyWhoMade: storeItem.etsyWhoMade,
+          etsyWhenMade: storeItem.etsyWhenMade,
+          etsyIsSupply: storeItem.etsyIsSupply,
+          etsyTaxonomyId: sanitizeEtsyTaxonomyId(storeItem.etsyTaxonomyId),
+          defaultTaxonomyId: resolveEtsyTaxonomyFallback(connection.defaultTaxonomyId),
+          inventoryTracking: storeItem.inventoryTracking,
+        });
+        if (how.ok) {
+          const readiness = await resolveEtsyReadinessStateId({
+            connectionId: connection.id,
+            memberId: connection.memberId,
+            shopId: connection.shopId,
+            whenMade: how.whenMade,
+            inventoryTracking: storeItem.inventoryTracking,
+            fetchImpl: deps.fetchImpl,
+            now: deps.now,
+          });
+          if (readiness.ok) {
+            const synced = await syncEtsyListingVariantTopology({
+              connectionId: connection.id,
+              memberId: connection.memberId,
+              listingLinkId: link.id,
+              storeItemId: link.storeItemId,
+              etsyListingId: link.etsyListingId,
+              taxonomyId: how.taxonomyId,
+              readinessStateId: readiness.readinessStateId,
+              inventoryTracking: storeItem.inventoryTracking,
+              fetchImpl: deps.fetchImpl,
+              now: deps.now,
+            });
+            if (isSyncEtsyVariantTopologyFailure(synced) && synced.outcome === "RETRY") {
+              return synced;
+            }
+          }
+        }
+      }
+    }
 
     // NATIVE drafts: re-queue create so photos upload and listing goes live.
     const remoteState = String(fetched.remote.state ?? link.remoteListingState ?? "")

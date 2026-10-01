@@ -1,6 +1,5 @@
 import {
   etsyCentsFromMoney,
-  etsyMoneyFromCents,
   etsyProductContentFingerprint,
   etsyVariantContentFingerprint,
   ensureEtsyUpdateListingContentJob,
@@ -12,6 +11,7 @@ import {
   normalizeEtsyTitle,
   prisma,
   reconcileEtsyListingHealthFromDb,
+  resolveEtsyHowItsMadeForCreate,
   setEtsyProductContentConflict,
   setEtsyVariantContentConflict,
   type EtsyJobHandlerResult,
@@ -19,6 +19,13 @@ import {
 } from "database";
 import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
+import { uploadEtsyListingPhotosFromUrls } from "./listing-images";
+import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "./taxonomy-default";
+import { resolveEtsyReadinessStateId } from "./readiness-state";
+import {
+  isSyncEtsyVariantTopologyFailure,
+  syncEtsyListingVariantTopology,
+} from "./sync-listing-variants";
 
 function parseUpdatePayload(payload: unknown): {
   storeItemId: string;
@@ -328,6 +335,9 @@ export async function handleEtsyUpdateListingContentJob(
 
     const titleNeedsPatch = remoteTitle !== localTitle;
     const descriptionNeedsPatch = remoteDescription !== localDescription;
+
+    // Title/description must apply independently of how-it's-made and photos so
+    // INW↔Etsy content stays consistent after cron even when media upload flaps.
     if (titleNeedsPatch || descriptionNeedsPatch) {
       const patch = await etsyConnectionRequest({
         connectionId: connection.id,
@@ -336,7 +346,7 @@ export async function handleEtsyUpdateListingContentJob(
         path: listingPath,
         query: { legacy: false },
         body: {
-          ...(titleNeedsPatch ? { title: localTitle } : {}),
+          ...(titleNeedsPatch ? { title: localTitle.slice(0, 140) } : {}),
           ...(descriptionNeedsPatch ? { description: localDescription } : {}),
         },
         bodyEncoding: "form",
@@ -349,34 +359,73 @@ export async function handleEtsyUpdateListingContentJob(
       }
     }
 
-    // Best-effort photo push. Never block title/description apply — INW URLs rarely
-    // match Etsy CDN URLs, and image_url upload is not reliably supported for all hosts.
-    const remoteSet = new Set(remotePhotos);
-    for (const url of desiredPhotos) {
-      if (remoteSet.has(url)) continue;
-      if (!/^https?:\/\//i.test(url)) continue;
-      if (/etsystatic\.com|etsyimg\.com/i.test(url)) continue;
-      const upload = await etsyConnectionRequest({
+    const howMadeBody: Record<string, unknown> = {};
+    if (typeof storeItem.etsyWhoMade === "string" && storeItem.etsyWhoMade.trim()) {
+      howMadeBody.who_made = storeItem.etsyWhoMade.trim();
+    }
+    if (typeof storeItem.etsyWhenMade === "string" && storeItem.etsyWhenMade.trim()) {
+      howMadeBody.when_made = storeItem.etsyWhenMade.trim();
+    }
+    if (typeof storeItem.etsyIsSupply === "boolean") {
+      howMadeBody.is_supply = storeItem.etsyIsSupply;
+    }
+    const taxonomyId =
+      typeof storeItem.etsyTaxonomyId === "number" && storeItem.etsyTaxonomyId > 0
+        ? storeItem.etsyTaxonomyId
+        : null;
+    if (taxonomyId) howMadeBody.taxonomy_id = taxonomyId;
+    if (Object.keys(howMadeBody).length > 0) {
+      const howPatch = await etsyConnectionRequest({
         connectionId: connection.id,
         memberId: connection.memberId,
-        method: "POST",
-        path: `${listingPath}/images`,
-        body: { image_url: url },
+        method: "PATCH",
+        path: listingPath,
+        query: { legacy: false },
+        body: howMadeBody,
         bodyEncoding: "form",
         maxAttempts: 1,
         fetchImpl: deps.fetchImpl,
         now: deps.now,
       });
-      if (!upload.ok) {
-        if (
-          upload.class === "THROTTLED" ||
-          upload.class === "TRANSIENT" ||
-          upload.class === "NETWORK"
-        ) {
-          return classifyFailure(upload.class, upload.retryAfterMs);
+      // Best-effort — do not block title/description applied state.
+      if (
+        !howPatch.ok &&
+        (howPatch.class === "THROTTLED" ||
+          howPatch.class === "TRANSIENT" ||
+          howPatch.class === "NETWORK")
+      ) {
+        return classifyFailure(howPatch.class, howPatch.retryAfterMs);
+      }
+    }
+
+    // Photos are omitted from product fingerprints; push best-effort.
+    // Permanent upload failure must not leave title sync stuck as "in progress".
+    const needsPhotoPush = desiredPhotos.some(
+      (url) => /^https?:\/\//i.test(url) && !/etsystatic\.com|etsyimg\.com/i.test(url)
+    );
+    if (needsPhotoPush) {
+      const uploaded = await uploadEtsyListingPhotosFromUrls({
+        connectionId: connection.id,
+        memberId: connection.memberId,
+        shopId: connection.shopId,
+        etsyListingId: listing.etsyListingId,
+        photos: desiredPhotos,
+        fetchImpl: deps.fetchImpl,
+        now: deps.now,
+      });
+      if (uploaded.attempted > 0 && uploaded.uploaded < 1) {
+        const message =
+          uploaded.lastError?.slice(0, 400) ||
+          "Could not upload listing photos to Etsy";
+        if (/throttl|timeout|network|429|5\d\d/i.test(message)) {
+          return {
+            outcome: "RETRY",
+            errorClass: "TRANSIENT",
+            errorCode: "PHOTO_UPLOAD_TRANSIENT",
+            errorMessage: message,
+          };
         }
-        // Permanent photo failure: title/desc already applied; finish product desire.
-        break;
+        // Permanent photo failure: title/desc already patched (or matched); finish product desire.
       }
     }
 
@@ -427,12 +476,18 @@ export async function handleEtsyUpdateListingContentJob(
           matched = true;
           remotePriceCents = cents;
           remoteSku = normalizeEtsySku(product.sku);
+          // Etsy inventory PUT expects offering.price as decimal dollars (not money object).
           return {
             ...offering,
-            price: etsyMoneyFromCents(storeVariant.priceCents),
+            price: Math.max(0.2, storeVariant.priceCents / 100),
+            is_enabled: offering.is_enabled ?? true,
           };
         }
-        return offering;
+        // Normalize sibling offering prices to dollars so full-replace PUT stays valid.
+        const siblingDollars = Number.isFinite(cents) && cents > 0 ? cents / 100 : undefined;
+        return siblingDollars != null
+          ? { ...offering, price: siblingDollars, is_enabled: offering.is_enabled ?? true }
+          : { ...offering, is_enabled: offering.is_enabled ?? true };
       });
       if (productId === targetProductId) {
         return {
@@ -445,6 +500,63 @@ export async function handleEtsyUpdateListingContentJob(
     });
 
     if (!matched) {
+      // Size×Color maps may be stale after Etsy regenerated product ids — remesh then retry.
+      const storeItem = await prisma.storeItem.findFirst({
+        where: { id: payload.storeItemId, memberId: connection.memberId },
+        select: {
+          inventoryTracking: true,
+          etsyTaxonomyId: true,
+          etsyWhoMade: true,
+          etsyWhenMade: true,
+          etsyIsSupply: true,
+        },
+      });
+      if (storeItem) {
+        const how = resolveEtsyHowItsMadeForCreate({
+          etsyWhoMade: storeItem.etsyWhoMade,
+          etsyWhenMade: storeItem.etsyWhenMade,
+          etsyIsSupply: storeItem.etsyIsSupply,
+          etsyTaxonomyId: sanitizeEtsyTaxonomyId(storeItem.etsyTaxonomyId),
+          defaultTaxonomyId: resolveEtsyTaxonomyFallback(connection.defaultTaxonomyId),
+          inventoryTracking: storeItem.inventoryTracking,
+        });
+        if (how.ok) {
+          const readiness = await resolveEtsyReadinessStateId({
+            connectionId: connection.id,
+            memberId: connection.memberId,
+            shopId: connection.shopId,
+            whenMade: how.whenMade,
+            inventoryTracking: storeItem.inventoryTracking,
+            fetchImpl: deps.fetchImpl,
+            now: deps.now,
+          });
+          if (readiness.ok) {
+            const synced = await syncEtsyListingVariantTopology({
+              connectionId: connection.id,
+              memberId: connection.memberId,
+              listingLinkId: listing.id,
+              storeItemId: payload.storeItemId,
+              etsyListingId: listing.etsyListingId,
+              taxonomyId: how.taxonomyId,
+              readinessStateId: readiness.readinessStateId,
+              inventoryTracking: storeItem.inventoryTracking,
+              fetchImpl: deps.fetchImpl,
+              now: deps.now,
+            });
+            if (isSyncEtsyVariantTopologyFailure(synced)) {
+              return synced;
+            }
+            if (synced.status === "REMATCHED" || synced.status === "PUSHED") {
+              return {
+                outcome: "RETRY",
+                errorClass: "TRANSIENT",
+                errorCode: "VARIANT_MAP_REFRESHED",
+                errorMessage: "Etsy variant maps remeshed; retry content update with fresh offering ids",
+              };
+            }
+          }
+        }
+      }
       return {
         outcome: "DEAD",
         errorClass: "PERMANENT",

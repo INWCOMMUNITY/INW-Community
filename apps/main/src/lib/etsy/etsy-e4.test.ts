@@ -16,6 +16,10 @@ const base: EtsyImportCandidate = {
   recommendedStockMode: null,
   variants: [],
   axes: [],
+  etsyWhoMade: null,
+  etsyWhenMade: null,
+  etsyIsSupply: null,
+  etsyTaxonomyId: null,
 };
 
 describe("hydrateEtsyCandidateWithInventory", () => {

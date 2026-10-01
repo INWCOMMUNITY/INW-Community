@@ -28,6 +28,11 @@ export type EtsyImportCandidate = {
   recommendedStockMode: "PHYSICAL" | "MADE_TO_ORDER" | null;
   variants: EtsyImportCandidateVariant[];
   axes: Array<{ name: string; values: string[] }>;
+  /** Etsy How it's made + taxonomy when present on the remote listing. */
+  etsyWhoMade: string | null;
+  etsyWhenMade: string | null;
+  etsyIsSupply: boolean | null;
+  etsyTaxonomyId: number | null;
 };
 
 export type DiscoverEtsyImportCandidatesResult =
@@ -55,6 +60,10 @@ type EtsyListingRow = {
   price?: unknown;
   quantity?: unknown;
   sku?: unknown;
+  who_made?: unknown;
+  when_made?: unknown;
+  is_supply?: unknown;
+  taxonomy_id?: unknown;
   images?: Array<{ url_570xN?: unknown; url_fullxfull?: unknown }>;
 };
 
@@ -139,6 +148,13 @@ function toCandidateFromListing(row: EtsyListingRow): EtsyImportCandidate {
         ? rawId.trim()
         : "";
   const photos = listingPhotos(row);
+  const taxonomyRaw = row.taxonomy_id;
+  const taxonomyId =
+    typeof taxonomyRaw === "number" && Number.isInteger(taxonomyRaw) && taxonomyRaw > 0
+      ? taxonomyRaw
+      : typeof taxonomyRaw === "string" && /^\d+$/.test(taxonomyRaw.trim())
+        ? Number.parseInt(taxonomyRaw.trim(), 10)
+        : null;
   // Discover list does not include inventory; Review/import hydrates and re-validates.
   return {
     etsyListingId: listingId,
@@ -155,6 +171,10 @@ function toCandidateFromListing(row: EtsyListingRow): EtsyImportCandidate {
     recommendedStockMode: "PHYSICAL",
     variants: [],
     axes: [],
+    etsyWhoMade: typeof row.who_made === "string" ? row.who_made : null,
+    etsyWhenMade: typeof row.when_made === "string" ? row.when_made : null,
+    etsyIsSupply: typeof row.is_supply === "boolean" ? row.is_supply : null,
+    etsyTaxonomyId: taxonomyId,
   };
 }
 

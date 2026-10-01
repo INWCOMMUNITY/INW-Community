@@ -3,12 +3,15 @@ import {
   completeEtsyListingImportAttempt,
   createEtsyImportedListingMapping,
   failEtsyListingImportAttempt,
+  isEtsyWhenMade,
+  isEtsyWhoMade,
   prisma,
   provisionNativeFoundationListing,
   EtsyMappingConflictError,
   EtsyMappingError,
 } from "database";
 import { fetchEtsyImportListingDetail, type EtsyImportCandidate } from "./import-discovery";
+import { ensureInwHostedListingPhotos } from "@/lib/listing-photo-rehost";
 
 export type ImportEtsyListingStockMode = "PHYSICAL" | "MADE_TO_ORDER";
 
@@ -161,10 +164,23 @@ export async function importEtsyListing(input: {
       : 0;
   const title = snap.title.slice(0, 200);
   const description = snap.description.trim() ? snap.description : null;
-  const photos = snap.photos.slice(0, 20);
+  const photos = await ensureInwHostedListingPhotos(snap.photos.slice(0, 20));
   const priceCents = snap.variants[0]?.priceCents ?? snap.priceCents ?? 0;
   const sku = snap.variants[0]?.sku ?? null;
   const matrix = matrixFromCandidate(snap);
+  const etsyWhoMade = isEtsyWhoMade(snap.etsyWhoMade) ? snap.etsyWhoMade : null;
+  const etsyWhenMade = isEtsyWhenMade(snap.etsyWhenMade)
+    ? snap.etsyWhenMade
+    : inventoryTracking === "made_to_order"
+      ? "made_to_order"
+      : null;
+  const etsyIsSupply = typeof snap.etsyIsSupply === "boolean" ? snap.etsyIsSupply : null;
+  const etsyTaxonomyId =
+    typeof snap.etsyTaxonomyId === "number" &&
+    Number.isInteger(snap.etsyTaxonomyId) &&
+    snap.etsyTaxonomyId > 0
+      ? snap.etsyTaxonomyId
+      : null;
 
   try {
     const created = await prisma.$transaction(async (tx) => {
@@ -200,6 +216,10 @@ export async function importEtsyListing(input: {
           status: "active",
           slug: uniqueSlug(title),
           variants: matrix ?? undefined,
+          etsyWhoMade,
+          etsyWhenMade,
+          etsyIsSupply,
+          etsyTaxonomyId,
         },
       });
 

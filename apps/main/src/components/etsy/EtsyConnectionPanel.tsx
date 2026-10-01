@@ -206,13 +206,14 @@ export function EtsyConnectionPanel({
           </p>
           <div>
             <label className="block text-sm font-medium mb-1" htmlFor="etsyShippingProfile">
-              Default Shipping Profile
+              Default Shipping Profile (required)
             </label>
             <select
               id="etsyShippingProfile"
               className="w-full border rounded px-2 py-1.5 text-sm"
               value={defaultShippingProfileId}
               onChange={(e) => setDefaultShippingProfileId(e.target.value)}
+              required
             >
               <option value="">Select a profile…</option>
               {profiles.map((p) => (

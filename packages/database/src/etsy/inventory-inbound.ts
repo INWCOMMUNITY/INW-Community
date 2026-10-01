@@ -5,7 +5,10 @@ import {
   MARKETPLACE_QUANTITY_EDIT_SCOPE,
 } from "../commerce-foundation-inventory";
 import { classifyShopifyDirectInventoryEdit } from "../shopify/inventory-direct-edit";
-import { markEtsyInventoryProjectionApplied } from "./inventory-desire";
+import {
+  ensureEtsyProjectInventoryJob,
+  markEtsyInventoryProjectionApplied,
+} from "./inventory-desire";
 
 export type EtsyInventoryInboundDb = PrismaClient | Prisma.TransactionClient;
 
@@ -103,6 +106,20 @@ export async function applyEtsyOfferingInventoryObservation(
   });
 
   if (cls === "MATCHES_DESIRED" || cls === "MATCHES_APPLIED_BASE" || cls === "NO_CHANGE") {
+    // Remote still at applied base while INW desire is ahead — re-queue outbound so cron pushes qty.
+    if (
+      cls === "MATCHES_APPLIED_BASE" &&
+      variantMap.inventoryDesiredAvailable != null &&
+      variantMap.inventoryDesiredAvailable !== remote &&
+      variantMap.inventoryDesiredVersion > variantMap.inventoryAppliedVersion
+    ) {
+      await ensureEtsyProjectInventoryJob(db, {
+        connectionId: input.connectionId,
+        storeItemId: variantMap.storeItemId,
+        storeVariantId: variantMap.storeVariantId,
+        inventoryDesiredVersion: variantMap.inventoryDesiredVersion,
+      }).catch(() => undefined);
+    }
     return { status: "ECHO_CONFIRMED" };
   }
   if (cls === "EXPLAINED_BY_SALE") {

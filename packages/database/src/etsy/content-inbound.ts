@@ -3,9 +3,13 @@ import { classifyEtsyContentSemantics } from "./content-semantic";
 import {
   etsyProductContentFingerprint,
   etsyVariantContentFingerprint,
+  normalizeEtsyDescription,
   normalizeEtsyPhotoUrls,
+  normalizeEtsyTitle,
 } from "./content-fingerprint";
+import { ensureEtsyUpdateListingContentJob } from "./content-desire";
 import { recordShopifyListingContentDesire } from "../shopify/content-desire";
+import { optionFingerprint } from "../foundation/backfill/analyze";
 
 export type EtsyInboundDb = PrismaClient | Prisma.TransactionClient;
 
@@ -25,6 +29,8 @@ export type EtsyRemoteListingObservation = {
     sku: string | null;
     /** Sellable quantity on the Etsy offering when present in inventory GET. */
     quantity?: number | null;
+    /** Size×Color (etc.) option combination from property_values. */
+    options?: Record<string, string> | null;
   }>;
 };
 
@@ -39,6 +45,81 @@ export type ApplyEtsyListingInboundResult =
 
 function inboundLockKey(listingLinkId: string): string {
   return `etsy-content-inbound:${listingLinkId}`;
+}
+
+function parseStoreVariantOptionsJson(raw: unknown): Record<string, string> | null {
+  let value = raw;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    const name = String(k ?? "").trim();
+    const val = v == null ? "" : String(v).trim();
+    if (!name || !val) continue;
+    out[name] = val;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
+ * When Etsy product/offering ids drift but Size×Color options still match INW,
+ * rewrite map ids so price/qty inbound keeps working.
+ */
+async function rematchVariantMapsByOptions(
+  db: EtsyInboundDb,
+  input: {
+    variantMaps: Array<{
+      id: string;
+      storeVariantId: string;
+      etsyProductId: string;
+      etsyOfferingId: string;
+    }>;
+    storeVariants: Array<{ id: string; options: unknown }>;
+    remoteVariants: EtsyRemoteListingObservation["variants"];
+  }
+): Promise<number> {
+  const byStoreId = new Map(input.storeVariants.map((v) => [v.id, v]));
+  const remoteByOffering = new Map(input.remoteVariants.map((v) => [v.etsyOfferingId, v]));
+  const remoteByCombo = new Map<string, (typeof input.remoteVariants)[number]>();
+  for (const remote of input.remoteVariants) {
+    if (!remote.options || Object.keys(remote.options).length < 1) continue;
+    remoteByCombo.set(optionFingerprint(remote.options), remote);
+  }
+  let rematched = 0;
+  for (const map of input.variantMaps) {
+    if (remoteByOffering.has(map.etsyOfferingId)) continue;
+    const storeVariant = byStoreId.get(map.storeVariantId);
+    if (!storeVariant) continue;
+    const localOpts = parseStoreVariantOptionsJson(storeVariant.options);
+    if (!localOpts) continue;
+    const remote = remoteByCombo.get(optionFingerprint(localOpts));
+    if (!remote) continue;
+    if (remote.etsyProductId === map.etsyProductId && remote.etsyOfferingId === map.etsyOfferingId) {
+      continue;
+    }
+    await db.etsyVariantMap.update({
+      where: { id: map.id },
+      data: {
+        etsyProductId: remote.etsyProductId,
+        etsyOfferingId: remote.etsyOfferingId,
+        propertyValuesJson: Object.entries(remote.options ?? {}).map(([property_name, value]) => ({
+          property_name,
+          values: [value],
+        })),
+        remoteSku: remote.sku,
+      },
+    });
+    map.etsyProductId = remote.etsyProductId;
+    map.etsyOfferingId = remote.etsyOfferingId;
+    rematched += 1;
+  }
+  return rematched;
 }
 
 /**
@@ -122,6 +203,20 @@ export async function applyEtsyListingContentInbound(
     orderBy: { createdAt: "asc" },
   });
 
+  const storeVariantsForRematch = await db.storeVariant.findMany({
+    where: {
+      id: { in: variantMaps.map((m) => m.storeVariantId) },
+      storeItemId: listing.storeItemId,
+      memberId: input.memberId,
+    },
+    select: { id: true, options: true },
+  });
+  await rematchVariantMapsByOptions(db, {
+    variantMaps,
+    storeVariants: storeVariantsForRematch,
+    remoteVariants: input.remote.variants,
+  });
+
   const localPhotos = normalizeEtsyPhotoUrls(storeItem.photos);
   const remotePhotos = normalizeEtsyPhotoUrls(input.remote.photos);
   const localProductFp = etsyProductContentFingerprint({
@@ -156,11 +251,14 @@ export async function applyEtsyListingContentInbound(
   };
 
   if (productClass === "REMOTE_ONLY") {
+    const remoteTitle = normalizeEtsyTitle(input.remote.title).slice(0, 140);
+    const remoteDescription = normalizeEtsyDescription(input.remote.description);
     await db.storeItem.update({
       where: { id: storeItem.id },
       data: {
-        title: input.remote.title.trim() || storeItem.title,
-        description: input.remote.description,
+        title: remoteTitle || storeItem.title,
+        // Empty Etsy description clears INW description (null), matching StoreItem nullability.
+        description: remoteDescription.length > 0 ? remoteDescription : null,
         photos: remotePhotos,
       },
     });
@@ -197,6 +295,27 @@ export async function applyEtsyListingContentInbound(
         productConflictDetectedAt: now,
       },
     });
+  } else if (productClass === "LOCAL_ONLY") {
+    // INW title/desc ahead of Etsy — keep observing and re-queue outbound so cron pushes.
+    await db.etsyListingLink.update({
+      where: { id: listing.id },
+      data: {
+        lastObservedProductFingerprint: remoteProductFp,
+        lastObservedProductUpdatedAt: now,
+      },
+    });
+    if (
+      listing.desiredProductContentVersion > listing.appliedProductContentVersion &&
+      variantMaps[0]
+    ) {
+      await ensureEtsyUpdateListingContentJob(db, {
+        connectionId: input.connectionId,
+        storeItemId: listing.storeItemId,
+        storeVariantId: variantMaps[0]!.storeVariantId,
+        productDesiredVersion: listing.desiredProductContentVersion,
+        variantDesiredVersion: variantMaps[0]!.desiredVariantContentVersion,
+      }).catch(() => undefined);
+    }
   } else {
     await db.etsyListingLink.update({
       where: { id: listing.id },
@@ -244,11 +363,25 @@ export async function applyEtsyListingContentInbound(
     if (variantClass === "CONFLICT") anyConflict = true;
 
     if (variantClass === "REMOTE_ONLY") {
+      const nextPrice =
+        Number.isFinite(remoteVariant.priceCents) && remoteVariant.priceCents > 0
+          ? Math.round(remoteVariant.priceCents)
+          : storeVariant.priceCents;
+      const remoteOptions =
+        remoteVariant.options && Object.keys(remoteVariant.options).length > 0
+          ? remoteVariant.options
+          : null;
+      const localOptions = parseStoreVariantOptionsJson(storeVariant.options);
+      const optionsChanged =
+        remoteOptions != null &&
+        (localOptions == null ||
+          optionFingerprint(localOptions) !== optionFingerprint(remoteOptions));
       await db.storeVariant.update({
         where: { id: storeVariant.id },
         data: {
-          priceCents: remoteVariant.priceCents,
+          priceCents: nextPrice,
           sku: remoteVariant.sku,
+          ...(optionsChanged ? { options: remoteOptions } : {}),
         },
       });
       // Keep StoreItem scalar facade in sync for single-variant listings.
@@ -256,12 +389,29 @@ export async function applyEtsyListingContentInbound(
         await db.storeItem.update({
           where: { id: storeItem.id },
           data: {
-            priceCents: remoteVariant.priceCents,
+            priceCents: nextPrice,
             sku: remoteVariant.sku,
           },
         });
       }
       appliedRemoteVariant = true;
+    } else if (
+      (variantClass === "CONVERGED" || variantClass === "UNCHANGED") &&
+      remoteVariant.options &&
+      Object.keys(remoteVariant.options).length > 0
+    ) {
+      // Price/SKU already match — still pull Size×Color option labels when Etsy renamed values.
+      const localOptions = parseStoreVariantOptionsJson(storeVariant.options);
+      if (
+        localOptions == null ||
+        optionFingerprint(localOptions) !== optionFingerprint(remoteVariant.options)
+      ) {
+        await db.storeVariant.update({
+          where: { id: storeVariant.id },
+          data: { options: remoteVariant.options },
+        });
+        appliedRemoteVariant = true;
+      }
     }
 
     if (variantClass === "CONVERGED" || variantClass === "REMOTE_ONLY") {
@@ -295,6 +445,24 @@ export async function applyEtsyListingContentInbound(
           variantConflictDetectedAt: now,
         },
       });
+    } else if (variantClass === "LOCAL_ONLY") {
+      // INW price/SKU ahead of Etsy — re-queue outbound so cron pushes.
+      await db.etsyVariantMap.update({
+        where: { id: map.id },
+        data: {
+          lastObservedVariantFingerprint: remoteVariantFp,
+          lastObservedVariantUpdatedAt: now,
+        },
+      });
+      if (map.desiredVariantContentVersion > map.appliedVariantContentVersion) {
+        await ensureEtsyUpdateListingContentJob(db, {
+          connectionId: input.connectionId,
+          storeItemId: listing.storeItemId,
+          storeVariantId: map.storeVariantId,
+          productDesiredVersion: listing.desiredProductContentVersion,
+          variantDesiredVersion: map.desiredVariantContentVersion,
+        }).catch(() => undefined);
+      }
     } else {
       await db.etsyVariantMap.update({
         where: { id: map.id },

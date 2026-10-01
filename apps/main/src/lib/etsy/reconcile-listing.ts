@@ -1,9 +1,18 @@
 import {
+  ensureEtsyProjectInventoryJob,
+  ensureEtsyUpdateListingContentJob,
   prisma,
   reconcileEtsyListingHealthFromDb,
+  resolveEtsyHowItsMadeForCreate,
   type EtsyJobHandlerResult,
   type EtsySyncJobClaim,
 } from "database";
+import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "./taxonomy-default";
+import { resolveEtsyReadinessStateId } from "./readiness-state";
+import {
+  isSyncEtsyVariantTopologyFailure,
+  syncEtsyListingVariantTopology,
+} from "./sync-listing-variants";
 
 function parsePayload(payload: unknown): { listingLinkId: string; storeItemId: string } | null {
   if (!payload || typeof payload !== "object") return null;
@@ -14,7 +23,7 @@ function parsePayload(payload: unknown): { listingLinkId: string; storeItemId: s
   return { listingLinkId, storeItemId };
 }
 
-/** RECONCILE_LISTING: refresh durable readiness/health from DB truth (no Etsy network). */
+/** RECONCILE_LISTING: remesh Size×Color maps, refresh health, re-ensure outbound jobs. */
 export async function handleEtsyReconcileListingJob(
   claim: EtsySyncJobClaim
 ): Promise<EtsyJobHandlerResult> {
@@ -26,6 +35,85 @@ export async function handleEtsyReconcileListingJob(
       errorCode: "INVALID_PAYLOAD",
       errorMessage: "RECONCILE_LISTING payload is invalid",
     };
+  }
+
+  const connection = await prisma.etsyConnection.findUnique({
+    where: { id: claim.etsyConnectionId },
+  });
+  if (!connection || connection.status !== "ACTIVE") {
+    return {
+      outcome: "DEAD",
+      errorClass: "CONNECTION_INACTIVE",
+      errorCode: "CONNECTION_INACTIVE",
+      errorMessage: "Etsy connection is not active for this generation",
+    };
+  }
+
+  const listing = await prisma.etsyListingLink.findFirst({
+    where: { id: payload.listingLinkId, etsyConnectionId: claim.etsyConnectionId },
+    select: {
+      id: true,
+      storeItemId: true,
+      etsyListingId: true,
+      desiredProductContentVersion: true,
+      appliedProductContentVersion: true,
+    },
+  });
+  if (!listing) {
+    return {
+      outcome: "DEAD",
+      errorClass: "PERMANENT",
+      errorCode: "LISTING_MISSING",
+      errorMessage: "Mapped Etsy listing was not found for reconcile",
+    };
+  }
+
+  const storeItem = await prisma.storeItem.findFirst({
+    where: { id: listing.storeItemId, memberId: connection.memberId },
+    select: {
+      id: true,
+      inventoryTracking: true,
+      etsyTaxonomyId: true,
+      etsyWhoMade: true,
+      etsyWhenMade: true,
+      etsyIsSupply: true,
+    },
+  });
+
+  if (storeItem) {
+    const how = resolveEtsyHowItsMadeForCreate({
+      etsyWhoMade: storeItem.etsyWhoMade,
+      etsyWhenMade: storeItem.etsyWhenMade,
+      etsyIsSupply: storeItem.etsyIsSupply,
+      etsyTaxonomyId: sanitizeEtsyTaxonomyId(storeItem.etsyTaxonomyId),
+      defaultTaxonomyId: resolveEtsyTaxonomyFallback(connection.defaultTaxonomyId),
+      inventoryTracking: storeItem.inventoryTracking,
+    });
+    if (how.ok) {
+      const readiness = await resolveEtsyReadinessStateId({
+        connectionId: connection.id,
+        memberId: connection.memberId,
+        shopId: connection.shopId,
+        whenMade: how.whenMade,
+        inventoryTracking: storeItem.inventoryTracking,
+      });
+      if (readiness.ok) {
+        const synced = await syncEtsyListingVariantTopology({
+          connectionId: connection.id,
+          memberId: connection.memberId,
+          listingLinkId: listing.id,
+          storeItemId: storeItem.id,
+          etsyListingId: listing.etsyListingId,
+          taxonomyId: how.taxonomyId,
+          readinessStateId: readiness.readinessStateId,
+          inventoryTracking: storeItem.inventoryTracking,
+        });
+        if (isSyncEtsyVariantTopologyFailure(synced)) {
+          // Topology drift should not permanently kill reconcile — surface and continue for scalars.
+          if (synced.outcome === "RETRY") return synced;
+        }
+      }
+    }
   }
 
   const health = await reconcileEtsyListingHealthFromDb(prisma, {
@@ -40,5 +128,46 @@ export async function handleEtsyReconcileListingJob(
       errorMessage: "Mapped Etsy listing was not found for reconcile",
     };
   }
+
+  const variantMaps = await prisma.etsyVariantMap.findMany({
+    where: { etsyListingLinkId: listing.id, etsyConnectionId: claim.etsyConnectionId },
+    select: {
+      storeVariantId: true,
+      desiredVariantContentVersion: true,
+      appliedVariantContentVersion: true,
+      inventoryDesiredVersion: true,
+      inventoryAppliedVersion: true,
+      inventoryDesiredAvailable: true,
+      inventoryAppliedAvailable: true,
+    },
+  });
+
+  for (const map of variantMaps) {
+    const contentPending =
+      listing.desiredProductContentVersion > listing.appliedProductContentVersion ||
+      map.desiredVariantContentVersion > map.appliedVariantContentVersion;
+    if (contentPending) {
+      await ensureEtsyUpdateListingContentJob(prisma, {
+        connectionId: claim.etsyConnectionId,
+        storeItemId: listing.storeItemId,
+        storeVariantId: map.storeVariantId,
+        productDesiredVersion: listing.desiredProductContentVersion,
+        variantDesiredVersion: map.desiredVariantContentVersion,
+      }).catch(() => undefined);
+    }
+    const inventoryPending =
+      map.inventoryDesiredVersion > map.inventoryAppliedVersion ||
+      (map.inventoryDesiredAvailable != null &&
+        map.inventoryDesiredAvailable !== map.inventoryAppliedAvailable);
+    if (inventoryPending && map.inventoryDesiredVersion > 0) {
+      await ensureEtsyProjectInventoryJob(prisma, {
+        connectionId: claim.etsyConnectionId,
+        storeItemId: listing.storeItemId,
+        storeVariantId: map.storeVariantId,
+        inventoryDesiredVersion: map.inventoryDesiredVersion,
+      }).catch(() => undefined);
+    }
+  }
+
   return { outcome: "SUCCESS" };
 }

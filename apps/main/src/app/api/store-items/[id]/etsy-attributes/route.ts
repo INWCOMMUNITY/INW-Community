@@ -3,6 +3,7 @@ import {
   isEtsyWhenMade,
   isEtsyWhoMade,
   prisma,
+  recordEtsyHowItsMadeDesire,
 } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Persist Etsy How it's made + taxonomy fields on a StoreItem before CREATE_LISTING.
+ * When the listing is already mapped, bumps content desire so cron PATCHes Etsy.
  */
 export async function PATCH(
   req: NextRequest,
@@ -26,7 +28,13 @@ export async function PATCH(
   const { id: storeItemId } = await context.params;
   const existing = await prisma.storeItem.findFirst({
     where: { id: storeItemId, memberId },
-    select: { id: true },
+    select: {
+      id: true,
+      etsyWhoMade: true,
+      etsyWhenMade: true,
+      etsyIsSupply: true,
+      etsyTaxonomyId: true,
+    },
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -102,16 +110,37 @@ export async function PATCH(
     return NextResponse.json({ error: "No Etsy attributes provided" }, { status: 400 });
   }
 
-  const updated = await prisma.storeItem.update({
-    where: { id: storeItemId },
-    data,
-    select: {
-      id: true,
-      etsyWhoMade: true,
-      etsyWhenMade: true,
-      etsyIsSupply: true,
-      etsyTaxonomyId: true,
-    },
+  const before = {
+    etsyWhoMade: existing.etsyWhoMade,
+    etsyWhenMade: existing.etsyWhenMade,
+    etsyIsSupply: existing.etsyIsSupply,
+    etsyTaxonomyId: existing.etsyTaxonomyId,
+  };
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const storeItem = await tx.storeItem.update({
+      where: { id: storeItemId },
+      data,
+      select: {
+        id: true,
+        etsyWhoMade: true,
+        etsyWhenMade: true,
+        etsyIsSupply: true,
+        etsyTaxonomyId: true,
+      },
+    });
+    await recordEtsyHowItsMadeDesire(tx, {
+      memberId,
+      storeItemId,
+      before,
+      after: {
+        etsyWhoMade: storeItem.etsyWhoMade,
+        etsyWhenMade: storeItem.etsyWhenMade,
+        etsyIsSupply: storeItem.etsyIsSupply,
+        etsyTaxonomyId: storeItem.etsyTaxonomyId,
+      },
+    });
+    return storeItem;
   });
 
   return NextResponse.json({ storeItem: updated });

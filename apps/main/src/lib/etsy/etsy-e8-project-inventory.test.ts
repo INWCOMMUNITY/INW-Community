@@ -113,9 +113,16 @@ describe("etsy PROJECT_INVENTORY handler", () => {
       products: expect.arrayContaining([
         expect.objectContaining({
           product_id: 10,
-          offerings: [expect.objectContaining({ offering_id: 20, quantity: 0 })],
+          offerings: [
+            expect.objectContaining({ offering_id: 20, quantity: 0, price: 1 }),
+          ],
         }),
-        expect.objectContaining({ product_id: 11 }),
+        expect.objectContaining({
+          product_id: 11,
+          offerings: [
+            expect.objectContaining({ offering_id: 21, quantity: 1, price: 2 }),
+          ],
+        }),
       ]),
     });
     expect(markEtsyInventoryProjectionApplied).toHaveBeenCalled();

@@ -29,6 +29,8 @@ type EligibleListing = {
   quantity: number;
   status: string;
   variantCount?: number;
+  photoCount?: number;
+  photosReady?: boolean;
   inventoryTracking?: string | null;
   etsyWhoMade?: string | null;
   etsyWhenMade?: string | null;
@@ -170,7 +172,11 @@ export default function AppsAirportEtsySyncPage() {
           etsyWhoMade: howItsMade.etsyWhoMade,
           etsyWhenMade: madeToOrder ? "made_to_order" : howItsMade.etsyWhenMade || null,
           etsyIsSupply: howItsMade.etsyIsSupply,
-          etsyTaxonomyId: null,
+          ...(howItsMade.etsyTaxonomyId.trim() && /^\d+$/.test(howItsMade.etsyTaxonomyId.trim())
+            ? {
+                etsyTaxonomyId: Number.parseInt(howItsMade.etsyTaxonomyId.trim(), 10),
+              }
+            : {}),
         }),
       });
       if (!attrsRes.ok) {
@@ -270,7 +276,13 @@ export default function AppsAirportEtsySyncPage() {
               }}
             />
           </div>
-          {progressDetail ? <p className="mt-2 text-sm text-neutral-600">{progressDetail}</p> : null}
+          {progressDetail ? (
+            <p className="mt-2 text-sm text-neutral-600">
+              {/IMAGES_REQUIRED|photo/i.test(progressDetail)
+                ? `${progressDetail} Photos must be publicly reachable (INW-hosted works best).`
+                : progressDetail}
+            </p>
+          ) : null}
           {(progress === "live" || progress === "needs_attention" || progress === "already_mapped") && (
             <Link href={APPS_AIRPORT_ETSY_LISTINGS_PATH} className="btn mt-3 inline-block" prefetch={false}>
               View linked listings
@@ -300,8 +312,20 @@ export default function AppsAirportEtsySyncPage() {
             </thead>
             <tbody>
               {listings.map((listing) => {
-                const readyToList = Boolean(listing.howItsMadeReady);
-                const canOpen = shippingReady && (listing.variantCount ?? 0) >= 1;
+                const readyToList = Boolean(
+                  listing.howItsMadeReady && listing.photosReady !== false && listing.supported
+                );
+                const canOpen =
+                  shippingReady &&
+                  (listing.variantCount ?? 0) >= 1 &&
+                  listing.photosReady !== false;
+                const statusLabel = !shippingReady
+                  ? "Shipping profile needed"
+                  : listing.unsupportedReason
+                    ? listing.unsupportedReason
+                    : readyToList
+                      ? "Ready To List"
+                      : "Info Needed";
                 return (
                   <tr key={listing.storeItemId} className="border-b border-neutral-200">
                     <td className="py-3 pr-4">
@@ -316,11 +340,7 @@ export default function AppsAirportEtsySyncPage() {
                     </td>
                     <td className="py-3 pr-4">{formatEtsyCents(listing.priceCents)}</td>
                     <td className="py-3 pr-4">
-                      {readyToList ? (
-                        <span className="text-sm text-neutral-700">Ready To List</span>
-                      ) : (
-                        <span className="text-sm text-neutral-700">Info Needed</span>
-                      )}
+                      <span className="text-sm text-neutral-700">{statusLabel}</span>
                     </td>
                     <td className="py-3">
                       <button

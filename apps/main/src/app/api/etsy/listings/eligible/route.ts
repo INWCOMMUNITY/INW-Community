@@ -65,6 +65,7 @@ export async function GET(req: NextRequest) {
       quantity: true,
       status: true,
       inventoryTracking: true,
+      photos: true,
       etsyWhoMade: true,
       etsyWhenMade: true,
       etsyIsSupply: true,
@@ -84,6 +85,15 @@ export async function GET(req: NextRequest) {
         defaultTaxonomyId: taxonomyFallback,
         inventoryTracking: item.inventoryTracking,
       });
+      const photoCount = Array.isArray(item.photos)
+        ? item.photos.filter((p) => typeof p === "string" && p.trim().length > 0).length
+        : 0;
+      const photosReady = photoCount >= 1;
+      let unsupportedReason: string | null = null;
+      if (!how.ok) unsupportedReason = how.message;
+      else if (item._count.storeVariants < 1)
+        unsupportedReason = "Listing needs at least one active variant";
+      else if (!photosReady) unsupportedReason = "Add at least one photo before listing on Etsy";
       return {
         storeItemId: item.id,
         title: item.title,
@@ -93,18 +103,17 @@ export async function GET(req: NextRequest) {
         quantity: item.quantity,
         status: item.status,
         variantCount: item._count.storeVariants,
+        photoCount,
+        photosReady,
+        inventoryTracking: item.inventoryTracking,
         etsyWhoMade: item.etsyWhoMade,
         etsyWhenMade: item.etsyWhenMade,
         etsyIsSupply: item.etsyIsSupply,
         etsyTaxonomyId: item.etsyTaxonomyId,
         howItsMadeReady: how.ok,
         howItsMadeMissing: how.ok ? [] : how.missing,
-        supported: how.ok && item._count.storeVariants >= 1,
-        unsupportedReason: !how.ok
-          ? how.message
-          : item._count.storeVariants < 1
-            ? "Listing needs at least one active variant"
-            : null,
+        supported: how.ok && item._count.storeVariants >= 1 && photosReady,
+        unsupportedReason,
       };
     });
 

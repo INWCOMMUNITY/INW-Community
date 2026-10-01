@@ -169,6 +169,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   );
   const [listOnEtsy, setListOnEtsy] = useState(false);
   const [etsyConnActive, setEtsyConnActive] = useState(false);
+  const [etsyShippingProfileReady, setEtsyShippingProfileReady] = useState(false);
   const [etsyMappedListingId, setEtsyMappedListingId] = useState<string | null>(null);
   const [etsyLinkChecked, setEtsyLinkChecked] = useState(() => !existing?.id);
   const [shopifyConn, setShopifyConn] = useState<{
@@ -338,6 +339,28 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!etsyConnActive) {
+      setEtsyShippingProfileReady(false);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/etsy/shipping-profiles", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (data: { defaultShippingProfileId?: string | null } | null) => {
+          if (cancelled) return;
+          setEtsyShippingProfileReady(Boolean(data?.defaultShippingProfileId?.trim()));
+        }
+      )
+      .catch(() => {
+        if (!cancelled) setEtsyShippingProfileReady(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [etsyConnActive]);
 
   useEffect(() => {
     const storeItemId = existing?.id;
@@ -621,6 +644,16 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       return null;
     }
     if (listOnEtsy) {
+      if (!etsyShippingProfileReady) {
+        setError(
+          "Etsy: set a default shipping profile in Apps Airport → Connection Settings before listing."
+        );
+        return null;
+      }
+      if (!photos.some((p) => typeof p === "string" && p.trim().length > 0)) {
+        setError("Etsy: add at least one photo before listing on Etsy.");
+        return null;
+      }
       if (!etsyHowItsMade.etsyWhoMade) {
         setError("Etsy: choose who made it (required to list on Etsy).");
         return null;
@@ -635,6 +668,21 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       ) {
         setError("Etsy: choose when it was made (or set inventory to Made to order).");
         return null;
+      }
+      if (optionsEnabled && variantAxes.length > 0) {
+        const enabledSkusForEtsy = serializeEditorMatrix(optionsEnabled, variantAxes, variantSkus);
+        if (!enabledSkusForEtsy || enabledSkusForEtsy.length < 1) {
+          setError("Etsy: enable at least one Size/Color combination before listing.");
+          return null;
+        }
+        if (variantAxes.length > 3) {
+          setError("Etsy supports at most 3 option axes (for example Size and Color).");
+          return null;
+        }
+        if (enabledSkusForEtsy.some((sku) => Object.keys(sku.options ?? {}).length < 1)) {
+          setError("Etsy: every combination needs option values (Size×Color) before listing.");
+          return null;
+        }
       }
     }
     if (!effectiveShippingDisabled && !effectiveShippingPolicy.trim()) {
@@ -751,7 +799,12 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 ? "made_to_order"
                 : etsyHowItsMade.etsyWhenMade || null,
             etsyIsSupply: etsyHowItsMade.etsyIsSupply,
-            etsyTaxonomyId: null,
+            ...(etsyHowItsMade.etsyTaxonomyId.trim() &&
+            /^\d+$/.test(etsyHowItsMade.etsyTaxonomyId.trim())
+              ? {
+                  etsyTaxonomyId: Number.parseInt(etsyHowItsMade.etsyTaxonomyId.trim(), 10),
+                }
+              : {}),
           }),
         });
         if (!attrsRes.ok) {
@@ -1128,6 +1181,60 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                       </label>
                       {listOnEtsy ? (
                         <div className="mt-4 space-y-4 border-t border-neutral-200 pt-4">
+                          <ul className="space-y-1 text-sm text-neutral-700">
+                            <li>
+                              {etsyShippingProfileReady ? "✓" : "○"} Default Etsy shipping profile
+                              {!etsyShippingProfileReady ? (
+                                <>
+                                  {" "}
+                                  — set in{" "}
+                                  <Link
+                                    href={APPS_AIRPORT_ETSY_SETTINGS_PATH}
+                                    className="underline"
+                                    style={{ color: "var(--color-primary)" }}
+                                  >
+                                    Connection Settings
+                                  </Link>
+                                </>
+                              ) : null}
+                            </li>
+                            <li>
+                              {photos.some((p) => typeof p === "string" && p.trim().length > 0)
+                                ? "✓"
+                                : "○"}{" "}
+                              At least one photo
+                            </li>
+                            <li>
+                              {etsyHowItsMade.etsyWhoMade &&
+                              (etsyHowItsMade.etsyIsSupply === true ||
+                                etsyHowItsMade.etsyIsSupply === false) &&
+                              (inventoryTracking === INVENTORY_TRACKING_MADE_TO_ORDER ||
+                                etsyHowItsMade.etsyWhenMade)
+                                ? "✓"
+                                : "○"}{" "}
+                              How it&apos;s made (below)
+                            </li>
+                            {optionsEnabled ? (
+                              <li>
+                                {(() => {
+                                  const skus = serializeEditorMatrix(
+                                    optionsEnabled,
+                                    variantAxes,
+                                    variantSkus
+                                  );
+                                  const ok =
+                                    Boolean(skus?.length) &&
+                                    variantAxes.length <= 3 &&
+                                    (skus?.every(
+                                      (sku) => Object.keys(sku.options ?? {}).length > 0
+                                    ) ??
+                                      false);
+                                  return ok ? "✓" : "○";
+                                })()}{" "}
+                                Multi-option combinations have Size/Color values
+                              </li>
+                            ) : null}
+                          </ul>
                           <EtsyHowItsMadeFields
                             value={etsyHowItsMade}
                             onChange={setEtsyHowItsMade}

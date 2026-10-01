@@ -4,8 +4,10 @@ export function normalizeEtsyTitle(title: string | null | undefined): string {
   return typeof title === "string" ? title.trim() : "";
 }
 
+/** Stable description compare/write for INW↔Etsy (trim + normalize newlines). */
 export function normalizeEtsyDescription(description: string | null | undefined): string {
-  return typeof description === "string" ? description : "";
+  if (typeof description !== "string") return "";
+  return description.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
 }
 
 export function normalizeEtsySku(sku: string | null | undefined): string {
