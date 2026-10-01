@@ -156,6 +156,12 @@ model Member {
   shopifyVariantMaps   ShopifyVariantMap[]
   shopifyOrderLineSaleFacts ShopifyOrderLineSaleFact[]
   shopifyListingImportAttempts ShopifyListingImportAttempt[]
+  etsyConnections      EtsyConnection[]
+  etsyOAuthStates      EtsyOAuthState[]
+  etsyListingLinks     EtsyListingLink[]
+  etsyVariantMaps      EtsyVariantMap[]
+  etsyListingImportAttempts EtsyListingImportAttempt[]
+  etsyOrderLineSaleFacts EtsyOrderLineSaleFact[]
 }
 
 model WebviewBridgeToken {
@@ -1008,6 +1014,14 @@ model StoreItem {
   contentVersion      Int      @default(1) @map("content_version")
   /// Semantic listing-lifecycle version (active / ended). Not a timestamp. Starts at 1.
   lifecycleVersion    Int      @default(1) @map("lifecycle_version")
+  /// Etsy How it's made: i_did | someone_else | collective
+  etsyWhoMade         String?  @map("etsy_who_made")
+  /// Etsy when_made enum (e.g. made_to_order, 2020_2026, 1990s).
+  etsyWhenMade        String?  @map("etsy_when_made")
+  /// Etsy is_supply: true = supply/tool; false = finished product.
+  etsyIsSupply        Boolean? @map("etsy_is_supply")
+  /// Etsy taxonomy_id for CREATE_LISTING (falls back to connection/env default).
+  etsyTaxonomyId      Int?     @map("etsy_taxonomy_id")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
@@ -1029,6 +1043,7 @@ model StoreItem {
   variantBackfillMaps VariantBackfillMap[]
   inventoryReservations InventoryReservation[]
   shopifyListingLinks ShopifyListingLink[]
+  etsyListingLinks    EtsyListingLink[]
 
   @@unique([id, memberId])
   @@index([status, endedAt])
@@ -2646,5 +2661,379 @@ model ShopifySyncJob {
   @@index([leaseExpiresAt])
   @@index([shopifyConnectionId, state])
   @@map("shopify_sync_job")
+}
+
+/// Etsy Marketplace V2 connection lifecycle. Historical generations are retained.
+enum EtsyConnectionStatus {
+  ACTIVE
+  DISCONNECTED
+  REVOKED
+
+  @@map("etsy_connection_status")
+}
+
+/// One-time Etsy OAuth state (PKCE + browser binding). Consumed on callback; not a connection.
+model EtsyOAuthState {
+  id                     String    @id @default(cuid())
+  nonce                  String    @unique
+  memberId               String    @map("member_id")
+  /// SHA-256 hex of the HttpOnly browser-binding cookie. The raw secret is never stored.
+  browserBindingHash     String    @map("browser_binding_hash") @db.VarChar(64)
+  /// Encrypted PKCE code_verifier. Required for the token exchange; never logged.
+  codeVerifierEncrypted  String    @map("code_verifier_encrypted") @db.Text
+  expiresAt              DateTime  @map("expires_at")
+  consumedAt             DateTime? @map("consumed_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+  @@index([expiresAt])
+  @@map("etsy_oauth_state")
+}
+
+/// One generation of a member's Etsy shop authorization.
+/// Partial unique indexes in migration SQL (Prisma cannot express them):
+/// one ACTIVE row per member + shop, one ACTIVE row per Etsy shop id, one ACTIVE per Etsy user id.
+model EtsyConnection {
+  id                    String               @id @default(cuid())
+  memberId              String               @map("member_id")
+  /// Etsy numeric user id from the OAuth access_token prefix.
+  etsyUserId            String               @map("etsy_user_id")
+  /// Etsy shop id (stringified integer).
+  shopId                String               @map("shop_id")
+  shopName              String?              @map("shop_name")
+  generation            Int
+  accessTokenEncrypted  String               @map("access_token_encrypted") @db.Text
+  refreshTokenEncrypted String               @map("refresh_token_encrypted") @db.Text
+  accessTokenExpiresAt  DateTime             @map("access_token_expires_at")
+  refreshTokenExpiresAt DateTime             @map("refresh_token_expires_at")
+  grantedScopes         String               @map("granted_scopes") @db.Text
+  status                EtsyConnectionStatus
+  connectedAt           DateTime             @map("connected_at")
+  disconnectedAt        DateTime?            @map("disconnected_at")
+  /// E6: last successful inbound listing content poll completion.
+  listingContentLastPolledAt DateTime?       @map("listing_content_last_polled_at")
+  /// E6: lease so two poll workers cannot fan out the same connection concurrently.
+  listingContentPollLeaseExpiresAt DateTime? @map("listing_content_poll_lease_expires_at")
+  /// Default Etsy taxonomy_id used when a StoreItem omits etsyTaxonomyId.
+  defaultTaxonomyId     Int?                 @map("default_taxonomy_id")
+  /// Default Etsy shipping_profile_id required to activate new listings.
+  defaultShippingProfileId String?           @map("default_shipping_profile_id")
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  providerEvidence EtsyProviderEvidence[]
+  syncJobs         EtsySyncJob[]
+  listingLinks     EtsyListingLink[]
+  variantMaps      EtsyVariantMap[]
+  listingImportAttempts EtsyListingImportAttempt[]
+  orderLineSaleFacts EtsyOrderLineSaleFact[]
+
+  @@unique([id, memberId])
+  @@unique([memberId, shopId, generation])
+  @@index([memberId, status])
+  @@index([shopId, status])
+  @@index([etsyUserId, status])
+  @@map("etsy_connection")
+}
+
+enum EtsyListingImportSource {
+  NATIVE
+  ETSY_IMPORT
+
+  @@map("etsy_listing_import_source")
+}
+
+enum EtsyListingImportAttemptStatus {
+  STARTED
+  COMPLETED
+  FAILED
+
+  @@map("etsy_listing_import_attempt_status")
+}
+
+enum EtsyListingReadiness {
+  SYNCING
+  READY_TO_PUBLISH
+  ACTION_REQUIRED
+  CONNECTION_REQUIRED
+
+  @@map("etsy_listing_readiness")
+}
+
+enum EtsyCapabilityHealth {
+  HEALTHY
+  DEGRADED
+  PAUSED
+
+  @@map("etsy_capability_health")
+}
+
+/// Exactly-once import attempt + bootstrap cutoff for order-race handling.
+model EtsyListingImportAttempt {
+  id               String                         @id @default(cuid())
+  etsyConnectionId String                         @map("etsy_connection_id")
+  memberId         String                         @map("member_id")
+  etsyListingId    String                         @map("etsy_listing_id")
+  etsyProductId    String?                        @map("etsy_product_id")
+  etsyOfferingId   String?                        @map("etsy_offering_id")
+  status           EtsyListingImportAttemptStatus @default(STARTED)
+  /// Seller-authoritative stock mode for this import: PHYSICAL | MADE_TO_ORDER
+  stockMode        String                         @map("stock_mode")
+  bootstrapStartedAt DateTime                     @map("bootstrap_started_at")
+  storeItemId      String?                        @map("store_item_id")
+  listingLinkId    String?                        @map("listing_link_id")
+  failureCode      String?                        @map("failure_code")
+  failureMessage   String?                        @map("failure_message") @db.Text
+  createdAt        DateTime                       @default(now()) @map("created_at")
+  updatedAt        DateTime                       @updatedAt @map("updated_at")
+
+  connection EtsyConnection @relation(fields: [etsyConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
+  member     Member         @relation(fields: [memberId], references: [id], onDelete: Restrict)
+
+  @@unique([etsyConnectionId, etsyListingId])
+  @@index([etsyConnectionId, status])
+  @@index([memberId, status])
+  @@map("etsy_listing_import_attempt")
+}
+
+/// Generation-bound StoreItem ↔ Etsy Listing mapping.
+model EtsyListingLink {
+  id                     String                 @id @default(cuid())
+  etsyConnectionId       String                 @map("etsy_connection_id")
+  memberId               String                 @map("member_id")
+  storeItemId            String                 @map("store_item_id")
+  etsyListingId          String                 @map("etsy_listing_id")
+  remoteListingState     String?                @map("remote_listing_state")
+  /// E5: monotonic desired product content version (title/description/photos).
+  desiredProductContentVersion Int              @default(0) @map("desired_product_content_version")
+  appliedProductContentVersion Int              @default(0) @map("applied_product_content_version")
+  desiredProductFingerprint    String?          @map("desired_product_fingerprint") @db.VarChar(64)
+  appliedProductFingerprint    String?          @map("applied_product_fingerprint") @db.VarChar(64)
+  productContentAppliedAt      DateTime?        @map("product_content_applied_at")
+  productDesiredAt             DateTime?        @map("product_desired_at")
+  lastObservedProductFingerprint String?        @map("last_observed_product_fingerprint") @db.VarChar(64)
+  lastObservedProductUpdatedAt   DateTime?      @map("last_observed_product_updated_at")
+  productContentConflict           Boolean      @default(false) @map("product_content_conflict")
+  productConflictRemoteFingerprint String?      @map("product_conflict_remote_fingerprint") @db.VarChar(64)
+  productConflictEvidenceId        String?      @map("product_conflict_evidence_id")
+  productConflictDetectedAt        DateTime?    @map("product_conflict_detected_at")
+  readiness              EtsyListingReadiness   @default(SYNCING)
+  contentHealth          EtsyCapabilityHealth   @default(HEALTHY) @map("content_health")
+  inventoryHealth        EtsyCapabilityHealth   @default(HEALTHY) @map("inventory_health")
+  issueCode              String?                @map("issue_code")
+  issueMessage           String?                @map("issue_message") @db.Text
+  importSource           EtsyListingImportSource @default(NATIVE) @map("import_source")
+  importedAt             DateTime?              @map("imported_at")
+  importBootstrapStartedAt DateTime?            @map("import_bootstrap_started_at")
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
+
+  connection  EtsyConnection   @relation(fields: [etsyConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
+  storeItem   StoreItem        @relation(fields: [storeItemId, memberId], references: [id, memberId], onDelete: Restrict)
+  member      Member           @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  variantMaps EtsyVariantMap[]
+
+  @@unique([id, etsyConnectionId, storeItemId])
+  @@unique([etsyConnectionId, storeItemId])
+  @@unique([etsyConnectionId, etsyListingId])
+  @@index([memberId, readiness])
+  @@index([etsyConnectionId, importSource])
+  @@map("etsy_listing_link")
+}
+
+/// StoreVariant ↔ Etsy inventory product/offering mapping.
+model EtsyVariantMap {
+  id                 String   @id @default(cuid())
+  etsyConnectionId   String   @map("etsy_connection_id")
+  etsyListingLinkId  String   @map("etsy_listing_link_id")
+  memberId           String   @map("member_id")
+  storeItemId        String   @map("store_item_id")
+  storeVariantId     String   @map("store_variant_id")
+  /// Etsy inventory product_id (durable within a listing inventory representation).
+  etsyProductId      String   @map("etsy_product_id")
+  /// Etsy offering_id carrying quantity/price/enabled.
+  etsyOfferingId     String   @map("etsy_offering_id")
+  /// Snapshot of property_values used for option correlation (JSON array).
+  propertyValuesJson Json?    @map("property_values_json")
+  remoteSku          String?  @map("remote_sku")
+  /// E5: monotonic desired variant content version (price/SKU).
+  desiredVariantContentVersion Int       @default(0) @map("desired_variant_content_version")
+  appliedVariantContentVersion Int       @default(0) @map("applied_variant_content_version")
+  desiredVariantFingerprint    String?   @map("desired_variant_fingerprint") @db.VarChar(64)
+  appliedVariantFingerprint    String?   @map("applied_variant_fingerprint") @db.VarChar(64)
+  variantContentAppliedAt      DateTime? @map("variant_content_applied_at")
+  variantDesiredAt             DateTime? @map("variant_desired_at")
+  lastObservedVariantFingerprint String? @map("last_observed_variant_fingerprint") @db.VarChar(64)
+  lastObservedVariantUpdatedAt   DateTime? @map("last_observed_variant_updated_at")
+  variantContentConflict           Boolean @default(false) @map("variant_content_conflict")
+  variantConflictRemoteFingerprint String? @map("variant_conflict_remote_fingerprint") @db.VarChar(64)
+  variantConflictEvidenceId        String? @map("variant_conflict_evidence_id")
+  variantConflictDetectedAt        DateTime? @map("variant_conflict_detected_at")
+  inventoryDesiredAvailable Int? @map("inventory_desired_available")
+  inventoryAppliedAvailable Int? @map("inventory_applied_available")
+  /// E8: monotonic desired sellable-quantity projection version.
+  inventoryDesiredVersion   Int  @default(0) @map("inventory_desired_version")
+  inventoryAppliedVersion   Int  @default(0) @map("inventory_applied_version")
+  inventoryDesiredAt        DateTime? @map("inventory_desired_at")
+  inventoryAppliedAt        DateTime? @map("inventory_applied_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  connection EtsyConnection @relation(fields: [etsyConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
+  listingLink EtsyListingLink @relation(fields: [etsyListingLinkId, etsyConnectionId, storeItemId], references: [id, etsyConnectionId, storeItemId], onDelete: Restrict)
+  member     Member         @relation(fields: [memberId], references: [id], onDelete: Restrict)
+
+  @@unique([etsyConnectionId, storeVariantId])
+  @@unique([etsyConnectionId, etsyProductId])
+  @@unique([etsyConnectionId, etsyOfferingId])
+  @@index([etsyListingLinkId])
+  @@index([memberId, storeItemId])
+  @@map("etsy_variant_map")
+}
+
+enum EtsyEvidenceProcessState {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  ERROR
+
+  @@map("etsy_evidence_process_state")
+}
+
+enum EtsySyncJobState {
+  PENDING
+  RUNNING
+  RETRY_WAIT
+  SUCCEEDED
+  DEAD
+
+  @@map("etsy_sync_job_state")
+}
+
+enum EtsySyncJobKind {
+  PROCESS_PROVIDER_EVIDENCE
+  UPDATE_LISTING_CONTENT
+  POLL_LISTING_CONTENT
+  PROJECT_INVENTORY
+  RECONCILE_LISTING
+  CREATE_LISTING
+
+  @@map("etsy_sync_job_kind")
+}
+
+/// Verified inbound Etsy webhook fact. Separate from canonical commerce state.
+model EtsyProviderEvidence {
+  id               String                   @id @default(cuid())
+  etsyConnectionId String?                  @map("etsy_connection_id")
+  shopId           String                   @map("shop_id")
+  topic            String
+  /// webhook-id header. Delivery dedupe identity.
+  webhookId        String                   @unique @map("webhook_id")
+  /// Optional event id from payload when present. Not unique across deliveries.
+  eventId          String?                  @map("event_id")
+  triggeredAt      DateTime                 @map("triggered_at")
+  rawBody          String                   @map("raw_body") @db.Text
+  payloadHash      String                   @map("payload_hash") @db.VarChar(64)
+  processState     EtsyEvidenceProcessState @default(RECEIVED) @map("process_state")
+  receivedAt       DateTime                 @default(now()) @map("received_at")
+  processedAt      DateTime?                @map("processed_at")
+  lastErrorCode    String?                  @map("last_error_code")
+  lastErrorMessage String?                  @map("last_error_message") @db.Text
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+
+  connection EtsyConnection? @relation(fields: [etsyConnectionId], references: [id], onDelete: Restrict)
+  syncJob    EtsySyncJob?
+  orderLineSaleFacts EtsyOrderLineSaleFact[]
+
+  @@index([etsyConnectionId, topic, receivedAt])
+  @@index([processState, receivedAt])
+  @@index([shopId, triggeredAt])
+  @@index([eventId])
+  @@map("etsy_provider_evidence")
+}
+
+enum EtsyOrderLineSaleApplyState {
+  PENDING
+  APPLIED
+  UNMAPPED
+  FAILED
+  /// Sale occurred before import bootstrap cutoff and is represented by opening stock.
+  PRE_BOOTSTRAP_ACKED
+
+  @@map("etsy_order_line_sale_apply_state")
+}
+
+/// Durable Etsy paid receipt-line sale fact. Not an INW StoreOrder.
+/// Exactly-once inventory causality key: (connectionId, etsyReceiptId, etsyTransactionId).
+model EtsyOrderLineSaleFact {
+  id                 String                     @id @default(cuid())
+  etsyConnectionId   String                     @map("etsy_connection_id")
+  memberId           String                     @map("member_id")
+  etsyReceiptId      String                     @map("etsy_receipt_id")
+  etsyTransactionId  String                     @map("etsy_transaction_id")
+  etsyListingId      String?                    @map("etsy_listing_id")
+  etsyProductId      String?                    @map("etsy_product_id")
+  etsyOfferingId     String?                    @map("etsy_offering_id")
+  storeVariantId     String?                    @map("store_variant_id")
+  storeItemId        String?                    @map("store_item_id")
+  paidQuantity       Int                        @map("paid_quantity")
+  appliedQuantity    Int                        @default(0) @map("applied_quantity")
+  applyState         EtsyOrderLineSaleApplyState @default(PENDING) @map("apply_state")
+  inventoryEventId   String?                    @map("inventory_event_id")
+  evidenceId         String                     @map("evidence_id")
+  lastErrorCode      String?                    @map("last_error_code")
+  lastErrorMessage   String?                    @map("last_error_message") @db.Text
+  causalConflict               Boolean   @default(false) @map("causal_conflict")
+  causalConflictCode           String?   @map("causal_conflict_code")
+  causalConflictEvidenceId     String?   @map("causal_conflict_evidence_id")
+  causalConflictDetectedAt     DateTime? @map("causal_conflict_detected_at")
+  appliedAt          DateTime?                  @map("applied_at")
+  createdAt          DateTime                   @default(now()) @map("created_at")
+  updatedAt          DateTime                   @updatedAt @map("updated_at")
+
+  connection EtsyConnection      @relation(fields: [etsyConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
+  member     Member              @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  evidence   EtsyProviderEvidence @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+
+  @@unique([etsyConnectionId, etsyReceiptId, etsyTransactionId])
+  @@index([etsyConnectionId, applyState])
+  @@index([evidenceId])
+  @@index([storeVariantId])
+  @@map("etsy_order_line_sale_fact")
+}
+
+model EtsySyncJob {
+  id               String           @id @default(cuid())
+  etsyConnectionId String           @map("etsy_connection_id")
+  kind             EtsySyncJobKind
+  dedupeKey        String           @unique @map("dedupe_key")
+  evidenceId       String?          @unique @map("evidence_id")
+  payload          Json?
+  payloadHash      String?          @map("payload_hash") @db.VarChar(64)
+  state            EtsySyncJobState
+  attemptCount     Int              @default(0) @map("attempt_count")
+  maxAttempts      Int              @default(8) @map("max_attempts")
+  nextAttemptAt    DateTime         @map("next_attempt_at")
+  leaseOwner       String?          @map("lease_owner")
+  leaseToken       String?          @map("lease_token")
+  leaseExpiresAt   DateTime?        @map("lease_expires_at")
+  lastErrorClass   String?          @map("last_error_class")
+  lastErrorCode    String?          @map("last_error_code")
+  lastErrorMessage String?          @map("last_error_message") @db.Text
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  completedAt      DateTime?        @map("completed_at")
+
+  connection EtsyConnection        @relation(fields: [etsyConnectionId], references: [id], onDelete: Restrict)
+  evidence   EtsyProviderEvidence? @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+
+  @@index([state, nextAttemptAt])
+  @@index([leaseExpiresAt])
+  @@index([etsyConnectionId, state])
+  @@map("etsy_sync_job")
 }
 

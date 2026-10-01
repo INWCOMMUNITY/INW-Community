@@ -23,8 +23,14 @@ import {
   type EditorSkuRow,
 } from "@/components/listing/ListingVariantMatrixEditor";
 import { buildProductHref } from "@/lib/product-referrer";
+import { ShareListingsToFeedPrompt } from "@/components/feed/ShareListingsToFeedPrompt";
 import { ListingEditorLayout } from "@/components/store-item/ListingEditorLayout";
 import { ListingFormSection } from "@/components/store-item/ListingFormSection";
+import {
+  emptyEtsyHowItsMadeFormValue,
+  EtsyHowItsMadeFields,
+  type EtsyHowItsMadeFormValue,
+} from "@/components/etsy/EtsyHowItsMadeFields";
 import { ListingConditionToggle } from "@/components/store-item/ListingConditionToggle";
 import { ListingPhotoGallery } from "@/components/store-item/ListingPhotoGallery";
 import { ListingSaveBar } from "@/components/store-item/ListingSaveBar";
@@ -93,6 +99,10 @@ interface StoreItemFormProps {
     minOfferCents?: number | null;
     sku?: string | null;
     aspects?: { name: string; value: string }[] | null;
+    etsyWhoMade?: string | null;
+    etsyWhenMade?: string | null;
+    etsyIsSupply?: boolean | null;
+    etsyTaxonomyId?: number | null;
   };
   /** Redirect after successful create/update (default: /seller-hub/store/items). */
   successRedirect?: string;
@@ -149,6 +159,17 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [inventoryTracking, setInventoryTracking] = useState<InventoryTracking>(() =>
     parseInventoryTracking(existing?.inventoryTracking)
   );
+  const [etsyHowItsMade, setEtsyHowItsMade] = useState<EtsyHowItsMadeFormValue>(() =>
+    emptyEtsyHowItsMadeFormValue(existing)
+  );
+  const [listOnEtsy, setListOnEtsy] = useState(() =>
+    Boolean(
+      existing?.etsyWhoMade ||
+        existing?.etsyWhenMade ||
+        typeof existing?.etsyIsSupply === "boolean" ||
+        (typeof existing?.etsyTaxonomyId === "number" && existing.etsyTaxonomyId > 0)
+    )
+  );
   const initialMatrix = initEditorFromVariants(existing?.variants);
   const [optionsEnabled, setOptionsEnabled] = useState(initialMatrix.optionsEnabled);
   const [variantAxes, setVariantAxes] = useState<VariantAxisDef[]>(initialMatrix.axes);
@@ -194,6 +215,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [feedShareBusy, setFeedShareBusy] = useState(false);
   const [feedShareDone, setFeedShareDone] = useState(false);
   const [feedShareError, setFeedShareError] = useState<string | null>(null);
+  const [feedShareComposerOpen, setFeedShareComposerOpen] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [photoError, setPhotoError] = useState("");
   const [successDetail, setSuccessDetail] = useState("");
@@ -371,6 +393,23 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       setError("Enable at least one fulfillment method (shipping, local delivery, or pickup) in Policies.");
       return null;
     }
+    if (listOnEtsy) {
+      if (!etsyHowItsMade.etsyWhoMade) {
+        setError("Etsy: choose who made it (required to list on Etsy).");
+        return null;
+      }
+      if (etsyHowItsMade.etsyIsSupply !== true && etsyHowItsMade.etsyIsSupply !== false) {
+        setError("Etsy: choose whether this is a finished product or a supply/tool.");
+        return null;
+      }
+      if (
+        inventoryTracking !== INVENTORY_TRACKING_MADE_TO_ORDER &&
+        !etsyHowItsMade.etsyWhenMade
+      ) {
+        setError("Etsy: choose when it was made (or set inventory to Made to order).");
+        return null;
+      }
+    }
     if (!effectiveShippingDisabled && !effectiveShippingPolicy.trim()) {
       setError("Shipping policy is required when you offer shipping. Set it in Policies.");
       return null;
@@ -472,6 +511,35 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         return;
       }
 
+      const savedId = data.id ?? existing?.id ?? null;
+      if (savedId && listOnEtsy) {
+        const taxonomy =
+          etsyHowItsMade.etsyTaxonomyId.trim() && /^\d+$/.test(etsyHowItsMade.etsyTaxonomyId.trim())
+            ? Number.parseInt(etsyHowItsMade.etsyTaxonomyId.trim(), 10)
+            : null;
+        const attrsRes = await fetch(`/api/store-items/${savedId}/etsy-attributes`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            etsyWhoMade: etsyHowItsMade.etsyWhoMade || null,
+            etsyWhenMade:
+              inventoryTracking === INVENTORY_TRACKING_MADE_TO_ORDER
+                ? "made_to_order"
+                : etsyHowItsMade.etsyWhenMade || null,
+            etsyIsSupply: etsyHowItsMade.etsyIsSupply,
+            etsyTaxonomyId: taxonomy,
+          }),
+        });
+        if (!attrsRes.ok) {
+          const attrsBody = (await attrsRes.json().catch(() => ({}))) as { error?: string };
+          setError(
+            attrsBody.error ??
+              "Listing saved, but Etsy How it's made fields could not be saved. Edit the listing and try again."
+          );
+          return;
+        }
+      }
+
       setEditSuccess(isEdit);
       setSuccessItemId(data.id ?? existing?.id ?? null);
       setSuccessItemSlug(data.slug ?? existing?.slug ?? null);
@@ -500,28 +568,10 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     router.refresh();
   }
 
-  async function handleShareToFeed() {
+  function handleShareToFeed() {
     if (!successItemId || feedShareBusy || feedShareDone) return;
-    setFeedShareBusy(true);
     setFeedShareError(null);
-    try {
-      const res = await fetch("/api/store-items/share-to-feed", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storeItemIds: [successItemId] }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        setFeedShareError(data.error ?? "Could not share to the feed.");
-        return;
-      }
-      setFeedShareDone(true);
-    } catch {
-      setFeedShareError("Connection failed.");
-    } finally {
-      setFeedShareBusy(false);
-    }
+    setFeedShareComposerOpen(true);
   }
 
   function handleSeeListing() {
@@ -799,6 +849,31 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                     </button>
                   )}
                 </div>
+              </ListingFormSection>
+
+              <ListingFormSection
+                title="List on Etsy"
+                description="Optional. Turn on to collect Etsy’s How it’s made fields before you publish from Apps Airport."
+              >
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={listOnEtsy}
+                    onChange={(e) => setListOnEtsy(e.target.checked)}
+                    className="rounded"
+                  />
+                  <span className="font-medium text-sm">List on Etsy</span>
+                </label>
+                {listOnEtsy ? (
+                  <div className="mt-4 space-y-4 border-t border-neutral-200 pt-4">
+                    <EtsyHowItsMadeFields
+                      value={etsyHowItsMade}
+                      onChange={setEtsyHowItsMade}
+                      madeToOrder={inventoryTracking === INVENTORY_TRACKING_MADE_TO_ORDER}
+                      embedded
+                    />
+                  </div>
+                ) : null}
               </ListingFormSection>
 
               <ListingFormSection title="Pricing & Inventory">
@@ -1165,6 +1240,18 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         />
       </form>
 
+      {successItemId ? (
+        <ShareListingsToFeedPrompt
+          open={feedShareComposerOpen}
+          storeItemIds={[successItemId]}
+          onClose={() => setFeedShareComposerOpen(false)}
+          onSuccess={() => {
+            setFeedShareComposerOpen(false);
+            setFeedShareDone(true);
+          }}
+        />
+      ) : null}
+
       {showSuccessModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 overflow-hidden">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 text-center">
@@ -1191,9 +1278,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                     type="button"
                     disabled={feedShareBusy}
                     className="btn w-full disabled:opacity-50"
-                    onClick={() => void handleShareToFeed()}
+                    onClick={() => handleShareToFeed()}
                   >
-                    {feedShareBusy ? "Sharing…" : "Share"}
+                    Share
                   </button>
                 )}
               </div>

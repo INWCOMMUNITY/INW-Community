@@ -38,6 +38,10 @@
     {
       "path": "/api/cron/shopify-sync-jobs",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/etsy-sync-jobs",
+      "schedule": "* * * * *"
     }
   ]
 }

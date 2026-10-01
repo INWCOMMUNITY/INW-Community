@@ -70,9 +70,9 @@ Do this once before connecting any marketplace.
 | Sign in / create apps | [etsy.com/developers/your-apps](https://www.etsy.com/developers/your-apps) |
 | Etsy developer docs | [developers.etsy.com/documentation](https://developers.etsy.com/documentation/) |
 | Register as developer (if needed) | [etsy.com/developers/register](https://www.etsy.com/developers/register) |
-| **Callback URL to register** | `https://www.inwcommunity.com/api/channels/etsy/callback` |
-| Optional webhook URL | `https://www.inwcommunity.com/api/channels/etsy/webhook` |
-| Local dev callback (optional) | `http://localhost:3000/api/channels/etsy/callback` |
+| **Callback URL to register** | `https://www.inwcommunity.com/api/etsy/oauth/callback` |
+| Optional webhook URL | `https://www.inwcommunity.com/api/etsy/webhooks/inbox` |
+| Local dev callback (optional) | `http://localhost:3000/api/etsy/oauth/callback` |
 
 ### B — To-do checklist
 
@@ -92,7 +92,7 @@ Do this once before connecting any marketplace.
 4. **Commercial access:** In the app dashboard, find **Request Production Access** or **Commercial Access** and submit. Wait for approval before many sellers can use OAuth.
 5. **Callback URL:**
    - Find **OAuth redirect URIs** / **Callback URLs**.
-   - Add **exactly:** `https://www.inwcommunity.com/api/channels/etsy/callback`
+   - Add **exactly:** `https://www.inwcommunity.com/api/etsy/oauth/callback`
    - This must match `ETSY_REDIRECT_URI` in Vercel **character for character** (no trailing slash unless Etsy shows one).
 6. **`ETSY_API_KEY` ← Keystring:**
    - On the app overview, find **Keystring** (may say **API key**).
@@ -101,7 +101,7 @@ Do this once before connecting any marketplace.
    - Same page → **Shared secret** → reveal → copy.
    - Never commit to git; only Vercel + local `.env`.
 8. **`ETSY_REDIRECT_URI`:**
-   - Paste: `https://www.inwcommunity.com/api/channels/etsy/callback`
+   - Paste: `https://www.inwcommunity.com/api/etsy/oauth/callback`
 9. **`ETSY_CLIENT_ID` (optional):** Only if Etsy shows a **different** Client ID than the keystring. Usually leave blank.
 10. **`ETSY_WEBHOOK_SECRET` (optional):** Only if you configure webhooks in Etsy pointing to our webhook URL → copy Etsy’s signing secret.
 11. **`ETSY_DEFAULT_TAXONOMY_ID` (optional):** A default category number from [Etsy taxonomy API](https://developers.etsy.com/documentation/reference#operation/getSellerTaxonomyNodes).
@@ -114,7 +114,7 @@ Do this once before connecting any marketplace.
 |-------------|-----------|----------------------|
 | `ETSY_API_KEY` | Yes | Keystring |
 | `ETSY_CLIENT_SECRET` | Yes | Shared secret |
-| `ETSY_REDIRECT_URI` | Yes | `https://www.inwcommunity.com/api/channels/etsy/callback` |
+| `ETSY_REDIRECT_URI` | Yes | `https://www.inwcommunity.com/api/etsy/oauth/callback` |
 | `ETSY_CLIENT_ID` | No | Only if ≠ keystring |
 | `ETSY_WEBHOOK_SECRET` | No | Webhook signing secret |
 | `ETSY_DEFAULT_TAXONOMY_ID` | No | Category id number |
@@ -134,11 +134,7 @@ After setting, **redeploy** the main app. The cron runs every 5 minutes and will
 - Push INW changes → Etsy (most recent wins)
 - Sync quantity on divergence
 
-**Diagnose issues:** Visit `/api/channels/etsy/diagnose` while logged in as the seller to see:
-- Token validity
-- Circuit breaker state
-- Recent sync errors
-- Per-listing sync status
+**If connect or listing fails:** Confirm `ETSY_REDIRECT_URI` is exactly `/api/etsy/oauth/callback`, the seller has an Etsy shipping profile selected in Connection settings, and How it’s made is filled on the INW listing.
 
 ### B — Tell sellers
 
@@ -460,7 +456,7 @@ Each seller connects their own `{shop}.myshopify.com`. After OAuth we store a **
 
 ### Etsy — [your-apps](https://www.etsy.com/developers/your-apps)
 - [ ] App + commercial access
-- [ ] Callback: `https://www.inwcommunity.com/api/channels/etsy/callback`
+- [ ] Callback: `https://www.inwcommunity.com/api/etsy/oauth/callback`
 - [ ] `ETSY_API_KEY`, `ETSY_CLIENT_SECRET`, `ETSY_REDIRECT_URI`
 - [ ] Redeploy + test
 
@@ -486,7 +482,7 @@ Each seller connects their own `{shop}.myshopify.com`. After OAuth we store a **
 
 | Store | Register this exact URL |
 |-------|-------------------------|
-| Etsy | `https://www.inwcommunity.com/api/channels/etsy/callback` |
+| Etsy | `https://www.inwcommunity.com/api/etsy/oauth/callback` |
 | eBay (RuName **auth accepted URL** only) | `https://www.inwcommunity.com/api/channels/ebay/callback` |
 | Wix (External install / redirect) | `https://www.inwcommunity.com/api/channels/wix/callback` |
 | Shopify (Allowed redirection) | `https://www.inwcommunity.com/api/channels/shopify/callback` |
@@ -499,7 +495,7 @@ Each seller connects their own `{shop}.myshopify.com`. After OAuth we store a **
 # Etsy — https://www.etsy.com/developers/your-apps
 ETSY_API_KEY=
 ETSY_CLIENT_SECRET=
-ETSY_REDIRECT_URI=https://www.inwcommunity.com/api/channels/etsy/callback
+ETSY_REDIRECT_URI=https://www.inwcommunity.com/api/etsy/oauth/callback
 
 # eBay — https://developer.ebay.com/my/keys
 EBAY_CLIENT_ID=

@@ -79,6 +79,10 @@ export default async function EditStoreItemPage({
                   value: String(a?.value ?? ""),
                 }))
               : null,
+            etsyWhoMade: item.etsyWhoMade,
+            etsyWhenMade: item.etsyWhenMade,
+            etsyIsSupply: item.etsyIsSupply,
+            etsyTaxonomyId: item.etsyTaxonomyId,
           }}
         />
       </div>

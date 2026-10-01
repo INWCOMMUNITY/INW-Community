@@ -144,6 +144,7 @@ export {
   restockTrackedVariant,
   setTrackedOnHand,
   SHOPIFY_SOURCE_SYSTEM,
+  ETSY_SOURCE_SYSTEM,
   trackedAvailable,
 } from "./commerce-foundation-inventory";
 export {
@@ -387,6 +388,156 @@ export type {
   ShopifyInstallInput,
   ShopifyPublicConnection,
 } from "./shopify/connection";
+export {
+  consumeEtsyOAuthState,
+  createEtsyOAuthState,
+  disconnectEtsyConnection,
+  readEtsyOAuthBrowserBindingHash,
+  EtsyShopOwnershipConflictError,
+  getActiveEtsyConnectionForMember,
+  getEtsyConnectionForMember,
+  listEtsyConnectionsForMember,
+  persistEtsyInstall,
+  rotateEtsyTokenMaterial,
+} from "./etsy/connection";
+export type {
+  EtsyDb,
+  EtsyInstallInput,
+  EtsyPublicConnection,
+} from "./etsy/connection";
+export {
+  ETSY_ORDER_WEBHOOK_TOPICS,
+  EtsyEvidenceIngestError,
+  EtsyEvidenceInvariantError,
+  hashEtsyWebhookPayload,
+  ingestEtsyWebhookEvidence,
+  normalizeEtsyWebhookTopic,
+  resolveEtsyConnectionForWebhook,
+} from "./etsy/evidence";
+export type {
+  EtsyEvidenceDb,
+  IngestEtsyWebhookEvidenceInput,
+  IngestEtsyWebhookEvidenceResult,
+} from "./etsy/evidence";
+export {
+  claimNextEtsySyncJob,
+  completeEtsySyncJobDead,
+  completeEtsySyncJobRetry,
+  completeEtsySyncJobSuccess,
+  enqueueEtsySyncJob,
+  etsyEvidenceJobDedupeKey,
+  etsyJobBackoffMs,
+  hashEtsyJobPayload,
+  EtsySyncJobConflictError,
+} from "./etsy/jobs";
+export type {
+  EnqueueEtsySyncJobInput,
+  EtsyJobDb,
+  EtsyJobHandlerResult,
+  EtsySyncJobClaim,
+} from "./etsy/jobs";
+export {
+  beginEtsyListingImportAttempt,
+  completeEtsyListingImportAttempt,
+  failEtsyListingImportAttempt,
+} from "./etsy/import-attempt";
+export type { BeginEtsyListingImportAttemptResult } from "./etsy/import-attempt";
+export {
+  createEtsyImportedListingMapping,
+  lookupEtsyListingByRemoteId,
+  EtsyMappingConflictError,
+  EtsyMappingError,
+} from "./etsy/import-mapping";
+export type {
+  CreateEtsyImportedListingMappingInput,
+  EtsyListingMappingSnapshot,
+  EtsyVariantMappingInput,
+} from "./etsy/import-mapping";
+export {
+  etsyCentsFromMoney,
+  etsyMoneyFromCents,
+  etsyProductContentFingerprint,
+  etsyUpdateListingContentDedupeKey,
+  etsyVariantContentFingerprint,
+  normalizeEtsyDescription,
+  normalizeEtsyPhotoUrls,
+  normalizeEtsySku,
+  normalizeEtsyTitle,
+} from "./etsy/content-fingerprint";
+export {
+  ensureEtsyUpdateListingContentJob,
+  markEtsyProductContentApplied,
+  markEtsyVariantContentApplied,
+  recordEtsyDirtyMappedVariantContentDesires,
+  recordEtsyListingContentDesire,
+  setEtsyProductContentConflict,
+  setEtsyVariantContentConflict,
+} from "./etsy/content-desire";
+export type {
+  EtsyContentDb,
+  EtsyListingContentSnapshot,
+  RecordEtsyListingContentDesireResult,
+} from "./etsy/content-desire";
+export { classifyEtsyContentSemantics } from "./etsy/content-semantic";
+export type {
+  ClassifyEtsyContentSemanticsInput,
+  EtsyContentSemanticClass,
+} from "./etsy/content-semantic";
+export { applyEtsyListingContentInbound } from "./etsy/content-inbound";
+export type {
+  ApplyEtsyListingInboundResult,
+  EtsyInboundDb,
+  EtsyRemoteListingObservation,
+} from "./etsy/content-inbound";
+export {
+  enqueueDueEtsyListingContentPolls,
+  etsyPollListingContentDedupeKey,
+  markEtsyListingContentPollComplete,
+} from "./etsy/listing-content-poll";
+export {
+  applyEtsyPaidOrderLineSale,
+  applyEtsyPaidOrderObservation,
+  classifyEtsySaleFactEquivalence,
+} from "./etsy/order-sale";
+export type {
+  ApplyEtsyPaidOrderLineResult,
+  EtsyOrderSaleDb,
+  EtsyPaidOrderLineObservation,
+} from "./etsy/order-sale";
+export {
+  captureEtsyInventoryProjectionDesire,
+  ensureEtsyProjectInventoryJob,
+  etsyProjectInventoryDedupeKey,
+  markEtsyInventoryProjectionApplied,
+} from "./etsy/inventory-desire";
+export type {
+  CaptureEtsyInventoryProjectionDesireResult,
+  EtsyInventoryDesireDb,
+} from "./etsy/inventory-desire";
+export {
+  ETSY_WHEN_MADE_LABELS,
+  ETSY_WHEN_MADE_VALUES,
+  ETSY_WHO_MADE_LABELS,
+  ETSY_WHO_MADE_VALUES,
+  isEtsyWhenMade,
+  isEtsyWhoMade,
+  resolveEtsyHowItsMadeForCreate,
+} from "./etsy/how-its-made";
+export type {
+  EtsyHowItsMadeInput,
+  EtsyHowItsMadeMissing,
+  EtsyHowItsMadeReady,
+  EtsyWhenMade,
+  EtsyWhoMade,
+} from "./etsy/how-its-made";
+export {
+  classifyEtsyListingHealth,
+  enqueueDueEtsyListingReconciliations,
+  etsyReconcileListingDedupeKey,
+  persistEtsyListingHealth,
+  reconcileEtsyListingHealthFromDb,
+} from "./etsy/listing-health";
+export type { EtsyHealthDb, EtsyListingHealthSnapshot } from "./etsy/listing-health";
 export {
   assertShopifyInventoryItemGid,
   assertShopifyLineItemGid,

@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
 import {
+  APPS_AIRPORT_ETSY_PATH,
+  APPS_AIRPORT_ETSY_SETTINGS_PATH,
+  classifyEtsyConnectionUi,
+  etsyConnectionStatusLabel,
+} from "@/lib/etsy/apps-airport";
+import {
   APPS_AIRPORT_MARKETPLACES,
   APPS_AIRPORT_SHOPIFY_PATH,
   APPS_AIRPORT_SHOPIFY_SETTINGS_PATH,
@@ -11,7 +17,7 @@ import {
   shopifyConnectionStatusLabel,
 } from "@/lib/shopify/apps-airport";
 
-type PublicConnection = {
+type ShopifyPublicConnection = {
   id: string;
   shopDomain: string;
   status: "ACTIVE" | "DISCONNECTED" | "REVOKED";
@@ -20,27 +26,46 @@ type PublicConnection = {
   generation: number;
 };
 
+type EtsyPublicConnection = {
+  id: string;
+  shopId: string;
+  shopName: string | null;
+  status: "ACTIVE" | "DISCONNECTED" | "REVOKED";
+};
+
 export default function AppsAirportPage() {
-  const [connections, setConnections] = useState<PublicConnection[]>([]);
+  const [shopifyConnections, setShopifyConnections] = useState<ShopifyPublicConnection[]>([]);
+  const [etsyConnections, setEtsyConnections] = useState<EtsyPublicConnection[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    void fetch("/api/shopify/connection", { credentials: "include" })
-      .then(async (response) => {
-        if (!response.ok) {
+    void Promise.all([
+      fetch("/api/shopify/connection", { credentials: "include" }),
+      fetch("/api/etsy/connection", { credentials: "include" }),
+    ])
+      .then(async ([shopifyRes, etsyRes]) => {
+        if (!shopifyRes.ok && !etsyRes.ok) {
           setError("Could not load marketplace connections.");
           return;
         }
-        const body = (await response.json()) as { connections: PublicConnection[] };
-        setConnections(body.connections);
+        if (shopifyRes.ok) {
+          const body = (await shopifyRes.json()) as { connections: ShopifyPublicConnection[] };
+          setShopifyConnections(body.connections);
+        }
+        if (etsyRes.ok) {
+          const body = (await etsyRes.json()) as { connections: EtsyPublicConnection[] };
+          setEtsyConnections(body.connections);
+        }
       })
       .catch(() => setError("Could not load marketplace connections."))
       .finally(() => setLoading(false));
   }, []);
 
-  const activeShopify = connections.find((c) => c.status === "ACTIVE") ?? null;
+  const activeShopify = shopifyConnections.find((c) => c.status === "ACTIVE") ?? null;
   const shopifyUi = classifyShopifyConnectionUi(activeShopify);
+  const activeEtsy = etsyConnections.find((c) => c.status === "ACTIVE") ?? null;
+  const etsyUi = classifyEtsyConnectionUi(activeEtsy);
 
   return (
     <AppsAirportChrome
@@ -51,6 +76,7 @@ export default function AppsAirportPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
         {APPS_AIRPORT_MARKETPLACES.map((app) => {
           const isShopify = app.id === "shopify";
+          const isEtsy = app.id === "etsy";
           return (
             <article
               key={app.id}
@@ -79,13 +105,27 @@ export default function AppsAirportPage() {
                   >
                     {loading ? "…" : shopifyConnectionStatusLabel(shopifyUi)}
                   </span>
+                ) : isEtsy ? (
+                  <span
+                    className="text-xs font-semibold px-2 py-1 rounded"
+                    style={{
+                      backgroundColor: etsyUi === "connected" ? "#e8f5e9" : "#f5f5f5",
+                      color: "var(--color-heading)",
+                    }}
+                  >
+                    {loading ? "…" : etsyConnectionStatusLabel(etsyUi)}
+                  </span>
                 ) : (
                   <span className="text-xs font-semibold px-2 py-1 rounded bg-neutral-100 text-neutral-600">
                     Coming later
                   </span>
                 )}
               </div>
-              <p className="mt-2 text-sm text-neutral-600 flex-1">{app.description}</p>
+              <p className="mt-2 text-sm text-neutral-600 flex-1">
+                {isEtsy
+                  ? "Connect your Etsy shop, set How it’s made on listings, then list from Apps Airport."
+                  : app.description}
+              </p>
               {isShopify ? (
                 <>
                   <p className="mt-3 text-sm text-neutral-700">
@@ -117,6 +157,25 @@ export default function AppsAirportPage() {
                         Finish setup
                       </Link>
                     ) : null}
+                  </div>
+                </>
+              ) : isEtsy ? (
+                <>
+                  <p className="mt-3 text-sm text-neutral-700">
+                    {activeEtsy
+                      ? `Shop: ${activeEtsy.shopName ?? `#${activeEtsy.shopId}`}`
+                      : "No Etsy shop connected yet."}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    {activeEtsy ? (
+                      <Link href={APPS_AIRPORT_ETSY_PATH} className="btn" prefetch={false}>
+                        Manage
+                      </Link>
+                    ) : (
+                      <Link href={APPS_AIRPORT_ETSY_SETTINGS_PATH} className="btn" prefetch={false}>
+                        Connect
+                      </Link>
+                    )}
                   </div>
                 </>
               ) : (
