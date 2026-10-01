@@ -21,14 +21,29 @@ export type ShopifyListingActionResult =
 async function loadMappedListing(input: {
   memberId: string;
   storeItemId: string;
-}) {
+}): Promise<
+  | {
+      connection: {
+        id: string;
+        shopDomain: string;
+        primaryLocationId: string | null;
+      };
+      listing: {
+        id: string;
+        storeItemId: string;
+        shopifyProductId: string;
+        variantMaps: Array<{ storeVariantId: string }>;
+      };
+    }
+  | { error: string; status: number }
+> {
   const connection = await prisma.shopifyConnection.findFirst({
     where: { memberId: input.memberId, status: "ACTIVE" },
     orderBy: { connectedAt: "desc" },
     select: { id: true, shopDomain: true, primaryLocationId: true },
   });
   if (!connection) {
-    return { error: "No active Shopify connection" as const, status: 409 as const };
+    return { error: "No active Shopify connection", status: 409 };
   }
   const listing = await prisma.shopifyListingLink.findFirst({
     where: {
@@ -41,7 +56,7 @@ async function loadMappedListing(input: {
     },
   });
   if (!listing) {
-    return { error: "Listing is not linked to Shopify" as const, status: 404 as const };
+    return { error: "Listing is not linked to Shopify", status: 404 };
   }
   return { connection, listing };
 }
