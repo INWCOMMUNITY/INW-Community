@@ -63,13 +63,75 @@ export type EtsyRemoteInventoryProduct = {
 
 /** Well-known Etsy variation property ids used when taxonomy lookup misses. */
 const FALLBACK_PROPERTY_IDS: Record<string, number> = {
-  size: 100,
+  // Do not use Size=100 — Etsy rejects it as deprecated on inventory PUT.
   color: 200,
   colour: 200,
   material: 507,
   style: 46803063641,
   pattern: 46803063659,
 };
+
+/**
+ * Free-form custom variation slots (Etsy Open API).
+ * Prefer these over deprecated legacy Size (100) when taxonomy has no usable property.
+ */
+const CUSTOM_VARIATION_PROPERTY_IDS = [513, 514, 516] as const;
+
+/** Property ids Etsy currently rejects on inventory writes. */
+const DEPRECATED_VARIATION_PROPERTY_IDS = new Set<number>([100]);
+
+export function isDeprecatedEtsyVariationPropertyId(propertyId: number): boolean {
+  return DEPRECATED_VARIATION_PROPERTY_IDS.has(propertyId);
+}
+
+/**
+ * Pick a usable property id for an axis: taxonomy match (if not deprecated),
+ * named fallback (if not deprecated), else next custom variation slot (513/514/516).
+ */
+export function pickEtsyVariationPropertyId(input: {
+  axisName: string;
+  taxonomyPropertyId?: number | null;
+  taxonomyScaleId?: number | null;
+  usedPropertyIds: Set<number>;
+}): { propertyId: number; scaleId: number | null; source: "taxonomy" | "fallback" | "custom" } {
+  const want = input.axisName.trim().toLowerCase();
+  const taxonomyId =
+    input.taxonomyPropertyId != null && Number.isFinite(Number(input.taxonomyPropertyId))
+      ? Number(input.taxonomyPropertyId)
+      : null;
+  if (
+    taxonomyId != null &&
+    !isDeprecatedEtsyVariationPropertyId(taxonomyId) &&
+    !input.usedPropertyIds.has(taxonomyId)
+  ) {
+    return {
+      propertyId: taxonomyId,
+      scaleId: input.taxonomyScaleId ?? null,
+      source: "taxonomy",
+    };
+  }
+
+  const fallback = FALLBACK_PROPERTY_IDS[want];
+  if (
+    fallback != null &&
+    !isDeprecatedEtsyVariationPropertyId(fallback) &&
+    !input.usedPropertyIds.has(fallback)
+  ) {
+    return { propertyId: fallback, scaleId: null, source: "fallback" };
+  }
+
+  for (const customId of CUSTOM_VARIATION_PROPERTY_IDS) {
+    if (!input.usedPropertyIds.has(customId)) {
+      return { propertyId: customId, scaleId: null, source: "custom" };
+    }
+  }
+
+  // Last resort: stable synthetic (should be rare; Etsy allows ≤3 custom axes).
+  let hash = 0;
+  for (let i = 0; i < want.length; i += 1) hash = (hash * 31 + want.charCodeAt(i)) | 0;
+  const synthetic = 900_000_000 + (Math.abs(hash) % 50_000_000);
+  return { propertyId: synthetic, scaleId: null, source: "custom" };
+}
 
 export function parseStoreVariantOptions(raw: unknown): Record<string, string> | null {
   let value = raw;
@@ -187,6 +249,7 @@ export async function resolveEtsyVariationPropertyIds(input: {
   now?: Date;
 }): Promise<Map<string, { propertyId: number; scaleId: number | null }>> {
   const out = new Map<string, { propertyId: number; scaleId: number | null }>();
+  const usedPropertyIds = new Set<number>();
   const res = await etsyConnectionRequest<{ results?: TaxonomyProperty[]; count?: number }>({
     connectionId: input.connectionId,
     memberId: input.memberId,
@@ -206,24 +269,23 @@ export async function resolveEtsyVariationPropertyIds(input: {
         .map((n) => n.trim().toLowerCase());
       return names.includes(want) || names.some((n) => n.includes(want) || want.includes(n));
     });
-    if (match?.property_id != null && Number.isFinite(Number(match.property_id))) {
-      const scaleId =
-        Array.isArray(match.scales) && match.scales[0]?.scale_id != null
-          ? Number(match.scales[0].scale_id)
-          : null;
-      out.set(axis, { propertyId: Number(match.property_id), scaleId });
-      continue;
-    }
-    const fallback = FALLBACK_PROPERTY_IDS[want];
-    if (fallback != null) {
-      out.set(axis, { propertyId: fallback, scaleId: null });
-      continue;
-    }
-    // Stable synthetic id from name hash so PUT can still send property_name.
-    let hash = 0;
-    for (let i = 0; i < want.length; i += 1) hash = (hash * 31 + want.charCodeAt(i)) | 0;
-    const synthetic = 900_000_000 + (Math.abs(hash) % 50_000_000);
-    out.set(axis, { propertyId: synthetic, scaleId: null });
+    const taxonomyPropertyId =
+      match?.property_id != null && Number.isFinite(Number(match.property_id))
+        ? Number(match.property_id)
+        : null;
+    const taxonomyScaleId =
+      Array.isArray(match?.scales) && match!.scales![0]?.scale_id != null
+        ? Number(match!.scales![0]!.scale_id)
+        : null;
+
+    const picked = pickEtsyVariationPropertyId({
+      axisName: axis,
+      taxonomyPropertyId,
+      taxonomyScaleId,
+      usedPropertyIds,
+    });
+    usedPropertyIds.add(picked.propertyId);
+    out.set(axis, { propertyId: picked.propertyId, scaleId: picked.scaleId });
   }
   return out;
 }

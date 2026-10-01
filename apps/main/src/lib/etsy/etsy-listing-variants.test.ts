@@ -3,6 +3,7 @@ import {
   buildEtsyInventoryProductsPayload,
   correlateEtsyProductsToStoreVariants,
   parseStoreVariantOptions,
+  pickEtsyVariationPropertyId,
   validateEtsyExportVariants,
 } from "./listing-variants";
 
@@ -54,6 +55,43 @@ describe("validateEtsyExportVariants", () => {
   });
 });
 
+describe("pickEtsyVariationPropertyId", () => {
+  it("rejects deprecated Size property 100 and uses custom 513", () => {
+    const used = new Set<number>();
+    const size = pickEtsyVariationPropertyId({
+      axisName: "Size",
+      taxonomyPropertyId: 100,
+      taxonomyScaleId: 327,
+      usedPropertyIds: used,
+    });
+    expect(size.propertyId).toBe(513);
+    expect(size.source).toBe("custom");
+    used.add(size.propertyId);
+
+    const color = pickEtsyVariationPropertyId({
+      axisName: "Color",
+      taxonomyPropertyId: null,
+      usedPropertyIds: used,
+    });
+    expect(color.propertyId).toBe(200);
+    expect(color.source).toBe("fallback");
+  });
+
+  it("keeps non-deprecated taxonomy property ids", () => {
+    const picked = pickEtsyVariationPropertyId({
+      axisName: "Size",
+      taxonomyPropertyId: 148789511779,
+      taxonomyScaleId: 152,
+      usedPropertyIds: new Set(),
+    });
+    expect(picked).toEqual({
+      propertyId: 148789511779,
+      scaleId: 152,
+      source: "taxonomy",
+    });
+  });
+});
+
 describe("buildEtsyInventoryProductsPayload + correlate", () => {
   it("builds one product per combo and correlates by options", () => {
     const variants = [
@@ -74,7 +112,7 @@ describe("buildEtsyInventoryProductsPayload + correlate", () => {
     ];
     const axisNames = ["Size", "Color"];
     const propertyMap = new Map([
-      ["Size", { propertyId: 100, scaleId: null }],
+      ["Size", { propertyId: 513, scaleId: null }],
       ["Color", { propertyId: 200, scaleId: null }],
     ]);
     const built = buildEtsyInventoryProductsPayload({
@@ -85,6 +123,7 @@ describe("buildEtsyInventoryProductsPayload + correlate", () => {
       readinessStateId: 99,
     });
     expect(built.products).toHaveLength(2);
+    expect(built.products[0]!.property_values[0]!.property_id).toBe(513);
     expect(built.products[0]!.offerings[0]!.quantity).toBe(3);
     expect(built.products[1]!.offerings[0]!.quantity).toBe(6);
     expect(built.products[0]!.offerings[0]!.price).toBe(10);
