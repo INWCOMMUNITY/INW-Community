@@ -71,6 +71,7 @@ Do this once before connecting any marketplace.
 | Etsy developer docs | [developers.etsy.com/documentation](https://developers.etsy.com/documentation/) |
 | Register as developer (if needed) | [etsy.com/developers/register](https://www.etsy.com/developers/register) |
 | **Callback URL to register** | `https://www.inwcommunity.com/api/etsy/oauth/callback` |
+| Legacy callback (still accepted) | `https://www.inwcommunity.com/api/channels/etsy/callback` |
 | Optional webhook URL | `https://www.inwcommunity.com/api/etsy/webhooks/inbox` |
 | Local dev callback (optional) | `http://localhost:3000/api/etsy/oauth/callback` |
 
