@@ -104,8 +104,16 @@ export async function enqueueEtsySyncJob(
         (input.evidenceId ?? null) === (existing.evidenceId ?? null)
       ) {
         // Resurrect sticky DEAD rows on seller retry (same dedupe/payload).
-        // Without this, enqueue looks successful but claimNext never picks DEAD jobs.
-        if (existing.state === "DEAD") {
+        // Also re-queue SUCCEEDED outbound mutations when desire is re-asserted —
+        // otherwise a no-op SUCCESS can leave desired>applied with no live job.
+        // Without this, enqueue looks successful but claimNext never picks them up.
+        if (
+          existing.state === "DEAD" ||
+          (existing.state === "SUCCEEDED" &&
+            (input.kind === "UPDATE_LISTING_CONTENT" ||
+              input.kind === "PROJECT_INVENTORY" ||
+              input.kind === "CREATE_LISTING"))
+        ) {
           return db.etsySyncJob.update({
             where: { id: existing.id },
             data: {
@@ -187,7 +195,15 @@ export async function claimNextEtsySyncJob(
             AND lease_expires_at < ${now}
           )
         )
-      ORDER BY next_attempt_at ASC
+      ORDER BY
+        CASE kind
+          WHEN CAST('UPDATE_LISTING_CONTENT' AS etsy_sync_job_kind) THEN 0
+          WHEN CAST('PROJECT_INVENTORY' AS etsy_sync_job_kind) THEN 0
+          WHEN CAST('CREATE_LISTING' AS etsy_sync_job_kind) THEN 0
+          WHEN CAST('PROCESS_PROVIDER_EVIDENCE' AS etsy_sync_job_kind) THEN 1
+          ELSE 2
+        END,
+        next_attempt_at ASC
       FOR UPDATE SKIP LOCKED
       LIMIT 1
     `;

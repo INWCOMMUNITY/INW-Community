@@ -45,7 +45,7 @@ import { runNextEtsySyncJob } from "@/lib/etsy/worker";
 function kickEtsySyncJobsAfterEdit() {
   waitUntil(
     (async () => {
-      for (let i = 0; i < 8; i += 1) {
+      for (let i = 0; i < 16; i += 1) {
         const ran = await runNextEtsySyncJob({ workerId: `etsy-edit-inline-${i}` });
         if (!ran.claimed) break;
       }

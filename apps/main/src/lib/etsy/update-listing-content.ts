@@ -3,6 +3,7 @@ import {
   etsyMoneyFromCents,
   etsyProductContentFingerprint,
   etsyVariantContentFingerprint,
+  ensureEtsyUpdateListingContentJob,
   markEtsyProductContentApplied,
   markEtsyVariantContentApplied,
   normalizeEtsyDescription,
@@ -10,6 +11,7 @@ import {
   normalizeEtsySku,
   normalizeEtsyTitle,
   prisma,
+  reconcileEtsyListingHealthFromDb,
   setEtsyProductContentConflict,
   setEtsyVariantContentConflict,
   type EtsyJobHandlerResult,
@@ -146,7 +148,7 @@ export async function handleEtsyUpdateListingContentJob(
     };
   }
 
-  if (listing.contentHealth === "PAUSED") {
+  if (listing.contentHealth === "PAUSED" && connection.status !== "ACTIVE") {
     return { outcome: "SUCCESS" };
   }
 
@@ -172,15 +174,47 @@ export async function handleEtsyUpdateListingContentJob(
     payload.variantDesiredVersion === variantMap.desiredVariantContentVersion &&
     payload.variantDesiredVersion > variantMap.appliedVariantContentVersion;
 
+  const productPending =
+    listing.desiredProductContentVersion > listing.appliedProductContentVersion;
+  const variantPending =
+    variantMap.desiredVariantContentVersion > variantMap.appliedVariantContentVersion;
+
   if (
     (payload.productDesiredVersion < listing.desiredProductContentVersion ||
       payload.productDesiredVersion <= listing.appliedProductContentVersion) &&
     (payload.variantDesiredVersion < variantMap.desiredVariantContentVersion ||
       payload.variantDesiredVersion <= variantMap.appliedVariantContentVersion)
   ) {
+    // Stale job succeeded without applying — keep the latest desire queued.
+    if (productPending || variantPending) {
+      await ensureEtsyUpdateListingContentJob(prisma, {
+        connectionId: connection.id,
+        storeItemId: payload.storeItemId,
+        storeVariantId: variantMap.storeVariantId,
+        productDesiredVersion: listing.desiredProductContentVersion,
+        variantDesiredVersion: variantMap.desiredVariantContentVersion,
+      });
+    }
+    await reconcileEtsyListingHealthFromDb(prisma, {
+      connectionId: connection.id,
+      listingLinkId: listing.id,
+    }).catch(() => undefined);
     return { outcome: "SUCCESS" };
   }
   if (!applyProduct && !applyVariant) {
+    if (productPending || variantPending) {
+      await ensureEtsyUpdateListingContentJob(prisma, {
+        connectionId: connection.id,
+        storeItemId: payload.storeItemId,
+        storeVariantId: variantMap.storeVariantId,
+        productDesiredVersion: listing.desiredProductContentVersion,
+        variantDesiredVersion: variantMap.desiredVariantContentVersion,
+      });
+    }
+    await reconcileEtsyListingHealthFromDb(prisma, {
+      connectionId: connection.id,
+      listingLinkId: listing.id,
+    }).catch(() => undefined);
     return { outcome: "SUCCESS" };
   }
 
@@ -219,24 +253,23 @@ export async function handleEtsyUpdateListingContentJob(
     listing.desiredProductFingerprint &&
     listing.desiredProductFingerprint !== desiredProductFp
   ) {
-    return {
-      outcome: "DEAD",
-      errorClass: "PERMANENT",
-      errorCode: "PRODUCT_DESIRE_MISMATCH",
-      errorMessage: "Canonical product content does not match recorded desired fingerprint",
-    };
+    // Desire fingerprint can drift after algorithm changes (e.g. photos omitted) or
+    // another local write. Version gates already ensure this is the current desire —
+    // refresh the stored fingerprint and continue instead of DEAD-locking sync.
+    await prisma.etsyListingLink.update({
+      where: { id: listing.id },
+      data: { desiredProductFingerprint: desiredProductFp },
+    });
   }
   if (
     applyVariant &&
     variantMap.desiredVariantFingerprint &&
     variantMap.desiredVariantFingerprint !== desiredVariantFp
   ) {
-    return {
-      outcome: "DEAD",
-      errorClass: "PERMANENT",
-      errorCode: "VARIANT_DESIRE_MISMATCH",
-      errorMessage: "Canonical variant content does not match recorded desired fingerprint",
-    };
+    await prisma.etsyVariantMap.update({
+      where: { id: variantMap.id },
+      data: { desiredVariantFingerprint: desiredVariantFp },
+    });
   }
 
   const listingPath = `/shops/${encodeURIComponent(connection.shopId)}/listings/${encodeURIComponent(listing.etsyListingId)}`;
@@ -247,7 +280,7 @@ export async function handleEtsyUpdateListingContentJob(
       memberId: connection.memberId,
       method: "GET",
       path: listingPath,
-      query: { includes: "Images" },
+      query: { includes: "Images", legacy: false },
       maxAttempts: 3,
       fetchImpl: deps.fetchImpl,
       now: deps.now,
@@ -281,6 +314,10 @@ export async function handleEtsyUpdateListingContentJob(
         remoteFingerprint: remoteProductFp,
         now: deps.now,
       });
+      await reconcileEtsyListingHealthFromDb(prisma, {
+        connectionId: connection.id,
+        listingLinkId: listing.id,
+      }).catch(() => undefined);
       return {
         outcome: "DEAD",
         errorClass: "CONTENT_CONFLICT",
@@ -297,6 +334,7 @@ export async function handleEtsyUpdateListingContentJob(
         memberId: connection.memberId,
         method: "PATCH",
         path: listingPath,
+        query: { legacy: false },
         body: {
           ...(titleNeedsPatch ? { title: localTitle } : {}),
           ...(descriptionNeedsPatch ? { description: localDescription } : {}),
@@ -466,6 +504,11 @@ export async function handleEtsyUpdateListingContentJob(
       now: deps.now,
     });
   }
+
+  await reconcileEtsyListingHealthFromDb(prisma, {
+    connectionId: connection.id,
+    listingLinkId: listing.id,
+  }).catch(() => undefined);
 
   return { outcome: "SUCCESS" };
 }

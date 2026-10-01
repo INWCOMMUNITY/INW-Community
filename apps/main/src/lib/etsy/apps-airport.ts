@@ -97,9 +97,15 @@ export const ETSY_IMPORT_ENABLED = true;
 
 /**
  * Silent platform taxonomy fallback when listing + connection omit taxonomy_id.
- * Overridable via ETSY_DEFAULT_TAXONOMY_ID. Leaf: Art & Collectibles › Collectibles.
+ * Overridable via ETSY_DEFAULT_TAXONOMY_ID.
+ * Must be a seller-taxonomy *leaf* id (Etsy rejects parents / unknown ids with 400).
+ * Leaf: Art & Collectibles › Mixed Media & Collage › Other Assemblage.
+ * @see https://developer.etsy.com/documentation/tutorials/listings
  */
-export const ETSY_PLATFORM_DEFAULT_TAXONOMY_ID = 69150467;
+export const ETSY_PLATFORM_DEFAULT_TAXONOMY_ID = 101;
+
+/** Previously shipped bogus fallback (looked like a shop id). Never send to Etsy. */
+export const ETSY_KNOWN_INVALID_TAXONOMY_IDS = new Set<number>([69150467]);
 
 export type EtsySyncProgressStep =
   | "preparing"

@@ -95,6 +95,17 @@ describe("resolveEtsyHowItsMadeForCreate", () => {
   });
 });
 
+describe("sanitizeEtsyTaxonomyId", () => {
+  it("rejects the old bogus platform default", async () => {
+    const { sanitizeEtsyTaxonomyId, resolveEtsyTaxonomyFallback } = await import(
+      "./taxonomy-default"
+    );
+    expect(sanitizeEtsyTaxonomyId(69150467)).toBeNull();
+    expect(resolveEtsyTaxonomyFallback(69150467)).toBe(101);
+    expect(resolveEtsyTaxonomyFallback(null)).toBe(101);
+  });
+});
+
 vi.mock("database", async () => {
   const actual = await vi.importActual<typeof import("database")>("database");
   return {

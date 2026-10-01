@@ -32,7 +32,8 @@ async function handle(req: NextRequest) {
   });
 
   const results: Array<{ jobId: string; finalized: boolean; outcome: string }> = [];
-  for (let i = 0; i < 25; i += 1) {
+  // Prefer draining seller-facing outbound jobs; polls/reconcile are lower priority in claim.
+  for (let i = 0; i < 40; i += 1) {
     const ran = await runNextEtsySyncJob({ workerId: `cron-etsy-${i}` });
     if (!ran.claimed) break;
     results.push({

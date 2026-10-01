@@ -1,6 +1,7 @@
 import {
   markEtsyInventoryProjectionApplied,
   prisma,
+  reconcileEtsyListingHealthFromDb,
   type EtsyJobHandlerResult,
   type EtsySyncJobClaim,
 } from "database";
@@ -237,6 +238,11 @@ export async function handleEtsyProjectInventoryJob(
     available: desiredQty,
     now: deps.now,
   });
+
+  await reconcileEtsyListingHealthFromDb(prisma, {
+    connectionId: connection.id,
+    listingLinkId: listing.id,
+  }).catch(() => undefined);
 
   return { outcome: "SUCCESS" };
 }

@@ -13,7 +13,8 @@ import {
 } from "database";
 import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
-import { resolveEtsyTaxonomyFallback } from "./taxonomy-default";
+import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "./taxonomy-default";
+import { ETSY_PLATFORM_DEFAULT_TAXONOMY_ID } from "./apps-airport";
 import { resolveEtsyReadinessStateId } from "./readiness-state";
 import { notifyEtsyListingIssueOnce } from "./listing-issue-notify";
 import { resolveEtsyListingPackageFields } from "./listing-package";
@@ -134,7 +135,7 @@ export async function enqueueEtsyCreateListing(input: {
     etsyWhoMade: storeItem.etsyWhoMade,
     etsyWhenMade: storeItem.etsyWhenMade,
     etsyIsSupply: storeItem.etsyIsSupply,
-    etsyTaxonomyId: storeItem.etsyTaxonomyId,
+    etsyTaxonomyId: sanitizeEtsyTaxonomyId(storeItem.etsyTaxonomyId),
     defaultTaxonomyId: resolveEtsyTaxonomyFallback(connection.defaultTaxonomyId),
     inventoryTracking: storeItem.inventoryTracking,
   });
@@ -294,7 +295,7 @@ export async function handleEtsyCreateListingJob(
     etsyWhoMade: storeItem.etsyWhoMade,
     etsyWhenMade: storeItem.etsyWhenMade,
     etsyIsSupply: storeItem.etsyIsSupply,
-    etsyTaxonomyId: storeItem.etsyTaxonomyId,
+    etsyTaxonomyId: sanitizeEtsyTaxonomyId(storeItem.etsyTaxonomyId),
     defaultTaxonomyId: resolveEtsyTaxonomyFallback(connection.defaultTaxonomyId),
     inventoryTracking: storeItem.inventoryTracking,
   });
@@ -375,12 +376,53 @@ export async function handleEtsyCreateListingJob(
     fetchImpl: deps.fetchImpl,
     now: deps.now,
   });
-  if (!createRes.ok || !createRes.data) {
-    return classifyFailure(createRes.class, createRes.retryAfterMs, createRes.message);
+  let createData = createRes.ok ? createRes.data : null;
+  if (!createRes.ok || !createData) {
+    const taxonomyInvalid =
+      /invalid taxonomy/i.test(createRes.message || "") ||
+      /taxonomy_id/i.test(createRes.message || "");
+    if (
+      taxonomyInvalid &&
+      how.taxonomyId !== ETSY_PLATFORM_DEFAULT_TAXONOMY_ID &&
+      createRes.class === "PERMANENT"
+    ) {
+      const retryBody = {
+        ...createBody,
+        taxonomy_id: ETSY_PLATFORM_DEFAULT_TAXONOMY_ID,
+      };
+      const retry = await etsyConnectionRequest<{
+        listing_id?: number | string;
+        listing_id_str?: string;
+        state?: string;
+      }>({
+        connectionId: connection.id,
+        memberId: connection.memberId,
+        method: "POST",
+        path: `/shops/${encodeURIComponent(connection.shopId)}/listings`,
+        query: { legacy: false },
+        body: retryBody,
+        bodyEncoding: "form",
+        maxAttempts: 1,
+        fetchImpl: deps.fetchImpl,
+        now: deps.now,
+      });
+      if (retry.ok && retry.data) {
+        createData = retry.data;
+        createBody.taxonomy_id = ETSY_PLATFORM_DEFAULT_TAXONOMY_ID;
+      } else {
+        return classifyFailure(
+          createRes.class,
+          createRes.retryAfterMs,
+          createRes.message || retry.message
+        );
+      }
+    } else {
+      return classifyFailure(createRes.class, createRes.retryAfterMs, createRes.message);
+    }
   }
 
   const etsyListingId = String(
-    createRes.data.listing_id ?? createRes.data.listing_id_str ?? ""
+    createData.listing_id ?? createData.listing_id_str ?? ""
   ).trim();
   if (!/^\d+$/.test(etsyListingId)) {
     return {
@@ -473,7 +515,7 @@ export async function handleEtsyCreateListingJob(
         connectionId: connection.id,
         storeItemId: storeItem.id,
         etsyListingId,
-        remoteListingState: createRes.data?.state ?? "draft",
+        remoteListingState: createData.state ?? "draft",
         importBootstrapStartedAt: deps.now ?? new Date(),
         importSource: "NATIVE",
         variants: [
@@ -520,7 +562,7 @@ export async function handleEtsyCreateListingJob(
         who_made: how.whoMade,
         when_made: how.whenMade,
         is_supply: how.isSupply,
-        taxonomy_id: how.taxonomyId,
+        taxonomy_id: createBody.taxonomy_id ?? how.taxonomyId,
         item_weight: packageFields.item_weight,
         item_weight_unit: packageFields.item_weight_unit,
         item_length: packageFields.item_length,

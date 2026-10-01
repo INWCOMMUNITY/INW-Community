@@ -30,6 +30,7 @@ export function EtsyConnectionPanel({
   const [loading, setLoading] = useState(true);
   const [profiles, setProfiles] = useState<ShippingProfile[]>([]);
   const [defaultShippingProfileId, setDefaultShippingProfileId] = useState("");
+  const [defaultTaxonomyId, setDefaultTaxonomyId] = useState("");
   const [savingDefaults, setSavingDefaults] = useState(false);
 
   async function load() {
@@ -51,13 +52,20 @@ export function EtsyConnectionPanel({
         const profilesBody = (await profilesRes.json()) as {
           profiles: ShippingProfile[];
           defaultShippingProfileId: string | null;
+          defaultTaxonomyId: number | null;
         };
         setProfiles(profilesBody.profiles ?? []);
         setDefaultShippingProfileId(profilesBody.defaultShippingProfileId ?? "");
+        setDefaultTaxonomyId(
+          typeof profilesBody.defaultTaxonomyId === "number" && profilesBody.defaultTaxonomyId > 0
+            ? String(profilesBody.defaultTaxonomyId)
+            : ""
+        );
       }
     } else {
       setProfiles([]);
       setDefaultShippingProfileId("");
+      setDefaultTaxonomyId("");
     }
   }
 
@@ -123,6 +131,7 @@ export function EtsyConnectionPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           defaultShippingProfileId: defaultShippingProfileId || null,
+          defaultTaxonomyId: defaultTaxonomyId.trim() ? defaultTaxonomyId.trim() : null,
         }),
       });
       if (!response.ok) {
@@ -192,7 +201,8 @@ export function EtsyConnectionPanel({
             Publish Defaults
           </p>
           <p className="text-xs text-neutral-500">
-            Required before List on Etsy. Shipping profile activates new listings.
+            Required before List on Etsy. Shipping profile activates new listings. Category defaults
+            to Art &amp; Collectibles › Mixed Media › Other Assemblage when blank.
           </p>
           <div>
             <label className="block text-sm font-medium mb-1" htmlFor="etsyShippingProfile">
@@ -211,6 +221,23 @@ export function EtsyConnectionPanel({
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1" htmlFor="etsyTaxonomyId">
+              Default Etsy category ID (optional)
+            </label>
+            <input
+              id="etsyTaxonomyId"
+              className="w-full border rounded px-2 py-1.5 text-sm"
+              inputMode="numeric"
+              placeholder="101"
+              value={defaultTaxonomyId}
+              onChange={(e) => setDefaultTaxonomyId(e.target.value.replace(/[^\d]/g, ""))}
+            />
+            <p className="mt-1 text-xs text-neutral-500">
+              Must be a leaf seller-taxonomy id from Etsy. Leave blank to use the platform default
+              (101).
+            </p>
           </div>
           <button
             type="button"

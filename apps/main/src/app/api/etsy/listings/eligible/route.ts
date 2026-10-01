@@ -5,7 +5,8 @@ import {
 } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
-import { resolveEtsyTaxonomyFallback } from "@/lib/etsy/taxonomy-default";
+import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "@/lib/etsy/taxonomy-default";
+import { ETSY_PLATFORM_DEFAULT_TAXONOMY_ID } from "@/lib/etsy/apps-airport";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +80,7 @@ export async function GET(req: NextRequest) {
         etsyWhoMade: item.etsyWhoMade,
         etsyWhenMade: item.etsyWhenMade,
         etsyIsSupply: item.etsyIsSupply,
-        etsyTaxonomyId: item.etsyTaxonomyId,
+        etsyTaxonomyId: sanitizeEtsyTaxonomyId(item.etsyTaxonomyId),
         defaultTaxonomyId: taxonomyFallback,
         inventoryTracking: item.inventoryTracking,
       });
