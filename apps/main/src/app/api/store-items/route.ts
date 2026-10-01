@@ -33,7 +33,6 @@ import {
   getSellerSpotlight,
   getStorefrontBrowseMeta,
 } from "@/lib/storefront-browse-data";
-import { shopifyListingUiStatus } from "@/lib/shopify/apps-airport";
 
 /** Ensure storefront listing is always fresh so newly listed items appear immediately. */
 export const dynamic = "force-dynamic";
@@ -181,50 +180,9 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
-    const itemIds = items.map((i) => i.id);
-    /** Where each listing is sellable: INW always; Shopify only when live on the ACTIVE connection. */
-    const channelsByItemId = new Map<string, Array<"inw" | "shopify">>(
-      itemIds.map((id) => [id, ["inw"]])
-    );
-    if (itemIds.length > 0) {
-      const activeShopify = await prisma.shopifyConnection.findFirst({
-        where: { memberId: userId, status: "ACTIVE" },
-        orderBy: { connectedAt: "desc" },
-        select: { id: true },
-      });
-      if (activeShopify) {
-        const shopifyLinks = await prisma.shopifyListingLink.findMany({
-          where: {
-            storeItemId: { in: itemIds },
-            memberId: userId,
-            shopifyConnectionId: activeShopify.id,
-          },
-          select: {
-            storeItemId: true,
-            readiness: true,
-            contentHealth: true,
-            inventoryHealth: true,
-            issueCode: true,
-          },
-        });
-        for (const link of shopifyLinks) {
-          const ui = shopifyListingUiStatus({
-            readiness: link.readiness,
-            contentHealth: link.contentHealth,
-            inventoryHealth: link.inventoryHealth,
-            issueCode: link.issueCode,
-          });
-          // Only count Shopify when the listing is Live on Online Store.
-          if (ui !== "Live") continue;
-          const channels = channelsByItemId.get(link.storeItemId) ?? ["inw"];
-          if (!channels.includes("shopify")) channels.push("shopify");
-          channelsByItemId.set(link.storeItemId, channels);
-        }
-      }
-    }
-
     // For sold items, attach last order id and date so seller can link to order and see "Sold on [date]"
     if (items.length > 0 && (soldOnly || filter === "sold")) {
+      const itemIds = items.map((i) => i.id);
       const orderItems = await prisma.orderItem.findMany({
         where: {
           storeItemId: { in: itemIds },
@@ -248,7 +206,6 @@ export async function GET(req: NextRequest) {
           const mapped = {
             ...i,
             photos: Array.isArray(i.photos) ? (i.photos as string[]).slice(0, 1) : [],
-            channels: channelsByItemId.get(i.id) ?? ["inw"],
           };
           return sold ? { ...mapped, soldOrderId: sold.orderId, soldAt: sold.soldAt } : mapped;
         })
@@ -259,7 +216,6 @@ export async function GET(req: NextRequest) {
       items.map((i) => ({
         ...i,
         photos: Array.isArray(i.photos) ? (i.photos as string[]).slice(0, 1) : [],
-        channels: channelsByItemId.get(i.id) ?? ["inw"],
       }))
     );
   }
