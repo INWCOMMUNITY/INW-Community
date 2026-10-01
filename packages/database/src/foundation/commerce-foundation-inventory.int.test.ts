@@ -37,6 +37,7 @@ import {
   trackedAvailable,
 } from "../commerce-foundation-inventory";
 import {
+  applyFoundationSellerMatrixStructure,
   applyFoundationSellerQuantitySets,
   assertFoundationMatrixStructureUnchanged,
   markFoundationListingSold,
@@ -1253,7 +1254,8 @@ describe("prompt-65 checkout idempotency / races / restock", () => {
     expect(state?.reserved).toBe(1);
   });
 
-  it("FOUNDATION matrix structural drop is rejected and leaves Variant rows unchanged", async () => {
+  it("FOUNDATION matrix structural add/drop updates Variant identity set", async () => {
+    await resetSingleton();
     await enterFoundation();
     const member = await createMember(prisma, "struct");
     const item = await createStoreItem(prisma, member.id, "Drop", {
@@ -1267,12 +1269,72 @@ describe("prompt-65 checkout idempotency / races / restock", () => {
       },
     });
     await prisma.$transaction((tx) => provisionNativeFoundationListing(tx, item.id));
-    const before = await prisma.storeVariant.findMany({ where: { storeItemId: item.id } });
+    const before = await prisma.storeVariant.findMany({
+      where: { storeItemId: item.id, status: "ACTIVE" },
+    });
+    expect(before).toHaveLength(2);
+
+    await prisma.$transaction((tx) =>
+      applyFoundationSellerMatrixStructure(tx, {
+        storeItemId: item.id,
+        memberId: member.id,
+        commandId: `struct-drop-${item.id}`,
+        matrixTargets: [
+          {
+            fingerprint: "matrix:size=s",
+            options: { Size: "S" },
+            targetOnHand: 3,
+            priceCents: item.priceCents,
+            sku: null,
+          },
+          {
+            fingerprint: "matrix:size=l",
+            options: { Size: "L" },
+            targetOnHand: 4,
+            priceCents: item.priceCents,
+            sku: null,
+          },
+        ],
+      })
+    );
+
+    const active = await prisma.storeVariant.findMany({
+      where: { storeItemId: item.id, status: "ACTIVE" },
+    });
+    const fps = active
+      .map((v) => {
+        const opts = (v.options ?? {}) as Record<string, string>;
+        return `matrix:${Object.keys(opts)
+          .sort()
+          .map((k) => `${k.toLowerCase()}=${String(opts[k]).toLowerCase()}`)
+          .join("|")}`;
+      })
+      .sort();
+    expect(fps).toEqual(["matrix:size=l", "matrix:size=s"]);
+    const qtyS = await prisma.inventoryState.findFirst({
+      where: { variantId: active.find((v) => JSON.stringify(v.options).includes("S"))!.id },
+    });
+    expect(qtyS?.onHand).toBe(3);
+  });
+
+  it("FOUNDATION matrix structural drop is still detectable via assert helper", async () => {
+    await resetSingleton();
+    await enterFoundation();
+    const member = await createMember(prisma, "struct-assert");
+    const item = await createStoreItem(prisma, member.id, "Assert", {
+      quantity: 2,
+      variants: {
+        axes: [{ name: "Size", values: ["S", "M"] }],
+        skus: [
+          { options: { Size: "S" }, quantity: 1 },
+          { options: { Size: "M" }, quantity: 1 },
+        ],
+      },
+    });
+    await prisma.$transaction((tx) => provisionNativeFoundationListing(tx, item.id));
     await expect(
       prisma.$transaction((tx) => assertFoundationMatrixStructureUnchanged(tx, item.id, ["matrix:size=s"]))
     ).rejects.toMatchObject({ code: "structural_variant_change" });
-    const after = await prisma.storeVariant.findMany({ where: { storeItemId: item.id } });
-    expect(after.map((v) => v.id).sort()).toEqual(before.map((v) => v.id).sort());
   });
 
   it("SIMPLE bulk undo/relist use SET; matrix parent quantity is rejected", async () => {

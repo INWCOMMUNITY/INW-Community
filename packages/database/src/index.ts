@@ -155,6 +155,7 @@ export {
 } from "./commerce-foundation-variant-resolution";
 export {
   applyFoundationSellerQuantitySets,
+  applyFoundationSellerMatrixStructure,
   assertFoundationMatrixStructureUnchanged,
   assertNoStructuralVariantChange,
   endFoundationListing,
@@ -163,6 +164,7 @@ export {
   relistFoundationListing,
   restockFoundationOrderLine,
 } from "./commerce-foundation-listing";
+export type { FoundationMatrixSkuTarget } from "./commerce-foundation-listing";
 export {
   canonicalCheckoutVariantIdentity,
   checkoutPrepareAdvisoryLockKeys,
@@ -472,6 +474,7 @@ export {
   recordEtsyDirtyMappedVariantContentDesires,
   recordEtsyHowItsMadeDesire,
   recordEtsyListingContentDesire,
+  recordEtsyListingVariantTopologyDesire,
   setEtsyProductContentConflict,
   setEtsyVariantContentConflict,
 } from "./etsy/content-desire";

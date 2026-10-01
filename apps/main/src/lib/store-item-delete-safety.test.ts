@@ -53,6 +53,8 @@ vi.mock("database", () => ({
     mode === "LEGACY" ? "legacy" : mode === "FOUNDATION" || mode === "UNFROZEN" ? "foundation" : "blocked",
   applyFoundationSellerQuantitySets: vi.fn(),
   assertFoundationMatrixStructureUnchanged: vi.fn(),
+  applyFoundationSellerMatrixStructure: vi.fn(),
+  applyFoundationSellerQuantitySets: vi.fn(),
   markFoundationListingSold: vi.fn(),
   endFoundationListing: vi.fn(),
   relistFoundationListing: vi.fn(),

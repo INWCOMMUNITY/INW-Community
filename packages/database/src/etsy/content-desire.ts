@@ -605,4 +605,114 @@ export async function recordEtsyHowItsMadeDesire(
   };
 }
 
+/**
+ * After seller add/remove/replace of Variant identity on a mapped Etsy listing,
+ * bump product desire and enqueue reconcile so Size×Color topology is pushed.
+ */
+export async function recordEtsyListingVariantTopologyDesire(
+  db: EtsyContentDb,
+  input: { memberId: string; storeItemId: string }
+): Promise<RecordEtsyListingContentDesireResult> {
+  const connection = await db.etsyConnection.findFirst({
+    where: { memberId: input.memberId, status: "ACTIVE" },
+    orderBy: { connectedAt: "desc" },
+    select: { id: true },
+  });
+  if (!connection) {
+    return { status: "SKIPPED", reason: "CONNECTION_INACTIVE" };
+  }
+
+  const listing = await db.etsyListingLink.findUnique({
+    where: {
+      etsyConnectionId_storeItemId: {
+        etsyConnectionId: connection.id,
+        storeItemId: input.storeItemId,
+      },
+    },
+  });
+  if (!listing) {
+    return { status: "SKIPPED", reason: "UNMAPPED" };
+  }
+
+  await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`etsy-content-outbound:${listing.id}`}))`;
+  const lockedListing = await db.etsyListingLink.findUniqueOrThrow({
+    where: { id: listing.id },
+  });
+
+  const storeItem = await db.storeItem.findUniqueOrThrow({
+    where: { id: input.storeItemId },
+    select: { title: true, description: true, photos: true },
+  });
+  const productFingerprint = etsyProductContentFingerprint({
+    title: storeItem.title,
+    description: storeItem.description,
+    photos: storeItem.photos,
+  });
+  const nextProductVersion = lockedListing.desiredProductContentVersion + 1;
+  const desiredAt = new Date();
+
+  await db.etsyListingLink.update({
+    where: { id: lockedListing.id },
+    data: {
+      desiredProductContentVersion: nextProductVersion,
+      desiredProductFingerprint: productFingerprint,
+      productDesiredAt: desiredAt,
+      productContentConflict: false,
+      productConflictRemoteFingerprint: null,
+      productConflictEvidenceId: null,
+      productConflictDetectedAt: null,
+    },
+  });
+
+  // Versioned reconcile dedupe — time-bucket reconcile does not resurrect SUCCEEDED.
+  await enqueueEtsySyncJob(db, {
+    etsyConnectionId: connection.id,
+    kind: "RECONCILE_LISTING",
+    dedupeKey: `RECONCILE_LISTING:${connection.id}:${lockedListing.id}:topo:p${nextProductVersion}`,
+    payload: {
+      listingLinkId: lockedListing.id,
+      storeItemId: input.storeItemId,
+    },
+  });
+
+  const activeVariant = await db.storeVariant.findFirst({
+    where: { storeItemId: input.storeItemId, status: "ACTIVE" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  const variantMaps = await db.etsyVariantMap.findMany({
+    where: { etsyListingLinkId: lockedListing.id, etsyConnectionId: connection.id },
+    orderBy: { createdAt: "asc" },
+  });
+  const storeVariantId = variantMaps[0]?.storeVariantId ?? activeVariant?.id;
+  if (!storeVariantId) {
+    return { status: "SKIPPED", reason: "UNSUPPORTED" };
+  }
+
+  const variantDesiredVersion = variantMaps[0]?.desiredVariantContentVersion ?? 0;
+  const job = await ensureEtsyUpdateListingContentJob(db, {
+    connectionId: connection.id,
+    storeItemId: input.storeItemId,
+    storeVariantId,
+    productDesiredVersion: nextProductVersion,
+    variantDesiredVersion,
+  });
+
+  await reconcileEtsyListingHealthFromDb(db, {
+    connectionId: connection.id,
+    listingLinkId: lockedListing.id,
+  }).catch(() => undefined);
+
+  return {
+    status: "RECORDED",
+    connectionId: connection.id,
+    storeItemId: input.storeItemId,
+    storeVariantId,
+    productDesiredVersion: nextProductVersion,
+    variantDesiredVersion,
+    jobId: job.id,
+    syncedVariantPriceSku: false,
+  };
+}
+
 export type { EtsySyncJob };

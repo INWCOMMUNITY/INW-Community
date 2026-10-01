@@ -2,14 +2,15 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import {
+  applyFoundationSellerMatrixStructure,
   applyFoundationSellerQuantitySets,
-  assertFoundationMatrixStructureUnchanged,
   endFoundationListing,
   markFoundationListingSold,
   prisma,
   Prisma,
   recordEtsyDirtyMappedVariantContentDesires,
   recordEtsyListingContentDesire,
+  recordEtsyListingVariantTopologyDesire,
   recordShopifyDirtyMappedVariantContentDesires,
   recordShopifyListingContentDesire,
 } from "database";
@@ -500,26 +501,39 @@ export async function PATCH(
           delete (update as { quantity?: number }).quantity;
         } else if (data.variants !== undefined && hasOptionQuantities(data.variants)) {
           const matrix = normalizeVariantMatrix(data.variants);
+          const facadePrice =
+            typeof data.priceCents === "number" && data.priceCents > 0
+              ? Math.round(data.priceCents)
+              : existing.priceCents;
           const matrixTargets =
             matrix?.skus.map((sku) => ({
               fingerprint: `matrix:${skuSelectionKey(sku.options)}`,
+              options: sku.options,
               targetOnHand: sku.quantity,
+              priceCents:
+                typeof sku.priceCents === "number" &&
+                Number.isFinite(sku.priceCents) &&
+                sku.priceCents > 0
+                  ? Math.round(sku.priceCents)
+                  : facadePrice,
+              sku: typeof sku.sku === "string" ? sku.sku.trim() || null : null,
             })) ?? [];
-          await assertFoundationMatrixStructureUnchanged(
-            tx,
-            itemId,
-            matrixTargets.map((target) => target.fingerprint)
-          );
-          await applyFoundationSellerQuantitySets(tx, {
+          const structure = await applyFoundationSellerMatrixStructure(tx, {
             storeItemId: itemId,
             memberId: ownerId,
-            commandId: `set-matrix-${itemId}-${randomUUID()}`,
+            commandId: `matrix-struct-${itemId}-${randomUUID()}`,
             matrixTargets,
           });
+          if (structure.structureChanged) {
+            await recordEtsyListingVariantTopologyDesire(tx, {
+              memberId: ownerId,
+              storeItemId: itemId,
+            });
+          }
           delete (update as { quantity?: number }).quantity;
-        }
-        // Keep StoreVariant price/SKU rows aligned with matrix JSON (Shopify reads StoreVariant).
-        if (data.variants !== undefined) {
+        } else if (data.variants !== undefined) {
+          // Structure already applied above when option quantities are present.
+          // Price/SKU-only matrix payloads still align StoreVariant rows.
           const matrix = normalizeVariantMatrix(data.variants);
           if (matrix) {
             const storeVariants = await tx.storeVariant.findMany({

@@ -268,6 +268,195 @@ export async function assertFoundationMatrixStructureUnchanged(
   );
 }
 
+export type FoundationMatrixSkuTarget = {
+  fingerprint: string;
+  options: Record<string, string>;
+  targetOnHand: number;
+  priceCents: number;
+  sku: string | null;
+};
+
+/**
+ * Seller matrix topology edit: add / remove / replace Variant identity to match
+ * the next option-combination set. Creates InventoryState for new rows, retires
+ * removed ACTIVE rows, reactivates matching RETIRED rows, then SETs onHand.
+ */
+export async function applyFoundationSellerMatrixStructure(
+  tx: FoundationDb,
+  args: {
+    storeItemId: string;
+    memberId: string;
+    commandId: string;
+    matrixTargets: FoundationMatrixSkuTarget[];
+  }
+): Promise<{ created: number; retired: number; reactivated: number; structureChanged: boolean }> {
+  await lockCutoverShare(tx);
+  await lockStoreItemForUpdate(tx, args.storeItemId);
+
+  if (args.matrixTargets.length < 1) {
+    throw new FoundationInventoryError(
+      "structural_variant_change",
+      "Matrix edit requires at least one variant combination"
+    );
+  }
+  if (args.matrixTargets.length > 100) {
+    throw new FoundationInventoryError(
+      "structural_variant_change",
+      "Matrix edit exceeds 100 variant combinations"
+    );
+  }
+
+  const nextFingerprints = args.matrixTargets.map((t) => t.fingerprint);
+  const unique = new Set(nextFingerprints);
+  if (unique.size !== nextFingerprints.length) {
+    throw new FoundationInventoryError(
+      "structural_variant_change",
+      "Matrix edit has duplicate option combinations"
+    );
+  }
+
+  const item = await tx.storeItem.findUnique({
+    where: { id: args.storeItemId },
+    select: {
+      id: true,
+      memberId: true,
+      inventoryTracking: true,
+      photos: true,
+      compareAtPriceCents: true,
+    },
+  });
+  if (!item || item.memberId !== args.memberId) {
+    throw new FoundationMissingStateError(`StoreItem ${args.storeItemId} not found`);
+  }
+  const mode =
+    item.inventoryTracking === "made_to_order" ? "MADE_TO_ORDER" : "TRACKED_FINITE";
+
+  const existing = await tx.storeVariant.findMany({
+    where: { storeItemId: args.storeItemId },
+    orderBy: { createdAt: "asc" },
+  });
+  const activeBefore = existing.filter((v) => v.status === "ACTIVE");
+  const beforeFingerprints = activeBefore.map((v) => optionFingerprintOf(v.options)).sort();
+  const afterFingerprints = [...nextFingerprints].sort();
+  const structureChanged =
+    beforeFingerprints.length !== afterFingerprints.length ||
+    beforeFingerprints.some((fp, i) => fp !== afterFingerprints[i]);
+
+  const byFp = new Map<string, (typeof existing)[number]>();
+  for (const row of existing) {
+    const fp = optionFingerprintOf(row.options);
+    const prior = byFp.get(fp);
+    // Prefer ACTIVE over RETIRED when duplicate fingerprints exist historically.
+    if (!prior || (prior.status !== "ACTIVE" && row.status === "ACTIVE")) {
+      byFp.set(fp, row);
+    }
+  }
+
+  let created = 0;
+  let reactivated = 0;
+  let sortOrder = existing.reduce((max, v) => Math.max(max, v.sortOrder ?? 0), 0);
+
+  for (const target of args.matrixTargets) {
+    const opts = target.options;
+    const optionKeys = Object.keys(opts);
+    if (optionKeys.length < 1) {
+      throw new FoundationInventoryError(
+        "structural_variant_change",
+        "Matrix variant is missing option values"
+      );
+    }
+    const priceCents =
+      Number.isFinite(target.priceCents) && target.priceCents > 0
+        ? Math.round(target.priceCents)
+        : 1;
+    const sku = target.sku?.trim() || null;
+    const onHand = Math.max(0, Math.trunc(target.targetOnHand));
+    let row = byFp.get(target.fingerprint);
+
+    if (!row) {
+      sortOrder += 1;
+      const planned: PlannedVariant = {
+        fingerprint: target.fingerprint,
+        isDefault: false,
+        sku,
+        barcode: null,
+        options: opts,
+        priceCents,
+        compareAtPriceCents: item.compareAtPriceCents,
+        photos: item.photos ?? [],
+        sortOrder,
+        openingQty: mode === "TRACKED_FINITE" ? onHand : null,
+      };
+      const variantId = await createNativeVariant(
+        tx,
+        args.memberId,
+        args.storeItemId,
+        planned,
+        mode,
+        "ACTIVE"
+      );
+      row = await tx.storeVariant.findUniqueOrThrow({ where: { id: variantId } });
+      byFp.set(target.fingerprint, row);
+      created += 1;
+    } else if (row.status !== "ACTIVE") {
+      await tx.storeVariant.update({
+        where: { id: row.id },
+        data: {
+          status: "ACTIVE",
+          retiredAt: null,
+          priceCents,
+          sku,
+          options: opts,
+          isDefault: false,
+        },
+      });
+      reactivated += 1;
+      row = { ...row, status: "ACTIVE", priceCents, sku, options: opts, isDefault: false };
+      byFp.set(target.fingerprint, row);
+    } else {
+      if (row.priceCents !== priceCents || row.sku !== sku) {
+        await tx.storeVariant.update({
+          where: { id: row.id },
+          data: { priceCents, sku, options: opts, isDefault: false },
+        });
+      } else if (row.isDefault) {
+        await tx.storeVariant.update({
+          where: { id: row.id },
+          data: { isDefault: false, options: opts },
+        });
+      }
+    }
+
+    if (mode === "TRACKED_FINITE") {
+      await setTrackedOnHand(tx, {
+        variantId: row.id,
+        targetOnHand: onHand,
+        commandId: `${args.commandId}:${row.id}`,
+        memberId: args.memberId,
+      });
+    }
+  }
+
+  const nextSet = new Set(nextFingerprints);
+  const toRetire = activeBefore.filter((v) => !nextSet.has(optionFingerprintOf(v.options)));
+  let retired = 0;
+  if (toRetire.length > 0) {
+    const retireIds = toRetire.map((v) => v.id);
+    const now = new Date();
+    await tx.storeVariant.updateMany({
+      where: { id: { in: retireIds } },
+      data: { status: "RETIRED", retiredAt: now },
+    });
+    retired = retireIds.length;
+    // Drop marketplace maps for retired identities so outbound remesh can rebuild.
+    await tx.etsyVariantMap.deleteMany({ where: { storeVariantId: { in: retireIds } } });
+    await tx.shopifyVariantMap.deleteMany({ where: { storeVariantId: { in: retireIds } } });
+  }
+
+  await projectStoreItemQuantity(tx, args.storeItemId);
+  return { created, retired, reactivated, structureChanged };
+}
+
 export async function markFoundationListingSold(
   tx: FoundationDb,
   args: { storeItemId: string; memberId: string; commandId: string }
