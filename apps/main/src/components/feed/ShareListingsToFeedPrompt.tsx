@@ -7,6 +7,7 @@ type ShareListingsToFeedPromptProps = {
   open: boolean;
   storeItemIds: string[];
   onClose: () => void;
+  onSuccess?: () => void;
 };
 
 export function shareFeedPromptCopy(count: number): { title: string; body: string } {
@@ -32,6 +33,7 @@ export function ShareListingsToFeedPrompt({
   open,
   storeItemIds,
   onClose,
+  onSuccess,
 }: ShareListingsToFeedPromptProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +56,7 @@ export function ShareListingsToFeedPrompt({
         setError(data.error ?? "Could not share to the feed.");
         return;
       }
+      onSuccess?.();
       onClose();
     } catch {
       setError("Connection failed.");

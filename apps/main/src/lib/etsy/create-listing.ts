@@ -425,7 +425,7 @@ export async function handleEtsyCreateListingJob(
       let variantIds = storeVariants.map((v) => v.id);
       const existingFoundation = await tx.inventoryState.findFirst({
         where: { storeItemId: storeItem.id },
-        select: { id: true },
+        select: { variantId: true },
       });
       if (!existingFoundation) {
         const provisioned = await provisionNativeFoundationListing(tx, storeItem.id);

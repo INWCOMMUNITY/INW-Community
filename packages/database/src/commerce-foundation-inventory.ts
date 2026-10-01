@@ -7,6 +7,7 @@ import type { FoundationDb } from "./commerce-foundation-variant-resolution";
 
 export const FOUNDATION_SOURCE_SYSTEM = "inw";
 export const SHOPIFY_SOURCE_SYSTEM = "shopify";
+export const ETSY_SOURCE_SYSTEM = "etsy";
 export const NATIVE_OPENING_SCOPE = "commerce-foundation-native";
 export const CHECKOUT_SCOPE = "checkout";
 export const PAYMENT_SCOPE = "payment";
