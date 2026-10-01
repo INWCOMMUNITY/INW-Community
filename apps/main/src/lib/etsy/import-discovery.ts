@@ -38,6 +38,8 @@ export type DiscoverEtsyImportCandidatesResult =
       shopName: string | null;
       candidates: EtsyImportCandidate[];
       pageInfo: { hasNextPage: boolean; offset: number };
+      etsyReportedCount: number;
+      alreadyLinkedCount: number;
     }
   | {
       status: "ERROR";
@@ -129,11 +131,12 @@ function buildAxes(variants: EtsyImportCandidateVariant[]): Array<{ name: string
 }
 
 function toCandidateFromListing(row: EtsyListingRow): EtsyImportCandidate {
+  const rawId = row.listing_id ?? (row as { listingId?: unknown }).listingId;
   const listingId =
-    typeof row.listing_id === "number"
-      ? String(row.listing_id)
-      : typeof row.listing_id === "string"
-        ? row.listing_id.trim()
+    typeof rawId === "number"
+      ? String(rawId)
+      : typeof rawId === "string"
+        ? rawId.trim()
         : "";
   const photos = listingPhotos(row);
   // Discover list does not include inventory; Review/import hydrates and re-validates.
@@ -258,7 +261,35 @@ export async function discoverEtsyImportCandidates(input: {
   const limit = Math.min(Math.max(input.limit ?? 25, 1), 50);
   const offset = Math.max(input.offset ?? 0, 0);
 
-  const result = await etsyConnectionRequest<{
+  // Prefer shop listings with state=active (stable Open API). Fall back to /listings/active.
+  const primary = await etsyConnectionRequest<{
+    count?: number;
+    results?: EtsyListingRow[];
+  }>({
+    connectionId: connection.id,
+    memberId: input.memberId,
+    method: "GET",
+    path: `/shops/${encodeURIComponent(connection.shopId)}/listings`,
+    query: {
+      state: "active",
+      limit,
+      offset,
+      includes: "Images",
+    },
+    maxAttempts: 3,
+  });
+
+  if (primary.ok) {
+    return buildDiscoverResult(
+      connection,
+      Array.isArray(primary.data?.results) ? primary.data!.results! : [],
+      typeof primary.data?.count === "number" ? primary.data.count : null,
+      limit,
+      offset
+    );
+  }
+
+  const fallback = await etsyConnectionRequest<{
     count?: number;
     results?: EtsyListingRow[];
   }>({
@@ -271,67 +302,54 @@ export async function discoverEtsyImportCandidates(input: {
       offset,
       includes: "Images",
     },
-    maxAttempts: 3,
+    maxAttempts: 2,
   });
-
-  if (!result.ok) {
-    // Fallback for shops where /listings/active is unavailable.
-    const fallback = await etsyConnectionRequest<{
-      count?: number;
-      results?: EtsyListingRow[];
-    }>({
-      connectionId: connection.id,
-      memberId: input.memberId,
-      method: "GET",
-      path: `/shops/${encodeURIComponent(connection.shopId)}/listings`,
-      query: {
-        state: "active",
-        limit,
-        offset,
-        includes: "Images",
-      },
-      maxAttempts: 2,
-    });
-    if (!fallback.ok) {
-      return {
-        status: "ERROR",
-        code:
-          result.class === "AUTH" || fallback.class === "AUTH"
-            ? "UNAUTHORIZED"
-            : result.class === "NOT_CONFIGURED" || fallback.class === "NOT_CONFIGURED"
-              ? "NOT_CONFIGURED"
-              : "PROVIDER_ERROR",
-        message:
-          fallback.message ||
-          result.message ||
-          "Could not list Etsy listings. Reconnect Etsy if this keeps failing.",
-      };
-    }
-    return buildDiscoverResult(connection, fallback.data?.results ?? [], limit, offset);
+  if (!fallback.ok) {
+    return {
+      status: "ERROR",
+      code:
+        primary.class === "AUTH" || fallback.class === "AUTH"
+          ? "UNAUTHORIZED"
+          : primary.class === "NOT_CONFIGURED" || fallback.class === "NOT_CONFIGURED"
+            ? "NOT_CONFIGURED"
+            : "PROVIDER_ERROR",
+      message:
+        fallback.message ||
+        primary.message ||
+        "Could not list Etsy listings. Reconnect Etsy if this keeps failing.",
+    };
   }
-
-  return buildDiscoverResult(connection, result.data?.results ?? [], limit, offset);
+  return buildDiscoverResult(
+    connection,
+    Array.isArray(fallback.data?.results) ? fallback.data!.results! : [],
+    typeof fallback.data?.count === "number" ? fallback.data.count : null,
+    limit,
+    offset
+  );
 }
 
 async function buildDiscoverResult(
   connection: { id: string; shopId: string; shopName: string | null },
   rows: EtsyListingRow[],
+  etsyCount: number | null,
   limit: number,
   offset: number
 ): Promise<Extract<DiscoverEtsyImportCandidatesResult, { status: "OK" }>> {
-  const mappedIds = new Set(
-    (
-      await prisma.etsyListingLink.findMany({
-        where: { etsyConnectionId: connection.id },
-        select: { etsyListingId: true },
-      })
-    ).map((row) => row.etsyListingId)
-  );
+  const linked = await prisma.etsyListingLink.findMany({
+    where: { etsyConnectionId: connection.id },
+    select: { etsyListingId: true },
+  });
+  const mappedIds = new Set(linked.map((row) => row.etsyListingId));
 
   const candidates: EtsyImportCandidate[] = [];
+  let alreadyLinkedOnPage = 0;
   for (const row of rows) {
     const base = toCandidateFromListing(row);
-    if (!base.etsyListingId || mappedIds.has(base.etsyListingId)) continue;
+    if (!base.etsyListingId) continue;
+    if (mappedIds.has(base.etsyListingId)) {
+      alreadyLinkedOnPage += 1;
+      continue;
+    }
     candidates.push(base);
   }
 
@@ -341,6 +359,8 @@ async function buildDiscoverResult(
     shopId: connection.shopId,
     shopName: connection.shopName,
     candidates,
+    etsyReportedCount: etsyCount ?? rows.length,
+    alreadyLinkedCount: alreadyLinkedOnPage,
     pageInfo: {
       hasNextPage: rows.length === limit,
       offset: offset + rows.length,
@@ -413,3 +433,4 @@ export async function fetchEtsyImportListingDetail(input: {
   const candidate = hydrateEtsyCandidateWithInventory(base, inventoryRes.data);
   return { status: "OK", connectionId: connection.id, candidate };
 }
+

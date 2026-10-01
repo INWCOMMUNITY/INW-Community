@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { enqueueEtsyCreateListing } from "@/lib/etsy/create-listing";
+import { runNextEtsySyncJob } from "@/lib/etsy/worker";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 
 export const dynamic = "force-dynamic";
+
+async function drainEtsyJobs(max = 5) {
+  for (let i = 0; i < max; i += 1) {
+    const ran = await runNextEtsySyncJob({ workerId: `etsy-create-inline-${i}` });
+    if (!ran.claimed) break;
+  }
+}
 
 /** Explicit seller action: queue CREATE_LISTING for a StoreItem. */
 export async function POST(req: NextRequest) {
@@ -35,6 +44,8 @@ export async function POST(req: NextRequest) {
     });
   }
   if (result.status === "QUEUED") {
+    // Don't wait only on Vercel cron — process immediately after enqueue.
+    waitUntil(drainEtsyJobs());
     return NextResponse.json({
       status: "queued",
       connectionId: result.connectionId,

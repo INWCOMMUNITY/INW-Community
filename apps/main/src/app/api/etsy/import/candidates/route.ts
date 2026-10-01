@@ -58,5 +58,7 @@ export async function GET(req: NextRequest) {
     shopName: result.shopName,
     candidates: result.candidates,
     pageInfo: result.pageInfo,
+    etsyReportedCount: result.etsyReportedCount,
+    alreadyLinkedCount: result.alreadyLinkedCount,
   });
 }

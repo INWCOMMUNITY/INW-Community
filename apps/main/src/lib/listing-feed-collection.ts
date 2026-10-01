@@ -171,9 +171,46 @@ export type ShareStoreItemsToFeedResult =
   | { ok: true; kind: "items"; postIds: string[] }
   | { ok: false; error: string; status: number };
 
+export type ShareStoreItemsToFeedPostFields = {
+  content?: string | null;
+  photos?: string[];
+  videos?: string[];
+  links?: { url?: string; title?: string }[] | null;
+  tags?: string[];
+  taggedMemberIds?: string[];
+  groupId?: string | null;
+};
+
+async function attachTagsToPosts(postIds: string[], tags: string[]): Promise<void> {
+  if (postIds.length === 0 || tags.length === 0) return;
+  const slugify = (t: string) =>
+    t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const tagEntries = tags
+    .map((t) => ({ name: t.trim(), slug: slugify(t) }))
+    .filter((e) => e.slug.length > 0);
+  if (tagEntries.length === 0) return;
+  const tagSlugs = tagEntries.map((e) => e.slug);
+  const existingTags = await prisma.tag.findMany({ where: { slug: { in: tagSlugs } } });
+  const existingSlugs = new Set(existingTags.map((t) => t.slug));
+  const newEntries = tagEntries.filter((e) => !existingSlugs.has(e.slug));
+  if (newEntries.length > 0) {
+    await prisma.tag.createMany({
+      data: newEntries.map((e) => ({ name: e.name, slug: e.slug })),
+      skipDuplicates: true,
+    });
+  }
+  const allTags = await prisma.tag.findMany({ where: { slug: { in: tagSlugs } } });
+  if (allTags.length === 0) return;
+  await prisma.postTag.createMany({
+    data: postIds.flatMap((postId) => allTags.map((tag) => ({ postId, tagId: tag.id }))),
+    skipDuplicates: true,
+  });
+}
+
 export async function shareStoreItemsToFeed(
   memberId: string,
-  storeItemIds: string[]
+  storeItemIds: string[],
+  postFields: ShareStoreItemsToFeedPostFields = {}
 ): Promise<ShareStoreItemsToFeedResult> {
   const unique = [...new Set(storeItemIds.map((id) => id.trim()).filter(Boolean))];
   if (unique.length === 0) {
@@ -193,6 +230,37 @@ export async function shareStoreItemsToFeed(
   const ordered = unique.filter((id) => items.some((it) => it.id === id));
   const sourceBusinessId = (await sellerPrimaryBusinessForMember(memberId))?.id ?? null;
 
+  let groupId: string | null = null;
+  if (postFields.groupId) {
+    const membership = await prisma.groupMember.findUnique({
+      where: {
+        groupId_memberId: { groupId: postFields.groupId, memberId },
+      },
+      select: { groupId: true },
+    });
+    if (!membership) {
+      return { ok: false, error: "Not a member of this group", status: 403 };
+    }
+    groupId = postFields.groupId;
+  }
+
+  const content = postFields.content?.trim() || null;
+  const photos = (postFields.photos ?? []).filter((p) => typeof p === "string" && p.trim());
+  const videos = (postFields.videos ?? []).filter((v) => typeof v === "string" && v.trim());
+  const links = (postFields.links ?? [])
+    .filter((l) => l?.url?.trim())
+    .map((l) => ({ url: l.url!.trim(), title: (l.title ?? "").trim() }));
+  const taggedMemberIds = [...new Set((postFields.taggedMemberIds ?? []).filter(Boolean))];
+  const tags = (postFields.tags ?? []).map((t) => t.trim()).filter(Boolean);
+  const postExtras = {
+    content,
+    photos,
+    videos,
+    ...(links.length ? { links } : {}),
+    taggedMemberIds,
+    groupId,
+  };
+
   if (ordered.length >= LISTING_FEED_COLLECTION_MIN) {
     const title = await buildListingCollectionTitle(memberId);
     const collection = await prisma.listingFeedCollection.create({
@@ -210,8 +278,10 @@ export async function shareStoreItemsToFeed(
         authorId: memberId,
         sourceListingCollectionId: collection.id,
         sourceBusinessId,
+        ...postExtras,
       },
     });
+    await attachTagsToPosts([post.id], tags);
     return { ok: true, kind: "collection", collectionId: collection.id, postId: post.id, title };
   }
 
@@ -223,9 +293,14 @@ export async function shareStoreItemsToFeed(
           authorId: memberId,
           sourceStoreItemId: storeItemId,
           sourceBusinessId,
+          ...postExtras,
         },
       })
     )
+  );
+  await attachTagsToPosts(
+    posts.map((p) => p.id),
+    tags
   );
   return { ok: true, kind: "items", postIds: posts.map((p) => p.id) };
 }

@@ -100,3 +100,80 @@ export const ETSY_IMPORT_ENABLED = true;
  * Overridable via ETSY_DEFAULT_TAXONOMY_ID. Leaf: Art & Collectibles › Collectibles.
  */
 export const ETSY_PLATFORM_DEFAULT_TAXONOMY_ID = 69150467;
+
+export type EtsySyncProgressStep =
+  | "preparing"
+  | "queued"
+  | "creating"
+  | "activating"
+  | "live"
+  | "needs_attention"
+  | "already_mapped";
+
+export function etsySyncProgressLabel(step: EtsySyncProgressStep): string {
+  switch (step) {
+    case "preparing":
+      return "Preparing";
+    case "queued":
+      return "Queued — starting worker";
+    case "creating":
+      return "Creating listing on Etsy";
+    case "activating":
+      return "Activating on Etsy";
+    case "live":
+      return "Live on Etsy";
+    case "needs_attention":
+      return "Needs attention";
+    case "already_mapped":
+      return "Already linked";
+  }
+}
+
+/** Progress percent for the seller-facing bar (approximate). */
+export function etsySyncProgressPercent(step: EtsySyncProgressStep): number {
+  switch (step) {
+    case "preparing":
+      return 10;
+    case "queued":
+      return 25;
+    case "creating":
+      return 55;
+    case "activating":
+      return 80;
+    case "live":
+    case "already_mapped":
+      return 100;
+    case "needs_attention":
+      return 100;
+  }
+}
+
+export function resolveEtsySyncProgress(input: {
+  enqueueStatus?: "queued" | "already_mapped" | null;
+  jobState?: string | null;
+  jobError?: string | null;
+  listing?: {
+    readiness?: string | null;
+    remoteListingState?: string | null;
+    issueMessage?: string | null;
+  } | null;
+}): EtsySyncProgressStep {
+  if (input.enqueueStatus === "already_mapped") return "already_mapped";
+  if (input.listing?.readiness === "READY_TO_PUBLISH") return "live";
+  if (
+    input.listing?.readiness === "ACTION_REQUIRED" ||
+    input.listing?.readiness === "CONNECTION_REQUIRED" ||
+    input.jobState === "DEAD"
+  ) {
+    return "needs_attention";
+  }
+  if (input.listing) {
+    const remote = String(input.listing.remoteListingState ?? "").toLowerCase();
+    if (remote === "draft" || input.listing.readiness === "SYNCING") return "activating";
+    return "activating";
+  }
+  if (input.jobState === "RUNNING") return "creating";
+  if (input.jobState === "PENDING" || input.jobState === "RETRY_WAIT") return "queued";
+  if (input.enqueueStatus === "queued") return "creating";
+  return "preparing";
+}

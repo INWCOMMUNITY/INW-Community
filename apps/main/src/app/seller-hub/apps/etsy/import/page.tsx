@@ -32,6 +32,9 @@ export default function AppsAirportEtsyImportPage() {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [hasNextPage, setHasNextPage] = useState(false);
+  const [shopName, setShopName] = useState<string | null>(null);
+  const [etsyReportedCount, setEtsyReportedCount] = useState<number | null>(null);
+  const [alreadyLinkedCount, setAlreadyLinkedCount] = useState(0);
   const [selected, setSelected] = useState<Candidate | null>(null);
   const [stockMode, setStockMode] = useState<StockMode | null>(null);
   const [importing, setImporting] = useState(false);
@@ -50,7 +53,10 @@ export default function AppsAirportEtsyImportPage() {
         error?: string;
         code?: string;
         candidates?: Candidate[];
+        shopName?: string | null;
         pageInfo?: { hasNextPage?: boolean; offset?: number };
+        etsyReportedCount?: number;
+        alreadyLinkedCount?: number;
       };
       if (!response.ok) {
         if (body.code === "CONNECTION_REQUIRED" || body.code === "UNAUTHORIZED") {
@@ -65,6 +71,13 @@ export default function AppsAirportEtsyImportPage() {
         if (!append) setCandidates([]);
         return;
       }
+      setShopName(body.shopName ?? null);
+      setEtsyReportedCount(
+        typeof body.etsyReportedCount === "number" ? body.etsyReportedCount : null
+      );
+      setAlreadyLinkedCount(
+        typeof body.alreadyLinkedCount === "number" ? body.alreadyLinkedCount : 0
+      );
       setCandidates((prev) =>
         append ? [...prev, ...(body.candidates ?? [])] : body.candidates ?? []
       );
@@ -195,9 +208,21 @@ export default function AppsAirportEtsyImportPage() {
       {step === "discover" ? (
         <>
           <p className="mb-4 text-sm text-neutral-600">
-            Showing active Etsy listings that are not mapped yet. Select one to review stock mode and
-            import.
+            Showing active Etsy listings that are not linked to INW yet. Select one to review stock
+            mode and import.
           </p>
+          {shopName || etsyReportedCount != null ? (
+            <p className="mb-3 text-sm text-neutral-600">
+              {shopName ? `Shop: ${shopName}. ` : null}
+              {etsyReportedCount != null
+                ? `Etsy returned ${etsyReportedCount} active listing${etsyReportedCount === 1 ? "" : "s"}`
+                : null}
+              {alreadyLinkedCount > 0
+                ? ` · ${alreadyLinkedCount} already linked on this page`
+                : null}
+              .
+            </p>
+          ) : null}
           {loading && candidates.length === 0 ? (
             <p className="text-sm text-neutral-600">Loading…</p>
           ) : null}
@@ -236,7 +261,13 @@ export default function AppsAirportEtsyImportPage() {
               </table>
             </div>
           ) : !loading ? (
-            <p className="text-sm text-neutral-600">No unmapped active listings found.</p>
+            <p className="text-sm text-neutral-600">
+              {etsyReportedCount === 0
+                ? "Etsy returned no active listings for this connected shop. Confirm you’re connected to the right shop in Connection Settings."
+                : alreadyLinkedCount > 0
+                  ? "All active Etsy listings on this page are already linked in INW. Open Linked Listings to manage them."
+                  : "No importable active listings found. If you see the listing in Etsy Shop Manager, reconnect Etsy and try again."}
+            </p>
           ) : null}
           {hasNextPage ? (
             <button

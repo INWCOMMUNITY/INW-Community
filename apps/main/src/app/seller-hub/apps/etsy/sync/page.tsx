@@ -13,7 +13,11 @@ import {
   APPS_AIRPORT_ETSY_PATH,
   APPS_AIRPORT_ETSY_SETTINGS_PATH,
   APPS_AIRPORT_ETSY_SYNC_PATH,
+  etsySyncProgressLabel,
+  etsySyncProgressPercent,
   formatEtsyCents,
+  resolveEtsySyncProgress,
+  type EtsySyncProgressStep,
 } from "@/lib/etsy/apps-airport";
 
 type EligibleListing = {
@@ -43,7 +47,8 @@ export default function AppsAirportEtsySyncPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncingId, setSyncingId] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [progress, setProgress] = useState<EtsySyncProgressStep | null>(null);
+  const [progressDetail, setProgressDetail] = useState<string | null>(null);
   const [modalListing, setModalListing] = useState<EligibleListing | null>(null);
   const [howItsMade, setHowItsMade] = useState<EtsyHowItsMadeFormValue>(
     emptyEtsyHowItsMadeFormValue()
@@ -79,7 +84,7 @@ export default function AppsAirportEtsySyncPage() {
 
   function openListModal(listing: EligibleListing) {
     setError(null);
-    setStatusMessage(null);
+    setProgressDetail(null);
     setModalListing(listing);
     setHowItsMade(
       emptyEtsyHowItsMadeFormValue({
@@ -94,6 +99,45 @@ export default function AppsAirportEtsySyncPage() {
   function closeModal() {
     if (syncingId) return;
     setModalListing(null);
+  }
+
+  async function pollCreateStatus(storeItemId: string, jobId: string | null) {
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 600 : 2000));
+      const qs = new URLSearchParams({ storeItemId });
+      if (jobId) qs.set("jobId", jobId);
+      const response = await fetch(`/api/etsy/listings/create-status?${qs}`, {
+        credentials: "include",
+      });
+      if (!response.ok) continue;
+      const body = (await response.json()) as {
+        job?: {
+          state?: string;
+          errorMessage?: string | null;
+        } | null;
+        listing?: {
+          readiness?: string | null;
+          remoteListingState?: string | null;
+          issueMessage?: string | null;
+        } | null;
+      };
+      const step = resolveEtsySyncProgress({
+        enqueueStatus: "queued",
+        jobState: body.job?.state,
+        jobError: body.job?.errorMessage,
+        listing: body.listing,
+      });
+      setProgress(step);
+      if (body.listing?.issueMessage || body.job?.errorMessage) {
+        setProgressDetail(body.listing?.issueMessage ?? body.job?.errorMessage ?? null);
+      }
+      if (step === "live" || step === "needs_attention" || step === "already_mapped") {
+        return;
+      }
+    }
+    setProgressDetail(
+      "Still working in the background. Open Linked Listings in a minute to confirm."
+    );
   }
 
   async function onConfirmList() {
@@ -113,10 +157,12 @@ export default function AppsAirportEtsySyncPage() {
     }
 
     setError(null);
-    setStatusMessage(null);
+    setProgressDetail(null);
+    setProgress("preparing");
     setSyncingId(modalListing.storeItemId);
+    const storeItemId = modalListing.storeItemId;
     try {
-      const attrsRes = await fetch(`/api/store-items/${modalListing.storeItemId}/etsy-attributes`, {
+      const attrsRes = await fetch(`/api/store-items/${storeItemId}/etsy-attributes`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -130,34 +176,45 @@ export default function AppsAirportEtsySyncPage() {
       if (!attrsRes.ok) {
         const attrsBody = (await attrsRes.json().catch(() => ({}))) as { error?: string };
         setError(attrsBody.error ?? "Could not save How it’s made.");
+        setProgress("needs_attention");
         return;
       }
+
+      setModalListing(null);
+      setProgress("queued");
 
       const response = await fetch("/api/etsy/listings/create", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storeItemId: modalListing.storeItemId }),
+        body: JSON.stringify({ storeItemId }),
       });
       const body = (await response.json()) as {
         status?: string;
         error?: string;
-        code?: string;
-        missing?: string[];
+        jobId?: string;
       };
       if (!response.ok) {
         setError(body.error ?? "Could not start Etsy listing.");
+        setProgress("needs_attention");
         return;
       }
       if (body.status === "already_mapped") {
-        setStatusMessage("Already listed on Etsy for this connection.");
-      } else if (body.status === "queued") {
-        setStatusMessage("Queued. The Etsy worker will create the listing shortly.");
+        setProgress("already_mapped");
+        await loadEligible();
+        return;
       }
-      setModalListing(null);
-      await loadEligible();
+      if (body.status === "queued") {
+        setProgress("creating");
+        await pollCreateStatus(storeItemId, body.jobId ?? null);
+        await loadEligible();
+        return;
+      }
+      setError("Unexpected listing response.");
+      setProgress("needs_attention");
     } catch {
       setError("Could not start Etsy listing.");
+      setProgress("needs_attention");
     } finally {
       setSyncingId(null);
     }
@@ -193,13 +250,32 @@ export default function AppsAirportEtsySyncPage() {
         </div>
       ) : null}
 
-      {error ? <p className="mb-4 text-sm text-red-700">{error}</p> : null}
-      {statusMessage ? (
-        <div className="mb-6 rounded-[10px] border-2 p-4" style={{ borderColor: "var(--color-primary)" }}>
-          <p className="text-sm text-neutral-700">{statusMessage}</p>
-          <Link href={APPS_AIRPORT_ETSY_LISTINGS_PATH} className="btn mt-3 inline-block" prefetch={false}>
-            View mapped listings
-          </Link>
+      {error ? <p className="mb-4 text-sm text-neutral-800">{error}</p> : null}
+
+      {progress ? (
+        <div
+          className="mb-6 rounded-[10px] border-2 p-4"
+          style={{ borderColor: "var(--color-primary)" }}
+          data-testid="etsy-sync-progress"
+        >
+          <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
+            Sync status: {etsySyncProgressLabel(progress)}
+          </p>
+          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-neutral-200">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${etsySyncProgressPercent(progress)}%`,
+                backgroundColor: "var(--color-primary)",
+              }}
+            />
+          </div>
+          {progressDetail ? <p className="mt-2 text-sm text-neutral-600">{progressDetail}</p> : null}
+          {(progress === "live" || progress === "needs_attention" || progress === "already_mapped") && (
+            <Link href={APPS_AIRPORT_ETSY_LISTINGS_PATH} className="btn mt-3 inline-block" prefetch={false}>
+              View linked listings
+            </Link>
+          )}
         </div>
       ) : null}
 
@@ -207,7 +283,7 @@ export default function AppsAirportEtsySyncPage() {
 
       {!loading && connectionStatus === "ACTIVE" && listings.length === 0 ? (
         <p className="text-sm text-neutral-600">
-          No eligible listings. Active INW items that are not already mapped will appear here.
+          No eligible listings. Active INW items that are not already linked to Etsy will appear here.
         </p>
       ) : null}
 
@@ -218,7 +294,7 @@ export default function AppsAirportEtsySyncPage() {
               <tr className="border-b text-left" style={{ borderColor: "var(--color-primary)" }}>
                 <th className="py-2 pr-4 font-semibold">INW listing</th>
                 <th className="py-2 pr-4 font-semibold">Price</th>
-                <th className="py-2 pr-4 font-semibold">How it’s made</th>
+                <th className="py-2 pr-4 font-semibold">Status</th>
                 <th className="py-2 font-semibold">Action</th>
               </tr>
             </thead>
@@ -237,26 +313,20 @@ export default function AppsAirportEtsySyncPage() {
                       >
                         {listing.title}
                       </Link>
-                      {!readyToList && listing.unsupportedReason ? (
-                        <p className="mt-1 text-xs text-amber-800">{listing.unsupportedReason}</p>
-                      ) : null}
                     </td>
                     <td className="py-3 pr-4">{formatEtsyCents(listing.priceCents)}</td>
                     <td className="py-3 pr-4">
                       {readyToList ? (
-                        <span className="text-xs uppercase tracking-wide text-neutral-500">
-                          Ready to list
-                        </span>
+                        <span className="text-sm text-neutral-700">Ready To List</span>
                       ) : (
-                        <span className="text-xs text-amber-800">
-                          Missing {(listing.howItsMadeMissing ?? []).filter((m) => m !== "taxonomy_id").join(", ") || "fields"}
-                        </span>
+                        <span className="text-sm text-neutral-700">Info Needed</span>
                       )}
                     </td>
                     <td className="py-3">
                       <button
                         type="button"
                         className="btn"
+                        style={{ color: "#fff" }}
                         disabled={!canOpen || syncingId === listing.storeItemId}
                         onClick={() => openListModal(listing)}
                       >

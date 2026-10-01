@@ -138,14 +138,14 @@ export default function AppsAirportEtsyPage() {
   return (
     <AppsAirportChannelHub
       title={appsAirportEtsyHubTitle(hub.displayName, statusLabel)}
-      subtitle="Your INW listings on Etsy — Live means mapped and ready to sell."
+      subtitle="Your INW listings linked to Etsy — Live means ready to sell on Etsy."
       crumbs={[{ href: hub.hubPath, label: hub.displayName }]}
       statusDetail={
         !loading && connected ? (
           <p>
             Connected to {connection?.shopName ?? `Shop #${connection?.shopId}`}.
             {listings.length > 0
-              ? ` ${listings.length} mapped listing${listings.length === 1 ? "" : "s"}.`
+              ? ` ${listings.length} linked listing${listings.length === 1 ? "" : "s"}.`
               : null}
           </p>
         ) : null

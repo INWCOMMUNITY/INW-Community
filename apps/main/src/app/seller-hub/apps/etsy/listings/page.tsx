@@ -54,8 +54,8 @@ export default function AppsAirportEtsyListingsPage() {
 
   return (
     <AppsAirportChannelHub
-      title="Etsy mapped listings"
-      subtitle="Live means ready on Etsy. Needs attention includes draft or activation failures."
+      title="Etsy linked listings"
+      subtitle="These are INW listings linked to an Etsy listing (imported or published from INW). Live means ready on Etsy."
       crumbs={[
         { href: hub.hubPath, label: hub.displayName },
         { href: hub.listingsPath, label: "Listings" },
@@ -66,7 +66,7 @@ export default function AppsAirportEtsyListingsPage() {
         { label: hub.settingsLabel, href: hub.settingsPath },
       ]}
     >
-      {error ? <p className="mb-4 text-sm text-red-700">{error}</p> : null}
+      {error ? <p className="mb-4 text-sm text-neutral-800">{error}</p> : null}
       {!loading && shopName ? (
         <p className="mb-4 text-sm text-neutral-600">
           Shop: {shopName}
@@ -78,10 +78,15 @@ export default function AppsAirportEtsyListingsPage() {
       {loading ? <p className="text-sm text-neutral-500">Loading…</p> : null}
       {!loading && listings.length === 0 ? (
         <p className="text-sm text-neutral-600">
-          No mapped listings yet.{" "}
+          No linked listings yet.{" "}
           <Link href={hub.importPath} className="underline" style={{ color: "var(--color-primary)" }} prefetch={false}>
             Import from Etsy
+          </Link>{" "}
+          or{" "}
+          <Link href={hub.listItemsPath} className="underline" style={{ color: "var(--color-primary)" }} prefetch={false}>
+            List Items on Etsy
           </Link>
+          .
         </p>
       ) : null}
       {!loading && listings.length > 0 ? (
