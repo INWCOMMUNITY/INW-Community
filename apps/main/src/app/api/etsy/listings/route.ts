@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
     ...new Set(
       createJobs
         .map((job) => storeItemIdFromPayload(job.payload))
-        .filter((id): id is string => Boolean(id) && !mappedStoreItemIds.has(id))
+        .filter((id): id is string => typeof id === "string" && !mappedStoreItemIds.has(id))
     ),
   ];
   const pendingItems =
