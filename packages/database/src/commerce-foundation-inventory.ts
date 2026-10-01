@@ -842,10 +842,12 @@ export async function applyTrackedMarketplaceSale(
     variantId: string;
     memberId: string;
     qty: number;
-    /** Generation-bound scope (e.g. ShopifyConnection.id). */
+    /** Generation-bound scope (e.g. ShopifyConnection.id / EtsyConnection.id). */
     sourceScope: string;
     /** Durable provider line identity (e.g. orderGid:lineItemGid). */
     sourceFactId: string;
+    /** Defaults to shopify for backward compatibility with S7 callers. */
+    sourceSystem?: string;
     metadata?: Prisma.InputJsonValue;
   }
 ): Promise<
@@ -871,6 +873,7 @@ export async function applyTrackedMarketplaceSale(
   if (!args.sourceScope.trim() || !args.sourceFactId.trim()) {
     throw new FoundationInventoryError("invalid_sale_source", "SALE requires sourceScope and sourceFactId");
   }
+  const sourceSystem = args.sourceSystem?.trim() || SHOPIFY_SOURCE_SYSTEM;
   const variant = await tx.storeVariant.findUnique({ where: { id: args.variantId } });
   if (!variant) {
     throw new FoundationMissingStateError(`StoreVariant ${args.variantId} not found`);
@@ -911,7 +914,7 @@ export async function applyTrackedMarketplaceSale(
     storeItemId: state.storeItemId,
     eventType: "SALE",
     cause: MARKETPLACE_ORDER_CAUSE,
-    sourceSystem: SHOPIFY_SOURCE_SYSTEM,
+    sourceSystem,
     sourceScope: args.sourceScope,
     sourceFactId: args.sourceFactId,
     requestedQty: args.qty,
@@ -928,6 +931,10 @@ export async function applyTrackedMarketplaceSale(
     await projectStoreItemQuantity(tx, state.storeItemId);
     await maybeMarkSoldOutIfPhysicallyGone(tx, state.storeItemId);
     await captureShopifyInventoryProjectionDesireAfterChange(tx, {
+      memberId: state.memberId,
+      storeVariantId: state.variantId,
+    });
+    await captureEtsyInventoryProjectionDesireAfterChange(tx, {
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
@@ -1066,6 +1073,15 @@ async function captureShopifyInventoryProjectionDesireAfterChange(
 ): Promise<void> {
   const { captureShopifyInventoryProjectionDesire } = await import("./shopify/inventory-desire");
   await captureShopifyInventoryProjectionDesire(tx, input);
+}
+
+/** Same pattern as Shopify — no-ops when unmapped / inactive. */
+async function captureEtsyInventoryProjectionDesireAfterChange(
+  tx: FoundationDb,
+  input: { memberId: string; storeVariantId: string }
+): Promise<void> {
+  const { captureEtsyInventoryProjectionDesire } = await import("./etsy/inventory-desire");
+  await captureEtsyInventoryProjectionDesire(tx, input);
 }
 
 export type { PrismaClient };
