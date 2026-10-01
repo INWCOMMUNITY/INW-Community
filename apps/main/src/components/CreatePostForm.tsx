@@ -36,6 +36,8 @@ interface CreatePostFormProps {
   initialSharedBusinessId?: string;
   /** When initialSharedBusinessId is set, optional business name to show as "Posting as [name]". */
   initialSharedBusinessName?: string;
+  /** Share these store listings to the feed (uses share-to-feed with caption/tags/etc.). */
+  sharedStoreItemIds?: string[];
   /** Where to navigate after submit when onSuccess is not provided. */
   returnTo?: string;
   /** Set to update an existing post (author only); locks group / business context. */
@@ -53,6 +55,7 @@ export function CreatePostForm({
   initialGroupId = "",
   initialSharedBusinessId,
   initialSharedBusinessName,
+  sharedStoreItemIds,
   returnTo = "",
   editPostId,
   initialContent,
@@ -80,6 +83,8 @@ export function CreatePostForm({
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
   const lockPostingContext = !!editPostId;
+  const listingShareIds = (sharedStoreItemIds ?? []).filter(Boolean);
+  const isListingShare = listingShareIds.length > 0 && !editPostId;
 
   useEffect(() => {
     if (!editPostId) return;
@@ -211,6 +216,37 @@ export function CreatePostForm({
         return;
       }
 
+      if (isListingShare) {
+        const res = await fetch("/api/store-items/share-to-feed", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            storeItemIds: listingShareIds,
+            content: content.trim() || null,
+            photos: photos.filter((p) => p.trim()),
+            videos: videos.filter((v) => v.trim()),
+            links: links.filter((l) => l.url?.trim()).length
+              ? links.filter((l) => l.url?.trim())
+              : undefined,
+            tags: tags.length ? tags : undefined,
+            taggedMemberIds: taggedFriendIds.size ? Array.from(taggedFriendIds) : undefined,
+            groupId: groupId || null,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          if (onSuccess) onSuccess();
+          else {
+            router.push(returnTo && returnTo.startsWith("/") ? returnTo : "/my-community/feed");
+            router.refresh();
+          }
+        } else {
+          setError(getErrorMessage(data.error, "Failed to share to feed"));
+        }
+        return;
+      }
+
       const res = await fetch("/api/posts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -240,7 +276,13 @@ export function CreatePostForm({
         setError(getErrorMessage(data.error, "Failed to create post"));
       }
     } catch {
-      setError(editPostId ? "Failed to update post" : "Failed to create post");
+      setError(
+        editPostId
+          ? "Failed to update post"
+          : isListingShare
+            ? "Failed to share to feed"
+            : "Failed to create post"
+      );
     } finally {
       setLoading(false);
     }
@@ -263,6 +305,16 @@ export function CreatePostForm({
             Posting as <strong>{initialSharedBusinessName ?? "your business"}</strong> (business directory)
           </p>
         )}
+        {isListingShare ? (
+          <p className="text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+            Sharing{" "}
+            <strong>
+              {listingShareIds.length} listing{listingShareIds.length === 1 ? "" : "s"}
+            </strong>{" "}
+            to the Community Feed. Add a caption, tags, or friends below — optional extras go on the
+            post with your listing{listingShareIds.length === 1 ? "" : "s"}.
+          </p>
+        ) : null}
         {groups.length > 0 && !initialSharedBusinessId && !initialGroupId && (
           <div>
             <label htmlFor="group" className="block text-sm font-medium mb-1">Post to</label>
@@ -470,7 +522,17 @@ export function CreatePostForm({
                 className="shrink-0"
               />
             )}
-            {loading ? (editPostId ? "Saving…" : "Posting…") : editPostId ? "Save changes" : "Post"}
+            {loading
+              ? editPostId
+                ? "Saving…"
+                : isListingShare
+                  ? "Sharing…"
+                  : "Posting…"
+              : editPostId
+                ? "Save changes"
+                : isListingShare
+                  ? "Share to feed"
+                  : "Post"}
           </button>
           {onCancel ? (
             <button type="button" onClick={onCancel} className={`${FORM_FOOTER_BTN} border`}>
