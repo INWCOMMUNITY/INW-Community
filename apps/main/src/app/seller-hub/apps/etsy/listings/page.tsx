@@ -100,6 +100,7 @@ export default function AppsAirportEtsyListingsPage() {
               inventoryHealth: row.inventoryHealth,
               issueCode: row.issueCode,
               storeItemStatus: row.storeItemStatus,
+              remoteListingState: row.remoteListingState,
             });
             return (
               <li key={row.id} className="border-b border-neutral-200 pb-3">

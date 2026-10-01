@@ -107,6 +107,7 @@ export default function AppsAirportEtsyPage() {
           inventoryHealth: row.inventoryHealth,
           issueCode: row.issueCode,
           storeItemStatus: row.storeItemStatus,
+          remoteListingState: row.remoteListingState,
         }),
       })),
     [listings]

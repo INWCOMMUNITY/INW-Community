@@ -22,7 +22,7 @@ describe("classifyEtsyListingHealth", () => {
   it("marks ready when caught up", () => {
     const health = classifyEtsyListingHealth({
       connectionStatus: "ACTIVE",
-      listing: baseListing,
+      listing: { ...baseListing, remoteListingState: "active" },
       variantMaps: [baseVariant],
       hasCausalSaleConflict: false,
     });
@@ -30,10 +30,21 @@ describe("classifyEtsyListingHealth", () => {
     expect(health.issueCode).toBeNull();
   });
 
+  it("does not mark draft listings ready even when sync is caught up", () => {
+    const health = classifyEtsyListingHealth({
+      connectionStatus: "ACTIVE",
+      listing: { ...baseListing, remoteListingState: "draft" },
+      variantMaps: [baseVariant],
+      hasCausalSaleConflict: false,
+    });
+    expect(health.readiness).toBe("ACTION_REQUIRED");
+    expect(health.issueCode).toBe("DRAFT_NOT_ACTIVE");
+  });
+
   it("marks action required on content conflict", () => {
     const health = classifyEtsyListingHealth({
       connectionStatus: "ACTIVE",
-      listing: { ...baseListing, productContentConflict: true },
+      listing: { ...baseListing, productContentConflict: true, remoteListingState: "active" },
       variantMaps: [baseVariant],
       hasCausalSaleConflict: false,
     });
@@ -44,7 +55,7 @@ describe("classifyEtsyListingHealth", () => {
   it("marks syncing when inventory desire is pending", () => {
     const health = classifyEtsyListingHealth({
       connectionStatus: "ACTIVE",
-      listing: baseListing,
+      listing: { ...baseListing, remoteListingState: "active" },
       variantMaps: [{ ...baseVariant, inventoryDesiredVersion: 3, inventoryAppliedVersion: 2 }],
       hasCausalSaleConflict: false,
     });

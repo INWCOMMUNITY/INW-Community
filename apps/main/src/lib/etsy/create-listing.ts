@@ -705,7 +705,7 @@ async function finalizeEtsyListingActivation(input: {
     }
   }
 
-  const activate = await etsyConnectionRequest({
+  const activate = await etsyConnectionRequest<{ state?: string }>({
     connectionId: connection.id,
     memberId: connection.memberId,
     method: "PATCH",
@@ -732,27 +732,39 @@ async function finalizeEtsyListingActivation(input: {
     now: input.now,
   });
   if (activate.ok) {
-    await prisma.etsyListingLink.updateMany({
-      where: { etsyConnectionId: connection.id, etsyListingId },
-      data: {
-        remoteListingState: "active",
-        readiness: "READY_TO_PUBLISH",
-        issueCode: null,
-        issueMessage: null,
-      },
-    });
-    return { outcome: "SUCCESS" };
+    const activatedState = String(activate.data?.state ?? "")
+      .trim()
+      .toLowerCase();
+    // Only mark Live when Etsy confirms active — HTTP 200 alone is not enough.
+    if (activatedState === "active") {
+      await prisma.etsyListingLink.updateMany({
+        where: { etsyConnectionId: connection.id, etsyListingId },
+        data: {
+          remoteListingState: "active",
+          readiness: "READY_TO_PUBLISH",
+          contentHealth: "HEALTHY",
+          inventoryHealth: "HEALTHY",
+          issueCode: null,
+          issueMessage: null,
+        },
+      });
+      return { outcome: "SUCCESS" };
+    }
   }
   if (
-    activate.class === "THROTTLED" ||
-    activate.class === "TRANSIENT" ||
-    activate.class === "NETWORK"
+    activate.ok === false &&
+    (activate.class === "THROTTLED" ||
+      activate.class === "TRANSIENT" ||
+      activate.class === "NETWORK")
   ) {
     return classifyFailure(activate.class, activate.retryAfterMs, activate.message);
   }
 
-  const issueMessage =
-    activate.message.slice(0, 500) || "Created as draft; could not activate on Etsy";
+  const issueMessage = (
+    activate.ok
+      ? `Etsy left the listing as ${String(activate.data?.state ?? "draft")} instead of active. Add photos and re-list to publish.`
+      : activate.message.slice(0, 500) || "Created as draft; could not activate on Etsy"
+  ).slice(0, 500);
   await prisma.etsyListingLink.updateMany({
     where: { etsyConnectionId: connection.id, etsyListingId },
     data: {

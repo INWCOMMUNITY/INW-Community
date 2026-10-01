@@ -95,6 +95,10 @@ export async function createEtsyImportedListingMapping(
   if (existing) throw new EtsyMappingConflictError();
 
   const now = input.importBootstrapStartedAt;
+  const remote = String(input.remoteListingState ?? "")
+    .trim()
+    .toLowerCase();
+  const isLive = remote === "active";
   const link = await tx.etsyListingLink.create({
     data: {
       etsyConnectionId: input.connectionId,
@@ -102,12 +106,19 @@ export async function createEtsyImportedListingMapping(
       storeItemId: input.storeItemId,
       etsyListingId: listingId,
       remoteListingState: input.remoteListingState,
-      readiness: "READY_TO_PUBLISH",
-      contentHealth: "HEALTHY",
+      // Drafts (INW→Etsy create) stay SYNCING until activate succeeds — never pretends Live.
+      readiness: isLive ? "READY_TO_PUBLISH" : "SYNCING",
+      contentHealth: isLive ? "HEALTHY" : "DEGRADED",
       inventoryHealth: "HEALTHY",
       importSource: input.importSource ?? "ETSY_IMPORT",
       importedAt: now,
       importBootstrapStartedAt: now,
+      ...(isLive
+        ? {}
+        : {
+            issueCode: "DRAFT_NOT_ACTIVE",
+            issueMessage: "Created as an Etsy draft; publishing to live…",
+          }),
     },
   });
 

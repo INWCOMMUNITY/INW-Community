@@ -40,6 +40,8 @@ export function etsyListingUiStatus(input: {
   inventoryHealth?: string | null;
   issueCode?: string | null;
   storeItemStatus?: string | null;
+  /** Buyer-live only when Etsy remote state is active — drafts must not show as Live. */
+  remoteListingState?: string | null;
 }): EtsyListingUiStatus {
   if (input.storeItemStatus === "ended" || input.storeItemStatus === "draft") {
     return "Unpublished";
@@ -53,6 +55,12 @@ export function etsyListingUiStatus(input: {
     input.inventoryHealth === "DEGRADED" ||
     Boolean(input.issueCode)
   ) {
+    return "Needs attention";
+  }
+  const remoteActive = etsyListingIsPubliclyViewable(input.remoteListingState);
+  if (!remoteActive) {
+    // Mapped draft / activate-pending — never "Live" until Etsy state is active.
+    if (input.readiness === "SYNCING") return "Syncing";
     return "Needs attention";
   }
   if (input.readiness === "READY_TO_PUBLISH") return "Live";
@@ -181,7 +189,12 @@ export function resolveEtsySyncProgress(input: {
   } | null;
 }): EtsySyncProgressStep {
   if (input.enqueueStatus === "already_mapped") return "already_mapped";
-  if (input.listing?.readiness === "READY_TO_PUBLISH") return "live";
+  if (
+    input.listing?.readiness === "READY_TO_PUBLISH" &&
+    etsyListingIsPubliclyViewable(input.listing.remoteListingState)
+  ) {
+    return "live";
+  }
   if (
     input.listing?.readiness === "ACTION_REQUIRED" ||
     input.listing?.readiness === "CONNECTION_REQUIRED" ||

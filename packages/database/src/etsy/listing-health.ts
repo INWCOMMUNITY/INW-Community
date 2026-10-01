@@ -27,6 +27,7 @@ export function classifyEtsyListingHealth(input: {
     | "productContentConflict"
     | "contentHealth"
     | "inventoryHealth"
+    | "remoteListingState"
   >;
   variantMaps: Array<
     Pick<
@@ -93,6 +94,21 @@ export function classifyEtsyListingHealth(input: {
       issueMessage: contentPending
         ? "Outbound content sync is in progress"
         : "Outbound inventory sync is in progress",
+    };
+  }
+
+  const remote = String(input.listing.remoteListingState ?? "")
+    .trim()
+    .toLowerCase();
+  // READY_TO_PUBLISH means buyer-live on Etsy. Drafts must never look healthy/live in Apps Airport.
+  if (remote && remote !== "active") {
+    return {
+      readiness: "ACTION_REQUIRED",
+      contentHealth: "DEGRADED",
+      inventoryHealth: input.listing.inventoryHealth,
+      issueCode: "DRAFT_NOT_ACTIVE",
+      issueMessage:
+        "Etsy listing is still a draft (not live). Re-list from Apps Airport to upload photos and publish.",
     };
   }
 

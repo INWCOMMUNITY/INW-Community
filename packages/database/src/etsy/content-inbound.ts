@@ -14,6 +14,8 @@ export type EtsyRemoteListingObservation = {
   title: string;
   description: string | null;
   photos: string[];
+  /** Etsy listing state (active, draft, …) when observed. */
+  state?: string | null;
   /** Diagnostic only. */
   updatedAt?: Date | null;
   variants: Array<{
@@ -69,6 +71,38 @@ export async function applyEtsyListingContentInbound(
   if (listing.etsyListingId !== input.remote.etsyListingId) {
     return { status: "SKIPPED", reason: "LISTING_ID_MISMATCH" };
   }
+
+  const observedState = String(input.remote.state ?? "")
+    .trim()
+    .toLowerCase();
+  if (observedState && observedState !== String(listing.remoteListingState ?? "").toLowerCase()) {
+    await db.etsyListingLink.update({
+      where: { id: listing.id },
+      data:
+        observedState === "active"
+          ? {
+              remoteListingState: "active",
+              ...(listing.issueCode === "DRAFT_NOT_ACTIVE" || listing.issueCode === "ACTIVATE_FAILED"
+                ? {
+                    readiness: "READY_TO_PUBLISH" as const,
+                    contentHealth: "HEALTHY" as const,
+                    issueCode: null,
+                    issueMessage: null,
+                  }
+                : {}),
+            }
+          : {
+              remoteListingState: observedState,
+              readiness: "ACTION_REQUIRED" as const,
+              contentHealth: "DEGRADED" as const,
+              issueCode: "DRAFT_NOT_ACTIVE",
+              issueMessage:
+                "Etsy listing is still a draft (not live). Re-list from Apps Airport to upload photos and publish.",
+            },
+    });
+    listing.remoteListingState = observedState;
+  }
+
   if (listing.contentHealth === "PAUSED") {
     return {
       status: "PAUSED",

@@ -32,14 +32,14 @@ export async function uploadEtsyListingPhotosFromUrls(input: {
       const raw = await fetchListingPhotoSource(url);
       const jpeg = await optimizeListingPhoto(raw);
       const form = new FormData();
+      const filename = `listing-${input.etsyListingId}-${i + 1}.jpg`;
+      // Node/undici FormData accepts Blob/File; pass a copy so the binary is owned by the form.
       const bytes = new Uint8Array(jpeg);
-      const file =
+      const blob =
         typeof File !== "undefined"
-          ? new File([bytes], `listing-${input.etsyListingId}-${i + 1}.jpg`, {
-              type: "image/jpeg",
-            })
+          ? new File([bytes], filename, { type: "image/jpeg" })
           : new Blob([bytes], { type: "image/jpeg" });
-      form.append("image", file, `listing-${input.etsyListingId}-${i + 1}.jpg`);
+      form.append("image", blob, filename);
       form.append("rank", String(i + 1));
       form.append("overwrite", i === 0 ? "true" : "false");
 

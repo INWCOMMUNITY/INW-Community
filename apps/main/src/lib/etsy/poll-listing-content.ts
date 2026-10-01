@@ -1,6 +1,7 @@
 import {
   applyEtsyListingContentInbound,
   applyEtsyListingInventoryInbound,
+  enqueueEtsySyncJob,
   etsyCentsFromMoney,
   markEtsyListingContentPollComplete,
   prisma,
@@ -13,10 +14,15 @@ import type { EtsyFetch } from "./client";
 
 const MAX_LISTINGS_PER_POLL = 25;
 
+function createListingDedupeKey(connectionId: string, storeItemId: string): string {
+  return `CREATE_LISTING:${connectionId}:${storeItemId}`;
+}
+
 type RemoteListing = {
   listing_id?: number | string;
   title?: string;
   description?: string;
+  state?: string;
   last_modified_tsz?: number;
   images?: Array<{ url_fullxfull?: string; url_570xN?: string }>;
 };
@@ -141,6 +147,7 @@ async function fetchRemoteObservation(input: {
       etsyListingId: input.etsyListingId,
       title: typeof listingRes.data.title === "string" ? listingRes.data.title : "",
       description: typeof listingRes.data.description === "string" ? listingRes.data.description : null,
+      state: typeof listingRes.data.state === "string" ? listingRes.data.state : null,
       photos: (listingRes.data.images ?? [])
         .map((img) => img.url_fullxfull || img.url_570xN || "")
         .filter(Boolean),
@@ -179,7 +186,13 @@ export async function handleEtsyPollListingContentJob(
     where: { etsyConnectionId: connection.id },
     orderBy: { updatedAt: "asc" },
     take: deps.maxListings ?? MAX_LISTINGS_PER_POLL,
-    select: { id: true, etsyListingId: true },
+    select: {
+      id: true,
+      etsyListingId: true,
+      storeItemId: true,
+      importSource: true,
+      remoteListingState: true,
+    },
   });
 
   for (const link of links) {
@@ -216,6 +229,39 @@ export async function handleEtsyPollListingContentJob(
         now: deps.now,
       });
     });
+
+    // NATIVE drafts: re-queue create so photos upload and listing goes live.
+    const remoteState = String(fetched.remote.state ?? link.remoteListingState ?? "")
+      .trim()
+      .toLowerCase();
+    if (link.importSource === "NATIVE" && remoteState && remoteState !== "active") {
+      const variants = await prisma.storeVariant.findMany({
+        where: {
+          storeItemId: link.storeItemId,
+          memberId: connection.memberId,
+          status: "ACTIVE",
+        },
+        select: { id: true },
+        orderBy: { createdAt: "asc" },
+        take: 400,
+      });
+      if (variants.length >= 1) {
+        try {
+          await enqueueEtsySyncJob(prisma, {
+            etsyConnectionId: connection.id,
+            kind: "CREATE_LISTING",
+            dedupeKey: createListingDedupeKey(connection.id, link.storeItemId),
+            payload: {
+              storeItemId: link.storeItemId,
+              storeVariantId: variants[0]!.id,
+              storeVariantIds: variants.map((v) => v.id),
+            },
+          });
+        } catch {
+          // Conflict / duplicate payload — already queued.
+        }
+      }
+    }
   }
 
   await markEtsyListingContentPollComplete(prisma, {
