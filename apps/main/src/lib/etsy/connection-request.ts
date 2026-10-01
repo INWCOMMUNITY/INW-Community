@@ -4,7 +4,7 @@ import { readEtsyAppConfig } from "./config";
 import { accessTokenForEtsyConnection, EtsyConnectError } from "./connect";
 import type { EtsyErrorClass } from "./errors";
 
-export type EtsyBodyEncoding = "json" | "form";
+export type EtsyBodyEncoding = "json" | "form" | "multipart";
 
 export type EtsyConnectionRequestInput = {
   connectionId: string;
@@ -12,11 +12,12 @@ export type EtsyConnectionRequestInput = {
   method: string;
   path: string;
   body?: unknown;
-  /** Default json. Etsy createListing/activate expect form-urlencoded. */
+  /** Default json. Etsy createListing/activate expect form-urlencoded. Use multipart for image upload. */
   bodyEncoding?: EtsyBodyEncoding;
   query?: Record<string, string | number | boolean | undefined | null>;
   /** Default: GET retries 3x; non-GET 1x. */
   maxAttempts?: number;
+  timeoutMs?: number;
   fetchImpl?: EtsyFetch;
   now?: Date;
   sleep?: (ms: number) => Promise<void>;
@@ -105,7 +106,22 @@ export async function etsyConnectionRequest<T = unknown>(
   let body: BodyInit | null = null;
   let headers: Record<string, string> | undefined;
   if (input.body !== undefined) {
-    if (encoding === "form") {
+    if (encoding === "multipart") {
+      if (!(typeof FormData !== "undefined" && input.body instanceof FormData)) {
+        return {
+          ok: false,
+          class: "PERMANENT",
+          httpStatus: null,
+          data: null,
+          message: "Etsy multipart request requires FormData body",
+          retryAfterMs: null,
+          rateLimit: null,
+        };
+      }
+      // Let fetch set multipart boundary Content-Type.
+      body = input.body;
+      headers = undefined;
+    } else if (encoding === "form") {
       body = encodeFormBody(input.body);
       headers = { "Content-Type": "application/x-www-form-urlencoded" };
     } else {
@@ -125,6 +141,7 @@ export async function etsyConnectionRequest<T = unknown>(
       accessToken,
       fetchImpl: input.fetchImpl,
       maxAttempts: input.maxAttempts,
+      timeoutMs: input.timeoutMs,
       sleep: input.sleep,
     },
   });

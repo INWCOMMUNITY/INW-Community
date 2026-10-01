@@ -141,7 +141,9 @@ export async function etsyApplicationRequest<T = unknown>(input: {
           Authorization: `Bearer ${input.deps.accessToken}`,
           "x-api-key": etsyApiKeyHeader(input.deps.config),
           Accept: "application/json",
-          ...(input.body && !input.headers?.["Content-Type"]
+          ...(input.body &&
+          !input.headers?.["Content-Type"] &&
+          !(typeof FormData !== "undefined" && input.body instanceof FormData)
             ? { "Content-Type": "application/json" }
             : {}),
           ...input.headers,

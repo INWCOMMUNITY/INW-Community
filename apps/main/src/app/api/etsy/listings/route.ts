@@ -47,6 +47,7 @@ export async function GET(req: NextRequest) {
       issueCode: true,
       issueMessage: true,
       importSource: true,
+      remoteListingState: true,
       updatedAt: true,
       storeItem: { select: { title: true, status: true, priceCents: true, quantity: true } },
     },
@@ -103,6 +104,7 @@ export async function GET(req: NextRequest) {
     issueCode: row.issueCode,
     issueMessage: row.issueMessage,
     importSource: row.importSource,
+    remoteListingState: row.remoteListingState,
     updatedAt: row.updatedAt,
     attentionKind: "mapped" as const,
   }));
@@ -132,6 +134,7 @@ export async function GET(req: NextRequest) {
           ? job.lastErrorMessage ?? "Could not create listing on Etsy"
           : "List on Etsy is still syncing",
         importSource: "NATIVE" as const,
+        remoteListingState: null as string | null,
         updatedAt: job.updatedAt,
         attentionKind: "unmapped_create" as const,
       },

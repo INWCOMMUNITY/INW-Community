@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { AppsAirportChannelHub } from "@/components/apps-airport/AppsAirportChannelHub";
 import {
   APPS_AIRPORT_ETSY_HUB,
+  etsyListingPublicUrl,
   etsyListingStatusChipClass,
   etsyListingUiStatus,
 } from "@/lib/etsy/apps-airport";
@@ -20,6 +21,7 @@ type ListingRow = {
   issueCode: string | null;
   issueMessage: string | null;
   storeItemStatus?: string | null;
+  remoteListingState?: string | null;
 };
 
 export default function AppsAirportEtsyListingsPage() {
@@ -124,15 +126,28 @@ export default function AppsAirportEtsyListingsPage() {
                 {row.issueMessage ? (
                   <p className="mt-1 text-xs text-amber-800">{row.issueMessage}</p>
                 ) : null}
-                <a
-                  href={`https://www.etsy.com/listing/${row.etsyListingId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-1 inline-block text-xs underline"
-                  style={{ color: "var(--color-primary)" }}
-                >
-                  View on Etsy
-                </a>
+                {(() => {
+                  const publicUrl = etsyListingPublicUrl({
+                    etsyListingId: row.etsyListingId,
+                    remoteListingState: row.remoteListingState,
+                  });
+                  if (publicUrl) {
+                    return (
+                      <a
+                        href={publicUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 inline-block text-xs underline"
+                        style={{ color: "var(--color-primary)" }}
+                      >
+                        View on Etsy
+                      </a>
+                    );
+                  }
+                  return (
+                    <p className="mt-1 text-xs text-neutral-500">Not live on Etsy yet</p>
+                  );
+                })()}
               </li>
             );
           })}

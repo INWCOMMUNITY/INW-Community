@@ -13,11 +13,12 @@ import {
 } from "database";
 import { etsyConnectionRequest } from "./connection-request";
 import type { EtsyFetch } from "./client";
-import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "./taxonomy-default";
+import { resolveEtsyListingPackageFields } from "./listing-package";
+import { etsyListingHasImages, uploadEtsyListingPhotosFromUrls } from "./listing-images";
 import { ETSY_PLATFORM_DEFAULT_TAXONOMY_ID } from "./apps-airport";
+import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "./taxonomy-default";
 import { resolveEtsyReadinessStateId } from "./readiness-state";
 import { notifyEtsyListingIssueOnce } from "./listing-issue-notify";
-import { resolveEtsyListingPackageFields } from "./listing-package";
 
 export type EnqueueEtsyCreateListingResult =
   | {
@@ -40,6 +41,7 @@ export type EnqueueEtsyCreateListingResult =
         | "CONNECTION_INACTIVE"
         | "HOW_ITS_MADE_REQUIRED"
         | "SHIPPING_PROFILE_REQUIRED"
+        | "PHOTOS_REQUIRED"
         | "UNSUPPORTED_VARIANTS"
         | "INVALID_ITEM"
         | "CONFLICT";
@@ -80,12 +82,21 @@ export async function enqueueEtsyCreateListing(input: {
     },
   });
   if (existing) {
-    return {
-      status: "ALREADY_MAPPED",
-      connectionId: connection.id,
-      storeItemId: input.storeItemId,
-      etsyListingId: existing.etsyListingId,
-    };
+    const needsFinish =
+      existing.remoteListingState !== "active" ||
+      existing.readiness === "ACTION_REQUIRED" ||
+      existing.issueCode === "ACTIVATE_FAILED";
+    if (!needsFinish) {
+      return {
+        status: "ALREADY_MAPPED",
+        connectionId: connection.id,
+        storeItemId: input.storeItemId,
+        etsyListingId: existing.etsyListingId,
+      };
+    }
+    // Draft / failed activate — re-queue CREATE so photos can upload and listing can go live.
+  } else {
+    // no mapping yet
   }
 
   const storeItem = await prisma.storeItem.findFirst({
@@ -98,6 +109,7 @@ export async function enqueueEtsyCreateListing(input: {
       priceCents: true,
       quantity: true,
       inventoryTracking: true,
+      photos: true,
       etsyWhoMade: true,
       etsyWhenMade: true,
       etsyIsSupply: true,
@@ -119,6 +131,13 @@ export async function enqueueEtsyCreateListing(input: {
       status: "ERROR",
       code: "INVALID_ITEM",
       message: "Etsy listings require a title and price greater than zero",
+    };
+  }
+  if (!Array.isArray(storeItem.photos) || storeItem.photos.filter(Boolean).length < 1) {
+    return {
+      status: "ERROR",
+      code: "PHOTOS_REQUIRED",
+      message: "Add at least one photo before listing on Etsy.",
     };
   }
 
@@ -203,7 +222,11 @@ function parsePayload(payload: unknown): {
   const storeVariantIds = Array.isArray(row.storeVariantIds)
     ? row.storeVariantIds.filter((v): v is string => typeof v === "string" && v.length > 0)
     : [storeVariantId];
-  return { storeItemId, storeVariantId, storeVariantIds };
+  return {
+    storeItemId,
+    storeVariantId,
+    storeVariantIds,
+  };
 }
 
 function classifyFailure(
@@ -265,9 +288,6 @@ export async function handleEtsyCreateListingJob(
       },
     },
   });
-  if (already) {
-    return { outcome: "SUCCESS" };
-  }
 
   const storeItem = await prisma.storeItem.findFirst({
     where: { id: payload.storeItemId, memberId: connection.memberId },
@@ -331,12 +351,28 @@ export async function handleEtsyCreateListingJob(
     };
   }
 
+  const packageFields = resolveEtsyListingPackageFields(storeItem.shippingOption);
+
+  // Already mapped draft / failed activate — upload photos and try activate again.
+  if (already) {
+    return finalizeEtsyListingActivation({
+      connection,
+      storeItem,
+      etsyListingId: already.etsyListingId,
+      how,
+      readinessStateId: readiness.readinessStateId,
+      packageFields,
+      taxonomyId: how.taxonomyId,
+      fetchImpl: deps.fetchImpl,
+      now: deps.now,
+    });
+  }
+
   const qty =
     storeItem.inventoryTracking === "made_to_order"
       ? Math.max(1, storeItem.quantity || 1)
       : Math.max(1, storeItem.quantity || 1);
   const price = storeItem.priceCents / 100;
-  const packageFields = resolveEtsyListingPackageFields(storeItem.shippingOption);
 
   const createBody: Record<string, unknown> = {
     quantity: qty,
@@ -547,75 +583,44 @@ export async function handleEtsyCreateListingJob(
     };
   }
 
-  // Attempt activate when shipping profile is configured.
-  if (connection.defaultShippingProfileId) {
-    const activate = await etsyConnectionRequest({
-      connectionId: connection.id,
-      memberId: connection.memberId,
-      method: "PATCH",
-      path: `/shops/${encodeURIComponent(connection.shopId)}/listings/${encodeURIComponent(etsyListingId)}`,
-      query: { legacy: false },
-      body: {
-        state: "active",
-        shipping_profile_id: connection.defaultShippingProfileId,
-        readiness_state_id: readiness.readinessStateId,
-        who_made: how.whoMade,
-        when_made: how.whenMade,
-        is_supply: how.isSupply,
-        taxonomy_id: createBody.taxonomy_id ?? how.taxonomyId,
-        item_weight: packageFields.item_weight,
-        item_weight_unit: packageFields.item_weight_unit,
-        item_length: packageFields.item_length,
-        item_width: packageFields.item_width,
-        item_height: packageFields.item_height,
-        item_dimensions_unit: packageFields.item_dimensions_unit,
-      },
-      bodyEncoding: "form",
-      maxAttempts: 1,
-      fetchImpl: deps.fetchImpl,
-      now: deps.now,
-    });
-    if (activate.ok) {
-      await prisma.etsyListingLink.updateMany({
-        where: { etsyConnectionId: connection.id, etsyListingId },
-        data: { remoteListingState: "active", readiness: "READY_TO_PUBLISH" },
-      });
-    } else if (
-      activate.class === "THROTTLED" ||
-      activate.class === "TRANSIENT" ||
-      activate.class === "NETWORK"
-    ) {
-      return classifyFailure(activate.class, activate.retryAfterMs, activate.message);
-    } else {
-      const issueMessage =
-        activate.message.slice(0, 500) || "Created as draft; could not activate on Etsy";
-      await prisma.etsyListingLink.updateMany({
-        where: { etsyConnectionId: connection.id, etsyListingId },
-        data: {
-          remoteListingState: "draft",
-          readiness: "ACTION_REQUIRED",
-          issueCode: "ACTIVATE_FAILED",
-          issueMessage,
-        },
-      });
-      const link = await prisma.etsyListingLink.findFirst({
-        where: { etsyConnectionId: connection.id, etsyListingId },
-        select: { id: true },
-      });
-      if (link) {
-        await notifyEtsyListingIssueOnce({
-          memberId: connection.memberId,
-          storeItemId: storeItem.id,
-          connectionId: connection.id,
-          subjectId: link.id,
-          issueCode: "ACTIVATE_FAILED",
-          issueFingerprint: issueMessage,
-          severity: "ACTION_REQUIRED",
-          message: issueMessage,
-        }).catch(() => undefined);
-      }
-    }
-  } else {
+  // Upload INW photos then activate when shipping profile is configured.
+  return finalizeEtsyListingActivation({
+    connection,
+    storeItem,
+    etsyListingId,
+    how,
+    readinessStateId: readiness.readinessStateId,
+    packageFields,
+    taxonomyId: (createBody.taxonomy_id as number | undefined) ?? how.taxonomyId,
+    fetchImpl: deps.fetchImpl,
+    now: deps.now,
+  });
+}
+
+async function finalizeEtsyListingActivation(input: {
+  connection: {
+    id: string;
+    memberId: string;
+    shopId: string;
+    defaultShippingProfileId: string | null;
+  };
+  storeItem: { id: string; photos: string[] };
+  etsyListingId: string;
+  how: {
+    whoMade: string;
+    whenMade: string;
+    isSupply: boolean;
+    taxonomyId: number;
+  };
+  readinessStateId: number | string;
+  packageFields: ReturnType<typeof resolveEtsyListingPackageFields>;
+  taxonomyId: number;
+  fetchImpl?: EtsyFetch;
+  now?: Date;
+}): Promise<EtsyJobHandlerResult> {
+  const { connection, storeItem, etsyListingId, how, packageFields } = input;
+
+  if (!connection.defaultShippingProfileId) {
     const issueMessage =
       "Listing created as an Etsy draft. Set a default shipping profile on the Etsy connection to activate.";
     await prisma.etsyListingLink.updateMany({
@@ -643,7 +648,135 @@ export async function handleEtsyCreateListingJob(
         message: issueMessage,
       }).catch(() => undefined);
     }
+    return { outcome: "SUCCESS" };
   }
 
+  let hasImages = await etsyListingHasImages({
+    connectionId: connection.id,
+    memberId: connection.memberId,
+    etsyListingId,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (!hasImages) {
+    const uploaded = await uploadEtsyListingPhotosFromUrls({
+      connectionId: connection.id,
+      memberId: connection.memberId,
+      shopId: connection.shopId,
+      etsyListingId,
+      photos: storeItem.photos,
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+    });
+    hasImages = uploaded.uploaded > 0;
+    if (!hasImages) {
+      const issueMessage = (
+        uploaded.attempted < 1
+          ? "Add at least one photo on INW before activating on Etsy."
+          : uploaded.lastError ||
+            "Could not upload listing photos to Etsy. Check that photo URLs are publicly reachable."
+      ).slice(0, 500);
+      await prisma.etsyListingLink.updateMany({
+        where: { etsyConnectionId: connection.id, etsyListingId },
+        data: {
+          remoteListingState: "draft",
+          readiness: "ACTION_REQUIRED",
+          issueCode: "IMAGES_REQUIRED",
+          issueMessage,
+        },
+      });
+      const link = await prisma.etsyListingLink.findFirst({
+        where: { etsyConnectionId: connection.id, etsyListingId },
+        select: { id: true },
+      });
+      if (link) {
+        await notifyEtsyListingIssueOnce({
+          memberId: connection.memberId,
+          storeItemId: storeItem.id,
+          connectionId: connection.id,
+          subjectId: link.id,
+          issueCode: "IMAGES_REQUIRED",
+          issueFingerprint: issueMessage,
+          severity: "ACTION_REQUIRED",
+          message: issueMessage,
+        }).catch(() => undefined);
+      }
+      return { outcome: "SUCCESS" };
+    }
+  }
+
+  const activate = await etsyConnectionRequest({
+    connectionId: connection.id,
+    memberId: connection.memberId,
+    method: "PATCH",
+    path: `/shops/${encodeURIComponent(connection.shopId)}/listings/${encodeURIComponent(etsyListingId)}`,
+    query: { legacy: false },
+    body: {
+      state: "active",
+      shipping_profile_id: connection.defaultShippingProfileId,
+      readiness_state_id: input.readinessStateId,
+      who_made: how.whoMade,
+      when_made: how.whenMade,
+      is_supply: how.isSupply,
+      taxonomy_id: input.taxonomyId,
+      item_weight: packageFields.item_weight,
+      item_weight_unit: packageFields.item_weight_unit,
+      item_length: packageFields.item_length,
+      item_width: packageFields.item_width,
+      item_height: packageFields.item_height,
+      item_dimensions_unit: packageFields.item_dimensions_unit,
+    },
+    bodyEncoding: "form",
+    maxAttempts: 1,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (activate.ok) {
+    await prisma.etsyListingLink.updateMany({
+      where: { etsyConnectionId: connection.id, etsyListingId },
+      data: {
+        remoteListingState: "active",
+        readiness: "READY_TO_PUBLISH",
+        issueCode: null,
+        issueMessage: null,
+      },
+    });
+    return { outcome: "SUCCESS" };
+  }
+  if (
+    activate.class === "THROTTLED" ||
+    activate.class === "TRANSIENT" ||
+    activate.class === "NETWORK"
+  ) {
+    return classifyFailure(activate.class, activate.retryAfterMs, activate.message);
+  }
+
+  const issueMessage =
+    activate.message.slice(0, 500) || "Created as draft; could not activate on Etsy";
+  await prisma.etsyListingLink.updateMany({
+    where: { etsyConnectionId: connection.id, etsyListingId },
+    data: {
+      remoteListingState: "draft",
+      readiness: "ACTION_REQUIRED",
+      issueCode: "ACTIVATE_FAILED",
+      issueMessage,
+    },
+  });
+  const link = await prisma.etsyListingLink.findFirst({
+    where: { etsyConnectionId: connection.id, etsyListingId },
+    select: { id: true },
+  });
+  if (link) {
+    await notifyEtsyListingIssueOnce({
+      memberId: connection.memberId,
+      storeItemId: storeItem.id,
+      connectionId: connection.id,
+      subjectId: link.id,
+      issueCode: "ACTIVATE_FAILED",
+      issueFingerprint: issueMessage,
+      severity: "ACTION_REQUIRED",
+      message: issueMessage,
+    }).catch(() => undefined);
+  }
   return { outcome: "SUCCESS" };
 }

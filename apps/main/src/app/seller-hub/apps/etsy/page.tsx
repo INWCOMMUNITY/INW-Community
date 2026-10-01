@@ -9,6 +9,7 @@ import {
   appsAirportEtsyHubTitle,
   classifyEtsyConnectionUi,
   etsyConnectionStatusLabel,
+  etsyListingPublicUrl,
   etsyListingStatusChipClass,
   etsyListingUiStatus,
   formatEtsyCents,
@@ -35,6 +36,7 @@ type ListingRow = {
   issueCode: string | null;
   issueMessage: string | null;
   storeItemStatus: string | null;
+  remoteListingState?: string | null;
 };
 
 type FilterTab = "all" | EtsyListingUiStatus;
@@ -259,26 +261,40 @@ export default function AppsAirportEtsyPage() {
               <td className="py-3 pr-3 whitespace-nowrap">{row.quantity ?? "—"}</td>
               <td className="py-3 pr-3">{formatEtsyCents(row.priceCents)}</td>
               <td className="py-3">
-                {row.etsyListingId ? (
-                  <a
-                    href={`https://www.etsy.com/listing/${row.etsyListingId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs underline"
-                    style={{ color: "var(--color-primary)" }}
-                  >
-                    View on Etsy
-                  </a>
-                ) : (
-                  <Link
-                    href={hub.listItemsPath}
-                    className="text-xs underline"
-                    style={{ color: "var(--color-primary)" }}
-                    prefetch={false}
-                  >
-                    Retry list
-                  </Link>
-                )}
+                {(() => {
+                  const publicUrl = etsyListingPublicUrl({
+                    etsyListingId: row.etsyListingId,
+                    remoteListingState: row.remoteListingState,
+                  });
+                  if (publicUrl) {
+                    return (
+                      <a
+                        href={publicUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs underline"
+                        style={{ color: "var(--color-primary)" }}
+                      >
+                        View on Etsy
+                      </a>
+                    );
+                  }
+                  if (row.etsyListingId) {
+                    return (
+                      <span className="text-xs text-neutral-500">Not live on Etsy yet</span>
+                    );
+                  }
+                  return (
+                    <Link
+                      href={hub.listItemsPath}
+                      className="text-xs underline"
+                      style={{ color: "var(--color-primary)" }}
+                      prefetch={false}
+                    >
+                      Retry list
+                    </Link>
+                  );
+                })()}
               </td>
             </tr>
           ))}

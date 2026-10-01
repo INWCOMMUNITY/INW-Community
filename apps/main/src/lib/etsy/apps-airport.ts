@@ -92,6 +92,22 @@ export const APPS_AIRPORT_ETSY_HUB = {
   openAdminLabel: "Open Etsy Shop Manager",
 };
 
+/** Public buyer URL is only valid for active Etsy listings. */
+export function etsyListingIsPubliclyViewable(remoteListingState?: string | null): boolean {
+  return String(remoteListingState ?? "").trim().toLowerCase() === "active";
+}
+
+/** Buyer-facing listing URL, or null when the listing is still draft / not live. */
+export function etsyListingPublicUrl(input: {
+  etsyListingId?: string | null;
+  remoteListingState?: string | null;
+}): string | null {
+  const id = String(input.etsyListingId ?? "").trim();
+  if (!/^\d+$/.test(id)) return null;
+  if (!etsyListingIsPubliclyViewable(input.remoteListingState)) return null;
+  return `https://www.etsy.com/listing/${id}`;
+}
+
 /** True once E4 import routes are live. */
 export const ETSY_IMPORT_ENABLED = true;
 
