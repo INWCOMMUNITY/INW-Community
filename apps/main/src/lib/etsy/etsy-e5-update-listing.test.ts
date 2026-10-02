@@ -9,7 +9,8 @@ vi.mock("database", async () => {
       etsyListingLink: { findUnique: vi.fn() },
       etsyVariantMap: { findMany: vi.fn() },
       storeItem: { findFirst: vi.fn(), update: vi.fn() },
-      storeVariant: { findFirst: vi.fn() },
+      storeVariant: { findFirst: vi.fn(), findUnique: vi.fn() },
+      etsySyncJob: { findFirst: vi.fn() },
     },
     markEtsyProductContentApplied: vi.fn(),
     markEtsyVariantContentApplied: vi.fn(),
@@ -70,6 +71,8 @@ describe("etsy UPDATE_LISTING_CONTENT handler", () => {
     vi.mocked(prisma.storeItem.findFirst).mockReset();
     vi.mocked(prisma.storeItem.update).mockReset();
     vi.mocked(prisma.storeVariant.findFirst).mockReset();
+    vi.mocked(prisma.storeVariant.findUnique).mockReset();
+    vi.mocked(prisma.etsySyncJob.findFirst).mockReset();
     vi.mocked(etsyConnectionRequest).mockReset();
     vi.mocked(uploadEtsyListingPhotosFromUrls).mockReset();
     vi.mocked(markEtsyProductContentApplied).mockReset();
@@ -398,5 +401,27 @@ describe("etsy UPDATE_LISTING_CONTENT handler", () => {
     );
     expect(uploadEtsyListingPhotosFromUrls).toHaveBeenCalled();
     expect(markEtsyProductContentApplied).toHaveBeenCalled();
+  });
+
+  it("does not dead-letter a content job whose variant was retired by a structure replace", async () => {
+    vi.mocked(prisma.etsyConnection.findUnique).mockResolvedValue({
+      id: "conn-1",
+      status: "ACTIVE",
+      memberId: "mem-1",
+    } as never);
+    vi.mocked(prisma.etsyListingLink.findUnique).mockResolvedValue({
+      id: "link-1",
+      storeItemId: "item-1",
+      etsyListingId: "555",
+      contentHealth: "HEALTHY",
+      desiredProductContentVersion: 2,
+      appliedProductContentVersion: 1,
+    } as never);
+    vi.mocked(prisma.etsyVariantMap.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.storeVariant.findUnique).mockResolvedValue({ status: "RETIRED" } as never);
+
+    const result = await handleEtsyUpdateListingContentJob(claimBase);
+    expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(etsyConnectionRequest).not.toHaveBeenCalled();
   });
 });

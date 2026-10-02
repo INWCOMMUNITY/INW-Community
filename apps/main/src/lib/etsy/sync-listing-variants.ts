@@ -198,6 +198,22 @@ function offeringPriceCents(price: unknown): number {
  * Etsy changed Size×Color (or collapsed to simple). Adopt remote products into Foundation
  * and remap. Does not PUT inventory back to Etsy.
  */
+/** Seller structure edit is still waiting to PUT. A cron pull must not adopt Etsy over it. */
+export async function etsySellerTopologyPushPending(listingLinkId: string): Promise<boolean> {
+  const pending = await prisma.etsySyncJob.findFirst({
+    where: {
+      kind: "RECONCILE_LISTING",
+      state: { in: ["PENDING", "RETRY_WAIT", "RUNNING"] },
+      AND: [
+        { payload: { path: ["listingLinkId"], equals: listingLinkId } },
+        { payload: { path: ["pushTopology"], equals: true } },
+      ],
+    },
+    select: { id: true },
+  });
+  return Boolean(pending);
+}
+
 async function pullRemoteTopologyIntoFoundation(input: {
   connectionId: string;
   memberId: string;
@@ -205,6 +221,9 @@ async function pullRemoteTopologyIntoFoundation(input: {
   storeItemId: string;
   remoteProducts: EtsyRemoteInventoryProduct[];
 }): Promise<SyncEtsyVariantTopologyResult> {
+  if (await etsySellerTopologyPushPending(input.listingLinkId)) {
+    return { status: "NOOP", reason: "SELLER_TOPOLOGY_PUSH_PENDING" };
+  }
   const commandId = `etsy-pull:${input.listingLinkId}:${Date.now()}`;
   const optioned = input.remoteProducts
     .map((product) => {

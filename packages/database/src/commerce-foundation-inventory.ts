@@ -295,77 +295,62 @@ export async function projectStoreItemVariantsMatrix(
   }
 
   const existing = coerceVariantsMatrixJson(item.variants);
-  const byId = new Map(live.map((row) => [row.storeVariantId, row] as const));
-  const byCombo = new Map(live.map((row) => [optionComboKey(row.options), row] as const));
+  const existingSkus =
+    existing && Array.isArray(existing.skus)
+      ? (existing.skus as Array<Record<string, unknown>>)
+      : [];
+  const existingAxes =
+    existing && Array.isArray(existing.axes)
+      ? (existing.axes as Array<Record<string, unknown>>)
+      : [];
 
-  let axes: Array<{ name: string; values: string[] }>;
-  let skus: Array<Record<string, unknown>>;
+  // Photos are not on StoreVariant. Keep them only when the live row is the same variant.
+  const photosById = new Map<string, unknown[]>();
+  const photosByCombo = new Map<string, unknown[]>();
+  for (const rawSku of existingSkus) {
+    if (!Array.isArray(rawSku.photos) || rawSku.photos.length === 0) continue;
+    if (typeof rawSku.storeVariantId === "string") photosById.set(rawSku.storeVariantId, rawSku.photos);
+    const opts =
+      rawSku.options && typeof rawSku.options === "object" && !Array.isArray(rawSku.options)
+        ? parseVariantOptions(rawSku.options as Prisma.JsonValue)
+        : {};
+    if (Object.keys(opts).length > 0) photosByCombo.set(optionComboKey(opts), rawSku.photos);
+  }
 
-  if (existing && Array.isArray(existing.skus) && existing.skus.length > 0) {
-    axes = (existing.axes as Array<{ name: string; values: string[] }>).map((a) => ({
-      name: a.name,
-      values: [...(a.values ?? [])],
-    }));
-    skus = [];
-    const seen = new Set<string>();
-    for (const rawSku of existing.skus as Array<Record<string, unknown>>) {
-      const opts =
-        rawSku.options && typeof rawSku.options === "object" && !Array.isArray(rawSku.options)
-          ? parseVariantOptions(rawSku.options as Prisma.JsonValue)
-          : {};
-      const match =
-        (typeof rawSku.storeVariantId === "string" ? byId.get(rawSku.storeVariantId) : undefined) ??
-        byCombo.get(optionComboKey(opts));
-      if (!match) {
-        skus.push(rawSku);
-        continue;
-      }
-      seen.add(match.storeVariantId);
-      skus.push({
-        ...rawSku,
-        options: match.options,
-        quantity: match.quantity,
-        storeVariantId: match.storeVariantId,
-        // Foundation StoreVariant is SoT — never keep a stale JSON price/sku over the row.
-        priceCents: match.priceCents,
-        ...(match.sku ? { sku: match.sku } : { sku: null }),
-      });
-    }
-    for (const row of live) {
-      if (seen.has(row.storeVariantId)) continue;
-      skus.push({
-        options: row.options,
-        quantity: row.quantity,
-        priceCents: row.priceCents,
-        storeVariantId: row.storeVariantId,
-        ...(row.sku ? { sku: row.sku } : {}),
-      });
-      for (const [name, value] of Object.entries(row.options)) {
-        let axis = axes.find((a) => a.name === name);
-        if (!axis) {
-          axis = { name, values: [] };
-          axes.push(axis);
-        }
-        if (!axis.values.includes(value)) axis.values.push(value);
-      }
-    }
-  } else {
-    const axisNames = new Set<string>();
-    for (const row of live) {
-      for (const name of Object.keys(row.options)) axisNames.add(name);
-    }
-    axes = [...axisNames].sort((a, b) => a.localeCompare(b)).map((name) => ({
+  const axisNames = new Set<string>();
+  for (const row of live) {
+    for (const name of Object.keys(row.options)) axisNames.add(name);
+  }
+  // Rebuild from ACTIVE optioned variants only. Keeping unmatched JSON rows
+  // resurrected retired axes (Materials, Color, …) after a structure replace.
+  const axes = [...axisNames].sort((a, b) => a.localeCompare(b)).map((name) => {
+    const prev = existingAxes.find((axis) => String(axis.name ?? "") === name);
+    const photosByValue =
+      prev?.photosByValue && typeof prev.photosByValue === "object" && !Array.isArray(prev.photosByValue)
+        ? prev.photosByValue
+        : undefined;
+    return {
       name,
       values: [...new Set(live.map((row) => row.options[name]).filter(Boolean))] as string[],
-    }));
-    skus = live.map((row) => ({
+      ...(photosByValue ? { photosByValue } : {}),
+    };
+  });
+  const skus = live.map((row) => {
+    const photos =
+      photosById.get(row.storeVariantId) ?? photosByCombo.get(optionComboKey(row.options));
+    return {
       options: row.options,
       quantity: row.quantity,
       priceCents: row.priceCents,
       storeVariantId: row.storeVariantId,
-      ...(row.sku ? { sku: row.sku } : {}),
-    }));
-  }
+      ...(row.sku ? { sku: row.sku } : { sku: null }),
+      ...(photos ? { photos } : {}),
+    };
+  });
+  const imageAxis =
+    typeof existing?.imageAxis === "string" && axes.some((axis) => axis.name === existing.imageAxis)
+      ? existing.imageAxis
+      : undefined;
 
   const prices = new Set(skus.map((s) => Number(s.priceCents) || 0));
   const qtys = new Set(skus.map((s) => Number(s.quantity) || 0));
@@ -383,6 +368,7 @@ export async function projectStoreItemVariantsMatrix(
         pricesVary: prices.size > 1,
         quantitiesVary: qtys.size > 1,
         skusVary: skuCodes.size > 1,
+        ...(imageAxis ? { imageAxis } : {}),
       } as Prisma.InputJsonValue,
       ...(facadePrice != null ? { priceCents: facadePrice } : {}),
     },

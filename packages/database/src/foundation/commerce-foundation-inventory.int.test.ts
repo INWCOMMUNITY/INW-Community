@@ -1275,6 +1275,83 @@ describe("prompt-65 checkout idempotency / races / restock", () => {
     expect(bySize.get("M")).toBe(250);
   });
 
+  it("projectStoreItemQuantity drops retired JSON axes that no longer match ACTIVE variants", async () => {
+    await enterFoundation();
+    const member = await createMember(prisma, "ghostaxis");
+    const item = await createStoreItem(prisma, member.id, "GhostAxis", {
+      quantity: 2,
+      priceCents: 200,
+      variants: {
+        axes: [{ name: "Size", values: ["S", "M"] }],
+        skus: [
+          { options: { Size: "S" }, quantity: 1, priceCents: 200 },
+          { options: { Size: "M" }, quantity: 1, priceCents: 300 },
+        ],
+      },
+    });
+    await prisma.$transaction((tx) => provisionNativeFoundationListing(tx, item.id));
+    const optioned = await prisma.storeVariant.findMany({
+      where: { storeItemId: item.id, status: "ACTIVE" },
+      select: { id: true, options: true },
+    });
+    const s = optioned.find((v) => (v.options as { Size?: string })?.Size === "S")?.id;
+    const m = optioned.find((v) => (v.options as { Size?: string })?.Size === "M")?.id;
+    expect(s && m).toBeTruthy();
+    await prisma.storeItem.update({
+      where: { id: item.id },
+      data: {
+        variants: {
+          axes: [
+            { name: "Materials", values: ["Wool"] },
+            { name: "Size", values: ["S", "M"], photosByValue: { S: ["https://example.com/s.jpg"] } },
+            { name: "Color", values: ["Blue", "Red"] },
+          ],
+          skus: [
+            {
+              options: { Size: "S", Materials: "Wool", "Primary color": "Red" },
+              quantity: 99,
+              priceCents: 900,
+              storeVariantId: "retired-ghost",
+            },
+            {
+              options: { Size: "S" },
+              quantity: 1,
+              priceCents: 900,
+              storeVariantId: s,
+              photos: ["https://example.com/s.jpg"],
+            },
+            {
+              options: { Size: "M" },
+              quantity: 1,
+              priceCents: 900,
+              storeVariantId: m,
+            },
+          ],
+          imageAxis: "Size",
+        },
+      },
+    });
+    await prisma.$transaction((tx) => projectStoreItemQuantity(tx, item.id));
+    const projected = await prisma.storeItem.findUniqueOrThrow({ where: { id: item.id } });
+    const matrix = projected.variants as {
+      axes: Array<{ name: string; values: string[]; photosByValue?: Record<string, string[]> }>;
+      skus: Array<{
+        options: Record<string, string>;
+        storeVariantId?: string;
+        photos?: string[];
+        quantity: number;
+      }>;
+      imageAxis?: string;
+    };
+    expect(matrix.axes.map((axis) => axis.name).sort()).toEqual(["Size"]);
+    expect(matrix.skus).toHaveLength(2);
+    expect(matrix.skus.every((sku) => !("Materials" in sku.options) && !("Color" in sku.options))).toBe(true);
+    expect(matrix.skus.find((sku) => sku.storeVariantId === s)?.photos).toEqual(["https://example.com/s.jpg"]);
+    expect(matrix.axes[0]?.photosByValue?.S).toEqual(["https://example.com/s.jpg"]);
+    expect(matrix.imageAxis).toBe("Size");
+    expect(matrix.skus.some((sku) => sku.quantity === 99)).toBe(false);
+  });
+
   it("Mark Sold with an active HOLD rejects and leaves reservation/status unchanged", async () => {
     const ctx = await trackedSimple(1);
     const buyer = await createMember(prisma, "sold-hold");

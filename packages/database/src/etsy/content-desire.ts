@@ -665,7 +665,7 @@ export async function recordEtsyListingVariantTopologyDesire(
   });
 
   // Versioned reconcile dedupe — time-bucket reconcile does not resurrect SUCCEEDED.
-  await enqueueEtsySyncJob(db, {
+  const reconcileJob = await enqueueEtsySyncJob(db, {
     etsyConnectionId: connection.id,
     kind: "RECONCILE_LISTING",
     dedupeKey: `RECONCILE_LISTING:${connection.id}:${lockedListing.id}:topo:p${nextProductVersion}`,
@@ -685,12 +685,32 @@ export async function recordEtsyListingVariantTopologyDesire(
     where: { etsyListingLinkId: lockedListing.id, etsyConnectionId: connection.id },
     orderBy: { createdAt: "asc" },
   });
-  const storeVariantId = variantMaps[0]?.storeVariantId ?? activeVariant?.id;
-  if (!storeVariantId) {
-    return { status: "SKIPPED", reason: "UNSUPPORTED" };
+  // A full axis replace retires every previously mapped variant and deletes those
+  // maps in the same transaction. The new variants have no map until the push
+  // reconcile remeshes. Queueing UPDATE_LISTING_CONTENT for an unmapped id dies
+  // with "no variant map matching the job payload" before that remap.
+  if (variantMaps.length < 1) {
+    await reconcileEtsyListingHealthFromDb(db, {
+      connectionId: connection.id,
+      listingLinkId: lockedListing.id,
+    }).catch(() => undefined);
+    if (!activeVariant) {
+      return { status: "SKIPPED", reason: "UNSUPPORTED" };
+    }
+    return {
+      status: "RECORDED",
+      connectionId: connection.id,
+      storeItemId: input.storeItemId,
+      storeVariantId: activeVariant.id,
+      productDesiredVersion: nextProductVersion,
+      variantDesiredVersion: 0,
+      jobId: reconcileJob.id,
+      syncedVariantPriceSku: false,
+    };
   }
 
-  const variantDesiredVersion = variantMaps[0]?.desiredVariantContentVersion ?? 0;
+  const storeVariantId = variantMaps[0]!.storeVariantId;
+  const variantDesiredVersion = variantMaps[0]!.desiredVariantContentVersion;
   const job = await ensureEtsyUpdateListingContentJob(db, {
     connectionId: connection.id,
     storeItemId: input.storeItemId,

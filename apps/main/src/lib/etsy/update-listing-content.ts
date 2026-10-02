@@ -24,6 +24,7 @@ import { ensureInwHostedListingPhotos } from "@/lib/listing-photo-rehost";
 import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "./taxonomy-default";
 import { resolveEtsyReadinessStateId } from "./readiness-state";
 import {
+  etsySellerTopologyPushPending,
   isSyncEtsyVariantTopologyFailure,
   syncEtsyListingVariantTopology,
 } from "./sync-listing-variants";
@@ -170,6 +171,24 @@ export async function handleEtsyUpdateListingContentJob(
   const variantMap =
     variantMaps.find((row) => row.storeVariantId === payload.storeVariantId) ?? null;
   if (!variantMap) {
+    const variant = await prisma.storeVariant.findUnique({
+      where: { id: payload.storeVariantId },
+      select: { status: true },
+    });
+    // Structure replace retires the mapped variant and deletes its map before
+    // the topology push remeshes. That job is stale — do not notify the seller.
+    if (!variant || variant.status !== "ACTIVE") {
+      return { outcome: "SUCCESS" };
+    }
+    if (await etsySellerTopologyPushPending(listing.id)) {
+      return {
+        outcome: "RETRY",
+        errorClass: "TRANSIENT",
+        errorCode: "VARIANT_MAP_PENDING",
+        errorMessage: "Variant map is waiting on the seller topology push",
+        retryAt: new Date(Date.now() + 15_000),
+      };
+    }
     return {
       outcome: "DEAD",
       errorClass: "PERMANENT",
