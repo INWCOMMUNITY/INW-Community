@@ -3,6 +3,7 @@ import {
   buildEtsyInventoryProductsPayload,
   correlateEtsyProductsToStoreVariants,
   inventoryHasDeprecatedEtsyProperties,
+  matchEtsyTaxonomyProperty,
   parseStoreVariantOptions,
   pickEtsyVariationPropertyId,
   sanitizeDeprecatedEtsyInventoryProperties,
@@ -55,6 +56,46 @@ describe("validateEtsyExportVariants", () => {
       expect(result.multi).toBe(true);
       expect(result.axisNames.sort()).toEqual(["Color", "Size"]);
     }
+  });
+
+  it("requires every combination when three axes are exported", () => {
+    const full = ["Red", "Blue"].flatMap((color) =>
+      ["Small", "Large"].flatMap((size) =>
+        ["Wool", "Cotton"].map((material) => ({
+          id: `${color}-${size}-${material}`,
+          options: { "Primary color": color, Size: size, Material: material },
+          priceCents: 1500,
+          sku: null,
+        }))
+      )
+    );
+    expect(validateEtsyExportVariants({ variants: full }).ok).toBe(true);
+    const missingOne = full.slice(1);
+    const result = validateEtsyExportVariants({ variants: missingOne });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toMatch(/every combination/i);
+  });
+});
+
+describe("matchEtsyTaxonomyProperty", () => {
+  const properties = [
+    { property_id: 200, name: "Color", display_name: "Color" },
+    { property_id: 513, name: "Primary color", display_name: "Primary color" },
+    { property_id: 100, name: "Size", display_name: "Size" },
+    { property_id: 507, name: "Material", display_name: "Materials" },
+    { property_id: 9, name: "S", display_name: "S" },
+  ];
+
+  it("gives Primary color, Size, and Materials three different properties", () => {
+    const used = new Set<number>();
+    const color = matchEtsyTaxonomyProperty("Primary color", properties, used);
+    expect(color?.property_id).toBe(513);
+    used.add(513);
+    const material = matchEtsyTaxonomyProperty("Materials", properties, used);
+    expect(material?.property_id).toBe(507);
+    used.add(507);
+    const size = matchEtsyTaxonomyProperty("Size", properties, used);
+    expect(size).toBeNull();
   });
 });
 
@@ -237,8 +278,8 @@ describe("buildEtsyInventoryProductsPayload + correlate", () => {
     expect(built.products[0]!.offerings[0]!.quantity).toBe(3);
     expect(built.products[1]!.offerings[0]!.quantity).toBe(6);
     expect(built.products[0]!.offerings[0]!.price).toBe(10);
-    expect(built.quantity_on_property.length).toBeGreaterThan(0);
-    expect(built.price_on_property.length).toBeGreaterThan(0);
+    expect(built.quantity_on_property).toEqual([513, 200]);
+    expect(built.price_on_property).toEqual([513, 200]);
 
     const remote = built.products.map((p, i) => ({
       product_id: 1000 + i,
@@ -259,6 +300,75 @@ describe("buildEtsyInventoryProductsPayload + correlate", () => {
       expect(corr.pairs.find((p) => p.storeVariantId === "v1")?.etsyOfferingId).toBe("2000");
       expect(corr.pairs.find((p) => p.storeVariantId === "v2")?.etsyProductId).toBe("1001");
     }
+  });
+
+  it("repairs empty on_property arrays when rewriting a multi-product inventory GET", () => {
+    const body = toEtsyInventoryPutBody({
+      products: [
+        {
+          product_id: 1,
+          sku: "",
+          property_values: [
+            { property_id: 513, property_name: "Size", values: ["Small"], value_ids: [] },
+            { property_id: 507, property_name: "Materials", values: ["Wool"], value_ids: [] },
+            { property_id: 200, property_name: "Primary color", values: ["Red"], value_ids: [] },
+          ],
+          offerings: [{ offering_id: 11, price: 5, quantity: 2, is_enabled: true }],
+        },
+        {
+          product_id: 2,
+          sku: "",
+          property_values: [
+            { property_id: 513, property_name: "Size", values: ["Medium"], value_ids: [] },
+            { property_id: 507, property_name: "Materials", values: ["Cotton"], value_ids: [] },
+            { property_id: 200, property_name: "Primary color", values: ["Blue"], value_ids: [] },
+          ],
+          offerings: [{ offering_id: 22, price: 5, quantity: 2, is_enabled: true }],
+        },
+      ],
+      price_on_property: [],
+      quantity_on_property: [],
+      sku_on_property: [],
+    });
+    expect(body.price_on_property.sort()).toEqual([200, 507, 513]);
+    expect(body.quantity_on_property.sort()).toEqual([200, 507, 513]);
+    expect(body.products).toHaveLength(2);
+    expect(body.products.every((p) => p.offerings[0]?.quantity === 2)).toBe(true);
+  });
+
+  it("keeps per-combination price and quantity on Etsy when every row matches", () => {
+    const variants = [
+      {
+        id: "v1",
+        options: { Size: "Small", Materials: "Wool", "Primary color": "Red" },
+        priceCents: 1500,
+        sku: null,
+        inventory: { mode: "TRACKED_FINITE" as const, onHand: 10, reserved: 0 },
+      },
+      {
+        id: "v2",
+        options: { Size: "Medium", Materials: "Wool", "Primary color": "Blue" },
+        priceCents: 1500,
+        sku: null,
+        inventory: { mode: "TRACKED_FINITE" as const, onHand: 10, reserved: 0 },
+      },
+    ];
+    const axisNames = ["Materials", "Primary color", "Size"];
+    const propertyMap = new Map([
+      ["Materials", { propertyId: 507, scaleId: null }],
+      ["Primary color", { propertyId: 200, scaleId: null }],
+      ["Size", { propertyId: 513, scaleId: null }],
+    ]);
+    const built = buildEtsyInventoryProductsPayload({
+      variants,
+      inventoryTracking: "tracked",
+      axisNames,
+      propertyMap,
+      readinessStateId: 99,
+    });
+    expect(built.price_on_property).toEqual([507, 200, 513]);
+    expect(built.quantity_on_property).toEqual([507, 200, 513]);
+    expect(built.sku_on_property).toEqual([]);
   });
 
   it("correlates when Etsy renames axes but keeps the option values", () => {

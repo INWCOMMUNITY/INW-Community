@@ -7,6 +7,7 @@ import {
   MAX_VARIANT_AXES,
   inferMatrixVaryFlags,
   listingGalleryPhotoChoices,
+  combinationEnabledAfterAxisEdit,
   normalizeVariantMatrix,
   optionsEqual,
   rebuildMatrixFromAxes,
@@ -344,15 +345,14 @@ export function ListingVariantMatrixEditor({
       skusVary,
       imageAxis: resolveImageAxisName({ axes: nextAxes, skus: nextSkus }),
     });
-    const prevEnabled = new Set(
-      nextSkus.filter((s) => s.enabled).map((s) => skuSelectionKey(s.options))
+    const prevEnabled = new Map(
+      nextSkus.map((s) => [skuSelectionKey(s.options), s.enabled])
     );
-    const hadRows = nextSkus.length > 0;
     onChange(
       full.axes,
       full.skus.map((s) => ({
         ...s,
-        enabled: hadRows ? prevEnabled.has(skuSelectionKey(s.options)) : true,
+        enabled: combinationEnabledAfterAxisEdit(skuSelectionKey(s.options), prevEnabled),
         ...(!pricesVary ? { priceCents: undefined } : {}),
         ...(!skusVary ? { sku: undefined } : {}),
       }))
@@ -446,7 +446,20 @@ export function ListingVariantMatrixEditor({
     );
   };
 
+  const setAllVisible = (enabled: boolean) => {
+    onChange(
+      axes,
+      skus.map((s) => ({ ...s, enabled }))
+    );
+  };
+
   const enabledCount = skus.filter((s) => s.enabled).length;
+  const allVisible = skus.length > 0 && enabledCount === skus.length;
+  const someVisible = enabledCount > 0 && !allVisible;
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someVisible;
+  }, [someVisible]);
   const summary =
     axes.length === 0
       ? "No options yet"
@@ -546,7 +559,7 @@ export function ListingVariantMatrixEditor({
                         const t = sanitizePriceDraftInput(e.target.value);
                         if (t != null) setBulkPrice(t);
                       }}
-                      className="mt-1 block w-24 border rounded px-2 py-1 text-sm"
+                      className="mt-1 block w-28 border rounded px-2 py-1.5 text-sm"
                       placeholder="12.00"
                     />
                   </label>
@@ -561,7 +574,7 @@ export function ListingVariantMatrixEditor({
                       autoComplete="off"
                       value={bulkQty}
                       onChange={(e) => setBulkQty(sanitizeQtyDraftInput(e.target.value))}
-                      className="mt-1 block w-20 border rounded px-2 py-1 text-sm"
+                      className="mt-1 block w-24 border rounded px-2 py-1.5 text-sm"
                       placeholder="1"
                     />
                   </label>
@@ -589,7 +602,18 @@ export function ListingVariantMatrixEditor({
                       {quantitiesVary && !madeToOrder ? <th className="px-2 py-2">Qty</th> : null}
                       {pricesVary ? <th className="px-2 py-2">Price</th> : null}
                       {skusVary ? <th className="px-2 py-2">SKU</th> : null}
-                      <th className="px-2 py-2">Visible</th>
+                      <th className="px-2 py-2">
+                        <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                          <input
+                            ref={selectAllRef}
+                            type="checkbox"
+                            checked={allVisible}
+                            onChange={(e) => setAllVisible(e.target.checked)}
+                            aria-label="Select all variations"
+                          />
+                          <span>Visible</span>
+                        </label>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -616,7 +640,7 @@ export function ListingVariantMatrixEditor({
                               <VariantQtyInput
                                 qty={row.quantity}
                                 onCommitQty={(n) => patchSku(key, { quantity: n })}
-                                className="w-16 border rounded px-1 py-0.5"
+                                className="w-24 border rounded px-2 py-1.5 text-sm"
                                 placeholder="0"
                               />
                             </td>
@@ -626,7 +650,7 @@ export function ListingVariantMatrixEditor({
                               <VariantPriceInput
                                 cents={row.priceCents}
                                 onCommitCents={(cents) => patchSku(key, { priceCents: cents })}
-                                className="w-20 border rounded px-1 py-0.5"
+                                className="w-28 border rounded px-2 py-1.5 text-sm"
                                 placeholder="Default"
                               />
                             </td>
@@ -635,7 +659,7 @@ export function ListingVariantMatrixEditor({
                             <td className="px-2 py-2">
                               <input
                                 type="text"
-                                className="w-28 border rounded px-1 py-0.5 font-mono"
+                                className="w-32 border rounded px-2 py-1.5 font-mono text-sm"
                                 value={row.sku ?? ""}
                                 onChange={(e) => patchSku(key, { sku: e.target.value || undefined })}
                               />

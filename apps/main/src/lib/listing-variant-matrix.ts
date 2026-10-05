@@ -436,6 +436,19 @@ export function rebuildMatrixFromAxes(
   };
 }
 
+/**
+ * After Manage variations adds or removes values, decide which combinations stay for sale.
+ * A combination the seller already marked not visible stays off. A new combination
+ * (a value they just added) starts visible so it is saved and shown on the listing.
+ */
+export function combinationEnabledAfterAxisEdit(
+  comboKey: string,
+  previousEnabledByKey: ReadonlyMap<string, boolean>
+): boolean {
+  if (!previousEnabledByKey.has(comboKey)) return true;
+  return previousEnabledByKey.get(comboKey) === true;
+}
+
 export function cartesianOptionMaps(axes: VariantAxisDef[]): Record<string, string>[] {
   if (axes.length === 0) return [];
   let combos: Record<string, string>[] = [{}];

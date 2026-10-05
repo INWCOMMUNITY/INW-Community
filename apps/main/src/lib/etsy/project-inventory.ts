@@ -14,6 +14,7 @@ import { resolveEtsyReadinessStateId } from "./readiness-state";
 import {
   isSyncEtsyVariantTopologyFailure,
   syncEtsyListingVariantTopology,
+  topologySyncNeedsFreshOffering,
 } from "./sync-listing-variants";
 import { ETSY_INVENTORY_QUERY, toEtsyInventoryPutBody } from "./listing-variants";
 
@@ -291,7 +292,7 @@ export async function handleEtsyProjectInventoryJob(
           if (isSyncEtsyVariantTopologyFailure(synced)) {
             return synced;
           }
-          if (synced.status === "REMATCHED" || synced.status === "PUSHED" || synced.status === "PULLED") {
+          if (topologySyncNeedsFreshOffering(synced)) {
             return {
               outcome: "RETRY",
               errorClass: "TRANSIENT",

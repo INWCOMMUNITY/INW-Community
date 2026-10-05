@@ -368,10 +368,25 @@ export function toEtsyInventoryPutBody(input: {
     });
   }
 
+  // Multi-product variation listings must keep price/qty on every axis.
+  // Echoing empty *_on_property from a prior GET collapses Shop Manager to one
+  // listing-level price/qty while the live page still shows the option menus.
+  const axisPropertyIds = [
+    ...new Set(
+      products.flatMap((product) => product.property_values.map((pv) => pv.property_id)).filter((id) => Number.isFinite(id))
+    ),
+  ];
+  const keepPerCombination = products.length > 1 && axisPropertyIds.length > 0;
   return {
     products,
-    price_on_property: sanitized.price_on_property,
-    quantity_on_property: sanitized.quantity_on_property,
+    price_on_property:
+      keepPerCombination && sanitized.price_on_property.length === 0
+        ? axisPropertyIds
+        : sanitized.price_on_property,
+    quantity_on_property:
+      keepPerCombination && sanitized.quantity_on_property.length === 0
+        ? axisPropertyIds
+        : sanitized.quantity_on_property,
     sku_on_property: sanitized.sku_on_property,
   };
 }
@@ -472,7 +487,66 @@ export function validateEtsyExportVariants(input: {
       return { ok: false, message: "Every variant needs a price greater than zero for Etsy" };
     }
   }
+  const valuesByAxis = new Map<string, Set<string>>();
+  for (const axis of axisNames) valuesByAxis.set(axis, new Set());
+  for (const v of variants) {
+    const opts = parseStoreVariantOptions(v.options)!;
+    for (const [name, value] of Object.entries(opts)) {
+      const axis = [...axisNames].find((candidate) => candidate.toLowerCase() === name.toLowerCase());
+      if (axis) valuesByAxis.get(axis)!.add(value.trim().toLowerCase());
+    }
+  }
+  let expected = 1;
+  for (const values of valuesByAxis.values()) {
+    if (values.size < 1) {
+      return { ok: false, message: "Etsy export is missing option values" };
+    }
+    expected *= values.size;
+  }
+  if (variants.length !== expected) {
+    const label = [...axisNames].sort((a, b) => a.localeCompare(b)).join(", ");
+    return {
+      ok: false,
+      message: `Etsy needs every combination of ${label}. Found ${variants.length} of ${expected}. Turn on each row, or remove the unused option value.`,
+    };
+  }
   return { ok: true, multi: true, axisNames: [...axisNames] };
+}
+
+function normalizeVariationName(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function variationStem(value: string): string {
+  const normalized = normalizeVariationName(value);
+  return normalized.endsWith("s") && normalized.length > 3 ? normalized.slice(0, -1) : normalized;
+}
+
+/**
+ * Bind an INW axis to one taxonomy property.
+ * Exact name first, then a simple plural (Material/Materials).
+ * Substring matches are rejected so "Primary color" cannot take "Color"
+ * and "Size" cannot take a shorter property.
+ */
+export function matchEtsyTaxonomyProperty<
+  T extends { property_id?: number; name?: string; display_name?: string },
+>(axisName: string, properties: T[], usedPropertyIds: ReadonlySet<number>): T | null {
+  const want = normalizeVariationName(axisName);
+  const wantStem = variationStem(want);
+  const available = properties.filter((property) => {
+    const id = Number(property.property_id);
+    return Number.isFinite(id) && !usedPropertyIds.has(id) && !isDeprecatedEtsyVariationPropertyId(id);
+  });
+  const labelsOf = (property: T) =>
+    [property.name, property.display_name]
+      .filter((label): label is string => typeof label === "string" && label.trim().length > 0)
+      .map(normalizeVariationName);
+  const exact = available.find((property) => labelsOf(property).includes(want));
+  if (exact) return exact;
+  return (
+    available.find((property) => labelsOf(property).some((label) => variationStem(label) === wantStem)) ??
+    null
+  );
 }
 
 type TaxonomyProperty = {
@@ -505,13 +579,7 @@ export async function resolveEtsyVariationPropertyIds(input: {
   const results = res.ok && Array.isArray(res.data?.results) ? res.data!.results! : [];
 
   for (const axis of input.axisNames) {
-    const want = axis.trim().toLowerCase();
-    const match = results.find((p) => {
-      const names = [p.name, p.display_name]
-        .filter((n): n is string => typeof n === "string")
-        .map((n) => n.trim().toLowerCase());
-      return names.includes(want) || names.some((n) => n.includes(want) || want.includes(n));
-    });
+    const match = matchEtsyTaxonomyProperty(axis, results, usedPropertyIds);
     const taxonomyPropertyId =
       match?.property_id != null && Number.isFinite(Number(match.property_id))
         ? Number(match.property_id)
@@ -538,11 +606,15 @@ function inferVaryAxes(
   axisNames: string[]
 ): { priceAxes: string[]; quantityAxes: string[]; skuAxes: string[] } {
   const prices = new Set(variants.map((v) => v.priceCents));
-  const qtys = new Set(variants.map((v) => v.quantity));
   const skus = new Set(variants.map((v) => (v.sku ?? "").trim()));
+  // A multi-variant listing always keeps price and quantity on every axis.
+  // Empty *_on_property arrays make Etsy store one listing-level price and
+  // quantity and drop the per-combination grid, even when products still
+  // carry property values. 0 / 1 / all still holds: both fields are "all".
+  const perCombination = variants.length > 1 && axisNames.length > 0;
   return {
-    priceAxes: prices.size > 1 ? [...axisNames] : [],
-    quantityAxes: qtys.size > 1 ? [...axisNames] : [],
+    priceAxes: perCombination || prices.size > 1 ? [...axisNames] : [],
+    quantityAxes: perCombination ? [...axisNames] : [],
     skuAxes:
       [...skus].filter(Boolean).length > 1 || (skus.size > 1 && [...skus].some(Boolean))
         ? [...axisNames]

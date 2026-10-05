@@ -27,6 +27,7 @@ import {
   etsySellerTopologyPushPending,
   isSyncEtsyVariantTopologyFailure,
   syncEtsyListingVariantTopology,
+  topologySyncNeedsFreshOffering,
 } from "./sync-listing-variants";
 import { ETSY_INVENTORY_QUERY, toEtsyInventoryPutBody } from "./listing-variants";
 
@@ -597,7 +598,7 @@ export async function handleEtsyUpdateListingContentJob(
             if (isSyncEtsyVariantTopologyFailure(synced)) {
               return synced;
             }
-            if (synced.status === "REMATCHED" || synced.status === "PUSHED") {
+            if (topologySyncNeedsFreshOffering(synced)) {
               return {
                 outcome: "RETRY",
                 errorClass: "TRANSIENT",

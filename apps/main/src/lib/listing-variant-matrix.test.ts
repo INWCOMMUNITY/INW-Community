@@ -25,6 +25,7 @@ import {
   variantPriceDraftToCents,
   variantQtyDraftToNumber,
   variantQtyToEditable,
+  combinationEnabledAfterAxisEdit,
   normalizeVariantMatrix,
   rebuildMatrixFromAxes,
   serializeVariantMatrix,
@@ -242,6 +243,24 @@ describe("validateVariantMatrixForSave", () => {
         skus: [{ options: { A: "1", B: "1", C: "1", D: "1" }, quantity: 1 }],
       })
     ).toMatch(/3 option types/i);
+  });
+});
+
+describe("combinationEnabledAfterAxisEdit", () => {
+  it("starts a newly added material combination as visible and keeps an explicit hide", () => {
+    const previous = new Map<string, boolean>([
+      ["material=wool|primary color=red|size=small", true],
+      ["material=cotton|primary color=red|size=small", false],
+    ]);
+    expect(
+      combinationEnabledAfterAxisEdit("material=wool|primary color=red|size=small", previous)
+    ).toBe(true);
+    expect(
+      combinationEnabledAfterAxisEdit("material=cotton|primary color=red|size=small", previous)
+    ).toBe(false);
+    expect(
+      combinationEnabledAfterAxisEdit("material=cotton|primary color=blue|size=small", previous)
+    ).toBe(true);
   });
 });
 

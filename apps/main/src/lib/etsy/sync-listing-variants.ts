@@ -629,7 +629,11 @@ export async function syncEtsyListingVariantTopology(input: {
     };
   }
 
-  const inventoryRes = await etsyConnectionRequest<{ products?: EtsyRemoteInventoryProduct[] }>({
+  const inventoryRes = await etsyConnectionRequest<{
+    products?: EtsyRemoteInventoryProduct[];
+    price_on_property?: number[];
+    quantity_on_property?: number[];
+  }>({
     connectionId: input.connectionId,
     memberId: input.memberId,
     method: "GET",
@@ -648,6 +652,12 @@ export async function syncEtsyListingVariantTopology(input: {
   const mapsOk = mapsMatchLocalCombos({ maps, variants: variantRows });
   const combosMatch = sameKeySet(localKeys, remoteKeys);
   const hasDeprecatedProperties = inventoryHasDeprecatedEtsyProperties(remoteProducts);
+  // Live page can still show Size/Material/Color while Shop Manager has one listing
+  // qty because *_on_property was left empty. Seller push must rewrite those arrays.
+  const remoteListingLevelStock =
+    remoteProducts.length > 1 &&
+    ((inventoryRes.data.quantity_on_property ?? []).length === 0 ||
+      (inventoryRes.data.price_on_property ?? []).length === 0);
 
   const requested = variantRows.map((v) => ({
     storeVariantId: v.id,
@@ -655,7 +665,11 @@ export async function syncEtsyListingVariantTopology(input: {
   }));
 
   // Same option combos: rematch ids only. Never PUT just because map labels are stale.
-  if (combosMatch && !hasDeprecatedProperties && !(input.direction === "push" && input.forcePush)) {
+  if (
+    combosMatch &&
+    !hasDeprecatedProperties &&
+    !(input.direction === "push" && (input.forcePush || remoteListingLevelStock))
+  ) {
     const rematched = await rematchEtsyVariantMapsByOptions({
       connectionId: input.connectionId,
       memberId: input.memberId,
@@ -678,7 +692,12 @@ export async function syncEtsyListingVariantTopology(input: {
   }
 
   // Structure diverges. Cron adopts Etsy into Foundation. Seller topology desire pushes INW.
+  // Listing-level stock with option menus still present is an Etsy inventory shape bug —
+  // do not pull that collapsed qty model into Foundation; wait for a seller push heal.
   if (input.direction !== "push") {
+    if (remoteListingLevelStock && combosMatch) {
+      return { status: "NOOP", reason: "REMOTE_LISTING_LEVEL_STOCK" };
+    }
     return pullRemoteTopologyIntoFoundation({
       connectionId: input.connectionId,
       memberId: input.memberId,
@@ -784,6 +803,17 @@ export async function syncEtsyListingVariantTopology(input: {
   }
 
   return { status: "PUSHED", pairCount: correlation.pairs.length };
+}
+
+/** Content and inventory jobs should wait when topology just changed the offering ids. */
+export function topologySyncNeedsFreshOffering(
+  result: SyncEtsyVariantTopologyResult
+): boolean {
+  if ("outcome" in result) return false;
+  if (result.status === "REMATCHED" || result.status === "PUSHED" || result.status === "PULLED") {
+    return true;
+  }
+  return result.status === "NOOP" && result.reason === "SELLER_TOPOLOGY_PUSH_PENDING";
 }
 
 /** True when handler result is a job failure (RETRY/DEAD). */
