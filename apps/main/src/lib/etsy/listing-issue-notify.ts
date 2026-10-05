@@ -1,6 +1,7 @@
 import { etsyListingIssueDedupeKey, prisma } from "database";
 import { logSellerActivityOnce } from "@/lib/seller-activity-log";
 import { sendPushNotification } from "@/lib/send-push-notification";
+import { isEtsyListingBusyConflict } from "./errors";
 
 /**
  * Persist one seller-visible Etsy listing issue + optional push.
@@ -111,6 +112,16 @@ export async function notifyEtsySyncJobDeadOnce(input: {
     input.result.errorMessage ||
     `Etsy ${input.claim.kind.replace(/_/g, " ").toLowerCase()} failed`
   ).slice(0, 500);
+
+  // Internal Etsy write lock — jobs retry; never surface raw 409 copy to sellers.
+  if (
+    isEtsyListingBusyConflict(message) ||
+    input.result.errorClass === "TRANSIENT" ||
+    input.result.errorClass === "THROTTLED" ||
+    input.result.errorClass === "NETWORK"
+  ) {
+    return { created: false };
+  }
 
   const link = await prisma.etsyListingLink.findUnique({
     where: {

@@ -4,7 +4,13 @@ import {
   getEtsyAppRateLimiter,
   resetEtsyAppRateLimiterForTests,
 } from "./rate-limit";
-import { classifyEtsyHttpStatus, isEtsyRetryableErrorClass, parseEtsyRetryAfterMs } from "./errors";
+import {
+  classifyEtsyApiError,
+  classifyEtsyHttpStatus,
+  isEtsyListingBusyConflict,
+  isEtsyRetryableErrorClass,
+  parseEtsyRetryAfterMs,
+} from "./errors";
 import { redactEtsySecrets } from "./redact";
 import { getEtsyAdapterCapabilities } from "./capabilities";
 import {
@@ -91,9 +97,18 @@ describe("etsy error classification", () => {
   it("treats 429 as throttled/retryable and 4xx as permanent", () => {
     expect(classifyEtsyHttpStatus(429)).toBe("THROTTLED");
     expect(classifyEtsyHttpStatus(500)).toBe("TRANSIENT");
+    expect(classifyEtsyHttpStatus(409)).toBe("TRANSIENT");
     expect(classifyEtsyHttpStatus(400)).toBe("PERMANENT");
     expect(isEtsyRetryableErrorClass("THROTTLED")).toBe(true);
     expect(isEtsyRetryableErrorClass("PERMANENT")).toBe(false);
+  });
+
+  it("treats listing-busy 409 copy as transient contention", () => {
+    const msg =
+      "Etsy API 409: the listing with listing id 4586604968 is being edited by another process. please try again in a few moment";
+    expect(isEtsyListingBusyConflict(msg)).toBe(true);
+    expect(classifyEtsyApiError(409, msg)).toBe("TRANSIENT");
+    expect(classifyEtsyApiError(400, msg)).toBe("TRANSIENT");
   });
 
   it("parses retry-after seconds", () => {

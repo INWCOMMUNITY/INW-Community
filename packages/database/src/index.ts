@@ -497,6 +497,15 @@ export type {
   EtsyRemoteListingObservation,
 } from "./etsy/content-inbound";
 export {
+  aspectsEqual,
+  buildEtsyInboundAspects,
+  mergeEtsyInboundAspects,
+  normalizeEtsyTags,
+  normalizeInboundAspects,
+  tagsEqual,
+} from "./etsy/listing-aspects";
+export type { EtsyInboundAspect, EtsyListingAttributeSource } from "./etsy/listing-aspects";
+export {
   applyEtsyListingInventoryInbound,
   applyEtsyOfferingInventoryObservation,
 } from "./etsy/inventory-inbound";

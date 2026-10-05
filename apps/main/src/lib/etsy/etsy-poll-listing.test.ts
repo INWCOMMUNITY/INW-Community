@@ -134,7 +134,16 @@ describe("etsy POLL_LISTING_CONTENT handler", () => {
         rateLimit: null,
       })
       .mockResolvedValueOnce(okListing())
-      .mockResolvedValueOnce(okInventory());
+      .mockResolvedValueOnce(okInventory())
+      .mockResolvedValueOnce({
+        ok: true,
+        class: "SUCCESS",
+        httpStatus: 200,
+        data: { count: 0, results: [] },
+        message: "ok",
+        retryAfterMs: null,
+        rateLimit: null,
+      });
 
     const result = await handleEtsyPollListingContentJob(claim);
     expect(result).toEqual({ outcome: "SUCCESS" });

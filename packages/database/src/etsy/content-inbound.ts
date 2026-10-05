@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { classifyEtsyContentSemantics } from "./content-semantic";
 import {
   etsyProductContentFingerprint,
@@ -11,6 +11,13 @@ import { ensureEtsyUpdateListingContentJob } from "./content-desire";
 import { recordShopifyListingContentDesire } from "../shopify/content-desire";
 import { optionFingerprint } from "../foundation/backfill/analyze";
 import { projectStoreItemQuantity } from "../commerce-foundation-inventory";
+import {
+  aspectsEqual,
+  mergeEtsyInboundAspects,
+  normalizeEtsyTags,
+  tagsEqual,
+  type EtsyInboundAspect,
+} from "./listing-aspects";
 
 export type EtsyInboundDb = PrismaClient | Prisma.TransactionClient;
 
@@ -23,6 +30,13 @@ export type EtsyRemoteListingObservation = {
   state?: string | null;
   /** Diagnostic only. */
   updatedAt?: Date | null;
+  /** Shop Manager Attributes (+ materials/dimensions) mapped to INW Item Details. */
+  aspects?: EtsyInboundAspect[] | null;
+  /** True when listing properties were fetched (even if empty). */
+  aspectsObserved?: boolean;
+  /** Etsy search tags. */
+  tags?: string[] | null;
+  tagsObserved?: boolean;
   variants: Array<{
     etsyProductId: string;
     etsyOfferingId: string;
@@ -286,6 +300,32 @@ export async function applyEtsyListingContentInbound(
       },
     });
     appliedRemoteProduct = true;
+  }
+
+  // Attributes / tags are Etsy→INW only (aspects ignored by Etsy outbound).
+  // Apply independently of title/description LWW so Shop Manager Attributes land in Item Details.
+  const aspectPatch: {
+    aspects?: Prisma.InputJsonValue | typeof Prisma.JsonNull;
+    tags?: string[];
+  } = {};
+  if (input.remote.aspectsObserved) {
+    const merged = mergeEtsyInboundAspects(storeItem.aspects, input.remote.aspects ?? []);
+    if (!aspectsEqual(storeItem.aspects, merged)) {
+      aspectPatch.aspects =
+        merged.length > 0 ? (merged as unknown as Prisma.InputJsonValue) : Prisma.JsonNull;
+    }
+  }
+  if (input.remote.tagsObserved) {
+    const remoteTags = normalizeEtsyTags(input.remote.tags);
+    if (!tagsEqual(storeItem.tags, remoteTags)) {
+      aspectPatch.tags = remoteTags;
+    }
+  }
+  if (Object.keys(aspectPatch).length > 0) {
+    await db.storeItem.update({
+      where: { id: storeItem.id },
+      data: aspectPatch,
+    });
   }
 
   if (productClass === "CONVERGED" || productClass === "REMOTE_ONLY") {

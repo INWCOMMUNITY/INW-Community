@@ -1,9 +1,11 @@
 import {
   applyEtsyListingContentInbound,
   applyEtsyListingInventoryInbound,
+  buildEtsyInboundAspects,
   enqueueEtsySyncJob,
   etsyCentsFromMoney,
   markEtsyListingContentPollComplete,
+  normalizeEtsyTags,
   prisma,
   reconcileEtsyListingHealthFromDb,
   type EtsyJobHandlerResult,
@@ -32,6 +34,22 @@ type RemoteListing = {
   state?: string;
   last_modified_tsz?: number;
   images?: Array<{ url_fullxfull?: string; url_570xN?: string }>;
+  materials?: string[];
+  tags?: string[];
+  item_width?: number | null;
+  item_height?: number | null;
+  item_length?: number | null;
+  item_dimensions_unit?: string | null;
+};
+
+type RemoteListingProperties = {
+  count?: number;
+  results?: Array<{
+    property_id?: number;
+    property_name?: string | null;
+    scale_name?: string | null;
+    values?: string[] | null;
+  }>;
 };
 
 type RemoteInventory = {
@@ -132,6 +150,30 @@ async function fetchRemoteObservation(input: {
     };
   }
 
+  // Best-effort Attributes fetch — never fail the poll if properties are unavailable.
+  const propertiesRes = await etsyConnectionRequest<RemoteListingProperties>({
+    connectionId: input.connectionId,
+    memberId: input.memberId,
+    method: "GET",
+    path: `/shops/${encodeURIComponent(input.shopId)}/listings/${encodeURIComponent(input.etsyListingId)}/properties`,
+    maxAttempts: 2,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  const aspects = buildEtsyInboundAspects({
+    properties: propertiesRes.ok ? propertiesRes.data?.results ?? [] : [],
+    materials: Array.isArray(listingRes.data.materials) ? listingRes.data.materials : [],
+    itemWidth: listingRes.data.item_width,
+    itemHeight: listingRes.data.item_height,
+    itemLength: listingRes.data.item_length,
+    itemDimensionsUnit: listingRes.data.item_dimensions_unit,
+  });
+  // Listing GET already succeeded — materials/dimensions/tags are observed even if
+  // the properties endpoint is temporarily unavailable.
+  const aspectsObserved = true;
+  const tagsObserved = true;
+  const tags = normalizeEtsyTags(listingRes.data.tags);
+
   const variants: EtsyRemoteListingObservation["variants"] = [];
   for (const product of inventoryRes.data.products ?? []) {
     const productId = String(product.product_id ?? "");
@@ -180,6 +222,10 @@ async function fetchRemoteObservation(input: {
         typeof listingRes.data.last_modified_tsz === "number"
           ? new Date(listingRes.data.last_modified_tsz * 1000)
           : null,
+      aspects,
+      aspectsObserved,
+      tags,
+      tagsObserved,
       variants,
     },
   };

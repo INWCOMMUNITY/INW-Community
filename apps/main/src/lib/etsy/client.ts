@@ -5,6 +5,7 @@ import {
 } from "./constants";
 import { etsyApiKeyHeader, type EtsyAppConfig } from "./config";
 import {
+  classifyEtsyApiError,
   classifyEtsyHttpStatus,
   EtsyRequestError,
   isEtsyRetryableErrorClass,
@@ -210,14 +211,6 @@ export async function etsyApplicationRequest<T = unknown>(input: {
       };
     }
 
-    const errorClass = classifyEtsyHttpStatus(response.status);
-    const retryAfterMs =
-      errorClass === "THROTTLED"
-        ? parseEtsyRetryAfterMs(response.headers, backoffMs(attempt, null))
-        : isEtsyRetryableErrorClass(errorClass)
-          ? backoffMs(attempt, null)
-          : null;
-
     let bodyText = "";
     try {
       bodyText = await response.text();
@@ -225,12 +218,24 @@ export async function etsyApplicationRequest<T = unknown>(input: {
       // ignore
     }
 
+    const message = messageFromEtsyErrorBody(response.status, bodyText);
+    const errorClass = classifyEtsyApiError(response.status, message);
+    const retryAfterMs =
+      errorClass === "THROTTLED"
+        ? parseEtsyRetryAfterMs(response.headers, backoffMs(attempt, null))
+        : isEtsyRetryableErrorClass(errorClass)
+          ? // Listing lock contention clears quickly; wait a bit longer than generic backoff.
+            errorClass === "TRANSIENT" && response.status === 409
+              ? Math.max(backoffMs(attempt, null), 1500)
+              : backoffMs(attempt, null)
+          : null;
+
     last = {
       ok: false,
       class: errorClass,
       httpStatus: response.status,
       data: null,
-      message: messageFromEtsyErrorBody(response.status, bodyText),
+      message,
       retryAfterMs,
       rateLimit,
     };

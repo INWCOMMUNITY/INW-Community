@@ -24,6 +24,12 @@ type MyStoreItem = {
   views30d?: number;
   soldOrderId?: string;
   soldAt?: string;
+  /** Underlying listing id for sold sale rows (id may be sale:…). */
+  storeItemId?: string;
+  variantLabel?: string | null;
+  soldQty?: number;
+  soldChannel?: "inw" | "etsy";
+  canRelist?: boolean;
   /** Where the listing is live — INW always; Shopify when linked. */
   channels?: AppsAirportChannelId[];
 };
@@ -46,8 +52,12 @@ function statusLabel(item: MyStoreItem): string {
   return "Active";
 }
 
+function listingIdOf(item: MyStoreItem): string {
+  return item.storeItemId || item.id;
+}
+
 function itemEditHref(item: MyStoreItem): string {
-  return `/seller-hub/store/${item.id}`;
+  return `/seller-hub/store/${listingIdOf(item)}`;
 }
 
 function statusChipClass(status: string): string {
@@ -215,7 +225,8 @@ function MyItemsPageInner() {
     return items.filter(
       (item) =>
         item.title.toLowerCase().includes(q) ||
-        (item.sku ?? "").toLowerCase().includes(q)
+        (item.sku ?? "").toLowerCase().includes(q) ||
+        (item.variantLabel ?? "").toLowerCase().includes(q)
     );
   }, [items, search]);
 
@@ -416,7 +427,23 @@ function MyItemsPageInner() {
                 type="button"
                 disabled={acting}
                 className="rounded-md bg-[var(--color-earth)] px-3 py-1.5 font-semibold text-white hover:opacity-90 disabled:opacity-50"
-                onClick={() => relist(selectedIds)}
+                onClick={() => {
+                  const listingIds =
+                    tab === "sold"
+                      ? Array.from(
+                          new Set(
+                            items
+                              .filter((i) => selectedIds.includes(i.id) && i.canRelist !== false)
+                              .map((i) => listingIdOf(i))
+                          )
+                        )
+                      : selectedIds;
+                  if (listingIds.length === 0) {
+                    setActionMessage("Select a fully sold-out listing to relist.");
+                    return;
+                  }
+                  relist(listingIds);
+                }}
               >
                 Relist
               </button>
@@ -453,7 +480,12 @@ function MyItemsPageInner() {
             </button>
             {selectedIds.length === 1 ? (
               <Link
-                href={`/seller-hub/store/new?similar=${selectedIds[0]}`}
+                href={`/seller-hub/store/new?similar=${
+                  (() => {
+                    const one = items.find((i) => i.id === selectedIds[0]);
+                    return one ? listingIdOf(one) : selectedIds[0];
+                  })()
+                }`}
                 className="rounded-md bg-[var(--color-earth)] px-3 py-1.5 font-semibold text-white hover:opacity-90"
               >
                 Sell similar
@@ -568,9 +600,19 @@ function MyItemsPageInner() {
                           >
                             {item.title}
                           </Link>
+                          {tab === "sold" && item.variantLabel ? (
+                            <div className="mt-0.5 text-xs font-medium text-neutral-700">
+                              {item.variantLabel}
+                            </div>
+                          ) : null}
                           {tab === "sold" && item.soldAt ? (
                             <div className="mt-0.5 text-xs text-neutral-500">
                               Sold {new Date(item.soldAt).toLocaleDateString()}
+                              {item.soldChannel === "etsy"
+                                ? " · Etsy"
+                                : item.soldChannel === "inw"
+                                  ? " · INW"
+                                  : ""}
                             </div>
                           ) : null}
                         </div>
@@ -584,19 +626,19 @@ function MyItemsPageInner() {
                       </span>
                     </td>
                     <td className="py-3 pr-3 whitespace-nowrap">
-                      {tab === "sold" ? "—" : item.quantity}
+                      {tab === "sold" ? item.soldQty ?? item.quantity : item.quantity}
                     </td>
                     <td className="py-3 pr-3 whitespace-nowrap">{formatPrice(item.priceCents)}</td>
                     <td className="py-3 pr-3 text-neutral-700 whitespace-nowrap">{listedOn}</td>
                     <td className="py-3 pr-3 whitespace-nowrap text-neutral-700">{views}</td>
                     <td className="py-3 relative">
                       <div className="flex flex-wrap items-center gap-2">
-                        {(tab === "ended" || tab === "sold") && (
+                        {(tab === "ended" || (tab === "sold" && item.canRelist !== false)) && (
                           <button
                             type="button"
                             disabled={acting}
                             className="btn text-xs px-3 py-1.5 disabled:opacity-50"
-                            onClick={() => relist([item.id])}
+                            onClick={() => relist([listingIdOf(item)])}
                           >
                             Relist
                           </button>
@@ -619,7 +661,7 @@ function MyItemsPageInner() {
                             Edit listing
                           </Link>
                           <Link
-                            href={`/seller-hub/store/new?similar=${item.id}`}
+                            href={`/seller-hub/store/new?similar=${listingIdOf(item)}`}
                             className="block px-3 py-2 text-sm hover:bg-neutral-50"
                           >
                             Sell similar
@@ -640,11 +682,11 @@ function MyItemsPageInner() {
                               View order
                             </Link>
                           ) : null}
-                          {(tab === "ended" || tab === "sold") && (
+                          {(tab === "ended" || (tab === "sold" && item.canRelist !== false)) && (
                             <button
                               type="button"
                               className="block w-full text-left px-3 py-2 text-sm text-emerald-700 font-semibold hover:bg-neutral-50"
-                              onClick={() => relist([item.id])}
+                              onClick={() => relist([listingIdOf(item)])}
                             >
                               Relist
                             </button>

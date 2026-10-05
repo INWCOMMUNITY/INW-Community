@@ -35,9 +35,341 @@ import {
 } from "@/lib/storefront-browse-data";
 import { shopifyListingUiStatus } from "@/lib/shopify/apps-airport";
 import { etsyListingUiStatus } from "@/lib/etsy/apps-airport";
+import { formatCartVariantLabel } from "@/lib/cart-line-identity";
 
 /** Ensure storefront listing is always fresh so newly listed items appear immediately. */
 export const dynamic = "force-dynamic";
+
+type MineListingChannel = "inw" | "shopify" | "etsy";
+
+async function loadMineListingChannels(
+  userId: string,
+  itemIds: string[]
+): Promise<{
+  channelsByItemId: Map<string, MineListingChannel[]>;
+  viewsByItemId: Map<string, number>;
+}> {
+  const channelsByItemId = new Map<string, MineListingChannel[]>(
+    itemIds.map((id) => [id, ["inw"]])
+  );
+  const viewsByItemId = new Map<string, number>();
+  if (itemIds.length === 0) {
+    return { channelsByItemId, viewsByItemId };
+  }
+
+  const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const [activeShopify, activeEtsy, viewGroups] = await Promise.all([
+    prisma.shopifyConnection.findFirst({
+      where: { memberId: userId, status: "ACTIVE" },
+      orderBy: { connectedAt: "desc" },
+      select: { id: true },
+    }),
+    prisma.etsyConnection.findFirst({
+      where: { memberId: userId, status: "ACTIVE" },
+      orderBy: { connectedAt: "desc" },
+      select: { id: true },
+    }),
+    prisma.sellerAnalyticsEvent.groupBy({
+      by: ["storeItemId"],
+      where: {
+        memberId: userId,
+        storeItemId: { in: itemIds },
+        eventType: "listing_view",
+        createdAt: { gte: since30d },
+      },
+      _count: { _all: true },
+    }),
+  ]);
+  for (const row of viewGroups) {
+    if (row.storeItemId) viewsByItemId.set(row.storeItemId, row._count._all);
+  }
+
+  if (activeShopify) {
+    const shopifyLinks = await prisma.shopifyListingLink.findMany({
+      where: {
+        storeItemId: { in: itemIds },
+        memberId: userId,
+        shopifyConnectionId: activeShopify.id,
+      },
+      select: {
+        storeItemId: true,
+        readiness: true,
+        contentHealth: true,
+        inventoryHealth: true,
+        issueCode: true,
+      },
+    });
+    for (const link of shopifyLinks) {
+      const ui = shopifyListingUiStatus({
+        readiness: link.readiness,
+        contentHealth: link.contentHealth,
+        inventoryHealth: link.inventoryHealth,
+        issueCode: link.issueCode,
+      });
+      if (ui !== "Live") continue;
+      const channels = channelsByItemId.get(link.storeItemId) ?? ["inw"];
+      if (!channels.includes("shopify")) channels.push("shopify");
+      channelsByItemId.set(link.storeItemId, channels);
+    }
+  }
+
+  if (activeEtsy) {
+    const etsyLinks = await prisma.etsyListingLink.findMany({
+      where: {
+        storeItemId: { in: itemIds },
+        memberId: userId,
+        etsyConnectionId: activeEtsy.id,
+      },
+      select: {
+        storeItemId: true,
+        readiness: true,
+        contentHealth: true,
+        inventoryHealth: true,
+        issueCode: true,
+        storeItem: { select: { status: true } },
+      },
+    });
+    for (const link of etsyLinks) {
+      const ui = etsyListingUiStatus({
+        readiness: link.readiness,
+        contentHealth: link.contentHealth,
+        inventoryHealth: link.inventoryHealth,
+        issueCode: link.issueCode,
+        storeItemStatus: link.storeItem.status,
+      });
+      if (ui !== "Live") continue;
+      const channels = channelsByItemId.get(link.storeItemId) ?? ["inw"];
+      if (!channels.includes("etsy")) channels.push("etsy");
+      channelsByItemId.set(link.storeItemId, channels);
+    }
+  }
+
+  return { channelsByItemId, viewsByItemId };
+}
+
+/** Sold tab rows = paid sales (INW orders + applied Etsy sale facts), not only sold_out listings. */
+async function loadMineSoldSales(userId: string) {
+  const [orderItems, etsyFacts] = await Promise.all([
+    prisma.orderItem.findMany({
+      where: {
+        storeItem: { memberId: userId },
+        order: { status: { in: ["paid", "shipped", "delivered"] } },
+      },
+      select: {
+        id: true,
+        quantity: true,
+        priceCentsAtPurchase: true,
+        variant: true,
+        createdAt: true,
+        storeItemId: true,
+        storeItem: {
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            photos: true,
+            status: true,
+            quantity: true,
+          },
+        },
+        storeVariant: { select: { options: true, sku: true } },
+        order: { select: { id: true, updatedAt: true, createdAt: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 300,
+    }),
+    prisma.etsyOrderLineSaleFact.findMany({
+      where: {
+        memberId: userId,
+        applyState: "APPLIED",
+        storeItemId: { not: null },
+      },
+      select: {
+        id: true,
+        paidQuantity: true,
+        appliedAt: true,
+        createdAt: true,
+        storeItemId: true,
+        storeVariantId: true,
+        etsyReceiptId: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 300,
+    }),
+  ]);
+
+  const etsyItemIds = [
+    ...new Set(
+      etsyFacts
+        .map((f) => f.storeItemId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+    ),
+  ];
+  const etsyVariantIds = [
+    ...new Set(
+      etsyFacts
+        .map((f) => f.storeVariantId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+    ),
+  ];
+
+  const [etsyItems, etsyVariants, soldOutItems] = await Promise.all([
+    etsyItemIds.length
+      ? prisma.storeItem.findMany({
+          where: { id: { in: etsyItemIds }, memberId: userId },
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            photos: true,
+            status: true,
+            quantity: true,
+            priceCents: true,
+          },
+        })
+      : Promise.resolve([]),
+    etsyVariantIds.length
+      ? prisma.storeVariant.findMany({
+          where: { id: { in: etsyVariantIds }, memberId: userId },
+          select: { id: true, options: true, sku: true, priceCents: true },
+        })
+      : Promise.resolve([]),
+    prisma.storeItem.findMany({
+      where: { memberId: userId, status: "sold_out" },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        photos: true,
+        status: true,
+        quantity: true,
+        priceCents: true,
+        updatedAt: true,
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 200,
+    }),
+  ]);
+
+  const etsyItemById = new Map(etsyItems.map((i) => [i.id, i]));
+  const etsyVariantById = new Map(etsyVariants.map((v) => [v.id, v]));
+
+  const allItemIds = [
+    ...new Set([
+      ...orderItems.map((oi) => oi.storeItemId),
+      ...etsyItemIds,
+      ...soldOutItems.map((i) => i.id),
+    ]),
+  ];
+  const { channelsByItemId, viewsByItemId } = await loadMineListingChannels(userId, allItemIds);
+
+  type SoldRow = {
+    id: string;
+    storeItemId: string;
+    title: string;
+    slug: string;
+    sku: string | null;
+    variantLabel: string | null;
+    priceCents: number;
+    quantity: number;
+    status: string;
+    photos: string[];
+    channels: MineListingChannel[];
+    views30d: number;
+    soldOrderId?: string;
+    soldAt: string;
+    soldQty: number;
+    soldChannel: "inw" | "etsy";
+    canRelist: boolean;
+  };
+
+  const rows: SoldRow[] = [];
+
+  for (const oi of orderItems) {
+    const item = oi.storeItem;
+    const variantLabel =
+      formatCartVariantLabel(oi.storeVariant?.options ?? oi.variant) ?? null;
+    const soldAt = (oi.order.updatedAt ?? oi.order.createdAt ?? oi.createdAt).toISOString();
+    rows.push({
+      id: `sale:inw:${oi.id}`,
+      storeItemId: item.id,
+      title: item.title,
+      slug: item.slug,
+      sku: oi.storeVariant?.sku ?? null,
+      variantLabel,
+      priceCents: oi.priceCentsAtPurchase,
+      quantity: oi.quantity,
+      status: "sold_out",
+      photos: Array.isArray(item.photos) ? (item.photos as string[]).slice(0, 1) : [],
+      channels: channelsByItemId.get(item.id) ?? ["inw"],
+      views30d: viewsByItemId.get(item.id) ?? 0,
+      soldOrderId: oi.order.id,
+      soldAt,
+      soldQty: oi.quantity,
+      soldChannel: "inw",
+      canRelist: item.status === "sold_out",
+    });
+  }
+
+  for (const fact of etsyFacts) {
+    if (!fact.storeItemId) continue;
+    const item = etsyItemById.get(fact.storeItemId);
+    if (!item) continue;
+    const variant = fact.storeVariantId ? etsyVariantById.get(fact.storeVariantId) : null;
+    rows.push({
+      id: `sale:etsy:${fact.id}`,
+      storeItemId: item.id,
+      title: item.title,
+      slug: item.slug,
+      sku: variant?.sku ?? null,
+      variantLabel: formatCartVariantLabel(variant?.options ?? null),
+      priceCents: variant?.priceCents ?? item.priceCents,
+      quantity: fact.paidQuantity,
+      status: "sold_out",
+      photos: Array.isArray(item.photos) ? (item.photos as string[]).slice(0, 1) : [],
+      channels: (() => {
+        const base = channelsByItemId.get(item.id) ?? ["inw"];
+        return base.includes("etsy") ? base : [...base, "etsy" as const];
+      })(),
+      views30d: viewsByItemId.get(item.id) ?? 0,
+      soldAt: (fact.appliedAt ?? fact.createdAt).toISOString(),
+      soldQty: fact.paidQuantity,
+      soldChannel: "etsy",
+      canRelist: item.status === "sold_out",
+    });
+  }
+
+  const coveredItemIds = new Set(rows.map((r) => r.storeItemId));
+  for (const item of soldOutItems) {
+    if (coveredItemIds.has(item.id)) continue;
+    rows.push({
+      id: item.id,
+      storeItemId: item.id,
+      title: item.title,
+      slug: item.slug,
+      sku: null,
+      variantLabel: null,
+      priceCents: item.priceCents,
+      quantity: item.quantity,
+      status: "sold_out",
+      photos: Array.isArray(item.photos) ? (item.photos as string[]).slice(0, 1) : [],
+      channels: channelsByItemId.get(item.id) ?? ["inw"],
+      views30d: viewsByItemId.get(item.id) ?? 0,
+      soldAt: item.updatedAt.toISOString(),
+      soldQty: 0,
+      soldChannel: "inw",
+      canRelist: true,
+    });
+  }
+
+  rows.sort((a, b) => (a.soldAt < b.soldAt ? 1 : a.soldAt > b.soldAt ? -1 : 0));
+  return rows;
+}
+
+async function countMineSoldSales(userId: string): Promise<number> {
+  const rows = await loadMineSoldSales(userId);
+  return rows.length;
+}
 
 function slugify(s: string): string {
   return s
@@ -131,17 +463,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
     }
     if (searchParams.get("counts") === "1") {
-      const [active, ended, sold, attentionIds] = await Promise.all([
+      const [active, ended, sold] = await Promise.all([
         prisma.storeItem.count({ where: { memberId: userId, status: "active" } }),
         prisma.storeItem.count({ where: { memberId: userId, status: "inactive" } }),
-        prisma.storeItem.count({ where: { memberId: userId, status: "sold_out" } }),
-        Promise.resolve([]), // No longer tracking remote-deleted items
+        countMineSoldSales(userId),
       ]);
       return NextResponse.json({
         active,
         ended,
         sold,
-        attention: attentionIds.length,
+        attention: 0,
         wixCheckFailed: false,
       });
     }
@@ -153,11 +484,11 @@ export async function GET(req: NextRequest) {
       id?: { in: string[] };
     } = { memberId: userId };
     if (condition) where.condition = condition;
-    // My Items tabs: active (incl. out of stock), ended (inactive), sold (sold_out).
+    // My Items tabs: active (incl. out of stock), ended (inactive), sold = paid sales.
     const soldOnly = searchParams.get("sold") === "1";
     const filter = searchParams.get("filter");
     if (soldOnly || filter === "sold") {
-      where.status = "sold_out";
+      return NextResponse.json(await loadMineSoldSales(userId));
     } else if (filter === "active") {
       where.status = "active";
     } else if (filter === "ended") {
@@ -183,100 +514,7 @@ export async function GET(req: NextRequest) {
     });
 
     const itemIds = items.map((i) => i.id);
-    type ListingChannel = "inw" | "shopify" | "etsy";
-    /** Where each listing is sellable: INW always; Shopify/Etsy when Live on an ACTIVE connection. */
-    const channelsByItemId = new Map<string, ListingChannel[]>(
-      itemIds.map((id) => [id, ["inw"]])
-    );
-    const viewsByItemId = new Map<string, number>();
-    if (itemIds.length > 0) {
-      const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const [activeShopify, activeEtsy, viewGroups] = await Promise.all([
-        prisma.shopifyConnection.findFirst({
-          where: { memberId: userId, status: "ACTIVE" },
-          orderBy: { connectedAt: "desc" },
-          select: { id: true },
-        }),
-        prisma.etsyConnection.findFirst({
-          where: { memberId: userId, status: "ACTIVE" },
-          orderBy: { connectedAt: "desc" },
-          select: { id: true },
-        }),
-        prisma.sellerAnalyticsEvent.groupBy({
-          by: ["storeItemId"],
-          where: {
-            memberId: userId,
-            storeItemId: { in: itemIds },
-            eventType: "listing_view",
-            createdAt: { gte: since30d },
-          },
-          _count: { _all: true },
-        }),
-      ]);
-      for (const row of viewGroups) {
-        if (row.storeItemId) viewsByItemId.set(row.storeItemId, row._count._all);
-      }
-
-      if (activeShopify) {
-        const shopifyLinks = await prisma.shopifyListingLink.findMany({
-          where: {
-            storeItemId: { in: itemIds },
-            memberId: userId,
-            shopifyConnectionId: activeShopify.id,
-          },
-          select: {
-            storeItemId: true,
-            readiness: true,
-            contentHealth: true,
-            inventoryHealth: true,
-            issueCode: true,
-          },
-        });
-        for (const link of shopifyLinks) {
-          const ui = shopifyListingUiStatus({
-            readiness: link.readiness,
-            contentHealth: link.contentHealth,
-            inventoryHealth: link.inventoryHealth,
-            issueCode: link.issueCode,
-          });
-          if (ui !== "Live") continue;
-          const channels = channelsByItemId.get(link.storeItemId) ?? ["inw"];
-          if (!channels.includes("shopify")) channels.push("shopify");
-          channelsByItemId.set(link.storeItemId, channels);
-        }
-      }
-
-      if (activeEtsy) {
-        const etsyLinks = await prisma.etsyListingLink.findMany({
-          where: {
-            storeItemId: { in: itemIds },
-            memberId: userId,
-            etsyConnectionId: activeEtsy.id,
-          },
-          select: {
-            storeItemId: true,
-            readiness: true,
-            contentHealth: true,
-            inventoryHealth: true,
-            issueCode: true,
-            storeItem: { select: { status: true } },
-          },
-        });
-        for (const link of etsyLinks) {
-          const ui = etsyListingUiStatus({
-            readiness: link.readiness,
-            contentHealth: link.contentHealth,
-            inventoryHealth: link.inventoryHealth,
-            issueCode: link.issueCode,
-            storeItemStatus: link.storeItem.status,
-          });
-          if (ui !== "Live") continue;
-          const channels = channelsByItemId.get(link.storeItemId) ?? ["inw"];
-          if (!channels.includes("etsy")) channels.push("etsy");
-          channelsByItemId.set(link.storeItemId, channels);
-        }
-      }
-    }
+    const { channelsByItemId, viewsByItemId } = await loadMineListingChannels(userId, itemIds);
 
     const mapMineItem = (i: (typeof items)[number]) => ({
       ...i,
@@ -284,34 +522,6 @@ export async function GET(req: NextRequest) {
       channels: channelsByItemId.get(i.id) ?? ["inw"],
       views30d: viewsByItemId.get(i.id) ?? 0,
     });
-
-    // For sold items, attach last order id and date so seller can link to order and see "Sold on [date]"
-    if (items.length > 0 && (soldOnly || filter === "sold")) {
-      const orderItems = await prisma.orderItem.findMany({
-        where: {
-          storeItemId: { in: itemIds },
-          order: { status: { in: ["paid", "shipped", "delivered"] } },
-        },
-        include: { order: { select: { id: true, updatedAt: true } } },
-        orderBy: { order: { updatedAt: "desc" } },
-      });
-      const lastOrderByItem = new Map<string, { orderId: string; soldAt: string }>();
-      for (const oi of orderItems) {
-        if (!lastOrderByItem.has(oi.storeItemId)) {
-          lastOrderByItem.set(oi.storeItemId, {
-            orderId: oi.order.id,
-            soldAt: oi.order.updatedAt.toISOString(),
-          });
-        }
-      }
-      return NextResponse.json(
-        items.map((i) => {
-          const sold = lastOrderByItem.get(i.id);
-          const mapped = mapMineItem(i);
-          return sold ? { ...mapped, soldOrderId: sold.orderId, soldAt: sold.soldAt } : mapped;
-        })
-      );
-    }
 
     return NextResponse.json(items.map(mapMineItem));
   }

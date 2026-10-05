@@ -21,13 +21,36 @@ export class EtsyRequestError extends Error {
   }
 }
 
+/**
+ * Etsy returns 409 while another inventory/content write holds the listing lock.
+ * Sellers should never see this — treat as TRANSIENT and retry.
+ */
+export function isEtsyListingBusyConflict(message: string | null | undefined): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("being edited by another process") ||
+    lower.includes("try again in a few moment")
+  );
+}
+
 /** 429 is temporary/rate-limited, never a permanent listing failure. */
 export function classifyEtsyHttpStatus(status: number): EtsyErrorClass {
   if (status === 401 || status === 403) return "AUTH";
   if (status === 429) return "THROTTLED";
+  if (status === 409) return "TRANSIENT";
   if (status >= 500) return "TRANSIENT";
   if (status >= 400) return "PERMANENT";
   return "TRANSIENT";
+}
+
+/** Prefer body-aware classification when Etsy returns a lock/contention message. */
+export function classifyEtsyApiError(
+  status: number,
+  message?: string | null
+): EtsyErrorClass {
+  if (isEtsyListingBusyConflict(message)) return "TRANSIENT";
+  return classifyEtsyHttpStatus(status);
 }
 
 export function isEtsyRetryableErrorClass(errorClass: EtsyErrorClass): boolean {
