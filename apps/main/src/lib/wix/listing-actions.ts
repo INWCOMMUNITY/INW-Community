@@ -168,6 +168,7 @@ export async function loadMappedWixListing(input: {
         inventoryHealth: string;
         issueCode: string | null;
         issueMessage: string | null;
+        remoteProductVisible: boolean | null;
       };
     }
   | { linked: false }
@@ -200,6 +201,7 @@ export async function loadMappedWixListing(input: {
         inventoryHealth: mapping.listingLink.inventoryHealth,
         issueCode: mapping.listingLink.issueCode,
         issueMessage: mapping.listingLink.issueMessage,
+        remoteProductVisible: mapping.listingLink.remoteProductVisible,
       },
     };
   } catch (error) {

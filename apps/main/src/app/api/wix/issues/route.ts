@@ -91,7 +91,7 @@ export async function GET(request: Request): Promise<Response> {
       issueSeverity: (issue.issueSeverity as "error" | "warning" | "info") ?? "warning",
       issueFirstSeenAt: issue.issueFirstSeenAt?.toISOString() ?? new Date().toISOString(),
       issueLastSeenAt: issue.issueLastSeenAt?.toISOString() ?? null,
-      actionUrl: `/store-items/${issue.storeItemId}`,
+      actionUrl: `/seller-hub/store/${issue.storeItemId}`,
     };
   });
 

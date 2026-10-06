@@ -18,6 +18,7 @@ import {
 } from "@/lib/shopify/apps-airport";
 import {
   APPS_AIRPORT_WIX_PATH,
+  APPS_AIRPORT_WIX_SETTINGS_PATH,
   classifyWixConnectionUi,
   wixConnectionStatusLabel,
 } from "@/lib/wix/apps-airport";
@@ -225,9 +226,15 @@ export default function AppsAirportPage() {
                       : "No Wix site connected yet."}
                   </p>
                   <div className="mt-4 flex flex-wrap gap-3">
-                    <Link href={APPS_AIRPORT_WIX_PATH} className="btn" prefetch={false}>
-                      {wixStatus?.connected ? "Manage" : "Connect"}
-                    </Link>
+                    {wixStatus?.connected ? (
+                      <Link href={APPS_AIRPORT_WIX_PATH} className="btn" prefetch={false}>
+                        Manage
+                      </Link>
+                    ) : (
+                      <Link href={APPS_AIRPORT_WIX_SETTINGS_PATH} className="btn" prefetch={false}>
+                        Connect
+                      </Link>
+                    )}
                   </div>
                 </>
               ) : (

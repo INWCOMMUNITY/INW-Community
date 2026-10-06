@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
       catalogVersion: connection.catalogVersion,
     });
 
-    const successUrl = new URL("/seller-hub/apps/wix", req.nextUrl.origin);
+    const successUrl = new URL("/seller-hub/apps/wix/settings", req.nextUrl.origin);
     successUrl.searchParams.set("wix_connected", "true");
     
     const response = NextResponse.redirect(successUrl);
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
       reason: error instanceof WixConnectError ? error.reason : undefined,
     });
 
-    const errorUrl = new URL("/seller-hub/apps/wix", req.nextUrl.origin);
+    const errorUrl = new URL("/seller-hub/apps/wix/settings", req.nextUrl.origin);
     
     if (error instanceof WixConnectError) {
       errorUrl.searchParams.set("wix_error", error.code);
