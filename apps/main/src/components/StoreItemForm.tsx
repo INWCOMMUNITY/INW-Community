@@ -230,6 +230,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [offerFlagsLoaded, setOfferFlagsLoaded] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
   const [successItemId, setSuccessItemId] = useState<string | null>(existing?.id ?? null);
@@ -872,6 +873,57 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     }
   }
 
+  async function handleSaveAsDraft() {
+    setError("");
+    const payload = buildPayload();
+    if (!payload) return;
+
+    // Override status to draft
+    payload.status = "draft";
+
+    setSavingDraft(true);
+    try {
+      const url = isEdit && existing?.id ? `/api/store-items/${existing.id}` : "/api/store-items";
+      const method = isEdit && existing?.id ? "PATCH" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      let data: {
+        error?: unknown;
+        message?: string;
+        id?: string;
+        slug?: string;
+      } = {};
+      try {
+        const text = await res.text();
+        if (text) data = JSON.parse(text);
+      } catch {
+        data = {
+          error: res.status === 500 ? "Server error. Check the terminal for details." : `Request failed (${res.status}).`,
+        };
+      }
+      if (!res.ok) {
+        setError(getErrorMessage(data?.error, data?.message ?? "Failed to save draft"));
+        return;
+      }
+
+      // Redirect to edit page or items list
+      const savedId = data.id ?? existing?.id;
+      if (savedId) {
+        router.push(`/seller-hub/store/${savedId}`);
+      } else {
+        router.push(successRedirect ?? "/seller-hub/store/items");
+      }
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
   function handleSuccessModalClose() {
     setShowSuccessModal(false);
     const redirectTo = successRedirect ?? "/seller-hub/store/items";
@@ -926,253 +978,365 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     <>
       <form onSubmit={handleSubmit}>
         <ListingEditorLayout
-          sidebar={
-            <>
-              <ListingFormSection title="Photos" description="First photo is your main listing image.">
-                <ListingPhotoGallery
-                  photos={photos}
-                  onPhotosChange={setPhotos}
-                  onUploadFiles={handlePhotosUpload}
-                  uploadingPhotos={uploadingPhotos}
-                  photoError={photoError}
-                />
-              </ListingFormSection>
-
-              <ListingFormSection id="listing-condition" title="Condition">
-                <ListingConditionToggle
-                  value={condition}
-                  onChange={setCondition}
-                  hint="Buyers can filter the storefront by New or Used. Used items can accept offers."
-                />
-              </ListingFormSection>
-            </>
+          footer={
+            <ListingSaveBar
+              isEdit={isEdit}
+              submitting={submitting}
+              savingDraft={savingDraft}
+              error={error}
+              backHref={successRedirect ?? "/seller-hub/store/items"}
+              createHint="List on INW."
+              onSaveAsDraft={handleSaveAsDraft}
+            />
           }
-          main={
-            <>
-              {businesses.length > 1 ? (
-                <ListingFormSection title="Business">
-                  <label className={listingLabelClass}>Business (optional)</label>
-                  <select
-                    value={businessId}
-                    onChange={(e) => setBusinessId(e.target.value)}
-                    className={listingSelectClass}
+        >
+          {/* Photos Section - Large and First */}
+          <ListingFormSection title="Photos" description="First photo is your main listing image.">
+            <ListingPhotoGallery
+              photos={photos}
+              onPhotosChange={setPhotos}
+              onUploadFiles={handlePhotosUpload}
+              uploadingPhotos={uploadingPhotos}
+              photoError={photoError}
+            />
+          </ListingFormSection>
+
+          {/* Listing Details - includes Condition */}
+          <ListingFormSection title="Listing Details" description="Title, SKU, description, condition, and category.">
+            {businesses.length > 1 ? (
+              <div>
+                <label className={listingLabelClass}>Business (optional)</label>
+                <select
+                  value={businessId}
+                  onChange={(e) => setBusinessId(e.target.value)}
+                  className={listingSelectClass}
+                >
+                  <option value="">None</option>
+                  {businesses.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
+            <div>
+              <label className={listingLabelClass}>Title *</label>
+              <input
+                type="text"
+                value={title}
+                maxLength={EBAY_TITLE_MAX}
+                onChange={(e) => setTitle(e.target.value.slice(0, EBAY_TITLE_MAX))}
+                className={listingInputClass}
+                required
+              />
+              <p className={`text-xs mt-1 text-right ${title.length >= EBAY_TITLE_MAX ? "text-red-600" : "text-gray-500"}`}>
+                {title.length}/{EBAY_TITLE_MAX}
+              </p>
+            </div>
+
+            <div>
+              <label className={listingLabelClass} htmlFor="listing-sku">SKU</label>
+              <input
+                id="listing-sku"
+                type="text"
+                value={sku}
+                maxLength={LISTING_SKU_MAX}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(e) => setSku(e.target.value.slice(0, LISTING_SKU_MAX))}
+                className={`${listingInputClass} max-w-md font-mono`}
+                placeholder="Optional — your stock keeping unit"
+              />
+              <p className={listingHintClass}>Leave blank to auto-generate.</p>
+            </div>
+
+            <div>
+              <label className={listingLabelClass}>Item Description</label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className={listingInputClass}
+                rows={4}
+              />
+            </div>
+
+            <div id="listing-condition">
+              <ListingConditionToggle
+                value={condition}
+                onChange={setCondition}
+                hint="Buyers can filter the storefront by New or Used. Used items can accept offers."
+              />
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <span className={listingLabelClass}>Category</span>
+                <p className={listingHintClass}>
+                  Choose a main category, then optionally narrow with a subcategory.
+                </p>
+              </div>
+              {useCustomCategory ? (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    placeholder="Enter your category"
+                    className={listingInputClass}
+                  />
+                  <input
+                    type="text"
+                    value={subcategory}
+                    onChange={(e) => setSubcategory(e.target.value)}
+                    placeholder="Subcategory (optional)"
+                    className={listingInputClass}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUseCustomCategory(false);
+                      setCategory("");
+                      setSubcategory("");
+                    }}
+                    className="text-sm underline"
+                    style={{ color: "var(--color-primary)" }}
                   >
-                    <option value="">None</option>
-                    {businesses.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </select>
-                </ListingFormSection>
-              ) : null}
-
-              <ListingFormSection title="Listing Details" description="Title, SKU, description, and category.">
-                <div>
-                  <label className={listingLabelClass}>Title *</label>
-                  <input
-                    type="text"
-                    value={title}
-                    maxLength={EBAY_TITLE_MAX}
-                    onChange={(e) => setTitle(e.target.value.slice(0, EBAY_TITLE_MAX))}
-                    className={listingInputClass}
-                    required
-                  />
-                  <p className={`text-xs mt-1 text-right ${title.length >= EBAY_TITLE_MAX ? "text-red-600" : "text-gray-500"}`}>
-                    {title.length}/{EBAY_TITLE_MAX}
-                  </p>
+                    Choose from list instead
+                  </button>
                 </div>
-
-                <div>
-                  <label className={listingLabelClass} htmlFor="listing-sku">
-                    SKU
-                  </label>
-                  <input
-                    id="listing-sku"
-                    type="text"
-                    value={sku}
-                    maxLength={LISTING_SKU_MAX}
-                    autoComplete="off"
-                    spellCheck={false}
-                    onChange={(e) => setSku(e.target.value.slice(0, LISTING_SKU_MAX))}
-                    className={`${listingInputClass} max-w-md font-mono`}
-                    placeholder="Optional — your stock keeping unit"
-                  />
-                  <p className={listingHintClass}>
-                    Leave blank to auto-generate.
-                  </p>
-                </div>
-
-                <div>
-                  <label className={listingLabelClass}>Item Description</label>
-                  <textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    className={listingInputClass}
-                    rows={4}
-                  />
-                </div>
-
-                <div className="space-y-3">
+              ) : (
+                <>
                   <div>
-                    <span className={listingLabelClass}>Category</span>
-                    <p className={listingHintClass}>
-                      Choose a main category, then optionally narrow with a subcategory.
-                    </p>
+                    <label htmlFor="store-item-category" className="block text-xs font-medium text-gray-700 mb-1">
+                      Main category
+                    </label>
+                    <select
+                      id="store-item-category"
+                      value={category}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setCategory(v);
+                        setSubcategory("");
+                      }}
+                      className="select-brown"
+                    >
+                      <option value="">Select a category…</option>
+                      {STORE_CATEGORIES.map((c) => (
+                        <option key={c.label} value={c.label}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                  {useCustomCategory ? (
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        value={category}
-                        onChange={(e) => setCategory(e.target.value)}
-                        placeholder="Enter your category"
-                        className={listingInputClass}
-                      />
-                      <input
-                        type="text"
+                  {category ? (
+                    <div>
+                      <label htmlFor="store-item-subcategory" className="block text-xs font-medium text-gray-700 mb-1">
+                        Subcategory (optional)
+                      </label>
+                      <select
+                        id="store-item-subcategory"
                         value={subcategory}
                         onChange={(e) => setSubcategory(e.target.value)}
-                        placeholder="Subcategory (optional)"
-                        className={listingInputClass}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setUseCustomCategory(false);
-                          setCategory("");
-                          setSubcategory("");
-                        }}
-                        className="text-sm underline"
-                        style={{ color: "var(--color-primary)" }}
+                        className="select-brown"
                       >
-                        Choose from list instead
-                      </button>
+                        <option value="">— None —</option>
+                        {getSubcategoriesForCategory(category).map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                        {subcategory && !getSubcategoriesForCategory(category).includes(subcategory) ? (
+                          <option value={subcategory}>{subcategory}</option>
+                        ) : null}
+                      </select>
                     </div>
-                  ) : (
-                    <>
-                      <div>
-                        <label htmlFor="store-item-category" className="block text-xs font-medium text-gray-700 mb-1">
-                          Main category
-                        </label>
-                        <select
-                          id="store-item-category"
-                          value={category}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setCategory(v);
-                            setSubcategory("");
-                          }}
-                          className="w-full border rounded px-3 py-2 bg-white"
-                        >
-                          <option value="">Select a category…</option>
-                          {STORE_CATEGORIES.map((c) => (
-                            <option key={c.label} value={c.label}>
-                              {c.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      {category ? (
-                        <div>
-                          <label htmlFor="store-item-subcategory" className="block text-xs font-medium text-gray-700 mb-1">
-                            Subcategory (optional)
-                          </label>
-                          <select
-                            id="store-item-subcategory"
-                            value={subcategory}
-                            onChange={(e) => setSubcategory(e.target.value)}
-                            className="w-full border rounded px-3 py-2 bg-white"
-                          >
-                            <option value="">— None —</option>
-                            {getSubcategoriesForCategory(category).map((s) => (
-                              <option key={s} value={s}>
-                                {s}
-                              </option>
-                            ))}
-                            {subcategory && !getSubcategoriesForCategory(category).includes(subcategory) ? (
-                              <option value={subcategory}>{subcategory}</option>
-                            ) : null}
-                          </select>
-                        </div>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => setUseCustomCategory(true)}
-                        className="text-sm underline mt-1 block"
-                        style={{ color: "var(--color-primary)" }}
-                      >
-                        Can&apos;t find your category? Add your own
-                      </button>
-                    </>
-                  )}
-                </div>
-              </ListingFormSection>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setUseCustomCategory(true)}
+                    className="text-sm underline mt-1 block"
+                    style={{ color: "var(--color-primary)" }}
+                  >
+                    Can&apos;t find your category? Add your own
+                  </button>
+                </>
+              )}
+            </div>
+          </ListingFormSection>
 
-              <ListingFormSection
-                title="Item Details"
-                description="Add optional descriptors for your listing (Brand, Material, Year, etc.)."
-              >
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-gray-900">Descriptors</span>
-                    <span className="text-xs text-gray-500">
-                      {aspects.length}/{MAX_ASPECTS}
-                    </span>
-                  </div>
-                  {aspects.map((a, i) => (
-                    <div key={i} className="space-y-1">
-                      <div className="flex flex-wrap gap-2 items-start">
-                        <input
-                          type="text"
-                          value={a.name}
-                          maxLength={EBAY_ASPECT_NAME_MAX}
-                          onChange={(e) => setAspectName(i, e.target.value)}
-                          placeholder="Descriptor (e.g. Brand)"
-                          className="flex-1 min-w-[120px] border rounded px-2 py-1.5 text-sm"
-                        />
-                        <input
-                          type="text"
-                          value={a.value}
-                          maxLength={EBAY_ASPECT_VALUE_MAX}
-                          onChange={(e) => setAspectValue(i, e.target.value)}
-                          placeholder="Value"
-                          className="flex-1 min-w-[120px] border rounded px-2 py-1.5 text-sm"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeAspectRow(i)}
-                          className="text-red-500 hover:text-red-700 font-bold leading-none px-2 py-1.5"
-                          aria-label="Remove detail"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  {aspects.length < MAX_ASPECTS && (
+          {/* Item Details */}
+          <ListingFormSection
+            title="Item Details"
+            description="Add optional descriptors for your listing (Brand, Material, Year, etc.)."
+          >
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-gray-900">Descriptors</span>
+                <span className="text-xs text-gray-500">
+                  {aspects.length}/{MAX_ASPECTS}
+                </span>
+              </div>
+              {aspects.map((a, i) => (
+                <div key={i} className="space-y-1">
+                  <div className="flex flex-wrap gap-2 items-start">
+                    <input
+                      type="text"
+                      value={a.name}
+                      maxLength={EBAY_ASPECT_NAME_MAX}
+                      onChange={(e) => setAspectName(i, e.target.value)}
+                      placeholder="Descriptor (e.g. Brand)"
+                      className="flex-1 min-w-[120px] border rounded px-2 py-1.5 text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={a.value}
+                      maxLength={EBAY_ASPECT_VALUE_MAX}
+                      onChange={(e) => setAspectValue(i, e.target.value)}
+                      placeholder="Value"
+                      className="flex-1 min-w-[120px] border rounded px-2 py-1.5 text-sm"
+                    />
                     <button
                       type="button"
-                      onClick={addAspectRow}
-                      className="action-pill action-pill-sm btn-pill-outline"
+                      onClick={() => removeAspectRow(i)}
+                      className="text-red-500 hover:text-red-700 font-bold leading-none px-2 py-1.5"
+                      aria-label="Remove detail"
                     >
-                      + Add a detail
+                      ×
                     </button>
-                  )}
+                  </div>
                 </div>
-              </ListingFormSection>
-
-              {etsyConnActive ? (
-                <ListingFormSection
-                  title="Etsy"
-                  description={
-                    etsyMappedLive
-                      ? "This INW listing is live on your Etsy shop."
-                      : etsyMappedListingId
-                        ? "Linked to Etsy but not live yet — finish List on Etsy until it is active (not draft)."
-                        : "Optional. Saves How it’s made and queues the listing on Etsy when you save."
-                  }
+              ))}
+              {aspects.length < MAX_ASPECTS && (
+                <button
+                  type="button"
+                  onClick={addAspectRow}
+                  className="action-pill action-pill-sm btn-pill-outline"
                 >
+                  + Add a detail
+                </button>
+              )}
+            </div>
+          </ListingFormSection>
+
+          {/* Pricing & Inventory */}
+          <ListingFormSection title="Pricing & Inventory">
+            <div>
+              <label className={listingLabelClass}>Price (USD) *</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                value={priceDollars}
+                onFocus={() => setPriceDollars((prev) => moneyInputToEditable(prev))}
+                onChange={(e) => {
+                  const t = sanitizePriceDraftInput(e.target.value);
+                  if (t != null) setPriceDollars(t);
+                }}
+                onBlur={() => setPriceDollars((prev) => moneyInputToIdle(prev))}
+                className={`${listingInputClass} max-w-xs`}
+                required
+              />
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-gray-900">Options (Size, Color, etc.)</h3>
+              <ListingVariantMatrixEditor
+                inventoryTracking={inventoryTracking}
+                onInventoryTrackingChange={setInventoryTracking}
+                optionsEnabled={optionsEnabled}
+                onOptionsEnabledChange={setOptionsEnabled}
+                simpleQuantity={quantity}
+                onSimpleQuantityChange={setQuantity}
+                axes={variantAxes}
+                skus={variantSkus}
+                onChange={(nextAxes, nextSkus) => {
+                  setVariantAxes(nextAxes);
+                  setVariantSkus(nextSkus);
+                }}
+                galleryPhotos={photos}
+              />
+            </div>
+
+            {condition === "used" && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Accept Offers</label>
+                  <div className="flex flex-wrap gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="acceptOffers"
+                        checked={acceptOffers}
+                        onChange={() => setAcceptOffers(true)}
+                        className="rounded"
+                      />
+                      <span className="text-sm font-medium">Yes</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="acceptOffers"
+                        checked={!acceptOffers}
+                        onChange={() => setAcceptOffers(false)}
+                        className="rounded"
+                      />
+                      <span className="text-sm font-medium">No</span>
+                    </label>
+                  </div>
+                </div>
+                {acceptOffers && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1" htmlFor="store-min-offer-range">
+                      Automatically decline offers less than
+                    </label>
+                    <div className="w-full max-w-xs space-y-2 pt-1">
+                      <input
+                        id="store-min-offer-range"
+                        type="range"
+                        min={0}
+                        max={minOfferSliderMax}
+                        step={1}
+                        value={Math.min(minOfferSliderDollars, minOfferSliderMax)}
+                        onChange={(e) => setMinOfferSliderDollars(Number(e.target.value))}
+                        className="store-min-offer-range w-full"
+                        style={
+                          {
+                            ["--range-pct" as string]: `${
+                              minOfferSliderMax > 0
+                                ? (Math.min(minOfferSliderDollars, minOfferSliderMax) / minOfferSliderMax) * 100
+                                : 0
+                            }%`,
+                          } as CSSProperties
+                        }
+                      />
+                      <p className="text-sm font-semibold text-gray-900">
+                        {minOfferSliderDollars <= 0
+                          ? "$0 — accept any offer"
+                          : `Minimum offer: $${Math.min(minOfferSliderDollars, minOfferSliderMax).toFixed(2)}`}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Slide to set a floor, or leave at $0 to accept any amount. Upper end matches your list price
+                        (or up to $500 until a price is set).
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </ListingFormSection>
+
+          {/* 3rd Party Syncing - Combined Etsy/Shopify/WIC */}
+          {(etsyConnActive || shopifyConn?.status === "ACTIVE") ? (
+            <ListingFormSection
+              title="3rd Party Syncing"
+              description="Optional. Sync this listing to your connected external shops."
+            >
+              {/* Etsy Section */}
+              {etsyConnActive && (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-gray-900">Etsy</h3>
                   {!etsyLinkChecked ? (
                     <p className={listingHintClass}>Checking Etsy link…</p>
                   ) : etsyMappedLive ? (
@@ -1292,14 +1456,18 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                       ) : null}
                     </>
                   )}
-                </ListingFormSection>
-              ) : null}
+                </div>
+              )}
 
-              {shopifyConn?.status === "ACTIVE" ? (
-                <ListingFormSection
-                  title="List on Shopify"
-                  description="Optional. Publish this INW listing to your connected Shopify shop."
-                >
+              {/* Divider between Etsy and Shopify */}
+              {etsyConnActive && shopifyConn?.status === "ACTIVE" && (
+                <hr className="border-t border-gray-200 my-4" />
+              )}
+
+              {/* Shopify Section */}
+              {shopifyConn?.status === "ACTIVE" && (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-gray-900">Shopify</h3>
                   {shopifyConn.locationSelectionRequired || !shopifyConn.inventoryReady ? (
                     <div className="space-y-2">
                       <p className={listingHintClass}>
@@ -1336,9 +1504,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                           {shopifyBusy ? "Listing…" : "List on Shopify"}
                         </button>
                       )}
-                      {shopifyMessage ? (
-                        <p className={listingHintClass}>{shopifyMessage}</p>
-                      ) : null}
+                      {shopifyMessage && <p className={listingHintClass}>{shopifyMessage}</p>}
                     </div>
                   ) : (
                     <label className="flex items-center gap-2 cursor-pointer">
@@ -1348,374 +1514,265 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                         onChange={(e) => setListOnShopifyAfterSave(e.target.checked)}
                         className="rounded"
                       />
-                      <span className="font-medium text-sm">List on Shopify after save</span>
+                      <span className="font-medium text-sm">List on Shopify</span>
                     </label>
                   )}
-                </ListingFormSection>
-              ) : null}
-
-              <ListingFormSection title="Pricing & Inventory">
-                <div>
-                  <label className={listingLabelClass}>Price (USD) *</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={priceDollars}
-                    onFocus={() => setPriceDollars((prev) => moneyInputToEditable(prev))}
-                    onChange={(e) => {
-                      const t = sanitizePriceDraftInput(e.target.value);
-                      if (t != null) setPriceDollars(t);
-                    }}
-                    onBlur={() => setPriceDollars((prev) => moneyInputToIdle(prev))}
-                    className={`${listingInputClass} max-w-xs`}
-                    required
-                  />
                 </div>
+              )}
 
-                <div className="space-y-4">
-                  <h3 className="text-sm font-semibold text-gray-900">Options (Size, Color, etc.)</h3>
-                  <ListingVariantMatrixEditor
-                    inventoryTracking={inventoryTracking}
-                    onInventoryTrackingChange={setInventoryTracking}
-                    optionsEnabled={optionsEnabled}
-                    onOptionsEnabledChange={setOptionsEnabled}
-                    simpleQuantity={quantity}
-                    onSimpleQuantityChange={setQuantity}
-                    axes={variantAxes}
-                    skus={variantSkus}
-                    onChange={(nextAxes, nextSkus) => {
-                      setVariantAxes(nextAxes);
-                      setVariantSkus(nextSkus);
-                    }}
-                    galleryPhotos={photos}
-                  />
-                </div>
+              {/* WIC - Coming Soon */}
+              <hr className="border-t border-gray-200 my-4" />
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold text-gray-500">WIC</h3>
+                <p className={listingHintClass}>Coming soon — sync to WIC marketplace.</p>
+              </div>
+            </ListingFormSection>
+          ) : null}
 
-                {condition === "used" && (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Accept Offers</label>
-                      <div className="flex flex-wrap gap-4">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="acceptOffers"
-                            checked={acceptOffers}
-                            onChange={() => setAcceptOffers(true)}
-                            className="rounded"
-                          />
-                          <span className="text-sm font-medium">Yes</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="acceptOffers"
-                            checked={!acceptOffers}
-                            onChange={() => setAcceptOffers(false)}
-                            className="rounded"
-                          />
-                          <span className="text-sm font-medium">No</span>
-                        </label>
-                      </div>
-                    </div>
-                    {acceptOffers && (
-                      <div>
-                        <label className="block text-sm font-medium mb-1" htmlFor="store-min-offer-range">
-                          Automatically decline offers less than
-                        </label>
-                        <div className="w-full max-w-xs space-y-2 pt-1">
-                          <input
-                            id="store-min-offer-range"
-                            type="range"
-                            min={0}
-                            max={minOfferSliderMax}
-                            step={1}
-                            value={Math.min(minOfferSliderDollars, minOfferSliderMax)}
-                            onChange={(e) => setMinOfferSliderDollars(Number(e.target.value))}
-                            className="store-min-offer-range w-full"
-                            style={
-                              {
-                                ["--range-pct" as string]: `${
-                                  minOfferSliderMax > 0
-                                    ? (Math.min(minOfferSliderDollars, minOfferSliderMax) / minOfferSliderMax) * 100
-                                    : 0
-                                }%`,
-                              } as CSSProperties
-                            }
-                          />
-                          <p className="text-sm font-semibold text-gray-900">
-                            {minOfferSliderDollars <= 0
-                              ? "$0 — accept any offer"
-                              : `Minimum offer: $${Math.min(minOfferSliderDollars, minOfferSliderMax).toFixed(2)}`}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            Slide to set a floor, or leave at $0 to accept any amount. Upper end matches your list price
-                            (or up to $500 until a price is set).
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </ListingFormSection>
-
-              {offerFlagsLoaded && (offerShipping || offerLocalDelivery || offerLocalPickup) && (
-                <ListingFormSection title="Delivery options">
-                  {offerShipping && (
+          {/* Delivery Options */}
+          {offerFlagsLoaded && (offerShipping || offerLocalDelivery || offerLocalPickup) && (
+            <ListingFormSection title="Delivery Options">
+              {offerShipping && (
+                <>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!shippingDisabled}
+                      onChange={(e) => {
+                        const nextDisabled = !e.target.checked;
+                        if (nextDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
+                          setLocalDeliveryAvailable(true);
+                        }
+                        setShippingDisabled(nextDisabled);
+                      }}
+                      className="rounded"
+                    />
+                    <span className="text-sm font-medium">Offer Shipping</span>
+                  </label>
+                  {!shippingDisabled && (
                     <>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={!shippingDisabled}
-                          onChange={(e) => {
-                            const nextDisabled = !e.target.checked;
-                            if (nextDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
-                              setLocalDeliveryAvailable(true);
-                            }
-                            setShippingDisabled(nextDisabled);
-                          }}
-                          className="rounded"
-                        />
-                        <span className="text-sm font-medium">Offer Shipping</span>
-                      </label>
-                      {!shippingDisabled && (
-                        <>
-                          <div>
-                            <label className="block text-sm font-medium mb-1">Shipping price (USD)</label>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={shippingCostDollars}
-                              onChange={(e) => setShippingCostDollars(e.target.value)}
-                              className={listingInputClass}
-                              placeholder="e.g. 5.99"
-                            />
-                            <p className="text-xs text-gray-500 mt-0.5">Price charged for shipping this item</p>
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium mb-1">Shipping option (package)</label>
-                            <select
-                              className={listingSelectClass}
-                              value={shippingOptionId}
-                              onChange={(e) => {
-                                const id = e.target.value;
-                                setShippingOptionId(id);
-                                if (offerFreeShippingOnInw) {
-                                  setShippingCostDollars((prev) => prev || "0.00");
-                                  return;
-                                }
-                                const selected = shippingOptions.find((o) => o.id === id);
-                                if (selected?.shippingCostCents != null) {
-                                  setShippingCostDollars((selected.shippingCostCents / 100).toFixed(2));
-                                }
-                              }}
-                              required={!isEdit}
-                            >
-                              <option value="">{isEdit ? "None (INW defaults)" : "Select a package"}</option>
-                              {shippingOptions.map((opt) => (
-                                <option key={opt.id} value={opt.id}>
-                                  {opt.name}
-                                  {opt.shippingCostCents != null
-                                    ? opt.shippingCostCents === 0
-                                      ? " · Free"
-                                      : ` · $${(opt.shippingCostCents / 100).toFixed(2)}`
-                                    : ""}
-                                  {shippingOptionNeedsMeasurements(opt) ? " — needs weight and size" : ""}
-                                </option>
-                              ))}
-                            </select>
-                            {(() => {
-                              const selected = shippingOptions.find((o) => o.id === shippingOptionId);
-                              if (!selected) return null;
-                              const pkg = formatShippingOptionPackageSummary(
-                                selected,
-                                "Needs weight and size — Shippo will use defaults until you add measurements."
-                              );
-                              const price =
-                                selected.shippingCostCents != null
-                                  ? selected.shippingCostCents === 0
-                                    ? "Free"
-                                    : `$${(selected.shippingCostCents / 100).toFixed(2)}`
-                                  : "";
-                              const line = [pkg, price].filter(Boolean).join(" · ");
-                              if (!line) return null;
-                              return <p className="text-xs text-gray-500 mt-0.5">{line}</p>;
-                            })()}
-                            <p className="text-xs text-gray-500 mt-0.5">
-                              Used for Shippo labels.{" "}
-                              <Link href="/seller-hub/shipping-options" className="underline">
-                                Manage shipping options
-                              </Link>
-                            </p>
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium mb-1">Shipping Policy</label>
-                            <div className="flex gap-2 items-start">
-                              <textarea
-                                value={useSellerProfileShipping ? effectiveShippingPolicy : shippingPolicy}
-                                onChange={(e) => {
-                                  if (useSellerProfileShipping) return;
-                                  setShippingPolicy(e.target.value);
-                                }}
-                                readOnly={useSellerProfileShipping}
-                                className={`w-full border rounded px-3 py-2 flex-1 min-w-0 ${useSellerProfileShipping ? "bg-gray-50" : ""}`}
-                                rows={3}
-                                placeholder="e.g. 2-5 business days via USPS. Free over $50."
-                              />
-                            </div>
-                            <label className="flex items-center gap-2 cursor-pointer mt-2">
-                              <input
-                                type="checkbox"
-                                checked={useSellerProfileShipping}
-                                onChange={(e) => {
-                                  setUseSellerProfileShipping(e.target.checked);
-                                  if (e.target.checked) setShippingPolicy("");
-                                }}
-                                className="rounded"
-                              />
-                              <span className="text-sm font-medium">Use seller profile default</span>
-                            </label>
-                            <p className="text-xs text-gray-500 mt-0.5">
-                              {useSellerProfileShipping
-                                ? "Synced from your seller profile. Uncheck to set item-specific policy."
-                                : "Item-specific shipping policy (overrides profile default)."}
-                            </p>
-                          </div>
-                        </>
-                      )}
-                    </>
-                  )}
-
-                  {offerLocalDelivery && (
-                    <label className="flex items-center gap-2 cursor-pointer mt-3">
-                      <input
-                        type="checkbox"
-                        checked={localDeliveryAvailable}
-                        onChange={(e) => setLocalDeliveryAvailable(e.target.checked)}
-                        className="rounded"
-                      />
-                      <span className="font-medium">Offer Local Delivery</span>
-                    </label>
-                  )}
-                  {offerLocalDelivery && localDeliveryAvailable && (
-                    <div className="space-y-2 pl-6">
                       <div>
-                        <label className="block text-sm font-medium mb-1">Local Delivery fee (USD, optional)</label>
+                        <label className="block text-sm font-medium mb-1">Shipping price (USD)</label>
                         <input
                           type="number"
                           step="0.01"
                           min="0"
-                          value={localDeliveryFeeDollars}
-                          onChange={(e) => setLocalDeliveryFeeDollars(e.target.value)}
-                          className="w-full border rounded px-3 py-2 max-w-xs"
-                          placeholder="e.g. 5.00 or leave blank for free"
+                          value={shippingCostDollars}
+                          onChange={(e) => setShippingCostDollars(e.target.value)}
+                          className={listingInputClass}
+                          placeholder="e.g. 5.99"
                         />
+                        <p className="text-xs text-gray-500 mt-0.5">Price charged for shipping this item</p>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium mb-1">Local Delivery terms</label>
+                        <label className="block text-sm font-medium mb-1">Shipping option (package)</label>
+                        <select
+                          className={listingSelectClass}
+                          value={shippingOptionId}
+                          onChange={(e) => {
+                            const id = e.target.value;
+                            setShippingOptionId(id);
+                            if (offerFreeShippingOnInw) {
+                              setShippingCostDollars((prev) => prev || "0.00");
+                              return;
+                            }
+                            const selected = shippingOptions.find((o) => o.id === id);
+                            if (selected?.shippingCostCents != null) {
+                              setShippingCostDollars((selected.shippingCostCents / 100).toFixed(2));
+                            }
+                          }}
+                          required={!isEdit}
+                        >
+                          <option value="">{isEdit ? "None (INW defaults)" : "Select a package"}</option>
+                          {shippingOptions.map((opt) => (
+                            <option key={opt.id} value={opt.id}>
+                              {opt.name}
+                              {opt.shippingCostCents != null
+                                ? opt.shippingCostCents === 0
+                                  ? " · Free"
+                                  : ` · $${(opt.shippingCostCents / 100).toFixed(2)}`
+                                : ""}
+                              {shippingOptionNeedsMeasurements(opt) ? " — needs weight and size" : ""}
+                            </option>
+                          ))}
+                        </select>
+                        {(() => {
+                          const selected = shippingOptions.find((o) => o.id === shippingOptionId);
+                          if (!selected) return null;
+                          const pkg = formatShippingOptionPackageSummary(
+                            selected,
+                            "Needs weight and size — Shippo will use defaults until you add measurements."
+                          );
+                          const price =
+                            selected.shippingCostCents != null
+                              ? selected.shippingCostCents === 0
+                                ? "Free"
+                                : `$${(selected.shippingCostCents / 100).toFixed(2)}`
+                              : "";
+                          const line = [pkg, price].filter(Boolean).join(" · ");
+                          if (!line) return null;
+                          return <p className="text-xs text-gray-500 mt-0.5">{line}</p>;
+                        })()}
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Used for Shippo labels.{" "}
+                          <Link href="/seller-hub/shipping-options" className="underline">
+                            Manage shipping options
+                          </Link>
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Shipping Policy</label>
                         <div className="flex gap-2 items-start">
                           <textarea
-                            value={localDeliveryTerms}
-                            onChange={(e) => setLocalDeliveryTerms(e.target.value)}
-                            className="w-full border rounded px-3 py-2 flex-1 min-w-0"
+                            value={useSellerProfileShipping ? effectiveShippingPolicy : shippingPolicy}
+                            onChange={(e) => {
+                              if (useSellerProfileShipping) return;
+                              setShippingPolicy(e.target.value);
+                            }}
+                            readOnly={useSellerProfileShipping}
+                            className={`w-full border rounded px-3 py-2 flex-1 min-w-0 ${useSellerProfileShipping ? "bg-gray-50" : ""}`}
                             rows={3}
-                            placeholder="Describe terms of local delivery (e.g. areas served, contact method)"
+                            placeholder="e.g. 2-5 business days via USPS. Free over $50."
                           />
                         </div>
+                        <label className="flex items-center gap-2 cursor-pointer mt-2">
+                          <input
+                            type="checkbox"
+                            checked={useSellerProfileShipping}
+                            onChange={(e) => {
+                              setUseSellerProfileShipping(e.target.checked);
+                              if (e.target.checked) setShippingPolicy("");
+                            }}
+                            className="rounded"
+                          />
+                          <span className="text-sm font-medium">Use seller profile default</span>
+                        </label>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {useSellerProfileShipping
+                            ? "Synced from your seller profile. Uncheck to set item-specific policy."
+                            : "Item-specific shipping policy (overrides profile default)."}
+                        </p>
                       </div>
-                    </div>
-                  )}
-
-                  {offerLocalPickup && (
-                    <>
-                      <label className="flex items-center gap-2 cursor-pointer mt-3">
-                        <input
-                          type="checkbox"
-                          checked={inStorePickupAvailable}
-                          onChange={(e) => setInStorePickupAvailable(e.target.checked)}
-                          className="rounded"
-                        />
-                        <span className="font-medium">Offer Local Pick Up</span>
-                      </label>
-                      {inStorePickupAvailable && (
-                        <>
-                          <div className="mt-2 pl-6">
-                            <label className="block text-sm font-medium mb-1">Pickup terms</label>
-                            <div className="flex gap-2 items-start">
-                              <textarea
-                                value={useSellerProfilePickup ? sellerProfilePickupPolicy : pickupTerms}
-                                onChange={(e) => {
-                                  if (!useSellerProfilePickup) setPickupTerms(e.target.value);
-                                }}
-                                readOnly={useSellerProfilePickup}
-                                className={`w-full border rounded px-3 py-2 flex-1 min-w-0 ${useSellerProfilePickup ? "bg-gray-50" : ""}`}
-                                rows={3}
-                                placeholder="e.g. Location, contact method, hours."
-                              />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  fetch("/api/me/policies")
-                                    .then((r) => r.json())
-                                    .then((data: { sellerPickupPolicy?: string | null }) => {
-                                      const policy = data?.sellerPickupPolicy ?? "";
-                                      setSellerProfilePickupPolicy(policy);
-                                      setPickupTerms(policy);
-                                    })
-                                    .catch(() => {});
-                                }}
-                                className="shrink-0 border border-gray-300 bg-white hover:bg-gray-50 rounded px-2 py-1 text-sm text-gray-700"
-                              >
-                                Sync
-                              </button>
-                            </div>
-                            <label className="flex items-center gap-2 cursor-pointer mt-2">
-                              <input
-                                type="checkbox"
-                                checked={useSellerProfilePickup}
-                                onChange={(e) => {
-                                  setUseSellerProfilePickup(e.target.checked);
-                                  if (e.target.checked) setPickupTerms("");
-                                }}
-                                className="rounded"
-                              />
-                              <span className="text-sm font-medium">Use policies from settings</span>
-                            </label>
-                            <p className="text-xs text-gray-500 mt-0.5">
-                              {useSellerProfilePickup
-                                ? "Synced from your Policies screen. Uncheck to set item-specific terms."
-                                : "Item-specific pickup terms (overrides profile default)."}
-                            </p>
-                          </div>
-                        </>
-                      )}
                     </>
                   )}
-                </ListingFormSection>
+                </>
               )}
 
-              {offerFlagsLoaded && !(offerShipping || offerLocalDelivery || offerLocalPickup) && (
-                <ListingFormSection>
-                  <p className="text-sm text-gray-600 mb-2">
-                    Set your fulfillment options in Policies (shipping, local delivery, pickup) to enable them here.
-                  </p>
-                  <a href="/my-community" className="text-[var(--color-primary)] hover:underline text-sm">Open Policies</a>
-                </ListingFormSection>
+              {offerLocalDelivery && (
+                <label className="flex items-center gap-2 cursor-pointer mt-3">
+                  <input
+                    type="checkbox"
+                    checked={localDeliveryAvailable}
+                    onChange={(e) => setLocalDeliveryAvailable(e.target.checked)}
+                    className="rounded"
+                  />
+                  <span className="font-medium">Offer Local Delivery</span>
+                </label>
               )}
-            </>
-          }
-          footer={
-            <ListingSaveBar
-              isEdit={isEdit}
-              submitting={submitting}
-              error={error}
-              backHref={successRedirect ?? "/seller-hub/store/items"}
-              createHint="List on INW."
-            />
-          }
-        />
+              {offerLocalDelivery && localDeliveryAvailable && (
+                <div className="space-y-2 pl-6">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Local Delivery fee (USD, optional)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={localDeliveryFeeDollars}
+                      onChange={(e) => setLocalDeliveryFeeDollars(e.target.value)}
+                      className="w-full border rounded px-3 py-2 max-w-xs"
+                      placeholder="e.g. 5.00 or leave blank for free"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Local Delivery terms</label>
+                    <div className="flex gap-2 items-start">
+                      <textarea
+                        value={localDeliveryTerms}
+                        onChange={(e) => setLocalDeliveryTerms(e.target.value)}
+                        className="w-full border rounded px-3 py-2 flex-1 min-w-0"
+                        rows={3}
+                        placeholder="Describe terms of local delivery (e.g. areas served, contact method)"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {offerLocalPickup && (
+                <>
+                  <label className="flex items-center gap-2 cursor-pointer mt-3">
+                    <input
+                      type="checkbox"
+                      checked={inStorePickupAvailable}
+                      onChange={(e) => setInStorePickupAvailable(e.target.checked)}
+                      className="rounded"
+                    />
+                    <span className="font-medium">Offer Local Pick Up</span>
+                  </label>
+                  {inStorePickupAvailable && (
+                    <div className="mt-2 pl-6">
+                      <label className="block text-sm font-medium mb-1">Pickup terms</label>
+                      <div className="flex gap-2 items-start">
+                        <textarea
+                          value={useSellerProfilePickup ? sellerProfilePickupPolicy : pickupTerms}
+                          onChange={(e) => {
+                            if (!useSellerProfilePickup) setPickupTerms(e.target.value);
+                          }}
+                          readOnly={useSellerProfilePickup}
+                          className={`w-full border rounded px-3 py-2 flex-1 min-w-0 ${useSellerProfilePickup ? "bg-gray-50" : ""}`}
+                          rows={3}
+                          placeholder="e.g. Location, contact method, hours."
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            fetch("/api/me/policies")
+                              .then((r) => r.json())
+                              .then((data: { sellerPickupPolicy?: string | null }) => {
+                                const policy = data?.sellerPickupPolicy ?? "";
+                                setSellerProfilePickupPolicy(policy);
+                                setPickupTerms(policy);
+                              })
+                              .catch(() => {});
+                          }}
+                          className="shrink-0 border border-gray-300 bg-white hover:bg-gray-50 rounded px-2 py-1 text-sm text-gray-700"
+                        >
+                          Sync
+                        </button>
+                      </div>
+                      <label className="flex items-center gap-2 cursor-pointer mt-2">
+                        <input
+                          type="checkbox"
+                          checked={useSellerProfilePickup}
+                          onChange={(e) => {
+                            setUseSellerProfilePickup(e.target.checked);
+                            if (e.target.checked) setPickupTerms("");
+                          }}
+                          className="rounded"
+                        />
+                        <span className="text-sm font-medium">Use policies from settings</span>
+                      </label>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {useSellerProfilePickup
+                          ? "Synced from your Policies screen. Uncheck to set item-specific terms."
+                          : "Item-specific pickup terms (overrides profile default)."}
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+            </ListingFormSection>
+          )}
+
+          {offerFlagsLoaded && !(offerShipping || offerLocalDelivery || offerLocalPickup) && (
+            <ListingFormSection>
+              <p className="text-sm text-gray-600 mb-2">
+                Set your fulfillment options in Policies (shipping, local delivery, pickup) to enable them here.
+              </p>
+              <a href="/my-community" className="text-[var(--color-primary)] hover:underline text-sm">Open Policies</a>
+            </ListingFormSection>
+          )}
+        </ListingEditorLayout>
       </form>
 
       {successItemId ? (

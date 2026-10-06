@@ -162,6 +162,12 @@ model Member {
   etsyVariantMaps      EtsyVariantMap[]
   etsyListingImportAttempts EtsyListingImportAttempt[]
   etsyOrderLineSaleFacts EtsyOrderLineSaleFact[]
+  wixConnections       WixConnection[]
+  wixOAuthStates       WixOAuthState[]
+  wixListingLinks      WixListingLink[]
+  wixVariantMaps       WixVariantMap[]
+  wixListingImportAttempts WixListingImportAttempt[]
+  wixOrderLineSaleFacts WixOrderLineSaleFact[]
 }
 
 model WebviewBridgeToken {
@@ -1044,6 +1050,7 @@ model StoreItem {
   inventoryReservations InventoryReservation[]
   shopifyListingLinks ShopifyListingLink[]
   etsyListingLinks    EtsyListingLink[]
+  wixListingLinks     WixListingLink[]
 
   @@unique([id, memberId])
   @@index([status, endedAt])
@@ -3035,5 +3042,392 @@ model EtsySyncJob {
   @@index([leaseExpiresAt])
   @@index([etsyConnectionId, state])
   @@map("etsy_sync_job")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Wix Integration Models
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum WixConnectionStatus {
+  ACTIVE
+  DISCONNECTED
+
+  @@map("wix_connection_status")
+}
+
+enum WixCatalogVersion {
+  V1_CATALOG
+  V3_CATALOG
+
+  @@map("wix_catalog_version")
+}
+
+/// Wix site connection for a seller. Tokens are minted on-demand via app secret.
+model WixConnection {
+  id                    String              @id @default(cuid())
+  memberId              String              @map("member_id")
+  /// Wix instance ID from the app install.
+  instanceId            String              @map("instance_id")
+  /// Wix site/metasite ID.
+  siteId                String              @map("site_id")
+  /// Shop name from Wix site properties.
+  shopName              String?             @map("shop_name")
+  /// Catalog API version: V1_CATALOG (classic Editor) or V3_CATALOG (Wix Editor).
+  catalogVersion        WixCatalogVersion   @map("catalog_version")
+  generation            Int
+  status                WixConnectionStatus
+  /// Default location ID for multi-location inventory.
+  defaultLocationId     String?             @map("default_location_id")
+  connectedAt           DateTime            @map("connected_at")
+  disconnectedAt        DateTime?           @map("disconnected_at")
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  member                Member               @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  listingLinks          WixListingLink[]
+  variantMaps           WixVariantMap[]
+  providerEvidence      WixProviderEvidence[]
+  syncJobs              WixSyncJob[]
+  orderLineSaleFacts    WixOrderLineSaleFact[]
+  listingImportAttempts WixListingImportAttempt[]
+
+  @@unique([id, memberId])
+  @@unique([memberId, siteId, generation])
+  @@index([memberId, status])
+  @@index([siteId, status])
+  @@index([instanceId, status])
+  @@map("wix_connection")
+}
+
+/// How a WixListingLink entered INW (export create vs Wix→INW import).
+enum WixListingImportSource {
+  NATIVE
+  WIX_IMPORT
+
+  @@map("wix_listing_import_source")
+}
+
+/// Durable import attempt identity for connection + Wix Product ID.
+enum WixListingImportAttemptStatus {
+  STARTED
+  COMPLETED
+  FAILED
+
+  @@map("wix_listing_import_attempt_status")
+}
+
+/// Exactly-once import attempt + bootstrap cutoff for order-race handling.
+model WixListingImportAttempt {
+  id                    String                          @id @default(cuid())
+  wixConnectionId       String                          @map("wix_connection_id")
+  memberId              String                          @map("member_id")
+  wixProductId          String                          @map("wix_product_id")
+  wixVariantId          String?                         @map("wix_variant_id")
+  status                WixListingImportAttemptStatus   @default(STARTED)
+  /// Seller-authoritative stock mode for this import: PHYSICAL | MADE_TO_ORDER
+  stockMode             String                          @map("stock_mode")
+  /// Orders with evidence.triggeredAt < this are treated as already in the Wix inventory snapshot.
+  bootstrapStartedAt    DateTime                        @map("bootstrap_started_at")
+  storeItemId           String?                         @map("store_item_id")
+  listingLinkId         String?                         @map("listing_link_id")
+  failureCode           String?                         @map("failure_code")
+  failureMessage        String?                         @map("failure_message") @db.Text
+  createdAt             DateTime                        @default(now()) @map("created_at")
+  updatedAt             DateTime                        @updatedAt @map("updated_at")
+
+  connection WixConnection @relation(fields: [wixConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
+  member     Member        @relation(fields: [memberId], references: [id], onDelete: Restrict)
+
+  @@unique([wixConnectionId, wixProductId])
+  @@index([wixConnectionId, status])
+  @@index([memberId, status])
+  @@map("wix_listing_import_attempt")
+}
+
+/// Seller-facing readiness for a mapped Wix listing.
+enum WixListingReadiness {
+  SYNCING
+  READY_TO_PUBLISH
+  ACTION_REQUIRED
+  CONNECTION_REQUIRED
+
+  @@map("wix_listing_readiness")
+}
+
+/// Per-capability outbound health. Content and inventory pause independently.
+enum WixCapabilityHealth {
+  HEALTHY
+  DEGRADED
+  PAUSED
+
+  @@map("wix_capability_health")
+}
+
+/// Generation-bound StoreItem ↔ Wix Product mapping. Bound to WixConnection.id.
+model WixListingLink {
+  id                           String    @id @default(cuid())
+  wixConnectionId              String    @map("wix_connection_id")
+  memberId                     String    @map("member_id")
+  storeItemId                  String    @map("store_item_id")
+  wixProductId                 String    @map("wix_product_id")
+  /// Monotonic desired product content version (title/description).
+  desiredProductContentVersion Int       @default(0) @map("desired_product_content_version")
+  /// Last successfully applied product content version.
+  appliedProductContentVersion Int       @default(0) @map("applied_product_content_version")
+  desiredProductFingerprint    String?   @map("desired_product_fingerprint") @db.VarChar(64)
+  appliedProductFingerprint    String?   @map("applied_product_fingerprint") @db.VarChar(64)
+  productContentAppliedAt      DateTime? @map("product_content_applied_at")
+  /// When the latest INW product content desire was recorded.
+  productDesiredAt             DateTime? @map("product_desired_at")
+  lastObservedProductFingerprint String?   @map("last_observed_product_fingerprint") @db.VarChar(64)
+  lastObservedProductUpdatedAt   DateTime? @map("last_observed_product_updated_at")
+  /// Unresolved dual-divergence product content conflict.
+  productContentConflict           Boolean   @default(false) @map("product_content_conflict")
+  productConflictRemoteFingerprint String?   @map("product_conflict_remote_fingerprint") @db.VarChar(64)
+  productConflictEvidenceId        String?   @map("product_conflict_evidence_id")
+  productConflictDetectedAt        DateTime? @map("product_conflict_detected_at")
+  /// Seller-facing readiness derived from durable content/inventory/remote truth.
+  readiness                      WixListingReadiness @default(SYNCING) @map("readiness")
+  contentHealth                  WixCapabilityHealth @default(HEALTHY) @map("content_health")
+  inventoryHealth                WixCapabilityHealth @default(HEALTHY) @map("inventory_health")
+  issueCode                      String?   @map("issue_code")
+  issueFingerprint               String?   @map("issue_fingerprint")
+  issueSeverity                  String?   @map("issue_severity")
+  issueMessage                   String?   @map("issue_message") @db.Text
+  issueFirstSeenAt               DateTime? @map("issue_first_seen_at")
+  issueLastSeenAt                DateTime? @map("issue_last_seen_at")
+  lastReconciledAt               DateTime? @map("last_reconciled_at")
+  readinessUpdatedAt             DateTime? @map("readiness_updated_at")
+  /// Last observed Wix Product.visible status.
+  remoteProductVisible           Boolean?  @map("remote_product_visible")
+  /// NATIVE = exported/created from INW; WIX_IMPORT = imported from Wix.
+  importSource                   WixListingImportSource @default(NATIVE) @map("import_source")
+  importedAt                     DateTime? @map("imported_at")
+  /// Snapshot of import bootstrap cutoff used for pre/post sale handling.
+  importBootstrapStartedAt       DateTime? @map("import_bootstrap_started_at")
+  createdAt                    DateTime  @default(now()) @map("created_at")
+  updatedAt                    DateTime  @updatedAt @map("updated_at")
+
+  connection  WixConnection   @relation(fields: [wixConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
+  storeItem   StoreItem       @relation(fields: [storeItemId, memberId], references: [id, memberId], onDelete: Restrict)
+  member      Member          @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  variantMaps WixVariantMap[]
+
+  @@unique([id, wixConnectionId, storeItemId])
+  @@unique([wixConnectionId, storeItemId])
+  @@unique([wixConnectionId, wixProductId])
+  @@index([memberId, readiness])
+  @@index([wixConnectionId, importSource])
+  @@map("wix_listing_link")
+}
+
+/// StoreVariant ↔ Wix product variant/choice mapping.
+model WixVariantMap {
+  id                 String   @id @default(cuid())
+  wixConnectionId    String   @map("wix_connection_id")
+  wixListingLinkId   String   @map("wix_listing_link_id")
+  memberId           String   @map("member_id")
+  storeItemId        String   @map("store_item_id")
+  storeVariantId     String   @map("store_variant_id")
+  /// Wix variant ID (for multi-option products) or product ID (for simple products).
+  wixVariantId       String   @map("wix_variant_id")
+  /// Wix inventory item ID when available.
+  wixInventoryItemId String?  @map("wix_inventory_item_id")
+  /// Snapshot of choice values used for option correlation (JSON object).
+  choicesJson        Json?    @map("choices_json")
+  remoteSku          String?  @map("remote_sku")
+  /// Monotonic desired variant content version (price/SKU).
+  desiredVariantContentVersion Int       @default(0) @map("desired_variant_content_version")
+  appliedVariantContentVersion Int       @default(0) @map("applied_variant_content_version")
+  desiredVariantFingerprint    String?   @map("desired_variant_fingerprint") @db.VarChar(64)
+  appliedVariantFingerprint    String?   @map("applied_variant_fingerprint") @db.VarChar(64)
+  variantContentAppliedAt      DateTime? @map("variant_content_applied_at")
+  variantDesiredAt             DateTime? @map("variant_desired_at")
+  lastObservedVariantFingerprint String? @map("last_observed_variant_fingerprint") @db.VarChar(64)
+  lastObservedVariantUpdatedAt   DateTime? @map("last_observed_variant_updated_at")
+  variantContentConflict           Boolean @default(false) @map("variant_content_conflict")
+  variantConflictRemoteFingerprint String? @map("variant_conflict_remote_fingerprint") @db.VarChar(64)
+  variantConflictEvidenceId        String? @map("variant_conflict_evidence_id")
+  variantConflictDetectedAt        DateTime? @map("variant_conflict_detected_at")
+  inventoryDesiredAvailable Int? @map("inventory_desired_available")
+  inventoryAppliedAvailable Int? @map("inventory_applied_available")
+  /// Monotonic desired sellable-quantity projection version.
+  inventoryDesiredVersion   Int  @default(0) @map("inventory_desired_version")
+  inventoryAppliedVersion   Int  @default(0) @map("inventory_applied_version")
+  inventoryDesiredAt        DateTime? @map("inventory_desired_at")
+  inventoryAppliedAt        DateTime? @map("inventory_applied_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  connection  WixConnection   @relation(fields: [wixConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
+  listingLink WixListingLink  @relation(fields: [wixListingLinkId, wixConnectionId, storeItemId], references: [id, wixConnectionId, storeItemId], onDelete: Restrict)
+  member      Member          @relation(fields: [memberId], references: [id], onDelete: Restrict)
+
+  @@unique([wixConnectionId, storeVariantId])
+  @@unique([wixConnectionId, wixVariantId])
+  @@index([wixListingLinkId])
+  @@index([memberId, storeItemId])
+  @@map("wix_variant_map")
+}
+
+enum WixEvidenceProcessState {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  ERROR
+
+  @@map("wix_evidence_process_state")
+}
+
+enum WixSyncJobState {
+  PENDING
+  RUNNING
+  RETRY_WAIT
+  SUCCEEDED
+  DEAD
+
+  @@map("wix_sync_job_state")
+}
+
+enum WixSyncJobKind {
+  PROCESS_PROVIDER_EVIDENCE
+  UPDATE_LISTING_CONTENT
+  POLL_LISTING_CONTENT
+  PROJECT_INVENTORY
+  RECONCILE_LISTING
+  CREATE_LISTING
+
+  @@map("wix_sync_job_kind")
+}
+
+/// Verified inbound Wix webhook fact. Separate from canonical commerce state.
+model WixProviderEvidence {
+  id               String                   @id @default(cuid())
+  wixConnectionId  String?                  @map("wix_connection_id")
+  siteId           String                   @map("site_id")
+  topic            String
+  /// Webhook ID header. Delivery dedupe identity.
+  webhookId        String                   @unique @map("webhook_id")
+  /// Optional event ID from payload when present.
+  eventId          String?                  @map("event_id")
+  triggeredAt      DateTime                 @map("triggered_at")
+  rawBody          String                   @map("raw_body") @db.Text
+  payloadHash      String                   @map("payload_hash") @db.VarChar(64)
+  processState     WixEvidenceProcessState  @default(RECEIVED) @map("process_state")
+  receivedAt       DateTime                 @default(now()) @map("received_at")
+  processedAt      DateTime?                @map("processed_at")
+  lastErrorCode    String?                  @map("last_error_code")
+  lastErrorMessage String?                  @map("last_error_message") @db.Text
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+
+  connection WixConnection? @relation(fields: [wixConnectionId], references: [id], onDelete: Restrict)
+  syncJob    WixSyncJob?
+  orderLineSaleFacts WixOrderLineSaleFact[]
+
+  @@index([wixConnectionId, topic, receivedAt])
+  @@index([processState, receivedAt])
+  @@index([siteId, triggeredAt])
+  @@index([eventId])
+  @@map("wix_provider_evidence")
+}
+
+enum WixOrderLineSaleApplyState {
+  PENDING
+  APPLIED
+  UNMAPPED
+  FAILED
+  /// Sale occurred before import bootstrap cutoff and is represented by opening stock.
+  PRE_BOOTSTRAP_ACKED
+  /// APPLIED quantity was restocked after a Wix cancel.
+  RESTOCKED
+
+  @@map("wix_order_line_sale_apply_state")
+}
+
+/// Durable Wix paid order-line sale fact. Not an INW StoreOrder.
+/// Exactly-once inventory causality key: (connectionId, wixOrderId, wixLineItemId).
+model WixOrderLineSaleFact {
+  id                 String                       @id @default(cuid())
+  wixConnectionId    String                       @map("wix_connection_id")
+  memberId           String                       @map("member_id")
+  wixOrderId         String                       @map("wix_order_id")
+  wixLineItemId      String                       @map("wix_line_item_id")
+  wixProductId       String?                      @map("wix_product_id")
+  wixVariantId       String?                      @map("wix_variant_id")
+  storeVariantId     String?                      @map("store_variant_id")
+  storeItemId        String?                      @map("store_item_id")
+  paidQuantity       Int                          @map("paid_quantity")
+  appliedQuantity    Int                          @default(0) @map("applied_quantity")
+  applyState         WixOrderLineSaleApplyState   @default(PENDING) @map("apply_state")
+  inventoryEventId   String?                      @map("inventory_event_id")
+  evidenceId         String                       @map("evidence_id")
+  lastErrorCode      String?                      @map("last_error_code")
+  lastErrorMessage   String?                      @map("last_error_message") @db.Text
+  causalConflict               Boolean   @default(false) @map("causal_conflict")
+  causalConflictCode           String?   @map("causal_conflict_code")
+  causalConflictEvidenceId     String?   @map("causal_conflict_evidence_id")
+  causalConflictDetectedAt     DateTime? @map("causal_conflict_detected_at")
+  appliedAt          DateTime?                    @map("applied_at")
+  createdAt          DateTime                     @default(now()) @map("created_at")
+  updatedAt          DateTime                     @updatedAt @map("updated_at")
+
+  connection WixConnection        @relation(fields: [wixConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
+  member     Member               @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  evidence   WixProviderEvidence  @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+
+  @@unique([wixConnectionId, wixOrderId, wixLineItemId])
+  @@index([wixConnectionId, applyState])
+  @@index([evidenceId])
+  @@index([storeVariantId])
+  @@map("wix_order_line_sale_fact")
+}
+
+model WixSyncJob {
+  id               String           @id @default(cuid())
+  wixConnectionId  String           @map("wix_connection_id")
+  kind             WixSyncJobKind
+  dedupeKey        String           @unique @map("dedupe_key")
+  evidenceId       String?          @unique @map("evidence_id")
+  payload          Json?
+  payloadHash      String?          @map("payload_hash") @db.VarChar(64)
+  state            WixSyncJobState
+  attemptCount     Int              @default(0) @map("attempt_count")
+  maxAttempts      Int              @default(8) @map("max_attempts")
+  nextAttemptAt    DateTime         @map("next_attempt_at")
+  leaseOwner       String?          @map("lease_owner")
+  leaseToken       String?          @map("lease_token")
+  leaseExpiresAt   DateTime?        @map("lease_expires_at")
+  lastErrorClass   String?          @map("last_error_class")
+  lastErrorCode    String?          @map("last_error_code")
+  lastErrorMessage String?          @map("last_error_message") @db.Text
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  completedAt      DateTime?        @map("completed_at")
+
+  connection WixConnection        @relation(fields: [wixConnectionId], references: [id], onDelete: Restrict)
+  evidence   WixProviderEvidence? @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
+
+  @@index([state, nextAttemptAt])
+  @@index([leaseExpiresAt])
+  @@index([wixConnectionId, state])
+  @@map("wix_sync_job")
+}
+
+/// OAuth state for Wix app installation flow.
+model WixOAuthState {
+  id                      String    @id @default(cuid())
+  nonce                   String    @unique
+  memberId                String    @map("member_id")
+  browserBindingHash      String    @map("browser_binding_hash")
+  expiresAt               DateTime  @map("expires_at")
+  consumedAt              DateTime? @map("consumed_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+  @@index([expiresAt])
+  @@map("wix_oauth_state")
 }
 

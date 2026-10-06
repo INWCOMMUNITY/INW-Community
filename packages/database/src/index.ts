@@ -842,3 +842,143 @@ export type {
   ShopifyJobHandlerResult,
   ShopifySyncJobClaim,
 } from "./shopify/jobs";
+// Wix integration exports
+export {
+  consumeWixOAuthState,
+  createWixOAuthState,
+  disconnectWixConnection,
+  readWixOAuthBrowserBindingHash,
+  WixSiteOwnershipConflictError,
+  getActiveWixConnectionForMember,
+  getWixConnectionForMember,
+  listWixConnectionsForMember,
+  persistWixInstall,
+  updateWixCatalogVersion,
+  setWixDefaultLocation,
+} from "./wix/connection";
+export type {
+  WixDb,
+  WixInstallInput,
+  WixPublicConnection,
+} from "./wix/connection";
+export {
+  claimNextWixSyncJob,
+  completeWixSyncJobDead,
+  completeWixSyncJobRetry,
+  completeWixSyncJobSuccess,
+  enqueueWixSyncJob,
+  hashWixJobPayload,
+  wixCreateListingDedupeKey,
+  wixEvidenceJobDedupeKey,
+  wixJobBackoffMs,
+  wixPollListingContentDedupeKey,
+  wixProjectInventoryDedupeKey,
+  wixReconcileListingDedupeKey,
+  wixUpdateListingContentDedupeKey,
+  WixSyncJobConflictError,
+} from "./wix/jobs";
+export type {
+  EnqueueWixSyncJobInput,
+  WixJobDb,
+  WixJobHandlerResult,
+  WixSyncJobClaim,
+} from "./wix/jobs";
+export {
+  hashWixWebhookPayload,
+  ingestWixWebhookEvidence,
+  markWixEvidenceError,
+  markWixEvidenceIgnored,
+  markWixEvidenceProcessed,
+  normalizeWixWebhookTopic,
+  resolveWixConnectionForWebhook,
+  getWixEvidenceWithConnection,
+  WIX_INVENTORY_WEBHOOK_TOPICS,
+  WIX_ORDER_WEBHOOK_TOPICS,
+  WIX_PRODUCT_WEBHOOK_TOPICS,
+  WixEvidenceIngestError,
+  WixEvidenceInvariantError,
+} from "./wix/evidence";
+export type {
+  IngestWixWebhookEvidenceInput,
+  IngestWixWebhookEvidenceResult,
+  WixEvidenceDb,
+} from "./wix/evidence";
+export {
+  createWixImportedListingMapping,
+  createWixNativeListingMapping,
+  deleteWixListingMapping,
+  lookupWixListingByRemoteId,
+  lookupWixListingByStoreItem,
+  lookupWixVariantByRemoteVariant,
+  lookupWixVariantByStoreVariant,
+  replaceWixListingVariantMaps,
+  WixMappingConflictError,
+  WixMappingError,
+} from "./wix/import-mapping";
+export type {
+  CreateWixImportedListingMappingInput,
+  CreateWixNativeListingMappingInput,
+  WixListingMappingSnapshot,
+  WixMappingDb,
+  WixVariantMappingInput,
+} from "./wix/import-mapping";
+export {
+  beginWixListingImportAttempt,
+  completeWixListingImportAttempt,
+  failWixListingImportAttempt,
+  getWixListingBootstrapCutoff,
+  getWixListingImportAttempt,
+  listWixListingImportAttempts,
+} from "./wix/import-attempt";
+export type { BeginWixListingImportAttemptResult, WixImportAttemptDb } from "./wix/import-attempt";
+export {
+  applyWixPaidOrderLineSale,
+  applyWixPaidOrderObservation,
+  classifyWixSaleFactEquivalence,
+  restockWixCanceledOrder,
+  WIX_SOURCE_SYSTEM,
+} from "./wix/order-sale";
+export type {
+  ApplyWixPaidOrderLineResult,
+  WixOrderSaleDb,
+  WixPaidOrderLineObservation,
+} from "./wix/order-sale";
+export {
+  captureWixInventoryProjectionDesire,
+  captureWixInventoryProjectionDesireAfterChange,
+  ensureWixProjectInventoryJob,
+  getUnprojectedWixVariantMaps,
+  hasUnprojectedWixInventoryDesires,
+  markWixInventoryProjectionApplied,
+} from "./wix/inventory-desire";
+export type {
+  CaptureWixInventoryProjectionDesireResult,
+  WixInventoryDesireDb,
+} from "./wix/inventory-desire";
+export {
+  classifyWixListingHealth,
+  clearWixListingIssue,
+  enqueueDueWixListingReconciliations,
+  markWixListingReconciled,
+  persistWixListingHealth,
+  recordWixDeadJobIssue,
+  toPublicWixListingStatus,
+} from "./wix/listing-health";
+export type {
+  ClassifyWixListingHealthInput,
+  WixHealthDb,
+  WixListingHealthSnapshot,
+  WixListingPublicStatus,
+} from "./wix/listing-health";
+export {
+  clearWixProductContentConflict,
+  ensureWixUpdateListingContentJob,
+  markWixProductContentApplied,
+  markWixVariantContentApplied,
+  recordWixListingContentDesire,
+  setWixProductContentConflict,
+} from "./wix/content-desire";
+export type {
+  RecordWixListingContentDesireResult,
+  WixContentDb,
+} from "./wix/content-desire";

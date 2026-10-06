@@ -13,7 +13,8 @@ export function ListingFormSection({ title, description, children, id }: Listing
   return (
     <section
       id={id}
-      className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm space-y-4"
+      className="rounded-xl bg-white p-5 shadow-sm space-y-4"
+      style={{ border: "1.5px solid var(--color-primary)" }}
     >
       {title ? (
         <div>

@@ -160,7 +160,7 @@ export function ListingPhotoGallery({
         }`}
       >
         <p className="text-sm font-medium text-gray-800 mb-1">
-          {photos.length > 0 ? "Add more photos" : "Add photos"}
+          {photos.length > 0 ? "Add More Photos" : "Add Photos"}
         </p>
         <p className="text-xs text-gray-500 mb-3">
           Drag and drop or choose from your device. Up to {formatListingPhotoSizeLabel()} each;
@@ -168,7 +168,7 @@ export function ListingPhotoGallery({
         </p>
         <label className="inline-block cursor-pointer">
           <span className="action-pill action-pill-sm btn-pill-primary">
-            {uploadingPhotos ? "Uploading…" : "Choose photos"}
+            {uploadingPhotos ? "Uploading…" : "Choose Photos"}
           </span>
           <input
             ref={inputRef}

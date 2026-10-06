@@ -49,10 +49,10 @@ export default async function NewStoreItemPage({
         <Link href="/seller-hub/store/items" className="text-sm text-gray-600 hover:underline mb-2 inline-block">
           ← Back to My Items
         </Link>
-        <h1 className="text-2xl sm:text-3xl font-bold mb-6 text-gray-900">
+        <h1 className="text-2xl sm:text-3xl font-bold mb-6 text-gray-900 text-center">
           {similarItem
-            ? "Sell similar"
-            : "Sell Local: List an Item for sale on our storefront"}
+            ? "Sell Similar"
+            : "Sell Local: Invest In the Inland Northwest"}
         </h1>
         {similarItem ? (
           <p className="text-sm text-gray-600 mb-4">

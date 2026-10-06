@@ -9,6 +9,7 @@
   --color-text: #505542;
   --color-heading: #3E432F;
   --color-link: #505542;
+  --color-tan-light: #f7f3ee;
   --color-button: #505542;
   --color-button-text: #ffffff;
   --color-button-hover: #FDEDCC;
@@ -412,6 +413,44 @@ input[type="datetime-local"]::-webkit-datetime-edit-ampm-field:focus {
   outline: none;
   border-color: var(--color-secondary);
   box-shadow: 0 0 0 2px var(--color-secondary);
+}
+
+/* Select option hover styling - brown instead of blue */
+select option:hover,
+select option:focus,
+select option:active,
+select option:checked {
+  background-color: var(--color-primary) !important;
+  color: white !important;
+}
+
+/* Category/form selects - brown theme */
+.select-brown {
+  border: 1.5px solid var(--color-primary);
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  width: 100%;
+  background-color: white;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  accent-color: var(--color-primary);
+}
+
+.select-brown:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(80, 85, 66, 0.2);
+}
+
+.select-brown:hover:not(:focus) {
+  border-color: var(--color-secondary);
+}
+
+/* Override browser default select option highlighting */
+.select-brown option:checked,
+.select-brown option:hover {
+  background: linear-gradient(var(--color-primary), var(--color-primary)) !important;
+  color: white !important;
 }
 
 /* Info pages (subscriber, sponsor, seller) benefit lists */

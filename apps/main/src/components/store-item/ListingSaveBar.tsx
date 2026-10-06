@@ -1,22 +1,29 @@
 "use client";
 
 import Link from "next/link";
+import { IonIcon } from "@/components/IonIcon";
 
 type ListingSaveBarProps = {
   isEdit: boolean;
   submitting: boolean;
+  savingDraft?: boolean;
   error?: string;
   backHref?: string;
   createHint?: string;
+  onSaveAsDraft?: () => void;
 };
 
 export function ListingSaveBar({
   isEdit,
   submitting,
+  savingDraft,
   error,
   backHref = "/seller-hub/store/items",
   createHint,
+  onSaveAsDraft,
 }: ListingSaveBarProps) {
+  const isBusy = submitting || savingDraft;
+
   return (
     <div className="fixed bottom-0 inset-x-0 z-40 border-t border-gray-200 bg-white/95 backdrop-blur-sm">
       <div className="max-w-5xl mx-auto px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
@@ -40,9 +47,29 @@ export function ListingSaveBar({
           >
             Cancel
           </Link>
+          {onSaveAsDraft && !isEdit && (
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={onSaveAsDraft}
+              className="action-pill action-pill-lg btn-pill-primary flex-1 sm:flex-none justify-center min-w-[8rem] sm:min-w-[9rem] disabled:opacity-60 inline-flex items-center gap-2"
+            >
+              {savingDraft ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  Saving…
+                </span>
+              ) : (
+                <>
+                  <IonIcon name="document-outline" size={18} />
+                  Save as Draft
+                </>
+              )}
+            </button>
+          )}
           <button
             type="submit"
-            disabled={submitting}
+            disabled={isBusy}
             className="action-pill action-pill-lg btn-pill-primary flex-1 sm:flex-none justify-center min-w-[9rem] sm:min-w-[10.5rem] disabled:opacity-60"
           >
             {submitting ? (
