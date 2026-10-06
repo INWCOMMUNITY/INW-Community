@@ -146,6 +146,57 @@ function humanizeWixErrorMessage(errorCode: string, rawMessage: string | null): 
 }
 
 /**
+ * Recompute and persist seller-facing readiness from current DB desire/apply state.
+ * Call after create, content push, inventory push, or import mapping completes.
+ */
+export async function refreshWixListingHealthFromDb(
+  db: WixHealthDb,
+  listingLinkId: string
+): Promise<WixListingHealthSnapshot | null> {
+  const link = await db.wixListingLink.findUnique({
+    where: { id: listingLinkId },
+    include: {
+      connection: { select: { status: true } },
+      storeItem: { select: { priceCents: true, photos: true } },
+      variantMaps: {
+        select: { inventoryDesiredVersion: true, inventoryAppliedVersion: true },
+      },
+    },
+  });
+  if (!link) return null;
+
+  const photos = Array.isArray(link.storeItem.photos) ? link.storeItem.photos : [];
+  const inventoryDesiredVersion = link.variantMaps.reduce(
+    (max, map) => Math.max(max, map.inventoryDesiredVersion),
+    0
+  );
+  const inventoryAppliedVersion = link.variantMaps.reduce(
+    (max, map) => Math.max(max, map.inventoryAppliedVersion),
+    0
+  );
+  const contentPending = link.desiredProductContentVersion > link.appliedProductContentVersion;
+  const inventoryPending = inventoryDesiredVersion > inventoryAppliedVersion;
+  // Stale issue codes from finished retries must not keep readiness stuck on Syncing.
+  const lastErrorCode = contentPending || inventoryPending ? link.issueCode : null;
+  const lastErrorMessage = lastErrorCode ? link.issueMessage : null;
+
+  const health = classifyWixListingHealth({
+    connectionStatus: link.connection.status === "ACTIVE" ? "ACTIVE" : "DISCONNECTED",
+    remoteProductVisible: link.remoteProductVisible,
+    hasPhotos: photos.some((photo) => typeof photo === "string" && photo.trim().length > 0),
+    priceCents: link.storeItem.priceCents,
+    contentDesiredVersion: link.desiredProductContentVersion,
+    contentAppliedVersion: link.appliedProductContentVersion,
+    inventoryDesiredVersion,
+    inventoryAppliedVersion,
+    lastErrorCode,
+    lastErrorMessage,
+  });
+  await persistWixListingHealth(db, listingLinkId, health);
+  return health;
+}
+
+/**
  * Persist listing health to the database.
  */
 export async function persistWixListingHealth(

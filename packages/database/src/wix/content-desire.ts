@@ -1,12 +1,42 @@
 import type { Prisma, PrismaClient, WixListingLink } from "@prisma/client";
-import { wixUpdateListingContentDedupeKey, WixSyncJobConflictError } from "./jobs";
+import { enqueueWixSyncJob, wixUpdateListingContentDedupeKey, WixSyncJobConflictError } from "./jobs";
 
 export type WixContentDb = PrismaClient | Prisma.TransactionClient;
+
+export type WixListingContentSnapshot = {
+  title: string;
+  description: string | null;
+  priceCents: number;
+  sku: string | null;
+  /** Optional — when omitted, photos are treated as unchanged. */
+  photos?: string[] | null;
+};
+
+export type RecordWixMappedListingContentDesireResult =
+  | {
+      status: "SKIPPED";
+      reason: "UNMAPPED" | "CONNECTION_INACTIVE" | "NO_CONTENT_CHANGE";
+    }
+  | {
+      status: "RECORDED";
+      connectionId: string;
+      listingLinkId: string;
+      desiredVersion: number;
+      jobEnqueued: boolean;
+    };
 
 export interface RecordWixListingContentDesireResult {
   link: WixListingLink;
   desiredVersion: number;
   jobEnqueued: boolean;
+}
+
+function normalizeWixPhotoUrls(photos: unknown): string[] {
+  if (!Array.isArray(photos)) return [];
+  return photos
+    .filter((p): p is string => typeof p === "string")
+    .map((p) => p.trim())
+    .filter(Boolean);
 }
 
 /**
@@ -48,7 +78,90 @@ export async function recordWixListingContentDesire(
 }
 
 /**
+ * After a canonical StoreItem content edit, bump desired versions and enqueue
+ * UPDATE_LISTING_CONTENT when a current mapping exists.
+ * Must run inside the same DB transaction as the canonical write.
+ * No Wix network calls.
+ */
+export async function recordWixMappedListingContentDesire(
+  db: WixContentDb,
+  input: {
+    memberId: string;
+    storeItemId: string;
+    before: WixListingContentSnapshot;
+    after: WixListingContentSnapshot;
+  }
+): Promise<RecordWixMappedListingContentDesireResult> {
+  const beforePhotos =
+    input.before.photos !== undefined ? normalizeWixPhotoUrls(input.before.photos) : null;
+  const afterPhotos =
+    input.after.photos !== undefined ? normalizeWixPhotoUrls(input.after.photos) : null;
+  const photosChanged =
+    beforePhotos != null &&
+    afterPhotos != null &&
+    JSON.stringify(beforePhotos) !== JSON.stringify(afterPhotos);
+
+  const contentChanged =
+    input.before.title !== input.after.title ||
+    (input.before.description ?? null) !== (input.after.description ?? null) ||
+    input.before.priceCents !== input.after.priceCents ||
+    (input.before.sku ?? null) !== (input.after.sku ?? null) ||
+    photosChanged;
+
+  if (!contentChanged) {
+    return { status: "SKIPPED", reason: "NO_CONTENT_CHANGE" };
+  }
+
+  const connection = await db.wixConnection.findFirst({
+    where: { memberId: input.memberId, status: "ACTIVE" },
+    orderBy: { connectedAt: "desc" },
+    select: { id: true },
+  });
+  if (!connection) {
+    return { status: "SKIPPED", reason: "CONNECTION_INACTIVE" };
+  }
+
+  const link = await db.wixListingLink.findFirst({
+    where: {
+      wixConnectionId: connection.id,
+      storeItemId: input.storeItemId,
+    },
+  });
+  if (!link || link.readiness === "CONNECTION_REQUIRED") {
+    return { status: "SKIPPED", reason: "UNMAPPED" };
+  }
+
+  const fingerprint = JSON.stringify({
+    title: input.after.title,
+    description: input.after.description ?? null,
+    priceCents: input.after.priceCents,
+    sku: input.after.sku ?? null,
+    photos: afterPhotos ?? normalizeWixPhotoUrls(input.after.photos),
+  });
+
+  const bumped = await recordWixListingContentDesire(db, {
+    listingLinkId: link.id,
+    productFingerprint: fingerprint,
+    triggeredBy: "STORE_ITEM_EDIT",
+  });
+
+  const ensured = await ensureWixUpdateListingContentJob(db, {
+    listingLinkId: link.id,
+    wixConnectionId: connection.id,
+  });
+
+  return {
+    status: "RECORDED",
+    connectionId: connection.id,
+    listingLinkId: link.id,
+    desiredVersion: bumped.desiredVersion,
+    jobEnqueued: ensured.enqueued,
+  };
+}
+
+/**
  * Ensure an UPDATE_LISTING_CONTENT job exists for this link.
+ * Uses enqueue rules so SUCCEEDED jobs can be re-queued after a new desire.
  */
 export async function ensureWixUpdateListingContentJob(
   db: WixContentDb,
@@ -60,23 +173,15 @@ export async function ensureWixUpdateListingContentJob(
   const dedupeKey = wixUpdateListingContentDedupeKey(input.listingLinkId);
 
   try {
-    await db.wixSyncJob.create({
-      data: {
-        wixConnectionId: input.wixConnectionId,
-        kind: "UPDATE_LISTING_CONTENT",
-        dedupeKey,
-        payload: { listingLinkId: input.listingLinkId },
-        state: "PENDING",
-        maxAttempts: 8,
-        nextAttemptAt: new Date(),
-      },
+    await enqueueWixSyncJob(db, {
+      wixConnectionId: input.wixConnectionId,
+      kind: "UPDATE_LISTING_CONTENT",
+      dedupeKey,
+      payload: { listingLinkId: input.listingLinkId },
+      nextAttemptAt: new Date(),
     });
     return { enqueued: true };
   } catch (error) {
-    // Dedupe key conflict means job already exists
-    if ((error as { code?: string }).code === "P2002") {
-      return { enqueued: false };
-    }
     if (error instanceof WixSyncJobConflictError) {
       return { enqueued: false };
     }

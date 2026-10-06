@@ -2,6 +2,7 @@ import {
   getUnprojectedWixVariantMaps,
   markWixInventoryProjectionApplied,
   prisma,
+  refreshWixListingHealthFromDb,
   type WixJobHandlerResult,
   type WixSyncJobClaim,
 } from "database";
@@ -224,6 +225,7 @@ export async function handleWixProjectInventoryJob(
       inventoryHealth: stillPending.length > 0 ? "DEGRADED" : "HEALTHY",
     },
   });
+  await refreshWixListingHealthFromDb(prisma, link.id);
 
   return { outcome: "SUCCESS" };
 }

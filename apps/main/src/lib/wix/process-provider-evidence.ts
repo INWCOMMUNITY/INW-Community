@@ -8,6 +8,7 @@ import {
   markWixEvidenceProcessed,
   prisma,
   restockWixCanceledOrder,
+  wixPollListingContentDedupeKey,
   wixReconcileListingDedupeKey,
   WIX_SOURCE_SYSTEM,
   type WixJobHandlerResult,
@@ -250,11 +251,20 @@ async function handleProductChangeEvidence(
         lastObservedProductUpdatedAt: new Date(),
       },
     });
+    // Re-read Wix product and apply title/description/photos/price into INW.
+    await enqueueWixSyncJob(prisma, {
+      wixConnectionId: connection.id,
+      kind: "POLL_LISTING_CONTENT",
+      dedupeKey: wixPollListingContentDedupeKey(link.id),
+      payload: { listingLinkId: link.id },
+      nextAttemptAt: new Date(),
+    });
     await enqueueWixSyncJob(prisma, {
       wixConnectionId: connection.id,
       kind: "RECONCILE_LISTING",
       dedupeKey: wixReconcileListingDedupeKey(link.id),
       payload: { listingLinkId: link.id },
+      nextAttemptAt: new Date(),
     });
   }
 
@@ -280,16 +290,31 @@ async function handleInventoryEvidence(
     return { outcome: "SUCCESS" };
   }
 
-  // Find variant map
-  const variantMap = await prisma.wixVariantMap.findFirst({
+  // Find variant map — prefer explicit variant/inventory ids, else product id.
+  let variantMap = await prisma.wixVariantMap.findFirst({
     where: {
       wixConnectionId: connection.id,
       OR: [
-        { wixVariantId: inventory.variantId ?? productId },
-        { wixInventoryItemId: inventory.inventoryItemId },
+        ...(inventory?.variantId ? [{ wixVariantId: inventory.variantId }] : []),
+        ...(inventory?.inventoryItemId
+          ? [{ wixInventoryItemId: inventory.inventoryItemId }]
+          : []),
       ],
     },
   });
+
+  if (!variantMap && productId) {
+    const link = await prisma.wixListingLink.findFirst({
+      where: { wixConnectionId: connection.id, wixProductId: productId },
+      select: { id: true },
+    });
+    if (link) {
+      variantMap = await prisma.wixVariantMap.findFirst({
+        where: { wixListingLinkId: link.id },
+        orderBy: { createdAt: "asc" },
+      });
+    }
+  }
 
   if (!variantMap) {
     await markWixEvidenceIgnored(prisma, evidenceId, "NOT_MAPPED");

@@ -131,7 +131,8 @@ export async function enqueueWixSyncJob(
             (input.kind === "UPDATE_LISTING_CONTENT" ||
               input.kind === "PROJECT_INVENTORY" ||
               input.kind === "CREATE_LISTING" ||
-              input.kind === "RECONCILE_LISTING"))
+              input.kind === "RECONCILE_LISTING" ||
+              input.kind === "POLL_LISTING_CONTENT"))
         ) {
           return db.wixSyncJob.update({
             where: { id: existing.id },

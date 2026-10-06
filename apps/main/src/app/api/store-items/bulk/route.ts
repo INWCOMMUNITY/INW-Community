@@ -9,6 +9,7 @@ import {
   recordEtsyListingContentDesire,
   recordShopifyDirtyMappedVariantContentDesires,
   recordShopifyListingContentDesire,
+  recordWixMappedListingContentDesire,
 } from "database";
 import { z } from "zod";
 import { getSessionForApi } from "@/lib/mobile-auth";
@@ -21,6 +22,7 @@ import {
   resolveCommerceInventoryWriter,
 } from "@/lib/commerce-foundation-cutover-http";
 import { runNextEtsySyncJob } from "@/lib/etsy/worker";
+import { runNextWixSyncJob } from "@/lib/wix/worker";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +31,17 @@ function kickEtsySyncJobsAfterEdit() {
     (async () => {
       for (let i = 0; i < 24; i += 1) {
         const ran = await runNextEtsySyncJob({ workerId: `etsy-bulk-inline-${i}` });
+        if (!ran.claimed) break;
+      }
+    })()
+  );
+}
+
+function kickWixSyncJobsAfterEdit() {
+  waitUntil(
+    (async () => {
+      for (let i = 0; i < 24; i += 1) {
+        const ran = await runNextWixSyncJob({ workerId: `wix-bulk-inline-${i}` });
         if (!ran.claimed) break;
       }
     })()
@@ -140,6 +153,12 @@ async function updateStoreItemWithShopifyDesire(input: {
     await recordEtsyDirtyMappedVariantContentDesires(tx, {
       memberId: input.memberId,
       storeItemId: input.itemId,
+    });
+    await recordWixMappedListingContentDesire(tx, {
+      memberId: input.memberId,
+      storeItemId: input.itemId,
+      before: input.before,
+      after,
     });
   });
 }
@@ -452,6 +471,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     kickEtsySyncJobsAfterEdit();
+    kickWixSyncJobsAfterEdit();
     return NextResponse.json(result);
   } catch (e) {
     console.error("[bulk-update] error:", e);

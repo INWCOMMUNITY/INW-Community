@@ -15,6 +15,7 @@ import {
   recordEtsyListingVariantTopologyDesire,
   recordShopifyDirtyMappedVariantContentDesires,
   recordShopifyListingContentDesire,
+  recordWixMappedListingContentDesire,
 } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -43,6 +44,7 @@ import { strangerMayViewStoreItemById } from "@/lib/store-item-public-access";
 import { storeItemStatusWrite } from "@/lib/store-item-ended-status";
 import { endStoreItemListing } from "@/lib/end-store-item-listing";
 import { runNextEtsySyncJob } from "@/lib/etsy/worker";
+import { runNextWixSyncJob } from "@/lib/wix/worker";
 
 /** Drain queued Etsy content/inventory jobs after an INW edit (don't wait only on cron). */
 function kickEtsySyncJobsAfterEdit() {
@@ -50,6 +52,18 @@ function kickEtsySyncJobsAfterEdit() {
     (async () => {
       for (let i = 0; i < 16; i += 1) {
         const ran = await runNextEtsySyncJob({ workerId: `etsy-edit-inline-${i}` });
+        if (!ran.claimed) break;
+      }
+    })()
+  );
+}
+
+/** Drain queued Wix content/inventory jobs after an INW edit. */
+function kickWixSyncJobsAfterEdit() {
+  waitUntil(
+    (async () => {
+      for (let i = 0; i < 16; i += 1) {
+        const ran = await runNextWixSyncJob({ workerId: `wix-edit-inline-${i}` });
         if (!ran.claimed) break;
       }
     })()
@@ -655,6 +669,12 @@ export async function PATCH(
           memberId: ownerId,
           storeItemId: itemId,
         });
+        await recordWixMappedListingContentDesire(tx, {
+          memberId: ownerId,
+          storeItemId: itemId,
+          before: contentBefore,
+          after: afterSnapshot,
+        });
         return projected;
       });
       if (item.status === "sold_out") {
@@ -666,6 +686,7 @@ export async function PATCH(
         title: item.title,
       });
       kickEtsySyncJobsAfterEdit();
+      kickWixSyncJobsAfterEdit();
       return NextResponse.json({ ...item });
     } catch (e) {
       const cutover = jsonIfCutoverBlocked(e);
@@ -762,6 +783,12 @@ export async function PATCH(
       memberId: ownerId,
       storeItemId: itemId,
     });
+    await recordWixMappedListingContentDesire(tx, {
+      memberId: ownerId,
+      storeItemId: itemId,
+      before: contentBefore,
+      after: afterSnapshot,
+    });
     return updated;
   });
 
@@ -777,6 +804,7 @@ export async function PATCH(
   });
 
   kickEtsySyncJobsAfterEdit();
+  kickWixSyncJobsAfterEdit();
   return NextResponse.json({ ...item });
 }
 

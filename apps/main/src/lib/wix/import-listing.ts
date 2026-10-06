@@ -5,6 +5,7 @@ import {
   failWixListingImportAttempt,
   prisma,
   projectStoreItemQuantity,
+  refreshWixListingHealthFromDb,
   type WixPublicConnection,
   type WixVariantMappingInput,
 } from "database";
@@ -358,6 +359,11 @@ export async function importWixProduct(
       storeItemId: result.storeItemId,
       listingLinkId: result.listingLinkId,
     });
+    await prisma.wixListingLink.update({
+      where: { id: result.listingLinkId },
+      data: { remoteProductVisible: true },
+    });
+    await refreshWixListingHealthFromDb(prisma, result.listingLinkId);
 
     return {
       status: "IMPORTED",

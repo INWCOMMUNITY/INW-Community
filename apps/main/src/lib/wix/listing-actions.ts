@@ -50,11 +50,11 @@ export async function scheduleWixContentUpdate(input: {
     triggeredBy: "CONTENT_UPDATE",
   });
 
-  // Enqueue update job
+  // Enqueue update job (resurrects SUCCEEDED jobs on re-assert)
   await enqueueWixSyncJob(prisma, {
     wixConnectionId: mapping.listingLink.wixConnectionId,
     kind: "UPDATE_LISTING_CONTENT",
-    dedupeKey: `update-content-${mapping.listingLink.id}`,
+    dedupeKey: `UPDATE_LISTING_CONTENT:${mapping.listingLink.id}`,
     payload: {
       listingLinkId: mapping.listingLink.id,
     },
@@ -255,8 +255,15 @@ export async function reconcileWixListing(input: {
 
   await enqueueWixSyncJob(prisma, {
     wixConnectionId: link.wixConnectionId,
+    kind: "POLL_LISTING_CONTENT",
+    dedupeKey: `POLL_LISTING_CONTENT:${link.id}`,
+    payload: { listingLinkId: link.id },
+    nextAttemptAt: new Date(),
+  });
+  await enqueueWixSyncJob(prisma, {
+    wixConnectionId: link.wixConnectionId,
     kind: "RECONCILE_LISTING",
-    dedupeKey: `reconcile-${link.id}`,
+    dedupeKey: `RECONCILE_LISTING:${link.id}`,
     payload: { listingLinkId: link.id },
     nextAttemptAt: new Date(),
   });

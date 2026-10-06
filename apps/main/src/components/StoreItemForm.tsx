@@ -41,6 +41,11 @@ import {
   APPS_AIRPORT_ETSY_SYNC_PATH,
   etsyListingIsPubliclyViewable,
 } from "@/lib/etsy/apps-airport";
+import {
+  APPS_AIRPORT_WIX_LISTINGS_PATH,
+  APPS_AIRPORT_WIX_SETTINGS_PATH,
+  APPS_AIRPORT_WIX_SYNC_PATH,
+} from "@/lib/wix/apps-airport";
 import { LISTING_SKU_MAX } from "@/lib/listing-sku";
 import {
   listingHintClass,
@@ -192,6 +197,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [shopifyMappedProductId, setShopifyMappedProductId] = useState<string | null>(null);
   const [shopifyBusy, setShopifyBusy] = useState(false);
   const [shopifyMessage, setShopifyMessage] = useState<string | null>(null);
+  const [wixConnActive, setWixConnActive] = useState(false);
+  const [listOnWixAfterSave, setListOnWixAfterSave] = useState(false);
+  const [wixMappedProductId, setWixMappedProductId] = useState<string | null>(null);
+  const [wixBusy, setWixBusy] = useState(false);
+  const [wixMessage, setWixMessage] = useState<string | null>(null);
   const initialMatrix = initEditorFromVariants(existing?.variants, existing?.storeVariants);
   const [optionsEnabled, setOptionsEnabled] = useState(initialMatrix.optionsEnabled);
   const [variantAxes, setVariantAxes] = useState<VariantAxisDef[]>(initialMatrix.axes);
@@ -353,6 +363,22 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    fetch("/api/wix/connection", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { connection?: { status?: string } | null } | null) => {
+        if (cancelled || !data) return;
+        setWixConnActive(data.connection?.status === "ACTIVE");
+      })
+      .catch(() => {
+        if (!cancelled) setWixConnActive(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!etsyConnActive) {
       setEtsyShippingProfileReady(false);
       return;
@@ -446,6 +472,38 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       cancelled = true;
     };
   }, [existing?.id, shopifyConn?.status]);
+
+  useEffect(() => {
+    const storeItemId = existing?.id;
+    if (!storeItemId || !wixConnActive) {
+      setWixMappedProductId(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/wix/listing?storeItemId=${encodeURIComponent(storeItemId)}`, {
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (
+          data: {
+            linked?: boolean;
+            link?: { wixProductId?: string | null } | null;
+          } | null
+        ) => {
+          if (cancelled || !data) return;
+          setWixMappedProductId(
+            data.linked && data.link?.wixProductId ? data.link.wixProductId : data.linked ? "mapped" : null
+          );
+        }
+      )
+      .catch(() => {
+        if (!cancelled) setWixMappedProductId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [existing?.id, wixConnActive]);
 
   const enqueueShopifyListing = useCallback(async (storeItemId: string): Promise<string | null> => {
     const res = await fetch("/api/shopify/listings/create", {
@@ -541,6 +599,56 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       setShopifyBusy(false);
     }
   }, [existing?.id]);
+
+  const enqueueWixListing = useCallback(async (storeItemId: string): Promise<string | null> => {
+    const res = await fetch("/api/wix/listing", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ storeItemId }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      enqueued?: boolean;
+      listingLinkId?: string | null;
+    };
+    if (!res.ok) {
+      return body.error ?? "Could not list on Wix";
+    }
+    if (body.listingLinkId && !body.enqueued) {
+      setWixMappedProductId(body.listingLinkId);
+      return "Already on Wix";
+    }
+    return "Listing queued for Wix — sync usually finishes within a minute";
+  }, []);
+
+  const handleListOnWixClick = useCallback(async () => {
+    const storeItemId = existing?.id;
+    if (!storeItemId) return;
+    setWixBusy(true);
+    setWixMessage(null);
+    try {
+      const message = await enqueueWixListing(storeItemId);
+      if (message) setWixMessage(message);
+      const statusRes = await fetch(
+        `/api/wix/listing?storeItemId=${encodeURIComponent(storeItemId)}`,
+        { credentials: "include" }
+      );
+      if (statusRes.ok) {
+        const data = (await statusRes.json()) as {
+          linked?: boolean;
+          link?: { wixProductId?: string | null } | null;
+        };
+        if (data.linked) {
+          setWixMappedProductId(data.link?.wixProductId ?? "mapped");
+        }
+      }
+    } catch {
+      setWixMessage("Could not list on Wix");
+    } finally {
+      setWixBusy(false);
+    }
+  }, [existing?.id, enqueueWixListing]);
 
   useLockBodyScroll(showSuccessModal);
 
@@ -848,6 +956,11 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         shopifyDetail = await enqueueShopifyListing(savedId);
       }
 
+      let wixDetail: string | null = null;
+      if (savedId && !isEdit && listOnWixAfterSave && wixConnActive) {
+        wixDetail = await enqueueWixListing(savedId);
+      }
+
       setEditSuccess(isEdit);
       setSuccessItemId(data.id ?? existing?.id ?? null);
       setSuccessItemSlug(data.slug ?? existing?.slug ?? null);
@@ -861,6 +974,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           existing ? "Your changes have been saved on INW." : "Your listing is now live on INW.",
           etsyDetail,
           shopifyDetail,
+          wixDetail,
         ]
           .filter(Boolean)
           .join(" ")
@@ -1327,8 +1441,8 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
             )}
           </ListingFormSection>
 
-          {/* 3rd Party Syncing - Combined Etsy/Shopify/WIC */}
-          {(etsyConnActive || shopifyConn?.status === "ACTIVE") ? (
+          {/* 3rd Party Syncing - Combined Etsy/Shopify/Wix */}
+          {(etsyConnActive || shopifyConn?.status === "ACTIVE" || wixConnActive) ? (
             <ListingFormSection
               title="3rd Party Syncing"
               description="Optional. Sync this listing to your connected external shops."
@@ -1520,12 +1634,75 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                 </div>
               )}
 
-              {/* WIC - Coming Soon */}
-              <hr className="border-t border-gray-200 my-4" />
-              <div className="space-y-2">
-                <h3 className="text-sm font-semibold text-gray-500">WIC</h3>
-                <p className={listingHintClass}>Coming soon — sync to WIC marketplace.</p>
-              </div>
+              {/* Divider before Wix */}
+              {(etsyConnActive || shopifyConn?.status === "ACTIVE") && wixConnActive && (
+                <hr className="border-t border-gray-200 my-4" />
+              )}
+
+              {/* Wix Section */}
+              {wixConnActive && (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-gray-900">Wix</h3>
+                  {isEdit && existing?.id ? (
+                    <div className="space-y-3">
+                      {wixMappedProductId ? (
+                        <>
+                          <p className={listingHintClass}>
+                            This listing is linked to Wix. Updates sync from this INW listing.
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            <Link
+                              href={APPS_AIRPORT_WIX_LISTINGS_PATH}
+                              className="action-pill action-pill-sm btn-pill-outline inline-flex"
+                            >
+                              View linked listings
+                            </Link>
+                            <Link
+                              href={APPS_AIRPORT_WIX_SYNC_PATH}
+                              className="action-pill action-pill-sm btn-pill-outline inline-flex"
+                            >
+                              Open List on Wix
+                            </Link>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            disabled={wixBusy}
+                            onClick={() => void handleListOnWixClick()}
+                            className="action-pill action-pill-sm btn-pill-filled disabled:opacity-60"
+                          >
+                            {wixBusy ? "Listing…" : "List on Wix"}
+                          </button>
+                          <p className={listingHintClass}>
+                            Need help? Manage connection in{" "}
+                            <Link
+                              href={APPS_AIRPORT_WIX_SETTINGS_PATH}
+                              className="underline"
+                              style={{ color: "var(--color-primary)" }}
+                            >
+                              Wix settings
+                            </Link>
+                            .
+                          </p>
+                        </>
+                      )}
+                      {wixMessage && <p className={listingHintClass}>{wixMessage}</p>}
+                    </div>
+                  ) : (
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={listOnWixAfterSave}
+                        onChange={(e) => setListOnWixAfterSave(e.target.checked)}
+                        className="rounded"
+                      />
+                      <span className="font-medium text-sm">List on Wix</span>
+                    </label>
+                  )}
+                </div>
+              )}
             </ListingFormSection>
           ) : null}
 

@@ -962,6 +962,7 @@ export {
   markWixListingReconciled,
   persistWixListingHealth,
   recordWixDeadJobIssue,
+  refreshWixListingHealthFromDb,
   toPublicWixListingStatus,
 } from "./wix/listing-health";
 export type {
@@ -976,9 +977,30 @@ export {
   markWixProductContentApplied,
   markWixVariantContentApplied,
   recordWixListingContentDesire,
+  recordWixMappedListingContentDesire,
   setWixProductContentConflict,
 } from "./wix/content-desire";
 export type {
   RecordWixListingContentDesireResult,
+  RecordWixMappedListingContentDesireResult,
   WixContentDb,
+  WixListingContentSnapshot,
 } from "./wix/content-desire";
+export { applyWixListingContentInbound } from "./wix/content-inbound";
+export type {
+  ApplyWixListingInboundResult,
+  WixInboundDb,
+  WixRemoteListingObservation,
+} from "./wix/content-inbound";
+export {
+  normalizeWixDescription,
+  normalizeWixPhotoUrls,
+  normalizeWixTitle,
+  wixProductContentFingerprint,
+  wixVariantContentFingerprint,
+} from "./wix/content-fingerprint";
+export { classifyWixContentSemantics } from "./wix/content-semantic";
+export type {
+  ClassifyWixContentSemanticsInput,
+  WixContentSemanticClass,
+} from "./wix/content-semantic";

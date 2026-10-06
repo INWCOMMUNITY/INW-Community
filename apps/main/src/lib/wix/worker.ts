@@ -13,6 +13,7 @@ import { handleWixUpdateListingContentJob } from "./update-listing-content";
 import { handleWixProjectInventoryJob } from "./project-inventory";
 import { handleWixProcessProviderEvidenceJob } from "./process-provider-evidence";
 import { handleWixReconcileListingJob } from "./reconcile-listing";
+import { handleWixPollListingContentJob } from "./poll-listing-content";
 
 export type WixJobHandler = (claim: WixSyncJobClaim) => Promise<WixJobHandlerResult>;
 
@@ -22,6 +23,7 @@ const DEFAULT_HANDLERS: Record<string, WixJobHandler> = {
   PROJECT_INVENTORY: handleWixProjectInventoryJob,
   CREATE_LISTING: handleWixCreateListingJob,
   RECONCILE_LISTING: handleWixReconcileListingJob,
+  POLL_LISTING_CONTENT: handleWixPollListingContentJob,
 };
 
 /**

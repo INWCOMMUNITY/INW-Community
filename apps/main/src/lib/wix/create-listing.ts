@@ -1,6 +1,9 @@
 import {
   createWixNativeListingMapping,
+  enqueueWixSyncJob,
   prisma,
+  refreshWixListingHealthFromDb,
+  wixReconcileListingDedupeKey,
   type WixJobHandlerResult,
   type WixSyncJobClaim,
   type WixVariantMappingInput,
@@ -254,12 +257,25 @@ export async function handleWixCreateListingJob(
     }
 
     // Create mapping
-    await createWixNativeListingMapping(prisma, {
+    const mapping = await createWixNativeListingMapping(prisma, {
       wixConnectionId: connection.id,
       memberId: payload.memberId,
       storeItemId: payload.storeItemId,
       wixProductId,
       variants: variantMappings,
+    });
+
+    await prisma.wixListingLink.update({
+      where: { id: mapping.listingLink.id },
+      data: { remoteProductVisible: true },
+    });
+    await refreshWixListingHealthFromDb(prisma, mapping.listingLink.id);
+    await enqueueWixSyncJob(prisma, {
+      wixConnectionId: connection.id,
+      kind: "RECONCILE_LISTING",
+      dedupeKey: wixReconcileListingDedupeKey(mapping.listingLink.id),
+      payload: { listingLinkId: mapping.listingLink.id },
+      nextAttemptAt: new Date(),
     });
 
     console.info("WIX_LISTING_CREATED", {
