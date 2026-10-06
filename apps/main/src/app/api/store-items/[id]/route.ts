@@ -16,6 +16,7 @@ import {
   recordShopifyDirtyMappedVariantContentDesires,
   recordShopifyListingContentDesire,
   recordWixMappedListingContentDesire,
+  recordWixListingVariantTopologyDesire,
 } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -543,6 +544,10 @@ export async function PATCH(
                 memberId: ownerId,
                 storeItemId: itemId,
               });
+              await recordWixListingVariantTopologyDesire(tx, {
+                memberId: ownerId,
+                storeItemId: itemId,
+              });
             }
             delete (update as { quantity?: number }).quantity;
             delete (update as { variants?: unknown }).variants;
@@ -582,6 +587,10 @@ export async function PATCH(
           });
           if (structure.structureChanged) {
             await recordEtsyListingVariantTopologyDesire(tx, {
+              memberId: ownerId,
+              storeItemId: itemId,
+            });
+            await recordWixListingVariantTopologyDesire(tx, {
               memberId: ownerId,
               storeItemId: itemId,
             });

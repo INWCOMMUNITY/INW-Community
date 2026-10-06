@@ -10,6 +10,10 @@ import { readWixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
 import { wixApplicationRequest } from "./client";
 import { WIX_CATALOG_V1, WIX_V1_PRODUCT_GET, WIX_V3_PRODUCTS } from "./constants";
+import {
+  isSyncWixVariantTopologyFailure,
+  syncWixListingVariantTopology,
+} from "./sync-listing-variants";
 
 type PollPayload = {
   listingLinkId: string;
@@ -133,6 +137,20 @@ export async function handleWixPollListingContentJob(
       errorCode: "INVALID_PRODUCT",
       errorMessage: "Wix product payload was missing required fields",
     };
+  }
+
+  // Wix-first structure: pull new options/variants into Foundation before content LWW.
+  const topology = await syncWixListingVariantTopology({
+    connectionId: link.wixConnectionId,
+    memberId: link.memberId,
+    listingLinkId: link.id,
+    storeItemId: link.storeItemId,
+    wixProductId: link.wixProductId,
+    catalogVersion: link.connection.catalogVersion,
+    direction: "pull",
+  });
+  if (isSyncWixVariantTopologyFailure(topology)) {
+    return topology;
   }
 
   await prisma.$transaction(async (tx) => {

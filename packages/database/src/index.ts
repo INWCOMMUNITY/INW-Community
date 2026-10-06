@@ -978,6 +978,7 @@ export {
   markWixVariantContentApplied,
   recordWixListingContentDesire,
   recordWixMappedListingContentDesire,
+  recordWixListingVariantTopologyDesire,
   setWixProductContentConflict,
 } from "./wix/content-desire";
 export type {

@@ -166,6 +166,74 @@ export async function recordWixMappedListingContentDesire(
 }
 
 /**
+ * After seller add/remove/replace of variant identity on a mapped Wix listing,
+ * bump product desire and enqueue reconcile so option topology is pushed.
+ */
+export async function recordWixListingVariantTopologyDesire(
+  db: WixContentDb,
+  input: { memberId: string; storeItemId: string }
+): Promise<RecordWixMappedListingContentDesireResult> {
+  const connection = await db.wixConnection.findFirst({
+    where: { memberId: input.memberId, status: "ACTIVE" },
+    orderBy: { connectedAt: "desc" },
+    select: { id: true },
+  });
+  if (!connection) {
+    return { status: "SKIPPED", reason: "CONNECTION_INACTIVE" };
+  }
+
+  const link = await db.wixListingLink.findFirst({
+    where: {
+      wixConnectionId: connection.id,
+      storeItemId: input.storeItemId,
+    },
+  });
+  if (!link || link.readiness === "CONNECTION_REQUIRED") {
+    return { status: "SKIPPED", reason: "UNMAPPED" };
+  }
+
+  const storeItem = await db.storeItem.findUniqueOrThrow({
+    where: { id: input.storeItemId },
+    select: { title: true, description: true, photos: true, priceCents: true },
+  });
+  const fingerprint = wixProductContentFingerprint({
+    title: storeItem.title,
+    description: storeItem.description,
+    photos: normalizeWixPhotoUrls(storeItem.photos),
+    priceCents: storeItem.priceCents,
+  });
+  const bumped = await recordWixListingContentDesire(db, {
+    listingLinkId: link.id,
+    productFingerprint: fingerprint,
+    triggeredBy: "VARIANT_TOPOLOGY",
+  });
+
+  try {
+    await enqueueWixSyncJob(db, {
+      wixConnectionId: connection.id,
+      kind: "RECONCILE_LISTING",
+      dedupeKey: `RECONCILE_LISTING:${link.id}:topo:p${bumped.desiredVersion}`,
+      payload: {
+        listingLinkId: link.id,
+        storeItemId: input.storeItemId,
+        pushTopology: true,
+      },
+      nextAttemptAt: new Date(),
+    });
+  } catch (error) {
+    if (!(error instanceof WixSyncJobConflictError)) throw error;
+  }
+
+  return {
+    status: "RECORDED",
+    connectionId: connection.id,
+    listingLinkId: link.id,
+    desiredVersion: bumped.desiredVersion,
+    jobEnqueued: true,
+  };
+}
+
+/**
  * Ensure an UPDATE_LISTING_CONTENT job exists for this link.
  * Uses enqueue rules so SUCCEEDED jobs can be re-queued after a new desire.
  */
