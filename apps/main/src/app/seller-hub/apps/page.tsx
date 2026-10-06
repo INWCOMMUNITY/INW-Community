@@ -226,7 +226,7 @@ export default function AppsAirportPage() {
                   </p>
                   <div className="mt-4 flex flex-wrap gap-3">
                     <Link href={APPS_AIRPORT_WIX_PATH} className="btn" prefetch={false}>
-                      {wixStatus?.connected ? "Manage" : "View status"}
+                      {wixStatus?.connected ? "Manage" : "Connect"}
                     </Link>
                   </div>
                 </>
