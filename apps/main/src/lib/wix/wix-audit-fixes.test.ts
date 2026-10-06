@@ -34,6 +34,37 @@ describe("mintWixAccessToken", () => {
   });
 });
 
+describe("detectWixCatalogVersion", () => {
+  const config = {
+    appId: "app-id",
+    appSecret: "app-secret",
+    redirectUri: "https://www.inwcommunity.com/api/wix/oauth/callback",
+    webhookPublicKey: null,
+    defaultLocationId: null,
+  };
+
+  it("uses a catalog probe when the version endpoint is missing", async () => {
+    const { detectWixCatalogVersion } = await import("./client");
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/stores/v3/provision/version")) {
+        return new Response("not found", { status: 404 });
+      }
+      if (url.includes("/stores/v3/products")) {
+        return new Response(JSON.stringify({ message: "catalog mismatch" }), { status: 428 });
+      }
+      if (url.includes("/stores/v1/products/query")) {
+        return new Response(JSON.stringify({ products: [] }), { status: 200 });
+      }
+      return new Response("unexpected", { status: 500 });
+    });
+
+    await expect(
+      detectWixCatalogVersion({ accessToken: "token", config, fetchImpl })
+    ).resolves.toBe("V1_CATALOG");
+  });
+});
+
 describe("Wix install URL", () => {
   it("uses app-installer and postInstallationUrl", async () => {
     const { WIX_OAUTH_AUTHORIZE_URL } = await import("./constants");

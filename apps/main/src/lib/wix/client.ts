@@ -7,6 +7,8 @@ import {
   WIX_MAX_RETRY_ATTEMPTS,
   WIX_RETRY_BASE_DELAY_MS,
   WIX_RETRY_MAX_DELAY_MS,
+  WIX_V1_PRODUCTS_QUERY,
+  WIX_V3_PRODUCTS,
 } from "./constants";
 import type { WixAppConfig } from "./config";
 import type { WixCatalogVersion } from "database";
@@ -299,45 +301,81 @@ export async function wixApplicationRequest<T = unknown>(input: {
   );
 }
 
+function parseCatalogVersionLabel(value: unknown): WixCatalogVersion | null {
+  if (typeof value !== "string") return null;
+  const version = value.toUpperCase();
+  if (version === "V1_CATALOG" || version === "V1") return "V1_CATALOG";
+  if (version === "V3_CATALOG" || version === "V3") return "V3_CATALOG";
+  return null;
+}
+
+function catalogProbeSucceeded(result: WixApiResult): boolean {
+  return result.ok;
+}
+
+function catalogProbeRulesOut(result: WixApiResult): boolean {
+  return result.class === "CATALOG_VERSION_MISMATCH" || result.class === "NOT_FOUND";
+}
+
 /**
  * Detect the catalog version (V1 or V3) for a Wix site.
+ * Prefers Wix's version endpoint, then probes each catalog API. Does not guess.
  */
 export async function detectWixCatalogVersion(input: {
   accessToken: string;
   config: WixAppConfig;
   fetchImpl?: WixFetch;
 }): Promise<WixCatalogVersion> {
-  const result = await wixApplicationRequest<{ version?: string }>({
+  const deps = {
+    config: input.config,
+    accessToken: input.accessToken,
+    fetchImpl: input.fetchImpl,
+    maxAttempts: 2,
+  };
+
+  const provision = await wixApplicationRequest<{ version?: string; catalogVersion?: string }>({
     method: "GET",
     path: WIX_CATALOG_VERSION_URL,
-    deps: {
-      config: input.config,
-      accessToken: input.accessToken,
-      fetchImpl: input.fetchImpl,
-      maxAttempts: 2,
-    },
+    deps,
+  });
+  const fromProvision =
+    parseCatalogVersionLabel(provision.data?.version) ??
+    parseCatalogVersionLabel(provision.data?.catalogVersion);
+  if (provision.ok && fromProvision) {
+    return fromProvision;
+  }
+
+  const v3 = await wixApplicationRequest({
+    method: "GET",
+    path: WIX_V3_PRODUCTS,
+    query: { limit: 1 },
+    deps,
+  });
+  const v1 = await wixApplicationRequest({
+    method: "POST",
+    path: WIX_V1_PRODUCTS_QUERY,
+    body: JSON.stringify({ query: { paging: { limit: 1, offset: 0 } } }),
+    deps,
   });
 
-  if (!result.ok || !result.data) {
-    throw new WixRequestError(
-      result.message || "Wix catalog version could not be determined",
-      result.class === "SUCCESS" ? "TRANSIENT" : result.class,
-      result.httpStatus,
-      result.retryAfterMs
-    );
-  }
-
-  const version = result.data.version?.toUpperCase();
-  if (version === "V1_CATALOG" || version === "V1") {
-    return "V1_CATALOG";
-  }
-  if (version === "V3_CATALOG" || version === "V3") {
+  const v3Ok = catalogProbeSucceeded(v3);
+  const v1Ok = catalogProbeSucceeded(v1);
+  if (v3Ok && !v1Ok) return "V3_CATALOG";
+  if (v1Ok && !v3Ok) return "V1_CATALOG";
+  if (v3Ok && v1Ok) {
+    if (catalogProbeRulesOut(v3)) return "V1_CATALOG";
+    if (catalogProbeRulesOut(v1)) return "V3_CATALOG";
     return "V3_CATALOG";
   }
+  if (catalogProbeRulesOut(v3) && v1Ok) return "V1_CATALOG";
+  if (catalogProbeRulesOut(v1) && v3Ok) return "V3_CATALOG";
+
+  const failed = [provision, v3, v1].find((row) => !row.ok) ?? v3;
   throw new WixRequestError(
-    "Wix catalog version was not recognized",
-    "TRANSIENT",
-    result.httpStatus
+    failed.message || "Wix catalog version could not be determined",
+    failed.class === "SUCCESS" ? "TRANSIENT" : failed.class,
+    failed.httpStatus,
+    failed.retryAfterMs
   );
 }
 
