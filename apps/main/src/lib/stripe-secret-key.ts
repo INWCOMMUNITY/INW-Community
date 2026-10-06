@@ -12,8 +12,16 @@
 export function isUsableSecretKey(key: string | undefined | null): key is string {
   const k = key?.trim() ?? "";
   if (!k) return false;
-  if (!k.startsWith("sk_")) return false;
-  if (k === "sk_test_..." || k === "sk_live_...") return false;
+  // Standard secret keys (sk_) or Stripe's newer "secret key" wizard keys (rk_ with full access).
+  if (!(k.startsWith("sk_") || k.startsWith("rk_"))) return false;
+  if (
+    k === "sk_test_..." ||
+    k === "sk_live_..." ||
+    k === "rk_test_..." ||
+    k === "rk_live_..."
+  ) {
+    return false;
+  }
   // Real Stripe secret keys are long; placeholders from .env.example are short.
   if (k.length < 24) return false;
   return true;
@@ -77,10 +85,10 @@ export function resolveMarketplaceStripeSecretKey(): string | null {
 }
 
 export const STRIPE_NOT_CONFIGURED_MESSAGE =
-  "Stripe is not configured. Add STRIPE_SECRET_KEY (sk_test_ or sk_live_) in apps/main/.env for local dev, or in the Vercel project environment for Production, then redeploy.";
+  "Stripe is not configured. Add STRIPE_SECRET_KEY (sk_test_/sk_live_ or rk_test_/rk_live_) in apps/main/.env for local dev, or in the Vercel project environment for Production, then redeploy.";
 
 export const STRIPE_MARKETPLACE_NOT_CONFIGURED_MESSAGE =
-  "Marketplace Stripe is not configured. Set Production STRIPE_MARKETPLACE_SECRET_KEY to an sk_live_ key from the NWC Marketplace Stripe account (not Northwest Community), then redeploy. Restricted keys (rk_) and publishable keys (pk_) are rejected.";
+  "Marketplace Stripe is not configured. Set Production STRIPE_MARKETPLACE_SECRET_KEY to a secret key from the NWC Marketplace Stripe account (sk_live_ or rk_live_ with Full access — not Northwest Community, not a publishable pk_ key), then redeploy.";
 
 export function requireStripeSecretKey(): string {
   const key = resolveStripeSecretKey();
