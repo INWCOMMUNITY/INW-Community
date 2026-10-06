@@ -167,7 +167,7 @@ export async function recordWixMappedListingContentDesire(
 
 /**
  * After seller add/remove/replace of variant identity on a mapped Wix listing,
- * bump product desire and enqueue reconcile so option topology is pushed.
+ * enqueue reconcile so product options are pushed. This does not bump content desire.
  */
 export async function recordWixListingVariantTopologyDesire(
   db: WixContentDb,
@@ -192,27 +192,13 @@ export async function recordWixListingVariantTopologyDesire(
     return { status: "SKIPPED", reason: "UNMAPPED" };
   }
 
-  const storeItem = await db.storeItem.findUniqueOrThrow({
-    where: { id: input.storeItemId },
-    select: { title: true, description: true, photos: true, priceCents: true },
-  });
-  const fingerprint = wixProductContentFingerprint({
-    title: storeItem.title,
-    description: storeItem.description,
-    photos: normalizeWixPhotoUrls(storeItem.photos),
-    priceCents: storeItem.priceCents,
-  });
-  const bumped = await recordWixListingContentDesire(db, {
-    listingLinkId: link.id,
-    productFingerprint: fingerprint,
-    triggeredBy: "VARIANT_TOPOLOGY",
-  });
-
+  // Options are not listing content. Bumping the content desire made a Wix option edit
+  // look like "INW and Wix both changed this listing."
   try {
     await enqueueWixSyncJob(db, {
       wixConnectionId: connection.id,
       kind: "RECONCILE_LISTING",
-      dedupeKey: `RECONCILE_LISTING:${link.id}:topo:p${bumped.desiredVersion}`,
+      dedupeKey: `RECONCILE_LISTING:${link.id}:topo:p${link.desiredProductContentVersion}`,
       payload: {
         listingLinkId: link.id,
         storeItemId: input.storeItemId,
@@ -228,7 +214,7 @@ export async function recordWixListingVariantTopologyDesire(
     status: "RECORDED",
     connectionId: connection.id,
     listingLinkId: link.id,
-    desiredVersion: bumped.desiredVersion,
+    desiredVersion: link.desiredProductContentVersion,
     jobEnqueued: true,
   };
 }

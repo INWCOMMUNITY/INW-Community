@@ -96,17 +96,57 @@ function optionValuesKey(choices: Record<string, string>): string {
     .join("|");
 }
 
-/** True when applying this Wix matrix would replace a positive INW quantity with 0. */
+function valueCounts(options: Record<string, string>): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const value of Object.values(options)) {
+    const key = value.trim().toLowerCase();
+    if (!key) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/** Parent combination is still present when every one of its values appears on the new combo. */
+function combinationCovers(parent: Record<string, string>, child: Record<string, string>): boolean {
+  const childCounts = valueCounts(child);
+  for (const [value, count] of valueCounts(parent)) {
+    if ((childCounts.get(value) ?? 0) < count) return false;
+  }
+  return true;
+}
+
+/**
+ * Quantity to keep when Wix adds an option axis. The closest existing combination wins,
+ * so Red / Small stays 7 on Red / Small / Cotton instead of opening at 0.
+ */
+export function onHandForPulledCombo(
+  local: Array<Pick<LocalVariant, "options" | "inventoryState">>,
+  targetOptions: Record<string, string>
+): number | null {
+  let best: { count: number; onHand: number } | null = null;
+  for (const variant of local) {
+    const options = asChoiceRecord(variant.options);
+    if (!combinationCovers(options, targetOptions)) continue;
+    const onHand = onHandOf(variant);
+    if (onHand == null) continue;
+    const count = [...valueCounts(options).values()].reduce((sum, value) => sum + value, 0);
+    if (!best || count > best.count || (count === best.count && onHand > best.onHand)) {
+      best = { count, onHand };
+    }
+  }
+  return best?.onHand ?? null;
+}
+
+/** True when a stocked INW combination would disappear instead of gaining an option. */
 export function pullWouldDropLocalStock(
   local: Array<Pick<LocalVariant, "options" | "inventoryState">>,
   targets: Array<{ options: Record<string, string> }>
 ): boolean {
-  const targetKeys = new Set(targets.map((target) => optionValuesKey(target.options)).filter(Boolean));
   for (const variant of local) {
     const onHand = onHandOf(variant);
     if (onHand == null || onHand === 0) continue;
-    const key = optionValuesKey(asChoiceRecord(variant.options));
-    if (!key || !targetKeys.has(key)) return true;
+    const options = asChoiceRecord(variant.options);
+    if (!targets.some((target) => combinationCovers(options, target.options))) return true;
   }
   return false;
 }
@@ -251,6 +291,85 @@ function remoteComboKeys(variants: RemoteVariant[]): string[] {
   return [...new Set(variants.map((v) => choiceKey(remoteChoicesOf(v))).filter(Boolean))].sort();
 }
 
+type WixProductOption = { name?: string; choices?: Array<{ value?: string; description?: string }> };
+
+function axesFromCatalogProduct(product: {
+  productOptions?: WixProductOption[];
+  options?: unknown[];
+}): Array<{ name: string; values: string[] }> {
+  const fromProductOptions = axesFromProductOptions(product.productOptions);
+  if (fromProductOptions.length > 0) return fromProductOptions;
+  const axes: Array<{ name: string; values: string[] }> = [];
+  for (const entry of product.options ?? []) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const name = typeof record.name === "string" ? record.name.trim() : "";
+    const settings =
+      record.choicesSettings && typeof record.choicesSettings === "object"
+        ? (record.choicesSettings as { choices?: Array<{ name?: string }> })
+        : null;
+    const values = [
+      ...new Set((settings?.choices ?? []).map((choice) => choice.name?.trim() || "").filter(Boolean)),
+    ];
+    if (name && values.length > 0) axes.push({ name, values });
+  }
+  return axes;
+}
+
+function axesFromProductOptions(
+  productOptions: WixProductOption[] | undefined
+): Array<{ name: string; values: string[] }> {
+  const axes: Array<{ name: string; values: string[] }> = [];
+  for (const option of productOptions ?? []) {
+    const name = option.name?.trim();
+    if (!name) continue;
+    const values = [
+      ...new Set(
+        (option.choices ?? [])
+          .map((choice) => (choice.value || choice.description || "").trim())
+          .filter(Boolean)
+      ),
+    ];
+    if (values.length === 0) continue;
+    axes.push({ name, values });
+  }
+  return axes;
+}
+
+/**
+ * Product options are the axis list (Size, Color, Material). Variant query rows supply ids.
+ * A newly added second or third axis is expanded here even when the variant query is still on the old matrix.
+ */
+export function expandRemoteVariantsFromProductOptions(
+  productOptions: WixProductOption[] | undefined,
+  queried: RemoteVariant[]
+): RemoteVariant[] {
+  return expandRemoteVariantsFromAxes(axesFromProductOptions(productOptions), queried);
+}
+
+function expandRemoteVariantsFromAxes(
+  axes: Array<{ name: string; values: string[] }>,
+  queried: RemoteVariant[]
+): RemoteVariant[] {
+  if (axes.length === 0 || axes.length > WIX_MAX_OPTION_AXES) return queried;
+  let combos: Record<string, string>[] = [{}];
+  for (const axis of axes) {
+    combos = combos.flatMap((combo) => axis.values.map((value) => ({ ...combo, [axis.name]: value })));
+    if (combos.length > 100) return queried;
+  }
+  return combos.map((options) => {
+    const key = choiceKey(options);
+    const match = queried.find((row) => choiceKey(remoteChoicesOf(row)) === key);
+    return {
+      id: match?.id,
+      sku: match?.sku,
+      choices: options,
+      priceData: match?.priceData,
+      variant: match?.variant,
+    };
+  });
+}
+
 /**
  * Sync option topology between INW StoreVariants and a mapped Wix product.
  * push: seller changed Size/Color/Material on INW → rewrite Wix options/variants.
@@ -363,7 +482,12 @@ export async function syncWixListingVariantTopology(input: {
     accessToken,
   });
   if (!loaded.ok) return loaded.failure;
-  const remoteVariants: RemoteVariant[] = loaded.variants;
+  const queriedVariants: RemoteVariant[] = loaded.variants;
+  const catalogAxes = axesFromCatalogProduct(product);
+  const remoteVariants: RemoteVariant[] =
+    input.direction === "pull"
+      ? expandRemoteVariantsFromAxes(catalogAxes, queriedVariants)
+      : queriedVariants;
   const localKeys = localComboKeys(local);
   const remoteKeys = remoteComboKeys(remoteVariants);
   const maps = await prisma.wixVariantMap.findMany({
@@ -372,10 +496,16 @@ export async function syncWixListingVariantTopology(input: {
   });
   const structureDiverged =
     localKeys.join("\n") !== remoteKeys.join("\n") || maps.length !== local.length;
+  const remoteAxisCount = Math.max(catalogAxes.length, optionAxisNames(queriedVariants, true).length);
+  const localAxisCount = optionAxisNames(local, false).length;
 
   if (input.direction === "pull") {
-    if (optionAxisNames(remoteVariants, true).length > WIX_MAX_OPTION_AXES) {
+    if (remoteAxisCount > WIX_MAX_OPTION_AXES) {
       return { status: "SKIPPED", reason: "TOO_MANY_AXES", pairCount: maps.length };
+    }
+    // INW already has an axis Wix does not. Leave it for the option push.
+    if (localAxisCount > remoteAxisCount && remoteAxisCount > 0) {
+      return { status: "NOOP", pairCount: maps.length };
     }
     if (!structureDiverged) return { status: "NOOP", pairCount: maps.length };
     return pullTopology({
@@ -387,6 +517,10 @@ export async function syncWixListingVariantTopology(input: {
   }
 
   if (!structureDiverged && !input.forcePush) {
+    return { status: "NOOP", pairCount: maps.length };
+  }
+  // Wix already has an axis INW does not. Pull adopts it; do not write the older matrix back.
+  if (remoteAxisCount > localAxisCount && remoteAxisCount > 0) {
     return { status: "NOOP", pairCount: maps.length };
   }
 
@@ -614,19 +748,8 @@ async function pullTopology(input: {
     return { status: "NOOP", pairCount: 0 };
   }
 
-  const localOnHandByValues = new Map<string, number>();
-  for (const variant of input.local) {
-    const key = optionValuesKey(asChoiceRecord(variant.options));
-    if (!key) continue;
-    const onHand = onHandOf(variant);
-    if (onHand == null) continue;
-    const prior = localOnHandByValues.get(key);
-    if (prior == null || onHand > prior) localOnHandByValues.set(key, onHand);
-  }
   for (const target of matrixTargets) {
-    const key = optionValuesKey(target.options);
-    if (!key) continue;
-    const preserved = localOnHandByValues.get(key);
+    const preserved = onHandForPulledCombo(input.local, target.options);
     if (preserved == null) continue;
     target.targetOnHand = preserved;
   }

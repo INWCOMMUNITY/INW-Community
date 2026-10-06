@@ -6,7 +6,11 @@ import {
   shouldApplyWixQuantityToInw,
   wixMissingQuantityIsUnread,
 } from "./project-inventory";
-import { pullWouldDropLocalStock } from "./sync-listing-variants";
+import {
+  expandRemoteVariantsFromProductOptions,
+  onHandForPulledCombo,
+  pullWouldDropLocalStock,
+} from "./sync-listing-variants";
 
 const config: WixAppConfig = {
   appId: "app-id",
@@ -238,21 +242,7 @@ describe("shouldApplyWixQuantityToInw", () => {
 });
 
 describe("pullWouldDropLocalStock", () => {
-  it("refuses a Wix matrix that cannot carry the existing quantity", () => {
-    expect(
-      pullWouldDropLocalStock(
-        [
-          {
-            options: {},
-            inventoryState: { mode: "TRACKED_FINITE", onHand: 5, reserved: 0 },
-          },
-        ],
-        [{ options: { Color: "Red" } }]
-      )
-    ).toBe(true);
-  });
-
-  it("allows a matrix that still contains the stocked option values", () => {
+  it("refuses a Wix matrix that drops a stocked choice", () => {
     expect(
       pullWouldDropLocalStock(
         [
@@ -261,8 +251,70 @@ describe("pullWouldDropLocalStock", () => {
             inventoryState: { mode: "TRACKED_FINITE", onHand: 5, reserved: 0 },
           },
         ],
-        [{ options: { "Primary color": "Red" } }]
+        [{ options: { Color: "Blue" } }]
+      )
+    ).toBe(true);
+  });
+
+  it("allows a third option axis that still contains the stocked values", () => {
+    expect(
+      pullWouldDropLocalStock(
+        [
+          {
+            options: { "Primary color": "Red", Size: "Small" },
+            inventoryState: { mode: "TRACKED_FINITE", onHand: 7, reserved: 0 },
+          },
+        ],
+        [
+          { options: { "Primary color": "Red", Size: "Small", Material: "Cotton" } },
+          { options: { "Primary color": "Red", Size: "Small", Material: "Wool" } },
+        ]
       )
     ).toBe(false);
+    expect(
+      onHandForPulledCombo(
+        [
+          {
+            options: { "Primary color": "Red", Size: "Small" },
+            inventoryState: { mode: "TRACKED_FINITE", onHand: 7, reserved: 0 },
+          },
+        ],
+        { "Primary color": "Red", Size: "Small", Material: "Cotton" }
+      )
+    ).toBe(7);
+  });
+});
+
+describe("expandRemoteVariantsFromProductOptions", () => {
+  it("builds the third axis from product options and keeps the variant id", () => {
+    const expanded = expandRemoteVariantsFromProductOptions(
+      [
+        { name: "Primary color", choices: [{ value: "Red" }] },
+        { name: "Size", choices: [{ value: "Small" }] },
+        { name: "Material", choices: [{ value: "Cotton" }, { value: "Wool" }] },
+      ],
+      [
+        {
+          id: "variant-cotton",
+          choices: { "Primary color": "Red", Size: "Small", Material: "Cotton" },
+        },
+      ]
+    );
+    expect(expanded).toEqual([
+      {
+        id: "variant-cotton",
+        sku: undefined,
+        choices: { "Primary color": "Red", Size: "Small", Material: "Cotton" },
+        priceData: undefined,
+        variant: undefined,
+      },
+      {
+        id: undefined,
+        sku: undefined,
+        choices: { "Primary color": "Red", Size: "Small", Material: "Wool" },
+        priceData: undefined,
+        variant: undefined,
+      },
+    ]);
   });
 });
