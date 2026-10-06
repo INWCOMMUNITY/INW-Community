@@ -10,8 +10,9 @@ import {
 } from "database";
 import { readWixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
+import { loadWixCatalogVariants, pushWixV1VariantChoices } from "./catalog-variants";
 import { wixApplicationRequest } from "./client";
-import { WIX_CATALOG_V1, WIX_V1_PRODUCT_GET, WIX_V3_PRODUCTS } from "./constants";
+import { WIX_CATALOG_V1, WIX_MAX_OPTION_AXES, WIX_V1_PRODUCT_GET, WIX_V3_PRODUCTS } from "./constants";
 
 type LocalVariant = {
   id: string;
@@ -35,7 +36,7 @@ type RemoteVariant = {
 
 export type SyncWixVariantTopologyResult =
   | { status: "NOOP" | "PUSHED" | "PULLED"; pairCount: number }
-  | { status: "SKIPPED"; reason: "CHOICES_UNPARSED"; pairCount: number }
+  | { status: "SKIPPED"; reason: "CHOICES_UNPARSED" | "TOO_MANY_AXES"; pairCount: number }
   | Extract<WixJobHandlerResult, { outcome: "RETRY" | "DEAD" }>;
 
 export function isSyncWixVariantTopologyFailure(
@@ -220,6 +221,17 @@ function localComboKeys(variants: LocalVariant[]): string[] {
     .sort();
 }
 
+function optionAxisNames(variants: Array<{ options?: unknown; choices?: unknown }>, fromRemote: boolean): string[] {
+  const names = new Set<string>();
+  for (const variant of variants) {
+    const choices = fromRemote
+      ? remoteChoicesOf(variant as RemoteVariant)
+      : asChoiceRecord((variant as LocalVariant).options);
+    for (const name of Object.keys(choices)) names.add(name.trim().toLowerCase());
+  }
+  return [...names];
+}
+
 function remoteComboKeys(variants: RemoteVariant[]): string[] {
   return [...new Set(variants.map((v) => choiceKey(remoteChoicesOf(v))).filter(Boolean))].sort();
 }
@@ -328,10 +340,15 @@ export async function syncWixListingVariantTopology(input: {
   }
 
   const product = getResult.data.product;
-  const remoteVariants: RemoteVariant[] =
-    product.variants ??
-    product.variantsInfo?.variants ??
-    [];
+  const loaded = await loadWixCatalogVariants({
+    isV1,
+    productId: input.wixProductId,
+    fallback: product.variants ?? product.variantsInfo?.variants ?? [],
+    config,
+    accessToken,
+  });
+  if (!loaded.ok) return loaded.failure;
+  const remoteVariants: RemoteVariant[] = loaded.variants;
   const localKeys = localComboKeys(local);
   const remoteKeys = remoteComboKeys(remoteVariants);
   const maps = await prisma.wixVariantMap.findMany({
@@ -342,6 +359,9 @@ export async function syncWixListingVariantTopology(input: {
     localKeys.join("\n") !== remoteKeys.join("\n") || maps.length !== local.length;
 
   if (input.direction === "pull") {
+    if (optionAxisNames(remoteVariants, true).length > WIX_MAX_OPTION_AXES) {
+      return { status: "SKIPPED", reason: "TOO_MANY_AXES", pairCount: maps.length };
+    }
     if (!structureDiverged) return { status: "NOOP", pairCount: maps.length };
     return pullTopology({
       ...input,
@@ -353,6 +373,15 @@ export async function syncWixListingVariantTopology(input: {
 
   if (!structureDiverged && !input.forcePush) {
     return { status: "NOOP", pairCount: maps.length };
+  }
+
+  if (optionAxisNames(local, false).length > WIX_MAX_OPTION_AXES) {
+    return {
+      outcome: "DEAD",
+      errorClass: "PERMANENT",
+      errorCode: "OPTION_AXIS_LIMIT",
+      errorMessage: "Wix listings support at most 3 option types (for example Size, Color, and Material).",
+    };
   }
 
   const productOptions = buildWixProductOptions(local);
@@ -417,20 +446,45 @@ export async function syncWixListingVariantTopology(input: {
     };
   }
 
-  // Re-read so we map against the regenerated variant ids.
-  const after = await wixApplicationRequest<{
-    product?: { variants?: RemoteVariant[]; variantsInfo?: { variants?: RemoteVariant[] } };
-  }>({
-    method: "GET",
-    path: `${isV1 ? WIX_V1_PRODUCT_GET : WIX_V3_PRODUCTS}/${input.wixProductId}`,
-    deps: { config, accessToken, maxAttempts: 2 },
+  // Re-read the variant matrix so a third axis is mapped, not only the product options.
+  let after = await loadWixCatalogVariants({
+    isV1,
+    productId: input.wixProductId,
+    fallback:
+      patch.data?.product?.variants ??
+      patch.data?.product?.variantsInfo?.variants ??
+      [],
+    config,
+    accessToken,
   });
-  const afterRemote =
-    after.data?.product?.variants ??
-    after.data?.product?.variantsInfo?.variants ??
-    patch.data?.product?.variants ??
-    patch.data?.product?.variantsInfo?.variants ??
-    [];
+  if (!after.ok) return after.failure;
+  let afterRemote = after.variants;
+  if (
+    isV1 &&
+    productOptions.length > 0 &&
+    !mapStoreVariantsToWix(local, afterRemote, input.wixProductId)
+  ) {
+    const wrote = await pushWixV1VariantChoices({
+      productId: input.wixProductId,
+      variants: local.map((variant) => ({
+        options: asChoiceRecord(variant.options),
+        priceCents: variant.priceCents,
+        sku: variant.sku,
+      })),
+      config,
+      accessToken,
+    });
+    if (wrote) return wrote;
+    after = await loadWixCatalogVariants({
+      isV1,
+      productId: input.wixProductId,
+      fallback: afterRemote,
+      config,
+      accessToken,
+    });
+    if (!after.ok) return after.failure;
+    afterRemote = after.variants;
+  }
 
   const mapped = mapStoreVariantsToWix(local, afterRemote, input.wixProductId);
   if (!mapped) {

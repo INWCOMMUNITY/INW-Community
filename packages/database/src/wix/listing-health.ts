@@ -128,6 +128,7 @@ function isDivergenceWixError(errorCode: string): boolean {
     errorCode === "INVENTORY_MISMATCH" ||
     errorCode === "INVENTORY_UNREADABLE" ||
     errorCode === "TOPOLOGY_UNREADABLE" ||
+    errorCode === "OPTION_AXIS_LIMIT" ||
     errorCode === "CONTENT_CONFLICT"
   );
 }
@@ -149,8 +150,11 @@ export function stickyWixDivergenceIssue(input: {
       message: input.issueMessage,
     };
   }
-  if (input.issueCode === "TOPOLOGY_UNREADABLE") {
-    return { code: "TOPOLOGY_UNREADABLE", message: input.issueMessage };
+  if (
+    input.issueCode === "TOPOLOGY_UNREADABLE" ||
+    input.issueCode === "OPTION_AXIS_LIMIT"
+  ) {
+    return { code: input.issueCode, message: input.issueMessage };
   }
   if ((input.contentPending || input.inventoryPending) && input.issueCode) {
     return { code: input.issueCode, message: input.issueMessage };
@@ -189,6 +193,7 @@ function humanizeWixErrorMessage(errorCode: string, rawMessage: string | null): 
     INVENTORY_MISMATCH: "Wix quantities did not update",
     INVENTORY_UNREADABLE: "Wix quantities could not be read",
     TOPOLOGY_UNREADABLE: "Wix options could not be read, so quantities were left unchanged",
+    OPTION_AXIS_LIMIT: "Wix listings support at most 3 option types (for example Size, Color, and Material).",
     CONTENT_CONFLICT: "INW and Wix both changed this listing. Edit on INW to choose the version you want.",
     THROTTLED: "Sync is temporarily paused due to rate limits",
     TRANSIENT: "Sync will retry automatically",

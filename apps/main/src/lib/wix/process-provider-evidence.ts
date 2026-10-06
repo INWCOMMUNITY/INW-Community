@@ -277,83 +277,75 @@ async function handleInventoryEvidence(
   connection: { id: string; memberId: string },
   body: unknown
 ): Promise<WixJobHandlerResult> {
-  const inventory = extractWixInventory(body);
-  const productId = inventory?.productId ?? inventory?.inventoryItemId;
-  
-  if (!productId) {
-    await markWixEvidenceIgnored(prisma, evidenceId, "NO_PRODUCT_ID");
-    return { outcome: "SUCCESS" };
-  }
-
-  if (inventory?.quantity == null || !Number.isInteger(inventory.quantity) || inventory.quantity < 0) {
+  const lines = extractWixInventoryLines(body);
+  if (lines.length === 0) {
     await markWixEvidenceIgnored(prisma, evidenceId, "NO_QUANTITY");
     return { outcome: "SUCCESS" };
   }
 
-  // Find variant map — prefer explicit variant/inventory ids, else product id.
-  let variantMap = await prisma.wixVariantMap.findFirst({
-    where: {
-      wixConnectionId: connection.id,
-      OR: [
-        ...(inventory?.variantId ? [{ wixVariantId: inventory.variantId }] : []),
-        ...(inventory?.inventoryItemId
-          ? [{ wixInventoryItemId: inventory.inventoryItemId }]
-          : []),
-      ],
-    },
-  });
-
-  if (!variantMap && productId) {
-    const link = await prisma.wixListingLink.findFirst({
-      where: { wixConnectionId: connection.id, wixProductId: productId },
-      select: { id: true },
+  let applied = 0;
+  for (const [index, line] of lines.entries()) {
+    const productId = line.productId ?? line.inventoryItemId;
+    if (!productId) continue;
+    let variantMap = await prisma.wixVariantMap.findFirst({
+      where: {
+        wixConnectionId: connection.id,
+        OR: [
+          ...(line.variantId ? [{ wixVariantId: line.variantId }] : []),
+          ...(line.inventoryItemId ? [{ wixInventoryItemId: line.inventoryItemId }] : []),
+        ],
+      },
     });
-    if (link) {
-      variantMap = await prisma.wixVariantMap.findFirst({
-        where: { wixListingLinkId: link.id },
-        orderBy: { createdAt: "asc" },
+    if (!variantMap && line.productId) {
+      const link = await prisma.wixListingLink.findFirst({
+        where: { wixConnectionId: connection.id, wixProductId: line.productId },
+        select: { id: true },
       });
+      const maps = link
+        ? await prisma.wixVariantMap.findMany({
+            where: { wixListingLinkId: link.id },
+            orderBy: { createdAt: "asc" },
+          })
+        : [];
+      variantMap = maps.length === 1 ? (maps[0] ?? null) : null;
     }
+    if (!variantMap || line.quantity == null || variantMap.inventoryAppliedAvailable === line.quantity) continue;
+    const mapped = variantMap;
+    const quantity = line.quantity;
+
+    await prisma.$transaction(async (tx) => {
+      const state = await tx.inventoryState.findUnique({
+        where: { variantId: mapped.storeVariantId },
+      });
+      if (state?.mode === "TRACKED_FINITE" && state.reserved != null) {
+        await applyTrackedMarketplaceQuantityEdit(tx, {
+          variantId: mapped.storeVariantId,
+          memberId: connection.memberId,
+          targetOnHand: quantity + state.reserved,
+          sourceScope: connection.id,
+          sourceFactId: `${evidenceId}:${line.variantId ?? index}`,
+          sourceSystem: WIX_SOURCE_SYSTEM,
+          metadata: { wixProductId: productId, wixVariantId: line.variantId ?? null },
+        });
+      }
+      await tx.wixVariantMap.update({
+        where: { id: mapped.id },
+        data: {
+          inventoryAppliedAvailable: quantity,
+          inventoryDesiredAvailable: quantity,
+          inventoryAppliedVersion: mapped.inventoryDesiredVersion,
+          inventoryAppliedAt: new Date(),
+          lastObservedVariantUpdatedAt: new Date(),
+        },
+      });
+    });
+    applied += 1;
   }
 
-  if (!variantMap) {
+  if (applied === 0) {
     await markWixEvidenceIgnored(prisma, evidenceId, "NOT_MAPPED");
     return { outcome: "SUCCESS" };
   }
-
-  const newQuantity = inventory.quantity;
-  if (variantMap.inventoryAppliedAvailable === newQuantity) {
-    await markWixEvidenceIgnored(prisma, evidenceId, "ECHO_SUPPRESSED");
-    return { outcome: "SUCCESS" };
-  }
-
-  await prisma.$transaction(async (tx) => {
-    const state = await tx.inventoryState.findUnique({
-      where: { variantId: variantMap.storeVariantId },
-    });
-    if (state?.mode === "TRACKED_FINITE" && state.reserved != null) {
-      await applyTrackedMarketplaceQuantityEdit(tx, {
-        variantId: variantMap.storeVariantId,
-        memberId: connection.memberId,
-        targetOnHand: newQuantity + state.reserved,
-        sourceScope: connection.id,
-        sourceFactId: evidenceId,
-        sourceSystem: WIX_SOURCE_SYSTEM,
-        metadata: { wixProductId: productId, wixVariantId: inventory.variantId ?? null },
-      });
-    }
-
-    await tx.wixVariantMap.update({
-      where: { id: variantMap.id },
-      data: {
-        inventoryAppliedAvailable: newQuantity,
-        inventoryDesiredAvailable: newQuantity,
-        inventoryAppliedVersion: variantMap.inventoryDesiredVersion,
-        inventoryAppliedAt: new Date(),
-        lastObservedVariantUpdatedAt: new Date(),
-      },
-    });
-  });
 
   await markWixEvidenceProcessed(prisma, evidenceId);
   return { outcome: "SUCCESS" };
@@ -401,23 +393,46 @@ function extractWixProduct(body: unknown): WixProductPayload | null {
     const id =
       (typeof record.id === "string" && record.id) ||
       (typeof record.productId === "string" && record.productId) ||
+      (typeof record.entityId === "string" && record.entityId) ||
+      (typeof record.catalogItemId === "string" && record.catalogItemId) ||
       null;
     if (id) return { id, slug: typeof record.slug === "string" ? record.slug : undefined };
   }
   return null;
 }
 
-function extractWixInventory(body: unknown): WixInventoryPayload | null {
+function extractWixInventoryLines(body: unknown): WixInventoryPayload[] {
   const root = asRecord(body) ?? {};
   const inner = unwrapData(root.data) ?? root;
   const record = asRecord(inner.inventoryItem) ?? asRecord(inner.entity) ?? unwrapData(inner.data) ?? inner;
+  const productId = readId(record.productId ?? record.catalogItemId ?? inner.productId ?? inner.entityId);
+  const inventoryItemId = readId(record.inventoryItemId ?? record.id);
+  const lines: WixInventoryPayload[] = [];
+  if (Array.isArray(record.variants)) {
+    for (const entry of record.variants) {
+      const row = asRecord(entry);
+      if (!row) continue;
+      const quantity = readQuantity(row.quantity ?? row.availableQuantity);
+      if (quantity == null || !Number.isInteger(quantity) || quantity < 0) continue;
+      lines.push({
+        productId,
+        inventoryItemId,
+        variantId: readId(row.variantId),
+        quantity,
+      });
+    }
+  }
+  if (lines.length > 0) return lines;
   const quantity = readQuantity(record.quantity ?? record.availableQuantity ?? inner.quantity);
-  return {
-    inventoryItemId: readId(record.inventoryItemId ?? record.id),
-    productId: readId(record.productId ?? record.catalogItemId),
-    variantId: readId(record.variantId),
-    quantity: quantity ?? undefined,
-  };
+  if (quantity == null || !Number.isInteger(quantity) || quantity < 0) return [];
+  return [
+    {
+      productId,
+      inventoryItemId,
+      variantId: readId(record.variantId ?? inner.variantId),
+      quantity,
+    },
+  ];
 }
 
 function readId(value: unknown): string | undefined {

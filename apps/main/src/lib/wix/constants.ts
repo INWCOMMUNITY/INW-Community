@@ -31,6 +31,13 @@ export const WIX_V1_PRODUCTS = "/stores/v1/products";
 export const WIX_V1_PRODUCTS_QUERY = "/stores-reader/v1/products/query";
 /** Legacy V1 query path kept for create-listing relative helpers. */
 export const WIX_V1_PRODUCT_GET = "/stores/v1/products";
+/** Managed variant matrix (Size × Color × Material). Not included on the product GET. */
+export const WIX_V1_VARIANTS_QUERY_SUFFIX = "/variants/query";
+export const WIX_V1_VARIANTS_UPDATE_SUFFIX = "/variants";
+/** Matches the listing editor and Etsy/Shopify. */
+export const WIX_MAX_OPTION_AXES = 3;
+export const WIX_V2_INVENTORY_ITEMS = "/stores/v2/inventoryItems";
+/** Legacy product-scoped path. Catalog V1 writes the inventory item id, with productId in the body. */
 export const WIX_V2_INVENTORY_PATCH = "/stores/v2/inventoryItems/product";
 export const WIX_V3_PRODUCTS = "/stores/v3/products";
 export const WIX_V3_PRODUCTS_QUERY = "/stores/v3/products/query";

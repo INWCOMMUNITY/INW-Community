@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma, ingestWixWebhookEvidence } from "database";
 import { verifyWixWebhook } from "@/lib/wix/webhook-verify";
 import { isWixConfigured, readWixAppConfig } from "@/lib/wix/config";
+import { drainWixSyncJobs } from "@/lib/wix/worker";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +66,8 @@ export async function POST(request: Request): Promise<Response> {
       evidenceId: result.evidenceId,
       jobId: result.jobId,
     });
+
+    await drainWixSyncJobs({ maxJobs: 6, workerId: `wix-webhook-${result.evidenceId}` });
 
     return NextResponse.json({ status: "accepted", evidenceId: result.evidenceId });
   } catch (error) {

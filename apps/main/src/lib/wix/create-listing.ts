@@ -10,6 +10,7 @@ import {
 } from "database";
 import { readWixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
+import { loadWixCatalogVariants } from "./catalog-variants";
 import { wixApplicationRequest } from "./client";
 import {
   WIX_V1_PRODUCTS,
@@ -382,13 +383,15 @@ async function remoteVariantsForCreatedProduct(input: {
   accessToken: string;
 }): Promise<RemoteVariant[]> {
   const initial = input.responseVariants ?? [];
-  if (initial.length >= input.localCount) return initial;
-  const result = await wixApplicationRequest<{
-    product?: { variants?: RemoteVariant[] };
-  }>({
-    method: "GET",
-    path: `${input.isV1 ? WIX_V1_PRODUCT_GET : WIX_V3_PRODUCTS}/${input.wixProductId}`,
-    deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
+  const loaded = await loadWixCatalogVariants({
+    isV1: input.isV1,
+    productId: input.wixProductId,
+    fallback: initial,
+    config: input.config,
+    accessToken: input.accessToken,
   });
-  return result.data?.product?.variants ?? initial;
+  if (!loaded.ok) return initial;
+  if (loaded.variants.length >= input.localCount) return loaded.variants as RemoteVariant[];
+  if (initial.length >= input.localCount) return initial;
+  return (loaded.variants.length > 0 ? loaded.variants : initial) as RemoteVariant[];
 }

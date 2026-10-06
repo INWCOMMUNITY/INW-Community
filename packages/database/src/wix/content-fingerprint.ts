@@ -12,8 +12,13 @@ export function normalizeWixPhotoUrls(photos: unknown): string[] {
   if (!Array.isArray(photos)) return [];
   return photos
     .filter((p): p is string => typeof p === "string")
-    .map((p) => p.trim())
+    .map((p) => stablePhotoUrl(p.trim()))
     .filter(Boolean);
+}
+
+function stablePhotoUrl(url: string): string {
+  const withoutQuery = url.split("?")[0] ?? url;
+  return withoutQuery.replace(/\/+$/, "");
 }
 
 export function wixProductContentFingerprint(input: {

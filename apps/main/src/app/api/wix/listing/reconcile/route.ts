@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { reconcileWixListing } from "@/lib/wix/listing-actions";
+import { drainWixSyncJobs } from "@/lib/wix/worker";
 import { prisma } from "database";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +41,9 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const result = await reconcileWixListing({ listingLinkId });
+  if (result.enqueued) {
+    await drainWixSyncJobs({ maxJobs: 8, workerId: `wix-reload-${listingLinkId}` });
+  }
 
   return NextResponse.json({ enqueued: result.enqueued });
 }

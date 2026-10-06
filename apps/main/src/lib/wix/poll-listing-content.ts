@@ -11,6 +11,7 @@ import { readWixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
 import { wixApplicationRequest } from "./client";
 import { WIX_CATALOG_V1, WIX_V1_PRODUCT_GET, WIX_V3_PRODUCTS } from "./constants";
+import { pullWixInventoryIntoInw } from "./project-inventory";
 import {
   isSyncWixVariantTopologyFailure,
   syncWixListingVariantTopology,
@@ -153,13 +154,13 @@ export async function handleWixPollListingContentJob(
   if (isSyncWixVariantTopologyFailure(topology)) {
     return topology;
   }
-  const choicesUnparsed = topology.status === "SKIPPED";
-  if (!choicesUnparsed) {
+  const skippedReason = topology.status === "SKIPPED" ? topology.reason : null;
+  if (!skippedReason) {
     const current = await prisma.wixListingLink.findUnique({
       where: { id: link.id },
       select: { issueCode: true },
     });
-    if (current?.issueCode === "TOPOLOGY_UNREADABLE") {
+    if (current?.issueCode === "TOPOLOGY_UNREADABLE" || current?.issueCode === "OPTION_AXIS_LIMIT") {
       await prisma.wixListingLink.update({
         where: { id: link.id },
         data: { issueCode: null, issueMessage: null, issueSeverity: null },
@@ -175,20 +176,31 @@ export async function handleWixPollListingContentJob(
       remote,
     });
   });
+  await pullWixInventoryIntoInw({
+    listingLinkId: link.id,
+    wixConnectionId: link.wixConnectionId,
+    memberId: link.memberId,
+    wixProductId: link.wixProductId,
+    catalogVersion: link.connection.catalogVersion,
+    instanceId: link.connection.instanceId,
+  });
   await refreshWixListingHealthFromDb(prisma, link.id);
 
-  if (choicesUnparsed) {
+  if (skippedReason) {
     const after = await prisma.wixListingLink.findUnique({
       where: { id: link.id },
       select: { productContentConflict: true },
     });
     if (!after?.productContentConflict) {
+      const tooMany = skippedReason === "TOO_MANY_AXES";
       await persistWixListingHealth(prisma, link.id, {
         readiness: "ACTION_REQUIRED",
         contentHealth: "DEGRADED",
         inventoryHealth: "DEGRADED",
-        issueCode: "TOPOLOGY_UNREADABLE",
-        issueMessage: "Wix options could not be read, so quantities were left unchanged",
+        issueCode: tooMany ? "OPTION_AXIS_LIMIT" : "TOPOLOGY_UNREADABLE",
+        issueMessage: tooMany
+          ? "Wix has more than 3 option types, so variants were left unchanged"
+          : "Wix options could not be read, so quantities were left unchanged",
         issueSeverity: "warning",
       });
     }

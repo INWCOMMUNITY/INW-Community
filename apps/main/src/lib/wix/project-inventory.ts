@@ -1,4 +1,5 @@
 import {
+  applyTrackedMarketplaceQuantityEdit,
   captureWixInventoryProjectionDesire,
   getUnprojectedWixVariantMaps,
   markWixInventoryProjectionApplied,
@@ -6,6 +7,7 @@ import {
   prisma,
   refreshWixListingHealthFromDb,
   trackedAvailable,
+  WIX_SOURCE_SYSTEM,
   type WixJobHandlerResult,
   type WixSyncJobClaim,
 } from "database";
@@ -13,6 +15,7 @@ import { readWixAppConfig, type WixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
 import { wixApplicationRequest, type WixApiResult } from "./client";
 import {
+  WIX_V2_INVENTORY_ITEMS,
   WIX_V2_INVENTORY_PATCH,
   WIX_V3_INVENTORY,
   WIX_CATALOG_V1,
@@ -29,6 +32,7 @@ type InventoryVariantRow = {
 };
 
 type InventorySnapshot = {
+  inventoryItemId?: string;
   trackQuantity?: boolean;
   variants: InventoryVariantRow[];
 };
@@ -299,6 +303,102 @@ export async function alignWixInventoryWithInw(input: {
   return { pushed, diverged, unreadable };
 }
 
+/**
+ * Copy Wix per-variant quantities into INW when INW does not already have an outbound qty edit waiting.
+ * A real 0 from Wix is applied. Pending INW pushes are left for the verified inventory job.
+ */
+export async function pullWixInventoryIntoInw(input: {
+  listingLinkId: string;
+  wixConnectionId: string;
+  memberId: string;
+  wixProductId: string;
+  catalogVersion: string;
+  instanceId: string;
+}): Promise<{ pulled: number } | { error: string }> {
+  const config = readWixAppConfig();
+  if (!config) return { error: "Wix is not configured" };
+  let accessToken: string;
+  try {
+    accessToken = await accessTokenForWixConnection({ instanceId: input.instanceId });
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Token mint failed" };
+  }
+
+  const maps = await prisma.wixVariantMap.findMany({
+    where: { wixListingLinkId: input.listingLinkId },
+  });
+  if (maps.length === 0) return { pulled: 0 };
+  const states = await prisma.inventoryState.findMany({
+    where: { variantId: { in: maps.map((map) => map.storeVariantId) } },
+  });
+  const stateByVariant = new Map(states.map((state) => [state.variantId, state]));
+  const isV1 = input.catalogVersion === WIX_CATALOG_V1;
+  const remote = isV1
+    ? await readV1Inventory({ config, accessToken, productId: input.wixProductId })
+    : null;
+  if (isV1 && remote && !remote.ok) return { error: "Could not read Wix inventory" };
+  const v3 = !isV1
+    ? await readV3Quantities({
+        config,
+        accessToken,
+        variantIds: maps.map((map) => map.wixVariantId),
+      })
+    : null;
+  if (!isV1 && v3 && !v3.ok) return { error: v3.message };
+
+  let pulled = 0;
+  const singleRemote = Boolean(
+    maps.length === 1 && isV1 && remote && remote.ok && remote.snapshot.variants.length === 1
+  );
+  for (const map of maps) {
+    if (map.inventoryDesiredVersion > map.inventoryAppliedVersion) continue;
+    const state = stateByVariant.get(map.storeVariantId);
+    if (!state || state.mode !== "TRACKED_FINITE" || state.onHand == null || state.reserved == null) {
+      continue;
+    }
+    const reserved = state.reserved;
+    let sellable = 0;
+    try {
+      sellable = trackedAvailable(state.onHand, reserved);
+    } catch {
+      continue;
+    }
+    const remoteQty =
+      isV1 && remote && remote.ok
+        ? quantityForVariant(remote.snapshot, map.wixVariantId, input.wixProductId, singleRemote)
+        : v3 && v3.ok
+          ? (v3.quantities.get(normalizeId(map.wixVariantId)) ?? null)
+          : null;
+    if (remoteQty == null || remoteQty === sellable) continue;
+    try {
+      await prisma.$transaction(async (tx) => {
+        await applyTrackedMarketplaceQuantityEdit(tx, {
+          variantId: map.storeVariantId,
+          memberId: input.memberId,
+          targetOnHand: remoteQty + reserved,
+          sourceScope: input.wixConnectionId,
+          sourceFactId: `wix-qty-pull:${map.id}:${remoteQty}:${Date.now()}`,
+          sourceSystem: WIX_SOURCE_SYSTEM,
+          metadata: { wixProductId: input.wixProductId, wixVariantId: map.wixVariantId },
+        });
+        await tx.wixVariantMap.update({
+          where: { id: map.id },
+          data: {
+            inventoryAppliedAvailable: remoteQty,
+            inventoryDesiredAvailable: remoteQty,
+            inventoryAppliedVersion: map.inventoryDesiredVersion,
+            inventoryAppliedAt: new Date(),
+          },
+        });
+      });
+      pulled += 1;
+    } catch {
+      continue;
+    }
+  }
+  return { pulled };
+}
+
 async function noteInventoryAttention(listingLinkId: string, message: string): Promise<void> {
   await persistWixListingHealth(prisma, listingLinkId, {
     readiness: "ACTION_REQUIRED",
@@ -331,19 +431,10 @@ async function pushV1Inventory(input: {
     };
   }
 
-  const patch = await wixApplicationRequest({
-    method: "PATCH",
-    path: `${WIX_V2_INVENTORY_PATCH}/${input.productId}`,
-    body: JSON.stringify({
-      inventoryItem: {
-        trackQuantity: true,
-        variants: nextVariants.map((row) => ({
-          variantId: row.variantId,
-          quantity: row.quantity ?? 0,
-        })),
-      },
-    }),
-    deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
+  const patch = await patchV1Inventory({
+    ...input,
+    snapshot: before.snapshot,
+    variants: nextVariants,
   });
   if (!patch.ok) return { retry: transportFailure(patch) };
 
@@ -414,25 +505,75 @@ async function readV1Inventory(input: {
   accessToken: string;
   productId: string;
 }): Promise<{ ok: true; snapshot: InventorySnapshot } | { ok: false; failure: WixJobHandlerResult }> {
-  const result = await wixApplicationRequest<unknown>({
-    method: "GET",
-    path: `${WIX_V2_INVENTORY_PATCH}/${input.productId}`,
+  const posted = await wixApplicationRequest<unknown>({
+    method: "POST",
+    path: `${WIX_V2_INVENTORY_ITEMS}/${input.productId}/getVariants`,
+    body: JSON.stringify({}),
     deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 2 },
   });
-  if (!result.ok) return { ok: false, failure: transportFailure(result) };
-  const snapshot = parseInventorySnapshot(result.data);
-  if (!snapshot) {
-    return {
-      ok: false,
-      failure: {
-        outcome: "RETRY",
-        errorClass: "TRANSIENT",
-        errorCode: "INVENTORY_UNREADABLE",
-        errorMessage: "Wix inventory response did not include variants",
-      },
-    };
+  const postedSnapshot = posted.ok ? parseInventorySnapshot(posted.data) : null;
+  if (postedSnapshot && postedSnapshot.variants.length > 0) {
+    return { ok: true, snapshot: postedSnapshot };
   }
-  return { ok: true, snapshot };
+
+  const legacy = await wixApplicationRequest<unknown>({
+    method: "GET",
+    path: `${WIX_V2_INVENTORY_PATCH}/${input.productId}`,
+    deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
+  });
+  const legacySnapshot = legacy.ok ? parseInventorySnapshot(legacy.data) : null;
+  if (legacySnapshot && legacySnapshot.variants.length > 0) {
+    return { ok: true, snapshot: legacySnapshot };
+  }
+  if (postedSnapshot) return { ok: true, snapshot: postedSnapshot };
+  if (legacySnapshot) return { ok: true, snapshot: legacySnapshot };
+
+  const failed = !posted.ok ? posted : !legacy.ok ? legacy : null;
+  if (failed && !failed.ok) return { ok: false, failure: transportFailure(failed) };
+  return {
+    ok: false,
+    failure: {
+      outcome: "RETRY",
+      errorClass: "TRANSIENT",
+      errorCode: "INVENTORY_UNREADABLE",
+      errorMessage: "Wix inventory response did not include variants",
+    },
+  };
+}
+
+async function patchV1Inventory(input: {
+  config: WixAppConfig;
+  accessToken: string;
+  productId: string;
+  snapshot: InventorySnapshot;
+  variants: InventoryVariantRow[];
+}): Promise<WixApiResult> {
+  const body = JSON.stringify({
+    inventoryItem: {
+      ...(input.snapshot.inventoryItemId ? { id: input.snapshot.inventoryItemId } : {}),
+      productId: input.productId,
+      trackQuantity: true,
+      variants: input.variants.map((row) => ({
+        variantId: row.variantId,
+        quantity: row.quantity ?? 0,
+        inStock: (row.quantity ?? 0) > 0,
+      })),
+    },
+  });
+  const inventoryId = input.snapshot.inventoryItemId || input.productId;
+  const primary = await wixApplicationRequest({
+    method: "PATCH",
+    path: `${WIX_V2_INVENTORY_ITEMS}/${inventoryId}`,
+    body,
+    deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
+  });
+  if (primary.ok || (primary.class !== "NOT_FOUND" && primary.class !== "VALIDATION")) return primary;
+  return wixApplicationRequest({
+    method: "PATCH",
+    path: `${WIX_V2_INVENTORY_PATCH}/${input.productId}`,
+    body,
+    deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
+  });
 }
 
 async function readV3Quantities(input: {
@@ -516,6 +657,7 @@ function parseInventorySnapshot(data: unknown): InventorySnapshot | null {
   const root = asRecord(data);
   if (!root) return null;
   const item = asRecord(root.inventoryItem) ?? root;
+  const inventoryItemId = typeof item.id === "string" ? item.id : undefined;
   const variantsRaw = item.variants;
   if (!Array.isArray(variantsRaw)) return null;
   const variants: InventoryVariantRow[] = [];
@@ -529,7 +671,7 @@ function parseInventorySnapshot(data: unknown): InventorySnapshot | null {
       inStock: typeof row.inStock === "boolean" ? row.inStock : undefined,
     });
   }
-  return { trackQuantity: item.trackQuantity === true, variants };
+  return { inventoryItemId, trackQuantity: item.trackQuantity === true, variants };
 }
 
 function readQuantityField(data: unknown): number | null {
