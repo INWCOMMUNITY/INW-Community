@@ -16,8 +16,6 @@ import { resolveCommerceInventoryWriter } from "@/lib/commerce-foundation-cutove
 import { refundPaidStorefrontOrder } from "@/lib/stripe/refund-store-order";
 import { createMarketplaceStripe } from "@/lib/stripe-clients";
 
-const stripe = createMarketplaceStripe();
-
 export const dynamic = "force-dynamic";
 
 function settlementHttp(result: StoreReturnSettlementResult): NextResponse {
@@ -137,6 +135,8 @@ export async function POST(
   if (claim.action === "already_complete") {
     return NextResponse.json({ ok: true, refunded: true, amountCents: claim.amountCents });
   }
+
+  const stripe = createMarketplaceStripe();
 
   if (writer.route === "foundation") {
     const result = await completeReceivedStoreReturnSettlement({
