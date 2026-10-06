@@ -37,6 +37,10 @@ export function selectionFingerprint(options: Record<string, string>): string {
   return optionFingerprint(options);
 }
 
+function hasMeaningfulOptions(raw: unknown): boolean {
+  return asOptionRecord(raw) != null;
+}
+
 async function loadStoreItemKind(
   db: FoundationDb,
   storeItemId: string
@@ -50,19 +54,19 @@ async function loadStoreItemKind(
   }
   const variants = await db.storeVariant.findMany({
     where: { storeItemId },
-    select: { id: true, isDefault: true, options: true },
+    select: { id: true, isDefault: true, options: true, status: true },
   });
   if (variants.length === 0) {
     throw new FoundationVariantResolutionError(
       `StoreItem ${storeItemId} has no StoreVariant rows`
     );
   }
-  const only = variants.length === 1 ? variants[0] : null;
-  const optionKeys =
-    only && only.options && typeof only.options === "object" && !Array.isArray(only.options)
-      ? Object.keys(only.options as object)
-      : [];
-  const kind = only && only.isDefault && optionKeys.length === 0 ? "simple" : "matrix";
+  // Prefer ACTIVE rows when classifying; a sole no-option variant is SIMPLE even if isDefault
+  // was left false by an older provision/collapse path.
+  const active = variants.filter((v) => v.status === "ACTIVE");
+  const pool = active.length > 0 ? active : variants;
+  const only = pool.length === 1 ? pool[0] : null;
+  const kind = only && !hasMeaningfulOptions(only.options) ? "simple" : "matrix";
   return { memberId: item.memberId, kind };
 }
 
@@ -72,21 +76,35 @@ export async function resolveSimpleDefaultVariant(
   opts?: { requireActive?: boolean }
 ): Promise<ResolvedStoreVariant> {
   const defaults = await db.storeVariant.findMany({
-    where: { storeItemId, isDefault: true },
+    where: {
+      storeItemId,
+      isDefault: true,
+      ...(opts?.requireActive ? { status: "ACTIVE" as const } : {}),
+    },
   });
-  if (defaults.length !== 1) {
-    throw new FoundationVariantResolutionError(
-      `StoreItem ${storeItemId} must have exactly one default Variant (found ${defaults.length})`
-    );
+  if (defaults.length === 1) {
+    const variant = defaults[0];
+    if (variant.storeItemId !== storeItemId) {
+      throw new FoundationVariantResolutionError("Default Variant does not belong to the StoreItem");
+    }
+    return variant;
   }
-  const variant = defaults[0];
-  if (variant.storeItemId !== storeItemId) {
-    throw new FoundationVariantResolutionError("Default Variant does not belong to the StoreItem");
+
+  // Fallback: exactly one no-option variant (simple listing with a bad/missing isDefault flag).
+  const candidates = await db.storeVariant.findMany({
+    where: {
+      storeItemId,
+      ...(opts?.requireActive ? { status: "ACTIVE" as const } : {}),
+    },
+  });
+  const noOption = candidates.filter((v) => !hasMeaningfulOptions(v.options));
+  if (noOption.length === 1) {
+    return noOption[0];
   }
-  if (opts?.requireActive && variant.status !== "ACTIVE") {
-    throw new FoundationVariantResolutionError("Default Variant is not ACTIVE");
-  }
-  return variant;
+
+  throw new FoundationVariantResolutionError(
+    `StoreItem ${storeItemId} must have exactly one default Variant (found ${defaults.length})`
+  );
 }
 
 export async function resolveMatrixVariant(
@@ -168,6 +186,25 @@ export async function resolveCheckoutVariant(
   if (meta.kind === "simple") {
     return resolveSimpleDefaultVariant(db, storeItemId, opts);
   }
+
+  // MATRIX with no selection: if there is exactly one eligible variant, use it
+  // (single-SKU matrix / mislabeled simple). Multi-SKU still requires variantId or option JSON.
+  if (!asOptionRecord(input.optionJson)) {
+    const candidates = await db.storeVariant.findMany({
+      where: {
+        storeItemId,
+        ...(opts?.requireActive ? { status: "ACTIVE" as const } : {}),
+      },
+    });
+    if (candidates.length === 1) {
+      const only = candidates[0];
+      if (only.memberId !== meta.memberId) {
+        throw new FoundationVariantResolutionError("Variant member does not match StoreItem");
+      }
+      return only;
+    }
+  }
+
   return resolveMatrixVariant(db, storeItemId, { optionJson: input.optionJson }, opts);
 }
 
