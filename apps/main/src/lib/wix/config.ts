@@ -19,11 +19,18 @@ export function readWixAppConfig(): WixAppConfig | null {
   }
 
   // Derive redirect URI from environment or use default
-  const baseUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL 
-    ? `https://${process.env.VERCEL_URL || "localhost:3000"}`
-    : "http://localhost:3000";
-  
-  const redirectUri = process.env.WIX_REDIRECT_URI || `${baseUrl}/api/wix/oauth/callback`;
+  // WIX_REDIRECT_URI takes precedence (should match Wix app dashboard)
+  // NEXTAUTH_URL is the production domain with protocol (e.g. https://www.example.com)
+  // VERCEL_URL is a deployment-specific subdomain without protocol
+  let redirectUri = process.env.WIX_REDIRECT_URI;
+  if (!redirectUri) {
+    const baseUrl = process.env.NEXTAUTH_URL
+      ? process.env.NEXTAUTH_URL.replace(/\/$/, "")
+      : process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : "http://localhost:3000";
+    redirectUri = `${baseUrl}/api/wix/oauth/callback`;
+  }
 
   return {
     appId,
