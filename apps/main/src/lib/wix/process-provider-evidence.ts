@@ -102,7 +102,7 @@ export async function handleWixProcessProviderEvidenceJob(
       return await handleOrderPaidEvidence(evidence.id, connection, parsedBody, evidence.triggeredAt);
     }
 
-    if (topic.includes("order_canceled")) {
+    if (topic.includes("order_canceled") || topic.includes("order_cancelled")) {
       return await handleOrderCanceledEvidence(evidence.id, connection, parsedBody);
     }
 
@@ -239,6 +239,7 @@ async function handleProductChangeEvidence(
         issueCode: "PRODUCT_DELETED",
         issueMessage: "Product was deleted on Wix",
         issueSeverity: "error",
+        issueFirstSeenAt: link.issueFirstSeenAt ?? new Date(),
         issueLastSeenAt: new Date(),
       },
     });

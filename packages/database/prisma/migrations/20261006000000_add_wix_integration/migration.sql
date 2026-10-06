@@ -336,13 +336,13 @@ CREATE INDEX "wix_oauth_state_member_id_idx" ON "wix_oauth_state"("member_id");
 CREATE INDEX "wix_oauth_state_expires_at_idx" ON "wix_oauth_state"("expires_at");
 
 -- AddForeignKey
-ALTER TABLE "wix_connection" ADD CONSTRAINT "wix_connection_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "member"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "wix_connection" ADD CONSTRAINT "wix_connection_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "Member"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "wix_listing_import_attempt" ADD CONSTRAINT "wix_listing_import_attempt_wix_connection_id_member_id_fkey" FOREIGN KEY ("wix_connection_id", "member_id") REFERENCES "wix_connection"("id", "member_id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "wix_listing_import_attempt" ADD CONSTRAINT "wix_listing_import_attempt_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "member"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "wix_listing_import_attempt" ADD CONSTRAINT "wix_listing_import_attempt_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "Member"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "wix_listing_link" ADD CONSTRAINT "wix_listing_link_wix_connection_id_member_id_fkey" FOREIGN KEY ("wix_connection_id", "member_id") REFERENCES "wix_connection"("id", "member_id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -351,7 +351,7 @@ ALTER TABLE "wix_listing_link" ADD CONSTRAINT "wix_listing_link_wix_connection_i
 ALTER TABLE "wix_listing_link" ADD CONSTRAINT "wix_listing_link_store_item_id_member_id_fkey" FOREIGN KEY ("store_item_id", "member_id") REFERENCES "StoreItem"("id", "member_id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "wix_listing_link" ADD CONSTRAINT "wix_listing_link_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "member"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "wix_listing_link" ADD CONSTRAINT "wix_listing_link_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "Member"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "wix_variant_map" ADD CONSTRAINT "wix_variant_map_wix_connection_id_member_id_fkey" FOREIGN KEY ("wix_connection_id", "member_id") REFERENCES "wix_connection"("id", "member_id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -360,7 +360,7 @@ ALTER TABLE "wix_variant_map" ADD CONSTRAINT "wix_variant_map_wix_connection_id_
 ALTER TABLE "wix_variant_map" ADD CONSTRAINT "wix_variant_map_wix_listing_link_id_wix_connection_id_store_fkey" FOREIGN KEY ("wix_listing_link_id", "wix_connection_id", "store_item_id") REFERENCES "wix_listing_link"("id", "wix_connection_id", "store_item_id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "wix_variant_map" ADD CONSTRAINT "wix_variant_map_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "member"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "wix_variant_map" ADD CONSTRAINT "wix_variant_map_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "Member"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "wix_provider_evidence" ADD CONSTRAINT "wix_provider_evidence_wix_connection_id_fkey" FOREIGN KEY ("wix_connection_id") REFERENCES "wix_connection"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -369,7 +369,7 @@ ALTER TABLE "wix_provider_evidence" ADD CONSTRAINT "wix_provider_evidence_wix_co
 ALTER TABLE "wix_order_line_sale_fact" ADD CONSTRAINT "wix_order_line_sale_fact_wix_connection_id_member_id_fkey" FOREIGN KEY ("wix_connection_id", "member_id") REFERENCES "wix_connection"("id", "member_id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "wix_order_line_sale_fact" ADD CONSTRAINT "wix_order_line_sale_fact_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "member"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "wix_order_line_sale_fact" ADD CONSTRAINT "wix_order_line_sale_fact_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "Member"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "wix_order_line_sale_fact" ADD CONSTRAINT "wix_order_line_sale_fact_evidence_id_fkey" FOREIGN KEY ("evidence_id") REFERENCES "wix_provider_evidence"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -381,4 +381,4 @@ ALTER TABLE "wix_sync_job" ADD CONSTRAINT "wix_sync_job_wix_connection_id_fkey" 
 ALTER TABLE "wix_sync_job" ADD CONSTRAINT "wix_sync_job_evidence_id_fkey" FOREIGN KEY ("evidence_id") REFERENCES "wix_provider_evidence"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "wix_oauth_state" ADD CONSTRAINT "wix_oauth_state_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "member"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "wix_oauth_state" ADD CONSTRAINT "wix_oauth_state_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "Member"("id") ON DELETE CASCADE ON UPDATE CASCADE;
