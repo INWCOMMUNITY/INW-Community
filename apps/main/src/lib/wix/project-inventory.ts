@@ -11,6 +11,8 @@ import {
   type WixJobHandlerResult,
   type WixSyncJobClaim,
 } from "database";
+import { optionValuesKey } from "@/lib/listing-variant-matrix";
+import { loadWixCatalogVariants } from "./catalog-variants";
 import { readWixAppConfig, type WixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
 import { wixApplicationRequest, type WixApiResult } from "./client";
@@ -29,6 +31,7 @@ type InventoryVariantRow = {
   variantId?: string;
   quantity?: number;
   inStock?: boolean;
+  choices?: unknown;
 };
 
 type InventorySnapshot = {
@@ -36,8 +39,6 @@ type InventorySnapshot = {
   trackQuantity?: boolean;
   variants: InventoryVariantRow[];
 };
-
-const NIL_VARIANT_ID = "00000000-0000-0000-0000-000000000000";
 
 /**
  * PROJECT_INVENTORY: push INW sellable qty to Wix and mark applied only after read-back matches.
@@ -240,7 +241,7 @@ export async function alignWixInventoryWithInw(input: {
   const stateByVariant = new Map(states.map((s) => [s.variantId, s]));
   const isV1 = input.catalogVersion === WIX_CATALOG_V1;
   const remote = isV1
-    ? await readV1Inventory({ config, accessToken, productId: input.wixProductId })
+    ? await readWixV1Inventory({ config, accessToken, productId: input.wixProductId })
     : null;
   const v3 = !isV1
     ? await readV3Quantities({
@@ -252,12 +253,19 @@ export async function alignWixInventoryWithInw(input: {
   if (isV1 && remote && !remote.ok) return { error: "Could not read Wix inventory" };
   if (!isV1 && v3 && !v3.ok) return { error: v3.message };
 
+  const lookup = isV1 && remote && remote.ok
+    ? await quantityLookup({
+        config,
+        accessToken,
+        productId: input.wixProductId,
+        snapshot: remote.snapshot,
+      })
+    : null;
+  const optionsByVariant = await storeOptionsByVariant(maps.map((map) => map.storeVariantId));
+
   let pushed = 0;
   let diverged = 0;
   let unreadable = 0;
-  const singleRemote = Boolean(
-    maps.length === 1 && isV1 && remote && remote.ok && remote.snapshot.variants.length === 1
-  );
 
   for (const map of maps) {
     const state = stateByVariant.get(map.storeVariantId);
@@ -271,14 +279,20 @@ export async function alignWixInventoryWithInw(input: {
       unreadable += 1;
       continue;
     }
-    const remoteQty = isV1 && remote && remote.ok
-      ? quantityForVariant(remote.snapshot, map.wixVariantId, input.wixProductId, singleRemote)
-      : v3 && v3.ok
-        ? v3.quantities.get(normalizeId(map.wixVariantId)) ?? null
-        : null;
-    if (remoteQty == null) {
+    const resolved = lookup
+      ? lookup.resolve(map.wixVariantId, optionsByVariant.get(map.storeVariantId))
+      : {
+          qty: v3 && v3.ok ? (v3.quantities.get(normalizeId(map.wixVariantId)) ?? null) : null,
+          catalogVariantId: null as string | null,
+        };
+    const remoteQty = resolved.qty;
+    if (wixMissingQuantityIsUnread(remote?.ok ? remote.snapshot.trackQuantity : undefined, remoteQty)) {
       unreadable += 1;
       continue;
+    }
+    if (remoteQty == null) continue;
+    if (resolved.catalogVariantId && normalizeId(resolved.catalogVariantId) !== normalizeId(map.wixVariantId)) {
+      await rememberWixVariantId(map.id, resolved.catalogVariantId, lookup?.inventoryItemId);
     }
     if (remoteQty === sellable) continue;
 
@@ -334,7 +348,7 @@ export async function pullWixInventoryIntoInw(input: {
   const stateByVariant = new Map(states.map((state) => [state.variantId, state]));
   const isV1 = input.catalogVersion === WIX_CATALOG_V1;
   const remote = isV1
-    ? await readV1Inventory({ config, accessToken, productId: input.wixProductId })
+    ? await readWixV1Inventory({ config, accessToken, productId: input.wixProductId })
     : null;
   if (isV1 && remote && !remote.ok) return { error: "Could not read Wix inventory" };
   const v3 = !isV1
@@ -346,12 +360,18 @@ export async function pullWixInventoryIntoInw(input: {
     : null;
   if (!isV1 && v3 && !v3.ok) return { error: v3.message };
 
+  const lookup = isV1 && remote && remote.ok
+    ? await quantityLookup({
+        config,
+        accessToken,
+        productId: input.wixProductId,
+        snapshot: remote.snapshot,
+      })
+    : null;
+  const optionsByVariant = await storeOptionsByVariant(maps.map((map) => map.storeVariantId));
+
   let pulled = 0;
-  const singleRemote = Boolean(
-    maps.length === 1 && isV1 && remote && remote.ok && remote.snapshot.variants.length === 1
-  );
   for (const map of maps) {
-    if (map.inventoryDesiredVersion > map.inventoryAppliedVersion) continue;
     const state = stateByVariant.get(map.storeVariantId);
     if (!state || state.mode !== "TRACKED_FINITE" || state.onHand == null || state.reserved == null) {
       continue;
@@ -363,13 +383,27 @@ export async function pullWixInventoryIntoInw(input: {
     } catch {
       continue;
     }
-    const remoteQty =
-      isV1 && remote && remote.ok
-        ? quantityForVariant(remote.snapshot, map.wixVariantId, input.wixProductId, singleRemote)
-        : v3 && v3.ok
-          ? (v3.quantities.get(normalizeId(map.wixVariantId)) ?? null)
-          : null;
-    if (remoteQty == null || remoteQty === sellable) continue;
+    const resolved = lookup
+      ? lookup.resolve(map.wixVariantId, optionsByVariant.get(map.storeVariantId))
+      : {
+          qty: v3 && v3.ok ? (v3.quantities.get(normalizeId(map.wixVariantId)) ?? null) : null,
+          catalogVariantId: null as string | null,
+        };
+    const remoteQty = resolved.qty;
+    if (
+      remoteQty == null ||
+      !shouldApplyWixQuantityToInw({
+        sellable,
+        remoteQty,
+        pendingOutbound: map.inventoryDesiredVersion > map.inventoryAppliedVersion,
+        appliedAvailable: map.inventoryAppliedAvailable,
+      })
+    ) {
+      continue;
+    }
+    if (resolved.catalogVariantId && normalizeId(resolved.catalogVariantId) !== normalizeId(map.wixVariantId)) {
+      await rememberWixVariantId(map.id, resolved.catalogVariantId, lookup?.inventoryItemId);
+    }
     try {
       await prisma.$transaction(async (tx) => {
         await applyTrackedMarketplaceQuantityEdit(tx, {
@@ -416,10 +450,10 @@ async function pushV1Inventory(input: {
   productId: string;
   updates: Array<{ wixVariantId: string; quantity: number }>;
 }): Promise<{ quantities: Map<string, number> } | { retry: WixJobHandlerResult }> {
-  const before = await readV1Inventory(input);
+  const before = await readWixV1Inventory(input);
   if (!before.ok) return { retry: before.failure };
 
-  const nextVariants = mergeQuantities(before.snapshot.variants, input.updates, input.productId);
+  const nextVariants = mergeQuantities(before.snapshot.variants, input.updates);
   if (!nextVariants) {
     return {
       retry: {
@@ -438,7 +472,7 @@ async function pushV1Inventory(input: {
   });
   if (!patch.ok) return { retry: transportFailure(patch) };
 
-  const after = await readV1Inventory(input);
+  const after = await readWixV1Inventory(input);
   if (!after.ok) {
     return {
       retry: {
@@ -452,12 +486,7 @@ async function pushV1Inventory(input: {
   const quantities = new Map<string, number>();
   const allowSingle = input.updates.length === 1 && after.snapshot.variants.length === 1;
   for (const update of input.updates) {
-    const qty = quantityForVariant(
-      after.snapshot,
-      update.wixVariantId,
-      input.productId,
-      allowSingle
-    );
+    const qty = quantityForVariant(after.snapshot, update.wixVariantId, allowSingle);
     if (qty != null) quantities.set(normalizeId(update.wixVariantId), qty);
   }
   return { quantities };
@@ -500,18 +529,38 @@ async function pushV3Inventory(input: {
   return { quantities: after.quantities };
 }
 
-async function readV1Inventory(input: {
+export async function readWixV1Inventory(input: {
   config: WixAppConfig;
   accessToken: string;
   productId: string;
+  fetchImpl?: typeof fetch;
 }): Promise<{ ok: true; snapshot: InventorySnapshot } | { ok: false; failure: WixJobHandlerResult }> {
+  const filters = [
+    JSON.stringify({ productId: { $eq: [input.productId] } }),
+    JSON.stringify({ productId: input.productId }),
+  ];
+  for (const filter of filters) {
+    const queried = await wixApplicationRequest<unknown>({
+      method: "POST",
+      path: `${WIX_V2_INVENTORY_ITEMS}/query`,
+      body: JSON.stringify({
+        query: { filter, paging: { limit: 5 } },
+      }),
+      deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1, fetchImpl: input.fetchImpl },
+    });
+    const queriedSnapshot = queried.ok ? parseInventoryPayload(queried.data, input.productId) : null;
+    if (queriedSnapshot && queriedSnapshot.variants.length > 0) {
+      return { ok: true, snapshot: queriedSnapshot };
+    }
+  }
+
   const posted = await wixApplicationRequest<unknown>({
     method: "POST",
     path: `${WIX_V2_INVENTORY_ITEMS}/${input.productId}/getVariants`,
-    body: JSON.stringify({}),
-    deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 2 },
+    body: JSON.stringify({ productId: input.productId }),
+    deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1, fetchImpl: input.fetchImpl },
   });
-  const postedSnapshot = posted.ok ? parseInventorySnapshot(posted.data) : null;
+  const postedSnapshot = posted.ok ? parseInventoryPayload(posted.data, input.productId) : null;
   if (postedSnapshot && postedSnapshot.variants.length > 0) {
     return { ok: true, snapshot: postedSnapshot };
   }
@@ -519,9 +568,9 @@ async function readV1Inventory(input: {
   const legacy = await wixApplicationRequest<unknown>({
     method: "GET",
     path: `${WIX_V2_INVENTORY_PATCH}/${input.productId}`,
-    deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
+    deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1, fetchImpl: input.fetchImpl },
   });
-  const legacySnapshot = legacy.ok ? parseInventorySnapshot(legacy.data) : null;
+  const legacySnapshot = legacy.ok ? parseInventoryPayload(legacy.data, input.productId) : null;
   if (legacySnapshot && legacySnapshot.variants.length > 0) {
     return { ok: true, snapshot: legacySnapshot };
   }
@@ -598,8 +647,7 @@ async function readV3Quantities(input: {
 
 function mergeQuantities(
   remote: InventoryVariantRow[],
-  updates: Array<{ wixVariantId: string; quantity: number }>,
-  productId: string
+  updates: Array<{ wixVariantId: string; quantity: number }>
 ): InventoryVariantRow[] | null {
   const rows = remote.map((row) => ({ ...row }));
   if (rows.length === 0) {
@@ -611,7 +659,7 @@ function mergeQuantities(
   }
   const allowSingle = updates.length === 1 && rows.length === 1;
   for (const update of updates) {
-    const row = findInventoryRow(rows, update.wixVariantId, productId, allowSingle);
+    const row = findInventoryRow(rows, update.wixVariantId, allowSingle);
     if (!row) return null;
     row.quantity = update.quantity;
     row.inStock = update.quantity > 0;
@@ -622,53 +670,224 @@ function mergeQuantities(
 function findInventoryRow(
   rows: InventoryVariantRow[],
   wixVariantId: string,
-  productId: string,
   allowSingleFallback: boolean
 ): InventoryVariantRow | undefined {
   const want = normalizeId(wixVariantId);
   const direct = rows.find((row) => normalizeId(row.variantId) === want);
   if (direct) return direct;
-  if (!allowSingleFallback || rows.length !== 1) return undefined;
-  const only = rows[0];
-  const onlyId = normalizeId(only?.variantId);
-  if (
-    want === normalizeId(productId) ||
-    onlyId === normalizeId(NIL_VARIANT_ID) ||
-    onlyId === "" ||
-    onlyId === want
-  ) {
-    return only;
-  }
+  if (allowSingleFallback && rows.length === 1) return rows[0];
   return undefined;
 }
 
 function quantityForVariant(
   snapshot: InventorySnapshot,
   wixVariantId: string,
-  productId: string,
   allowSingleFallback: boolean
 ): number | null {
-  const row = findInventoryRow(snapshot.variants, wixVariantId, productId, allowSingleFallback);
-  if (row?.quantity == null || !Number.isFinite(row.quantity)) return null;
-  return Math.max(0, Math.trunc(row.quantity));
+  const row = findInventoryRow(snapshot.variants, wixVariantId, allowSingleFallback);
+  if (row?.quantity != null && Number.isFinite(row.quantity)) {
+    return Math.max(0, Math.trunc(row.quantity));
+  }
+  return null;
+}
+
+async function storeOptionsByVariant(variantIds: string[]): Promise<Map<string, unknown>> {
+  const rows = await prisma.storeVariant.findMany({
+    where: { id: { in: variantIds } },
+    select: { id: true, options: true },
+  });
+  return new Map(rows.map((row) => [row.id, row.options]));
+}
+
+/**
+ * A lower Wix number is applied only after INW's current quantity was already verified on Wix.
+ * Otherwise the initial Wix 0, or a failed push, writes itself back onto the listing.
+ */
+export function shouldApplyWixQuantityToInw(input: {
+  sellable: number;
+  remoteQty: number;
+  pendingOutbound: boolean;
+  appliedAvailable: number | null;
+}): boolean {
+  if (input.pendingOutbound || input.remoteQty === input.sellable) return false;
+  if (input.remoteQty > input.sellable) return true;
+  return input.appliedAvailable === input.sellable;
+}
+
+export function wixMissingQuantityIsUnread(
+  trackQuantity: boolean | undefined,
+  qty: number | null
+): boolean {
+  return qty == null && trackQuantity !== false;
+}
+
+export function matchWixInventoryQuantity(input: {
+  snapshot: InventorySnapshot;
+  wixVariantId: string;
+  options: unknown;
+  catalogVariants?: Array<{ id?: string; choices?: unknown }>;
+}): { qty: number | null; catalogVariantId: string | null } {
+  const catalogVariants = input.catalogVariants ?? [];
+  const single = input.snapshot.variants.length === 1;
+  const byChoice = new Map<string, { qty: number; catalogVariantId: string | null }>();
+  const rememberChoice = (choices: unknown, qty: number | null, catalogVariantId: string | null) => {
+    const key = optionValuesKey(choiceRecord(choices));
+    if (qty == null || !key || byChoice.has(key)) return;
+    byChoice.set(key, { qty, catalogVariantId });
+  };
+  for (const row of input.snapshot.variants) {
+    const qty =
+      row.quantity != null && Number.isFinite(row.quantity)
+        ? Math.max(0, Math.trunc(row.quantity))
+        : null;
+    rememberChoice(row.choices, qty, row.variantId ?? null);
+  }
+  for (const variant of catalogVariants) {
+    const qty = variant.id
+      ? quantityForVariant(input.snapshot, variant.id, single && catalogVariants.length === 1)
+      : single
+        ? quantityForVariant(input.snapshot, variant.id ?? "", true)
+        : null;
+    rememberChoice(variant.choices, qty, variant.id ?? null);
+  }
+  const direct = quantityForVariant(input.snapshot, input.wixVariantId, false);
+  if (direct != null) return { qty: direct, catalogVariantId: null };
+  const matched = byChoice.get(optionValuesKey(choiceRecord(input.options)));
+  if (matched) return matched;
+  if (single) return { qty: quantityForVariant(input.snapshot, input.wixVariantId, true), catalogVariantId: null };
+  return { qty: null, catalogVariantId: null };
+}
+
+async function quantityLookup(input: {
+  config: WixAppConfig;
+  accessToken: string;
+  productId: string;
+  snapshot: InventorySnapshot;
+}): Promise<{
+  inventoryItemId?: string;
+  resolve: (wixVariantId: string, options: unknown) => { qty: number | null; catalogVariantId: string | null };
+}> {
+  const catalog = await loadWixCatalogVariants({
+    isV1: true,
+    productId: input.productId,
+    fallback: [],
+    config: input.config,
+    accessToken: input.accessToken,
+  });
+  const catalogVariants = catalog.ok ? catalog.variants : [];
+  return {
+    inventoryItemId: input.snapshot.inventoryItemId,
+    resolve(wixVariantId, options) {
+      return matchWixInventoryQuantity({
+        snapshot: input.snapshot,
+        wixVariantId,
+        options,
+        catalogVariants,
+      });
+    },
+  };
+}
+
+async function rememberWixVariantId(
+  variantMapId: string,
+  wixVariantId: string,
+  inventoryItemId: string | undefined
+): Promise<void> {
+  try {
+    await prisma.wixVariantMap.update({
+      where: { id: variantMapId },
+      data: {
+        wixVariantId,
+        ...(inventoryItemId ? { wixInventoryItemId: inventoryItemId } : {}),
+      },
+    });
+  } catch {
+    // Another row may already own this Wix variant id.
+  }
+}
+
+function choiceRecord(options: unknown): Record<string, string> {
+  if (Array.isArray(options)) {
+    const out: Record<string, string> = {};
+    for (const entry of options) {
+      if (!entry || typeof entry !== "object") continue;
+      const row = entry as Record<string, unknown>;
+      const names =
+        row.optionChoiceNames && typeof row.optionChoiceNames === "object" && !Array.isArray(row.optionChoiceNames)
+          ? (row.optionChoiceNames as Record<string, unknown>)
+          : null;
+      const optionName =
+        (typeof names?.optionName === "string" && names.optionName.trim()) ||
+        (typeof row.option === "string" && row.option.trim()) ||
+        (typeof row.name === "string" && row.name.trim()) ||
+        "";
+      const choiceName =
+        (typeof names?.choiceName === "string" && names.choiceName.trim()) ||
+        (typeof names?.name === "string" && names.name.trim()) ||
+        (typeof row.value === "string" && row.value.trim()) ||
+        "";
+      if (optionName && choiceName) out[optionName] = choiceName;
+    }
+    return out;
+  }
+  if (!options || typeof options !== "object") return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(options as Record<string, unknown>)) {
+    if (typeof value === "string" && value.trim()) out[key.trim()] = value.trim();
+  }
+  return out;
+}
+
+function readId(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function parseInventoryPayload(data: unknown, productId: string): InventorySnapshot | null {
+  const root = asRecord(data);
+  if (!root) return null;
+  if (Array.isArray(root.inventoryItems)) {
+    const items = root.inventoryItems
+      .map((entry) => asRecord(entry))
+      .filter((entry): entry is Record<string, unknown> => entry != null);
+    const match =
+      items.find((item) => normalizeId(readId(item.productId)) === normalizeId(productId)) ??
+      (items.length === 1 ? items[0] : undefined);
+    if (match) return parseInventorySnapshot({ inventoryItem: match });
+  }
+  return parseInventorySnapshot(data);
 }
 
 function parseInventorySnapshot(data: unknown): InventorySnapshot | null {
   const root = asRecord(data);
   if (!root) return null;
   const item = asRecord(root.inventoryItem) ?? root;
-  const inventoryItemId = typeof item.id === "string" ? item.id : undefined;
+  const inventoryItemId = readId(item.id) ?? readId(item._id);
   const variantsRaw = item.variants;
-  if (!Array.isArray(variantsRaw)) return null;
+  if (!Array.isArray(variantsRaw) || variantsRaw.length === 0) {
+    const quantity = readQuantityValue(item.quantity ?? item.available);
+    if (quantity == null && typeof item.inStock !== "boolean") return null;
+    return {
+      inventoryItemId,
+      trackQuantity: item.trackQuantity === true,
+      variants: [
+        {
+          variantId: readId(item.variantId),
+          quantity: quantity ?? undefined,
+          inStock: typeof item.inStock === "boolean" ? item.inStock : undefined,
+        },
+      ],
+    };
+  }
   const variants: InventoryVariantRow[] = [];
   for (const entry of variantsRaw) {
     const row = asRecord(entry);
     if (!row) continue;
     const quantity = readQuantityValue(row.quantity ?? row.available);
     variants.push({
-      variantId: typeof row.variantId === "string" ? row.variantId : undefined,
+      variantId: readId(row.variantId) ?? readId(row.id),
       quantity: quantity ?? undefined,
       inStock: typeof row.inStock === "boolean" ? row.inStock : undefined,
+      choices: row.choices,
     });
   }
   return { inventoryItemId, trackQuantity: item.trackQuantity === true, variants };

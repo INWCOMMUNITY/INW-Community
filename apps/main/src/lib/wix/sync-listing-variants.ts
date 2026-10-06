@@ -96,7 +96,22 @@ function optionValuesKey(choices: Record<string, string>): string {
     .join("|");
 }
 
-function onHandOf(variant: LocalVariant): number | null {
+/** True when applying this Wix matrix would replace a positive INW quantity with 0. */
+export function pullWouldDropLocalStock(
+  local: Array<Pick<LocalVariant, "options" | "inventoryState">>,
+  targets: Array<{ options: Record<string, string> }>
+): boolean {
+  const targetKeys = new Set(targets.map((target) => optionValuesKey(target.options)).filter(Boolean));
+  for (const variant of local) {
+    const onHand = onHandOf(variant);
+    if (onHand == null || onHand === 0) continue;
+    const key = optionValuesKey(asChoiceRecord(variant.options));
+    if (!key || !targetKeys.has(key)) return true;
+  }
+  return false;
+}
+
+function onHandOf(variant: Pick<LocalVariant, "inventoryState">): number | null {
   const state = variant.inventoryState;
   if (!state || state.mode !== "TRACKED_FINITE" || state.onHand == null) return null;
   const onHand = Math.trunc(state.onHand);
@@ -594,6 +609,9 @@ async function pullTopology(input: {
   }
   if (matrixTargets.every((target) => Object.keys(target.options).length < 1)) {
     return { status: "NOOP", pairCount: matrixTargets.length };
+  }
+  if (pullWouldDropLocalStock(input.local, matrixTargets)) {
+    return { status: "NOOP", pairCount: 0 };
   }
 
   const localOnHandByValues = new Map<string, number>();

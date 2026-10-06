@@ -8,6 +8,7 @@ import {
   markWixEvidenceProcessed,
   prisma,
   restockWixCanceledOrder,
+  trackedAvailable,
   wixPollListingContentDedupeKey,
   wixReconcileListingDedupeKey,
   WIX_SOURCE_SYSTEM,
@@ -15,6 +16,7 @@ import {
   type WixPaidOrderLineObservation,
   type WixSyncJobClaim,
 } from "database";
+import { shouldApplyWixQuantityToInw } from "./project-inventory";
 
 type ProcessEvidencePayload = {
   webhookId: string;
@@ -309,9 +311,32 @@ async function handleInventoryEvidence(
         : [];
       variantMap = maps.length === 1 ? (maps[0] ?? null) : null;
     }
-    if (!variantMap || line.quantity == null || variantMap.inventoryAppliedAvailable === line.quantity) continue;
+    if (!variantMap || line.quantity == null) continue;
     const mapped = variantMap;
     const quantity = line.quantity;
+    if (mapped.inventoryDesiredVersion > mapped.inventoryAppliedVersion) continue;
+    const current = await prisma.inventoryState.findUnique({
+      where: { variantId: mapped.storeVariantId },
+    });
+    if (!current || current.mode !== "TRACKED_FINITE" || current.onHand == null || current.reserved == null) {
+      continue;
+    }
+    let sellable = 0;
+    try {
+      sellable = trackedAvailable(current.onHand, current.reserved);
+    } catch {
+      continue;
+    }
+    if (
+      !shouldApplyWixQuantityToInw({
+        sellable,
+        remoteQty: quantity,
+        pendingOutbound: false,
+        appliedAvailable: mapped.inventoryAppliedAvailable,
+      })
+    ) {
+      continue;
+    }
 
     await prisma.$transaction(async (tx) => {
       const state = await tx.inventoryState.findUnique({
