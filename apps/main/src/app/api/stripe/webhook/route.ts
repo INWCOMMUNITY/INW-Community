@@ -46,6 +46,12 @@ import {
 } from "@/lib/stripe/fulfill-storefront-orders";
 import { recordConnectPayoutInLedger } from "@/lib/stripe/connect-payouts";
 import { jsonIfCutoverBlocked } from "@/lib/commerce-foundation-cutover-http";
+import {
+  createBillingStripe,
+  createMarketplaceStripe,
+  tryCreateBillingStripe,
+  tryCreateMarketplaceStripe,
+} from "@/lib/stripe-clients";
 
 /**
  * Idempotency: Stripe may deliver the same event more than once. All handlers in this file
@@ -54,14 +60,12 @@ import { jsonIfCutoverBlocked } from "@/lib/commerce-foundation-cutover-http";
  * one-to-one event-to-order updates.
  */
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
-  apiVersion: "2024-11-20.acacia" as "2023-10-16",
-});
-
 /** Node runtime: raw body + Buffer match what stripe-node expects; avoid Edge subtle differences. */
 export const runtime = "nodejs";
 
 export const dynamic = "force-dynamic";
+
+type WebhookStripeAccount = "marketplace" | "billing";
 
 function parseWebhookSecretList(raw: string | undefined): string[] {
   if (!raw?.trim()) return [];
@@ -81,7 +85,7 @@ function constructEventWithAnySecret(
   for (const secret of secrets) {
     try {
       return {
-        event: stripe.webhooks.constructEvent(body, sig, secret, toleranceSeconds),
+        event: Stripe.webhooks.constructEvent(body, sig, secret, toleranceSeconds),
         lastError: null,
       };
     } catch (e) {
@@ -89,6 +93,49 @@ function constructEventWithAnySecret(
     }
   }
   return { event: null, lastError };
+}
+
+/**
+ * Prefer marketplace secrets (storefront + Connect), then billing (subscriptions).
+ * Returns which account's API client to use for follow-up Stripe calls.
+ */
+function constructWebhookEvent(
+  body: Buffer,
+  sig: string,
+  toleranceSeconds: number
+): { event: Stripe.Event; account: WebhookStripeAccount } | { event: null; lastError: unknown } {
+  const marketplaceSecrets = [
+    ...parseWebhookSecretList(process.env.STRIPE_MARKETPLACE_WEBHOOK_SECRET),
+    ...parseWebhookSecretList(process.env.STRIPE_MARKETPLACE_CONNECT_WEBHOOK_SECRET),
+  ];
+  const billingSecrets = [
+    ...parseWebhookSecretList(process.env.STRIPE_WEBHOOK_SECRET),
+    ...parseWebhookSecretList(process.env.STRIPE_CONNECT_WEBHOOK_SECRET),
+    ...parseWebhookSecretList(process.env.STRIPE_THIN_WEBHOOK_SECRET),
+  ];
+
+  if (marketplaceSecrets.length > 0) {
+    const r = constructEventWithAnySecret(body, sig, marketplaceSecrets, toleranceSeconds);
+    if (r.event) return { event: r.event, account: "marketplace" };
+  }
+  if (billingSecrets.length > 0) {
+    const r = constructEventWithAnySecret(body, sig, billingSecrets, toleranceSeconds);
+    if (r.event) return { event: r.event, account: "billing" };
+  }
+
+  const anySecrets = [...marketplaceSecrets, ...billingSecrets];
+  if (anySecrets.length === 0) {
+    return { event: null, lastError: new Error("No webhook signing secrets configured") };
+  }
+  const last = constructEventWithAnySecret(body, sig, anySecrets, toleranceSeconds);
+  return { event: null, lastError: last.lastError };
+}
+
+function stripeClientForWebhookAccount(account: WebhookStripeAccount): Stripe {
+  if (account === "marketplace") {
+    return tryCreateMarketplaceStripe() ?? createBillingStripe();
+  }
+  return tryCreateBillingStripe() ?? createMarketplaceStripe();
 }
 
 function subscriptionIdFromCheckoutSession(session: Stripe.Checkout.Session): string | null {
@@ -186,55 +233,46 @@ export async function POST(req: NextRequest) {
     console.warn("[stripe/webhook] 400: missing stripe-signature header");
     return NextResponse.json({ error: "Missing signature" }, { status: 400 });
   }
-  const platformSecrets = parseWebhookSecretList(process.env.STRIPE_WEBHOOK_SECRET);
-  const connectSecrets = parseWebhookSecretList(process.env.STRIPE_CONNECT_WEBHOOK_SECRET);
-  /** Thin / event-destination webhooks (e.g. v2.core.*) use a different signing secret than snapshot endpoints. */
-  const thinSecrets = parseWebhookSecretList(process.env.STRIPE_THIN_WEBHOOK_SECRET);
-  if (
-    platformSecrets.length === 0 &&
-    connectSecrets.length === 0 &&
-    thinSecrets.length === 0
-  ) {
+  const marketplaceSecrets = [
+    ...parseWebhookSecretList(process.env.STRIPE_MARKETPLACE_WEBHOOK_SECRET),
+    ...parseWebhookSecretList(process.env.STRIPE_MARKETPLACE_CONNECT_WEBHOOK_SECRET),
+  ];
+  const billingSecrets = [
+    ...parseWebhookSecretList(process.env.STRIPE_WEBHOOK_SECRET),
+    ...parseWebhookSecretList(process.env.STRIPE_CONNECT_WEBHOOK_SECRET),
+    ...parseWebhookSecretList(process.env.STRIPE_THIN_WEBHOOK_SECRET),
+  ];
+  if (marketplaceSecrets.length === 0 && billingSecrets.length === 0) {
     console.warn(
-      "[stripe/webhook] 400: no webhook signing secrets configured (STRIPE_WEBHOOK_SECRET, STRIPE_CONNECT_WEBHOOK_SECRET, STRIPE_THIN_WEBHOOK_SECRET)"
+      "[stripe/webhook] 400: no webhook signing secrets configured (STRIPE_MARKETPLACE_WEBHOOK_SECRET, STRIPE_MARKETPLACE_CONNECT_WEBHOOK_SECRET, STRIPE_WEBHOOK_SECRET, STRIPE_CONNECT_WEBHOOK_SECRET, STRIPE_THIN_WEBHOOK_SECRET)"
     );
     return NextResponse.json({ error: "Missing webhook secret(s)" }, { status: 400 });
   }
 
   // Tolerance (seconds) for timestamp in signature to allow for clock skew
   const toleranceSeconds = 300;
-  let event: Stripe.Event | null = null;
-  let lastError: unknown = new Error("No matching webhook signing secret");
-  if (platformSecrets.length > 0) {
-    const r = constructEventWithAnySecret(body, sig, platformSecrets, toleranceSeconds);
-    event = r.event;
-    lastError = r.lastError;
-  }
-  if (!event && connectSecrets.length > 0) {
-    const r = constructEventWithAnySecret(body, sig, connectSecrets, toleranceSeconds);
-    event = r.event;
-    lastError = r.lastError ?? lastError;
-  }
-  if (!event && thinSecrets.length > 0) {
-    const r = constructEventWithAnySecret(body, sig, thinSecrets, toleranceSeconds);
-    event = r.event;
-    lastError = r.lastError ?? lastError;
-  }
-  if (!event) {
-    const msg = lastError instanceof Error ? lastError.message : String(lastError);
+  const constructed = constructWebhookEvent(body, sig, toleranceSeconds);
+  if (!constructed.event) {
+    const msg =
+      constructed.lastError instanceof Error
+        ? constructed.lastError.message
+        : String(constructed.lastError);
     console.warn("[stripe/webhook] 400: invalid signature", {
       detail: msg,
-      hint: "Ensure STRIPE_WEBHOOK_SECRET, STRIPE_CONNECT_WEBHOOK_SECRET (Connect), and/or STRIPE_THIN_WEBHOOK_SECRET (thin / v2.core event destinations) match each destination's signing secret in Stripe. The request body must be raw (unmodified) for verification.",
+      hint: "Ensure marketplace (STRIPE_MARKETPLACE_WEBHOOK_SECRET / STRIPE_MARKETPLACE_CONNECT_WEBHOOK_SECRET) and/or billing (STRIPE_WEBHOOK_SECRET / STRIPE_CONNECT_WEBHOOK_SECRET / STRIPE_THIN_WEBHOOK_SECRET) match each destination's signing secret. Use Live secrets for livemode events.",
     });
     return NextResponse.json(
       {
         error: "Invalid signature",
         hint:
-          "Each Stripe webhook or event destination has its own signing secret (whsec_...). Snapshot events (checkout.session.completed, etc.) use STRIPE_WEBHOOK_SECRET from Developers → Webhooks. Thin destinations (v2.core.*) need that destination's secret in STRIPE_THIN_WEBHOOK_SECRET. Use Live secrets for livemode events.",
+          "Each Stripe webhook has its own signing secret (whsec_...). Marketplace storefront + Connect use STRIPE_MARKETPLACE_* secrets. Subscriptions use STRIPE_WEBHOOK_SECRET on the billing account.",
       },
       { status: 400 }
     );
   }
+
+  const event = constructed.event;
+  const stripe = stripeClientForWebhookAccount(constructed.account);
 
   try {
   /** Snapshot / v1 events that actually write or update Subscription rows (thin v2.core.* events do not). */
@@ -249,6 +287,7 @@ export async function POST(req: NextRequest) {
     console.info("[stripe/webhook] subscription-related event received", {
       type: event.type,
       eventId: event.id,
+      stripeAccount: constructed.account,
     });
   }
 
@@ -420,7 +459,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (session.mode === "payment" && toProcess.length > 0) {
-      await fulfillStoreOrdersFromCheckoutSession(stripe, session, {
+      const marketplaceStripe = tryCreateMarketplaceStripe() ?? stripe;
+      await fulfillStoreOrdersFromCheckoutSession(marketplaceStripe, session, {
         logPrefix: "[webhook]",
         stripeEventId: event.id,
         eventType: event.type,
@@ -444,7 +484,8 @@ export async function POST(req: NextRequest) {
           typeof session.total_details?.amount_tax === "number" ? session.total_details.amount_tax : 0;
         const { platformFeeCents, salesTaxReserveCents, sellerTransferCents } = computeSellerTransferCents(
           totalCents,
-          subtotalCents
+          subtotalCents,
+          legacySessionTaxCents
         );
         const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : null;
         let shippingAddress: unknown = null;

@@ -225,11 +225,12 @@ export async function fulfillStoreOrdersFromCheckoutSession(
   };
   const payoutByOrderId = new Map<string, PayoutRow>();
   for (const order of ordersToFulfill) {
+    const orderTaxCents = taxByOrderId.get(order.id) ?? 0;
     const { platformFeeCents, salesTaxReserveCents, sellerTransferCents } = computeSellerTransferCents(
       order.totalCents,
-      order.subtotalCents
+      order.subtotalCents,
+      orderTaxCents
     );
-    const orderTaxCents = taxByOrderId.get(order.id) ?? 0;
     payoutByOrderId.set(order.id, {
       platformFeeCents,
       salesTaxReserveCents,
@@ -463,7 +464,7 @@ export async function ensureFoundationPayoutIntentsForAttempt(attemptId: string)
   });
   const inputs = orders
     .map((order) => {
-      const payout = computeSellerTransferCents(order.totalCents, order.subtotalCents);
+      const payout = computeSellerTransferCents(order.totalCents, order.subtotalCents, 0);
       if (payout.sellerTransferCents <= 0) return null;
       return {
         storeOrderId: order.id,

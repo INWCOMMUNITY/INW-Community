@@ -38,6 +38,8 @@ import {
 import { memberHasConnectPayoutsEnabled } from "@/lib/stripe-connect-payout-gate";
 import { sellerIsAwayFromOrders } from "@/lib/seller-write-gates";
 import { resolveCommerceInventoryWriter } from "@/lib/commerce-foundation-cutover-http";
+import { createMarketplaceStripe } from "@/lib/stripe-clients";
+import { resolveMarketplaceStripeSecretKey } from "@/lib/stripe-secret-key";
 
 /**
  * Stripe Product tax code **General - Tangible Goods** (`txcd_99999999`).
@@ -62,19 +64,17 @@ export async function POST(req: NextRequest) {
   }
   const writer = await resolveCommerceInventoryWriter();
   if (!writer.ok) return writer.response;
-  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-  if (!stripeSecretKey?.startsWith("sk_") || stripeSecretKey.includes("...")) {
+  const stripeSecretKey = resolveMarketplaceStripeSecretKey();
+  if (!stripeSecretKey) {
     return NextResponse.json(
       {
         error:
-          "Stripe is not configured. Replace STRIPE_SECRET_KEY in apps/main/.env with your secret key from https://dashboard.stripe.com/apikeys (use the key that starts with sk_test_ or sk_live_).",
+          "Marketplace Stripe is not configured. Add STRIPE_MARKETPLACE_SECRET_KEY (or STRIPE_SECRET_KEY as fallback) in apps/main/.env / Vercel Production.",
       },
       { status: 503 }
     );
   }
-  const stripe = new Stripe(stripeSecretKey, {
-    apiVersion: "2024-11-20.acacia" as "2023-10-16",
-  });
+  const stripe = createMarketplaceStripe();
 
   let body: {
     items: { storeItemId: string; quantity: number; variant?: unknown; fulfillmentType?: string }[];

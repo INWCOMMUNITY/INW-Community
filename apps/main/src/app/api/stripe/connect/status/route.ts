@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { deactivateActiveListingsIfMemberLacksConnect } from "@/lib/store-listing-stripe-rules";
 import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconnect";
 import { jsonIfCutoverBlocked } from "@/lib/commerce-foundation-cutover-http";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
-  apiVersion: "2024-11-20.acacia" as "2023-10-16",
-});
+import { createMarketplaceStripe } from "@/lib/stripe-clients";
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,51 +15,53 @@ export async function GET(req: NextRequest) {
     }
 
     const member = await prisma.member.findUnique({
-    where: { id: userId },
-    select: { stripeConnectAccountId: true },
-  });
-
-  if (!member?.stripeConnectAccountId) {
-    try {
-      await deactivateActiveListingsIfMemberLacksConnect(userId);
-    } catch (e) {
-      const cutover = jsonIfCutoverBlocked(e);
-      if (cutover) return cutover;
-      throw e;
-    }
-    return NextResponse.json({
-      onboarded: false,
-      accountId: null,
-      chargesEnabled: false,
+      where: { id: userId },
+      select: { stripeConnectAccountId: true },
     });
-  }
 
-  try {
-    const account = await stripe.accounts.retrieve(member.stripeConnectAccountId);
-    const chargesEnabled = account.charges_enabled ?? false;
-    return NextResponse.json({
-      onboarded: chargesEnabled,
-      accountId: member.stripeConnectAccountId,
-      chargesEnabled,
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const accountGone = /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
-    if (accountGone) {
+    if (!member?.stripeConnectAccountId) {
       try {
-        await disconnectStripeAndDisableListings(userId);
+        await deactivateActiveListingsIfMemberLacksConnect(userId);
       } catch (e) {
         const cutover = jsonIfCutoverBlocked(e);
         if (cutover) return cutover;
         throw e;
       }
+      return NextResponse.json({
+        onboarded: false,
+        accountId: null,
+        chargesEnabled: false,
+      });
     }
-    return NextResponse.json({
-      onboarded: false,
-      accountId: null,
-      chargesEnabled: false,
-    });
-  }
+
+    const stripe = createMarketplaceStripe();
+
+    try {
+      const account = await stripe.accounts.retrieve(member.stripeConnectAccountId);
+      const chargesEnabled = account.charges_enabled ?? false;
+      return NextResponse.json({
+        onboarded: chargesEnabled,
+        accountId: member.stripeConnectAccountId,
+        chargesEnabled,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const accountGone = /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
+      if (accountGone) {
+        try {
+          await disconnectStripeAndDisableListings(userId);
+        } catch (discErr) {
+          const cutover = jsonIfCutoverBlocked(discErr);
+          if (cutover) return cutover;
+          throw discErr;
+        }
+      }
+      return NextResponse.json({
+        onboarded: false,
+        accountId: null,
+        chargesEnabled: false,
+      });
+    }
   } catch (e) {
     const cutover = jsonIfCutoverBlocked(e);
     if (cutover) return cutover;

@@ -1,13 +1,12 @@
 import Stripe from "stripe";
 import { prisma } from "database";
+import { tryCreateMarketplaceStripe } from "@/lib/stripe-clients";
 
 const cache = new Map<string, { enabled: boolean; at: number }>();
 const CACHE_MS = 60_000;
 
 function stripeClient(): Stripe | null {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key?.startsWith("sk_")) return null;
-  return new Stripe(key, { apiVersion: "2024-11-20.acacia" as "2023-10-16" });
+  return tryCreateMarketplaceStripe();
 }
 
 export async function connectAccountPayoutsEnabled(accountId: string): Promise<boolean> {

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
 import { prisma } from "database";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
 import { getSessionForApi } from "@/lib/mobile-auth";
@@ -7,10 +6,7 @@ import { isActiveStoreReturnStatus } from "@/lib/store-return";
 import { convergeCourtesyRefundStoreReturn } from "@/lib/store-return-courtesy-converge";
 import { notifyBuyerRefundIssued } from "@/lib/store-return-notify";
 import { refundPaidStorefrontOrder } from "@/lib/stripe/refund-store-order";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
-  apiVersion: "2024-11-20.acacia" as "2023-10-16",
-});
+import { createMarketplaceStripe } from "@/lib/stripe-clients";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +15,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const stripe = createMarketplaceStripe();
   const session = await getSessionForApi(req);
   const userId = session?.user?.id;
   if (!userId) {

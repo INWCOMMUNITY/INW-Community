@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { prismaWhereMemberSellerOrSubscribeAccess } from "@/lib/nwc-paid-subscription";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
-  apiVersion: "2024-11-20.acacia" as "2023-10-16",
-});
+import { createMarketplaceStripe } from "@/lib/stripe-clients";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +30,8 @@ export async function GET(req: NextRequest) {
       { status: 400 }
     );
   }
+
+  const stripe = createMarketplaceStripe();
 
   try {
     const loginLink = await stripe.accounts.createLoginLink(member.stripeConnectAccountId);

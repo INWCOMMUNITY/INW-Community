@@ -21,6 +21,15 @@ interface Transaction {
   amountCents: number;
   description: string | null;
   createdAt: string;
+  breakdown?: {
+    itemAndShippingCents: number;
+    salesTaxCents: number;
+    salesTaxReserveCents: number;
+    processingFeeCents: number;
+    optionalPlatformFeeCents: number;
+    sellerTransferCents: number;
+    note: string;
+  } | null;
 }
 
 interface FundsData {
@@ -234,7 +243,23 @@ export default function PayoutsScreen() {
               <Text style={styles.sectionTitle}>Recent Transactions</Text>
               {data.transactions.slice(0, 10).map((t) => (
                 <View key={t.id} style={styles.txnRow}>
-                  <Text style={styles.txnDesc}>{t.description ?? t.type}</Text>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text style={styles.txnDesc}>{t.description ?? t.type}</Text>
+                    {t.breakdown ? (
+                      <Text style={styles.txnBreak}>
+                        {[
+                          t.breakdown.salesTaxReserveCents > 0
+                            ? `1% reserve −${formatPrice(t.breakdown.salesTaxReserveCents)}`
+                            : null,
+                          t.breakdown.processingFeeCents > 0
+                            ? `processing −${formatPrice(t.breakdown.processingFeeCents)}`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </Text>
+                    ) : null}
+                  </View>
                   <Text style={t.amountCents >= 0 ? styles.txnPos : styles.txnNeg}>
                     {t.amountCents >= 0 ? "+" : ""}{formatPrice(t.amountCents)}
                   </Text>
@@ -301,7 +326,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#eee",
   },
-  txnDesc: { fontSize: 14, color: "#333", flex: 1 },
+  txnDesc: { fontSize: 14, color: "#333" },
+  txnBreak: { fontSize: 11, color: "#888", marginTop: 2 },
   txnPos: { fontSize: 14, color: "#2e7d32" },
   txnNeg: { fontSize: 14, color: "#c62828" },
 });

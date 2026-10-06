@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { prismaWhereMemberSellerPlanAccess } from "@/lib/nwc-paid-subscription";
@@ -15,10 +14,9 @@ import {
 } from "@/lib/store-return-settlement";
 import { resolveCommerceInventoryWriter } from "@/lib/commerce-foundation-cutover-http";
 import { refundPaidStorefrontOrder } from "@/lib/stripe/refund-store-order";
+import { createMarketplaceStripe } from "@/lib/stripe-clients";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
-  apiVersion: "2024-11-20.acacia" as "2023-10-16",
-});
+const stripe = createMarketplaceStripe();
 
 export const dynamic = "force-dynamic";
 

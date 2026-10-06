@@ -34,8 +34,13 @@ export function refundAmountCents(order: { totalCents: number; taxCents?: number
 export function sellerLedgerDebitCents(order: {
   totalCents: number;
   subtotalCents: number;
+  taxCents?: number | null;
 }): number {
-  return computeSellerTransferCents(order.totalCents, order.subtotalCents).sellerTransferCents;
+  return computeSellerTransferCents(
+    order.totalCents,
+    order.subtotalCents,
+    order.taxCents ?? 0
+  ).sellerTransferCents;
 }
 
 export const STOREFRONT_TRANSFER_REVERSAL_IDEMPOTENCY_PREFIX = "nwc_store_reversal_";

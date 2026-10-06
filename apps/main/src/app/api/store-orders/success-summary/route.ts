@@ -7,15 +7,12 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { orderIdsFromCheckoutSessionMetadata } from "@/lib/stripe-checkout-order-ids";
 import { fulfillStoreOrdersFromCheckoutSession } from "@/lib/stripe/fulfill-storefront-orders";
 import { isSoldWhilePayingCancel } from "@/lib/store-order-cancel-reasons";
+import { tryCreateMarketplaceStripe } from "@/lib/stripe-clients";
 
 export const dynamic = "force-dynamic";
 
 function stripeClient(): Stripe | null {
-  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-  if (!stripeSecretKey?.startsWith("sk_")) return null;
-  return new Stripe(stripeSecretKey, {
-    apiVersion: "2024-11-20.acacia" as "2023-10-16",
-  });
+  return tryCreateMarketplaceStripe();
 }
 
 /**

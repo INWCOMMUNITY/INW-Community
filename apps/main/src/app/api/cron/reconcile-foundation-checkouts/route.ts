@@ -9,6 +9,7 @@ import {
 } from "database";
 import { tryAcquireCronLock, releaseCronLock } from "@/lib/cron-job-lock";
 import { reconcileFoundationCheckoutBatch } from "@/lib/stripe/reconcile-foundation-checkout-attempt";
+import { tryCreateMarketplaceStripe } from "@/lib/stripe-clients";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -47,9 +48,7 @@ function cutoverUnavailableResponse() {
 }
 
 function stripeClient(): Stripe | null {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key?.startsWith("sk_")) return null;
-  return new Stripe(key, { apiVersion: "2024-11-20.acacia" as "2023-10-16" });
+  return tryCreateMarketplaceStripe();
 }
 
 async function run(req: NextRequest) {

@@ -4,6 +4,7 @@ import {
   assertPreTaxSplitMatchesOrderTotal,
   computeSalesTaxReserveCents,
   computeSellerTransferCents,
+  computeStripeProcessingFeeCents,
 } from "./storefront-payout";
 
 const FEE_PCT = "NWC_MARKETPLACE_PLATFORM_FEE_PERCENT";
@@ -22,26 +23,34 @@ describe("computeSalesTaxReserveCents", () => {
   });
 });
 
+describe("computeStripeProcessingFeeCents", () => {
+  it("is 2.9% floored plus 30 cents", () => {
+    expect(computeStripeProcessingFeeCents(1000)).toBe(59); // 29 + 30
+    expect(computeStripeProcessingFeeCents(0)).toBe(0);
+  });
+});
+
 describe("computeSellerTransferCents", () => {
-  it("withholds only the 1% reserve by default (no platform fee)", () => {
-    expect(computeSellerTransferCents(1099, 1000)).toEqual({
-      platformFeeCents: 0,
+  it("withholds 1% reserve and card processing from the seller (no optional platform fee)", () => {
+    expect(computeSellerTransferCents(1099, 1000, 0)).toEqual({
+      optionalPlatformFeeCents: 0,
+      processingFeeCents: 61, // floor(1099*0.029)+30
+      platformFeeCents: 61,
       salesTaxReserveCents: 10,
-      sellerTransferCents: 1089,
+      sellerTransferCents: 1028,
     });
   });
 
-  it("never transfers tax because tax is not part of order.totalCents", () => {
-    const split = computeSellerTransferCents(1000, 1000);
-    expect(split.platformFeeCents + split.salesTaxReserveCents + split.sellerTransferCents).toBe(
-      1000
-    );
+  it("includes tax in the processing fee base but not in the transfer", () => {
+    const split = computeSellerTransferCents(1000, 1000, 80);
+    expect(split.processingFeeCents).toBe(computeStripeProcessingFeeCents(1080));
+    expect(split.platformFeeCents + split.salesTaxReserveCents + split.sellerTransferCents).toBe(1000);
   });
 });
 
 describe("assertPreTaxSplitMatchesOrderTotal", () => {
   it("accepts a split that consumes the pre-tax total", () => {
-    const split = computeSellerTransferCents(1099, 1000);
+    const split = computeSellerTransferCents(1099, 1000, 0);
     expect(() =>
       assertPreTaxSplitMatchesOrderTotal({ id: "o1", totalCents: 1099 }, split)
     ).not.toThrow();

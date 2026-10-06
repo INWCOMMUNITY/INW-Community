@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { prismaWhereMemberSellerOrSubscribeAccess } from "@/lib/nwc-paid-subscription";
@@ -7,10 +6,11 @@ import {
   recordConnectPayoutInLedger,
   sumPaidConnectPayoutsCents,
 } from "@/lib/stripe/connect-payouts";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
-  apiVersion: "2024-11-20.acacia" as "2023-10-16",
-});
+import { createMarketplaceStripe } from "@/lib/stripe-clients";
+import {
+  computeSellerTransferCents,
+  computeStripeProcessingFeeCents,
+} from "@/lib/storefront-payout";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +28,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Seller or Subscribe plan required" }, { status: 403 });
   }
 
+  const stripe = createMarketplaceStripe();
+
   const balance = await prisma.sellerBalance.findUnique({
     where: { memberId: userId },
   });
@@ -39,6 +41,60 @@ export async function GET(req: NextRequest) {
   const member = await prisma.member.findUnique({
     where: { id: userId },
     select: { stripeConnectAccountId: true },
+  });
+
+  const orderIds = [
+    ...new Set(
+      transactions.map((t) => t.orderId).filter((id): id is string => Boolean(id?.trim()))
+    ),
+  ];
+  const orders =
+    orderIds.length > 0
+      ? await prisma.storeOrder.findMany({
+          where: { id: { in: orderIds }, sellerId: userId },
+          select: {
+            id: true,
+            totalCents: true,
+            subtotalCents: true,
+            taxCents: true,
+            platformFeeCents: true,
+            salesTaxReserveCents: true,
+          },
+        })
+      : [];
+  const orderById = new Map(orders.map((o) => [o.id, o]));
+
+  const transactionsWithBreakdown = transactions.map((t) => {
+    const order = t.orderId ? orderById.get(t.orderId) : undefined;
+    if (!order || (t.type !== "sale" && t.type !== "return" && t.type !== "refund")) {
+      return { ...t, breakdown: null as null };
+    }
+    const split = computeSellerTransferCents(
+      order.totalCents,
+      order.subtotalCents,
+      order.taxCents ?? 0
+    );
+    const processingFeeCents =
+      order.platformFeeCents > 0
+        ? Math.min(
+            order.platformFeeCents,
+            computeStripeProcessingFeeCents(order.totalCents + (order.taxCents ?? 0))
+          )
+        : split.processingFeeCents;
+    const optionalPlatformFeeCents = Math.max(0, order.platformFeeCents - processingFeeCents);
+    return {
+      ...t,
+      breakdown: {
+        itemAndShippingCents: order.totalCents,
+        salesTaxCents: order.taxCents ?? 0,
+        salesTaxReserveCents: order.salesTaxReserveCents,
+        processingFeeCents,
+        optionalPlatformFeeCents,
+        sellerTransferCents: split.sellerTransferCents,
+        note:
+          "Sales tax stays with the platform. The 1% reserve and card processing fee are withheld from your transfer. Stripe bills the marketplace; that processing cost is taken from your payout.",
+      },
+    };
   });
 
   let hasStripeConnect = false;
@@ -100,7 +156,7 @@ export async function GET(req: NextRequest) {
     balanceCents: balance?.balanceCents ?? 0,
     totalEarnedCents: balance?.totalEarnedCents ?? 0,
     totalPaidOutCents,
-    transactions,
+    transactions: transactionsWithBreakdown,
     hasStripeConnect,
     ...(availableForPayoutCents !== undefined && { availableForPayoutCents }),
     ...(pendingCents !== undefined && { pendingCents }),
@@ -121,6 +177,8 @@ export async function POST(req: NextRequest) {
   if (!sub) {
     return NextResponse.json({ error: "Seller or Subscribe plan required" }, { status: 403 });
   }
+
+  const stripe = createMarketplaceStripe();
 
   const member = await prisma.member.findUnique({
     where: { id: userId },

@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 import { whereNoCurrentOutboundShipment } from "@/lib/store-order-shipments";
 import { ACTIVE_STORE_RETURN_STATUSES } from "@/lib/store-return";
+import { tryCreateMarketplaceStripe } from "@/lib/stripe-clients";
 
 const MIN_PAYOUT_CENTS = 100;
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
-  apiVersion: "2024-11-20.acacia" as "2023-10-16",
-});
+const stripe = tryCreateMarketplaceStripe();
 
 const emptyPending = {
   pendingShip: 0,
@@ -91,7 +89,7 @@ export async function GET(req: NextRequest) {
     const pendingShip = paidOrdersUnshipped.filter((o) => orderHasShippedLine(o.items)).length;
     let chargesEnabled = false;
     let stripeAvailableCents = 0;
-    if (member?.stripeConnectAccountId) {
+    if (member?.stripeConnectAccountId && stripe) {
       try {
         const [account, stripeBalance] = await Promise.all([
           stripe.accounts.retrieve(member.stripeConnectAccountId),

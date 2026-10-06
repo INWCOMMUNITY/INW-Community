@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { restockOrderLinesAfterReturn } from "@/lib/store-item-restock";
 import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 import { refundPaidStorefrontOrder } from "@/lib/stripe/refund-store-order";
 import { gateInteractiveOrFoundationWriter } from "@/lib/commerce-foundation-cutover-http";
+import { tryCreateMarketplaceStripe } from "@/lib/stripe-clients";
 
 export const dynamic = "force-dynamic";
 
@@ -75,16 +75,13 @@ export async function POST(
       );
     });
   } else {
-    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-    if (!stripeSecretKey?.startsWith("sk_")) {
+    const stripe = tryCreateMarketplaceStripe();
+    if (!stripe) {
       return NextResponse.json(
         { error: "Refunds are not configured. Please contact support." },
         { status: 503 }
       );
     }
-    const stripe = new Stripe(stripeSecretKey, {
-      apiVersion: "2024-11-20.acacia" as "2023-10-16",
-    });
     const result = await refundPaidStorefrontOrder({
       stripe,
       order,

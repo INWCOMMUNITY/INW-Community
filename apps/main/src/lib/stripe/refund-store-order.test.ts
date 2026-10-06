@@ -3,8 +3,8 @@ import { sellerLedgerDebitCents } from "./refund-store-order";
 
 describe("sellerLedgerDebitCents", () => {
   it("matches the Connect transfer withheld from the seller on fulfill", () => {
-    // $10 item, 1% reserve = 10 cents, no extra platform fee
-    expect(sellerLedgerDebitCents({ totalCents: 1000, subtotalCents: 1000 })).toBe(990);
+    // $10 item: 1% reserve = 10, processing = floor(1000*0.029)+30 = 59 → transfer 931
+    expect(sellerLedgerDebitCents({ totalCents: 1000, subtotalCents: 1000 })).toBe(931);
   });
 });
 
@@ -248,7 +248,7 @@ const emptyReversalList = {
 function stripeStub() {
   return {
     transfers: {
-      createReversal: vi.fn().mockResolvedValue({ id: "rev_1", amount: 990 }),
+      createReversal: vi.fn().mockResolvedValue({ id: "rev_1", amount: 931 }),
       listReversals: vi.fn().mockResolvedValue(emptyReversalList),
     },
     refunds: {
@@ -264,7 +264,7 @@ function matchingReversalList(overrides?: { id?: string; amount?: number; refund
     data: [
       {
         id: overrides?.id ?? "rev_1",
-        amount: overrides?.amount ?? 990,
+        amount: overrides?.amount ?? 931,
         metadata: {
           storeOrderId: "ord-1",
           ...(overrides?.refundOperationId ? { refundOperationId: overrides.refundOperationId } : {}),
@@ -342,7 +342,7 @@ describe("restockAfterExternalRefund cutover ordering", () => {
     expect(stripe.transfers.listReversals).toHaveBeenCalledWith("tr_1", { limit: 100 });
     expect(stripe.transfers.createReversal).toHaveBeenCalledWith(
       "tr_1",
-      { amount: 990, metadata: { storeOrderId: "ord-1" } },
+      { amount: 931, metadata: { storeOrderId: "ord-1" } },
       { idempotencyKey: "nwc_store_reversal_ord-1" }
     );
     expect(restockOrderLinesAfterReturn).toHaveBeenCalled();
@@ -500,7 +500,7 @@ describe("FOUNDATION TransferOperation-aware refund", () => {
     expect(stripe.transfers.createReversal).toHaveBeenCalledWith(
       "tr_from_op",
       {
-        amount: 990,
+        amount: 931,
         metadata: { storeOrderId: "ord-1", refundOperationId: "ro_1" },
       },
       { idempotencyKey: "nwc_store_reversal_ord-1" }
@@ -761,7 +761,7 @@ describe("storefront transfer reversal identity", () => {
     expect(stripe.transfers.createReversal).toHaveBeenCalledWith(
       "tr_from_op",
       {
-        amount: 990,
+        amount: 931,
         metadata: { storeOrderId: "ord-1", refundOperationId: "ro_1" },
       },
       { idempotencyKey: "nwc_store_reversal_ord-1" }
@@ -966,7 +966,7 @@ describe("storefront transfer reversal identity", () => {
     const stripe = stripeStub();
     stripe.transfers.listReversals.mockResolvedValue({
       object: "list",
-      data: [{ id: "rev_other", amount: 990, metadata: { storeOrderId: "ord-other" } }],
+      data: [{ id: "rev_other", amount: 931, metadata: { storeOrderId: "ord-other" } }],
       has_more: false,
     });
     const result = await refundPaidStorefrontOrder({ stripe: stripe as never, order: paidOrder });
@@ -986,7 +986,7 @@ describe("storefront transfer reversal identity", () => {
     expect(ensureFoundationStorefrontRefundOperation).not.toHaveBeenCalled();
     expect(stripe.transfers.createReversal).toHaveBeenCalledWith(
       "tr_1",
-      { amount: 990, metadata: { storeOrderId: "ord-1" } },
+      { amount: 931, metadata: { storeOrderId: "ord-1" } },
       { idempotencyKey: "nwc_store_reversal_ord-1" }
     );
     expect(stripe.refunds.create).toHaveBeenCalled();
@@ -1282,7 +1282,7 @@ describe("persistLocalStorefrontRefundCompletion concurrent ledger evidence", ()
     restock: true,
     restockKind: "PHYSICAL_RECEIPT" as const,
     restockOperationId: "ret-1",
-    ledgerDebitCents: 990,
+    ledgerDebitCents: 931,
     skipSellerLedgerDebit: false,
     stripeRefund: { id: "re_1", status: "succeeded" },
   };
@@ -1313,10 +1313,10 @@ describe("persistLocalStorefrontRefundCompletion concurrent ledger evidence", ()
       memberId: "seller-1",
       orderId: "ord-1",
       type: "return",
-      amountCents: -990,
+      amountCents: -931,
     });
     expect(state.tx.sellerBalance.upsert).toHaveBeenCalledTimes(1);
-    expect(state.getBalance()).toBe(-990);
+    expect(state.getBalance()).toBe(-931);
     expect(restockOrderLinesAfterReturn).toHaveBeenCalledTimes(1);
     expect(state.orderRow.status).toBe("refunded");
     expect(state.tx.$executeRaw).toHaveBeenCalled();
@@ -1330,9 +1330,9 @@ describe("persistLocalStorefrontRefundCompletion concurrent ledger evidence", ()
     });
     await persistLocalStorefrontRefundCompletion(completion);
     expect(state.returnLedger).toHaveLength(1);
-    expect(state.returnLedger[0]).toMatchObject({ type: "return", amountCents: -990, memberId: "seller-1" });
+    expect(state.returnLedger[0]).toMatchObject({ type: "return", amountCents: -931, memberId: "seller-1" });
     expect(state.tx.sellerBalance.upsert).toHaveBeenCalledTimes(1);
-    expect(state.getBalance()).toBe(-990);
+    expect(state.getBalance()).toBe(-931);
     expect(restockOrderLinesAfterReturn).not.toHaveBeenCalled();
     expect(state.tx.storeOrder.update).toHaveBeenCalled();
   });
@@ -1343,7 +1343,7 @@ describe("persistLocalStorefrontRefundCompletion concurrent ledger evidence", ()
       inventoryRestoredAt: new Date("2026-09-01T00:00:00.000Z"),
       existingReturnLedger: {
         memberId: "seller-1",
-        amountCents: -990,
+        amountCents: -931,
         orderId: "ord-1",
         type: "return",
       },
@@ -1380,7 +1380,7 @@ describe("persistLocalStorefrontRefundCompletion concurrent ledger evidence", ()
     const state = mockPersistLocalTransaction({
       existingReturnLedger: {
         memberId: "other-seller",
-        amountCents: -990,
+        amountCents: -931,
         orderId: "ord-1",
         type: "return",
       },
@@ -1417,8 +1417,8 @@ describe("persistLocalStorefrontRefundCompletion concurrent ledger evidence", ()
   it("fails closed on duplicate exact Path-A return rows without mutating balance", async () => {
     const state = mockPersistLocalTransaction({
       existingReturnLedger: [
-        { id: "a", memberId: "seller-1", amountCents: -990, orderId: "ord-1", type: "return" },
-        { id: "b", memberId: "seller-1", amountCents: -990, orderId: "ord-1", type: "return" },
+        { id: "a", memberId: "seller-1", amountCents: -931, orderId: "ord-1", type: "return" },
+        { id: "b", memberId: "seller-1", amountCents: -931, orderId: "ord-1", type: "return" },
       ],
     });
     await expect(persistLocalStorefrontRefundCompletion(completion)).rejects.toBeInstanceOf(
@@ -1433,7 +1433,7 @@ describe("persistLocalStorefrontRefundCompletion concurrent ledger evidence", ()
   it("fails closed on exact-plus-conflict Path-A return rows", async () => {
     const state = mockPersistLocalTransaction({
       existingReturnLedger: [
-        { id: "a", memberId: "seller-1", amountCents: -990, orderId: "ord-1", type: "return" },
+        { id: "a", memberId: "seller-1", amountCents: -931, orderId: "ord-1", type: "return" },
         { id: "b", memberId: "seller-1", amountCents: -500, orderId: "ord-1", type: "return" },
       ],
     });
@@ -1449,7 +1449,7 @@ describe("persistLocalStorefrontRefundCompletion concurrent ledger evidence", ()
       existingReturnLedger: {
         id: "stray",
         memberId: "seller-1",
-        amountCents: -990,
+        amountCents: -931,
         orderId: "ord-1",
         type: "return",
       },

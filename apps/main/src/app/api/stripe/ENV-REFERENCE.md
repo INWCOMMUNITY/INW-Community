@@ -15,13 +15,20 @@ NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="generate-with-openssl-rand-base64-32"
 
 # Stripe – https://dashboard.stripe.com/apikeys (use Test keys for local)
+# Billing account (subscriptions / directory)
 STRIPE_SECRET_KEY="sk_test_..."
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="pk_test_..."
+STRIPE_WEBHOOK_SECRET="whsec_..."
+# Marketplace account (storefront + Connect) — falls back to STRIPE_SECRET_KEY if unset
+# STRIPE_MARKETPLACE_SECRET_KEY="sk_test_..."
+# NEXT_PUBLIC_STRIPE_MARKETPLACE_PUBLISHABLE_KEY="pk_test_..."
+# STRIPE_MARKETPLACE_WEBHOOK_SECRET="whsec_..."
+# STRIPE_MARKETPLACE_CONNECT_WEBHOOK_SECRET="whsec_..."
 
 # Webhooks – from Stripe Dashboard → Developers → Webhooks
 # Platform endpoint (same URL for both; use the signing secret from the endpoint you create)
-STRIPE_WEBHOOK_SECRET="whsec_..."
-# Connect endpoint – create a second endpoint with "Listen to events on connected accounts", then copy its signing secret
+# STRIPE_WEBHOOK_SECRET is billing; marketplace uses STRIPE_MARKETPLACE_* above
+# Connect endpoint – create a second endpoint with "Listen to events on connected accounts"
 STRIPE_CONNECT_WEBHOOK_SECRET="whsec_..."
 
 # Stripe prices (Dashboard → Products → [product] → price ID)

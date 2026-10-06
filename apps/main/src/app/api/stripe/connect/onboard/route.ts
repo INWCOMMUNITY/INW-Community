@@ -4,10 +4,11 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { prismaWhereMemberSellerOrSubscribeAccess } from "@/lib/nwc-paid-subscription";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
-  apiVersion: "2024-11-20.acacia" as "2023-10-16",
-});
+import { createMarketplaceStripe } from "@/lib/stripe-clients";
+import {
+  resolveMarketplaceStripeSecretKey,
+  STRIPE_MARKETPLACE_NOT_CONFIGURED_MESSAGE,
+} from "@/lib/stripe-secret-key";
 
 /** Paths allowed as Stripe return targets for the native app bridge (`/app/stripe-connect-return`). */
 function sanitizeMobileStripeReturnPath(raw: unknown): string | null {
@@ -46,9 +47,9 @@ export async function POST(req: NextRequest) {
   const baseUrl = resolveAllowedCheckoutBaseUrl(requestedReturn);
   const { return_url, refresh_url } = stripeConnectAccountLinkUrls(baseUrl, mobileReturnPath);
 
-  if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY === "sk_test_...") {
+  if (!resolveMarketplaceStripeSecretKey()) {
     return NextResponse.json(
-      { error: "Stripe is not configured. Add STRIPE_SECRET_KEY to .env for storefront payments." },
+      { error: STRIPE_MARKETPLACE_NOT_CONFIGURED_MESSAGE },
       { status: 503 }
     );
   }
@@ -76,6 +77,8 @@ export async function POST(req: NextRequest) {
   if (!member) {
     return NextResponse.json({ error: "Member not found" }, { status: 404 });
   }
+
+  const stripe = createMarketplaceStripe();
 
   const isNoSuchAccount = (err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err);

@@ -4,6 +4,7 @@ import {
   orderNeedsRefundCompletionSync,
   timestampsFromStripeRefund,
 } from "@/lib/store-order-refund-status";
+import { tryCreateMarketplaceStripe } from "@/lib/stripe-clients";
 
 export async function persistStoreOrderRefundFromStripe(
   orderId: string,
@@ -69,14 +70,11 @@ export async function applyStripeRefundCompletionToOrders<
     refundCompletedAt?: Date | string | null;
   },
 >(orders: T[]): Promise<T[]> {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key?.startsWith("sk_")) return orders;
+  const stripe = tryCreateMarketplaceStripe();
+  if (!stripe) return orders;
   const pending = orders.filter(orderNeedsRefundCompletionSync).slice(0, 15);
   if (pending.length === 0) return orders;
   try {
-    const stripe = new Stripe(key, {
-      apiVersion: "2024-11-20.acacia" as "2023-10-16",
-    });
     await Promise.all(pending.map((o) => syncStoreOrderRefundFromStripe(stripe, o).catch(() => undefined)));
     const refreshed = await prisma.storeOrder.findMany({
       where: { id: { in: pending.map((o) => o.id) } },

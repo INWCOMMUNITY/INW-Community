@@ -9,6 +9,15 @@ interface Transaction {
   amountCents: number;
   description: string | null;
   createdAt: string;
+  breakdown?: {
+    itemAndShippingCents: number;
+    salesTaxCents: number;
+    salesTaxReserveCents: number;
+    processingFeeCents: number;
+    optionalPlatformFeeCents: number;
+    sellerTransferCents: number;
+    note: string;
+  } | null;
 }
 
 interface FundsData {
@@ -226,10 +235,32 @@ export default function MyFundsPage() {
                 </thead>
                 <tbody>
                   {data.transactions.map((t) => (
-                    <tr key={t.id} className="border-t">
+                    <tr key={t.id} className="border-t align-top">
                       <td className="p-3">{new Date(t.createdAt).toLocaleDateString()}</td>
                       <td className="p-3 capitalize">{t.type}</td>
-                      <td className="p-3">{t.description ?? "—"}</td>
+                      <td className="p-3">
+                        <div>{t.description ?? "—"}</div>
+                        {t.breakdown ? (
+                          <div className="mt-2 text-xs text-gray-600 space-y-0.5">
+                            <div>Item + shipping: ${(t.breakdown.itemAndShippingCents / 100).toFixed(2)}</div>
+                            {t.breakdown.salesTaxCents > 0 ? (
+                              <div>Sales tax (platform keeps): ${(t.breakdown.salesTaxCents / 100).toFixed(2)}</div>
+                            ) : null}
+                            {t.breakdown.salesTaxReserveCents > 0 ? (
+                              <div>1% sales tax reserve: −${(t.breakdown.salesTaxReserveCents / 100).toFixed(2)}</div>
+                            ) : null}
+                            {t.breakdown.processingFeeCents > 0 ? (
+                              <div>Card processing (seller): −${(t.breakdown.processingFeeCents / 100).toFixed(2)}</div>
+                            ) : null}
+                            {t.breakdown.optionalPlatformFeeCents > 0 ? (
+                              <div>Platform fee: −${(t.breakdown.optionalPlatformFeeCents / 100).toFixed(2)}</div>
+                            ) : null}
+                            <div className="font-medium text-gray-800">
+                              Sent to your Connect account: ${(t.breakdown.sellerTransferCents / 100).toFixed(2)}
+                            </div>
+                          </div>
+                        ) : null}
+                      </td>
                       <td className={`p-3 text-right ${t.amountCents >= 0 ? "" : "text-red-600"}`} style={t.amountCents >= 0 ? { color: "var(--color-primary)" } : undefined}>
                         {t.amountCents >= 0 ? "+" : ""}${(t.amountCents / 100).toFixed(2)}
                       </td>

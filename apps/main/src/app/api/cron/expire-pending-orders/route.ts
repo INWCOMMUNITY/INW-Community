@@ -6,13 +6,12 @@ import {
   prisma,
 } from "database";
 import { fulfillStoreOrdersFromCheckoutSession } from "@/lib/stripe/fulfill-storefront-orders";
+import { tryCreateMarketplaceStripe } from "@/lib/stripe-clients";
 
 export const maxDuration = 60;
 
 function stripeClient(): Stripe | null {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key?.startsWith("sk_")) return null;
-  return new Stripe(key, { apiVersion: "2024-11-20.acacia" as "2023-10-16" });
+  return tryCreateMarketplaceStripe();
 }
 
 /** Fulfill paid Checkouts before canceling stale pending orders (webhook may have been missed). */
