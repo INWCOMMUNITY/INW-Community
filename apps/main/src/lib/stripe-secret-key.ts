@@ -3,17 +3,49 @@
  *
  * Two accounts:
  * - Billing / subscriptions → STRIPE_SECRET_KEY (Northwest Community)
- * - Marketplace / Connect / storefront → STRIPE_MARKETPLACE_SECRET_KEY (NWC Marketplace),
- *   falling back to STRIPE_SECRET_KEY when the marketplace key is not set (local / pre-cutover).
+ * - Marketplace / Connect / storefront → STRIPE_MARKETPLACE_SECRET_KEY (NWC Marketplace)
+ *
+ * Production never falls back to STRIPE_SECRET_KEY for marketplace calls. Local/dev may fall back
+ * only when STRIPE_MARKETPLACE_SECRET_KEY is completely unset.
  */
 
-function isUsableSecretKey(key: string | undefined | null): key is string {
+export function isUsableSecretKey(key: string | undefined | null): key is string {
   const k = key?.trim() ?? "";
   if (!k) return false;
   if (!k.startsWith("sk_")) return false;
   if (k === "sk_test_..." || k === "sk_live_...") return false;
   // Real Stripe secret keys are long; placeholders from .env.example are short.
   if (k.length < 24) return false;
+  return true;
+}
+
+/** Safe shape of a secret for diagnostics — never returns the key itself. */
+export function describeSecretKeyShape(key: string | undefined | null): {
+  present: boolean;
+  usable: boolean;
+  prefix: string | null;
+  length: number;
+  last4: string | null;
+} {
+  const k = key?.trim() ?? "";
+  if (!k) {
+    return { present: false, usable: false, prefix: null, length: 0, last4: null };
+  }
+  const prefixMatch = k.match(/^(sk_live_|sk_test_|rk_live_|rk_test_|pk_live_|pk_test_|whsec_)/);
+  return {
+    present: true,
+    usable: isUsableSecretKey(k),
+    prefix: prefixMatch?.[1] ?? k.slice(0, Math.min(8, k.length)),
+    length: k.length,
+    last4: k.length >= 4 ? k.slice(-4) : k,
+  };
+}
+
+function allowMarketplaceSecretFallback(): boolean {
+  // Preview/Production on Vercel must use the dedicated marketplace key.
+  if (process.env.VERCEL_ENV === "production" || process.env.VERCEL_ENV === "preview") {
+    return false;
+  }
   return true;
 }
 
@@ -29,19 +61,26 @@ export function resolveBillingStripeSecretKey(): string | null {
 
 /**
  * Storefront Checkout, Connect, transfers, refunds, seller funds.
- * Prefer STRIPE_MARKETPLACE_SECRET_KEY; fall back to STRIPE_SECRET_KEY if unset.
+ * Uses STRIPE_MARKETPLACE_SECRET_KEY only. Falls back to STRIPE_SECRET_KEY only in local/dev
+ * when the marketplace var is completely unset — never when it is set but unusable.
  */
 export function resolveMarketplaceStripeSecretKey(): string | null {
-  const marketplace = process.env.STRIPE_MARKETPLACE_SECRET_KEY?.trim();
-  if (isUsableSecretKey(marketplace)) return marketplace;
-  return resolveStripeSecretKey();
+  const raw = process.env.STRIPE_MARKETPLACE_SECRET_KEY;
+  const marketplace = raw?.trim() ?? "";
+  if (marketplace) {
+    return isUsableSecretKey(marketplace) ? marketplace : null;
+  }
+  if (allowMarketplaceSecretFallback()) {
+    return resolveStripeSecretKey();
+  }
+  return null;
 }
 
 export const STRIPE_NOT_CONFIGURED_MESSAGE =
   "Stripe is not configured. Add STRIPE_SECRET_KEY (sk_test_ or sk_live_) in apps/main/.env for local dev, or in the Vercel project environment for Production, then redeploy.";
 
 export const STRIPE_MARKETPLACE_NOT_CONFIGURED_MESSAGE =
-  "Marketplace Stripe is not configured. Add STRIPE_MARKETPLACE_SECRET_KEY (and related STRIPE_MARKETPLACE_* webhook secrets) for Production, or STRIPE_SECRET_KEY as a fallback for local storefront testing.";
+  "Marketplace Stripe is not configured. Set Production STRIPE_MARKETPLACE_SECRET_KEY to an sk_live_ key from the NWC Marketplace Stripe account (not Northwest Community), then redeploy. Restricted keys (rk_) and publishable keys (pk_) are rejected.";
 
 export function requireStripeSecretKey(): string {
   const key = resolveStripeSecretKey();

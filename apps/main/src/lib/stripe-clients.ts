@@ -30,13 +30,12 @@ export function tryCreateMarketplaceStripe(): Stripe | null {
 }
 
 /**
- * True when marketplace uses a distinct secret from billing (dual-account cutover).
- * False when marketplace falls back to STRIPE_SECRET_KEY.
+ * True when marketplace uses a distinct usable secret from billing (dual-account cutover).
+ * False when marketplace env is missing/unusable or equals STRIPE_SECRET_KEY.
  */
 export function isMarketplaceStripeSeparateFromBilling(): boolean {
   const billing = resolveBillingStripeSecretKey();
-  const marketplace = process.env.STRIPE_MARKETPLACE_SECRET_KEY?.trim();
-  if (!billing || !marketplace || marketplace.length < 24) return false;
-  if (!marketplace.startsWith("sk_")) return false;
+  const marketplace = resolveMarketplaceStripeSecretKey();
+  if (!billing || !marketplace) return false;
   return marketplace !== billing;
 }
