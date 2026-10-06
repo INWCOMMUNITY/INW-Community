@@ -7,6 +7,7 @@ import {
   persistWixListingHealth,
   prisma,
   refreshWixListingHealthFromDb,
+  stickyWixDivergenceIssue,
   wixUpdateListingContentDedupeKey,
   type WixJobHandlerResult,
   type WixSyncJobClaim,
@@ -15,6 +16,7 @@ import { readWixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
 import { wixApplicationRequest } from "./client";
 import { WIX_CATALOG_V1, WIX_V1_PRODUCT_GET, WIX_V3_PRODUCTS } from "./constants";
+import { alignWixInventoryWithInw } from "./project-inventory";
 import {
   isSyncWixVariantTopologyFailure,
   syncWixListingVariantTopology,
@@ -135,6 +137,24 @@ export async function handleWixReconcileListingJob(
     }
   }
 
+  if (link.connection.status === "ACTIVE" && !lastErrorCode) {
+    const aligned = await alignWixInventoryWithInw({
+      listingLinkId: link.id,
+      wixConnectionId: link.wixConnectionId,
+      memberId: link.memberId,
+      wixProductId: link.wixProductId,
+      catalogVersion: link.connection.catalogVersion,
+      instanceId: link.connection.instanceId,
+    });
+    if ("error" in aligned || aligned.unreadable > 0) {
+      lastErrorCode = "INVENTORY_UNREADABLE";
+      lastErrorMessage = "Wix quantities could not be read";
+    } else if (aligned.diverged > 0) {
+      lastErrorCode = "INVENTORY_MISMATCH";
+      lastErrorMessage = "Wix quantities do not match INW";
+    }
+  }
+
   const refreshed = await prisma.wixListingLink.findUnique({
     where: { id: link.id },
     include: {
@@ -158,6 +178,15 @@ export async function handleWixReconcileListingJob(
     (max, map) => Math.max(max, map.inventoryAppliedVersion),
     0
   );
+  const sticky = stickyWixDivergenceIssue({
+    issueCode: refreshed.issueCode,
+    issueMessage: refreshed.issueMessage,
+    productContentConflict: refreshed.productContentConflict,
+    contentPending: refreshed.desiredProductContentVersion > refreshed.appliedProductContentVersion,
+    inventoryPending: inventoryDesiredVersion > inventoryAppliedVersion,
+  });
+  const effectiveErrorCode = lastErrorCode ?? sticky?.code ?? null;
+  const effectiveErrorMessage = lastErrorCode ? lastErrorMessage : (sticky?.message ?? null);
   const health = classifyWixListingHealth({
     connectionStatus: refreshed.connection.status === "ACTIVE" ? "ACTIVE" : "DISCONNECTED",
     remoteProductVisible,
@@ -167,8 +196,8 @@ export async function handleWixReconcileListingJob(
     contentAppliedVersion: refreshed.appliedProductContentVersion,
     inventoryDesiredVersion,
     inventoryAppliedVersion,
-    lastErrorCode,
-    lastErrorMessage,
+    lastErrorCode: effectiveErrorCode,
+    lastErrorMessage: effectiveErrorMessage,
   });
   await persistWixListingHealth(prisma, link.id, health);
 

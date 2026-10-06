@@ -28,13 +28,14 @@ type LocalVariant = {
 type RemoteVariant = {
   id?: string;
   sku?: string | null;
-  choices?: Record<string, string>;
+  choices?: unknown;
   priceData?: { price?: number | string };
   variant?: { priceData?: { price?: number | string } };
 };
 
 export type SyncWixVariantTopologyResult =
   | { status: "NOOP" | "PUSHED" | "PULLED"; pairCount: number }
+  | { status: "SKIPPED"; reason: "CHOICES_UNPARSED"; pairCount: number }
   | Extract<WixJobHandlerResult, { outcome: "RETRY" | "DEAD" }>;
 
 export function isSyncWixVariantTopologyFailure(
@@ -50,6 +51,55 @@ function asChoiceRecord(options: unknown): Record<string, string> {
     if (typeof value === "string" && value.trim()) out[key.trim()] = value.trim();
   }
   return out;
+}
+
+/** V1 choices are a name→value map. V3 choices are optionChoiceNames arrays. */
+function parseWixVariantChoices(choices: unknown): Record<string, string> | null {
+  if (Array.isArray(choices)) {
+    const out: Record<string, string> = {};
+    for (const entry of choices) {
+      if (!entry || typeof entry !== "object") continue;
+      const row = entry as Record<string, unknown>;
+      const names =
+        row.optionChoiceNames && typeof row.optionChoiceNames === "object" && !Array.isArray(row.optionChoiceNames)
+          ? (row.optionChoiceNames as Record<string, unknown>)
+          : null;
+      const optionName =
+        (typeof names?.optionName === "string" && names.optionName.trim()) ||
+        (typeof row.option === "string" && row.option.trim()) ||
+        (typeof row.name === "string" && row.name.trim()) ||
+        "";
+      const choiceName =
+        (typeof names?.choiceName === "string" && names.choiceName.trim()) ||
+        (typeof names?.name === "string" && names.name.trim()) ||
+        (typeof row.value === "string" && row.value.trim()) ||
+        "";
+      if (optionName && choiceName) out[optionName] = choiceName;
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  }
+  const record = asChoiceRecord(choices);
+  return Object.keys(record).length > 0 ? record : null;
+}
+
+function remoteChoicesOf(variant: RemoteVariant): Record<string, string> {
+  return parseWixVariantChoices(variant.choices) ?? {};
+}
+
+/** Same value-only key Foundation uses so Color and Primary color rematch. */
+function optionValuesKey(choices: Record<string, string>): string {
+  return Object.values(choices)
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join("|");
+}
+
+function onHandOf(variant: LocalVariant): number | null {
+  const state = variant.inventoryState;
+  if (!state || state.mode !== "TRACKED_FINITE" || state.onHand == null) return null;
+  const onHand = Math.trunc(state.onHand);
+  return onHand >= 0 ? onHand : null;
 }
 
 function choiceKey(choices: Record<string, string>): string {
@@ -142,7 +192,7 @@ export function mapStoreVariantsToWix(
     const key = choiceKey(asChoiceRecord(variant.options));
     const match = remote.find((row) => {
       const id = row.id;
-      return !!id && !used.has(id) && choiceKey(row.choices ?? {}) === key;
+      return !!id && !used.has(id) && choiceKey(remoteChoicesOf(row)) === key;
     });
     if (!match?.id) return null;
     used.add(match.id);
@@ -171,7 +221,7 @@ function localComboKeys(variants: LocalVariant[]): string[] {
 }
 
 function remoteComboKeys(variants: RemoteVariant[]): string[] {
-  return [...new Set(variants.map((v) => choiceKey(v.choices ?? {})).filter(Boolean))].sort();
+  return [...new Set(variants.map((v) => choiceKey(remoteChoicesOf(v))).filter(Boolean))].sort();
 }
 
 /**
@@ -449,8 +499,19 @@ async function pullTopology(input: {
   remoteVariants: RemoteVariant[];
   facadePriceCents: number;
 }): Promise<SyncWixVariantTopologyResult> {
+  const localHasOptions = input.local.some(
+    (variant) => Object.keys(asChoiceRecord(variant.options)).length > 0
+  );
+  const parsedRemote = input.remoteVariants.map((variant) => parseWixVariantChoices(variant.choices));
+  const choicesUnreadable =
+    (localHasOptions || input.remoteVariants.length > 1) &&
+    input.remoteVariants.some((variant, index) => !parsedRemote[index] && (localHasOptions || Boolean(variant.id)));
+  if (choicesUnreadable) {
+    return { status: "SKIPPED", reason: "CHOICES_UNPARSED", pairCount: 0 };
+  }
+
   const optionedRemote = input.remoteVariants.filter(
-    (v) => Object.keys(v.choices ?? {}).length > 0 || Boolean(v.id)
+    (variant) => Object.keys(remoteChoicesOf(variant)).length > 0 || Boolean(variant.id)
   );
   if (optionedRemote.length < 1) {
     return { status: "NOOP", pairCount: 0 };
@@ -458,7 +519,7 @@ async function pullTopology(input: {
 
   const matrixTargets = optionedRemote
     .map((remote) => {
-      const options = asChoiceRecord(remote.choices ?? {});
+      const options = remoteChoicesOf(remote);
       if (Object.keys(options).length < 1 && optionedRemote.length > 1) return null;
       const price =
         priceToCents(remote.priceData?.price) ??
@@ -474,34 +535,28 @@ async function pullTopology(input: {
     })
     .filter((row): row is NonNullable<typeof row> => row !== null);
 
-  if (matrixTargets.length < 1) {
-    return {
-      outcome: "DEAD",
-      errorClass: "PERMANENT",
-      errorCode: "TOPOLOGY_PULL_EMPTY",
-      errorMessage: "Wix product options could not be converted into INW variants",
-    };
+  if (matrixTargets.length < 1 || matrixTargets.length !== optionedRemote.length) {
+    return { status: "SKIPPED", reason: "CHOICES_UNPARSED", pairCount: 0 };
+  }
+  if (matrixTargets.every((target) => Object.keys(target.options).length < 1)) {
+    return { status: "NOOP", pairCount: matrixTargets.length };
   }
 
-  // Preserve existing INW qty when rematching the same combo.
-  const localByKey = new Map(
-    input.local.map((v) => {
-      const key = choiceKey(asChoiceRecord(v.options));
-      let qty = 0;
-      const state = v.inventoryState;
-      if (state?.mode === "TRACKED_FINITE" && state.onHand != null && state.reserved != null) {
-        try {
-          qty = trackedAvailable(state.onHand, state.reserved);
-        } catch {
-          qty = 0;
-        }
-      }
-      return [key, qty] as const;
-    })
-  );
+  const localOnHandByValues = new Map<string, number>();
+  for (const variant of input.local) {
+    const key = optionValuesKey(asChoiceRecord(variant.options));
+    if (!key) continue;
+    const onHand = onHandOf(variant);
+    if (onHand == null) continue;
+    const prior = localOnHandByValues.get(key);
+    if (prior == null || onHand > prior) localOnHandByValues.set(key, onHand);
+  }
   for (const target of matrixTargets) {
-    const key = choiceKey(target.options);
-    if (localByKey.has(key)) target.targetOnHand = localByKey.get(key) ?? 0;
+    const key = optionValuesKey(target.options);
+    if (!key) continue;
+    const preserved = localOnHandByValues.get(key);
+    if (preserved == null) continue;
+    target.targetOnHand = preserved;
   }
 
   try {

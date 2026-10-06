@@ -1,5 +1,6 @@
 import {
   applyWixListingContentInbound,
+  persistWixListingHealth,
   prisma,
   refreshWixListingHealthFromDb,
   type WixJobHandlerResult,
@@ -152,6 +153,19 @@ export async function handleWixPollListingContentJob(
   if (isSyncWixVariantTopologyFailure(topology)) {
     return topology;
   }
+  const choicesUnparsed = topology.status === "SKIPPED";
+  if (!choicesUnparsed) {
+    const current = await prisma.wixListingLink.findUnique({
+      where: { id: link.id },
+      select: { issueCode: true },
+    });
+    if (current?.issueCode === "TOPOLOGY_UNREADABLE") {
+      await prisma.wixListingLink.update({
+        where: { id: link.id },
+        data: { issueCode: null, issueMessage: null, issueSeverity: null },
+      });
+    }
+  }
 
   await prisma.$transaction(async (tx) => {
     await applyWixListingContentInbound(tx, {
@@ -162,6 +176,23 @@ export async function handleWixPollListingContentJob(
     });
   });
   await refreshWixListingHealthFromDb(prisma, link.id);
+
+  if (choicesUnparsed) {
+    const after = await prisma.wixListingLink.findUnique({
+      where: { id: link.id },
+      select: { productContentConflict: true },
+    });
+    if (!after?.productContentConflict) {
+      await persistWixListingHealth(prisma, link.id, {
+        readiness: "ACTION_REQUIRED",
+        contentHealth: "DEGRADED",
+        inventoryHealth: "DEGRADED",
+        issueCode: "TOPOLOGY_UNREADABLE",
+        issueMessage: "Wix options could not be read, so quantities were left unchanged",
+        issueSeverity: "warning",
+      });
+    }
+  }
 
   return { outcome: "SUCCESS" };
 }

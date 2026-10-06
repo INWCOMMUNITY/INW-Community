@@ -67,11 +67,15 @@ export function wixListingUiStatus(input: {
     input.readiness === "CONNECTION_REQUIRED" ||
     input.contentHealth === "PAUSED" ||
     input.inventoryHealth === "PAUSED" ||
-    input.contentHealth === "DEGRADED" ||
-    input.inventoryHealth === "DEGRADED" ||
     Boolean(input.issueCode) ||
     hiddenOnWix
   ) {
+    return "Needs attention";
+  }
+  if (input.readiness === "SYNCING") {
+    return "Syncing";
+  }
+  if (input.contentHealth === "DEGRADED" || input.inventoryHealth === "DEGRADED") {
     return "Needs attention";
   }
   if (input.readiness === "READY_TO_PUBLISH") {

@@ -67,6 +67,20 @@ export function classifyWixListingHealth(
     };
   }
 
+  // Verified mismatch stays Needs attention without pausing inbound content sync.
+  if (input.lastErrorCode && isDivergenceWixError(input.lastErrorCode)) {
+    const inventoryIssue =
+      input.lastErrorCode === "INVENTORY_MISMATCH" || input.lastErrorCode === "INVENTORY_UNREADABLE";
+    return {
+      readiness: "ACTION_REQUIRED",
+      contentHealth: inventoryIssue ? "HEALTHY" : "DEGRADED",
+      inventoryHealth: input.lastErrorCode === "CONTENT_CONFLICT" ? "HEALTHY" : "DEGRADED",
+      issueCode: input.lastErrorCode,
+      issueMessage: humanizeWixErrorMessage(input.lastErrorCode, input.lastErrorMessage),
+      issueSeverity: "warning",
+    };
+  }
+
   // Check for API errors
   if (input.lastErrorCode) {
     const isPermanent = isPermanentWixError(input.lastErrorCode);
@@ -109,6 +123,41 @@ export function classifyWixListingHealth(
 /**
  * Check if a Wix error code represents a permanent (non-retryable) error.
  */
+function isDivergenceWixError(errorCode: string): boolean {
+  return (
+    errorCode === "INVENTORY_MISMATCH" ||
+    errorCode === "INVENTORY_UNREADABLE" ||
+    errorCode === "TOPOLOGY_UNREADABLE" ||
+    errorCode === "CONTENT_CONFLICT"
+  );
+}
+
+/**
+ * Issue codes that must survive a health refresh while the two sides still differ.
+ * In-flight inventory without one of these stays Syncing.
+ */
+export function stickyWixDivergenceIssue(input: {
+  issueCode: string | null;
+  issueMessage: string | null;
+  productContentConflict: boolean;
+  contentPending: boolean;
+  inventoryPending: boolean;
+}): { code: string; message: string | null } | null {
+  if (input.productContentConflict) {
+    return {
+      code: "CONTENT_CONFLICT",
+      message: input.issueMessage,
+    };
+  }
+  if (input.issueCode === "TOPOLOGY_UNREADABLE") {
+    return { code: "TOPOLOGY_UNREADABLE", message: input.issueMessage };
+  }
+  if ((input.contentPending || input.inventoryPending) && input.issueCode) {
+    return { code: input.issueCode, message: input.issueMessage };
+  }
+  return null;
+}
+
 function isPermanentWixError(errorCode: string): boolean {
   const permanentCodes = [
     "PRODUCT_NOT_FOUND",
@@ -137,6 +186,10 @@ function humanizeWixErrorMessage(errorCode: string, rawMessage: string | null): 
     MISSING_REQUIRED_FIELD: "Some required information is missing",
     MEDIA_NOT_APPLIED: "Wix could not use these photos. Update the listing photos and try again.",
     VARIANT_MAP_INCOMPLETE: "Wix did not return every variant. Sync will retry.",
+    INVENTORY_MISMATCH: "Wix quantities did not update",
+    INVENTORY_UNREADABLE: "Wix quantities could not be read",
+    TOPOLOGY_UNREADABLE: "Wix options could not be read, so quantities were left unchanged",
+    CONTENT_CONFLICT: "INW and Wix both changed this listing. Edit on INW to choose the version you want.",
     THROTTLED: "Sync is temporarily paused due to rate limits",
     TRANSIENT: "Sync will retry automatically",
     NETWORK: "Unable to reach Wix; will retry",
@@ -176,9 +229,15 @@ export async function refreshWixListingHealthFromDb(
   );
   const contentPending = link.desiredProductContentVersion > link.appliedProductContentVersion;
   const inventoryPending = inventoryDesiredVersion > inventoryAppliedVersion;
-  // Stale issue codes from finished retries must not keep readiness stuck on Syncing.
-  const lastErrorCode = contentPending || inventoryPending ? link.issueCode : null;
-  const lastErrorMessage = lastErrorCode ? link.issueMessage : null;
+  const sticky = stickyWixDivergenceIssue({
+    issueCode: link.issueCode,
+    issueMessage: link.issueMessage,
+    productContentConflict: link.productContentConflict,
+    contentPending,
+    inventoryPending,
+  });
+  const lastErrorCode = sticky?.code ?? null;
+  const lastErrorMessage = sticky?.message ?? null;
 
   const health = classifyWixListingHealth({
     connectionStatus: link.connection.status === "ACTIVE" ? "ACTIVE" : "DISCONNECTED",

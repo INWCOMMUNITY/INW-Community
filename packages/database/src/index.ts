@@ -963,6 +963,7 @@ export {
   persistWixListingHealth,
   recordWixDeadJobIssue,
   refreshWixListingHealthFromDb,
+  stickyWixDivergenceIssue,
   toPublicWixListingStatus,
 } from "./wix/listing-health";
 export type {
