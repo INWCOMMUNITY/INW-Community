@@ -1,5 +1,9 @@
 import type { Prisma, PrismaClient, WixListingLink } from "@prisma/client";
 import { enqueueWixSyncJob, wixUpdateListingContentDedupeKey, WixSyncJobConflictError } from "./jobs";
+import {
+  normalizeWixPhotoUrls,
+  wixProductContentFingerprint,
+} from "./content-fingerprint";
 
 export type WixContentDb = PrismaClient | Prisma.TransactionClient;
 
@@ -31,12 +35,15 @@ export interface RecordWixListingContentDesireResult {
   jobEnqueued: boolean;
 }
 
-function normalizeWixPhotoUrls(photos: unknown): string[] {
-  if (!Array.isArray(photos)) return [];
-  return photos
-    .filter((p): p is string => typeof p === "string")
-    .map((p) => p.trim())
-    .filter(Boolean);
+function clampFingerprint(value: string | null): string | null {
+  if (value == null) return null;
+  // Column is VarChar(64). Prefer caller-supplied hashes; never store raw JSON.
+  return value.length <= 64 ? value : wixProductContentFingerprint({
+    title: value,
+    description: null,
+    photos: [],
+    priceCents: 0,
+  });
 }
 
 /**
@@ -66,7 +73,7 @@ export async function recordWixListingContentDesire(
     where: { id: input.listingLinkId },
     data: {
       desiredProductContentVersion: newVersion,
-      desiredProductFingerprint: input.productFingerprint,
+      desiredProductFingerprint: clampFingerprint(input.productFingerprint),
     },
   });
 
@@ -131,12 +138,11 @@ export async function recordWixMappedListingContentDesire(
     return { status: "SKIPPED", reason: "UNMAPPED" };
   }
 
-  const fingerprint = JSON.stringify({
+  const fingerprint = wixProductContentFingerprint({
     title: input.after.title,
     description: input.after.description ?? null,
-    priceCents: input.after.priceCents,
-    sku: input.after.sku ?? null,
     photos: afterPhotos ?? normalizeWixPhotoUrls(input.after.photos),
+    priceCents: input.after.priceCents,
   });
 
   const bumped = await recordWixListingContentDesire(db, {
