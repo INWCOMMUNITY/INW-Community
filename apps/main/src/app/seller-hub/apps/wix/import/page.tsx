@@ -53,13 +53,19 @@ export default function AppsAirportWixImportPage() {
       });
       const body = (await response.json()) as {
         error?: string;
+        code?: string;
         candidates?: Candidate[];
         hasMore?: boolean;
         nextCursor?: string | null;
       };
       if (!response.ok) {
-        if (response.status === 404) {
-          setConnectionError("Connect Wix first.");
+        if (response.status === 404 || body.code === "CONNECTION_REQUIRED") {
+          setConnectionError(body.error ?? "Connect Wix first.");
+        } else if (body.code === "PERMISSION" || body.code === "TOKEN") {
+          setConnectionError(
+            body.error ??
+              "Wix did not allow reading products. Reconnect Wix and confirm Read Products permission."
+          );
         } else {
           setError(body.error ?? "Could not load Wix products.");
         }
@@ -155,7 +161,7 @@ export default function AppsAirportWixImportPage() {
           </p>
           {loading && candidates.length === 0 ? (
             <p className="text-sm text-neutral-600">Loading products…</p>
-          ) : candidates.length === 0 ? (
+          ) : error || connectionError ? null : candidates.length === 0 ? (
             <p className="text-sm text-neutral-600">No unlinked Wix products found.</p>
           ) : (
             <div className="overflow-x-auto">

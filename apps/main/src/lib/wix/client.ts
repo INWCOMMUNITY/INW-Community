@@ -354,7 +354,13 @@ export async function detectWixCatalogVersion(input: {
   const v1 = await wixApplicationRequest({
     method: "POST",
     path: WIX_V1_PRODUCTS_QUERY,
-    body: JSON.stringify({ query: { paging: { limit: 1, offset: 0 } } }),
+    body: JSON.stringify({
+      query: {
+        paging: { limit: 1, offset: 0 },
+        filter: JSON.stringify({ visible: true }),
+      },
+      includeVariants: false,
+    }),
     deps,
   });
 

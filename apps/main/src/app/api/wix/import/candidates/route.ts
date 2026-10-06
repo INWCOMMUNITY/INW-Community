@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getActiveWixConnectionForMember, prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
-import { listWixImportCandidates } from "@/lib/wix/import-discovery";
+import {
+  listWixImportCandidates,
+  WixImportDiscoveryError,
+} from "@/lib/wix/import-discovery";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +19,10 @@ export async function GET(req: NextRequest) {
 
   const connection = await getActiveWixConnectionForMember(prisma, memberId);
   if (!connection) {
-    return NextResponse.json({ error: "No active Wix connection" }, { status: 404 });
+    return NextResponse.json(
+      { error: "No active Wix connection", code: "CONNECTION_REQUIRED" },
+      { status: 404 }
+    );
   }
 
   const cursor = req.nextUrl.searchParams.get("cursor") ?? undefined;
@@ -39,10 +45,23 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     console.error("WIX_IMPORT_CANDIDATES_ERROR", {
       error: error instanceof Error ? error.message : "Unknown error",
+      code: error instanceof WixImportDiscoveryError ? error.code : undefined,
       connectionId: connection.id,
+      catalogVersion: connection.catalogVersion,
     });
+    if (error instanceof WixImportDiscoveryError) {
+      const status =
+        error.code === "PERMISSION" || error.code === "TOKEN"
+          ? 403
+          : error.code === "NOT_CONFIGURED"
+            ? 503
+            : error.code === "TRANSIENT"
+              ? 502
+              : 500;
+      return NextResponse.json({ error: error.message, code: error.code }, { status });
+    }
     return NextResponse.json(
-      { error: "Could not fetch Wix products" },
+      { error: "Could not fetch Wix products", code: "UNKNOWN" },
       { status: 500 }
     );
   }

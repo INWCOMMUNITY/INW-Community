@@ -9,7 +9,7 @@ import { readWixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
 import { wixApplicationRequest } from "./client";
 import {
-  WIX_V1_PRODUCTS_QUERY,
+  WIX_V1_PRODUCTS,
   WIX_V1_PRODUCT_GET,
   WIX_V3_PRODUCTS,
   WIX_CATALOG_V1,
@@ -131,7 +131,7 @@ export async function handleWixCreateListingJob(
         product?: { id?: string; variants?: Array<{ id?: string; choices?: Record<string, string> }> };
       }>({
         method: "POST",
-        path: WIX_V1_PRODUCTS_QUERY.replace("/query", ""),
+        path: WIX_V1_PRODUCTS,
         body: JSON.stringify({
           product: {
             name: storeItem.title,

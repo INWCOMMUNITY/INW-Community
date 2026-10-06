@@ -12,7 +12,7 @@ import { readWixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
 import { wixApplicationRequest, type WixFetch } from "./client";
 import {
-  WIX_V1_PRODUCTS_QUERY,
+  WIX_V1_PRODUCT_GET,
   WIX_V3_PRODUCTS,
   WIX_CATALOG_V1,
 } from "./constants";
@@ -158,7 +158,7 @@ export async function importWixProduct(
     if (isV1) {
       const result = await wixApplicationRequest<{ product?: WixV1ProductFull }>({
         method: "GET",
-        path: `${WIX_V1_PRODUCTS_QUERY.replace("/query", "")}/${wixProductId}`,
+        path: `${WIX_V1_PRODUCT_GET}/${wixProductId}`,
         deps: { config, accessToken, fetchImpl: input.fetchImpl },
       });
 

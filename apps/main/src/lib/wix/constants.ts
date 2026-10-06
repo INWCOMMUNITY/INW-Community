@@ -25,10 +25,15 @@ export const WIX_CATALOG_V1 = "V1_CATALOG";
 export const WIX_CATALOG_V3 = "V3_CATALOG";
 
 // API versions by catalog
-export const WIX_V1_PRODUCTS_QUERY = "/stores/v1/products/query";
+/** V1 write/create path (stores catalog). */
+export const WIX_V1_PRODUCTS = "/stores/v1/products";
+/** V1 product query — filter/sort are JSON-encoded strings. Prefer stores-reader. */
+export const WIX_V1_PRODUCTS_QUERY = "/stores-reader/v1/products/query";
+/** Legacy V1 query path kept for create-listing relative helpers. */
 export const WIX_V1_PRODUCT_GET = "/stores/v1/products";
 export const WIX_V2_INVENTORY_PATCH = "/stores/v2/inventoryItems/product";
 export const WIX_V3_PRODUCTS = "/stores/v3/products";
+export const WIX_V3_PRODUCTS_QUERY = "/stores/v3/products/query";
 export const WIX_V3_INVENTORY = "/stores/v3/inventory-items";
 
 // eCommerce orders API

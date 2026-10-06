@@ -1,15 +1,16 @@
 import {
   lookupWixListingByRemoteId,
   prisma,
-  type WixMappingDb,
   type WixPublicConnection,
 } from "database";
 import { readWixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
-import { wixApplicationRequest, type WixFetch } from "./client";
+import { wixApplicationRequest, type WixApiResult, type WixFetch } from "./client";
 import {
   WIX_V1_PRODUCTS_QUERY,
+  WIX_V1_PRODUCT_GET,
   WIX_V3_PRODUCTS,
+  WIX_V3_PRODUCTS_QUERY,
   WIX_CATALOG_V1,
 } from "./constants";
 
@@ -34,6 +35,22 @@ export type ListWixImportCandidatesResult = {
   hasMore: boolean;
   nextCursor: string | null;
 };
+
+export class WixImportDiscoveryError extends Error {
+  constructor(
+    message: string,
+    readonly code:
+      | "NOT_CONFIGURED"
+      | "TOKEN"
+      | "CATALOG"
+      | "PERMISSION"
+      | "TRANSIENT"
+      | "UNKNOWN" = "UNKNOWN"
+  ) {
+    super(message);
+    this.name = "WixImportDiscoveryError";
+  }
+}
 
 type WixV1Product = {
   id?: string;
@@ -61,7 +78,9 @@ type WixV3Product = {
   sku?: string;
 };
 
-function parseWixV1Product(product: WixV1Product): Omit<WixImportCandidate, "alreadyLinked" | "linkedStoreItemId"> | null {
+function parseWixV1Product(
+  product: WixV1Product
+): Omit<WixImportCandidate, "alreadyLinked" | "linkedStoreItemId"> | null {
   if (!product.id || !product.name) return null;
 
   const photos: string[] = [];
@@ -94,7 +113,9 @@ function parseWixV1Product(product: WixV1Product): Omit<WixImportCandidate, "alr
   };
 }
 
-function parseWixV3Product(product: WixV3Product): Omit<WixImportCandidate, "alreadyLinked" | "linkedStoreItemId"> | null {
+function parseWixV3Product(
+  product: WixV3Product
+): Omit<WixImportCandidate, "alreadyLinked" | "linkedStoreItemId"> | null {
   if (!product.id || !product.name) return null;
 
   const photos: string[] = [];
@@ -111,8 +132,6 @@ function parseWixV3Product(product: WixV3Product): Omit<WixImportCandidate, "alr
 
   const hasOptions = (product.productOptions?.length ?? 0) > 0;
   const variantCount = hasOptions ? (product.variants?.length ?? 1) : 1;
-
-  // V3 price is a string
   const priceStr = product.priceData?.price;
   const price = priceStr ? parseFloat(priceStr) : 0;
 
@@ -131,6 +150,142 @@ function parseWixV3Product(product: WixV3Product): Omit<WixImportCandidate, "alr
   };
 }
 
+function classifyDiscoveryFailure(result: WixApiResult): WixImportDiscoveryError {
+  if (result.class === "AUTH") {
+    return new WixImportDiscoveryError(
+      "Wix did not allow reading products. Check app permissions include Read Products.",
+      "PERMISSION"
+    );
+  }
+  if (result.class === "CATALOG_VERSION_MISMATCH") {
+    return new WixImportDiscoveryError(
+      "This Wix site uses a different catalog API than expected. Try reconnecting Wix.",
+      "CATALOG"
+    );
+  }
+  if (result.class === "THROTTLED" || result.class === "TRANSIENT" || result.class === "NETWORK") {
+    return new WixImportDiscoveryError(
+      result.message || "Wix catalog is temporarily unavailable. Try again.",
+      "TRANSIENT"
+    );
+  }
+  return new WixImportDiscoveryError(
+    result.message || "Could not fetch Wix products",
+    "UNKNOWN"
+  );
+}
+
+async function queryV1Products(input: {
+  accessToken: string;
+  config: NonNullable<ReturnType<typeof readWixAppConfig>>;
+  limit: number;
+  cursor?: string;
+  includeHidden?: boolean;
+  fetchImpl?: WixFetch;
+}): Promise<{
+  products: Array<Omit<WixImportCandidate, "alreadyLinked" | "linkedStoreItemId">>;
+  nextCursor: string | null;
+  result: WixApiResult;
+}> {
+  const offset = input.cursor ? parseInt(input.cursor, 10) : 0;
+  const query: Record<string, unknown> = {
+    paging: { limit: input.limit, offset: Number.isFinite(offset) ? offset : 0 },
+  };
+  // V1 requires filter/sort as JSON-encoded strings, not objects.
+  if (!input.includeHidden) {
+    query.filter = JSON.stringify({ visible: true });
+  }
+
+  const result = await wixApplicationRequest<{
+    products?: WixV1Product[];
+    totalResults?: number;
+  }>({
+    method: "POST",
+    path: WIX_V1_PRODUCTS_QUERY,
+    body: JSON.stringify({
+      query,
+      includeVariants: true,
+      includeHiddenProducts: Boolean(input.includeHidden),
+    }),
+    deps: {
+      config: input.config,
+      accessToken: input.accessToken,
+      fetchImpl: input.fetchImpl,
+      maxAttempts: 2,
+    },
+  });
+
+  if (!result.ok) {
+    return { products: [], nextCursor: null, result };
+  }
+
+  const products = (result.data?.products ?? [])
+    .map(parseWixV1Product)
+    .filter((p): p is NonNullable<typeof p> => p !== null);
+  const total = result.data?.totalResults ?? products.length;
+  const nextOffset = (Number.isFinite(offset) ? offset : 0) + input.limit;
+  return {
+    products,
+    nextCursor: nextOffset < total ? String(nextOffset) : null,
+    result,
+  };
+}
+
+async function queryV3Products(input: {
+  accessToken: string;
+  config: NonNullable<ReturnType<typeof readWixAppConfig>>;
+  limit: number;
+  cursor?: string;
+  includeHidden?: boolean;
+  fetchImpl?: WixFetch;
+}): Promise<{
+  products: Array<Omit<WixImportCandidate, "alreadyLinked" | "linkedStoreItemId">>;
+  nextCursor: string | null;
+  result: WixApiResult;
+}> {
+  const query: Record<string, unknown> = {
+    cursorPaging: { limit: input.limit },
+  };
+  if (input.cursor) {
+    (query.cursorPaging as Record<string, unknown>).cursor = input.cursor;
+  }
+  if (!input.includeHidden) {
+    query.filter = { visible: { $eq: true } };
+  }
+
+  const result = await wixApplicationRequest<{
+    products?: WixV3Product[];
+    pagingMetadata?: { cursors?: { next?: string } };
+    metadata?: { cursors?: { next?: string } };
+  }>({
+    method: "POST",
+    path: WIX_V3_PRODUCTS_QUERY,
+    body: JSON.stringify({ query }),
+    deps: {
+      config: input.config,
+      accessToken: input.accessToken,
+      fetchImpl: input.fetchImpl,
+      maxAttempts: 2,
+    },
+  });
+
+  if (!result.ok) {
+    return { products: [], nextCursor: null, result };
+  }
+
+  const allProducts = (result.data?.products ?? [])
+    .map(parseWixV3Product)
+    .filter((p): p is NonNullable<typeof p> => p !== null);
+  const products = input.includeHidden
+    ? allProducts
+    : allProducts.filter((p) => p.visible);
+  const nextCursor =
+    result.data?.pagingMetadata?.cursors?.next ??
+    result.data?.metadata?.cursors?.next ??
+    null;
+  return { products, nextCursor, result };
+}
+
 /**
  * List import candidates from Wix for a connection.
  * Handles both V1 and V3 catalog versions.
@@ -146,86 +301,60 @@ export async function listWixImportCandidates(
 ): Promise<ListWixImportCandidatesResult> {
   const config = readWixAppConfig();
   if (!config) {
-    throw new Error("Wix is not configured");
+    throw new WixImportDiscoveryError("Wix is not configured", "NOT_CONFIGURED");
   }
 
-  const accessToken = await accessTokenForWixConnection(connection);
+  let accessToken: string;
+  try {
+    accessToken = await accessTokenForWixConnection(connection, {
+      config,
+      fetchImpl: options?.fetchImpl,
+    });
+  } catch {
+    throw new WixImportDiscoveryError(
+      "Could not authorize with Wix. Reconnect your Wix site and try again.",
+      "TOKEN"
+    );
+  }
+
   const limit = options?.limit ?? 50;
-  const isV1 = connection.catalogVersion === WIX_CATALOG_V1;
+  const preferV1 = connection.catalogVersion === WIX_CATALOG_V1;
+  const primary = preferV1 ? queryV1Products : queryV3Products;
+  const fallback = preferV1 ? queryV3Products : queryV1Products;
 
-  let products: Array<Omit<WixImportCandidate, "alreadyLinked" | "linkedStoreItemId">> = [];
-  let nextCursor: string | null = null;
+  let page = await primary({
+    accessToken,
+    config,
+    limit,
+    cursor: options?.cursor,
+    includeHidden: options?.includeHidden,
+    fetchImpl: options?.fetchImpl,
+  });
 
-  if (isV1) {
-    // V1 Catalog: POST query
-    const query: Record<string, unknown> = {
-      query: {
-        paging: { limit, offset: options?.cursor ? parseInt(options.cursor, 10) : 0 },
-      },
-    };
-    if (!options?.includeHidden) {
-      query.query = { ...query.query as Record<string, unknown>, filter: { visible: true } };
+  if (!page.result.ok) {
+    // Wrong catalog version or reader path — try the other catalog once.
+    if (
+      page.result.class === "CATALOG_VERSION_MISMATCH" ||
+      page.result.class === "NOT_FOUND" ||
+      page.result.class === "VALIDATION"
+    ) {
+      page = await fallback({
+        accessToken,
+        config,
+        limit,
+        cursor: options?.cursor,
+        includeHidden: options?.includeHidden,
+        fetchImpl: options?.fetchImpl,
+      });
     }
-
-    const result = await wixApplicationRequest<{ products?: WixV1Product[]; totalResults?: number }>({
-      method: "POST",
-      path: WIX_V1_PRODUCTS_QUERY,
-      body: JSON.stringify(query),
-      deps: { config, accessToken, fetchImpl: options?.fetchImpl },
-    });
-
-    if (!result.ok || !result.data?.products) {
-      throw new Error(result.message || "Failed to fetch Wix products");
-    }
-
-    products = result.data.products
-      .map(parseWixV1Product)
-      .filter((p): p is NonNullable<typeof p> => p !== null);
-
-    // V1 uses offset-based paging
-    const offset = options?.cursor ? parseInt(options.cursor, 10) : 0;
-    const total = result.data.totalResults ?? 0;
-    if (offset + limit < total) {
-      nextCursor = String(offset + limit);
-    }
-  } else {
-    // V3 Catalog: GET with query params
-    const queryParams: Record<string, string> = {
-      limit: String(limit),
-    };
-    if (options?.cursor) {
-      queryParams.cursor = options.cursor;
-    }
-
-    const result = await wixApplicationRequest<{
-      products?: WixV3Product[];
-      metadata?: { cursors?: { next?: string } };
-    }>({
-      method: "GET",
-      path: WIX_V3_PRODUCTS,
-      query: queryParams,
-      deps: { config, accessToken, fetchImpl: options?.fetchImpl },
-    });
-
-    if (!result.ok || !result.data?.products) {
-      throw new Error(result.message || "Failed to fetch Wix products");
-    }
-
-    const allProducts = result.data.products
-      .map(parseWixV3Product)
-      .filter((p): p is NonNullable<typeof p> => p !== null);
-
-    // Filter out hidden if not requested
-    products = options?.includeHidden
-      ? allProducts
-      : allProducts.filter((p) => p.visible);
-
-    nextCursor = result.data.metadata?.cursors?.next ?? null;
   }
 
-  // Check which products are already linked
+  if (!page.result.ok) {
+    throw classifyDiscoveryFailure(page.result);
+  }
+
   const candidates: WixImportCandidate[] = [];
-  for (const product of products) {
+  for (const product of page.products) {
     const existing = await lookupWixListingByRemoteId(prisma, connection.id, product.wixProductId);
     candidates.push({
       ...product,
@@ -236,8 +365,8 @@ export async function listWixImportCandidates(
 
   return {
     candidates,
-    hasMore: nextCursor !== null,
-    nextCursor,
+    hasMore: page.nextCursor !== null,
+    nextCursor: page.nextCursor,
   };
 }
 
@@ -251,10 +380,13 @@ export async function getWixProductForImport(
 ): Promise<WixImportCandidate | null> {
   const config = readWixAppConfig();
   if (!config) {
-    throw new Error("Wix is not configured");
+    throw new WixImportDiscoveryError("Wix is not configured", "NOT_CONFIGURED");
   }
 
-  const accessToken = await accessTokenForWixConnection(connection);
+  const accessToken = await accessTokenForWixConnection(connection, {
+    config,
+    fetchImpl: options?.fetchImpl,
+  });
   const isV1 = connection.catalogVersion === WIX_CATALOG_V1;
 
   let product: Omit<WixImportCandidate, "alreadyLinked" | "linkedStoreItemId"> | null = null;
@@ -262,7 +394,7 @@ export async function getWixProductForImport(
   if (isV1) {
     const result = await wixApplicationRequest<{ product?: WixV1Product }>({
       method: "GET",
-      path: `${WIX_V1_PRODUCTS_QUERY.replace("/query", "")}/${wixProductId}`,
+      path: `${WIX_V1_PRODUCT_GET}/${wixProductId}`,
       deps: { config, accessToken, fetchImpl: options?.fetchImpl },
     });
 
