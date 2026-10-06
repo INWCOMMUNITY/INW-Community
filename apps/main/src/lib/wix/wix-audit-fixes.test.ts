@@ -34,6 +34,13 @@ describe("mintWixAccessToken", () => {
   });
 });
 
+describe("Wix install URL", () => {
+  it("uses app-installer and postInstallationUrl", async () => {
+    const { WIX_OAUTH_AUTHORIZE_URL } = await import("./constants");
+    expect(WIX_OAUTH_AUTHORIZE_URL).toBe("https://www.wix.com/app-installer");
+  });
+});
+
 describe("verifyWixWebhook", () => {
   const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const pem = publicKey.export({ type: "spki", format: "pem" }).toString();

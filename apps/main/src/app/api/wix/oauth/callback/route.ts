@@ -21,10 +21,8 @@ export async function GET(req: NextRequest) {
       catalogVersion: connection.catalogVersion,
     });
 
-    // Redirect to the Sync Stores page in the app
-    const successUrl = new URL("/seller-hub/sync-stores", req.nextUrl.origin);
+    const successUrl = new URL("/seller-hub/apps/wix", req.nextUrl.origin);
     successUrl.searchParams.set("wix_connected", "true");
-    successUrl.searchParams.set("connection_id", connection.id);
     
     const response = NextResponse.redirect(successUrl);
     // Clear the browser binding cookie
@@ -37,7 +35,7 @@ export async function GET(req: NextRequest) {
       reason: error instanceof WixConnectError ? error.reason : undefined,
     });
 
-    const errorUrl = new URL("/seller-hub/sync-stores", req.nextUrl.origin);
+    const errorUrl = new URL("/seller-hub/apps/wix", req.nextUrl.origin);
     
     if (error instanceof WixConnectError) {
       errorUrl.searchParams.set("wix_error", error.code);

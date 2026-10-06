@@ -77,11 +77,14 @@ export async function beginWixConnect(
     expiresAt: new Date(now.getTime() + WIX_OAUTH_STATE_TTL_MS),
   });
 
-  // Wix app installation URL
+  const callbackUrl = new URL(config.redirectUri);
+  callbackUrl.searchParams.set("state", state);
+
   const url = new URL(WIX_OAUTH_AUTHORIZE_URL);
   url.searchParams.set("appId", config.appId);
-  url.searchParams.set("redirectUrl", config.redirectUri);
-  url.searchParams.set("state", state);
+  url.searchParams.set("postInstallationUrl", callbackUrl.toString());
+  const shareUrlId = process.env.WIX_SHARE_URL_ID?.trim();
+  if (shareUrlId) url.searchParams.set("shareUrlId", shareUrlId);
 
   return { authorizeUrl: url.toString(), browserBindingSecret };
 }

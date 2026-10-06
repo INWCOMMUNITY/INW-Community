@@ -1,6 +1,6 @@
 // Wix API endpoints
 export const WIX_API_BASE_URL = "https://www.wixapis.com";
-export const WIX_OAUTH_AUTHORIZE_URL = "https://www.wix.com/installer/install";
+export const WIX_OAUTH_AUTHORIZE_URL = "https://www.wix.com/app-installer";
 export const WIX_OAUTH_TOKEN_URL = "https://www.wixapis.com/oauth2/token";
 export const WIX_CATALOG_VERSION_URL = "/stores/v3/provision/version";
 

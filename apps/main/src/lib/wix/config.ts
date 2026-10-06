@@ -18,18 +18,22 @@ export function readWixAppConfig(): WixAppConfig | null {
     return null;
   }
 
-  // Derive redirect URI from environment or use default
-  // WIX_REDIRECT_URI takes precedence (should match Wix app dashboard)
-  // NEXTAUTH_URL is the production domain with protocol (e.g. https://www.example.com)
-  // VERCEL_URL is a deployment-specific subdomain without protocol
-  let redirectUri = process.env.WIX_REDIRECT_URI;
+  // Must match the External URL / App URL saved in the Wix Developers dashboard.
+  // Wix looks that field up when Connect starts; it is not a separate OAuth redirect box.
+  let redirectUri = process.env.WIX_APP_URL?.trim() || process.env.WIX_REDIRECT_URI?.trim();
   if (!redirectUri) {
-    const baseUrl = process.env.NEXTAUTH_URL
-      ? process.env.NEXTAUTH_URL.replace(/\/$/, "")
-      : process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : "http://localhost:3000";
+    const nextAuth = process.env.NEXTAUTH_URL?.trim();
+    const vercel = process.env.VERCEL_URL?.trim();
+    const baseUrl = nextAuth
+      ? nextAuth.replace(/\/+$/, "")
+      : vercel
+        ? `https://${vercel.replace(/^https?:\/\//, "").split("/")[0]}`
+        : process.env.NODE_ENV === "production"
+          ? "https://www.inwcommunity.com"
+          : "http://localhost:3000";
     redirectUri = `${baseUrl}/api/wix/oauth/callback`;
+  } else {
+    redirectUri = redirectUri.replace(/\/+$/, "");
   }
 
   return {

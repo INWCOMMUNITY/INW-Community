@@ -69,6 +69,16 @@ export default function WixAppsAirportPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("wix_connected");
+    const wixError = params.get("wix_error_message");
+    if (wixError) setError(wixError);
+    if (connected || wixError) {
+      window.history.replaceState({}, "", APPS_AIRPORT_WIX_PATH);
+    }
+  }, []);
+
   const handleConnect = useCallback(async () => {
     setConnecting(true);
     setError(null);
