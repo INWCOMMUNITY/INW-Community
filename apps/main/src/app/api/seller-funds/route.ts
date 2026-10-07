@@ -7,10 +7,7 @@ import {
   sumPaidConnectPayoutsCents,
 } from "@/lib/stripe/connect-payouts";
 import { createMarketplaceStripe } from "@/lib/stripe-clients";
-import {
-  computeSellerTransferCents,
-  computeStripeProcessingFeeCents,
-} from "@/lib/storefront-payout";
+import { computeSellerTransferCents } from "@/lib/storefront-payout";
 
 export const dynamic = "force-dynamic";
 
@@ -74,25 +71,18 @@ export async function GET(req: NextRequest) {
       order.subtotalCents,
       order.taxCents ?? 0
     );
-    const processingFeeCents =
-      order.platformFeeCents > 0
-        ? Math.min(
-            order.platformFeeCents,
-            computeStripeProcessingFeeCents(order.totalCents + (order.taxCents ?? 0))
-          )
-        : split.processingFeeCents;
-    const optionalPlatformFeeCents = Math.max(0, order.platformFeeCents - processingFeeCents);
     return {
       ...t,
       breakdown: {
         itemAndShippingCents: order.totalCents,
         salesTaxCents: order.taxCents ?? 0,
         salesTaxReserveCents: order.salesTaxReserveCents,
-        processingFeeCents,
-        optionalPlatformFeeCents,
+        processingFeeCents: split.processingFeeCents,
+        stripeTaxProductFeeCents: split.stripeTaxProductFeeCents,
+        optionalPlatformFeeCents: split.optionalPlatformFeeCents,
         sellerTransferCents: split.sellerTransferCents,
         note:
-          "Sales tax stays with the platform. The 1% reserve and card processing fee are withheld from your transfer. Stripe bills the marketplace; that processing cost is taken from your payout.",
+          "Sales tax stays with the platform for remittance. The 1% reserve, card processing (~2.9%+$0.30), and Stripe Tax product fee (0.5% when tax is collected) are withheld from your transfer. Stripe bills the marketplace; those costs are taken from your payout.",
       },
     };
   });

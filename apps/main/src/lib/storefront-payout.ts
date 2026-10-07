@@ -2,27 +2,37 @@
  * Marketplace facilitator payout math (hosted Checkout on the **marketplace** platform account).
  *
  * **What stays on the platform Stripe balance (never transferred to Connect):**
- * 1. **Stripe Tax** — `session.total_details.amount_tax` is allocated per order (`taxCents`) for remittance;
- *    it was never part of `sellerTransferCents` (transfers use pre-tax `order.totalCents` minus withholdings).
- * 2. **Sales Tax Reserve** — 1% of **item subtotal only** (`order.subtotalCents`), Terms §7.9.5 (excludes shipping & local delivery fee lines).
+ * 1. **Stripe Tax** (buyer-paid sales tax) — `session.total_details.amount_tax` is allocated per order
+ *    (`taxCents`) for remittance; it was never part of `sellerTransferCents`.
+ * 2. **Sales Tax Reserve** — 1% of **item subtotal only** (`order.subtotalCents`), Terms §7.9.5.
  * 3. **Card processing fee (seller-paid)** — Stripe bills the platform; we withhold ~2.9% + $0.30 of the
  *    full buyer charge (pre-tax order total + tax) from the seller transfer.
- * 4. **Optional platform fee** — extra cut of pre-tax `order.totalCents` (default **none**).
- *    Set e.g. `NWC_MARKETPLACE_PLATFORM_FEE_PERCENT=0.05` and `NWC_MARKETPLACE_PLATFORM_FEE_MIN_CENTS=50`.
+ * 4. **Stripe Tax product fee (seller-paid)** — Stripe Tax on Checkout is **0.5% of transaction volume**
+ *    (including tax) in registered jurisdictions; Stripe deducts it from the platform balance. We withhold
+ *    the same estimate from the seller when `taxCents > 0`.
+ * 5. **Optional platform fee** — extra cut of pre-tax `order.totalCents` (default **none**).
  *
  * **Connect transfer:** `sellerTransferCents` =
- *   `order.totalCents - optionalPlatformFee - processingFee - salesTaxReserve` (≥ 0).
+ *   `order.totalCents - optionalPlatformFee - processingFee - stripeTaxProductFee - salesTaxReserve` (≥ 0).
  *
- * Persisted `StoreOrder.platformFeeCents` = optional platform fee + processing fee (combined withhold besides reserve).
+ * Persisted `StoreOrder.platformFeeCents` = optional + processing + Stripe Tax product fee
+ * (combined withhold besides reserve).
  */
 
-/** Default: no extra discretionary platform fee; processing fee + 1% reserve are always withheld. */
+/** Default: no extra discretionary platform fee; processing + tax-product fee + 1% reserve are withheld. */
 export const DEFAULT_MARKETPLACE_PLATFORM_FEE_PERCENT = 0;
 export const DEFAULT_MARKETPLACE_PLATFORM_FEE_MIN_CENTS = 0;
 
 /** US card rate used to estimate Stripe’s fee on the buyer charge (seller bears this via a smaller transfer). */
 export const STRIPE_CARD_FEE_PERCENT = 0.029;
 export const STRIPE_CARD_FEE_FIXED_CENTS = 30;
+
+/**
+ * Stripe Tax Basic (Checkout / no-code): 0.5% of volume where you are registered to collect tax.
+ * @see https://stripe.com/tax/pricing
+ * @see https://support.stripe.com/questions/understanding-stripe-tax-pricing
+ */
+export const STRIPE_TAX_PRODUCT_FEE_PERCENT = 0.005;
 
 function marketplacePlatformFeePercentFromEnv(): number {
   const raw = process.env.NWC_MARKETPLACE_PLATFORM_FEE_PERCENT?.trim();
@@ -67,14 +77,25 @@ export function computeStripeProcessingFeeCents(chargeCents: number): number {
   return Math.floor(chargeCents * STRIPE_CARD_FEE_PERCENT) + STRIPE_CARD_FEE_FIXED_CENTS;
 }
 
+/**
+ * Estimated Stripe Tax *product* fee (not the sales tax remitted to the state).
+ * Checkout / no-code: 0.5% of full transaction volume including tax, only when tax was collected.
+ */
+export function computeStripeTaxProductFeeCents(chargeCents: number, taxCents: number): number {
+  if (taxCents <= 0 || chargeCents <= 0) return 0;
+  return Math.floor(chargeCents * STRIPE_TAX_PRODUCT_FEE_PERCENT);
+}
+
 export type SellerTransferSplit = {
   /** Optional discretionary % fee only (env). */
   optionalPlatformFeeCents: number;
   /** Card processing withheld from seller (2.9% + $0.30 of pre-tax + tax). */
   processingFeeCents: number;
+  /** Stripe Tax product fee withheld from seller (0.5% of pre-tax + tax when tax > 0). */
+  stripeTaxProductFeeCents: number;
   /**
    * Persisted on StoreOrder.platformFeeCents:
-   * optionalPlatformFeeCents + processingFeeCents.
+   * optionalPlatformFeeCents + processingFeeCents + stripeTaxProductFeeCents.
    */
   platformFeeCents: number;
   salesTaxReserveCents: number;
@@ -89,7 +110,8 @@ export function computeSellerTransferCents(
   const optionalPlatformFeeCents = computeOptionalPlatformFeeCents(preTaxOrderTotalCents);
   const chargeCents = Math.max(0, preTaxOrderTotalCents) + Math.max(0, taxCents);
   const processingFeeCents = computeStripeProcessingFeeCents(chargeCents);
-  const platformFeeCents = optionalPlatformFeeCents + processingFeeCents;
+  const stripeTaxProductFeeCents = computeStripeTaxProductFeeCents(chargeCents, taxCents);
+  const platformFeeCents = optionalPlatformFeeCents + processingFeeCents + stripeTaxProductFeeCents;
   const salesTaxReserveCents = computeSalesTaxReserveCents(itemSubtotalCents);
   const sellerTransferCents = Math.max(
     0,
@@ -98,6 +120,7 @@ export function computeSellerTransferCents(
   return {
     optionalPlatformFeeCents,
     processingFeeCents,
+    stripeTaxProductFeeCents,
     platformFeeCents,
     salesTaxReserveCents,
     sellerTransferCents,

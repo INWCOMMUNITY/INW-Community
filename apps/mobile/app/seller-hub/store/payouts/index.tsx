@@ -26,6 +26,7 @@ interface Transaction {
     salesTaxCents: number;
     salesTaxReserveCents: number;
     processingFeeCents: number;
+    stripeTaxProductFeeCents?: number;
     optionalPlatformFeeCents: number;
     sellerTransferCents: number;
     note: string;
@@ -253,6 +254,9 @@ export default function PayoutsScreen() {
                             : null,
                           t.breakdown.processingFeeCents > 0
                             ? `processing −${formatPrice(t.breakdown.processingFeeCents)}`
+                            : null,
+                          (t.breakdown.stripeTaxProductFeeCents ?? 0) > 0
+                            ? `Stripe Tax −${formatPrice(t.breakdown.stripeTaxProductFeeCents ?? 0)}`
                             : null,
                         ]
                           .filter(Boolean)

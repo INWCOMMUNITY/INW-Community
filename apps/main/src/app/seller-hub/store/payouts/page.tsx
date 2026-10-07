@@ -14,6 +14,7 @@ interface Transaction {
     salesTaxCents: number;
     salesTaxReserveCents: number;
     processingFeeCents: number;
+    stripeTaxProductFeeCents?: number;
     optionalPlatformFeeCents: number;
     sellerTransferCents: number;
     note: string;
@@ -251,6 +252,12 @@ export default function MyFundsPage() {
                             ) : null}
                             {t.breakdown.processingFeeCents > 0 ? (
                               <div>Card processing (seller): −${(t.breakdown.processingFeeCents / 100).toFixed(2)}</div>
+                            ) : null}
+                            {(t.breakdown.stripeTaxProductFeeCents ?? 0) > 0 ? (
+                              <div>
+                                Stripe Tax fee (seller): −$
+                                {((t.breakdown.stripeTaxProductFeeCents ?? 0) / 100).toFixed(2)}
+                              </div>
                             ) : null}
                             {t.breakdown.optionalPlatformFeeCents > 0 ? (
                               <div>Platform fee: −${(t.breakdown.optionalPlatformFeeCents / 100).toFixed(2)}</div>
