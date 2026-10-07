@@ -9,6 +9,7 @@ import {
 import { classifyWixListingHealth, stickyWixDivergenceIssue } from "database";
 import { wixMapsCoverActiveCombinations } from "./project-inventory";
 import {
+  buildWixProductOptions,
   expandRemoteVariantsFromProductOptions,
   inwOptionsAheadOfWix,
   wixPullWouldRestoreSellerEdit,
@@ -312,6 +313,26 @@ describe("pullWouldDropLocalStock", () => {
         { "Primary color": "Red", Size: "Small" }
       )
     ).toBe(7);
+  });
+});
+
+describe("buildWixProductOptions", () => {
+  it("sends only the option name and choices Wix accepts on an existing product", () => {
+    expect(
+      buildWixProductOptions([
+        {
+          id: "v1",
+          sku: null,
+          options: { Material: "Cotton" },
+          priceCents: 200,
+        },
+      ])
+    ).toEqual([
+      {
+        name: "Material",
+        choices: [{ value: "Cotton", description: "Cotton" }],
+      },
+    ]);
   });
 });
 

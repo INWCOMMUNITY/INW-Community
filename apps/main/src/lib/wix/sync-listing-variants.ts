@@ -11,7 +11,7 @@ import {
   type WixJobHandlerResult,
   type WixVariantMappingInput,
 } from "database";
-import { readWixAppConfig } from "./config";
+import { readWixAppConfig, type WixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
 import { loadWixCatalogVariants, pushWixV1VariantChoices } from "./catalog-variants";
 import { wixApplicationRequest } from "./client";
@@ -252,14 +252,195 @@ export function buildWixProductOptions(variants: LocalVariant[]) {
   }
   return [...axes.entries()].map(([name, values]) => ({
     name,
-    optionType: "drop_down",
     choices: [...values].map((value) => ({
       value,
       description: value,
-      inStock: true,
-      visible: true,
     })),
   }));
+}
+
+type V1ProductOption = {
+  name: string;
+  choices: Array<{ value: string; description: string }>;
+};
+
+function v1OptionsFromRemote(
+  options: Array<{ name?: string; choices?: Array<{ value?: string; description?: string }> }> | undefined
+): V1ProductOption[] {
+  const parsed: V1ProductOption[] = [];
+  for (const option of options ?? []) {
+    const name = option.name?.trim();
+    if (!name) continue;
+    const choices = (option.choices ?? [])
+      .map((choice) => {
+        const value = (choice.value || choice.description || "").trim();
+        if (!value) return null;
+        const description = (choice.description || value).trim();
+        return { value, description };
+      })
+      .filter((choice): choice is { value: string; description: string } => choice != null);
+    if (choices.length > 0) parsed.push({ name, choices });
+  }
+  return parsed;
+}
+
+function retryableTopologyClass(errorClass: string): boolean {
+  return (
+    errorClass === "THROTTLED" ||
+    errorClass === "TRANSIENT" ||
+    errorClass === "NETWORK" ||
+    errorClass === "AUTH"
+  );
+}
+
+function topologyWriteRetry(result: {
+  class: string;
+  message: string;
+  retryAfterMs: number | null;
+}): Extract<WixJobHandlerResult, { outcome: "RETRY" }> {
+  const errorClass = retryableTopologyClass(result.class)
+    ? result.class === "AUTH"
+      ? "AUTH"
+      : (result.class as "THROTTLED" | "TRANSIENT" | "NETWORK")
+    : "TRANSIENT";
+  return {
+    outcome: "RETRY",
+    errorClass,
+    errorCode: "TOPOLOGY_PUSH_FAILED",
+    errorMessage: result.message || "Could not update Wix product options",
+    retryAt: result.retryAfterMs ? new Date(Date.now() + result.retryAfterMs) : undefined,
+  };
+}
+
+async function patchWixV1Product(input: {
+  productId: string;
+  config: WixAppConfig;
+  accessToken: string;
+  product: Record<string, unknown>;
+}) {
+  return wixApplicationRequest<{
+    product?: {
+      productOptions?: Array<{ name?: string; choices?: Array<{ value?: string; description?: string }> }>;
+    };
+  }>({
+    method: "PATCH",
+    path: `${WIX_V1_PRODUCT_GET}/${input.productId}`,
+    body: JSON.stringify({ product: { id: input.productId, ...input.product } }),
+    deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
+  });
+}
+
+async function v1OptionsMatchLocal(input: {
+  productId: string;
+  local: LocalVariant[];
+  config: WixAppConfig;
+  accessToken: string;
+  responseOptions:
+    | Array<{ name?: string; choices?: Array<{ value?: string; description?: string }> }>
+    | undefined;
+}): Promise<boolean> {
+  const fromResponse = axesFromProductOptions(input.responseOptions);
+  if (fromResponse.length > 0 && remoteAxesMatchLocal(input.local, fromResponse)) return true;
+  const confirmed = await wixApplicationRequest<{
+    product?: {
+      productOptions?: Array<{ name?: string; choices?: Array<{ value?: string; description?: string }> }>;
+    };
+  }>({
+    method: "GET",
+    path: `${WIX_V1_PRODUCT_GET}/${input.productId}`,
+    deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
+  });
+  if (!confirmed.ok || !confirmed.data?.product) return false;
+  return remoteAxesMatchLocal(
+    input.local,
+    axesFromProductOptions(confirmed.data.product.productOptions)
+  );
+}
+
+/**
+ * Wix ignores a new option on a product that already manages variants.
+ * Write the option set directly, and if Wix keeps the old set, turn variant
+ * management off and write the full set again.
+ */
+async function writeWixV1ProductOptions(input: {
+  productId: string;
+  local: LocalVariant[];
+  previous: Array<{ name?: string; choices?: Array<{ value?: string; description?: string }> }> | undefined;
+  config: WixAppConfig;
+  accessToken: string;
+}): Promise<{ ok: true } | { ok: false; failure: Extract<WixJobHandlerResult, { outcome: "RETRY" | "DEAD" }> }> {
+  const desired = buildWixProductOptions(input.local);
+  const direct = await patchWixV1Product({
+    productId: input.productId,
+    config: input.config,
+    accessToken: input.accessToken,
+    product: {
+      manageVariants: desired.length > 0,
+      productOptions: desired,
+    },
+  });
+  if (!direct.ok && retryableTopologyClass(direct.class)) {
+    return { ok: false, failure: topologyWriteRetry(direct) };
+  }
+  if (
+    direct.ok &&
+    (await v1OptionsMatchLocal({
+      productId: input.productId,
+      local: input.local,
+      config: input.config,
+      accessToken: input.accessToken,
+      responseOptions: direct.data?.product?.productOptions,
+    }))
+  ) {
+    return { ok: true };
+  }
+
+  const cleared = await patchWixV1Product({
+    productId: input.productId,
+    config: input.config,
+    accessToken: input.accessToken,
+    product: { manageVariants: false },
+  });
+  if (!cleared.ok) return { ok: false, failure: topologyWriteRetry(cleared) };
+
+  const rewritten = await patchWixV1Product({
+    productId: input.productId,
+    config: input.config,
+    accessToken: input.accessToken,
+    product: {
+      manageVariants: desired.length > 0,
+      productOptions: desired,
+    },
+  });
+  if (!rewritten.ok) {
+    const previous = v1OptionsFromRemote(input.previous);
+    if (previous.length > 0) {
+      await patchWixV1Product({
+        productId: input.productId,
+        config: input.config,
+        accessToken: input.accessToken,
+        product: { manageVariants: true, productOptions: previous },
+      });
+    }
+    return { ok: false, failure: topologyWriteRetry(rewritten) };
+  }
+  const landed = await v1OptionsMatchLocal({
+    productId: input.productId,
+    local: input.local,
+    config: input.config,
+    accessToken: input.accessToken,
+    responseOptions: rewritten.data?.product?.productOptions,
+  });
+  if (landed) return { ok: true };
+  return {
+    ok: false,
+    failure: {
+      outcome: "RETRY",
+      errorClass: "TRANSIENT",
+      errorCode: "TOPOLOGY_PUSH_FAILED",
+      errorMessage: "Wix still has a different set of options than INW",
+    },
+  };
 }
 
 function buildWixV3OptionsAndVariants(variants: LocalVariant[]) {
@@ -633,67 +814,62 @@ export async function syncWixListingVariantTopology(input: {
   }
 
   const productOptions = buildWixProductOptions(local);
-  const patchBody = isV1
-    ? {
-        product: {
-          id: input.wixProductId,
-          manageVariants: productOptions.length > 0,
-          ...(productOptions.length > 0
-            ? { productOptions }
-            : { productOptions: [], manageVariants: false }),
-        },
-      }
-    : (() => {
-        const revision = product.revision;
-        if (revision == null) {
-          return null;
-        }
-        const { options, variantsInfo } = buildWixV3OptionsAndVariants(local);
-        return {
-          product: {
-            id: input.wixProductId,
-            revision: String(revision),
-            options,
-            variantsInfo,
-          },
-        };
-      })();
 
-  if (!patchBody) {
-    return {
-      outcome: "RETRY",
-      errorClass: "TRANSIENT",
-      errorCode: "MISSING_REVISION",
-      errorMessage: "Wix product revision missing for topology update",
-    };
-  }
-
-  const patch = await wixApplicationRequest<{
-    product?: { variants?: RemoteVariant[]; variantsInfo?: { variants?: RemoteVariant[] } };
-  }>({
-    method: "PATCH",
-    path: `${isV1 ? WIX_V1_PRODUCT_GET : WIX_V3_PRODUCTS}/${input.wixProductId}`,
-    body: JSON.stringify(patchBody),
-    deps: { config, accessToken, maxAttempts: 1 },
-  });
-
-  if (!patch.ok) {
-    if (patch.class === "THROTTLED" || patch.class === "TRANSIENT" || patch.class === "NETWORK") {
+  if (isV1) {
+    await prisma.wixListingLink.updateMany({
+      where: { id: input.listingLinkId, issueCode: "TOPOLOGY_PUSH_FAILED" },
+      data: { issueCode: null, issueMessage: null, issueSeverity: null },
+    });
+    const wrote = await writeWixV1ProductOptions({
+      productId: input.wixProductId,
+      local,
+      previous: product.productOptions,
+      config,
+      accessToken,
+    });
+    if (!wrote.ok) return wrote.failure;
+  } else {
+    const revision = product.revision;
+    if (revision == null) {
       return {
         outcome: "RETRY",
-        errorClass: patch.class,
-        errorCode: patch.class,
-        errorMessage: patch.message,
-        retryAt: patch.retryAfterMs ? new Date(Date.now() + patch.retryAfterMs) : undefined,
+        errorClass: "TRANSIENT",
+        errorCode: "MISSING_REVISION",
+        errorMessage: "Wix product revision missing for topology update",
       };
     }
-    await markTopologyPushFailed(input.listingLinkId);
-    return {
-      outcome: "DEAD",
-      errorClass: patch.class,
-      errorCode: "TOPOLOGY_PUSH_FAILED",
-      errorMessage: patch.message || "Could not update Wix product options",
-    };
+    const { options, variantsInfo } = buildWixV3OptionsAndVariants(local);
+    const patch = await wixApplicationRequest({
+      method: "PATCH",
+      path: `${WIX_V3_PRODUCTS}/${input.wixProductId}`,
+      body: JSON.stringify({
+        product: {
+          id: input.wixProductId,
+          revision: String(revision),
+          options,
+          variantsInfo,
+        },
+      }),
+      deps: { config, accessToken, maxAttempts: 1 },
+    });
+    if (!patch.ok) {
+      if (patch.class === "THROTTLED" || patch.class === "TRANSIENT" || patch.class === "NETWORK") {
+        return {
+          outcome: "RETRY",
+          errorClass: patch.class,
+          errorCode: patch.class,
+          errorMessage: patch.message,
+          retryAt: patch.retryAfterMs ? new Date(Date.now() + patch.retryAfterMs) : undefined,
+        };
+      }
+      await markTopologyPushFailed(input.listingLinkId);
+      return {
+        outcome: "DEAD",
+        errorClass: patch.class,
+        errorCode: "TOPOLOGY_PUSH_FAILED",
+        errorMessage: patch.message || "Could not update Wix product options",
+      };
+    }
   }
 
   // Write INW prices before checking the option set. A delete used to stop here, so the
@@ -701,10 +877,7 @@ export async function syncWixListingVariantTopology(input: {
   let after = await loadWixCatalogVariants({
     isV1,
     productId: input.wixProductId,
-    fallback:
-      patch.data?.product?.variants ??
-      patch.data?.product?.variantsInfo?.variants ??
-      [],
+    fallback: [],
     config,
     accessToken,
   });
@@ -794,10 +967,11 @@ export async function syncWixListingVariantTopology(input: {
   }
   const confirmedVariants =
     confirmed.data.product.variants ?? confirmed.data.product.variantsInfo?.variants ?? [];
-  const confirmedAxes = mergeAxes(
-    axesFromCatalogProduct(confirmed.data.product),
-    axesFromRemoteVariants(confirmedVariants)
-  );
+  const optionAxes = axesFromCatalogProduct(confirmed.data.product);
+  // Product options are the option set. Leftover variant rows from the previous
+  // matrix must not fail this check after Wix has accepted the new options.
+  const confirmedAxes =
+    optionAxes.length > 0 ? optionAxes : axesFromRemoteVariants(confirmedVariants);
   if (!remoteAxesMatchLocal(local, confirmedAxes)) {
     return {
       outcome: "RETRY",
