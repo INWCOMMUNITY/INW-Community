@@ -5,6 +5,7 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { prismaWhereMemberSellerOrSubscribeAccess } from "@/lib/nwc-paid-subscription";
 import { createMarketplaceStripe } from "@/lib/stripe-clients";
+import { findExistingConnectAccountIdForEmail } from "@/lib/stripe-connect-reuse-account";
 import {
   resolveMarketplaceStripeSecretKey,
   STRIPE_MARKETPLACE_NOT_CONFIGURED_MESSAGE,
@@ -105,24 +106,38 @@ export async function POST(req: NextRequest) {
     }
 
     if (!accountId) {
-      const account = await stripe.accounts.create({
-        type: "express",
-        country: "US",
-        email: member.email,
-        business_type: "individual",
-        capabilities: {
-          card_payments: { requested: true },
-          transfers: { requested: true },
-        },
-      });
-      accountId = account.id;
-      // Prefill representative so Stripe doesn't ask for name again during onboarding
-      if (member.firstName?.trim() || member.lastName?.trim()) {
-        await stripe.accounts.createPerson(accountId, {
-          first_name: (member.firstName ?? "").trim() || undefined,
-          last_name: (member.lastName ?? "").trim() || undefined,
-          relationship: { representative: true },
+      // Reuse an existing marketplace Express account for this email when possible
+      // (avoids stranding payouts on a prior Connect account after DB id was cleared).
+      const existingId = await findExistingConnectAccountIdForEmail(stripe, member.email).catch(
+        (err) => {
+          console.warn("[stripe/connect/onboard] reuse lookup failed", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return null;
+        }
+      );
+      if (existingId) {
+        accountId = existingId;
+      } else {
+        const account = await stripe.accounts.create({
+          type: "express",
+          country: "US",
+          email: member.email,
+          business_type: "individual",
+          capabilities: {
+            card_payments: { requested: true },
+            transfers: { requested: true },
+          },
         });
+        accountId = account.id;
+        // Prefill representative so Stripe doesn't ask for name again during onboarding
+        if (member.firstName?.trim() || member.lastName?.trim()) {
+          await stripe.accounts.createPerson(accountId, {
+            first_name: (member.firstName ?? "").trim() || undefined,
+            last_name: (member.lastName ?? "").trim() || undefined,
+            relationship: { representative: true },
+          });
+        }
       }
       await prisma.member.update({
         where: { id: userId },
@@ -148,23 +163,30 @@ export async function POST(req: NextRequest) {
           where: { id: userId },
           data: { stripeConnectAccountId: null },
         });
-        const account = await stripe.accounts.create({
-          type: "express",
-          country: "US",
-          email: member.email,
-          business_type: "individual",
-          capabilities: {
-            card_payments: { requested: true },
-            transfers: { requested: true },
-          },
-        });
-        accountId = account.id;
-        if (member.firstName?.trim() || member.lastName?.trim()) {
-          await stripe.accounts.createPerson(accountId, {
-            first_name: (member.firstName ?? "").trim() || undefined,
-            last_name: (member.lastName ?? "").trim() || undefined,
-            relationship: { representative: true },
+        const existingId = await findExistingConnectAccountIdForEmail(stripe, member.email).catch(
+          () => null
+        );
+        if (existingId && existingId !== accountId) {
+          accountId = existingId;
+        } else {
+          const account = await stripe.accounts.create({
+            type: "express",
+            country: "US",
+            email: member.email,
+            business_type: "individual",
+            capabilities: {
+              card_payments: { requested: true },
+              transfers: { requested: true },
+            },
           });
+          accountId = account.id;
+          if (member.firstName?.trim() || member.lastName?.trim()) {
+            await stripe.accounts.createPerson(accountId, {
+              first_name: (member.firstName ?? "").trim() || undefined,
+              last_name: (member.lastName ?? "").trim() || undefined,
+              relationship: { representative: true },
+            });
+          }
         }
         await prisma.member.update({
           where: { id: userId },
