@@ -63,6 +63,15 @@ export default function MyFundsPage() {
   async function handleSetup() {
     const res = await fetch("/api/stripe/connect/onboard", { method: "POST" });
     const d = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(d.error ?? "Payment setup failed");
+      return;
+    }
+    // Existing Express account: reconnect stays on My Funds (no new Stripe onboarding).
+    if (d.reused) {
+      fetchFunds();
+      return;
+    }
     if (d.url) window.location.href = d.url;
   }
 

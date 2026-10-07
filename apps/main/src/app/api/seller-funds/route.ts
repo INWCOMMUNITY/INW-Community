@@ -7,6 +7,12 @@ import {
   sumPaidConnectPayoutsCents,
 } from "@/lib/stripe/connect-payouts";
 import { createMarketplaceStripe } from "@/lib/stripe-clients";
+import {
+  collectKnownConnectAccountIdsForMember,
+  ensureConnectAccountMemberMetadata,
+  findExistingConnectAccountIdForEmail,
+  maybeDeleteEmptyDuplicateConnectAccount,
+} from "@/lib/stripe-connect-reuse-account";
 import { computeSellerTransferCents } from "@/lib/storefront-payout";
 
 export const dynamic = "force-dynamic";
@@ -37,8 +43,36 @@ export async function GET(req: NextRequest) {
   });
   const member = await prisma.member.findUnique({
     where: { id: userId },
-    select: { stripeConnectAccountId: true },
+    select: { stripeConnectAccountId: true, email: true },
   });
+
+  // If reconnect linked an empty duplicate, swap to the funded Express account.
+  // Do not auto-attach when Connect is intentionally disconnected (id is null).
+  if (member?.stripeConnectAccountId) {
+    try {
+      const knownAccountIds = await collectKnownConnectAccountIdsForMember(prisma, stripe, userId);
+      const preferredId = await findExistingConnectAccountIdForEmail(stripe, member.email, {
+        memberId: userId,
+        knownAccountIds,
+      });
+      if (preferredId && preferredId !== member.stripeConnectAccountId) {
+        const emptyDuplicateId = member.stripeConnectAccountId;
+        await prisma.member.update({
+          where: { id: userId },
+          data: { stripeConnectAccountId: preferredId },
+        });
+        member.stripeConnectAccountId = preferredId;
+        await ensureConnectAccountMemberMetadata(stripe, preferredId, userId);
+        await maybeDeleteEmptyDuplicateConnectAccount(stripe, emptyDuplicateId, preferredId);
+      } else if (preferredId) {
+        await ensureConnectAccountMemberMetadata(stripe, preferredId, userId);
+      }
+    } catch (healErr) {
+      console.warn("[seller-funds] Connect reattach heal failed", {
+        error: healErr instanceof Error ? healErr.message : String(healErr),
+      });
+    }
+  }
 
   const orderIds = [
     ...new Set(

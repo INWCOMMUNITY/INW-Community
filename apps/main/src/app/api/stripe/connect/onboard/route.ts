@@ -5,7 +5,12 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { prismaWhereMemberSellerOrSubscribeAccess } from "@/lib/nwc-paid-subscription";
 import { createMarketplaceStripe } from "@/lib/stripe-clients";
-import { findExistingConnectAccountIdForEmail } from "@/lib/stripe-connect-reuse-account";
+import {
+  collectKnownConnectAccountIdsForMember,
+  ensureConnectAccountMemberMetadata,
+  findExistingConnectAccountIdForEmail,
+  maybeDeleteEmptyDuplicateConnectAccount,
+} from "@/lib/stripe-connect-reuse-account";
 import {
   resolveMarketplaceStripeSecretKey,
   STRIPE_MARKETPLACE_NOT_CONFIGURED_MESSAGE,
@@ -33,6 +38,15 @@ function stripeConnectAccountLinkUrls(baseUrl: string, mobilePath: string | null
     return_url: `${baseUrl}/app/stripe-connect-return?path=${enc}&success=1`,
     refresh_url: `${baseUrl}/app/stripe-connect-return?path=${enc}&refresh=1`,
   };
+}
+
+function isNoSuchAccount(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
+}
+
+function accountIsReadyForReuse(account: Stripe.Account): boolean {
+  return account.details_submitted === true || account.charges_enabled === true || account.payouts_enabled === true;
 }
 
 export async function POST(req: NextRequest) {
@@ -81,12 +95,8 @@ export async function POST(req: NextRequest) {
 
   const stripe = createMarketplaceStripe();
 
-  const isNoSuchAccount = (err: unknown) => {
-    const msg = err instanceof Error ? err.message : String(err);
-    return /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
-  };
-
   let accountId = member.stripeConnectAccountId;
+  const previouslyLinkedId = accountId;
 
   try {
     if (accountId) {
@@ -105,30 +115,48 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Prefer an existing marketplace Express account for this email (by balance) even if
+    const knownAccountIds = await collectKnownConnectAccountIdsForMember(prisma, stripe, userId).catch(
+      (err) => {
+        console.warn("[stripe/connect/onboard] known Connect id lookup failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return [] as string[];
+      }
+    );
+
+    // Prefer an existing marketplace Express account (by balance / history) even if
     // the member is already linked to a newer empty duplicate.
     const preferredId = await findExistingConnectAccountIdForEmail(stripe, member.email, {
       memberId: userId,
+      knownAccountIds,
     }).catch((err) => {
       console.warn("[stripe/connect/onboard] reuse lookup failed", {
         error: err instanceof Error ? err.message : String(err),
       });
       return null;
     });
+
     if (preferredId && preferredId !== accountId) {
-      console.info("[stripe/connect/onboard] reattaching preferred Connect account for email", {
+      console.info("[stripe/connect/onboard] reattaching preferred Connect account", {
         memberId: userId,
         previousAccountId: accountId,
         preferredAccountId: preferredId,
+        knownAccountIds,
       });
+      const emptyDuplicateId = accountId;
       accountId = preferredId;
       await prisma.member.update({
         where: { id: userId },
         data: { stripeConnectAccountId: accountId },
       });
+      await ensureConnectAccountMemberMetadata(stripe, accountId, userId);
+      await maybeDeleteEmptyDuplicateConnectAccount(stripe, emptyDuplicateId, accountId);
+    } else if (preferredId && preferredId === accountId) {
+      await ensureConnectAccountMemberMetadata(stripe, accountId, userId);
     }
 
     if (!accountId) {
+      // True first-time seller on this marketplace platform only.
       const account = await stripe.accounts.create({
         type: "express",
         country: "US",
@@ -141,7 +169,6 @@ export async function POST(req: NextRequest) {
         },
       });
       accountId = account.id;
-      // Prefill representative so Stripe doesn't ask for name again during onboarding
       if (member.firstName?.trim() || member.lastName?.trim()) {
         await stripe.accounts.createPerson(accountId, {
           first_name: (member.firstName ?? "").trim() || undefined,
@@ -152,6 +179,27 @@ export async function POST(req: NextRequest) {
       await prisma.member.update({
         where: { id: userId },
         data: { stripeConnectAccountId: accountId },
+      });
+    }
+
+    const account = await stripe.accounts.retrieve(accountId);
+
+    // Existing funded / completed Express account: reconnect in-app only.
+    // Do not send them through Account Link onboarding (that path created empty duplicates
+    // when Stripe identity login landed on a different Express profile).
+    if (accountIsReadyForReuse(account)) {
+      await ensureConnectAccountMemberMetadata(stripe, accountId, userId);
+      if (previouslyLinkedId && previouslyLinkedId !== accountId) {
+        await maybeDeleteEmptyDuplicateConnectAccount(stripe, previouslyLinkedId, accountId);
+      }
+      console.info("[stripe/connect/onboard] reused existing Connect account without new onboarding", {
+        memberId: userId,
+        accountId,
+      });
+      return NextResponse.json({
+        url: return_url,
+        reused: true,
+        accountId,
       });
     }
 
@@ -175,11 +223,12 @@ export async function POST(req: NextRequest) {
         });
         const existingId = await findExistingConnectAccountIdForEmail(stripe, member.email, {
           memberId: userId,
+          knownAccountIds,
         }).catch(() => null);
-        if (existingId && existingId !== accountId) {
+        if (existingId) {
           accountId = existingId;
         } else {
-          const account = await stripe.accounts.create({
+          const created = await stripe.accounts.create({
             type: "express",
             country: "US",
             email: member.email,
@@ -190,7 +239,7 @@ export async function POST(req: NextRequest) {
               transfers: { requested: true },
             },
           });
-          accountId = account.id;
+          accountId = created.id;
           if (member.firstName?.trim() || member.lastName?.trim()) {
             await stripe.accounts.createPerson(accountId, {
               first_name: (member.firstName ?? "").trim() || undefined,
@@ -203,6 +252,17 @@ export async function POST(req: NextRequest) {
           where: { id: userId },
           data: { stripeConnectAccountId: accountId },
         });
+        await ensureConnectAccountMemberMetadata(stripe, accountId, userId);
+
+        const recovered = await stripe.accounts.retrieve(accountId);
+        if (accountIsReadyForReuse(recovered)) {
+          return NextResponse.json({
+            url: return_url,
+            reused: true,
+            accountId,
+          });
+        }
+
         accountLink = await stripe.accountLinks.create({
           account: accountId,
           refresh_url,

@@ -3,6 +3,12 @@ import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { prismaWhereMemberSellerOrSubscribeAccess } from "@/lib/nwc-paid-subscription";
 import { createMarketplaceStripe } from "@/lib/stripe-clients";
+import {
+  collectKnownConnectAccountIdsForMember,
+  ensureConnectAccountMemberMetadata,
+  findExistingConnectAccountIdForEmail,
+  maybeDeleteEmptyDuplicateConnectAccount,
+} from "@/lib/stripe-connect-reuse-account";
 
 export const dynamic = "force-dynamic";
 
@@ -22,19 +28,46 @@ export async function GET(req: NextRequest) {
 
   const member = await prisma.member.findUnique({
     where: { id: userId },
-    select: { stripeConnectAccountId: true },
+    select: { stripeConnectAccountId: true, email: true },
   });
-  if (!member?.stripeConnectAccountId?.trim()) {
-    return NextResponse.json(
-      { error: "Complete Stripe Connect setup first" },
-      { status: 400 }
-    );
+  if (!member) {
+    return NextResponse.json({ error: "Member not found" }, { status: 404 });
   }
 
   const stripe = createMarketplaceStripe();
 
+  let accountId = member.stripeConnectAccountId?.trim() || null;
+
   try {
-    const loginLink = await stripe.accounts.createLoginLink(member.stripeConnectAccountId);
+    const knownAccountIds = await collectKnownConnectAccountIdsForMember(prisma, stripe, userId).catch(
+      () => [] as string[]
+    );
+    const preferredId = await findExistingConnectAccountIdForEmail(stripe, member.email, {
+      memberId: userId,
+      knownAccountIds,
+    }).catch(() => null);
+
+    // Only heal when already linked (avoid undoing an intentional disconnect).
+    if (accountId && preferredId && preferredId !== accountId) {
+      const emptyDuplicateId = accountId;
+      accountId = preferredId;
+      await prisma.member.update({
+        where: { id: userId },
+        data: { stripeConnectAccountId: accountId },
+      });
+      await ensureConnectAccountMemberMetadata(stripe, accountId, userId);
+      await maybeDeleteEmptyDuplicateConnectAccount(stripe, emptyDuplicateId, accountId);
+    }
+
+    if (!accountId) {
+      return NextResponse.json(
+        { error: "Complete Stripe Connect setup first" },
+        { status: 400 }
+      );
+    }
+
+    await ensureConnectAccountMemberMetadata(stripe, accountId, userId);
+    const loginLink = await stripe.accounts.createLoginLink(accountId);
     return NextResponse.json({ url: loginLink.url });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to create dashboard link";
