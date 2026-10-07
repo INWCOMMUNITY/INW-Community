@@ -11,6 +11,7 @@ import { wixMapsCoverActiveCombinations } from "./project-inventory";
 import {
   expandRemoteVariantsFromProductOptions,
   inwOptionsAheadOfWix,
+  wixPullWouldRestoreSellerEdit,
   onHandForPulledCombo,
   pullWouldDropLocalStock,
   sellerFieldsForPulledCombo,
@@ -336,6 +337,32 @@ describe("inwOptionsAheadOfWix", () => {
       })
     ).toBe(false);
   });
+
+  it("does not copy a deleted INW option back from Wix while that edit is still unpushed", () => {
+    expect(
+      wixPullWouldRestoreSellerEdit({
+        topologyPending: true,
+        appliedMatchesLocal: false,
+        localAxes: ["primary color", "size"],
+        remoteAxes: ["primary color", "size", "material"],
+        localComboCount: 6,
+        remoteComboCount: 12,
+      })
+    ).toBe(true);
+  });
+
+  it("does not copy a removed option back when INW already saved the smaller set", () => {
+    expect(
+      wixPullWouldRestoreSellerEdit({
+        topologyPending: false,
+        appliedMatchesLocal: true,
+        localAxes: ["primary color", "size"],
+        remoteAxes: ["primary color", "size", "material"],
+        localComboCount: 6,
+        remoteComboCount: 12,
+      })
+    ).toBe(true);
+  });
 });
 
 describe("sellerFieldsForPulledCombo", () => {
@@ -418,7 +445,7 @@ describe("wix topology health", () => {
     expect(
       stickyWixDivergenceIssue({
         issueCode: "TOPOLOGY_PUSH_FAILED",
-        issueMessage: "Wix did not accept the new option. The listing on Wix still has the old options.",
+        issueMessage: "Saved on INW. Wix kept its previous options and did not add the new one.",
         productContentConflict: false,
         contentPending: false,
         inventoryPending: false,

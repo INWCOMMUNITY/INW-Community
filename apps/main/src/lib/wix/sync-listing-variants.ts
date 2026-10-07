@@ -6,6 +6,7 @@ import {
   refreshWixListingHealthFromDb,
   replaceWixListingVariantMaps,
   trackedAvailable,
+  wixTopologyDesirePending,
   wixTopologyFingerprint,
   type WixJobHandlerResult,
   type WixVariantMappingInput,
@@ -160,6 +161,28 @@ export function inwOptionsAheadOfWix(input: {
   const remote = new Set(input.remoteAxes.map((name) => name.trim().toLowerCase()));
   if (input.localAxes.some((name) => !remote.has(name.trim().toLowerCase()))) return true;
   return input.localComboCount > input.remoteComboCount;
+}
+
+/**
+ * A saved INW option edit, including a deleted axis or choice, must not be replaced by Wix.
+ * Wix still having the removed option is the usual case right after that delete.
+ * Once INW has already recorded this exact option set, a larger Wix matrix is a failed
+ * delete (or a later Wix edit that must not wipe the saved listing).
+ */
+export function wixPullWouldRestoreSellerEdit(input: {
+  topologyPending: boolean;
+  appliedMatchesLocal: boolean;
+  localAxes: string[];
+  remoteAxes: string[];
+  localComboCount: number;
+  remoteComboCount: number;
+}): boolean {
+  if (input.topologyPending) return true;
+  const wixHasMore =
+    input.remoteAxes.length > input.localAxes.length ||
+    input.remoteComboCount > input.localComboCount;
+  if (input.appliedMatchesLocal && wixHasMore) return true;
+  return inwOptionsAheadOfWix(input);
 }
 
 /** Price and SKU to keep when Wix adds a combination that extends an existing INW row. */
@@ -555,20 +578,29 @@ export async function syncWixListingVariantTopology(input: {
     optionAxisNames(activeRemoteVariants, true).length
   );
   const localAxisNames = optionAxisNames(local, false);
-  const localAxisCount = localAxisNames.length;
   const remoteAxisList = [
     ...new Set([
       ...catalogAxes.map((axis) => axis.name.trim().toLowerCase()),
       ...optionAxisNames(activeRemoteVariants, true),
     ]),
   ];
+  const listingTopology = await prisma.wixListingLink.findUnique({
+    where: { id: input.listingLinkId },
+    select: { topologyDesiredFingerprint: true, topologyAppliedFingerprint: true },
+  });
+  const topologyPending = listingTopology ? wixTopologyDesirePending(listingTopology) : false;
+  const appliedMatchesLocal =
+    listingTopology?.topologyAppliedFingerprint != null &&
+    listingTopology.topologyAppliedFingerprint === wixTopologyFingerprint(local);
 
   if (input.direction === "pull") {
     if (remoteAxisCount > WIX_MAX_OPTION_AXES) {
       return { status: "SKIPPED", reason: "TOO_MANY_AXES", pairCount: maps.length };
     }
     if (
-      inwOptionsAheadOfWix({
+      wixPullWouldRestoreSellerEdit({
+        topologyPending,
+        appliedMatchesLocal,
         localAxes: localAxisNames,
         remoteAxes: remoteAxisList,
         localComboCount: localKeys.length,
@@ -587,11 +619,7 @@ export async function syncWixListingVariantTopology(input: {
     });
   }
 
-  if (!structureDiverged && !input.forcePush) {
-    return { status: "NOOP", pairCount: maps.length };
-  }
-  // Wix already has an axis INW does not. Pull adopts it; do not write the older matrix back.
-  if (remoteAxisCount > localAxisCount && remoteAxisCount > 0) {
+  if (!structureDiverged && !input.forcePush && !topologyPending) {
     return { status: "NOOP", pairCount: maps.length };
   }
 
@@ -608,6 +636,7 @@ export async function syncWixListingVariantTopology(input: {
   const patchBody = isV1
     ? {
         product: {
+          id: input.wixProductId,
           manageVariants: productOptions.length > 0,
           ...(productOptions.length > 0
             ? { productOptions }
@@ -667,6 +696,72 @@ export async function syncWixListingVariantTopology(input: {
     };
   }
 
+  // Write INW prices before checking the option set. A delete used to stop here, so the
+  // remaining combinations kept Wix prices and the removed choice was never cleared.
+  let after = await loadWixCatalogVariants({
+    isV1,
+    productId: input.wixProductId,
+    fallback:
+      patch.data?.product?.variants ??
+      patch.data?.product?.variantsInfo?.variants ??
+      [],
+    config,
+    accessToken,
+  });
+  if (!after.ok) return after.failure;
+  let afterRemote = after.variants;
+  if (isV1 && productOptions.length > 0) {
+    const localByKey = new Map(
+      local.map((variant) => [choiceKey(asChoiceRecord(variant.options)), variant] as const)
+    );
+    const fallbackCents =
+      local.find((row) => row.priceCents > 0)?.priceCents ?? (await facadePrice(input.storeItemId));
+    const pushRows: Array<{
+      options: Record<string, string>;
+      priceCents: number;
+      sku: string | null;
+      visible: boolean;
+    }> = local.map((variant) => ({
+      options: asChoiceRecord(variant.options),
+      priceCents: variant.priceCents,
+      sku: variant.sku,
+      visible: true,
+    }));
+    for (const remote of afterRemote) {
+      const options = remoteChoicesOf(remote);
+      if (Object.keys(options).length < 1) continue;
+      if (localByKey.has(choiceKey(options))) continue;
+      // A removed axis or choice must not be written back. Hide only combos that still exist
+      // on the option set INW just saved.
+      if (!choicesBelongToProductOptions(options, productOptions)) continue;
+      pushRows.push({
+        options,
+        priceCents:
+          priceToCents(remote.priceData?.price) ??
+          priceToCents(remote.variant?.priceData?.price) ??
+          fallbackCents,
+        sku: typeof remote.sku === "string" ? remote.sku : null,
+        visible: false,
+      });
+    }
+    const wrote = await pushWixV1VariantChoices({
+      productId: input.wixProductId,
+      variants: pushRows,
+      config,
+      accessToken,
+    });
+    if (wrote) return wrote;
+    after = await loadWixCatalogVariants({
+      isV1,
+      productId: input.wixProductId,
+      fallback: afterRemote,
+      config,
+      accessToken,
+    });
+    if (!after.ok) return after.failure;
+    afterRemote = after.variants.filter((variant) => remoteVariantVisible(variant));
+  }
+
   const confirmed = await wixApplicationRequest<{
     product?: {
       productOptions?: WixProductOption[];
@@ -703,78 +798,13 @@ export async function syncWixListingVariantTopology(input: {
     axesFromCatalogProduct(confirmed.data.product),
     axesFromRemoteVariants(confirmedVariants)
   );
-  if (!localAxesConfirmed(local, confirmedAxes)) {
-    await markTopologyPushFailed(input.listingLinkId);
+  if (!remoteAxesMatchLocal(local, confirmedAxes)) {
     return {
-      outcome: "DEAD",
-      errorClass: "PERMANENT",
+      outcome: "RETRY",
+      errorClass: "TRANSIENT",
       errorCode: "TOPOLOGY_PUSH_FAILED",
-      errorMessage: "Wix did not accept the new option",
+      errorMessage: "Wix still has a different set of options than INW",
     };
-  }
-
-  // Re-read the variant matrix so a third axis is mapped, not only the product options.
-  let after = await loadWixCatalogVariants({
-    isV1,
-    productId: input.wixProductId,
-    fallback:
-      patch.data?.product?.variants ??
-      patch.data?.product?.variantsInfo?.variants ??
-      [],
-    config,
-    accessToken,
-  });
-  if (!after.ok) return after.failure;
-  let afterRemote = after.variants;
-  if (isV1 && productOptions.length > 0) {
-    // Always write price/SKU/visibility. Mapping success alone used to skip this and leave $1.00.
-    const localByKey = new Map(
-      local.map((variant) => [choiceKey(asChoiceRecord(variant.options)), variant] as const)
-    );
-    const fallbackCents =
-      local.find((row) => row.priceCents > 0)?.priceCents ?? (await facadePrice(input.storeItemId));
-    const pushRows: Array<{
-      options: Record<string, string>;
-      priceCents: number;
-      sku: string | null;
-      visible: boolean;
-    }> = local.map((variant) => ({
-      options: asChoiceRecord(variant.options),
-      priceCents: variant.priceCents,
-      sku: variant.sku,
-      visible: true,
-    }));
-    for (const remote of afterRemote) {
-      const options = remoteChoicesOf(remote);
-      if (Object.keys(options).length < 1) continue;
-      if (localByKey.has(choiceKey(options))) continue;
-      // INW turned this combo off (or never sells it). Keep the Wix row but hide it.
-      pushRows.push({
-        options,
-        priceCents:
-          priceToCents(remote.priceData?.price) ??
-          priceToCents(remote.variant?.priceData?.price) ??
-          fallbackCents,
-        sku: typeof remote.sku === "string" ? remote.sku : null,
-        visible: false,
-      });
-    }
-    const wrote = await pushWixV1VariantChoices({
-      productId: input.wixProductId,
-      variants: pushRows,
-      config,
-      accessToken,
-    });
-    if (wrote) return wrote;
-    after = await loadWixCatalogVariants({
-      isV1,
-      productId: input.wixProductId,
-      fallback: afterRemote,
-      config,
-      accessToken,
-    });
-    if (!after.ok) return after.failure;
-    afterRemote = after.variants.filter((variant) => remoteVariantVisible(variant));
   }
 
   const mapped = mapStoreVariantsToWix(local, afterRemote, input.wixProductId);
@@ -981,7 +1011,29 @@ async function pullTopology(input: {
 }
 
 const TOPOLOGY_PUSH_FAILED_MESSAGE =
-  "Wix did not accept the new option. The listing on Wix still has the old options.";
+  "Saved on INW. Wix kept its previous options and did not add the new one.";
+
+function choicesBelongToProductOptions(
+  options: Record<string, string>,
+  productOptions: Array<{ name: string; choices: Array<{ value?: string; description?: string }> }>
+): boolean {
+  const allowed = new Map<string, Set<string>>();
+  for (const option of productOptions) {
+    const name = option.name.trim().toLowerCase();
+    if (!name) continue;
+    const values = allowed.get(name) ?? new Set<string>();
+    for (const choice of option.choices) {
+      const value = (choice.value || choice.description || "").trim().toLowerCase();
+      if (value) values.add(value);
+    }
+    allowed.set(name, values);
+  }
+  const entries = Object.entries(options);
+  if (entries.length === 0) return false;
+  return entries.every(([name, value]) =>
+    allowed.get(name.trim().toLowerCase())?.has(value.trim().toLowerCase())
+  );
+}
 
 function localAxesConfirmed(
   local: LocalVariant[],
@@ -1002,6 +1054,37 @@ function localAxesConfirmed(
     const remoteValues = new Set(remote.values.map((value) => value.trim().toLowerCase()));
     for (const value of values) {
       if (!remoteValues.has(value)) return false;
+    }
+  }
+  return true;
+}
+
+/** Wix must end on the same axes and choices INW saved, including after a delete. */
+function remoteAxesMatchLocal(
+  local: LocalVariant[],
+  remoteAxes: Array<{ name: string; values: string[] }>
+): boolean {
+  const needed = new Map<string, Set<string>>();
+  for (const variant of local) {
+    for (const [name, value] of Object.entries(asChoiceRecord(variant.options))) {
+      const key = name.trim().toLowerCase();
+      const values = needed.get(key) ?? new Set<string>();
+      values.add(value.trim().toLowerCase());
+      needed.set(key, values);
+    }
+  }
+  const present = remoteAxes.filter((axis) => axis.values.some((value) => value.trim()));
+  if (present.length !== needed.size) return false;
+  if (!localAxesConfirmed(local, present)) return false;
+  for (const axis of present) {
+    const values = needed.get(axis.name.trim().toLowerCase());
+    if (!values) return false;
+    const remoteValues = new Set(
+      axis.values.map((value) => value.trim().toLowerCase()).filter(Boolean)
+    );
+    if (remoteValues.size !== values.size) return false;
+    for (const value of remoteValues) {
+      if (!values.has(value)) return false;
     }
   }
   return true;

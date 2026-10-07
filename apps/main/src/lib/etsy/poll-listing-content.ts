@@ -3,6 +3,7 @@ import {
   applyEtsyListingInventoryInbound,
   buildEtsyInboundAspects,
   enqueueEtsySyncJob,
+  recordWixListingVariantTopologyDesire,
   etsyCentsFromMoney,
   markEtsyListingContentPollComplete,
   normalizeEtsyTags,
@@ -254,10 +255,16 @@ export async function handleEtsyPollListingContentJob(
     };
   }
 
+  const payload = claim.payload as { afterId?: string } | null;
+  const afterId = typeof payload?.afterId === "string" ? payload.afterId : "";
+  const pageSize = deps.maxListings ?? MAX_LISTINGS_PER_POLL;
   const links = await prisma.etsyListingLink.findMany({
-    where: { etsyConnectionId: connection.id },
-    orderBy: { updatedAt: "asc" },
-    take: deps.maxListings ?? MAX_LISTINGS_PER_POLL,
+    where: {
+      etsyConnectionId: connection.id,
+      ...(afterId ? { id: { gt: afterId } } : {}),
+    },
+    orderBy: { id: "asc" },
+    take: pageSize + 1,
     select: {
       id: true,
       etsyListingId: true,
@@ -266,6 +273,8 @@ export async function handleEtsyPollListingContentJob(
       remoteListingState: true,
     },
   });
+  const hasMore = links.length > pageSize;
+  if (hasMore) links.pop();
 
   for (const link of links) {
     const fetched = await fetchRemoteObservation({
@@ -383,6 +392,12 @@ export async function handleEtsyPollListingContentJob(
         if (isSyncEtsyVariantTopologyFailure(synced) && synced.outcome === "RETRY") {
           return synced;
         }
+        if (!isSyncEtsyVariantTopologyFailure(synced) && synced.status === "PULLED") {
+          await recordWixListingVariantTopologyDesire(prisma, {
+            memberId: connection.memberId,
+            storeItemId: link.storeItemId,
+          }).catch(() => undefined);
+        }
       }
     }
 
@@ -429,6 +444,23 @@ export async function handleEtsyPollListingContentJob(
         }
       }
     }
+  }
+
+  if (hasMore) {
+    const lastId = links[links.length - 1]?.id;
+    if (lastId) {
+      try {
+        await enqueueEtsySyncJob(prisma, {
+          etsyConnectionId: connection.id,
+          kind: "POLL_LISTING_CONTENT",
+          dedupeKey: `POLL_LISTING_CONTENT:${connection.id}:after:${lastId}`,
+          payload: { connectionId: connection.id, afterId: lastId },
+        });
+      } catch {
+        // The next page is already queued.
+      }
+    }
+    return { outcome: "SUCCESS" };
   }
 
   await markEtsyListingContentPollComplete(prisma, {

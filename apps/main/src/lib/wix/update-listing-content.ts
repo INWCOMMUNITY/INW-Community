@@ -2,6 +2,7 @@ import {
   markWixVariantContentApplied,
   prisma,
   refreshWixListingHealthFromDb,
+  wixTopologyDesirePending,
   wixVariantContentFingerprint,
   type WixJobHandlerResult,
   type WixSyncJobClaim,
@@ -116,6 +117,9 @@ export async function handleWixUpdateListingContentJob(
   try {
     if (productPending) {
       const priceValue = (item.priceCents / 100).toFixed(2);
+      // A product-level price rewrite flattens every variant price. Leave that to the
+      // option push while a saved option edit is still waiting on Wix.
+      const writeProductPrice = !wixTopologyDesirePending(link);
       const photos = photoUrls(item.photos);
       const media = photos.length > 0 ? { items: photos.map((url) => ({ image: { url } })) } : undefined;
       const result = await wixApplicationRequest({
@@ -125,9 +129,13 @@ export async function handleWixUpdateListingContentJob(
           product: {
             name: item.title,
             description: item.description || "",
-            priceData: isV1
-              ? { price: parseFloat(priceValue) }
-              : { price: priceValue },
+            ...(writeProductPrice
+              ? {
+                  priceData: isV1
+                    ? { price: parseFloat(priceValue) }
+                    : { price: priceValue },
+                }
+              : {}),
             ...(media ? { media } : {}),
           },
         }),
@@ -177,6 +185,15 @@ export async function handleWixUpdateListingContentJob(
           issueMessage: null,
         },
       });
+    }
+
+    if (dirtyVariantMaps.length > 0 && isV1 && wixTopologyDesirePending(link)) {
+      return {
+        outcome: "RETRY",
+        errorClass: "TRANSIENT",
+        errorCode: "TOPOLOGY_PENDING",
+        errorMessage: "Waiting until Wix options match INW before pushing variant prices",
+      };
     }
 
     if (dirtyVariantMaps.length > 0 && isV1) {

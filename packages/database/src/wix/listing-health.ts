@@ -204,7 +204,7 @@ function humanizeWixErrorMessage(errorCode: string, rawMessage: string | null): 
     INVENTORY_UNREADABLE: "Wix quantities could not be read",
     TOPOLOGY_UNREADABLE: "Wix options could not be read, so quantities were left unchanged",
     OPTION_AXIS_LIMIT: "Wix listings support at most 3 option types (for example Size, Color, and Material).",
-    TOPOLOGY_PUSH_FAILED: "Wix did not accept the new option. The listing on Wix still has the old options.",
+    TOPOLOGY_PUSH_FAILED: "Saved on INW. Wix kept its previous options and did not add the new one.",
     CONTENT_CONFLICT: "INW and Wix both changed this listing. Edit on INW to choose the version you want.",
     THROTTLED: "Sync is temporarily paused due to rate limits",
     TRANSIENT: "Sync will retry automatically",

@@ -34,6 +34,19 @@ async function handle(req: NextRequest) {
   });
 
   const results: Array<{ jobId: string; finalized: boolean; outcome: string }> = [];
+  // Inbound listing edits must not wait behind outbound inventory and content jobs.
+  for (let i = 0; i < 4; i += 1) {
+    const ran = await runNextEtsySyncJob({
+      workerId: `cron-etsy-poll-${i}`,
+      kind: "POLL_LISTING_CONTENT",
+    });
+    if (!ran.claimed) break;
+    results.push({
+      jobId: ran.jobId,
+      finalized: ran.finalized,
+      outcome: ran.result.outcome,
+    });
+  }
   for (let i = 0; i < 40; i += 1) {
     const ran = await runNextEtsySyncJob({ workerId: `cron-etsy-${i}` });
     if (!ran.claimed) break;

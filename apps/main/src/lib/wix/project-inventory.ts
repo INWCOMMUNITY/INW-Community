@@ -95,6 +95,18 @@ export async function handleWixProjectInventoryJob(
     return { outcome: "SUCCESS" };
   }
 
+  const topologyPending =
+    link.topologyDesiredFingerprint != null &&
+    link.topologyDesiredFingerprint !== link.topologyAppliedFingerprint;
+  if (topologyPending) {
+    return {
+      outcome: "RETRY",
+      errorClass: "TRANSIENT",
+      errorCode: "TOPOLOGY_PENDING",
+      errorMessage: "Waiting until Wix options match INW before pushing quantities",
+    };
+  }
+
   const activeVariants = await prisma.storeVariant.findMany({
     where: { storeItemId: link.storeItemId, memberId: link.memberId, status: "ACTIVE" },
     select: { id: true, options: true },
@@ -104,15 +116,10 @@ export async function handleWixProjectInventoryJob(
     select: { storeVariantId: true },
   });
   if (!wixMapsCoverActiveCombinations(activeVariants, allMaps)) {
-    const topologyPending =
-      link.topologyDesiredFingerprint != null &&
-      link.topologyDesiredFingerprint !== link.topologyAppliedFingerprint;
-    if (!topologyPending) {
-      await noteInventoryAttention(
-        link.id,
-        "Wix is missing option combinations, so quantities were not pushed."
-      );
-    }
+    await noteInventoryAttention(
+      link.id,
+      "Wix is missing option combinations, so quantities were not pushed."
+    );
     return {
       outcome: "RETRY",
       errorClass: "TRANSIENT",

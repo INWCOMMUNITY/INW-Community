@@ -174,7 +174,7 @@ export async function enqueueEtsySyncJob(
  */
 export async function claimNextEtsySyncJob(
   db: PrismaClient,
-  input: { workerId: string; leaseMs?: number; now?: Date }
+  input: { workerId: string; leaseMs?: number; now?: Date; kind?: string }
 ): Promise<EtsySyncJobClaim | null> {
   const now = input.now ?? new Date();
   const leaseMs = input.leaseMs ?? DEFAULT_LEASE_MS;
@@ -186,6 +186,7 @@ export async function claimNextEtsySyncJob(
       SELECT id
       FROM etsy_sync_job
       WHERE next_attempt_at <= ${now}
+        AND (${input.kind ?? ""} = '' OR kind = CAST(${input.kind ?? "POLL_LISTING_CONTENT"} AS etsy_sync_job_kind))
         AND (
           state = CAST('PENDING' AS etsy_sync_job_state)
           OR state = CAST('RETRY_WAIT' AS etsy_sync_job_state)

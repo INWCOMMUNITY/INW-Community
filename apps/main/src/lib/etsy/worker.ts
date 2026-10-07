@@ -35,6 +35,7 @@ export async function runNextEtsySyncJob(input?: {
   handlers?: Partial<Record<string, EtsyJobHandler>>;
   leaseMs?: number;
   now?: Date;
+  kind?: string;
 }): Promise<
   | { claimed: false }
   | { claimed: true; jobId: string; finalized: boolean; result: EtsyJobHandlerResult }
@@ -44,6 +45,7 @@ export async function runNextEtsySyncJob(input?: {
     workerId,
     leaseMs: input?.leaseMs,
     now: input?.now,
+    kind: input?.kind,
   });
   if (!claim) return { claimed: false };
 
