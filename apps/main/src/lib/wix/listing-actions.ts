@@ -2,6 +2,7 @@ import {
   captureWixInventoryProjectionDesire,
   deleteWixListingMapping,
   enqueueWixSyncJob,
+  WixSyncJobConflictError,
   ensureWixProjectInventoryJob,
   hasUnprojectedWixInventoryDesires,
   lookupWixListingByStoreItem,
@@ -253,20 +254,34 @@ export async function reconcileWixListing(input: {
     return { enqueued: false };
   }
 
-  await enqueueWixSyncJob(prisma, {
-    wixConnectionId: link.wixConnectionId,
-    kind: "POLL_LISTING_CONTENT",
-    dedupeKey: `POLL_LISTING_CONTENT:${link.id}`,
-    payload: { listingLinkId: link.id },
-    nextAttemptAt: new Date(),
-  });
-  await enqueueWixSyncJob(prisma, {
-    wixConnectionId: link.wixConnectionId,
-    kind: "RECONCILE_LISTING",
-    dedupeKey: `RECONCILE_LISTING:${link.id}`,
-    payload: { listingLinkId: link.id },
-    nextAttemptAt: new Date(),
-  });
+  const topologyPending =
+    link.topologyDesiredFingerprint != null &&
+    link.topologyDesiredFingerprint !== link.topologyAppliedFingerprint;
+
+  try {
+    await enqueueWixSyncJob(prisma, {
+      wixConnectionId: link.wixConnectionId,
+      kind: "RECONCILE_LISTING",
+      dedupeKey: `RECONCILE_LISTING:${link.id}:topo-push`,
+      payload: { listingLinkId: link.id, pushTopology: true },
+      nextAttemptAt: new Date(),
+    });
+  } catch (error) {
+    if (!(error instanceof WixSyncJobConflictError)) throw error;
+  }
+  if (!topologyPending) {
+    try {
+      await enqueueWixSyncJob(prisma, {
+        wixConnectionId: link.wixConnectionId,
+        kind: "POLL_LISTING_CONTENT",
+        dedupeKey: `POLL_LISTING_CONTENT:${link.id}`,
+        payload: { listingLinkId: link.id },
+        nextAttemptAt: new Date(),
+      });
+    } catch (error) {
+      if (!(error instanceof WixSyncJobConflictError)) throw error;
+    }
+  }
 
   return { enqueued: true };
 }

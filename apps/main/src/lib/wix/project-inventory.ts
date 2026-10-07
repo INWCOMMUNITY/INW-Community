@@ -95,6 +95,32 @@ export async function handleWixProjectInventoryJob(
     return { outcome: "SUCCESS" };
   }
 
+  const activeVariants = await prisma.storeVariant.findMany({
+    where: { storeItemId: link.storeItemId, memberId: link.memberId, status: "ACTIVE" },
+    select: { id: true, options: true },
+  });
+  const allMaps = await prisma.wixVariantMap.findMany({
+    where: { wixListingLinkId: link.id },
+    select: { storeVariantId: true },
+  });
+  if (!wixMapsCoverActiveCombinations(activeVariants, allMaps)) {
+    const topologyPending =
+      link.topologyDesiredFingerprint != null &&
+      link.topologyDesiredFingerprint !== link.topologyAppliedFingerprint;
+    if (!topologyPending) {
+      await noteInventoryAttention(
+        link.id,
+        "Wix is missing option combinations, so quantities were not pushed."
+      );
+    }
+    return {
+      outcome: "RETRY",
+      errorClass: "TRANSIENT",
+      errorCode: "MATRIX_INCOMPLETE",
+      errorMessage: "Wix variant maps do not cover every INW option combination",
+    };
+  }
+
   const variantIds = unprojectedMaps.map((m) => m.storeVariantId);
   const inventoryStates = await prisma.inventoryState.findMany({
     where: { variantId: { in: variantIds } },
@@ -212,6 +238,18 @@ export async function handleWixProjectInventoryJob(
  * Rows already saved at 0 are left at 0. They are reported as diverged so the
  * hub can show Needs attention until the seller enters a real quantity.
  */
+/** Every active option combination must have a Wix variant map before quantities are written. */
+export function wixMapsCoverActiveCombinations(
+  active: Array<{ id: string; options: unknown }>,
+  maps: Array<{ storeVariantId: string }>
+): boolean {
+  const withOptions = active.filter((variant) => Object.keys(choiceRecord(variant.options)).length > 0);
+  const required = withOptions.length > 0 ? withOptions : active;
+  if (required.length === 0) return true;
+  const mapped = new Set(maps.map((map) => map.storeVariantId));
+  return required.every((variant) => mapped.has(variant.id));
+}
+
 export async function alignWixInventoryWithInw(input: {
   listingLinkId: string;
   wixConnectionId: string;
@@ -219,7 +257,10 @@ export async function alignWixInventoryWithInw(input: {
   wixProductId: string;
   catalogVersion: string;
   instanceId: string;
-}): Promise<{ pushed: number; diverged: number; unreadable: number } | { error: string }> {
+}): Promise<
+  | { pushed: number; diverged: number; unreadable: number; matrixIncomplete?: boolean }
+  | { error: string }
+> {
   const config = readWixAppConfig();
   if (!config) return { error: "Wix is not configured" };
 
@@ -234,6 +275,20 @@ export async function alignWixInventoryWithInw(input: {
     where: { wixListingLinkId: input.listingLinkId },
   });
   if (maps.length === 0) return { pushed: 0, diverged: 0, unreadable: 0 };
+
+  const link = await prisma.wixListingLink.findUnique({
+    where: { id: input.listingLinkId },
+    select: { storeItemId: true },
+  });
+  if (link) {
+    const activeVariants = await prisma.storeVariant.findMany({
+      where: { storeItemId: link.storeItemId, memberId: input.memberId, status: "ACTIVE" },
+      select: { id: true, options: true },
+    });
+    if (!wixMapsCoverActiveCombinations(activeVariants, maps)) {
+      return { pushed: 0, diverged: 0, unreadable: 0, matrixIncomplete: true };
+    }
+  }
 
   const states = await prisma.inventoryState.findMany({
     where: { variantId: { in: maps.map((m) => m.storeVariantId) } },

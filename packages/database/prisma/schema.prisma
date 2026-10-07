@@ -3179,6 +3179,10 @@ model WixListingLink {
   productContentAppliedAt      DateTime? @map("product_content_applied_at")
   /// When the latest INW product content desire was recorded.
   productDesiredAt             DateTime? @map("product_desired_at")
+  /// INW option-axis fingerprint waiting to be written to Wix.
+  topologyDesiredFingerprint   String?   @map("topology_desired_fingerprint") @db.VarChar(64)
+  /// Option-axis fingerprint last confirmed on the Wix product.
+  topologyAppliedFingerprint   String?   @map("topology_applied_fingerprint") @db.VarChar(64)
   lastObservedProductFingerprint String?   @map("last_observed_product_fingerprint") @db.VarChar(64)
   lastObservedProductUpdatedAt   DateTime? @map("last_observed_product_updated_at")
   /// Unresolved dual-divergence product content conflict.

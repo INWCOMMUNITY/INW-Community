@@ -964,6 +964,7 @@ export {
   recordWixDeadJobIssue,
   refreshWixListingHealthFromDb,
   stickyWixDivergenceIssue,
+  wixTopologyDesirePending,
   toPublicWixListingStatus,
 } from "./wix/listing-health";
 export type {
@@ -1000,6 +1001,7 @@ export {
   normalizeWixPhotoUrls,
   normalizeWixTitle,
   wixProductContentFingerprint,
+  wixTopologyFingerprint,
   wixVariantContentFingerprint,
 } from "./wix/content-fingerprint";
 export { classifyWixContentSemantics } from "./wix/content-semantic";

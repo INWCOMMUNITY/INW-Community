@@ -1,6 +1,7 @@
 import {
   classifyWixListingHealth,
   enqueueWixSyncJob,
+  WixSyncJobConflictError,
   ensureWixProjectInventoryJob,
   hasUnprojectedWixInventoryDesires,
   markWixListingReconciled,
@@ -83,25 +84,6 @@ export async function handleWixReconcileListingJob(
     if (isSyncWixVariantTopologyFailure(synced)) {
       return synced;
     }
-    // Topology desire bumped content version — mark applied once options land.
-    const latest = await prisma.wixListingLink.findUnique({
-      where: { id: link.id },
-      select: { desiredProductContentVersion: true, appliedProductContentVersion: true },
-    });
-    if (latest) {
-      await prisma.wixListingLink.update({
-        where: { id: link.id },
-        data: {
-          appliedProductContentVersion: Math.max(
-            latest.appliedProductContentVersion,
-            latest.desiredProductContentVersion
-          ),
-          contentHealth: "HEALTHY",
-          issueCode: null,
-          issueMessage: null,
-        },
-      });
-    }
     await refreshWixListingHealthFromDb(prisma, link.id);
   }
 
@@ -154,6 +136,8 @@ export async function handleWixReconcileListingJob(
     if ("error" in aligned || aligned.unreadable > 0) {
       lastErrorCode = "INVENTORY_UNREADABLE";
       lastErrorMessage = "Wix quantities could not be read";
+    } else if (aligned.matrixIncomplete) {
+      lastErrorCode = null;
     } else if (aligned.diverged > 0) {
       lastErrorCode = "INVENTORY_MISMATCH";
       lastErrorMessage = "Wix quantities do not match INW";
@@ -193,12 +177,16 @@ export async function handleWixReconcileListingJob(
   );
   const productContentPending =
     refreshed.desiredProductContentVersion > refreshed.appliedProductContentVersion;
+  const topologyPending =
+    refreshed.topologyDesiredFingerprint != null &&
+    refreshed.topologyDesiredFingerprint !== refreshed.topologyAppliedFingerprint;
   const sticky = stickyWixDivergenceIssue({
     issueCode: refreshed.issueCode,
     issueMessage: refreshed.issueMessage,
     productContentConflict: refreshed.productContentConflict,
-    contentPending: productContentPending || variantContentPending,
+    contentPending: productContentPending || variantContentPending || topologyPending,
     inventoryPending: inventoryDesiredVersion > inventoryAppliedVersion,
+    topologyPending,
   });
   const effectiveErrorCode = lastErrorCode ?? sticky?.code ?? null;
   const effectiveErrorMessage = lastErrorCode ? lastErrorMessage : (sticky?.message ?? null);
@@ -210,6 +198,7 @@ export async function handleWixReconcileListingJob(
     contentDesiredVersion: refreshed.desiredProductContentVersion,
     contentAppliedVersion: refreshed.appliedProductContentVersion,
     variantContentPending,
+    topologyPending,
     inventoryDesiredVersion,
     inventoryAppliedVersion,
     lastErrorCode: effectiveErrorCode,
@@ -217,6 +206,18 @@ export async function handleWixReconcileListingJob(
   });
   await persistWixListingHealth(prisma, link.id, health);
 
+  if (refreshed.connection.status === "ACTIVE" && topologyPending && !payload.pushTopology) {
+    try {
+      await enqueueWixSyncJob(prisma, {
+        wixConnectionId: link.wixConnectionId,
+        kind: "RECONCILE_LISTING",
+        dedupeKey: `RECONCILE_LISTING:${link.id}:topo-push`,
+        payload: { listingLinkId: link.id, pushTopology: true },
+      });
+    } catch (error) {
+      if (!(error instanceof WixSyncJobConflictError)) throw error;
+    }
+  }
   if (refreshed.connection.status === "ACTIVE" && (productContentPending || variantContentPending)) {
     await enqueueWixSyncJob(prisma, {
       wixConnectionId: link.wixConnectionId,

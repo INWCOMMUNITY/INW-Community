@@ -80,7 +80,8 @@ export async function runNextWixSyncJob(input?: {
     if (
       claim.kind === "UPDATE_LISTING_CONTENT" ||
       claim.kind === "PROJECT_INVENTORY" ||
-      claim.kind === "CREATE_LISTING"
+      claim.kind === "CREATE_LISTING" ||
+      claim.kind === "RECONCILE_LISTING"
     ) {
       const payload = claim.payload as { listingLinkId?: string; storeItemId?: string } | null;
       await recordWixDeadJobIssue(prisma, {

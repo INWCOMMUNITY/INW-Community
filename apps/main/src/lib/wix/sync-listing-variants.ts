@@ -3,8 +3,10 @@ import {
   captureWixInventoryProjectionDesire,
   ensureWixProjectInventoryJob,
   prisma,
+  refreshWixListingHealthFromDb,
   replaceWixListingVariantMaps,
   trackedAvailable,
+  wixTopologyFingerprint,
   type WixJobHandlerResult,
   type WixVariantMappingInput,
 } from "database";
@@ -36,7 +38,7 @@ type RemoteVariant = {
 };
 
 export type SyncWixVariantTopologyResult =
-  | { status: "NOOP" | "PUSHED" | "PULLED"; pairCount: number }
+  | { status: "NOOP" | "PUSHED" | "PULLED" | "LOCAL_AHEAD"; pairCount: number }
   | { status: "SKIPPED"; reason: "CHOICES_UNPARSED" | "TOO_MANY_AXES"; pairCount: number }
   | Extract<WixJobHandlerResult, { outcome: "RETRY" | "DEAD" }>;
 
@@ -143,6 +145,39 @@ export function onHandForPulledCombo(
     }
   }
   return best?.onHand ?? null;
+}
+
+/**
+ * INW is ahead when it has an option axis Wix does not, or more combinations than Wix.
+ * A pull in that state would delete the seller's new axis and copy Wix prices back.
+ */
+export function inwOptionsAheadOfWix(input: {
+  localAxes: string[];
+  remoteAxes: string[];
+  localComboCount: number;
+  remoteComboCount: number;
+}): boolean {
+  const remote = new Set(input.remoteAxes.map((name) => name.trim().toLowerCase()));
+  if (input.localAxes.some((name) => !remote.has(name.trim().toLowerCase()))) return true;
+  return input.localComboCount > input.remoteComboCount;
+}
+
+/** Price and SKU to keep when Wix adds a combination that extends an existing INW row. */
+export function sellerFieldsForPulledCombo(
+  local: Array<Pick<LocalVariant, "options" | "priceCents" | "sku">>,
+  targetOptions: Record<string, string>
+): { priceCents: number; sku: string | null } | null {
+  let best: { shared: number; priceCents: number; sku: string | null } | null = null;
+  for (const variant of local) {
+    const options = asChoiceRecord(variant.options);
+    if (!combinationsRelated(options, targetOptions)) continue;
+    const shared = [...valueCounts(options).keys()].filter((value) => valueCounts(targetOptions).has(value))
+      .length;
+    if (!best || shared > best.shared) {
+      best = { shared, priceCents: variant.priceCents, sku: variant.sku };
+    }
+  }
+  return best ? { priceCents: best.priceCents, sku: best.sku } : null;
 }
 
 /** True when a stocked INW combination has no related Wix combo to carry the quantity. */
@@ -519,14 +554,30 @@ export async function syncWixListingVariantTopology(input: {
     catalogAxes.length,
     optionAxisNames(activeRemoteVariants, true).length
   );
-  const localAxisCount = optionAxisNames(local, false).length;
+  const localAxisNames = optionAxisNames(local, false);
+  const localAxisCount = localAxisNames.length;
+  const remoteAxisList = [
+    ...new Set([
+      ...catalogAxes.map((axis) => axis.name.trim().toLowerCase()),
+      ...optionAxisNames(activeRemoteVariants, true),
+    ]),
+  ];
 
   if (input.direction === "pull") {
     if (remoteAxisCount > WIX_MAX_OPTION_AXES) {
       return { status: "SKIPPED", reason: "TOO_MANY_AXES", pairCount: maps.length };
     }
-    // Wix-first on poll/reload: adopt fewer axes when Wix removed an option (Material → Color×Size).
-    // An INW-only push still goes through direction:"push" and writes the larger matrix back.
+    if (
+      inwOptionsAheadOfWix({
+        localAxes: localAxisNames,
+        remoteAxes: remoteAxisList,
+        localComboCount: localKeys.length,
+        remoteComboCount: remoteKeys.length,
+      })
+    ) {
+      return { status: "LOCAL_AHEAD", pairCount: maps.length };
+    }
+    // Wix added an axis or choice. Adopt that structure. Never pull when INW is the side ahead.
     if (!structureDiverged) return { status: "NOOP", pairCount: maps.length };
     return pullTopology({
       ...input,
@@ -607,11 +658,58 @@ export async function syncWixListingVariantTopology(input: {
         retryAt: patch.retryAfterMs ? new Date(Date.now() + patch.retryAfterMs) : undefined,
       };
     }
+    await markTopologyPushFailed(input.listingLinkId);
     return {
       outcome: "DEAD",
       errorClass: patch.class,
       errorCode: "TOPOLOGY_PUSH_FAILED",
       errorMessage: patch.message || "Could not update Wix product options",
+    };
+  }
+
+  const confirmed = await wixApplicationRequest<{
+    product?: {
+      productOptions?: WixProductOption[];
+      options?: unknown[];
+      variants?: RemoteVariant[];
+      variantsInfo?: { variants?: RemoteVariant[] };
+    };
+  }>({
+    method: "GET",
+    path: `${isV1 ? WIX_V1_PRODUCT_GET : WIX_V3_PRODUCTS}/${input.wixProductId}`,
+    deps: { config, accessToken, maxAttempts: 1 },
+  });
+  if (!confirmed.ok || !confirmed.data?.product) {
+    if (confirmed.class === "THROTTLED" || confirmed.class === "TRANSIENT" || confirmed.class === "NETWORK") {
+      return {
+        outcome: "RETRY",
+        errorClass: confirmed.class,
+        errorCode: confirmed.class,
+        errorMessage: confirmed.message,
+        retryAt: confirmed.retryAfterMs ? new Date(Date.now() + confirmed.retryAfterMs) : undefined,
+      };
+    }
+    await markTopologyPushFailed(input.listingLinkId);
+    return {
+      outcome: "DEAD",
+      errorClass: "PERMANENT",
+      errorCode: "TOPOLOGY_PUSH_FAILED",
+      errorMessage: "Wix did not confirm the new product options",
+    };
+  }
+  const confirmedVariants =
+    confirmed.data.product.variants ?? confirmed.data.product.variantsInfo?.variants ?? [];
+  const confirmedAxes = mergeAxes(
+    axesFromCatalogProduct(confirmed.data.product),
+    axesFromRemoteVariants(confirmedVariants)
+  );
+  if (!localAxesConfirmed(local, confirmedAxes)) {
+    await markTopologyPushFailed(input.listingLinkId);
+    return {
+      outcome: "DEAD",
+      errorClass: "PERMANENT",
+      errorCode: "TOPOLOGY_PUSH_FAILED",
+      errorMessage: "Wix did not accept the new option",
     };
   }
 
@@ -720,6 +818,7 @@ export async function syncWixListingVariantTopology(input: {
       desiredAvailable: available,
     });
   }
+  await markTopologyApplied(input.listingLinkId, wixTopologyFingerprint(local));
   await ensureWixProjectInventoryJob(prisma, {
     wixConnectionId: input.connectionId,
     listingLinkId: input.listingLinkId,
@@ -771,16 +870,23 @@ async function pullTopology(input: {
     .map((remote) => {
       const options = remoteChoicesOf(remote);
       if (Object.keys(options).length < 1 && optionedRemote.length > 1) return null;
-      const price =
+      const seller = sellerFieldsForPulledCombo(input.local, options);
+      const wixPrice =
         priceToCents(remote.priceData?.price) ??
         priceToCents(remote.variant?.priceData?.price) ??
         input.facadePriceCents;
+      const priceCents =
+        seller && seller.priceCents > 0
+          ? seller.priceCents
+          : wixPrice > 0
+            ? wixPrice
+            : input.facadePriceCents;
       return {
         fingerprint: matrixFingerprint(options),
         options,
         targetOnHand: 0,
-        priceCents: price > 0 ? price : input.facadePriceCents,
-        sku: typeof remote.sku === "string" ? remote.sku : null,
+        priceCents,
+        sku: seller ? seller.sku : typeof remote.sku === "string" ? remote.sku : null,
       };
     })
     .filter((row): row is NonNullable<typeof row> => row !== null);
@@ -859,5 +965,108 @@ async function pullTopology(input: {
   const maps = await prisma.wixVariantMap.count({
     where: { wixListingLinkId: input.listingLinkId },
   });
+  const adopted = await prisma.storeVariant.findMany({
+    where: { storeItemId: input.storeItemId, memberId: input.memberId, status: "ACTIVE" },
+    select: { options: true },
+  });
+  const fingerprint = wixTopologyFingerprint(adopted);
+  await prisma.wixListingLink.update({
+    where: { id: input.listingLinkId },
+    data: {
+      topologyDesiredFingerprint: fingerprint,
+      topologyAppliedFingerprint: fingerprint,
+    },
+  });
   return { status: "PULLED", pairCount: maps };
+}
+
+const TOPOLOGY_PUSH_FAILED_MESSAGE =
+  "Wix did not accept the new option. The listing on Wix still has the old options.";
+
+function localAxesConfirmed(
+  local: LocalVariant[],
+  remoteAxes: Array<{ name: string; values: string[] }>
+): boolean {
+  const needed = new Map<string, Set<string>>();
+  for (const variant of local) {
+    for (const [name, value] of Object.entries(asChoiceRecord(variant.options))) {
+      const key = name.trim().toLowerCase();
+      const values = needed.get(key) ?? new Set<string>();
+      values.add(value.trim().toLowerCase());
+      needed.set(key, values);
+    }
+  }
+  for (const [name, values] of needed) {
+    const remote = remoteAxes.find((axis) => axis.name.trim().toLowerCase() === name);
+    if (!remote) return false;
+    const remoteValues = new Set(remote.values.map((value) => value.trim().toLowerCase()));
+    for (const value of values) {
+      if (!remoteValues.has(value)) return false;
+    }
+  }
+  return true;
+}
+
+function mergeAxes(
+  left: Array<{ name: string; values: string[] }>,
+  right: Array<{ name: string; values: string[] }>
+): Array<{ name: string; values: string[] }> {
+  const byName = new Map<string, Set<string>>();
+  for (const axis of [...left, ...right]) {
+    const key = axis.name.trim().toLowerCase();
+    if (!key) continue;
+    const values = byName.get(key) ?? new Set<string>();
+    for (const value of axis.values) values.add(value);
+    byName.set(key, values);
+  }
+  return [...byName.entries()].map(([name, values]) => ({ name, values: [...values] }));
+}
+
+function axesFromRemoteVariants(variants: RemoteVariant[]): Array<{ name: string; values: string[] }> {
+  const axes = new Map<string, Set<string>>();
+  for (const variant of variants) {
+    for (const [name, value] of Object.entries(remoteChoicesOf(variant))) {
+      const key = name.trim().toLowerCase();
+      const values = axes.get(key) ?? new Set<string>();
+      values.add(value.trim().toLowerCase());
+      axes.set(key, values);
+    }
+  }
+  return [...axes.entries()].map(([name, values]) => ({ name, values: [...values] }));
+}
+
+async function markTopologyPushFailed(listingLinkId: string): Promise<void> {
+  const now = new Date();
+  await prisma.wixListingLink.update({
+    where: { id: listingLinkId },
+    data: {
+      issueCode: "TOPOLOGY_PUSH_FAILED",
+      issueMessage: TOPOLOGY_PUSH_FAILED_MESSAGE,
+      issueSeverity: "warning",
+      issueLastSeenAt: now,
+      readiness: "ACTION_REQUIRED",
+      contentHealth: "DEGRADED",
+    },
+  });
+  await refreshWixListingHealthFromDb(prisma, listingLinkId);
+}
+
+async function markTopologyApplied(listingLinkId: string, fingerprint: string): Promise<void> {
+  const link = await prisma.wixListingLink.findUnique({
+    where: { id: listingLinkId },
+    select: { topologyDesiredFingerprint: true, issueCode: true },
+  });
+  if (!link) return;
+  const desiredMatches = link.topologyDesiredFingerprint == null || link.topologyDesiredFingerprint === fingerprint;
+  await prisma.wixListingLink.update({
+    where: { id: listingLinkId },
+    data: {
+      topologyAppliedFingerprint: fingerprint,
+      ...(desiredMatches ? { topologyDesiredFingerprint: fingerprint } : {}),
+      ...(link.issueCode === "TOPOLOGY_PUSH_FAILED"
+        ? { issueCode: null, issueMessage: null, issueSeverity: null }
+        : {}),
+    },
+  });
+  await refreshWixListingHealthFromDb(prisma, listingLinkId);
 }

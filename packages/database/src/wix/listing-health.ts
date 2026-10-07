@@ -21,6 +21,8 @@ export type ClassifyWixListingHealthInput = {
   contentAppliedVersion: number;
   /** True when any mapped variant has unpushed price/SKU desire. */
   variantContentPending?: boolean;
+  /** True when INW option axes have not been confirmed on Wix. */
+  topologyPending?: boolean;
   inventoryDesiredVersion: number;
   inventoryAppliedVersion: number;
   lastErrorCode: string | null;
@@ -96,10 +98,11 @@ export function classifyWixListingHealth(
     };
   }
 
-  // Check content sync state (product + per-variant price/SKU)
+  // Check content sync state (product, per-variant price/SKU, and option axes)
   const contentPending =
     input.contentDesiredVersion > input.contentAppliedVersion ||
-    Boolean(input.variantContentPending);
+    Boolean(input.variantContentPending) ||
+    Boolean(input.topologyPending);
   const inventoryPending = input.inventoryDesiredVersion > input.inventoryAppliedVersion;
 
   if (contentPending || inventoryPending) {
@@ -132,6 +135,7 @@ function isDivergenceWixError(errorCode: string): boolean {
     errorCode === "INVENTORY_MISMATCH" ||
     errorCode === "INVENTORY_UNREADABLE" ||
     errorCode === "TOPOLOGY_UNREADABLE" ||
+    errorCode === "TOPOLOGY_PUSH_FAILED" ||
     errorCode === "OPTION_AXIS_LIMIT" ||
     errorCode === "CONTENT_CONFLICT"
   );
@@ -147,6 +151,7 @@ export function stickyWixDivergenceIssue(input: {
   productContentConflict: boolean;
   contentPending: boolean;
   inventoryPending: boolean;
+  topologyPending?: boolean;
 }): { code: string; message: string | null } | null {
   if (input.productContentConflict) {
     return {
@@ -156,11 +161,12 @@ export function stickyWixDivergenceIssue(input: {
   }
   if (
     input.issueCode === "TOPOLOGY_UNREADABLE" ||
+    input.issueCode === "TOPOLOGY_PUSH_FAILED" ||
     input.issueCode === "OPTION_AXIS_LIMIT"
   ) {
     return { code: input.issueCode, message: input.issueMessage };
   }
-  if ((input.contentPending || input.inventoryPending) && input.issueCode) {
+  if ((input.contentPending || input.inventoryPending || input.topologyPending) && input.issueCode) {
     return { code: input.issueCode, message: input.issueMessage };
   }
   return null;
@@ -198,6 +204,7 @@ function humanizeWixErrorMessage(errorCode: string, rawMessage: string | null): 
     INVENTORY_UNREADABLE: "Wix quantities could not be read",
     TOPOLOGY_UNREADABLE: "Wix options could not be read, so quantities were left unchanged",
     OPTION_AXIS_LIMIT: "Wix listings support at most 3 option types (for example Size, Color, and Material).",
+    TOPOLOGY_PUSH_FAILED: "Wix did not accept the new option. The listing on Wix still has the old options.",
     CONTENT_CONFLICT: "INW and Wix both changed this listing. Edit on INW to choose the version you want.",
     THROTTLED: "Sync is temporarily paused due to rate limits",
     TRANSIENT: "Sync will retry automatically",
@@ -205,6 +212,16 @@ function humanizeWixErrorMessage(errorCode: string, rawMessage: string | null): 
   };
 
   return messages[errorCode] ?? "Sync issue detected; will retry automatically";
+}
+
+export function wixTopologyDesirePending(link: {
+  topologyDesiredFingerprint: string | null;
+  topologyAppliedFingerprint: string | null;
+}): boolean {
+  return (
+    link.topologyDesiredFingerprint != null &&
+    link.topologyDesiredFingerprint !== link.topologyAppliedFingerprint
+  );
 }
 
 /**
@@ -244,9 +261,11 @@ export async function refreshWixListingHealthFromDb(
   const variantContentPending = link.variantMaps.some(
     (map) => map.desiredVariantContentVersion > map.appliedVariantContentVersion
   );
+  const topologyPending = wixTopologyDesirePending(link);
   const contentPending =
     link.desiredProductContentVersion > link.appliedProductContentVersion ||
-    variantContentPending;
+    variantContentPending ||
+    topologyPending;
   const inventoryPending = inventoryDesiredVersion > inventoryAppliedVersion;
   const sticky = stickyWixDivergenceIssue({
     issueCode: link.issueCode,
@@ -254,6 +273,7 @@ export async function refreshWixListingHealthFromDb(
     productContentConflict: link.productContentConflict,
     contentPending,
     inventoryPending,
+    topologyPending,
   });
   const lastErrorCode = sticky?.code ?? null;
   const lastErrorMessage = sticky?.message ?? null;
@@ -266,6 +286,7 @@ export async function refreshWixListingHealthFromDb(
     contentDesiredVersion: link.desiredProductContentVersion,
     contentAppliedVersion: link.appliedProductContentVersion,
     variantContentPending,
+    topologyPending,
     inventoryDesiredVersion,
     inventoryAppliedVersion,
     lastErrorCode,
@@ -465,6 +486,7 @@ export async function recordWixDeadJobIssue(
     variantContentPending: link.variantMaps.some(
       (map) => map.desiredVariantContentVersion > map.appliedVariantContentVersion
     ),
+    topologyPending: wixTopologyDesirePending(link),
     inventoryDesiredVersion: link.variantMaps.reduce(
       (max, map) => Math.max(max, map.inventoryDesiredVersion),
       0

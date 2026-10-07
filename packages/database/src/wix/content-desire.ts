@@ -3,6 +3,7 @@ import { enqueueWixSyncJob, wixUpdateListingContentDedupeKey, WixSyncJobConflict
 import {
   normalizeWixPhotoUrls,
   wixProductContentFingerprint,
+  wixTopologyFingerprint,
   wixVariantContentFingerprint,
 } from "./content-fingerprint";
 
@@ -191,6 +192,18 @@ export async function recordWixListingVariantTopologyDesire(
   });
   if (!link || link.readiness === "CONNECTION_REQUIRED") {
     return { status: "SKIPPED", reason: "UNMAPPED" };
+  }
+
+  const activeVariants = await db.storeVariant.findMany({
+    where: { storeItemId: input.storeItemId, memberId: input.memberId, status: "ACTIVE" },
+    select: { options: true },
+  });
+  const fingerprint = wixTopologyFingerprint(activeVariants);
+  if (fingerprint !== link.topologyAppliedFingerprint) {
+    await db.wixListingLink.update({
+      where: { id: link.id },
+      data: { topologyDesiredFingerprint: fingerprint },
+    });
   }
 
   // Options are not listing content. Bumping the content desire made a Wix option edit

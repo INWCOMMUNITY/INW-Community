@@ -1,8 +1,11 @@
 import {
   applyWixListingContentInbound,
+  enqueueWixSyncJob,
+  WixSyncJobConflictError,
   persistWixListingHealth,
   prisma,
   refreshWixListingHealthFromDb,
+  wixTopologyFingerprint,
   type WixJobHandlerResult,
   type WixRemoteListingObservation,
   type WixSyncJobClaim,
@@ -144,6 +147,32 @@ export async function handleWixPollListingContentJob(
   });
   if (isSyncWixVariantTopologyFailure(topology)) {
     return topology;
+  }
+  if (topology.status === "LOCAL_AHEAD") {
+    const active = await prisma.storeVariant.findMany({
+      where: { storeItemId: link.storeItemId, memberId: link.memberId, status: "ACTIVE" },
+      select: { options: true },
+    });
+    const fingerprint = wixTopologyFingerprint(active);
+    if (link.topologyDesiredFingerprint !== fingerprint) {
+      await prisma.wixListingLink.update({
+        where: { id: link.id },
+        data: { topologyDesiredFingerprint: fingerprint },
+      });
+    }
+    try {
+      await enqueueWixSyncJob(prisma, {
+        wixConnectionId: link.wixConnectionId,
+        kind: "RECONCILE_LISTING",
+        dedupeKey: `RECONCILE_LISTING:${link.id}:topo-push`,
+        payload: { listingLinkId: link.id, pushTopology: true },
+        nextAttemptAt: new Date(),
+      });
+    } catch (error) {
+      if (!(error instanceof WixSyncJobConflictError)) throw error;
+    }
+    await refreshWixListingHealthFromDb(prisma, link.id);
+    return { outcome: "SUCCESS" };
   }
   const skippedReason = topology.status === "SKIPPED" ? topology.reason : null;
   if (!skippedReason) {

@@ -6,10 +6,14 @@ import {
   shouldApplyWixQuantityToInw,
   wixMissingQuantityIsUnread,
 } from "./project-inventory";
+import { classifyWixListingHealth, stickyWixDivergenceIssue } from "database";
+import { wixMapsCoverActiveCombinations } from "./project-inventory";
 import {
   expandRemoteVariantsFromProductOptions,
+  inwOptionsAheadOfWix,
   onHandForPulledCombo,
   pullWouldDropLocalStock,
+  sellerFieldsForPulledCombo,
 } from "./sync-listing-variants";
 
 const config: WixAppConfig = {
@@ -307,6 +311,126 @@ describe("pullWouldDropLocalStock", () => {
         { "Primary color": "Red", Size: "Small" }
       )
     ).toBe(7);
+  });
+});
+
+describe("inwOptionsAheadOfWix", () => {
+  it("does not pull when INW added an option axis Wix does not have", () => {
+    expect(
+      inwOptionsAheadOfWix({
+        localAxes: ["primary color", "size", "material"],
+        remoteAxes: ["primary color", "size"],
+        localComboCount: 12,
+        remoteComboCount: 6,
+      })
+    ).toBe(true);
+  });
+
+  it("still allows a pull when Wix added the extra axis", () => {
+    expect(
+      inwOptionsAheadOfWix({
+        localAxes: ["primary color", "size"],
+        remoteAxes: ["primary color", "size", "material"],
+        localComboCount: 6,
+        remoteComboCount: 12,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("sellerFieldsForPulledCombo", () => {
+  it("keeps the INW price and SKU when Wix extends an existing combination", () => {
+    expect(
+      sellerFieldsForPulledCombo(
+        [
+          {
+            options: { "Primary color": "Red", Size: "Small" },
+            priceCents: 2500,
+            sku: "RED-SM",
+          },
+        ],
+        { "Primary color": "Red", Size: "Small", Material: "Cotton" }
+      )
+    ).toEqual({ priceCents: 2500, sku: "RED-SM" });
+  });
+
+  it("uses the Wix price only for a combination INW has never had", () => {
+    expect(
+      sellerFieldsForPulledCombo(
+        [
+          {
+            options: { "Primary color": "Red", Size: "Small" },
+            priceCents: 2500,
+            sku: "RED-SM",
+          },
+        ],
+        { "Primary color": "Green", Size: "Large" }
+      )
+    ).toBeNull();
+  });
+});
+
+describe("wixMapsCoverActiveCombinations", () => {
+  it("refuses a quantity write when a new option combination is unmapped", () => {
+    expect(
+      wixMapsCoverActiveCombinations(
+        [
+          { id: "cotton", options: { Color: "Red", Material: "Cotton" } },
+          { id: "wool", options: { Color: "Red", Material: "Wool" } },
+        ],
+        [{ storeVariantId: "cotton" }]
+      )
+    ).toBe(false);
+  });
+
+  it("allows a quantity write when every active combination is mapped", () => {
+    expect(
+      wixMapsCoverActiveCombinations(
+        [
+          { id: "cotton", options: { Color: "Red", Material: "Cotton" } },
+          { id: "wool", options: { Color: "Red", Material: "Wool" } },
+        ],
+        [{ storeVariantId: "cotton" }, { storeVariantId: "wool" }]
+      )
+    ).toBe(true);
+  });
+});
+
+describe("wix topology health", () => {
+  const ready = {
+    connectionStatus: "ACTIVE" as const,
+    remoteProductVisible: true,
+    hasPhotos: true,
+    priceCents: 200,
+    contentDesiredVersion: 1,
+    contentAppliedVersion: 1,
+    inventoryDesiredVersion: 1,
+    inventoryAppliedVersion: 1,
+    lastErrorCode: null,
+    lastErrorMessage: null,
+  };
+
+  it("stays Syncing while the new option axis has not landed on Wix", () => {
+    expect(classifyWixListingHealth({ ...ready, topologyPending: true }).readiness).toBe("SYNCING");
+  });
+
+  it("keeps a failed option push on Needs attention", () => {
+    expect(
+      stickyWixDivergenceIssue({
+        issueCode: "TOPOLOGY_PUSH_FAILED",
+        issueMessage: "Wix did not accept the new option. The listing on Wix still has the old options.",
+        productContentConflict: false,
+        contentPending: false,
+        inventoryPending: false,
+      })?.code
+    ).toBe("TOPOLOGY_PUSH_FAILED");
+    expect(
+      classifyWixListingHealth({
+        ...ready,
+        lastErrorCode: "TOPOLOGY_PUSH_FAILED",
+        lastErrorMessage: null,
+      }).readiness
+    ).toBe("ACTION_REQUIRED");
   });
 });
 
