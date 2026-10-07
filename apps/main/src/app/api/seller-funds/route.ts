@@ -79,10 +79,11 @@ export async function GET(req: NextRequest) {
         salesTaxReserveCents: order.salesTaxReserveCents,
         processingFeeCents: split.processingFeeCents,
         stripeTaxProductFeeCents: split.stripeTaxProductFeeCents,
+        stripeFeesCents: split.processingFeeCents + split.stripeTaxProductFeeCents,
         optionalPlatformFeeCents: split.optionalPlatformFeeCents,
         sellerTransferCents: split.sellerTransferCents,
         note:
-          "Sales tax stays with the platform for remittance. The 1% reserve, card processing (~2.9%+$0.30), and Stripe Tax product fee (0.5% when tax is collected) are withheld from your transfer. Stripe bills the marketplace; those costs are taken from your payout.",
+          "Sales tax collected from the buyer stays with the platform for remittance. Stripe fees (card processing ~2.9%+$0.30, plus Stripe Tax 0.5% when tax is collected) and the 1% sales tax reserve are withheld from your transfer.",
       },
     };
   });

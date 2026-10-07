@@ -15,6 +15,7 @@ interface Transaction {
     salesTaxReserveCents: number;
     processingFeeCents: number;
     stripeTaxProductFeeCents?: number;
+    stripeFeesCents?: number;
     optionalPlatformFeeCents: number;
     sellerTransferCents: number;
     note: string;
@@ -168,8 +169,13 @@ export default function MyFundsPage() {
             <p className="text-sm text-gray-500 mb-4">{data.payoutScheduleDescription}</p>
           )}
 
-          <p className="text-gray-600 mb-4">
+          <p className="text-gray-600 mb-2">
             Send available funds to your bank account or manage your payment account in Stripe.
+          </p>
+          <p className="text-sm text-gray-500 mb-4">
+            Stripe fees (card processing ~2.9% + $0.30, and Stripe Tax 0.5% when sales tax is collected) and a 1% sales
+            tax reserve are withheld from each sale before funds are sent to your Connect account. Buyer-paid sales tax
+            stays with the platform for remittance.
           </p>
 
           <div className="flex flex-wrap gap-4 mb-6">
@@ -250,13 +256,15 @@ export default function MyFundsPage() {
                             {t.breakdown.salesTaxReserveCents > 0 ? (
                               <div>1% sales tax reserve: −${(t.breakdown.salesTaxReserveCents / 100).toFixed(2)}</div>
                             ) : null}
-                            {t.breakdown.processingFeeCents > 0 ? (
-                              <div>Card processing (seller): −${(t.breakdown.processingFeeCents / 100).toFixed(2)}</div>
-                            ) : null}
-                            {(t.breakdown.stripeTaxProductFeeCents ?? 0) > 0 ? (
+                            {((t.breakdown.stripeFeesCents ??
+                              t.breakdown.processingFeeCents + (t.breakdown.stripeTaxProductFeeCents ?? 0)) > 0) ? (
                               <div>
-                                Stripe Tax fee (seller): −$
-                                {((t.breakdown.stripeTaxProductFeeCents ?? 0) / 100).toFixed(2)}
+                                Stripe fees: −$
+                                {(
+                                  (t.breakdown.stripeFeesCents ??
+                                    t.breakdown.processingFeeCents + (t.breakdown.stripeTaxProductFeeCents ?? 0)) /
+                                  100
+                                ).toFixed(2)}
                               </div>
                             ) : null}
                             {t.breakdown.optionalPlatformFeeCents > 0 ? (
@@ -265,6 +273,9 @@ export default function MyFundsPage() {
                             <div className="font-medium text-gray-800">
                               Sent to your Connect account: ${(t.breakdown.sellerTransferCents / 100).toFixed(2)}
                             </div>
+                            {t.breakdown.note ? (
+                              <div className="pt-1 text-[11px] text-gray-500 leading-snug">{t.breakdown.note}</div>
+                            ) : null}
                           </div>
                         ) : null}
                       </td>

@@ -27,6 +27,7 @@ interface Transaction {
     salesTaxReserveCents: number;
     processingFeeCents: number;
     stripeTaxProductFeeCents?: number;
+    stripeFeesCents?: number;
     optionalPlatformFeeCents: number;
     sellerTransferCents: number;
     note: string;
@@ -194,6 +195,10 @@ export default function PayoutsScreen() {
               Send available funds to your bank or manage your payment account in Stripe.
             </Text>
           )}
+          <Text style={styles.hint}>
+            Stripe fees (card processing ~2.9%+$0.30, and Stripe Tax 0.5% when sales tax is collected) and a 1% sales tax
+            reserve are withheld from each sale. Buyer-paid sales tax stays with the platform for remittance.
+          </Text>
 
           {error && <Text style={styles.err}>{error}</Text>}
 
@@ -252,11 +257,12 @@ export default function PayoutsScreen() {
                           t.breakdown.salesTaxReserveCents > 0
                             ? `1% reserve −${formatPrice(t.breakdown.salesTaxReserveCents)}`
                             : null,
-                          t.breakdown.processingFeeCents > 0
-                            ? `processing −${formatPrice(t.breakdown.processingFeeCents)}`
-                            : null,
-                          (t.breakdown.stripeTaxProductFeeCents ?? 0) > 0
-                            ? `Stripe Tax −${formatPrice(t.breakdown.stripeTaxProductFeeCents ?? 0)}`
+                          (t.breakdown.stripeFeesCents ??
+                            t.breakdown.processingFeeCents + (t.breakdown.stripeTaxProductFeeCents ?? 0)) > 0
+                            ? `Stripe fees −${formatPrice(
+                                t.breakdown.stripeFeesCents ??
+                                  t.breakdown.processingFeeCents + (t.breakdown.stripeTaxProductFeeCents ?? 0)
+                              )}`
                             : null,
                         ]
                           .filter(Boolean)
