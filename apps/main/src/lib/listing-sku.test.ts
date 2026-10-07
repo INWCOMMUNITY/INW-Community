@@ -34,7 +34,7 @@ describe("skuToAdoptFromRemote", () => {
     ).toBeNull();
   });
 
-  it("skips item ids and hyphenated strings; adopts live eBay inw pins", () => {
+  it("skips item ids, adopts hyphenated seller SKUs and live eBay inw pins", () => {
     expect(
       skuToAdoptFromRemote({
         localSku: null,
@@ -48,7 +48,7 @@ describe("skuToAdoptFromRemote", () => {
         remoteSku: "COIN-001",
         itemId: "item-1",
       })
-    ).toBeNull();
+    ).toBe("COIN-001");
     expect(isEbayMigrationSku("inw403004607151")).toBe(true);
     expect(
       skuToAdoptFromRemote({
@@ -91,18 +91,20 @@ describe("clampEtsySku", () => {
 });
 
 describe("canonical channel SKU", () => {
-  it("accepts alphanumeric codes at or under 32 characters", () => {
+  it("accepts letters, numbers, and hyphens at or under 32 characters", () => {
     expect(isCanonicalChannelSku("HAT42")).toBe(true);
+    expect(isCanonicalChannelSku("HAT-42")).toBe(true);
     expect(isCanonicalChannelSku("a".repeat(CANONICAL_SKU_MAX))).toBe(true);
-    expect(isCanonicalChannelSku("HAT-42")).toBe(false);
     expect(isCanonicalChannelSku("HAT 42")).toBe(false);
+    expect(isCanonicalChannelSku("HAT_42")).toBe(false);
+    expect(isCanonicalChannelSku("---")).toBe(false);
     expect(isCanonicalChannelSku("a".repeat(CANONICAL_SKU_MAX + 1))).toBe(false);
     expect(isCanonicalChannelSku("")).toBe(false);
     expect(isCanonicalChannelSku(null)).toBe(false);
   });
 
-  it("strips punctuation and caps at 32", () => {
-    expect(toCanonicalChannelSku("HAT-42")).toBe("HAT42");
+  it("keeps hyphens, strips other punctuation, and caps at 32", () => {
+    expect(toCanonicalChannelSku("HAT-42")).toBe("HAT-42");
     expect(toCanonicalChannelSku("  tshirt_bl_m  ")).toBe("tshirtblm");
     expect(toCanonicalChannelSku("a".repeat(40))).toHaveLength(CANONICAL_SKU_MAX);
     expect(toCanonicalChannelSku("---")).toBeNull();

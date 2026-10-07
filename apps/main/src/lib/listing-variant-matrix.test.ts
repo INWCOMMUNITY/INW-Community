@@ -374,13 +374,25 @@ describe("combo SKUs are not invented on save", () => {
     expect(stored.skus[1].sku).toBe("KEEPME");
   });
 
-  it("rejects hyphenated combo SKUs", () => {
+  it("accepts hyphenated combo SKUs and rejects spaces or codes over 32 characters", () => {
     expect(
       validateVariantMatrixForSave({
         axes: [{ name: "Color", values: ["Purple"] }],
         skus: [{ options: { Color: "Purple" }, quantity: 1, sku: "ITEM-Purple" }],
       })
-    ).toMatch(/letters and numbers/);
+    ).toBeNull();
+    expect(
+      validateVariantMatrixForSave({
+        axes: [{ name: "Color", values: ["Purple"] }],
+        skus: [{ options: { Color: "Purple" }, quantity: 1, sku: "ITEM Purple" }],
+      })
+    ).toMatch(/32 characters/);
+    expect(
+      validateVariantMatrixForSave({
+        axes: [{ name: "Color", values: ["Purple"] }],
+        skus: [{ options: { Color: "Purple" }, quantity: 1, sku: "A".repeat(33) }],
+      })
+    ).toMatch(/32 characters/);
   });
 });
 

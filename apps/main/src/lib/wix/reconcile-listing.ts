@@ -51,7 +51,12 @@ export async function handleWixReconcileListingJob(
       connection: true,
       storeItem: { select: { title: true, priceCents: true, photos: true } },
       variantMaps: {
-        select: { inventoryDesiredVersion: true, inventoryAppliedVersion: true },
+        select: {
+          inventoryDesiredVersion: true,
+          inventoryAppliedVersion: true,
+          desiredVariantContentVersion: true,
+          appliedVariantContentVersion: true,
+        },
       },
     },
   });
@@ -159,7 +164,12 @@ export async function handleWixReconcileListingJob(
     where: { id: link.id },
     include: {
       variantMaps: {
-        select: { inventoryDesiredVersion: true, inventoryAppliedVersion: true },
+        select: {
+          inventoryDesiredVersion: true,
+          inventoryAppliedVersion: true,
+          desiredVariantContentVersion: true,
+          appliedVariantContentVersion: true,
+        },
       },
       storeItem: { select: { title: true, priceCents: true, photos: true } },
       connection: true,
@@ -178,11 +188,16 @@ export async function handleWixReconcileListingJob(
     (max, map) => Math.max(max, map.inventoryAppliedVersion),
     0
   );
+  const variantContentPending = refreshed.variantMaps.some(
+    (map) => map.desiredVariantContentVersion > map.appliedVariantContentVersion
+  );
+  const productContentPending =
+    refreshed.desiredProductContentVersion > refreshed.appliedProductContentVersion;
   const sticky = stickyWixDivergenceIssue({
     issueCode: refreshed.issueCode,
     issueMessage: refreshed.issueMessage,
     productContentConflict: refreshed.productContentConflict,
-    contentPending: refreshed.desiredProductContentVersion > refreshed.appliedProductContentVersion,
+    contentPending: productContentPending || variantContentPending,
     inventoryPending: inventoryDesiredVersion > inventoryAppliedVersion,
   });
   const effectiveErrorCode = lastErrorCode ?? sticky?.code ?? null;
@@ -194,6 +209,7 @@ export async function handleWixReconcileListingJob(
     priceCents: refreshed.storeItem.priceCents,
     contentDesiredVersion: refreshed.desiredProductContentVersion,
     contentAppliedVersion: refreshed.appliedProductContentVersion,
+    variantContentPending,
     inventoryDesiredVersion,
     inventoryAppliedVersion,
     lastErrorCode: effectiveErrorCode,
@@ -201,10 +217,7 @@ export async function handleWixReconcileListingJob(
   });
   await persistWixListingHealth(prisma, link.id, health);
 
-  if (
-    refreshed.connection.status === "ACTIVE" &&
-    refreshed.desiredProductContentVersion > refreshed.appliedProductContentVersion
-  ) {
+  if (refreshed.connection.status === "ACTIVE" && (productContentPending || variantContentPending)) {
     await enqueueWixSyncJob(prisma, {
       wixConnectionId: link.wixConnectionId,
       kind: "UPDATE_LISTING_CONTENT",

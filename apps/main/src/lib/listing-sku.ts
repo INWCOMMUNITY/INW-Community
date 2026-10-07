@@ -1,15 +1,14 @@
-/** eBay Inventory API cap. INW stores up to this; Etsy offerings are mapped to ETSY_SKU_MAX. */
-export const LISTING_SKU_MAX = 50;
+/** Shared INW / Shopify / Etsy / Wix cap. Etsy rejects anything longer. */
+export const LISTING_SKU_MAX = 32;
 
 /** Etsy listing inventory SKU cap (`/sku cannot be more than 32 characters`). */
 export const ETSY_SKU_MAX = 32;
 
 /**
- * Exact-same SKU contract for every channel: alphanumeric, Etsy's 32-char cap.
- * eBay charset is tighter than Shopify; Etsy length is tighter than eBay's 50.
+ * Exact-same SKU contract for Shopify, Etsy, and Wix: letters, numbers, and hyphens, 32 characters.
  */
 export const CANONICAL_SKU_MAX = ETSY_SKU_MAX;
-export const CANONICAL_SKU_RE = /^[a-zA-Z0-9]{1,32}$/;
+export const CANONICAL_SKU_RE = /^(?=.*[a-zA-Z0-9])[a-zA-Z0-9-]{1,32}$/;
 
 /** eBay migrated inventory keys like inw403004607151 — not a seller custom SKU. */
 const EBAY_MIGRATION_SKU = /^inw\d+$/i;
@@ -48,24 +47,25 @@ export function isEbayMigrationSku(sku: string | null | undefined): boolean {
   return Boolean(sku && EBAY_MIGRATION_SKU.test(sku.trim()));
 }
 
-/** True when the SKU can be published unchanged to eBay, Etsy, Shopify, and Wix. */
+/** True when the SKU can be published unchanged to Shopify, Etsy, and Wix. */
 export function isCanonicalChannelSku(sku: string | null | undefined): boolean {
   const trimmed = sku?.trim() ?? "";
   return CANONICAL_SKU_RE.test(trimmed);
 }
 
 /**
- * Strip punctuation/spaces and cap at 32 so the same string is legal on every channel.
+ * Keep letters, numbers, and hyphens, and cap at 32 so the same string is legal on every channel.
  * Empty after stripping is null (not a usable identity).
  */
 export function toCanonicalChannelSku(raw: string | null | undefined): string | null {
-  const compact = (raw ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(0, CANONICAL_SKU_MAX);
-  return compact || null;
+  const compact = (raw ?? "").replace(/[^a-zA-Z0-9-]/g, "").slice(0, CANONICAL_SKU_MAX);
+  if (!CANONICAL_SKU_RE.test(compact)) return null;
+  return compact;
 }
 
 /**
  * Shopify cartesian fallbacks look like `{itemId}-Purple`. Those must not become
- * the parent StoreItem SKU — eBay then rejects the hyphen and misses the listing.
+ * the parent StoreItem SKU.
  */
 export function isGeneratedVariantOfItemId(sku: string, itemId: string): boolean {
   const id = itemId.trim();
@@ -82,8 +82,8 @@ export function isGeneratedVariantOfItemId(sku: string, itemId: string): boolean
 
 /**
  * Fill an empty INW SKU from a channel listing. Adopts live eBay Inventory pins
- * (including `inw{legacyId}`). Rejects StoreItem.id leftovers and non-alphanumeric
- * strings (hyphens are not the join key).
+ * (including `inw{legacyId}`) and seller SKUs that use letters, numbers, and hyphens.
+ * Rejects StoreItem.id leftovers.
  */
 export function skuToAdoptFromRemote(args: {
   localSku: string | null | undefined;
@@ -93,13 +93,13 @@ export function skuToAdoptFromRemote(args: {
   if (normalizeListingSku(args.localSku)) return null;
   const sku = normalizeListingSku(args.remoteSku);
   if (!sku || sku === args.itemId || isGeneratedVariantOfItemId(sku, args.itemId)) return null;
-  if (!/^[a-zA-Z0-9]{1,50}$/.test(sku)) return null;
+  if (!isCanonicalChannelSku(sku)) return null;
   return sku;
 }
 
 /**
  * Generate a SKU from a seed (like an ID).
- * Creates an alphanumeric string that's valid for eBay/Etsy/etc.
+ * Creates a letters-and-numbers string within the 32-character channel cap.
  */
 export function generateListingSku(seed: string): string {
   // Create a hash-based SKU from the seed

@@ -16,6 +16,7 @@ import {
   recordShopifyDirtyMappedVariantContentDesires,
   recordShopifyListingContentDesire,
   recordWixMappedListingContentDesire,
+  recordWixDirtyMappedVariantContentDesires,
   recordWixListingVariantTopologyDesire,
 } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
@@ -684,6 +685,10 @@ export async function PATCH(
           before: contentBefore,
           after: afterSnapshot,
         });
+        await recordWixDirtyMappedVariantContentDesires(tx, {
+          memberId: ownerId,
+          storeItemId: itemId,
+        });
         return projected;
       });
       if (item.status === "sold_out") {
@@ -797,6 +802,10 @@ export async function PATCH(
       storeItemId: itemId,
       before: contentBefore,
       after: afterSnapshot,
+    });
+    await recordWixDirtyMappedVariantContentDesires(tx, {
+      memberId: ownerId,
+      storeItemId: itemId,
     });
     return updated;
   });

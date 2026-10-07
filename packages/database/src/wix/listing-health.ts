@@ -19,6 +19,8 @@ export type ClassifyWixListingHealthInput = {
   priceCents: number;
   contentDesiredVersion: number;
   contentAppliedVersion: number;
+  /** True when any mapped variant has unpushed price/SKU desire. */
+  variantContentPending?: boolean;
   inventoryDesiredVersion: number;
   inventoryAppliedVersion: number;
   lastErrorCode: string | null;
@@ -94,8 +96,10 @@ export function classifyWixListingHealth(
     };
   }
 
-  // Check content sync state
-  const contentPending = input.contentDesiredVersion > input.contentAppliedVersion;
+  // Check content sync state (product + per-variant price/SKU)
+  const contentPending =
+    input.contentDesiredVersion > input.contentAppliedVersion ||
+    Boolean(input.variantContentPending);
   const inventoryPending = input.inventoryDesiredVersion > input.inventoryAppliedVersion;
 
   if (contentPending || inventoryPending) {
@@ -217,7 +221,12 @@ export async function refreshWixListingHealthFromDb(
       connection: { select: { status: true } },
       storeItem: { select: { priceCents: true, photos: true } },
       variantMaps: {
-        select: { inventoryDesiredVersion: true, inventoryAppliedVersion: true },
+        select: {
+          inventoryDesiredVersion: true,
+          inventoryAppliedVersion: true,
+          desiredVariantContentVersion: true,
+          appliedVariantContentVersion: true,
+        },
       },
     },
   });
@@ -232,7 +241,12 @@ export async function refreshWixListingHealthFromDb(
     (max, map) => Math.max(max, map.inventoryAppliedVersion),
     0
   );
-  const contentPending = link.desiredProductContentVersion > link.appliedProductContentVersion;
+  const variantContentPending = link.variantMaps.some(
+    (map) => map.desiredVariantContentVersion > map.appliedVariantContentVersion
+  );
+  const contentPending =
+    link.desiredProductContentVersion > link.appliedProductContentVersion ||
+    variantContentPending;
   const inventoryPending = inventoryDesiredVersion > inventoryAppliedVersion;
   const sticky = stickyWixDivergenceIssue({
     issueCode: link.issueCode,
@@ -251,6 +265,7 @@ export async function refreshWixListingHealthFromDb(
     priceCents: link.storeItem.priceCents,
     contentDesiredVersion: link.desiredProductContentVersion,
     contentAppliedVersion: link.appliedProductContentVersion,
+    variantContentPending,
     inventoryDesiredVersion,
     inventoryAppliedVersion,
     lastErrorCode,
@@ -411,7 +426,12 @@ export async function recordWixDeadJobIssue(
           connection: { select: { status: true } },
           storeItem: { select: { priceCents: true, photos: true } },
           variantMaps: {
-            select: { inventoryDesiredVersion: true, inventoryAppliedVersion: true },
+            select: {
+              inventoryDesiredVersion: true,
+              inventoryAppliedVersion: true,
+              desiredVariantContentVersion: true,
+              appliedVariantContentVersion: true,
+            },
           },
         },
       })
@@ -422,7 +442,12 @@ export async function recordWixDeadJobIssue(
             connection: { select: { status: true } },
             storeItem: { select: { priceCents: true, photos: true } },
             variantMaps: {
-              select: { inventoryDesiredVersion: true, inventoryAppliedVersion: true },
+              select: {
+                inventoryDesiredVersion: true,
+                inventoryAppliedVersion: true,
+                desiredVariantContentVersion: true,
+                appliedVariantContentVersion: true,
+              },
             },
           },
         })
@@ -437,6 +462,9 @@ export async function recordWixDeadJobIssue(
     priceCents: link.storeItem.priceCents,
     contentDesiredVersion: link.desiredProductContentVersion,
     contentAppliedVersion: link.appliedProductContentVersion,
+    variantContentPending: link.variantMaps.some(
+      (map) => map.desiredVariantContentVersion > map.appliedVariantContentVersion
+    ),
     inventoryDesiredVersion: link.variantMaps.reduce(
       (max, map) => Math.max(max, map.inventoryDesiredVersion),
       0

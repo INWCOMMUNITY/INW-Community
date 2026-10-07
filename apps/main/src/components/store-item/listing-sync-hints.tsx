@@ -4,7 +4,7 @@ export const LISTING_SYNC_HINTS = {
   photosEbay:
     "Photos go to eBay on the first publish. After that, eBay keeps its own pictures. Saving here still updates title, price, and quantity on eBay.",
   title: "Pushes title and description to connected stores when you save.",
-  sku: "Pushes this SKU to connected stores when you save. eBay needs letters and numbers only.",
+  sku: "Pushes this SKU to connected stores when you save. Use letters, numbers, and hyphens, up to 32 characters.",
   price: "Pushes price to connected stores when you save.",
   quantity: "Updates inventory on all connected stores when you save.",
   condition: "Required for eBay listings. Changing condition re-syncs eBay.",

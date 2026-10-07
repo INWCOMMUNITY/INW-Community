@@ -977,6 +977,7 @@ export {
   ensureWixUpdateListingContentJob,
   markWixProductContentApplied,
   markWixVariantContentApplied,
+  recordWixDirtyMappedVariantContentDesires,
   recordWixListingContentDesire,
   recordWixMappedListingContentDesire,
   recordWixListingVariantTopologyDesire,

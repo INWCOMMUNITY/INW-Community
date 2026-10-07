@@ -17,7 +17,7 @@
 | **Adapter contract** | Each provider implements `ChannelAdapter` in `types.ts`: OAuth, CRUD listings, inventory, import list, sales poll, optional webhooks. |
 | **Best-effort outbound** | Push failures are stored on the link (`syncStatus: "error"`, `syncError`) and logged — they must **not** crash the seller flow. |
 | **Disconnect ≠ delete marketplace listings** | Disconnecting a channel unregisters INW webhooks/notifications, deletes `ChannelListingLink` rows for that store (retries cascade), and wipes tokens. External listings stay on the marketplace. **Remove listing** in INW triggers `deleteListing`. |
-| **SKU join key** | INW owns one alphanumeric SKU per sellable unit, capped at **32 characters** (`CANONICAL_SKU_RE`) so the same string is legal on INW, Etsy, Shopify, Wix, and new eBay publishes. If the seller leaves it blank, INW mints a hub key (`nwc…`) on save/import/publish and copies that same string onto every channel. Live eBay Inventory pins (including `inw{legacyId}`) are adopted as-is and stored on `ChannelListingLink.ebaySkuMap` `{ parent, variations }` — qty/price writes never address a hyphen parent SKU. Do not rename live Inventory SKUs. Locators stay on `ChannelListingLink.externalListingId` (and Shopify/Wix variant ids). |
+| **SKU join key** | INW owns one SKU per sellable unit: letters, numbers, and hyphens, capped at **32 characters** (`CANONICAL_SKU_RE`). That string is legal on INW, Shopify, Etsy, and Wix. If the seller leaves it blank, INW mints a hub key (`nwc…`) on save/import/publish and copies that same string onto every channel. Locators stay on `ChannelListingLink.externalListingId` (and Shopify/Wix variant ids). |
 
 ---
 

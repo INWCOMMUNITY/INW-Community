@@ -9,6 +9,7 @@ import {
   recordEtsyListingContentDesire,
   recordShopifyDirtyMappedVariantContentDesires,
   recordShopifyListingContentDesire,
+  recordWixDirtyMappedVariantContentDesires,
   recordWixMappedListingContentDesire,
 } from "database";
 import { z } from "zod";
@@ -159,6 +160,10 @@ async function updateStoreItemWithShopifyDesire(input: {
       storeItemId: input.itemId,
       before: input.before,
       after,
+    });
+    await recordWixDirtyMappedVariantContentDesires(tx, {
+      memberId: input.memberId,
+      storeItemId: input.itemId,
     });
   });
 }

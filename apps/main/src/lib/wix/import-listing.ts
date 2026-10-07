@@ -46,6 +46,7 @@ type WixV1ProductFull = {
     priceData?: { price?: number };
     stock?: { quantity?: number; trackQuantity?: boolean };
     sku?: string;
+    visible?: boolean;
   }>;
   stock?: { quantity?: number; trackQuantity?: boolean };
   sku?: string;
@@ -65,6 +66,7 @@ type WixV3ProductFull = {
     priceData?: { price?: string };
     stock?: { quantity?: number; trackInventory?: boolean };
     sku?: string;
+    visible?: boolean;
   }>;
   stock?: { quantity?: number; trackInventory?: boolean };
   sku?: string;
@@ -152,6 +154,7 @@ export async function importWixProduct(
         priceCents: number;
         quantity: number | null;
         sku: string | null;
+        active: boolean;
       }>;
       totalQuantity: number | null;
     } | null = null;
@@ -190,6 +193,7 @@ export async function importWixProduct(
             priceCents: priceInCents(v.priceData?.price ?? p.priceData?.price),
             quantity: v.stock?.trackQuantity ? (v.stock?.quantity ?? null) : null,
             sku: v.sku ?? null,
+            active: v.visible !== false,
           }))
         : [{
             wixVariantId: p.id!,
@@ -197,6 +201,7 @@ export async function importWixProduct(
             priceCents: priceInCents(p.priceData?.price),
             quantity: p.stock?.trackQuantity ? (p.stock?.quantity ?? null) : null,
             sku: p.sku ?? null,
+            active: true,
           }];
 
       productData = {
@@ -243,6 +248,7 @@ export async function importWixProduct(
             priceCents: priceInCents(v.priceData?.price ?? p.priceData?.price),
             quantity: v.stock?.trackInventory ? (v.stock?.quantity ?? null) : null,
             sku: v.sku ?? null,
+            active: v.visible !== false,
           }))
         : [{
             wixVariantId: p.id!,
@@ -250,6 +256,7 @@ export async function importWixProduct(
             priceCents: priceInCents(p.priceData?.price),
             quantity: p.stock?.trackInventory ? (p.stock?.quantity ?? null) : null,
             sku: p.sku ?? null,
+            active: true,
           }];
 
       productData = {
@@ -304,7 +311,8 @@ export async function importWixProduct(
             sku: v.sku,
             options: v.options,
             priceCents: v.priceCents,
-            status: "ACTIVE",
+            status: v.active ? "ACTIVE" : "RETIRED",
+            ...(v.active ? {} : { retiredAt: new Date() }),
           },
         });
 

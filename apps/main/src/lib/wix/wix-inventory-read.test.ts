@@ -283,6 +283,31 @@ describe("pullWouldDropLocalStock", () => {
       )
     ).toBe(7);
   });
+
+  it("allows Wix to remove an option axis and keep the stocked quantity", () => {
+    expect(
+      pullWouldDropLocalStock(
+        [
+          {
+            options: { "Primary color": "Red", Size: "Small", Material: "Cotton" },
+            inventoryState: { mode: "TRACKED_FINITE", onHand: 7, reserved: 0 },
+          },
+        ],
+        [{ options: { "Primary color": "Red", Size: "Small" } }]
+      )
+    ).toBe(false);
+    expect(
+      onHandForPulledCombo(
+        [
+          {
+            options: { "Primary color": "Red", Size: "Small", Material: "Cotton" },
+            inventoryState: { mode: "TRACKED_FINITE", onHand: 7, reserved: 0 },
+          },
+        ],
+        { "Primary color": "Red", Size: "Small" }
+      )
+    ).toBe(7);
+  });
 });
 
 describe("expandRemoteVariantsFromProductOptions", () => {
@@ -305,6 +330,7 @@ describe("expandRemoteVariantsFromProductOptions", () => {
         id: "variant-cotton",
         sku: undefined,
         choices: { "Primary color": "Red", Size: "Small", Material: "Cotton" },
+        visible: true,
         priceData: undefined,
         variant: undefined,
       },
@@ -312,6 +338,7 @@ describe("expandRemoteVariantsFromProductOptions", () => {
         id: undefined,
         sku: undefined,
         choices: { "Primary color": "Red", Size: "Small", Material: "Wool" },
+        visible: true,
         priceData: undefined,
         variant: undefined,
       },

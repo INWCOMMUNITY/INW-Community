@@ -9,8 +9,9 @@ export type WixRemoteVariant = {
   id?: string;
   sku?: string | null;
   choices?: unknown;
+  visible?: boolean;
   priceData?: { price?: number | string };
-  variant?: { priceData?: { price?: number | string }; sku?: string | null };
+  variant?: { priceData?: { price?: number | string }; sku?: string | null; visible?: boolean };
 };
 
 type QueryResponse = {
@@ -86,10 +87,15 @@ export async function loadWixCatalogVariants(input: {
   return { ok: true, variants: collected };
 }
 
-/** Write each INW combination, including a third option axis, onto the V1 variant matrix. */
+/** Write each combination's price, SKU, and visibility onto the V1 variant matrix. */
 export async function pushWixV1VariantChoices(input: {
   productId: string;
-  variants: Array<{ options: Record<string, string>; priceCents: number; sku: string | null }>;
+  variants: Array<{
+    options: Record<string, string>;
+    priceCents: number;
+    sku: string | null;
+    visible?: boolean;
+  }>;
   config: WixAppConfig;
   accessToken: string;
 }): Promise<WixVariantFailure | null> {
@@ -103,7 +109,7 @@ export async function pushWixV1VariantChoices(input: {
         choices: variant.options,
         price: Number((Math.max(0, variant.priceCents) / 100).toFixed(2)),
         ...(variant.sku ? { sku: variant.sku } : {}),
-        visible: true,
+        visible: variant.visible !== false,
       })),
     }),
     deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
@@ -137,16 +143,24 @@ function normalizeWixVariant(value: unknown): WixRemoteVariant {
       : typeof row.sku === "string"
         ? row.sku
         : null;
+  const visible =
+    typeof row.visible === "boolean"
+      ? row.visible
+      : typeof nested?.visible === "boolean"
+        ? nested.visible
+        : undefined;
   return {
     id: typeof row.id === "string" ? row.id : typeof nested?.id === "string" ? nested.id : undefined,
     sku,
     choices: row.choices,
+    visible,
     priceData: priceData
       ? { price: priceData.price as number | string | undefined }
       : undefined,
     variant: nested
       ? {
           sku,
+          visible,
           priceData: priceData ? { price: priceData.price as number | string | undefined } : undefined,
         }
       : undefined,

@@ -3,6 +3,7 @@ import { enqueueWixSyncJob, wixUpdateListingContentDedupeKey, WixSyncJobConflict
 import {
   normalizeWixPhotoUrls,
   wixProductContentFingerprint,
+  wixVariantContentFingerprint,
 } from "./content-fingerprint";
 
 export type WixContentDb = PrismaClient | Prisma.TransactionClient;
@@ -217,6 +218,88 @@ export async function recordWixListingVariantTopologyDesire(
     desiredVersion: link.desiredProductContentVersion,
     jobEnqueued: true,
   };
+}
+
+/**
+ * After StoreVariant price/SKU rows change, bump desire on every mapped variant
+ * whose fingerprint differs and enqueue UPDATE_LISTING_CONTENT so Wix gets the new prices.
+ */
+export async function recordWixDirtyMappedVariantContentDesires(
+  db: WixContentDb,
+  input: { memberId: string; storeItemId: string }
+): Promise<{ status: "SKIPPED" | "RECORDED"; dirtyCount: number }> {
+  const connection = await db.wixConnection.findFirst({
+    where: { memberId: input.memberId, status: "ACTIVE" },
+    orderBy: { connectedAt: "desc" },
+    select: { id: true },
+  });
+  if (!connection) return { status: "SKIPPED", dirtyCount: 0 };
+
+  const listing = await db.wixListingLink.findFirst({
+    where: {
+      wixConnectionId: connection.id,
+      storeItemId: input.storeItemId,
+    },
+  });
+  if (!listing || listing.readiness === "CONNECTION_REQUIRED") {
+    return { status: "SKIPPED", dirtyCount: 0 };
+  }
+
+  const variantMaps = await db.wixVariantMap.findMany({
+    where: { wixListingLinkId: listing.id, wixConnectionId: connection.id },
+  });
+  if (variantMaps.length < 1) return { status: "SKIPPED", dirtyCount: 0 };
+
+  const storeVariants = await db.storeVariant.findMany({
+    where: { id: { in: variantMaps.map((map) => map.storeVariantId) } },
+    select: { id: true, priceCents: true, sku: true },
+  });
+  const byId = new Map(storeVariants.map((variant) => [variant.id, variant]));
+  const desiredAt = new Date();
+  let dirtyCount = 0;
+
+  for (const map of variantMaps) {
+    const storeVariant = byId.get(map.storeVariantId);
+    if (!storeVariant) continue;
+    const fingerprint = wixVariantContentFingerprint({
+      priceCents: storeVariant.priceCents,
+      sku: storeVariant.sku,
+    });
+    if (
+      fingerprint === map.desiredVariantFingerprint &&
+      map.desiredVariantContentVersion > map.appliedVariantContentVersion
+    ) {
+      dirtyCount += 1;
+      continue;
+    }
+    if (
+      fingerprint === map.appliedVariantFingerprint &&
+      map.desiredVariantContentVersion <= map.appliedVariantContentVersion
+    ) {
+      continue;
+    }
+
+    const nextVersion = map.desiredVariantContentVersion + 1;
+    await db.wixVariantMap.update({
+      where: { id: map.id },
+      data: {
+        desiredVariantContentVersion: nextVersion,
+        desiredVariantFingerprint: fingerprint,
+        variantDesiredAt: desiredAt,
+      },
+    });
+    dirtyCount += 1;
+  }
+
+  if (dirtyCount > 0) {
+    await ensureWixUpdateListingContentJob(db, {
+      listingLinkId: listing.id,
+      wixConnectionId: connection.id,
+    });
+    return { status: "RECORDED", dirtyCount };
+  }
+
+  return { status: "SKIPPED", dirtyCount: 0 };
 }
 
 /**

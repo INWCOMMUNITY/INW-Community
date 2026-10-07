@@ -3,6 +3,8 @@
  * Legacy INW JSON is an array of { name, options } (one qty per value, not per combo).
  */
 
+import { isCanonicalChannelSku } from "./listing-sku";
+
 export const INVENTORY_TRACKING_TRACKED = "tracked";
 export const INVENTORY_TRACKING_MADE_TO_ORDER = "made_to_order";
 export type InventoryTracking = typeof INVENTORY_TRACKING_TRACKED | typeof INVENTORY_TRACKING_MADE_TO_ORDER;
@@ -1270,8 +1272,8 @@ export function validateVariantMatrixForSave(
     }
     const code = sku.sku?.trim();
     if (code) {
-      if (!/^[a-zA-Z0-9]{1,50}$/.test(code)) {
-        return "SKU must be letters and numbers only (no hyphens or spaces), at most 50 characters.";
+      if (!isCanonicalChannelSku(code)) {
+        return "SKU must be letters, numbers, and hyphens only, at most 32 characters.";
       }
       const owner = code.toLowerCase();
       if (seenCodes.has(owner)) return "Duplicate SKU on another combination.";

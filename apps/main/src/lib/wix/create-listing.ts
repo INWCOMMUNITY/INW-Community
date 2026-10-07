@@ -1,16 +1,19 @@
 import {
   createWixNativeListingMapping,
   enqueueWixSyncJob,
+  markWixVariantContentApplied,
   prisma,
+  recordWixDirtyMappedVariantContentDesires,
   refreshWixListingHealthFromDb,
   wixReconcileListingDedupeKey,
+  wixVariantContentFingerprint,
   type WixJobHandlerResult,
   type WixSyncJobClaim,
   type WixVariantMappingInput,
 } from "database";
 import { readWixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
-import { loadWixCatalogVariants } from "./catalog-variants";
+import { loadWixCatalogVariants, pushWixV1VariantChoices } from "./catalog-variants";
 import { wixApplicationRequest } from "./client";
 import {
   WIX_V1_PRODUCTS,
@@ -73,7 +76,12 @@ export async function handleWixCreateListingJob(
   });
 
   if (existingLink) {
-    return { outcome: "SUCCESS" }; // Already created
+    // Repair partial creates where the product mapped but variant prices never wrote.
+    await recordWixDirtyMappedVariantContentDesires(prisma, {
+      memberId: payload.memberId,
+      storeItemId: payload.storeItemId,
+    });
+    return { outcome: "SUCCESS" };
   }
 
   // Load store item with variants
@@ -265,6 +273,51 @@ export async function handleWixCreateListingJob(
       wixProductId,
       variants: variantMappings,
     });
+
+    // V1 create only stamps the façade product price. Push per-combo price/SKU next.
+    if (isV1) {
+      const pricedRows = storeItem.storeVariants
+        .map((variant) => ({
+          storeVariantId: variant.id,
+          options: asChoiceRecord(variant.options),
+          priceCents: variant.priceCents,
+          sku: variant.sku,
+          visible: true as const,
+        }))
+        .filter((row) => Object.keys(row.options).length > 0);
+      if (pricedRows.length > 0) {
+        const wrote = await pushWixV1VariantChoices({
+          productId: wixProductId,
+          variants: pricedRows,
+          config,
+          accessToken,
+        });
+        if (wrote) {
+          // Product already exists — leave desires dirty so UPDATE_LISTING_CONTENT retries.
+          await recordWixDirtyMappedVariantContentDesires(prisma, {
+            memberId: payload.memberId,
+            storeItemId: payload.storeItemId,
+          });
+        } else {
+          const byStoreVariantId = new Map(
+            pricedRows.map((row) => [row.storeVariantId, row] as const)
+          );
+          for (const map of mapping.variantMaps) {
+            const row = byStoreVariantId.get(map.storeVariantId);
+            if (!row) continue;
+            const fingerprint = wixVariantContentFingerprint({
+              priceCents: row.priceCents,
+              sku: row.sku,
+            });
+            await markWixVariantContentApplied(prisma, {
+              variantMapId: map.id,
+              appliedVersion: Math.max(1, map.desiredVariantContentVersion),
+              appliedFingerprint: fingerprint,
+            });
+          }
+        }
+      }
+    }
 
     await prisma.wixListingLink.update({
       where: { id: mapping.listingLink.id },

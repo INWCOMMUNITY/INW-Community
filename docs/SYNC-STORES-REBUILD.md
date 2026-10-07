@@ -16,7 +16,7 @@ This document captures key lessons learned from the previous marketplace sync im
 - Always compare multiple data sources when detecting changes
 
 ### SKU Consistency
-- Maintain a canonical SKU format across all platforms (alphanumeric, max 32 chars)
+- Maintain a canonical SKU format across Shopify, Etsy, and Wix (letters, numbers, and hyphens, max 32 chars)
 - Store SKU mappings when external platforms use different SKU formats
 - SKU is the primary join key for cross-platform inventory sync
 

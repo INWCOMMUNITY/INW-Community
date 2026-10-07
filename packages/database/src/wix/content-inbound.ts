@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { projectStoreItemQuantity } from "../commerce-foundation-inventory";
 import { recordEtsyListingContentDesire } from "../etsy/content-desire";
 import { recordShopifyListingContentDesire } from "../shopify/content-desire";
 import { ensureWixUpdateListingContentJob } from "./content-desire";
@@ -265,6 +266,7 @@ export async function applyWixListingContentInbound(
   let shopifyDesireRecorded = false;
   let etsyDesireRecorded = false;
   if (appliedRemoteProduct) {
+    await projectStoreItemQuantity(db, storeItem.id);
     const after = await db.storeItem.findUniqueOrThrow({ where: { id: storeItem.id } });
     const afterSnapshot = {
       title: after.title,

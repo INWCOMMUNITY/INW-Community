@@ -30,8 +30,9 @@ type RemoteVariant = {
   id?: string;
   sku?: string | null;
   choices?: unknown;
+  visible?: boolean;
   priceData?: { price?: number | string };
-  variant?: { priceData?: { price?: number | string } };
+  variant?: { priceData?: { price?: number | string }; visible?: boolean };
 };
 
 export type SyncWixVariantTopologyResult =
@@ -106,38 +107,45 @@ function valueCounts(options: Record<string, string>): Map<string, number> {
   return counts;
 }
 
-/** Parent combination is still present when every one of its values appears on the new combo. */
-function combinationCovers(parent: Record<string, string>, child: Record<string, string>): boolean {
-  const childCounts = valueCounts(child);
-  for (const [value, count] of valueCounts(parent)) {
-    if ((childCounts.get(value) ?? 0) < count) return false;
+/** True when every value in `inner` also appears in `outer` (axis add or axis remove). */
+function valuesSubsetOf(inner: Record<string, string>, outer: Record<string, string>): boolean {
+  const outerCounts = valueCounts(outer);
+  for (const [value, count] of valueCounts(inner)) {
+    if ((outerCounts.get(value) ?? 0) < count) return false;
   }
   return true;
 }
 
+/** Combinations rematch when one option set contains the other (add Material or remove it). */
+function combinationsRelated(left: Record<string, string>, right: Record<string, string>): boolean {
+  if (Object.keys(left).length === 0 || Object.keys(right).length === 0) return false;
+  return valuesSubsetOf(left, right) || valuesSubsetOf(right, left);
+}
+
 /**
- * Quantity to keep when Wix adds an option axis. The closest existing combination wins,
- * so Red / Small stays 7 on Red / Small / Cotton instead of opening at 0.
+ * Quantity to keep when Wix adds or removes an option axis.
+ * Red / Small at 7 becomes Red / Small / Cotton at 7, and the reverse keeps 7 on Red / Small.
  */
 export function onHandForPulledCombo(
   local: Array<Pick<LocalVariant, "options" | "inventoryState">>,
   targetOptions: Record<string, string>
 ): number | null {
-  let best: { count: number; onHand: number } | null = null;
+  let best: { shared: number; onHand: number } | null = null;
   for (const variant of local) {
     const options = asChoiceRecord(variant.options);
-    if (!combinationCovers(options, targetOptions)) continue;
+    if (!combinationsRelated(options, targetOptions)) continue;
     const onHand = onHandOf(variant);
     if (onHand == null) continue;
-    const count = [...valueCounts(options).values()].reduce((sum, value) => sum + value, 0);
-    if (!best || count > best.count || (count === best.count && onHand > best.onHand)) {
-      best = { count, onHand };
+    const shared = [...valueCounts(options).keys()].filter((value) => valueCounts(targetOptions).has(value))
+      .length;
+    if (!best || shared > best.shared || (shared === best.shared && onHand > best.onHand)) {
+      best = { shared, onHand };
     }
   }
   return best?.onHand ?? null;
 }
 
-/** True when a stocked INW combination would disappear instead of gaining an option. */
+/** True when a stocked INW combination has no related Wix combo to carry the quantity. */
 export function pullWouldDropLocalStock(
   local: Array<Pick<LocalVariant, "options" | "inventoryState">>,
   targets: Array<{ options: Record<string, string> }>
@@ -146,9 +154,15 @@ export function pullWouldDropLocalStock(
     const onHand = onHandOf(variant);
     if (onHand == null || onHand === 0) continue;
     const options = asChoiceRecord(variant.options);
-    if (!targets.some((target) => combinationCovers(options, target.options))) return true;
+    if (!targets.some((target) => combinationsRelated(options, target.options))) return true;
   }
   return false;
+}
+
+function remoteVariantVisible(variant: RemoteVariant): boolean {
+  if (typeof variant.visible === "boolean") return variant.visible;
+  if (typeof variant.variant?.visible === "boolean") return variant.variant.visible;
+  return true;
 }
 
 function onHandOf(variant: Pick<LocalVariant, "inventoryState">): number | null {
@@ -364,6 +378,7 @@ function expandRemoteVariantsFromAxes(
       id: match?.id,
       sku: match?.sku,
       choices: options,
+      visible: match ? remoteVariantVisible(match) : true,
       priceData: match?.priceData,
       variant: match?.variant,
     };
@@ -488,30 +503,35 @@ export async function syncWixListingVariantTopology(input: {
     input.direction === "pull"
       ? expandRemoteVariantsFromAxes(catalogAxes, queriedVariants)
       : queriedVariants;
+  const activeRemoteVariants =
+    input.direction === "pull"
+      ? remoteVariants.filter((variant) => remoteVariantVisible(variant))
+      : remoteVariants;
   const localKeys = localComboKeys(local);
-  const remoteKeys = remoteComboKeys(remoteVariants);
+  const remoteKeys = remoteComboKeys(activeRemoteVariants);
   const maps = await prisma.wixVariantMap.findMany({
     where: { wixListingLinkId: input.listingLinkId, wixConnectionId: input.connectionId },
     select: { id: true, storeVariantId: true },
   });
   const structureDiverged =
     localKeys.join("\n") !== remoteKeys.join("\n") || maps.length !== local.length;
-  const remoteAxisCount = Math.max(catalogAxes.length, optionAxisNames(queriedVariants, true).length);
+  const remoteAxisCount = Math.max(
+    catalogAxes.length,
+    optionAxisNames(activeRemoteVariants, true).length
+  );
   const localAxisCount = optionAxisNames(local, false).length;
 
   if (input.direction === "pull") {
     if (remoteAxisCount > WIX_MAX_OPTION_AXES) {
       return { status: "SKIPPED", reason: "TOO_MANY_AXES", pairCount: maps.length };
     }
-    // INW already has an axis Wix does not. Leave it for the option push.
-    if (localAxisCount > remoteAxisCount && remoteAxisCount > 0) {
-      return { status: "NOOP", pairCount: maps.length };
-    }
+    // Wix-first on poll/reload: adopt fewer axes when Wix removed an option (Material → Color×Size).
+    // An INW-only push still goes through direction:"push" and writes the larger matrix back.
     if (!structureDiverged) return { status: "NOOP", pairCount: maps.length };
     return pullTopology({
       ...input,
       local,
-      remoteVariants,
+      remoteVariants: activeRemoteVariants,
       facadePriceCents: await facadePrice(input.storeItemId),
     });
   }
@@ -608,18 +628,42 @@ export async function syncWixListingVariantTopology(input: {
   });
   if (!after.ok) return after.failure;
   let afterRemote = after.variants;
-  if (
-    isV1 &&
-    productOptions.length > 0 &&
-    !mapStoreVariantsToWix(local, afterRemote, input.wixProductId)
-  ) {
+  if (isV1 && productOptions.length > 0) {
+    // Always write price/SKU/visibility. Mapping success alone used to skip this and leave $1.00.
+    const localByKey = new Map(
+      local.map((variant) => [choiceKey(asChoiceRecord(variant.options)), variant] as const)
+    );
+    const fallbackCents =
+      local.find((row) => row.priceCents > 0)?.priceCents ?? (await facadePrice(input.storeItemId));
+    const pushRows: Array<{
+      options: Record<string, string>;
+      priceCents: number;
+      sku: string | null;
+      visible: boolean;
+    }> = local.map((variant) => ({
+      options: asChoiceRecord(variant.options),
+      priceCents: variant.priceCents,
+      sku: variant.sku,
+      visible: true,
+    }));
+    for (const remote of afterRemote) {
+      const options = remoteChoicesOf(remote);
+      if (Object.keys(options).length < 1) continue;
+      if (localByKey.has(choiceKey(options))) continue;
+      // INW turned this combo off (or never sells it). Keep the Wix row but hide it.
+      pushRows.push({
+        options,
+        priceCents:
+          priceToCents(remote.priceData?.price) ??
+          priceToCents(remote.variant?.priceData?.price) ??
+          fallbackCents,
+        sku: typeof remote.sku === "string" ? remote.sku : null,
+        visible: false,
+      });
+    }
     const wrote = await pushWixV1VariantChoices({
       productId: input.wixProductId,
-      variants: local.map((variant) => ({
-        options: asChoiceRecord(variant.options),
-        priceCents: variant.priceCents,
-        sku: variant.sku,
-      })),
+      variants: pushRows,
       config,
       accessToken,
     });
@@ -632,7 +676,7 @@ export async function syncWixListingVariantTopology(input: {
       accessToken,
     });
     if (!after.ok) return after.failure;
-    afterRemote = after.variants;
+    afterRemote = after.variants.filter((variant) => remoteVariantVisible(variant));
   }
 
   const mapped = mapStoreVariantsToWix(local, afterRemote, input.wixProductId);
@@ -713,8 +757,11 @@ async function pullTopology(input: {
     return { status: "SKIPPED", reason: "CHOICES_UNPARSED", pairCount: 0 };
   }
 
+  // Hidden Wix variants are off for sale. Only visible rows become ACTIVE on INW.
   const optionedRemote = input.remoteVariants.filter(
-    (variant) => Object.keys(remoteChoicesOf(variant)).length > 0 || Boolean(variant.id)
+    (variant) =>
+      remoteVariantVisible(variant) &&
+      (Object.keys(remoteChoicesOf(variant)).length > 0 || Boolean(variant.id))
   );
   if (optionedRemote.length < 1) {
     return { status: "NOOP", pairCount: 0 };

@@ -7,6 +7,7 @@ import {
   type WixRemoteListingObservation,
   type WixSyncJobClaim,
 } from "database";
+import { loadWixCatalogVariants } from "./catalog-variants";
 import { readWixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
 import { wixApplicationRequest } from "./client";
@@ -33,8 +34,8 @@ type WixRemoteProduct = {
   };
   variants?: Array<{
     id?: string;
-    sku?: string;
-    variant?: { priceData?: { price?: number | string } };
+    sku?: string | null;
+    variant?: { priceData?: { price?: number | string }; sku?: string | null };
     priceData?: { price?: number | string };
   }>;
 };
@@ -131,16 +132,6 @@ export async function handleWixPollListingContentJob(
     };
   }
 
-  const remote = toObservation(link.wixProductId, result.data.product);
-  if (!remote) {
-    return {
-      outcome: "DEAD",
-      errorClass: "PERMANENT",
-      errorCode: "INVALID_PRODUCT",
-      errorMessage: "Wix product payload was missing required fields",
-    };
-  }
-
   // Wix-first structure: pull new options/variants into Foundation before content LWW.
   const topology = await syncWixListingVariantTopology({
     connectionId: link.wixConnectionId,
@@ -166,6 +157,28 @@ export async function handleWixPollListingContentJob(
         data: { issueCode: null, issueMessage: null, issueSeverity: null },
       });
     }
+  }
+
+  // V1 keeps per-variant prices on the variants query, not on product GET.
+  const catalog = await loadWixCatalogVariants({
+    isV1,
+    productId: link.wixProductId,
+    fallback: result.data.product.variants ?? [],
+    config,
+    accessToken,
+  });
+  const remote = toObservation(
+    link.wixProductId,
+    result.data.product,
+    catalog.ok ? catalog.variants : result.data.product.variants
+  );
+  if (!remote) {
+    return {
+      outcome: "DEAD",
+      errorClass: "PERMANENT",
+      errorCode: "INVALID_PRODUCT",
+      errorMessage: "Wix product payload was missing required fields",
+    };
   }
 
   await prisma.$transaction(async (tx) => {
@@ -211,7 +224,8 @@ export async function handleWixPollListingContentJob(
 
 function toObservation(
   wixProductId: string,
-  product: WixRemoteProduct
+  product: WixRemoteProduct,
+  catalogVariants?: WixRemoteProduct["variants"]
 ): WixRemoteListingObservation | null {
   const title = typeof product.name === "string" ? product.name.trim() : "";
   if (!title) return null;
@@ -224,7 +238,8 @@ function toObservation(
   }
 
   const priceCents = priceToCents(product.priceData?.price) ?? 0;
-  const variants = (product.variants ?? [])
+  const sourceVariants = catalogVariants ?? product.variants ?? [];
+  const variants = sourceVariants
     .map((variant) => {
       const id = typeof variant.id === "string" ? variant.id : null;
       if (!id) return null;
@@ -248,12 +263,17 @@ function toObservation(
     });
   }
 
+  const facadeCents =
+    variants.length > 0
+      ? Math.min(...variants.map((variant) => variant.priceCents).filter((cents) => cents > 0))
+      : priceCents;
+
   return {
     wixProductId,
     title,
     description: typeof product.description === "string" ? product.description : null,
     photos,
-    priceCents,
+    priceCents: Number.isFinite(facadeCents) && facadeCents > 0 ? facadeCents : priceCents,
     visible: typeof product.visible === "boolean" ? product.visible : null,
     variants,
   };
