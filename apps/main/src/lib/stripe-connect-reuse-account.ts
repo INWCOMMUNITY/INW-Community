@@ -1,18 +1,21 @@
 import type Stripe from "stripe";
 
 /**
- * Find an existing Express/connected account on this platform for the given email.
- * Used so re-onboarding does not create a second Connect account (and strand funds).
+ * Find an existing Express/connected account on this platform for the given email
+ * (and optional memberId metadata). Used so re-onboarding does not create a second
+ * Connect account (and strand funds).
  *
  * Preference when multiple match: highest available+pending balance, then payouts_enabled,
  * then details_submitted, then oldest created.
  */
 export async function findExistingConnectAccountIdForEmail(
   stripe: Stripe,
-  email: string
+  email: string,
+  opts?: { memberId?: string | null }
 ): Promise<string | null> {
   const want = email.trim().toLowerCase();
-  if (!want.includes("@")) return null;
+  const memberId = opts?.memberId?.trim() || null;
+  if (!want.includes("@") && !memberId) return null;
 
   const matches: Stripe.Account[] = [];
   let startingAfter: string | undefined;
@@ -22,7 +25,9 @@ export async function findExistingConnectAccountIdForEmail(
       ...(startingAfter ? { starting_after: startingAfter } : {}),
     });
     for (const acct of list.data) {
-      if ((acct.email ?? "").trim().toLowerCase() === want) {
+      const emailMatch = want.includes("@") && (acct.email ?? "").trim().toLowerCase() === want;
+      const metaMatch = Boolean(memberId && acct.metadata?.memberId === memberId);
+      if (emailMatch || metaMatch) {
         matches.push(acct);
       }
     }

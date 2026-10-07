@@ -105,39 +105,49 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Prefer an existing marketplace Express account for this email (by balance) even if
+    // the member is already linked to a newer empty duplicate.
+    const preferredId = await findExistingConnectAccountIdForEmail(stripe, member.email, {
+      memberId: userId,
+    }).catch((err) => {
+      console.warn("[stripe/connect/onboard] reuse lookup failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    });
+    if (preferredId && preferredId !== accountId) {
+      console.info("[stripe/connect/onboard] reattaching preferred Connect account for email", {
+        memberId: userId,
+        previousAccountId: accountId,
+        preferredAccountId: preferredId,
+      });
+      accountId = preferredId;
+      await prisma.member.update({
+        where: { id: userId },
+        data: { stripeConnectAccountId: accountId },
+      });
+    }
+
     if (!accountId) {
-      // Reuse an existing marketplace Express account for this email when possible
-      // (avoids stranding payouts on a prior Connect account after DB id was cleared).
-      const existingId = await findExistingConnectAccountIdForEmail(stripe, member.email).catch(
-        (err) => {
-          console.warn("[stripe/connect/onboard] reuse lookup failed", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-          return null;
-        }
-      );
-      if (existingId) {
-        accountId = existingId;
-      } else {
-        const account = await stripe.accounts.create({
-          type: "express",
-          country: "US",
-          email: member.email,
-          business_type: "individual",
-          capabilities: {
-            card_payments: { requested: true },
-            transfers: { requested: true },
-          },
+      const account = await stripe.accounts.create({
+        type: "express",
+        country: "US",
+        email: member.email,
+        business_type: "individual",
+        metadata: { memberId: userId },
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+        },
+      });
+      accountId = account.id;
+      // Prefill representative so Stripe doesn't ask for name again during onboarding
+      if (member.firstName?.trim() || member.lastName?.trim()) {
+        await stripe.accounts.createPerson(accountId, {
+          first_name: (member.firstName ?? "").trim() || undefined,
+          last_name: (member.lastName ?? "").trim() || undefined,
+          relationship: { representative: true },
         });
-        accountId = account.id;
-        // Prefill representative so Stripe doesn't ask for name again during onboarding
-        if (member.firstName?.trim() || member.lastName?.trim()) {
-          await stripe.accounts.createPerson(accountId, {
-            first_name: (member.firstName ?? "").trim() || undefined,
-            last_name: (member.lastName ?? "").trim() || undefined,
-            relationship: { representative: true },
-          });
-        }
       }
       await prisma.member.update({
         where: { id: userId },
@@ -163,9 +173,9 @@ export async function POST(req: NextRequest) {
           where: { id: userId },
           data: { stripeConnectAccountId: null },
         });
-        const existingId = await findExistingConnectAccountIdForEmail(stripe, member.email).catch(
-          () => null
-        );
+        const existingId = await findExistingConnectAccountIdForEmail(stripe, member.email, {
+          memberId: userId,
+        }).catch(() => null);
         if (existingId && existingId !== accountId) {
           accountId = existingId;
         } else {
@@ -174,6 +184,7 @@ export async function POST(req: NextRequest) {
             country: "US",
             email: member.email,
             business_type: "individual",
+            metadata: { memberId: userId },
             capabilities: {
               card_payments: { requested: true },
               transfers: { requested: true },
