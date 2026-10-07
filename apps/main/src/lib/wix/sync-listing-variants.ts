@@ -335,12 +335,7 @@ async function v1OptionsMatchLocal(input: {
   local: LocalVariant[];
   config: WixAppConfig;
   accessToken: string;
-  responseOptions:
-    | Array<{ name?: string; choices?: Array<{ value?: string; description?: string }> }>
-    | undefined;
-}): Promise<boolean> {
-  const fromResponse = axesFromProductOptions(input.responseOptions);
-  if (fromResponse.length > 0 && remoteAxesMatchLocal(input.local, fromResponse)) return true;
+}): Promise<boolean | null> {
   const confirmed = await wixApplicationRequest<{
     product?: {
       productOptions?: Array<{ name?: string; choices?: Array<{ value?: string; description?: string }> }>;
@@ -350,17 +345,30 @@ async function v1OptionsMatchLocal(input: {
     path: `${WIX_V1_PRODUCT_GET}/${input.productId}`,
     deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
   });
-  if (!confirmed.ok || !confirmed.data?.product) return false;
+  if (!confirmed.ok || !confirmed.data?.product) return null;
   return remoteAxesMatchLocal(
     input.local,
     axesFromProductOptions(confirmed.data.product.productOptions)
   );
 }
 
+function v1ManagedOptions(local: LocalVariant[]) {
+  return buildWixProductOptions(local).map((option) => ({
+    name: option.name,
+    optionType: "drop_down",
+    choices: option.choices.map((choice) => ({
+      value: choice.value,
+      description: choice.description,
+      inStock: true,
+      visible: true,
+    })),
+  }));
+}
+
 /**
- * Wix ignores a new option on a product that already manages variants.
- * Write the option set directly, and if Wix keeps the old set, turn variant
- * management off and write the full set again.
+ * Wix does not change options on a product that already manages variants.
+ * Disable variant management, delete every option, then write the INW set.
+ * A read of the live product decides success. The update response is not enough.
  */
 async function writeWixV1ProductOptions(input: {
   productId: string;
@@ -369,7 +377,7 @@ async function writeWixV1ProductOptions(input: {
   config: WixAppConfig;
   accessToken: string;
 }): Promise<{ ok: true } | { ok: false; failure: Extract<WixJobHandlerResult, { outcome: "RETRY" | "DEAD" }> }> {
-  const desired = buildWixProductOptions(input.local);
+  const desired = v1ManagedOptions(input.local);
   const direct = await patchWixV1Product({
     productId: input.productId,
     config: input.config,
@@ -382,18 +390,19 @@ async function writeWixV1ProductOptions(input: {
   if (!direct.ok && retryableTopologyClass(direct.class)) {
     return { ok: false, failure: topologyWriteRetry(direct) };
   }
-  if (
-    direct.ok &&
-    (await v1OptionsMatchLocal({
-      productId: input.productId,
-      local: input.local,
-      config: input.config,
-      accessToken: input.accessToken,
-      responseOptions: direct.data?.product?.productOptions,
-    }))
-  ) {
-    return { ok: true };
+  const directMatch = await v1OptionsMatchLocal(input);
+  if (directMatch == null) {
+    return {
+      ok: false,
+      failure: {
+        outcome: "RETRY",
+        errorClass: "TRANSIENT",
+        errorCode: "TOPOLOGY_PUSH_FAILED",
+        errorMessage: "Could not read Wix options after the update",
+      },
+    };
   }
+  if (directMatch) return { ok: true };
 
   const cleared = await patchWixV1Product({
     productId: input.productId,
@@ -403,34 +412,38 @@ async function writeWixV1ProductOptions(input: {
   });
   if (!cleared.ok) return { ok: false, failure: topologyWriteRetry(cleared) };
 
-  const rewritten = await patchWixV1Product({
-    productId: input.productId,
-    config: input.config,
-    accessToken: input.accessToken,
-    product: {
-      manageVariants: desired.length > 0,
-      productOptions: desired,
-    },
+  const deleted = await wixApplicationRequest({
+    method: "DELETE",
+    path: `${WIX_V1_PRODUCT_GET}/${input.productId}/options`,
+    deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
   });
-  if (!rewritten.ok) {
-    const previous = v1OptionsFromRemote(input.previous);
-    if (previous.length > 0) {
-      await patchWixV1Product({
-        productId: input.productId,
-        config: input.config,
-        accessToken: input.accessToken,
-        product: { manageVariants: true, productOptions: previous },
-      });
+  if (!deleted.ok) return { ok: false, failure: topologyWriteRetry(deleted) };
+
+  if (desired.length > 0) {
+    const rewritten = await patchWixV1Product({
+      productId: input.productId,
+      config: input.config,
+      accessToken: input.accessToken,
+      product: {
+        manageVariants: true,
+        productOptions: desired,
+      },
+    });
+    if (!rewritten.ok) {
+      const previous = v1OptionsFromRemote(input.previous);
+      if (previous.length > 0) {
+        await patchWixV1Product({
+          productId: input.productId,
+          config: input.config,
+          accessToken: input.accessToken,
+          product: { manageVariants: true, productOptions: previous },
+        });
+      }
+      return { ok: false, failure: topologyWriteRetry(rewritten) };
     }
-    return { ok: false, failure: topologyWriteRetry(rewritten) };
   }
-  const landed = await v1OptionsMatchLocal({
-    productId: input.productId,
-    local: input.local,
-    config: input.config,
-    accessToken: input.accessToken,
-    responseOptions: rewritten.data?.product?.productOptions,
-  });
+
+  const landed = await v1OptionsMatchLocal(input);
   if (landed) return { ok: true };
   return {
     ok: false,
