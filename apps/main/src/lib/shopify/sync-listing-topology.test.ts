@@ -501,6 +501,7 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           options: { Color: "Red", Size: "M", Material: "Wool" },
+          priceCents: 1200,
         }),
       })
     );
@@ -516,11 +517,157 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
         return arg.where?.variantId === "sv-red";
       });
     expect(adoptedExisting).toBe(false);
+    const adoptedWool = vi
+      .mocked(prisma.inventoryState.update)
+      .mock.calls.some((call) => {
+        const arg = call[0] as {
+          where?: { variantId?: string };
+          data?: { onHand?: number };
+        };
+        return arg.where?.variantId === "sv-new" && arg.data?.onHand === 2;
+      });
+    expect(adoptedWool).toBe(true);
     expect(appendShopifyVariantMaps).toHaveBeenCalled();
     const operationNames = executeShopifyAdminGraphql.mock.calls.map(
       (call) => (call[0] as { operationName?: string }).operationName
     );
     expect(operationNames).toEqual(["ShopifyProductTopologyRead"]);
+  });
+
+  it("rebinds an unmapped local Wool placeholder to Shopify price and quantity", async () => {
+    const { prisma, appendShopifyVariantMaps } = await import("database");
+    vi.mocked(prisma.storeVariant.create).mockClear();
+    vi.mocked(prisma.storeVariant.updateMany).mockClear();
+    vi.mocked(prisma.inventoryState.create).mockClear();
+    vi.mocked(prisma.inventoryState.update).mockClear();
+    vi.mocked(prisma.inventoryState.findUnique).mockClear();
+    vi.mocked(appendShopifyVariantMaps).mockClear();
+    executeShopifyAdminGraphql.mockResolvedValue({
+      ok: true,
+      data: {
+        product: {
+          options: [
+            {
+              id: "gid://shopify/ProductOption/color",
+              name: "Color",
+              position: 1,
+              optionValues: [{ id: "ov-red", name: "Red", hasVariants: true }],
+            },
+            {
+              id: "gid://shopify/ProductOption/size",
+              name: "Size",
+              position: 2,
+              optionValues: [{ id: "ov-m", name: "M", hasVariants: true }],
+            },
+            {
+              id: "gid://shopify/ProductOption/material",
+              name: "Material",
+              position: 3,
+              optionValues: [
+                { id: "ov-cotton", name: "Cotton", hasVariants: true },
+                { id: "ov-wool", name: "Wool", hasVariants: true },
+              ],
+            },
+          ],
+          variants: {
+            nodes: [
+              {
+                id: "gid://shopify/ProductVariant/1",
+                price: "12.00",
+                sku: null,
+                selectedOptions: [
+                  { name: "Color", value: "Red" },
+                  { name: "Size", value: "M" },
+                  { name: "Material", value: "Cotton" },
+                ],
+                inventoryItem: { id: "gid://shopify/InventoryItem/1" },
+                inventoryQuantity: 5,
+              },
+              {
+                id: "gid://shopify/ProductVariant/2",
+                price: "15.00",
+                sku: null,
+                selectedOptions: [
+                  { name: "Color", value: "Red" },
+                  { name: "Size", value: "M" },
+                  { name: "Material", value: "Wool" },
+                ],
+                inventoryItem: { id: "gid://shopify/InventoryItem/2" },
+                inventoryQuantity: 7,
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const result = await syncShopifyListingTopology({
+      connectionId: "conn-1",
+      memberId: "mem-1",
+      listingLinkId: "link-1",
+      productId: "gid://shopify/Product/1",
+      storeItemId: "item-1",
+      localVariants: [
+        {
+          storeVariantId: "sv-cotton",
+          selectedOptions: [
+            { name: "Color", value: "Red" },
+            { name: "Size", value: "M" },
+            { name: "Material", value: "Cotton" },
+          ],
+          priceCents: 1200,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+        {
+          // Placeholder from an earlier matrix expand — wrong price/qty, no Shopify map yet.
+          storeVariantId: "sv-wool-placeholder",
+          selectedOptions: [
+            { name: "Color", value: "Red" },
+            { name: "Size", value: "M" },
+            { name: "Material", value: "Wool" },
+          ],
+          priceCents: 1100,
+          sku: null,
+          shopifyVariantId: null,
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.kind).toBe("MUTATE");
+    expect(prisma.storeVariant.create).not.toHaveBeenCalled();
+    expect(prisma.storeVariant.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: "sv-wool-placeholder" }),
+        data: expect.objectContaining({
+          options: { Color: "Red", Size: "M", Material: "Wool" },
+          priceCents: 1500,
+        }),
+      })
+    );
+    const adoptedWool = vi
+      .mocked(prisma.inventoryState.update)
+      .mock.calls.some((call) => {
+        const arg = call[0] as {
+          where?: { variantId?: string };
+          data?: { onHand?: number };
+        };
+        return arg.where?.variantId === "sv-wool-placeholder" && arg.data?.onHand === 7;
+      });
+    expect(adoptedWool).toBe(true);
+    expect(appendShopifyVariantMaps).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        variants: [
+          expect.objectContaining({
+            storeVariantId: "sv-wool-placeholder",
+            shopifyVariantId: "gid://shopify/ProductVariant/2",
+          }),
+        ],
+      })
+    );
   });
 
   it("pushes a variant added in INW onto Shopify", async () => {

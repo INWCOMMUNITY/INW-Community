@@ -951,9 +951,10 @@ export async function syncShopifyListingTopology(input: {
 
   for (const rem of plan.importRemoteVariants) {
     let storeVariantId = rem.storeVariantId;
+    const options = shopifySelectedOptionsToInwOptions(rem.selectedOptions);
+    const priceCents = Math.max(1, rem.priceCents || 1);
     if (!storeVariantId) {
       // Create one immutable INW variant for a newly observed Shopify variant.
-      const options = shopifySelectedOptionsToInwOptions(rem.selectedOptions);
       const openingQty =
         inventoryMode === "TRACKED_FINITE" ? Math.max(0, rem.available ?? 0) : null;
       const createdVariant = await prisma.storeVariant.create({
@@ -961,7 +962,7 @@ export async function syncShopifyListingTopology(input: {
           memberId: input.memberId,
           storeItemId: input.storeItemId,
           options,
-          priceCents: Math.max(1, rem.priceCents || 1),
+          priceCents,
           sku: rem.sku,
           isDefault: false,
         },
@@ -980,6 +981,39 @@ export async function syncShopifyListingTopology(input: {
           availabilityVersion: 1,
         },
       });
+    } else {
+      // Rebind: local placeholder / unmapped row correlated to a new Shopify GID.
+      // Take Shopify price (and qty below). Do not keep stale listing defaults.
+      await prisma.storeVariant.updateMany({
+        where: {
+          id: storeVariantId,
+          storeItemId: input.storeItemId,
+          memberId: input.memberId,
+        },
+        data: {
+          options,
+          priceCents,
+          sku: rem.sku,
+        },
+      });
+      const existingState = await prisma.inventoryState.findUnique({
+        where: { variantId: storeVariantId },
+        select: { variantId: true },
+      });
+      if (!existingState && inventoryMode === "TRACKED_FINITE") {
+        const openingQty = Math.max(0, rem.available ?? 0);
+        await prisma.inventoryState.create({
+          data: {
+            variantId: storeVariantId,
+            memberId: input.memberId,
+            storeItemId: input.storeItemId,
+            mode: inventoryMode,
+            onHand: openingQty,
+            reserved: 0,
+            availabilityVersion: 1,
+          },
+        });
+      }
     }
     await appendShopifyVariantMaps(prisma, {
       memberId: input.memberId,
@@ -993,8 +1027,9 @@ export async function syncShopifyListingTopology(input: {
         },
       ],
     });
-    // New Shopify variants take their own quantity. Existing GIDs keep the INW amount.
-    if (!rem.storeVariantId && typeof rem.available === "number" && Number.isFinite(rem.available)) {
+    // importRemoteVariants are new Shopify GIDs (create or first correlation).
+    // Always take Shopify available. Mapped-GID renames above keep preexisting INW qty.
+    if (typeof rem.available === "number" && Number.isFinite(rem.available)) {
       await adoptRemoteAvailableOntoMappedVariant({
         storeVariantId,
         listingLinkId: input.listingLinkId,
