@@ -1,5 +1,6 @@
 import {
   appendShopifyVariantMaps,
+  applyFoundationSellerCollapseToSimple,
   correlateVariantsByOptionCombination,
   isShopifyDefaultTitleOnly,
   planShopifyTopologyDiff,
@@ -732,6 +733,191 @@ function localVariantsHaveRealOptions(localVariants: ShopifyTopologyLocalVariant
 }
 
 /**
+ * Shopify removed option variants and collapsed to Title / Default Title.
+ * Follow Shopify: collapse INW to one simple variant and remap to the remote GID.
+ * Never productSet the old matrix back (that snapped Shopify to INW with 0 qty).
+ */
+async function pullShopifySimpleTopologyIntoInw(input: {
+  connectionId: string;
+  memberId: string;
+  listingLinkId: string;
+  storeItemId: string;
+  remoteSnap: ShopifyRemoteVariantSnap;
+  now?: Date;
+}): Promise<{ ok: true } | ({ ok: false } & HandlerFailure)> {
+  const openingQty = Math.max(0, input.remoteSnap.available ?? 0);
+  try {
+    const collapsed = await prisma.$transaction((tx) =>
+      applyFoundationSellerCollapseToSimple(tx, {
+        storeItemId: input.storeItemId,
+        memberId: input.memberId,
+        commandId: `shopify-pull-simple:${input.listingLinkId}:${(input.now ?? new Date()).getTime()}`,
+        simpleTarget: openingQty,
+        priceCents:
+          Number.isFinite(input.remoteSnap.priceCents) && input.remoteSnap.priceCents > 0
+            ? input.remoteSnap.priceCents
+            : undefined,
+        sku: input.remoteSnap.sku,
+      })
+    );
+    await prisma.shopifyVariantMap.deleteMany({
+      where: {
+        shopifyListingLinkId: input.listingLinkId,
+        shopifyConnectionId: input.connectionId,
+      },
+    });
+    await appendShopifyVariantMaps(prisma, {
+      memberId: input.memberId,
+      connectionId: input.connectionId,
+      listingLinkId: input.listingLinkId,
+      variants: [
+        {
+          storeVariantId: collapsed.survivorVariantId,
+          shopifyVariantId: input.remoteSnap.shopifyVariantId,
+          shopifyInventoryItemId: input.remoteSnap.shopifyInventoryItemId,
+        },
+      ],
+    });
+    if (typeof input.remoteSnap.available === "number" && Number.isFinite(input.remoteSnap.available)) {
+      await adoptRemoteAvailableOntoMappedVariant({
+        storeVariantId: collapsed.survivorVariantId,
+        listingLinkId: input.listingLinkId,
+        connectionId: input.connectionId,
+        shopifyVariantId: input.remoteSnap.shopifyVariantId,
+        available: openingQty,
+      });
+    }
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: "SHOPIFY_SIMPLE_PULL_FAILED",
+      errorMessage:
+        error instanceof Error
+          ? error.message.slice(0, 500)
+          : "Could not adopt Shopify simple product into INW",
+    };
+  }
+}
+
+/**
+ * Seller collapsed INW to a simple listing while Shopify still has option variants.
+ * productSet Title / Default Title so Shopify follows INW (mirror of pull-simple).
+ */
+async function pushInwSimpleOntoShopifyProduct(input: {
+  connectionId: string;
+  memberId: string;
+  listingLinkId: string;
+  storeItemId: string;
+  localVariants: ShopifyTopologyLocalVariant[];
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<{ ok: true } | ({ ok: false } & HandlerFailure)> {
+  // Prefer the mapped survivor when present so qty projection stays on the same row.
+  const survivor =
+    input.localVariants.find((row) => Boolean(row.shopifyVariantId)) ??
+    input.localVariants[0] ??
+    null;
+  if (!survivor) {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: "SIMPLE_SURVIVOR_MISSING",
+      errorMessage: "INW has no active variant to push as a simple Shopify product",
+    };
+  }
+
+  const item = await prisma.storeItem.findFirst({
+    where: { id: input.storeItemId, memberId: input.memberId },
+    select: { title: true, description: true },
+  });
+  if (!item) {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: "STORE_ITEM_MISSING",
+      errorMessage: "INW listing was not found",
+    };
+  }
+
+  const remote = await productSetShopifyMultiVariantDraftListing({
+    connectionId: input.connectionId,
+    storeItemId: input.storeItemId,
+    title: item.title,
+    descriptionHtml: item.description,
+    preserveStatus: true,
+    productOptions: [{ name: "Title", values: [{ name: "Default Title" }] }],
+    variants: [
+      {
+        optionValues: [{ optionName: "Title", name: "Default Title" }],
+        price: centsToShopifyMoney(Math.max(1, survivor.priceCents || 1)),
+        ...(survivor.sku ? { sku: survivor.sku } : {}),
+      },
+    ],
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (!remote.ok) {
+    await prisma.shopifyListingLink.update({
+      where: { id: input.listingLinkId },
+      data: {
+        readiness: "ACTION_REQUIRED",
+        contentHealth: "PAUSED",
+        issueCode: "SIMPLE_NOT_PUSHED",
+        issueSeverity: "ACTION_REQUIRED",
+        issueFingerprint: "simple-not-pushed",
+        issueMessage: `Simple listing changes did not reach Shopify. ${remote.errorMessage}`.slice(
+          0,
+          500
+        ),
+      },
+    });
+    return {
+      ok: false,
+      outcome: remote.class === "RETRY" ? "RETRY" : "DEAD",
+      errorClass: remote.errorClass,
+      errorCode: remote.errorCode,
+      errorMessage: remote.errorMessage,
+    };
+  }
+
+  const simple = remote.variants[0];
+  if (!simple) {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: "SIMPLE_PUSH_IDENTITY",
+      errorMessage: "Shopify productSet did not return a simple variant",
+    };
+  }
+
+  await prisma.shopifyVariantMap.deleteMany({
+    where: {
+      shopifyListingLinkId: input.listingLinkId,
+      shopifyConnectionId: input.connectionId,
+    },
+  });
+  await appendShopifyVariantMaps(prisma, {
+    memberId: input.memberId,
+    connectionId: input.connectionId,
+    listingLinkId: input.listingLinkId,
+    variants: [
+      {
+        storeVariantId: survivor.storeVariantId,
+        shopifyVariantId: simple.variantId,
+        shopifyInventoryItemId: simple.inventoryItemId,
+      },
+    ],
+  });
+  return { ok: true };
+}
+
+/**
  * A simple Shopify product is Title / Default Title. Adding color and size in INW
  * cannot be a partial variant create — replace the whole option set, and keep the
  * product live if it is already live.
@@ -879,6 +1065,11 @@ export async function syncShopifyListingTopology(input: {
   localVariants: ShopifyTopologyLocalVariant[];
   /** Mapped variants the seller already removed in INW. Deleted on Shopify, not re-imported. */
   removedVariants?: Array<{ storeVariantId: string; shopifyVariantId: string }>;
+  /**
+   * Seller just changed INW topology (collapse/matrix). When local is simple and
+   * Shopify is still multi, push Default Title — do not re-import Shopify's matrix.
+   */
+  pushTopology?: boolean;
   desiredOptionOrder?: string[];
   fetchImpl?: ShopifyFetch;
   now?: Date;
@@ -898,7 +1089,53 @@ export async function syncShopifyListingTopology(input: {
   const remoteIsDefaultTitle =
     remoteSnaps.length > 0 &&
     remoteSnaps.every((row) => isShopifyDefaultTitleOnly(row.selectedOptions));
+  const remoteHasRealOptions = remoteSnaps.some(
+    (row) => row.selectedOptions.length > 0 && !isShopifyDefaultTitleOnly(row.selectedOptions)
+  );
+  const localIsSimple = !localVariantsHaveRealOptions(input.localVariants);
+  const sellerIntentToPushSimple =
+    Boolean(input.pushTopology) || (input.removedVariants?.length ?? 0) > 0;
+
+  // INW collapsed to simple while Shopify still has options → push Default Title.
+  // Without this, the planner treats simple→multi as Shopify expansion and pulls.
+  if (localIsSimple && remoteHasRealOptions && sellerIntentToPushSimple) {
+    const pushed = await pushInwSimpleOntoShopifyProduct({
+      connectionId: input.connectionId,
+      memberId: input.memberId,
+      listingLinkId: input.listingLinkId,
+      storeItemId: input.storeItemId,
+      localVariants: input.localVariants,
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+    });
+    if (!pushed.ok) return pushed;
+    await clearResolvedTopologyConflict(input.listingLinkId);
+    return { ok: true, plan: { kind: "NOOP" }, importedStoreVariantIds: [] };
+  }
+
   if (remoteIsDefaultTitle && localVariantsHaveRealOptions(input.localVariants)) {
+    // Mapped multi-option locals + Shopify now Default Title ⇒ Shopify deleted the
+    // variants. Follow Shopify (collapse INW). Only push when INW is expanding a
+    // still-simple mapping (unmapped option rows / new Color·Size on a simple product).
+    const localHadMappedOptions = input.localVariants.some(
+      (row) =>
+        Boolean(row.shopifyVariantId) &&
+        row.selectedOptions.length > 0 &&
+        !isShopifyDefaultTitleOnly(row.selectedOptions)
+    );
+    if (localHadMappedOptions) {
+      const pulled = await pullShopifySimpleTopologyIntoInw({
+        connectionId: input.connectionId,
+        memberId: input.memberId,
+        listingLinkId: input.listingLinkId,
+        storeItemId: input.storeItemId,
+        remoteSnap: remoteSnaps[0]!,
+        now: input.now,
+      });
+      if (!pulled.ok) return pulled;
+      await clearResolvedTopologyConflict(input.listingLinkId);
+      return { ok: true, plan: { kind: "NOOP" }, importedStoreVariantIds: [] };
+    }
     const pushed = await pushInwOptionsOntoDefaultShopifyProduct(input);
     if (!pushed.ok) return pushed;
     await clearResolvedTopologyConflict(input.listingLinkId);

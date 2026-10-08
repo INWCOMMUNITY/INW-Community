@@ -20,13 +20,19 @@ import { notifyShopifyListingIssueOnce } from "./listing-issue-notify";
 import { syncShopifyListingTopology } from "./sync-listing-topology";
 import { readRemoteProductForInbound } from "./process-products-update";
 
-function parseReconcilePayload(payload: unknown): { listingLinkId: string; storeItemId: string } | null {
+function parseReconcilePayload(
+  payload: unknown
+): { listingLinkId: string; storeItemId: string; pushTopology: boolean } | null {
   if (!payload || typeof payload !== "object") return null;
   const row = payload as Record<string, unknown>;
   const listingLinkId = typeof row.listingLinkId === "string" ? row.listingLinkId : "";
   const storeItemId = typeof row.storeItemId === "string" ? row.storeItemId : "";
   if (!listingLinkId || !storeItemId) return null;
-  return { listingLinkId, storeItemId };
+  return {
+    listingLinkId,
+    storeItemId,
+    pushTopology: row.pushTopology === true,
+  };
 }
 
 async function readRemoteListingObservation(input: {
@@ -354,6 +360,7 @@ export async function handleShopifyReconcileListingJob(
     storeItemId: listing.storeItemId,
     localVariants: localTopology,
     removedVariants,
+    pushTopology: parsed.pushTopology,
     fetchImpl: opts?.fetchImpl,
     now: opts?.now,
   });

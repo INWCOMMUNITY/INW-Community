@@ -510,6 +510,8 @@ export async function ensureShopifyReconcileListingJob(
     storeItemId: string;
     bucket?: string | number;
     now?: Date;
+    /** Seller changed INW variant topology — reconcile should push, not pull. */
+    pushTopology?: boolean;
   }
 ): Promise<ShopifySyncJob> {
   const bucket = input.bucket ?? shopifyReconcileTimeBucket((input.now ?? new Date()).getTime());
@@ -524,6 +526,7 @@ export async function ensureShopifyReconcileListingJob(
     payload: {
       listingLinkId: input.listingLinkId,
       storeItemId: input.storeItemId,
+      ...(input.pushTopology ? { pushTopology: true } : {}),
     },
   });
 }
@@ -684,6 +687,7 @@ export async function recordShopifyListingVariantTopologyDesire(
     storeItemId: input.storeItemId,
     bucket: `topology-${(input.now ?? new Date()).getTime()}`,
     now: input.now,
+    pushTopology: true,
   });
 }
 
