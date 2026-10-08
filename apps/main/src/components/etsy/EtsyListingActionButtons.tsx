@@ -18,6 +18,8 @@ type Props = {
   onActionComplete?: (message?: string) => void;
 };
 
+type ConfirmStep = null | "unlink" | "deleteRemote";
+
 export function EtsyListingActionButtons({
   storeItemId,
   etsyListingId,
@@ -26,6 +28,7 @@ export function EtsyListingActionButtons({
 }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmStep, setConfirmStep] = useState<ConfirmStep>(null);
 
   const live = etsyListingIsPubliclyViewable(remoteListingState);
   const editHref = `/seller-hub/store/${storeItemId}`;
@@ -36,6 +39,7 @@ export function EtsyListingActionButtons({
   ) {
     setBusy(action);
     setError(null);
+    setConfirmStep(null);
     try {
       const response = await fetch(`/api/etsy/listings/${encodeURIComponent(storeItemId)}/actions`, {
         method: "POST",
@@ -62,22 +66,6 @@ export function EtsyListingActionButtons({
     }
   }
 
-  function onRemoveFromEtsy() {
-    const unlink = window.confirm(
-      "Remove from Etsy sync?\n\n" +
-        "This unlinks the INW listing from Etsy (INW listing stays).\n\n" +
-        "• OK — continue\n" +
-        "• Cancel — keep the link"
-    );
-    if (!unlink) return;
-    const alsoDelete = window.confirm(
-      "Also try to delete the listing on Etsy?\n\n" +
-        "• OK — deactivate/delete on Etsy when allowed, then unlink in INW\n" +
-        "• Cancel — only unlink in INW (Etsy listing stays)"
-    );
-    void callAction("remove", { confirmDelete: alsoDelete });
-  }
-
   const items: AppsAirportManageMenuItem[] = [
     {
       kind: "link",
@@ -90,7 +78,11 @@ export function EtsyListingActionButtons({
       id: "remove",
       label: "Remove from Etsy",
       danger: true,
-      onSelect: onRemoveFromEtsy,
+      disabled: busy !== null,
+      onSelect: () => {
+        setError(null);
+        setConfirmStep("unlink");
+      },
     },
     {
       kind: "link",
@@ -117,6 +109,70 @@ export function EtsyListingActionButtons({
   ];
 
   return (
-    <AppsAirportListingManageMenu items={items} busy={busy !== null} error={error} />
+    <div className="inline-flex flex-col items-stretch gap-1 text-left">
+      <AppsAirportListingManageMenu items={items} busy={busy !== null} error={error} />
+      {confirmStep === "unlink" ? (
+        <div className="max-w-[16rem] rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-950">
+          <p className="font-semibold">Remove from Etsy sync?</p>
+          <p className="mt-1 text-red-900/90">
+            Unlinks this INW listing from Etsy. Your INW listing stays.
+            {etsyListingId ? ` Etsy #${etsyListingId}.` : ""}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-md bg-red-800 px-2 py-1 font-semibold text-white disabled:opacity-50"
+              disabled={busy !== null}
+              onClick={() => setConfirmStep("deleteRemote")}
+            >
+              Continue
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-neutral-300 bg-white px-2 py-1 font-semibold text-neutral-800 disabled:opacity-50"
+              disabled={busy !== null}
+              onClick={() => setConfirmStep(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {confirmStep === "deleteRemote" ? (
+        <div className="max-w-[16rem] rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-950">
+          <p className="font-semibold">Also delete on Etsy?</p>
+          <p className="mt-1 text-amber-900/90">
+            INW will unlink either way. Deleting on Etsy is best-effort (active listings may need
+            deactivation first).
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-md bg-red-800 px-2 py-1 font-semibold text-white disabled:opacity-50"
+              disabled={busy !== null}
+              onClick={() => void callAction("remove", { confirmDelete: true })}
+            >
+              {busy === "remove" ? "Removing…" : "Unlink + delete on Etsy"}
+            </button>
+            <button
+              type="button"
+              className="rounded-md bg-[var(--color-earth)] px-2 py-1 font-semibold text-white disabled:opacity-50"
+              disabled={busy !== null}
+              onClick={() => void callAction("remove", { confirmDelete: false })}
+            >
+              {busy === "remove" ? "Removing…" : "Unlink only"}
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-neutral-300 bg-white px-2 py-1 font-semibold text-neutral-800 disabled:opacity-50"
+              disabled={busy !== null}
+              onClick={() => setConfirmStep(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }

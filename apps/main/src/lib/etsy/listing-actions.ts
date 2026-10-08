@@ -73,6 +73,8 @@ async function deleteRemoteEtsyListing(input: {
   }
 
   // Active listings often cannot be deleted until deactivated.
+  // Short timeouts: local unlink already succeeded; don't hold the seller request.
+  const timeoutMs = 8_000;
   if (etsyListingIsPubliclyViewable(input.remoteListingState)) {
     const deactivate = await etsyConnectionRequest({
       connectionId: input.connectionId,
@@ -82,6 +84,7 @@ async function deleteRemoteEtsyListing(input: {
       bodyEncoding: "form",
       body: { state: "inactive" },
       maxAttempts: 1,
+      timeoutMs,
       fetchImpl: input.fetchImpl,
     });
     if (!deactivate.ok && deactivate.class !== "NOT_CONFIGURED") {
@@ -95,6 +98,7 @@ async function deleteRemoteEtsyListing(input: {
     method: "DELETE",
     path: `/listings/${encodeURIComponent(listingId)}`,
     maxAttempts: 1,
+    timeoutMs,
     fetchImpl: input.fetchImpl,
   });
   if (result.ok || result.httpStatus === 404) {
@@ -113,27 +117,32 @@ async function deleteListingMapping(listingLinkId: string): Promise<void> {
   });
 }
 
-async function stopPendingCreateJob(input: {
+async function stopPendingJobsForListing(input: {
   connectionId: string;
   storeItemId: string;
 }): Promise<void> {
   const dedupeKey = etsyCreateListingDedupeKey(input.connectionId, input.storeItemId);
+  const cancelled = {
+    state: "DEAD" as const,
+    completedAt: new Date(),
+    lastErrorClass: "CANCELLED",
+    lastErrorCode: "MAPPING_REMOVED",
+    lastErrorMessage: "Listing mapping removed by seller",
+    leaseOwner: null,
+    leaseToken: null,
+    leaseExpiresAt: null,
+  };
+  // CREATE_LISTING uses a stable dedupe key; other kinds key off payload.storeItemId.
   await prisma.etsySyncJob.updateMany({
     where: {
       etsyConnectionId: input.connectionId,
-      dedupeKey,
       state: { in: ["PENDING", "RETRY_WAIT", "RUNNING"] },
+      OR: [
+        { dedupeKey },
+        { payload: { path: ["storeItemId"], equals: input.storeItemId } },
+      ],
     },
-    data: {
-      state: "DEAD",
-      completedAt: new Date(),
-      lastErrorClass: "CANCELLED",
-      lastErrorCode: "MAPPING_REMOVED",
-      lastErrorMessage: "Listing mapping removed by seller",
-      leaseOwner: null,
-      leaseToken: null,
-      leaseExpiresAt: null,
-    },
+    data: cancelled,
   });
 }
 
@@ -181,23 +190,11 @@ export async function runEtsyListingAction(input: {
       };
     }
 
-    // remove — local unlink is the seller-facing success; remote delete is best-effort.
-    let remoteDetail: string | null = null;
-    let remoteDeleted = false;
-    if (input.confirmDelete) {
-      const remote = await deleteRemoteEtsyListing({
-        connectionId: connection.id,
-        memberId: input.memberId,
-        shopId: connection.shopId,
-        etsyListingId: listing.etsyListingId,
-        remoteListingState: listing.remoteListingState,
-        fetchImpl: input.fetchImpl,
-      });
-      remoteDeleted = remote.deleted;
-      remoteDetail = remote.detail;
-    }
-
-    await stopPendingCreateJob({
+    // remove — always unlink in INW first so seller intent succeeds even if Etsy
+    // deactivate/delete hangs or times out the serverless request.
+    const etsyListingId = listing.etsyListingId;
+    const remoteListingState = listing.remoteListingState;
+    await stopPendingJobsForListing({
       connectionId: connection.id,
       storeItemId: listing.storeItemId,
     });
@@ -206,6 +203,28 @@ export async function runEtsyListingAction(input: {
     if (!input.confirmDelete) {
       return { ok: true, message: "Unlinked from Etsy (listing left on Etsy)" };
     }
+
+    let remoteDetail: string | null = null;
+    let remoteDeleted = false;
+    try {
+      const remote = await deleteRemoteEtsyListing({
+        connectionId: connection.id,
+        memberId: input.memberId,
+        shopId: connection.shopId,
+        etsyListingId,
+        remoteListingState,
+        fetchImpl: input.fetchImpl,
+      });
+      remoteDeleted = remote.deleted;
+      remoteDetail = remote.detail;
+    } catch (error) {
+      remoteDeleted = false;
+      remoteDetail =
+        error instanceof Error && error.message.trim()
+          ? error.message.trim()
+          : "Etsy delete request failed";
+    }
+
     if (remoteDeleted) {
       return { ok: true, message: "Removed from Etsy and unlinked in INW" };
     }

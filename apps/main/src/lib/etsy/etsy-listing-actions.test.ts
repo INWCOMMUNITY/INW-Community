@@ -68,15 +68,26 @@ describe("runEtsyListingAction", () => {
     expect(prisma.etsySyncJob.updateMany).toHaveBeenCalled();
   });
 
-  it("still unlinks when remote delete fails", async () => {
-    vi.mocked(etsyConnectionRequest).mockResolvedValue({
-      ok: false,
-      class: "CLIENT",
-      httpStatus: 400,
-      data: null,
-      message: "property ids 100 are deprecated",
-      retryAfterMs: null,
-      rateLimit: null,
+  it("unlinks before remote delete and still succeeds when remote fails", async () => {
+    const order: string[] = [];
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      order.push("unlink");
+      return fn({
+        etsyVariantMap: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        etsyListingLink: { delete: vi.fn().mockResolvedValue({}) },
+      });
+    });
+    vi.mocked(etsyConnectionRequest).mockImplementation(async () => {
+      order.push("remote");
+      return {
+        ok: false,
+        class: "PERMANENT",
+        httpStatus: 400,
+        data: null,
+        message: "property ids 100 are deprecated",
+        retryAfterMs: null,
+        rateLimit: null,
+      };
     });
     const result = await runEtsyListingAction({
       memberId: "m1",
@@ -89,7 +100,8 @@ describe("runEtsyListingAction", () => {
       expect(result.message).toContain("Unlinked in INW");
       expect(result.message).toContain("not deleted");
     }
-    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(order[0]).toBe("unlink");
+    expect(order).toContain("remote");
   });
 
   it("unlinks even when Etsy app config is missing", async () => {
