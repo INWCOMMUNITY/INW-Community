@@ -150,6 +150,23 @@ export async function enqueueWixSyncJob(
             },
           });
         }
+        // A seller reload must not wait out the previous backoff.
+        if (
+          input.kind === "RECONCILE_LISTING" &&
+          existing.state !== "RUNNING" &&
+          (existing.state === "RETRY_WAIT" || existing.nextAttemptAt > new Date())
+        ) {
+          return db.wixSyncJob.update({
+            where: { id: existing.id },
+            data: {
+              state: "PENDING",
+              nextAttemptAt: input.nextAttemptAt ?? new Date(),
+              leaseOwner: null,
+              leaseToken: null,
+              leaseExpiresAt: null,
+            },
+          });
+        }
         return existing;
       }
     }

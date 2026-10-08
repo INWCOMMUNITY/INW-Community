@@ -456,6 +456,191 @@ async function writeWixV1ProductOptions(input: {
   };
 }
 
+type V3ProductOption = {
+  id?: string;
+  name?: string;
+  optionRenderType?: string;
+  choicesSettings?: {
+    choices?: Array<{ choiceId?: string; name?: string; choiceType?: string }>;
+  };
+};
+
+type V3CatalogProduct = {
+  revision?: string | number;
+  options?: V3ProductOption[];
+  variantsInfo?: { variants?: Array<Record<string, unknown>> };
+};
+
+function v3RemoteVariants(
+  local: LocalVariant[],
+  variants: Array<Record<string, unknown>> | undefined
+): RemoteVariant[] {
+  const remote = (variants ?? [])
+    .map((row) => ({
+      id: typeof row.id === "string" ? row.id : undefined,
+      sku: typeof row.sku === "string" ? row.sku : null,
+      choices: row.choices,
+      visible: typeof row.visible === "boolean" ? row.visible : true,
+    }))
+    .filter((row) => row.id);
+  if (remote.length === local.length && remote.every((row) => Object.keys(remoteChoicesOf(row)).length === 0)) {
+    return remote.map((row, index) => ({
+      ...row,
+      choices: asChoiceRecord(local[index]?.options),
+    }));
+  }
+  return remote;
+}
+
+/**
+ * The storefront reads Catalog V3. Replacing `options` and `variantsInfo` together
+ * removes an option that a V1 productOptions patch leaves in place.
+ * Returns unavailable when this site is still on Catalog V1.
+ */
+async function writeWixV3OptionsIfAvailable(input: {
+  productId: string;
+  local: LocalVariant[];
+  config: WixAppConfig;
+  accessToken: string;
+}): Promise<
+  | { status: "unavailable" }
+  | { status: "written"; variants: RemoteVariant[] }
+  | { status: "failure"; failure: Extract<WixJobHandlerResult, { outcome: "RETRY" | "DEAD" }> }
+> {
+  const read = async () =>
+    wixApplicationRequest<{ product?: V3CatalogProduct }>({
+      method: "GET",
+      path: `${WIX_V3_PRODUCTS}/${input.productId}`,
+      query: { fields: "VARIANT_OPTION_CHOICE_NAMES" },
+      deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
+    });
+  const current = await read();
+  if (!current.ok || !current.data?.product) {
+    if (
+      current.class === "CATALOG_VERSION_MISMATCH" ||
+      current.class === "NOT_FOUND" ||
+      current.class === "VALIDATION"
+    ) {
+      return { status: "unavailable" };
+    }
+    return { status: "failure", failure: topologyWriteRetry(current) };
+  }
+  const revision = current.data.product.revision;
+  if (revision == null) {
+    return {
+      status: "failure",
+      failure: {
+        outcome: "RETRY",
+        errorClass: "TRANSIENT",
+        errorCode: "MISSING_REVISION",
+        errorMessage: "Wix product revision missing for topology update",
+      },
+    };
+  }
+
+  const existing = current.data.product.options ?? [];
+  const desired = buildWixProductOptions(input.local);
+  const options = desired.map((option) => {
+    const matched = existing.find(
+      (row) => row.name?.trim().toLowerCase() === option.name.trim().toLowerCase()
+    );
+    const renderType = matched?.optionRenderType || "TEXT_CHOICES";
+    return {
+      ...(matched?.id ? { id: matched.id } : {}),
+      name: matched?.name || option.name,
+      optionRenderType: renderType,
+      choicesSettings: {
+        choices: option.choices.map((choice) => {
+          const currentChoice = matched?.choicesSettings?.choices?.find(
+            (row) => row.name?.trim().toLowerCase() === choice.value.trim().toLowerCase()
+          );
+          return {
+            ...(currentChoice?.choiceId ? { choiceId: currentChoice.choiceId } : {}),
+            name: currentChoice?.name || choice.value,
+            choiceType: currentChoice?.choiceType || "CHOICE_TEXT",
+          };
+        }),
+      },
+    };
+  });
+  const variants = input.local.map((variant) => {
+    const choices = asChoiceRecord(variant.options);
+    return {
+      ...(variant.sku ? { sku: variant.sku } : {}),
+      visible: true,
+      price: { actualPrice: { amount: ((variant.priceCents || 0) / 100).toFixed(2) } },
+      choices: Object.entries(choices).map(([optionName, choiceName]) => {
+        const option = options.find(
+          (row) => row.name.trim().toLowerCase() === optionName.trim().toLowerCase()
+        );
+        const choice = option?.choicesSettings.choices.find(
+          (row) => row.name.trim().toLowerCase() === choiceName.trim().toLowerCase()
+        );
+        return {
+          optionChoiceNames: {
+            optionName: option?.name || optionName,
+            choiceName: choice?.name || choiceName,
+            renderType: option?.optionRenderType || "TEXT_CHOICES",
+          },
+        };
+      }),
+    };
+  });
+
+  const patch = await wixApplicationRequest<{ product?: V3CatalogProduct }>({
+    method: "PATCH",
+    path: `${WIX_V3_PRODUCTS}/${input.productId}`,
+    body: JSON.stringify({
+      product: {
+        id: input.productId,
+        revision: String(revision),
+        options,
+        variantsInfo: { variants },
+      },
+    }),
+    deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
+  });
+  if (!patch.ok) {
+    if (patch.class === "CATALOG_VERSION_MISMATCH") return { status: "unavailable" };
+    return { status: "failure", failure: topologyWriteRetry(patch) };
+  }
+
+  const confirmed = await read();
+  if (!confirmed.ok || !confirmed.data?.product) {
+    return { status: "failure", failure: topologyWriteRetry(confirmed) };
+  }
+  const optionAxes = axesFromCatalogProduct({
+    options: confirmed.data.product.options as unknown[],
+  });
+  if (!remoteAxesMatchLocal(input.local, optionAxes)) {
+    return {
+      status: "failure",
+      failure: {
+        outcome: "RETRY",
+        errorClass: "TRANSIENT",
+        errorCode: "TOPOLOGY_PUSH_FAILED",
+        errorMessage: "Wix still has a different set of options than INW",
+      },
+    };
+  }
+  const written = v3RemoteVariants(
+    input.local,
+    confirmed.data.product.variantsInfo?.variants ?? patch.data?.product?.variantsInfo?.variants
+  );
+  if (written.length < input.local.length) {
+    return {
+      status: "failure",
+      failure: {
+        outcome: "RETRY",
+        errorClass: "TRANSIENT",
+        errorCode: "VARIANT_MAP_INCOMPLETE",
+        errorMessage: "Wix did not return every option combination after the option update",
+      },
+    };
+  }
+  return { status: "written", variants: written };
+}
+
 function buildWixV3OptionsAndVariants(variants: LocalVariant[]) {
   const productOptions = buildWixProductOptions(variants);
   const options = productOptions.map((option) => ({
@@ -827,8 +1012,23 @@ export async function syncWixListingVariantTopology(input: {
   }
 
   const productOptions = buildWixProductOptions(local);
-
-  if (isV1) {
+  let v3Variants: RemoteVariant[] | null = null;
+  const v3Write = await writeWixV3OptionsIfAvailable({
+    productId: input.wixProductId,
+    local,
+    config,
+    accessToken,
+  });
+  if (v3Write.status === "failure") return v3Write.failure;
+  if (v3Write.status === "written") {
+    v3Variants = v3Write.variants;
+    if (input.catalogVersion !== "V3_CATALOG") {
+      await prisma.wixConnection.update({
+        where: { id: input.connectionId },
+        data: { catalogVersion: "V3_CATALOG" },
+      });
+    }
+  } else if (isV1) {
     await prisma.wixListingLink.updateMany({
       where: { id: input.listingLinkId, issueCode: "TOPOLOGY_PUSH_FAILED" },
       data: { issueCode: null, issueMessage: null, issueSeverity: null },
@@ -887,6 +1087,9 @@ export async function syncWixListingVariantTopology(input: {
 
   // Write INW prices before checking the option set. A delete used to stop here, so the
   // remaining combinations kept Wix prices and the removed choice was never cleared.
+  // A Catalog V3 write already sent each combination's price with the new options.
+  let afterRemote: RemoteVariant[] = v3Variants ?? [];
+  if (!v3Variants) {
   let after = await loadWixCatalogVariants({
     isV1,
     productId: input.wixProductId,
@@ -895,7 +1098,7 @@ export async function syncWixListingVariantTopology(input: {
     accessToken,
   });
   if (!after.ok) return after.failure;
-  let afterRemote = after.variants;
+  afterRemote = after.variants;
   if (isV1 && productOptions.length > 0) {
     const localByKey = new Map(
       local.map((variant) => [choiceKey(asChoiceRecord(variant.options)), variant] as const)
@@ -947,7 +1150,9 @@ export async function syncWixListingVariantTopology(input: {
     if (!after.ok) return after.failure;
     afterRemote = after.variants.filter((variant) => remoteVariantVisible(variant));
   }
+  }
 
+  if (!v3Variants) {
   const confirmed = await wixApplicationRequest<{
     product?: {
       productOptions?: WixProductOption[];
@@ -992,6 +1197,7 @@ export async function syncWixListingVariantTopology(input: {
       errorCode: "TOPOLOGY_PUSH_FAILED",
       errorMessage: "Wix still has a different set of options than INW",
     };
+  }
   }
 
   const mapped = mapStoreVariantsToWix(local, afterRemote, input.wixProductId);
