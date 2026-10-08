@@ -19,6 +19,7 @@ import {
   shopifyConnectionStatusLabel,
   shopifyListingStatusChipClass,
   shopifyListingSellerNote,
+  shopifyListingIssueSellerDetail,
   shopifyListingUiStatus,
   shopifyRemountSellerCopy,
   type ShopifyListingUiStatus,

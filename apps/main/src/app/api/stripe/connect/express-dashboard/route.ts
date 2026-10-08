@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
         email: member.email,
         accountId,
       });
-      if (healed.cleared) {
+      if (!healed.ok && healed.cleared) {
         return NextResponse.json(
           { error: "Your previous Stripe account is no longer available. Please complete setup again." },
           { status: 400 }

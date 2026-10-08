@@ -286,7 +286,7 @@ export async function POST(req: NextRequest) {
         email: member.email,
         accountId: healed.accountId,
       });
-      if (again.cleared) {
+      if (!again.ok && again.cleared) {
         return NextResponse.json(
           {
             error:
