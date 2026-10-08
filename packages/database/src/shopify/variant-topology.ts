@@ -334,6 +334,8 @@ export type ShopifyTopologyDiffPlan =
       }>;
       /** Mapping retire only — never destroys canonical StoreVariant. */
       retireMappings: Array<{ shopifyVariantId: string; storeVariantId: string }>;
+      /** INW removed this variant. Delete it on Shopify, then drop the map. */
+      deleteRemoteVariants: Array<{ shopifyVariantId: string; storeVariantId: string }>;
     };
 
 /**
@@ -346,6 +348,11 @@ export function planShopifyTopologyDiff(input: {
   remoteOptions?: ShopifyTopologyRemoteOption[];
   /** Option dimension names in desired INW order (when known). */
   desiredOptionOrder?: string[];
+  /**
+   * Store variants the seller removed that are still mapped to a Shopify variant.
+   * Those GIDs are deleted on Shopify instead of imported back into INW.
+   */
+  removedVariants?: Array<{ storeVariantId: string; shopifyVariantId: string }>;
 }): ShopifyTopologyDiffPlan {
   const local = input.localVariants.map((row) => ({
     ...row,
@@ -530,6 +537,27 @@ export function planShopifyTopologyDiff(input: {
     }
   }
 
+  // Seller removed these variants in INW. Delete them on Shopify.
+  // Claim the GIDs first so the import loop does not add them back.
+  // If Shopify already deleted the GID, only drop the map.
+  const deleteRemoteVariants: Array<{ shopifyVariantId: string; storeVariantId: string }> = [];
+  for (const removed of input.removedVariants ?? []) {
+    const gid = removed.shopifyVariantId?.trim();
+    if (!gid || mappedGids.has(gid) || claimedRemoteGids.has(gid)) continue;
+    if (remoteByGid.has(gid)) {
+      deleteRemoteVariants.push({
+        shopifyVariantId: gid,
+        storeVariantId: removed.storeVariantId,
+      });
+      claimedRemoteGids.add(gid);
+      continue;
+    }
+    retireMappings.push({
+      shopifyVariantId: gid,
+      storeVariantId: removed.storeVariantId,
+    });
+  }
+
   for (const rem of remote) {
     if (mappedGids.has(rem.shopifyVariantId) || claimedRemoteGids.has(rem.shopifyVariantId)) {
       continue;
@@ -588,6 +616,7 @@ export function planShopifyTopologyDiff(input: {
     renameOptionValues.length > 0 ||
     importRemoteVariants.length > 0 ||
     retireMappings.length > 0 ||
+    deleteRemoteVariants.length > 0 ||
     reorderOptionNames != null;
 
   if (!hasWork) return { kind: "NOOP" };
@@ -601,5 +630,6 @@ export function planShopifyTopologyDiff(input: {
     reorderOptionNames,
     importRemoteVariants,
     retireMappings,
+    deleteRemoteVariants,
   };
 }

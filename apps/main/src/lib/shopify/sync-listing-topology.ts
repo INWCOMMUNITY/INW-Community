@@ -497,6 +497,62 @@ async function productVariantsBulkCreate(input: {
   return { ok: true, created };
 }
 
+async function productVariantsBulkDelete(input: {
+  connectionId: string;
+  productId: string;
+  variantIds: string[];
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<{ ok: true } | ({ ok: false } & HandlerFailure)> {
+  if (input.variantIds.length < 1) return { ok: true };
+  const result = await executeShopifyAdminGraphql<{
+    productVariantsBulkDelete: {
+      userErrors: Array<{ field?: string[] | null; message: string; code?: string | null }>;
+    };
+  }>({
+    connectionId: input.connectionId,
+    operationType: "mutation",
+    operationName: "ShopifyProductVariantsBulkDelete",
+    document: `mutation ShopifyProductVariantsBulkDelete($productId: ID!, $variantsIds: [ID!]!) {
+      productVariantsBulkDelete(productId: $productId, variantsIds: $variantsIds) {
+        userErrors { field message code }
+      }
+    }`,
+    variables: {
+      productId: input.productId,
+      variantsIds: input.variantIds,
+    },
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (!result.ok) {
+    return {
+      ok: false,
+      outcome:
+        result.class === "THROTTLED" ||
+        result.class === "TRANSIENT_PROVIDER" ||
+        result.class === "NETWORK_UNKNOWN" ||
+        result.outcomeUnknown
+          ? "RETRY"
+          : "DEAD",
+      errorClass: result.class,
+      errorCode: "VARIANTS_BULK_DELETE",
+      errorMessage: result.message,
+    };
+  }
+  const errors = result.data?.productVariantsBulkDelete.userErrors ?? [];
+  if (errors.length > 0) {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: (errors[0]?.code ?? "VARIANTS_BULK_DELETE_USER_ERROR").slice(0, 64),
+      errorMessage: (errors[0]?.message ?? "productVariantsBulkDelete user error").slice(0, 500),
+    };
+  }
+  return { ok: true };
+}
+
 async function rebuildStoreItemVariantsFromRemote(input: {
   memberId: string;
   storeItemId: string;
@@ -584,6 +640,18 @@ async function rebuildStoreItemVariantsFromRemote(input: {
     });
     await projectStoreItemQuantity(tx, input.storeItemId);
   });
+}
+
+function realAxisNames(
+  selectedOptions: Array<{ name: string; value: string }>
+): Set<string> {
+  const keys = selectedOptions
+    .map((row) => row.name.trim().toLowerCase())
+    .filter((name) => name.length > 0 && name !== "title");
+  if (keys.length > 0) return new Set(keys);
+  return new Set(
+    selectedOptions.map((row) => row.name.trim().toLowerCase()).filter((name) => name.length > 0)
+  );
 }
 
 function localVariantsHaveRealOptions(localVariants: ShopifyTopologyLocalVariant[]): boolean {
@@ -738,6 +806,8 @@ export async function syncShopifyListingTopology(input: {
   productId: string;
   storeItemId: string;
   localVariants: ShopifyTopologyLocalVariant[];
+  /** Mapped variants the seller already removed in INW. Deleted on Shopify, not re-imported. */
+  removedVariants?: Array<{ storeVariantId: string; shopifyVariantId: string }>;
   desiredOptionOrder?: string[];
   fetchImpl?: ShopifyFetch;
   now?: Date;
@@ -779,6 +849,7 @@ export async function syncShopifyListingTopology(input: {
       })),
     })),
     desiredOptionOrder: input.desiredOptionOrder,
+    removedVariants: input.removedVariants,
   });
 
   if (plan.kind === "NOOP") {
@@ -825,54 +896,20 @@ export async function syncShopifyListingTopology(input: {
   // MUTATE — never productSet partial.
   void plan.forbidProductSetPartial;
 
-  // Ensure new option values exist before bulk create (new axes AND values on existing axes).
-  if (plan.createOptionValues.length > 0) {
-    const remoteByName = new Map(
-      remoteRead.topology.options.map((o) => [o.name.trim(), o] as const)
-    );
-    const newAxes = plan.createOptionValues
-      .filter((row) => !remoteByName.has(row.optionName))
-      .map((row) => ({
-        name: row.optionName,
-        values: row.values.map((name) => ({ name })),
-      }));
-    if (newAxes.length > 0) {
-      const created = await productOptionsCreate({
-        connectionId: input.connectionId,
-        productId: input.productId,
-        options: newAxes,
-        fetchImpl: input.fetchImpl,
-        now: input.now,
-      });
-      if (!created.ok) return created;
-    }
-    for (const row of plan.createOptionValues) {
-      const existing = remoteByName.get(row.optionName);
-      if (!existing) continue;
-      const have = new Set(existing.optionValues.map((v) => v.name.trim().toLowerCase()));
-      const missing = row.values
-        .map((name) => name.trim())
-        .filter((name) => name && !have.has(name.toLowerCase()))
-        .map((name) => ({ name }));
-      if (missing.length < 1) continue;
-      const added = await productOptionAddValues({
-        connectionId: input.connectionId,
-        productId: input.productId,
-        optionId: existing.id,
-        values: missing,
-        fetchImpl: input.fetchImpl,
-        now: input.now,
-      });
-      if (!added.ok) return added;
-    }
-  }
-
-  // Pull remote option labels onto mapped StoreVariants (inbound). Do not push to Shopify.
-  // Also adopt remote available into InventoryState so Color→Size×Color does not leave
-  // stale Color-only onHand while Shopify Small/etc quantities differ.
-  const remoteSnapByGid = new Map(
-    toRemoteSnaps(remoteRead.topology).map((row) => [row.shopifyVariantId, row] as const)
+  // Shopify added an option axis (Color+Size → +Material). Pull that in.
+  // Do not push the old INW option set back out; that call fails and blocks the import.
+  const remoteAxisNames = new Set(
+    remoteSnaps.flatMap((row) => [...realAxisNames(row.selectedOptions)])
   );
+  const localAxisNames = new Set(
+    input.localVariants.flatMap((row) => [...realAxisNames(row.selectedOptions)])
+  );
+  const remoteAddedAxis =
+    remoteAxisNames.size > localAxisNames.size &&
+    [...localAxisNames].every((name) => remoteAxisNames.has(name));
+
+  // Pull remote option labels onto mapped StoreVariants (inbound).
+  // Keep the existing INW quantity. A new Shopify variant is added below with its own quantity.
   for (const row of plan.renameOptionValues) {
     const options = shopifySelectedOptionsToInwOptions(
       row.optionValues.map((ov) => ({ name: ov.optionName, value: ov.name }))
@@ -884,75 +921,6 @@ export async function syncShopifyListingTopology(input: {
         memberId: input.memberId,
       },
       data: { options },
-    });
-    const rem = remoteSnapByGid.get(row.shopifyVariantId);
-    if (rem && typeof rem.available === "number" && Number.isFinite(rem.available)) {
-      await adoptRemoteAvailableOntoMappedVariant({
-        storeVariantId: row.storeVariantId,
-        listingLinkId: input.listingLinkId,
-        connectionId: input.connectionId,
-        shopifyVariantId: row.shopifyVariantId,
-        available: Math.max(0, Math.trunc(rem.available)),
-      });
-    }
-  }
-
-  if (plan.reorderOptionNames && plan.reorderOptionNames.length > 0) {
-    const byName = new Map(remoteRead.topology.options.map((o) => [o.name.trim(), o]));
-    const reorderInput = plan.reorderOptionNames
-      .map((name) => byName.get(name))
-      .filter((o): o is NonNullable<typeof o> => Boolean(o))
-      .map((o) => ({
-        id: o.id,
-        values: o.optionValues.map((v) => ({ id: v.id })),
-      }));
-    if (reorderInput.length === plan.reorderOptionNames.length) {
-      const reordered = await productOptionsReorder({
-        connectionId: input.connectionId,
-        productId: input.productId,
-        options: reorderInput,
-        fetchImpl: input.fetchImpl,
-        now: input.now,
-      });
-      if (!reordered.ok) return reordered;
-    }
-  }
-
-  if (plan.createVariants.length > 0) {
-    const created = await productVariantsBulkCreate({
-      connectionId: input.connectionId,
-      productId: input.productId,
-      variants: plan.createVariants.map((v) => ({
-        optionValues: v.optionValues,
-        price: centsToShopifyMoney(v.priceCents),
-        ...(v.sku ? { sku: v.sku } : {}),
-      })),
-      fetchImpl: input.fetchImpl,
-      now: input.now,
-    });
-    if (!created.ok) return created;
-
-    const correlation = correlateVariantsByOptionCombination({
-      requested: plan.createVariants.map((v) => ({
-        storeVariantId: v.storeVariantId,
-        selectedOptions: v.optionValues.map((o) => ({ name: o.optionName, value: o.name })),
-      })),
-      remote: created.created,
-    });
-    if (!correlation.ok) {
-      return {
-        ok: false,
-        outcome: "DEAD",
-        errorClass: "GRAPHQL_PERMANENT",
-        errorCode: correlation.code,
-        errorMessage: correlation.message,
-      };
-    }
-    await appendShopifyVariantMaps(prisma, {
-      memberId: input.memberId,
-      connectionId: input.connectionId,
-      listingLinkId: input.listingLinkId,
-      variants: correlation.pairs,
     });
   }
 
@@ -1025,9 +993,8 @@ export async function syncShopifyListingTopology(input: {
         },
       ],
     });
-    // Heal inventory_levels race: webhooks that arrived before the map were IGNORED.
-    // Topology already observed available — adopt it so qty converges without evidence replay.
-    if (typeof rem.available === "number" && Number.isFinite(rem.available)) {
+    // New Shopify variants take their own quantity. Existing GIDs keep the INW amount.
+    if (!rem.storeVariantId && typeof rem.available === "number" && Number.isFinite(rem.available)) {
       await adoptRemoteAvailableOntoMappedVariant({
         storeVariantId,
         listingLinkId: input.listingLinkId,
@@ -1067,16 +1034,151 @@ export async function syncShopifyListingTopology(input: {
     plan.createVariants.length > 0 ||
     plan.retireMappings.length > 0
   ) {
-    // Re-read remote after outbound creates so new GIDs are present.
-    const refreshed =
-      plan.createVariants.length > 0
-        ? await readShopifyProductTopology({
-            connectionId: input.connectionId,
-            productId: input.productId,
-            fetchImpl: input.fetchImpl,
-            now: input.now,
-          })
-        : remoteRead;
+    await rebuildStoreItemVariantsFromRemote({
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+      listingLinkId: input.listingLinkId,
+      connectionId: input.connectionId,
+      topology: remoteRead.topology,
+    });
+  }
+
+  if (plan.deleteRemoteVariants.length > 0) {
+    // Shopify requires at least one variant on the product.
+    const maxDelete = Math.max(0, remoteSnaps.length - 1);
+    const batch = plan.deleteRemoteVariants.slice(0, maxDelete);
+    if (batch.length > 0) {
+      const deleted = await productVariantsBulkDelete({
+        connectionId: input.connectionId,
+        productId: input.productId,
+        variantIds: batch.map((row) => row.shopifyVariantId),
+        fetchImpl: input.fetchImpl,
+        now: input.now,
+      });
+      if (!deleted.ok) return deleted;
+      for (const row of batch) {
+        await prisma.shopifyVariantMap.deleteMany({
+          where: {
+            shopifyListingLinkId: input.listingLinkId,
+            shopifyConnectionId: input.connectionId,
+            shopifyVariantId: row.shopifyVariantId,
+            storeVariantId: row.storeVariantId,
+          },
+        });
+      }
+    }
+  }
+
+  if (remoteAddedAxis) {
+    await clearResolvedTopologyConflict(input.listingLinkId);
+    return { ok: true, plan, importedStoreVariantIds };
+  }
+
+  // Ensure new option values exist before bulk create (new axes AND values on existing axes).
+  if (plan.createOptionValues.length > 0) {
+    const remoteByName = new Map(
+      remoteRead.topology.options.map((o) => [o.name.trim(), o] as const)
+    );
+    const newAxes = plan.createOptionValues
+      .filter((row) => !remoteByName.has(row.optionName))
+      .map((row) => ({
+        name: row.optionName,
+        values: row.values.map((name) => ({ name })),
+      }));
+    if (newAxes.length > 0) {
+      const created = await productOptionsCreate({
+        connectionId: input.connectionId,
+        productId: input.productId,
+        options: newAxes,
+        fetchImpl: input.fetchImpl,
+        now: input.now,
+      });
+      if (!created.ok) return created;
+    }
+    for (const row of plan.createOptionValues) {
+      const existing = remoteByName.get(row.optionName);
+      if (!existing) continue;
+      const have = new Set(existing.optionValues.map((v) => v.name.trim().toLowerCase()));
+      const missing = row.values
+        .map((name) => name.trim())
+        .filter((name) => name && !have.has(name.toLowerCase()))
+        .map((name) => ({ name }));
+      if (missing.length < 1) continue;
+      const added = await productOptionAddValues({
+        connectionId: input.connectionId,
+        productId: input.productId,
+        optionId: existing.id,
+        values: missing,
+        fetchImpl: input.fetchImpl,
+        now: input.now,
+      });
+      if (!added.ok) return added;
+    }
+  }
+
+  if (plan.reorderOptionNames && plan.reorderOptionNames.length > 0) {
+    const byName = new Map(remoteRead.topology.options.map((o) => [o.name.trim(), o]));
+    const reorderInput = plan.reorderOptionNames
+      .map((name) => byName.get(name))
+      .filter((o): o is NonNullable<typeof o> => Boolean(o))
+      .map((o) => ({
+        id: o.id,
+        values: o.optionValues.map((v) => ({ id: v.id })),
+      }));
+    if (reorderInput.length === plan.reorderOptionNames.length) {
+      const reordered = await productOptionsReorder({
+        connectionId: input.connectionId,
+        productId: input.productId,
+        options: reorderInput,
+        fetchImpl: input.fetchImpl,
+        now: input.now,
+      });
+      if (!reordered.ok) return reordered;
+    }
+  }
+
+  if (plan.createVariants.length > 0) {
+    const created = await productVariantsBulkCreate({
+      connectionId: input.connectionId,
+      productId: input.productId,
+      variants: plan.createVariants.map((v) => ({
+        optionValues: v.optionValues,
+        price: centsToShopifyMoney(v.priceCents),
+        ...(v.sku ? { sku: v.sku } : {}),
+      })),
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+    });
+    if (!created.ok) return created;
+
+    const correlation = correlateVariantsByOptionCombination({
+      requested: plan.createVariants.map((v) => ({
+        storeVariantId: v.storeVariantId,
+        selectedOptions: v.optionValues.map((o) => ({ name: o.optionName, value: o.name })),
+      })),
+      remote: created.created,
+    });
+    if (!correlation.ok) {
+      return {
+        ok: false,
+        outcome: "DEAD",
+        errorClass: "GRAPHQL_PERMANENT",
+        errorCode: correlation.code,
+        errorMessage: correlation.message,
+      };
+    }
+    await appendShopifyVariantMaps(prisma, {
+      memberId: input.memberId,
+      connectionId: input.connectionId,
+      listingLinkId: input.listingLinkId,
+      variants: correlation.pairs,
+    });
+    const refreshed = await readShopifyProductTopology({
+      connectionId: input.connectionId,
+      productId: input.productId,
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+    });
     if (refreshed.ok) {
       await rebuildStoreItemVariantsFromRemote({
         memberId: input.memberId,

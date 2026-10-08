@@ -448,7 +448,7 @@ export async function recordShopifyDirtyMappedVariantContentDesires(
 
   const storeVariants = await db.storeVariant.findMany({
     where: { id: { in: variantMaps.map((m) => m.storeVariantId) } },
-    select: { id: true, priceCents: true, sku: true },
+    select: { id: true, priceCents: true, sku: true, status: true },
   });
   const byId = new Map(storeVariants.map((v) => [v.id, v]));
   const desiredAt = new Date();
@@ -456,7 +456,7 @@ export async function recordShopifyDirtyMappedVariantContentDesires(
 
   for (const map of variantMaps) {
     const sv = byId.get(map.storeVariantId);
-    if (!sv) continue;
+    if (!sv || sv.status !== "ACTIVE") continue;
     const fingerprint = shopifyVariantContentFingerprint({
       priceCents: sv.priceCents,
       sku: sv.sku,

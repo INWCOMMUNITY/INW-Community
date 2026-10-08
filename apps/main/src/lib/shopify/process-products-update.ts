@@ -361,8 +361,8 @@ export async function handleShopifyProcessProviderEvidenceJob(
   // Pull Shopify→INW variant topology on every products/update (NOOP when unchanged).
   // Covers new GIDs, retired maps, and same-GID option conversions (Title→Size, renames).
   {
-    // ACTIVE only — RETIRED orphans (replaced Shopify GIDs) must not be planned as
-    // outbound createVariants (causes NEED_TO_ADD_OPTION_VALUES and blocks inbound pull).
+    // ACTIVE only — a replaced Shopify GID must not be planned as a new outbound create.
+    // Maps still pointing at retired rows are removedVariants and get deleted on Shopify.
     const allStoreVariants = await prisma.storeVariant.findMany({
       where: {
         storeItemId: listing.storeItemId,
@@ -390,6 +390,13 @@ export async function handleShopifyProcessProviderEvidenceJob(
         shopifyVariantId: mapByStoreVariant.get(sv.id) ?? null,
       };
     });
+    const activeIds = new Set(allStoreVariants.map((sv) => sv.id));
+    const removedVariants = variantMaps
+      .filter((map) => !activeIds.has(map.storeVariantId))
+      .map((map) => ({
+        storeVariantId: map.storeVariantId,
+        shopifyVariantId: map.shopifyVariantId,
+      }));
     const topologySync = await syncShopifyListingTopology({
       connectionId: connection.id,
       memberId: listing.memberId,
@@ -397,6 +404,7 @@ export async function handleShopifyProcessProviderEvidenceJob(
       productId: listing.shopifyProductId,
       storeItemId: listing.storeItemId,
       localVariants: localTopology,
+      removedVariants,
       fetchImpl: deps.fetchImpl,
       now: deps.now,
     });

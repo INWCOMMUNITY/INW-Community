@@ -310,7 +310,8 @@ export async function handleShopifyReconcileListingJob(
   }
 
   // Topology recover: add/import/rename/reorder before health snapshot.
-  // ACTIVE only — RETIRED orphans must not be planned as outbound creates.
+  // ACTIVE only — a replaced Shopify GID must not be planned as a new outbound create.
+  // Maps still pointing at retired rows are removedVariants and get deleted on Shopify.
   const allStoreVariants = await prisma.storeVariant.findMany({
     where: {
       storeItemId: listing.storeItemId,
@@ -338,6 +339,13 @@ export async function handleShopifyReconcileListingJob(
       shopifyVariantId: mapByStoreVariant.get(sv.id) ?? null,
     };
   });
+  const activeIds = new Set(allStoreVariants.map((sv) => sv.id));
+  const removedVariants = variantMaps
+    .filter((map) => !activeIds.has(map.storeVariantId))
+    .map((map) => ({
+      storeVariantId: map.storeVariantId,
+      shopifyVariantId: map.shopifyVariantId,
+    }));
   const topologySync = await syncShopifyListingTopology({
     connectionId: connection.id,
     memberId: listing.memberId,
@@ -345,6 +353,7 @@ export async function handleShopifyReconcileListingJob(
     productId: listing.shopifyProductId,
     storeItemId: listing.storeItemId,
     localVariants: localTopology,
+    removedVariants,
     fetchImpl: opts?.fetchImpl,
     now: opts?.now,
   });
