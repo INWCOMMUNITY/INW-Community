@@ -162,6 +162,49 @@ export async function enqueueShopifySyncJob(
 }
 
 /**
+ * Seller retry for a stable dedupe key (create/publish). Replaces a finished or
+ * not-currently-leased job with the latest payload. A live RUNNING lease still conflicts.
+ */
+export async function reopenShopifySyncJob(
+  db: ShopifyJobDb,
+  input: EnqueueShopifySyncJobInput
+): Promise<ShopifySyncJob> {
+  const existing = await db.shopifySyncJob.findUnique({ where: { dedupeKey: input.dedupeKey } });
+  if (!existing) {
+    return enqueueShopifySyncJob(db, input);
+  }
+  const leaseActive =
+    existing.state === "RUNNING" &&
+    existing.leaseExpiresAt != null &&
+    existing.leaseExpiresAt.getTime() > Date.now();
+  if (leaseActive && existing.kind === input.kind) {
+    throw new ShopifySyncJobConflictError();
+  }
+  const payloadHash = hashShopifyJobPayload(input.payload ?? null);
+  return db.shopifySyncJob.update({
+    where: { id: existing.id },
+    data: {
+      shopifyConnectionId: input.shopifyConnectionId,
+      kind: input.kind,
+      evidenceId: input.evidenceId ?? null,
+      payload: input.payload ?? undefined,
+      payloadHash,
+      state: "PENDING",
+      attemptCount: 0,
+      maxAttempts: input.maxAttempts ?? existing.maxAttempts,
+      nextAttemptAt: input.nextAttemptAt ?? new Date(),
+      completedAt: null,
+      leaseOwner: null,
+      leaseToken: null,
+      leaseExpiresAt: null,
+      lastErrorClass: null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+    },
+  });
+}
+
+/**
  * Atomically claim one due job. Commit before any handler/network work.
  * Uses FOR UPDATE SKIP LOCKED so two workers cannot own the same live lease.
  */

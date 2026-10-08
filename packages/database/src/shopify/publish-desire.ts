@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient, ShopifySyncJob } from "@prisma/client";
-import { enqueueShopifySyncJob } from "./jobs";
+import { reopenShopifySyncJob } from "./jobs";
 
 export type ShopifyPublishJobDb = PrismaClient | Prisma.TransactionClient;
 
@@ -23,7 +23,7 @@ export async function ensureShopifyPublishListingJob(
     listingLinkId: string;
   }
 ): Promise<ShopifySyncJob> {
-  return enqueueShopifySyncJob(db, {
+  return reopenShopifySyncJob(db, {
     shopifyConnectionId: input.connectionId,
     kind: "PUBLISH_LISTING",
     dedupeKey: shopifyPublishListingDedupeKey(input.connectionId, input.storeItemId),

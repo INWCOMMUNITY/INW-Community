@@ -832,6 +832,7 @@ export {
   completeShopifySyncJobSuccess,
   enqueueShopifySyncJob,
   hashShopifyJobPayload,
+  reopenShopifySyncJob,
   shopifyEvidenceJobDedupeKey,
   shopifyJobBackoffMs,
   ShopifySyncJobConflictError,

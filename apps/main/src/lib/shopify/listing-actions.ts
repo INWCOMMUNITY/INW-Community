@@ -3,6 +3,7 @@ import {
   ensureShopifyReconcileListingJob,
   prisma,
   recordShopifyDirtyMappedVariantContentDesires,
+  shopifyPublishListingDedupeKey,
 } from "database";
 import type { ShopifyFetch } from "./admin-graphql";
 import { executeShopifyAdminGraphql } from "./admin-graphql";
@@ -10,6 +11,7 @@ import {
   shopifyAdminProductUrl,
   shopifyStorefrontProductUrl,
 } from "./apps-airport";
+import { shopifyCreateListingDedupeKey } from "./listing-export-id";
 import { resolveShopifyOnlineStorePublicationId } from "./publish-listing";
 
 export type ShopifyListingAction = "retry" | "unpublish" | "remove";
@@ -137,10 +139,26 @@ async function deleteShopifyProduct(input: {
   return { ok: true };
 }
 
-async function deleteListingMapping(listingLinkId: string): Promise<void> {
+async function deleteListingMapping(input: {
+  listingLinkId: string;
+  connectionId: string;
+  storeItemId: string;
+}): Promise<void> {
   await prisma.$transaction(async (tx) => {
-    await tx.shopifyVariantMap.deleteMany({ where: { shopifyListingLinkId: listingLinkId } });
-    await tx.shopifyListingLink.delete({ where: { id: listingLinkId } });
+    await tx.shopifyVariantMap.deleteMany({ where: { shopifyListingLinkId: input.listingLinkId } });
+    await tx.shopifySyncJob.deleteMany({
+      where: {
+        shopifyConnectionId: input.connectionId,
+        dedupeKey: {
+          in: [
+            shopifyCreateListingDedupeKey(input.connectionId, input.storeItemId),
+            shopifyPublishListingDedupeKey(input.connectionId, input.storeItemId),
+          ],
+        },
+        state: { not: "RUNNING" },
+      },
+    });
+    await tx.shopifyListingLink.delete({ where: { id: input.listingLinkId } });
   });
 }
 
@@ -229,7 +247,11 @@ export async function runShopifyListingAction(input: {
     }
   }
 
-  await deleteListingMapping(listing.id);
+  await deleteListingMapping({
+    listingLinkId: listing.id,
+    connectionId: connection.id,
+    storeItemId: listing.storeItemId,
+  });
   return {
     ok: true,
     message: input.confirmDelete
