@@ -687,6 +687,7 @@ export {
   enqueueDueShopifyListingReconciliations,
   ensureShopifyReconcileListingJob,
   persistShopifyListingHealth,
+  recordShopifyListingVariantTopologyDesire,
   shopifyListingIssueDedupeKey,
   shopifyReconcileListingDedupeKey,
   shopifyReconcileTimeBucket,

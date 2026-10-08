@@ -53,6 +53,11 @@ export type ShopifyMultiVariantProductSetInput = {
     price: string;
     sku?: string;
   }>;
+  /**
+   * First create stays DRAFT until inventory is set and PUBLISH_LISTING goes live.
+   * Option updates on an existing product omit status so a live listing is not sent back to draft.
+   */
+  preserveStatus?: boolean;
   fetchImpl?: ShopifyFetch;
   now?: Date;
 };
@@ -269,7 +274,7 @@ export async function productSetShopifyMultiVariantDraftListing(
       input: {
         title: input.title,
         descriptionHtml: input.descriptionHtml ?? undefined,
-        status: "DRAFT",
+        ...(input.preserveStatus ? {} : { status: "DRAFT" }),
         productOptions: input.productOptions,
         variants: input.variants,
       },
@@ -293,7 +298,7 @@ export async function productSetShopifyMultiVariantDraftListing(
       customId,
     };
   }
-  if (String(product.status).toUpperCase() !== "DRAFT") {
+  if (!input.preserveStatus && String(product.status).toUpperCase() !== "DRAFT") {
     return {
       ok: false,
       class: "DEAD",

@@ -12,6 +12,7 @@ import {
   shopifyHealthLabel,
   shopifyListingStatusChipClass,
   shopifyListingUiStatus,
+  shopifyListingSellerNote,
   shopifyReadinessLabel,
 } from "@/lib/shopify/apps-airport";
 
@@ -217,16 +218,26 @@ export default function AppsAirportShopifyListingDetailPage() {
                     : "Not yet"}
                 </dd>
               </div>
-              {listing.issueMessage ? (
-                <div>
-                  <dt className="text-neutral-500">Needs attention</dt>
-                  <dd className="text-amber-900">
-                    {listing.issueSeverity ? `[${listing.issueSeverity}] ` : ""}
-                    {listing.issueMessage}
-                    {listing.issueCode ? ` (${listing.issueCode})` : ""}
-                  </dd>
-                </div>
-              ) : null}
+              {(() => {
+                const status = shopifyListingUiStatus({
+                  readiness: listing.readiness,
+                  contentHealth: listing.contentHealth,
+                  inventoryHealth: listing.inventoryHealth,
+                  issueCode: listing.issueCode,
+                });
+                const note = shopifyListingSellerNote({
+                  status,
+                  issueCode: listing.issueCode,
+                  issueMessage: listing.issueMessage,
+                  remoteProductStatus: listing.remoteProductStatus,
+                });
+                return note ? (
+                  <div>
+                    <dt className="text-neutral-500">What this means</dt>
+                    <dd className="text-amber-900">{note}</dd>
+                  </div>
+                ) : null;
+              })()}
             </dl>
           </section>
 
@@ -275,7 +286,7 @@ export default function AppsAirportShopifyListingDetailPage() {
             </button>
             {listing.contentHealth === "PAUSED" || listing.readiness === "ACTION_REQUIRED" ? (
               <p className="mt-3 text-sm text-neutral-600">
-                Content conflicts are resolved by editing the INW listing, then refreshing status.
+                Reconnect listing matches this INW item to the Shopify product again and publishes it if it is still a draft.
               </p>
             ) : null}
           </section>

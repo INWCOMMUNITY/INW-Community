@@ -145,7 +145,7 @@ export function classifyShopifyListingHealth(
   if (remote && !remote.productExists) {
     return issue(
       "REMOTE_PRODUCT_MISSING",
-      "The mapped Shopify product can no longer be found. Automatic updates are paused until this listing is re-exported.",
+      "The Shopify product this item was linked to is gone. Use Reconnect listing to list it again.",
       "ACTION_REQUIRED",
       {
         contentHealth: "PAUSED",
@@ -203,7 +203,7 @@ export function classifyShopifyListingHealth(
   if (remote && !anyMappedVariantRemains) {
     return issue(
       "REMOTE_VARIANT_MISSING",
-      "The mapped Shopify variant can no longer be found. Automatic content updates are paused.",
+      "This item is still linked to a Shopify product, but the options no longer match. Use Reconnect listing to match them again.",
       "ACTION_REQUIRED",
       {
         contentHealth: "PAUSED",
@@ -657,6 +657,34 @@ export async function enqueueDueShopifyListingReconciliations(
     listingLinkIds.push(row.id);
   }
   return { enqueued: listingLinkIds.length, listingLinkIds };
+}
+
+/**
+ * Seller added or removed color/size options on a mapped listing.
+ * Queue reconcile now so Shopify is updated instead of waiting for the 6-hour pass.
+ */
+export async function recordShopifyListingVariantTopologyDesire(
+  db: ShopifyHealthDb,
+  input: { memberId: string; storeItemId: string; now?: Date }
+): Promise<void> {
+  const connection = await db.shopifyConnection.findFirst({
+    where: { memberId: input.memberId, status: "ACTIVE" },
+    orderBy: { connectedAt: "desc" },
+    select: { id: true },
+  });
+  if (!connection) return;
+  const link = await db.shopifyListingLink.findFirst({
+    where: { shopifyConnectionId: connection.id, storeItemId: input.storeItemId },
+    select: { id: true },
+  });
+  if (!link) return;
+  await ensureShopifyReconcileListingJob(db, {
+    connectionId: connection.id,
+    listingLinkId: link.id,
+    storeItemId: input.storeItemId,
+    bucket: `topology-${(input.now ?? new Date()).getTime()}`,
+    now: input.now,
+  });
 }
 
 export type ShopifyListingPublicStatus = {

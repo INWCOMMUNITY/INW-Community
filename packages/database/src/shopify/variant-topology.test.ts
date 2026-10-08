@@ -377,6 +377,163 @@ describe("correlateVariantsByOptionCombination", () => {
 });
 
 describe("planShopifyTopologyDiff", () => {
+  it("imports a Shopify-added Material variant and keeps the preexisting variant", () => {
+    const plan = planShopifyTopologyDiff({
+      localVariants: [
+        {
+          storeVariantId: "sv-red",
+          selectedOptions: [
+            { name: "Color", value: "Red" },
+            { name: "Size", value: "M" },
+          ],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+      ],
+      remoteVariants: [
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/1",
+          selectedOptions: [
+            { name: "Color", value: "Red" },
+            { name: "Size", value: "M" },
+            { name: "Material", value: "Cotton" },
+          ],
+          priceCents: 1000,
+          sku: null,
+          available: 4,
+          tracked: true,
+        },
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/2",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/2",
+          selectedOptions: [
+            { name: "Color", value: "Red" },
+            { name: "Size", value: "M" },
+            { name: "Material", value: "Wool" },
+          ],
+          priceCents: 1200,
+          sku: null,
+          available: 2,
+          tracked: true,
+        },
+      ],
+    });
+    expect(plan.kind).toBe("MUTATE");
+    if (plan.kind !== "MUTATE") return;
+    expect(plan.renameOptionValues).toEqual([
+      expect.objectContaining({
+        storeVariantId: "sv-red",
+        optionValues: [
+          { optionName: "Color", name: "Red" },
+          { optionName: "Size", name: "M" },
+          { optionName: "Material", name: "Cotton" },
+        ],
+      }),
+    ]);
+    expect(plan.importRemoteVariants).toHaveLength(1);
+    expect(plan.importRemoteVariants[0].shopifyVariantId).toBe(
+      "gid://shopify/ProductVariant/2"
+    );
+    expect(plan.importRemoteVariants[0].storeVariantId).toBeUndefined();
+    expect(plan.retireMappings).toHaveLength(0);
+    expect(plan.createVariants).toHaveLength(0);
+  });
+
+  it("removes an INW variant when Shopify deleted that variant", () => {
+    const plan = planShopifyTopologyDiff({
+      localVariants: [
+        {
+          storeVariantId: "sv-keep",
+          selectedOptions: [{ name: "Size", value: "S" }],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+        {
+          storeVariantId: "sv-gone",
+          selectedOptions: [{ name: "Size", value: "M" }],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/2",
+        },
+      ],
+      remoteVariants: [
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/1",
+          selectedOptions: [{ name: "Size", value: "S" }],
+          priceCents: 1000,
+          sku: null,
+          available: 5,
+          tracked: true,
+        },
+      ],
+    });
+    expect(plan.kind).toBe("MUTATE");
+    if (plan.kind !== "MUTATE") return;
+    expect(plan.retireMappings).toEqual([
+      {
+        shopifyVariantId: "gid://shopify/ProductVariant/2",
+        storeVariantId: "sv-gone",
+      },
+    ]);
+    expect(plan.importRemoteVariants).toHaveLength(0);
+    expect(plan.createVariants).toHaveLength(0);
+  });
+
+  it("deletes a Shopify variant the seller removed in INW instead of importing it", () => {
+    const plan = planShopifyTopologyDiff({
+      localVariants: [
+        {
+          storeVariantId: "sv-keep",
+          selectedOptions: [{ name: "Color", value: "Red" }],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+      ],
+      removedVariants: [
+        {
+          storeVariantId: "sv-gone",
+          shopifyVariantId: "gid://shopify/ProductVariant/2",
+        },
+      ],
+      remoteVariants: [
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/1",
+          selectedOptions: [{ name: "Color", value: "Red" }],
+          priceCents: 1000,
+          sku: null,
+          available: 4,
+          tracked: true,
+        },
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/2",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/2",
+          selectedOptions: [{ name: "Color", value: "Blue" }],
+          priceCents: 1000,
+          sku: null,
+          available: 3,
+          tracked: true,
+        },
+      ],
+    });
+    expect(plan.kind).toBe("MUTATE");
+    if (plan.kind !== "MUTATE") return;
+    expect(plan.deleteRemoteVariants).toEqual([
+      {
+        shopifyVariantId: "gid://shopify/ProductVariant/2",
+        storeVariantId: "sv-gone",
+      },
+    ]);
+    expect(plan.importRemoteVariants).toHaveLength(0);
+    expect(plan.createVariants).toHaveLength(0);
+    expect(plan.retireMappings).toHaveLength(0);
+  });
+
   it("plans create for new local variant without productSet partial", () => {
     const plan = planShopifyTopologyDiff({
       localVariants: [
@@ -518,6 +675,45 @@ describe("planShopifyTopologyDiff", () => {
       [{ optionName: "Size", name: "L" }],
     ]);
     expect(plan.retireMappings).toHaveLength(0);
+  });
+
+  it("rebinds a missing variant when the same options exist on a new Shopify id", () => {
+    const plan = planShopifyTopologyDiff({
+      localVariants: [
+        {
+          storeVariantId: "sv-red",
+          selectedOptions: [{ name: "Color", value: "Red" }],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/old",
+        },
+      ],
+      remoteVariants: [
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/new",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/new",
+          selectedOptions: [{ name: "Color", value: "Red" }],
+          priceCents: 1000,
+          sku: null,
+          available: 4,
+          tracked: true,
+        },
+      ],
+    });
+    expect(plan.kind).toBe("MUTATE");
+    if (plan.kind !== "MUTATE") return;
+    expect(plan.importRemoteVariants).toEqual([
+      expect.objectContaining({
+        shopifyVariantId: "gid://shopify/ProductVariant/new",
+        storeVariantId: "sv-red",
+      }),
+    ]);
+    expect(plan.retireMappings).toEqual([
+      {
+        shopifyVariantId: "gid://shopify/ProductVariant/old",
+        storeVariantId: "sv-red",
+      },
+    ]);
   });
 
   it("still retires a missing variant when another variant's axes were renamed", () => {

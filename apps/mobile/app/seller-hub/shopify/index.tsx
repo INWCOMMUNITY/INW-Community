@@ -44,6 +44,7 @@ type ListingRow = {
   inventoryHealth: string;
   issueCode: string | null;
   issueMessage: string | null;
+  remoteProductStatus?: string | null;
   inventoryDesiredAvailable?: number | null;
   inventoryAppliedAvailable?: number | null;
 };
@@ -81,13 +82,30 @@ function listingUiStatus(row: ListingRow): UiStatus {
     row.readiness === "CONNECTION_REQUIRED" ||
     row.contentHealth === "PAUSED" ||
     row.inventoryHealth === "PAUSED" ||
-    row.contentHealth === "DEGRADED" ||
-    row.inventoryHealth === "DEGRADED"
+    code.startsWith("INVENTORY_")
   ) {
     return "Needs attention";
   }
   if (row.readiness === "READY_TO_PUBLISH") return "Live";
   return "Syncing";
+}
+
+function sellerNote(row: ListingRow, status: UiStatus): string | null {
+  const code = String(row.issueCode ?? "");
+  if (code === "REMOTE_VARIANT_MISSING") {
+    return "This item is still linked to a Shopify product, but the options no longer match. Use Reconnect listing to match them again.";
+  }
+  if (code === "REMOTE_PRODUCT_MISSING") {
+    return "The Shopify product this item was linked to is gone. Use Reconnect listing to list it again.";
+  }
+  if (String(row.remoteProductStatus ?? "").toUpperCase() === "DRAFT") {
+    return "This item is still a draft on Shopify, so shoppers cannot buy it yet. Use Reconnect listing to publish it.";
+  }
+  if (row.issueMessage && status !== "Live") return row.issueMessage;
+  if (status === "Needs attention") {
+    return "Updates are paused. Use Reconnect listing to match this item to the Shopify product again.";
+  }
+  return null;
 }
 
 function statusChipStyle(status: UiStatus) {
@@ -176,7 +194,7 @@ export default function ShopifySellerScreen() {
 
   const runAction = async (
     storeItemId: string,
-    action: "retry" | "unpublish" | "remove",
+    action: "retry" | "reconnect" | "unpublish" | "remove",
     confirmDelete?: boolean,
     successMessage?: string
   ) => {
@@ -400,8 +418,8 @@ export default function ShopifySellerScreen() {
                     Qty {inwQty} · {formatObservedQty(row)} · {formatPrice(row.priceCents)}
                   </Text>
                   <Text style={styles.syncedWith}>Synced with: INW, Shopify</Text>
-                  {row.issueMessage && status !== "Live" ? (
-                    <Text style={styles.issue}>{row.issueMessage}</Text>
+                  {sellerNote(row, status) ? (
+                    <Text style={styles.issue}>{sellerNote(row, status)}</Text>
                   ) : null}
                   <Pressable
                     style={[styles.manageBtn, busy && { opacity: 0.6 }]}
@@ -447,6 +465,18 @@ export default function ShopifySellerScreen() {
                   }}
                 >
                   <Text style={styles.menuItem}>View on INW</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() =>
+                    void runAction(
+                      menuFor.storeItemId,
+                      "reconnect",
+                      undefined,
+                      "Reconnect queued. INW will match this item to Shopify and publish it if it is still a draft."
+                    )
+                  }
+                >
+                  <Text style={styles.menuItem}>Reconnect listing</Text>
                 </Pressable>
                 <Pressable
                   onPress={() =>

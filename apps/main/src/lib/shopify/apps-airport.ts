@@ -165,16 +165,38 @@ export function shopifyListingUiStatus(input: {
     input.readiness === "CONNECTION_REQUIRED" ||
     input.contentHealth === "PAUSED" ||
     input.inventoryHealth === "PAUSED" ||
-    input.contentHealth === "DEGRADED" ||
-    input.inventoryHealth === "DEGRADED" ||
     code === "INVENTORY_REMOTE_DRIFT" ||
     code.startsWith("INVENTORY_")
   ) {
     return "Needs attention";
   }
-  if (input.readiness === "READY_TO_PUBLISH") return "Live";
+  // Still publishing or catching up. Degraded health here is progress, not a broken link.
+  if (input.readiness === "SYNCING" || input.readiness === "READY_TO_PUBLISH") {
+    return input.readiness === "READY_TO_PUBLISH" ? "Live" : "Syncing";
+  }
   return "Syncing";
 }
+
+const SELLER_ISSUE_COPY: Record<string, string> = {
+  REMOTE_VARIANT_MISSING:
+    "This item is still linked to a Shopify product, but the options no longer match. Use Reconnect listing to match them again.",
+  REMOTE_PRODUCT_MISSING:
+    "The Shopify product this item was linked to is gone. Use Reconnect listing to list it again.",
+  OPTIONS_NOT_PUSHED:
+    "Color and size changes did not reach Shopify. Use Reconnect listing to try again.",
+  OPTIONS_NOT_MATCHED:
+    "Shopify has the product, but the color and size options do not line up with INW. Use Reconnect listing.",
+  TOPOLOGY_UNMAPPED_VARIANTS:
+    "Shopify has options that INW has not matched yet. Use Reconnect listing.",
+  TOPOLOGY_AXIS_CONFLICT:
+    "The options on Shopify and INW no longer fit together. Use Reconnect listing, or edit the options so both sides match.",
+  INVENTORY_REMOTE_DRIFT:
+    "Shopify quantity differs from INW. Quantity updates are paused so a sale is not overwritten. Use Reconnect listing after you check the quantity.",
+  INVENTORY_INIT_FAILED:
+    "Shopify did not accept the quantity, so this item was not published. Use Reconnect listing to try again.",
+  INVENTORY_LEVEL_MISSING:
+    "Shopify has no quantity at your selected location. Pick the location in connection settings, then use Reconnect listing.",
+};
 
 /** Seller-facing detail under Needs attention (never raw GraphQL codes alone). */
 export function shopifyListingIssueSellerDetail(input: {
@@ -182,14 +204,27 @@ export function shopifyListingIssueSellerDetail(input: {
   issueMessage?: string | null;
 }): string | null {
   const code = String(input.issueCode ?? "");
-  if (code === "INVENTORY_REMOTE_DRIFT") {
-    return (
-      input.issueMessage?.trim() ||
-      "Shopify quantity differs from INW. Qty sync is paused until this is reconciled."
-    );
-  }
+  if (SELLER_ISSUE_COPY[code]) return SELLER_ISSUE_COPY[code];
   const msg = input.issueMessage?.trim();
   return msg || null;
+}
+
+/** One sentence under a listing row. Drafts and paused links always say what to do. */
+export function shopifyListingSellerNote(input: {
+  status: ShopifyListingUiStatus;
+  issueCode?: string | null;
+  issueMessage?: string | null;
+  remoteProductStatus?: string | null;
+}): string | null {
+  const detail = shopifyListingIssueSellerDetail(input);
+  if (detail && input.status !== "Live") return detail;
+  if (String(input.remoteProductStatus ?? "").toUpperCase() === "DRAFT") {
+    return "This item is still a draft on Shopify, so shoppers cannot buy it yet. Use Reconnect listing to publish it.";
+  }
+  if (input.status === "Needs attention") {
+    return "Updates are paused. Use Reconnect listing to match this item to the Shopify product again.";
+  }
+  return null;
 }
 
 /** @deprecated Prefer shopifyListingUiStatus — kept for older call sites. */

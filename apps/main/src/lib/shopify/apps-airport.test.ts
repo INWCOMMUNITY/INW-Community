@@ -11,6 +11,8 @@ import {
   resolveShopifySyncProgress,
   shopifyAdminProductUrl,
   shopifyConnectionStatusLabel,
+  shopifyListingSellerNote,
+  shopifyListingUiStatus,
   shopifyReadinessLabel,
   formatShopifyObservedQuantity,
 } from "./apps-airport";
@@ -92,6 +94,34 @@ describe("Shopify sync progress and labels", () => {
         listing: { readiness: "READY_TO_PUBLISH", inventoryInitState: "INITIALIZED" },
       })
     ).toBe("published");
+  });
+
+  it("treats in-progress inventory as syncing and explains a paused link", () => {
+    expect(
+      shopifyListingUiStatus({
+        readiness: "SYNCING",
+        inventoryHealth: "DEGRADED",
+        contentHealth: "HEALTHY",
+      })
+    ).toBe("Syncing");
+    expect(
+      shopifyListingSellerNote({
+        status: "Needs attention",
+        issueCode: "REMOTE_VARIANT_MISSING",
+        issueMessage: "The mapped Shopify variant can no longer be found.",
+      })
+    ).toMatch(/Reconnect listing/);
+    expect(
+      shopifyListingSellerNote({
+        status: "Syncing",
+        remoteProductStatus: "DRAFT",
+      })
+    ).toMatch(/still a draft/);
+    expect(
+      shopifyListingSellerNote({
+        status: "Needs attention",
+      })
+    ).toMatch(/Reconnect listing/);
   });
 
   it("preserves backend readiness truth in labels", () => {

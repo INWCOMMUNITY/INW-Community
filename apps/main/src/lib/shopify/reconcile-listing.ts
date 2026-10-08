@@ -5,6 +5,7 @@ import {
   ensureShopifyUpdateListingContentJob,
   persistShopifyListingHealth,
   classifyShopifyListingHealth,
+  ensureShopifyPublishListingJob,
   prisma,
   requeueShopifyContentForUnpushedMedia,
   shopifyProductContentFingerprint,
@@ -309,7 +310,8 @@ export async function handleShopifyReconcileListingJob(
   }
 
   // Topology recover: add/import/rename/reorder before health snapshot.
-  // ACTIVE only — RETIRED orphans must not be planned as outbound creates.
+  // ACTIVE only — a replaced Shopify GID must not be planned as a new outbound create.
+  // Maps still pointing at retired rows are removedVariants and get deleted on Shopify.
   const allStoreVariants = await prisma.storeVariant.findMany({
     where: {
       storeItemId: listing.storeItemId,
@@ -337,6 +339,13 @@ export async function handleShopifyReconcileListingJob(
       shopifyVariantId: mapByStoreVariant.get(sv.id) ?? null,
     };
   });
+  const activeIds = new Set(allStoreVariants.map((sv) => sv.id));
+  const removedVariants = variantMaps
+    .filter((map) => !activeIds.has(map.storeVariantId))
+    .map((map) => ({
+      storeVariantId: map.storeVariantId,
+      shopifyVariantId: map.shopifyVariantId,
+    }));
   const topologySync = await syncShopifyListingTopology({
     connectionId: connection.id,
     memberId: listing.memberId,
@@ -344,6 +353,7 @@ export async function handleShopifyReconcileListingJob(
     productId: listing.shopifyProductId,
     storeItemId: listing.storeItemId,
     localVariants: localTopology,
+    removedVariants,
     fetchImpl: opts?.fetchImpl,
     now: opts?.now,
   });
@@ -500,6 +510,23 @@ export async function handleShopifyReconcileListingJob(
       storeItemId: listing.storeItemId,
       memberId: connection.memberId,
     });
+  }
+
+  if (
+    remoteRead.remote.productStatus?.toUpperCase() === "DRAFT" &&
+    health.readiness !== "ACTION_REQUIRED"
+  ) {
+    const item = await prisma.storeItem.findFirst({
+      where: { id: listing.storeItemId, memberId: connection.memberId },
+      select: { status: true },
+    });
+    if (item && item.status !== "inactive" && item.status !== "ended") {
+      await ensureShopifyPublishListingJob(prisma, {
+        connectionId: connection.id,
+        storeItemId: listing.storeItemId,
+        listingLinkId: listing.id,
+      });
+    }
   }
 
   if ((opts?.notify ?? true) && persisted.issueOpened && health.issueCode && health.issueFingerprint) {

@@ -404,7 +404,8 @@ export async function applyFoundationSellerCollapseToSimple(
         data: { status: "RETIRED", retiredAt: now, isDefault: false },
       });
       await tx.etsyVariantMap.deleteMany({ where: { storeVariantId: { in: retireIds } } });
-      await tx.shopifyVariantMap.deleteMany({ where: { storeVariantId: { in: retireIds } } });
+      // Keep Shopify maps. Reconcile deletes those variants on Shopify, then drops the maps.
+      // Deleting the map here made the next sync treat the Shopify variant as new and add it back.
     }
   } else {
     await tx.storeVariant.update({
@@ -650,7 +651,7 @@ export async function applyFoundationSellerMatrixStructure(
     });
     retired = retireIds.length;
     await tx.etsyVariantMap.deleteMany({ where: { storeVariantId: { in: retireIds } } });
-    await tx.shopifyVariantMap.deleteMany({ where: { storeVariantId: { in: retireIds } } });
+    // Keep Shopify maps until reconcile deletes the Shopify variants.
   }
 
   await projectStoreItemQuantity(tx, args.storeItemId);

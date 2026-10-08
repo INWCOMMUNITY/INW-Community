@@ -8,7 +8,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const ACTIONS = new Set<ShopifyListingAction>(["retry", "unpublish", "remove"]);
+const ACTIONS = new Set<ShopifyListingAction>(["retry", "reconnect", "unpublish", "remove"]);
 
 export async function POST(
   req: NextRequest,

@@ -18,7 +18,7 @@ import {
   shopifyAdminProductUrl,
   shopifyConnectionStatusLabel,
   shopifyListingStatusChipClass,
-  shopifyListingIssueSellerDetail,
+  shopifyListingSellerNote,
   shopifyListingUiStatus,
   shopifyRemountSellerCopy,
   type ShopifyListingUiStatus,
@@ -53,6 +53,7 @@ type ListingRow = {
   inventoryHealth: string;
   issueCode: string | null;
   issueMessage: string | null;
+  remoteProductStatus?: string | null;
   inventoryDesiredAvailable: number | null;
   inventoryAppliedAvailable: number | null;
   updatedAt: string;
@@ -373,9 +374,11 @@ export default function AppsAirportShopifyPage() {
                     </Link>
                     {status !== "Live"
                       ? (() => {
-                          const detail = shopifyListingIssueSellerDetail({
+                          const detail = shopifyListingSellerNote({
+                            status,
                             issueCode: row.issueCode,
                             issueMessage: row.issueMessage,
+                            remoteProductStatus: row.remoteProductStatus,
                           });
                           return detail ? (
                             <div className="mt-1 text-xs text-amber-800 max-w-[16rem]">{detail}</div>

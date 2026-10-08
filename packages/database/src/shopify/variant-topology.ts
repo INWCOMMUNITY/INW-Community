@@ -334,6 +334,8 @@ export type ShopifyTopologyDiffPlan =
       }>;
       /** Mapping retire only — never destroys canonical StoreVariant. */
       retireMappings: Array<{ shopifyVariantId: string; storeVariantId: string }>;
+      /** INW removed this variant. Delete it on Shopify, then drop the map. */
+      deleteRemoteVariants: Array<{ shopifyVariantId: string; storeVariantId: string }>;
     };
 
 /**
@@ -346,6 +348,11 @@ export function planShopifyTopologyDiff(input: {
   remoteOptions?: ShopifyTopologyRemoteOption[];
   /** Option dimension names in desired INW order (when known). */
   desiredOptionOrder?: string[];
+  /**
+   * Store variants the seller removed that are still mapped to a Shopify variant.
+   * Those GIDs are deleted on Shopify instead of imported back into INW.
+   */
+  removedVariants?: Array<{ storeVariantId: string; shopifyVariantId: string }>;
 }): ShopifyTopologyDiffPlan {
   const local = input.localVariants.map((row) => ({
     ...row,
@@ -370,15 +377,39 @@ export function planShopifyTopologyDiff(input: {
     remote.map((row) => [shopifyOptionCombinationKey(row.selectedOptions), row])
   );
 
-  // Mapped GID missing remotely → retire mapping (not canonical delete).
+  // Mapped GID missing remotely → rebind when the same options still exist on a new
+  // Shopify variant (publish/option edits can replace GIDs). Otherwise retire the map.
   const retireMappings: Array<{ shopifyVariantId: string; storeVariantId: string }> = [];
+  const importRemoteVariants: Array<{
+    shopifyVariantId: string;
+    shopifyInventoryItemId: string;
+    selectedOptions: Array<{ name: string; value: string }>;
+    priceCents: number;
+    sku: string | null;
+    available: number | null;
+    storeVariantId?: string;
+  }> = [];
+  const claimedRemoteGids = new Set<string>();
   for (const row of mappedLocal) {
-    if (!remoteByGid.has(row.shopifyVariantId!)) {
-      retireMappings.push({
-        shopifyVariantId: row.shopifyVariantId!,
+    if (remoteByGid.has(row.shopifyVariantId!)) continue;
+    const combo = shopifyOptionCombinationKey(row.selectedOptions);
+    const rem = remoteByCombo.get(combo);
+    if (rem && !mappedGids.has(rem.shopifyVariantId)) {
+      importRemoteVariants.push({
+        shopifyVariantId: rem.shopifyVariantId,
+        shopifyInventoryItemId: rem.shopifyInventoryItemId,
+        selectedOptions: rem.selectedOptions,
+        priceCents: rem.priceCents,
+        sku: rem.sku,
+        available: rem.available,
         storeVariantId: row.storeVariantId,
       });
+      claimedRemoteGids.add(rem.shopifyVariantId);
     }
+    retireMappings.push({
+      shopifyVariantId: row.shopifyVariantId!,
+      storeVariantId: row.storeVariantId,
+    });
   }
 
   // Same GID option drift:
@@ -447,15 +478,6 @@ export function planShopifyTopologyDiff(input: {
   }
 
   // Remote unmapped GIDs / local unmapped combos.
-  const importRemoteVariants: Array<{
-    shopifyVariantId: string;
-    shopifyInventoryItemId: string;
-    selectedOptions: Array<{ name: string; value: string }>;
-    priceCents: number;
-    sku: string | null;
-    available: number | null;
-    storeVariantId?: string;
-  }> = [];
   const createVariants: Array<{
     storeVariantId: string;
     optionValues: Array<{ optionName: string; name: string }>;
@@ -463,12 +485,11 @@ export function planShopifyTopologyDiff(input: {
     sku: string | null;
   }> = [];
   const createOptionValueSet = new Map<string, Set<string>>();
-  const claimedRemoteGids = new Set<string>();
 
   for (const row of unmappedLocal) {
     const combo = shopifyOptionCombinationKey(row.selectedOptions);
     const rem = remoteByCombo.get(combo);
-    if (rem && !mappedGids.has(rem.shopifyVariantId)) {
+    if (rem && !mappedGids.has(rem.shopifyVariantId) && !claimedRemoteGids.has(rem.shopifyVariantId)) {
       // Initial correlation by option combo within this reconcile — then GID is authoritative.
       importRemoteVariants.push({
         shopifyVariantId: rem.shopifyVariantId,
@@ -514,6 +535,27 @@ export function planShopifyTopologyDiff(input: {
         createOptionValueSet.get(opt.name)!.add(opt.value);
       }
     }
+  }
+
+  // Seller removed these variants in INW. Delete them on Shopify.
+  // Claim the GIDs first so the import loop does not add them back.
+  // If Shopify already deleted the GID, only drop the map.
+  const deleteRemoteVariants: Array<{ shopifyVariantId: string; storeVariantId: string }> = [];
+  for (const removed of input.removedVariants ?? []) {
+    const gid = removed.shopifyVariantId?.trim();
+    if (!gid || mappedGids.has(gid) || claimedRemoteGids.has(gid)) continue;
+    if (remoteByGid.has(gid)) {
+      deleteRemoteVariants.push({
+        shopifyVariantId: gid,
+        storeVariantId: removed.storeVariantId,
+      });
+      claimedRemoteGids.add(gid);
+      continue;
+    }
+    retireMappings.push({
+      shopifyVariantId: gid,
+      storeVariantId: removed.storeVariantId,
+    });
   }
 
   for (const rem of remote) {
@@ -574,6 +616,7 @@ export function planShopifyTopologyDiff(input: {
     renameOptionValues.length > 0 ||
     importRemoteVariants.length > 0 ||
     retireMappings.length > 0 ||
+    deleteRemoteVariants.length > 0 ||
     reorderOptionNames != null;
 
   if (!hasWork) return { kind: "NOOP" };
@@ -587,5 +630,6 @@ export function planShopifyTopologyDiff(input: {
     reorderOptionNames,
     importRemoteVariants,
     retireMappings,
+    deleteRemoteVariants,
   };
 }

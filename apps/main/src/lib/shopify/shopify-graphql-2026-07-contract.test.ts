@@ -59,6 +59,9 @@ describe("Shopify Admin GraphQL 2026-07 selection contracts", () => {
       /mutation ShopifyProductVariantsBulkCreate[\s\S]*?userErrors \{ field message code \}/
     );
     expect(topology).toMatch(
+      /mutation ShopifyProductVariantsBulkDelete[\s\S]*?variantsIds[\s\S]*?userErrors \{ field message code \}/
+    );
+    expect(topology).toMatch(
       /mutation ShopifyProductOptionAddValues[\s\S]*?productOptionUpdate\([\s\S]*?productId[\s\S]*?optionValuesToAdd[\s\S]*?userErrors \{ field message code \}/
     );
 
