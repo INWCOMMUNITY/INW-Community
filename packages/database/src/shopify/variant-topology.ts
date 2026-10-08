@@ -370,15 +370,39 @@ export function planShopifyTopologyDiff(input: {
     remote.map((row) => [shopifyOptionCombinationKey(row.selectedOptions), row])
   );
 
-  // Mapped GID missing remotely → retire mapping (not canonical delete).
+  // Mapped GID missing remotely → rebind when the same options still exist on a new
+  // Shopify variant (publish/option edits can replace GIDs). Otherwise retire the map.
   const retireMappings: Array<{ shopifyVariantId: string; storeVariantId: string }> = [];
+  const importRemoteVariants: Array<{
+    shopifyVariantId: string;
+    shopifyInventoryItemId: string;
+    selectedOptions: Array<{ name: string; value: string }>;
+    priceCents: number;
+    sku: string | null;
+    available: number | null;
+    storeVariantId?: string;
+  }> = [];
+  const claimedRemoteGids = new Set<string>();
   for (const row of mappedLocal) {
-    if (!remoteByGid.has(row.shopifyVariantId!)) {
-      retireMappings.push({
-        shopifyVariantId: row.shopifyVariantId!,
+    if (remoteByGid.has(row.shopifyVariantId!)) continue;
+    const combo = shopifyOptionCombinationKey(row.selectedOptions);
+    const rem = remoteByCombo.get(combo);
+    if (rem && !mappedGids.has(rem.shopifyVariantId)) {
+      importRemoteVariants.push({
+        shopifyVariantId: rem.shopifyVariantId,
+        shopifyInventoryItemId: rem.shopifyInventoryItemId,
+        selectedOptions: rem.selectedOptions,
+        priceCents: rem.priceCents,
+        sku: rem.sku,
+        available: rem.available,
         storeVariantId: row.storeVariantId,
       });
+      claimedRemoteGids.add(rem.shopifyVariantId);
     }
+    retireMappings.push({
+      shopifyVariantId: row.shopifyVariantId!,
+      storeVariantId: row.storeVariantId,
+    });
   }
 
   // Same GID option drift:
@@ -447,15 +471,6 @@ export function planShopifyTopologyDiff(input: {
   }
 
   // Remote unmapped GIDs / local unmapped combos.
-  const importRemoteVariants: Array<{
-    shopifyVariantId: string;
-    shopifyInventoryItemId: string;
-    selectedOptions: Array<{ name: string; value: string }>;
-    priceCents: number;
-    sku: string | null;
-    available: number | null;
-    storeVariantId?: string;
-  }> = [];
   const createVariants: Array<{
     storeVariantId: string;
     optionValues: Array<{ optionName: string; name: string }>;
@@ -463,12 +478,11 @@ export function planShopifyTopologyDiff(input: {
     sku: string | null;
   }> = [];
   const createOptionValueSet = new Map<string, Set<string>>();
-  const claimedRemoteGids = new Set<string>();
 
   for (const row of unmappedLocal) {
     const combo = shopifyOptionCombinationKey(row.selectedOptions);
     const rem = remoteByCombo.get(combo);
-    if (rem && !mappedGids.has(rem.shopifyVariantId)) {
+    if (rem && !mappedGids.has(rem.shopifyVariantId) && !claimedRemoteGids.has(rem.shopifyVariantId)) {
       // Initial correlation by option combo within this reconcile — then GID is authoritative.
       importRemoteVariants.push({
         shopifyVariantId: rem.shopifyVariantId,

@@ -15,6 +15,7 @@ import {
   recordEtsyListingVariantTopologyDesire,
   recordShopifyDirtyMappedVariantContentDesires,
   recordShopifyListingContentDesire,
+  recordShopifyListingVariantTopologyDesire,
   recordWixMappedListingContentDesire,
   recordWixDirtyMappedVariantContentDesires,
   recordWixListingVariantTopologyDesire,
@@ -552,6 +553,10 @@ export async function PATCH(
                 memberId: ownerId,
                 storeItemId: itemId,
               });
+              await recordShopifyListingVariantTopologyDesire(tx, {
+                memberId: ownerId,
+                storeItemId: itemId,
+              });
             }
             delete (update as { quantity?: number }).quantity;
             delete (update as { variants?: unknown }).variants;
@@ -595,6 +600,10 @@ export async function PATCH(
               storeItemId: itemId,
             });
             await recordWixListingVariantTopologyDesire(tx, {
+              memberId: ownerId,
+              storeItemId: itemId,
+            });
+            await recordShopifyListingVariantTopologyDesire(tx, {
               memberId: ownerId,
               storeItemId: itemId,
             });

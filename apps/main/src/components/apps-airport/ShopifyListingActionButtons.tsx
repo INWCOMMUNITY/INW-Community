@@ -34,7 +34,7 @@ export function ShopifyListingActionButtons({
   const viewOnInwHref = `${APPS_AIRPORT_SHOPIFY_LISTINGS_PATH}/${storeItemId}`;
 
   async function callAction(
-    action: "retry" | "unpublish" | "remove",
+    action: "retry" | "reconnect" | "unpublish" | "remove",
     extra?: { confirmDelete?: boolean },
     successMessage?: string
   ) {
@@ -98,6 +98,17 @@ export function ShopifyListingActionButtons({
       id: "view-inw",
       label: "View on INW",
       href: viewOnInwHref,
+    },
+    {
+      kind: "action",
+      id: "reconnect",
+      label: "Reconnect listing",
+      onSelect: () =>
+        void callAction(
+          "reconnect",
+          undefined,
+          "Reconnect queued. INW will match this item to Shopify and publish it if it is still a draft."
+        ),
     },
     {
       kind: "action",

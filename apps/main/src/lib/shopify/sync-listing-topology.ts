@@ -16,6 +16,7 @@ import {
 import type { ShopifyFetch } from "./admin-graphql";
 import { executeShopifyAdminGraphql } from "./admin-graphql";
 import { centsToShopifyMoney } from "./listing-export-id";
+import { productSetShopifyMultiVariantDraftListing } from "./product-set-listing";
 
 type HandlerFailure = {
   outcome: "RETRY" | "DEAD";
@@ -585,6 +586,147 @@ async function rebuildStoreItemVariantsFromRemote(input: {
   });
 }
 
+function localVariantsHaveRealOptions(localVariants: ShopifyTopologyLocalVariant[]): boolean {
+  return localVariants.some(
+    (row) => row.selectedOptions.length > 0 && !isShopifyDefaultTitleOnly(row.selectedOptions)
+  );
+}
+
+/**
+ * A simple Shopify product is Title / Default Title. Adding color and size in INW
+ * cannot be a partial variant create — replace the whole option set, and keep the
+ * product live if it is already live.
+ */
+async function pushInwOptionsOntoDefaultShopifyProduct(input: {
+  connectionId: string;
+  memberId: string;
+  listingLinkId: string;
+  storeItemId: string;
+  localVariants: ShopifyTopologyLocalVariant[];
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<{ ok: true } | ({ ok: false } & HandlerFailure)> {
+  const rows = input.localVariants.filter(
+    (row) => row.selectedOptions.length > 0 && !isShopifyDefaultTitleOnly(row.selectedOptions)
+  );
+  if (rows.length < 1) return { ok: true };
+
+  const axisMap = new Map<string, Set<string>>();
+  for (const row of rows) {
+    for (const opt of row.selectedOptions) {
+      const name = opt.name.trim();
+      const value = opt.value.trim();
+      if (!name || !value) continue;
+      if (!axisMap.has(name)) axisMap.set(name, new Set());
+      axisMap.get(name)!.add(value);
+    }
+  }
+  if (axisMap.size < 1) return { ok: true };
+
+  const item = await prisma.storeItem.findFirst({
+    where: { id: input.storeItemId, memberId: input.memberId },
+    select: { title: true, description: true },
+  });
+  if (!item) {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: "STORE_ITEM_MISSING",
+      errorMessage: "INW listing was not found",
+    };
+  }
+
+  const remote = await productSetShopifyMultiVariantDraftListing({
+    connectionId: input.connectionId,
+    storeItemId: input.storeItemId,
+    title: item.title,
+    descriptionHtml: item.description,
+    preserveStatus: true,
+    productOptions: Array.from(axisMap.entries()).map(([name, values]) => ({
+      name,
+      values: Array.from(values).map((value) => ({ name: value })),
+    })),
+    variants: rows.map((row) => ({
+      optionValues: row.selectedOptions.map((opt) => ({
+        optionName: opt.name,
+        name: opt.value,
+      })),
+      price: centsToShopifyMoney(row.priceCents),
+      ...(row.sku ? { sku: row.sku } : {}),
+    })),
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (!remote.ok) {
+    await prisma.shopifyListingLink.update({
+      where: { id: input.listingLinkId },
+      data: {
+        readiness: "ACTION_REQUIRED",
+        contentHealth: "PAUSED",
+        issueCode: "OPTIONS_NOT_PUSHED",
+        issueSeverity: "ACTION_REQUIRED",
+        issueFingerprint: "options-not-pushed",
+        issueMessage: `Color and size changes did not reach Shopify. ${remote.errorMessage}`.slice(0, 500),
+      },
+    });
+    return {
+      ok: false,
+      outcome: remote.class === "RETRY" ? "RETRY" : "DEAD",
+      errorClass: remote.errorClass,
+      errorCode: remote.errorCode,
+      errorMessage: remote.errorMessage,
+    };
+  }
+
+  const correlation = correlateVariantsByOptionCombination({
+    requested: rows.map((row) => ({
+      storeVariantId: row.storeVariantId,
+      selectedOptions: row.selectedOptions,
+    })),
+    remote: remote.variants.map((variant) => ({
+      shopifyVariantId: variant.variantId,
+      shopifyInventoryItemId: variant.inventoryItemId,
+      selectedOptions: variant.selectedOptions,
+    })),
+  });
+  if (!correlation.ok) {
+    await prisma.shopifyListingLink.update({
+      where: { id: input.listingLinkId },
+      data: {
+        readiness: "ACTION_REQUIRED",
+        contentHealth: "PAUSED",
+        issueCode: "OPTIONS_NOT_MATCHED",
+        issueSeverity: "ACTION_REQUIRED",
+        issueFingerprint: "options-not-matched",
+        issueMessage:
+          "Shopify received the options, but INW could not match each color and size. Use Reconnect listing.",
+      },
+    });
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: correlation.code,
+      errorMessage: correlation.message,
+    };
+  }
+
+  await prisma.shopifyVariantMap.deleteMany({
+    where: {
+      shopifyListingLinkId: input.listingLinkId,
+      shopifyConnectionId: input.connectionId,
+    },
+  });
+  await appendShopifyVariantMaps(prisma, {
+    memberId: input.memberId,
+    connectionId: input.connectionId,
+    listingLinkId: input.listingLinkId,
+    variants: correlation.pairs,
+  });
+  return { ok: true };
+}
+
 /**
  * Apply topology mutations for an existing mapped listing.
  * Never sends a partial variant list through productSet.
@@ -610,6 +752,17 @@ export async function syncShopifyListingTopology(input: {
     now: input.now,
   });
   if (!remoteRead.ok) return remoteRead;
+
+  const remoteSnaps = toRemoteSnaps(remoteRead.topology);
+  const remoteIsDefaultTitle =
+    remoteSnaps.length > 0 &&
+    remoteSnaps.every((row) => isShopifyDefaultTitleOnly(row.selectedOptions));
+  if (remoteIsDefaultTitle && localVariantsHaveRealOptions(input.localVariants)) {
+    const pushed = await pushInwOptionsOntoDefaultShopifyProduct(input);
+    if (!pushed.ok) return pushed;
+    await clearResolvedTopologyConflict(input.listingLinkId);
+    return { ok: true, plan: { kind: "NOOP" }, importedStoreVariantIds: [] };
+  }
 
   const plan = planShopifyTopologyDiff({
     localVariants: input.localVariants,
@@ -803,6 +956,23 @@ export async function syncShopifyListingTopology(input: {
     });
   }
 
+  const reboundStoreVariantIds = new Set(
+    plan.importRemoteVariants
+      .map((row) => row.storeVariantId)
+      .filter((id): id is string => Boolean(id))
+  );
+  for (const row of plan.retireMappings) {
+    if (!reboundStoreVariantIds.has(row.storeVariantId)) continue;
+    await prisma.shopifyVariantMap.deleteMany({
+      where: {
+        shopifyListingLinkId: input.listingLinkId,
+        shopifyConnectionId: input.connectionId,
+        shopifyVariantId: row.shopifyVariantId,
+        storeVariantId: row.storeVariantId,
+      },
+    });
+  }
+
   const importedStoreVariantIds: string[] = [];
   const storeItem = await prisma.storeItem.findFirst({
     where: { id: input.storeItemId, memberId: input.memberId },
@@ -878,6 +1048,7 @@ export async function syncShopifyListingTopology(input: {
         storeVariantId: row.storeVariantId,
       },
     });
+    if (reboundStoreVariantIds.has(row.storeVariantId)) continue;
     await prisma.storeVariant.updateMany({
       where: {
         id: row.storeVariantId,

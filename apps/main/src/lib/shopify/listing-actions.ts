@@ -1,5 +1,6 @@
 import {
   captureShopifyInventoryProjectionDesire,
+  ensureShopifyPublishListingJob,
   ensureShopifyReconcileListingJob,
   prisma,
   recordShopifyDirtyMappedVariantContentDesires,
@@ -14,7 +15,7 @@ import {
 import { shopifyCreateListingDedupeKey } from "./listing-export-id";
 import { resolveShopifyOnlineStorePublicationId } from "./publish-listing";
 
-export type ShopifyListingAction = "retry" | "unpublish" | "remove";
+export type ShopifyListingAction = "retry" | "reconnect" | "unpublish" | "remove";
 
 export type ShopifyListingActionResult =
   | { ok: true; message?: string }
@@ -178,7 +179,7 @@ export async function runShopifyListingAction(input: {
   }
   const { connection, listing } = loaded;
 
-  if (input.action === "retry") {
+  if (input.action === "retry" || input.action === "reconnect") {
     await ensureShopifyReconcileListingJob(prisma, {
       connectionId: connection.id,
       listingLinkId: listing.id,
@@ -194,6 +195,17 @@ export async function runShopifyListingAction(input: {
         memberId: input.memberId,
         storeVariantId: map.storeVariantId,
       });
+    }
+    if (input.action === "reconnect") {
+      await ensureShopifyPublishListingJob(prisma, {
+        connectionId: connection.id,
+        storeItemId: listing.storeItemId,
+        listingLinkId: listing.id,
+      });
+      return {
+        ok: true,
+        message: "Reconnect queued. INW will match this item to Shopify and publish it if it is still a draft.",
+      };
     }
     return { ok: true, message: "Reload queued" };
   }

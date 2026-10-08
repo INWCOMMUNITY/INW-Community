@@ -5,6 +5,7 @@ import {
   ensureShopifyUpdateListingContentJob,
   persistShopifyListingHealth,
   classifyShopifyListingHealth,
+  ensureShopifyPublishListingJob,
   prisma,
   requeueShopifyContentForUnpushedMedia,
   shopifyProductContentFingerprint,
@@ -500,6 +501,23 @@ export async function handleShopifyReconcileListingJob(
       storeItemId: listing.storeItemId,
       memberId: connection.memberId,
     });
+  }
+
+  if (
+    remoteRead.remote.productStatus?.toUpperCase() === "DRAFT" &&
+    health.readiness !== "ACTION_REQUIRED"
+  ) {
+    const item = await prisma.storeItem.findFirst({
+      where: { id: listing.storeItemId, memberId: connection.memberId },
+      select: { status: true },
+    });
+    if (item && item.status !== "inactive" && item.status !== "ended") {
+      await ensureShopifyPublishListingJob(prisma, {
+        connectionId: connection.id,
+        storeItemId: listing.storeItemId,
+        listingLinkId: listing.id,
+      });
+    }
   }
 
   if ((opts?.notify ?? true) && persisted.issueOpened && health.issueCode && health.issueFingerprint) {

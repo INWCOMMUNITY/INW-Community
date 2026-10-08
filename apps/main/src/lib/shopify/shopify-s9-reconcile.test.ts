@@ -32,7 +32,7 @@ vi.mock("database", async () => {
       shopifyVariantMap: { findMany: vi.fn() },
       shopifyListingFieldState: { findMany: vi.fn().mockResolvedValue([]) },
       shopifyOrderLineSaleFact: { findFirst: vi.fn() },
-      storeItem: { findUnique: vi.fn() },
+      storeItem: { findUnique: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) },
       storeVariant: { findMany: vi.fn().mockResolvedValue([]) },
     },
     persistShopifyListingHealth: vi.fn(async () => ({
