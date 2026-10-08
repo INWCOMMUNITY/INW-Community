@@ -753,7 +753,7 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
       ],
     });
 
-    expect(result.ok).toBe(true);
+    expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
     const operationNames = executeShopifyAdminGraphql.mock.calls.map(
       (call) => (call[0] as { operationName?: string }).operationName
     );
@@ -772,8 +772,51 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
   it("deletes a Shopify variant the seller removed in INW", async () => {
     const { prisma } = await import("database");
     vi.mocked(prisma.storeVariant.create).mockClear();
+    let topologyReads = 0;
     executeShopifyAdminGraphql.mockImplementation(async (call: { operationName?: string }) => {
       if (call.operationName === "ShopifyProductTopologyRead") {
+        topologyReads += 1;
+        // After MANAGE deletes Blue, later reads only see Red.
+        if (topologyReads === 1) {
+          return {
+            ok: true,
+            data: {
+              product: {
+                options: [
+                  {
+                    id: "gid://shopify/ProductOption/color",
+                    name: "Color",
+                    position: 1,
+                    optionValues: [
+                      { id: "ov-red", name: "Red", hasVariants: true },
+                      { id: "ov-blue", name: "Blue", hasVariants: true },
+                    ],
+                  },
+                ],
+                variants: {
+                  nodes: [
+                    {
+                      id: "gid://shopify/ProductVariant/1",
+                      price: "10.00",
+                      sku: null,
+                      selectedOptions: [{ name: "Color", value: "Red" }],
+                      inventoryItem: { id: "gid://shopify/InventoryItem/1" },
+                      inventoryQuantity: 4,
+                    },
+                    {
+                      id: "gid://shopify/ProductVariant/2",
+                      price: "10.00",
+                      sku: null,
+                      selectedOptions: [{ name: "Color", value: "Blue" }],
+                      inventoryItem: { id: "gid://shopify/InventoryItem/2" },
+                      inventoryQuantity: 3,
+                    },
+                  ],
+                },
+              },
+            },
+          };
+        }
         return {
           ok: true,
           data: {
@@ -783,10 +826,7 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
                   id: "gid://shopify/ProductOption/color",
                   name: "Color",
                   position: 1,
-                  optionValues: [
-                    { id: "ov-red", name: "Red", hasVariants: true },
-                    { id: "ov-blue", name: "Blue", hasVariants: true },
-                  ],
+                  optionValues: [{ id: "ov-red", name: "Red", hasVariants: true }],
                 },
               ],
               variants: {
@@ -799,18 +839,16 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
                     inventoryItem: { id: "gid://shopify/InventoryItem/1" },
                     inventoryQuantity: 4,
                   },
-                  {
-                    id: "gid://shopify/ProductVariant/2",
-                    price: "10.00",
-                    sku: null,
-                    selectedOptions: [{ name: "Color", value: "Blue" }],
-                    inventoryItem: { id: "gid://shopify/InventoryItem/2" },
-                    inventoryQuantity: 3,
-                  },
                 ],
               },
             },
           },
+        };
+      }
+      if (call.operationName === "ShopifyProductOptionDeleteValues") {
+        return {
+          ok: true,
+          data: { productOptionUpdate: { userErrors: [] } },
         };
       }
       if (call.operationName === "ShopifyProductVariantsBulkDelete") {
@@ -860,13 +898,184 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
         }),
       })
     );
-    const deleteCall = executeShopifyAdminGraphql.mock.calls.find(
+    const deleteValuesCall = executeShopifyAdminGraphql.mock.calls.find(
       (call) =>
         (call[0] as { operationName?: string }).operationName ===
-        "ShopifyProductVariantsBulkDelete"
+        "ShopifyProductOptionDeleteValues"
     );
-    expect(deleteCall).toBeTruthy();
-    const variables = (deleteCall?.[0] as { variables?: { variantsIds?: string[] } }).variables;
-    expect(variables?.variantsIds).toEqual(["gid://shopify/ProductVariant/2"]);
+    expect(deleteValuesCall).toBeTruthy();
+    const variables = (
+      deleteValuesCall?.[0] as {
+        variables?: {
+          optionValuesToDelete?: string[];
+          variantStrategy?: string;
+        };
+      }
+    ).variables;
+    expect(variables?.optionValuesToDelete).toEqual(["ov-blue"]);
+    expect(variables?.variantStrategy).toBe("MANAGE");
+  });
+
+  it("rewrites Shopify with productSet instead of orphaning one variant on axis removal", async () => {
+    const { prisma, appendShopifyVariantMaps } = await import("database");
+    vi.mocked(prisma.storeVariant.create).mockClear();
+    vi.mocked(prisma.shopifyVariantMap.deleteMany).mockClear();
+    vi.mocked(appendShopifyVariantMaps).mockClear();
+    executeShopifyAdminGraphql.mockImplementation(async (call: { operationName?: string }) => {
+      if (call.operationName === "ShopifyProductTopologyRead") {
+        return {
+          ok: true,
+          data: {
+            product: {
+              options: [
+                {
+                  id: "gid://shopify/ProductOption/material",
+                  name: "Material",
+                  position: 1,
+                  optionValues: [
+                    { id: "ov-cotton", name: "Cotton", hasVariants: true },
+                    { id: "ov-wool", name: "Wool", hasVariants: true },
+                  ],
+                },
+                {
+                  id: "gid://shopify/ProductOption/color",
+                  name: "Color",
+                  position: 2,
+                  optionValues: [{ id: "ov-green", name: "Green", hasVariants: true }],
+                },
+                {
+                  id: "gid://shopify/ProductOption/size",
+                  name: "Size",
+                  position: 3,
+                  optionValues: [
+                    { id: "ov-s", name: "Small", hasVariants: true },
+                    { id: "ov-l", name: "Large", hasVariants: true },
+                  ],
+                },
+              ],
+              variants: {
+                nodes: [
+                  {
+                    id: "gid://shopify/ProductVariant/1",
+                    price: "12.00",
+                    sku: null,
+                    selectedOptions: [
+                      { name: "Material", value: "Cotton" },
+                      { name: "Color", value: "Green" },
+                      { name: "Size", value: "Large" },
+                    ],
+                    inventoryItem: { id: "gid://shopify/InventoryItem/1" },
+                    inventoryQuantity: 5,
+                  },
+                  {
+                    id: "gid://shopify/ProductVariant/2",
+                    price: "12.00",
+                    sku: null,
+                    selectedOptions: [
+                      { name: "Material", value: "Wool" },
+                      { name: "Color", value: "Green" },
+                      { name: "Size", value: "Small" },
+                    ],
+                    inventoryItem: { id: "gid://shopify/InventoryItem/2" },
+                    inventoryQuantity: 2,
+                  },
+                ],
+              },
+            },
+          },
+        };
+      }
+      if (call.operationName === "ShopifyCreateListingProductSet") {
+        return {
+          ok: true,
+          data: {
+            productSet: {
+              product: {
+                id: "gid://shopify/Product/1",
+                status: "ACTIVE",
+                variants: {
+                  nodes: [
+                    {
+                      id: "gid://shopify/ProductVariant/101",
+                      selectedOptions: [
+                        { name: "Color", value: "Green" },
+                        { name: "Size", value: "Large" },
+                      ],
+                      inventoryItem: { id: "gid://shopify/InventoryItem/201" },
+                    },
+                    {
+                      id: "gid://shopify/ProductVariant/102",
+                      selectedOptions: [
+                        { name: "Color", value: "Green" },
+                        { name: "Size", value: "Small" },
+                      ],
+                      inventoryItem: { id: "gid://shopify/InventoryItem/202" },
+                    },
+                  ],
+                },
+              },
+              userErrors: [],
+            },
+          },
+        };
+      }
+      return {
+        ok: false,
+        class: "GRAPHQL_PERMANENT",
+        message: call.operationName ?? "unexpected",
+        outcomeUnknown: false,
+      };
+    });
+
+    // Local dropped Material; rematch created new unmapped Color×Size rows while
+    // old Material maps are removedVariants — the old delete-nearly-all path.
+    const result = await syncShopifyListingTopology({
+      connectionId: "conn-1",
+      memberId: "mem-1",
+      listingLinkId: "link-1",
+      productId: "gid://shopify/Product/1",
+      storeItemId: "item-1",
+      localVariants: [
+        {
+          storeVariantId: "sv-green-large",
+          selectedOptions: [
+            { name: "Color", value: "Green" },
+            { name: "Size", value: "Large" },
+          ],
+          priceCents: 1200,
+          sku: null,
+          shopifyVariantId: null,
+        },
+        {
+          storeVariantId: "sv-green-small",
+          selectedOptions: [
+            { name: "Color", value: "Green" },
+            { name: "Size", value: "Small" },
+          ],
+          priceCents: 1200,
+          sku: null,
+          shopifyVariantId: null,
+        },
+      ],
+      removedVariants: [
+        {
+          storeVariantId: "sv-old-cotton-large",
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+        {
+          storeVariantId: "sv-old-wool-small",
+          shopifyVariantId: "gid://shopify/ProductVariant/2",
+        },
+      ],
+    });
+
+    expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
+    const operationNames = executeShopifyAdminGraphql.mock.calls.map(
+      (call) => (call[0] as { operationName?: string }).operationName
+    );
+    expect(operationNames).toContain("ShopifyCreateListingProductSet");
+    expect(operationNames).not.toContain("ShopifyProductVariantsBulkDelete");
+    expect(prisma.shopifyVariantMap.deleteMany).toHaveBeenCalled();
+    expect(appendShopifyVariantMaps).toHaveBeenCalled();
   });
 });

@@ -355,6 +355,77 @@ async function productOptionAddValues(input: {
   return { ok: true };
 }
 
+/**
+ * Delete option values the seller no longer uses. MANAGE also deletes Shopify
+ * variants that reference those values — safer than bulk-deleting variants then
+ * leaving orphan option values that collapse the product UI.
+ */
+async function productOptionDeleteValues(input: {
+  connectionId: string;
+  productId: string;
+  optionId: string;
+  valueIds: string[];
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<{ ok: true } | ({ ok: false } & HandlerFailure)> {
+  if (input.valueIds.length < 1) return { ok: true };
+  const result = await executeShopifyAdminGraphql<{
+    productOptionUpdate: {
+      userErrors: Array<{ field?: string[] | null; message: string; code?: string | null }>;
+    };
+  }>({
+    connectionId: input.connectionId,
+    operationType: "mutation",
+    operationName: "ShopifyProductOptionDeleteValues",
+    document: `mutation ShopifyProductOptionDeleteValues($productId: ID!, $option: OptionUpdateInput!, $optionValuesToDelete: [ID!]!, $variantStrategy: ProductOptionUpdateVariantStrategy) {
+      productOptionUpdate(
+        productId: $productId
+        option: $option
+        optionValuesToDelete: $optionValuesToDelete
+        variantStrategy: $variantStrategy
+      ) {
+        userErrors { field message code }
+      }
+    }`,
+    variables: {
+      productId: input.productId,
+      option: { id: input.optionId },
+      optionValuesToDelete: input.valueIds,
+      variantStrategy: "MANAGE",
+    },
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (!result.ok) {
+    return {
+      ok: false,
+      outcome:
+        result.class === "THROTTLED" ||
+        result.class === "TRANSIENT_PROVIDER" ||
+        result.class === "NETWORK_UNKNOWN"
+          ? "RETRY"
+          : "DEAD",
+      errorClass: result.class,
+      errorCode: "OPTION_VALUES_DELETE",
+      errorMessage: result.message,
+    };
+  }
+  const errors = result.data?.productOptionUpdate.userErrors ?? [];
+  if (errors.length > 0) {
+    return {
+      ok: false,
+      outcome: "DEAD",
+      errorClass: "GRAPHQL_PERMANENT",
+      errorCode: (errors[0]?.code ?? "OPTION_VALUES_DELETE_USER_ERROR").slice(0, 64),
+      errorMessage: (errors[0]?.message ?? "productOptionUpdate delete values user error").slice(
+        0,
+        500
+      ),
+    };
+  }
+  return { ok: true };
+}
+
 async function productOptionsReorder(input: {
   connectionId: string;
   productId: string;
@@ -1062,26 +1133,126 @@ export async function syncShopifyListingTopology(input: {
     });
   }
 
-  // Keep StoreItem.variants matrix in sync with observed Shopify topology after mutate.
+  // Shopify added an axis (inbound import). Do not push the old INW option set back.
+  // INW removing an axis looks the same on axis counts but has delete/create work — continue.
   if (
-    plan.renameOptionValues.length > 0 ||
-    plan.importRemoteVariants.length > 0 ||
-    plan.createVariants.length > 0 ||
-    plan.retireMappings.length > 0
+    remoteAddedAxis &&
+    plan.deleteRemoteVariants.length === 0 &&
+    plan.createVariants.length === 0
   ) {
-    await rebuildStoreItemVariantsFromRemote({
-      memberId: input.memberId,
-      storeItemId: input.storeItemId,
-      listingLinkId: input.listingLinkId,
-      connectionId: input.connectionId,
-      topology: remoteRead.topology,
-    });
+    // Rebuild from the remote we just pulled (Material import, etc.).
+    if (
+      plan.renameOptionValues.length > 0 ||
+      plan.importRemoteVariants.length > 0 ||
+      plan.retireMappings.length > 0
+    ) {
+      await rebuildStoreItemVariantsFromRemote({
+        memberId: input.memberId,
+        storeItemId: input.storeItemId,
+        listingLinkId: input.listingLinkId,
+        connectionId: input.connectionId,
+        topology: remoteRead.topology,
+      });
+    }
+    await clearResolvedTopologyConflict(input.listingLinkId);
+    return { ok: true, plan, importedStoreVariantIds };
   }
 
-  if (plan.deleteRemoteVariants.length > 0) {
+  // Deleting nearly every remote GID then bulk-creating replacements leaves one
+  // orphan Shopify variant when create fails (axis mismatch). Same for removing
+  // an option axis. Rewrite the whole option+variant set from INW instead.
+  const activeLocalCount = input.localVariants.filter(
+    (row) => row.selectedOptions.length > 0 && !isShopifyDefaultTitleOnly(row.selectedOptions)
+  ).length;
+  const localRemovedAxis =
+    remoteAxisNames.size > localAxisNames.size &&
+    localAxisNames.size > 0 &&
+    [...localAxisNames].every((name) => remoteAxisNames.has(name));
+  const needsFullRewrite =
+    localRemovedAxis ||
+    (plan.deleteRemoteVariants.length > 0 && plan.createVariants.length > 0) ||
+    (plan.deleteRemoteVariants.length > 0 &&
+      plan.deleteRemoteVariants.length >= Math.max(0, remoteSnaps.length - 1) &&
+      activeLocalCount > 1);
+
+  if (needsFullRewrite && activeLocalCount > 0) {
+    const rewritten = await pushInwOptionsOntoDefaultShopifyProduct(input);
+    if (!rewritten.ok) return rewritten;
+    const refreshed = await readShopifyProductTopology({
+      connectionId: input.connectionId,
+      productId: input.productId,
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+    });
+    if (refreshed.ok) {
+      await rebuildStoreItemVariantsFromRemote({
+        memberId: input.memberId,
+        storeItemId: input.storeItemId,
+        listingLinkId: input.listingLinkId,
+        connectionId: input.connectionId,
+        topology: refreshed.topology,
+      });
+    }
+    await clearResolvedTopologyConflict(input.listingLinkId);
+    return { ok: true, plan, importedStoreVariantIds };
+  }
+
+  // Drop option values the seller removed. MANAGE deletes their Shopify variants too.
+  const localValuesByAxis = new Map<string, Set<string>>();
+  for (const row of input.localVariants) {
+    for (const opt of row.selectedOptions) {
+      const axis = opt.name.trim().toLowerCase();
+      const value = opt.value.trim().toLowerCase();
+      if (!axis || axis === "title" || !value) continue;
+      if (!localValuesByAxis.has(axis)) localValuesByAxis.set(axis, new Set());
+      localValuesByAxis.get(axis)!.add(value);
+    }
+  }
+  let deletedOptionValues = false;
+  for (const option of remoteRead.topology.options) {
+    const axis = option.name.trim().toLowerCase();
+    if (!axis || axis === "title") continue;
+    const wanted = localValuesByAxis.get(axis);
+    if (!wanted || wanted.size < 1) continue;
+    const toDelete = option.optionValues.filter(
+      (v) => !wanted.has(v.name.trim().toLowerCase())
+    );
+    // Keep at least one value on the option; axis removal uses the rewrite path.
+    if (toDelete.length < 1 || toDelete.length >= option.optionValues.length) continue;
+    const removed = await productOptionDeleteValues({
+      connectionId: input.connectionId,
+      productId: input.productId,
+      optionId: option.id,
+      valueIds: toDelete.map((v) => v.id),
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+    });
+    if (!removed.ok) return removed;
+    deletedOptionValues = true;
+  }
+
+  // Re-read after option-value MANAGE deletes so bulkDelete skips already-gone GIDs.
+  let topologyAfterDeletes = remoteRead.topology;
+  if (deletedOptionValues || plan.deleteRemoteVariants.length > 0) {
+    const afterValues = await readShopifyProductTopology({
+      connectionId: input.connectionId,
+      productId: input.productId,
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+    });
+    if (!afterValues.ok) return afterValues;
+    topologyAfterDeletes = afterValues.topology;
+  }
+
+  const remoteAfterSnaps = toRemoteSnaps(topologyAfterDeletes);
+  const remoteAfterGids = new Set(remoteAfterSnaps.map((row) => row.shopifyVariantId));
+  const stillPresentDeletes = plan.deleteRemoteVariants.filter((row) =>
+    remoteAfterGids.has(row.shopifyVariantId)
+  );
+  if (stillPresentDeletes.length > 0) {
     // Shopify requires at least one variant on the product.
-    const maxDelete = Math.max(0, remoteSnaps.length - 1);
-    const batch = plan.deleteRemoteVariants.slice(0, maxDelete);
+    const maxDelete = Math.max(0, remoteAfterSnaps.length - 1);
+    const batch = stillPresentDeletes.slice(0, maxDelete);
     if (batch.length > 0) {
       const deleted = await productVariantsBulkDelete({
         connectionId: input.connectionId,
@@ -1091,28 +1262,37 @@ export async function syncShopifyListingTopology(input: {
         now: input.now,
       });
       if (!deleted.ok) return deleted;
-      for (const row of batch) {
-        await prisma.shopifyVariantMap.deleteMany({
-          where: {
-            shopifyListingLinkId: input.listingLinkId,
-            shopifyConnectionId: input.connectionId,
-            shopifyVariantId: row.shopifyVariantId,
-            storeVariantId: row.storeVariantId,
-          },
-        });
-      }
     }
   }
+  // Drop maps for every seller-removed GID (MANAGE and bulkDelete).
+  for (const row of plan.deleteRemoteVariants) {
+    await prisma.shopifyVariantMap.deleteMany({
+      where: {
+        shopifyListingLinkId: input.listingLinkId,
+        shopifyConnectionId: input.connectionId,
+        shopifyVariantId: row.shopifyVariantId,
+        storeVariantId: row.storeVariantId,
+      },
+    });
+  }
 
-  if (remoteAddedAxis) {
-    await clearResolvedTopologyConflict(input.listingLinkId);
-    return { ok: true, plan, importedStoreVariantIds };
+  // Refresh option list before creates (values/axes may have changed above).
+  let topologyForCreate = topologyAfterDeletes;
+  if (stillPresentDeletes.length > 0 || deletedOptionValues) {
+    const afterVariantDelete = await readShopifyProductTopology({
+      connectionId: input.connectionId,
+      productId: input.productId,
+      fetchImpl: input.fetchImpl,
+      now: input.now,
+    });
+    if (!afterVariantDelete.ok) return afterVariantDelete;
+    topologyForCreate = afterVariantDelete.topology;
   }
 
   // Ensure new option values exist before bulk create (new axes AND values on existing axes).
   if (plan.createOptionValues.length > 0) {
     const remoteByName = new Map(
-      remoteRead.topology.options.map((o) => [o.name.trim(), o] as const)
+      topologyForCreate.options.map((o) => [o.name.trim(), o] as const)
     );
     const newAxes = plan.createOptionValues
       .filter((row) => !remoteByName.has(row.optionName))
@@ -1152,7 +1332,7 @@ export async function syncShopifyListingTopology(input: {
   }
 
   if (plan.reorderOptionNames && plan.reorderOptionNames.length > 0) {
-    const byName = new Map(remoteRead.topology.options.map((o) => [o.name.trim(), o]));
+    const byName = new Map(topologyForCreate.options.map((o) => [o.name.trim(), o]));
     const reorderInput = plan.reorderOptionNames
       .map((name) => byName.get(name))
       .filter((o): o is NonNullable<typeof o> => Boolean(o))
@@ -1208,21 +1388,22 @@ export async function syncShopifyListingTopology(input: {
       listingLinkId: input.listingLinkId,
       variants: correlation.pairs,
     });
-    const refreshed = await readShopifyProductTopology({
+  }
+
+  const finalRead = await readShopifyProductTopology({
+    connectionId: input.connectionId,
+    productId: input.productId,
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+  if (finalRead.ok) {
+    await rebuildStoreItemVariantsFromRemote({
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+      listingLinkId: input.listingLinkId,
       connectionId: input.connectionId,
-      productId: input.productId,
-      fetchImpl: input.fetchImpl,
-      now: input.now,
+      topology: finalRead.topology,
     });
-    if (refreshed.ok) {
-      await rebuildStoreItemVariantsFromRemote({
-        memberId: input.memberId,
-        storeItemId: input.storeItemId,
-        listingLinkId: input.listingLinkId,
-        connectionId: input.connectionId,
-        topology: refreshed.topology,
-      });
-    }
   }
 
   await clearResolvedTopologyConflict(input.listingLinkId);
