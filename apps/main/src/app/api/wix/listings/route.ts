@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { listingDisplayPhotos } from "@/lib/listing-display-photo";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 
 export const dynamic = "force-dynamic";
@@ -53,7 +54,9 @@ export async function GET(req: NextRequest) {
       importSource: true,
       remoteProductVisible: true,
       updatedAt: true,
-      storeItem: { select: { title: true, status: true, priceCents: true, quantity: true } },
+      storeItem: {
+        select: { title: true, status: true, priceCents: true, quantity: true, photos: true },
+      },
     },
   });
 
@@ -88,7 +91,14 @@ export async function GET(req: NextRequest) {
     pendingStoreItemIds.length > 0
       ? await prisma.storeItem.findMany({
           where: { id: { in: pendingStoreItemIds }, memberId },
-          select: { id: true, title: true, status: true, priceCents: true, quantity: true },
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            priceCents: true,
+            quantity: true,
+            photos: true,
+          },
         })
       : [];
   const pendingById = new Map(pendingItems.map((item) => [item.id, item]));
@@ -98,6 +108,7 @@ export async function GET(req: NextRequest) {
     storeItemId: row.storeItemId,
     wixProductId: row.wixProductId,
     title: row.storeItem.title,
+    photos: listingDisplayPhotos(row.storeItem.photos, "thumb", 4),
     storeItemStatus: row.storeItem.status,
     priceCents: row.storeItem.priceCents,
     quantity: row.storeItem.quantity,
@@ -124,6 +135,7 @@ export async function GET(req: NextRequest) {
         storeItemId,
         wixProductId: "",
         title: item.title,
+        photos: listingDisplayPhotos(item.photos, "thumb", 4),
         storeItemStatus: item.status,
         priceCents: item.priceCents,
         quantity: item.quantity,

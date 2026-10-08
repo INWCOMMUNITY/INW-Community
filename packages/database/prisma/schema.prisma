@@ -996,7 +996,7 @@ model StoreItem {
   quantity            Int      @default(0)
   /// tracked | made_to_order — made_to_order does not require or decrement stock.
   inventoryTracking   String   @default("tracked") @map("inventory_tracking")
-  status              String   @default("active") // active | sold_out | inactive
+  status              String   @default("active") // active | sold_out | inactive | draft
   shippingCostCents   Int?     @map("shipping_cost_cents")
   shippingOptionId    String?  @map("shipping_option_id")
   shippingPolicy      String?  @map("shipping_policy") @db.Text

@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { IonIcon } from "@/components/IonIcon";
 
@@ -63,6 +63,7 @@ function postLoginUrlForAdminAccount(typedLogin: string, fallbackCallbackUrl: st
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: session, status: sessionStatus } = useSession();
   const callbackUrl = searchParams?.get("callbackUrl") ?? "/my-community";
   const fromSignup = searchParams?.get("fromSignup") === "1";
   const adminAccessDenied = searchParams?.get("adminError") === "notAdmin";
@@ -73,6 +74,18 @@ function LoginForm() {
   const planFromUrl = searchParams?.get("plan")?.trim() ?? "";
   const planFromQuery: Plan | null =
     planFromUrl === "subscribe" || planFromUrl === "sponsor" || planFromUrl === "seller" ? planFromUrl : null;
+
+  // If the client still has a valid session, leave /login instead of asking again.
+  // Common after a server layout false-negative (cookies/session blip) redirects here.
+  useEffect(() => {
+    if (sessionStatus !== "authenticated" || !session?.user) return;
+    if (verifyPending) return;
+    const target =
+      typeof callbackUrl === "string" && callbackUrl.startsWith("/") && !callbackUrl.startsWith("//")
+        ? callbackUrl
+        : "/my-community";
+    router.replace(target);
+  }, [sessionStatus, session?.user, callbackUrl, router, verifyPending]);
 
   const [isSignUp, setIsSignUp] = useState(false);
   const [showSignInForm, setShowSignInForm] = useState(false);
@@ -448,8 +461,8 @@ function LoginForm() {
                 !isSignUp ? "text-white" : ""
               }`}
               style={{
-                backgroundColor: !isSignUp ? "var(--color-primary)" : "transparent",
-                color: !isSignUp ? "var(--color-button-text, #fff)" : "var(--color-text)",
+                backgroundColor: !isSignUp ? "var(--color-earth)" : "transparent",
+                color: !isSignUp ? "#fff" : "var(--color-text)",
               }}
             >
               Login
@@ -461,8 +474,8 @@ function LoginForm() {
                 isSignUp ? "text-white" : ""
               }`}
               style={{
-                backgroundColor: isSignUp ? "var(--color-primary)" : "transparent",
-                color: isSignUp ? "var(--color-button-text, #fff)" : "var(--color-text)",
+                backgroundColor: isSignUp ? "var(--color-earth)" : "transparent",
+                color: isSignUp ? "#fff" : "var(--color-text)",
               }}
             >
               Sign Up

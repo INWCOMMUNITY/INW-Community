@@ -290,7 +290,7 @@ export async function recordEtsyListingContentDesire(
     jobId = job.id;
   }
 
-  // Flip Apps Airport off Live immediately — do not wait for the worker.
+  // Flip Sync Airport off Live immediately — do not wait for the worker.
   await reconcileEtsyListingHealthFromDb(db, {
     connectionId: connection.id,
     listingLinkId: lockedListing.id,

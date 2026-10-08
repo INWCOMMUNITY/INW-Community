@@ -1,4 +1,4 @@
-/** Apps Airport Etsy seller routes and display helpers. Isolated from Shopify modules. */
+/** Sync Airport Etsy seller routes and display helpers. Isolated from Shopify modules. */
 
 export const APPS_AIRPORT_PATH = "/seller-hub/apps";
 export const APPS_AIRPORT_ETSY_PATH = `${APPS_AIRPORT_PATH}/etsy`;
@@ -88,6 +88,7 @@ export function formatEtsyCents(cents: number | null | undefined): string {
 export const APPS_AIRPORT_ETSY_HUB = {
   id: "etsy" as const,
   displayName: "Etsy",
+  icon: "color-palette-outline",
   hubPath: APPS_AIRPORT_ETSY_PATH,
   importPath: APPS_AIRPORT_ETSY_IMPORT_PATH,
   listItemsPath: APPS_AIRPORT_ETSY_SYNC_PATH,
@@ -96,8 +97,11 @@ export const APPS_AIRPORT_ETSY_HUB = {
   importLabel: "Import Listings",
   listItemsLabel: "List Items on Etsy",
   settingsLabel: "Connection Settings",
-  viewOnChannelLabel: "View on Etsy",
+  viewOnChannelLabel: "View On Etsy",
   openAdminLabel: "Open Etsy Shop Manager",
+  openDashboardLabel: "Open Etsy Dashboard",
+  /** Generic Shop Manager entry (`/me/` resolves to the signed-in seller’s shop). */
+  dashboardUrl: "https://www.etsy.com/your/shops/me/dashboard",
 };
 
 /** Public buyer URL is only valid for active Etsy listings. */

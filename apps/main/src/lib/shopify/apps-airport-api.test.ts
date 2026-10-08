@@ -46,7 +46,7 @@ import { POST as listingActionsPost } from "@/app/api/shopify/listings/[id]/acti
 import { GET as listingViewUrlGet } from "@/app/api/shopify/listings/[id]/view-url/route";
 import { GET as exportReadinessGet } from "@/app/api/shopify/listings/[id]/export-readiness/route";
 
-describe("Apps Airport Shopify read APIs", () => {
+describe("Sync Airport Shopify read APIs", () => {
   beforeEach(() => {
     vi.mocked(getSessionForApi).mockResolvedValue({
       user: { id: "member-a", email: "a@example.com" },
@@ -87,12 +87,14 @@ describe("Apps Airport Shopify read APIs", () => {
       {
         storeItemId: "item-1",
         title: "Mug",
+        photos: [],
         slug: "mug",
         sku: "SKU1",
         priceCents: 1200,
         quantity: 3,
         status: "active",
         updatedAt: "2026-09-28T00:00:00.000Z",
+        variantCount: 1,
       },
     ]);
 

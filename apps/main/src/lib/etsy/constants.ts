@@ -21,5 +21,5 @@ export const ETSY_OAUTH_TOKEN_URL = "https://api.etsy.com/v3/public/oauth/token"
 
 export const ETSY_API_BASE_URL = "https://api.etsy.com/v3/application";
 
-/** OAuth return lands on Apps Airport Etsy connection settings. */
+/** OAuth return lands on Sync Airport Etsy connection settings. */
 export const ETSY_SELLER_RETURN_PATH = "/seller-hub/apps/etsy/settings";

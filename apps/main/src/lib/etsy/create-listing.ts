@@ -162,7 +162,7 @@ export async function enqueueEtsyCreateListing(input: {
       status: "ERROR",
       code: "SHIPPING_PROFILE_REQUIRED",
       message:
-        "Set a default Etsy shipping profile in Apps Airport → Etsy → Settings before listing items.",
+        "Set a default Etsy shipping profile in Sync Airport → Etsy → Settings before listing items.",
     };
   }
 

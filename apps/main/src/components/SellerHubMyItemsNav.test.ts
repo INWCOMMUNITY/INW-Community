@@ -34,6 +34,6 @@ describe("Seller Hub My Items navigation", () => {
     const page = readFileSync(pagePath, "utf8");
     expect(page).toContain('data-testid="seller-hub-my-items"');
     expect(page).toContain("/api/store-items?mine=1");
-    expect(page).toContain("List an item");
+    expect(page).toContain("List an Item");
   });
 });

@@ -5,6 +5,8 @@ import { IonIcon } from "@/components/IonIcon";
 
 type ListingSaveBarProps = {
   isEdit: boolean;
+  /** Show Save as Draft when creating, or when editing an existing draft. */
+  showSaveAsDraft?: boolean;
   submitting: boolean;
   savingDraft?: boolean;
   error?: string;
@@ -15,6 +17,7 @@ type ListingSaveBarProps = {
 
 export function ListingSaveBar({
   isEdit,
+  showSaveAsDraft,
   submitting,
   savingDraft,
   error,
@@ -23,36 +26,36 @@ export function ListingSaveBar({
   onSaveAsDraft,
 }: ListingSaveBarProps) {
   const isBusy = submitting || savingDraft;
+  const canSaveDraft = Boolean(onSaveAsDraft && (showSaveAsDraft ?? !isEdit));
 
   return (
     <div className="fixed bottom-0 inset-x-0 z-40 border-t border-gray-200 bg-white/95 backdrop-blur-sm">
-      <div className="max-w-5xl mx-auto px-4 py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
-        <div className="min-w-0 flex-1">
-          {error ? (
-            <p className="text-sm text-red-600 truncate" role="alert">
-              {error}
-            </p>
-          ) : (
-            <p className="text-xs text-gray-500 hidden sm:block">
-              {isEdit
-                ? "Changes save to INW and sync to connected stores."
-                : createHint ?? "List on INW and optionally publish to connected stores."}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-3 shrink-0 w-full sm:w-auto">
+      <div className="mx-auto px-4 py-4 flex flex-col items-center gap-2">
+        {error ? (
+          <p className="text-sm text-red-600 text-center max-w-xl" role="alert">
+            {error}
+          </p>
+        ) : (
+          <p className="text-xs text-gray-500 text-center hidden sm:block">
+            {isEdit
+              ? "Changes save to INW and sync to connected stores."
+              : createHint ?? "List on INW and optionally publish to connected stores."}
+          </p>
+        )}
+        <div className="flex items-center justify-center gap-3 flex-wrap w-full">
           <Link
             href={backHref}
-            className="action-pill action-pill-lg btn-pill-outline flex-1 sm:flex-none justify-center min-w-[7rem] sm:min-w-[8rem]"
+            className="action-pill action-pill-lg btn-pill-outline justify-center min-w-[7rem] sm:min-w-[8rem]"
           >
             Cancel
           </Link>
-          {onSaveAsDraft && !isEdit && (
+          {canSaveDraft ? (
             <button
               type="button"
               disabled={isBusy}
               onClick={onSaveAsDraft}
-              className="action-pill action-pill-lg btn-pill-primary flex-1 sm:flex-none justify-center min-w-[8rem] sm:min-w-[9rem] disabled:opacity-60 inline-flex items-center gap-2"
+              className="action-pill action-pill-lg justify-center min-w-[8rem] sm:min-w-[9rem] disabled:opacity-60 inline-flex items-center gap-2 !text-white"
+              style={{ backgroundColor: "var(--color-earth)", borderColor: "var(--color-earth)" }}
             >
               {savingDraft ? (
                 <span className="inline-flex items-center gap-2">
@@ -66,11 +69,11 @@ export function ListingSaveBar({
                 </>
               )}
             </button>
-          )}
+          ) : null}
           <button
             type="submit"
             disabled={isBusy}
-            className="action-pill action-pill-lg btn-pill-primary flex-1 sm:flex-none justify-center min-w-[9rem] sm:min-w-[10.5rem] disabled:opacity-60"
+            className="action-pill action-pill-lg btn-pill-primary justify-center min-w-[9rem] sm:min-w-[10.5rem] disabled:opacity-60"
           >
             {submitting ? (
               <span className="inline-flex items-center gap-2">

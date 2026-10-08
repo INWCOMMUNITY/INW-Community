@@ -4,6 +4,7 @@ import {
   resolveEtsyHowItsMadeForCreate,
 } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { listingDisplayPhotos } from "@/lib/listing-display-photo";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 import { resolveEtsyTaxonomyFallback, sanitizeEtsyTaxonomyId } from "@/lib/etsy/taxonomy-default";
 import { etsyListingIsPubliclyViewable } from "@/lib/etsy/apps-airport";
@@ -115,6 +116,7 @@ export async function GET(req: NextRequest) {
       return {
         storeItemId: item.id,
         title: item.title,
+        photos: listingDisplayPhotos(item.photos, "thumb", 4),
         slug: item.slug,
         sku: item.sku,
         priceCents: item.priceCents,

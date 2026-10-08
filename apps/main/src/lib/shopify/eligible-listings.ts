@@ -1,8 +1,10 @@
 import { prisma, SHOPIFY_MAX_OPTION_DIMENSIONS, SHOPIFY_MAX_VARIANTS } from "database";
+import { listingDisplayPhotos } from "@/lib/listing-display-photo";
 
 export type ShopifyEligibleListing = {
   storeItemId: string;
   title: string;
+  photos: string[];
   slug: string;
   sku: string | null;
   priceCents: number;
@@ -38,6 +40,7 @@ export async function listEligibleShopifyExportListings(input: {
     select: {
       id: true,
       title: true,
+      photos: true,
       slug: true,
       sku: true,
       priceCents: true,
@@ -74,6 +77,7 @@ export async function listEligibleShopifyExportListings(input: {
     .map((item) => ({
       storeItemId: item.id,
       title: item.title,
+      photos: listingDisplayPhotos(item.photos, "thumb", 4),
       slug: item.slug,
       sku: item.sku,
       priceCents: item.priceCents,

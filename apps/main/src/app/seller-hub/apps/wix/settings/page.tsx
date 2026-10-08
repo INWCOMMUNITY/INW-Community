@@ -6,7 +6,7 @@ export default function AppsAirportWixSettingsPage() {
   return (
     <AppsAirportChrome
       title="Wix Connection Settings"
-      subtitle="Connect your Wix site, then import products or list INW items from Apps Airport."
+      subtitle="Connect your Wix site, then import products or list INW items from Sync Airport."
       crumbs={[
         { href: APPS_AIRPORT_WIX_PATH, label: "Wix" },
         { href: `${APPS_AIRPORT_WIX_PATH}/settings`, label: "Settings" },

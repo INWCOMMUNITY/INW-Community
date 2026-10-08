@@ -128,7 +128,9 @@ export async function middleware(req: NextRequest) {
       if (secret) {
         try {
           const token = await getToken({ req, secret });
-          authed = Boolean(token?.sub);
+          // Credentials JWT stores member id on `id`; NextAuth also sets `sub`.
+          // Accept either so a missing `sub` does not false-redirect signed-in users.
+          authed = Boolean(token?.sub || token?.id);
         } catch (e) {
           // next-auth/jwt can throw e.g. "Cannot read properties of null (reading 'get')"
           // when cookie/header adapters differ by runtime; treat as guest instead of 500.

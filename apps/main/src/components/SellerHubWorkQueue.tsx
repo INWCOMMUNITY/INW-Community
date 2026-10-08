@@ -107,31 +107,11 @@ export function SellerHubWorkQueue({
           description: "View and edit your listings.",
         },
         {
-          label: "Apps Airport",
-          href: "/seller-hub/apps",
-          icon: "apps",
-          description: "Connect Shopify and manage marketplace sync.",
-        },
-        {
           label: "Fulfillment",
           href: "/seller-hub/orders",
           icon: "receipt",
           description: "Orders to ship and shipping labels.",
           badge: pendingShip > 0,
-        },
-        {
-          label: "Policies",
-          href: "/seller-hub/policies",
-          icon: "book-outline",
-          description: "Set shipping, pickup, delivery, and return terms.",
-        },
-        {
-          label: "Deliveries",
-          href: "/seller-hub/orders?tab=deliveries",
-          icon: "bicycle",
-          description: "Local delivery orders to confirm.",
-          show: hasLocalDelivery,
-          badge: pendingDeliveries > 0,
         },
         {
           label: "Offers",
@@ -148,11 +128,37 @@ export function SellerHubWorkQueue({
           badge: payoutReady,
         },
         {
+          label: "Sync Airport",
+          href: "/seller-hub/apps",
+          icon: "apps",
+          description: "Connect Shopify, Etsy, and Wix — manage marketplace sync.",
+        },
+        {
+          label: "Deliveries",
+          href: "/seller-hub/orders?tab=deliveries",
+          icon: "bicycle",
+          description: "Local delivery orders to confirm.",
+          show: hasLocalDelivery,
+          badge: pendingDeliveries > 0,
+        },
+        {
           label: "Before You Start",
           href: "/seller-hub/shipping-setup",
           icon: "checkbox",
           description: "Connect payment and shipping so you can list items and get paid.",
           show: sellerSetupComplete === false,
+        },
+        {
+          label: "Policies",
+          href: "/seller-hub/policies",
+          icon: "book-outline",
+          description: "Set shipping, pickup, delivery, and return terms.",
+        },
+        {
+          label: "Storefront Info",
+          href: "/seller-hub/store",
+          icon: "storefront-outline",
+          description: "Edit your storefront profile, bio, and photos.",
         },
       ].filter((a) => a.show !== false),
     [
@@ -166,44 +172,67 @@ export function SellerHubWorkQueue({
   );
 
   if (variant === "mobile") {
+    const lastLabel = actions[actions.length - 1]?.label;
+    const lastAlone = actions.length % 2 === 1 && Boolean(lastLabel);
+
     return (
       <div className="grid grid-cols-2 gap-3">
-        {actions.map((action) => (
-          <Link
-            key={action.href + action.label}
-            href={action.href}
-            prefetch={false}
-            className="relative flex flex-col items-center justify-center gap-2 min-h-[100px] p-4 rounded-[10px] border-2 bg-white text-center active:bg-gray-50 transition-colors"
-            style={{ borderColor: "var(--color-primary)" }}
-          >
-            {action.badge ? <MobileAlertBadge /> : null}
-            <IonIcon name={action.icon} size={28} className="text-[var(--color-primary)]" />
-            <span
-              className="text-sm font-semibold text-center leading-tight"
-              style={{ color: "var(--color-heading)" }}
+        {actions.map((action) => {
+          const isFeaturedLast = lastAlone && action.label === lastLabel;
+          return (
+            <Link
+              key={action.href + action.label}
+              href={action.href}
+              prefetch={false}
+              className={`relative flex border-2 bg-white text-center transition-colors active:bg-[var(--color-section-alt)] ${
+                isFeaturedLast
+                  ? "col-span-2 flex-row items-center justify-center gap-3 min-h-[4.25rem] px-4 py-3 rounded-2xl"
+                  : "flex-col items-center justify-center gap-2 min-h-[6.75rem] p-4 rounded-2xl"
+              }`}
+              style={{ borderColor: "var(--color-primary)" }}
             >
-              {action.label}
-            </span>
-          </Link>
-        ))}
+              {action.badge ? <MobileAlertBadge /> : null}
+              <IonIcon
+                name={action.icon}
+                size={isFeaturedLast ? 26 : 28}
+                className="text-[var(--color-primary)] shrink-0"
+              />
+              <span
+                className={`font-semibold leading-tight ${isFeaturedLast ? "text-[15px]" : "text-sm"}`}
+                style={{ color: "var(--color-heading)" }}
+              >
+                {action.label}
+              </span>
+            </Link>
+          );
+        })}
       </div>
     );
   }
 
+  const lastLabel = actions[actions.length - 1]?.label;
+  const lastAloneCentered =
+    Boolean(lastLabel) && actions.length % 4 === 1;
+
   return (
-    <div className="mx-auto grid w-full max-w-[1100px] grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 justify-items-center">
-      {actions.map((action) => (
-        <Link
-          key={action.href + action.label}
-          href={action.href}
-          className="relative hub-card w-full min-w-[240px] max-w-[320px] border-2 border-[var(--color-primary)] rounded-[10px] p-6 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center"
-        >
-          <HubExclamationBadge show={!!action.badge} />
-          <IonIcon name={action.icon} size={28} className="text-[var(--color-primary)] mb-2" />
-          <h2 className="text-xl font-bold mb-2">{action.label}</h2>
-          {action.description ? <p className="text-sm text-gray-600">{action.description}</p> : null}
-        </Link>
-      ))}
+    <div className="mx-auto grid w-full max-w-[1400px] grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 justify-items-center">
+      {actions.map((action) => {
+        const centerLast = lastAloneCentered && action.label === lastLabel;
+        return (
+          <Link
+            key={action.href + action.label}
+            href={action.href}
+            className={`relative hub-card w-full min-w-0 max-w-[300px] border-2 border-[var(--color-primary)] rounded-[10px] p-5 transition text-center hover:bg-[var(--color-section-alt)] flex flex-col items-center ${
+              centerLast ? "lg:col-span-4 lg:justify-self-center" : ""
+            }`}
+          >
+            <HubExclamationBadge show={!!action.badge} />
+            <IonIcon name={action.icon} size={28} className="text-[var(--color-primary)] mb-2" />
+            <h2 className="text-lg font-bold mb-2">{action.label}</h2>
+            {action.description ? <p className="text-sm text-gray-600">{action.description}</p> : null}
+          </Link>
+        );
+      })}
     </div>
   );
 }

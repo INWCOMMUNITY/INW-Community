@@ -109,7 +109,7 @@ Do this once before connecting any marketplace.
 
 **Scopes our app uses:** `listings_r`, `listings_w`, `transactions_r`, `shops_r`, `shops_w`
 
-Reconnect Etsy in Apps Airport if an older connection was granted without `shops_w` (needed for readiness-state create).
+Reconnect Etsy in Sync Airport if an older connection was granted without `shops_w` (needed for readiness-state create).
 
 ### B — Paste into Vercel
 
@@ -149,7 +149,7 @@ Do **not** use `CHANNEL_CRON_SYNC_ENABLED` for Etsy V2 sync — that flag is for
 
 ### B — Test in app
 
-1. Seller Hub → **Apps Airport** → **Connect Etsy** (scopes include `shops_w`)
+1. Seller Hub → **Sync Airport** → **Connect Etsy** (scopes include `shops_w`)
 2. Connection Settings → default **shipping profile**
 3. **Import** an active listing (Size×Color if available)
 4. Create/list item with How it’s made + photos → expect **active** / Live (not draft / `IMAGES_REQUIRED`)

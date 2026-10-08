@@ -34,7 +34,7 @@ export type WixIntegrationStatus = {
 /**
  * GET /api/wix/status
  * Return the Wix integration status summary for the current user.
- * Used by the Apps Airport UI to show integration health.
+ * Used by the Sync Airport UI to show integration health.
  */
 export async function GET(): Promise<Response> {
   const session = await getServerSession(authOptions);

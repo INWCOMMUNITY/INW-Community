@@ -144,7 +144,7 @@ export function classifyEtsyListingHealth(input: {
 
   if (contentPending || inventoryPending) {
     return {
-      // Pending outbound must never read as Live — Apps Airport keys off readiness.
+      // Pending outbound must never read as Live — Sync Airport keys off readiness.
       readiness: "ACTION_REQUIRED",
       contentHealth: contentPending ? "DEGRADED" : "HEALTHY",
       inventoryHealth: inventoryPending ? "DEGRADED" : "HEALTHY",
@@ -158,7 +158,7 @@ export function classifyEtsyListingHealth(input: {
   const remote = String(input.listing.remoteListingState ?? "")
     .trim()
     .toLowerCase();
-  // READY_TO_PUBLISH means buyer-live on Etsy. Drafts must never look healthy/live in Apps Airport.
+  // READY_TO_PUBLISH means buyer-live on Etsy. Drafts must never look healthy/live in Sync Airport.
   if (remote && remote !== "active") {
     return {
       readiness: "ACTION_REQUIRED",
@@ -166,7 +166,7 @@ export function classifyEtsyListingHealth(input: {
       inventoryHealth: input.listing.inventoryHealth,
       issueCode: "DRAFT_NOT_ACTIVE",
       issueMessage:
-        "Etsy listing is still a draft (not live). Re-list from Apps Airport to upload photos and publish.",
+        "Etsy listing is still a draft (not live). Re-list from Sync Airport to upload photos and publish.",
     };
   }
 

@@ -2,11 +2,9 @@
 
 import { useState } from "react";
 import {
-  APPS_AIRPORT_ETSY_HUB,
   APPS_AIRPORT_ETSY_LISTINGS_PATH,
   APPS_AIRPORT_ETSY_SYNC_PATH,
   etsyListingIsPubliclyViewable,
-  etsyListingPublicUrl,
 } from "@/lib/etsy/apps-airport";
 import {
   AppsAirportListingManageMenu,
@@ -30,7 +28,6 @@ export function EtsyListingActionButtons({
   const [error, setError] = useState<string | null>(null);
 
   const live = etsyListingIsPubliclyViewable(remoteListingState);
-  const publicUrl = etsyListingPublicUrl({ etsyListingId, remoteListingState });
   const editHref = `/seller-hub/store/${storeItemId}`;
 
   async function callAction(
@@ -95,16 +92,6 @@ export function EtsyListingActionButtons({
       danger: true,
       onSelect: onRemoveFromEtsy,
     },
-    ...(publicUrl
-      ? ([
-          {
-            kind: "external" as const,
-            id: "view-etsy",
-            label: APPS_AIRPORT_ETSY_HUB.viewOnChannelLabel,
-            href: publicUrl,
-          },
-        ] satisfies AppsAirportManageMenuItem[])
-      : []),
     {
       kind: "link",
       id: "view-linked",

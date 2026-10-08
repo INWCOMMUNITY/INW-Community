@@ -3,11 +3,9 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { AppsAirportListedOnChannels } from "@/components/apps-airport/AppsAirportListedOnChannels";
 import { IonIcon } from "@/components/IonIcon";
-import {
-  formatSyncedWithChannels,
-  type AppsAirportChannelId,
-} from "@/lib/shopify/apps-airport";
+import { type AppsAirportChannelId } from "@/lib/shopify/apps-airport";
 import { ShareListingsToFeedPrompt } from "@/components/feed/ShareListingsToFeedPrompt";
 
 type ItemsTab = "active" | "ended" | "sold" | "drafts";
@@ -34,11 +32,10 @@ type MyStoreItem = {
   channels?: AppsAirportChannelId[];
 };
 
-const ITEMS_TABS: { key: ItemsTab; label: string }[] = [
+const STATUS_TABS: { key: Exclude<ItemsTab, "drafts">; label: string }[] = [
   { key: "active", label: "Active" },
   { key: "ended", label: "Ended" },
   { key: "sold", label: "Sold" },
-  { key: "drafts", label: "Drafts" },
 ];
 
 function formatPrice(cents: number): string {
@@ -46,6 +43,7 @@ function formatPrice(cents: number): string {
 }
 
 function statusLabel(item: MyStoreItem): string {
+  if (item.status === "draft") return "Draft";
   if (item.status === "sold_out") return "Sold";
   if (item.status === "inactive") return "Ended";
   if (item.quantity <= 0) return "Out of stock";
@@ -60,9 +58,17 @@ function itemEditHref(item: MyStoreItem): string {
   return `/seller-hub/store/${listingIdOf(item)}`;
 }
 
+function itemTitleHref(item: MyStoreItem): string {
+  if (item.status === "draft") return itemEditHref(item);
+  return item.slug ? `/storefront/${item.slug}?from=my-items` : itemEditHref(item);
+}
+
 function statusChipClass(status: string): string {
   if (status === "Active") {
     return "border-amber-200 bg-amber-50 text-amber-900";
+  }
+  if (status === "Draft") {
+    return "border-[#c99d5f] bg-[#FDEDCC] text-[#5d4f40]";
   }
   if (status === "Out of stock") {
     return "border-amber-300 bg-amber-100 text-amber-950";
@@ -88,6 +94,7 @@ function MyItemsPageInner() {
     active: number;
     ended: number;
     sold: number;
+    drafts: number;
   } | null>(null);
   const [connectStatus, setConnectStatus] = useState<{
     onboarded: boolean;
@@ -118,40 +125,16 @@ function MyItemsPageInner() {
   };
 
   const load = useCallback(async () => {
-    if (tab === "drafts") {
-      setLoading(false);
-      setItems([]);
-      setFetchError(null);
-      try {
-        const [statusRes, countsRes] = await Promise.all([
-          fetch("/api/stripe/connect/status", { credentials: "include" }),
-          fetch("/api/store-items?mine=1&counts=1", { credentials: "include" }),
-        ]);
-        const statusData = await statusRes.json().catch(() => ({}));
-        const countsData = await countsRes.json().catch(() => ({}));
-        if (countsRes.ok && countsData && typeof countsData.active === "number") {
-          setCounts({
-            active: countsData.active,
-            ended: Number(countsData.ended) || 0,
-            sold: Number(countsData.sold) || 0,
-          });
-        }
-        if (statusRes.ok && statusData && typeof statusData.chargesEnabled === "boolean") {
-          setConnectStatus({
-            onboarded: Boolean(statusData.onboarded),
-            chargesEnabled: Boolean(statusData.chargesEnabled),
-          });
-        }
-      } catch {
-        /* ignore */
-      }
-      return;
-    }
-
     setLoading(true);
     setFetchError(null);
     const filterParam =
-      tab === "active" ? "&filter=active" : tab === "ended" ? "&filter=ended" : "&filter=sold";
+      tab === "active"
+        ? "&filter=active"
+        : tab === "ended"
+          ? "&filter=ended"
+          : tab === "drafts"
+            ? "&filter=drafts"
+            : "&filter=sold";
     try {
       const [itemsRes, statusRes, countsRes] = await Promise.all([
         fetch(`/api/store-items?mine=1${filterParam}`, { credentials: "include" }),
@@ -180,6 +163,7 @@ function MyItemsPageInner() {
           active: countsData.active,
           ended: Number(countsData.ended) || 0,
           sold: Number(countsData.sold) || 0,
+          drafts: Number(countsData.drafts) || 0,
         });
       }
 
@@ -311,8 +295,62 @@ function MyItemsPageInner() {
     setFeedShareIds(ids);
   };
 
-  const summaryCounts = counts ?? { active: 0, ended: 0, sold: 0 };
-  const hasSelection = tab !== "drafts" && selectedIds.length > 0;
+  const summaryCounts = counts ?? { active: 0, ended: 0, sold: 0, drafts: 0 };
+  const hasSelection = selectedIds.length > 0;
+
+  const manageMenu = (item: MyStoreItem, align: "left" | "right" = "right") =>
+    menuOpenId === item.id ? (
+      <div
+        className={`absolute ${align === "left" ? "left-0" : "right-0"} top-10 z-20 min-w-[180px] rounded-lg border border-neutral-200 bg-white shadow-lg py-1`}
+      >
+        <Link
+          href={itemEditHref(item)}
+          className="block px-3 py-2 text-sm hover:bg-neutral-50 font-medium"
+        >
+          Edit listing
+        </Link>
+        <Link
+          href={`/seller-hub/store/new?similar=${listingIdOf(item)}`}
+          className="block px-3 py-2 text-sm hover:bg-neutral-50"
+        >
+          Sell Similar
+        </Link>
+        {item.slug && item.status !== "draft" ? (
+          <Link
+            href={`/storefront/${item.slug}?from=my-items`}
+            className="block px-3 py-2 text-sm hover:bg-neutral-50"
+          >
+            View listing
+          </Link>
+        ) : null}
+        {tab === "sold" && item.soldOrderId ? (
+          <Link
+            href={`/seller-hub/orders/${item.soldOrderId}`}
+            className="block px-3 py-2 text-sm hover:bg-neutral-50"
+          >
+            View order
+          </Link>
+        ) : null}
+        {(tab === "ended" || (tab === "sold" && item.canRelist !== false)) && (
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-2 text-sm text-emerald-700 font-semibold hover:bg-neutral-50"
+            onClick={() => relist([listingIdOf(item)])}
+          >
+            Relist
+          </button>
+        )}
+        {tab === "active" && (
+          <button
+            type="button"
+            className="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50"
+            onClick={() => endListings([item.id])}
+          >
+            End listing
+          </button>
+        )}
+      </div>
+    ) : null;
 
   return (
     <div className="w-full min-w-0" data-testid="seller-hub-my-items">
@@ -323,19 +361,14 @@ function MyItemsPageInner() {
         onSuccess={() => {
           setFeedShareIds([]);
           setSelectedIds([]);
-          setActionMessage("Shared to feed.");
+          setActionMessage("Shared to Feed.");
         }}
       />
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--color-heading)]">My Items</h1>
-          <p className="text-sm text-neutral-600 mt-1">
-            Your INW storefront listings — use Manage on each item, or select rows for quick actions.
-          </p>
-        </div>
-        <Link href="/seller-hub/store/new" className="btn shrink-0">
-          List an item
-        </Link>
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold text-[var(--color-heading)]">My Items</h1>
+        <p className="text-sm text-neutral-600 mt-1">
+          Your INW storefront listings — use Actions on each item, or select rows for quick actions.
+        </p>
       </div>
 
       {connectStatus && !connectStatus.chargesEnabled ? (
@@ -353,9 +386,30 @@ function MyItemsPageInner() {
         </div>
       ) : null}
 
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Link
+          href="/seller-hub/store/new"
+          className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-[var(--color-earth)] bg-[var(--color-earth)] px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+        >
+          <IonIcon name="add-outline" size={18} className="text-current" />
+          List an Item
+        </Link>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "drafts"}
+          className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-[#c99d5f] bg-[#c99d5f] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#b8894d] hover:border-[#b8894d]"
+          onClick={() => setTabAndUrl("drafts")}
+        >
+          <IonIcon name="document-text-outline" size={18} className="text-current" />
+          Drafts
+          {counts != null ? ` (${counts.drafts})` : ""}
+        </button>
+      </div>
+
       <div className="mb-2">
         <h2 className="font-bold" style={{ color: "var(--color-heading)" }}>
-          Your listings
+          Your Listings
         </h2>
         <div className="text-sm text-neutral-600">
           {summaryCounts.active} active · {summaryCounts.ended} ended · {summaryCounts.sold} sold
@@ -363,7 +417,7 @@ function MyItemsPageInner() {
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2" role="tablist" aria-label="Listing status">
-        {ITEMS_TABS.map((t) => {
+        {STATUS_TABS.map((t) => {
           const count =
             counts == null
               ? null
@@ -371,9 +425,7 @@ function MyItemsPageInner() {
                 ? counts.active
                 : t.key === "ended"
                   ? counts.ended
-                  : t.key === "sold"
-                    ? counts.sold
-                    : null;
+                  : counts.sold;
           const selected = tab === t.key;
           return (
             <button
@@ -406,9 +458,8 @@ function MyItemsPageInner() {
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by title or SKU"
           className="w-full max-w-md rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm"
-          disabled={tab === "drafts"}
         />
-        {tab !== "drafts" && filtered.length > 0 ? (
+        {filtered.length > 0 ? (
           <label className="inline-flex items-center gap-2 text-sm text-neutral-700 cursor-pointer">
             <input
               type="checkbox"
@@ -464,7 +515,7 @@ function MyItemsPageInner() {
                   className="rounded-md bg-[var(--color-earth)] px-3 py-1.5 font-semibold text-white hover:opacity-90 disabled:opacity-50"
                   onClick={() => openShareToFeed(selectedIds)}
                 >
-                  Share to feed
+                  Share to Feed
                 </button>
               </>
             )}
@@ -488,7 +539,7 @@ function MyItemsPageInner() {
                 }`}
                 className="rounded-md bg-[var(--color-earth)] px-3 py-1.5 font-semibold text-white hover:opacity-90"
               >
-                Sell similar
+                Sell Similar
               </Link>
             ) : null}
           </div>
@@ -498,141 +549,118 @@ function MyItemsPageInner() {
       {loading ? <p className="text-sm text-neutral-600">Loading items…</p> : null}
       {fetchError ? <p className="text-sm text-red-700">{fetchError}</p> : null}
 
-      {tab === "drafts" && !loading ? (
+      {!loading && !fetchError && filtered.length === 0 ? (
         <div
           className="rounded-[10px] border-2 border-dashed p-6 text-center"
           style={{ borderColor: "var(--color-primary)" }}
         >
-          <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
-            Drafts live in the mobile app
+          <p
+            className="font-semibold inline-flex items-center justify-center gap-2"
+            style={{ color: "var(--color-heading)" }}
+          >
+            {tab === "drafts" ? (
+              <>
+                <IonIcon name="document-text-outline" size={22} className="text-[#c99d5f]" />
+                No Drafts Yet
+              </>
+            ) : tab === "active" ? (
+              "No active listings yet"
+            ) : tab === "ended" ? (
+              "No ended listings"
+            ) : (
+              "No sold listings yet"
+            )}
           </p>
-          <p className="mt-2 text-sm text-neutral-600 max-w-md mx-auto">
-            Save unfinished listings on iOS/Android, then resume them from My Items → Drafts.
-          </p>
-          <Link href="/seller-hub/store/new" className="btn mt-4 inline-block">
-            Start a new listing
-          </Link>
-        </div>
-      ) : null}
-
-      {!loading && !fetchError && tab !== "drafts" && filtered.length === 0 ? (
-        <div
-          className="rounded-[10px] border-2 border-dashed p-6 text-center"
-          style={{ borderColor: "var(--color-primary)" }}
-        >
-          <p className="font-semibold" style={{ color: "var(--color-heading)" }}>
-            {tab === "active"
-              ? "No active listings yet"
-              : tab === "ended"
-                ? "No ended listings"
-                : "No sold listings yet"}
-          </p>
-          {tab === "active" ? (
-            <Link href="/seller-hub/store/new" className="btn mt-4 inline-block">
-              Create your first listing
-            </Link>
+          {tab === "active" || tab === "drafts" ? (
+            <>
+              {tab === "drafts" ? (
+                <p className="mt-2 text-sm text-neutral-600 max-w-md mx-auto">
+                  Use Save as Draft when creating a listing, then continue editing anytime from here.
+                </p>
+              ) : null}
+              <Link href="/seller-hub/store/new" className="btn mt-4 inline-block">
+                {tab === "drafts" ? "Start a New Listing" : "Create your first listing"}
+              </Link>
+            </>
           ) : null}
         </div>
       ) : null}
 
-      {!loading && !fetchError && tab !== "drafts" && filtered.length > 0 ? (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm border-collapse">
-            <thead>
-              <tr className="border-b text-left" style={{ borderColor: "var(--color-primary)" }}>
-                <th className="py-2 pr-3 w-10">
-                  <span className="sr-only">Select</span>
-                </th>
-                <th className="py-2 pr-3 font-semibold">Listing</th>
-                <th className="py-2 pr-3 font-semibold">Status</th>
-                <th className="py-2 pr-3 font-semibold">Qty</th>
-                <th className="py-2 pr-3 font-semibold">Price</th>
-                <th className="py-2 pr-3 font-semibold">Listed on</th>
-                <th className="py-2 pr-3 font-semibold">Views (30d)</th>
-                <th className="py-2 font-semibold">Manage</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((item) => {
-                const photo = Array.isArray(item.photos) ? item.photos[0] : undefined;
-                const selected = selectedIds.includes(item.id);
-                const views = item.views30d ?? 0;
-                const status = statusLabel(item);
-                const listedOn = formatSyncedWithChannels(
-                  Array.isArray(item.channels) && item.channels.length > 0
-                    ? item.channels
-                    : ["inw"]
-                );
-                return (
-                  <tr
-                    key={item.id}
-                    className={`border-b border-neutral-200 align-middle ${
-                      selected ? "bg-[var(--color-section-alt)]" : ""
-                    }`}
-                    data-item-menu={item.id}
-                  >
-                    <td className="py-3 pr-3">
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={() => toggleSelect(item.id)}
-                        className="h-4 w-4 rounded border-neutral-300"
-                        aria-label={`Select ${item.title}`}
-                      />
-                    </td>
-                    <td className="py-3 pr-3">
-                      <div className="flex items-center gap-3 min-w-[14rem]">
-                        <div className="w-12 h-12 rounded-md bg-neutral-100 overflow-hidden shrink-0">
-                          {photo ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={photo} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-neutral-300">
-                              <IonIcon name="image-outline" size={18} />
-                            </div>
-                          )}
+      {!loading && !fetchError && filtered.length > 0 ? (
+        <>
+          {/* Mobile: stacked cards — avoids horizontal table scroll */}
+          <ul className="md:hidden relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 divide-y divide-neutral-200 border-y border-neutral-200">
+            {filtered.map((item) => {
+              const photo = Array.isArray(item.photos) ? item.photos[0] : undefined;
+              const selected = selectedIds.includes(item.id);
+              const views = item.views30d ?? 0;
+              const status = statusLabel(item);
+              return (
+                <li
+                  key={item.id}
+                  className={`px-4 py-3 ${selected ? "bg-[var(--color-section-alt)]" : "bg-white"}`}
+                  data-item-menu={item.id}
+                >
+                  <div className="flex gap-3">
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => toggleSelect(item.id)}
+                      className="mt-1 h-4 w-4 shrink-0 rounded border-neutral-300"
+                      aria-label={`Select ${item.title}`}
+                    />
+                    <div className="w-14 h-14 rounded-md bg-neutral-100 overflow-hidden shrink-0">
+                      {photo ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={photo} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-neutral-300">
+                          <IonIcon name="image-outline" size={20} />
                         </div>
-                        <div className="min-w-0">
-                          <Link
-                            href={item.slug ? `/storefront/${item.slug}?from=my-items` : itemEditHref(item)}
-                            className="font-medium underline line-clamp-2"
-                            style={{ color: "var(--color-primary)" }}
-                          >
-                            {item.title}
-                          </Link>
-                          {tab === "sold" && item.variantLabel ? (
-                            <div className="mt-0.5 text-xs font-medium text-neutral-700">
-                              {item.variantLabel}
-                            </div>
-                          ) : null}
-                          {tab === "sold" && item.soldAt ? (
-                            <div className="mt-0.5 text-xs text-neutral-500">
-                              Sold {new Date(item.soldAt).toLocaleDateString()}
-                              {item.soldChannel === "etsy"
-                                ? " · Etsy"
-                                : item.soldChannel === "inw"
-                                  ? " · INW"
-                                  : ""}
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3 pr-3">
-                      <span
-                        className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${statusChipClass(status)}`}
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <Link
+                        href={itemTitleHref(item)}
+                        className="font-medium underline line-clamp-2 text-sm"
+                        style={{ color: "var(--color-primary)" }}
                       >
-                        {status}
-                      </span>
-                    </td>
-                    <td className="py-3 pr-3 whitespace-nowrap">
-                      {tab === "sold" ? item.soldQty ?? item.quantity : item.quantity}
-                    </td>
-                    <td className="py-3 pr-3 whitespace-nowrap">{formatPrice(item.priceCents)}</td>
-                    <td className="py-3 pr-3 text-neutral-700 whitespace-nowrap">{listedOn}</td>
-                    <td className="py-3 pr-3 whitespace-nowrap text-neutral-700">{views}</td>
-                    <td className="py-3 relative">
-                      <div className="flex flex-wrap items-center gap-2">
+                        {item.title}
+                      </Link>
+                      {tab === "sold" && item.variantLabel ? (
+                        <div className="mt-0.5 text-xs font-medium text-neutral-700">
+                          {item.variantLabel}
+                        </div>
+                      ) : null}
+                      {tab === "sold" && item.soldAt ? (
+                        <div className="mt-0.5 text-xs text-neutral-500">
+                          Sold {new Date(item.soldAt).toLocaleDateString()}
+                          {item.soldChannel === "etsy"
+                            ? " · Etsy"
+                            : item.soldChannel === "inw"
+                              ? " · INW"
+                              : ""}
+                        </div>
+                      ) : null}
+                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-700">
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-0.5 font-semibold ${statusChipClass(status)}`}
+                        >
+                          {status}
+                        </span>
+                        <span>
+                          Qty {tab === "sold" ? item.soldQty ?? item.quantity : item.quantity}
+                        </span>
+                        <span>{formatPrice(item.priceCents)}</span>
+                        <span>{views} views</span>
+                      </div>
+                      <div className="mt-2">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500 mb-1">
+                          Listed On
+                        </div>
+                        <AppsAirportListedOnChannels channels={item.channels} />
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-2 relative">
                         {(tab === "ended" || (tab === "sold" && item.canRelist !== false)) && (
                           <button
                             type="button"
@@ -649,66 +677,140 @@ function MyItemsPageInner() {
                           aria-expanded={menuOpenId === item.id}
                           onClick={() => setMenuOpenId(menuOpenId === item.id ? null : item.id)}
                         >
-                          Manage
+                          Actions
                         </button>
+                        {manageMenu(item, "left")}
                       </div>
-                      {menuOpenId === item.id ? (
-                        <div className="absolute right-0 top-12 z-20 min-w-[180px] rounded-lg border border-neutral-200 bg-white shadow-lg py-1">
-                          <Link
-                            href={itemEditHref(item)}
-                            className="block px-3 py-2 text-sm hover:bg-neutral-50 font-medium"
-                          >
-                            Edit listing
-                          </Link>
-                          <Link
-                            href={`/seller-hub/store/new?similar=${listingIdOf(item)}`}
-                            className="block px-3 py-2 text-sm hover:bg-neutral-50"
-                          >
-                            Sell similar
-                          </Link>
-                          {item.slug ? (
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          {/* Desktop: full-bleed table */}
+          <div className="hidden md:block relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 overflow-x-auto">
+            <table className="min-w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b text-left" style={{ borderColor: "var(--color-primary)" }}>
+                  <th className="py-2 pl-4 sm:pl-6 pr-3 w-10">
+                    <span className="sr-only">Select</span>
+                  </th>
+                  <th className="py-2 pr-3 font-semibold">Listing</th>
+                  <th className="py-2 pr-3 font-semibold">Status</th>
+                  <th className="py-2 pr-3 font-semibold">Qty</th>
+                  <th className="py-2 pr-3 font-semibold">Price</th>
+                  <th className="py-2 pr-3 font-semibold">Listed On</th>
+                  <th className="py-2 pr-3 font-semibold">Views (30d)</th>
+                  <th className="py-2 pr-4 sm:pr-6 font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((item) => {
+                  const photo = Array.isArray(item.photos) ? item.photos[0] : undefined;
+                  const selected = selectedIds.includes(item.id);
+                  const views = item.views30d ?? 0;
+                  const status = statusLabel(item);
+                  return (
+                    <tr
+                      key={item.id}
+                      className={`border-b border-neutral-200 align-middle ${
+                        selected ? "bg-[var(--color-section-alt)]" : ""
+                      }`}
+                      data-item-menu={item.id}
+                    >
+                      <td className="py-3 pl-4 sm:pl-6 pr-3">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleSelect(item.id)}
+                          className="h-4 w-4 rounded border-neutral-300"
+                          aria-label={`Select ${item.title}`}
+                        />
+                      </td>
+                      <td className="py-3 pr-3">
+                        <div className="flex items-center gap-3 min-w-[14rem]">
+                          <div className="w-12 h-12 rounded-md bg-neutral-100 overflow-hidden shrink-0">
+                            {photo ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={photo} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-neutral-300">
+                                <IonIcon name="image-outline" size={18} />
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0">
                             <Link
-                              href={`/storefront/${item.slug}?from=my-items`}
-                              className="block px-3 py-2 text-sm hover:bg-neutral-50"
+                              href={itemTitleHref(item)}
+                              className="font-medium underline line-clamp-2"
+                              style={{ color: "var(--color-primary)" }}
                             >
-                              View listing
+                              {item.title}
                             </Link>
-                          ) : null}
-                          {tab === "sold" && item.soldOrderId ? (
-                            <Link
-                              href={`/seller-hub/orders/${item.soldOrderId}`}
-                              className="block px-3 py-2 text-sm hover:bg-neutral-50"
-                            >
-                              View order
-                            </Link>
-                          ) : null}
+                            {tab === "sold" && item.variantLabel ? (
+                              <div className="mt-0.5 text-xs font-medium text-neutral-700">
+                                {item.variantLabel}
+                              </div>
+                            ) : null}
+                            {tab === "sold" && item.soldAt ? (
+                              <div className="mt-0.5 text-xs text-neutral-500">
+                                Sold {new Date(item.soldAt).toLocaleDateString()}
+                                {item.soldChannel === "etsy"
+                                  ? " · Etsy"
+                                  : item.soldChannel === "inw"
+                                    ? " · INW"
+                                    : ""}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 pr-3">
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${statusChipClass(status)}`}
+                        >
+                          {status}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-3 whitespace-nowrap">
+                        {tab === "sold" ? item.soldQty ?? item.quantity : item.quantity}
+                      </td>
+                      <td className="py-3 pr-3 whitespace-nowrap">{formatPrice(item.priceCents)}</td>
+                      <td className="py-3 pr-3 whitespace-nowrap">
+                        <AppsAirportListedOnChannels channels={item.channels} />
+                      </td>
+                      <td className="py-3 pr-3 whitespace-nowrap text-neutral-700">{views}</td>
+                      <td className="py-3 pr-4 sm:pr-6 relative">
+                        <div className="flex flex-wrap items-center gap-2">
                           {(tab === "ended" || (tab === "sold" && item.canRelist !== false)) && (
                             <button
                               type="button"
-                              className="block w-full text-left px-3 py-2 text-sm text-emerald-700 font-semibold hover:bg-neutral-50"
+                              disabled={acting}
+                              className="btn text-xs px-3 py-1.5 disabled:opacity-50"
                               onClick={() => relist([listingIdOf(item)])}
                             >
                               Relist
                             </button>
                           )}
-                          {tab === "active" && (
-                            <button
-                              type="button"
-                              className="block w-full text-left px-3 py-2 text-sm hover:bg-neutral-50"
-                              onClick={() => endListings([item.id])}
-                            >
-                              End listing
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            className="btn text-xs px-3 py-1.5"
+                            aria-expanded={menuOpenId === item.id}
+                            onClick={() => setMenuOpenId(menuOpenId === item.id ? null : item.id)}
+                          >
+                            Actions
+                          </button>
                         </div>
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                        {manageMenu(item, "right")}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       ) : null}
     </div>
   );

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { APPS_AIRPORT_ROW_ACTION_BTN_CLASS } from "@/components/apps-airport/apps-airport-row-action-btn";
 
 export type AppsAirportManageMenuItem =
   | {
@@ -57,7 +58,7 @@ export function AppsAirportListingManageMenu({
     <div ref={rootRef} className="inline-flex flex-col items-stretch text-left">
       <button
         type="button"
-        className="btn text-sm py-1.5 px-3 disabled:opacity-50 self-start"
+        className={`${APPS_AIRPORT_ROW_ACTION_BTN_CLASS} self-start`}
         style={{ color: "#fff" }}
         disabled={busy}
         aria-expanded={open}

@@ -15,7 +15,7 @@ import {
   formatShopifyObservedQuantity,
 } from "./apps-airport";
 
-describe("Apps Airport routes", () => {
+describe("Sync Airport routes", () => {
   it("exposes first-class seller navigation paths under /seller-hub/apps", () => {
     expect(APPS_AIRPORT_PATH).toBe("/seller-hub/apps");
     expect(APPS_AIRPORT_SHOPIFY_PATH).toBe("/seller-hub/apps/shopify");
@@ -25,13 +25,15 @@ describe("Apps Airport routes", () => {
     expect(APPS_AIRPORT_SHOPIFY_SETTINGS_PATH).toBe("/seller-hub/apps/shopify/settings");
   });
 
-  it("lists Shopify as available and other marketplaces as coming later", () => {
-    const shopify = APPS_AIRPORT_MARKETPLACES.find((m) => m.id === "shopify");
-    expect(shopify?.availability).toBe("available");
-    expect(shopify?.href).toBe(APPS_AIRPORT_SHOPIFY_PATH);
-    for (const id of ["ebay", "etsy", "wix"] as const) {
-      expect(APPS_AIRPORT_MARKETPLACES.find((m) => m.id === id)?.availability).toBe("coming_later");
+  it("lists Shopify, Etsy, and Wix as available marketplaces (no eBay)", () => {
+    expect(APPS_AIRPORT_MARKETPLACES.map((m) => m.id)).toEqual(["shopify", "etsy", "wix"]);
+    for (const id of ["shopify", "etsy", "wix"] as const) {
+      expect(APPS_AIRPORT_MARKETPLACES.find((m) => m.id === id)?.availability).toBe("available");
     }
+    expect(APPS_AIRPORT_MARKETPLACES.find((m) => m.id === "shopify")?.href).toBe(
+      APPS_AIRPORT_SHOPIFY_PATH
+    );
+    expect(APPS_AIRPORT_MARKETPLACES.some((m) => (m as { id: string }).id === "ebay")).toBe(false);
   });
 });
 

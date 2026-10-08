@@ -1,4 +1,4 @@
-/** Apps Airport Wix seller routes and display helpers. Isolated from Shopify and Etsy modules. */
+/** Sync Airport Wix seller routes and display helpers. Isolated from Shopify and Etsy modules. */
 
 export const APPS_AIRPORT_PATH = "/seller-hub/apps";
 export const APPS_AIRPORT_WIX_PATH = `${APPS_AIRPORT_PATH}/wix`;
@@ -14,6 +14,7 @@ export type WixListingUiStatus = "Live" | "Needs attention" | "Unpublished" | "S
 export const APPS_AIRPORT_WIX_HUB = {
   id: "wix" as const,
   displayName: "Wix",
+  icon: "globe-outline",
   hubPath: APPS_AIRPORT_WIX_PATH,
   importPath: APPS_AIRPORT_WIX_IMPORT_PATH,
   listItemsPath: APPS_AIRPORT_WIX_SYNC_PATH,
@@ -22,9 +23,31 @@ export const APPS_AIRPORT_WIX_HUB = {
   importLabel: "Import Listings",
   listItemsLabel: "List Items on Wix",
   settingsLabel: "Connection Settings",
-  viewOnChannelLabel: "View on Wix",
+  viewOnChannelLabel: "View On Wix",
   openAdminLabel: "Open Wix Dashboard",
+  openDashboardLabel: "Open Wix Dashboard",
 };
+
+/**
+ * Wix dashboard home for a connected site.
+ * Requires metaSiteId — there is no generic store-agnostic /home URL.
+ */
+export function wixDashboardHomeUrl(siteId: string | null | undefined): string | null {
+  const site = String(siteId ?? "").trim();
+  if (!site) return null;
+  return `https://manage.wix.com/dashboard/${encodeURIComponent(site)}/home`;
+}
+
+/** Wix dashboard product URL when site + product ids are known. */
+export function wixProductDashboardUrl(
+  siteId: string | null | undefined,
+  wixProductId: string | null | undefined
+): string | null {
+  const site = String(siteId ?? "").trim();
+  const product = String(wixProductId ?? "").trim();
+  if (!site || !product) return null;
+  return `https://manage.wix.com/dashboard/${encodeURIComponent(site)}/store/products/${encodeURIComponent(product)}`;
+}
 
 export function classifyWixConnectionUi(input: {
   connected: boolean;

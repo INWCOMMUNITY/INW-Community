@@ -82,11 +82,11 @@ const bodySchema = z.object({
   category: z.string().nullable().optional(),
   secondaryCategory: z.string().nullable().optional(),
   subcategory: z.string().nullable().optional(),
-  priceCents: z.number().int().min(1).optional(),
+  priceCents: z.number().int().min(0).optional(),
   variants: z.unknown().nullable().optional(),
   quantity: z.number().int().min(0, "Quantity cannot be negative.").optional(),
   inventoryTracking: z.enum(["tracked", "made_to_order"]).optional(),
-  status: z.enum(["active", "sold_out", "inactive"]).optional(),
+  status: z.enum(["active", "sold_out", "inactive", "draft"]).optional(),
   condition: z.enum(["new", "used"]).optional(),
   shippingCostCents: z.number().int().min(0).nullable().optional(),
   shippingOptionId: z.string().nullable().optional(),
@@ -204,12 +204,15 @@ export async function PATCH(
   }
 
   const ownerId = isAdmin ? existing.memberId : session.user.id;
+  const nextStatus = data.status ?? existing.status;
+  const isDraftSave = nextStatus === "draft";
+
   if (!isAdmin) {
     const member = await prisma.member.findUnique({
       where: { id: session.user.id },
       select: { stripeConnectAccountId: true, shippoApiKeyEncrypted: true, shippoOAuthTokenEncrypted: true },
     });
-    if (!member?.stripeConnectAccountId?.trim()) {
+    if (!isDraftSave && !member?.stripeConnectAccountId?.trim()) {
       return NextResponse.json(
         { error: "You must complete Stripe Connect setup (payment account) before listing items. Go to Seller Hub → Payouts to set up." },
         { status: 403 }
@@ -228,7 +231,7 @@ export async function PATCH(
     const shippingDisabled = data.shippingDisabled ?? existing.shippingDisabled;
     const localDeliveryAvailable = data.localDeliveryAvailable ?? existing.localDeliveryAvailable;
     const inStorePickupAvailable = data.inStorePickupAvailable ?? existing.inStorePickupAvailable;
-    if (shippingDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
+    if (!isDraftSave && shippingDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
       return NextResponse.json(
         { error: "When 'only local delivery/pickup' is on, enable at least local delivery or pickup." },
         { status: 400 }
@@ -236,7 +239,7 @@ export async function PATCH(
     }
 
     const shippoConnected = Boolean(member?.shippoApiKeyEncrypted ?? member?.shippoOAuthTokenEncrypted);
-    if (!shippingDisabled && !shippoConnected) {
+    if (!isDraftSave && !shippingDisabled && !shippoConnected) {
       return NextResponse.json(
         { error: "You must set up shipping (Shippo) before offering shipping on listings. Connect your Shippo account in Seller Hub." },
         { status: 403 }
@@ -256,7 +259,7 @@ export async function PATCH(
   const shippingDisabled = data.shippingDisabled ?? existing.shippingDisabled;
   const localDeliveryAvailable = data.localDeliveryAvailable ?? existing.localDeliveryAvailable;
   const inStorePickupAvailable = data.inStorePickupAvailable ?? existing.inStorePickupAvailable;
-  if (shippingDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
+  if (!isDraftSave && shippingDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
     return NextResponse.json(
       { error: "When 'only local delivery/pickup' is on, enable at least local delivery or pickup." },
       { status: 400 }
@@ -266,14 +269,14 @@ export async function PATCH(
   const shippingPolicyFromItem = data.shippingPolicy !== undefined ? data.shippingPolicy : existing.shippingPolicy;
   const trimmedFromItem = shippingPolicyFromItem ? String(shippingPolicyFromItem).trim() : "";
   let effectiveShippingPolicyForValidation = trimmedFromItem;
-  if (!shippingDisabled && !effectiveShippingPolicyForValidation) {
+  if (!isDraftSave && !shippingDisabled && !effectiveShippingPolicyForValidation) {
     const sellerMember = await prisma.member.findUnique({
       where: { id: ownerId },
       select: { sellerShippingPolicy: true },
     });
     effectiveShippingPolicyForValidation = sellerMember?.sellerShippingPolicy?.trim() ?? "";
   }
-  if (!shippingDisabled && !effectiveShippingPolicyForValidation) {
+  if (!isDraftSave && !shippingDisabled && !effectiveShippingPolicyForValidation) {
     return NextResponse.json(
       { error: "Shipping policy is required when you offer shipping." },
       { status: 400 }
@@ -281,7 +284,7 @@ export async function PATCH(
   }
 
   const pickupTerms = data.pickupTerms !== undefined ? data.pickupTerms : existing.pickupTerms;
-  if (inStorePickupAvailable && (!pickupTerms || !String(pickupTerms).trim())) {
+  if (!isDraftSave && inStorePickupAvailable && (!pickupTerms || !String(pickupTerms).trim())) {
     return NextResponse.json(
       { error: "Pickup terms are required when you offer local pickup." },
       { status: 400 }

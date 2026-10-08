@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   INVENTORY_TRACKING_MADE_TO_ORDER,
   INVENTORY_TRACKING_TRACKED,
@@ -161,6 +161,8 @@ type Props = {
   onChange: (axes: VariantAxisDef[], skus: EditorSkuRow[]) => void;
   galleryPhotos: string[];
   channelNotes?: string[];
+  /** Notify parent when per-combination prices are enabled (hides listing-level price). */
+  onPricesVaryChange?: (pricesVary: boolean) => void;
 };
 
 function ChannelNotes({ notes }: { notes?: string[] }) {
@@ -174,16 +176,88 @@ function ChannelNotes({ notes }: { notes?: string[] }) {
   );
 }
 
+type VariantGridCol = "qty" | "price" | "sku";
+
+function focusVariantGridCell(table: HTMLElement, row: number, col: VariantGridCol) {
+  const next = table.querySelector<HTMLInputElement>(
+    `input[data-variant-col="${col}"][data-variant-row="${row}"]`
+  );
+  if (!next) return false;
+  next.focus();
+  requestAnimationFrame(() => next.select());
+  return true;
+}
+
+function handleVariantGridKeyDown(
+  e: KeyboardEvent<HTMLInputElement>,
+  rowIndex: number,
+  col: VariantGridCol
+) {
+  const key = e.key;
+  if (key !== "ArrowUp" && key !== "ArrowDown" && key !== "ArrowLeft" && key !== "ArrowRight" && key !== "Enter") {
+    return;
+  }
+
+  const input = e.currentTarget;
+  const start = input.selectionStart ?? 0;
+  const end = input.selectionEnd ?? 0;
+  if (key === "ArrowLeft" || key === "ArrowRight") {
+    if (start !== end) return;
+    if (key === "ArrowLeft" && start > 0) return;
+    if (key === "ArrowRight" && start < input.value.length) return;
+  }
+
+  const table = input.closest("table");
+  if (!table) return;
+
+  const cols: VariantGridCol[] = [];
+  if (table.querySelector('input[data-variant-col="qty"]')) cols.push("qty");
+  if (table.querySelector('input[data-variant-col="price"]')) cols.push("price");
+  if (table.querySelector('input[data-variant-col="sku"]')) cols.push("sku");
+  if (cols.length === 0) return;
+
+  let nextRow = rowIndex;
+  let nextColIdx = cols.indexOf(col);
+  if (nextColIdx < 0) return;
+
+  if (key === "ArrowUp" || (key === "Enter" && e.shiftKey)) {
+    nextRow = rowIndex - 1;
+  } else if (key === "ArrowDown" || key === "Enter") {
+    nextRow = rowIndex + 1;
+  } else if (key === "ArrowLeft") {
+    nextColIdx -= 1;
+    if (nextColIdx < 0) {
+      nextColIdx = cols.length - 1;
+      nextRow = rowIndex - 1;
+    }
+  } else if (key === "ArrowRight") {
+    nextColIdx += 1;
+    if (nextColIdx >= cols.length) {
+      nextColIdx = 0;
+      nextRow = rowIndex + 1;
+    }
+  }
+
+  if (nextRow < 0) return;
+  const nextCol = cols[nextColIdx];
+  if (!nextCol) return;
+  if (key === "Enter") e.preventDefault();
+  const moved = focusVariantGridCell(table, nextRow, nextCol);
+  if (moved) e.preventDefault();
+}
+
 function VariantPriceInput({
   cents,
   onCommitCents,
   className,
   placeholder,
+  rowIndex,
 }: {
   cents: number | undefined;
   onCommitCents: (cents: number | undefined) => void;
   className: string;
   placeholder?: string;
+  rowIndex?: number;
 }) {
   const [draft, setDraft] = useState(() => formatVariantPriceCents(cents));
   const focusedRef = useRef(false);
@@ -230,6 +304,13 @@ function VariantPriceInput({
         const next = variantPriceDraftToCents(t);
         if (next != null) onCommitCents(next);
       }}
+      onKeyDown={
+        rowIndex != null
+          ? (e) => handleVariantGridKeyDown(e, rowIndex, "price")
+          : undefined
+      }
+      data-variant-col={rowIndex != null ? "price" : undefined}
+      data-variant-row={rowIndex}
       onBlur={(e) => {
         const raw = e.currentTarget.value;
         focusedRef.current = false;
@@ -247,11 +328,13 @@ function VariantQtyInput({
   onCommitQty,
   className,
   placeholder,
+  rowIndex,
 }: {
   qty: number;
   onCommitQty: (qty: number) => void;
   className: string;
   placeholder?: string;
+  rowIndex?: number;
 }) {
   const [draft, setDraft] = useState(() => variantQtyToEditable(qty));
   const focusedRef = useRef(false);
@@ -284,6 +367,13 @@ function VariantQtyInput({
         setDraft(t);
         onCommitQty(variantQtyDraftToNumber(t));
       }}
+      onKeyDown={
+        rowIndex != null
+          ? (e) => handleVariantGridKeyDown(e, rowIndex, "qty")
+          : undefined
+      }
+      data-variant-col={rowIndex != null ? "qty" : undefined}
+      data-variant-row={rowIndex}
       onBlur={(e) => {
         const raw = e.currentTarget.value;
         focusedRef.current = false;
@@ -313,6 +403,7 @@ export function ListingVariantMatrixEditor({
   onChange,
   galleryPhotos,
   channelNotes,
+  onPricesVaryChange,
 }: Props) {
   const madeToOrder = inventoryTracking === INVENTORY_TRACKING_MADE_TO_ORDER;
   const inferred = inferMatrixVaryFlags({ axes, skus });
@@ -329,6 +420,10 @@ export function ListingVariantMatrixEditor({
     if (skus.some((s) => s.priceCents != null && s.priceCents > 0)) setPricesVary(true);
     if (skus.some((s) => Boolean(s.sku?.trim()))) setSkusVary(true);
   }, [skus]);
+
+  useEffect(() => {
+    onPricesVaryChange?.(optionsEnabled && pricesVary);
+  }, [optionsEnabled, pricesVary, onPricesVaryChange]);
 
   const photoChoices = useMemo(
     () => listingGalleryPhotoChoices(galleryPhotos),
@@ -478,7 +573,7 @@ export function ListingVariantMatrixEditor({
               checked={!madeToOrder}
               onChange={() => onInventoryTrackingChange(INVENTORY_TRACKING_TRACKED)}
             />
-            Track inventory
+            Track Inventory
           </label>
           <label className="flex items-center gap-2 cursor-pointer text-sm">
             <input
@@ -486,7 +581,7 @@ export function ListingVariantMatrixEditor({
               checked={madeToOrder}
               onChange={() => onInventoryTrackingChange(INVENTORY_TRACKING_MADE_TO_ORDER)}
             />
-            Made to order
+            Made to Order
           </label>
         </div>
         <p className="text-xs text-gray-500 mt-1">
@@ -537,7 +632,7 @@ export function ListingVariantMatrixEditor({
                 onClick={openManage}
                 className="py-2 px-4 border border-gray-300 rounded-lg bg-white text-gray-800 font-semibold text-sm hover:bg-gray-50"
               >
-                {axes.length ? "Manage variations" : "Add options"}
+                {axes.length ? "Manage Variations" : "Add Options"}
               </button>
             </div>
           </div>
@@ -617,7 +712,7 @@ export function ListingVariantMatrixEditor({
                     </tr>
                   </thead>
                   <tbody>
-                    {skus.map((row) => {
+                    {skus.map((row, rowIndex) => {
                       const key = skuSelectionKey(row.options);
                       const thumb = row.photos?.[0];
                       return (
@@ -642,6 +737,7 @@ export function ListingVariantMatrixEditor({
                                 onCommitQty={(n) => patchSku(key, { quantity: n })}
                                 className="w-24 border rounded px-2 py-1.5 text-sm"
                                 placeholder="0"
+                                rowIndex={rowIndex}
                               />
                             </td>
                           ) : null}
@@ -652,6 +748,7 @@ export function ListingVariantMatrixEditor({
                                 onCommitCents={(cents) => patchSku(key, { priceCents: cents })}
                                 className="w-28 border rounded px-2 py-1.5 text-sm"
                                 placeholder="Default"
+                                rowIndex={rowIndex}
                               />
                             </td>
                           ) : null}
@@ -662,6 +759,9 @@ export function ListingVariantMatrixEditor({
                                 className="w-32 border rounded px-2 py-1.5 font-mono text-sm"
                                 value={row.sku ?? ""}
                                 onChange={(e) => patchSku(key, { sku: e.target.value || undefined })}
+                                onKeyDown={(e) => handleVariantGridKeyDown(e, rowIndex, "sku")}
+                                data-variant-col="sku"
+                                data-variant-row={rowIndex}
                               />
                             </td>
                           ) : null}
@@ -693,7 +793,7 @@ export function ListingVariantMatrixEditor({
           <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-lg font-semibold">Manage variations</h3>
+                <h3 className="text-lg font-semibold">Manage Variations</h3>
                 <p className="text-sm text-gray-500">
                   Add up to {MAX_VARIANT_AXES} option types. Apply generates every combination.
                 </p>

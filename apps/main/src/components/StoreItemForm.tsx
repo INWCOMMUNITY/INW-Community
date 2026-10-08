@@ -206,6 +206,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   const [optionsEnabled, setOptionsEnabled] = useState(initialMatrix.optionsEnabled);
   const [variantAxes, setVariantAxes] = useState<VariantAxisDef[]>(initialMatrix.axes);
   const [variantSkus, setVariantSkus] = useState<EditorSkuRow[]>(initialMatrix.skus);
+  const [pricesVary, setPricesVary] = useState(false);
   const [localDeliveryAvailable, setLocalDeliveryAvailable] = useState(
     existing?.localDeliveryAvailable ?? false
   );
@@ -543,7 +544,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
       if (body.code === "SHIPPING_PROFILE_REQUIRED") {
         return (
           body.error ??
-          "Set a default Etsy shipping profile in Apps Airport → Etsy → Connection Settings, then try again."
+          "Set a default Etsy shipping profile in Sync Airport → Etsy → Connection Settings, then try again."
         );
       }
       return body.error ?? "Could not list on Etsy";
@@ -653,11 +654,21 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
   useLockBodyScroll(showSuccessModal);
 
   const minOfferSliderMax = useMemo(() => {
+    if (pricesVary) {
+      const cents = variantSkus
+        .filter((s) => s.enabled)
+        .map((s) => s.priceCents)
+        .filter((c): c is number => typeof c === "number" && c > 0);
+      if (cents.length) {
+        return Math.min(5000, Math.max(1, Math.ceil(Math.max(...cents) / 100)));
+      }
+      return 500;
+    }
     const raw = priceDollars.replace(/,/g, "").trim();
     const n = parseFloat(raw);
     if (!Number.isFinite(n) || n <= 0) return 500;
     return Math.min(5000, Math.max(1, Math.ceil(n)));
-  }, [priceDollars]);
+  }, [priceDollars, pricesVary, variantSkus]);
 
   useEffect(() => {
     setMinOfferSliderDollars((v) => Math.min(v, minOfferSliderMax));
@@ -736,44 +747,60 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
     setUploadingPhotos(false);
   }
 
-  function buildPayload(): Record<string, unknown> | null {
-    const priceCents = Math.round(parseFloat(priceDollars) * 100);
+  function buildPayload(opts?: { asDraft?: boolean }): Record<string, unknown> | null {
+    const asDraft = Boolean(opts?.asDraft);
+    const madeToOrder = inventoryTracking === INVENTORY_TRACKING_MADE_TO_ORDER;
+    const enabledSkus = serializeEditorMatrix(optionsEnabled, variantAxes, variantSkus);
+    const variantPrices =
+      pricesVary && enabledSkus
+        ? enabledSkus
+            .map((s) => s.priceCents)
+            .filter((c): c is number => typeof c === "number" && c > 0)
+        : [];
+    const parsedPrice = pricesVary
+      ? variantPrices.length
+        ? Math.min(...variantPrices)
+        : NaN
+      : Math.round(parseFloat(priceDollars) * 100);
+    const priceCents = asDraft && (isNaN(parsedPrice) || parsedPrice < 0) ? 0 : parsedPrice;
     const shippingCostCents = shippingCostDollars
       ? Math.round(parseFloat(shippingCostDollars) * 100)
       : 0;
     if (!title.trim()) {
-      setError("Title is required");
+      setError(asDraft ? "Add a title to save this draft." : "Title is required");
       return null;
     }
-    if (isNaN(priceCents) || priceCents < 1) {
+    if (!asDraft && pricesVary && variantPrices.length < 1) {
+      setError("Set a price on at least one enabled combination (Prices vary is on).");
+      return null;
+    }
+    if (!asDraft && (isNaN(priceCents) || priceCents < 1)) {
       setError("Price must be at least $0.01");
       return null;
     }
-    const madeToOrder = inventoryTracking === INVENTORY_TRACKING_MADE_TO_ORDER;
-    const enabledSkus = serializeEditorMatrix(optionsEnabled, variantAxes, variantSkus);
-    if (!madeToOrder && !optionsEnabled && quantity < 1) {
+    if (!asDraft && !madeToOrder && !optionsEnabled && quantity < 1) {
       setError("Quantity must be at least 1 to list this item.");
       return null;
     }
-    if (!madeToOrder && optionsEnabled && (!enabledSkus || enabledSkus.every((s) => s.quantity < 1))) {
+    if (!asDraft && !madeToOrder && optionsEnabled && (!enabledSkus || enabledSkus.every((s) => s.quantity < 1))) {
       setError("Add at least one combination with quantity greater than 0, or turn off options and set Quantity.");
       return null;
     }
-    if (optionsEnabled && variantAxes.length > 0 && !enabledSkus) {
+    if (!asDraft && optionsEnabled && variantAxes.length > 0 && !enabledSkus) {
       setError("Enable at least one option combination, or turn off Enable options.");
       return null;
     }
     const effectiveShippingDisabled = !offerShipping || shippingDisabled;
     const effectiveLocalDelivery = offerLocalDelivery && localDeliveryAvailable;
     const effectivePickup = offerLocalPickup && inStorePickupAvailable;
-    if (effectiveShippingDisabled && !effectiveLocalDelivery && !effectivePickup) {
+    if (!asDraft && effectiveShippingDisabled && !effectiveLocalDelivery && !effectivePickup) {
       setError("Enable at least one fulfillment method (shipping, local delivery, or pickup) in Policies.");
       return null;
     }
-    if (listOnEtsy) {
+    if (!asDraft && listOnEtsy) {
       if (!etsyShippingProfileReady) {
         setError(
-          "Etsy: set a default shipping profile in Apps Airport → Connection Settings before listing."
+          "Etsy: set a default shipping profile in Sync Airport → Connection Settings before listing."
         );
         return null;
       }
@@ -812,16 +839,16 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         }
       }
     }
-    if (!effectiveShippingDisabled && !effectiveShippingPolicy.trim()) {
+    if (!asDraft && !effectiveShippingDisabled && !effectiveShippingPolicy.trim()) {
       setError("Shipping policy is required when you offer shipping. Set it in Policies.");
       return null;
     }
-    if (!existing && !effectiveShippingDisabled && !shippingOptionId) {
+    if (!asDraft && !existing && !effectiveShippingDisabled && !shippingOptionId) {
       setError("Choose a shipping option, or create one in Shipping options.");
       return null;
     }
     const effectivePickupPolicy = useSellerProfilePickup ? sellerProfilePickupPolicy : pickupTerms;
-    if (effectivePickup && !effectivePickupPolicy.trim()) {
+    if (!asDraft && effectivePickup && !effectivePickupPolicy.trim()) {
       setError("Pickup terms are required when you offer local pickup. Set them in Policies or use Sync here.");
       return null;
     }
@@ -989,10 +1016,9 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
 
   async function handleSaveAsDraft() {
     setError("");
-    const payload = buildPayload();
+    const payload = buildPayload({ asDraft: true });
     if (!payload) return;
 
-    // Override status to draft
     payload.status = "draft";
 
     setSavingDraft(true);
@@ -1023,13 +1049,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
         return;
       }
 
-      // Redirect to edit page or items list
-      const savedId = data.id ?? existing?.id;
-      if (savedId) {
-        router.push(`/seller-hub/store/${savedId}`);
-      } else {
-        router.push(successRedirect ?? "/seller-hub/store/items");
-      }
+      router.push("/seller-hub/store/items?tab=drafts");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
@@ -1095,6 +1115,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
           footer={
             <ListingSaveBar
               isEdit={isEdit}
+              showSaveAsDraft={!isEdit || existing?.status === "draft"}
               submitting={submitting}
               savingDraft={savingDraft}
               error={error}
@@ -1328,7 +1349,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                   onClick={addAspectRow}
                   className="action-pill action-pill-sm btn-pill-outline"
                 >
-                  + Add a detail
+                  + Add a Detail
                 </button>
               )}
             </div>
@@ -1336,23 +1357,29 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
 
           {/* Pricing & Inventory */}
           <ListingFormSection title="Pricing & Inventory">
-            <div>
-              <label className={listingLabelClass}>Price (USD) *</label>
-              <input
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                value={priceDollars}
-                onFocus={() => setPriceDollars((prev) => moneyInputToEditable(prev))}
-                onChange={(e) => {
-                  const t = sanitizePriceDraftInput(e.target.value);
-                  if (t != null) setPriceDollars(t);
-                }}
-                onBlur={() => setPriceDollars((prev) => moneyInputToIdle(prev))}
-                className={`${listingInputClass} max-w-xs`}
-                required
-              />
-            </div>
+            {!pricesVary ? (
+              <div>
+                <label className={listingLabelClass}>Price (USD) *</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={priceDollars}
+                  onFocus={() => setPriceDollars((prev) => moneyInputToEditable(prev))}
+                  onChange={(e) => {
+                    const t = sanitizePriceDraftInput(e.target.value);
+                    if (t != null) setPriceDollars(t);
+                  }}
+                  onBlur={() => setPriceDollars((prev) => moneyInputToIdle(prev))}
+                  className={`${listingInputClass} max-w-xs`}
+                  required
+                />
+              </div>
+            ) : (
+              <p className={listingHintClass}>
+                Prices vary by combination — set each price in the table below (or use Apply to all enabled).
+              </p>
+            )}
 
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-gray-900">Options (Size, Color, etc.)</h3>
@@ -1370,6 +1397,7 @@ export function StoreItemForm({ existing, successRedirect }: StoreItemFormProps)
                   setVariantSkus(nextSkus);
                 }}
                 galleryPhotos={photos}
+                onPricesVaryChange={setPricesVary}
               />
             </div>
 

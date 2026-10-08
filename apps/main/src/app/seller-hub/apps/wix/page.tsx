@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppsAirportChannelHub } from "@/components/apps-airport/AppsAirportChannelHub";
+import { AppsAirportListingPhotoCollage } from "@/components/apps-airport/AppsAirportListingPhotoCollage";
 import { AppsAirportSyncedListings } from "@/components/apps-airport/AppsAirportSyncedListings";
+import { AppsAirportViewOnChannelButton } from "@/components/apps-airport/AppsAirportViewOnChannelButton";
 import { WixListingActionButtons } from "@/components/wix/WixListingActionButtons";
 import {
   APPS_AIRPORT_WIX_HUB,
@@ -13,6 +15,8 @@ import {
   wixConnectionStatusLabel,
   wixListingStatusChipClass,
   wixListingUiStatus,
+  wixDashboardHomeUrl,
+  wixProductDashboardUrl,
   type WixListingUiStatus,
 } from "@/lib/wix/apps-airport";
 
@@ -28,6 +32,7 @@ type ListingRow = {
   storeItemId: string;
   wixProductId: string;
   title: string;
+  photos?: string[];
   priceCents: number | null;
   quantity: number | null;
   readiness: string;
@@ -161,22 +166,28 @@ export default function WixAppsAirportPage() {
           </p>
         ) : null
       }
-      actions={[
-        {
-          label: hub.importLabel,
-          href: hub.importPath,
-          disabled: !connected,
-        },
-        {
-          label: hub.listItemsLabel,
-          href: hub.listItemsPath,
-          disabled: !connected,
-        },
-        {
-          label: hub.settingsLabel,
-          href: hub.settingsPath,
-        },
-      ]}
+      actions={(() => {
+        const wixDash = wixDashboardHomeUrl(connection?.siteId);
+        return [
+          {
+            label: hub.importLabel,
+            href: hub.importPath,
+            disabled: !connected,
+          },
+          {
+            label: hub.listItemsLabel,
+            href: hub.listItemsPath,
+            disabled: !connected,
+          },
+          {
+            label: hub.openDashboardLabel,
+            href: wixDash ?? "#",
+            external: true,
+            disabled: !connected || !wixDash,
+          },
+        ];
+      })()}
+      settingsHref={hub.settingsPath}
     >
       {error ? <p className="mb-4 text-sm text-red-700">{error}</p> : null}
       {toast ? (
@@ -241,48 +252,68 @@ export default function WixAppsAirportPage() {
               <th className="py-2 pr-3 font-semibold">Status</th>
               <th className="py-2 pr-3 font-semibold">Qty</th>
               <th className="py-2 pr-3 font-semibold">Price</th>
-              <th className="py-2 font-semibold">Manage</th>
+              <th className="py-2 pr-3 font-semibold">Manage</th>
+              <th className="py-2 font-semibold">{hub.viewOnChannelLabel}</th>
             </>
           }
         >
-          {filtered.map(({ row, status }) => (
-            <tr key={row.id} className="border-b border-neutral-200 align-top">
-              <td className="py-3 pr-3">
-                <Link
-                  href={`/seller-hub/store/${row.storeItemId}`}
-                  className="font-medium underline"
-                  style={{ color: "var(--color-primary)" }}
-                  prefetch={false}
-                >
-                  {row.title}
-                </Link>
-                {status !== "Live" && row.issueMessage ? (
-                  <div className="mt-1 text-xs text-amber-800 max-w-[16rem]">{row.issueMessage}</div>
-                ) : null}
-              </td>
-              <td className="py-3 pr-3">
-                <span
-                  className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${wixListingStatusChipClass(status)}`}
-                >
-                  {status}
-                </span>
-              </td>
-              <td className="py-3 pr-3 whitespace-nowrap">{row.quantity ?? "—"}</td>
-              <td className="py-3 pr-3">{formatWixCents(row.priceCents)}</td>
-              <td className="py-3">
-                <WixListingActionButtons
-                  storeItemId={row.storeItemId}
-                  listingLinkId={row.attentionKind === "unmapped_create" ? null : row.id}
-                  wixProductId={row.wixProductId || null}
-                  remoteProductVisible={row.remoteProductVisible}
-                  onActionComplete={(message) => {
-                    setToast(message ?? "Updated");
-                    void load();
-                  }}
-                />
-              </td>
-            </tr>
-          ))}
+          {filtered.map(({ row, status }) => {
+            const viewUrl =
+              status === "Live"
+                ? wixProductDashboardUrl(connection?.siteId, row.wixProductId)
+                : null;
+            return (
+              <tr key={row.id} className="border-b border-neutral-200 align-top">
+                <td className="py-3 pr-3">
+                  <div className="flex items-start gap-3">
+                    <AppsAirportListingPhotoCollage photos={row.photos} alt={row.title} />
+                    <div>
+                      <Link
+                        href={`/seller-hub/store/${row.storeItemId}`}
+                        className="font-medium underline"
+                        style={{ color: "var(--color-primary)" }}
+                        prefetch={false}
+                      >
+                        {row.title}
+                      </Link>
+                      {status !== "Live" && row.issueMessage ? (
+                        <div className="mt-1 text-xs text-amber-800 max-w-[16rem]">{row.issueMessage}</div>
+                      ) : null}
+                    </div>
+                  </div>
+                </td>
+                <td className="py-3 pr-3">
+                  <span
+                    className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${wixListingStatusChipClass(status)}`}
+                  >
+                    {status}
+                  </span>
+                </td>
+                <td className="py-3 pr-3 whitespace-nowrap">{row.quantity ?? "—"}</td>
+                <td className="py-3 pr-3">{formatWixCents(row.priceCents)}</td>
+                <td className="py-3 pr-3">
+                  <WixListingActionButtons
+                    storeItemId={row.storeItemId}
+                    listingLinkId={row.attentionKind === "unmapped_create" ? null : row.id}
+                    wixProductId={row.wixProductId || null}
+                    remoteProductVisible={row.remoteProductVisible}
+                    onActionComplete={(message) => {
+                      setToast(message ?? "Updated");
+                      void load();
+                    }}
+                  />
+                </td>
+                <td className="py-3">
+                  <AppsAirportViewOnChannelButton
+                    label={hub.viewOnChannelLabel}
+                    icon={hub.icon}
+                    href={viewUrl}
+                    unavailableLabel="Not live on Wix yet"
+                  />
+                </td>
+              </tr>
+            );
+          })}
         </AppsAirportSyncedListings>
       ) : null}
 

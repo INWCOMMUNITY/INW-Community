@@ -1,4 +1,4 @@
-/** Apps Airport seller routes and display helpers. */
+/** Sync Airport seller routes and display helpers. */
 
 export const APPS_AIRPORT_PATH = "/seller-hub/apps";
 export const APPS_AIRPORT_SHOPIFY_PATH = `${APPS_AIRPORT_PATH}/shopify`;
@@ -12,8 +12,10 @@ export type MarketplaceCardAvailability = "available" | "coming_later";
 export type AppsAirportChannelId = "shopify" | "ebay" | "etsy" | "wix" | "inw";
 
 export type MarketplaceCardDef = {
-  id: Exclude<AppsAirportChannelId, "inw">;
+  id: Exclude<AppsAirportChannelId, "inw" | "ebay">;
   name: string;
+  /** Ionicons name shown beside the marketplace title (not on action buttons). */
+  icon: string;
   availability: MarketplaceCardAvailability;
   href?: string;
   description: string;
@@ -23,6 +25,8 @@ export type MarketplaceCardDef = {
 export type AppsAirportChannelHubConfig = {
   id: Exclude<AppsAirportChannelId, "inw">;
   displayName: string;
+  /** Ionicons name for View On / marketplace chrome (not action menus). */
+  icon: string;
   hubPath: string;
   importPath: string;
   listItemsPath: string;
@@ -33,11 +37,18 @@ export type AppsAirportChannelHubConfig = {
   settingsLabel: string;
   viewOnChannelLabel: string;
   openAdminLabel: string;
+  /** Seller dashboard (generic — not a single-store deep link). */
+  openDashboardLabel: string;
+  dashboardUrl: string;
 };
+
+/** Generic Shopify Admin entry (resolves to the signed-in merchant). */
+export const SHOPIFY_SELLER_DASHBOARD_URL = "https://admin.shopify.com/";
 
 export const APPS_AIRPORT_SHOPIFY_HUB: AppsAirportChannelHubConfig = {
   id: "shopify",
   displayName: "Shopify",
+  icon: "bag-handle-outline",
   hubPath: APPS_AIRPORT_SHOPIFY_PATH,
   importPath: APPS_AIRPORT_SHOPIFY_IMPORT_PATH,
   listItemsPath: APPS_AIRPORT_SHOPIFY_SYNC_PATH,
@@ -46,8 +57,10 @@ export const APPS_AIRPORT_SHOPIFY_HUB: AppsAirportChannelHubConfig = {
   importLabel: "Import Listings",
   listItemsLabel: "List Items on Shopify",
   settingsLabel: "Connection Settings",
-  viewOnChannelLabel: "View on Shopify",
+  viewOnChannelLabel: "View On Shopify",
   openAdminLabel: "Open Shopify Admin",
+  openDashboardLabel: "Open Shopify Dashboard",
+  dashboardUrl: SHOPIFY_SELLER_DASHBOARD_URL,
 };
 
 export function appsAirportChannelHubTitle(
@@ -82,27 +95,26 @@ export const APPS_AIRPORT_MARKETPLACES: MarketplaceCardDef[] = [
   {
     id: "shopify",
     name: "Shopify",
+    icon: "bag-handle-outline",
     availability: "available",
     href: APPS_AIRPORT_SHOPIFY_PATH,
     description: "Sync INW listings to your Shopify store.",
   },
   {
-    id: "ebay",
-    name: "eBay",
-    availability: "coming_later",
-    description: "Coming later — not available in Apps Airport yet.",
-  },
-  {
     id: "etsy",
     name: "Etsy",
-    availability: "coming_later",
-    description: "Coming later — not available in Apps Airport yet.",
+    icon: "color-palette-outline",
+    availability: "available",
+    href: "/seller-hub/apps/etsy",
+    description: "Connect your Etsy shop, set How it’s made on listings, then list from Sync Airport.",
   },
   {
     id: "wix",
     name: "Wix",
-    availability: "coming_later",
-    description: "Coming later — not available in Apps Airport yet.",
+    icon: "globe-outline",
+    availability: "available",
+    href: "/seller-hub/apps/wix",
+    description: "Sync INW listings with your Wix store.",
   },
 ];
 

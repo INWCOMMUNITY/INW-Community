@@ -35,12 +35,13 @@ import {
 } from "@/lib/storefront-browse-data";
 import { shopifyListingUiStatus } from "@/lib/shopify/apps-airport";
 import { etsyListingUiStatus } from "@/lib/etsy/apps-airport";
+import { wixListingUiStatus } from "@/lib/wix/apps-airport";
 import { formatCartVariantLabel } from "@/lib/cart-line-identity";
 
 /** Ensure storefront listing is always fresh so newly listed items appear immediately. */
 export const dynamic = "force-dynamic";
 
-type MineListingChannel = "inw" | "shopify" | "etsy";
+type MineListingChannel = "inw" | "shopify" | "etsy" | "wix";
 
 async function loadMineListingChannels(
   userId: string,
@@ -58,13 +59,18 @@ async function loadMineListingChannels(
   }
 
   const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const [activeShopify, activeEtsy, viewGroups] = await Promise.all([
+  const [activeShopify, activeEtsy, activeWix, viewGroups] = await Promise.all([
     prisma.shopifyConnection.findFirst({
       where: { memberId: userId, status: "ACTIVE" },
       orderBy: { connectedAt: "desc" },
       select: { id: true },
     }),
     prisma.etsyConnection.findFirst({
+      where: { memberId: userId, status: "ACTIVE" },
+      orderBy: { connectedAt: "desc" },
+      select: { id: true },
+    }),
+    prisma.wixConnection.findFirst({
       where: { memberId: userId, status: "ACTIVE" },
       orderBy: { connectedAt: "desc" },
       select: { id: true },
@@ -140,6 +146,39 @@ async function loadMineListingChannels(
       if (ui !== "Live") continue;
       const channels = channelsByItemId.get(link.storeItemId) ?? ["inw"];
       if (!channels.includes("etsy")) channels.push("etsy");
+      channelsByItemId.set(link.storeItemId, channels);
+    }
+  }
+
+  if (activeWix) {
+    const wixLinks = await prisma.wixListingLink.findMany({
+      where: {
+        storeItemId: { in: itemIds },
+        memberId: userId,
+        wixConnectionId: activeWix.id,
+      },
+      select: {
+        storeItemId: true,
+        readiness: true,
+        contentHealth: true,
+        inventoryHealth: true,
+        issueCode: true,
+        remoteProductVisible: true,
+        storeItem: { select: { status: true } },
+      },
+    });
+    for (const link of wixLinks) {
+      const ui = wixListingUiStatus({
+        readiness: link.readiness,
+        contentHealth: link.contentHealth,
+        inventoryHealth: link.inventoryHealth,
+        issueCode: link.issueCode,
+        storeItemStatus: link.storeItem.status,
+        remoteProductVisible: link.remoteProductVisible,
+      });
+      if (ui !== "Live") continue;
+      const channels = channelsByItemId.get(link.storeItemId) ?? ["inw"];
+      if (!channels.includes("wix")) channels.push("wix");
       channelsByItemId.set(link.storeItemId, channels);
     }
   }
@@ -463,15 +502,17 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Seller plan required" }, { status: 403 });
     }
     if (searchParams.get("counts") === "1") {
-      const [active, ended, sold] = await Promise.all([
+      const [active, ended, sold, drafts] = await Promise.all([
         prisma.storeItem.count({ where: { memberId: userId, status: "active" } }),
         prisma.storeItem.count({ where: { memberId: userId, status: "inactive" } }),
         countMineSoldSales(userId),
+        prisma.storeItem.count({ where: { memberId: userId, status: "draft" } }),
       ]);
       return NextResponse.json({
         active,
         ended,
         sold,
+        drafts,
         attention: 0,
         wixCheckFailed: false,
       });
@@ -493,6 +534,8 @@ export async function GET(req: NextRequest) {
       where.status = "active";
     } else if (filter === "ended") {
       where.status = "inactive";
+    } else if (filter === "drafts" || filter === "draft") {
+      where.status = "draft";
     } else if (filter === "attention") {
       // No longer tracking attention items
       return NextResponse.json([]);
@@ -579,11 +622,11 @@ const bodySchema = z.object({
   category: z.string().nullable().optional(),
   secondaryCategory: z.string().nullable().optional(),
   subcategory: z.string().nullable().optional(),
-  priceCents: z.coerce.number().int().min(1, "Price must be at least 1 cent"),
+  priceCents: z.coerce.number().int().min(0, "Price cannot be negative"),
   variants: z.unknown().nullable().optional(),
   quantity: z.coerce.number().int().min(0).optional(),
   inventoryTracking: z.enum(["tracked", "made_to_order"]).optional(),
-  status: z.enum(["active", "sold_out", "inactive"]).default("active"),
+  status: z.enum(["active", "sold_out", "inactive", "draft"]).default("active"),
   condition: z.enum(["new", "used"]).default("new"),
   shippingCostCents: z.coerce.number().int().min(0).nullable().optional(),
   shippingOptionId: z.string().nullable().optional(),
@@ -626,6 +669,7 @@ export async function POST(req: NextRequest) {
   }
 
   const condition = data.condition ?? "new";
+  const isDraft = data.status === "draft";
   const sellerSub = await prisma.subscription.findFirst({
     where: prismaWhereMemberSellerPlanAccess(userId),
   });
@@ -645,29 +689,31 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  if (!member?.stripeConnectAccountId?.trim()) {
-    return NextResponse.json(
-      { error: "You must complete Stripe Connect setup (payment account) before listing items. Go to Seller Hub → Payouts to set up." },
-      { status: 403 }
-    );
-  }
-  const { memberHasConnectPayoutsEnabled } = await import("@/lib/stripe-connect-payout-gate");
-  if (!(await memberHasConnectPayoutsEnabled(userId))) {
-    return NextResponse.json(
-      {
-        error:
-          "Stripe Connect payouts are not enabled yet. Finish payout setup in Seller Hub → Payouts before listing items.",
-      },
-      { status: 403 }
-    );
-  }
+  if (!isDraft) {
+    if (!member?.stripeConnectAccountId?.trim()) {
+      return NextResponse.json(
+        { error: "You must complete Stripe Connect setup (payment account) before listing items. Go to Seller Hub → Payouts to set up." },
+        { status: 403 }
+      );
+    }
+    const { memberHasConnectPayoutsEnabled } = await import("@/lib/stripe-connect-payout-gate");
+    if (!(await memberHasConnectPayoutsEnabled(userId))) {
+      return NextResponse.json(
+        {
+          error:
+            "Stripe Connect payouts are not enabled yet. Finish payout setup in Seller Hub → Payouts before listing items.",
+        },
+        { status: 403 }
+      );
+    }
 
-  const shippoConnected = Boolean(member?.shippoApiKeyEncrypted ?? member?.shippoOAuthTokenEncrypted);
-  if (!data.shippingDisabled && !shippoConnected) {
-    return NextResponse.json(
-      { error: "You must set up shipping (Shippo) before offering shipping on listings. Connect your Shippo account in Seller Hub." },
-      { status: 403 }
-    );
+    const shippoConnected = Boolean(member?.shippoApiKeyEncrypted ?? member?.shippoOAuthTokenEncrypted);
+    if (!data.shippingDisabled && !shippoConnected) {
+      return NextResponse.json(
+        { error: "You must set up shipping (Shippo) before offering shipping on listings. Connect your Shippo account in Seller Hub." },
+        { status: 403 }
+      );
+    }
   }
 
   if (data.businessId) {
@@ -679,7 +725,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (data.shippingDisabled && !data.localDeliveryAvailable && !data.inStorePickupAvailable) {
+  if (!isDraft && data.shippingDisabled && !data.localDeliveryAvailable && !data.inStorePickupAvailable) {
     return NextResponse.json(
       { error: "When 'only local delivery/pickup' is on, enable at least local delivery or pickup." },
       { status: 400 }
@@ -689,14 +735,14 @@ export async function POST(req: NextRequest) {
   const effectiveShippingPolicy =
     (data.shippingPolicy && String(data.shippingPolicy).trim()) ||
     (member?.sellerShippingPolicy?.trim() ?? "");
-  if (!data.shippingDisabled && !effectiveShippingPolicy) {
+  if (!isDraft && !data.shippingDisabled && !effectiveShippingPolicy) {
     return NextResponse.json(
       { error: "Shipping policy is required when you offer shipping." },
       { status: 400 }
     );
   }
 
-  if (data.inStorePickupAvailable && (!data.pickupTerms || !String(data.pickupTerms).trim())) {
+  if (!isDraft && data.inStorePickupAvailable && (!data.pickupTerms || !String(data.pickupTerms).trim())) {
     return NextResponse.json(
       { error: "Pickup terms are required when you offer local pickup." },
       { status: 400 }
@@ -778,19 +824,19 @@ export async function POST(req: NextRequest) {
       : useOptionQuantities
         ? sumOptionQuantities(storedVariants ?? data.variants)
         : Number(data.quantity ?? 1);
-    if (!Number.isInteger(priceCents) || priceCents < 1) {
+    if (!Number.isInteger(priceCents) || priceCents < 0 || (!isDraft && priceCents < 1)) {
       return NextResponse.json(
         { error: "Price must be at least 1 cent." },
         { status: 400 }
       );
     }
-    if (!madeToOrder && !useOptionQuantities && (!Number.isInteger(quantity) || quantity < 1)) {
+    if (!isDraft && !madeToOrder && !useOptionQuantities && (!Number.isInteger(quantity) || quantity < 1)) {
       return NextResponse.json(
         { error: "Quantity must be at least 1." },
         { status: 400 }
       );
     }
-    if (!madeToOrder && useOptionQuantities && quantity < 1) {
+    if (!isDraft && !madeToOrder && useOptionQuantities && quantity < 1) {
       return NextResponse.json(
         { error: "Add at least one option with quantity 1 or more." },
         { status: 400 }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
+import { AppsAirportListingPhotoCollage } from "@/components/apps-airport/AppsAirportListingPhotoCollage";
 import {
   emptyEtsyHowItsMadeFormValue,
   EtsyHowItsMadeFields,
@@ -23,6 +24,7 @@ import {
 type EligibleListing = {
   storeItemId: string;
   title: string;
+  photos?: string[];
   slug: string;
   sku: string | null;
   priceCents: number;
@@ -309,7 +311,7 @@ export default function AppsAirportEtsySyncPage() {
           <table className="min-w-full text-sm border-collapse">
             <thead>
               <tr className="border-b text-left" style={{ borderColor: "var(--color-primary)" }}>
-                <th className="py-2 pr-4 font-semibold">INW listing</th>
+                <th className="py-2 pr-4 font-semibold">INW Listing</th>
                 <th className="py-2 pr-4 font-semibold">Price</th>
                 <th className="py-2 pr-4 font-semibold">Status</th>
                 <th className="py-2 font-semibold">Action</th>
@@ -344,21 +346,26 @@ export default function AppsAirportEtsySyncPage() {
                       ? "Finish listing"
                       : "List on Etsy";
                 return (
-                  <tr key={listing.storeItemId} className="border-b border-neutral-200">
+                  <tr key={listing.storeItemId} className="border-b border-neutral-200 align-top">
                     <td className="py-3 pr-4">
-                      <Link
-                        href={`/seller-hub/store/${listing.storeItemId}`}
-                        className="font-medium underline"
-                        style={{ color: "var(--color-primary)" }}
-                        prefetch={false}
-                      >
-                        {listing.title}
-                      </Link>
-                      {listing.linkedButNotLive ? (
-                        <div className="mt-1 text-xs text-amber-800">
-                          Stays on this list until the Etsy listing is active (not draft).
+                      <div className="flex items-start gap-3">
+                        <AppsAirportListingPhotoCollage photos={listing.photos} alt={listing.title} />
+                        <div>
+                          <Link
+                            href={`/seller-hub/store/${listing.storeItemId}`}
+                            className="font-medium underline"
+                            style={{ color: "var(--color-primary)" }}
+                            prefetch={false}
+                          >
+                            {listing.title}
+                          </Link>
+                          {listing.linkedButNotLive ? (
+                            <div className="mt-1 text-xs text-amber-800">
+                              Stays on this list until the Etsy listing is active (not draft).
+                            </div>
+                          ) : null}
                         </div>
-                      ) : null}
+                      </div>
                     </td>
                     <td className="py-3 pr-4">{formatEtsyCents(listing.priceCents)}</td>
                     <td className="py-3 pr-4">
@@ -425,8 +432,8 @@ export default function AppsAirportEtsySyncPage() {
               </button>
               <button
                 type="button"
-                className="btn border border-gray-300 bg-white hover:bg-gray-50"
-                style={{ color: "var(--color-heading)" }}
+                className="btn"
+                style={{ color: "#fff" }}
                 disabled={Boolean(syncingId)}
                 onClick={closeModal}
               >

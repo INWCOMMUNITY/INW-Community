@@ -209,7 +209,7 @@ export async function applyEtsyListingContentInbound(
               contentHealth: "DEGRADED" as const,
               issueCode: "DRAFT_NOT_ACTIVE",
               issueMessage:
-                "Etsy listing is still a draft (not live). Re-list from Apps Airport to upload photos and publish.",
+                "Etsy listing is still a draft (not live). Re-list from Sync Airport to upload photos and publish.",
             },
     });
     listing.remoteListingState = observedState;

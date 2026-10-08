@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
+import { listingDisplayPhotos } from "@/lib/listing-display-photo";
 import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access";
 
 export const dynamic = "force-dynamic";
@@ -88,6 +89,7 @@ export async function GET(req: NextRequest) {
       return {
         storeItemId: item.id,
         title: item.title,
+        photos: listingDisplayPhotos(item.photos, "thumb", 4),
         slug: item.slug,
         sku: item.sku,
         priceCents: item.priceCents,

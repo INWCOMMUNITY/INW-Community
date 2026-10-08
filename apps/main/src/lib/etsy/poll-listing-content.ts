@@ -323,7 +323,7 @@ export async function handleEtsyPollListingContentJob(
       });
     });
 
-    // Refresh Apps Airport health after inbound so completed qty/content sync
+    // Refresh Sync Airport health after inbound so completed qty/content sync
     // clears stale INVENTORY_SYNC_PENDING / CONTENT_SYNC_PENDING banners.
     // Pass live remote product count so multi↔simple mismatches need attention.
     const remoteProductCountEarly = new Set(

@@ -3,7 +3,7 @@ import { APPS_AIRPORT_SHOPIFY_SETTINGS_PATH } from "@/lib/shopify/apps-airport";
 
 /**
  * Legacy Shopify connection route.
- * Apps Airport is now the seller management surface; preserve OAuth query params.
+ * Sync Airport is now the seller management surface; preserve OAuth query params.
  */
 export default function LegacySellerShopifyPage({
   searchParams,

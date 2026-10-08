@@ -11,7 +11,7 @@ const SEGMENT_COLOR = "#5F6955";
 
 type Child = { href: string; label: string; icon: string; alert?: boolean };
 type NavItem =
-  | { href: string; label: string; icon: string }
+  | { href: string; label: string; icon: string; alert?: boolean }
   | { label: string; icon: string; children: Child[] };
 
 function hrefPath(href: string): string {
@@ -90,6 +90,7 @@ export function SellerHubTopNav() {
   const listingsChildren: Child[] = [
     { href: "/seller-hub/store/items", label: "My Items", icon: "cube-outline" },
     { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
+    { href: "/seller-hub/apps", label: "Sync Airport", icon: "apps-outline" },
   ];
 
   const ordersChildren: Child[] = [
@@ -109,18 +110,18 @@ export function SellerHubTopNav() {
     { href: "/business-hub?from=seller-hub", label: "Business Hub", icon: "business-outline" },
   ];
 
-  const moneyChildren: Child[] = [
-    { href: "/seller-hub/store/payouts", label: "Get Paid", icon: "wallet-outline", alert: payoutReady },
-    { href: "#stripe", label: "Stripe Dashboard", icon: "card-outline" },
-  ];
-
   const navItems: NavItem[] = [
+    { href: "/", label: "NWC Home", icon: "home-outline" },
     { href: "/seller-hub", label: "Seller Hub", icon: "globe-outline" },
-    { href: "/seller-hub/apps", label: "Apps Airport", icon: "apps-outline" },
     { label: "Listings", icon: "cube-outline", children: listingsChildren },
     { label: "Orders", icon: "receipt-outline", children: ordersChildren },
     { label: "Store", icon: "storefront-outline", children: storeChildren },
-    { label: "Money", icon: "wallet-outline", children: moneyChildren },
+    {
+      href: "/seller-hub/store/payouts",
+      label: "Money",
+      icon: "wallet-outline",
+      alert: payoutReady,
+    },
   ];
 
   async function handleStripeClick(e?: React.MouseEvent) {
@@ -132,33 +133,24 @@ export function SellerHubTopNav() {
   }
 
   const segmentClass = (active: boolean) =>
-    `flex-1 min-w-0 py-5 px-5 font-medium text-base whitespace-nowrap flex items-center justify-center gap-2 text-center ${
-      active ? "text-white" : "text-gray-700 hover:bg-gray-50"
+    `flex-1 min-w-0 py-5 px-5 font-medium text-base whitespace-nowrap flex items-center justify-center gap-2 text-center transition-colors ${
+      active ? "text-white" : "bg-transparent text-gray-700 group-hover/seg:text-white"
     }`;
-  const dividerClass = (index: number) =>
-    `flex-1 min-w-0 flex border-r-2 ${index === navItems.length - 1 ? "border-r-0" : ""}`;
+  const dividerClass = (index: number, active: boolean) =>
+    `group/seg flex-1 min-w-0 flex border-r-2 transition-colors ${
+      index === navItems.length - 1 ? "border-r-0" : ""
+    } ${active ? "" : "hover:bg-[#5d4f40]"}`;
   const dividerStyle = (index: number) =>
     index === navItems.length - 1 ? undefined : { borderRightColor: "var(--color-primary)" };
-  const segmentStyle = (active: boolean) => (active ? { backgroundColor: SEGMENT_COLOR } : { backgroundColor: "white" });
+  const submenuItemClass =
+    "w-full flex items-center gap-2 py-2.5 px-4 text-base text-gray-700 transition-colors hover:bg-[#5d4f40] hover:text-white first:rounded-t-md last:rounded-b-md";
 
   const activeSegmentIndex = navItems.findIndex((item) => isItemActive(pathname, item));
-
-  const homeLinkClass =
-    "shrink-0 flex items-center justify-center gap-1.5 text-sm font-semibold rounded-lg border-2 hover:bg-gray-50";
-  const homeLinkStyle = { borderColor: "var(--color-primary)", color: "var(--color-primary)" };
 
   return (
     <header className="sticky top-0 z-40 bg-white border-b-2 no-print overflow-visible py-2 lg:py-4" style={{ borderBottomColor: "var(--color-primary)" }}>
       <div className="lg:hidden max-w-[var(--max-width)] mx-auto px-3 flex items-center gap-3">
-        <Link
-          href="/"
-          prefetch={false}
-          className={`${homeLinkClass} max-sm:size-10 max-sm:p-0 sm:px-2 sm:py-2`}
-          style={homeLinkStyle}
-        >
-          <IonIcon name="home-outline" size={20} />
-          <span className="hidden sm:inline">NWC Home</span>
-        </Link>
+        <span className="shrink-0 size-10" aria-hidden />
         <span
           className="flex-1 text-center text-base font-bold truncate"
           style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
@@ -177,33 +169,39 @@ export function SellerHubTopNav() {
         </button>
       </div>
 
-      <div className="max-w-[var(--max-width)] mx-auto px-3 items-center gap-3 overflow-visible hidden lg:flex">
-        <Link
-          href="/"
-          prefetch={false}
-          className={`${homeLinkClass} px-3 py-2.5`}
-          style={homeLinkStyle}
-        >
-          <IonIcon name="home-outline" size={20} />
-          <span>NWC Home</span>
-        </Link>
+      <div className="max-w-[var(--max-width)] mx-auto px-3 overflow-visible hidden lg:block">
         <nav
-          className="flex flex-1 rounded-md border-2 min-w-0 overflow-visible"
+          className="flex w-full rounded-md border-2 min-w-0 overflow-visible"
           style={{ borderColor: "var(--color-primary)", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}
         >
           {navItems.map((item, index) => {
             if ("href" in item) {
               const active = index === activeSegmentIndex;
               return (
-                <div key={item.label} className={dividerClass(index)} style={dividerStyle(index)}>
+                <div
+                  key={item.label}
+                  className={dividerClass(index, active)}
+                  style={{
+                    ...dividerStyle(index),
+                    ...(active ? { backgroundColor: SEGMENT_COLOR } : undefined),
+                  }}
+                >
                   <Link
                     href={item.href}
                     prefetch={false}
                     className={segmentClass(active)}
-                    style={segmentStyle(active)}
                   >
-                    <IonIcon name={item.icon} size={22} />
+                    <IonIcon name={item.icon} size={22} className="text-current" />
                     <span>{item.label}</span>
+                    {item.alert ? (
+                      <span
+                        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold leading-none text-white"
+                        style={{ backgroundColor: "var(--color-secondary)" }}
+                        aria-label="Payout ready"
+                      >
+                        !
+                      </span>
+                    ) : null}
                   </Link>
                 </div>
               );
@@ -215,28 +213,21 @@ export function SellerHubTopNav() {
               <div
                 key={item.label}
                 ref={(el) => { triggerRefs.current[item.label] = el; }}
-                className={`relative ${dividerClass(index)}`}
-                style={dividerStyle(index)}
+                className={`relative ${dividerClass(index, active)}`}
+                style={{
+                  ...dividerStyle(index),
+                  ...(active ? { backgroundColor: SEGMENT_COLOR } : undefined),
+                }}
                 onMouseEnter={() => hasChildren && handleEnter(item.label)}
                 onMouseLeave={handleLeave}
               >
                 <Link
                   href={hasChildren && !firstChildHref.startsWith("http") && firstChildHref !== "#stripe" ? firstChildHref : "#"}
                   prefetch={false}
-                  className={segmentClass(active)}
-                  style={{ ...segmentStyle(active), display: "inline-flex", alignItems: "center" }}
+                  className={`${segmentClass(active)} !inline-flex items-center`}
                 >
-                  <IonIcon name={item.icon} size={22} />
+                  <IonIcon name={item.icon} size={22} className="text-current" />
                   <span>{item.label}</span>
-                  {item.label === "Money" && payoutReady ? (
-                    <span
-                      className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold leading-none text-white"
-                      style={{ backgroundColor: "var(--color-secondary)" }}
-                      aria-label="Payout ready"
-                    >
-                      !
-                    </span>
-                  ) : null}
                   {hasChildren && <span className="text-xs opacity-80" aria-hidden>▾</span>}
                 </Link>
                 {hasChildren && hoveredDropdown === item.label && typeof document !== "undefined" && createPortal(
@@ -254,9 +245,9 @@ export function SellerHubTopNav() {
                               key={c.label}
                               type="button"
                               onClick={handleStripeClick}
-                              className="w-full flex items-center gap-2 py-2.5 px-4 text-left text-base text-gray-700 hover:bg-gray-100 first:rounded-t-md last:rounded-b-md"
+                              className={`${submenuItemClass} text-left`}
                             >
-                              <IonIcon name={c.icon} size={18} />
+                              <IonIcon name={c.icon} size={18} className="text-current" />
                               {c.label}
                             </button>
                           );
@@ -268,9 +259,9 @@ export function SellerHubTopNav() {
                               href={c.href}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="w-full flex items-center gap-2 py-2.5 px-4 text-base text-gray-700 hover:bg-gray-100 first:rounded-t-md last:rounded-b-md"
+                              className={submenuItemClass}
                             >
-                              <IonIcon name={c.icon} size={18} />
+                              <IonIcon name={c.icon} size={18} className="text-current" />
                               {c.label}
                             </a>
                           );
@@ -281,10 +272,14 @@ export function SellerHubTopNav() {
                             key={c.href + c.label}
                             href={c.href}
                             prefetch={false}
-                            className={`w-full flex items-center gap-2 py-2.5 px-4 first:rounded-t-md last:rounded-b-md ${childActive ? "text-white hover:opacity-90" : "text-gray-700 hover:bg-gray-100"}`}
+                            className={
+                              childActive
+                                ? "w-full flex items-center gap-2 py-2.5 px-4 first:rounded-t-md last:rounded-b-md text-white hover:bg-[var(--color-earth)]"
+                                : submenuItemClass
+                            }
                             style={childActive ? { backgroundColor: SEGMENT_COLOR } : undefined}
                           >
-                            <IonIcon name={c.icon} size={18} />
+                            <IonIcon name={c.icon} size={18} className="text-current" />
                             {c.label}
                             {c.alert ? (
                               <span

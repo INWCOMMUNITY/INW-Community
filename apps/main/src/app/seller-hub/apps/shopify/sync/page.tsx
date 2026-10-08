@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
+import { AppsAirportListingPhotoCollage } from "@/components/apps-airport/AppsAirportListingPhotoCollage";
 import {
   APPS_AIRPORT_SHOPIFY_LISTINGS_PATH,
   APPS_AIRPORT_SHOPIFY_PATH,
@@ -16,6 +17,7 @@ import {
 type EligibleListing = {
   storeItemId: string;
   title: string;
+  photos?: string[];
   slug: string;
   sku: string | null;
   priceCents: number;
@@ -219,7 +221,7 @@ export default function AppsAirportShopifySyncPage() {
           <table className="min-w-full text-sm border-collapse">
             <thead>
               <tr className="border-b text-left" style={{ borderColor: "var(--color-primary)" }}>
-                <th className="py-2 pr-4 font-semibold">INW listing</th>
+                <th className="py-2 pr-4 font-semibold">INW Listing</th>
                 <th className="py-2 pr-4 font-semibold">Price</th>
                 <th className="py-2 pr-4 font-semibold">Inventory</th>
                 <th className="py-2 pr-4 font-semibold">Variants</th>
@@ -231,19 +233,24 @@ export default function AppsAirportShopifySyncPage() {
               {listings.map((listing) => {
                 const supported = listing.supported !== false;
                 return (
-                <tr key={listing.storeItemId} className="border-b border-neutral-200">
+                <tr key={listing.storeItemId} className="border-b border-neutral-200 align-top">
                   <td className="py-3 pr-4">
-                    <Link
-                      href={`/seller-hub/store/${listing.storeItemId}`}
-                      className="font-medium underline"
-                      style={{ color: "var(--color-primary)" }}
-                      prefetch={false}
-                    >
-                      {listing.title}
-                    </Link>
-                    {!supported && listing.unsupportedReason ? (
-                      <p className="mt-1 text-xs text-amber-800">{listing.unsupportedReason}</p>
-                    ) : null}
+                    <div className="flex items-start gap-3">
+                      <AppsAirportListingPhotoCollage photos={listing.photos} alt={listing.title} />
+                      <div>
+                        <Link
+                          href={`/seller-hub/store/${listing.storeItemId}`}
+                          className="font-medium underline"
+                          style={{ color: "var(--color-primary)" }}
+                          prefetch={false}
+                        >
+                          {listing.title}
+                        </Link>
+                        {!supported && listing.unsupportedReason ? (
+                          <p className="mt-1 text-xs text-amber-800">{listing.unsupportedReason}</p>
+                        ) : null}
+                      </div>
+                    </div>
                   </td>
                   <td className="py-3 pr-4">{formatCents(listing.priceCents)}</td>
                   <td className="py-3 pr-4">{listing.quantity}</td>

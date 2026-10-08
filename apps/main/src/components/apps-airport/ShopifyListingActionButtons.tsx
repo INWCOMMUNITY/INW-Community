@@ -15,7 +15,7 @@ type Props = {
   storeItemId: string;
   shopDomain?: string | null;
   shopifyProductId?: string | null;
-  /** When true, resolve storefront URL first for View on Shopify. */
+  /** @deprecated View On Shopify is a dedicated table column; kept for call-site compatibility. */
   preferStorefront?: boolean;
   onActionComplete?: (message?: string) => void;
 };
@@ -24,7 +24,6 @@ export function ShopifyListingActionButtons({
   storeItemId,
   shopDomain,
   shopifyProductId,
-  preferStorefront = false,
   onActionComplete,
 }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
@@ -61,41 +60,9 @@ export function ShopifyListingActionButtons({
     }
   }
 
-  async function onViewShopify() {
-    setBusy("view");
-    setError(null);
-    try {
-      const response = await fetch(`/api/shopify/listings/${storeItemId}/view-url`, {
-        credentials: "include",
-      });
-      if (response.ok) {
-        const body = (await response.json()) as {
-          primaryUrl?: string | null;
-          storefrontUrl?: string | null;
-          adminUrl?: string | null;
-        };
-        const url =
-          (preferStorefront
-            ? body.primaryUrl || body.storefrontUrl || body.adminUrl
-            : body.primaryUrl || body.adminUrl || body.storefrontUrl) || adminUrl;
-        if (url) {
-          window.open(url, "_blank", "noopener,noreferrer");
-          return;
-        }
-      }
-      if (adminUrl) window.open(adminUrl, "_blank", "noopener,noreferrer");
-      else setError("Could not open Shopify product");
-    } catch {
-      if (adminUrl) window.open(adminUrl, "_blank", "noopener,noreferrer");
-      else setError("Could not open Shopify product");
-    } finally {
-      setBusy(null);
-    }
-  }
-
   function onDeleteListing() {
     const choice = window.confirm(
-      "Delete listing from Apps Airport?\n\n" +
+      "Delete listing from Sync Airport?\n\n" +
         "• OK — Unpublish from Online Store and remove the INW ↔ Shopify link. The product stays in Shopify Admin.\n" +
         "• Cancel — keep the mapping."
     );
@@ -125,12 +92,6 @@ export function ShopifyListingActionButtons({
       label: "Delete Listing",
       danger: true,
       onSelect: onDeleteListing,
-    },
-    {
-      kind: "action",
-      id: "view-shopify",
-      label: APPS_AIRPORT_SHOPIFY_HUB.viewOnChannelLabel,
-      onSelect: () => void onViewShopify(),
     },
     {
       kind: "link",

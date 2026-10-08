@@ -52,14 +52,26 @@ export default async function SellerHubPage() {
 
         <section className="hidden lg:block py-12 px-4" style={{ padding: "var(--section-padding)" }}>
           <div className="max-w-[var(--max-width)] xl:max-w-[1520px] mx-auto">
-            <div className="text-center mb-10">
-              <h1
-                className="text-3xl md:text-4xl font-bold mb-2"
-                style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
-              >
-                Seller Hub
-              </h1>
-              <p className="text-gray-600">Manage your storefront, ship orders, get paid.</p>
+            <div className="relative mb-10 w-full overflow-hidden rounded-[10px] border-2 aspect-[4/1]" style={{ borderColor: "var(--color-primary)" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/seller-hub-hero.jpg"
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover object-[center_61%]"
+              />
+              <div className="absolute inset-0 z-10 flex items-center justify-center p-6">
+                <div className="max-w-[18rem] rounded-lg bg-white/80 px-5 py-4 text-center shadow-lg backdrop-blur-[2px]">
+                  <h1
+                    className="text-[1.8rem] md:text-[2.25rem] font-bold mb-1.5"
+                    style={{ fontFamily: "var(--font-heading)", color: "var(--color-heading)" }}
+                  >
+                    Seller Hub
+                  </h1>
+                  <p className="text-[1.05rem] text-gray-700 leading-snug">
+                    List items, sync marketplaces, fulfill orders, and get paid — all from one hub.
+                  </p>
+                </div>
+              </div>
             </div>
             <SellerHubWorkQueue hasLocalDelivery={hasLocalDelivery} variant="desktop" />
             <div className="mt-12 pt-8 border-t border-gray-200 text-center">

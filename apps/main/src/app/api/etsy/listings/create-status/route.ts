@@ -6,7 +6,7 @@ import { memberHasStorefrontListingAccess } from "@/lib/storefront-seller-access
 export const dynamic = "force-dynamic";
 
 /**
- * Poll CREATE_LISTING job + mapped listing status for Apps Airport progress UI.
+ * Poll CREATE_LISTING job + mapped listing status for Sync Airport progress UI.
  */
 export async function GET(req: NextRequest) {
   const session = await getSessionForApi(req);

@@ -44,18 +44,34 @@ export default async function NewStoreItemPage({
     : null;
 
   return (
-    <section className="py-8 px-4" style={{ padding: "var(--section-padding)" }}>
-      <div className="max-w-5xl mx-auto">
-        <Link href="/seller-hub/store/items" className="text-sm text-gray-600 hover:underline mb-2 inline-block">
+    <section className="px-4 pt-4 pb-6 sm:pt-5 sm:pb-8">
+      <div className="max-w-3xl mx-auto">
+        <Link
+          href="/seller-hub/store/items"
+          className="mb-3 inline-flex items-center justify-center rounded-2xl px-4 py-2.5 text-sm font-semibold !text-white hover:opacity-95 transition-opacity"
+          style={{ backgroundColor: "var(--color-primary)" }}
+        >
           ← Back to My Items
         </Link>
-        <h1 className="text-2xl sm:text-3xl font-bold mb-6 text-gray-900 text-center">
-          {similarItem
-            ? "Sell Similar"
-            : "Sell Local: Invest In the Inland Northwest"}
+        <h1 className="text-2xl sm:text-3xl font-bold mb-3 text-center">
+          {similarItem ? (
+            <span
+              className="block w-full rounded-2xl px-5 py-2 sm:px-7 sm:py-2.5 text-white"
+              style={{ backgroundColor: "var(--color-earth)" }}
+            >
+              Sell Similar
+            </span>
+          ) : (
+            <span
+              className="block w-full rounded-2xl px-5 py-2 sm:px-7 sm:py-2.5 text-white"
+              style={{ backgroundColor: "var(--color-earth)" }}
+            >
+              Sell Local: Invest In the Inland Northwest
+            </span>
+          )}
         </h1>
         {similarItem ? (
-          <p className="text-sm text-gray-600 mb-4">
+          <p className="text-sm text-gray-600 mb-3">
             Prefilling from “{similarItem.title}”. Review details, then list as a new item.
           </p>
         ) : null}

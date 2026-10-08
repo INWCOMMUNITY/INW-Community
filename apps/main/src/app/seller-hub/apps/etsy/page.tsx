@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppsAirportChannelHub } from "@/components/apps-airport/AppsAirportChannelHub";
+import { AppsAirportListingPhotoCollage } from "@/components/apps-airport/AppsAirportListingPhotoCollage";
 import { AppsAirportSyncedListings } from "@/components/apps-airport/AppsAirportSyncedListings";
+import { AppsAirportViewOnChannelButton } from "@/components/apps-airport/AppsAirportViewOnChannelButton";
 import { EtsyListingActionButtons } from "@/components/etsy/EtsyListingActionButtons";
 import {
   APPS_AIRPORT_ETSY_HUB,
@@ -29,6 +31,7 @@ type ListingRow = {
   storeItemId: string;
   etsyListingId: string;
   title: string;
+  photos?: string[];
   priceCents: number | null;
   quantity: number | null;
   readiness: string;
@@ -166,10 +169,13 @@ export default function AppsAirportEtsyPage() {
           disabled: !connected,
         },
         {
-          label: hub.settingsLabel,
-          href: hub.settingsPath,
+          label: hub.openDashboardLabel,
+          href: hub.dashboardUrl,
+          external: true,
+          disabled: !connected,
         },
       ]}
+      settingsHref={hub.settingsPath}
     >
       {error ? <p className="mb-4 text-sm text-red-700">{error}</p> : null}
       {toast ? (
@@ -234,70 +240,46 @@ export default function AppsAirportEtsyPage() {
               <th className="py-2 pr-3 font-semibold">Status</th>
               <th className="py-2 pr-3 font-semibold">Qty</th>
               <th className="py-2 pr-3 font-semibold">Price</th>
-              <th className="py-2 font-semibold">Manage</th>
+              <th className="py-2 pr-3 font-semibold">Manage</th>
+              <th className="py-2 font-semibold">{hub.viewOnChannelLabel}</th>
             </>
           }
         >
-          {filtered.slice(0, 20).map(({ row, status }) => (
-            <tr key={row.id} className="border-b border-neutral-200 align-top">
-              <td className="py-3 pr-3">
-                <Link
-                  href={`/seller-hub/store/${row.storeItemId}`}
-                  className="font-medium underline"
-                  style={{ color: "var(--color-primary)" }}
-                  prefetch={false}
-                >
-                  {row.title}
-                </Link>
-                {status !== "Live" && row.issueMessage ? (
-                  <div className="mt-1 text-xs text-amber-800 max-w-[16rem]">{row.issueMessage}</div>
-                ) : null}
-              </td>
-              <td className="py-3 pr-3">
-                <span
-                  className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${etsyListingStatusChipClass(status)}`}
-                >
-                  {status}
-                </span>
-              </td>
-              <td className="py-3 pr-3 whitespace-nowrap">{row.quantity ?? "—"}</td>
-              <td className="py-3 pr-3">{formatEtsyCents(row.priceCents)}</td>
-              <td className="py-3">
-                <div className="flex flex-col gap-2 items-start">
-                  {(() => {
-                    const publicUrl = etsyListingPublicUrl({
-                      etsyListingId: row.etsyListingId,
-                      remoteListingState: row.remoteListingState,
-                    });
-                    if (publicUrl) {
-                      return (
-                        <a
-                          href={publicUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs underline"
-                          style={{ color: "var(--color-primary)" }}
-                        >
-                          View on Etsy
-                        </a>
-                      );
-                    }
-                    if (row.etsyListingId) {
-                      return (
-                        <span className="text-xs text-neutral-500">Not live on Etsy yet</span>
-                      );
-                    }
-                    return (
+          {filtered.slice(0, 20).map(({ row, status }) => {
+            const publicUrl = etsyListingPublicUrl({
+              etsyListingId: row.etsyListingId,
+              remoteListingState: row.remoteListingState,
+            });
+            return (
+              <tr key={row.id} className="border-b border-neutral-200 align-top">
+                <td className="py-3 pr-3">
+                  <div className="flex items-start gap-3">
+                    <AppsAirportListingPhotoCollage photos={row.photos} alt={row.title} />
+                    <div>
                       <Link
-                        href={hub.listItemsPath}
-                        className="text-xs underline"
+                        href={`/seller-hub/store/${row.storeItemId}`}
+                        className="font-medium underline"
                         style={{ color: "var(--color-primary)" }}
                         prefetch={false}
                       >
-                        Retry list
+                        {row.title}
                       </Link>
-                    );
-                  })()}
+                      {status !== "Live" && row.issueMessage ? (
+                        <div className="mt-1 text-xs text-amber-800 max-w-[16rem]">{row.issueMessage}</div>
+                      ) : null}
+                    </div>
+                  </div>
+                </td>
+                <td className="py-3 pr-3">
+                  <span
+                    className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${etsyListingStatusChipClass(status)}`}
+                  >
+                    {status}
+                  </span>
+                </td>
+                <td className="py-3 pr-3 whitespace-nowrap">{row.quantity ?? "—"}</td>
+                <td className="py-3 pr-3">{formatEtsyCents(row.priceCents)}</td>
+                <td className="py-3 pr-3">
                   {row.etsyListingId ? (
                     <EtsyListingActionButtons
                       storeItemId={row.storeItemId}
@@ -308,11 +290,30 @@ export default function AppsAirportEtsyPage() {
                         void load();
                       }}
                     />
-                  ) : null}
-                </div>
-              </td>
-            </tr>
-          ))}
+                  ) : (
+                    <Link
+                      href={hub.listItemsPath}
+                      className="text-xs underline"
+                      style={{ color: "var(--color-primary)" }}
+                      prefetch={false}
+                    >
+                      Retry list
+                    </Link>
+                  )}
+                </td>
+                <td className="py-3">
+                  <AppsAirportViewOnChannelButton
+                    label={hub.viewOnChannelLabel}
+                    icon={hub.icon}
+                    href={publicUrl}
+                    unavailableLabel={
+                      row.etsyListingId ? "Not live on Etsy yet" : "Not listed yet"
+                    }
+                  />
+                </td>
+              </tr>
+            );
+          })}
         </AppsAirportSyncedListings>
       ) : null}
 

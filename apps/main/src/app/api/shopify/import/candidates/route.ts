@@ -6,7 +6,7 @@ import { discoverShopifyImportCandidates } from "@/lib/shopify/import-discovery"
 export const dynamic = "force-dynamic";
 
 /**
- * Seller-authenticated Shopify product discovery for Apps Airport import.
+ * Seller-authenticated Shopify product discovery for Sync Airport import.
  * Returns unmapped products on the current ACTIVE connection generation only.
  */
 export async function GET(req: NextRequest) {

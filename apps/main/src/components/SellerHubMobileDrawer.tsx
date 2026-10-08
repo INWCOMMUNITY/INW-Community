@@ -37,19 +37,27 @@ function NavRow({
     <>
       <span className="flex items-center gap-3 min-w-0 flex-1">
         <span className="w-[22px] shrink-0 flex justify-center">
-          <IonIcon name={item.icon} size={22} className="text-[var(--color-primary)]" />
+          <IonIcon
+            name={item.icon}
+            size={22}
+            className="text-[var(--color-primary)] group-hover:text-white group-active:text-white"
+          />
         </span>
-        <span className="text-[15px] text-[#444] truncate">{item.label}</span>
+        <span className="text-[15px] truncate">{item.label}</span>
       </span>
       <span className="flex items-center gap-1.5 shrink-0">
         {item.alert ? <AlertBadge /> : null}
-        <IonIcon name="chevron-forward" size={18} className="text-gray-400" />
+        <IonIcon
+          name="chevron-forward"
+          size={18}
+          className="text-gray-400 group-hover:text-white group-active:text-white"
+        />
       </span>
     </>
   );
 
   const rowClass =
-    "flex items-center justify-between py-2.5 px-3 rounded-md hover:bg-gray-100 active:bg-gray-100 transition-colors w-full text-left";
+    "group flex items-center justify-between py-2.5 px-3 rounded-md text-[#444] transition-colors w-full text-left hover:bg-[var(--color-earth)] hover:text-white active:bg-[var(--color-earth)] active:text-white";
 
   if (item.action === "stripe") {
     return (
@@ -129,6 +137,7 @@ export function SellerHubMobileDrawer({
   const listingsItems: NavItem[] = [
     { href: "/seller-hub/store/items", label: "My Items", icon: "cube-outline" },
     { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
+    { href: "/seller-hub/apps", label: "Sync Airport", icon: "apps-outline" },
   ];
 
   const ordersItems: NavItem[] = [
@@ -146,11 +155,6 @@ export function SellerHubMobileDrawer({
     { href: "/seller-hub/shipping-options", label: "Shipping Options", icon: "cube-outline" },
     { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
     { href: "/business-hub?from=seller-hub", label: "Business Hub", icon: "business-outline" },
-  ];
-
-  const moneyItems: NavItem[] = [
-    { href: "/seller-hub/store/payouts", label: "Get Paid", icon: "wallet-outline", alert: payoutReady },
-    { href: "#stripe", label: "Stripe Dashboard", icon: "card-outline", action: "stripe" },
   ];
 
   if (!open) return null;
@@ -185,29 +189,29 @@ export function SellerHubMobileDrawer({
         </div>
         <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 pb-8">
           <Link
-            href="/seller-hub"
+            href="/"
             prefetch={false}
             onClick={onClose}
-            className="flex items-center gap-3 py-2.5 px-3 rounded-md hover:bg-gray-100 mb-2"
+            className="group flex items-center gap-3 py-2.5 px-3 rounded-md mb-1 transition-colors hover:bg-[var(--color-earth)] hover:text-white"
           >
             <span className="w-[22px] shrink-0 flex justify-center">
-              <IonIcon name="globe-outline" size={22} className="text-[var(--color-primary)]" />
+              <IonIcon name="home-outline" size={22} className="text-[var(--color-primary)] group-hover:text-white" />
             </span>
-            <span className="text-[15px] font-semibold" style={{ color: "var(--color-heading)" }}>
-              Seller Hub
+            <span className="text-[15px] font-semibold text-[var(--color-heading)] group-hover:text-white">
+              NWC Home
             </span>
           </Link>
           <Link
-            href="/seller-hub/apps"
+            href="/seller-hub"
             prefetch={false}
             onClick={onClose}
-            className="flex items-center gap-3 py-2.5 px-3 rounded-md hover:bg-gray-100 mb-4"
+            className="group flex items-center gap-3 py-2.5 px-3 rounded-md mb-2 transition-colors hover:bg-[var(--color-earth)] hover:text-white"
           >
             <span className="w-[22px] shrink-0 flex justify-center">
-              <IonIcon name="apps-outline" size={22} className="text-[var(--color-primary)]" />
+              <IonIcon name="globe-outline" size={22} className="text-[var(--color-primary)] group-hover:text-white" />
             </span>
-            <span className="text-[15px] font-semibold" style={{ color: "var(--color-heading)" }}>
-              Apps Airport
+            <span className="text-[15px] font-semibold text-[var(--color-heading)] group-hover:text-white">
+              Seller Hub
             </span>
           </Link>
           <Section
@@ -228,12 +232,28 @@ export function SellerHubMobileDrawer({
             onNavigate={onClose}
             onStripe={onStripeDashboard}
           />
-          <Section
-            title="Money"
-            items={moneyItems}
-            onNavigate={onClose}
-            onStripe={onStripeDashboard}
-          />
+          <Link
+            href="/seller-hub/store/payouts"
+            prefetch={false}
+            onClick={onClose}
+            className="group flex items-center gap-3 py-2.5 px-3 rounded-md mt-2 transition-colors hover:bg-[var(--color-earth)] hover:text-white"
+          >
+            <span className="w-[22px] shrink-0 flex justify-center">
+              <IonIcon name="wallet-outline" size={22} className="text-[var(--color-primary)] group-hover:text-white" />
+            </span>
+            <span className="text-[15px] font-semibold text-[var(--color-heading)] group-hover:text-white">
+              Money
+            </span>
+            {payoutReady ? (
+              <span
+                className="ml-auto inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold leading-none text-white"
+                style={{ backgroundColor: "var(--color-secondary)" }}
+                aria-label="Payout ready"
+              >
+                !
+              </span>
+            ) : null}
+          </Link>
         </div>
       </div>
     </div>

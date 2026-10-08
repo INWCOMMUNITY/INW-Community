@@ -22,7 +22,7 @@ export function AppsAirportChrome({
           </Link>
           <span aria-hidden>/</span>
           <Link href={APPS_AIRPORT_PATH} className="hover:underline" prefetch={false}>
-            Apps Airport
+            Sync Airport
           </Link>
           {(crumbs ?? []).map((crumb) => (
             <span key={crumb.href} className="contents">

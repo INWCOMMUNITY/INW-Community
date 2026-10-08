@@ -1,7 +1,9 @@
 import { prisma, toPublicShopifyListingStatus, type ShopifyListingPublicStatus } from "database";
+import { listingDisplayPhotos } from "@/lib/listing-display-photo";
 
 export type ShopifyListingSellerView = ShopifyListingPublicStatus & {
   title: string;
+  photos: string[];
   slug: string;
   sku: string | null;
   priceCents: number;
@@ -39,6 +41,7 @@ export async function listShopifySellerListingViews(input: {
       storeItem: {
         select: {
           title: true,
+          photos: true,
           slug: true,
           sku: true,
           priceCents: true,
@@ -73,6 +76,7 @@ export async function listShopifySellerListingViews(input: {
     return {
       ...publicStatus,
       title: row.storeItem.title,
+      photos: listingDisplayPhotos(row.storeItem.photos, "thumb", 4),
       slug: row.storeItem.slug,
       sku: row.storeItem.sku,
       priceCents: row.storeItem.priceCents,

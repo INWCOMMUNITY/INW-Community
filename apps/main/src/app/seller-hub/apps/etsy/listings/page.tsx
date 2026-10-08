@@ -80,8 +80,13 @@ export default function AppsAirportEtsyListingsPage() {
       actions={[
         { label: hub.importLabel, href: hub.importPath },
         { label: hub.listItemsLabel, href: hub.listItemsPath },
-        { label: hub.settingsLabel, href: hub.settingsPath },
+        {
+          label: hub.openDashboardLabel,
+          href: hub.dashboardUrl,
+          external: true,
+        },
       ]}
+      settingsHref={hub.settingsPath}
     >
       {error ? <p className="mb-4 text-sm text-neutral-800">{error}</p> : null}
       {toast ? (

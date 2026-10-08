@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppsAirportChannelHub } from "@/components/apps-airport/AppsAirportChannelHub";
+import { AppsAirportListingPhotoCollage } from "@/components/apps-airport/AppsAirportListingPhotoCollage";
 import { AppsAirportSyncedListings } from "@/components/apps-airport/AppsAirportSyncedListings";
+import { AppsAirportViewOnChannelButton } from "@/components/apps-airport/AppsAirportViewOnChannelButton";
 import { ShopifyListingActionButtons } from "@/components/apps-airport/ShopifyListingActionButtons";
 import {
   APPS_AIRPORT_SHOPIFY_HUB,
@@ -12,6 +14,7 @@ import {
   formatCents,
   formatShopifyObservedQuantity,
   formatSyncedWithChannels,
+  shopifyAdminProductUrl,
   shopifyConnectionStatusLabel,
   shopifyListingStatusChipClass,
   shopifyListingIssueSellerDetail,
@@ -41,6 +44,7 @@ type ListingRow = {
   storeItemId: string;
   shopifyProductId: string;
   title: string;
+  photos?: string[];
   priceCents: number;
   quantity: number;
   readiness: string;
@@ -52,6 +56,37 @@ type ListingRow = {
   inventoryAppliedAvailable: number | null;
   updatedAt: string;
 };
+
+async function openShopifyListingView(input: {
+  storeItemId: string;
+  shopDomain: string | null;
+  shopifyProductId: string;
+  preferStorefront: boolean;
+}) {
+  const adminUrl = shopifyAdminProductUrl(input.shopDomain, input.shopifyProductId);
+  try {
+    const response = await fetch(`/api/shopify/listings/${input.storeItemId}/view-url`, {
+      credentials: "include",
+    });
+    if (response.ok) {
+      const body = (await response.json()) as {
+        primaryUrl?: string | null;
+        storefrontUrl?: string | null;
+        adminUrl?: string | null;
+      };
+      const url = input.preferStorefront
+        ? body.primaryUrl || body.storefrontUrl || body.adminUrl
+        : body.primaryUrl || body.adminUrl || body.storefrontUrl;
+      if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
+        return;
+      }
+    }
+  } catch {
+    /* fall through to admin */
+  }
+  if (adminUrl) window.open(adminUrl, "_blank", "noopener,noreferrer");
+}
 
 type FilterTab = "all" | ShopifyListingUiStatus;
 
@@ -194,10 +229,13 @@ export default function AppsAirportShopifyPage() {
           disabled: !canList,
         },
         {
-          label: hub.settingsLabel,
-          href: hub.settingsPath,
+          label: hub.openDashboardLabel,
+          href: hub.dashboardUrl,
+          external: true,
+          disabled: uiStatus === "disconnected",
         },
       ]}
+      settingsHref={hub.settingsPath}
     >
       {error ? <p className="mb-4 text-sm text-red-700">{error}</p> : null}
       {toast ? (
@@ -253,32 +291,38 @@ export default function AppsAirportShopifyPage() {
               <th className="py-2 pr-3 font-semibold">Qty</th>
               <th className="py-2 pr-3 font-semibold">Price</th>
               <th className="py-2 pr-3 font-semibold">Synced with</th>
-              <th className="py-2 font-semibold">Manage</th>
+              <th className="py-2 pr-3 font-semibold">Manage</th>
+              <th className="py-2 font-semibold">{hub.viewOnChannelLabel}</th>
             </>
           }
         >
           {filtered.slice(0, 20).map(({ row, status }) => (
             <tr key={row.listingLinkId} className="border-b border-neutral-200 align-top">
               <td className="py-3 pr-3">
-                <Link
-                  href={`${hub.listingsPath}/${row.storeItemId}`}
-                  className="font-medium underline"
-                  style={{ color: "var(--color-primary)" }}
-                  prefetch={false}
-                >
-                  {row.title}
-                </Link>
-                {status !== "Live"
-                  ? (() => {
-                      const detail = shopifyListingIssueSellerDetail({
-                        issueCode: row.issueCode,
-                        issueMessage: row.issueMessage,
-                      });
-                      return detail ? (
-                        <div className="mt-1 text-xs text-amber-800 max-w-[16rem]">{detail}</div>
-                      ) : null;
-                    })()
-                  : null}
+                <div className="flex items-start gap-3">
+                  <AppsAirportListingPhotoCollage photos={row.photos} alt={row.title} />
+                  <div>
+                    <Link
+                      href={`${hub.listingsPath}/${row.storeItemId}`}
+                      className="font-medium underline"
+                      style={{ color: "var(--color-primary)" }}
+                      prefetch={false}
+                    >
+                      {row.title}
+                    </Link>
+                    {status !== "Live"
+                      ? (() => {
+                          const detail = shopifyListingIssueSellerDetail({
+                            issueCode: row.issueCode,
+                            issueMessage: row.issueMessage,
+                          });
+                          return detail ? (
+                            <div className="mt-1 text-xs text-amber-800 max-w-[16rem]">{detail}</div>
+                          ) : null;
+                        })()
+                      : null}
+                  </div>
+                </div>
               </td>
               <td className="py-3 pr-3">
                 <span
@@ -299,7 +343,7 @@ export default function AppsAirportShopifyPage() {
               </td>
               <td className="py-3 pr-3">{formatCents(row.priceCents)}</td>
               <td className="py-3 pr-3 text-neutral-700 whitespace-nowrap">{syncedWith}</td>
-              <td className="py-3">
+              <td className="py-3 pr-3">
                 <ShopifyListingActionButtons
                   storeItemId={row.storeItemId}
                   shopDomain={shopDomain}
@@ -309,6 +353,20 @@ export default function AppsAirportShopifyPage() {
                     if (message) setToast(message);
                     void load();
                   }}
+                />
+              </td>
+              <td className="py-3">
+                <AppsAirportViewOnChannelButton
+                  label={hub.viewOnChannelLabel}
+                  icon={hub.icon}
+                  onClick={() =>
+                    openShopifyListingView({
+                      storeItemId: row.storeItemId,
+                      shopDomain,
+                      shopifyProductId: row.shopifyProductId,
+                      preferStorefront: status === "Live",
+                    })
+                  }
                 />
               </td>
             </tr>

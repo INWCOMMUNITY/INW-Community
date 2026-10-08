@@ -35,7 +35,7 @@ export function EtsyHowItsMadeFields({ value, onChange, madeToOrder, embedded = 
   const body = (
     <>
       <p className="text-sm text-neutral-600 mb-3">
-        Matches Etsy’s Who made it / What is it / When was it made. Required before Apps Airport can
+        Matches Etsy’s Who made it / What is it / When was it made. Required before Sync Airport can
         publish this listing.
       </p>
       <fieldset className="space-y-2">
