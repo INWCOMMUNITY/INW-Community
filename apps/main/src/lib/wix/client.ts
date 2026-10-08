@@ -392,7 +392,13 @@ export async function fetchWixSiteInfo(input: {
   accessToken: string;
   config: WixAppConfig;
   fetchImpl?: WixFetch;
-}): Promise<{ siteId: string; instanceId: string; siteName: string | null }> {
+}): Promise<{
+  siteId: string;
+  instanceId: string;
+  siteName: string | null;
+  /** Published site base URL when Wix provides it (e.g. https://www.example.com). */
+  siteUrl: string | null;
+}> {
   const result = await wixApplicationRequest<{
     instance?: {
       instanceId?: string;
@@ -401,6 +407,7 @@ export async function fetchWixSiteInfo(input: {
     site?: {
       siteId?: string;
       siteDisplayName?: string;
+      url?: string;
     };
   }>({
     method: "GET",
@@ -425,10 +432,15 @@ export async function fetchWixSiteInfo(input: {
   const instanceId = data.instance?.instanceId;
   const siteId = data.site?.siteId;
   const siteName = data.site?.siteDisplayName || null;
+  const siteUrlRaw = data.instance?.siteUrl || data.site?.url || null;
+  const siteUrl =
+    typeof siteUrlRaw === "string" && /^https?:\/\//i.test(siteUrlRaw.trim())
+      ? siteUrlRaw.trim().replace(/\/+$/, "")
+      : null;
 
   if (!instanceId || !siteId) {
     throw new WixRequestError("Wix site info was incomplete", "PERMANENT");
   }
 
-  return { siteId, instanceId, siteName };
+  return { siteId, instanceId, siteName, siteUrl };
 }

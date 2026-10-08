@@ -49,6 +49,22 @@ export function wixProductDashboardUrl(
   return `https://manage.wix.com/dashboard/${encodeURIComponent(site)}/store/products/${encodeURIComponent(product)}`;
 }
 
+/**
+ * Build a public Wix Stores product page URL from site base + product slug.
+ * Default storefront path: /product-page/{slug}
+ */
+export function wixStorefrontProductUrl(
+  siteUrl: string | null | undefined,
+  slug: string | null | undefined
+): string | null {
+  const base = String(siteUrl ?? "").trim().replace(/\/+$/, "");
+  const productSlug = String(slug ?? "")
+    .trim()
+    .replace(/^\/+|\/+$/g, "");
+  if (!/^https?:\/\//i.test(base) || !productSlug) return null;
+  return `${base}/product-page/${encodeURIComponent(productSlug)}`;
+}
+
 export function classifyWixConnectionUi(input: {
   connected: boolean;
   health?: "healthy" | "degraded" | "disconnected" | "not_configured";
@@ -147,6 +163,22 @@ export function wixSyncProgressLabel(step: WixSyncProgressStep): string {
       return "Needs attention";
     case "already_mapped":
       return "Already linked";
+  }
+}
+
+/** Progress percent for the seller-facing bar (approximate). */
+export function wixSyncProgressPercent(step: WixSyncProgressStep): number {
+  switch (step) {
+    case "preparing":
+      return 10;
+    case "queued":
+      return 30;
+    case "creating":
+      return 65;
+    case "live":
+    case "already_mapped":
+    case "needs_attention":
+      return 100;
   }
 }
 

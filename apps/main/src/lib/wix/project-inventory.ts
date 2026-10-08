@@ -198,15 +198,21 @@ export async function handleWixProjectInventoryJob(
       });
 
   if ("retry" in pushed) {
-    if (
-      pushed.retry.outcome === "RETRY" &&
-      (pushed.retry.errorCode === "INVENTORY_MISMATCH" ||
-        pushed.retry.errorCode === "INVENTORY_UNREADABLE")
-    ) {
-      await noteInventoryAttention(
-        link.id,
-        pushed.retry.errorMessage || "Wix quantities did not update."
-      );
+    if (pushed.retry.outcome === "RETRY") {
+      const code = pushed.retry.errorCode;
+      const unreadStillRetrying =
+        code === "INVENTORY_UNREADABLE" && claim.attemptCount < Math.min(3, claim.maxAttempts);
+      if (code === "INVENTORY_MISMATCH") {
+        await noteInventoryAttention(
+          link.id,
+          pushed.retry.errorMessage || "Wix quantities did not update."
+        );
+      } else if (code === "INVENTORY_UNREADABLE" && !unreadStillRetrying) {
+        await noteInventoryAttention(
+          link.id,
+          pushed.retry.errorMessage || "Wix quantities could not be read."
+        );
+      }
     }
     return pushed.retry;
   }
@@ -237,6 +243,45 @@ export async function handleWixProjectInventoryJob(
 
   await refreshWixListingHealthFromDb(prisma, link.id);
   return { outcome: "SUCCESS" };
+}
+
+async function queueSellableInventoryDesires(input: {
+  maps: Array<{
+    id: string;
+    storeVariantId: string;
+    inventoryDesiredVersion: number;
+    inventoryAppliedVersion: number;
+  }>;
+  stateByVariant: Map<
+    string,
+    { mode: string; onHand: number | null; reserved: number | null }
+  >;
+  wixConnectionId: string;
+  listingLinkId: string;
+}): Promise<number> {
+  let pushed = 0;
+  for (const map of input.maps) {
+    const state = input.stateByVariant.get(map.storeVariantId);
+    if (!state || state.mode !== "TRACKED_FINITE" || state.onHand == null || state.reserved == null) {
+      continue;
+    }
+    let sellable = 0;
+    try {
+      sellable = trackedAvailable(state.onHand, state.reserved);
+    } catch {
+      continue;
+    }
+    if (sellable <= 0) continue;
+    if (map.inventoryDesiredVersion > map.inventoryAppliedVersion) continue;
+    pushed += 1;
+    await captureWixInventoryProjectionDesire(prisma, {
+      variantMapId: map.id,
+      wixConnectionId: input.wixConnectionId,
+      listingLinkId: input.listingLinkId,
+      desiredAvailable: sellable,
+    });
+  }
+  return pushed;
 }
 
 /**
@@ -312,8 +357,15 @@ export async function alignWixInventoryWithInw(input: {
         variantIds: maps.map((m) => m.wixVariantId),
       })
     : null;
-  if (isV1 && remote && !remote.ok) return { error: "Could not read Wix inventory" };
-  if (!isV1 && v3 && !v3.ok) return { error: v3.message };
+  if ((isV1 && remote && !remote.ok) || (!isV1 && v3 && !v3.ok)) {
+    const pushed = await queueSellableInventoryDesires({
+      maps,
+      stateByVariant,
+      wixConnectionId: input.wixConnectionId,
+      listingLinkId: input.listingLinkId,
+    });
+    return { pushed, diverged: 0, unreadable: 0 };
+  }
 
   const lookup = isV1 && remote && remote.ok
     ? await quantityLookup({
@@ -348,7 +400,26 @@ export async function alignWixInventoryWithInw(input: {
           catalogVariantId: null as string | null,
         };
     const remoteQty = resolved.qty;
-    if (wixMissingQuantityIsUnread(remote?.ok ? remote.snapshot.trackQuantity : undefined, remoteQty)) {
+    const pending = map.inventoryDesiredVersion > map.inventoryAppliedVersion;
+    const wixQtyMissing = wixMissingQuantityIsUnread(
+      remote?.ok ? remote.snapshot.trackQuantity : undefined,
+      remoteQty
+    );
+    // A new Wix product often has no inventory row yet. Queue the INW quantity
+    // instead of telling the seller the read failed.
+    if (wixQtyMissing && sellable > 0) {
+      if (!pending) {
+        pushed += 1;
+        await captureWixInventoryProjectionDesire(prisma, {
+          variantMapId: map.id,
+          wixConnectionId: input.wixConnectionId,
+          listingLinkId: input.listingLinkId,
+          desiredAvailable: sellable,
+        });
+      }
+      continue;
+    }
+    if (wixQtyMissing) {
       unreadable += 1;
       continue;
     }
@@ -357,8 +428,6 @@ export async function alignWixInventoryWithInw(input: {
       await rememberWixVariantId(map.id, resolved.catalogVariantId, lookup?.inventoryItemId);
     }
     if (remoteQty === sellable) continue;
-
-    const pending = map.inventoryDesiredVersion > map.inventoryAppliedVersion;
     if (pending) continue;
 
     if (sellable > 0) {
@@ -513,9 +582,11 @@ async function pushV1Inventory(input: {
   updates: Array<{ wixVariantId: string; quantity: number }>;
 }): Promise<{ quantities: Map<string, number> } | { retry: WixJobHandlerResult }> {
   const before = await readWixV1Inventory(input);
-  if (!before.ok) return { retry: before.failure };
+  const snapshot: InventorySnapshot = before.ok
+    ? before.snapshot
+    : { trackQuantity: true, variants: [] };
 
-  const nextVariants = mergeQuantities(before.snapshot.variants, input.updates);
+  const nextVariants = mergeQuantities(snapshot.variants, input.updates);
   if (!nextVariants) {
     return {
       retry: {
@@ -529,7 +600,7 @@ async function pushV1Inventory(input: {
 
   const patch = await patchV1Inventory({
     ...input,
-    snapshot: before.snapshot,
+    snapshot,
     variants: nextVariants,
   });
   if (!patch.ok) return { retry: transportFailure(patch) };

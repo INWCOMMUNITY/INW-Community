@@ -493,9 +493,8 @@ function v3RemoteVariants(
 }
 
 /**
- * The storefront reads Catalog V3. Replacing `options` and `variantsInfo` together
- * removes an option that a V1 productOptions patch leaves in place.
- * Returns unavailable when this site is still on Catalog V1.
+ * Catalog V3 only. Replacing `options` and `variantsInfo` together deletes an option
+ * by omitting it. Returns unavailable when this product is not on Catalog V3.
  */
 async function writeWixV3OptionsIfAvailable(input: {
   productId: string;
@@ -639,38 +638,6 @@ async function writeWixV3OptionsIfAvailable(input: {
     };
   }
   return { status: "written", variants: written };
-}
-
-function buildWixV3OptionsAndVariants(variants: LocalVariant[]) {
-  const productOptions = buildWixProductOptions(variants);
-  const options = productOptions.map((option) => ({
-    name: option.name,
-    optionRenderType: "TEXT_CHOICES",
-    choicesSettings: {
-      choices: option.choices.map((choice) => ({
-        choiceType: "CHOICE_TEXT",
-        name: choice.value,
-      })),
-    },
-  }));
-  const variantsInfo = {
-    variants: variants.map((variant) => {
-      const choices = asChoiceRecord(variant.options);
-      const price = ((variant.priceCents || 0) / 100).toFixed(2);
-      return {
-        sku: variant.sku ?? undefined,
-        price: { actualPrice: { amount: price } },
-        choices: Object.entries(choices).map(([optionName, choiceName]) => ({
-          optionChoiceNames: {
-            optionName,
-            choiceName,
-            renderType: "TEXT_CHOICES",
-          },
-        })),
-      };
-    }),
-  };
-  return { options, variantsInfo };
 }
 
 export function mapStoreVariantsToWix(
@@ -1013,22 +980,7 @@ export async function syncWixListingVariantTopology(input: {
 
   const productOptions = buildWixProductOptions(local);
   let v3Variants: RemoteVariant[] | null = null;
-  const v3Write = await writeWixV3OptionsIfAvailable({
-    productId: input.wixProductId,
-    local,
-    config,
-    accessToken,
-  });
-  if (v3Write.status === "failure") return v3Write.failure;
-  if (v3Write.status === "written") {
-    v3Variants = v3Write.variants;
-    if (input.catalogVersion !== "V3_CATALOG") {
-      await prisma.wixConnection.update({
-        where: { id: input.connectionId },
-        data: { catalogVersion: "V3_CATALOG" },
-      });
-    }
-  } else if (isV1) {
+  if (isV1) {
     await prisma.wixListingLink.updateMany({
       where: { id: input.listingLinkId, issueCode: "TOPOLOGY_PUSH_FAILED" },
       data: { issueCode: null, issueMessage: null, issueSeverity: null },
@@ -1042,47 +994,22 @@ export async function syncWixListingVariantTopology(input: {
     });
     if (!wrote.ok) return wrote.failure;
   } else {
-    const revision = product.revision;
-    if (revision == null) {
+    const v3Write = await writeWixV3OptionsIfAvailable({
+      productId: input.wixProductId,
+      local,
+      config,
+      accessToken,
+    });
+    if (v3Write.status === "failure") return v3Write.failure;
+    if (v3Write.status === "unavailable") {
       return {
         outcome: "RETRY",
         errorClass: "TRANSIENT",
-        errorCode: "MISSING_REVISION",
-        errorMessage: "Wix product revision missing for topology update",
+        errorCode: "CATALOG_VERSION_MISMATCH",
+        errorMessage: "Wix catalog version did not accept an option update",
       };
     }
-    const { options, variantsInfo } = buildWixV3OptionsAndVariants(local);
-    const patch = await wixApplicationRequest({
-      method: "PATCH",
-      path: `${WIX_V3_PRODUCTS}/${input.wixProductId}`,
-      body: JSON.stringify({
-        product: {
-          id: input.wixProductId,
-          revision: String(revision),
-          options,
-          variantsInfo,
-        },
-      }),
-      deps: { config, accessToken, maxAttempts: 1 },
-    });
-    if (!patch.ok) {
-      if (patch.class === "THROTTLED" || patch.class === "TRANSIENT" || patch.class === "NETWORK") {
-        return {
-          outcome: "RETRY",
-          errorClass: patch.class,
-          errorCode: patch.class,
-          errorMessage: patch.message,
-          retryAt: patch.retryAfterMs ? new Date(Date.now() + patch.retryAfterMs) : undefined,
-        };
-      }
-      await markTopologyPushFailed(input.listingLinkId);
-      return {
-        outcome: "DEAD",
-        errorClass: patch.class,
-        errorCode: "TOPOLOGY_PUSH_FAILED",
-        errorMessage: patch.message || "Could not update Wix product options",
-      };
-    }
+    v3Variants = v3Write.variants;
   }
 
   // Write INW prices before checking the option set. A delete used to stop here, so the

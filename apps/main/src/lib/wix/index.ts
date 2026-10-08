@@ -36,6 +36,7 @@ export {
   hasWixPendingProjections,
   reconcileWixListing,
   removeWixListing,
+  getWixListingViewUrl,
 } from "./listing-actions";
 
 // Job Handlers

@@ -173,7 +173,12 @@ export async function completeWixOAuth(
   }
 
   // Fetch site info
-  let siteInfo: { siteId: string; instanceId: string; siteName: string | null };
+  let siteInfo: {
+    siteId: string;
+    instanceId: string;
+    siteName: string | null;
+    siteUrl: string | null;
+  };
   try {
     siteInfo = await fetchWixSiteInfo({
       accessToken,

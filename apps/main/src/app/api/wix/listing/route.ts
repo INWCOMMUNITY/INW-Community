@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import {
-  createWixListing,
-  loadMappedWixListing,
-  reconcileWixListing,
-} from "@/lib/wix/listing-actions";
+import { createWixListing, loadMappedWixListing } from "@/lib/wix/listing-actions";
+import { runNextWixSyncJob } from "@/lib/wix/worker";
 import { getActiveWixConnectionForMember, prisma } from "database";
 
 export const dynamic = "force-dynamic";
@@ -92,6 +90,16 @@ export async function POST(request: Request): Promise<Response> {
   });
 
   if (result.success) {
+    if (result.enqueued) {
+      waitUntil(
+        (async () => {
+          for (let i = 0; i < 16; i += 1) {
+            const ran = await runNextWixSyncJob({ workerId: `wix-list-inline-${i}` });
+            if (!ran.claimed) break;
+          }
+        })()
+      );
+    }
     return NextResponse.json(
       { listingLinkId: result.listingLinkId ?? null, enqueued: result.enqueued ?? false },
       { status: result.enqueued ? 202 : 200 }

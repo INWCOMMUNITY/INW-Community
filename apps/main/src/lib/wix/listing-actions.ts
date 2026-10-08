@@ -4,18 +4,26 @@ import {
   enqueueWixSyncJob,
   WixSyncJobConflictError,
   ensureWixProjectInventoryJob,
+  ensureWixUpdateListingContentJob,
   hasUnprojectedWixInventoryDesires,
   lookupWixListingByStoreItem,
   lookupWixVariantByStoreVariant,
   prisma,
+  recordWixDirtyMappedVariantContentDesires,
   recordWixListingContentDesire,
+  recordWixListingVariantTopologyDesire,
+  recordWixMappedListingContentDesire,
   getActiveWixConnectionForMember,
+  trackedAvailable,
+  wixTopologyFingerprint,
   type WixPublicConnection,
 } from "database";
 import { readWixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
-import { wixApplicationRequest } from "./client";
+import { fetchWixSiteInfo, wixApplicationRequest, type WixFetch } from "./client";
 import { WIX_CATALOG_V1, WIX_V1_PRODUCT_GET, WIX_V3_PRODUCTS } from "./constants";
+import { wixProductDashboardUrl, wixStorefrontProductUrl } from "./apps-airport";
+import { wixPublicPhotoUrls } from "./listing-media";
 
 export type WixListingActionResult =
   | { success: true; listingLinkId?: string; enqueued?: boolean }
@@ -112,6 +120,128 @@ export async function scheduleWixInventoryProjection(input: {
 }
 
 /**
+ * Queue whatever this linked listing has not finished sending to Wix:
+ * photos and title, option shape, combo prices, and quantities.
+ */
+export async function requeueUnappliedWixListing(input: {
+  memberId: string;
+  storeItemId: string;
+  connectionId: string;
+  listingLinkId: string;
+}): Promise<boolean> {
+  const link = await prisma.wixListingLink.findUnique({
+    where: { id: input.listingLinkId },
+    include: { variantMaps: true },
+  });
+  if (!link) return false;
+
+  let enqueued = false;
+  const item = await prisma.storeItem.findUnique({
+    where: { id: input.storeItemId },
+    select: {
+      title: true,
+      description: true,
+      priceCents: true,
+      sku: true,
+      photos: true,
+      storeVariants: {
+        where: { status: "ACTIVE" },
+        select: { id: true, options: true, inventoryState: true },
+      },
+    },
+  });
+
+  const photos = wixPublicPhotoUrls(item?.photos);
+  const contentPending = link.desiredProductContentVersion > link.appliedProductContentVersion;
+  if (item && photos.length > 0 && !contentPending) {
+    const recorded = await recordWixMappedListingContentDesire(prisma, {
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+      before: {
+        title: item.title,
+        description: item.description,
+        priceCents: item.priceCents,
+        sku: item.sku,
+        photos: [],
+      },
+      after: {
+        title: item.title,
+        description: item.description,
+        priceCents: item.priceCents,
+        sku: item.sku,
+        photos,
+      },
+    });
+    if (recorded.status === "RECORDED") enqueued = true;
+  } else if (contentPending) {
+    const job = await ensureWixUpdateListingContentJob(prisma, {
+      listingLinkId: link.id,
+      wixConnectionId: input.connectionId,
+    });
+    if (job.enqueued) enqueued = true;
+  }
+
+  const prices = await recordWixDirtyMappedVariantContentDesires(prisma, {
+    memberId: input.memberId,
+    storeItemId: input.storeItemId,
+  });
+  if (prices.status === "RECORDED") enqueued = true;
+
+  const activeVariants = item?.storeVariants ?? [];
+  const topologyNow = wixTopologyFingerprint(activeVariants);
+  const topologyPending =
+    (link.topologyDesiredFingerprint != null &&
+      link.topologyDesiredFingerprint !== link.topologyAppliedFingerprint) ||
+    topologyNow !== link.topologyAppliedFingerprint;
+  if (topologyPending) {
+    const recorded = await recordWixListingVariantTopologyDesire(prisma, {
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+    });
+    if (recorded.status === "RECORDED") enqueued = true;
+  }
+
+  const inventoryByVariant = new Map(
+    activeVariants.map((variant) => [variant.id, variant.inventoryState] as const)
+  );
+  for (const map of link.variantMaps) {
+    if (map.inventoryDesiredVersion > map.inventoryAppliedVersion) continue;
+    const state = inventoryByVariant.get(map.storeVariantId);
+    if (!state || state.mode !== "TRACKED_FINITE" || state.onHand == null || state.reserved == null) {
+      continue;
+    }
+    let sellable = 0;
+    try {
+      sellable = trackedAvailable(state.onHand, state.reserved);
+    } catch {
+      continue;
+    }
+    if (sellable <= 0) continue;
+    if (map.inventoryAppliedAvailable === sellable && map.inventoryAppliedVersion > 0) continue;
+    await captureWixInventoryProjectionDesire(prisma, {
+      variantMapId: map.id,
+      wixConnectionId: input.connectionId,
+      listingLinkId: link.id,
+      desiredAvailable: sellable,
+    });
+    enqueued = true;
+  }
+  if (await hasUnprojectedWixInventoryDesires(prisma, link.id)) {
+    try {
+      await ensureWixProjectInventoryJob(prisma, {
+        wixConnectionId: input.connectionId,
+        listingLinkId: link.id,
+      });
+      enqueued = true;
+    } catch (error) {
+      if (!(error instanceof WixSyncJobConflictError)) throw error;
+    }
+  }
+
+  return enqueued;
+}
+
+/**
  * Create a new listing on Wix from an existing INW store item.
  */
 export async function createWixListing(input: {
@@ -132,7 +262,13 @@ export async function createWixListing(input: {
   );
 
   if (existing) {
-    return { success: true, listingLinkId: existing.listingLink.id };
+    const enqueued = await requeueUnappliedWixListing({
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+      connectionId: input.connection.id,
+      listingLinkId: existing.listingLink.id,
+    });
+    return { success: true, listingLinkId: existing.listingLink.id, enqueued };
   }
 
   // Enqueue create listing job
@@ -323,4 +459,150 @@ export async function removeWixListing(input: {
 
   await deleteWixListingMapping(prisma, link.id);
   return { success: true, listingLinkId: link.id };
+}
+
+function absoluteHttpUrl(value: string | null | undefined): string | null {
+  const trimmed = String(value ?? "").trim();
+  return /^https?:\/\//i.test(trimmed) ? trimmed : null;
+}
+
+function joinSiteBaseAndPath(
+  base: string | null | undefined,
+  path: string | null | undefined
+): string | null {
+  const site = String(base ?? "").trim().replace(/\/+$/, "");
+  const relative = String(path ?? "").trim();
+  if (!/^https?:\/\//i.test(site) || !relative) return null;
+  return `${site}${relative.startsWith("/") ? relative : `/${relative}`}`;
+}
+
+/**
+ * Resolve the best public storefront URL for a mapped Wix listing.
+ * Prefers Catalog V3 `fields=URL` / V1 `productPageUrl`, then siteUrl+slug, then dashboard.
+ */
+export async function getWixListingViewUrl(input: {
+  memberId: string;
+  storeItemId: string;
+  fetchImpl?: WixFetch;
+}): Promise<
+  | {
+      ok: true;
+      primaryUrl: string | null;
+      adminUrl: string | null;
+      storefrontUrl: string | null;
+    }
+  | { ok: false; status: number; error: string }
+> {
+  const connection = await getActiveWixConnectionForMember(prisma, input.memberId);
+  if (!connection) {
+    return { ok: false, status: 404, error: "Wix is not connected" };
+  }
+
+  const mapping = await lookupWixListingByStoreItem(
+    prisma,
+    connection.id,
+    input.storeItemId
+  );
+  if (!mapping) {
+    return { ok: false, status: 404, error: "Listing is not linked to Wix" };
+  }
+
+  const adminUrl = wixProductDashboardUrl(
+    connection.siteId,
+    mapping.listingLink.wixProductId
+  );
+
+  const config = readWixAppConfig();
+  if (!config) {
+    return { ok: true, primaryUrl: adminUrl, adminUrl, storefrontUrl: null };
+  }
+
+  let accessToken: string;
+  try {
+    accessToken = await accessTokenForWixConnection(
+      { instanceId: connection.instanceId },
+      { config, fetchImpl: input.fetchImpl }
+    );
+  } catch {
+    return { ok: true, primaryUrl: adminUrl, adminUrl, storefrontUrl: null };
+  }
+
+  let storefrontUrl: string | null = null;
+  const isV1 = connection.catalogVersion === WIX_CATALOG_V1;
+
+  const resolveFromSlug = async (slug: string | null | undefined) => {
+    if (!slug?.trim()) return null;
+    try {
+      const siteInfo = await fetchWixSiteInfo({
+        accessToken,
+        config,
+        fetchImpl: input.fetchImpl,
+      });
+      return wixStorefrontProductUrl(siteInfo.siteUrl, slug);
+    } catch {
+      return null;
+    }
+  };
+
+  if (isV1) {
+    const result = await wixApplicationRequest<{
+      product?: {
+        slug?: string;
+        productPageUrl?: { base?: string; path?: string };
+      };
+    }>({
+      method: "GET",
+      path: `${WIX_V1_PRODUCT_GET}/${mapping.listingLink.wixProductId}`,
+      deps: { config, accessToken, fetchImpl: input.fetchImpl, maxAttempts: 2 },
+    });
+    if (result.ok && result.data?.product) {
+      storefrontUrl = joinSiteBaseAndPath(
+        result.data.product.productPageUrl?.base,
+        result.data.product.productPageUrl?.path
+      );
+      if (!storefrontUrl) {
+        storefrontUrl = await resolveFromSlug(result.data.product.slug);
+      }
+    }
+  } else {
+    const result = await wixApplicationRequest<{
+      product?: {
+        slug?: string;
+        url?: { url?: string; relativePath?: string };
+      };
+    }>({
+      method: "GET",
+      path: `${WIX_V3_PRODUCTS}/${mapping.listingLink.wixProductId}`,
+      query: { fields: "URL" },
+      deps: { config, accessToken, fetchImpl: input.fetchImpl, maxAttempts: 2 },
+    });
+    if (result.ok && result.data?.product) {
+      storefrontUrl = absoluteHttpUrl(result.data.product.url?.url);
+      if (!storefrontUrl && result.data.product.url?.relativePath) {
+        try {
+          const siteInfo = await fetchWixSiteInfo({
+            accessToken,
+            config,
+            fetchImpl: input.fetchImpl,
+          });
+          storefrontUrl = joinSiteBaseAndPath(
+            siteInfo.siteUrl,
+            result.data.product.url.relativePath
+          );
+        } catch {
+          /* ignore */
+        }
+      }
+      if (!storefrontUrl) {
+        storefrontUrl = await resolveFromSlug(result.data.product.slug);
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    primaryUrl: storefrontUrl || adminUrl,
+    adminUrl,
+    storefrontUrl,
+  };
 }

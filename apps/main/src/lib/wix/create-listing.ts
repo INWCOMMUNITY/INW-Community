@@ -1,9 +1,12 @@
 import {
+  captureWixInventoryProjectionDesire,
   createWixNativeListingMapping,
   enqueueWixSyncJob,
   markWixVariantContentApplied,
   prisma,
+  trackedAvailable,
   recordWixDirtyMappedVariantContentDesires,
+  recordWixMappedListingContentDesire,
   refreshWixListingHealthFromDb,
   wixReconcileListingDedupeKey,
   wixVariantContentFingerprint,
@@ -14,6 +17,7 @@ import {
 import { readWixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
 import { loadWixCatalogVariants, pushWixV1VariantChoices } from "./catalog-variants";
+import { requeueUnappliedWixListing } from "./listing-actions";
 import { wixApplicationRequest } from "./client";
 import {
   WIX_V1_PRODUCTS,
@@ -21,6 +25,7 @@ import {
   WIX_V3_PRODUCTS,
   WIX_CATALOG_V1,
 } from "./constants";
+import { wixPublicPhotoUrls, wixV1ProductMedia, wixV3ProductMedia } from "./listing-media";
 
 type CreateListingPayload = {
   storeItemId: string;
@@ -76,10 +81,11 @@ export async function handleWixCreateListingJob(
   });
 
   if (existingLink) {
-    // Repair partial creates where the product mapped but variant prices never wrote.
-    await recordWixDirtyMappedVariantContentDesires(prisma, {
+    await requeueUnappliedWixListing({
       memberId: payload.memberId,
       storeItemId: payload.storeItemId,
+      connectionId: connection.id,
+      listingLinkId: existingLink.id,
     });
     return { outcome: "SUCCESS" };
   }
@@ -121,6 +127,8 @@ export async function handleWixCreateListingJob(
 
   const isV1 = connection.catalogVersion === WIX_CATALOG_V1;
   const priceValue = (storeItem.priceCents / 100).toFixed(2);
+  const photoUrls = wixPublicPhotoUrls(storeItem.photos);
+  const media = isV1 ? wixV1ProductMedia(photoUrls) : wixV3ProductMedia(photoUrls);
 
   // Calculate total quantity
   let totalQuantity = 0;
@@ -157,6 +165,7 @@ export async function handleWixCreateListingJob(
               trackQuantity: storeItem.inventoryTracking === "tracked",
               quantity: totalQuantity,
             },
+            ...(media ? { media } : {}),
             ...(productOptions.length > 0 ? { productOptions, manageVariants: true } : {}),
           },
         }),
@@ -220,6 +229,7 @@ export async function handleWixCreateListingJob(
               trackInventory: storeItem.inventoryTracking === "tracked",
               quantity: totalQuantity,
             },
+            ...(media ? { media } : {}),
             ...(productOptions.length > 0 ? { productOptions, manageVariants: true } : {}),
           },
         }),
@@ -317,6 +327,61 @@ export async function handleWixCreateListingJob(
           }
         }
       }
+    }
+
+    if (photoUrls.length > 0) {
+      const mediaWrite = await wixApplicationRequest({
+        method: "PATCH",
+        path: `${isV1 ? WIX_V1_PRODUCT_GET : WIX_V3_PRODUCTS}/${wixProductId}`,
+        body: JSON.stringify({
+          product: {
+            ...(isV1 ? {} : { id: wixProductId }),
+            media,
+          },
+        }),
+        deps: { config, accessToken, maxAttempts: 1 },
+      });
+      if (!mediaWrite.ok) {
+        await recordWixMappedListingContentDesire(prisma, {
+          memberId: payload.memberId,
+          storeItemId: payload.storeItemId,
+          before: {
+            title: storeItem.title,
+            description: storeItem.description,
+            priceCents: storeItem.priceCents,
+            sku: storeItem.sku,
+            photos: [],
+          },
+          after: {
+            title: storeItem.title,
+            description: storeItem.description,
+            priceCents: storeItem.priceCents,
+            sku: storeItem.sku,
+            photos: photoUrls,
+          },
+        });
+      }
+    }
+
+    for (const map of mapping.variantMaps) {
+      const variant = storeItem.storeVariants.find((row) => row.id === map.storeVariantId);
+      const state = variant?.inventoryState;
+      if (!state || state.mode !== "TRACKED_FINITE" || state.onHand == null || state.reserved == null) {
+        continue;
+      }
+      let sellable = 0;
+      try {
+        sellable = trackedAvailable(state.onHand, state.reserved);
+      } catch {
+        continue;
+      }
+      if (sellable <= 0) continue;
+      await captureWixInventoryProjectionDesire(prisma, {
+        variantMapId: map.id,
+        wixConnectionId: connection.id,
+        listingLinkId: mapping.listingLink.id,
+        desiredAvailable: sellable,
+      });
     }
 
     await prisma.wixListingLink.update({

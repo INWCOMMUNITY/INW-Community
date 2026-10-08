@@ -210,22 +210,49 @@ export async function handleWixPollListingContentJob(
     };
   }
 
-  await prisma.$transaction(async (tx) => {
-    await applyWixListingContentInbound(tx, {
-      connectionId: link.wixConnectionId,
-      memberId: link.memberId,
-      listingLinkId: link.id,
-      remote,
+  const outbound = await prisma.wixListingLink.findUnique({
+    where: { id: link.id },
+    select: {
+      desiredProductContentVersion: true,
+      appliedProductContentVersion: true,
+      variantMaps: {
+        select: {
+          desiredVariantContentVersion: true,
+          appliedVariantContentVersion: true,
+          inventoryDesiredVersion: true,
+          inventoryAppliedVersion: true,
+        },
+      },
+    },
+  });
+  const contentOutbound =
+    (outbound?.desiredProductContentVersion ?? 0) > (outbound?.appliedProductContentVersion ?? 0) ||
+    (outbound?.variantMaps ?? []).some(
+      (map) => map.desiredVariantContentVersion > map.appliedVariantContentVersion
+    );
+  const inventoryOutbound = (outbound?.variantMaps ?? []).some(
+    (map) => map.inventoryDesiredVersion > map.inventoryAppliedVersion
+  );
+  if (!contentOutbound) {
+    await prisma.$transaction(async (tx) => {
+      await applyWixListingContentInbound(tx, {
+        connectionId: link.wixConnectionId,
+        memberId: link.memberId,
+        listingLinkId: link.id,
+        remote,
+      });
     });
-  });
-  await pullWixInventoryIntoInw({
-    listingLinkId: link.id,
-    wixConnectionId: link.wixConnectionId,
-    memberId: link.memberId,
-    wixProductId: link.wixProductId,
-    catalogVersion: link.connection.catalogVersion,
-    instanceId: link.connection.instanceId,
-  });
+  }
+  if (!inventoryOutbound) {
+    await pullWixInventoryIntoInw({
+      listingLinkId: link.id,
+      wixConnectionId: link.wixConnectionId,
+      memberId: link.memberId,
+      wixProductId: link.wixProductId,
+      catalogVersion: link.connection.catalogVersion,
+      instanceId: link.connection.instanceId,
+    });
+  }
   await refreshWixListingHealthFromDb(prisma, link.id);
 
   if (skippedReason) {

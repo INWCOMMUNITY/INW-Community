@@ -3,7 +3,12 @@ import type { WixJobHandlerResult } from "database";
 type WixVariantFailure = Extract<WixJobHandlerResult, { outcome: "RETRY" | "DEAD" }>;
 import { wixApplicationRequest } from "./client";
 import type { WixAppConfig } from "./config";
-import { WIX_V1_PRODUCT_GET, WIX_V1_VARIANTS_QUERY_SUFFIX, WIX_V1_VARIANTS_UPDATE_SUFFIX } from "./constants";
+import {
+  WIX_V1_PRODUCT_GET,
+  WIX_V1_VARIANTS_QUERY_SUFFIX,
+  WIX_V1_VARIANTS_UPDATE_SUFFIX,
+  WIX_V3_PRODUCTS,
+} from "./constants";
 
 export type WixRemoteVariant = {
   id?: string;
@@ -129,6 +134,115 @@ export async function pushWixV1VariantChoices(input: {
     errorClass: "TRANSIENT",
     errorCode: "VARIANT_MAP_INCOMPLETE",
     errorMessage: result.message || "Wix did not accept every option combination",
+  };
+}
+
+/** Write combo prices on a Catalog V3 product without changing its option set. */
+export async function pushWixV3VariantPrices(input: {
+  productId: string;
+  variants: Array<{
+    wixVariantId: string;
+    priceCents: number;
+    sku: string | null;
+    visible?: boolean;
+  }>;
+  config: WixAppConfig;
+  accessToken: string;
+}): Promise<WixVariantFailure | null> {
+  const rows = input.variants.filter((variant) => variant.wixVariantId);
+  if (rows.length === 0) return null;
+
+  const read = async () =>
+    wixApplicationRequest<{
+      product?: {
+        revision?: string | number;
+        options?: unknown[];
+        variantsInfo?: {
+          variants?: Array<{
+            id?: string;
+            price?: { actualPrice?: { amount?: string } };
+            priceData?: { price?: number | string };
+          }>;
+        };
+      };
+    }>({
+      method: "GET",
+      path: `${WIX_V3_PRODUCTS}/${input.productId}`,
+      query: { fields: "VARIANT_OPTION_CHOICE_NAMES" },
+      deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
+    });
+
+  const current = await read();
+  if (!current.ok || !current.data?.product?.revision) {
+    return variantTransportFailure(current, "Wix product revision missing for a price update");
+  }
+  const product = current.data.product;
+  const patch = await wixApplicationRequest({
+    method: "PATCH",
+    path: `${WIX_V3_PRODUCTS}/${input.productId}`,
+    body: JSON.stringify({
+      product: {
+        id: input.productId,
+        revision: String(product.revision),
+        ...(product.options ? { options: product.options } : {}),
+        variantsInfo: {
+          variants: rows.map((variant) => ({
+            id: variant.wixVariantId,
+            visible: variant.visible !== false,
+            ...(variant.sku ? { sku: variant.sku } : {}),
+            price: { actualPrice: { amount: (Math.max(0, variant.priceCents) / 100).toFixed(2) } },
+          })),
+        },
+      },
+    }),
+    deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
+  });
+  if (!patch.ok) return variantTransportFailure(patch, "Wix did not accept the variant prices");
+
+  const confirmed = await read();
+  if (!confirmed.ok || !confirmed.data?.product) {
+    return variantTransportFailure(confirmed, "Could not read Wix variant prices back");
+  }
+  const byId = new Map(
+    (confirmed.data.product.variantsInfo?.variants ?? [])
+      .filter((variant) => variant.id)
+      .map((variant) => [variant.id as string, variant])
+  );
+  for (const row of rows) {
+    const remote = byId.get(row.wixVariantId);
+    const amount = remote?.price?.actualPrice?.amount ?? remote?.priceData?.price;
+    const cents = amount == null ? null : Math.round(Number(amount) * 100);
+    if (cents == null || Math.abs(cents - row.priceCents) > 1) {
+      return {
+        outcome: "RETRY",
+        errorClass: "TRANSIENT",
+        errorCode: "VARIANT_PRICE_MISMATCH",
+        errorMessage: "Wix variant prices did not match INW",
+      };
+    }
+  }
+  return null;
+}
+
+function variantTransportFailure(
+  result: { ok: boolean; class?: string; message?: string; retryAfterMs?: number | null },
+  fallback: string
+): WixVariantFailure {
+  const errorClass = result.class ?? "TRANSIENT";
+  if (errorClass === "THROTTLED" || errorClass === "TRANSIENT" || errorClass === "NETWORK" || errorClass === "AUTH") {
+    return {
+      outcome: "RETRY",
+      errorClass: errorClass === "AUTH" ? "AUTH" : errorClass,
+      errorCode: errorClass,
+      errorMessage: result.message || fallback,
+      retryAt: result.retryAfterMs ? new Date(Date.now() + result.retryAfterMs) : undefined,
+    };
+  }
+  return {
+    outcome: "RETRY",
+    errorClass: "TRANSIENT",
+    errorCode: "VARIANT_MAP_INCOMPLETE",
+    errorMessage: result.message || fallback,
   };
 }
 

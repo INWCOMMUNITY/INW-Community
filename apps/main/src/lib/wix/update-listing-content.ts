@@ -7,7 +7,7 @@ import {
   type WixJobHandlerResult,
   type WixSyncJobClaim,
 } from "database";
-import { pushWixV1VariantChoices } from "./catalog-variants";
+import { pushWixV1VariantChoices, pushWixV3VariantPrices } from "./catalog-variants";
 import { readWixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
 import { wixApplicationRequest } from "./client";
@@ -16,6 +16,7 @@ import {
   WIX_V3_PRODUCTS,
   WIX_CATALOG_V1,
 } from "./constants";
+import { wixPublicPhotoUrls, wixV1ProductMedia, wixV3ProductMedia } from "./listing-media";
 
 type UpdateContentPayload = {
   listingLinkId: string;
@@ -64,6 +65,7 @@ export async function handleWixUpdateListingContentJob(
         select: {
           id: true,
           storeVariantId: true,
+          wixVariantId: true,
           desiredVariantContentVersion: true,
           appliedVariantContentVersion: true,
           desiredVariantFingerprint: true,
@@ -120,8 +122,8 @@ export async function handleWixUpdateListingContentJob(
       // A product-level price rewrite flattens every variant price. Leave that to the
       // option push while a saved option edit is still waiting on Wix.
       const writeProductPrice = !wixTopologyDesirePending(link);
-      const photos = photoUrls(item.photos);
-      const media = photos.length > 0 ? { items: photos.map((url) => ({ image: { url } })) } : undefined;
+      const photos = wixPublicPhotoUrls(item.photos);
+      const media = isV1 ? wixV1ProductMedia(photos) : wixV3ProductMedia(photos);
       const result = await wixApplicationRequest({
         method: "PATCH",
         path: `${isV1 ? WIX_V1_PRODUCT_GET : WIX_V3_PRODUCTS}/${link.wixProductId}`,
@@ -144,7 +146,15 @@ export async function handleWixUpdateListingContentJob(
       if (!result.ok) return contentWriteFailure(result);
 
       const readBack = await wixApplicationRequest<{
-        product?: { name?: string; priceData?: { price?: number | string } };
+        product?: {
+          name?: string;
+          priceData?: { price?: number | string };
+          media?: {
+            mainMedia?: { image?: { url?: string } };
+            items?: Array<{ image?: { url?: string } }>;
+            itemsInfo?: { items?: Array<{ url?: string }> };
+          };
+        };
       }>({
         method: "GET",
         path: `${isV1 ? WIX_V1_PRODUCT_GET : WIX_V3_PRODUCTS}/${link.wixProductId}`,
@@ -158,20 +168,22 @@ export async function handleWixUpdateListingContentJob(
           errorMessage: readBack.message || "Could not read the Wix product back",
         };
       }
-      const remoteName = normalizeComparableText(readBack.data.product.name);
+      const remoteProduct = readBack.data.product;
+      const remoteName = normalizeComparableText(remoteProduct.name);
       const localName = normalizeComparableText(item.title);
-      const remoteCents = priceToCents(readBack.data.product.priceData?.price);
+      const remoteCents = priceToCents(remoteProduct.priceData?.price);
       const nameMatches = remoteName === localName;
       const priceMatches =
-        remoteCents != null && Math.abs(remoteCents - item.priceCents) <= 1;
-      if (!nameMatches && !priceMatches) {
-        console.warn("WIX_CONTENT_READBACK_SOFT_MISMATCH", {
-          listingLinkId: link.id,
-          localName,
-          remoteName,
-          localCents: item.priceCents,
-          remoteCents,
-        });
+        !writeProductPrice || (remoteCents != null && Math.abs(remoteCents - item.priceCents) <= 1);
+      const localPhotoCount = wixPublicPhotoUrls(item.photos).length;
+      const photosMatch = localPhotoCount === 0 || remotePhotoCount(remoteProduct.media) >= localPhotoCount;
+      if (!nameMatches || !priceMatches || !photosMatch) {
+        return {
+          outcome: "RETRY",
+          errorClass: "TRANSIENT",
+          errorCode: "CONTENT_READBACK_MISMATCH",
+          errorMessage: "Wix did not show the INW title, price, or photos after the update",
+        };
       }
 
       await prisma.wixListingLink.update({
@@ -187,7 +199,7 @@ export async function handleWixUpdateListingContentJob(
       });
     }
 
-    if (dirtyVariantMaps.length > 0 && isV1 && wixTopologyDesirePending(link)) {
+    if (dirtyVariantMaps.length > 0 && wixTopologyDesirePending(link)) {
       return {
         outcome: "RETRY",
         errorClass: "TRANSIENT",
@@ -196,7 +208,7 @@ export async function handleWixUpdateListingContentJob(
       };
     }
 
-    if (dirtyVariantMaps.length > 0 && isV1) {
+    if (dirtyVariantMaps.length > 0) {
       const storeVariants = await prisma.storeVariant.findMany({
         where: {
           id: { in: dirtyVariantMaps.map((map) => map.storeVariantId) },
@@ -212,7 +224,8 @@ export async function handleWixUpdateListingContentJob(
             variant.options && typeof variant.options === "object" && !Array.isArray(variant.options)
               ? (variant.options as Record<string, string>)
               : {};
-          if (Object.keys(options).length < 1) return null;
+          if (isV1 && Object.keys(options).length < 1) return null;
+          if (!isV1 && !map.wixVariantId) return null;
           return {
             mapId: map.id,
             desiredVersion: map.desiredVariantContentVersion,
@@ -222,6 +235,7 @@ export async function handleWixUpdateListingContentJob(
                 priceCents: variant.priceCents,
                 sku: variant.sku,
               }),
+            wixVariantId: map.wixVariantId,
             options,
             priceCents: variant.priceCents,
             sku: variant.sku,
@@ -231,17 +245,29 @@ export async function handleWixUpdateListingContentJob(
         .filter((row): row is NonNullable<typeof row> => row != null);
 
       if (rows.length > 0) {
-        const wrote = await pushWixV1VariantChoices({
-          productId: link.wixProductId,
-          variants: rows.map((row) => ({
-            options: row.options,
-            priceCents: row.priceCents,
-            sku: row.sku,
-            visible: row.visible,
-          })),
-          config,
-          accessToken,
-        });
+        const wrote = isV1
+          ? await pushWixV1VariantChoices({
+              productId: link.wixProductId,
+              variants: rows.map((row) => ({
+                options: row.options,
+                priceCents: row.priceCents,
+                sku: row.sku,
+                visible: row.visible,
+              })),
+              config,
+              accessToken,
+            })
+          : await pushWixV3VariantPrices({
+              productId: link.wixProductId,
+              variants: rows.map((row) => ({
+                wixVariantId: row.wixVariantId,
+                priceCents: row.priceCents,
+                sku: row.sku,
+                visible: row.visible,
+              })),
+              config,
+              accessToken,
+            });
         if (wrote) return wrote;
         for (const row of rows) {
           await markWixVariantContentApplied(prisma, {
@@ -287,9 +313,21 @@ function contentWriteFailure(result: {
   };
 }
 
-function photoUrls(photos: unknown): string[] {
-  if (!Array.isArray(photos)) return [];
-  return photos.filter((p): p is string => typeof p === "string" && p.trim().length > 0);
+function remotePhotoCount(media: {
+  mainMedia?: { image?: { url?: string } };
+  items?: Array<{ image?: { url?: string } }>;
+  itemsInfo?: { items?: Array<{ url?: string }> };
+} | undefined): number {
+  const urls = new Set<string>();
+  const main = media?.mainMedia?.image?.url;
+  if (main) urls.add(main);
+  for (const item of media?.items ?? []) {
+    if (item.image?.url) urls.add(item.image.url);
+  }
+  for (const item of media?.itemsInfo?.items ?? []) {
+    if (item.url) urls.add(item.url);
+  }
+  return urls.size;
 }
 
 function normalizeComparableText(value: string | null | undefined): string {
