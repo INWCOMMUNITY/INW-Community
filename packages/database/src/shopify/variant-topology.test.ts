@@ -489,6 +489,127 @@ describe("planShopifyTopologyDiff", () => {
     expect(plan.createVariants).toHaveLength(0);
   });
 
+  it("adopts a hostable axis rename across three variants instead of pausing", () => {
+    const gids = [1, 2, 3].map((n) => `gid://shopify/ProductVariant/${n}`);
+    const plan = planShopifyTopologyDiff({
+      localVariants: gids.map((gid, index) => ({
+        storeVariantId: `sv-${index + 1}`,
+        selectedOptions: [{ name: "Style", value: ["S", "M", "L"][index]! }],
+        priceCents: 1000,
+        sku: null,
+        shopifyVariantId: gid,
+      })),
+      remoteVariants: gids.map((gid, index) => ({
+        shopifyVariantId: gid,
+        shopifyInventoryItemId: `gid://shopify/InventoryItem/${index + 1}`,
+        selectedOptions: [{ name: "Size", value: ["S", "M", "L"][index]! }],
+        priceCents: 1000,
+        sku: null,
+        available: 1,
+        tracked: true,
+      })),
+    });
+    expect(plan.kind).toBe("MUTATE");
+    if (plan.kind !== "MUTATE") return;
+    expect(plan.renameOptionValues).toHaveLength(3);
+    expect(plan.renameOptionValues.map((row) => row.optionValues)).toEqual([
+      [{ optionName: "Size", name: "S" }],
+      [{ optionName: "Size", name: "M" }],
+      [{ optionName: "Size", name: "L" }],
+    ]);
+    expect(plan.retireMappings).toHaveLength(0);
+  });
+
+  it("still retires a missing variant when another variant's axes were renamed", () => {
+    const plan = planShopifyTopologyDiff({
+      localVariants: [
+        {
+          storeVariantId: "sv-gone",
+          selectedOptions: [{ name: "Color", value: "Red" }],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/67584232488996",
+        },
+        {
+          storeVariantId: "sv-live",
+          selectedOptions: [{ name: "Style", value: "Crew" }],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/2",
+        },
+      ],
+      remoteVariants: [
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/2",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/2",
+          selectedOptions: [{ name: "Size", value: "M" }],
+          priceCents: 1000,
+          sku: null,
+          available: 2,
+          tracked: true,
+        },
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/3",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/3",
+          selectedOptions: [{ name: "Size", value: "L" }],
+          priceCents: 1000,
+          sku: null,
+          available: 1,
+          tracked: true,
+        },
+      ],
+    });
+    expect(plan.kind).toBe("MUTATE");
+    if (plan.kind !== "MUTATE") return;
+    expect(plan.retireMappings).toEqual([
+      {
+        shopifyVariantId: "gid://shopify/ProductVariant/67584232488996",
+        storeVariantId: "sv-gone",
+      },
+    ]);
+    expect(plan.renameOptionValues).toHaveLength(1);
+    expect(plan.importRemoteVariants.map((row) => row.shopifyVariantId)).toEqual([
+      "gid://shopify/ProductVariant/3",
+    ]);
+  });
+
+  it("still conflicts when a mapped variant exceeds three option axes", () => {
+    const plan = planShopifyTopologyDiff({
+      localVariants: [
+        {
+          storeVariantId: "sv-1",
+          selectedOptions: [
+            { name: "Waist", value: "32" },
+            { name: "Inseam", value: "30" },
+          ],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+      ],
+      remoteVariants: [
+        {
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+          shopifyInventoryItemId: "gid://shopify/InventoryItem/1",
+          selectedOptions: [
+            { name: "Size", value: "M" },
+            { name: "Color", value: "Red" },
+            { name: "Material", value: "Cotton" },
+            { name: "Fit", value: "Regular" },
+          ],
+          priceCents: 1000,
+          sku: null,
+          available: 1,
+          tracked: true,
+        },
+      ],
+    });
+    expect(plan).toMatchObject({
+      kind: "CONFLICT",
+      code: "TOPOLOGY_AXIS_CONFLICT",
+    });
+  });
+
   it("treats empty INW options as equivalent to Shopify Title/Default Title", () => {
     const plan = planShopifyTopologyDiff({
       localVariants: [

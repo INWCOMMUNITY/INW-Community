@@ -16,7 +16,10 @@ import type { ShopifyFetch } from "./admin-graphql";
 import { shopifyCreateListingDedupeKey } from "./listing-export-id";
 import { centsToShopifyMoney } from "./listing-export-id";
 import { ensureShopifyListingExportMetafieldDefinition } from "./listing-metafield";
-import { lookupShopifyListingProductByCustomId } from "./listing-product-lookup";
+import {
+  lookupShopifyListingProductByCustomId,
+  lookupShopifyListingVariantsByCustomId,
+} from "./listing-product-lookup";
 import {
   productSetShopifyDraftListing,
   productSetShopifyMultiVariantDraftListing,
@@ -653,6 +656,57 @@ async function handleMultiVariantCreate(ctx: {
       ...(sv.sku ? { sku: sv.sku } : {}),
     };
   });
+
+  const discovered = await lookupShopifyListingVariantsByCustomId({
+    connectionId: connection.id,
+    storeItemId: storeItem.id,
+    fetchImpl: deps.fetchImpl,
+    now: deps.now,
+  });
+  if (!discovered.ok) {
+    return discovered.class === "RETRY"
+      ? {
+          outcome: "RETRY",
+          errorClass: discovered.errorClass,
+          errorCode: discovered.errorCode,
+          errorMessage: discovered.errorMessage,
+        }
+      : {
+          outcome: "DEAD",
+          errorClass: discovered.errorClass,
+          errorCode: discovered.errorCode,
+          errorMessage: discovered.errorMessage,
+        };
+  }
+
+  if (discovered.product) {
+    const recovered = correlateVariantsByOptionCombination({
+      requested: variantOptionsList.map((vo) => ({
+        storeVariantId: vo.storeVariantId,
+        selectedOptions: Object.entries(vo.options).map(([name, value]) => ({ name, value })),
+      })),
+      remote: discovered.product.variants.map((variant) => ({
+        shopifyVariantId: variant.variantId,
+        shopifyInventoryItemId: variant.inventoryItemId,
+        selectedOptions: variant.selectedOptions,
+      })),
+    });
+    if (!recovered.ok) {
+      return {
+        outcome: "DEAD",
+        errorClass: "RECOVERY_CONFLICT",
+        errorCode: recovered.code,
+        errorMessage: recovered.message,
+      };
+    }
+    return persistMultiVariantCreateListingMapping({
+      memberId: connection.memberId,
+      connectionId: connection.id,
+      storeItemId: storeItem.id,
+      pairs: recovered.pairs,
+      productId: discovered.product.productId,
+    });
+  }
 
   const remote = await productSetShopifyMultiVariantDraftListing({
     connectionId: connection.id,

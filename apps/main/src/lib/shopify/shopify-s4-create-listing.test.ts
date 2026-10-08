@@ -712,4 +712,145 @@ describe("shopify CREATE_LISTING provider", () => {
     expect(createShopifyListingMapping).not.toHaveBeenCalled();
     expect(ensureShopifyPublishListingJob).not.toHaveBeenCalled();
   });
+
+  it("recovers an existing multi-variant product without productSet", async () => {
+    const customId = shopifyListingExportCustomId("conn-gen-1", "item-1");
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
+      { id: "var-1", priceCents: 1250, sku: "SKU-S", options: { Size: "S" }, memberId: "member-a", storeItemId: "item-1" },
+      { id: "var-2", priceCents: 1250, sku: "SKU-M", options: { Size: "M" }, memberId: "member-a", storeItemId: "item-1" },
+    ] as never);
+    let productSetCalls = 0;
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { operationName?: string };
+      if (body.operationName === "ShopifyListingExportMetafieldLookup") {
+        return metafieldLookupResponse();
+      }
+      if (body.operationName === "ShopifyCreateListingVariantsByCustomId") {
+        return jsonResponse({
+          data: {
+            productByIdentifier: {
+              id: "gid://shopify/Product/9",
+              status: "ACTIVE",
+              listingExportId: { value: customId },
+              variantsCount: { count: 2 },
+              variants: {
+                nodes: [
+                  {
+                    id: "gid://shopify/ProductVariant/8",
+                    selectedOptions: [{ name: "Size", value: "S" }],
+                    inventoryItem: { id: "gid://shopify/InventoryItem/7" },
+                  },
+                  {
+                    id: "gid://shopify/ProductVariant/9",
+                    selectedOptions: [{ name: "Size", value: "M" }],
+                    inventoryItem: { id: "gid://shopify/InventoryItem/8" },
+                  },
+                ],
+                pageInfo: { hasNextPage: false },
+              },
+            },
+          },
+        });
+      }
+      productSetCalls += 1;
+      throw new Error("productSet must not run when the multi-variant product already exists");
+    });
+
+    const result = await handleShopifyCreateListingJob(
+      {
+        ...claim,
+        payload: {
+          storeItemId: "item-1",
+          storeVariantId: "var-1",
+          multiVariant: true,
+          storeVariantIds: ["var-1", "var-2"],
+        },
+      },
+      { fetchImpl }
+    );
+    expect(result).toEqual({ outcome: "SUCCESS" });
+    expect(productSetCalls).toBe(0);
+    expect(createShopifyListingMapping).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        shopifyProductId: "gid://shopify/Product/9",
+        variants: [
+          {
+            storeVariantId: "var-1",
+            shopifyVariantId: "gid://shopify/ProductVariant/8",
+            shopifyInventoryItemId: "gid://shopify/InventoryItem/7",
+          },
+          {
+            storeVariantId: "var-2",
+            shopifyVariantId: "gid://shopify/ProductVariant/9",
+            shopifyInventoryItemId: "gid://shopify/InventoryItem/8",
+          },
+        ],
+      })
+    );
+  });
+
+  it("does not productSet when an existing multi-variant product does not match INW options", async () => {
+    const customId = shopifyListingExportCustomId("conn-gen-1", "item-1");
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
+      { id: "var-1", priceCents: 1250, sku: null, options: { Size: "S" }, memberId: "member-a", storeItemId: "item-1" },
+      { id: "var-2", priceCents: 1250, sku: null, options: { Size: "M" }, memberId: "member-a", storeItemId: "item-1" },
+    ] as never);
+    let productSetCalls = 0;
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { operationName?: string };
+      if (body.operationName === "ShopifyListingExportMetafieldLookup") {
+        return metafieldLookupResponse();
+      }
+      if (body.operationName === "ShopifyCreateListingVariantsByCustomId") {
+        return jsonResponse({
+          data: {
+            productByIdentifier: {
+              id: "gid://shopify/Product/9",
+              status: "ACTIVE",
+              listingExportId: { value: customId },
+              variantsCount: { count: 2 },
+              variants: {
+                nodes: [
+                  {
+                    id: "gid://shopify/ProductVariant/8",
+                    selectedOptions: [{ name: "Color", value: "Red" }],
+                    inventoryItem: { id: "gid://shopify/InventoryItem/7" },
+                  },
+                  {
+                    id: "gid://shopify/ProductVariant/9",
+                    selectedOptions: [{ name: "Color", value: "Blue" }],
+                    inventoryItem: { id: "gid://shopify/InventoryItem/8" },
+                  },
+                ],
+                pageInfo: { hasNextPage: false },
+              },
+            },
+          },
+        });
+      }
+      productSetCalls += 1;
+      return productSetSuccess();
+    });
+
+    const result = await handleShopifyCreateListingJob(
+      {
+        ...claim,
+        payload: {
+          storeItemId: "item-1",
+          storeVariantId: "var-1",
+          multiVariant: true,
+          storeVariantIds: ["var-1", "var-2"],
+        },
+      },
+      { fetchImpl }
+    );
+    expect(result).toMatchObject({
+      outcome: "DEAD",
+      errorClass: "RECOVERY_CONFLICT",
+      errorCode: "OPTION_CORRELATION_FAILED",
+    });
+    expect(productSetCalls).toBe(0);
+    expect(createShopifyListingMapping).not.toHaveBeenCalled();
+  });
 });

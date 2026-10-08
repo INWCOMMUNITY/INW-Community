@@ -32,6 +32,8 @@ async function readRemoteListingObservation(input: {
   connectionId: string;
   productId: string;
   variantId: string;
+  /** Every mapped ProductVariant GID. Health pauses only when none of these remain. */
+  mappedVariantIds?: string[];
   inventoryItemId: string;
   locationId: string | null;
   fetchImpl?: ShopifyFetch;
@@ -143,7 +145,13 @@ async function readRemoteListingObservation(input: {
 
   const product = result.data?.product ?? null;
   const nodes = product?.variants?.nodes ?? [];
-  const mapped = nodes.find((row) => row.id === input.variantId) ?? null;
+  const mappedIds = input.mappedVariantIds?.length
+    ? input.mappedVariantIds
+    : [input.variantId];
+  const presentNodes = nodes.filter((row) => mappedIds.includes(row.id));
+  const observingPreferred = presentNodes.some((row) => row.id === input.variantId);
+  const mapped =
+    presentNodes.find((row) => row.id === input.variantId) ?? presentNodes[0] ?? null;
   const inv = result.data?.inventoryItem ?? null;
   const available =
     inv?.inventoryLevel?.quantities?.find((row) => row.name === "available")?.quantity ?? null;
@@ -154,13 +162,21 @@ async function readRemoteListingObservation(input: {
       productExists: Boolean(product),
       productStatus: product?.status ?? null,
       variantCount: nodes.length,
-      mappedVariantPresent: Boolean(mapped),
-      inventoryItemMatches: Boolean(
-        mapped?.inventoryItem?.id === input.inventoryItemId || inv?.id === input.inventoryItemId
-      ),
-      inventoryTracked: inv?.tracked ?? mapped?.inventoryItem?.tracked ?? null,
-      inventoryLevelExists: input.locationId ? Boolean(inv?.inventoryLevel) : null,
-      remoteAvailable: typeof available === "number" ? available : null,
+      mappedVariantPresent: presentNodes.length > 0,
+      presentMappedVariantCount: presentNodes.length,
+      inventoryItemMatches: observingPreferred
+        ? Boolean(
+            mapped?.inventoryItem?.id === input.inventoryItemId ||
+              inv?.id === input.inventoryItemId
+          )
+        : Boolean(mapped?.inventoryItem?.id),
+      inventoryTracked: observingPreferred
+        ? inv?.tracked ?? mapped?.inventoryItem?.tracked ?? null
+        : mapped?.inventoryItem?.tracked ?? null,
+      inventoryLevelExists:
+        observingPreferred && input.locationId ? Boolean(inv?.inventoryLevel) : null,
+      remoteAvailable:
+        observingPreferred && typeof available === "number" ? available : null,
       remoteProductFingerprint: product
         ? shopifyProductContentFingerprint({
             title: product.title,
@@ -408,6 +424,7 @@ export async function handleShopifyReconcileListingJob(
     connectionId: connection.id,
     productId: listing.shopifyProductId,
     variantId: variantMap.shopifyVariantId,
+    mappedVariantIds: refreshedMaps.map((row) => row.shopifyVariantId),
     inventoryItemId: variantMap.shopifyInventoryItemId,
     locationId: connection.primaryLocationId,
     fetchImpl: opts?.fetchImpl,

@@ -20,7 +20,14 @@ export type ShopifyListingRemoteObservation = {
   variantCount: number;
   /** Count of current-generation ShopifyVariantMap rows for this listing. */
   mappedVariantCount?: number;
+  /**
+   * Mapped GIDs still present on the Shopify product.
+   * For multi-variant listings this is true when at least one mapped variant remains.
+   * Content updates pause only when every mapped variant is gone.
+   */
   mappedVariantPresent: boolean;
+  /** How many of the mapped GIDs were found. Omit on legacy single-variant observations. */
+  presentMappedVariantCount?: number;
   inventoryItemMatches: boolean;
   inventoryTracked: boolean | null;
   inventoryLevelExists: boolean | null;
@@ -189,7 +196,11 @@ export function classifyShopifyListingHealth(
     );
   }
 
-  if (remote && !remote.mappedVariantPresent) {
+  const presentMapped = remote?.presentMappedVariantCount;
+  const anyMappedVariantRemains =
+    remote?.mappedVariantPresent === true ||
+    (typeof presentMapped === "number" && presentMapped > 0);
+  if (remote && !anyMappedVariantRemains) {
     return issue(
       "REMOTE_VARIANT_MISSING",
       "The mapped Shopify variant can no longer be found. Automatic content updates are paused.",

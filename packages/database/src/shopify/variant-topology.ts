@@ -58,6 +58,22 @@ export function isShopifyDefaultTitleOnly(
   );
 }
 
+function axisNameKey(name: string): string {
+  return normalizeOptionName(name).toLowerCase();
+}
+
+/**
+ * Real option axes for coverage checks. Drops Shopify's synthetic Title axis when
+ * the variant also has seller-defined options, and compares names case-insensitively.
+ */
+function realAxisNameKeys(
+  selectedOptions: Array<{ name: string; value: string }>
+): Set<string> {
+  const keys = selectedOptions.map((row) => axisNameKey(row.name)).filter(Boolean);
+  const withoutTitle = keys.filter((key) => key !== "title");
+  return new Set(withoutTitle.length > 0 ? withoutTitle : keys);
+}
+
 /** Options map for StoreVariant — collapse Shopify default title to `{}`. */
 export function shopifySelectedOptionsToInwOptions(
   selectedOptions: Array<{ name: string; value: string }>
@@ -368,7 +384,9 @@ export function planShopifyTopologyDiff(input: {
   // Same GID option drift:
   // - Pull REMOTE when Shopify covers/expands local axes (rename, simple→multi, Color→Color+Size).
   // - Keep LOCAL when INW is a strict axis superset (outbound expansion; do not clobber).
-  // - Conflict only when axes are incompatible (neither covers the other).
+  // - When axes are disjoint but both sides stay within Shopify's 3-option ceiling,
+  //   adopt the remote axes so a 1–3 variant listing keeps syncing.
+  // - Conflict only when the remote variant exceeds that ceiling.
   const renameOptionValues: Array<{
     shopifyVariantId: string;
     storeVariantId: string;
@@ -385,23 +403,34 @@ export function planShopifyTopologyDiff(input: {
     const remoteKey = shopifyOptionCombinationKey(rem.selectedOptions);
     if (localKey === remoteKey) continue;
 
-    const localNames = new Set(
-      row.selectedOptions.map((o) => normalizeOptionName(o.name)).filter(Boolean)
-    );
-    const remoteNames = new Set(
-      rem.selectedOptions.map((o) => normalizeOptionName(o.name)).filter(Boolean)
-    );
+    const localNames = realAxisNameKeys(row.selectedOptions);
+    const remoteNames = realAxisNameKeys(rem.selectedOptions);
     const remoteCoversLocal =
       localSimple || [...localNames].every((n) => remoteNames.has(n));
     const localCoversRemote =
       remoteSimple || [...remoteNames].every((n) => localNames.has(n));
 
     if (!remoteCoversLocal && !localCoversRemote) {
-      return {
-        kind: "CONFLICT",
-        code: "TOPOLOGY_AXIS_CONFLICT",
-        message: `Mapped variant ${row.shopifyVariantId} changed option axes incompatibly`,
-      };
+      const hostable =
+        remoteNames.size >= 1 &&
+        remoteNames.size <= SHOPIFY_MAX_OPTION_DIMENSIONS &&
+        localNames.size <= SHOPIFY_MAX_OPTION_DIMENSIONS;
+      if (!hostable) {
+        return {
+          kind: "CONFLICT",
+          code: "TOPOLOGY_AXIS_CONFLICT",
+          message: `Mapped variant ${row.shopifyVariantId} changed option axes incompatibly`,
+        };
+      }
+      renameOptionValues.push({
+        shopifyVariantId: row.shopifyVariantId!,
+        storeVariantId: row.storeVariantId,
+        optionValues: rem.selectedOptions.map((o) => ({
+          optionName: o.name,
+          name: o.value,
+        })),
+      });
+      continue;
     }
 
     // Local expanded beyond remote on this GID — leave StoreVariant options for outbound path.

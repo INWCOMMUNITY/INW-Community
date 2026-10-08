@@ -2,6 +2,7 @@ import {
   assertShopifyInventoryItemGid,
   assertShopifyProductGid,
   assertShopifyProductVariantGid,
+  SHOPIFY_MAX_VARIANTS,
   ShopifyGidValidationError,
 } from "database";
 import type { ShopifyFetch } from "./admin-graphql";
@@ -186,6 +187,193 @@ export async function lookupShopifyListingProductByCustomId(input: {
         variantId: assertShopifyProductVariantGid(nodes[0].id),
         inventoryItemId: assertShopifyInventoryItemGid(nodes[0].inventoryItem.id),
         status: recoveredStatus,
+      },
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      class: "DEAD",
+      errorClass: "RECOVERY_CONFLICT",
+      errorCode: error instanceof ShopifyGidValidationError ? "INVALID_SHOPIFY_GID" : "RECOVERY_IDENTITY",
+      errorMessage: error instanceof Error ? error.message : "Invalid recovered Shopify GIDs",
+      customId,
+    };
+  }
+}
+
+export type ShopifyRecoveredListingVariant = {
+  variantId: string;
+  inventoryItemId: string;
+  selectedOptions: Array<{ name: string; value: string }>;
+};
+
+export type ShopifyListingVariantsLookupSuccess = {
+  ok: true;
+  customId: string;
+  product: null | {
+    productId: string;
+    status: string;
+    variants: ShopifyRecoveredListingVariant[];
+  };
+};
+
+const PRODUCT_VARIANTS_BY_CUSTOM_ID_QUERY = `query ShopifyCreateListingVariantsByCustomId(
+  $identifier: ProductIdentifierInput!
+  $namespace: String!
+  $key: String!
+) {
+  productByIdentifier(identifier: $identifier) {
+    id
+    status
+    listingExportId: metafield(namespace: $namespace, key: $key) { value }
+    variantsCount { count }
+    variants(first: ${SHOPIFY_MAX_VARIANTS}) {
+      nodes {
+        id
+        selectedOptions { name value }
+        inventoryItem { id }
+      }
+      pageInfo { hasNextPage }
+    }
+  }
+}`;
+
+/**
+ * Read every variant on an existing export. Used by multi-variant create so a
+ * retry can attach mappings without calling productSet (which sends status DRAFT).
+ */
+export async function lookupShopifyListingVariantsByCustomId(input: {
+  connectionId: string;
+  storeItemId: string;
+  fetchImpl?: ShopifyFetch;
+  now?: Date;
+}): Promise<ShopifyListingVariantsLookupSuccess | ShopifyListingProductLookupFailure> {
+  const customId = shopifyListingExportCustomId(input.connectionId, input.storeItemId);
+  const result = await executeShopifyAdminGraphql<{
+    productByIdentifier: {
+      id: string;
+      status: string;
+      listingExportId: { value: string } | null;
+      variantsCount: { count: number } | null;
+      variants: {
+        nodes: Array<{
+          id: string;
+          selectedOptions: Array<{ name: string; value: string }> | null;
+          inventoryItem: { id: string } | null;
+        }>;
+        pageInfo: { hasNextPage: boolean };
+      };
+    } | null;
+  }>({
+    connectionId: input.connectionId,
+    operationType: "query",
+    operationName: "ShopifyCreateListingVariantsByCustomId",
+    document: PRODUCT_VARIANTS_BY_CUSTOM_ID_QUERY,
+    variables: {
+      identifier: {
+        customId: {
+          namespace: SHOPIFY_LISTING_EXPORT_METAFIELD_NAMESPACE,
+          key: SHOPIFY_LISTING_EXPORT_METAFIELD_KEY,
+          value: customId,
+        },
+      },
+      namespace: SHOPIFY_LISTING_EXPORT_METAFIELD_NAMESPACE,
+      key: SHOPIFY_LISTING_EXPORT_METAFIELD_KEY,
+    },
+    fetchImpl: input.fetchImpl,
+    now: input.now,
+  });
+
+  if (!result.ok) {
+    if (
+      result.class === "THROTTLED" ||
+      result.class === "TRANSIENT_PROVIDER" ||
+      result.class === "NETWORK_UNKNOWN"
+    ) {
+      return {
+        ok: false,
+        class: "RETRY",
+        errorClass: result.class,
+        errorCode: "PRODUCT_LOOKUP",
+        errorMessage: result.message,
+        customId,
+      };
+    }
+    return {
+      ok: false,
+      class: "DEAD",
+      errorClass: result.class,
+      errorCode: "PRODUCT_LOOKUP",
+      errorMessage: result.message,
+      customId,
+    };
+  }
+
+  const product = result.data?.productByIdentifier ?? null;
+  if (!product) {
+    return { ok: true, customId, product: null };
+  }
+
+  const recoveredStatus = String(product.status).toUpperCase();
+  if (recoveredStatus !== "ACTIVE" && recoveredStatus !== "DRAFT") {
+    return {
+      ok: false,
+      class: "DEAD",
+      errorClass: "RECOVERY_CONFLICT",
+      errorCode: "RECOVERY_BAD_STATUS",
+      errorMessage: `Recovered Shopify product status is ${recoveredStatus}`,
+      customId,
+    };
+  }
+
+  const metafieldValue = product.listingExportId?.value ?? "";
+  if (metafieldValue !== customId) {
+    return {
+      ok: false,
+      class: "DEAD",
+      errorClass: "RECOVERY_CONFLICT",
+      errorCode: "RECOVERY_CUSTOM_ID_MISMATCH",
+      errorMessage: "Recovered Shopify product custom ID does not match expected export identity",
+      customId,
+    };
+  }
+
+  const nodes = product.variants?.nodes ?? [];
+  const variantCount =
+    typeof product.variantsCount?.count === "number" ? product.variantsCount.count : nodes.length;
+  const hasMore = Boolean(product.variants?.pageInfo?.hasNextPage);
+  if (variantCount < 1 || variantCount > SHOPIFY_MAX_VARIANTS || hasMore || nodes.length !== variantCount) {
+    return {
+      ok: false,
+      class: "DEAD",
+      errorClass: "RECOVERY_CONFLICT",
+      errorCode: "RECOVERY_VARIANT_CARDINALITY",
+      errorMessage: `Recovered Shopify product has ${variantCount} variants; expected a complete 1–${SHOPIFY_MAX_VARIANTS} set`,
+      customId,
+    };
+  }
+
+  try {
+    const variants = nodes.map((node) => {
+      if (!node.inventoryItem?.id) {
+        throw new Error("Recovered Shopify variant is missing InventoryItem identity");
+      }
+      return {
+        variantId: assertShopifyProductVariantGid(node.id),
+        inventoryItemId: assertShopifyInventoryItemGid(node.inventoryItem.id),
+        selectedOptions: (node.selectedOptions ?? []).map((option) => ({
+          name: option.name,
+          value: option.value,
+        })),
+      };
+    });
+    return {
+      ok: true,
+      customId,
+      product: {
+        productId: assertShopifyProductGid(product.id),
+        status: recoveredStatus,
+        variants,
       },
     };
   } catch (error) {
