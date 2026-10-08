@@ -17,9 +17,11 @@ import { readWixAppConfig, type WixAppConfig } from "./config";
 import { accessTokenForWixConnection } from "./connect";
 import { wixApplicationRequest, type WixApiResult } from "./client";
 import {
+  WIX_V1_PRODUCT_GET,
   WIX_V2_INVENTORY_ITEMS,
   WIX_V2_INVENTORY_PATCH,
   WIX_V3_INVENTORY,
+  WIX_V3_PRODUCTS,
   WIX_CATALOG_V1,
 } from "./constants";
 
@@ -136,6 +138,7 @@ export async function handleWixProjectInventoryJob(
 
   const updates: Array<{
     mapId: string;
+    storeVariantId: string;
     wixVariantId: string;
     quantity: number;
     desiredVersion: number;
@@ -155,6 +158,7 @@ export async function handleWixProjectInventoryJob(
     if (available == null || !Number.isFinite(available)) continue;
     updates.push({
       mapId: map.id,
+      storeVariantId: map.storeVariantId,
       wixVariantId: map.wixVariantId,
       quantity: Math.max(0, Math.trunc(available)),
       desiredVersion: map.desiredVersion,
@@ -184,25 +188,35 @@ export async function handleWixProjectInventoryJob(
   }
 
   const isV1 = connection.catalogVersion === WIX_CATALOG_V1;
+  const liveUpdates = await resolveLiveWixVariantIds({
+    config,
+    accessToken,
+    productId: link.wixProductId,
+    isV1,
+    updates,
+  });
   const pushed = isV1
     ? await pushV1Inventory({
         config,
         accessToken,
         productId: link.wixProductId,
-        updates,
+        updates: liveUpdates,
       })
     : await pushV3Inventory({
         config,
         accessToken,
-        updates,
+        updates: liveUpdates,
       });
 
   if ("retry" in pushed) {
     if (pushed.retry.outcome === "RETRY") {
       const code = pushed.retry.errorCode;
+      const message = (pushed.retry.errorMessage ?? "").toLowerCase();
+      const staleVariant = message.includes("variantid") || message.includes("option changed");
       const unreadStillRetrying =
-        code === "INVENTORY_UNREADABLE" && claim.attemptCount < Math.min(3, claim.maxAttempts);
-      if (code === "INVENTORY_MISMATCH") {
+        (code === "INVENTORY_UNREADABLE" || staleVariant) &&
+        claim.attemptCount < Math.min(3, claim.maxAttempts);
+      if (code === "INVENTORY_MISMATCH" && !unreadStillRetrying) {
         await noteInventoryAttention(
           link.id,
           pushed.retry.errorMessage || "Wix quantities did not update."
@@ -218,7 +232,7 @@ export async function handleWixProjectInventoryJob(
   }
 
   const mismatches: string[] = [];
-  for (const update of updates) {
+  for (const update of liveUpdates) {
     const remoteQty = pushed.quantities.get(normalizeId(update.wixVariantId));
     if (remoteQty == null || remoteQty !== update.quantity) {
       mismatches.push(update.wixVariantId);
@@ -586,24 +600,23 @@ async function pushV1Inventory(input: {
     ? before.snapshot
     : { trackQuantity: true, variants: [] };
 
-  const nextVariants = mergeQuantities(snapshot.variants, input.updates);
-  if (!nextVariants) {
-    return {
-      retry: {
-        outcome: "RETRY",
-        errorClass: "TRANSIENT",
-        errorCode: "INVENTORY_MISMATCH",
-        errorMessage: "Wix inventory is missing a mapped variant",
-      },
-    };
-  }
-
-  const patch = await patchV1Inventory({
-    ...input,
-    snapshot,
-    variants: nextVariants,
+  const patch = await updateV1VariantQuantities({
+    config: input.config,
+    accessToken: input.accessToken,
+    productId: input.productId,
+    updates: input.updates,
   });
-  if (!patch.ok) return { retry: transportFailure(patch) };
+  if (!patch.ok && staleVariantIdFailure(patch)) return { retry: transportFailure(patch) };
+  if (!patch.ok) {
+    const nextVariants = mergeQuantities(snapshot.variants, input.updates);
+    if (!nextVariants) return { retry: transportFailure(patch) };
+    const fallback = await patchV1Inventory({
+      ...input,
+      snapshot,
+      variants: nextVariants,
+    });
+    if (!fallback.ok) return { retry: transportFailure(fallback) };
+  }
 
   const after = await readWixV1Inventory(input);
   if (!after.ok) {
@@ -721,6 +734,96 @@ export async function readWixV1Inventory(input: {
       errorMessage: "Wix inventory response did not include variants",
     },
   };
+}
+
+async function resolveLiveWixVariantIds<T extends { mapId: string; storeVariantId: string; wixVariantId: string }>(input: {
+  config: WixAppConfig;
+  accessToken: string;
+  productId: string;
+  isV1: boolean;
+  updates: T[];
+}): Promise<T[]> {
+  const optionsByVariant = await storeOptionsByVariant(input.updates.map((row) => row.storeVariantId));
+  const catalog = await loadWixCatalogVariants({
+    isV1: input.isV1,
+    productId: input.productId,
+    fallback: [],
+    config: input.config,
+    accessToken: input.accessToken,
+  });
+  let variants = catalog.ok ? catalog.variants : [];
+  if (variants.length === 0) {
+    const product = await wixApplicationRequest<{
+      product?: { variants?: unknown[]; variantsInfo?: { variants?: unknown[] } };
+    }>({
+      method: "GET",
+      path: `${input.isV1 ? WIX_V1_PRODUCT_GET : WIX_V3_PRODUCTS}/${input.productId}`,
+      query: input.isV1 ? undefined : { fields: "VARIANT_OPTION_CHOICE_NAMES" },
+      deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
+    });
+    const raw = product.ok
+      ? (product.data?.product?.variants ?? product.data?.product?.variantsInfo?.variants ?? [])
+      : [];
+    variants = raw.map((row) => {
+      const record = asRecord(row);
+      return {
+        id: typeof record?.id === "string" ? record.id : undefined,
+        choices: record?.choices,
+      };
+    });
+  }
+
+  const byChoice = new Map<string, string>();
+  const liveIds = new Set<string>();
+  for (const variant of variants) {
+    if (!variant.id) continue;
+    liveIds.add(normalizeId(variant.id));
+    const key = optionValuesKey(choiceRecord(variant.choices));
+    if (key) byChoice.set(key, variant.id);
+  }
+
+  const resolved: T[] = [];
+  for (const update of input.updates) {
+    const choiceKey = optionValuesKey(choiceRecord(optionsByVariant.get(update.storeVariantId)));
+    const fromChoice = choiceKey ? byChoice.get(choiceKey) : undefined;
+    const stillLive = liveIds.has(normalizeId(update.wixVariantId)) ? update.wixVariantId : undefined;
+    const only =
+      input.updates.length === 1 && variants.length === 1 ? variants[0]?.id : undefined;
+    const nextId = fromChoice || stillLive || only || update.wixVariantId;
+    if (normalizeId(nextId) !== normalizeId(update.wixVariantId)) {
+      await rememberWixVariantId(update.mapId, nextId, undefined);
+    }
+    resolved.push({ ...update, wixVariantId: nextId });
+  }
+  return resolved;
+}
+
+function staleVariantIdFailure(result: WixApiResult): boolean {
+  const message = result.message.toLowerCase();
+  return message.includes("variantid") || message.includes("option changed");
+}
+
+async function updateV1VariantQuantities(input: {
+  config: WixAppConfig;
+  accessToken: string;
+  productId: string;
+  updates: Array<{ wixVariantId: string; quantity: number }>;
+}): Promise<WixApiResult> {
+  return wixApplicationRequest({
+    method: "POST",
+    path: `${WIX_V2_INVENTORY_PATCH}/${input.productId}/updateVariants`,
+    body: JSON.stringify({
+      inventoryItem: {
+        trackQuantity: true,
+        variants: input.updates.map((row) => ({
+          variantId: row.wixVariantId,
+          quantity: row.quantity,
+          inStock: row.quantity > 0,
+        })),
+      },
+    }),
+    deps: { config: input.config, accessToken: input.accessToken, maxAttempts: 1 },
+  });
 }
 
 async function patchV1Inventory(input: {
