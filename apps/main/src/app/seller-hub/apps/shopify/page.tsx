@@ -19,7 +19,6 @@ import {
   shopifyConnectionStatusLabel,
   shopifyListingStatusChipClass,
   shopifyListingSellerNote,
-  shopifyListingIssueSellerDetail,
   shopifyListingUiStatus,
   shopifyRemountSellerCopy,
   type ShopifyListingUiStatus,
@@ -302,9 +301,11 @@ export default function AppsAirportShopifyPage() {
           mobileList={filtered.slice(0, 20).map(({ row, status }) => {
             const issue =
               status !== "Live"
-                ? shopifyListingIssueSellerDetail({
+                ? shopifyListingSellerNote({
+                    status,
                     issueCode: row.issueCode,
                     issueMessage: row.issueMessage,
+                    remoteProductStatus: row.remoteProductStatus,
                   })
                 : null;
             const qty = (
