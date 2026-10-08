@@ -16,6 +16,7 @@ vi.mock("database", async () => {
     lookupShopifyListingByStoreItem: vi.fn(),
     createShopifyListingMapping: vi.fn(),
     enqueueShopifySyncJob: vi.fn(),
+    reopenShopifySyncJob: vi.fn(),
     ensureShopifyPublishListingJob: vi.fn(),
   };
 });
@@ -37,6 +38,8 @@ import {
   ensureShopifyPublishListingJob,
   lookupShopifyListingByStoreItem,
   prisma,
+  reopenShopifySyncJob,
+  ShopifySyncJobConflictError,
 } from "database";
 import {
   enqueueShopifyCreateListing,
@@ -99,6 +102,7 @@ describe("shopify CREATE_LISTING enqueue gates", () => {
     vi.mocked(prisma.storeVariant.findMany).mockReset();
     vi.mocked(lookupShopifyListingByStoreItem).mockReset();
     vi.mocked(enqueueShopifySyncJob).mockReset();
+    vi.mocked(reopenShopifySyncJob).mockReset();
     vi.mocked(prisma.shopifySyncJob.updateMany).mockReset();
   });
 
@@ -169,7 +173,10 @@ describe("shopify CREATE_LISTING enqueue gates", () => {
       payload: { storeItemId: "item-1", storeVariantId: "var-1" },
       lastErrorCode: "METAFIELD_MISMATCH",
     } as never);
-    vi.mocked(prisma.shopifySyncJob.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(reopenShopifySyncJob).mockResolvedValue({
+      id: "job-dead",
+      state: "PENDING",
+    } as never);
 
     const result = await enqueueShopifyCreateListing({
       memberId: "member-a",
@@ -181,14 +188,70 @@ describe("shopify CREATE_LISTING enqueue gates", () => {
       storeItemId: "item-1",
       jobId: "job-dead",
     });
-    expect(prisma.shopifySyncJob.updateMany).toHaveBeenCalledWith({
-      where: { id: "job-dead", state: "DEAD" },
-      data: expect.objectContaining({
-        state: "PENDING",
-        attemptCount: 0,
-        completedAt: null,
-        lastErrorCode: null,
-      }),
+    expect(reopenShopifySyncJob).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        kind: "CREATE_LISTING",
+        dedupeKey: "CREATE_LISTING:conn-gen-1:item-1",
+        payload: { storeItemId: "item-1", storeVariantId: "var-1" },
+      })
+    );
+  });
+
+  it("requeues a finished CREATE_LISTING job when the seller lists again", async () => {
+    vi.mocked(prisma.shopifyConnection.findFirst).mockResolvedValue(connection as never);
+    vi.mocked(prisma.storeItem.findFirst).mockResolvedValue({
+      id: "item-1",
+      memberId: "member-a",
+      status: "active",
+      title: "Mug",
+    } as never);
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
+      { id: "var-1", options: {}, priceCents: 1000 },
+    ] as never);
+    vi.mocked(lookupShopifyListingByStoreItem).mockResolvedValue({ status: "UNMAPPED" });
+    vi.mocked(enqueueShopifySyncJob).mockRejectedValue(new ShopifySyncJobConflictError());
+    vi.mocked(reopenShopifySyncJob).mockResolvedValue({
+      id: "job-relist",
+      state: "PENDING",
+    } as never);
+
+    const result = await enqueueShopifyCreateListing({
+      memberId: "member-a",
+      storeItemId: "item-1",
+    });
+    expect(result).toEqual({
+      status: "QUEUED",
+      connectionId: "conn-gen-1",
+      storeItemId: "item-1",
+      jobId: "job-relist",
+    });
+    expect(reopenShopifySyncJob).toHaveBeenCalled();
+  });
+
+  it("keeps the conflict when a CREATE_LISTING job is still running", async () => {
+    vi.mocked(prisma.shopifyConnection.findFirst).mockResolvedValue(connection as never);
+    vi.mocked(prisma.storeItem.findFirst).mockResolvedValue({
+      id: "item-1",
+      memberId: "member-a",
+      status: "active",
+      title: "Mug",
+    } as never);
+    vi.mocked(prisma.storeVariant.findMany).mockResolvedValue([
+      { id: "var-1", options: {}, priceCents: 1000 },
+    ] as never);
+    vi.mocked(lookupShopifyListingByStoreItem).mockResolvedValue({ status: "UNMAPPED" });
+    vi.mocked(enqueueShopifySyncJob).mockRejectedValue(new ShopifySyncJobConflictError());
+    vi.mocked(reopenShopifySyncJob).mockRejectedValue(new ShopifySyncJobConflictError());
+
+    const result = await enqueueShopifyCreateListing({
+      memberId: "member-a",
+      storeItemId: "item-1",
+    });
+    expect(result).toMatchObject({
+      status: "ERROR",
+      code: "CONFLICT",
+      message: "A conflicting Shopify listing job already exists",
     });
   });
 

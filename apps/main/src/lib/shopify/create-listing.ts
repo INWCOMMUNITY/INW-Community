@@ -4,6 +4,7 @@ import {
   enqueueShopifySyncJob,
   lookupShopifyListingByStoreItem,
   prisma,
+  reopenShopifySyncJob,
   SHOPIFY_MAX_OPTION_DIMENSIONS,
   SHOPIFY_MAX_VARIANTS,
   ShopifyMappingConflictError,
@@ -184,42 +185,24 @@ export async function enqueueShopifyCreateListing(input: {
   }
 
   const isMulti = variants.length > 1;
+  const jobInput = {
+    shopifyConnectionId: connection.id,
+    kind: "CREATE_LISTING" as const,
+    dedupeKey: shopifyCreateListingDedupeKey(connection.id, storeItem.id),
+    payload: {
+      storeItemId: storeItem.id,
+      storeVariantId: variants[0].id,
+      ...(isMulti
+        ? { multiVariant: true, storeVariantIds: variants.map((v) => v.id) }
+        : {}),
+    },
+  };
   try {
-    const job = await enqueueShopifySyncJob(prisma, {
-      shopifyConnectionId: connection.id,
-      kind: "CREATE_LISTING",
-      dedupeKey: shopifyCreateListingDedupeKey(connection.id, storeItem.id),
-      payload: {
-        storeItemId: storeItem.id,
-        storeVariantId: variants[0].id,
-        ...(isMulti
-          ? { multiVariant: true, storeVariantIds: variants.map((v) => v.id) }
-          : {}),
-      },
-    });
-    if (job.state === "DEAD") {
-      const revived = await prisma.shopifySyncJob.updateMany({
-        where: { id: job.id, state: "DEAD" },
-        data: {
-          state: "PENDING",
-          attemptCount: 0,
-          nextAttemptAt: new Date(),
-          completedAt: null,
-          leaseOwner: null,
-          leaseToken: null,
-          leaseExpiresAt: null,
-          lastErrorClass: null,
-          lastErrorCode: null,
-          lastErrorMessage: null,
-        },
-      });
-      if (revived.count !== 1) {
-        return {
-          status: "ERROR",
-          code: "CONFLICT",
-          message: "A conflicting Shopify listing job already exists",
-        };
-      }
+    let job = await enqueueShopifySyncJob(prisma, jobInput);
+    // A finished create (or a leftover job whose payload changed after delete)
+    // must run again. A live lease still conflicts.
+    if (job.state === "SUCCEEDED" || job.state === "DEAD") {
+      job = await reopenShopifySyncJob(prisma, jobInput);
     }
     return {
       status: "QUEUED",
@@ -228,14 +211,25 @@ export async function enqueueShopifyCreateListing(input: {
       jobId: job.id,
     };
   } catch (error) {
-    if (error instanceof ShopifySyncJobConflictError) {
+    if (!(error instanceof ShopifySyncJobConflictError)) throw error;
+    try {
+      const job = await reopenShopifySyncJob(prisma, jobInput);
       return {
-        status: "ERROR",
-        code: "CONFLICT",
-        message: "A conflicting Shopify listing job already exists",
+        status: "QUEUED",
+        connectionId: connection.id,
+        storeItemId: storeItem.id,
+        jobId: job.id,
       };
+    } catch (reopenError) {
+      if (reopenError instanceof ShopifySyncJobConflictError) {
+        return {
+          status: "ERROR",
+          code: "CONFLICT",
+          message: "A conflicting Shopify listing job already exists",
+        };
+      }
+      throw reopenError;
     }
-    throw error;
   }
 }
 
