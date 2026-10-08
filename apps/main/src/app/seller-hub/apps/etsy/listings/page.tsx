@@ -87,6 +87,7 @@ export default function AppsAirportEtsyListingsPage() {
         },
       ]}
       settingsHref={hub.settingsPath}
+      settingsLabel="Settings"
     >
       {error ? <p className="mb-4 text-sm text-neutral-800">{error}</p> : null}
       {toast ? (

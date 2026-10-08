@@ -3,7 +3,7 @@
  *
  * eBay is the most restrictive channel for several fields, so we enforce its caps everywhere
  * (API zod, the mobile + web forms, and the eBay mapper) from this single source of truth.
- * Etsy (title 140) and Wix (title 80) are still satisfied because 80 is the floor.
+ * Etsy (title 140) is still satisfied because 80 is the floor.
  *
  * eBay aspect limits per the Taxonomy API / GeteBayDetails:
  *   - aspect name  <= 40 chars

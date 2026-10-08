@@ -35,13 +35,12 @@ import {
 } from "@/lib/storefront-browse-data";
 import { shopifyListingUiStatus } from "@/lib/shopify/apps-airport";
 import { etsyListingUiStatus } from "@/lib/etsy/apps-airport";
-import { wixListingUiStatus } from "@/lib/wix/apps-airport";
 import { formatCartVariantLabel } from "@/lib/cart-line-identity";
 
 /** Ensure storefront listing is always fresh so newly listed items appear immediately. */
 export const dynamic = "force-dynamic";
 
-type MineListingChannel = "inw" | "shopify" | "etsy" | "wix";
+type MineListingChannel = "inw" | "shopify" | "etsy";
 
 async function loadMineListingChannels(
   userId: string,
@@ -59,18 +58,13 @@ async function loadMineListingChannels(
   }
 
   const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const [activeShopify, activeEtsy, activeWix, viewGroups] = await Promise.all([
+  const [activeShopify, activeEtsy, viewGroups] = await Promise.all([
     prisma.shopifyConnection.findFirst({
       where: { memberId: userId, status: "ACTIVE" },
       orderBy: { connectedAt: "desc" },
       select: { id: true },
     }),
     prisma.etsyConnection.findFirst({
-      where: { memberId: userId, status: "ACTIVE" },
-      orderBy: { connectedAt: "desc" },
-      select: { id: true },
-    }),
-    prisma.wixConnection.findFirst({
       where: { memberId: userId, status: "ACTIVE" },
       orderBy: { connectedAt: "desc" },
       select: { id: true },
@@ -146,39 +140,6 @@ async function loadMineListingChannels(
       if (ui !== "Live") continue;
       const channels = channelsByItemId.get(link.storeItemId) ?? ["inw"];
       if (!channels.includes("etsy")) channels.push("etsy");
-      channelsByItemId.set(link.storeItemId, channels);
-    }
-  }
-
-  if (activeWix) {
-    const wixLinks = await prisma.wixListingLink.findMany({
-      where: {
-        storeItemId: { in: itemIds },
-        memberId: userId,
-        wixConnectionId: activeWix.id,
-      },
-      select: {
-        storeItemId: true,
-        readiness: true,
-        contentHealth: true,
-        inventoryHealth: true,
-        issueCode: true,
-        remoteProductVisible: true,
-        storeItem: { select: { status: true } },
-      },
-    });
-    for (const link of wixLinks) {
-      const ui = wixListingUiStatus({
-        readiness: link.readiness,
-        contentHealth: link.contentHealth,
-        inventoryHealth: link.inventoryHealth,
-        issueCode: link.issueCode,
-        storeItemStatus: link.storeItem.status,
-        remoteProductVisible: link.remoteProductVisible,
-      });
-      if (ui !== "Live") continue;
-      const channels = channelsByItemId.get(link.storeItemId) ?? ["inw"];
-      if (!channels.includes("wix")) channels.push("wix");
       channelsByItemId.set(link.storeItemId, channels);
     }
   }
@@ -514,7 +475,6 @@ export async function GET(req: NextRequest) {
         sold,
         drafts,
         attention: 0,
-        wixCheckFailed: false,
       });
     }
 

@@ -42,10 +42,6 @@
     {
       "path": "/api/cron/etsy-sync-jobs",
       "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/wix-sync-jobs",
-      "schedule": "* * * * *"
     }
   ]
 }

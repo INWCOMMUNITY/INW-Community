@@ -110,8 +110,8 @@ export async function fulfillStoreOrdersFromCheckoutSession(
   if (ordersToFulfill.length === 0) {
     // Idempotent re-entry: the Stripe webhook and the app success-return both fulfill the same
     // checkout. Whichever runs second finds the order already `paid` and would otherwise return
-    // without pushing inventory — so if the first pass's channel sync was skipped or failed, Wix
-    // (etc.) stays stale until a manual push. Always retry the inventory push for paid orders.
+    // without pushing inventory — so if the first pass's channel sync was skipped or failed,
+    // connected shops stay stale until a manual push. Always retry the inventory push for paid orders.
     if (session.payment_status === "paid" && toProcess.length > 0) {
       const paidOrders = await prisma.storeOrder.findMany({
         where: { id: { in: toProcess }, status: "paid" },

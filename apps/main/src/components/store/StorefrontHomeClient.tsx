@@ -59,11 +59,13 @@ export function StorefrontHomeClient({
         </div>
       </section>
 
-      <section className="bg-[#f6f1eb] py-10">
-        <div className="max-w-[var(--max-width)] mx-auto px-4">
-          <FeaturedCarousel initialItems={featured} />
-        </div>
-      </section>
+      {featured.length > 0 ? (
+        <section className="bg-[#f6f1eb] py-10">
+          <div className="max-w-[var(--max-width)] mx-auto px-4">
+            <FeaturedCarousel initialItems={featured} />
+          </div>
+        </section>
+      ) : null}
 
       <section className="py-10 pb-16">
         <StorefrontGallery

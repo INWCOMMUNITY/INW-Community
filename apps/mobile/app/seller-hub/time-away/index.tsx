@@ -124,7 +124,7 @@ export default function TimeAwayScreen() {
         hidden from buyers until the end date.
       </Text>
       <Text style={styles.note}>
-        INW does not sync Time Away with eBay, Etsy, Wix, or other shops. You&apos;ll need to set vacation or away mode on
+        INW does not sync Time Away with eBay, Etsy, or other shops. You&apos;ll need to set vacation or away mode on
         those sites separately.
       </Text>
 

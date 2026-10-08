@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "database";
 import { getSessionForApi } from "@/lib/mobile-auth";
 import { deactivateActiveListingsIfMemberLacksConnect } from "@/lib/store-listing-stripe-rules";
-import { disconnectStripeAndDisableListings } from "@/lib/stripe-connect-disconnect";
 import { jsonIfCutoverBlocked } from "@/lib/commerce-foundation-cutover-http";
 import { createMarketplaceStripe } from "@/lib/stripe-clients";
+import { retrieveConnectAccountOrHeal } from "@/lib/stripe-connect-account-gone";
 
 export async function GET(req: NextRequest) {
   try {
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
     const member = await prisma.member.findUnique({
       where: { id: userId },
-      select: { stripeConnectAccountId: true },
+      select: { stripeConnectAccountId: true, email: true },
     });
 
     if (!member?.stripeConnectAccountId) {
@@ -35,33 +35,45 @@ export async function GET(req: NextRequest) {
     }
 
     const stripe = createMarketplaceStripe();
+    const result = await retrieveConnectAccountOrHeal({
+      stripe,
+      memberId: userId,
+      email: member.email,
+      accountId: member.stripeConnectAccountId,
+    });
 
-    try {
-      const account = await stripe.accounts.retrieve(member.stripeConnectAccountId);
-      const chargesEnabled = account.charges_enabled ?? false;
+    if (result.ok) {
+      const chargesEnabled = result.account.charges_enabled ?? false;
       return NextResponse.json({
         onboarded: chargesEnabled,
-        accountId: member.stripeConnectAccountId,
+        accountId: result.accountId,
         chargesEnabled,
       });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      const accountGone = /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
-      if (accountGone) {
-        try {
-          await disconnectStripeAndDisableListings(userId);
-        } catch (discErr) {
-          const cutover = jsonIfCutoverBlocked(discErr);
-          if (cutover) return cutover;
-          throw discErr;
-        }
-      }
+    }
+
+    // Transient Stripe errors: keep the stored link so listing is not blocked.
+    if (!result.cleared) {
       return NextResponse.json({
-        onboarded: false,
-        accountId: null,
-        chargesEnabled: false,
+        onboarded: true,
+        accountId: member.stripeConnectAccountId,
+        chargesEnabled: true,
+        statusDegraded: true,
       });
     }
+
+    // Confirmed gone and nothing to reattach — end active listings once.
+    try {
+      await deactivateActiveListingsIfMemberLacksConnect(userId);
+    } catch (e) {
+      const cutover = jsonIfCutoverBlocked(e);
+      if (cutover) return cutover;
+      throw e;
+    }
+    return NextResponse.json({
+      onboarded: false,
+      accountId: null,
+      chargesEnabled: false,
+    });
   } catch (e) {
     const cutover = jsonIfCutoverBlocked(e);
     if (cutover) return cutover;

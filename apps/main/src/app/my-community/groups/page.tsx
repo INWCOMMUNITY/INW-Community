@@ -154,12 +154,12 @@ export default function GroupsPage() {
           </div>
         </div>
       </dialog>
-      <div className="flex items-start justify-between gap-4 mb-6">
-        <h1 className="text-2xl font-bold">Groups</h1>
+      <div className="mb-6 flex flex-col items-center">
+        <h1 className="text-2xl font-bold leading-tight text-center">Community Groups</h1>
         {adminHubHref ? (
           <Link
             href={adminHubHref}
-            className="shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full border-2 border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-section-alt)]"
+            className="mt-3 inline-flex items-center justify-center w-10 h-10 rounded-full border-2 border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-section-alt)]"
             aria-label="Group admin"
             title="Group admin"
           >

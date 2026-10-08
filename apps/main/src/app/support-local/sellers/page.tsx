@@ -26,18 +26,18 @@ export default async function LocalSellersPage() {
         <div className="mx-auto w-full max-w-[var(--max-width)] px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
           <div className="relative">
             <div
-              className="w-full overflow-hidden rounded-xl border-2 shadow-lg"
+              className="relative w-full overflow-hidden rounded-xl border-2 shadow-lg aspect-[5/3] sm:aspect-[2/1] lg:aspect-[21/9]"
               style={{ borderColor: "var(--color-secondary)" }}
             >
               <img
                 src={headerImageUrl}
                 alt="Trailhead parking with a van, pickup, and evergreen trees"
-                className="block h-auto w-full -mt-[1.25in] md:-mt-[2in]"
+                className="h-full w-full object-cover object-[center_35%]"
               />
             </div>
 
             <div
-              className="absolute bottom-6 left-1/2 z-10 w-[92%] max-w-4xl -translate-x-1/2 rounded-xl border-2 bg-white px-5 py-5 sm:bottom-8 sm:px-8 sm:py-6 md:px-10"
+              className="relative z-10 mx-auto -mt-10 w-[92%] max-w-4xl rounded-xl border-2 bg-white px-5 py-5 sm:-mt-12 sm:px-8 sm:py-6 md:-mt-14 md:px-10"
               style={{
                 borderColor: "var(--color-secondary)",
                 boxShadow: "0 10px 20px -8px rgba(0, 0, 0, 0.18)",

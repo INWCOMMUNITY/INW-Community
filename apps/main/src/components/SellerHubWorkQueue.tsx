@@ -131,7 +131,7 @@ export function SellerHubWorkQueue({
           label: "Sync Airport",
           href: "/seller-hub/apps",
           icon: "apps",
-          description: "Connect Shopify, Etsy, and Wix — manage marketplace sync.",
+          description: "Connect Shopify and Etsy — manage marketplace sync.",
         },
         {
           label: "Deliveries",

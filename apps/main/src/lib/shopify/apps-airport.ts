@@ -9,7 +9,7 @@ export const APPS_AIRPORT_SHOPIFY_SETTINGS_PATH = `${APPS_AIRPORT_SHOPIFY_PATH}/
 
 export type MarketplaceCardAvailability = "available" | "coming_later";
 
-export type AppsAirportChannelId = "shopify" | "ebay" | "etsy" | "wix" | "inw";
+export type AppsAirportChannelId = "shopify" | "ebay" | "etsy" | "inw";
 
 export type MarketplaceCardDef = {
   id: Exclude<AppsAirportChannelId, "inw" | "ebay">;
@@ -75,7 +75,6 @@ const SYNCED_WITH_LABELS: Record<AppsAirportChannelId, string> = {
   shopify: "Shopify",
   ebay: "eBay",
   etsy: "Etsy",
-  wix: "Wix",
 };
 
 /** Ordered display for the Synced with column (INW first, then other channels). */
@@ -107,14 +106,6 @@ export const APPS_AIRPORT_MARKETPLACES: MarketplaceCardDef[] = [
     availability: "available",
     href: "/seller-hub/apps/etsy",
     description: "Connect your Etsy shop, set How it’s made on listings, then list from Sync Airport.",
-  },
-  {
-    id: "wix",
-    name: "Wix",
-    icon: "globe-outline",
-    availability: "available",
-    href: "/seller-hub/apps/wix",
-    description: "Sync INW listings with your Wix store.",
   },
 ];
 

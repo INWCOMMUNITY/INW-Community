@@ -160,6 +160,13 @@ export function StorefrontGallery({
   const [filterOpen, setFilterOpen] = useState(false);
   const [browseExpanded, setBrowseExpanded] = useState(true);
   const lastScrollYRef = useRef(0);
+  /** Accumulated downward scroll before auto-collapse (avoids finicky mobile collapse). */
+  const downScrollAccumRef = useRef(0);
+  const browseExpandedRef = useRef(true);
+  const filterOpenRef = useRef(false);
+  const browsePanelRef = useRef<HTMLDivElement | null>(null);
+  browseExpandedRef.current = browseExpanded;
+  filterOpenRef.current = filterOpen;
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const skipFirstItemsFetch = useRef(initialItems !== undefined);
@@ -259,17 +266,56 @@ export function StorefrontGallery({
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [fetchMeta, fetchItems]);
 
-  // Collapse browse/filter box when scrolling down
+  // Reset scroll accumulator whenever the browse panel is (re)opened.
+  useEffect(() => {
+    if (browseExpanded) {
+      downScrollAccumRef.current = 0;
+      lastScrollYRef.current = window.scrollY;
+    }
+  }, [browseExpanded, filterOpen]);
+
+  // Auto-collapse only after the user has clearly scrolled into the product grid —
+  // never while the Filters dropdown is open (panel is taller than the viewport).
   useEffect(() => {
     lastScrollYRef.current = window.scrollY;
+    downScrollAccumRef.current = 0;
+    const COLLAPSE_AFTER_DOWN_PX = 240;
     const onScroll = () => {
       const y = window.scrollY;
       const delta = y - lastScrollYRef.current;
-      if (delta > 4 && y > 64) {
+      lastScrollYRef.current = y;
+
+      if (!browseExpandedRef.current) {
+        downScrollAccumRef.current = 0;
+        return;
+      }
+      // Let people scroll inside a tall Filters panel without snapping it shut.
+      if (filterOpenRef.current) {
+        downScrollAccumRef.current = 0;
+        return;
+      }
+
+      if (delta > 0) {
+        downScrollAccumRef.current += delta;
+      } else if (delta < 0) {
+        downScrollAccumRef.current = 0;
+        return;
+      }
+
+      const panel = browsePanelRef.current;
+      if (panel) {
+        const bottom = panel.getBoundingClientRect().bottom;
+        // Still filling most of the screen — user is browsing categories/filters, not listings.
+        if (bottom > window.innerHeight * 0.5) {
+          return;
+        }
+      }
+
+      if (downScrollAccumRef.current >= COLLAPSE_AFTER_DOWN_PX) {
         setBrowseExpanded(false);
         setFilterOpen(false);
+        downScrollAccumRef.current = 0;
       }
-      lastScrollYRef.current = y;
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
@@ -342,7 +388,10 @@ export function StorefrontGallery({
   return (
     <div className="w-full max-w-[var(--max-width)] mx-auto px-4">
       {/* Category & filters — contained box (sticky) */}
-      <div className="sticky top-0 z-20 -mx-4 px-4 py-3 mb-6 bg-[#faf8f5]/90 backdrop-blur-md">
+      <div
+        ref={browsePanelRef}
+        className="sticky top-0 z-20 -mx-4 px-4 py-3 mb-6 bg-[#faf8f5]/90 backdrop-blur-md"
+      >
         <div
           className={`${CARD_RADIUS} ${CARD_SHADOW} border-2 border-[var(--color-primary)] bg-white overflow-hidden`}
         >

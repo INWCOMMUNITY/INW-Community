@@ -57,19 +57,21 @@ export default function CommunityGroupsPage() {
   return (
     <section className="py-12 px-4" style={{ padding: "var(--section-padding)" }}>
       <div className="max-w-[var(--max-width)] mx-auto text-center">
-        <div className="relative w-full text-center mb-6">
-          <h1 className="text-3xl font-bold">Community Groups</h1>
+        <div className="mb-6 text-center">
+          <h1 className="text-3xl font-bold leading-tight">Community Groups</h1>
           {adminHubHref ? (
-            <Link
-              href={adminHubHref}
-              className="absolute right-0 top-0 inline-flex items-center justify-center w-10 h-10 rounded-full border-2 border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-section-alt)]"
-              aria-label="Group admin"
-              title="Group admin"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
-              </svg>
-            </Link>
+            <div className="mt-3 flex justify-center">
+              <Link
+                href={adminHubHref}
+                className="inline-flex items-center justify-center w-10 h-10 rounded-full border-2 border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-section-alt)]"
+                aria-label="Group admin"
+                title="Group admin"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                  <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
+                </svg>
+              </Link>
+            </div>
           ) : null}
         </div>
         {session?.user?.id && (

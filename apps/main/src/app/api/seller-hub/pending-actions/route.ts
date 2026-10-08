@@ -5,6 +5,7 @@ import { orderHasShippedLine } from "@/lib/store-order-fulfillment";
 import { whereNoCurrentOutboundShipment } from "@/lib/store-order-shipments";
 import { ACTIVE_STORE_RETURN_STATUSES } from "@/lib/store-return";
 import { tryCreateMarketplaceStripe } from "@/lib/stripe-clients";
+import { retrieveConnectAccountOrHeal } from "@/lib/stripe-connect-account-gone";
 
 const MIN_PAYOUT_CENTS = 100;
 
@@ -76,7 +77,7 @@ export async function GET(req: NextRequest) {
       }),
       prisma.member.findUnique({
         where: { id: userId },
-        select: { stripeConnectAccountId: true },
+        select: { stripeConnectAccountId: true, email: true },
       }),
       prisma.storeItem.count({
         where: { memberId: userId, status: "sold_out" },
@@ -90,26 +91,25 @@ export async function GET(req: NextRequest) {
     let chargesEnabled = false;
     let stripeAvailableCents = 0;
     if (member?.stripeConnectAccountId && stripe) {
-      try {
-        const [account, stripeBalance] = await Promise.all([
-          stripe.accounts.retrieve(member.stripeConnectAccountId),
-          stripe.balance.retrieve({
-            stripeAccount: member.stripeConnectAccountId,
-          }),
-        ]);
-        chargesEnabled = account.charges_enabled === true;
-        const usdAvailable = stripeBalance.available?.find((b) => b.currency === "usd");
-        stripeAvailableCents = usdAvailable?.amount ?? 0;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        const accountGone = /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
-        if (accountGone) {
-          await prisma.member.update({
-            where: { id: userId },
-            data: { stripeConnectAccountId: null },
-          }).catch(() => {});
+      const healed = await retrieveConnectAccountOrHeal({
+        stripe,
+        memberId: userId,
+        email: member.email,
+        accountId: member.stripeConnectAccountId,
+      });
+      if (healed.ok) {
+        chargesEnabled = healed.account.charges_enabled === true;
+        try {
+          const stripeBalance = await stripe.balance.retrieve({
+            stripeAccount: healed.accountId,
+          });
+          const usdAvailable = stripeBalance.available?.find((b) => b.currency === "usd");
+          stripeAvailableCents = usdAvailable?.amount ?? 0;
+        } catch {
+          // Balance failures must not clear Connect.
         }
-        // use balanceCents only
+      } else if (!healed.cleared) {
+        chargesEnabled = true;
       }
     }
     const payoutReady = chargesEnabled && stripeAvailableCents >= MIN_PAYOUT_CENTS;

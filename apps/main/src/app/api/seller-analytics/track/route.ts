@@ -25,7 +25,7 @@ const VALID_EVENT_TYPES = [
   "offer_received",
 ] as const;
 
-const VALID_PROVIDERS = ["ebay", "etsy", "shopify", "wix", "inwc"] as const;
+const VALID_PROVIDERS = ["ebay", "etsy", "shopify", "inwc"] as const;
 const VALID_SOURCES = ["web", "mobile", "external"] as const;
 
 type EventType = (typeof VALID_EVENT_TYPES)[number];

@@ -13,6 +13,7 @@ export function AppsAirportSyncedListings({
   emptyState,
   tableHead,
   children,
+  mobileList,
 }: {
   summary: ReactNode;
   filterTabs: AppsAirportFilterTab[];
@@ -20,7 +21,10 @@ export function AppsAirportSyncedListings({
   onFilterChange: (id: string) => void;
   emptyState?: ReactNode;
   tableHead?: ReactNode;
+  /** Desktop table body rows. */
   children?: ReactNode;
+  /** Mobile stacked cards (shown below md). */
+  mobileList?: ReactNode;
 }) {
   return (
     <div className="mb-2">
@@ -52,8 +56,16 @@ export function AppsAirportSyncedListings({
         </div>
       ) : null}
 
+      {mobileList ? (
+        <ul className="md:hidden relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 divide-y divide-neutral-200 border-y border-neutral-200">
+          {mobileList}
+        </ul>
+      ) : null}
+
       {tableHead ? (
-        <div className="overflow-x-auto">
+        <div
+          className={`${mobileList ? "hidden md:block " : ""}overflow-x-auto`}
+        >
           <table className="min-w-full text-sm border-collapse">
             <thead>
               <tr className="border-b text-left" style={{ borderColor: "var(--color-primary)" }}>

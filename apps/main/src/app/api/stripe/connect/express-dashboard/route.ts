@@ -4,10 +4,13 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { prismaWhereMemberSellerOrSubscribeAccess } from "@/lib/nwc-paid-subscription";
 import { createMarketplaceStripe } from "@/lib/stripe-clients";
 import {
+  isStripeConnectAccountMissingError,
+  retrieveConnectAccountOrHeal,
+} from "@/lib/stripe-connect-account-gone";
+import {
   collectKnownConnectAccountIdsForMember,
   ensureConnectAccountMemberMetadata,
   findExistingConnectAccountIdForEmail,
-  maybeDeleteEmptyDuplicateConnectAccount,
 } from "@/lib/stripe-connect-reuse-account";
 
 export const dynamic = "force-dynamic";
@@ -49,14 +52,12 @@ export async function GET(req: NextRequest) {
 
     // Only heal when already linked (avoid undoing an intentional disconnect).
     if (accountId && preferredId && preferredId !== accountId) {
-      const emptyDuplicateId = accountId;
       accountId = preferredId;
       await prisma.member.update({
         where: { id: userId },
         data: { stripeConnectAccountId: accountId },
       });
       await ensureConnectAccountMemberMetadata(stripe, accountId, userId);
-      await maybeDeleteEmptyDuplicateConnectAccount(stripe, emptyDuplicateId, accountId);
     }
 
     if (!accountId) {
@@ -66,21 +67,43 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    await ensureConnectAccountMemberMetadata(stripe, accountId, userId);
-    const loginLink = await stripe.accounts.createLoginLink(accountId);
+    const healed = await retrieveConnectAccountOrHeal({
+      stripe,
+      memberId: userId,
+      email: member.email,
+      accountId,
+    });
+    if (!healed.ok) {
+      if (healed.cleared) {
+        return NextResponse.json(
+          { error: "Your previous Stripe account is no longer available. Please complete setup again." },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json(
+        { error: "Could not open payment account right now. Please try again." },
+        { status: 502 }
+      );
+    }
+
+    await ensureConnectAccountMemberMetadata(stripe, healed.accountId, userId);
+    const loginLink = await stripe.accounts.createLoginLink(healed.accountId);
     return NextResponse.json({ url: loginLink.url });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to create dashboard link";
-    const accountGone = /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
-    if (accountGone) {
-      await prisma.member.update({
-        where: { id: userId },
-        data: { stripeConnectAccountId: null },
+    if (isStripeConnectAccountMissingError(e) && accountId) {
+      const healed = await retrieveConnectAccountOrHeal({
+        stripe,
+        memberId: userId,
+        email: member.email,
+        accountId,
       });
-      return NextResponse.json(
-        { error: "Your previous Stripe account is no longer available. Please complete setup again." },
-        { status: 400 }
-      );
+      if (healed.cleared) {
+        return NextResponse.json(
+          { error: "Your previous Stripe account is no longer available. Please complete setup again." },
+          { status: 400 }
+        );
+      }
     }
     return NextResponse.json({ error: msg }, { status: 500 });
   }

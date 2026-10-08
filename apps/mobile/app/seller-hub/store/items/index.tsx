@@ -25,14 +25,13 @@ import { useCreatePost } from "@/contexts/CreatePostContext";
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
 
-type ListingChannelId = "inw" | "shopify" | "ebay" | "etsy" | "wix";
+type ListingChannelId = "inw" | "shopify" | "ebay" | "etsy";
 
 const CHANNEL_LABELS: Record<ListingChannelId, string> = {
   inw: "INW",
   shopify: "Shopify",
   ebay: "eBay",
   etsy: "Etsy",
-  wix: "Wix",
 };
 
 function formatListedOn(channels?: ListingChannelId[]): string {

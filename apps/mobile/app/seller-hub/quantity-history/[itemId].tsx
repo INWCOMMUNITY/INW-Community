@@ -56,7 +56,6 @@ const PROVIDER_NAMES: Record<string, string> = {
   etsy: "Etsy",
   ebay: "eBay",
   shopify: "Shopify",
-  wix: "Wix",
 };
 
 export default function QuantityHistoryScreen() {

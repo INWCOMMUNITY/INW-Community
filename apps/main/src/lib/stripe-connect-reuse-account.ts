@@ -245,32 +245,14 @@ export async function ensureConnectAccountMemberMetadata(
 }
 
 /**
- * Best-effort cleanup of an empty Express duplicate left behind after reconnect
- * reattached the funded account. Never deletes the preferred account or any
- * account that still has balance / submitted details / charges.
+ * Intentionally a no-op. Deleting empty Express duplicates caused Stripe
+ * `account.application.deauthorized` noise and risked clearing seller Connect
+ * links. Orphan empty accounts are harmless; prefer reattach over delete.
  */
 export async function maybeDeleteEmptyDuplicateConnectAccount(
-  stripe: Stripe,
-  emptyAccountId: string | null | undefined,
-  preferredAccountId: string
+  _stripe: Stripe,
+  _emptyAccountId: string | null | undefined,
+  _preferredAccountId: string
 ): Promise<void> {
-  const emptyId = emptyAccountId?.trim() ?? "";
-  if (!emptyId.startsWith("acct_") || emptyId === preferredAccountId) return;
-  try {
-    const acct = await stripe.accounts.retrieve(emptyId);
-    const scored = await scoreConnectAccount(stripe, acct);
-    if (scored.balanceCents > 0 || scored.details || scored.charges || scored.payouts) {
-      return;
-    }
-    await stripe.accounts.del(emptyId);
-    console.info("[stripe-connect-reuse] deleted empty duplicate Express account", {
-      deletedAccountId: emptyId,
-      preferredAccountId,
-    });
-  } catch (err) {
-    console.warn("[stripe-connect-reuse] could not delete empty duplicate", {
-      emptyAccountId: emptyId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
+  return;
 }

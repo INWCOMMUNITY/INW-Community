@@ -52,9 +52,9 @@ export default async function CalendarsPage() {
             className="absolute inset-0 h-full w-full object-cover object-center"
             aria-hidden
           />
-          <div className="relative z-10 w-full p-5 md:p-8">
+          <div className="relative z-10 w-full min-w-0 p-4 sm:p-5 md:p-8">
             <div
-              className="inline-flex flex-col rounded-xl px-8 py-5 md:px-10 md:py-6"
+              className="flex w-full max-w-full min-w-0 flex-col rounded-xl px-4 py-4 sm:px-8 sm:py-5 md:px-10 md:py-6"
               style={{ backgroundColor: "rgba(62, 67, 47, 0.66)" }}
             >
               <p
@@ -64,12 +64,12 @@ export default async function CalendarsPage() {
                 Spokane &amp; Kootenai County
               </p>
               <h1
-                className="text-3xl md:text-4xl font-bold text-white mt-1.5 whitespace-nowrap"
+                className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mt-1.5 break-words"
                 style={{ fontFamily: "var(--font-heading)" }}
               >
                 Northwest Community Calendars
               </h1>
-              <p className="text-sm md:text-base mt-2" style={{ color: "rgba(253,237,204,0.95)" }}>
+              <p className="text-sm md:text-base mt-2 break-words" style={{ color: "rgba(253,237,204,0.95)" }}>
                 Take a look at the events happening in Spokane &amp; Kootenai County!
               </p>
               <div

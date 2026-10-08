@@ -10,7 +10,7 @@ const SELLER_BENEFITS = [
   { title: "Sell on Our Storefront", description: "List your products on the NWC online store. Shoppers can buy from you directly, and you get paid.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[1]), imageAlt: "NWC storefront" },
   { title: "No Percentage Cuts", description: "NWC does not take a percentage of your sales. You keep what you earn from items sold through our platform.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[2]), imageAlt: "Sell local" },
   { title: "Shop Local, Online", description: "Make it easy for people to support local from home. Your products reach customers who want to buy from Inland Northwest businesses.", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[3]), imageAlt: "Support local" },
-  { title: "Sync Item Listings with other 3rd Party Selling Platforms", description: "Sell on eBay, Wix, Etsy, or other 3rd party online shopping platforms? Easily sync your preexisting listings to our storefront to make tracking your inventory and sales as easy as pie! If you're local and sell on a different 3rd party, joining NWC won't be a whole extra hassle!", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[4]), imageAlt: "Northwest Community" },
+  { title: "Sync Item Listings with other 3rd Party Selling Platforms", description: "Sell on eBay, Etsy, or other 3rd party online shopping platforms? Easily sync your preexisting listings to our storefront to make tracking your inventory and sales as easy as pie! If you're local and sell on a different 3rd party, joining NWC won't be a whole extra hassle!", imageSrc: WIX_IMG(SELLER_INFO_BENEFIT_IMAGES[4]), imageAlt: "Northwest Community" },
 ];
 
 export default async function SellNWCPage() {

@@ -3,7 +3,6 @@ import {
   applyEtsyListingInventoryInbound,
   buildEtsyInboundAspects,
   enqueueEtsySyncJob,
-  recordWixListingVariantTopologyDesire,
   etsyCentsFromMoney,
   markEtsyListingContentPollComplete,
   normalizeEtsyTags,
@@ -391,12 +390,6 @@ export async function handleEtsyPollListingContentJob(
         });
         if (isSyncEtsyVariantTopologyFailure(synced) && synced.outcome === "RETRY") {
           return synced;
-        }
-        if (!isSyncEtsyVariantTopologyFailure(synced) && synced.status === "PULLED") {
-          await recordWixListingVariantTopologyDesire(prisma, {
-            memberId: connection.memberId,
-            storeItemId: link.storeItemId,
-          }).catch(() => undefined);
         }
       }
     }

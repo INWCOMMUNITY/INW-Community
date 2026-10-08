@@ -5,11 +5,11 @@ import { getSessionForApi } from "@/lib/mobile-auth";
 import { resolveAllowedCheckoutBaseUrl } from "@/lib/checkout-base-url";
 import { prismaWhereMemberSellerOrSubscribeAccess } from "@/lib/nwc-paid-subscription";
 import { createMarketplaceStripe } from "@/lib/stripe-clients";
+import { isStripeConnectAccountMissingError } from "@/lib/stripe-connect-account-gone";
 import {
   collectKnownConnectAccountIdsForMember,
   ensureConnectAccountMemberMetadata,
   findExistingConnectAccountIdForEmail,
-  maybeDeleteEmptyDuplicateConnectAccount,
 } from "@/lib/stripe-connect-reuse-account";
 import {
   resolveMarketplaceStripeSecretKey,
@@ -38,11 +38,6 @@ function stripeConnectAccountLinkUrls(baseUrl: string, mobilePath: string | null
     return_url: `${baseUrl}/app/stripe-connect-return?path=${enc}&success=1`,
     refresh_url: `${baseUrl}/app/stripe-connect-return?path=${enc}&refresh=1`,
   };
-}
-
-function isNoSuchAccount(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  return /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
 }
 
 function accountIsReadyForReuse(account: Stripe.Account): boolean {
@@ -103,7 +98,7 @@ export async function POST(req: NextRequest) {
       try {
         await stripe.accounts.retrieve(accountId);
       } catch (retrieveErr) {
-        if (isNoSuchAccount(retrieveErr)) {
+        if (isStripeConnectAccountMissingError(retrieveErr)) {
           await prisma.member.update({
             where: { id: userId },
             data: { stripeConnectAccountId: null },
@@ -143,14 +138,12 @@ export async function POST(req: NextRequest) {
         preferredAccountId: preferredId,
         knownAccountIds,
       });
-      const emptyDuplicateId = accountId;
       accountId = preferredId;
       await prisma.member.update({
         where: { id: userId },
         data: { stripeConnectAccountId: accountId },
       });
       await ensureConnectAccountMemberMetadata(stripe, accountId, userId);
-      await maybeDeleteEmptyDuplicateConnectAccount(stripe, emptyDuplicateId, accountId);
     } else if (preferredId && preferredId === accountId) {
       await ensureConnectAccountMemberMetadata(stripe, accountId, userId);
     }
@@ -189,12 +182,10 @@ export async function POST(req: NextRequest) {
     // when Stripe identity login landed on a different Express profile).
     if (accountIsReadyForReuse(account)) {
       await ensureConnectAccountMemberMetadata(stripe, accountId, userId);
-      if (previouslyLinkedId && previouslyLinkedId !== accountId) {
-        await maybeDeleteEmptyDuplicateConnectAccount(stripe, previouslyLinkedId, accountId);
-      }
       console.info("[stripe/connect/onboard] reused existing Connect account without new onboarding", {
         memberId: userId,
         accountId,
+        previousAccountId: previouslyLinkedId,
       });
       return NextResponse.json({
         url: return_url,
@@ -216,7 +207,7 @@ export async function POST(req: NextRequest) {
         },
       });
     } catch (linkErr) {
-      if (isNoSuchAccount(linkErr)) {
+      if (isStripeConnectAccountMissingError(linkErr)) {
         await prisma.member.update({
           where: { id: userId },
           data: { stripeConnectAccountId: null },

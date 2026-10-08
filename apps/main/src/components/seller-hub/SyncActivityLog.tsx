@@ -14,8 +14,8 @@ type SyncEvent = {
 const PROVIDER_LABEL: Record<string, string> = {
   etsy: "Etsy",
   ebay: "eBay",
-  wix: "Wix",
   shopify: "Shopify",
+  wix: "Wix",
 };
 
 const ACTION_LABEL: Record<string, string> = {

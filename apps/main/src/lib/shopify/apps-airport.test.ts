@@ -25,9 +25,9 @@ describe("Sync Airport routes", () => {
     expect(APPS_AIRPORT_SHOPIFY_SETTINGS_PATH).toBe("/seller-hub/apps/shopify/settings");
   });
 
-  it("lists Shopify, Etsy, and Wix as available marketplaces (no eBay)", () => {
-    expect(APPS_AIRPORT_MARKETPLACES.map((m) => m.id)).toEqual(["shopify", "etsy", "wix"]);
-    for (const id of ["shopify", "etsy", "wix"] as const) {
+  it("lists Shopify and Etsy as available marketplaces (no eBay)", () => {
+    expect(APPS_AIRPORT_MARKETPLACES.map((m) => m.id)).toEqual(["shopify", "etsy"]);
+    for (const id of ["shopify", "etsy"] as const) {
       expect(APPS_AIRPORT_MARKETPLACES.find((m) => m.id === id)?.availability).toBe("available");
     }
     expect(APPS_AIRPORT_MARKETPLACES.find((m) => m.id === "shopify")?.href).toBe(

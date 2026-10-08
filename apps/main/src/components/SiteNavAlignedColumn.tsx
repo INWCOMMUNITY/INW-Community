@@ -55,17 +55,22 @@ export function MyCommunityNavGrid({
   asideRight,
   children,
   className = "",
+  /** When true, skip side padding and mobile sidebar chrome (e.g. full-screen Messages). */
+  fullBleedMobile = false,
 }: {
   sidebar: ReactNode;
   asideRight?: ReactNode;
   children: ReactNode;
   className?: string;
+  fullBleedMobile?: boolean;
 }) {
   return (
-    <div className={`${SITE_PAGE_SHELL} overflow-visible`}>
+    <div
+      className={`${fullBleedMobile ? "max-md:mx-0 max-md:max-w-none max-md:px-0 max-md:h-full max-md:min-h-0" : ""} ${SITE_PAGE_SHELL} overflow-visible`}
+    >
       {/* Layout `children` must mount once — duplicating the App Router slot crashes with parallelRouterKey null. */}
       <div
-        className={`flex flex-col gap-8 md:flex-row md:items-stretch md:gap-0 w-full overflow-visible ${className}`}
+        className={`flex flex-col gap-8 md:flex-row md:items-stretch md:gap-0 w-full overflow-visible ${fullBleedMobile ? "max-md:h-full max-md:min-h-0 max-md:gap-0" : ""} ${className}`}
       >
         <div
           className={`relative hidden md:flex justify-center shrink-0 self-stretch min-h-0 ${SITE_HEADER_SIDE}`}
@@ -74,7 +79,11 @@ export function MyCommunityNavGrid({
             {sidebar}
           </div>
         </div>
-        <div className="min-w-0 flex-1 w-full self-stretch md:px-[0.5in]">{children}</div>
+        <div
+          className={`min-w-0 flex-1 w-full self-stretch md:px-[0.5in] ${fullBleedMobile ? "max-md:min-h-0 max-md:h-full max-md:flex max-md:flex-col" : ""}`}
+        >
+          {children}
+        </div>
         <div className={`relative hidden md:block shrink-0 self-stretch min-h-0 ${SITE_HEADER_SIDE}`}>
           {asideRight ? (
             <div className="absolute inset-y-0 right-0 w-full max-w-[calc(100vw-2rem)] pointer-events-auto">
@@ -87,8 +96,8 @@ export function MyCommunityNavGrid({
             </div>
           ) : null}
         </div>
-        <div className="w-full max-w-sm md:hidden">{sidebar}</div>
-        {asideRight ? <div className="w-full md:hidden">{asideRight}</div> : null}
+        {!fullBleedMobile ? <div className="w-full max-w-sm md:hidden">{sidebar}</div> : null}
+        {!fullBleedMobile && asideRight ? <div className="w-full md:hidden">{asideRight}</div> : null}
       </div>
     </div>
   );

@@ -291,15 +291,21 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Connected account disconnected the platform; clear our link and disable their listings
+  // Connected account disconnected the platform; clear our link and disable their listings.
+  // Only act when the deauthorized account is still the member's *current* Connect id
+  // (orphan / empty-duplicate deletions must not wipe a reattached funded account).
   if (event.type === "account.application.deauthorized") {
     const connectAccountId = (event as Stripe.Event & { account?: string }).account;
     if (connectAccountId) {
       const member = await prisma.member.findFirst({
         where: { stripeConnectAccountId: connectAccountId },
-        select: { id: true },
+        select: { id: true, stripeConnectAccountId: true },
       });
-      if (member) {
+      if (member?.stripeConnectAccountId === connectAccountId) {
+        console.info("[stripe/webhook] Connect deauthorized; clearing seller link", {
+          memberId: member.id,
+          connectAccountId,
+        });
         await disconnectStripeAndDisableListings(member.id);
       }
     }
@@ -780,9 +786,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Collect store items whose inventory must be pushed to linked channels (Wix, etc.). We push
-    // AFTER the loop and AWAIT it, so the serverless function doesn't return before the multi-step
-    // Wix write completes (fire-and-forget waitUntil was getting cut off, leaving Wix stale).
+    // Collect store items whose inventory must be pushed to linked channels. We push
+    // AFTER the loop and AWAIT it, so the serverless function doesn't return before the
+    // channel write completes (fire-and-forget waitUntil was getting cut off).
     const piSyncStoreItemIds = new Set<string>();
     const piCutover = await getCommerceFoundationCutoverState(prisma);
     const piWriter = commerceInventoryWriterRoute(piCutover.mode);
@@ -961,7 +967,7 @@ export async function POST(req: NextRequest) {
           const { deleteFeedPostsForSoldItem } = await import("@/lib/delete-posts-for-sold-item");
           deleteFeedPostsForSoldItem(oi.storeItemId).catch(() => {});
         }
-        // Pooled inventory: push the new quantity out to any linked channels (Wix, Etsy, etc.).
+        // Pooled inventory: push the new quantity out to any linked channels (Etsy, Shopify, etc.).
         // Awaited in bulk after the loop so the push actually completes before the function returns.
         piSyncStoreItemIds.add(oi.storeItemId);
       }

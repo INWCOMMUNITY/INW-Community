@@ -17,13 +17,6 @@ import {
   classifyShopifyConnectionUi,
   shopifyConnectionStatusLabel,
 } from "@/lib/shopify/apps-airport";
-import {
-  APPS_AIRPORT_WIX_PATH,
-  APPS_AIRPORT_WIX_SETTINGS_PATH,
-  classifyWixConnectionUi,
-  wixConnectionStatusLabel,
-} from "@/lib/wix/apps-airport";
-
 type ShopifyPublicConnection = {
   id: string;
   shopDomain: string;
@@ -40,12 +33,6 @@ type EtsyPublicConnection = {
   status: "ACTIVE" | "DISCONNECTED" | "REVOKED";
 };
 
-type WixStatusResponse = {
-  connected: boolean;
-  connection: { shopName: string | null; siteId: string } | null;
-  health: { overall: "healthy" | "degraded" | "disconnected" | "not_configured" };
-};
-
 /** Match Manage Shopify Sync width across Connect / Manage actions. */
 const CARD_ACTION_BTN =
   "btn inline-flex items-center justify-center text-center min-w-[13.75rem]";
@@ -53,7 +40,6 @@ const CARD_ACTION_BTN =
 export default function AppsAirportPage() {
   const [shopifyConnections, setShopifyConnections] = useState<ShopifyPublicConnection[]>([]);
   const [etsyConnections, setEtsyConnections] = useState<EtsyPublicConnection[]>([]);
-  const [wixStatus, setWixStatus] = useState<WixStatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -61,10 +47,9 @@ export default function AppsAirportPage() {
     void Promise.all([
       fetch("/api/shopify/connection", { credentials: "include" }),
       fetch("/api/etsy/connection", { credentials: "include" }),
-      fetch("/api/wix/status", { credentials: "include" }),
     ])
-      .then(async ([shopifyRes, etsyRes, wixRes]) => {
-        if (!shopifyRes.ok && !etsyRes.ok && !wixRes.ok) {
+      .then(async ([shopifyRes, etsyRes]) => {
+        if (!shopifyRes.ok && !etsyRes.ok) {
           setError("Could not load marketplace connections.");
           return;
         }
@@ -76,9 +61,6 @@ export default function AppsAirportPage() {
           const body = (await etsyRes.json()) as { connections: EtsyPublicConnection[] };
           setEtsyConnections(body.connections);
         }
-        if (wixRes.ok) {
-          setWixStatus((await wixRes.json()) as WixStatusResponse);
-        }
       })
       .catch(() => setError("Could not load marketplace connections."))
       .finally(() => setLoading(false));
@@ -88,11 +70,6 @@ export default function AppsAirportPage() {
   const shopifyUi = classifyShopifyConnectionUi(activeShopify);
   const activeEtsy = etsyConnections.find((c) => c.status === "ACTIVE") ?? null;
   const etsyUi = classifyEtsyConnectionUi(activeEtsy);
-  const wixUi = classifyWixConnectionUi(
-    wixStatus
-      ? { connected: wixStatus.connected, health: wixStatus.health.overall }
-      : null
-  );
 
   return (
     <AppsAirportChrome
@@ -104,7 +81,6 @@ export default function AppsAirportPage() {
         {APPS_AIRPORT_MARKETPLACES.map((app) => {
           const isShopify = app.id === "shopify";
           const isEtsy = app.id === "etsy";
-          const isWix = app.id === "wix";
           return (
             <article
               key={app.id}
@@ -144,22 +120,7 @@ export default function AppsAirportPage() {
                   >
                     {loading ? "…" : etsyConnectionStatusLabel(etsyUi)}
                   </span>
-                ) : (
-                  <span
-                    className="text-xs font-semibold px-2 py-1 rounded"
-                    style={{
-                      backgroundColor:
-                        wixUi === "connected"
-                          ? "#e8f5e9"
-                          : wixUi === "needs_attention"
-                            ? "#fff8e1"
-                            : "#f5f5f5",
-                      color: "var(--color-heading)",
-                    }}
-                  >
-                    {loading ? "…" : wixConnectionStatusLabel(wixUi)}
-                  </span>
-                )}
+                ) : null}
               </div>
               <p className="mt-2 text-sm text-neutral-600 flex-1">{app.description}</p>
               {isShopify ? (
@@ -210,29 +171,6 @@ export default function AppsAirportPage() {
                     ) : (
                       <Link
                         href={APPS_AIRPORT_ETSY_SETTINGS_PATH}
-                        className={CARD_ACTION_BTN}
-                        prefetch={false}
-                      >
-                        Connect
-                      </Link>
-                    )}
-                  </div>
-                </>
-              ) : isWix ? (
-                <>
-                  <p className="mt-3 text-sm text-neutral-700">
-                    {wixStatus?.connection
-                      ? `Site: ${wixStatus.connection.shopName ?? wixStatus.connection.siteId}`
-                      : "No Wix site connected yet."}
-                  </p>
-                  <div className="mt-4 flex flex-wrap justify-end gap-3">
-                    {wixStatus?.connected ? (
-                      <Link href={APPS_AIRPORT_WIX_PATH} className={CARD_ACTION_BTN} prefetch={false}>
-                        Manage Wix Sync
-                      </Link>
-                    ) : (
-                      <Link
-                        href={APPS_AIRPORT_WIX_SETTINGS_PATH}
                         className={CARD_ACTION_BTN}
                         prefetch={false}
                       >

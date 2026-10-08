@@ -220,6 +220,7 @@ export default function MyCommunityMessagesPage() {
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [showFriendPicker, setShowFriendPicker] = useState(false);
+  const [friendSearch, setFriendSearch] = useState("");
   const [newMessageFriend, setNewMessageFriend] = useState<Friend | null>(null);
   const [newMessageContent, setNewMessageContent] = useState("");
   const [sendingNew, setSendingNew] = useState(false);
@@ -1072,6 +1073,7 @@ export default function MyCommunityMessagesPage() {
       if (res.ok && data.id) {
         setNewMessageFriend(null);
         setShowFriendPicker(false);
+        setFriendSearch("");
         setNewMessageContent("");
         setDirectConversations((prev) => {
           const exists = prev.some((c) => c.id === data.id);
@@ -1104,9 +1106,22 @@ export default function MyCommunityMessagesPage() {
     return d.toLocaleDateString();
   }
 
+  const filteredFriendsForCompose = useMemo(() => {
+    const q = friendSearch.trim().toLowerCase();
+    if (!q) return friends;
+    return friends.filter((f) =>
+      `${f.firstName} ${f.lastName}`.toLowerCase().includes(q)
+    );
+  }, [friends, friendSearch]);
+
+  const messagesShellClass =
+    "flex flex-col w-full min-h-0 overflow-hidden bg-white " +
+    "max-md:h-full max-md:max-h-full max-md:rounded-none max-md:border-0 " +
+    "md:h-[calc(100dvh-10.5rem)] md:max-h-[calc(100dvh-10.5rem)] md:rounded-lg md:border-2 md:border-gray-200";
+
   if (loading) {
     return (
-      <div className="flex flex-col w-full min-h-0 max-lg:min-h-[min(100dvh-14rem,720px)] lg:h-[calc(100dvh-10.5rem)] lg:max-h-[calc(100dvh-10.5rem)] bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div className={messagesShellClass}>
         <div className="flex items-center justify-center flex-1 min-h-0 py-16">
           <div className="w-10 h-10 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
         </div>
@@ -1115,7 +1130,7 @@ export default function MyCommunityMessagesPage() {
   }
 
   return (
-    <div className="flex flex-col w-full min-h-0 max-lg:min-h-[min(100dvh-14rem,720px)] lg:h-[calc(100dvh-10.5rem)] lg:max-h-[calc(100dvh-10.5rem)] bg-white rounded-lg border-2 border-gray-200 overflow-hidden">
+    <div className={messagesShellClass}>
       {/* App-style green header */}
       <header
         className="flex items-center justify-between px-4 py-3 shrink-0 border-b-2 border-black"
@@ -1124,14 +1139,7 @@ export default function MyCommunityMessagesPage() {
         <h1 className="text-lg font-bold text-white" style={{ fontFamily: "var(--font-heading)" }}>
           Messages
         </h1>
-        <div className="flex items-center gap-2">
-          <Link
-            href="/my-community/my-page"
-            className="py-1.5 px-3 rounded-lg text-sm font-semibold text-white border border-white/80 hover:bg-white/10 transition-colors shrink-0"
-          >
-            Go to Profile
-          </Link>
-          <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1">
           {tab === "groups" && (
             <button
               type="button"
@@ -1145,13 +1153,15 @@ export default function MyCommunityMessagesPage() {
           )}
           <button
             type="button"
-            onClick={() => setShowFriendPicker(true)}
+            onClick={() => {
+              setFriendSearch("");
+              setShowFriendPicker(true);
+            }}
             className="p-2 rounded-full text-white hover:opacity-90"
             aria-label="New message"
           >
             <IonIcon name="create-outline" size={24} className="text-white" />
           </button>
-          </div>
         </div>
       </header>
 
@@ -1280,30 +1290,68 @@ export default function MyCommunityMessagesPage() {
                   </div>
                 </div>
               ) : null}
-              {showFriendPicker && !newMessageFriend && friends.length > 0 && (
-                <div className="mx-4 mt-4">
-                  <p className="text-sm font-semibold mb-2">Choose a friend to message</p>
-                  <ul className="space-y-1">
-                    {friends.map((f) => (
-                      <li key={f.id}>
-                        <button
-                          type="button"
-                          onClick={() => { setNewMessageFriend(f); setShowFriendPicker(false); }}
-                          className="w-full flex items-center gap-3 p-4 rounded-lg hover:bg-gray-100 text-left border-b border-gray-100 last:border-0 transition-colors"
-                        >
-                          {f.profilePhotoUrl ? (
-                            <img src={f.profilePhotoUrl.startsWith("http") ? f.profilePhotoUrl : (typeof window !== "undefined" ? window.location.origin : "") + f.profilePhotoUrl} alt="" className="w-12 h-12 rounded-full object-cover shrink-0" />
-                          ) : (
-                            <div className="w-12 h-12 rounded-full shrink-0 flex items-center justify-center text-lg font-bold text-gray-500" style={{ backgroundColor: "var(--color-section-alt)" }}>
-                              {f.firstName?.[0] ?? "?"}{f.lastName?.[0] ?? ""}
-                            </div>
-                          )}
-                          <span className="font-semibold text-[var(--color-heading)]">{f.firstName} {f.lastName}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                  <button type="button" onClick={() => setShowFriendPicker(false)} className="mt-3 px-4 py-2 rounded-lg border border-gray-300 font-medium text-gray-700 hover:bg-gray-50">
+              {showFriendPicker && !newMessageFriend && (
+                <div className="mx-4 mt-4 flex flex-col min-h-0 flex-1">
+                  <p className="text-sm font-semibold mb-2 shrink-0">Choose a friend to message</p>
+                  <label className="sr-only" htmlFor="friend-search-compose">
+                    Search friends
+                  </label>
+                  <div className="relative mb-3 shrink-0">
+                    <IonIcon
+                      name="search-outline"
+                      size={18}
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      id="friend-search-compose"
+                      type="search"
+                      value={friendSearch}
+                      onChange={(e) => setFriendSearch(e.target.value)}
+                      placeholder="Search friends..."
+                      autoComplete="off"
+                      autoCorrect="off"
+                      className="w-full rounded-xl border-2 bg-white py-2.5 pl-10 pr-3 text-sm outline-none focus:border-[var(--color-primary)]"
+                      style={{ borderColor: "var(--color-primary)" }}
+                    />
+                  </div>
+                  {friends.length === 0 ? (
+                    <p className="text-sm text-gray-500 py-6 text-center">Add friends to start messaging</p>
+                  ) : filteredFriendsForCompose.length === 0 ? (
+                    <p className="text-sm text-gray-500 py-6 text-center">No friends match your search</p>
+                  ) : (
+                    <ul className="space-y-1 flex-1 min-h-0 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                      {filteredFriendsForCompose.map((f) => (
+                        <li key={f.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewMessageFriend(f);
+                              setShowFriendPicker(false);
+                              setFriendSearch("");
+                            }}
+                            className="w-full flex items-center gap-3 p-4 rounded-lg hover:bg-gray-100 text-left border-b border-gray-100 last:border-0 transition-colors"
+                          >
+                            {f.profilePhotoUrl ? (
+                              <img src={f.profilePhotoUrl.startsWith("http") ? f.profilePhotoUrl : (typeof window !== "undefined" ? window.location.origin : "") + f.profilePhotoUrl} alt="" className="w-12 h-12 rounded-full object-cover shrink-0" />
+                            ) : (
+                              <div className="w-12 h-12 rounded-full shrink-0 flex items-center justify-center text-lg font-bold text-gray-500" style={{ backgroundColor: "var(--color-section-alt)" }}>
+                                {f.firstName?.[0] ?? "?"}{f.lastName?.[0] ?? ""}
+                              </div>
+                            )}
+                            <span className="font-semibold text-[var(--color-heading)]">{f.firstName} {f.lastName}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowFriendPicker(false);
+                      setFriendSearch("");
+                    }}
+                    className="mt-3 px-4 py-2 rounded-lg border border-gray-300 font-medium text-gray-700 hover:bg-gray-50 shrink-0 self-start"
+                  >
                     Cancel
                   </button>
                 </div>
@@ -1312,7 +1360,15 @@ export default function MyCommunityMessagesPage() {
                 <div className="flex-1 flex flex-col items-center justify-center py-12 px-6">
                   <IonIcon name="chatbubbles-outline" size={64} className="text-gray-400 mb-3" />
                   <p className="text-base text-gray-500 text-center mb-6">No direct messages yet</p>
-                  <button type="button" onClick={() => setShowFriendPicker(true)} className="py-3 px-6 rounded-lg text-white font-semibold" style={{ backgroundColor: "var(--color-primary)" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFriendSearch("");
+                      setShowFriendPicker(true);
+                    }}
+                    className="py-3 px-6 rounded-lg text-white font-semibold"
+                    style={{ backgroundColor: "var(--color-primary)" }}
+                  >
                     Start a conversation
                   </button>
                 </div>
@@ -1395,7 +1451,7 @@ export default function MyCommunityMessagesPage() {
               {typingPeersResolved.length > 0 && !directMessageRequestForViewer && (
                 <ChatTypingIndicator peers={typingPeersResolved} />
               )}
-              <div className="flex-1 overflow-y-scroll overflow-x-hidden p-4 space-y-3 min-h-0 [scrollbar-gutter:stable]">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3 min-h-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                 {openDirect.messages.map((m) => {
                   const isMe = session?.user?.id && m.senderId === session.user.id;
                   const link = sharedContentLink(m);
@@ -1620,7 +1676,7 @@ export default function MyCommunityMessagesPage() {
                 <h2 className="font-semibold text-white truncate flex-1">{openGroup.name ?? "Group"}</h2>
               </div>
               {typingPeersResolved.length > 0 && <ChatTypingIndicator peers={typingPeersResolved} />}
-              <div className="flex-1 overflow-y-scroll overflow-x-hidden p-4 space-y-3 min-h-0 [scrollbar-gutter:stable]">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3 min-h-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                 {openGroup.messages.map((m) => {
                   const isMe = session?.user?.id && m.senderId === session.user.id;
                   return (
@@ -1714,7 +1770,7 @@ export default function MyCommunityMessagesPage() {
                 </div>
               </div>
               {typingPeersResolved.length > 0 && <ChatTypingIndicator peers={typingPeersResolved} />}
-              <div className="flex-1 overflow-y-scroll overflow-x-hidden p-4 space-y-3 min-h-0 [scrollbar-gutter:stable]">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3 min-h-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                 {openResale.messages.map((m, i) => {
                   const msg = m as {
                     id?: string;

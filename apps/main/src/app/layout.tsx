@@ -16,7 +16,13 @@ export const metadata: Metadata = {
   metadataBase: new URL(baseUrl),
   title: "Northwest Community",
   description: "Connecting the good people of Spokane & Kootenai County",
-  icons: { icon: "/nwc-logo-circle.png" },
+  icons: {
+    icon: [
+      { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+  },
   openGraph: {
     title: "Northwest Community",
     description: "Connecting the good people of Spokane & Kootenai County",

@@ -790,9 +790,11 @@ export function StorefrontListingContent({
                 <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-primary)]">
                   LOCAL BUSINESS LISTING
                 </p>
-                <h1 className="text-3xl font-bold leading-tight text-[var(--color-heading)]">{item.title}</h1>
+                <h1 className="text-xl font-bold leading-tight text-[var(--color-heading)] sm:text-2xl lg:text-3xl">
+                  {item.title}
+                </h1>
               </div>
-              <div className="flex w-full sm:w-auto sm:min-w-[12rem]">
+              <div className="hidden w-full min-w-[12rem] lg:flex lg:w-auto">
                 <ShareButton
                   type="store_item"
                   id={item.id}
@@ -801,6 +803,7 @@ export function StorefrontListingContent({
                   variant="full"
                   tone="earth"
                   label="Share Item"
+                  className="!rounded-[var(--button-border-radius)]"
                 />
               </div>
             </div>
@@ -1032,6 +1035,18 @@ export function StorefrontListingContent({
                   });
                 }}
               />
+              <div className="lg:hidden">
+                <ShareButton
+                  type="store_item"
+                  id={item.id}
+                  slug={item.slug}
+                  title={item.title}
+                  variant="full"
+                  tone="earth"
+                  label="Share Item"
+                  className="!rounded-[var(--button-border-radius)]"
+                />
+              </div>
             </div>
           </div>
           </div>
@@ -1282,9 +1297,15 @@ className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] 
                       className="flex h-full flex-col border-2 rounded-lg overflow-hidden hover:opacity-90 transition-opacity w-full max-w-[14rem] shrink-0"
                       style={{ borderColor: "#C9A86C" }}
                     >
-                      <div className="aspect-square bg-[#F8F8F3] p-2 shrink-0">
+                      <div className="relative aspect-square w-full bg-[#F8F8F3] p-2 overflow-hidden shrink-0 border-b-2 border-[var(--color-primary)]">
                         {other.photos[0] ? (
-                          <img src={listingDisplayPhoto(other.photos[0], "card") ?? other.photos[0]} alt={other.title} className="w-full h-full object-contain" loading="lazy" decoding="async" />
+                          <img
+                            src={listingDisplayPhoto(other.photos[0], "card") ?? other.photos[0]}
+                            alt={other.title}
+                            className="w-full h-full object-contain"
+                            loading="lazy"
+                            decoding="async"
+                          />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No image</div>
                         )}
@@ -1360,9 +1381,15 @@ className="border-2 rounded-lg p-3 bg-white text-sm text-gray-900 max-h-[15rem] 
                     className="flex h-full flex-col border-2 rounded-lg overflow-hidden hover:opacity-90 transition-opacity w-full max-w-[14rem] shrink-0"
                     style={{ borderColor: "#C9A86C" }}
                   >
-                    <div className="aspect-square bg-[#F8F8F3] p-2 shrink-0">
+                    <div className="relative aspect-square w-full bg-[#F8F8F3] p-2 overflow-hidden shrink-0 border-b-2 border-[var(--color-primary)]">
                       {other.photos[0] ? (
-                        <img src={listingDisplayPhoto(other.photos[0], "card") ?? other.photos[0]} alt={other.title} className="w-full h-full object-contain" loading="lazy" decoding="async" />
+                        <img
+                          src={listingDisplayPhoto(other.photos[0], "card") ?? other.photos[0]}
+                          alt={other.title}
+                          className="w-full h-full object-contain"
+                          loading="lazy"
+                          decoding="async"
+                        />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No image</div>
                       )}

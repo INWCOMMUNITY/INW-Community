@@ -417,7 +417,7 @@ function GroupAdminHubContent() {
       </Link>
 
       <div className="flex flex-wrap items-center gap-4 mb-6">
-        <h1 className="text-2xl font-bold">Group admin</h1>
+        <h1 className="text-2xl font-bold">Group Admin</h1>
         {adminGroups.length > 1 ? (
           <label className="flex items-center gap-2 text-sm">
             <span className="text-gray-600">Group:</span>

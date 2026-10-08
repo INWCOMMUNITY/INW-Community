@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppsAirportChannelHub } from "@/components/apps-airport/AppsAirportChannelHub";
+import { AppsAirportListingMobileCard } from "@/components/apps-airport/AppsAirportListingMobileCard";
 import { AppsAirportListingPhotoCollage } from "@/components/apps-airport/AppsAirportListingPhotoCollage";
 import { AppsAirportSyncedListings } from "@/components/apps-airport/AppsAirportSyncedListings";
 import { AppsAirportViewOnChannelButton } from "@/components/apps-airport/AppsAirportViewOnChannelButton";
@@ -176,6 +177,7 @@ export default function AppsAirportEtsyPage() {
         },
       ]}
       settingsHref={hub.settingsPath}
+      settingsLabel="Settings"
     >
       {error ? <p className="mb-4 text-sm text-red-700">{error}</p> : null}
       {toast ? (
@@ -244,6 +246,55 @@ export default function AppsAirportEtsyPage() {
               <th className="py-2 font-semibold">{hub.viewOnChannelLabel}</th>
             </>
           }
+          mobileList={filtered.slice(0, 20).map(({ row, status }) => {
+            const publicUrl = etsyListingPublicUrl({
+              etsyListingId: row.etsyListingId,
+              remoteListingState: row.remoteListingState,
+            });
+            const manage = row.etsyListingId ? (
+              <EtsyListingActionButtons
+                storeItemId={row.storeItemId}
+                etsyListingId={row.etsyListingId}
+                remoteListingState={row.remoteListingState}
+                onActionComplete={(message) => {
+                  setToast(message ?? "Updated");
+                  void load();
+                }}
+              />
+            ) : (
+              <Link
+                href={hub.listItemsPath}
+                className="text-xs underline"
+                style={{ color: "var(--color-primary)" }}
+                prefetch={false}
+              >
+                Retry list
+              </Link>
+            );
+            const viewOn = (
+              <AppsAirportViewOnChannelButton
+                label={hub.viewOnChannelLabel}
+                icon={hub.icon}
+                href={publicUrl}
+                unavailableLabel={row.etsyListingId ? "Not live on Etsy yet" : "Not listed yet"}
+              />
+            );
+            return (
+              <AppsAirportListingMobileCard
+                key={row.id}
+                href={`/seller-hub/store/${row.storeItemId}`}
+                title={row.title}
+                photos={row.photos}
+                status={status}
+                statusClassName={etsyListingStatusChipClass(status)}
+                quantity={row.quantity ?? "—"}
+                price={formatEtsyCents(row.priceCents)}
+                issueMessage={status !== "Live" ? row.issueMessage : null}
+                manage={manage}
+                viewOn={viewOn}
+              />
+            );
+          })}
         >
           {filtered.slice(0, 20).map(({ row, status }) => {
             const publicUrl = etsyListingPublicUrl({

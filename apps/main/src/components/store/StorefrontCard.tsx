@@ -5,6 +5,7 @@ import Link from "next/link";
 import { listingDescriptionPreview } from "@/lib/listing-description-preview";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
 import { ShareButton } from "@/components/ShareButton";
+import { IonIcon } from "@/components/IonIcon";
 import { CARD_RADIUS, CARD_SHADOW } from "@/components/ui/card-styles";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
 import { browsePriceLabel } from "@/lib/listing-variant-matrix";
@@ -101,28 +102,31 @@ export function StorefrontCard({
         <p className="text-xs leading-4 text-gray-600 mt-1 line-clamp-2 h-8">
           {item.description ? listingDescriptionPreview(item.description) : "\u00a0"}
         </p>
-        <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-100">
-          <div className="flex gap-1.5">
-            <HeartSaveButton
-              type="store_item"
-              referenceId={item.id}
-              initialSaved={savedIds.has(item.id)}
-              className="card-action-btn"
-              iconSize={16}
-              iconClassName="card-action-icon"
-            />
-            <ShareButton
-              type="store_item"
-              id={item.id}
-              slug={item.slug}
-              title={item.title}
-              className="card-action-btn"
-              iconSize={16}
-              iconClassName="card-action-icon"
-            />
-          </div>
-          <Link href={href} className="text-xs font-medium text-[var(--color-primary)] hover:underline">
-            View details →
+        <div className="flex items-center justify-evenly mt-auto pt-2 border-t border-gray-100">
+          <HeartSaveButton
+            type="store_item"
+            referenceId={item.id}
+            initialSaved={savedIds.has(item.id)}
+            className="card-action-btn card-action-btn-honey"
+            iconSize={16}
+            iconClassName="card-action-icon"
+          />
+          <ShareButton
+            type="store_item"
+            id={item.id}
+            slug={item.slug}
+            title={item.title}
+            className="card-action-btn card-action-btn-earth"
+            iconSize={16}
+            iconClassName="card-action-icon"
+          />
+          <Link
+            href={href}
+            className="card-action-btn"
+            title="View details"
+            aria-label="View details"
+          >
+            <IonIcon name="eye-outline" size={16} className="card-action-icon" />
           </Link>
         </div>
       </div>

@@ -172,22 +172,7 @@ function SupportLocalGalleryMobile({
         className="w-full border-b-2 border-black px-4 pt-4 pb-5 text-white"
         style={{ backgroundColor: "var(--color-primary)" }}
       >
-        <div className="flex items-center justify-center gap-2 sm:gap-3 mb-4">
-          <div className="flex flex-1 min-w-0 justify-end">
-            <Link
-              href="/coupons"
-              prefetch={false}
-              className="flex max-w-full flex-col items-center gap-1 rounded-full border-2 border-black bg-white px-2 py-2 text-center"
-            >
-              <IonIcon name="pricetag-outline" size={22} className="text-black" />
-              <span
-                className="text-xs font-semibold leading-tight text-black sm:text-sm"
-                style={{ fontFamily: "var(--font-heading)" }}
-              >
-                Coupons
-              </span>
-            </Link>
-          </div>
+        <div className="mb-4 flex justify-center">
           <div className="relative h-[92px] w-[92px] shrink-0 overflow-hidden rounded-full border-[1.5px] border-black bg-white">
             <Image
               src="/nwc-logo-circle.png"
@@ -196,21 +181,6 @@ function SupportLocalGalleryMobile({
               height={92}
               className="h-full w-full object-cover"
             />
-          </div>
-          <div className="flex flex-1 min-w-0 justify-start">
-            <Link
-              href="/rewards"
-              prefetch={false}
-              className="flex max-w-full flex-col items-center gap-1 rounded-full border-2 border-black bg-white px-2 py-2 text-center"
-            >
-              <IonIcon name="gift-outline" size={22} className="text-black" />
-              <span
-                className="text-xs font-semibold leading-tight text-black sm:text-sm"
-                style={{ fontFamily: "var(--font-heading)" }}
-              >
-                Rewards
-              </span>
-            </Link>
           </div>
         </div>
         <p className="mb-1 text-center text-sm text-white/90">Spokane &amp; Kootenai County</p>
@@ -595,11 +565,10 @@ function BusinessCardMobile({
       <Link
         href={`/support-local/${b.slug}`}
         prefetch={false}
-        className="mx-3 mb-3 flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white"
+        className="mx-3 mb-3 flex items-center justify-center rounded-lg py-2.5 text-sm font-semibold text-white"
         style={{ backgroundColor: "var(--color-primary)" }}
       >
-        <IonIcon name="storefront-outline" size={18} className="shrink-0" />
-        See Local Business
+        See Business
       </Link>
     </div>
   );

@@ -148,7 +148,8 @@ export default async function HomePage() {
               <Link
                 key={cal.href}
                 href={cal.href}
-                className="block rounded-lg overflow-hidden border border-[var(--color-primary)]/30 hover:border-[var(--color-primary)] transition-colors bg-white"
+                className="block rounded-lg overflow-hidden border-2 bg-white transition-opacity hover:opacity-95"
+                style={{ borderColor: "var(--color-earth)" }}
               >
                 <Image
                   src={cal.image}

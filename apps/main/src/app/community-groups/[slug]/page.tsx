@@ -282,6 +282,13 @@ export default function GroupDetailPage() {
       </dialog>
 
       <div className="max-w-[var(--max-width)] mx-auto">
+        <Link
+          href="/community-groups"
+          className="btn mb-3 inline-block !bg-[var(--color-earth)] !text-white hover:!bg-[#4a3f33] hover:!text-white"
+          prefetch={false}
+        >
+          ← Back to Groups
+        </Link>
         <div className="relative overflow-hidden rounded-xl w-full aspect-[5/2] min-h-[13rem]">
           {group.coverImageUrl ? (
             <>
@@ -299,14 +306,7 @@ export default function GroupDetailPage() {
               aria-hidden
             />
           )}
-          <div className="absolute inset-0 z-10 flex flex-col justify-between p-4 md:p-6">
-            <Link
-              href="/community-groups"
-              className="self-start rounded-full bg-white/90 px-3 py-1.5 text-sm font-semibold no-underline hover:bg-white"
-              style={{ color: "var(--color-heading)" }}
-            >
-              ← Back to Groups
-            </Link>
+          <div className="absolute inset-0 z-10 flex flex-col justify-end p-4 md:p-6 pt-3 md:pt-4">
             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
               <div className="min-w-0">
                 <h1

@@ -1,11 +1,11 @@
-/** Shared INW / Shopify / Etsy / Wix cap. Etsy rejects anything longer. */
+/** Shared INW / Shopify / Etsy cap. Etsy rejects anything longer. */
 export const LISTING_SKU_MAX = 32;
 
 /** Etsy listing inventory SKU cap (`/sku cannot be more than 32 characters`). */
 export const ETSY_SKU_MAX = 32;
 
 /**
- * Exact-same SKU contract for Shopify, Etsy, and Wix: letters, numbers, and hyphens, 32 characters.
+ * Exact-same SKU contract for Shopify and Etsy: letters, numbers, and hyphens, 32 characters.
  */
 export const CANONICAL_SKU_MAX = ETSY_SKU_MAX;
 export const CANONICAL_SKU_RE = /^(?=.*[a-zA-Z0-9])[a-zA-Z0-9-]{1,32}$/;
@@ -47,7 +47,7 @@ export function isEbayMigrationSku(sku: string | null | undefined): boolean {
   return Boolean(sku && EBAY_MIGRATION_SKU.test(sku.trim()));
 }
 
-/** True when the SKU can be published unchanged to Shopify, Etsy, and Wix. */
+/** True when the SKU can be published unchanged to Shopify and Etsy. */
 export function isCanonicalChannelSku(sku: string | null | undefined): boolean {
   const trimmed = sku?.trim() ?? "";
   return CANONICAL_SKU_RE.test(trimmed);

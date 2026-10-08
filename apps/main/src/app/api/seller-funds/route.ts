@@ -8,10 +8,13 @@ import {
 } from "@/lib/stripe/connect-payouts";
 import { createMarketplaceStripe } from "@/lib/stripe-clients";
 import {
+  isStripeConnectAccountMissingError,
+  retrieveConnectAccountOrHeal,
+} from "@/lib/stripe-connect-account-gone";
+import {
   collectKnownConnectAccountIdsForMember,
   ensureConnectAccountMemberMetadata,
   findExistingConnectAccountIdForEmail,
-  maybeDeleteEmptyDuplicateConnectAccount,
 } from "@/lib/stripe-connect-reuse-account";
 import { computeSellerTransferCents } from "@/lib/storefront-payout";
 
@@ -46,8 +49,7 @@ export async function GET(req: NextRequest) {
     select: { stripeConnectAccountId: true, email: true },
   });
 
-  // If reconnect linked an empty duplicate, swap to the funded Express account.
-  // Do not auto-attach when Connect is intentionally disconnected (id is null).
+  // Prefer funded Express account over an empty duplicate (do not auto-attach after intentional disconnect).
   if (member?.stripeConnectAccountId) {
     try {
       const knownAccountIds = await collectKnownConnectAccountIdsForMember(prisma, stripe, userId);
@@ -56,14 +58,12 @@ export async function GET(req: NextRequest) {
         knownAccountIds,
       });
       if (preferredId && preferredId !== member.stripeConnectAccountId) {
-        const emptyDuplicateId = member.stripeConnectAccountId;
         await prisma.member.update({
           where: { id: userId },
           data: { stripeConnectAccountId: preferredId },
         });
         member.stripeConnectAccountId = preferredId;
         await ensureConnectAccountMemberMetadata(stripe, preferredId, userId);
-        await maybeDeleteEmptyDuplicateConnectAccount(stripe, emptyDuplicateId, preferredId);
       } else if (preferredId) {
         await ensureConnectAccountMemberMetadata(stripe, preferredId, userId);
       }
@@ -129,23 +129,37 @@ export async function GET(req: NextRequest) {
   let totalPaidOutCents = balance?.totalPaidOutCents ?? 0;
 
   if (member?.stripeConnectAccountId) {
-    try {
-      const account = await stripe.accounts.retrieve(member.stripeConnectAccountId);
-      hasStripeConnect = account.charges_enabled === true;
-      const [stripeBalance, paidOutFromStripe] = await Promise.all([
-        stripe.balance.retrieve({
-          stripeAccount: member.stripeConnectAccountId,
-        }),
-        sumPaidConnectPayoutsCents(stripe, member.stripeConnectAccountId).catch(() => null),
-      ]);
-      if (paidOutFromStripe !== null) {
-        totalPaidOutCents = paidOutFromStripe;
+    const healed = await retrieveConnectAccountOrHeal({
+      stripe,
+      memberId: userId,
+      email: member.email,
+      accountId: member.stripeConnectAccountId,
+    });
+
+    if (healed.ok) {
+      member.stripeConnectAccountId = healed.accountId;
+      hasStripeConnect = healed.account.charges_enabled === true;
+      try {
+        const [stripeBalance, paidOutFromStripe] = await Promise.all([
+          stripe.balance.retrieve({
+            stripeAccount: healed.accountId,
+          }),
+          sumPaidConnectPayoutsCents(stripe, healed.accountId).catch(() => null),
+        ]);
+        if (paidOutFromStripe !== null) {
+          totalPaidOutCents = paidOutFromStripe;
+        }
+        const usdAvailable = stripeBalance.available?.find((b) => b.currency === "usd");
+        const usdPending = stripeBalance.pending?.find((b) => b.currency === "usd");
+        availableForPayoutCents = usdAvailable?.amount ?? 0;
+        pendingCents = usdPending?.amount ?? 0;
+      } catch (balErr) {
+        // Balance read failures must not clear Connect — seller stays linked for listing.
+        console.warn("[seller-funds] balance retrieve failed; keeping Connect link", {
+          error: balErr instanceof Error ? balErr.message : String(balErr),
+        });
       }
-      const usdAvailable = stripeBalance.available?.find((b) => b.currency === "usd");
-      const usdPending = stripeBalance.pending?.find((b) => b.currency === "usd");
-      availableForPayoutCents = usdAvailable?.amount ?? 0;
-      pendingCents = usdPending?.amount ?? 0;
-      const schedule = account.settings?.payouts?.schedule;
+      const schedule = healed.account.settings?.payouts?.schedule;
       if (schedule) {
         const delay = schedule.delay_days ?? 2;
         const interval = schedule.interval ?? "daily";
@@ -164,16 +178,9 @@ export async function GET(req: NextRequest) {
       } else {
         payoutScheduleDescription = "Funds typically available in 2 business days";
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      const accountGone = /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
-      if (accountGone) {
-        await prisma.member.update({
-          where: { id: userId },
-          data: { stripeConnectAccountId: null },
-        }).catch(() => {});
-      }
-      hasStripeConnect = false;
+    } else if (!healed.cleared) {
+      // Transient Stripe error — keep showing Connect as linked so listing stays allowed.
+      hasStripeConnect = true;
     }
   }
 
@@ -207,7 +214,7 @@ export async function POST(req: NextRequest) {
 
   const member = await prisma.member.findUnique({
     where: { id: userId },
-    select: { stripeConnectAccountId: true },
+    select: { stripeConnectAccountId: true, email: true },
   });
   if (!member?.stripeConnectAccountId) {
     return NextResponse.json(
@@ -216,26 +223,33 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let availableCents: number;
-  try {
-    const stripeBalance = await stripe.balance.retrieve({
-      stripeAccount: member.stripeConnectAccountId,
-    });
-    const usdAvailable = stripeBalance.available?.find((b) => b.currency === "usd");
-    availableCents = usdAvailable?.amount ?? 0;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const accountGone = /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
-    if (accountGone) {
-      await prisma.member.update({
-        where: { id: userId },
-        data: { stripeConnectAccountId: null },
-      }).catch(() => {});
+  const healed = await retrieveConnectAccountOrHeal({
+    stripe,
+    memberId: userId,
+    email: member.email,
+    accountId: member.stripeConnectAccountId,
+  });
+  if (!healed.ok) {
+    if (healed.cleared) {
       return NextResponse.json(
-        { error: "Your previous payment account is no longer available. Please complete setup again in Seller Hub → My Funds." },
+        {
+          error:
+            "Your previous payment account is no longer available. Please complete setup again in Seller Hub → My Funds.",
+        },
         { status: 400 }
       );
     }
+    return NextResponse.json({ error: "Could not load your Stripe balance" }, { status: 500 });
+  }
+
+  let availableCents: number;
+  try {
+    const stripeBalance = await stripe.balance.retrieve({
+      stripeAccount: healed.accountId,
+    });
+    const usdAvailable = stripeBalance.available?.find((b) => b.currency === "usd");
+    availableCents = usdAvailable?.amount ?? 0;
+  } catch {
     return NextResponse.json({ error: "Could not load your Stripe balance" }, { status: 500 });
   }
 
@@ -253,7 +267,7 @@ export async function POST(req: NextRequest) {
         currency: "usd",
         metadata: { memberId: userId },
       },
-      { stripeAccount: member.stripeConnectAccountId }
+      { stripeAccount: healed.accountId }
     );
     await recordConnectPayoutInLedger({
       memberId: userId,
@@ -265,16 +279,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, payoutId: payout.id });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const accountGone = /no such account|account.*doesn't exist|account.*does not exist|invalid id/i.test(msg);
-    if (accountGone) {
-      await prisma.member.update({
-        where: { id: userId },
-        data: { stripeConnectAccountId: null },
-      }).catch(() => {});
-      return NextResponse.json(
-        { error: "Your previous payment account is no longer available. Please complete setup again in Seller Hub → My Funds." },
-        { status: 400 }
-      );
+    if (isStripeConnectAccountMissingError(e)) {
+      const again = await retrieveConnectAccountOrHeal({
+        stripe,
+        memberId: userId,
+        email: member.email,
+        accountId: healed.accountId,
+      });
+      if (again.cleared) {
+        return NextResponse.json(
+          {
+            error:
+              "Your previous payment account is no longer available. Please complete setup again in Seller Hub → My Funds.",
+          },
+          { status: 400 }
+        );
+      }
     }
     return NextResponse.json({ error: msg || "Payout failed" }, { status: 500 });
   }

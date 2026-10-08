@@ -10,7 +10,6 @@ import {
   type AppsAirportChannelId,
 } from "@/lib/shopify/apps-airport";
 import { APPS_AIRPORT_ETSY_PATH } from "@/lib/etsy/apps-airport";
-import { APPS_AIRPORT_WIX_PATH } from "@/lib/wix/apps-airport";
 
 const LISTED_ON_SLOTS: Array<{
   id: Exclude<AppsAirportChannelId, "ebay">;
@@ -40,13 +39,6 @@ const LISTED_ON_SLOTS: Array<{
     icon: "color-palette-outline",
     manageHref: APPS_AIRPORT_ETSY_PATH,
     activeClass: "bg-[#c99d5f] text-white",
-  },
-  {
-    id: "wix",
-    label: "Wix",
-    icon: "globe-outline",
-    manageHref: APPS_AIRPORT_WIX_PATH,
-    activeClass: "bg-[var(--color-section-alt)] text-[var(--color-earth)]",
   },
 ];
 

@@ -13,11 +13,12 @@ export function ConditionalFooter() {
   const pathname = usePathname();
   const hideOnMobile = isImmersiveMobileChromeRoute(pathname);
   const hideFooter = shouldHideGlobalSiteFooter(pathname);
+  const hideMessagesMobile = pathname.startsWith("/my-community/messages");
 
   if (hideFooter) return null;
 
   return (
-    <div className={hideOnMobile ? "max-md:hidden" : undefined}>
+    <div className={hideOnMobile || hideMessagesMobile ? "max-md:hidden" : undefined}>
       <Footer />
     </div>
   );

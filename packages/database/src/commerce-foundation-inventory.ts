@@ -526,10 +526,6 @@ export async function setTrackedOnHand(
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
-    await captureWixInventoryProjectionDesireAfterChange(tx, {
-      memberId: state.memberId,
-      storeVariantId: state.variantId,
-    });
   }
   const quantity = await projectStoreItemQuantity(tx, state.storeItemId);
   return {
@@ -627,10 +623,6 @@ export async function holdTrackedReservation(
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
-    await captureWixInventoryProjectionDesireAfterChange(tx, {
-      memberId: state.memberId,
-      storeVariantId: state.variantId,
-    });
   }
   await projectStoreItemQuantity(tx, state.storeItemId);
   return {
@@ -698,10 +690,6 @@ export async function releaseReservation(
       storeVariantId: state.variantId,
     });
     await captureEtsyInventoryProjectionDesireAfterChange(tx, {
-      memberId: state.memberId,
-      storeVariantId: state.variantId,
-    });
-    await captureWixInventoryProjectionDesireAfterChange(tx, {
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
@@ -840,10 +828,6 @@ export async function restockTrackedVariant(
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
-    await captureWixInventoryProjectionDesireAfterChange(tx, {
-      memberId: state.memberId,
-      storeVariantId: state.variantId,
-    });
   }
   const quantity = await projectStoreItemQuantity(tx, state.storeItemId);
   await maybeReactivateAfterRestock(tx, state.storeItemId);
@@ -955,10 +939,6 @@ export async function applyTrackedMarketplaceSale(
       storeVariantId: state.variantId,
     });
     await captureEtsyInventoryProjectionDesireAfterChange(tx, {
-      memberId: state.memberId,
-      storeVariantId: state.variantId,
-    });
-    await captureWixInventoryProjectionDesireAfterChange(tx, {
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
@@ -1079,10 +1059,6 @@ export async function applyTrackedMarketplaceQuantityEdit(
       memberId: state.memberId,
       storeVariantId: state.variantId,
     });
-    await captureWixInventoryProjectionDesireAfterChange(tx, {
-      memberId: state.memberId,
-      storeVariantId: state.variantId,
-    });
   }
   return {
     status: "APPLIED",
@@ -1117,17 +1093,6 @@ async function captureEtsyInventoryProjectionDesireAfterChange(
 ): Promise<void> {
   const { captureEtsyInventoryProjectionDesire } = await import("./etsy/inventory-desire");
   await captureEtsyInventoryProjectionDesire(tx, input);
-}
-
-/** No-ops when unmapped, inactive, or the latest event came from Wix. */
-async function captureWixInventoryProjectionDesireAfterChange(
-  tx: FoundationDb,
-  input: { memberId: string; storeVariantId: string }
-): Promise<void> {
-  const { captureWixInventoryProjectionDesireAfterChange: capture } = await import(
-    "./wix/inventory-desire"
-  );
-  await capture(tx, input);
 }
 
 export type { PrismaClient };

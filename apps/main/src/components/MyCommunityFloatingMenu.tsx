@@ -35,8 +35,11 @@ export function MyCommunityFloatingMenu() {
   const { data: session } = useSession();
   const [open, setOpen] = useState(false);
   const isAdmin = (session?.user as { isAdmin?: boolean })?.isAdmin;
+  const hideOnMessages = pathname.startsWith("/my-community/messages");
 
   useLockBodyScroll(open);
+
+  if (hideOnMessages) return null;
 
   return (
     <>

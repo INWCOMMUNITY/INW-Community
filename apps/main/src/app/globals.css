@@ -564,7 +564,7 @@ select option:checked {
   }
 }
 
-/* Card action buttons (heart/share) */
+/* Card action buttons (heart/share/view) */
 .card-action-btn {
   width: 32px !important;
   height: 32px !important;
@@ -578,6 +578,14 @@ select option:checked {
   justify-content: center !important;
 }
 
+.card-action-btn-honey {
+  background-color: #c99d5f !important;
+}
+
+.card-action-btn-earth {
+  background-color: var(--color-earth) !important;
+}
+
 .card-action-btn:hover {
   background-color: var(--color-section-alt) !important;
 }
@@ -589,6 +597,14 @@ select option:checked {
 
 .card-action-btn:hover .card-action-icon {
   color: var(--color-primary) !important;
+}
+
+.card-action-btn-honey:hover .card-action-icon {
+  color: #c99d5f !important;
+}
+
+.card-action-btn-earth:hover .card-action-icon {
+  color: var(--color-earth) !important;
 }
 
 /* Heart pulse animation for save/like buttons */

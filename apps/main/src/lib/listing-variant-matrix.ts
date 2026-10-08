@@ -342,7 +342,7 @@ export function skuSelectionKey(options: Record<string, string>): string {
 
 /**
  * Axis-name-independent key built from option VALUES only. Used as a fallback when a
- * remote provider renames axes (Wix "Option", Etsy property_name, eBay Custom Label)
+ * remote provider renames axes (Etsy property_name, eBay Custom Label)
  * so a value-only match still lines up. Mirrors channels/variant-match.optionValueSetKey.
  */
 export function optionValuesKey(options: Record<string, string>): string {
@@ -826,7 +826,7 @@ export function stripSkuPricesFromMatrix(matrix: VariantMatrix): VariantMatrix {
 
 /**
  * Keep INW per-SKU prices when the remote snapshot has quantities/structure but no prices.
- * A priceless inbound matrix must never clear prices we already have (Wix inventory echo,
+ * A priceless inbound matrix must never clear prices we already have (inventory echo,
  * catalog list omitting nested priceData). When the remote *does* send prices, use it as-is.
  */
 export function mergeIncomingVariantMatrixPreservingUnknownPrices(

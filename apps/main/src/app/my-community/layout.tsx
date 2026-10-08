@@ -53,15 +53,27 @@ export default async function MyCommunityLayout({
     );
   }
 
+  const pathname = headers().get("x-pathname") ?? "";
+  const isMessages = pathname.startsWith("/my-community/messages");
+
   return (
     <section
-      className="py-12 mt-[0.5in] lg:mb-[0.5in] overflow-visible"
-      style={{ paddingTop: "calc(var(--section-padding) + 0.5in)", paddingBottom: "var(--section-padding)" }}
+      className={
+        isMessages
+          ? "max-md:!p-0 max-md:!m-0 max-md:overflow-hidden max-md:h-[calc(100dvh-var(--site-header-height))] max-md:flex max-md:flex-col py-12 mt-[0.5in] lg:mb-[0.5in] overflow-visible"
+          : "py-12 mt-[0.5in] lg:mb-[0.5in] overflow-visible"
+      }
+      style={{
+        paddingTop: "calc(var(--section-padding) + 0.5in)",
+        paddingBottom: "var(--section-padding)",
+      }}
     >
       <Suspense fallback={null}>
         <CheckoutSuccessSessionSync />
       </Suspense>
       <MyCommunityNavGrid
+        fullBleedMobile={isMessages}
+        className={isMessages ? "max-md:flex-1 max-md:min-h-0 max-md:h-full" : undefined}
         sidebar={<MyCommunitySidebar />}
         asideRight={
           <>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppsAirportChannelHub } from "@/components/apps-airport/AppsAirportChannelHub";
+import { AppsAirportListingMobileCard } from "@/components/apps-airport/AppsAirportListingMobileCard";
 import { AppsAirportListingPhotoCollage } from "@/components/apps-airport/AppsAirportListingPhotoCollage";
 import { AppsAirportSyncedListings } from "@/components/apps-airport/AppsAirportSyncedListings";
 import { AppsAirportViewOnChannelButton } from "@/components/apps-airport/AppsAirportViewOnChannelButton";
@@ -236,6 +237,7 @@ export default function AppsAirportShopifyPage() {
         },
       ]}
       settingsHref={hub.settingsPath}
+      settingsLabel="Settings"
     >
       {error ? <p className="mb-4 text-sm text-red-700">{error}</p> : null}
       {toast ? (
@@ -295,6 +297,65 @@ export default function AppsAirportShopifyPage() {
               <th className="py-2 font-semibold">{hub.viewOnChannelLabel}</th>
             </>
           }
+          mobileList={filtered.slice(0, 20).map(({ row, status }) => {
+            const issue =
+              status !== "Live"
+                ? shopifyListingIssueSellerDetail({
+                    issueCode: row.issueCode,
+                    issueMessage: row.issueMessage,
+                  })
+                : null;
+            const qty = (
+              <>
+                {row.quantity}
+                <span className="text-neutral-400"> · </span>
+                {formatShopifyObservedQuantity({
+                  inventoryAppliedAvailable: row.inventoryAppliedAvailable,
+                  inventoryDesiredAvailable: row.inventoryDesiredAvailable,
+                })}
+              </>
+            );
+            return (
+              <AppsAirportListingMobileCard
+                key={row.listingLinkId}
+                href={`${hub.listingsPath}/${row.storeItemId}`}
+                title={row.title}
+                photos={row.photos}
+                status={status}
+                statusClassName={shopifyListingStatusChipClass(status)}
+                quantity={qty}
+                price={formatCents(row.priceCents)}
+                issueMessage={issue}
+                extraMeta={syncedWith ? `Synced with ${syncedWith}` : null}
+                manage={
+                  <ShopifyListingActionButtons
+                    storeItemId={row.storeItemId}
+                    shopDomain={shopDomain}
+                    shopifyProductId={row.shopifyProductId}
+                    preferStorefront={status === "Live"}
+                    onActionComplete={(message) => {
+                      if (message) setToast(message);
+                      void load();
+                    }}
+                  />
+                }
+                viewOn={
+                  <AppsAirportViewOnChannelButton
+                    label={hub.viewOnChannelLabel}
+                    icon={hub.icon}
+                    onClick={() =>
+                      openShopifyListingView({
+                        storeItemId: row.storeItemId,
+                        shopDomain,
+                        shopifyProductId: row.shopifyProductId,
+                        preferStorefront: status === "Live",
+                      })
+                    }
+                  />
+                }
+              />
+            );
+          })}
         >
           {filtered.slice(0, 20).map(({ row, status }) => (
             <tr key={row.listingLinkId} className="border-b border-neutral-200 align-top">

@@ -10,7 +10,7 @@ const POST_ACTION_BTN =
   "inline-flex items-center gap-2 rounded-lg border-2 border-[var(--color-primary)] px-3 py-2 font-medium text-sm text-gray-800 bg-white hover:bg-gray-100 transition";
 
 const FORM_FOOTER_BTN =
-  "btn inline-flex items-center justify-center gap-2 py-1.5 px-3 text-sm min-h-0";
+  "btn !inline-flex !items-center !justify-center gap-2 py-1.5 px-3 text-sm min-h-0";
 
 interface Group {
   id: string;
@@ -519,30 +519,32 @@ export function CreatePostForm({
               <IonIcon
                 name={editPostId ? "checkmark-outline" : "send-outline"}
                 size={18}
-                className="shrink-0"
+                className="shrink-0 text-white"
               />
             )}
-            {loading
-              ? editPostId
-                ? "Saving…"
-                : isListingShare
-                  ? "Sharing…"
-                  : "Posting…"
-              : editPostId
-                ? "Save changes"
-                : isListingShare
-                  ? "Share to feed"
-                  : "Post"}
+            <span>
+              {loading
+                ? editPostId
+                  ? "Saving…"
+                  : isListingShare
+                    ? "Sharing…"
+                    : "Posting…"
+                : editPostId
+                  ? "Save changes"
+                  : isListingShare
+                    ? "Share to feed"
+                    : "Post"}
+            </span>
           </button>
           {onCancel ? (
-            <button type="button" onClick={onCancel} className={`${FORM_FOOTER_BTN} border`}>
-              <IonIcon name="close-outline" size={18} className="shrink-0" />
-              Cancel
+            <button type="button" onClick={onCancel} className={FORM_FOOTER_BTN}>
+              <IonIcon name="close-outline" size={18} className="shrink-0 text-white" />
+              <span>Cancel</span>
             </button>
           ) : (
-            <Link href="/my-community/feed" className={`${FORM_FOOTER_BTN} border`}>
-              <IonIcon name="close-outline" size={18} className="shrink-0" />
-              Cancel
+            <Link href="/my-community/feed" className={FORM_FOOTER_BTN}>
+              <IonIcon name="close-outline" size={18} className="shrink-0 text-white" />
+              <span>Cancel</span>
             </Link>
           )}
         </div>
