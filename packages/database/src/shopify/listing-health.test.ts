@@ -206,6 +206,45 @@ describe("classifyShopifyListingHealth", () => {
     expect(health.blockInventoryOutbound).toBe(true);
   });
 
+  it("pauses only when every mapped variant is gone, not when siblings remain", () => {
+    const paused = classifyShopifyListingHealth({
+      connectionStatus: "ACTIVE",
+      primaryLocationId: "gid://shopify/Location/1",
+      listing: baseListing,
+      variantMap: baseVariant,
+      hasCausalSaleConflict: false,
+      remote: {
+        ...healthyRemote,
+        productStatus: "ACTIVE",
+        variantCount: 3,
+        mappedVariantCount: 3,
+        mappedVariantPresent: false,
+        presentMappedVariantCount: 0,
+      },
+    });
+    expect(paused.issueCode).toBe("REMOTE_VARIANT_MISSING");
+    expect(paused.blockContentOutbound).toBe(true);
+
+    const partial = classifyShopifyListingHealth({
+      connectionStatus: "ACTIVE",
+      primaryLocationId: "gid://shopify/Location/1",
+      listing: baseListing,
+      variantMap: baseVariant,
+      variantMaps: [baseVariant, baseVariant, baseVariant],
+      hasCausalSaleConflict: false,
+      remote: {
+        ...healthyRemote,
+        productStatus: "ACTIVE",
+        variantCount: 3,
+        mappedVariantCount: 3,
+        mappedVariantPresent: false,
+        presentMappedVariantCount: 2,
+      },
+    });
+    expect(partial.issueCode).not.toBe("REMOTE_VARIANT_MISSING");
+    expect(partial.blockContentOutbound).toBe(false);
+  });
+
   it("sibling variant content conflict surfaces even when primary map is clean", () => {
     const health = classifyShopifyListingHealth({
       connectionStatus: "ACTIVE",
