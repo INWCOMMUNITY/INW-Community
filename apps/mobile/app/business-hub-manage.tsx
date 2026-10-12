@@ -43,11 +43,11 @@ export default function BusinessHubManageScreen() {
         {ACTIONS.map((action) => (
           <Pressable
             key={action.href}
-            style={({ pressed }) => [styles.greenButton, pressed && styles.greenButtonPressed]}
+            style={({ pressed }) => [styles.earthButton, pressed && styles.earthButtonPressed]}
             onPress={() => (router.push as (h: string) => void)(action.href)}
           >
             <Ionicons name={action.icon} size={26} color="#fff" />
-            <Text style={styles.greenButtonText}>{action.label}</Text>
+            <Text style={styles.earthButtonText}>{action.label}</Text>
           </Pressable>
         ))}
       </View>
@@ -69,19 +69,19 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: "700", color: theme.colors.heading, marginBottom: 6 },
   subtitle: { fontSize: 14, color: "#666", marginBottom: 20 },
   buttonStack: { gap: 12 },
-  greenButton: {
+  earthButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 12,
     width: "100%",
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.earth,
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 12,
   },
-  greenButtonPressed: { opacity: 0.88 },
-  greenButtonText: {
+  earthButtonPressed: { opacity: 0.88 },
+  earthButtonText: {
     fontSize: 17,
     fontWeight: "700",
     color: "#fff",

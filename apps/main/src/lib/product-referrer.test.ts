@@ -19,4 +19,11 @@ describe("buildBackLink", () => {
       label: "Back to Order",
     });
   });
+
+  it("sends Shopify Sync Airport traffic back to the hub", () => {
+    expect(buildBackLink({ type: "shopify-sync" })).toEqual({
+      href: "/seller-hub/apps/shopify",
+      label: "Back to Shopify",
+    });
+  });
 });

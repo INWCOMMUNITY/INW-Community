@@ -68,6 +68,7 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
   const listingsItems: NavItem[] = [
     { href: "/seller-hub/store/items", label: "My Items", icon: "cube-outline" },
     { href: "/seller-hub/store/new", label: "List Item", icon: "add-circle-outline" },
+    { href: "/seller-hub/apps", label: "Sync Airport", icon: "apps-outline" },
     { href: "/seller-hub/store/items?tab=sold", label: "Sold Items", icon: "pricetag-outline", alert: soldItemsAlert },
     { href: "/seller-hub/store/drafts", label: "Drafts", icon: "document-text-outline" },
   ];
@@ -78,7 +79,7 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
       ? [{ href: "/seller-hub/orders?tab=deliveries", label: "Deliveries", icon: "bicycle-outline" as const }]
       : []),
     { href: "/seller-hub/offers", label: "Offers", icon: "pricetag-outline" },
-    { href: "/seller-hub/store/returns", label: "Return Requests", icon: "arrow-undo-outline", alert: pendingReturns > 0 },
+    { href: "/seller-hub/store/returns", label: "Cancellations / Refunds", icon: "arrow-undo-outline", alert: pendingReturns > 0 },
   ];
 
   const storeItems: NavItem[] = [

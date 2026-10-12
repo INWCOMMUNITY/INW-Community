@@ -54,13 +54,13 @@ describe("claimStoreReturnReceiptForRefund", () => {
     expect(result.action).toBe("refund");
     if (result.action === "refund") {
       expect(result.firstReceipt).toBe(true);
-      expect(result.amountCents).toBe(10100);
+      expect(result.amountCents).toBe(9727);
     }
     expect(tx.storeReturn.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           status: "received",
-          refundAmountCents: 10100,
+          refundAmountCents: 9727,
         }),
       })
     );

@@ -14,18 +14,16 @@ type ShippingOption = {
   weightLbs: number;
   weightOzRemainder: number;
   shippingCostCents: number | null;
-  source: "inw" | "ebay" | "etsy";
+  source: "inw" | "etsy" | "shopify";
   complete: boolean;
   listingCount: number;
 };
 
 type PageData = {
   options: ShippingOption[];
-  importEbayShippingOptions: boolean;
-  importEtsyShippingOptions: boolean;
   offerFreeShippingOnInw: boolean;
-  ebayConnected: boolean;
   etsyConnected: boolean;
+  shopifyConnected: boolean;
 };
 
 const emptyForm = {
@@ -64,6 +62,7 @@ export default function ShippingOptionsPage() {
   const [createOpen, setCreateOpen] = useState(true);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState<"etsy" | "shopify" | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ShippingOption | null>(null);
 
@@ -187,7 +186,44 @@ export default function ShippingOptionsPage() {
   }
 
   const sourceLabel = (source: string) =>
-    source === "etsy" ? "Etsy" : source === "ebay" ? "eBay" : "INW";
+    source === "etsy" ? "Etsy" : source === "shopify" ? "Shopify" : "INW";
+
+  function marketplaceShippingUrl(source: "etsy" | "shopify") {
+    return source === "etsy"
+      ? "https://www.etsy.com/your/shops/me/tools/shipping"
+      : "https://admin.shopify.com/store";
+  }
+
+  async function importFrom(provider: "etsy" | "shopify") {
+    setError(null);
+    setImporting(provider);
+    try {
+      const res = await fetch("/api/shipping-options/import", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `Could not import from ${sourceLabel(provider)}`);
+      if (Array.isArray(json.options)) {
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                options: json.options as ShippingOption[],
+              }
+            : prev
+        );
+      } else {
+        await load();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setImporting(null);
+    }
+  }
 
   function carryWeightFields(weightLbs: string, weightOz: string) {
     if (weightOz.endsWith(".")) return { weightLbs, weightOz };
@@ -215,26 +251,26 @@ export default function ShippingOptionsPage() {
         )}
 
         <div className="flex flex-col gap-3 mb-8">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              className="rounded"
-              disabled={!data?.ebayConnected}
-              checked={Boolean(data?.importEbayShippingOptions)}
-              onChange={(e) => void patchPrefs({ importEbayShippingOptions: e.target.checked })}
-            />
-            <span>Import shipping options from eBay</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              className="rounded"
-              disabled={!data?.etsyConnected}
-              checked={Boolean(data?.importEtsyShippingOptions)}
-              onChange={(e) => void patchPrefs({ importEtsyShippingOptions: e.target.checked })}
-            />
-            <span>Import shipping options from Etsy</span>
-          </label>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              className="btn"
+              disabled={!data?.etsyConnected || importing != null}
+              onClick={() => void importFrom("etsy")}
+              title={data?.etsyConnected ? undefined : "Connect Etsy in Sync Airport first"}
+            >
+              {importing === "etsy" ? "Importing Etsy…" : "Import from Etsy"}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={!data?.shopifyConnected || importing != null}
+              onClick={() => void importFrom("shopify")}
+              title={data?.shopifyConnected ? undefined : "Connect Shopify in Sync Airport first"}
+            >
+              {importing === "shopify" ? "Importing Shopify…" : "Import from Shopify"}
+            </button>
+          </div>
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -387,56 +423,39 @@ export default function ShippingOptionsPage() {
               </button>
               {menuId === opt.id && (
                 <div className="absolute right-3 top-12 z-10 border rounded-md bg-white shadow-md py-1 min-w-[12rem]">
-                  {opt.source === "inw" ? (
-                    <>
-                      <button
-                        type="button"
-                        className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
-                        onClick={() => startEdit(opt)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
-                        onClick={() => void archive(opt.id)}
-                      >
-                        Remove
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <p className="px-3 py-2 text-xs text-gray-600">
-                        Synced options can only be edited on {sourceLabel(opt.source)}.
-                      </p>
-                      <a
-                        className="block px-3 py-2 text-sm hover:bg-gray-50"
-                        href={
-                          opt.source === "etsy"
-                            ? "https://www.etsy.com/your/shops/me/tools/shipping"
-                            : "https://www.ebay.com/ship/bnd/seller-hub/shipping"
-                        }
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Open {sourceLabel(opt.source)}
-                      </a>
-                      <button
-                        type="button"
-                        className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
-                        onClick={() => void archive(opt.id)}
-                      >
-                        Hide on INW
-                      </button>
-                    </>
-                  )}
+                  <button
+                    type="button"
+                    className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                    onClick={() => startEdit(opt)}
+                  >
+                    Edit
+                  </button>
+                  {opt.source === "etsy" || opt.source === "shopify" ? (
+                    <a
+                      className="block px-3 py-2 text-sm hover:bg-gray-50"
+                      href={marketplaceShippingUrl(opt.source)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open {sourceLabel(opt.source)}
+                    </a>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                    onClick={() => void archive(opt.id)}
+                  >
+                    {opt.source === "inw" ? "Remove" : "Hide on INW"}
+                  </button>
                 </div>
               )}
             </li>
           ))}
         </ol>
         {data && data.options.length === 0 && (
-          <p className="text-sm text-gray-500">No shipping options yet. Create one above or import from eBay/Etsy.</p>
+          <p className="text-sm text-gray-500">
+            No shipping options yet. Create one above or import from Etsy/Shopify.
+          </p>
         )}
       </div>
     </section>

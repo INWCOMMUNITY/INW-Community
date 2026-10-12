@@ -14,6 +14,7 @@ import {
   Easing,
   ScrollView,
   Modal,
+  Alert,
 } from "react-native";
 
 const ANIM_DURATION = 480;
@@ -21,7 +22,9 @@ import { useRouter, useNavigation } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, getToken } from "@/lib/api";
+import { normalizeVariantMatrix } from "@/lib/listing-variant-matrix";
+import { buildProductPath } from "@/lib/product-referrer";
 import { slugifyStoreCategory } from "@/lib/store-category-slug";
 import { storefrontCloseMatchNote } from "@/lib/storefront-search";
 import {
@@ -272,17 +275,53 @@ export default function StoreScreen() {
     load();
   }, [load]);
 
-  const openItem = (item: StoreItem) => {
-    router.push(`/product/${item.slug}`);
-  };
+  const openListing = useCallback(
+    (item: StoreItemData) => {
+      router.push(buildProductPath(item.slug, { type: "storefront" }) as never);
+    },
+    [router]
+  );
 
   const handleQuickAdd = useCallback(async (item: StoreItemData) => {
-    try {
-      await apiPost("/api/cart", { storeItemId: item.id, quantity: 1 });
-    } catch {
-      // Silent fail - user can still tap the item to add with options
+    const matrix = normalizeVariantMatrix(item.variants);
+    const needsOptions = Boolean(matrix && matrix.axes.length > 0 && matrix.skus.length > 0);
+    if (needsOptions) {
+      openListing(item);
+      return;
     }
-  }, []);
+    if (item.shippingDisabled && !item.inStorePickupAvailable) {
+      openListing(item);
+      return;
+    }
+
+    const token = await getToken();
+    if (!token) {
+      Alert.alert("Sign in required", "Please sign in to add items to your cart.", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Sign in", onPress: () => router.push("/(tabs)/my-community") },
+      ]);
+      return;
+    }
+
+    const fulfillmentType = item.shippingDisabled ? "pickup" : "ship";
+    try {
+      await apiPost("/api/cart", { storeItemId: item.id, quantity: 1, fulfillmentType });
+      Alert.alert("Added to cart", `${item.title} was added to your cart.`, [
+        { text: "Keep shopping", style: "cancel" },
+        { text: "View cart", onPress: () => router.push("/cart") },
+      ]);
+    } catch (e) {
+      const err = e as { error?: string; status?: number };
+      if (err.status === 401) {
+        Alert.alert("Sign in required", "Please sign in to add items to your cart.", [
+          { text: "Cancel", style: "cancel" },
+          { text: "Sign in", onPress: () => router.push("/(tabs)/my-community") },
+        ]);
+        return;
+      }
+      Alert.alert("Could not add to cart", err.error ?? "Try opening the listing and adding it from there.");
+    }
+  }, [openListing, router]);
 
   const resolvePhotoUrl = (path: string | undefined): string | undefined => {
     if (!path) return undefined;

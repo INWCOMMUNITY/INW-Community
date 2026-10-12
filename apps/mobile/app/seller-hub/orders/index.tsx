@@ -31,6 +31,13 @@ import {
   filterOrdersForPickupTab,
   filterOrdersForDeliveryTab,
 } from "@/lib/store-order-fulfillment";
+import {
+  BUYER_REFUND_POLICY_CONTINUE_LABEL,
+  BUYER_REFUND_POLICY_NEVERMIND_LABEL,
+  formatSellerRefundFeeAbsorptionLine,
+  SELLER_REFUND_POLICY_POPUP_BODY,
+  SELLER_REFUND_POLICY_POPUP_TITLE,
+} from "@/lib/order-status";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -254,25 +261,29 @@ function ToShipFlowView({
   const menuOrder = shipMenuOrderId ? orders.find((o) => o.id === shipMenuOrderId) ?? null : null;
   const menuBusy = cancelingId != null || messagingBuyerId != null;
 
-  const confirmCancelAndRefund = (orderId: string) => {
+  const confirmCancelAndRefund = (order: StoreOrder) => {
     setShipMenuOrderId(null);
+    const feeLine = formatSellerRefundFeeAbsorptionLine({
+      totalCents: order.totalCents,
+      taxCents: order.taxCents,
+    });
     Alert.alert(
-      "Cancel & refund?",
-      "This cancels the whole order. The buyer will be refunded to their card and listing quantities will be restored. This cannot be undone.",
+      SELLER_REFUND_POLICY_POPUP_TITLE,
+      `${SELLER_REFUND_POLICY_POPUP_BODY}\n\n${feeLine}\n\nListing quantities will be restored. This cannot be undone.`,
       [
-        { text: "Not now", style: "cancel" },
+        { text: BUYER_REFUND_POLICY_NEVERMIND_LABEL, style: "cancel" },
         {
-          text: "Cancel & refund",
+          text: BUYER_REFUND_POLICY_CONTINUE_LABEL,
           style: "destructive",
           onPress: async () => {
-            setCancelingId(orderId);
+            setCancelingId(order.id);
             setError(null);
             try {
-              await apiPost(`/api/store-orders/${encodeURIComponent(orderId)}/seller-cancel`, {});
-              onOrderRemoved(orderId);
+              await apiPost(`/api/store-orders/${encodeURIComponent(order.id)}/seller-cancel`, {});
+              onOrderRemoved(order.id);
               setSelectedOrderIds((prev) => {
                 const next = new Set(prev);
-                next.delete(orderId);
+                next.delete(order.id);
                 return next;
               });
             } catch (e: unknown) {
@@ -437,7 +448,7 @@ function ToShipFlowView({
           <Pressable
             style={({ pressed }) => [styles.modalRowFirst, pressed && { opacity: 0.85 }]}
             onPress={() => {
-              if (menuOrder) confirmCancelAndRefund(menuOrder.id);
+              if (menuOrder) confirmCancelAndRefund(menuOrder);
             }}
             disabled={menuBusy}
           >
@@ -615,6 +626,9 @@ function DeliveriesTabView({
   const [cancelingId, setCancelingId] = useState<string | null>(null);
 
   const deliveryOrders = useMemo(() => filterOrdersForDeliveryTab(orders), [orders]);
+  const deliveryMenuOrder = deliveryMenuOrderId
+    ? deliveryOrders.find((o) => o.id === deliveryMenuOrderId) ?? null
+    : null;
   const pending = deliveryOrders.filter((o) => !(o.deliveryConfirmedAt && o.deliveryBuyerConfirmedAt));
   const completed = deliveryOrders.filter((o) => o.deliveryConfirmedAt && o.deliveryBuyerConfirmedAt);
 
@@ -640,21 +654,28 @@ function DeliveriesTabView({
     }
   };
 
-  const cancelLocalDelivery = (orderId: string) => {
+  const cancelLocalDelivery = (order: StoreOrder) => {
+    setDeliveryMenuOrderId(null);
+    const feeLine = formatSellerRefundFeeAbsorptionLine({
+      totalCents: order.totalCents,
+      taxCents: order.taxCents,
+    });
     Alert.alert(
-      "Cancel this delivery?",
-      "The buyer will be refunded to their card and listing quantities will be restored. This cannot be undone.",
+      SELLER_REFUND_POLICY_POPUP_TITLE,
+      `${SELLER_REFUND_POLICY_POPUP_BODY}\n\n${feeLine}\n\nListing quantities will be restored. This cannot be undone.`,
       [
-        { text: "Not now", style: "cancel" },
+        { text: BUYER_REFUND_POLICY_NEVERMIND_LABEL, style: "cancel" },
         {
-          text: "Cancel delivery",
+          text: BUYER_REFUND_POLICY_CONTINUE_LABEL,
           style: "destructive",
           onPress: async () => {
-            setDeliveryMenuOrderId(null);
-            setCancelingId(orderId);
+            setCancelingId(order.id);
             try {
-              await apiPost(`/api/store-orders/${encodeURIComponent(orderId)}/seller-cancel-local-delivery`, {});
-              onOrderRemoved(orderId);
+              await apiPost(
+                `/api/store-orders/${encodeURIComponent(order.id)}/seller-cancel-local-delivery`,
+                {}
+              );
+              onOrderRemoved(order.id);
             } catch (e) {
               const msg =
                 typeof e === "object" && e !== null && "error" in e && typeof (e as { error?: string }).error === "string"
@@ -794,7 +815,7 @@ function DeliveriesTabView({
             <Pressable
               style={({ pressed }) => [styles.modalRowDanger, pressed && { opacity: 0.85 }]}
               onPress={() => {
-                if (deliveryMenuOrderId) cancelLocalDelivery(deliveryMenuOrderId);
+                if (deliveryMenuOrder) cancelLocalDelivery(deliveryMenuOrder);
               }}
             >
               <Text style={styles.modalRowDangerText}>Cancel delivery</Text>
@@ -893,8 +914,11 @@ function HistoryTabView({
               style={[styles.historySubTab, active && styles.historySubTabActive]}
               onPress={() => setSubTab(key)}
             >
-              <Text style={[styles.historySubTabText, active && styles.historySubTabTextActive]}>
-                {key === "delivered" ? "Delivered" : "Canceled"} ({count})
+              <Text
+                style={[styles.historySubTabText, active && styles.historySubTabTextActive]}
+                numberOfLines={2}
+              >
+                {key === "delivered" ? "Delivered" : "Cancellations / Refunds"} ({count})
               </Text>
             </Pressable>
           );
@@ -910,7 +934,7 @@ function HistoryTabView({
             <OrderEmptyState tab="history" />
           ) : (
             <Text style={styles.emptyInline}>
-              {subTab === "delivered" ? "No delivered orders." : "No canceled orders."}
+              {subTab === "delivered" ? "No delivered orders." : "No cancellations or refunds."}
             </Text>
           )
         }

@@ -24,7 +24,13 @@ import {
   BUYER_PENDING_REFUND_COPY,
   buyerHasPendingRefund,
   buyerRefundStatusNote,
+  BUYER_REFUND_POLICY_CONTINUE_LABEL,
+  BUYER_REFUND_POLICY_NEVERMIND_LABEL,
+  BUYER_REFUND_POLICY_POPUP_BODY,
+  BUYER_REFUND_POLICY_POPUP_TITLE,
   BUYER_RETURN_SHIPPING_WARNING,
+  formatBuyerRefundFeeDeductionLine,
+  buyerFulfillmentHasStarted,
   canRequestMobileBuyerRefund,
   getBuyerOrderStatusLabel,
 } from "@/lib/order-status";
@@ -82,7 +88,12 @@ interface StoreOrder {
     businesses: { name: string; slug: string }[];
   };
   items?: OrderItemRow[];
-  shipment?: { trackingNumber?: string | null; carrier?: string } | null;
+  shipment?: {
+    trackingNumber?: string | null;
+    carrier?: string;
+    createdAt?: string | null;
+    trackingStatus?: string | null;
+  } | null;
 }
 
 const REFUND_REASONS = ["Changed my mind", "Didn't mean to order", "Order Arrived Damaged", "Wrong Item Delivered", "Other"] as const;
@@ -140,6 +151,8 @@ export default function MyOrderDetailScreen() {
   const [refundNote, setRefundNote] = useState("");
   const [requestingRefund, setRequestingRefund] = useState(false);
   const [ackReturnShipping, setAckReturnShipping] = useState(false);
+  /** Shows NWC Marketplace Refund Policy before cancel / refund forms. */
+  const [refundPolicyIntent, setRefundPolicyIntent] = useState<"cancel" | "refund" | null>(null);
   const [cancelConfirm, setCancelConfirm] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelOther, setCancelOther] = useState("");
@@ -217,7 +230,15 @@ export default function MyOrderDetailScreen() {
     } finally {
       setRequestingRefund(false);
     }
-  }, [orderId, order?.sellerChargeReturnShipping, ackReturnShipping, refundReason, refundOther, refundNote, load]);
+  }, [
+    orderId,
+    order?.sellerChargeReturnShipping,
+    ackReturnShipping,
+    refundReason,
+    refundOther,
+    refundNote,
+    load,
+  ]);
 
   const cancelOrder = useCallback(async () => {
     if (!orderId) return;
@@ -508,10 +529,10 @@ export default function MyOrderDetailScreen() {
       ) : null}
 
       <View style={styles.actionsSection}>
-        {order.status === "paid" && (
+        {order.status === "paid" && !buyerFulfillmentHasStarted(order) && (
           <Pressable
             style={({ pressed }) => [styles.actionBtnOutline, pressed && { opacity: 0.85 }]}
-            onPress={() => setCancelConfirm(true)}
+            onPress={() => setRefundPolicyIntent("cancel")}
             disabled={canceling}
           >
             <Text style={styles.actionBtnOutlineText}>{canceling ? "Canceling…" : "Cancel Order"}</Text>
@@ -520,7 +541,7 @@ export default function MyOrderDetailScreen() {
         {canRequestMobileBuyerRefund(order) && (
           <Pressable
             style={({ pressed }) => [styles.actionBtnOutline, pressed && { opacity: 0.85 }]}
-            onPress={() => setRefundModal(true)}
+            onPress={() => setRefundPolicyIntent("refund")}
             disabled={requestingRefund}
           >
             <Text style={styles.actionBtnOutlineText}>{requestingRefund ? "Submitting…" : "Request Refund"}</Text>
@@ -543,6 +564,45 @@ export default function MyOrderDetailScreen() {
           </Pressable>
         )}
       </View>
+
+      <Modal visible={refundPolicyIntent != null} transparent animationType="fade">
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setRefundPolicyIntent(null)}
+        >
+          <View style={styles.modalPanel} onStartShouldSetResponder={() => true}>
+            <Text style={styles.modalTitle}>{BUYER_REFUND_POLICY_POPUP_TITLE}</Text>
+            <Text style={styles.cancelHint}>{BUYER_REFUND_POLICY_POPUP_BODY}</Text>
+            <Text style={[styles.cancelHint, { fontWeight: "700", color: theme.colors.primary, marginTop: 8 }]}>
+              {order
+                ? formatBuyerRefundFeeDeductionLine({
+                    totalCents: order.totalCents,
+                    taxCents: order.taxCents,
+                  })
+                : ""}
+            </Text>
+            <View style={[styles.modalButtons, { justifyContent: "center" }]}>
+              <Pressable
+                style={styles.modalBtnSubmit}
+                onPress={() => {
+                  const intent = refundPolicyIntent;
+                  setRefundPolicyIntent(null);
+                  if (intent === "cancel") setCancelConfirm(true);
+                  else if (intent === "refund") setRefundModal(true);
+                }}
+              >
+                <Text style={styles.modalBtnSubmitText}>{BUYER_REFUND_POLICY_CONTINUE_LABEL}</Text>
+              </Pressable>
+              <Pressable
+                style={styles.modalBtnCancel}
+                onPress={() => setRefundPolicyIntent(null)}
+              >
+                <Text style={styles.modalBtnCancelText}>{BUYER_REFUND_POLICY_NEVERMIND_LABEL}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
 
       <Modal visible={refundModal} transparent animationType="fade">
         <Pressable style={styles.modalBackdrop} onPress={() => !requestingRefund && setRefundModal(false)}>
@@ -592,7 +652,15 @@ export default function MyOrderDetailScreen() {
               autoCorrect={true}
             />
             <View style={styles.modalButtons}>
-              <Pressable style={styles.modalBtnCancel} onPress={() => !requestingRefund && setRefundModal(false)} disabled={requestingRefund}>
+              <Pressable
+                style={styles.modalBtnCancel}
+                onPress={() => {
+                  if (requestingRefund) return;
+                  setRefundModal(false);
+                  setAckReturnShipping(false);
+                }}
+                disabled={requestingRefund}
+              >
                 <Text style={styles.modalBtnCancelText}>Cancel</Text>
               </Pressable>
               <Pressable style={[styles.modalBtnSubmit, requestingRefund && styles.modalBtnDisabled]} onPress={requestRefund} disabled={requestingRefund}>
@@ -644,7 +712,14 @@ export default function MyOrderDetailScreen() {
               autoCorrect={true}
             />
             <View style={styles.modalButtons}>
-              <Pressable style={styles.modalBtnCancel} onPress={() => !canceling && setCancelConfirm(false)} disabled={canceling}>
+              <Pressable
+                style={styles.modalBtnCancel}
+                onPress={() => {
+                  if (canceling) return;
+                  setCancelConfirm(false);
+                }}
+                disabled={canceling}
+              >
                 <Text style={styles.modalBtnCancelText}>Back</Text>
               </Pressable>
               <Pressable style={[styles.modalBtnSubmit, canceling && styles.modalBtnDisabled]} onPress={cancelOrder} disabled={canceling}>

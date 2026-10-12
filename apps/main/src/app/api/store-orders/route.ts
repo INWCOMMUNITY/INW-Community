@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
     const shipped = searchParams.get("shipped") === "1";
     const delivered = searchParams.get("delivered") === "1";
     const returnsOnly = searchParams.get("returns") === "1";
+    const cancellations = searchParams.get("cancellations") === "1";
 
     if (buyer === "1") {
       const buyerToReceive = searchParams.get("to_receive") === "1";
@@ -36,7 +37,12 @@ export async function GET(req: NextRequest) {
       const buyerWhere: Prisma.StoreOrderWhereInput = { buyerId: userId };
       if (buyerToReceive) buyerWhere.status = { in: ["paid", "shipped"] };
       else if (buyerDelivered) buyerWhere.status = "delivered";
-      else if (buyerCanceled) buyerWhere.status = { in: ["canceled", "refunded"] };
+      else if (buyerCanceled) {
+        buyerWhere.OR = [
+          { status: { in: ["canceled", "refunded"] } },
+          { storeReturns: { some: {} } },
+        ];
+      }
       else buyerWhere.status = { not: "pending" };
 
       const orders = await prisma.storeOrder.findMany({
@@ -164,7 +170,12 @@ export async function GET(req: NextRequest) {
       if (delivered) {
         where.status = "delivered";
       }
-      if (returnsOnly) {
+      if (cancellations) {
+        where.OR = [
+          { status: { in: ["canceled", "refunded", "cancelled"] } },
+          { storeReturns: { some: {} } },
+        ];
+      } else if (returnsOnly) {
         where.storeReturns = { some: { status: { in: [...ACTIVE_STORE_RETURN_STATUSES] } } };
       }
       const orders = await prisma.storeOrder.findMany({
@@ -174,6 +185,7 @@ export async function GET(req: NextRequest) {
           items: {
             include: {
               storeItem: { select: { id: true, title: true, slug: true, photos: true, description: true, listingType: true, shippingOption: { select: { weightOz: true, lengthIn: true, widthIn: true, heightIn: true } } } },
+              storeVariant: { select: { options: true } },
             },
           },
           ...storeOrderShipmentInclude,

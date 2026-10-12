@@ -3,6 +3,7 @@
 import {
   PACKING_SLIP_FOOTER,
   PACKING_SLIP_THANKS,
+  formatPackingSlipItemTitle,
   packingSlipContactLine,
   packingSlipOrderMetaLine,
   packingSlipTotalRows,
@@ -15,6 +16,8 @@ interface OrderItem {
   id: string;
   quantity: number;
   priceCentsAtPurchase: number;
+  variant?: unknown;
+  storeVariant?: { options?: unknown } | null;
   storeItem: {
     id: string;
     title: string;
@@ -22,6 +25,10 @@ interface OrderItem {
     photos: string[];
     description?: string | null;
   };
+}
+
+function orderItemVariant(oi: OrderItem): unknown {
+  return oi.storeVariant?.options ?? oi.variant;
 }
 
 interface StoreOrder {
@@ -79,7 +86,11 @@ function toPrintGroup(order: StoreOrder): PackingSlipGroup {
         orderKind: order.orderKind,
       },
     ],
-    combinedItems: order.items.map((oi) => ({ ...oi, orderId: order.id })),
+    combinedItems: order.items.map((oi) => ({
+      ...oi,
+      variant: orderItemVariant(oi),
+      orderId: order.id,
+    })),
     totalCents: order.totalCents,
     subtotalCents: order.subtotalCents ?? order.totalCents - order.shippingCostCents,
     shippingCostCents: order.shippingCostCents,
@@ -118,7 +129,13 @@ export function PackingSlipPrint({
             stripePaymentIntentId: o.stripePaymentIntentId,
             orderKind: o.orderKind,
           })),
-          combinedItems: group.flatMap((o) => o.items.map((oi) => ({ ...oi, orderId: o.id }))),
+          combinedItems: group.flatMap((o) =>
+            o.items.map((oi) => ({
+              ...oi,
+              variant: orderItemVariant(oi),
+              orderId: o.id,
+            }))
+          ),
           totalCents: group.reduce((s, o) => s + o.totalCents, 0),
           subtotalCents: group.reduce(
             (s, o) => s + (o.subtotalCents ?? o.totalCents - o.shippingCostCents),
@@ -188,7 +205,9 @@ export function PackingSlipPrint({
                 {group.combinedItems.map((oi) => (
                   <tr key={oi.id} className="border-b border-black/40">
                     <td className="py-1.5 text-black align-top">{oi.quantity}</td>
-                    <td className="py-1.5 text-black">{oi.storeItem.title}</td>
+                    <td className="py-1.5 text-black">
+                      {formatPackingSlipItemTitle(oi.storeItem.title, oi.variant)}
+                    </td>
                     <td className="text-right py-1.5 text-black align-top">
                       ${(oi.priceCentsAtPurchase / 100).toFixed(2)}
                     </td>

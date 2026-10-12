@@ -55,7 +55,7 @@ describe("package completeness and combine", () => {
 
   it("does not require measurements on imported shipping options", () => {
     expect(shippingOptionNeedsMeasurements({ source: "etsy", complete: false })).toBe(false);
-    expect(shippingOptionNeedsMeasurements({ source: "ebay", complete: false })).toBe(false);
+    expect(shippingOptionNeedsMeasurements({ source: "shopify", complete: false })).toBe(false);
     expect(shippingOptionNeedsMeasurements({ source: "inw", complete: false })).toBe(true);
     expect(
       formatShippingOptionPackageSummary({

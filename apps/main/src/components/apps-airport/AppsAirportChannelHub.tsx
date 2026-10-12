@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { AppsAirportChrome } from "@/components/apps-airport/AppsAirportChrome";
+import { IonIcon } from "@/components/IonIcon";
 
 export type AppsAirportChannelHubAction = {
   label: string;
@@ -27,14 +28,14 @@ export function AppsAirportChannelHub({
   statusDetail?: ReactNode;
   /** Primary actions: Import, List Items, Open Dashboard (up to 3). */
   actions: AppsAirportChannelHubAction[];
-  /** Connection Settings — full-width fourth button on mobile; 4th column on desktop. */
+  /** Connection Settings — long button on mobile; square gear on desktop. */
   settingsHref?: string;
   settingsLabel?: string;
   children: ReactNode;
 }) {
   const slots = actions.slice(0, 3);
 
-  /** Import = primary green; List Items = honey gold; Open Dashboard = earth brown; Settings = primary. */
+  /** Import = primary green; List Items = honey gold; Open Dashboard = earth brown. */
   function actionClassName(index: number): string {
     const base = "btn text-center w-full transition-colors";
     if (index === 1) {
@@ -86,15 +87,28 @@ export function AppsAirportChannelHub({
 
   return (
     <AppsAirportChrome title={title} subtitle={subtitle} crumbs={crumbs}>
-      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {slots.map((action, index) => renderAction(action, index))}
+      <div className="mb-4 flex flex-wrap items-stretch gap-3">
+        <div className="grid flex-1 min-w-0 grid-cols-1 sm:grid-cols-3 gap-3">
+          {slots.map((action, index) => renderAction(action, index))}
+          {settingsHref ? (
+            <Link
+              href={settingsHref}
+              className={`${actionClassName(0)} sm:hidden`}
+              prefetch={false}
+            >
+              {settingsLabel}
+            </Link>
+          ) : null}
+        </div>
         {settingsHref ? (
           <Link
             href={settingsHref}
-            className={actionClassName(0)}
+            className="btn !hidden sm:!inline-flex items-center justify-center !p-0 shrink-0 w-11 h-11 sm:self-stretch sm:h-auto sm:min-h-[2.75rem] aspect-square !text-white hover:!bg-[var(--color-secondary)] hover:!text-white"
+            aria-label="Connection Settings"
+            title="Connection Settings"
             prefetch={false}
           >
-            {settingsLabel}
+            <IonIcon name="settings-outline" size={22} className="text-white" />
           </Link>
         ) : null}
       </div>

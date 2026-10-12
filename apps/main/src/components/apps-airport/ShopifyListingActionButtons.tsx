@@ -3,7 +3,6 @@
 import { useState } from "react";
 import {
   APPS_AIRPORT_SHOPIFY_HUB,
-  APPS_AIRPORT_SHOPIFY_LISTINGS_PATH,
   shopifyAdminProductUrl,
 } from "@/lib/shopify/apps-airport";
 import {
@@ -13,6 +12,8 @@ import {
 
 type Props = {
   storeItemId: string;
+  /** Storefront slug — used for View on INW. */
+  slug?: string | null;
   shopDomain?: string | null;
   shopifyProductId?: string | null;
   /** @deprecated View On Shopify is a dedicated table column; kept for call-site compatibility. */
@@ -22,6 +23,7 @@ type Props = {
 
 export function ShopifyListingActionButtons({
   storeItemId,
+  slug,
   shopDomain,
   shopifyProductId,
   onActionComplete,
@@ -31,7 +33,9 @@ export function ShopifyListingActionButtons({
 
   const adminUrl = shopifyAdminProductUrl(shopDomain, shopifyProductId);
   const editHref = `/seller-hub/store/${storeItemId}`;
-  const viewOnInwHref = `${APPS_AIRPORT_SHOPIFY_LISTINGS_PATH}/${storeItemId}`;
+  const viewOnInwHref = slug?.trim()
+    ? `/storefront/${slug.trim()}?from=shopify-sync`
+    : editHref;
 
   async function callAction(
     action: "retry" | "reconnect" | "unpublish" | "remove",

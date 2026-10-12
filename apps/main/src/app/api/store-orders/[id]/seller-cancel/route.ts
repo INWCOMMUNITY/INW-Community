@@ -86,6 +86,7 @@ export async function POST(
       stripe,
       order,
       reason: cancelReason,
+      stripeFeeBearer: "seller",
     });
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });

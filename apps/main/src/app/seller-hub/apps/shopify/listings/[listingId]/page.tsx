@@ -267,6 +267,7 @@ export default function AppsAirportShopifyListingDetailPage() {
                   </p>
                   <ShopifyListingActionButtons
                     storeItemId={listing.storeItemId}
+                    slug={listing.slug}
                     shopDomain={shopDomain}
                     shopifyProductId={listing.shopifyProductId}
                     preferStorefront={status === "Live"}

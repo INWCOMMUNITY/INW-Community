@@ -99,6 +99,7 @@ export function ProfileSideMenu({ visible, onClose }: ProfileSideMenuProps) {
     { href: "/profile-businesses", label: "My Businesses", icon: "business-outline" },
     { href: "/my-sellers", label: "My Sellers", icon: "storefront-outline" },
     { href: "/profile-wishlist", label: "My Wishlist", icon: "heart-outline" },
+    { href: "/collections", label: "My Collections", icon: "albums-outline" },
     { href: "/community/my-orders", label: "My Orders", icon: "receipt-outline" },
   ];
 

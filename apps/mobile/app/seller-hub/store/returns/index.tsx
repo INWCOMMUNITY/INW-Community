@@ -15,6 +15,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { theme } from "@/lib/theme";
 import { apiGet, apiPost } from "@/lib/api";
+import { getStoreOrderStatusLabel, sellerRefundStatusNote } from "@/lib/order-status";
 import {
   storeReturnSellerMoneyAction,
   storeReturnSellerMoneyActionLabel,
@@ -41,6 +42,8 @@ interface StoreOrder {
   taxCents?: number;
   status: string;
   createdAt: string;
+  refundInitiatedAt?: string | null;
+  refundCompletedAt?: string | null;
   buyer: { firstName: string; lastName: string; email: string };
   items: OrderItem[];
   storeReturn?: StoreReturn | null;
@@ -56,6 +59,9 @@ function statusCopy(status?: string): string {
   if (status === "awaiting_return") return "Approved — waiting for the item";
   if (status === "in_transit") return "Return in transit";
   if (status === "received") return "Received — refunding";
+  if (status === "declined") return "Return declined";
+  if (status === "refunded") return "Refunded";
+  if (status === "canceled") return "Return canceled";
   return status ?? "";
 }
 
@@ -70,7 +76,7 @@ export default function ReturnsScreen() {
   const [declineReason, setDeclineReason] = useState("");
 
   const load = useCallback(() => {
-    apiGet<StoreOrder[]>("/api/store-orders?mine=1&returns=1")
+    apiGet<StoreOrder[]>("/api/store-orders?mine=1&cancellations=1")
       .then((data) => setOrders(Array.isArray(data) ? data : []))
       .catch(() => setOrders([]))
       .finally(() => {
@@ -125,12 +131,11 @@ export default function ReturnsScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
     >
       <Text style={styles.intro}>
-        Approve a return, send a Shippo return label, then refund after you receive the item.
-        Courtesy refunds send money back now; the buyer keeps the item.
+        Canceled orders, refund requests, and refunds. Approve a return here, then refund after you receive the item.
       </Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {orders.length === 0 ? (
-        <Text style={styles.empty}>No open return requests.</Text>
+        <Text style={styles.empty}>No cancellations or refunds.</Text>
       ) : (
         orders.map((order) => {
           const ret = order.storeReturn;
@@ -145,7 +150,11 @@ export default function ReturnsScreen() {
               <Text style={styles.buyer}>
                 {order.buyer.firstName} {order.buyer.lastName}
               </Text>
-              <Text style={styles.meta}>{statusCopy(ret?.status)}</Text>
+              <Text style={styles.meta}>{getStoreOrderStatusLabel(order)}</Text>
+              {sellerRefundStatusNote(order) ? (
+                <Text style={styles.meta}>{sellerRefundStatusNote(order)}</Text>
+              ) : null}
+              {ret?.status ? <Text style={styles.meta}>{statusCopy(ret.status)}</Text> : null}
               {ret?.reason ? <Text style={styles.meta}>Reason: {ret.reason}</Text> : null}
               <Text style={styles.total}>{formatPrice(order.totalCents + (order.taxCents ?? 0))}</Text>
               {order.items.map((oi) => (

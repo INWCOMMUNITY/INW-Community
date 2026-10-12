@@ -1538,6 +1538,11 @@ model ShippingOption {
   weightOz        Float?    @map("weight_oz")
   /// INW checkout / domestic flat rate. Null when calculated or unknown. 0 = free.
   shippingCostCents Int?    @map("shipping_cost_cents")
+  /// inw | etsy | shopify — marketplace copies are seller-owned INW rows.
+  source          String    @default("inw")
+  /// Marketplace profile/method id. Null for INW-created options (PG unique allows many NULLs).
+  remoteProfileId String?   @map("remote_profile_id")
+  lastImportedAt  DateTime? @map("last_imported_at")
   archivedAt      DateTime? @map("archived_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
@@ -1546,6 +1551,7 @@ model ShippingOption {
   storeItems       StoreItem[]
   listingTemplates ListingTemplate[]
 
+  @@unique([memberId, source, remoteProfileId])
   @@index([memberId, archivedAt])
   @@map("shipping_option")
 }

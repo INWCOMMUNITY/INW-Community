@@ -424,11 +424,15 @@ describe("courtesy refund restock:false remains ungated", () => {
       stripe: stripe as never,
       order: paidOrder,
       restock: false,
+      stripeFeeBearer: "seller",
     });
     expect(result).toEqual({ ok: true, refunded: true, amountCents: 1000 });
     expect(assertLegacyInteractiveMutationAllowed).not.toHaveBeenCalled();
     expect(restockOrderLinesAfterReturn).not.toHaveBeenCalled();
-    expect(stripe.refunds.create).toHaveBeenCalled();
+    expect(stripe.refunds.create).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 1000 }),
+      expect.anything()
+    );
   });
 });
 
@@ -457,7 +461,7 @@ describe("FOUNDATION TransferOperation-aware refund", () => {
       stripe: stripe as never,
       order: { ...paidOrder, stripeSellerTransferId: null },
     });
-    expect(result).toEqual({ ok: true, refunded: true, amountCents: 1000 });
+    expect(result).toEqual({ ok: true, refunded: true, amountCents: 941 });
     expect(lockFoundationPayoutOutForRefund).toHaveBeenCalled();
     expect(stripe.transfers.createReversal).not.toHaveBeenCalled();
     expect(stripe.refunds.create).toHaveBeenCalled();
@@ -623,7 +627,7 @@ describe("FOUNDATION TransferOperation-aware refund", () => {
       restockOperationId: "ret-1",
       restockKind: "PHYSICAL_RECEIPT",
     });
-    expect(result).toEqual({ ok: true, refunded: true, amountCents: 1000 });
+    expect(result).toEqual({ ok: true, refunded: true, amountCents: 941 });
     expect(stripe.refunds.create).not.toHaveBeenCalled();
     expect(restockOrderLinesAfterReturn).toHaveBeenCalledTimes(1);
     expect(restockOrderLinesAfterReturn).toHaveBeenCalledWith(
@@ -775,7 +779,7 @@ describe("storefront transfer reversal identity", () => {
     expect(result.ok).toBe(true);
     expect(stripe.transfers.createReversal).not.toHaveBeenCalled();
     expect(stripe.refunds.create).toHaveBeenCalledWith(
-      expect.objectContaining({ payment_intent: "pi_1", amount: 1000 }),
+      expect.objectContaining({ payment_intent: "pi_1", amount: 941 }),
       { idempotencyKey: "nwc_store_refund_ord-1" }
     );
   });
@@ -884,7 +888,7 @@ describe("storefront transfer reversal identity", () => {
       restockOperationId: "ret-1",
       restockKind: "PHYSICAL_RECEIPT",
     });
-    expect(result).toEqual({ ok: true, refunded: true, amountCents: 1000 });
+    expect(result).toEqual({ ok: true, refunded: true, amountCents: 941 });
     expect(stripe.transfers.listReversals).not.toHaveBeenCalled();
     expect(stripe.transfers.createReversal).not.toHaveBeenCalled();
     expect(stripe.refunds.create).not.toHaveBeenCalled();

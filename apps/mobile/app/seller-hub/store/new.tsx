@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useNavigation, usePreventRemove } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import {
   theme as defaultTheme,
@@ -58,6 +59,7 @@ import {
 } from "@/lib/listing-variant-matrix";
 import { TemplateSelector, type ListingTemplate } from "@/components/listing/TemplateSelector";
 import { SelectField } from "@/components/listing/SelectField";
+import { CategoryPicker } from "@/components/listing/CategoryPicker";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -101,6 +103,25 @@ type ShippingOptionChoice = {
 };
 
 const PLACEHOLDER_COLOR = "#888888";
+const TAN_LIGHT = "#f7f3ee";
+
+function FormSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.sectionCard}>
+      <Text style={styles.sectionHeading}>{title}</Text>
+      {description ? <Text style={styles.sectionDescription}>{description}</Text> : null}
+      {children}
+    </View>
+  );
+}
 
 export default function ListItemScreen() {
   const theme = useTheme();
@@ -126,7 +147,7 @@ export default function ListItemScreen() {
   useLayoutEffect(() => {
     navigation.setOptions({
       title: editId ? "Edit Item" : similarId ? "Sell Similar" : "List an Item",
-      contentStyle: { backgroundColor: "#fff" },
+      contentStyle: { backgroundColor: TAN_LIGHT },
     });
   }, [navigation, editId, similarId]);
 
@@ -150,8 +171,6 @@ export default function ListItemScreen() {
   const [category, setCategory] = useState("");
   const [secondaryCategory, setSecondaryCategory] = useState("");
   const [subcategory, setSubcategory] = useState("");
-  const [useCustomCategory, setUseCustomCategory] = useState(false);
-  const [categorySearch, setCategorySearch] = useState("");
   const [priceCents, setPriceCents] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [condition, setCondition] = useState<"new" | "used">(conditionParam);
@@ -169,6 +188,7 @@ export default function ListItemScreen() {
   const [inStorePickupAvailable, setInStorePickupAvailable] = useState(false);
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [inventoryMode, setInventoryMode] = useState<InventoryMode>("simple");
+  const [pricesVary, setPricesVary] = useState(false);
   const [inventoryTracking, setInventoryTracking] = useState<InventoryTracking>("tracked");
   const [variantAxes, setVariantAxes] = useState<VariantAxisDef[]>([]);
   const [variantSkus, setVariantSkus] = useState<EditorSkuRow[]>([]);
@@ -176,6 +196,8 @@ export default function ListItemScreen() {
 
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [listingStatus, setListingStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [loadedDraft, setLoadedDraft] = useState(false);
@@ -316,29 +338,6 @@ export default function ListItemScreen() {
     }
   }, [effectiveStoreItemId]);
 
-  const filteredStoreCategories = useMemo(() => {
-    const q = categorySearch.trim().toLowerCase();
-    if (!q) return storeCategories;
-    return storeCategories.filter(
-      (c) =>
-        c.label.toLowerCase().includes(q) ||
-        c.subcategories.some((s) => s.toLowerCase().includes(q))
-    );
-  }, [storeCategories, categorySearch]);
-
-  const filteredSubcategoriesForCategory = useMemo(() => {
-    const sel = storeCategories.find((c) => c.label === category);
-    if (!sel?.subcategories?.length) return [];
-    const q = categorySearch.trim().toLowerCase();
-    if (!q) return sel.subcategories;
-    return sel.subcategories.filter((s) => s.toLowerCase().includes(q));
-  }, [storeCategories, category, categorySearch]);
-
-  const filteredSecondaryStoreCategories = useMemo(
-    () => filteredStoreCategories.filter((c) => c.label !== category),
-    [filteredStoreCategories, category]
-  );
-
   const hasVariantsWithOptions =
     inventoryMode === "options" &&
     variantAxes.some((a) => a.name.trim() && a.values.length > 0) &&
@@ -431,8 +430,10 @@ export default function ListItemScreen() {
         useSellerProfileLocalDelivery?: boolean;
         useSellerProfilePickup?: boolean;
         sku?: string | null;
+        status?: string;
       }>(`/api/store-items/${editId}`)
         .then((item) => {
+          setListingStatus(item.status ?? null);
           setTitle(item.title ?? "");
           setSku(item.sku ?? "");
           setDescription(item.description ?? "");
@@ -611,7 +612,7 @@ export default function ListItemScreen() {
       .catch(() => {});
   }, [editId]);
 
-  const shouldPreventRemove = hasContent && !submitting && !isExitingRef.current;
+  const shouldPreventRemove = hasContent && !submitting && !savingDraft && !isExitingRef.current;
   usePreventRemove(shouldPreventRemove, ({ data }) => {
     Alert.alert(
       "Are you sure you want to exit item listing?",
@@ -747,37 +748,69 @@ export default function ListItemScreen() {
 
   const effectiveShippingPolicy = useSellerProfileShipping ? sellerProfileShippingPolicy : shippingPolicy;
 
-  const handleSubmit = async () => {
-    const price = Math.round(parseFloat(priceCents) * 100);
+  const buildListingPayload = (asDraft: boolean): Record<string, unknown> | null => {
+    const variantPrices =
+      pricesVary && inventoryMode === "options"
+        ? variantSkus
+            .filter((s) => s.enabled)
+            .map((s) => s.priceCents)
+            .filter((cents): cents is number => typeof cents === "number" && cents > 0)
+        : [];
+    const parsedPrice =
+      pricesVary && inventoryMode === "options"
+        ? variantPrices.length
+          ? Math.min(...variantPrices)
+          : Number.NaN
+        : Math.round(parseFloat(priceCents) * 100);
+    const price = asDraft
+      ? Number.isFinite(parsedPrice) && parsedPrice > 0
+        ? parsedPrice
+        : 0
+      : parsedPrice;
     const qty = hasVariantsWithOptions ? 0 : parseInt(quantity, 10);
     const shipCost = shippingFree || !shippingCostDollars.trim() ? 0 : Math.round(parseFloat(shippingCostDollars) * 100);
     const localFee = localDeliveryFeeDollars.trim() ? Math.round(parseFloat(localDeliveryFeeDollars) * 100) : null;
 
-    if (!title.trim()) { setError("Title is required"); return; }
-    if (!price || price < 1) { setError("Price must be at least $0.01"); return; }
-    if (!hasVariantsWithOptions && inventoryTracking !== "made_to_order" && (!qty || qty < 1)) {
-      setError("Quantity must be at least 1"); return;
+    if (!title.trim()) {
+      setError(asDraft ? "Add a title to save this draft." : "Title is required");
+      return null;
     }
-    if (hasVariantsWithOptions) {
+    if (!asDraft && pricesVary && inventoryMode === "options" && variantPrices.length < 1) {
+      setError("Set a price on at least one enabled combination (Prices vary is on).");
+      return null;
+    }
+    if (!asDraft && (!price || price < 1)) {
+      setError("Price must be at least $0.01");
+      return null;
+    }
+    if (!asDraft && !hasVariantsWithOptions && inventoryTracking !== "made_to_order" && (!qty || qty < 1)) {
+      setError("Quantity must be at least 1");
+      return null;
+    }
+    if (!asDraft && hasVariantsWithOptions) {
       if (variantAxes.some((a) => !a.name.trim() || a.values.length === 0)) {
-        setError("Each option type needs a name and at least one value."); return;
+        setError("Each option type needs a name and at least one value.");
+        return null;
       }
       const totalOptionQty = sumEnabledSkus(variantSkus);
       if (inventoryTracking !== "made_to_order" && totalOptionQty < 1) {
-        setError("Add at least one combination with quantity 1 or more."); return;
+        setError("Add at least one combination with quantity 1 or more.");
+        return null;
       }
     }
-    if (shippingDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
-      setError("You must offer at least one form of delivery."); return;
+    if (!asDraft && shippingDisabled && !localDeliveryAvailable && !inStorePickupAvailable) {
+      setError("You must offer at least one form of delivery.");
+      return null;
     }
-    if (!editId && !shippingDisabled && !shippingOptionId) {
-      setError("Choose a shipping option."); return;
+    if (!asDraft && !editId && !shippingDisabled && !shippingOptionId) {
+      setError("Choose a shipping option.");
+      return null;
     }
 
     const variantPayload = buildVariantsPayload(inventoryMode, variantAxes, variantSkus);
     const payloadQuantity = inventoryTracking === "made_to_order"
       ? qty || 1
-      : variantPayload != null ? sumEnabledSkus(variantSkus) : qty;
+      : variantPayload != null ? sumEnabledSkus(variantSkus) : (Number.isFinite(qty) && qty > 0 ? qty : asDraft ? 0 : qty);
 
     setError(null);
     setPhotoError(null);
@@ -785,7 +818,7 @@ export default function ListItemScreen() {
     const secTrim = secondaryCategory.trim();
     const secondaryPayload = secTrim && secTrim !== catTrim ? secTrim : null;
 
-    const basePayload: Record<string, unknown> = {
+    return {
       title: title.trim().slice(0, TITLE_MAX),
       sku: sku.trim() || null,
       description: description.trim() || null,
@@ -807,9 +840,36 @@ export default function ListItemScreen() {
       shippingPolicy: shippingDisabled || useSellerProfileShipping ? null : shippingPolicy.trim() || null,
       localDeliveryTerms: localDeliveryAvailable && !useSellerProfileLocalDelivery ? localDeliveryTerms.trim() || null : null,
       pickupTerms: inStorePickupAvailable && !useSellerProfilePickup ? pickupTerms.trim() || null : null,
-      localDeliveryFeeCents: localFee,
+      localDeliveryFeeCents: Number.isFinite(localFee) ? localFee : null,
       ...(condition === "used" ? { acceptOffers } : { acceptOffers: false }),
+      ...(asDraft ? { status: "draft" as const } : {}),
     };
+  };
+
+  const handleSaveAsDraft = async () => {
+    const payload = buildListingPayload(true);
+    if (!payload) return;
+    setSavingDraft(true);
+    isExitingRef.current = true;
+    try {
+      if (editId) {
+        await apiPatch(`/api/store-items/${editId}`, payload);
+      } else {
+        await apiPost("/api/store-items", payload);
+      }
+      if (draftId) await deleteDraft(draftId);
+      (router.replace as (href: string) => void)("/seller-hub/store/items?tab=drafts");
+    } catch (e) {
+      isExitingRef.current = false;
+      setError((e as { error?: string })?.error ?? "Failed to save draft");
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    const basePayload = buildListingPayload(false);
+    if (!basePayload) return;
 
     setSubmitting(true);
     submittedRef.current = true;
@@ -945,12 +1005,42 @@ export default function ListItemScreen() {
       >
         <ScrollView
           style={styles.container}
-          contentContainerStyle={[styles.content, { paddingBottom: 40 + insets.bottom + keyboardHeight }]}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: 24 + (Platform.OS === "android" ? keyboardHeight : 0) },
+          ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         >
+          <FormSection title="Photos" description="First photo is your main listing image.">
+          <Text style={styles.hint}>Up to {formatListingPhotoSizeLabel()} each.</Text>
+          <View style={styles.photoRow}>
+            {photos.map((url) => (
+              <View key={url} style={styles.photoWrap}>
+                <Image source={{ uri: url }} style={styles.photo} />
+                <Pressable style={styles.removePhoto} onPress={() => removePhoto(url)}>
+                  <Text style={styles.removePhotoText}>×</Text>
+                </Pressable>
+              </View>
+            ))}
+            <Pressable
+              style={({ pressed }) => [styles.addPhoto, pressed && { opacity: 0.8 }]}
+              onPress={pickPhotos}
+              disabled={uploading}
+            >
+              {uploading ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <Text style={styles.addPhotoText}>+ Add</Text>
+              )}
+            </Pressable>
+          </View>
+          {photoError ? <Text style={styles.photoErr}>{photoError}</Text> : null}
+          </FormSection>
+
+          <FormSection title="Listing Details" description="Title, SKU, description, condition, and category.">
           {!editId && (
-            <TemplateSelector onSelectTemplate={handleSelectTemplate} disabled={submitting || editLoading} />
+            <TemplateSelector onSelectTemplate={handleSelectTemplate} disabled={submitting || savingDraft || editLoading} />
           )}
 
           <View style={styles.typeRow}>
@@ -983,31 +1073,6 @@ export default function ListItemScreen() {
               />
             </View>
           )}
-
-          <Text style={styles.label}>Photos *</Text>
-          <Text style={styles.hint}>Up to {formatListingPhotoSizeLabel()} each.</Text>
-          <View style={styles.photoRow}>
-            {photos.map((url) => (
-              <View key={url} style={styles.photoWrap}>
-                <Image source={{ uri: url }} style={styles.photo} />
-                <Pressable style={styles.removePhoto} onPress={() => removePhoto(url)}>
-                  <Text style={styles.removePhotoText}>×</Text>
-                </Pressable>
-              </View>
-            ))}
-            <Pressable
-              style={({ pressed }) => [styles.addPhoto, pressed && { opacity: 0.8 }]}
-              onPress={pickPhotos}
-              disabled={uploading}
-            >
-              {uploading ? (
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-              ) : (
-                <Text style={styles.addPhotoText}>+ Add</Text>
-              )}
-            </Pressable>
-          </View>
-          {photoError ? <Text style={styles.photoErr}>{photoError}</Text> : null}
 
           <Text style={styles.label}>Title *</Text>
           <TextInput
@@ -1046,21 +1111,67 @@ export default function ListItemScreen() {
             autoCorrect={true}
           />
 
-          <Text style={styles.label}>Price ($) *</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="0.00"
-            placeholderTextColor={placeholderColor}
-            value={priceCents}
-            onFocus={() => setPriceCents((prev) => moneyInputToEditable(prev))}
-            onChangeText={(t) => {
-              const next = sanitizePriceDraftInput(t);
-              if (next != null) setPriceCents(next);
-            }}
-            onBlur={() => setPriceCents((prev) => moneyInputToIdle(prev))}
-            keyboardType="decimal-pad"
-            autoCorrect={false}
-          />
+          {storeCategories.length > 0 && (
+            <CategoryPicker
+              categories={storeCategories}
+              category={category}
+              subcategory={subcategory}
+              placeholderColor={placeholderColor}
+              onChange={(nextCategory, nextSubcategory) => {
+                setCategory(nextCategory);
+                setSubcategory(nextSubcategory);
+              }}
+            />
+          )}
+
+          {businesses.length >= 2 && (
+            <>
+              <Text style={styles.label}>Which business is this item posted under?</Text>
+              <View style={styles.bizRow}>
+                <Pressable
+                  style={({ pressed }) => [styles.bizBtn, !businessId && styles.bizBtnActive, pressed && { opacity: 0.8 }]}
+                  onPress={() => setBusinessId(null)}
+                >
+                  <Text style={!businessId ? styles.bizBtnTextActive : styles.bizBtnText}>None</Text>
+                </Pressable>
+                {businesses.map((b) => (
+                  <Pressable
+                    key={b.id}
+                    style={({ pressed }) => [styles.bizBtn, businessId === b.id && styles.bizBtnActive, pressed && { opacity: 0.8 }]}
+                    onPress={() => setBusinessId(businessId === b.id ? null : b.id)}
+                  >
+                    <Text style={businessId === b.id ? styles.bizBtnTextActive : styles.bizBtnText}>{b.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          )}
+          </FormSection>
+
+          <FormSection title="Pricing & Inventory">
+          {pricesVary && inventoryMode === "options" ? (
+            <Text style={styles.hint}>
+              Prices vary by combination — set each price in the table below (or use Apply to all enabled).
+            </Text>
+          ) : (
+            <>
+              <Text style={styles.label}>Price ($) *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="0.00"
+                placeholderTextColor={placeholderColor}
+                value={priceCents}
+                onFocus={() => setPriceCents((prev) => moneyInputToEditable(prev))}
+                onChangeText={(t) => {
+                  const next = sanitizePriceDraftInput(t);
+                  if (next != null) setPriceCents(next);
+                }}
+                onBlur={() => setPriceCents((prev) => moneyInputToIdle(prev))}
+                keyboardType="decimal-pad"
+                autoCorrect={false}
+              />
+            </>
+          )}
 
           <ListingOptionsEditor
             mode={inventoryMode}
@@ -1077,11 +1188,12 @@ export default function ListItemScreen() {
             onInventoryTrackingChange={setInventoryTracking}
             galleryPhotos={photos}
             placeholderColor={placeholderColor}
+            onPricesVaryChange={setPricesVary}
           />
+          </FormSection>
 
           {shopifyConnected && (
-            <View style={styles.channelSection}>
-              <Text style={styles.sectionTitle}>Channels</Text>
+            <FormSection title="Channels">
               {!effectiveStoreItemId ? (
                 <Text style={styles.hint}>Save the listing first to list it on Shopify.</Text>
               ) : shopifyConn?.locationSelectionRequired || !shopifyConn?.inventoryReady ? (
@@ -1133,57 +1245,11 @@ export default function ListItemScreen() {
                 </Pressable>
               )}
               {shopifyMessage ? <Text style={styles.channelMessage}>{shopifyMessage}</Text> : null}
-            </View>
-          )}
-
-          <Text style={styles.label}>Category</Text>
-          {storeCategories.length > 0 && (
-            <>
-              <TextInput
-                style={styles.input}
-                placeholder="Filter by name…"
-                placeholderTextColor={placeholderColor}
-                value={categorySearch}
-                onChangeText={setCategorySearch}
-                autoCorrect={false}
-                autoCapitalize="none"
-              />
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-                <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                  {filteredStoreCategories.map((c) => (
-                    <Pressable
-                      key={c.label}
-                      style={[styles.typeBtn, category === c.label && styles.typeBtnActive]}
-                      onPress={() => { setCategory(c.label); setSubcategory(""); }}
-                    >
-                      <Text style={category === c.label ? styles.typeBtnTextActive : styles.typeBtnText} numberOfLines={1}>
-                        {c.label}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </ScrollView>
-              {category && filteredSubcategoriesForCategory.length > 0 && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    {filteredSubcategoriesForCategory.map((s) => (
-                      <Pressable
-                        key={s}
-                        style={[styles.typeBtn, subcategory === s && styles.typeBtnActive]}
-                        onPress={() => setSubcategory(subcategory === s ? "" : s)}
-                      >
-                        <Text style={subcategory === s ? styles.typeBtnTextActive : styles.typeBtnText}>{s}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                </ScrollView>
-              )}
-            </>
+            </FormSection>
           )}
 
           {policiesLoaded && offerShipping && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Shipping</Text>
+            <FormSection title="Delivery Options">
               <View style={styles.switchRow}>
                 <Text style={styles.switchLabel}>Offer Shipping</Text>
                 <Switch
@@ -1226,60 +1292,114 @@ export default function ListItemScreen() {
                   />
                 </>
               )}
-            </View>
+            </FormSection>
           )}
-
-          {businesses.length >= 2 && (
-            <>
-              <Text style={styles.label}>Which business is this item posted under?</Text>
-              <View style={styles.bizRow}>
-                <Pressable
-                  style={({ pressed }) => [styles.bizBtn, !businessId && styles.bizBtnActive, pressed && { opacity: 0.8 }]}
-                  onPress={() => setBusinessId(null)}
-                >
-                  <Text style={!businessId ? styles.bizBtnTextActive : styles.bizBtnText}>None</Text>
-                </Pressable>
-                {businesses.map((b) => (
-                  <Pressable
-                    key={b.id}
-                    style={({ pressed }) => [styles.bizBtn, businessId === b.id && styles.bizBtnActive, pressed && { opacity: 0.8 }]}
-                    onPress={() => setBusinessId(businessId === b.id ? null : b.id)}
-                  >
-                    <Text style={businessId === b.id ? styles.bizBtnTextActive : styles.bizBtnText}>{b.name}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </>
-          )}
-
-          {error && (
-            <View style={styles.errorWrap}>
-              <Text style={styles.err}>{error}</Text>
-            </View>
-          )}
-
-          <Pressable
-            style={({ pressed }) => [styles.submitBtn, pressed && { opacity: 0.8 }, submitting && styles.submitDisabled]}
-            onPress={handleSubmit}
-            disabled={submitting}
-          >
-            {submitting ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Text style={styles.submitBtnText}>{editId ? "Update Item" : "List an Item"}</Text>
-            )}
-          </Pressable>
         </ScrollView>
+        <View
+          style={[
+            styles.saveBar,
+            { paddingBottom: Math.max(insets.bottom, 12) + (Platform.OS === "android" ? keyboardHeight : 0) },
+          ]}
+        >
+          {error ? <Text style={styles.saveBarError}>{error}</Text> : null}
+          <View style={styles.saveBarRow}>
+            <Pressable
+              style={({ pressed }) => [styles.pill, styles.pillOutline, pressed && styles.pillOutlinePressed]}
+              onPress={() => router.back()}
+              disabled={submitting || savingDraft}
+            >
+              <Text style={styles.pillOutlineText}>Cancel</Text>
+            </Pressable>
+            {!editId || listingStatus === "draft" ? (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.pill,
+                  styles.pillEarth,
+                  pressed && { opacity: 0.85 },
+                  (submitting || savingDraft) && styles.submitDisabled,
+                ]}
+                onPress={handleSaveAsDraft}
+                disabled={submitting || savingDraft}
+              >
+                {savingDraft ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="document-outline" size={18} color="#fff" />
+                    <Text style={styles.pillLightText}>Save as Draft</Text>
+                  </>
+                )}
+              </Pressable>
+            ) : null}
+            <Pressable
+              style={({ pressed }) => [
+                styles.pill,
+                styles.pillPrimary,
+                pressed && styles.pillPrimaryPressed,
+                (submitting || savingDraft) && styles.submitDisabled,
+              ]}
+              onPress={handleSubmit}
+              disabled={submitting || savingDraft}
+            >
+              {submitting ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.pillLightText}>{editId ? "Update Item" : "List Item"}</Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
       </KeyboardAvoidingView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screenWrapper: { flex: 1, backgroundColor: "#fff" },
+  screenWrapper: { flex: 1, backgroundColor: TAN_LIGHT },
   keyboardAvoid: { flex: 1 },
-  container: { flex: 1, backgroundColor: "#fff" },
-  content: { padding: 20, paddingBottom: 40 },
+  container: { flex: 1, backgroundColor: TAN_LIGHT },
+  content: { padding: 16, paddingBottom: 24, gap: 16 },
+  sectionCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: defaultTheme.colors.primary,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  sectionHeading: { fontSize: 16, fontWeight: "700", color: "#111", marginBottom: 4 },
+  sectionDescription: { fontSize: 12, color: "#737373", marginBottom: 12 },
+  saveBar: {
+    borderTopWidth: 1,
+    borderTopColor: "#e5e5e5",
+    backgroundColor: "rgba(255,255,255,0.96)",
+    paddingTop: 12,
+    paddingHorizontal: 12,
+  },
+  saveBarError: { color: "#dc2626", fontSize: 13, textAlign: "center", marginBottom: 8 },
+  saveBarRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    minHeight: 44,
+  },
+  pillOutline: { backgroundColor: "#fff", borderColor: defaultTheme.colors.primary },
+  pillOutlinePressed: { backgroundColor: "#F8F8F3" },
+  pillOutlineText: { color: defaultTheme.colors.primary, fontWeight: "600", fontSize: 15 },
+  pillEarth: { backgroundColor: defaultTheme.colors.earth, borderColor: defaultTheme.colors.earth },
+  pillPrimary: { backgroundColor: defaultTheme.colors.primary, borderColor: defaultTheme.colors.primary },
+  pillPrimaryPressed: { backgroundColor: defaultTheme.colors.secondary, borderColor: defaultTheme.colors.secondary },
+  pillLightText: { color: "#fff", fontWeight: "600", fontSize: 15 },
   successModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 },
   successModalCard: { backgroundColor: "#fff", borderRadius: 16, padding: 24, width: "100%", maxWidth: 340, borderWidth: 2, borderColor: defaultTheme.colors.primary },
   successModalTitle: { fontSize: 20, fontWeight: "700", color: "#000", textAlign: "center", marginBottom: 8 },

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatPackingSlipItemTitle,
   formatPackingSlipMoney,
   formatPackingSlipOrderRef,
   packingSlipContactLine,
@@ -70,5 +71,15 @@ describe("packing slip labels", () => {
         email: "hi@shop.example",
       })
     ).toBe("shop.example  ·  hi@shop.example  ·  509-555-0100");
+  });
+
+  it("appends variant values to the item title", () => {
+    expect(
+      formatPackingSlipItemTitle("Testing Once Again 500", {
+        Size: "Large",
+        Color: "Blue",
+      })
+    ).toBe("Testing Once Again 500 - Large - Blue");
+    expect(formatPackingSlipItemTitle("Plain mug")).toBe("Plain mug");
   });
 });

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   buyerCanRequestRefund,
+  buyerCardRefundCents,
+  buyerRefundCentsForFeeBearer,
   clampAcceptReturnsDays,
   isActiveStoreReturnStatus,
   isAwaitingReturnStatus,
   isReturnReceiveRefundRetryable,
   isReturnWindowOpen,
+  nonRefundableStripeFeeCents,
   orderCanBuyReturnLabel,
   returnRefundAmountCents,
   returnWindowEndsAt,
@@ -19,7 +22,17 @@ import {
 } from "./store-return";
 
 describe("return refund math", () => {
-  it("refunds the full charge when return shipping is not charged", () => {
+  it("computes Stripe fee shortfall withheld from buyer refunds", () => {
+    expect(nonRefundableStripeFeeCents({ totalCents: 1000, taxCents: 0 })).toBe(59);
+    expect(buyerCardRefundCents({ totalCents: 1000, taxCents: 0 })).toBe(941);
+    expect(buyerRefundCentsForFeeBearer({ totalCents: 1000, taxCents: 0 }, "buyer")).toBe(941);
+    expect(buyerRefundCentsForFeeBearer({ totalCents: 1000, taxCents: 0 }, "seller")).toBe(1000);
+    expect(nonRefundableStripeFeeCents({ totalCents: 10000, taxCents: 100 })).toBe(373);
+    expect(buyerCardRefundCents({ totalCents: 10000, taxCents: 100 })).toBe(9727);
+  });
+
+  // charge 10100 → processing floor(10100*0.029)+30=323; tax product floor(10100*0.005)=50 → 9727
+  it("deducts non-refundable Stripe fees when return shipping is not charged", () => {
     expect(
       returnRefundAmountCents({
         totalCents: 10000,
@@ -27,10 +40,10 @@ describe("return refund math", () => {
         chargeReturnShipping: false,
         returnLabelCostCents: 850,
       })
-    ).toBe(10100);
+    ).toBe(9727);
   });
 
-  it("deducts the return label when chargeReturnShipping is on", () => {
+  it("deducts Stripe fees then the return label when chargeReturnShipping is on", () => {
     expect(
       returnRefundAmountCents({
         totalCents: 10000,
@@ -38,7 +51,7 @@ describe("return refund math", () => {
         chargeReturnShipping: true,
         returnLabelCostCents: 850,
       })
-    ).toBe(9250);
+    ).toBe(8877);
   });
 
   it("does not go below zero", () => {
@@ -144,6 +157,13 @@ describe("return status", () => {
 
   it("allows a buyer request after ship, and again after a decline", () => {
     expect(buyerCanRequestRefund({ status: "paid", isCashOrder: false })).toBe(false);
+    expect(
+      buyerCanRequestRefund({
+        status: "paid",
+        isCashOrder: false,
+        shipment: { createdAt: "2026-08-12T00:00:00.000Z" },
+      })
+    ).toBe(true);
     expect(buyerCanRequestRefund({ status: "shipped", isCashOrder: false })).toBe(true);
     expect(buyerCanRequestRefund({ status: "shipped", isCashOrder: false, sellerAcceptsReturns: false })).toBe(
       false

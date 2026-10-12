@@ -57,6 +57,7 @@ export default function SellerHubLayout() {
         />
         {/* Inner layouts supply their own stack header + back; hide outer title bar here. */}
         <Stack.Screen name="store" options={{ headerShown: false }} />
+        <Stack.Screen name="apps" options={{ headerShown: false }} />
         <Stack.Screen name="quantity-history/[itemId]" options={{ title: "Quantity History" }} />
       </Stack>
     </>

@@ -11,6 +11,10 @@ import {
   TextInput,
   Switch,
   Alert,
+  Keyboard,
+  Platform,
+  ScrollView,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -48,6 +52,7 @@ function resolvePhotoUrl(path: string | null | undefined): string | undefined {
 export default function CollectionsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { member } = useAuth();
 
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -59,6 +64,7 @@ export default function CollectionsScreen() {
   const [newDescription, setNewDescription] = useState("");
   const [newIsPublic, setNewIsPublic] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
@@ -79,6 +85,23 @@ export default function CollectionsScreen() {
     if (member) load();
     else setLoading(false);
   }, [member, load]);
+
+  useEffect(() => {
+    if (!createModalOpen) {
+      setKeyboardHeight(0);
+      return;
+    }
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardHeight(event.endCoordinates?.height ?? 0);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [createModalOpen]);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -268,65 +291,79 @@ export default function CollectionsScreen() {
         animationType="slide"
         onRequestClose={() => !creating && setCreateModalOpen(false)}
       >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => !creating && setCreateModalOpen(false)}
-        >
-          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+        <View style={[styles.modalBackdrop, { paddingBottom: keyboardHeight }]}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => !creating && setCreateModalOpen(false)}
+            accessibilityLabel="Close new collection"
+          />
+          <View
+            style={[
+              styles.modalContent,
+              { paddingBottom: keyboardHeight > 0 ? 16 : Math.max(insets.bottom, 20) },
+            ]}
+          >
             <Text style={styles.modalTitle}>New Collection</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Collection name"
-              placeholderTextColor="#999"
-              value={newName}
-              onChangeText={setNewName}
-              autoFocus
-              maxLength={100}
-            />
-            <TextInput
-              style={[styles.input, styles.descriptionInput]}
-              placeholder="Description (optional)"
-              placeholderTextColor="#999"
-              value={newDescription}
-              onChangeText={setNewDescription}
-              multiline
-              numberOfLines={3}
-              maxLength={500}
-            />
-            <View style={styles.publicRow}>
-              <Text style={styles.publicLabel}>Make public</Text>
-              <Switch
-                value={newIsPublic}
-                onValueChange={setNewIsPublic}
-                trackColor={{ false: "#ccc", true: theme.colors.cream }}
-                thumbColor={newIsPublic ? theme.colors.primary : "#f4f4f4"}
+            <ScrollView
+              style={{ maxHeight: Math.max(220, windowHeight - keyboardHeight - insets.top - 96) }}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+              bounces={false}
+            >
+              <TextInput
+                style={styles.input}
+                placeholder="Collection name"
+                placeholderTextColor="#999"
+                value={newName}
+                onChangeText={setNewName}
+                autoFocus
+                maxLength={100}
               />
-            </View>
-            <Text style={styles.publicHint}>
-              Public collections can be shared with others via link.
-            </Text>
-            <View style={styles.modalActions}>
-              <Pressable
-                style={styles.cancelBtn}
-                onPress={() => setCreateModalOpen(false)}
-                disabled={creating}
-              >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.createBtn, creating && { opacity: 0.6 }]}
-                onPress={handleCreate}
-                disabled={creating || !newName.trim()}
-              >
-                {creating ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.createBtnText}>Create</Text>
-                )}
-              </Pressable>
-            </View>
-          </Pressable>
-        </Pressable>
+              <TextInput
+                style={[styles.input, styles.descriptionInput]}
+                placeholder="Description (optional)"
+                placeholderTextColor="#999"
+                value={newDescription}
+                onChangeText={setNewDescription}
+                multiline
+                numberOfLines={3}
+                maxLength={500}
+              />
+              <View style={styles.publicRow}>
+                <Text style={styles.publicLabel}>Make public</Text>
+                <Switch
+                  value={newIsPublic}
+                  onValueChange={setNewIsPublic}
+                  trackColor={{ false: "#ccc", true: theme.colors.cream }}
+                  thumbColor={newIsPublic ? theme.colors.primary : "#f4f4f4"}
+                />
+              </View>
+              <Text style={styles.publicHint}>
+                Public collections can be shared with others via link.
+              </Text>
+              <View style={styles.modalActions}>
+                <Pressable
+                  style={styles.cancelBtn}
+                  onPress={() => setCreateModalOpen(false)}
+                  disabled={creating}
+                >
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.createBtn, creating && { opacity: 0.6 }]}
+                  onPress={handleCreate}
+                  disabled={creating || !newName.trim()}
+                >
+                  {creating ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.createBtnText}>Create</Text>
+                  )}
+                </Pressable>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -496,8 +533,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    padding: 20,
-    paddingBottom: 40,
+    paddingTop: 20,
+    paddingHorizontal: 20,
   },
   modalTitle: {
     fontSize: 18,

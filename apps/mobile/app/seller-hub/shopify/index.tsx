@@ -346,7 +346,7 @@ export default function ShopifySellerScreen() {
         </Pressable>
         <Pressable
           style={({ pressed }) => [
-            styles.actionBtn,
+            styles.actionBtnGold,
             !canList && styles.actionBtnDisabled,
             pressed && canList && { opacity: 0.85 },
           ]}
@@ -354,6 +354,17 @@ export default function ShopifySellerScreen() {
           onPress={() => openWeb("/seller-hub/apps/shopify/sync", "List Items on Shopify")}
         >
           <Text style={styles.actionBtnText}>List Items on Shopify</Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [
+            styles.actionBtnEarth,
+            uiStatus === "disconnected" && styles.actionBtnDisabled,
+            pressed && uiStatus !== "disconnected" && { opacity: 0.85 },
+          ]}
+          disabled={uiStatus === "disconnected"}
+          onPress={() => void Linking.openURL("https://admin.shopify.com/")}
+        >
+          <Text style={styles.actionBtnText}>Open Shopify Dashboard</Text>
         </Pressable>
         <Pressable
           style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.85 }]}
@@ -536,6 +547,20 @@ const styles = StyleSheet.create({
   actionsRow: { gap: 10, marginBottom: 12 },
   actionBtn: {
     backgroundColor: theme.colors.primary,
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: "center",
+  },
+  actionBtnGold: {
+    backgroundColor: theme.colors.gold,
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: "center",
+  },
+  actionBtnEarth: {
+    backgroundColor: theme.colors.earth,
     borderRadius: 8,
     paddingVertical: 12,
     paddingHorizontal: 16,

@@ -19,12 +19,33 @@ export interface PackingSlipGroup {
     quantity: number;
     priceCentsAtPurchase: number;
     storeItem: { title: string };
+    /** Selected options, e.g. `{ Size: "Large", Color: "Blue" }`. */
+    variant?: unknown;
     orderId: string;
   }>;
   totalCents: number;
   subtotalCents: number;
   shippingCostCents: number;
   taxCents?: number;
+}
+
+/** Variant option values in entry order, e.g. `["Large", "Blue"]`. */
+export function packingSlipVariantValues(variant: unknown): string[] {
+  if (variant == null || typeof variant !== "object" || Array.isArray(variant)) return [];
+  const values: string[] = [];
+  for (const v of Object.values(variant as Record<string, unknown>)) {
+    if (v == null) continue;
+    const val = String(v).trim();
+    if (val) values.push(val);
+  }
+  return values;
+}
+
+/** e.g. `Testing Once Again 500 - Large - Blue` */
+export function formatPackingSlipItemTitle(title: string | null | undefined, variant?: unknown): string {
+  const base = title?.trim() || "Item";
+  const values = packingSlipVariantValues(variant);
+  return values.length > 0 ? `${base} - ${values.join(" - ")}` : base;
 }
 
 export interface PackingSlipSellerProfile {

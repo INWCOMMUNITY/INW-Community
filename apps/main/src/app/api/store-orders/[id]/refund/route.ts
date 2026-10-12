@@ -69,6 +69,7 @@ export async function POST(
     reason: "requested_by_seller",
     note: typeof body.note === "string" ? body.note : null,
     restock: false,
+    stripeFeeBearer: "seller",
   });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });

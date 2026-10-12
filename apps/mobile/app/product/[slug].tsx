@@ -52,6 +52,10 @@ import {
   buildBackLink,
 } from "@/lib/product-referrer";
 import { buildBusinessPath } from "@/lib/business-referrer";
+import {
+  NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TEXT,
+  NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TITLE,
+} from "@/lib/order-status";
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://www.inwcommunity.com";
 const siteBase = API_BASE.replace(/\/api.*$/, "").replace(/\/$/, "");
@@ -192,6 +196,7 @@ export default function ProductScreen() {
   const [showMessageSentToast, setShowMessageSentToast] = useState(false);
   const [collectionModalOpen, setCollectionModalOpen] = useState(false);
   const [priceAlertModalOpen, setPriceAlertModalOpen] = useState(false);
+  const [nwcRefundPolicyOpen, setNwcRefundPolicyOpen] = useState(false);
 
   const { member } = useAuth();
 
@@ -576,11 +581,6 @@ export default function ProductScreen() {
     item.localDeliveryTerms ??
     item.member?.sellerLocalDeliveryPolicy ??
     null;
-  const hasSellerPolicy =
-    !!effectiveLocalDeliveryPolicy ||
-    !!effectiveShippingPolicy ||
-    !!item.member?.sellerReturnPolicy;
-
   const isResaleListing = item.condition === "used";
   const isOwnListing = !!(
     member &&
@@ -1132,42 +1132,66 @@ export default function ProductScreen() {
             </View>
           )}
 
-          {/* Seller Policy */}
-          {hasSellerPolicy && (
-            <View style={[styles.section, styles.sellerCard]}>
-              <View style={styles.sellerCardHeader}>
-                <Text style={styles.sellerCardTitle}>Seller Policy</Text>
-              </View>
-              <View style={styles.sellerCardBody}>
-                {effectiveLocalDeliveryPolicy ? (
-                  <View style={styles.policyBlock}>
-                    <Text style={styles.policyLabel}>
-                      Local Delivery / Pick Up Policy
-                    </Text>
-                    <Text style={styles.policyText}>
-                      {effectiveLocalDeliveryPolicy}
-                    </Text>
-                  </View>
-                ) : null}
-                {effectiveShippingPolicy ? (
-                  <View style={styles.policyBlock}>
-                    <Text style={styles.policyLabel}>Shipping Policy</Text>
-                    <Text style={styles.policyText}>
-                      {effectiveShippingPolicy}
-                    </Text>
-                  </View>
-                ) : null}
-                {item.member?.sellerReturnPolicy ? (
-                  <View style={styles.policyBlock}>
-                    <Text style={styles.policyLabel}>Return Policy</Text>
-                    <Text style={styles.policyText}>
-                      {item.member.sellerReturnPolicy}
-                    </Text>
-                  </View>
-                ) : null}
+          {/* Seller Policy — always includes NWC marketplace refund rules */}
+          <View style={[styles.section, styles.sellerCard]}>
+            <View style={styles.sellerCardHeader}>
+              <Text style={styles.sellerCardTitle}>Seller Policy</Text>
+            </View>
+            <View style={styles.sellerCardBody}>
+              {effectiveLocalDeliveryPolicy ? (
+                <View style={styles.policyBlock}>
+                  <Text style={styles.policyLabel}>
+                    Local Delivery / Pick Up Policy
+                  </Text>
+                  <Text style={styles.policyText}>
+                    {effectiveLocalDeliveryPolicy}
+                  </Text>
+                </View>
+              ) : null}
+              {effectiveShippingPolicy ? (
+                <View style={styles.policyBlock}>
+                  <Text style={styles.policyLabel}>Shipping Policy</Text>
+                  <Text style={styles.policyText}>
+                    {effectiveShippingPolicy}
+                  </Text>
+                </View>
+              ) : null}
+              {item.member?.sellerReturnPolicy ? (
+                <View style={styles.policyBlock}>
+                  <Text style={styles.policyLabel}>Return Policy</Text>
+                  <Text style={styles.policyText}>
+                    {item.member.sellerReturnPolicy}
+                  </Text>
+                </View>
+              ) : null}
+              <View style={styles.policyBlock}>
+                <Pressable
+                  style={styles.policyCollapseHeader}
+                  onPress={() => setNwcRefundPolicyOpen((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: nwcRefundPolicyOpen }}
+                >
+                  <Text style={[styles.policyLabel, { flex: 1, marginBottom: 0 }]}>
+                    {NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TITLE}
+                  </Text>
+                  <Ionicons
+                    name={nwcRefundPolicyOpen ? "chevron-up" : "chevron-down"}
+                    size={18}
+                    color={theme.colors.heading}
+                  />
+                </Pressable>
+                {nwcRefundPolicyOpen ? (
+                  <Text style={[styles.policyText, { marginTop: 8 }]}>
+                    {NWC_MARKETPLACE_REFUND_POLICY_PRODUCT_TEXT}
+                  </Text>
+                ) : (
+                  <Text style={[styles.policyText, { marginTop: 8, color: "#888" }]}>
+                    Tap to view marketplace refund rules
+                  </Text>
+                )}
               </View>
             </View>
-          )}
+          </View>
 
           {item.memberId && (
             <RelatedItemsSection
@@ -2021,6 +2045,11 @@ const styles = StyleSheet.create({
   },
   policyBlock: {
     marginBottom: 16,
+  },
+  policyCollapseHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   policyLabel: {
     fontSize: 13,

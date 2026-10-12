@@ -79,7 +79,6 @@ Compare Hub listed remaining, warehouse, offer, `viewItemQty = min(warehouse, of
 
 ## Related
 
-- Rules summary: `docs/CHANNEL-SYNC-RULES.md` (eBay View Item vs Seller Hub)
 - Runbook: `docs/EBAY-PASSTHROUGH-SYNC.md`
 - Catch-up: `apps/main/src/lib/channels/ebay/bulk-update-price-quantity.ts` (`catchupEbayListingQtyPrice`)
 - Surfaces: `apps/main/src/lib/channels/ebay/qty-price-surfaces.ts`

@@ -11,7 +11,7 @@ import {
   orderHasPickupLine,
   orderHasShippedLine,
 } from "@/lib/store-order-fulfillment";
-import { buyerCanRequestRefund } from "@/lib/store-return";
+import { buyerCanRequestRefund, buyerFulfillmentHasStarted } from "@/lib/store-return";
 
 export const BUYER_ORDER_TABS = [
   { key: "to_receive", label: "To Receive" },
@@ -172,8 +172,20 @@ export function buyerHasPendingRefund(
   return storeOrderRefundPhase(order) != null;
 }
 
-export function canCancelBuyerOrder(order: Pick<BuyerStoreOrder, "status">): boolean {
-  return order.status === "paid";
+export function canCancelBuyerOrder(
+  order: Pick<BuyerStoreOrder, "status"> &
+    Partial<
+      Pick<
+        BuyerStoreOrder,
+        | "shipment"
+        | "pickupSellerConfirmedAt"
+        | "pickupBuyerConfirmedAt"
+        | "deliveryConfirmedAt"
+        | "deliveryBuyerConfirmedAt"
+      >
+    >
+): boolean {
+  return order.status === "paid" && !buyerFulfillmentHasStarted(order);
 }
 
 export function canRequestBuyerRefund(

@@ -65,44 +65,44 @@ export function StoreItemCard({
   };
 
   return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.card,
-        { width },
-        pressed && styles.cardPressed,
-      ]}
-      onPress={openItem}
-    >
+    <View style={[styles.card, { width }]}>
       <View style={[styles.cardImageWrap, isCarousel && styles.cardImageWrapCarousel]}>
-        {photoUrl ? (
-          <AppImage
-            uri={photoUrl}
-            targetWidth={width}
-            quality={50}
-            priority="high"
-            style={styles.cardImage}
-            resizeMode="contain"
-          />
-        ) : (
-          <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
-            <Ionicons name="image-outline" size={32} color={theme.colors.primary} />
-          </View>
-        )}
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={openItem}
+          accessibilityRole="button"
+          accessibilityLabel={item.title}
+        >
+          {photoUrl ? (
+            <AppImage
+              uri={photoUrl}
+              targetWidth={width}
+              quality={50}
+              priority="high"
+              style={styles.cardImage}
+              resizeMode="contain"
+            />
+          ) : (
+            <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
+              <Ionicons name="image-outline" size={32} color={theme.colors.primary} />
+            </View>
+          )}
+        </Pressable>
 
         {showBadges && (
           <>
             {hasFreeShipping && (
-              <View style={[styles.badge, styles.badgeTopRight]}>
+              <View style={[styles.badge, styles.badgeTopRight]} pointerEvents="none">
                 <Text style={styles.badgeText}>Free Shipping</Text>
               </View>
             )}
             {hasLocalPickup && !hasFreeShipping && (
-              <View style={[styles.badge, styles.badgeTopRight]}>
+              <View style={[styles.badge, styles.badgeTopRight]} pointerEvents="none">
                 <Text style={styles.badgeText}>Local Pickup</Text>
               </View>
             )}
             {item.business?.logoUrl && (
-              <View style={styles.sellerBadge}>
+              <View style={styles.sellerBadge} pointerEvents="none">
                 <AppImage
                   uri={resolvePhotoUrl(item.business.logoUrl) ?? ""}
                   targetWidth={28}
@@ -120,57 +120,59 @@ export function StoreItemCard({
               styles.quickAddBtn,
               pressed && { opacity: 0.8 },
             ]}
-            onPress={(e) => {
-              e.stopPropagation?.();
-              onQuickAdd(item);
-            }}
+            onPress={() => onQuickAdd(item)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Add ${item.title} to cart`}
           >
             <Ionicons name="add" size={18} color="#fff" />
           </Pressable>
         )}
       </View>
 
-      <Text style={styles.cardTitle} numberOfLines={2}>
-        {item.title}
-      </Text>
-      <Text style={styles.cardPrice}>
-        {(() => {
-          const label = browsePriceLabel(item.priceCents, item.variants);
-          return label.range
-            ? `${formatPrice(label.minCents)} - ${formatPrice(label.maxCents)}`
-            : formatPrice(label.cents);
-        })()}
-      </Text>
+      <Pressable onPress={openItem} style={({ pressed }) => pressed && styles.cardPressed}>
+        <Text style={styles.cardTitle} numberOfLines={2}>
+          {item.title}
+        </Text>
+        <Text style={styles.cardPrice}>
+          {(() => {
+            const label = browsePriceLabel(item.priceCents, item.variants);
+            return label.range
+              ? `${formatPrice(label.minCents)} - ${formatPrice(label.maxCents)}`
+              : formatPrice(label.cents);
+          })()}
+        </Text>
 
-      {(item.category || item.secondaryCategory) && (
-        <View style={styles.categoryChipsRow}>
-          {item.category && (
-            <View
-              style={[
-                styles.categoryChip,
-                item.secondaryCategory ? styles.categoryChipWhenPaired : null,
-              ]}
-            >
-              <Text style={styles.categoryText} numberOfLines={1} ellipsizeMode="tail">
-                {item.category}
-              </Text>
-            </View>
-          )}
-          {item.secondaryCategory && (
-            <View
-              style={[
-                styles.categoryChip,
-                item.category ? styles.categoryChipWhenPaired : null,
-              ]}
-            >
-              <Text style={styles.categoryText} numberOfLines={1} ellipsizeMode="tail">
-                {item.secondaryCategory}
-              </Text>
-            </View>
-          )}
-        </View>
-      )}
-    </Pressable>
+        {(item.category || item.secondaryCategory) && (
+          <View style={styles.categoryChipsRow}>
+            {item.category && (
+              <View
+                style={[
+                  styles.categoryChip,
+                  item.secondaryCategory ? styles.categoryChipWhenPaired : null,
+                ]}
+              >
+                <Text style={styles.categoryText} numberOfLines={1} ellipsizeMode="tail">
+                  {item.category}
+                </Text>
+              </View>
+            )}
+            {item.secondaryCategory && (
+              <View
+                style={[
+                  styles.categoryChip,
+                  item.category ? styles.categoryChipWhenPaired : null,
+                ]}
+              >
+                <Text style={styles.categoryText} numberOfLines={1} ellipsizeMode="tail">
+                  {item.secondaryCategory}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+      </Pressable>
+    </View>
   );
 }
 
@@ -241,6 +243,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 8,
     right: 8,
+    zIndex: 2,
     width: 32,
     height: 32,
     borderRadius: 16,

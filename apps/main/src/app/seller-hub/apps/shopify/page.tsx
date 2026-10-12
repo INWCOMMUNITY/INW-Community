@@ -45,6 +45,7 @@ type ListingRow = {
   storeItemId: string;
   shopifyProductId: string;
   title: string;
+  slug: string;
   photos?: string[];
   priceCents: number;
   quantity: number;
@@ -58,6 +59,11 @@ type ListingRow = {
   inventoryAppliedAvailable: number | null;
   updatedAt: string;
 };
+
+function inwProductHref(row: Pick<ListingRow, "slug" | "storeItemId">): string {
+  const slug = row.slug?.trim();
+  return slug ? `/storefront/${slug}?from=shopify-sync` : `/seller-hub/store/${row.storeItemId}`;
+}
 
 async function openShopifyListingView(input: {
   storeItemId: string;
@@ -321,7 +327,7 @@ export default function AppsAirportShopifyPage() {
             return (
               <AppsAirportListingMobileCard
                 key={row.listingLinkId}
-                href={`${hub.listingsPath}/${row.storeItemId}`}
+                href={inwProductHref(row)}
                 title={row.title}
                 photos={row.photos}
                 status={status}
@@ -333,6 +339,7 @@ export default function AppsAirportShopifyPage() {
                 manage={
                   <ShopifyListingActionButtons
                     storeItemId={row.storeItemId}
+                    slug={row.slug}
                     shopDomain={shopDomain}
                     shopifyProductId={row.shopifyProductId}
                     preferStorefront={status === "Live"}
@@ -367,7 +374,7 @@ export default function AppsAirportShopifyPage() {
                   <AppsAirportListingPhotoCollage photos={row.photos} alt={row.title} />
                   <div>
                     <Link
-                      href={`${hub.listingsPath}/${row.storeItemId}`}
+                      href={inwProductHref(row)}
                       className="font-medium underline"
                       style={{ color: "var(--color-primary)" }}
                       prefetch={false}
@@ -412,6 +419,7 @@ export default function AppsAirportShopifyPage() {
               <td className="py-3 pr-3">
                 <ShopifyListingActionButtons
                   storeItemId={row.storeItemId}
+                  slug={row.slug}
                   shopDomain={shopDomain}
                   shopifyProductId={row.shopifyProductId}
                   preferStorefront={status === "Live"}

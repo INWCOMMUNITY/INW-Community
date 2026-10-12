@@ -2,6 +2,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import {
   PACKING_SLIP_FOOTER,
   PACKING_SLIP_THANKS,
+  formatPackingSlipItemTitle,
   packingSlipContactLine,
   packingSlipOrderMetaLine,
   packingSlipTotalRows,
@@ -269,7 +270,7 @@ export async function generatePackingSlipPdf(
     drawTableHeader();
 
     for (const oi of group.combinedItems) {
-      const title = oi.storeItem.title?.trim() || "Item";
+      const title = formatPackingSlipItemTitle(oi.storeItem.title, oi.variant);
       const titleLines = textLines(title, font, 9, nameW);
       const rowH = Math.max(14, titleLines.length * 12) + 6;
       ensureSpace(rowH);

@@ -78,8 +78,21 @@ describe("buyer order display", () => {
 describe("cancel vs refund", () => {
   it("allows cancel only while paid, and refund after ship", () => {
     expect(canCancelBuyerOrder({ status: "paid" })).toBe(true);
+    expect(
+      canCancelBuyerOrder({
+        status: "paid",
+        shipment: { carrier: "USPS", trackingNumber: "9400" },
+      })
+    ).toBe(false);
     expect(canCancelBuyerOrder({ status: "shipped" })).toBe(false);
     expect(canRequestBuyerRefund({ status: "paid", isCashOrder: false })).toBe(false);
+    expect(
+      canRequestBuyerRefund({
+        status: "paid",
+        isCashOrder: false,
+        shipment: { carrier: "USPS", trackingNumber: "9400" },
+      })
+    ).toBe(true);
     expect(canRequestBuyerRefund({ status: "shipped", isCashOrder: false })).toBe(true);
     expect(canRequestBuyerRefund({ status: "delivered", isCashOrder: false })).toBe(true);
     expect(canRequestBuyerRefund({ status: "shipped", isCashOrder: true })).toBe(false);

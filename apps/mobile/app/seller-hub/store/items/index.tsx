@@ -105,6 +105,7 @@ export default function MyItemsScreen() {
           : "active";
   const [items, setItems] = useState<StoreItem[]>([]);
   const [drafts, setDrafts] = useState<StoreItemDraft[]>([]);
+  const [serverDrafts, setServerDrafts] = useState<StoreItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -167,12 +168,17 @@ export default function MyItemsScreen() {
       Promise.all([
         getDrafts(),
         apiGet<ConnectStatus | { error: string }>("/api/stripe/connect/status").catch(() => null),
-        apiGet<{ active?: number; ended?: number; sold?: number }>(
+        apiGet<{ active?: number; ended?: number; sold?: number; drafts?: number }>(
           "/api/store-items?mine=1&counts=1"
         ).catch(() => null),
+        apiGet<StoreItem[] | { error?: string }>("/api/store-items?mine=1&filter=drafts").catch(
+          () => [] as StoreItem[]
+        ),
       ])
-        .then(([draftList, statusData, countsData]) => {
+        .then(([draftList, statusData, countsData, serverData]) => {
+          const serverList = Array.isArray(serverData) ? serverData : [];
           setDrafts(draftList);
+          setServerDrafts(serverList);
           setItems([]);
           if (statusData && "chargesEnabled" in statusData) {
             setConnectStatus(statusData as ConnectStatus);
@@ -181,7 +187,7 @@ export default function MyItemsScreen() {
             active: Number(countsData?.active) || 0,
             ended: Number(countsData?.ended) || 0,
             sold: Number(countsData?.sold) || 0,
-            drafts: draftList.length,
+            drafts: draftList.length + serverList.length,
           });
         })
         .finally(() => {
@@ -194,7 +200,7 @@ export default function MyItemsScreen() {
     Promise.allSettled([
       apiGet<StoreItem[] | { error: string }>(itemsUrl),
       apiGet<ConnectStatus | { error: string }>("/api/stripe/connect/status"),
-      apiGet<{ active?: number; ended?: number; sold?: number }>(
+      apiGet<{ active?: number; ended?: number; sold?: number; drafts?: number }>(
         "/api/store-items?mine=1&counts=1"
       ),
       getDrafts(),
@@ -233,7 +239,7 @@ export default function MyItemsScreen() {
           active: Number(counts?.active) || 0,
           ended: Number(counts?.ended) || 0,
           sold: Number(counts?.sold) || 0,
-          drafts: draftList.length,
+          drafts: draftList.length + (Number(counts?.drafts) || 0),
         });
       })
       .catch(() => {
@@ -277,9 +283,17 @@ export default function MyItemsScreen() {
 
   const visibleDrafts = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return drafts;
-    return drafts.filter((d) => (d.title || "Untitled").toLowerCase().includes(q));
-  }, [drafts, search]);
+    const local = !q
+      ? drafts
+      : drafts.filter((d) => (d.title || "Untitled").toLowerCase().includes(q));
+    const saved = !q
+      ? serverDrafts
+      : serverDrafts.filter((d) => d.title.toLowerCase().includes(q));
+    return [
+      ...saved.map((item) => ({ kind: "server" as const, id: item.id, item })),
+      ...local.map((draft) => ({ kind: "local" as const, id: draft.id, draft })),
+    ];
+  }, [drafts, serverDrafts, search]);
 
   const allVisibleSelected =
     visibleItems.length > 0 && visibleItems.every((i) => selectedIds.includes(i.id));
@@ -446,7 +460,7 @@ export default function MyItemsScreen() {
     ]);
   };
 
-  if (loading && items.length === 0 && drafts.length === 0) {
+  if (loading && items.length === 0 && drafts.length === 0 && serverDrafts.length === 0) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -538,7 +552,7 @@ export default function MyItemsScreen() {
         ) : (
           <FlatList
             data={visibleDrafts}
-            keyExtractor={(d) => d.id}
+            keyExtractor={(d) => `${d.kind}-${d.id}`}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -550,13 +564,46 @@ export default function MyItemsScreen() {
             }
             contentContainerStyle={styles.list}
             renderItem={({ item }) => {
-              const photoUrl = resolvePhotoUrl(item.photos?.[0]);
+              if (item.kind === "server") {
+                const photoUrl = resolvePhotoUrl(item.item.photos?.[0]);
+                return (
+                  <View style={styles.card}>
+                    <Pressable
+                      style={styles.cardMain}
+                      onPress={() =>
+                        router.push(`/seller-hub/store/new?edit=${item.item.id}` as never)
+                      }
+                    >
+                      <View style={styles.thumbWrap}>
+                        {photoUrl ? (
+                          <Image source={{ uri: photoUrl }} style={styles.thumb} resizeMode="cover" />
+                        ) : (
+                          <View style={[styles.thumb, styles.thumbPlaceholder]} />
+                        )}
+                      </View>
+                      <View style={styles.cardBody}>
+                        <Text style={styles.cardTitle} numberOfLines={2}>
+                          {item.item.title || "Untitled draft"}
+                        </Text>
+                        <Text style={styles.cardMeta}>{formatPrice(item.item.priceCents)}</Text>
+                      </View>
+                    </Pressable>
+                    <Pressable
+                      style={styles.menuBtn}
+                      onPress={() => deleteItem(item.item.id)}
+                    >
+                      <Ionicons name="trash-outline" size={20} color="#dc2626" />
+                    </Pressable>
+                  </View>
+                );
+              }
+              const photoUrl = resolvePhotoUrl(item.draft.photos?.[0]);
               return (
                 <View style={styles.card}>
                   <Pressable
                     style={styles.cardMain}
                     onPress={() =>
-                      router.push(`/seller-hub/store/new?draftId=${item.id}` as never)
+                      router.push(`/seller-hub/store/new?draftId=${item.draft.id}` as never)
                     }
                   >
                     <View style={styles.thumbWrap}>
@@ -568,18 +615,18 @@ export default function MyItemsScreen() {
                     </View>
                     <View style={styles.cardBody}>
                       <Text style={styles.cardTitle} numberOfLines={2}>
-                        {item.title || "Untitled draft"}
+                        {item.draft.title || "Untitled draft"}
                       </Text>
                       <Text style={styles.cardMeta}>
                         Saved{" "}
-                        {new Date(item.savedAt).toLocaleDateString(undefined, {
+                        {new Date(item.draft.savedAt).toLocaleDateString(undefined, {
                           month: "short",
                           day: "numeric",
                         })}
                       </Text>
                     </View>
                   </Pressable>
-                  <Pressable style={styles.menuBtn} onPress={() => removeDraft(item)}>
+                  <Pressable style={styles.menuBtn} onPress={() => removeDraft(item.draft)}>
                     <Ionicons name="trash-outline" size={20} color="#dc2626" />
                   </Pressable>
                 </View>

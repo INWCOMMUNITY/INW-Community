@@ -35,7 +35,12 @@ export async function GET(req: NextRequest) {
     listShippingOptions(userId),
     getShippingOptionPrefs(userId),
   ]);
-  return NextResponse.json({ options, ...prefs });
+  return NextResponse.json({
+    options,
+    offerFreeShippingOnInw: prefs.offerFreeShippingOnInw,
+    etsyConnected: prefs.etsyConnected,
+    shopifyConnected: prefs.shopifyConnected,
+  });
 }
 
 export async function POST(req: NextRequest) {

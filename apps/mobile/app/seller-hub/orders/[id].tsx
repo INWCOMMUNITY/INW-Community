@@ -8,15 +8,24 @@ import {
   ActivityIndicator,
   Image,
   Linking,
+  Alert,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/lib/theme";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { formatShippingAddress } from "@/lib/format-address";
 import { buildProductPath } from "@/lib/product-referrer";
-import { getStoreOrderStatusLabel, sellerRefundStatusNote } from "@/lib/order-status";
+import {
+  BUYER_REFUND_POLICY_CONTINUE_LABEL,
+  BUYER_REFUND_POLICY_NEVERMIND_LABEL,
+  formatSellerRefundFeeAbsorptionLine,
+  getStoreOrderStatusLabel,
+  sellerRefundStatusNote,
+  SELLER_REFUND_POLICY_POPUP_BODY,
+  SELLER_REFUND_POLICY_POPUP_TITLE,
+} from "@/lib/order-status";
 import {
   orderEligibleForAnotherShippoLabel,
   orderHasShippedLine,
@@ -83,6 +92,7 @@ export default function OrderDetailScreen() {
   const [order, setOrder] = useState<StoreOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [canceling, setCanceling] = useState(false);
 
   const load = useCallback(() => {
     setError(null);
@@ -156,6 +166,42 @@ export default function OrderDetailScreen() {
 
   const openShippoLabelFullScreen = (mode: "purchase" | "another") => {
     router.push(`/seller-hub/shippo-order/${order.id}?mode=${mode}` as never);
+  };
+
+  const canCancelAndRefund =
+    order.status === "paid" && !order.shipment && orderHasShippedLine(order.items);
+
+  const confirmCancelAndRefund = () => {
+    const feeLine = formatSellerRefundFeeAbsorptionLine({
+      totalCents: order.totalCents,
+      taxCents: order.taxCents,
+    });
+    Alert.alert(
+      SELLER_REFUND_POLICY_POPUP_TITLE,
+      `${SELLER_REFUND_POLICY_POPUP_BODY}\n\n${feeLine}\n\nListing quantities will be restored. This cannot be undone.`,
+      [
+        { text: BUYER_REFUND_POLICY_NEVERMIND_LABEL, style: "cancel" },
+        {
+          text: BUYER_REFUND_POLICY_CONTINUE_LABEL,
+          style: "destructive",
+          onPress: async () => {
+            setCanceling(true);
+            try {
+              await apiPost(`/api/store-orders/${encodeURIComponent(order.id)}/seller-cancel`, {});
+              load();
+            } catch (e: unknown) {
+              const msg =
+                typeof e === "object" && e !== null && "error" in e && typeof (e as { error?: string }).error === "string"
+                  ? (e as { error: string }).error
+                  : "Could not cancel this order. Try again or contact support.";
+              Alert.alert("Cancel & refund", msg);
+            } finally {
+              setCanceling(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -248,6 +294,16 @@ export default function OrderDetailScreen() {
         </View>
       )}
 
+      {canCancelAndRefund ? (
+        <Pressable
+          style={({ pressed }) => [styles.refundBtn, pressed && { opacity: 0.85 }, canceling && { opacity: 0.6 }]}
+          onPress={confirmCancelAndRefund}
+          disabled={canceling}
+        >
+          <Text style={styles.refundBtnText}>{canceling ? "Canceling…" : "Cancel & refund"}</Text>
+        </Pressable>
+      ) : null}
+
       {(order.items?.length ?? 0) > 0 && (
         <View style={styles.section}>
           <Text style={styles.label}>Items in this order</Text>
@@ -321,6 +377,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   labelBtnSecondaryText: { color: theme.colors.primary, fontSize: 14, fontWeight: "600" },
+  refundBtn: {
+    borderWidth: 2,
+    borderColor: "#b91c1c",
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  refundBtnText: { color: "#b91c1c", fontSize: 16, fontWeight: "700" },
   shipDetailsCard: {
     borderWidth: 1,
     borderColor: "#ddd",

@@ -24,17 +24,15 @@ type ShippingOption = {
   weightLbs: number;
   weightOzRemainder: number;
   shippingCostCents: number | null;
-  source: "inw" | "ebay" | "etsy";
+  source: "inw" | "etsy" | "shopify";
   complete: boolean;
 };
 
 type PageData = {
   options: ShippingOption[];
-  importEbayShippingOptions: boolean;
-  importEtsyShippingOptions: boolean;
   offerFreeShippingOnInw: boolean;
-  ebayConnected: boolean;
   etsyConnected: boolean;
+  shopifyConnected: boolean;
 };
 
 const emptyForm = {
@@ -77,7 +75,13 @@ function carryOuncesIntoPoundsFields(
 }
 
 function sourceLabel(source: string) {
-  return source === "etsy" ? "Etsy" : source === "ebay" ? "eBay" : "INW";
+  return source === "etsy" ? "Etsy" : source === "shopify" ? "Shopify" : "INW";
+}
+
+function marketplaceShippingUrl(source: "etsy" | "shopify") {
+  return source === "etsy"
+    ? "https://www.etsy.com/your/shops/me/tools/shipping"
+    : "https://admin.shopify.com/store";
 }
 
 export default function ShippingOptionsScreen() {
@@ -87,6 +91,7 @@ export default function ShippingOptionsScreen() {
   const [createOpen, setCreateOpen] = useState(true);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState<"etsy" | "shopify" | null>(null);
   const [editing, setEditing] = useState<ShippingOption | null>(null);
 
   const load = useCallback(async () => {
@@ -157,40 +162,53 @@ export default function ShippingOptionsScreen() {
     });
   }
 
-  function openMenu(opt: ShippingOption) {
-    const marketplace = sourceLabel(opt.source);
-    if (opt.source === "inw") {
-      Alert.alert(opt.name, undefined, [
-        { text: "Edit", onPress: () => startEdit(opt) },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: () => {
-            void apiDelete(`/api/shipping-options/${opt.id}`)
-              .then(load)
-              .catch((e: { error?: string }) => setError(e?.error || "Could not remove option"));
-          },
-        },
-        { text: "Cancel", style: "cancel" },
-      ]);
-      return;
+  async function importFrom(provider: "etsy" | "shopify") {
+    setError(null);
+    setImporting(provider);
+    try {
+      const json = await apiPost<{
+        options?: ShippingOption[];
+        error?: string;
+      }>("/api/shipping-options/import", { provider });
+      if (Array.isArray(json.options)) {
+        setData((prev) => (prev ? { ...prev, options: json.options as ShippingOption[] } : prev));
+      } else {
+        await load();
+      }
+    } catch (e: unknown) {
+      setError(
+        (e as { error?: string })?.error || `Could not import from ${sourceLabel(provider)}`
+      );
+    } finally {
+      setImporting(null);
     }
-    const url =
-      opt.source === "etsy"
-        ? "https://www.etsy.com/your/shops/me/tools/shipping"
-        : "https://www.ebay.com/ship/bnd/seller-hub/shipping";
-    Alert.alert(opt.name, `Synced options can only be edited on ${marketplace}.`, [
-      { text: `Open ${marketplace}`, onPress: () => void Linking.openURL(url) },
-      {
-        text: "Hide on INW",
-        onPress: () => {
-          void apiDelete(`/api/shipping-options/${opt.id}`)
-            .then(load)
-            .catch((e: { error?: string }) => setError(e?.error || "Could not hide option"));
-        },
+  }
+
+  function openMenu(opt: ShippingOption) {
+    const buttons: {
+      text: string;
+      style?: "cancel" | "destructive";
+      onPress?: () => void;
+    }[] = [
+      { text: "Edit", onPress: () => startEdit(opt) },
+    ];
+    if (opt.source === "etsy" || opt.source === "shopify") {
+      buttons.push({
+        text: `Open ${sourceLabel(opt.source)}`,
+        onPress: () => void Linking.openURL(marketplaceShippingUrl(opt.source)),
+      });
+    }
+    buttons.push({
+      text: opt.source === "inw" ? "Remove" : "Hide on INW",
+      style: "destructive",
+      onPress: () => {
+        void apiDelete(`/api/shipping-options/${opt.id}`)
+          .then(load)
+          .catch((e: { error?: string }) => setError(e?.error || "Could not remove option"));
       },
-      { text: "Cancel", style: "cancel" },
-    ]);
+    });
+    buttons.push({ text: "Cancel", style: "cancel" });
+    Alert.alert(opt.name, undefined, buttons);
   }
 
   return (
@@ -205,18 +223,32 @@ export default function ShippingOptionsScreen() {
 
       {error ? <Text style={styles.err}>{error}</Text> : null}
 
-      <CheckboxRow
-        label="Import shipping options from eBay"
-        checked={Boolean(data?.importEbayShippingOptions)}
-        disabled={!data?.ebayConnected}
-        onToggle={(v) => void patchPrefs({ importEbayShippingOptions: v })}
-      />
-      <CheckboxRow
-        label="Import shipping options from Etsy"
-        checked={Boolean(data?.importEtsyShippingOptions)}
-        disabled={!data?.etsyConnected}
-        onToggle={(v) => void patchPrefs({ importEtsyShippingOptions: v })}
-      />
+      <Pressable
+        style={[styles.primaryBtn, (!data?.etsyConnected || importing != null) && styles.primaryBtnDisabled]}
+        disabled={!data?.etsyConnected || importing != null}
+        onPress={() => void importFrom("etsy")}
+      >
+        {importing === "etsy" ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.primaryBtnText}>Import from Etsy</Text>
+        )}
+      </Pressable>
+      <Pressable
+        style={[
+          styles.primaryBtn,
+          styles.importBtnSpacing,
+          (!data?.shopifyConnected || importing != null) && styles.primaryBtnDisabled,
+        ]}
+        disabled={!data?.shopifyConnected || importing != null}
+        onPress={() => void importFrom("shopify")}
+      >
+        {importing === "shopify" ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.primaryBtnText}>Import from Shopify</Text>
+        )}
+      </Pressable>
       <CheckboxRow
         label="Offer free shipping on INW (Recommended)"
         checked={Boolean(data?.offerFreeShippingOnInw)}
@@ -352,7 +384,9 @@ export default function ShippingOptionsScreen() {
         </Pressable>
       ))}
       {data && data.options.length === 0 ? (
-        <Text style={styles.hint}>No shipping options yet. Create one above or import from eBay/Etsy.</Text>
+        <Text style={styles.hint}>
+          No shipping options yet. Create one above or import from Etsy/Shopify.
+        </Text>
       ) : null}
     </ScrollView>
   );
@@ -438,6 +472,7 @@ const styles = StyleSheet.create({
   },
   primaryBtnDisabled: { opacity: 0.65 },
   primaryBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  importBtnSpacing: { marginBottom: 12 },
   optionRow: {
     flexDirection: "row",
     alignItems: "center",

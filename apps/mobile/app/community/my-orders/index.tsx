@@ -32,7 +32,7 @@ type OrderTab = "to_receive" | "delivered" | "canceled" | "all";
 const ORDER_TABS: { key: OrderTab; label: string; param: string }[] = [
   { key: "to_receive", label: "To Receive", param: "buyer=1&to_receive=1" },
   { key: "delivered", label: "Delivered", param: "buyer=1&delivered=1" },
-  { key: "canceled", label: "Canceled", param: "buyer=1&canceled=1" },
+  { key: "canceled", label: "Cancellations / Refunds", param: "buyer=1&canceled=1" },
   { key: "all", label: "All", param: "buyer=1" },
 ];
 
@@ -133,7 +133,12 @@ export default function MyOrdersScreen() {
             style={[styles.tab, tab === t.key && styles.tabActive]}
             onPress={() => setTab(t.key)}
           >
-            <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
+            <Text
+              style={[styles.tabText, tab === t.key && styles.tabTextActive]}
+              numberOfLines={2}
+            >
+              {t.label}
+            </Text>
           </Pressable>
         ))}
       </View>
@@ -152,7 +157,7 @@ export default function MyOrdersScreen() {
               : tab === "delivered"
                 ? "No delivered orders."
                 : tab === "canceled"
-                  ? "No canceled or refunded orders."
+                  ? "No cancellations or refunds."
                   : "No orders yet."}
           </Text>
         </View>
@@ -247,7 +252,7 @@ const styles = StyleSheet.create({
   },
   tab: { flex: 1, paddingVertical: 12, alignItems: "center" },
   tabActive: { borderBottomWidth: 2, borderBottomColor: theme.colors.primary },
-  tabText: { fontSize: 13, color: "#666" },
+  tabText: { fontSize: 12, color: "#666", textAlign: "center" },
   tabTextActive: { fontWeight: "600", color: theme.colors.primary },
   errorBanner: { backgroundColor: "#fee", padding: 12, marginHorizontal: 16, marginBottom: 16, borderRadius: 8 },
   errorText: { color: "#c62828", fontSize: 14 },

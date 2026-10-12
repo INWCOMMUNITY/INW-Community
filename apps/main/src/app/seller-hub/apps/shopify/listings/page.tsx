@@ -21,6 +21,7 @@ type ListingRow = {
   storeItemId: string;
   shopifyProductId: string;
   title: string;
+  slug: string;
   priceCents: number;
   quantity: number;
   readiness: string;
@@ -190,6 +191,7 @@ export default function AppsAirportShopifyListingsPage() {
                   <td className="py-3 min-w-[8rem]">
                     <ShopifyListingActionButtons
                       storeItemId={row.storeItemId}
+                      slug={row.slug}
                       shopDomain={shopDomain}
                       shopifyProductId={row.shopifyProductId}
                       preferStorefront={status === "Live"}

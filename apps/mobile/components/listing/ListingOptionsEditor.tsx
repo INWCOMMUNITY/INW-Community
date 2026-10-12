@@ -9,9 +9,13 @@ import {
   ScrollView,
   Image,
   Modal,
+  Keyboard,
+  Platform,
+  Dimensions,
   type StyleProp,
   type TextStyle,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme as defaultTheme } from "@/lib/theme";
 import {
   INVENTORY_TRACKING_MADE_TO_ORDER,
@@ -185,6 +189,8 @@ type ListingOptionsEditorProps = {
   optionNamePresets?: string[];
   placeholderColor?: string;
   channelNotes?: string[];
+  /** Hide the listing-level price when each combination has its own price. */
+  onPricesVaryChange?: (pricesVary: boolean) => void;
 };
 
 function ChannelNotes({ notes }: { notes?: string[] }) {
@@ -401,7 +407,9 @@ export function ListingOptionsEditor({
   optionNamePresets = DEFAULT_OPTION_PRESETS,
   placeholderColor = PLACEHOLDER_COLOR,
   channelNotes,
+  onPricesVaryChange,
 }: ListingOptionsEditorProps) {
+  const insets = useSafeAreaInsets();
   const presets = optionNamePresets.length > 0 ? optionNamePresets : DEFAULT_OPTION_PRESETS;
   const madeToOrder = inventoryTracking === INVENTORY_TRACKING_MADE_TO_ORDER;
   const inferred = inferMatrixVaryFlags({ axes, skus });
@@ -409,6 +417,8 @@ export function ListingOptionsEditor({
   const [quantitiesVary, setQuantitiesVary] = useState(true);
   const [skusVary, setSkusVary] = useState(inferred.skusVary);
   const [manageOpen, setManageOpen] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const manageScrollRef = useRef<ScrollView>(null);
   const [draftAxes, setDraftAxes] = useState<VariantAxisDef[]>([]);
   const [draftNewValues, setDraftNewValues] = useState<Record<number, string>>({});
   const [bulkPrice, setBulkPrice] = useState("");
@@ -419,6 +429,48 @@ export function ListingOptionsEditor({
     if (skus.some((s) => s.priceCents != null && s.priceCents > 0)) setPricesVary(true);
     if (skus.some((s) => Boolean(s.sku?.trim()))) setSkusVary(true);
   }, [skus]);
+
+  useEffect(() => {
+    onPricesVaryChange?.(mode === "options" && pricesVary);
+  }, [mode, onPricesVaryChange, pricesVary]);
+
+  useEffect(() => {
+    if (!manageOpen) {
+      setKeyboardHeight(0);
+      return;
+    }
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardHeight(event.endCoordinates?.height ?? 0);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [manageOpen]);
+
+  const scrollFocusedField = (target: number) => {
+    const scroll = manageScrollRef.current as
+      | (ScrollView & {
+          scrollResponderScrollNativeHandleToKeyboard?: (
+            nodeHandle: number,
+            additionalOffset?: number,
+            preventNegativeScrollOffset?: boolean
+          ) => void;
+        })
+      | null;
+    setTimeout(() => {
+      scroll?.scrollResponderScrollNativeHandleToKeyboard?.(target, 140, true);
+    }, 80);
+  };
+
+  const windowHeight = Dimensions.get("window").height;
+  const sheetHeight = Math.max(
+    280,
+    Math.min(windowHeight * 0.9, windowHeight - keyboardHeight - insets.top - 12)
+  );
   const photoChoices = useMemo(
     () => listingGalleryPhotoChoices(galleryPhotos),
     [galleryPhotos]
@@ -515,9 +567,14 @@ export function ListingOptionsEditor({
         <Pressable
           style={[styles.modeBtn, !madeToOrder && styles.modeBtnActive]}
           onPress={() => onInventoryTrackingChange(INVENTORY_TRACKING_TRACKED)}
+          {...webAccessKey("I")}
         >
           <Text style={[styles.modeBtnText, !madeToOrder && styles.modeBtnTextActive]}>
-            Track inventory
+            Track{" "}
+            <Text style={[styles.modeBtnText, !madeToOrder && styles.modeBtnTextActive, styles.accessLetter]}>
+              I
+            </Text>
+            nventory
           </Text>
         </Pressable>
         <Pressable
@@ -539,9 +596,14 @@ export function ListingOptionsEditor({
         <Pressable
           style={[styles.modeBtn, mode === "simple" && styles.modeBtnActive]}
           onPress={() => onModeChange("simple")}
+          {...webAccessKey("Q")}
         >
           <Text style={[styles.modeBtnText, mode === "simple" && styles.modeBtnTextActive]}>
-            Simple quantity
+            Simple{" "}
+            <Text style={[styles.modeBtnText, mode === "simple" && styles.modeBtnTextActive, styles.accessLetter]}>
+              Q
+            </Text>
+            uantity
           </Text>
         </Pressable>
         <Pressable
@@ -719,15 +781,21 @@ export function ListingOptionsEditor({
       )}
 
       <Modal visible={manageOpen} animationType="slide" transparent>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <ScrollView>
-              <View style={styles.modalHeader}>
-                <Text style={styles.sectionTitle}>Manage variations</Text>
-                <Pressable onPress={closeManage}>
-                  <Text style={styles.removeText}>Close</Text>
-                </Pressable>
-              </View>
+        <View style={[styles.modalBackdrop, { paddingBottom: keyboardHeight }]}>
+          <View style={[styles.modalCard, { height: sheetHeight }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.sectionTitle}>Manage variations</Text>
+              <Pressable onPress={closeManage}>
+                <Text style={styles.removeText}>Close</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              ref={manageScrollRef}
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalScrollContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            >
               <Text style={styles.hint}>
                 Add up to {MAX_VARIANT_AXES} option types. Apply generates every combination.
               </Text>
@@ -768,6 +836,7 @@ export function ListingOptionsEditor({
                       placeholder="Option name"
                       placeholderTextColor={placeholderColor}
                       value={axis.name}
+                      onFocus={(event) => scrollFocusedField(event.nativeEvent.target)}
                       onChangeText={(t) =>
                         setDraftAxes((prev) =>
                           prev.map((a, i) => (i === ai ? { ...a, name: t } : a))
@@ -808,6 +877,7 @@ export function ListingOptionsEditor({
                       placeholder="Add value"
                       placeholderTextColor={placeholderColor}
                       value={draftNewValues[ai] ?? ""}
+                      onFocus={(event) => scrollFocusedField(event.nativeEvent.target)}
                       onChangeText={(t) => setDraftNewValues((p) => ({ ...p, [ai]: t }))}
                       onSubmitEditing={() => addDraftValue(ai)}
                       returnKeyType="done"
@@ -975,6 +1045,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#f0f7ff",
   },
   modeBtnText: { fontSize: 13, fontWeight: "600", color: defaultTheme.colors.labelMuted },
+  accessLetter: { textDecorationLine: "underline" },
   modeBtnTextActive: { color: defaultTheme.colors.primary },
   presetRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8, alignItems: "center" },
   presetChip: {
@@ -1111,9 +1182,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    maxHeight: "90%",
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
+  modalScroll: { flex: 1 },
+  modalScrollContent: { paddingBottom: 28 },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",

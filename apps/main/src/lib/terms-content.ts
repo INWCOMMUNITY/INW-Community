@@ -1,5 +1,5 @@
 /** Single source of truth for Terms of Service content. Used by terms page, PDF API, and export script. */
-export const TERMS_LAST_UPDATED = "October 8, 2026";
+export const TERMS_LAST_UPDATED = "October 9, 2026";
 
 export const TERMS_BODY = `Welcome to Northwest Community Hub ("Northwest Community", "NWC," "we," "our," or "the Company").
 By accessing or using our website at inwcommunity.com, our Northwest Community mobile app, services, subscriptions, coupons, marketplace, community feed, blogs, business subscription features, or messaging, you agree to the terms outlined below.
@@ -187,9 +187,16 @@ Each seller sets return and refund terms in Seller Hub Policies: whether they ac
 NWC hides and rejects a return/refund request after shipment or delivery when that seller does not accept returns, or when the seller’s day window has ended. The window starts when the order is delivered, picked up, or marked received; if that never happens, it starts from the ship or handoff date. Pre-shipment cancel (while the order is still paid and unshipped) still initiates a refund to the original card even if the seller does not accept returns.
 
 7.6.3 How a return works when it is allowed
-The buyer requests a return in My Orders. If the seller charges return shipping, NWC tells the buyer before they submit; the Shippo return-label price may be deducted from the refund once the seller buys the label. After the seller approves a mailed return, NWC prompts them to buy a prepaid return label on their Shippo account (buyer checkout address as the sender, seller ship-from as the destination). The seller may instead decline or issue a courtesy refund without requiring the item back. When a return is required, the buyer’s refund is issued after the seller confirms they received the item. For card refunds canceled before shipment, NWC initiates a refund right away. The order shows Refund Initiated, then Refund Complete after Stripe processes it. Most card refunds take 5–10 business days to appear on the buyer’s statement.
+The buyer requests a return in My Orders. If the seller charges return shipping, NWC tells the buyer before they submit; the Shippo return-label price may be deducted from the refund once the seller buys the label. After the seller approves a mailed return, NWC prompts them to buy a prepaid return label on their Shippo account (buyer checkout address as the sender, seller ship-from as the destination). The seller may instead decline or issue a courtesy refund without requiring the item back. When a return is required, the buyer’s refund is issued after the seller confirms they received the item. For card refunds canceled before shipment, NWC initiates a refund right away. The order shows Refund Initiated, then Refund Complete after Stripe processes it. Most card refunds take 5–10 business days to appear on the buyer’s statement. Before you cancel an unshipped order or submit a refund/return request, NWC shows a notice that Stripe’s non-refundable processing fees will be deducted from your refund (see 7.6.4).
 
-7.6.4 Seller duties and removal
+7.6.4 Non-refundable payment-processor fees on storefront refunds (NWC Marketplace Refund Policy)
+NWC does not personally profit off of items sold in the storefront. Stripe’s credit card processing does not refund its portion when a storefront payment is refunded or canceled after capture; those fees typically include about 2.9% + $0.30 of the original charge and, when sales tax was collected, Stripe Tax’s 0.5% product fee.
+
+Who absorbs that fee depends on who ends the sale:
+● Buyer-initiated cancel, refund, or completed return: the fee is deducted from the buyer’s card refund (rather than charging the seller for that fee twice or leaving a shortfall on the platform). Before you cancel an unshipped order or submit a refund/return request, NWC shows this Marketplace Refund Policy and the exact fee amount that will be deducted. You must choose “Understood” to proceed, or “Nevermind.” to stop. Return-shipping deductions (when the seller’s policy charges return shipping) may apply in addition.
+● Seller-initiated cancel or courtesy refund: the buyer is refunded the full original charge (item, shipping, and tax as applicable). The seller absorbs Stripe’s non-refundable processing fee on that refund.
+
+7.6.5 Seller duties and removal
 Sellers must follow the return and refund policy they publish. A seller who scams buyers, advertises returns they will not honor, or otherwise willfully violates their own storefront policy may be contacted by NWC and is at risk of listing removal, payout action, and removal from the platform (see 7.4). NWC is not responsible for completing the physical return or for money moving between buyer and seller except as described in this section and 7.4.
 
 7.7 Used Item Listings
@@ -233,7 +240,7 @@ NWC may maintain a separate bank account dedicated to sales tax obligations and 
 The full formula in Section 7.9.6 applies to taxable facilitated sales where NWC collects sales tax under its published rules. Non-taxable items, exempt buyers (where NWC supports exemptions), or jurisdictions NWC has not enabled may result in no sales tax and/or different treatment; NWC will document those cases in its policies and seller materials.
 
 7.9.8 Refunds and adjustments
-Refunds, cancellations, partial refunds, and chargebacks may reduce the sales tax and/or reserve amounts associated with an order. NWC will adjust seller payouts and internal tax and reserve tracking in line with its refund policy and payment-processor reconciliation practices.
+Refunds, cancellations, partial refunds, and chargebacks may reduce the sales tax and/or reserve amounts associated with an order. NWC will adjust seller payouts and internal tax and reserve tracking in line with its refund policy and payment-processor reconciliation practices. Buyer refunds of storefront card charges deduct Stripe’s non-refundable processing fees as described in Section 7.6.4.
 
 7.9.9 Profit
 NWC expects platform profit primarily from subscriptions and marketplace fees described elsewhere in these Terms, not from sales tax collected or from the Sales Tax Reserve (both of which are compliance-related).

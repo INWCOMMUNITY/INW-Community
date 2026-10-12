@@ -355,6 +355,8 @@ function RootLayoutNav() {
         <Stack.Screen name="profile-event-edit/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="profile-coupons" />
         <Stack.Screen name="profile-wishlist" />
+        <Stack.Screen name="collections/index" options={{ headerShown: false }} />
+        <Stack.Screen name="collections/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="sponsor-business" options={{ headerShown: false }} />
         <Stack.Screen name="seller-hub" options={{ headerShown: false }} />
         <Stack.Screen name="messages" options={{ headerShown: false }} />

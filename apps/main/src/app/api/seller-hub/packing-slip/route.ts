@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
         items: {
           include: {
             storeItem: { select: { id: true, title: true } },
+            storeVariant: { select: { options: true } },
           },
         },
       },
@@ -122,6 +123,7 @@ export async function POST(req: NextRequest) {
                 quantity: oi.quantity,
                 priceCentsAtPurchase: oi.priceCentsAtPurchase,
                 storeItem: oi.storeItem,
+                variant: oi.storeVariant?.options ?? oi.variant,
                 orderId: o.id,
               }))
             ),
@@ -149,6 +151,7 @@ export async function POST(req: NextRequest) {
             quantity: oi.quantity,
             priceCentsAtPurchase: oi.priceCentsAtPurchase,
             storeItem: oi.storeItem,
+            variant: oi.storeVariant?.options ?? oi.variant,
             orderId: o.id,
           })),
           totalCents: o.totalCents,
