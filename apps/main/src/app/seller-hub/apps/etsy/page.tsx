@@ -19,6 +19,7 @@ import {
   formatEtsyCents,
   type EtsyListingUiStatus,
 } from "@/lib/etsy/apps-airport";
+import { appsAirportInwLiveListingHref } from "@/lib/apps-airport-inw-listing-href";
 
 type PublicConnection = {
   id: string;
@@ -32,6 +33,7 @@ type ListingRow = {
   storeItemId: string;
   etsyListingId: string;
   title: string;
+  slug?: string | null;
   photos?: string[];
   priceCents: number | null;
   quantity: number | null;
@@ -43,6 +45,14 @@ type ListingRow = {
   storeItemStatus: string | null;
   remoteListingState?: string | null;
 };
+
+function inwLiveHref(row: Pick<ListingRow, "slug" | "storeItemId">): string {
+  return appsAirportInwLiveListingHref({
+    slug: row.slug,
+    storeItemId: row.storeItemId,
+    from: "etsy-sync",
+  });
+}
 
 type FilterTab = "all" | EtsyListingUiStatus;
 
@@ -254,6 +264,7 @@ export default function AppsAirportEtsyPage() {
             const manage = row.etsyListingId ? (
               <EtsyListingActionButtons
                 storeItemId={row.storeItemId}
+                slug={row.slug}
                 etsyListingId={row.etsyListingId}
                 remoteListingState={row.remoteListingState}
                 onActionComplete={(message) => {
@@ -282,7 +293,7 @@ export default function AppsAirportEtsyPage() {
             return (
               <AppsAirportListingMobileCard
                 key={row.id}
-                href={`/seller-hub/store/${row.storeItemId}`}
+                href={inwLiveHref(row)}
                 title={row.title}
                 photos={row.photos}
                 status={status}
@@ -308,7 +319,7 @@ export default function AppsAirportEtsyPage() {
                     <AppsAirportListingPhotoCollage photos={row.photos} alt={row.title} />
                     <div>
                       <Link
-                        href={`/seller-hub/store/${row.storeItemId}`}
+                        href={inwLiveHref(row)}
                         className="font-medium underline"
                         style={{ color: "var(--color-primary)" }}
                         prefetch={false}
@@ -334,6 +345,7 @@ export default function AppsAirportEtsyPage() {
                   {row.etsyListingId ? (
                     <EtsyListingActionButtons
                       storeItemId={row.storeItemId}
+                      slug={row.slug}
                       etsyListingId={row.etsyListingId}
                       remoteListingState={row.remoteListingState}
                       onActionComplete={(message) => {

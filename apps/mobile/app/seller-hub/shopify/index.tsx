@@ -37,6 +37,7 @@ type ListingRow = {
   storeItemId: string;
   shopifyProductId: string;
   title: string;
+  slug?: string | null;
   priceCents: number;
   quantity?: number;
   readiness: string;
@@ -48,6 +49,13 @@ type ListingRow = {
   inventoryDesiredAvailable?: number | null;
   inventoryAppliedAvailable?: number | null;
 };
+
+function inwLivePath(row: Pick<ListingRow, "slug" | "storeItemId">): string {
+  const slug = row.slug?.trim();
+  return slug
+    ? `/storefront/${slug}?from=shopify-sync`
+    : `/seller-hub/store/new?edit=${row.storeItemId}`;
+}
 
 type UiStatus = "Live" | "Unpublished" | "Needs attention" | "Syncing";
 type ConnUi = "connected" | "needs_attention" | "disconnected";
@@ -420,7 +428,14 @@ export default function ShopifySellerScreen() {
               return (
                 <View key={row.storeItemId} style={styles.listCard}>
                   <View style={styles.listHeader}>
-                    <Text style={styles.listTitle}>{row.title}</Text>
+                    <Pressable
+                      onPress={() => openWeb(inwLivePath(row), row.title)}
+                      style={{ flex: 1, paddingRight: 8 }}
+                    >
+                      <Text style={[styles.listTitle, { textDecorationLine: "underline" }]}>
+                        {row.title}
+                      </Text>
+                    </Pressable>
                     <View style={[styles.chip, { backgroundColor: chip.bg }]}>
                       <Text style={[styles.chipText, { color: chip.fg }]}>{status}</Text>
                     </View>
@@ -469,10 +484,7 @@ export default function ShopifySellerScreen() {
                 <Pressable
                   onPress={() => {
                     setMenuFor(null);
-                    openWeb(
-                      `/seller-hub/apps/shopify/listings/${menuFor.storeItemId}`,
-                      "View on INW"
-                    );
+                    openWeb(inwLivePath(menuFor), "View on INW");
                   }}
                 >
                   <Text style={styles.menuItem}>View on INW</Text>

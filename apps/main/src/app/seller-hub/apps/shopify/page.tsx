@@ -23,6 +23,7 @@ import {
   shopifyRemountSellerCopy,
   type ShopifyListingUiStatus,
 } from "@/lib/shopify/apps-airport";
+import { appsAirportInwLiveListingHref } from "@/lib/apps-airport-inw-listing-href";
 
 type PublicConnection = {
   id: string;
@@ -61,8 +62,11 @@ type ListingRow = {
 };
 
 function inwProductHref(row: Pick<ListingRow, "slug" | "storeItemId">): string {
-  const slug = row.slug?.trim();
-  return slug ? `/storefront/${slug}?from=shopify-sync` : `/seller-hub/store/${row.storeItemId}`;
+  return appsAirportInwLiveListingHref({
+    slug: row.slug,
+    storeItemId: row.storeItemId,
+    from: "shopify-sync",
+  });
 }
 
 async function openShopifyListingView(input: {

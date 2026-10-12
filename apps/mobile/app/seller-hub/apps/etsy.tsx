@@ -31,6 +31,7 @@ type ListingRow = {
   storeItemId: string;
   etsyListingId: string;
   title: string;
+  slug?: string | null;
   priceCents: number | null;
   quantity: number | null;
   readiness: string;
@@ -41,6 +42,13 @@ type ListingRow = {
   storeItemStatus: string | null;
   remoteListingState?: string | null;
 };
+
+function inwLivePath(row: Pick<ListingRow, "slug" | "storeItemId">): string {
+  const slug = row.slug?.trim();
+  return slug
+    ? `/storefront/${slug}?from=etsy-sync`
+    : `/seller-hub/store/new?edit=${row.storeItemId}`;
+}
 
 type UiStatus = "Live" | "Unpublished" | "Needs attention" | "Syncing";
 type FilterTab = "all" | UiStatus;
@@ -348,7 +356,14 @@ export default function EtsySyncScreen() {
               return (
                 <View key={row.id} style={styles.listCard}>
                   <View style={styles.listHeader}>
-                    <Text style={styles.listTitle}>{row.title}</Text>
+                    <Pressable
+                      onPress={() => openWeb(inwLivePath(row), row.title)}
+                      style={{ flex: 1, paddingRight: 8 }}
+                    >
+                      <Text style={[styles.listTitle, { textDecorationLine: "underline" }]}>
+                        {row.title}
+                      </Text>
+                    </Pressable>
                     <View style={[styles.chip, { backgroundColor: chip.bg }]}>
                       <Text style={[styles.chipText, { color: chip.fg }]}>{status}</Text>
                     </View>
@@ -399,6 +414,14 @@ export default function EtsySyncScreen() {
                 </Pressable>
                 <Pressable onPress={() => onRemove(menuFor)}>
                   <Text style={[styles.menuItem, styles.menuDanger]}>Remove from Etsy</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setMenuFor(null);
+                    openWeb(inwLivePath(menuFor), "View on INW");
+                  }}
+                >
+                  <Text style={styles.menuItem}>View on INW</Text>
                 </Pressable>
                 <Pressable onPress={() => void onViewEtsy(menuFor)}>
                   <Text style={styles.menuItem}>View on Etsy</Text>

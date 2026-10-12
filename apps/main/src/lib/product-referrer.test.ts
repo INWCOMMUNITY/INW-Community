@@ -26,4 +26,11 @@ describe("buildBackLink", () => {
       label: "Back to Shopify",
     });
   });
+
+  it("sends Etsy Sync Airport traffic back to the hub", () => {
+    expect(buildBackLink({ type: "etsy-sync" })).toEqual({
+      href: "/seller-hub/apps/etsy",
+      label: "Back to Etsy",
+    });
+  });
 });

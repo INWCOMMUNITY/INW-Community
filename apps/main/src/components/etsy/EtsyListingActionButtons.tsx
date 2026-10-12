@@ -5,7 +5,9 @@ import {
   APPS_AIRPORT_ETSY_LISTINGS_PATH,
   APPS_AIRPORT_ETSY_SYNC_PATH,
   etsyListingIsPubliclyViewable,
+  etsyListingPublicUrl,
 } from "@/lib/etsy/apps-airport";
+import { appsAirportInwLiveListingHref } from "@/lib/apps-airport-inw-listing-href";
 import {
   AppsAirportListingManageMenu,
   type AppsAirportManageMenuItem,
@@ -13,6 +15,8 @@ import {
 
 type Props = {
   storeItemId: string;
+  /** Storefront slug — used for View on INW. */
+  slug?: string | null;
   etsyListingId?: string | null;
   remoteListingState?: string | null;
   onActionComplete?: (message?: string) => void;
@@ -22,6 +26,7 @@ type ConfirmStep = null | "unlink" | "deleteRemote";
 
 export function EtsyListingActionButtons({
   storeItemId,
+  slug,
   etsyListingId,
   remoteListingState,
   onActionComplete,
@@ -32,6 +37,15 @@ export function EtsyListingActionButtons({
 
   const live = etsyListingIsPubliclyViewable(remoteListingState);
   const editHref = `/seller-hub/store/${storeItemId}`;
+  const viewOnInwHref = appsAirportInwLiveListingHref({
+    slug,
+    storeItemId,
+    from: "etsy-sync",
+  });
+  const publicEtsyUrl = etsyListingPublicUrl({
+    etsyListingId,
+    remoteListingState,
+  });
 
   async function callAction(
     action: "retry" | "remove",
@@ -84,6 +98,22 @@ export function EtsyListingActionButtons({
         setConfirmStep("unlink");
       },
     },
+    {
+      kind: "link",
+      id: "view-inw",
+      label: "View on INW",
+      href: viewOnInwHref,
+    },
+    ...(publicEtsyUrl
+      ? ([
+          {
+            kind: "external" as const,
+            id: "view-etsy",
+            label: "View on Etsy",
+            href: publicEtsyUrl,
+          },
+        ] satisfies AppsAirportManageMenuItem[])
+      : []),
     {
       kind: "link",
       id: "view-linked",

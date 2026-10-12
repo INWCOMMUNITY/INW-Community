@@ -20,6 +20,7 @@ import {
   resolveEtsySyncProgress,
   type EtsySyncProgressStep,
 } from "@/lib/etsy/apps-airport";
+import { appsAirportInwLiveListingHref } from "@/lib/apps-airport-inw-listing-href";
 
 type EligibleListing = {
   storeItemId: string;
@@ -352,7 +353,11 @@ export default function AppsAirportEtsySyncPage() {
                         <AppsAirportListingPhotoCollage photos={listing.photos} alt={listing.title} />
                         <div>
                           <Link
-                            href={`/seller-hub/store/${listing.storeItemId}`}
+                            href={appsAirportInwLiveListingHref({
+                              slug: listing.slug,
+                              storeItemId: listing.storeItemId,
+                              from: "etsy-sync",
+                            })}
                             className="font-medium underline"
                             style={{ color: "var(--color-primary)" }}
                             prefetch={false}

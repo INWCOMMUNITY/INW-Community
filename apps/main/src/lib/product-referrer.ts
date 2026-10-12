@@ -14,6 +14,7 @@ export type ProductReferrerType =
   | "messages"
   | "my-items"
   | "shopify-sync"
+  | "etsy-sync"
   | "offer"
   | "order";
 
@@ -79,6 +80,7 @@ export function getProductReferrer(searchParams: ParamSource): ProductReferrer {
   }
   if (from === "my-items") return { type: "my-items" };
   if (from === "shopify-sync") return { type: "shopify-sync" };
+  if (from === "etsy-sync") return { type: "etsy-sync" };
   if (from === "offer") {
     return { type: "offer", offerId: paramGet(searchParams, "offerId") ?? undefined };
   }
@@ -164,6 +166,8 @@ export function buildBackLink(ref: ProductReferrer): { href: string; label: stri
       return { href: "/seller-hub/store/items", label: "Back to My Items" };
     case "shopify-sync":
       return { href: "/seller-hub/apps/shopify", label: "Back to Shopify" };
+    case "etsy-sync":
+      return { href: "/seller-hub/apps/etsy", label: "Back to Etsy" };
     case "offer":
       return { href: "/seller-hub/offers", label: "Back to Offers" };
     case "order":
