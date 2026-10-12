@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   applyTrackedMarketplaceQuantityEdit,
   MARKETPLACE_QUANTITY_EDIT_SCOPE,
+  marketplaceQtyWouldRevertRecentInwChange,
   trackedAvailable,
 } from "../commerce-foundation-inventory";
 import {
@@ -9,6 +10,7 @@ import {
   shouldPauseInventoryForDirectShopifyEdit,
 } from "./inventory-direct-edit";
 import {
+  ensureShopifyProjectInventoryJob,
   markShopifyInventoryProjectionApplied,
   markShopifyInventoryProjectionRemoteDrift,
 } from "./inventory-desire";
@@ -196,6 +198,37 @@ export async function applyShopifyInventoryLevelObservation(
   // Shopify available ≈ onHand - reserved; target onHand = available + reserved.
   const reserved = state.reserved ?? 0;
   const targetOnHand = remote + reserved;
+  if (
+    await marketplaceQtyWouldRevertRecentInwChange(db, {
+      variantId: variantMap.storeVariantId,
+      targetOnHand,
+    })
+  ) {
+    // A late read of the qty INW just left. Keep INW and push the newer qty back out.
+    let sellable = remote;
+    try {
+      sellable = trackedAvailable(state.onHand!, reserved);
+    } catch {
+      sellable = Math.max(0, (state.onHand ?? 0) - reserved);
+    }
+    const nextVersion = variantMap.inventoryDesiredVersion + 1;
+    await db.shopifyVariantMap.update({
+      where: { id: variantMap.id },
+      data: {
+        inventoryDesiredVersion: nextVersion,
+        inventoryDesiredAvailable: sellable,
+        inventoryDesiredAt: new Date(),
+        inventoryLastObservedAvailable: remote,
+      },
+    });
+    await ensureShopifyProjectInventoryJob(db, {
+      connectionId: input.connectionId,
+      storeItemId: variantMap.storeItemId,
+      storeVariantId: variantMap.storeVariantId,
+      inventoryDesiredVersion: nextVersion,
+    });
+    return { status: "ECHO_CONFIRMED" };
+  }
   const sourceFactId =
     input.observation.inventoryLevelId?.trim() ||
     `invlvl:${input.observation.inventoryItemId}:${input.observation.locationId}:${input.observation.evidenceId}:${remote}`;

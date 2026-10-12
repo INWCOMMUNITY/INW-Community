@@ -8,6 +8,7 @@ import {
   captureEtsyInventoryProjectionDesire,
   etsyCentsFromMoney,
   prisma,
+  recordShopifyListingVariantTopologyDesire,
   replaceEtsyListingVariantMaps,
   type EtsyJobHandlerResult,
 } from "database";
@@ -219,6 +220,30 @@ export async function etsySellerTopologyPushPending(listingLinkId: string): Prom
   return Boolean(pending);
 }
 
+/**
+ * Etsy structure landed in INW. Push that matrix to Shopify only.
+ * Do not record an Etsy topology desire — that would push the change back to its source.
+ */
+async function fanOutAdoptedEtsyTopologyToShopify(
+  memberId: string,
+  storeItemId: string
+): Promise<void> {
+  try {
+    await recordShopifyListingVariantTopologyDesire(prisma, { memberId, storeItemId });
+  } catch {
+    return;
+  }
+  try {
+    const { runNextShopifySyncJob } = await import("../shopify/admin-graphql");
+    for (let i = 0; i < 8; i += 1) {
+      const ran = await runNextShopifySyncJob({ workerId: `etsy-topology-${i}` });
+      if (!ran.claimed) break;
+    }
+  } catch {
+    // Cron still runs the Shopify reconcile.
+  }
+}
+
 async function pullRemoteTopologyIntoFoundation(input: {
   connectionId: string;
   memberId: string;
@@ -339,6 +364,7 @@ async function pullRemoteTopologyIntoFoundation(input: {
         ],
       })
     );
+    await fanOutAdoptedEtsyTopologyToShopify(input.memberId, input.storeItemId);
     return { status: "PULLED", pairCount: 1 };
   }
 
@@ -370,6 +396,7 @@ async function pullRemoteTopologyIntoFoundation(input: {
       })),
     })
   );
+  await fanOutAdoptedEtsyTopologyToShopify(input.memberId, input.storeItemId);
   return { status: "PULLED", pairCount: correlation.pairs.length };
 }
 

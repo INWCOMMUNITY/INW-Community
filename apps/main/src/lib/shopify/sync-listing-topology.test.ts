@@ -6,6 +6,10 @@ vi.mock("./admin-graphql", () => ({
   executeShopifyAdminGraphql: (...args: unknown[]) => executeShopifyAdminGraphql(...args),
 }));
 
+vi.mock("./process-inventory-levels", () => ({
+  drainEtsySyncJobs: vi.fn(async () => undefined),
+}));
+
 vi.mock("database", async () => {
   const actual = await vi.importActual<typeof import("database")>("database");
   return {
@@ -55,6 +59,7 @@ vi.mock("database", async () => {
     },
     projectStoreItemQuantity: vi.fn(async () => 0),
     appendShopifyVariantMaps: vi.fn(async () => ({})),
+    recordEtsyListingVariantTopologyDesire: vi.fn(async () => ({ status: "SKIPPED" })),
   };
 });
 
@@ -65,8 +70,10 @@ import {
 } from "./sync-listing-topology";
 
 describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     executeShopifyAdminGraphql.mockReset();
+    const { recordEtsyListingVariantTopologyDesire } = await import("database");
+    vi.mocked(recordEtsyListingVariantTopologyDesire).mockClear();
   });
 
   it("requests ProductOption.position and never ProductOptionValue.position", async () => {
@@ -533,10 +540,96 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
       });
     expect(adoptedWool).toBe(true);
     expect(appendShopifyVariantMaps).toHaveBeenCalled();
+    const { recordEtsyListingVariantTopologyDesire } = await import("database");
+    expect(recordEtsyListingVariantTopologyDesire).toHaveBeenCalledWith(
+      expect.anything(),
+      { memberId: "mem-1", storeItemId: "item-1" }
+    );
     const operationNames = executeShopifyAdminGraphql.mock.calls.map(
       (call) => (call[0] as { operationName?: string }).operationName
     );
     expect(operationNames).toEqual(["ShopifyProductTopologyRead"]);
+  });
+
+  it("adds a Shopify Size value and pushes that variant to Etsy", async () => {
+    const { prisma, recordEtsyListingVariantTopologyDesire } = await import("database");
+    vi.mocked(prisma.storeVariant.create).mockClear();
+    executeShopifyAdminGraphql.mockResolvedValue({
+      ok: true,
+      data: {
+        product: {
+          options: [
+            {
+              id: "gid://shopify/ProductOption/size",
+              name: "Size",
+              position: 1,
+              optionValues: [
+                { id: "ov-s", name: "S", hasVariants: true },
+                { id: "ov-m", name: "M", hasVariants: true },
+              ],
+            },
+          ],
+          variants: {
+            nodes: [
+              {
+                id: "gid://shopify/ProductVariant/1",
+                price: "10.00",
+                sku: null,
+                selectedOptions: [{ name: "Size", value: "S" }],
+                inventoryItem: { id: "gid://shopify/InventoryItem/1" },
+                inventoryQuantity: 4,
+              },
+              {
+                id: "gid://shopify/ProductVariant/2",
+                price: "12.00",
+                sku: null,
+                selectedOptions: [{ name: "Size", value: "M" }],
+                inventoryItem: { id: "gid://shopify/InventoryItem/2" },
+                inventoryQuantity: 3,
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const result = await syncShopifyListingTopology({
+      connectionId: "conn-1",
+      memberId: "mem-1",
+      listingLinkId: "link-1",
+      productId: "gid://shopify/Product/1",
+      storeItemId: "item-1",
+      localVariants: [
+        {
+          storeVariantId: "sv-s",
+          selectedOptions: [{ name: "Size", value: "S" }],
+          priceCents: 1000,
+          sku: null,
+          shopifyVariantId: "gid://shopify/ProductVariant/1",
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.importedStoreVariantIds).toEqual(["sv-new"]);
+    expect(prisma.storeVariant.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          options: { Size: "M" },
+          priceCents: 1200,
+        }),
+      })
+    );
+    expect(recordEtsyListingVariantTopologyDesire).toHaveBeenCalledWith(
+      expect.anything(),
+      { memberId: "mem-1", storeItemId: "item-1" }
+    );
+    const operationNames = executeShopifyAdminGraphql.mock.calls.map(
+      (call) => (call[0] as { operationName?: string }).operationName
+    );
+    expect(operationNames).toEqual(["ShopifyProductTopologyRead"]);
+    expect(operationNames).not.toContain("ShopifyProductOptionDeleteValues");
   });
 
   it("rebinds an unmapped local Wool placeholder to Shopify price and quantity", async () => {
@@ -772,6 +865,8 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
     const variables = (createCall?.[0] as { variables?: { variants?: Array<{ optionValues?: unknown }> } })
       .variables;
     expect(JSON.stringify(variables)).toContain("Blue");
+    const { recordEtsyListingVariantTopologyDesire } = await import("database");
+    expect(recordEtsyListingVariantTopologyDesire).not.toHaveBeenCalled();
   });
 
   it("deletes a Shopify variant the seller removed in INW", async () => {
@@ -1188,6 +1283,11 @@ describe("ShopifyProductTopologyRead 2026-07 selection set", () => {
         where: { variantId: "sv-survivor" },
         data: expect.objectContaining({ onHand: 9 }),
       })
+    );
+    const { recordEtsyListingVariantTopologyDesire } = await import("database");
+    expect(recordEtsyListingVariantTopologyDesire).toHaveBeenCalledWith(
+      expect.anything(),
+      { memberId: "mem-1", storeItemId: "item-1" }
     );
     const operationNames = executeShopifyAdminGraphql.mock.calls.map(
       (call) => (call[0] as { operationName?: string }).operationName

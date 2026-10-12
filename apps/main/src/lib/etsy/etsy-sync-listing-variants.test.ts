@@ -1,8 +1,37 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { etsyConnectionRequest } = vi.hoisted(() => ({
+  etsyConnectionRequest: vi.fn(),
+}));
+
+vi.mock("./connection-request", () => ({
+  etsyConnectionRequest: (...args: unknown[]) => etsyConnectionRequest(...args),
+}));
+
+vi.mock("../shopify/admin-graphql", () => ({
+  runNextShopifySyncJob: vi.fn(async () => ({ claimed: false })),
+}));
+
+vi.mock("database", () => ({
+  applyFoundationSellerCollapseToSimple: vi.fn(async () => ({})),
+  applyFoundationSellerMatrixStructure: vi.fn(async () => ({})),
+  captureEtsyInventoryProjectionDesire: vi.fn(async () => ({})),
+  etsyCentsFromMoney: vi.fn(() => 0),
+  replaceEtsyListingVariantMaps: vi.fn(async () => undefined),
+  recordShopifyListingVariantTopologyDesire: vi.fn(async () => undefined),
+  prisma: {
+    etsyVariantMap: { findMany: vi.fn(async () => []) },
+    etsySyncJob: { findFirst: vi.fn(async () => null) },
+    storeVariant: { findMany: vi.fn() },
+    $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({})),
+  },
+}));
+
 import {
   localVariantComboKeys,
   mapsMatchLocalCombos,
   remoteProductComboKeys,
+  syncEtsyListingVariantTopology,
 } from "./sync-listing-variants";
 
 describe("etsy Size×Color topology helpers", () => {
@@ -98,5 +127,73 @@ describe("etsy Size×Color topology helpers", () => {
       },
     ]);
     expect(keys).toEqual(["color=blue|size=m", "color=red|size=s"]);
+  });
+});
+
+describe("Etsy variant add fans out to Shopify", () => {
+  beforeEach(() => {
+    etsyConnectionRequest.mockReset();
+  });
+
+  it("adopts a new Etsy size into INW and records a Shopify topology push", async () => {
+    const { prisma, recordShopifyListingVariantTopologyDesire, applyFoundationSellerMatrixStructure } =
+      await import("database");
+    const { runNextShopifySyncJob } = await import("../shopify/admin-graphql");
+    vi.mocked(recordShopifyListingVariantTopologyDesire).mockClear();
+    vi.mocked(applyFoundationSellerMatrixStructure).mockClear();
+    vi.mocked(runNextShopifySyncJob).mockClear();
+    vi.mocked(prisma.storeVariant.findMany)
+      .mockResolvedValueOnce([
+        {
+          id: "sv-simple",
+          options: null,
+          priceCents: 1000,
+          sku: null,
+          inventoryState: { mode: "TRACKED_FINITE", onHand: 4, reserved: 0 },
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        { id: "sv-s", options: { Size: "S" } },
+        { id: "sv-m", options: { Size: "M" } },
+      ] as never);
+    etsyConnectionRequest.mockResolvedValue({
+      ok: true,
+      data: {
+        products: [
+          {
+            product_id: 11,
+            sku: "S",
+            property_values: [{ property_id: 513, property_name: "Size", values: ["S"] }],
+            offerings: [{ offering_id: 101, quantity: 4, is_enabled: true, price: 10 }],
+          },
+          {
+            product_id: 12,
+            sku: "M",
+            property_values: [{ property_id: 513, property_name: "Size", values: ["M"] }],
+            offerings: [{ offering_id: 102, quantity: 2, is_enabled: true, price: 12 }],
+          },
+        ],
+      },
+    });
+
+    const result = await syncEtsyListingVariantTopology({
+      connectionId: "conn-1",
+      memberId: "mem-1",
+      listingLinkId: "link-1",
+      storeItemId: "item-1",
+      etsyListingId: "999",
+      taxonomyId: 1,
+      readinessStateId: 1,
+      inventoryTracking: "tracked",
+      direction: "pull",
+    });
+
+    expect(result).toMatchObject({ status: "PULLED", pairCount: 2 });
+    expect(applyFoundationSellerMatrixStructure).toHaveBeenCalled();
+    expect(recordShopifyListingVariantTopologyDesire).toHaveBeenCalledWith(prisma, {
+      memberId: "mem-1",
+      storeItemId: "item-1",
+    });
+    expect(runNextShopifySyncJob).toHaveBeenCalled();
   });
 });

@@ -7,6 +7,7 @@ import {
   Prisma,
   prisma,
   projectStoreItemQuantity,
+  recordEtsyListingVariantTopologyDesire,
   shopifyCentsFromMoneyString,
   shopifySelectedOptionsToInwOptions,
   shopifyTopologyToInwMatrix,
@@ -25,6 +26,29 @@ type HandlerFailure = {
   errorCode: string;
   errorMessage: string;
 };
+
+/**
+ * Shopify structure landed in INW. Push that matrix to Etsy only.
+ * Do not record a Shopify topology desire — that would push the change back to its source.
+ */
+async function fanOutAdoptedShopifyTopologyToEtsy(
+  memberId: string,
+  storeItemId: string
+): Promise<void> {
+  try {
+    await prisma.$transaction((tx) =>
+      recordEtsyListingVariantTopologyDesire(tx, { memberId, storeItemId })
+    );
+  } catch {
+    return;
+  }
+  try {
+    const { drainEtsySyncJobs } = await import("./process-inventory-levels");
+    await drainEtsySyncJobs("shopify-topology");
+  } catch {
+    // Cron still runs the versioned RECONCILE_LISTING.
+  }
+}
 
 /** Clear stale topology conflict once inbound planning no longer conflicts. */
 async function clearResolvedTopologyConflict(listingLinkId: string): Promise<void> {
@@ -1133,6 +1157,7 @@ export async function syncShopifyListingTopology(input: {
         now: input.now,
       });
       if (!pulled.ok) return pulled;
+      await fanOutAdoptedShopifyTopologyToEtsy(input.memberId, input.storeItemId);
       await clearResolvedTopologyConflict(input.listingLinkId);
       return { ok: true, plan: { kind: "NOOP" }, importedStoreVariantIds: [] };
     }
@@ -1204,17 +1229,14 @@ export async function syncShopifyListingTopology(input: {
   // MUTATE — never productSet partial.
   void plan.forbidProductSetPartial;
 
-  // Shopify added an option axis (Color+Size → +Material). Pull that in.
-  // Do not push the old INW option set back out; that call fails and blocks the import.
+  // Axis names are compared after the inbound import so a later outbound pass
+  // can tell "Shopify added an axis" from "INW removed an axis".
   const remoteAxisNames = new Set(
     remoteSnaps.flatMap((row) => [...realAxisNames(row.selectedOptions)])
   );
   const localAxisNames = new Set(
     input.localVariants.flatMap((row) => [...realAxisNames(row.selectedOptions)])
   );
-  const remoteAddedAxis =
-    remoteAxisNames.size > localAxisNames.size &&
-    [...localAxisNames].every((name) => remoteAxisNames.has(name));
 
   // Pull remote option labels onto mapped StoreVariants (inbound).
   // Keep the existing INW quantity. A new Shopify variant is added below with its own quantity.
@@ -1370,27 +1392,26 @@ export async function syncShopifyListingTopology(input: {
     });
   }
 
-  // Shopify added an axis (inbound import). Do not push the old INW option set back.
-  // INW removing an axis looks the same on axis counts but has delete/create work — continue.
-  if (
-    remoteAddedAxis &&
+  // Shopify added a variant, renamed options, or removed a variant, and INW did not
+  // also ask to create or delete. Stop here. Falling through uses the pre-import
+  // option list and would delete the value Shopify just added.
+  const inboundOnly =
     plan.deleteRemoteVariants.length === 0 &&
-    plan.createVariants.length === 0
-  ) {
-    // Rebuild from the remote we just pulled (Material import, etc.).
-    if (
-      plan.renameOptionValues.length > 0 ||
-      plan.importRemoteVariants.length > 0 ||
-      plan.retireMappings.length > 0
-    ) {
-      await rebuildStoreItemVariantsFromRemote({
-        memberId: input.memberId,
-        storeItemId: input.storeItemId,
-        listingLinkId: input.listingLinkId,
-        connectionId: input.connectionId,
-        topology: remoteRead.topology,
-      });
-    }
+    plan.createVariants.length === 0 &&
+    plan.createOptionValues.length === 0;
+  const adoptedFromShopify =
+    plan.importRemoteVariants.length > 0 ||
+    plan.renameOptionValues.length > 0 ||
+    plan.retireMappings.length > 0;
+  if (inboundOnly && adoptedFromShopify) {
+    await rebuildStoreItemVariantsFromRemote({
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+      listingLinkId: input.listingLinkId,
+      connectionId: input.connectionId,
+      topology: remoteRead.topology,
+    });
+    await fanOutAdoptedShopifyTopologyToEtsy(input.memberId, input.storeItemId);
     await clearResolvedTopologyConflict(input.listingLinkId);
     return { ok: true, plan, importedStoreVariantIds };
   }
@@ -1436,14 +1457,19 @@ export async function syncShopifyListingTopology(input: {
 
   // Drop option values the seller removed. MANAGE deletes their Shopify variants too.
   const localValuesByAxis = new Map<string, Set<string>>();
+  const rememberOptionValue = (name: string, value: string) => {
+    const axis = name.trim().toLowerCase();
+    const normalized = value.trim().toLowerCase();
+    if (!axis || axis === "title" || !normalized) return;
+    if (!localValuesByAxis.has(axis)) localValuesByAxis.set(axis, new Set());
+    localValuesByAxis.get(axis)!.add(normalized);
+  };
   for (const row of input.localVariants) {
-    for (const opt of row.selectedOptions) {
-      const axis = opt.name.trim().toLowerCase();
-      const value = opt.value.trim().toLowerCase();
-      if (!axis || axis === "title" || !value) continue;
-      if (!localValuesByAxis.has(axis)) localValuesByAxis.set(axis, new Set());
-      localValuesByAxis.get(axis)!.add(value);
-    }
+    for (const opt of row.selectedOptions) rememberOptionValue(opt.name, opt.value);
+  }
+  // Values just imported from Shopify must survive this outbound delete pass.
+  for (const rem of plan.importRemoteVariants) {
+    for (const opt of rem.selectedOptions) rememberOptionValue(opt.name, opt.value);
   }
   let deletedOptionValues = false;
   for (const option of remoteRead.topology.options) {
@@ -1641,6 +1667,13 @@ export async function syncShopifyListingTopology(input: {
       connectionId: input.connectionId,
       topology: finalRead.topology,
     });
+  }
+
+  // Mixed plan: Shopify structure was adopted and INW also had outbound work.
+  // Etsy still needs the variants Shopify added. INW-only creates already recorded
+  // an Etsy desire from the listing save.
+  if (plan.importRemoteVariants.length > 0 || plan.renameOptionValues.length > 0) {
+    await fanOutAdoptedShopifyTopologyToEtsy(input.memberId, input.storeItemId);
   }
 
   await clearResolvedTopologyConflict(input.listingLinkId);
