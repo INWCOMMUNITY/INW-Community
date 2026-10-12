@@ -109,6 +109,18 @@ export function etsyListingIsPubliclyViewable(remoteListingState?: string | null
   return String(remoteListingState ?? "").trim().toLowerCase() === "active";
 }
 
+/**
+ * My Items "Listed On" Etsy chip — lit when the listing is buyer-live on Etsy.
+ * Sync health ("Needs attention") must not hide that it is listed; Airport shows issues.
+ */
+export function etsyListedOnMyItems(input: {
+  remoteListingState?: string | null;
+  storeItemStatus?: string | null;
+}): boolean {
+  if (input.storeItemStatus === "ended" || input.storeItemStatus === "draft") return false;
+  return etsyListingIsPubliclyViewable(input.remoteListingState);
+}
+
 /** Buyer-facing listing URL, or null when the listing is still draft / not live. */
 export function etsyListingPublicUrl(input: {
   etsyListingId?: string | null;

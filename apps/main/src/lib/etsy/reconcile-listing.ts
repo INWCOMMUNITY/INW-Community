@@ -3,6 +3,7 @@ import {
   ensureEtsyUpdateListingContentJob,
   prisma,
   reconcileEtsyListingHealthFromDb,
+  recordEtsyDirtyMappedVariantContentDesires,
   resolveEtsyHowItsMadeForCreate,
   type EtsyJobHandlerResult,
   type EtsySyncJobClaim,
@@ -135,6 +136,23 @@ export async function handleEtsyReconcileListingJob(
     };
   }
 
+  // Hub auto-heal: when Etsy still shows old price/SKU vs INW, re-desire outbound
+  // instead of leaving the listing stuck on "Needs attention".
+  if (health.issueCode === "CONTENT_OBSERVATION_DIVERGED") {
+    await recordEtsyDirtyMappedVariantContentDesires(prisma, {
+      memberId: connection.memberId,
+      storeItemId: listing.storeItemId,
+    }).catch(() => undefined);
+  }
+
+  const listingNow = await prisma.etsyListingLink.findUniqueOrThrow({
+    where: { id: listing.id },
+    select: {
+      desiredProductContentVersion: true,
+      appliedProductContentVersion: true,
+    },
+  });
+
   const variantMaps = await prisma.etsyVariantMap.findMany({
     where: { etsyListingLinkId: listing.id, etsyConnectionId: claim.etsyConnectionId },
     select: {
@@ -150,14 +168,14 @@ export async function handleEtsyReconcileListingJob(
 
   for (const map of variantMaps) {
     const contentPending =
-      listing.desiredProductContentVersion > listing.appliedProductContentVersion ||
+      listingNow.desiredProductContentVersion > listingNow.appliedProductContentVersion ||
       map.desiredVariantContentVersion > map.appliedVariantContentVersion;
     if (contentPending) {
       await ensureEtsyUpdateListingContentJob(prisma, {
         connectionId: claim.etsyConnectionId,
         storeItemId: listing.storeItemId,
         storeVariantId: map.storeVariantId,
-        productDesiredVersion: listing.desiredProductContentVersion,
+        productDesiredVersion: listingNow.desiredProductContentVersion,
         variantDesiredVersion: map.desiredVariantContentVersion,
       }).catch(() => undefined);
     }

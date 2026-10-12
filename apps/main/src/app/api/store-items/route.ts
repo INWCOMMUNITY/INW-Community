@@ -33,8 +33,8 @@ import {
   getSellerSpotlight,
   getStorefrontBrowseMeta,
 } from "@/lib/storefront-browse-data";
-import { shopifyListingUiStatus } from "@/lib/shopify/apps-airport";
-import { etsyListingUiStatus } from "@/lib/etsy/apps-airport";
+import { shopifyListedOnMyItems } from "@/lib/shopify/apps-airport";
+import { etsyListedOnMyItems } from "@/lib/etsy/apps-airport";
 import { formatCartVariantLabel } from "@/lib/cart-line-identity";
 
 /** Ensure storefront listing is always fresh so newly listed items appear immediately. */
@@ -93,20 +93,13 @@ async function loadMineListingChannels(
       },
       select: {
         storeItemId: true,
-        readiness: true,
-        contentHealth: true,
-        inventoryHealth: true,
         issueCode: true,
       },
     });
     for (const link of shopifyLinks) {
-      const ui = shopifyListingUiStatus({
-        readiness: link.readiness,
-        contentHealth: link.contentHealth,
-        inventoryHealth: link.inventoryHealth,
-        issueCode: link.issueCode,
-      });
-      if (ui !== "Live") continue;
+      // Lit when mapped + still present on Shopify — not only when Sync Airport is "Live".
+      // Needs attention (price drift, pending sync) must not hide Listed On.
+      if (!shopifyListedOnMyItems({ issueCode: link.issueCode })) continue;
       const channels = channelsByItemId.get(link.storeItemId) ?? ["inw"];
       if (!channels.includes("shopify")) channels.push("shopify");
       channelsByItemId.set(link.storeItemId, channels);
@@ -122,26 +115,20 @@ async function loadMineListingChannels(
       },
       select: {
         storeItemId: true,
-        readiness: true,
-        contentHealth: true,
-        inventoryHealth: true,
-        issueCode: true,
         remoteListingState: true,
         storeItem: { select: { status: true } },
       },
     });
     for (const link of etsyLinks) {
-      const ui = etsyListingUiStatus({
-        readiness: link.readiness,
-        contentHealth: link.contentHealth,
-        inventoryHealth: link.inventoryHealth,
-        issueCode: link.issueCode,
-        storeItemStatus: link.storeItem.status,
-        // Required: without remote state, Live Etsy links are misclassified and
-        // the My Items "Listed On" Etsy chip stays dark.
-        remoteListingState: link.remoteListingState,
-      });
-      if (ui !== "Live") continue;
+      // Buyer-live on Etsy → chip on. Sync "Needs attention" is shown on Airport, not here.
+      if (
+        !etsyListedOnMyItems({
+          remoteListingState: link.remoteListingState,
+          storeItemStatus: link.storeItem.status,
+        })
+      ) {
+        continue;
+      }
       const channels = channelsByItemId.get(link.storeItemId) ?? ["inw"];
       if (!channels.includes("etsy")) channels.push("etsy");
       channelsByItemId.set(link.storeItemId, channels);

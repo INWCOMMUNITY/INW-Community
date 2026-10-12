@@ -1,10 +1,17 @@
-import { prisma } from "database";
+import {
+  captureEtsyInventoryProjectionDesire,
+  ensureEtsyReconcileListingJob,
+  etsyProductContentFingerprint,
+  prisma,
+  recordEtsyDirtyMappedVariantContentDesires,
+  recordEtsyListingContentDesire,
+} from "database";
 import { etsyListingIsPubliclyViewable } from "./apps-airport";
 import type { EtsyFetch } from "./client";
 import { etsyConnectionRequest } from "./connection-request";
 import { enqueueEtsyCreateListing, etsyCreateListingDedupeKey } from "./create-listing";
 
-export type EtsyListingAction = "retry" | "remove";
+export type EtsyListingAction = "retry" | "remove" | "reload";
 
 export type EtsyListingActionResult =
   | { ok: true; message?: string }
@@ -24,6 +31,7 @@ async function loadMappedListing(input: {
         storeItemId: string;
         etsyListingId: string;
         remoteListingState: string | null;
+        variantMaps: Array<{ storeVariantId: string }>;
       };
     }
   | { error: string; status: number }
@@ -47,6 +55,7 @@ async function loadMappedListing(input: {
       storeItemId: true,
       etsyListingId: true,
       remoteListingState: true,
+      variantMaps: { select: { storeVariantId: true } },
     },
   });
   if (!listing) {
@@ -146,6 +155,91 @@ async function stopPendingJobsForListing(input: {
   });
 }
 
+/** Mirror Shopify Reload Sync: reconcile + re-project content/qty from current INW. */
+async function reloadEtsyListingSync(input: {
+  memberId: string;
+  connectionId: string;
+  listingLinkId: string;
+  storeItemId: string;
+  variantMaps: Array<{ storeVariantId: string }>;
+}): Promise<EtsyListingActionResult> {
+  await ensureEtsyReconcileListingJob(prisma, {
+    connectionId: input.connectionId,
+    listingLinkId: input.listingLinkId,
+    storeItemId: input.storeItemId,
+    bucket: Date.now(),
+  });
+
+  const [storeItem, listingMeta] = await Promise.all([
+    prisma.storeItem.findFirst({
+      where: { id: input.storeItemId, memberId: input.memberId },
+      select: {
+        title: true,
+        description: true,
+        priceCents: true,
+        sku: true,
+        photos: true,
+      },
+    }),
+    prisma.etsyListingLink.findUnique({
+      where: { id: input.listingLinkId },
+      select: {
+        appliedProductFingerprint: true,
+        lastObservedProductFingerprint: true,
+      },
+    }),
+  ]);
+
+  if (storeItem) {
+    const productFp = etsyProductContentFingerprint({
+      title: storeItem.title,
+      description: storeItem.description,
+      photos: storeItem.photos,
+    });
+    const applied = listingMeta?.appliedProductFingerprint ?? null;
+    const observed = listingMeta?.lastObservedProductFingerprint ?? null;
+    const productNeedsPush =
+      (applied != null && applied !== productFp) ||
+      (observed != null && observed !== productFp);
+    if (productNeedsPush) {
+      // Synthetic before forces product desire bump; price/sku left equal so
+      // multi-variant facade uniform-bump does not run (dirtyMapped handles those).
+      await recordEtsyListingContentDesire(prisma, {
+        memberId: input.memberId,
+        storeItemId: input.storeItemId,
+        before: {
+          title: `${storeItem.title}\u0000`,
+          description: storeItem.description,
+          priceCents: storeItem.priceCents,
+          sku: storeItem.sku,
+          photos: storeItem.photos,
+        },
+        after: {
+          title: storeItem.title,
+          description: storeItem.description,
+          priceCents: storeItem.priceCents,
+          sku: storeItem.sku,
+          photos: storeItem.photos,
+        },
+      });
+    }
+    // Re-pushes price/SKU when lastObserved diverges from INW even if applied matched.
+    await recordEtsyDirtyMappedVariantContentDesires(prisma, {
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+    });
+  }
+
+  for (const map of input.variantMaps) {
+    await captureEtsyInventoryProjectionDesire(prisma, {
+      memberId: input.memberId,
+      storeVariantId: map.storeVariantId,
+    });
+  }
+
+  return { ok: true, message: "Reload queued" };
+}
+
 export async function runEtsyListingAction(input: {
   memberId: string;
   storeItemId: string;
@@ -163,14 +257,26 @@ export async function runEtsyListingAction(input: {
     }
     const { connection, listing } = loaded;
 
+    if (input.action === "reload") {
+      return reloadEtsyListingSync({
+        memberId: input.memberId,
+        connectionId: connection.id,
+        listingLinkId: listing.id,
+        storeItemId: listing.storeItemId,
+        variantMaps: listing.variantMaps,
+      });
+    }
+
     if (input.action === "retry") {
       if (etsyListingIsPubliclyViewable(listing.remoteListingState)) {
-        return {
-          ok: false,
-          status: 409,
-          error: "Listing is already live on Etsy",
-          code: "ALREADY_LIVE",
-        };
+        // Live listings: Reload Sync (same as explicit reload) instead of create retry.
+        return reloadEtsyListingSync({
+          memberId: input.memberId,
+          connectionId: connection.id,
+          listingLinkId: listing.id,
+          storeItemId: listing.storeItemId,
+          variantMaps: listing.variantMaps,
+        });
       }
       const queued = await enqueueEtsyCreateListing({
         memberId: input.memberId,

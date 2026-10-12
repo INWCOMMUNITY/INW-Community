@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { etsyListingUiStatus } from "./apps-airport";
+import { etsyListedOnMyItems, etsyListingUiStatus } from "./apps-airport";
 
 describe("etsyListingUiStatus", () => {
   it("returns Live only when READY_TO_PUBLISH and remote state is active", () => {
@@ -26,5 +26,31 @@ describe("etsyListingUiStatus", () => {
         storeItemStatus: "active",
       })
     ).not.toBe("Live");
+  });
+});
+
+describe("etsyListedOnMyItems", () => {
+  it("lights the chip for buyer-live Etsy even when Sync Airport Needs attention", () => {
+    expect(
+      etsyListedOnMyItems({
+        remoteListingState: "active",
+        storeItemStatus: "active",
+      })
+    ).toBe(true);
+  });
+
+  it("keeps the chip dark for drafts and ended INW items", () => {
+    expect(
+      etsyListedOnMyItems({
+        remoteListingState: "draft",
+        storeItemStatus: "active",
+      })
+    ).toBe(false);
+    expect(
+      etsyListedOnMyItems({
+        remoteListingState: "active",
+        storeItemStatus: "ended",
+      })
+    ).toBe(false);
   });
 });

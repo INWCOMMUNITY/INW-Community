@@ -370,7 +370,12 @@ export async function recordEtsyDirtyMappedVariantContentDesires(
       fingerprint === map.appliedVariantFingerprint &&
       map.desiredVariantContentVersion <= map.appliedVariantContentVersion
     ) {
-      continue;
+      // Applied matches INW, but last observed Etsy fingerprint differs → outbound
+      // marked success while Etsy still has old price/SKU (or observe raced). Re-push.
+      const observed = map.lastObservedVariantFingerprint;
+      if (!observed || observed === fingerprint) {
+        continue;
+      }
     }
 
     const nextVersion = map.desiredVariantContentVersion + 1;

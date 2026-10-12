@@ -149,6 +149,19 @@ export function shopifyReadinessLabel(readiness: string | null | undefined): str
 
 export type ShopifyListingUiStatus = "Live" | "Unpublished" | "Needs attention" | "Syncing";
 
+/**
+ * My Items "Listed On" Shopify chip — lit when a durable mapping exists and the
+ * product is not unpublished / missing. Sync "Needs attention" must not hide it.
+ */
+export function shopifyListedOnMyItems(input: {
+  issueCode?: string | null;
+}): boolean {
+  const code = String(input.issueCode ?? "");
+  if (code === "UNPUBLISHED_ONLINE_STORE" || code === "UNPUBLISH_PARTIAL") return false;
+  if (code === "REMOTE_PRODUCT_MISSING") return false;
+  return true;
+}
+
 /** Seller-facing status for synced listing rows (chips + filters). */
 export function shopifyListingUiStatus(input: {
   readiness?: string | null;

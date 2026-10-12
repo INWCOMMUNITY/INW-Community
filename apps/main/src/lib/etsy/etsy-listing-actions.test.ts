@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("database", () => ({
   prisma: {
     etsyConnection: { findFirst: vi.fn() },
-    etsyListingLink: { findFirst: vi.fn(), delete: vi.fn() },
+    etsyListingLink: { findFirst: vi.fn(), findUnique: vi.fn(), delete: vi.fn() },
     etsyVariantMap: { deleteMany: vi.fn() },
     etsySyncJob: { updateMany: vi.fn() },
+    storeItem: { findFirst: vi.fn() },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn({
         etsyVariantMap: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
@@ -13,6 +14,11 @@ vi.mock("database", () => ({
       })
     ),
   },
+  ensureEtsyReconcileListingJob: vi.fn(),
+  recordEtsyDirtyMappedVariantContentDesires: vi.fn(),
+  recordEtsyListingContentDesire: vi.fn(),
+  captureEtsyInventoryProjectionDesire: vi.fn(),
+  etsyProductContentFingerprint: vi.fn(() => "product-fp"),
 }));
 
 vi.mock("./connection-request", () => ({
@@ -25,7 +31,12 @@ vi.mock("./create-listing", () => ({
   enqueueEtsyCreateListing: vi.fn(),
 }));
 
-import { prisma } from "database";
+import {
+  captureEtsyInventoryProjectionDesire,
+  ensureEtsyReconcileListingJob,
+  prisma,
+  recordEtsyDirtyMappedVariantContentDesires,
+} from "database";
 import { etsyConnectionRequest } from "./connection-request";
 import { enqueueEtsyCreateListing } from "./create-listing";
 import { runEtsyListingAction } from "./listing-actions";
@@ -34,10 +45,15 @@ describe("runEtsyListingAction", () => {
   beforeEach(() => {
     vi.mocked(prisma.etsyConnection.findFirst).mockReset();
     vi.mocked(prisma.etsyListingLink.findFirst).mockReset();
+    vi.mocked(prisma.etsyListingLink.findUnique).mockReset();
+    vi.mocked(prisma.storeItem.findFirst).mockReset();
     vi.mocked(prisma.etsySyncJob.updateMany).mockReset();
     vi.mocked(prisma.$transaction).mockClear();
     vi.mocked(etsyConnectionRequest).mockReset();
     vi.mocked(enqueueEtsyCreateListing).mockReset();
+    vi.mocked(ensureEtsyReconcileListingJob).mockReset();
+    vi.mocked(recordEtsyDirtyMappedVariantContentDesires).mockReset();
+    vi.mocked(captureEtsyInventoryProjectionDesire).mockReset();
 
     vi.mocked(prisma.etsyConnection.findFirst).mockResolvedValue({
       id: "conn-1",
@@ -48,8 +64,28 @@ describe("runEtsyListingAction", () => {
       storeItemId: "item-1",
       etsyListingId: "999",
       remoteListingState: "active",
+      variantMaps: [{ storeVariantId: "sv-1" }],
+    } as never);
+    vi.mocked(prisma.etsyListingLink.findUnique).mockResolvedValue({
+      appliedProductFingerprint: "product-fp",
+      lastObservedProductFingerprint: "product-fp",
+    } as never);
+    vi.mocked(prisma.storeItem.findFirst).mockResolvedValue({
+      title: "Title",
+      description: null,
+      priceCents: 100,
+      sku: null,
+      photos: [],
     } as never);
     vi.mocked(prisma.etsySyncJob.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(ensureEtsyReconcileListingJob).mockResolvedValue({ id: "job-r" } as never);
+    vi.mocked(recordEtsyDirtyMappedVariantContentDesires).mockResolvedValue({
+      status: "RECORDED",
+      dirtyCount: 1,
+    } as never);
+    vi.mocked(captureEtsyInventoryProjectionDesire).mockResolvedValue({
+      status: "RECORDED",
+    } as never);
   });
 
   it("unlinks without remote delete when confirmDelete is false", async () => {
@@ -130,6 +166,7 @@ describe("runEtsyListingAction", () => {
       storeItemId: "item-1",
       etsyListingId: "999",
       remoteListingState: "draft",
+      variantMaps: [{ storeVariantId: "sv-1" }],
     } as never);
     vi.mocked(enqueueEtsyCreateListing).mockResolvedValue({
       status: "QUEUED",
@@ -147,5 +184,35 @@ describe("runEtsyListingAction", () => {
       memberId: "m1",
       storeItemId: "item-1",
     });
+  });
+
+  it("reload queues reconcile and re-projects content/qty for live listings", async () => {
+    const result = await runEtsyListingAction({
+      memberId: "m1",
+      storeItemId: "item-1",
+      action: "reload",
+    });
+    expect(result).toEqual({ ok: true, message: "Reload queued" });
+    expect(ensureEtsyReconcileListingJob).toHaveBeenCalled();
+    expect(recordEtsyDirtyMappedVariantContentDesires).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({ memberId: "m1", storeItemId: "item-1" })
+    );
+    expect(captureEtsyInventoryProjectionDesire).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({ memberId: "m1", storeVariantId: "sv-1" })
+    );
+    expect(enqueueEtsyCreateListing).not.toHaveBeenCalled();
+  });
+
+  it("retry on live listings behaves like reload", async () => {
+    const result = await runEtsyListingAction({
+      memberId: "m1",
+      storeItemId: "item-1",
+      action: "retry",
+    });
+    expect(result).toEqual({ ok: true, message: "Reload queued" });
+    expect(ensureEtsyReconcileListingJob).toHaveBeenCalled();
+    expect(enqueueEtsyCreateListing).not.toHaveBeenCalled();
   });
 });

@@ -34,8 +34,9 @@ export function EtsyListingActionButtons({
   const editHref = `/seller-hub/store/${storeItemId}`;
 
   async function callAction(
-    action: "retry" | "remove",
-    extra?: { confirmDelete?: boolean }
+    action: "retry" | "remove" | "reload",
+    extra?: { confirmDelete?: boolean },
+    successFallback?: string
   ) {
     setBusy(action);
     setError(null);
@@ -58,7 +59,7 @@ export function EtsyListingActionButtons({
         setError(body.error?.trim() || `Action failed (HTTP ${response.status})`);
         return;
       }
-      onActionComplete?.(body.message?.trim() || undefined);
+      onActionComplete?.(body.message?.trim() || successFallback);
     } catch {
       setError("Action failed — network error");
     } finally {
@@ -72,6 +73,13 @@ export function EtsyListingActionButtons({
       id: "edit",
       label: "Edit Listing",
       href: editHref,
+    },
+    {
+      kind: "action",
+      id: "reload",
+      label: "Reload Sync",
+      disabled: busy !== null,
+      onSelect: () => void callAction("reload", undefined, "Reload queued"),
     },
     {
       kind: "action",
