@@ -51,7 +51,14 @@ export async function GET(req: NextRequest) {
       remoteListingState: true,
       updatedAt: true,
       storeItem: {
-        select: { title: true, status: true, priceCents: true, quantity: true, photos: true },
+        select: {
+          title: true,
+          slug: true,
+          status: true,
+          priceCents: true,
+          quantity: true,
+          photos: true,
+        },
       },
     },
   });
@@ -91,6 +98,7 @@ export async function GET(req: NextRequest) {
           select: {
             id: true,
             title: true,
+            slug: true,
             status: true,
             priceCents: true,
             quantity: true,
@@ -105,6 +113,7 @@ export async function GET(req: NextRequest) {
     storeItemId: row.storeItemId,
     etsyListingId: row.etsyListingId,
     title: row.storeItem.title,
+    slug: row.storeItem.slug,
     photos: listingDisplayPhotos(row.storeItem.photos, "thumb", 4),
     storeItemStatus: row.storeItem.status,
     priceCents: row.storeItem.priceCents,
@@ -132,6 +141,7 @@ export async function GET(req: NextRequest) {
         storeItemId,
         etsyListingId: "",
         title: item.title,
+        slug: item.slug,
         photos: listingDisplayPhotos(item.photos, "thumb", 4),
         storeItemStatus: item.status,
         priceCents: item.priceCents,

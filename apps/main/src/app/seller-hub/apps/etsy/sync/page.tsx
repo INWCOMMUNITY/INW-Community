@@ -352,7 +352,11 @@ export default function AppsAirportEtsySyncPage() {
                         <AppsAirportListingPhotoCollage photos={listing.photos} alt={listing.title} />
                         <div>
                           <Link
-                            href={`/seller-hub/store/${listing.storeItemId}`}
+                            href={
+                              listing.slug?.trim()
+                                ? `/storefront/${listing.slug.trim()}?from=etsy-sync`
+                                : `/seller-hub/store/${listing.storeItemId}`
+                            }
                             className="font-medium underline"
                             style={{ color: "var(--color-primary)" }}
                             prefetch={false}

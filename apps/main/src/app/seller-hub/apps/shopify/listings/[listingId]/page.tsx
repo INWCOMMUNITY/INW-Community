@@ -15,6 +15,7 @@ import {
   shopifyListingSellerNote,
   shopifyReadinessLabel,
 } from "@/lib/shopify/apps-airport";
+import { appsAirportInwLiveListingHref } from "@/lib/apps-airport-inw-listing-href";
 
 type ListingDetail = {
   listingLinkId: string;
@@ -127,7 +128,20 @@ export default function AppsAirportShopifyListingDetailPage() {
             <dl className="grid gap-2 text-sm">
               <div>
                 <dt className="text-neutral-500">Title</dt>
-                <dd className="font-medium">{listing.title}</dd>
+                <dd className="font-medium">
+                  <Link
+                    href={appsAirportInwLiveListingHref({
+                      slug: listing.slug,
+                      storeItemId: listing.storeItemId,
+                      from: "shopify-sync",
+                    })}
+                    className="underline"
+                    style={{ color: "var(--color-primary)" }}
+                    prefetch={false}
+                  >
+                    {listing.title}
+                  </Link>
+                </dd>
               </div>
               <div>
                 <dt className="text-neutral-500">SKU</dt>
@@ -267,6 +281,7 @@ export default function AppsAirportShopifyListingDetailPage() {
                   </p>
                   <ShopifyListingActionButtons
                     storeItemId={listing.storeItemId}
+                    slug={listing.slug}
                     shopDomain={shopDomain}
                     shopifyProductId={listing.shopifyProductId}
                     preferStorefront={status === "Live"}

@@ -3,9 +3,9 @@
 import { useState } from "react";
 import {
   APPS_AIRPORT_SHOPIFY_HUB,
-  APPS_AIRPORT_SHOPIFY_LISTINGS_PATH,
   shopifyAdminProductUrl,
 } from "@/lib/shopify/apps-airport";
+import { appsAirportInwLiveListingHref } from "@/lib/apps-airport-inw-listing-href";
 import {
   AppsAirportListingManageMenu,
   type AppsAirportManageMenuItem,
@@ -13,6 +13,8 @@ import {
 
 type Props = {
   storeItemId: string;
+  /** Storefront slug — used for View on INW. */
+  slug?: string | null;
   shopDomain?: string | null;
   shopifyProductId?: string | null;
   /** @deprecated View On Shopify is a dedicated table column; kept for call-site compatibility. */
@@ -22,6 +24,7 @@ type Props = {
 
 export function ShopifyListingActionButtons({
   storeItemId,
+  slug,
   shopDomain,
   shopifyProductId,
   onActionComplete,
@@ -31,7 +34,11 @@ export function ShopifyListingActionButtons({
 
   const adminUrl = shopifyAdminProductUrl(shopDomain, shopifyProductId);
   const editHref = `/seller-hub/store/${storeItemId}`;
-  const viewOnInwHref = `${APPS_AIRPORT_SHOPIFY_LISTINGS_PATH}/${storeItemId}`;
+  const viewOnInwHref = appsAirportInwLiveListingHref({
+    slug,
+    storeItemId,
+    from: "shopify-sync",
+  });
 
   async function callAction(
     action: "retry" | "reconnect" | "unpublish" | "remove",
@@ -79,6 +86,35 @@ export function ShopifyListingActionButtons({
     );
   }
 
+  async function openViewOnShopify() {
+    setBusy("view-shopify");
+    setError(null);
+    try {
+      const response = await fetch(`/api/shopify/listings/${storeItemId}/view-url`, {
+        credentials: "include",
+      });
+      if (response.ok) {
+        const body = (await response.json()) as {
+          primaryUrl?: string | null;
+          storefrontUrl?: string | null;
+          adminUrl?: string | null;
+        };
+        const url = body.primaryUrl || body.storefrontUrl || body.adminUrl || adminUrl;
+        if (url) {
+          window.open(url, "_blank", "noopener,noreferrer");
+          return;
+        }
+      }
+      if (adminUrl) window.open(adminUrl, "_blank", "noopener,noreferrer");
+      else setError("Shopify listing URL unavailable");
+    } catch {
+      if (adminUrl) window.open(adminUrl, "_blank", "noopener,noreferrer");
+      else setError("Shopify listing URL unavailable");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const items: AppsAirportManageMenuItem[] = [
     {
       kind: "link",
@@ -98,6 +134,12 @@ export function ShopifyListingActionButtons({
       id: "view-inw",
       label: "View on INW",
       href: viewOnInwHref,
+    },
+    {
+      kind: "action",
+      id: "view-shopify",
+      label: "View on Shopify",
+      onSelect: () => void openViewOnShopify(),
     },
     {
       kind: "action",
