@@ -235,6 +235,7 @@ async function reloadEtsyListingSync(input: {
     await captureEtsyInventoryProjectionDesire(prisma, {
       memberId: input.memberId,
       storeVariantId: map.storeVariantId,
+      force: true,
     });
   }
 

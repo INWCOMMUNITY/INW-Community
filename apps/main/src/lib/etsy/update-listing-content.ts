@@ -11,6 +11,7 @@ import {
   normalizeEtsyTitle,
   prisma,
   reconcileEtsyListingHealthFromDb,
+  trackedAvailable,
   resolveEtsyHowItsMadeForCreate,
   setEtsyProductContentConflict,
   setEtsyVariantContentConflict,
@@ -112,6 +113,34 @@ type RemoteInventory = {
   quantity_on_property?: number[];
   sku_on_property?: number[];
 };
+
+/** Current INW sellable qty keyed by Etsy product id + offering id. */
+async function loadMappedEtsySellableQty(
+  variantMaps: Array<{ storeVariantId: string; etsyProductId: string; etsyOfferingId: string }>
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (variantMaps.length === 0) return out;
+  const states = await prisma.inventoryState.findMany({
+    where: { variantId: { in: variantMaps.map((row) => row.storeVariantId) } },
+    select: { variantId: true, mode: true, onHand: true, reserved: true },
+  });
+  const byVariant = new Map(states.map((state) => [state.variantId, state]));
+  for (const map of variantMaps) {
+    const state = byVariant.get(map.storeVariantId);
+    if (!state || state.mode !== "TRACKED_FINITE" || state.onHand == null || state.reserved == null) {
+      continue;
+    }
+    try {
+      out.set(
+        `${map.etsyProductId}:${map.etsyOfferingId}`,
+        trackedAvailable(state.onHand, state.reserved)
+      );
+    } catch {
+      // Incomplete foundation state — keep the offering qty from the Etsy GET.
+    }
+  }
+  return out;
+}
 
 /**
  * UPDATE_LISTING_CONTENT handler.
@@ -507,6 +536,12 @@ export async function handleEtsyUpdateListingContentJob(
     const products = inventoryRes.data.products;
     const targetProductId = variantMap.etsyProductId;
     const targetOfferingId = variantMap.etsyOfferingId;
+    const sellableByOffering = await loadMappedEtsySellableQty(variantMaps);
+    const offeringCount = products.reduce((count, product) => count + (product.offerings?.length ?? 0), 0);
+    const soleInwQty =
+      sellableByOffering.size === 1 && offeringCount === 1
+        ? [...sellableByOffering.values()][0]
+        : undefined;
     let matched = false;
     let remotePriceCents = Number.NaN;
     let remoteSku = "";
@@ -524,22 +559,27 @@ export async function handleEtsyUpdateListingContentJob(
           divisor: priceObj?.divisor,
           price: typeof offering.price === "number" || typeof offering.price === "string" ? offering.price : null,
         });
+        const inwQty = sellableByOffering.get(`${productId}:${offeringId}`) ?? soleInwQty;
         if (productId === targetProductId && offeringId === targetOfferingId) {
           matched = true;
           remotePriceCents = cents;
           remoteSku = normalizeEtsySku(product.sku);
           // Etsy inventory PUT expects offering.price as decimal dollars (not money object).
+          // Write current INW qty in the same PUT. Echoing the GET qty lets a price
+          // sync land after PROJECT_INVENTORY and put the old Shopify qty back.
           return {
             ...offering,
             price: Math.max(0.2, storeVariant.priceCents / 100),
+            ...(inwQty != null ? { quantity: inwQty } : {}),
             is_enabled: offering.is_enabled ?? true,
           };
         }
         // Normalize sibling offering prices to dollars so full-replace PUT stays valid.
         const siblingDollars = Number.isFinite(cents) && cents > 0 ? cents / 100 : undefined;
+        const withQty = inwQty != null ? { quantity: inwQty } : {};
         return siblingDollars != null
-          ? { ...offering, price: siblingDollars, is_enabled: offering.is_enabled ?? true }
-          : { ...offering, is_enabled: offering.is_enabled ?? true };
+          ? { ...offering, price: siblingDollars, ...withQty, is_enabled: offering.is_enabled ?? true }
+          : { ...offering, ...withQty, is_enabled: offering.is_enabled ?? true };
       });
       if (productId === targetProductId) {
         return {

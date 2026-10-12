@@ -27,6 +27,27 @@ function createListingDedupeKey(connectionId: string, storeItemId: string): stri
   return `CREATE_LISTING:${connectionId}:${storeItemId}`;
 }
 
+function readEtsyOfferingQuantity(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.trunc(value));
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    return Number.parseInt(value.trim(), 10);
+  }
+  return null;
+}
+
+/** Run queued Shopify jobs now so an Etsy qty edit does not wait on cron. */
+async function drainShopifySyncJobs(workerPrefix: string): Promise<void> {
+  try {
+    const { runNextShopifySyncJob } = await import("../shopify/admin-graphql");
+    for (let i = 0; i < 8; i += 1) {
+      const ran = await runNextShopifySyncJob({ workerId: `${workerPrefix}-${i}` });
+      if (!ran.claimed) break;
+    }
+  } catch {
+    // Cron still picks up PROJECT_INVENTORY if this drain cannot run.
+  }
+}
+
 type RemoteListing = {
   listing_id?: number | string;
   title?: string;
@@ -193,10 +214,7 @@ async function fetchRemoteObservation(input: {
             ? offering.price
             : null,
       });
-      const quantity =
-        typeof offering.quantity === "number" && Number.isFinite(offering.quantity)
-          ? Math.max(0, Math.trunc(offering.quantity))
-          : null;
+      const quantity = readEtsyOfferingQuantity(offering.quantity);
       variants.push({
         etsyProductId: productId,
         etsyOfferingId: offeringId,
@@ -301,7 +319,7 @@ export async function handleEtsyPollListingContentJob(
       continue;
     }
 
-    await prisma.$transaction(async (tx) => {
+    const inventory = await prisma.$transaction(async (tx) => {
       await applyEtsyListingContentInbound(tx, {
         connectionId: connection.id,
         memberId: connection.memberId,
@@ -309,7 +327,7 @@ export async function handleEtsyPollListingContentJob(
         remote: fetched.remote,
         now: deps.now,
       });
-      await applyEtsyListingInventoryInbound(tx, {
+      return applyEtsyListingInventoryInbound(tx, {
         connectionId: connection.id,
         memberId: connection.memberId,
         listingLinkId: link.id,
@@ -321,6 +339,10 @@ export async function handleEtsyPollListingContentJob(
         now: deps.now,
       });
     });
+    // Etsy qty is now INW. Push that qty to Shopify without waiting on cron.
+    if ((inventory?.applied ?? 0) > 0) {
+      await drainShopifySyncJobs("etsy-qty");
+    }
 
     // Refresh Sync Airport health after inbound so completed qty/content sync
     // clears stale INVENTORY_SYNC_PENDING / CONTENT_SYNC_PENDING banners.

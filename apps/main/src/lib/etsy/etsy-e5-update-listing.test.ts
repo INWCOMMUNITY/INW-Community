@@ -11,6 +11,7 @@ vi.mock("database", async () => {
       storeItem: { findFirst: vi.fn(), update: vi.fn() },
       storeVariant: { findFirst: vi.fn(), findUnique: vi.fn() },
       etsySyncJob: { findFirst: vi.fn() },
+      inventoryState: { findMany: vi.fn() },
     },
     markEtsyProductContentApplied: vi.fn(),
     markEtsyVariantContentApplied: vi.fn(),
@@ -73,6 +74,8 @@ describe("etsy UPDATE_LISTING_CONTENT handler", () => {
     vi.mocked(prisma.storeVariant.findFirst).mockReset();
     vi.mocked(prisma.storeVariant.findUnique).mockReset();
     vi.mocked(prisma.etsySyncJob.findFirst).mockReset();
+    vi.mocked(prisma.inventoryState.findMany).mockReset();
+    vi.mocked(prisma.inventoryState.findMany).mockResolvedValue([]);
     vi.mocked(etsyConnectionRequest).mockReset();
     vi.mocked(uploadEtsyListingPhotosFromUrls).mockReset();
     vi.mocked(markEtsyProductContentApplied).mockReset();
@@ -250,6 +253,9 @@ describe("etsy UPDATE_LISTING_CONTENT handler", () => {
       priceCents: 1500,
       sku: "SKU",
     } as never);
+    vi.mocked(prisma.inventoryState.findMany).mockResolvedValue([
+      { variantId: "var-1", mode: "TRACKED_FINITE", onHand: 9, reserved: 0 },
+    ] as never);
 
     vi.mocked(etsyConnectionRequest)
       .mockResolvedValueOnce({
@@ -305,7 +311,11 @@ describe("etsy UPDATE_LISTING_CONTENT handler", () => {
     expect(result).toEqual({ outcome: "SUCCESS" });
     const putCall = vi.mocked(etsyConnectionRequest).mock.calls.find((c) => c[0]?.method === "PUT");
     const body = putCall?.[0]?.body as {
-      products: Array<{ product_id?: number; sku: string; offerings: Array<{ price: number; offering_id?: number }> }>;
+      products: Array<{
+        product_id?: number;
+        sku: string;
+        offerings: Array<{ price: number; quantity?: number; offering_id?: number }>;
+      }>;
       price_on_property: number[];
     };
     expect(body.products).toHaveLength(2);
@@ -313,6 +323,10 @@ describe("etsy UPDATE_LISTING_CONTENT handler", () => {
     expect(body.products.map((product) => product.sku).sort()).toEqual(["OTHER", "SKU"]);
     expect(body.products.every((product) => product.product_id == null)).toBe(true);
     expect(body.products.every((product) => typeof product.offerings[0]?.price === "number")).toBe(true);
+    const skuProduct = body.products.find((product) => product.sku === "SKU");
+    const otherProduct = body.products.find((product) => product.sku === "OTHER");
+    expect(skuProduct?.offerings[0]?.quantity).toBe(9);
+    expect(otherProduct?.offerings[0]?.quantity).toBe(1);
     expect(body.products.every((product) => product.offerings[0]?.offering_id == null)).toBe(true);
     expect(putCall?.[0]?.query).toEqual({ max_variations_supported: 3 });
     expect(markEtsyVariantContentApplied).toHaveBeenCalled();

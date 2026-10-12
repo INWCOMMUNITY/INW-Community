@@ -17,6 +17,36 @@ import {
 } from "./process-inventory-levels";
 import { syncShopifyListingTopology } from "./sync-listing-topology";
 
+function shopifyLocationNumeric(value: string): string {
+  return value.split("/").pop()?.split("?")[0] ?? "";
+}
+
+function nonNegativeInt(value: number | null | undefined): number | null {
+  return Number.isInteger(value) && (value ?? 0) >= 0 ? (value as number) : null;
+}
+
+/** Primary location, then the same numeric id, then the only level, then online qty. */
+function shopifyAvailableForPrimary(
+  levels: Array<{ locationId: string; available: number | null }>,
+  primaryLocationId: string,
+  sellableOnline: number | null
+): number | null {
+  const primaryNumeric = shopifyLocationNumeric(primaryLocationId);
+  const primary = levels.find(
+    (entry) =>
+      entry.locationId === primaryLocationId ||
+      (primaryNumeric.length > 0 && shopifyLocationNumeric(entry.locationId) === primaryNumeric)
+  );
+  const fromPrimary = nonNegativeInt(primary?.available);
+  if (fromPrimary != null) return fromPrimary;
+  const usable = levels
+    .map((entry) => nonNegativeInt(entry.available))
+    .filter((value): value is number => value != null);
+  if (usable.length === 1) return usable[0]!;
+  if (usable.length === 0) return nonNegativeInt(sellableOnline);
+  return null;
+}
+
 function parseProductGidFromEvidenceBody(rawBody: string): string | null {
   try {
     const parsed = JSON.parse(rawBody) as { admin_graphql_api_id?: unknown; id?: unknown };
@@ -57,6 +87,7 @@ export async function readRemoteProductForInbound(input: {
           updatedAt: Date;
           inventoryItemId: string | null;
           availableByLocation: Array<{ locationId: string; available: number | null }>;
+          sellableOnline: number | null;
           mediaIds: string[];
         }>;
         media: Array<{
@@ -89,6 +120,7 @@ export async function readRemoteProductForInbound(input: {
           price: string;
           sku: string | null;
           updatedAt: string;
+          sellableOnlineQuantity?: number | null;
           inventoryItem: {
             id: string;
             inventoryLevels?: {
@@ -126,6 +158,7 @@ export async function readRemoteProductForInbound(input: {
             price
             sku
             updatedAt
+            sellableOnlineQuantity
             inventoryItem {
               id
               inventoryLevels(first: 10) {
@@ -210,6 +243,10 @@ export async function readRemoteProductForInbound(input: {
         locationId: level.location?.id ?? "",
         available: level.quantities?.[0]?.quantity ?? null,
       })),
+      sellableOnline:
+        typeof row.sellableOnlineQuantity === "number" && Number.isInteger(row.sellableOnlineQuantity)
+          ? row.sellableOnlineQuantity
+          : null,
       mediaIds: (row.media?.nodes ?? []).map((m) => m.id).filter(Boolean),
     };
   });
@@ -499,11 +536,12 @@ export async function handleShopifyProcessProviderEvidenceJob(
   if (connection.primaryLocationId && applied.status !== "ERROR") {
     let pushedQty = false;
     for (const row of remote.product.variants) {
-      const level = row.availableByLocation.find(
-        (entry) => entry.locationId === connection.primaryLocationId
+      const available = shopifyAvailableForPrimary(
+        row.availableByLocation,
+        connection.primaryLocationId,
+        row.sellableOnline
       );
-      const available = level?.available;
-      if (!row.inventoryItemId || !Number.isInteger(available) || (available ?? 0) < 0) continue;
+      if (!row.inventoryItemId || available == null) continue;
       const map = variantMaps.find((entry) => entry.shopifyVariantId === row.id);
       const itemNumeric = row.inventoryItemId.split("/").pop()?.split("?")[0] ?? "";
       const pendingOrder = itemNumeric
@@ -533,7 +571,7 @@ export async function handleShopifyProcessProviderEvidenceJob(
         observation: {
           inventoryItemId: row.inventoryItemId,
           locationId: connection.primaryLocationId,
-          available: available as number,
+          available,
           evidenceId: `${evidence.id}:qty:${row.id}:${available}`,
         },
         hasPendingOrderEvidence: Boolean(pendingOrder) || pendingSales > 0,
