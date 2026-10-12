@@ -18,6 +18,14 @@ import {
 } from "./sync-listing-variants";
 import { ETSY_INVENTORY_QUERY, toEtsyInventoryPutBody } from "./listing-variants";
 
+function offeringQuantity(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === "string" && /^-?\d+$/.test(value.trim())) {
+    return Number.parseInt(value.trim(), 10);
+  }
+  return null;
+}
+
 function parsePayload(payload: unknown): {
   storeItemId: string;
   storeVariantId: string;
@@ -228,7 +236,7 @@ export async function handleEtsyProjectInventoryJob(
             : undefined;
       if (productId === variantMap.etsyProductId && offeringId === variantMap.etsyOfferingId) {
         matched = true;
-        remoteQty = typeof offering.quantity === "number" ? offering.quantity : null;
+        remoteQty = offeringQuantity(offering.quantity);
         return {
           ...offering,
           quantity: desiredQty,
@@ -244,6 +252,17 @@ export async function handleEtsyProjectInventoryJob(
     });
     return { ...product, offerings };
   });
+
+  if (!matched && products.length === 1 && (products[0]?.offerings ?? []).length === 1) {
+    // Simple listing: offering ids drift, but there is only one qty to update.
+    const only = products[0]!.offerings![0]!;
+    matched = true;
+    remoteQty = offeringQuantity(only.quantity);
+    nextProducts[0] = {
+      ...products[0]!,
+      offerings: [{ ...only, quantity: desiredQty, is_enabled: only.is_enabled ?? true }],
+    };
+  }
 
   if (!matched) {
     const storeItem = await prisma.storeItem.findFirst({

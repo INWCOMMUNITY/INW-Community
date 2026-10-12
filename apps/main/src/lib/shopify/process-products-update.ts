@@ -1,4 +1,5 @@
 import {
+  applyShopifyInventoryLevelObservation,
   applyShopifyProductsUpdateObservation,
   assertShopifyProductGid,
   markShopifyEvidenceError,
@@ -10,7 +11,10 @@ import type { ShopifyJobHandlerResult, ShopifySyncJobClaim } from "database";
 import type { ShopifyFetch } from "./admin-graphql";
 import { executeShopifyAdminGraphql } from "./admin-graphql";
 import { handleShopifyOrdersPaidEvidence } from "./process-orders-paid";
-import { handleShopifyInventoryLevelsEvidence } from "./process-inventory-levels";
+import {
+  drainEtsySyncJobs,
+  handleShopifyInventoryLevelsEvidence,
+} from "./process-inventory-levels";
 import { syncShopifyListingTopology } from "./sync-listing-topology";
 
 function parseProductGidFromEvidenceBody(rawBody: string): string | null {
@@ -52,6 +56,7 @@ export async function readRemoteProductForInbound(input: {
           sku: string | null;
           updatedAt: Date;
           inventoryItemId: string | null;
+          availableByLocation: Array<{ locationId: string; available: number | null }>;
           mediaIds: string[];
         }>;
         media: Array<{
@@ -84,7 +89,15 @@ export async function readRemoteProductForInbound(input: {
           price: string;
           sku: string | null;
           updatedAt: string;
-          inventoryItem: { id: string } | null;
+          inventoryItem: {
+            id: string;
+            inventoryLevels?: {
+              nodes: Array<{
+                location: { id: string } | null;
+                quantities: Array<{ quantity: number | null }>;
+              }>;
+            } | null;
+          } | null;
           media?: { nodes: Array<{ id: string }> } | null;
         }>;
       };
@@ -113,7 +126,15 @@ export async function readRemoteProductForInbound(input: {
             price
             sku
             updatedAt
-            inventoryItem { id }
+            inventoryItem {
+              id
+              inventoryLevels(first: 10) {
+                nodes {
+                  location { id }
+                  quantities(names: ["available"]) { quantity }
+                }
+              }
+            }
             media(first: 10) { nodes { id } }
           }
         }
@@ -185,6 +206,10 @@ export async function readRemoteProductForInbound(input: {
       sku: row.sku,
       updatedAt: Number.isNaN(variantUpdatedAt.getTime()) ? updatedAt : variantUpdatedAt,
       inventoryItemId: row.inventoryItem?.id ?? null,
+      availableByLocation: (row.inventoryItem?.inventoryLevels?.nodes ?? []).map((level) => ({
+        locationId: level.location?.id ?? "",
+        available: level.quantities?.[0]?.quantity ?? null,
+      })),
       mediaIds: (row.media?.nodes ?? []).map((m) => m.id).filter(Boolean),
     };
   });
@@ -468,5 +493,55 @@ export async function handleShopifyProcessProviderEvidenceJob(
 
   // PROCESSED / IGNORED / ERROR are terminal evidence outcomes for this delivery.
   void applied;
+
+  // Product edits change qty on the variant, not only via inventory_levels/update.
+  // Apply primary-location available into INW (which fans out to Etsy) before we return.
+  if (connection.primaryLocationId && applied.status !== "ERROR") {
+    let pushedQty = false;
+    for (const row of remote.product.variants) {
+      const level = row.availableByLocation.find(
+        (entry) => entry.locationId === connection.primaryLocationId
+      );
+      const available = level?.available;
+      if (!row.inventoryItemId || !Number.isInteger(available) || (available ?? 0) < 0) continue;
+      const map = variantMaps.find((entry) => entry.shopifyVariantId === row.id);
+      const itemNumeric = row.inventoryItemId.split("/").pop()?.split("?")[0] ?? "";
+      const pendingOrder = itemNumeric
+        ? await prisma.shopifyProviderEvidence.findFirst({
+            where: {
+              shopifyConnectionId: connection.id,
+              topic: "orders/paid",
+              processState: "RECEIVED",
+              rawBody: { contains: itemNumeric },
+            },
+            select: { id: true },
+          })
+        : null;
+      const pendingSales = map
+        ? await prisma.shopifyOrderLineSaleFact.count({
+            where: {
+              shopifyConnectionId: connection.id,
+              applyState: "PENDING",
+              storeVariantId: map.storeVariantId,
+            },
+          })
+        : 0;
+      const qtyResult = await applyShopifyInventoryLevelObservation(prisma, {
+        connectionId: connection.id,
+        memberId: connection.memberId,
+        primaryLocationId: connection.primaryLocationId,
+        observation: {
+          inventoryItemId: row.inventoryItemId,
+          locationId: connection.primaryLocationId,
+          available: available as number,
+          evidenceId: `${evidence.id}:qty:${row.id}:${available}`,
+        },
+        hasPendingOrderEvidence: Boolean(pendingOrder) || pendingSales > 0,
+      });
+      if (qtyResult.status === "APPLIED_EDIT") pushedQty = true;
+    }
+    if (pushedQty) await drainEtsySyncJobs("shopify-product-qty");
+  }
+
   return { outcome: "SUCCESS" };
 }

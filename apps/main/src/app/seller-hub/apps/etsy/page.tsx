@@ -17,6 +17,7 @@ import {
   etsyListingStatusChipClass,
   etsyListingUiStatus,
   formatEtsyCents,
+  scheduleEtsyListingsRefresh,
   type EtsyListingUiStatus,
 } from "@/lib/etsy/apps-airport";
 
@@ -258,7 +259,7 @@ export default function AppsAirportEtsyPage() {
                 remoteListingState={row.remoteListingState}
                 onActionComplete={(message) => {
                   setToast(message ?? "Updated");
-                  void load();
+                  scheduleEtsyListingsRefresh(() => void load());
                 }}
               />
             ) : (
@@ -338,7 +339,7 @@ export default function AppsAirportEtsyPage() {
                       remoteListingState={row.remoteListingState}
                       onActionComplete={(message) => {
                         setToast(message ?? "Updated");
-                        void load();
+                        scheduleEtsyListingsRefresh(() => void load());
                       }}
                     />
                   ) : (

@@ -3,6 +3,7 @@ import {
   ensureEtsyReconcileListingJob,
   etsyProductContentFingerprint,
   prisma,
+  reconcileEtsyListingHealthFromDb,
   recordEtsyDirtyMappedVariantContentDesires,
   recordEtsyListingContentDesire,
 } from "database";
@@ -236,6 +237,13 @@ async function reloadEtsyListingSync(input: {
       storeVariantId: map.storeVariantId,
     });
   }
+
+  // Rewrite the stored issue before the response so the page refresh does not
+  // keep the previous "price/SKU does not match" row while the push is queued.
+  await reconcileEtsyListingHealthFromDb(prisma, {
+    connectionId: input.connectionId,
+    listingLinkId: input.listingLinkId,
+  });
 
   return { ok: true, message: "Reload queued" };
 }

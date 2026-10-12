@@ -447,6 +447,10 @@ export async function markEtsyVariantContentApplied(
     data: {
       appliedVariantContentVersion: input.desiredVersion,
       appliedVariantFingerprint: input.fingerprint,
+      // We just wrote this price/SKU to Etsy (or confirmed Etsy already has it).
+      // Health compares lastObserved to INW; leaving the old observation rewrites
+      // "Etsy price/SKU does not match INW" after a successful Reload Sync.
+      lastObservedVariantFingerprint: input.fingerprint,
       variantContentAppliedAt: input.now ?? new Date(),
       variantContentConflict: false,
       variantConflictRemoteFingerprint: null,

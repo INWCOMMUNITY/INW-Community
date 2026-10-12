@@ -10,6 +10,19 @@ import {
 } from "database";
 import type { ShopifyFetch } from "./admin-graphql";
 
+/** Run queued Etsy jobs now so a Shopify qty edit does not wait on cron. */
+export async function drainEtsySyncJobs(workerPrefix: string): Promise<void> {
+  try {
+    const { runNextEtsySyncJob } = await import("../etsy/worker");
+    for (let i = 0; i < 8; i += 1) {
+      const ran = await runNextEtsySyncJob({ workerId: `${workerPrefix}-${i}` });
+      if (!ran.claimed) break;
+    }
+  } catch {
+    // Cron still picks up PROJECT_INVENTORY if this drain cannot run.
+  }
+}
+
 function parseInventoryLevelBody(rawBody: string): {
   inventoryItemId: string;
   locationId: string;
@@ -112,15 +125,42 @@ export async function handleShopifyInventoryLevelsEvidence(
     return { outcome: "SUCCESS" };
   }
 
-  // Pending ORDERS_PAID evidence may still explain the delta — do not invent a manual edit yet.
-  const pendingOrders = await prisma.shopifyProviderEvidence.findFirst({
+  // Only an unfinished order for THIS inventory item should pause the qty edit.
+  // A stuck shop-wide orders/paid used to block every Shopify qty change, so Etsy never got it.
+  const inventoryItemNumeric = parsed.inventoryItemId.split("/").pop()?.split("?")[0] ?? "";
+  const variantMap = await prisma.shopifyVariantMap.findFirst({
     where: {
       shopifyConnectionId: connection.id,
-      topic: "orders/paid",
-      processState: "RECEIVED",
+      shopifyInventoryItemId: parsed.inventoryItemId,
     },
-    select: { id: true },
+    select: { storeVariantId: true, shopifyVariantId: true },
   });
+  const variantNumeric = variantMap?.shopifyVariantId.split("/").pop()?.split("?")[0] ?? "";
+  const needles = [inventoryItemNumeric, variantNumeric].filter((id) => id.length >= 3);
+  const pendingForThisItem =
+    needles.length === 0
+      ? null
+      : await prisma.shopifyProviderEvidence.findFirst({
+          where: {
+            shopifyConnectionId: connection.id,
+            topic: "orders/paid",
+            processState: "RECEIVED",
+            OR: needles.map((id) => ({ rawBody: { contains: id } })),
+          },
+          select: { id: true },
+        });
+  const pendingVariantSales = variantMap
+    ? await prisma.shopifyOrderLineSaleFact.count({
+        where: {
+          shopifyConnectionId: connection.id,
+          applyState: "PENDING",
+          OR: [
+            { storeVariantId: variantMap.storeVariantId },
+            { shopifyVariantId: variantMap.shopifyVariantId },
+          ],
+        },
+      })
+    : 0;
 
   const result = await applyShopifyInventoryLevelObservation(prisma, {
     connectionId: connection.id,
@@ -133,7 +173,7 @@ export async function handleShopifyInventoryLevelsEvidence(
       evidenceId: evidence.id,
       inventoryLevelId: parsed.inventoryLevelId,
     },
-    hasPendingOrderEvidence: Boolean(pendingOrders),
+    hasPendingOrderEvidence: Boolean(pendingForThisItem) || pendingVariantSales > 0,
   });
 
   if (result.status === "IGNORED") {
@@ -149,6 +189,10 @@ export async function handleShopifyInventoryLevelsEvidence(
       errorCode: result.code,
       errorMessage: "Inventory observation waiting for ORDERS_PAID causality",
     };
+  }
+
+  if (result.status === "APPLIED_EDIT") {
+    await drainEtsySyncJobs("shopify-qty");
   }
 
   await prisma.shopifyProviderEvidence.update({

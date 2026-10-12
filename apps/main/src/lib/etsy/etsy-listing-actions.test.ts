@@ -18,6 +18,7 @@ vi.mock("database", () => ({
   recordEtsyDirtyMappedVariantContentDesires: vi.fn(),
   recordEtsyListingContentDesire: vi.fn(),
   captureEtsyInventoryProjectionDesire: vi.fn(),
+  reconcileEtsyListingHealthFromDb: vi.fn(),
   etsyProductContentFingerprint: vi.fn(() => "product-fp"),
 }));
 
@@ -35,6 +36,7 @@ import {
   captureEtsyInventoryProjectionDesire,
   ensureEtsyReconcileListingJob,
   prisma,
+  reconcileEtsyListingHealthFromDb,
   recordEtsyDirtyMappedVariantContentDesires,
 } from "database";
 import { etsyConnectionRequest } from "./connection-request";
@@ -54,6 +56,7 @@ describe("runEtsyListingAction", () => {
     vi.mocked(ensureEtsyReconcileListingJob).mockReset();
     vi.mocked(recordEtsyDirtyMappedVariantContentDesires).mockReset();
     vi.mocked(captureEtsyInventoryProjectionDesire).mockReset();
+    vi.mocked(reconcileEtsyListingHealthFromDb).mockReset();
 
     vi.mocked(prisma.etsyConnection.findFirst).mockResolvedValue({
       id: "conn-1",
@@ -85,6 +88,11 @@ describe("runEtsyListingAction", () => {
     } as never);
     vi.mocked(captureEtsyInventoryProjectionDesire).mockResolvedValue({
       status: "RECORDED",
+    } as never);
+    vi.mocked(reconcileEtsyListingHealthFromDb).mockResolvedValue({
+      readiness: "ACTION_REQUIRED",
+      issueCode: "CONTENT_SYNC_PENDING",
+      issueMessage: "INW changes have not finished syncing to Etsy yet",
     } as never);
   });
 
@@ -201,6 +209,10 @@ describe("runEtsyListingAction", () => {
     expect(captureEtsyInventoryProjectionDesire).toHaveBeenCalledWith(
       prisma,
       expect.objectContaining({ memberId: "m1", storeVariantId: "sv-1" })
+    );
+    expect(reconcileEtsyListingHealthFromDb).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({ connectionId: "conn-1", listingLinkId: "link-1" })
     );
     expect(enqueueEtsyCreateListing).not.toHaveBeenCalled();
   });

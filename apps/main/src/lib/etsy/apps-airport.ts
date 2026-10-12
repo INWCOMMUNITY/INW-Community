@@ -104,6 +104,14 @@ export const APPS_AIRPORT_ETSY_HUB = {
   dashboardUrl: "https://www.etsy.com/your/shops/me/dashboard",
 };
 
+/** Reload the Etsy listings list now and again after the sync worker finishes. */
+export function scheduleEtsyListingsRefresh(load: () => void): void {
+  load();
+  if (typeof window === "undefined") return;
+  window.setTimeout(load, 2500);
+  window.setTimeout(load, 7000);
+}
+
 /** Public buyer URL is only valid for active Etsy listings. */
 export function etsyListingIsPubliclyViewable(remoteListingState?: string | null): boolean {
   return String(remoteListingState ?? "").trim().toLowerCase() === "active";

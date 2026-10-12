@@ -7,6 +7,8 @@ vi.mock("database", async () => {
     prisma: {
       shopifyConnection: { findUnique: vi.fn() },
       shopifyProviderEvidence: { findFirst: vi.fn(), update: vi.fn() },
+      shopifyVariantMap: { findFirst: vi.fn() },
+      shopifyOrderLineSaleFact: { count: vi.fn() },
     },
     applyShopifyInventoryLevelObservation: vi.fn(),
     markShopifyEvidenceIgnored: vi.fn(),
@@ -62,6 +64,10 @@ describe("inventory_levels WAITING_ORDER recovery", () => {
     vi.mocked(prisma.shopifyConnection.findUnique).mockReset();
     vi.mocked(prisma.shopifyProviderEvidence.findFirst).mockReset();
     vi.mocked(prisma.shopifyProviderEvidence.update).mockReset();
+    vi.mocked(prisma.shopifyVariantMap.findFirst).mockReset();
+    vi.mocked(prisma.shopifyOrderLineSaleFact.count).mockReset();
+    vi.mocked(prisma.shopifyVariantMap.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.shopifyOrderLineSaleFact.count).mockResolvedValue(0);
     vi.mocked(applyShopifyInventoryLevelObservation).mockReset();
     vi.mocked(markShopifyEvidenceIgnored).mockReset();
   });

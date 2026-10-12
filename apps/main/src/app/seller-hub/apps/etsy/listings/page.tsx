@@ -9,6 +9,7 @@ import {
   etsyListingPublicUrl,
   etsyListingStatusChipClass,
   etsyListingUiStatus,
+  scheduleEtsyListingsRefresh,
 } from "@/lib/etsy/apps-airport";
 
 type ListingRow = {
@@ -184,7 +185,7 @@ export default function AppsAirportEtsyListingsPage() {
                       remoteListingState={row.remoteListingState}
                       onActionComplete={(message) => {
                         setToast(message ?? "Updated");
-                        void load();
+                        scheduleEtsyListingsRefresh(() => void load());
                       }}
                     />
                   ) : null}
