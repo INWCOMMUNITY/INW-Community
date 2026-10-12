@@ -34,24 +34,36 @@ export function etsyMoneyFromCents(cents: number): { amount: number; divisor: nu
   return { amount: safe, divisor: 100, currency_code: "USD" };
 }
 
+function coerceFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
 export function etsyCentsFromMoney(input: {
-  amount?: number | null;
-  divisor?: number | null;
+  amount?: number | string | null;
+  divisor?: number | string | null;
   price?: number | string | null;
 }): number {
-  if (typeof input.amount === "number" && Number.isFinite(input.amount)) {
-    const divisor =
-      typeof input.divisor === "number" && Number.isFinite(input.divisor) && input.divisor > 0
-        ? input.divisor
-        : 100;
-    return Math.round((input.amount / divisor) * 100);
+  const amount = coerceFiniteNumber(input.amount);
+  if (amount != null) {
+    const divisorRaw = coerceFiniteNumber(input.divisor);
+    const divisor = divisorRaw != null && divisorRaw > 0 ? divisorRaw : 100;
+    return Math.round((amount / divisor) * 100);
   }
-  if (typeof input.price === "number" && Number.isFinite(input.price)) {
-    return Math.round(input.price * 100);
+  const priceNumber = coerceFiniteNumber(input.price);
+  if (priceNumber != null && typeof input.price !== "string") {
+    return Math.round(priceNumber * 100);
   }
   if (typeof input.price === "string") {
     const match = /^(\d+)(?:\.(\d{0,2}))?$/.exec(input.price.trim());
-    if (!match) return Number.NaN;
+    if (!match) {
+      // Fall back to Number() for values like "12.5" / "12.50" already handled; keep NaN otherwise.
+      return priceNumber != null ? Math.round(priceNumber * 100) : Number.NaN;
+    }
     const dollars = Number.parseInt(match[1], 10);
     const cents = Number.parseInt((match[2] || "").padEnd(2, "0").slice(0, 2) || "0", 10);
     return dollars * 100 + cents;

@@ -74,21 +74,19 @@ export async function applyEtsyOfferingInventoryObservation(
     return { status: "ECHO_CONFIRMED" };
   }
 
-  const pendingPaidEvidence = await db.etsyProviderEvidence.count({
-    where: {
-      etsyConnectionId: input.connectionId,
-      processState: "RECEIVED",
-      topic: "order.paid",
-    },
-  });
+  // Only wait on sale facts that can explain THIS variant/item. A stuck shop-wide
+  // RECEIVED order.paid used to block every offering qty pull (Etsy edits never landed).
   const pendingVariantSales = await db.etsyOrderLineSaleFact.count({
     where: {
       etsyConnectionId: input.connectionId,
       applyState: "PENDING",
-      storeVariantId: variantMap.storeVariantId,
+      OR: [
+        { storeVariantId: variantMap.storeVariantId },
+        { storeItemId: variantMap.storeItemId, storeVariantId: null },
+      ],
     },
   });
-  if (pendingPaidEvidence > 0 || pendingVariantSales > 0 || input.hasPendingOrderEvidence) {
+  if (pendingVariantSales > 0 || input.hasPendingOrderEvidence) {
     return { status: "WAITING_ORDER", code: "WAITING_ORDER_CAUSALITY" };
   }
 

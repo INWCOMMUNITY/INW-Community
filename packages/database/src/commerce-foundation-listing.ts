@@ -544,10 +544,6 @@ export async function applyFoundationSellerMatrixStructure(
         "Matrix variant is missing option values"
       );
     }
-    const priceCents =
-      Number.isFinite(target.priceCents) && target.priceCents > 0
-        ? Math.round(target.priceCents)
-        : 1;
     const sku = target.sku?.trim() || null;
     const onHand = Math.max(0, Math.trunc(target.targetOnHand));
     const valueKey = optionValuesKeyOf(opts);
@@ -558,6 +554,15 @@ export async function applyFoundationSellerMatrixStructure(
       const byValue = byValues.get(valueKey);
       if (byValue && !claimedIds.has(byValue.id)) row = byValue;
     }
+
+    // Prefer explicit target price; if missing/invalid keep the matched row's price
+    // (Etsy topology pulls used to fall through to 1¢ and wipe real variant prices).
+    const priceCents =
+      Number.isFinite(target.priceCents) && target.priceCents > 0
+        ? Math.round(target.priceCents)
+        : row && row.priceCents > 0
+          ? row.priceCents
+          : 1;
 
     if (!row) {
       sortOrder += 1;

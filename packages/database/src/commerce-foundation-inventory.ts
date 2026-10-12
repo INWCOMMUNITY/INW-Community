@@ -1051,14 +1051,20 @@ export async function applyTrackedMarketplaceQuantityEdit(
     await bumpVersionAndWrite(tx, state, { onHand: args.targetOnHand, reserved: state.reserved });
     await projectStoreItemQuantity(tx, state.storeItemId);
     await maybeMarkSoldOutIfPhysicallyGone(tx, state.storeItemId);
-    await captureShopifyInventoryProjectionDesireAfterChange(tx, {
-      memberId: state.memberId,
-      storeVariantId: state.variantId,
-    });
-    await captureEtsyInventoryProjectionDesireAfterChange(tx, {
-      memberId: state.memberId,
-      storeVariantId: state.variantId,
-    });
+    // Hub fan-out: never push the qty edit back to the marketplace that sourced it.
+    // Etsy inbound → Shopify only; Shopify inbound → Etsy only; INW seller edit → both.
+    if (sourceSystem !== ETSY_SOURCE_SYSTEM) {
+      await captureEtsyInventoryProjectionDesireAfterChange(tx, {
+        memberId: state.memberId,
+        storeVariantId: state.variantId,
+      });
+    }
+    if (sourceSystem !== SHOPIFY_SOURCE_SYSTEM) {
+      await captureShopifyInventoryProjectionDesireAfterChange(tx, {
+        memberId: state.memberId,
+        storeVariantId: state.variantId,
+      });
+    }
   }
   return {
     status: "APPLIED",

@@ -184,14 +184,19 @@ export async function rematchEtsyVariantMapsByOptions(input: {
 
 function offeringPriceCents(price: unknown): number {
   if (price && typeof price === "object") {
-    const row = price as { amount?: number; divisor?: number };
+    const row = price as { amount?: number | string; divisor?: number | string };
     const cents = etsyCentsFromMoney({ amount: row.amount, divisor: row.divisor });
     if (Number.isFinite(cents) && cents > 0) return Math.round(cents);
   }
   if (typeof price === "number" && Number.isFinite(price) && price > 0) {
     return Math.max(1, Math.round(price * 100));
   }
-  return 1;
+  if (typeof price === "string") {
+    const cents = etsyCentsFromMoney({ price });
+    if (Number.isFinite(cents) && cents > 0) return Math.round(cents);
+  }
+  // 0 = unknown; matrix apply keeps the existing StoreVariant price instead of $0.01.
+  return 0;
 }
 
 /**

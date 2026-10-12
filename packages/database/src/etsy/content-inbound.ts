@@ -1,5 +1,8 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
-import { classifyEtsyContentSemantics } from "./content-semantic";
+import {
+  classifyEtsyContentSemantics,
+  resolveEtsyContentClassWithLww,
+} from "./content-semantic";
 import {
   etsyProductContentFingerprint,
   etsyVariantContentFingerprint,
@@ -8,7 +11,10 @@ import {
   normalizeEtsyTitle,
 } from "./content-fingerprint";
 import { ensureEtsyUpdateListingContentJob } from "./content-desire";
-import { recordShopifyListingContentDesire } from "../shopify/content-desire";
+import {
+  recordShopifyDirtyMappedVariantContentDesires,
+  recordShopifyListingContentDesire,
+} from "../shopify/content-desire";
 import { optionFingerprint } from "../foundation/backfill/analyze";
 import { projectStoreItemQuantity } from "../commerce-foundation-inventory";
 import {
@@ -260,22 +266,29 @@ export async function applyEtsyListingContentInbound(
     description: input.remote.description,
     photos: remotePhotos,
   });
-  // When desire is ahead of applied, LWW uses desire fingerprint. When synced, classify
-  // against canonical StoreItem so a stale desire fingerprint cannot mask Etsy edits.
+  // When desire is ahead of applied, classify against desire fingerprint. CONFLICT is
+  // broken by most-recent-edit LWW (remote.updatedAt vs productDesiredAt).
   const desireAhead =
     listing.desiredProductContentVersion > listing.appliedProductContentVersion;
   const desiredProductFp = desireAhead
     ? (listing.desiredProductFingerprint ?? localProductFp)
     : localProductFp;
-  const productClass = classifyEtsyContentSemantics({
-    base: listing.appliedProductFingerprint,
-    local: desiredProductFp,
-    remote: remoteProductFp,
-    hasLocalSemanticEdit: desireAhead,
-  });
+  const productClass = resolveEtsyContentClassWithLww(
+    classifyEtsyContentSemantics({
+      base: listing.appliedProductFingerprint,
+      local: desiredProductFp,
+      remote: remoteProductFp,
+      hasLocalSemanticEdit: desireAhead,
+    }),
+    {
+      remoteUpdatedAt: input.remote.updatedAt,
+      localDesiredAt: desireAhead ? listing.productDesiredAt : null,
+      now,
+    }
+  );
 
   const variantClasses: string[] = [];
-  let anyConflict = productClass === "CONFLICT";
+  let anyConflict = false;
   let appliedRemoteProduct = false;
   let appliedRemoteVariant = false;
 
@@ -347,17 +360,6 @@ export async function applyEtsyListingContentInbound(
         productConflictDetectedAt: null,
       },
     });
-  } else if (productClass === "CONFLICT") {
-    await db.etsyListingLink.update({
-      where: { id: listing.id },
-      data: {
-        lastObservedProductFingerprint: remoteProductFp,
-        lastObservedProductUpdatedAt: now,
-        productContentConflict: true,
-        productConflictRemoteFingerprint: remoteProductFp,
-        productConflictDetectedAt: now,
-      },
-    });
   } else if (productClass === "LOCAL_ONLY") {
     // INW title/desc ahead of Etsy — keep observing and re-queue outbound so cron pushes.
     await db.etsyListingLink.update({
@@ -411,8 +413,15 @@ export async function applyEtsyListingContentInbound(
       priceCents: storeVariant.priceCents,
       sku: storeVariant.sku,
     });
+    // Invalid/zero remote prices (bad money parse) must not win over StoreVariant or
+    // poison applied fingerprints — that blocked later Etsy→INW variant price pulls.
+    const remotePriceValid =
+      Number.isFinite(remoteVariant.priceCents) && remoteVariant.priceCents > 0;
+    const remotePriceForFp = remotePriceValid
+      ? Math.round(remoteVariant.priceCents)
+      : storeVariant.priceCents;
     const remoteVariantFp = etsyVariantContentFingerprint({
-      priceCents: remoteVariant.priceCents,
+      priceCents: remotePriceForFp,
       sku: remoteVariant.sku,
     });
     const variantDesireAhead =
@@ -420,20 +429,30 @@ export async function applyEtsyListingContentInbound(
     const desiredVariantFp = variantDesireAhead
       ? (map.desiredVariantFingerprint ?? localVariantFp)
       : localVariantFp;
-    const variantClass = classifyEtsyContentSemantics({
-      base: map.appliedVariantFingerprint,
-      local: desiredVariantFp,
-      remote: remoteVariantFp,
-      hasLocalSemanticEdit: variantDesireAhead,
-    });
+    const variantClass = resolveEtsyContentClassWithLww(
+      classifyEtsyContentSemantics({
+        base: map.appliedVariantFingerprint,
+        local: desiredVariantFp,
+        remote: remoteVariantFp,
+        hasLocalSemanticEdit: variantDesireAhead,
+      }),
+      {
+        remoteUpdatedAt: input.remote.updatedAt,
+        localDesiredAt: variantDesireAhead ? map.variantDesiredAt : null,
+        now,
+      }
+    );
     variantClasses.push(variantClass);
-    if (variantClass === "CONFLICT") anyConflict = true;
 
-    if (variantClass === "REMOTE_ONLY") {
-      const nextPrice =
-        Number.isFinite(remoteVariant.priceCents) && remoteVariant.priceCents > 0
-          ? Math.round(remoteVariant.priceCents)
-          : storeVariant.priceCents;
+    // Pull when remote won LWW, or desire fp already matched remote but the row lags.
+    const pullRemoteVariant =
+      variantClass === "REMOTE_ONLY" ||
+      (variantClass === "CONVERGED" && localVariantFp !== remoteVariantFp);
+
+    if (pullRemoteVariant) {
+      const nextPrice = remotePriceValid
+        ? Math.round(remoteVariant.priceCents)
+        : storeVariant.priceCents;
       const remoteOptions =
         remoteVariant.options && Object.keys(remoteVariant.options).length > 0
           ? remoteVariant.options
@@ -449,21 +468,6 @@ export async function applyEtsyListingContentInbound(
           priceCents: nextPrice,
           sku: remoteVariant.sku,
           ...(optionsChanged ? { options: remoteOptions } : {}),
-        },
-      });
-      appliedRemoteVariant = true;
-    } else if (variantClass === "CONVERGED" && localVariantFp !== remoteVariantFp) {
-      // Desire fingerprint matched remote but StoreVariant row still differs (facade desire
-      // bump without row write). Never advance applied without making canonical match remote.
-      const nextPrice =
-        Number.isFinite(remoteVariant.priceCents) && remoteVariant.priceCents > 0
-          ? Math.round(remoteVariant.priceCents)
-          : storeVariant.priceCents;
-      await db.storeVariant.update({
-        where: { id: storeVariant.id },
-        data: {
-          priceCents: nextPrice,
-          sku: remoteVariant.sku,
         },
       });
       appliedRemoteVariant = true;
@@ -504,17 +508,6 @@ export async function applyEtsyListingContentInbound(
           variantConflictRemoteFingerprint: null,
           variantConflictEvidenceId: null,
           variantConflictDetectedAt: null,
-        },
-      });
-    } else if (variantClass === "CONFLICT") {
-      await db.etsyVariantMap.update({
-        where: { id: map.id },
-        data: {
-          lastObservedVariantFingerprint: remoteVariantFp,
-          lastObservedVariantUpdatedAt: now,
-          variantContentConflict: true,
-          variantConflictRemoteFingerprint: remoteVariantFp,
-          variantConflictDetectedAt: now,
         },
       });
     } else if (variantClass === "LOCAL_ONLY") {
@@ -589,6 +582,9 @@ export async function applyEtsyListingContentInbound(
   // so optioned foundation rows never leave a stale simple facade after price-only inbound.
   await projectStoreItemQuantity(db, storeItem.id);
 
+  // Hub model: Etsy never writes Shopify. Applying into INW is the same as a seller
+  // edit on INW — record Shopify desires so INW outbound updates the Shopify listing.
+  // Never record Etsy content desire here (would loop).
   let shopifyDesireRecorded = false;
   if (appliedRemoteProduct || appliedRemoteVariant) {
     const updated = await db.storeItem.findUniqueOrThrow({ where: { id: storeItem.id } });
@@ -604,7 +600,12 @@ export async function applyEtsyListingContentInbound(
         photos: updated.photos,
       },
     });
-    shopifyDesireRecorded = shopify.status === "RECORDED";
+    const dirtyVariants = await recordShopifyDirtyMappedVariantContentDesires(db, {
+      memberId: input.memberId,
+      storeItemId: storeItem.id,
+    });
+    shopifyDesireRecorded =
+      shopify.status === "RECORDED" || dirtyVariants.status === "RECORDED";
   }
 
   if (anyConflict) {

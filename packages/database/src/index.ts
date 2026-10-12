@@ -485,7 +485,11 @@ export type {
   EtsyListingContentSnapshot,
   RecordEtsyListingContentDesireResult,
 } from "./etsy/content-desire";
-export { classifyEtsyContentSemantics } from "./etsy/content-semantic";
+export {
+  classifyEtsyContentSemantics,
+  etsyRemoteWinsLastWrite,
+  resolveEtsyContentClassWithLww,
+} from "./etsy/content-semantic";
 export type {
   ClassifyEtsyContentSemanticsInput,
   EtsyContentSemanticClass,
