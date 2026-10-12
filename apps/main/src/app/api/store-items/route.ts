@@ -126,6 +126,7 @@ async function loadMineListingChannels(
         contentHealth: true,
         inventoryHealth: true,
         issueCode: true,
+        remoteListingState: true,
         storeItem: { select: { status: true } },
       },
     });
@@ -136,6 +137,9 @@ async function loadMineListingChannels(
         inventoryHealth: link.inventoryHealth,
         issueCode: link.issueCode,
         storeItemStatus: link.storeItem.status,
+        // Required: without remote state, Live Etsy links are misclassified and
+        // the My Items "Listed On" Etsy chip stays dark.
+        remoteListingState: link.remoteListingState,
       });
       if (ui !== "Live") continue;
       const channels = channelsByItemId.get(link.storeItemId) ?? ["inw"];
