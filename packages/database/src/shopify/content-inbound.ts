@@ -201,6 +201,16 @@ export async function applyShopifyProductsUpdateObservation(
       };
     }
 
+    // Snapshot before any REMOTE_ONLY / MEDIA_PULL writes — hub fan-out to Etsy
+    // mirrors a seller edit on INW (title/description/price/sku/photos).
+    const contentBefore = {
+      title: storeItem.title,
+      description: storeItem.description,
+      priceCents: storeItem.priceCents,
+      sku: storeItem.sku,
+      photos: storeItem.photos,
+    };
+
     const evidenceRow = await tx.shopifyProviderEvidence.findUnique({
       where: { id: input.evidenceId },
       select: { triggeredAt: true },
@@ -314,6 +324,70 @@ export async function applyShopifyProductsUpdateObservation(
     const mediaParts = [mediaAction, variantMediaAction].filter(
       (part) => part !== "MEDIA_SKIPPED" && part !== "VARIANT_MEDIA_SKIPPED"
     );
+
+    // Hub model: Shopify never writes Etsy. Applying into INW is the same as a seller
+    // edit on INW — record Etsy desires so INW outbound updates the Etsy listing.
+    // Never record Shopify content desire here (would loop). Qty already fans out via
+    // commerce-foundation inventory MQE (Shopify source → Etsy only).
+    //
+    // Heal StoreItem facade price to min(active variant prices) before desire capture —
+    // field-level PRICE pulls briefly overwrite the facade with each variant's remote
+    // price; without this, multi-variant listing desires can uniform-bump siblings.
+    const activeVariants = await tx.storeVariant.findMany({
+      where: {
+        storeItemId: storeItem.id,
+        memberId: listing.memberId,
+        status: "ACTIVE",
+      },
+      select: { priceCents: true, sku: true },
+      orderBy: { createdAt: "asc" },
+    });
+    const positivePrices = activeVariants
+      .map((row) => row.priceCents)
+      .filter((p) => Number.isFinite(p) && p > 0)
+      .map((p) => Math.trunc(p));
+    if (positivePrices.length > 0) {
+      const facadePrice = Math.min(...positivePrices);
+      const skuPatch =
+        activeVariants.length === 1 ? { sku: activeVariants[0]!.sku } : {};
+      const itemNow = await tx.storeItem.findUniqueOrThrow({ where: { id: storeItem.id } });
+      if (
+        itemNow.priceCents !== facadePrice ||
+        (activeVariants.length === 1 && itemNow.sku !== activeVariants[0]!.sku)
+      ) {
+        await tx.storeItem.update({
+          where: { id: storeItem.id },
+          data: { priceCents: facadePrice, ...skuPatch },
+        });
+      }
+    }
+
+    const updated = await tx.storeItem.findUniqueOrThrow({ where: { id: storeItem.id } });
+    const {
+      recordEtsyListingContentDesire,
+      recordEtsyDirtyMappedVariantContentDesires,
+    } = await import("../etsy/content-desire");
+    // Multi-variant: listing desire carries title/description/photos only; per-variant
+    // PRICE/SKU fan-out is recordEtsyDirtyMappedVariantContentDesires (avoids facade
+    // uniform-bump). Single-variant: listing desire carries price/sku too.
+    const multiVariant = activeVariants.length > 1;
+    await recordEtsyListingContentDesire(tx, {
+      memberId: listing.memberId,
+      storeItemId: storeItem.id,
+      before: contentBefore,
+      after: {
+        title: updated.title,
+        description: updated.description,
+        priceCents: multiVariant ? contentBefore.priceCents : updated.priceCents,
+        sku: multiVariant ? contentBefore.sku : updated.sku,
+        photos: updated.photos,
+      },
+    });
+    await recordEtsyDirtyMappedVariantContentDesires(tx, {
+      memberId: listing.memberId,
+      storeItemId: storeItem.id,
+    });
+
     await markEvidence(tx, input.evidenceId, "PROCESSED");
     return {
       status: "PROCESSED" as const,
