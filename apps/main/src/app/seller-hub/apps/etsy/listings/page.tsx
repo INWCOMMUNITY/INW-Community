@@ -11,12 +11,14 @@ import {
   etsyListingUiStatus,
   scheduleEtsyListingsRefresh,
 } from "@/lib/etsy/apps-airport";
+import { appsAirportInwLiveListingHref } from "@/lib/apps-airport-inw-listing-href";
 
 type ListingRow = {
   id: string;
   storeItemId: string;
   etsyListingId: string;
   title: string;
+  slug?: string | null;
   readiness: string;
   contentHealth: string;
   inventoryHealth: string;
@@ -136,7 +138,11 @@ export default function AppsAirportEtsyListingsPage() {
               <li key={row.id} className="border-b border-neutral-200 pb-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <Link
-                    href={`/seller-hub/store/${row.storeItemId}`}
+                    href={appsAirportInwLiveListingHref({
+                      slug: row.slug,
+                      storeItemId: row.storeItemId,
+                      from: "etsy-sync",
+                    })}
                     className="text-sm font-medium underline"
                     style={{ color: "var(--color-primary)" }}
                     prefetch={false}
@@ -181,6 +187,7 @@ export default function AppsAirportEtsyListingsPage() {
                   {row.etsyListingId ? (
                     <EtsyListingActionButtons
                       storeItemId={row.storeItemId}
+                      slug={row.slug}
                       etsyListingId={row.etsyListingId}
                       remoteListingState={row.remoteListingState}
                       onActionComplete={(message) => {

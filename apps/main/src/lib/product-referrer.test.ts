@@ -19,4 +19,15 @@ describe("buildBackLink", () => {
       label: "Back to Order",
     });
   });
+
+  it("sends Sync Airport traffic back to the channel hub", () => {
+    expect(buildBackLink({ type: "shopify-sync" })).toEqual({
+      href: "/seller-hub/apps/shopify",
+      label: "Back to Shopify",
+    });
+    expect(buildBackLink({ type: "etsy-sync" })).toEqual({
+      href: "/seller-hub/apps/etsy",
+      label: "Back to Etsy",
+    });
+  });
 });

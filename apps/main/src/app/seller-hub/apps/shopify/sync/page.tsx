@@ -478,7 +478,11 @@ export default function AppsAirportShopifySyncPage() {
                           />
                           <div>
                             <Link
-                              href={`/seller-hub/store/${listing.storeItemId}`}
+                              href={
+                                listing.slug?.trim()
+                                  ? `/storefront/${listing.slug.trim()}?from=shopify-sync`
+                                  : `/seller-hub/store/${listing.storeItemId}`
+                              }
                               className="font-medium underline"
                               style={{ color: "var(--color-primary)" }}
                               prefetch={false}
