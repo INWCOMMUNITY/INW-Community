@@ -38,6 +38,13 @@ type ProfileNode = {
   } | null> | null;
 };
 
+type DeliveryProfilesQueryData = {
+  deliveryProfiles: {
+    nodes: ProfileNode[];
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+  };
+};
+
 const DELIVERY_PROFILES_QUERY = `#graphql
 query DeliveryProfilesForImport($cursor: String) {
   deliveryProfiles(first: 25, after: $cursor) {
@@ -188,12 +195,7 @@ export async function fetchShopifyRemoteShippingProfiles(
     const nodes: ProfileNode[] = [];
     let cursor: string | null = null;
     for (let page = 0; page < 5; page += 1) {
-      const data = await shopifyGraphql<{
-        deliveryProfiles: {
-          nodes: ProfileNode[];
-          pageInfo: { hasNextPage: boolean; endCursor: string | null };
-        };
-      }>({
+      const data: DeliveryProfilesQueryData = await shopifyGraphql<DeliveryProfilesQueryData>({
         shopDomain: connection.shopDomain,
         accessToken,
         query: DELIVERY_PROFILES_QUERY,
@@ -201,7 +203,8 @@ export async function fetchShopifyRemoteShippingProfiles(
       });
       nodes.push(...(data.deliveryProfiles?.nodes ?? []));
       if (!data.deliveryProfiles?.pageInfo?.hasNextPage) break;
-      cursor = data.deliveryProfiles.pageInfo.endCursor;
+      const nextCursor: string | null = data.deliveryProfiles.pageInfo.endCursor ?? null;
+      cursor = nextCursor;
       if (!cursor) break;
     }
     return { profiles: mapShopifyDeliveryProfilesToRemote(nodes) };
