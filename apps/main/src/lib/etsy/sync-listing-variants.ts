@@ -8,8 +8,10 @@ import {
   captureEtsyInventoryProjectionDesire,
   etsyCentsFromMoney,
   prisma,
+  recordEtsyListingVariantTopologyDesire,
   recordShopifyListingVariantTopologyDesire,
   replaceEtsyListingVariantMaps,
+  STALE_MARKETPLACE_QTY_REVERT_MS,
   type EtsyJobHandlerResult,
 } from "database";
 import { optionValuesKey, skuSelectionKey } from "@/lib/listing-variant-matrix";
@@ -221,6 +223,34 @@ export async function etsySellerTopologyPushPending(listingLinkId: string): Prom
 }
 
 /**
+ * Etsy still showing the pre-change matrix must not retire a variant INW just added
+ * (Shopify add, then an Etsy poll of the old listing). Push INW out instead.
+ */
+async function remoteStructureWouldDropRecentInwVariant(input: {
+  storeItemId: string;
+  memberId: string;
+  optioned: Array<{ options: Record<string, string> }>;
+}): Promise<boolean> {
+  const cutoff = Date.now() - STALE_MARKETPLACE_QTY_REVERT_MS;
+  const active = await prisma.storeVariant.findMany({
+    where: { storeItemId: input.storeItemId, memberId: input.memberId, status: "ACTIVE" },
+    select: { options: true, createdAt: true },
+  });
+  const recentOptionKeys = active
+    .filter((row) => {
+      const createdMs = row.createdAt instanceof Date ? row.createdAt.getTime() : NaN;
+      return Number.isFinite(createdMs) && createdMs >= cutoff;
+    })
+    .map((row) => parseStoreVariantOptions(row.options))
+    .filter((opts): opts is Record<string, string> => Boolean(opts && Object.keys(opts).length > 0))
+    .map((opts) => skuSelectionKey(opts));
+  if (recentOptionKeys.length < 1) return false;
+  if (input.optioned.length === 0) return true;
+  const remoteKeys = new Set(input.optioned.map((row) => skuSelectionKey(row.options)));
+  return recentOptionKeys.some((key) => !remoteKeys.has(key));
+}
+
+/**
  * Etsy structure landed in INW. Push that matrix to Shopify only.
  * Do not record an Etsy topology desire — that would push the change back to its source.
  */
@@ -273,6 +303,24 @@ async function pullRemoteTopologyIntoFoundation(input: {
       };
     })
     .filter((row) => Object.keys(row.options).length > 0);
+
+  if (
+    await remoteStructureWouldDropRecentInwVariant({
+      storeItemId: input.storeItemId,
+      memberId: input.memberId,
+      optioned: optioned.map((row) => ({ options: row.options })),
+    })
+  ) {
+    try {
+      await recordEtsyListingVariantTopologyDesire(prisma, {
+        memberId: input.memberId,
+        storeItemId: input.storeItemId,
+      });
+    } catch {
+      // The next Reload Sync or cron pass can still push the INW matrix.
+    }
+    return { status: "NOOP", reason: "STALE_REMOTE_STRUCTURE" };
+  }
 
   try {
     if (optioned.length === 0) {

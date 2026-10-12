@@ -9,6 +9,7 @@ import {
   projectStoreItemQuantity,
   recordEtsyListingVariantTopologyDesire,
   shopifyCentsFromMoneyString,
+  STALE_MARKETPLACE_QTY_REVERT_MS,
   shopifySelectedOptionsToInwOptions,
   shopifyTopologyToInwMatrix,
   type ShopifyTopologyDiffPlan,
@@ -48,6 +49,84 @@ async function fanOutAdoptedShopifyTopologyToEtsy(
   } catch {
     // Cron still runs the versioned RECONCILE_LISTING.
   }
+}
+
+function optionRecord(raw: unknown): Record<string, string> {
+  if (typeof raw === "string") {
+    try {
+      return optionRecord(JSON.parse(raw));
+    } catch {
+      return {};
+    }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+    const axis = name.trim();
+    const optionValue = value == null ? "" : String(value).trim();
+    if (!axis || !optionValue) continue;
+    out[axis] = optionValue;
+  }
+  return out;
+}
+
+/**
+ * A marketplace read that is missing a variant INW just created is the old structure.
+ * Keep that variant. Deleting it here is what snapped Wool off the listing.
+ */
+async function restoreRecentlyCreatedVariants(input: {
+  memberId: string;
+  storeItemId: string;
+  localVariants: ShopifyTopologyLocalVariant[];
+  removedVariants: Array<{ storeVariantId: string; shopifyVariantId: string }>;
+}): Promise<{
+  localVariants: ShopifyTopologyLocalVariant[];
+  removedVariants: Array<{ storeVariantId: string; shopifyVariantId: string }>;
+  restored: boolean;
+}> {
+  if (input.removedVariants.length < 1) {
+    return { ...input, restored: false };
+  }
+  const cutoff = new Date(Date.now() - STALE_MARKETPLACE_QTY_REVERT_MS);
+  const recent = await prisma.storeVariant.findMany({
+    where: {
+      id: { in: input.removedVariants.map((row) => row.storeVariantId) },
+      memberId: input.memberId,
+      storeItemId: input.storeItemId,
+      createdAt: { gte: cutoff },
+    },
+    select: { id: true, options: true, priceCents: true, sku: true },
+  });
+  if (recent.length < 1) return { ...input, restored: false };
+  const recentIds = new Set(recent.map((row) => row.id));
+  await prisma.storeVariant.updateMany({
+    where: { id: { in: [...recentIds] }, status: "RETIRED" },
+    data: { status: "ACTIVE", retiredAt: null },
+  });
+  const byId = new Map(recent.map((row) => [row.id, row] as const));
+  const restored = input.removedVariants
+    .filter((row) => recentIds.has(row.storeVariantId))
+    .map((row) => {
+      const sv = byId.get(row.storeVariantId)!;
+      return {
+        storeVariantId: sv.id,
+        selectedOptions: Object.entries(optionRecord(sv.options)).map(([name, value]) => ({
+          name,
+          value,
+        })),
+        priceCents: sv.priceCents,
+        sku: sv.sku,
+        shopifyVariantId: row.shopifyVariantId,
+      };
+    });
+  return {
+    localVariants: [
+      ...input.localVariants.filter((row) => !recentIds.has(row.storeVariantId)),
+      ...restored,
+    ],
+    removedVariants: input.removedVariants.filter((row) => !recentIds.has(row.storeVariantId)),
+    restored: true,
+  };
 }
 
 /** Clear stale topology conflict once inbound planning no longer conflicts. */
@@ -1101,6 +1180,21 @@ export async function syncShopifyListingTopology(input: {
   | { ok: true; plan: ShopifyTopologyDiffPlan; importedStoreVariantIds: string[] }
   | ({ ok: false } & HandlerFailure)
 > {
+  const kept = await restoreRecentlyCreatedVariants({
+    memberId: input.memberId,
+    storeItemId: input.storeItemId,
+    localVariants: input.localVariants,
+    removedVariants: input.removedVariants ?? [],
+  });
+  if (kept.restored) {
+    input = {
+      ...input,
+      localVariants: kept.localVariants,
+      removedVariants: kept.removedVariants,
+    };
+    await fanOutAdoptedShopifyTopologyToEtsy(input.memberId, input.storeItemId);
+  }
+
   const remoteRead = await readShopifyProductTopology({
     connectionId: input.connectionId,
     productId: input.productId,
@@ -1148,6 +1242,21 @@ export async function syncShopifyListingTopology(input: {
         !isShopifyDefaultTitleOnly(row.selectedOptions)
     );
     if (localHadMappedOptions) {
+      const cutoff = new Date(Date.now() - STALE_MARKETPLACE_QTY_REVERT_MS);
+      const recentOptionVariant = await prisma.storeVariant.findFirst({
+        where: {
+          storeItemId: input.storeItemId,
+          memberId: input.memberId,
+          status: "ACTIVE",
+          createdAt: { gte: cutoff },
+        },
+        select: { id: true, options: true },
+      });
+      if (recentOptionVariant && Object.keys(optionRecord(recentOptionVariant.options)).length > 0) {
+        await fanOutAdoptedShopifyTopologyToEtsy(input.memberId, input.storeItemId);
+        await clearResolvedTopologyConflict(input.listingLinkId);
+        return { ok: true, plan: { kind: "NOOP" }, importedStoreVariantIds: [] };
+      }
       const pulled = await pullShopifySimpleTopologyIntoInw({
         connectionId: input.connectionId,
         memberId: input.memberId,
@@ -1371,7 +1480,21 @@ export async function syncShopifyListingTopology(input: {
   }
 
   // Retire mappings for provider-deleted variants; mark StoreVariant RETIRED so qty projection drops it.
+  // A variant created moments ago is missing from a stale read, not a real delete.
+  const retireCandidateIds = plan.retireMappings
+    .map((row) => row.storeVariantId)
+    .filter((id) => !reboundStoreVariantIds.has(id));
+  const recentRetireIds = new Set<string>();
+  if (retireCandidateIds.length > 0) {
+    const cutoff = new Date(Date.now() - STALE_MARKETPLACE_QTY_REVERT_MS);
+    const recentRetires = await prisma.storeVariant.findMany({
+      where: { id: { in: retireCandidateIds }, createdAt: { gte: cutoff } },
+      select: { id: true },
+    });
+    for (const row of recentRetires) recentRetireIds.add(row.id);
+  }
   for (const row of plan.retireMappings) {
+    if (recentRetireIds.has(row.storeVariantId)) continue;
     await prisma.shopifyVariantMap.deleteMany({
       where: {
         shopifyListingLinkId: input.listingLinkId,

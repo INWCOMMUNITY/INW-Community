@@ -106,7 +106,7 @@ export function classifyEtsyListingHealth(input: {
       inventoryHealth: "DEGRADED",
       issueCode: "TOPOLOGY_DIVERGED",
       issueMessage:
-        "INW and Etsy variant structure do not match (options vs simple). Needs attention until both sides align.",
+        "INW and Etsy variant options do not match. Needs attention until both sides align.",
     };
   }
 

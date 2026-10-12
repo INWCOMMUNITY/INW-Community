@@ -18,7 +18,9 @@ vi.mock("database", () => ({
   captureEtsyInventoryProjectionDesire: vi.fn(async () => ({})),
   etsyCentsFromMoney: vi.fn(() => 0),
   replaceEtsyListingVariantMaps: vi.fn(async () => undefined),
+  recordEtsyListingVariantTopologyDesire: vi.fn(async () => ({ status: "RECORDED" })),
   recordShopifyListingVariantTopologyDesire: vi.fn(async () => undefined),
+  STALE_MARKETPLACE_QTY_REVERT_MS: 10 * 60 * 1000,
   prisma: {
     etsyVariantMap: { findMany: vi.fn(async () => []) },
     etsySyncJob: { findFirst: vi.fn(async () => null) },
@@ -149,7 +151,15 @@ describe("Etsy variant add fans out to Shopify", () => {
           options: null,
           priceCents: 1000,
           sku: null,
+          createdAt: new Date("2020-01-01T00:00:00.000Z"),
           inventoryState: { mode: "TRACKED_FINITE", onHand: 4, reserved: 0 },
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: "sv-simple",
+          options: null,
+          createdAt: new Date("2020-01-01T00:00:00.000Z"),
         },
       ] as never)
       .mockResolvedValueOnce([
@@ -195,5 +205,75 @@ describe("Etsy variant add fans out to Shopify", () => {
       storeItemId: "item-1",
     });
     expect(runNextShopifySyncJob).toHaveBeenCalled();
+  });
+
+  it("does not retire a variant INW just added when Etsy still has the old matrix", async () => {
+    const {
+      prisma,
+      recordEtsyListingVariantTopologyDesire,
+      recordShopifyListingVariantTopologyDesire,
+      applyFoundationSellerMatrixStructure,
+    } = await import("database");
+    vi.mocked(recordEtsyListingVariantTopologyDesire).mockClear();
+    vi.mocked(recordShopifyListingVariantTopologyDesire).mockClear();
+    vi.mocked(applyFoundationSellerMatrixStructure).mockClear();
+    const wool = {
+      id: "sv-wool",
+      options: { Material: "Wool", Size: "Small", "Primary color": "Red" },
+      priceCents: 700,
+      sku: null,
+      createdAt: new Date(),
+      inventoryState: { mode: "TRACKED_FINITE", onHand: 7, reserved: 0 },
+    };
+    vi.mocked(prisma.storeVariant.findMany)
+      .mockResolvedValueOnce([wool] as never)
+      .mockResolvedValueOnce([wool] as never);
+    etsyConnectionRequest.mockResolvedValue({
+      ok: true,
+      data: {
+        products: [
+          {
+            product_id: 11,
+            sku: "COTTON",
+            property_values: [
+              { property_id: 513, property_name: "Material", values: ["Cotton"] },
+              { property_id: 514, property_name: "Primary color", values: ["Red"] },
+              { property_id: 516, property_name: "Size", values: ["Small"] },
+            ],
+            offerings: [{ offering_id: 101, quantity: 7, is_enabled: true, price: 7 }],
+          },
+          {
+            product_id: 12,
+            sku: "COTTON-BROWN",
+            property_values: [
+              { property_id: 513, property_name: "Material", values: ["Cotton"] },
+              { property_id: 514, property_name: "Primary color", values: ["Brown"] },
+              { property_id: 516, property_name: "Size", values: ["Small"] },
+            ],
+            offerings: [{ offering_id: 102, quantity: 7, is_enabled: true, price: 7 }],
+          },
+        ],
+      },
+    });
+
+    const result = await syncEtsyListingVariantTopology({
+      connectionId: "conn-1",
+      memberId: "mem-1",
+      listingLinkId: "link-1",
+      storeItemId: "item-1",
+      etsyListingId: "999",
+      taxonomyId: 1,
+      readinessStateId: 1,
+      inventoryTracking: "tracked",
+      direction: "pull",
+    });
+
+    expect(result).toMatchObject({ status: "NOOP", reason: "STALE_REMOTE_STRUCTURE" });
+    expect(applyFoundationSellerMatrixStructure).not.toHaveBeenCalled();
+    expect(recordShopifyListingVariantTopologyDesire).not.toHaveBeenCalled();
+    expect(recordEtsyListingVariantTopologyDesire).toHaveBeenCalledWith(prisma, {
+      memberId: "mem-1",
+      storeItemId: "item-1",
+    });
   });
 });

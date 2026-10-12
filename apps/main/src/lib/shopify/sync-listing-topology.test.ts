@@ -37,6 +37,8 @@ vi.mock("database", async () => {
       storeVariant: {
         create: vi.fn(async () => ({ id: "sv-new" })),
         updateMany: vi.fn(async () => ({ count: 1 })),
+        findFirst: vi.fn(async () => null),
+        findMany: vi.fn(async () => []),
       },
       inventoryState: {
         create: vi.fn(async () => ({})),

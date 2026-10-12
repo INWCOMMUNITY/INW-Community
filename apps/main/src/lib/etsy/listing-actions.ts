@@ -1,11 +1,11 @@
 import {
   captureEtsyInventoryProjectionDesire,
-  ensureEtsyReconcileListingJob,
   etsyProductContentFingerprint,
   prisma,
   reconcileEtsyListingHealthFromDb,
   recordEtsyDirtyMappedVariantContentDesires,
   recordEtsyListingContentDesire,
+  recordEtsyListingVariantTopologyDesire,
 } from "database";
 import { etsyListingIsPubliclyViewable } from "./apps-airport";
 import type { EtsyFetch } from "./client";
@@ -156,7 +156,7 @@ async function stopPendingJobsForListing(input: {
   });
 }
 
-/** Mirror Shopify Reload Sync: reconcile + re-project content/qty from current INW. */
+/** Mirror Shopify Reload Sync: push current INW content, qty, and variant options to Etsy. */
 async function reloadEtsyListingSync(input: {
   memberId: string;
   connectionId: string;
@@ -164,11 +164,10 @@ async function reloadEtsyListingSync(input: {
   storeItemId: string;
   variantMaps: Array<{ storeVariantId: string }>;
 }): Promise<EtsyListingActionResult> {
-  await ensureEtsyReconcileListingJob(prisma, {
-    connectionId: input.connectionId,
-    listingLinkId: input.listingLinkId,
+  // Push INW's matrix. A plain reconcile pulls Etsy and can delete a variant INW just gained.
+  await recordEtsyListingVariantTopologyDesire(prisma, {
+    memberId: input.memberId,
     storeItemId: input.storeItemId,
-    bucket: Date.now(),
   });
 
   const [storeItem, listingMeta] = await Promise.all([

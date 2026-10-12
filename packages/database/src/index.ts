@@ -145,6 +145,7 @@ export {
   setTrackedOnHand,
   SHOPIFY_SOURCE_SYSTEM,
   ETSY_SOURCE_SYSTEM,
+  STALE_MARKETPLACE_QTY_REVERT_MS,
   trackedAvailable,
 } from "./commerce-foundation-inventory";
 export {
