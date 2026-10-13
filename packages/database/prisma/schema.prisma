@@ -162,6 +162,7 @@ model Member {
   etsyVariantMaps      EtsyVariantMap[]
   etsyListingImportAttempts EtsyListingImportAttempt[]
   etsyOrderLineSaleFacts EtsyOrderLineSaleFact[]
+  etsyImportBatches    EtsyImportBatch[]
 }
 
 model WebviewBridgeToken {
@@ -1538,6 +1539,11 @@ model ShippingOption {
   weightOz        Float?    @map("weight_oz")
   /// INW checkout / domestic flat rate. Null when calculated or unknown. 0 = free.
   shippingCostCents Int?    @map("shipping_cost_cents")
+  /// inw | etsy | shopify — marketplace copies are seller-owned INW rows.
+  source          String    @default("inw")
+  /// Marketplace profile/method id. Null for INW-created options (PG unique allows many NULLs).
+  remoteProfileId String?   @map("remote_profile_id")
+  lastImportedAt  DateTime? @map("last_imported_at")
   archivedAt      DateTime? @map("archived_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
@@ -1546,6 +1552,7 @@ model ShippingOption {
   storeItems       StoreItem[]
   listingTemplates ListingTemplate[]
 
+  @@unique([memberId, source, remoteProfileId])
   @@index([memberId, archivedAt])
   @@map("shipping_option")
 }
@@ -2730,6 +2737,7 @@ model EtsyConnection {
   variantMaps      EtsyVariantMap[]
   listingImportAttempts EtsyListingImportAttempt[]
   orderLineSaleFacts EtsyOrderLineSaleFact[]
+  importBatches      EtsyImportBatch[]
 
   @@unique([id, memberId])
   @@unique([memberId, shopId, generation])
@@ -2920,8 +2928,64 @@ enum EtsySyncJobKind {
   PROJECT_INVENTORY
   RECONCILE_LISTING
   CREATE_LISTING
+  IMPORT_BATCH
 
   @@map("etsy_sync_job_kind")
+}
+
+enum EtsyImportBatchState {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+
+  @@map("etsy_import_batch_state")
+}
+
+enum EtsyImportStockModePolicy {
+  RECOMMENDED
+  PHYSICAL
+  MADE_TO_ORDER
+
+  @@map("etsy_import_stock_mode_policy")
+}
+
+/// Durable bulk import of active Etsy listings into INW for one connection generation.
+model EtsyImportBatch {
+  id                 String                     @id @default(cuid())
+  etsyConnectionId   String                     @map("etsy_connection_id")
+  memberId           String                     @map("member_id")
+  state              EtsyImportBatchState       @default(PENDING)
+  stockModePolicy    EtsyImportStockModePolicy  @default(RECOMMENDED) @map("stock_mode_policy")
+  /// Importable listings discovered so far (grows while paging Etsy).
+  total              Int                        @default(0)
+  completed          Int                        @default(0)
+  failed             Int                        @default(0)
+  skipped            Int                        @default(0)
+  /// Next offset for Etsy shop listings discover.
+  discoverOffset     Int                        @default(0) @map("discover_offset")
+  discoverComplete   Boolean                    @default(false) @map("discover_complete")
+  /// Remaining etsyListingId strings to import.
+  queueJson          Json                       @default("[]") @map("queue_json")
+  /// Recent failures: [{ etsyListingId, message }]
+  failuresJson       Json                       @default("[]") @map("failures_json")
+  /// Rolling average milliseconds per imported/skipped/failed item.
+  avgItemMs          Int?                       @map("avg_item_ms")
+  startedAt          DateTime?                  @map("started_at")
+  finishedAt         DateTime?                  @map("finished_at")
+  lastProgressAt     DateTime?                  @map("last_progress_at")
+  lastError          String?                    @map("last_error") @db.Text
+  cancelRequested    Boolean                    @default(false) @map("cancel_requested")
+  createdAt          DateTime                   @default(now()) @map("created_at")
+  updatedAt          DateTime                   @updatedAt @map("updated_at")
+
+  connection EtsyConnection @relation(fields: [etsyConnectionId, memberId], references: [id, memberId], onDelete: Restrict)
+  member     Member         @relation(fields: [memberId], references: [id], onDelete: Restrict)
+
+  @@index([memberId, createdAt])
+  @@index([etsyConnectionId, state])
+  @@map("etsy_import_batch")
 }
 
 /// Verified inbound Etsy webhook fact. Separate from canonical commerce state.

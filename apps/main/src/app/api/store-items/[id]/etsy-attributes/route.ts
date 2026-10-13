@@ -24,6 +24,38 @@ function kickEtsySyncJobsAfterEdit() {
 }
 
 /**
+ * Prefill Etsy How it's made + taxonomy (+ inventoryTracking) for List on Etsy modals.
+ */
+export async function GET(
+  _req: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  const session = await getSessionForApi(_req);
+  const memberId = session?.user?.id;
+  if (!memberId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await memberHasStorefrontListingAccess(memberId))) {
+    return NextResponse.json({ error: "Seller access required" }, { status: 403 });
+  }
+
+  const { id: storeItemId } = await context.params;
+  const storeItem = await prisma.storeItem.findFirst({
+    where: { id: storeItemId, memberId },
+    select: {
+      id: true,
+      title: true,
+      inventoryTracking: true,
+      etsyWhoMade: true,
+      etsyWhenMade: true,
+      etsyIsSupply: true,
+      etsyTaxonomyId: true,
+    },
+  });
+  if (!storeItem) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  return NextResponse.json({ storeItem });
+}
+
+/**
  * Persist Etsy How it's made + taxonomy fields on a StoreItem before CREATE_LISTING.
  * When the listing is already mapped, bumps content desire so cron PATCHes Etsy.
  */

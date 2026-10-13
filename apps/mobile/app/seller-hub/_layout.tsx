@@ -22,8 +22,14 @@ function useHeaderTitle() {
   if (path.includes("data-tools") || String(last) === "data-tools") return "Data Tools";
   if (path.includes("offers") || String(last) === "offers") return "Offers";
   if (path.includes("time-away") || String(last) === "time-away") return "Time Away";
-  if (path.includes("shipping-setup") || String(last) === "shipping-setup") return "Shipping Setup";
-  if (path.includes("shipping-options") || String(last) === "shipping-options") return "Shipping Options";
+  if (
+    path.includes("shipping-setup") ||
+    String(last) === "shipping-setup" ||
+    path.includes("shipping-options") ||
+    String(last) === "shipping-options"
+  ) {
+    return "Shipping";
+  }
   if (path.includes("before-you-start") || String(last) === "before-you-start") return "Before You Start";
   if (path.includes("seller-page-settings") || String(last) === "seller-page-settings") return "Seller Page Settings";
   if (path.includes("quantity-history")) return "Quantity History";

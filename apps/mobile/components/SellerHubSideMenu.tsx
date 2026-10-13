@@ -85,7 +85,6 @@ export function SellerHubSideMenu({ visible, onClose }: SellerHubSideMenuProps) 
     { href: "/seller-hub/store", label: "Storefront Info", icon: "storefront-outline" },
     { href: "/policies", label: "Policies", icon: "book-outline" },
     { href: "/seller-hub/shipping-setup", label: "Shipping", icon: "boat-outline" },
-    { href: "/seller-hub/shipping-options", label: "Shipping Options", icon: "cube-outline" },
     { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
     { href: "/(tabs)/my-community", label: "Business Hub", icon: "business-outline", action: "business-hub" },
     { href: "/seller-hub/analytics", label: "Analytics", icon: "analytics-outline" },

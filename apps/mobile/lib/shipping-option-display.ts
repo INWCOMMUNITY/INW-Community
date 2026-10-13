@@ -1,4 +1,4 @@
-/** Imported eBay/Etsy options are usable without package measurements. */
+/** Imported Etsy/Shopify options are usable without package measurements. */
 export function shippingOptionNeedsMeasurements(opt: {
   source?: string | null;
   complete: boolean;
@@ -19,7 +19,7 @@ export function formatShippingOptionPackageSummary(
   incompleteInwMessage = "Needs weight and size"
 ): string {
   if (opt.complete) {
-    return `${opt.lengthIn}×${opt.widthIn}×${opt.heightIn} in · ${opt.weightLbs} lb ${opt.weightOzRemainder} oz`;
+    return `${opt.lengthIn}\u00d7${opt.widthIn}\u00d7${opt.heightIn} in \u00b7 ${opt.weightLbs} lb ${opt.weightOzRemainder} oz`;
   }
   return shippingOptionNeedsMeasurements(opt) ? incompleteInwMessage : "";
 }

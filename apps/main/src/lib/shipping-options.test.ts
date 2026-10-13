@@ -6,6 +6,8 @@ import {
   importedListingShippingPatch,
   importedListingShippingPatchAlreadyApplied,
 } from "./shipping-options";
+import { mapShopifyDeliveryProfilesToRemote } from "./shopify/delivery-profiles";
+import { etsyProfileDomesticShippingCostCents } from "./etsy/shipping-profiles-import";
 
 describe("mergeImportedShippingOption", () => {
   it("fills empty package fields from the remote and keeps existing measurements", () => {
@@ -33,13 +35,13 @@ describe("mergeImportedShippingOption", () => {
   it("keeps an existing shipping price including free (0) and ignores empty remote", () => {
     const keepFree = mergeImportedShippingOption(
       { name: "Keep", shippingCostCents: 0 },
-      { source: "ebay", remoteProfileId: "p", name: "Ground", shippingCostCents: 799 }
+      { source: "shopify", remoteProfileId: "p", name: "Ground", shippingCostCents: 799 }
     );
     expect(keepFree.shippingCostCents).toBe(0);
 
     const ignoreEmpty = mergeImportedShippingOption(
       { name: "Keep", shippingCostCents: 499 },
-      { source: "ebay", remoteProfileId: "p", name: "Ground", shippingCostCents: null }
+      { source: "shopify", remoteProfileId: "p", name: "Ground", shippingCostCents: null }
     );
     expect(ignoreEmpty.shippingCostCents).toBe(499);
   });
@@ -62,7 +64,7 @@ describe("listingPackageFromRemote", () => {
     expect(hint.widthIn).toBeCloseTo(3.937, 2);
   });
 
-  it("treats eBay OUNCE/INCH units as ounces and inches", () => {
+  it("treats OUNCE/INCH units as ounces and inches", () => {
     const hint = listingPackageFromRemote({
       remoteProfileId: "pol-1",
       weight: 24,
@@ -131,7 +133,7 @@ describe("importedListingShippingPatch", () => {
         importOptionsEnabled: true,
         offerFreeShippingOnInw: false,
         existingOptionSource: "inw",
-        matchedOption: { id: "ebay-opt", shippingCostCents: 400 },
+        matchedOption: { id: "etsy-opt", shippingCostCents: 400 },
       })
     ).toBeNull();
   });
@@ -154,5 +156,93 @@ describe("importedListingShippingPatchAlreadyApplied", () => {
         { shippingOptionId: "opt-1", shippingCostCents: 0 }
       )
     ).toBe(false);
+  });
+});
+
+describe("etsyProfileDomesticShippingCostCents", () => {
+  it("reads US primary cost from destinations", () => {
+    expect(
+      etsyProfileDomesticShippingCostCents({
+        profile_type: "manual",
+        shipping_profile_destinations: [
+          { destination_country_iso: "CA", primary_cost: { amount: 12, divisor: 1 } },
+          { destination_country_iso: "US", primary_cost: { amount: 599, divisor: 100 } },
+        ],
+      })
+    ).toBe(599);
+  });
+
+  it("returns null for calculated profiles", () => {
+    expect(
+      etsyProfileDomesticShippingCostCents({
+        profile_type: "calculated",
+        shipping_profile_destinations: [
+          { destination_country_iso: "US", primary_cost: { amount: 5, divisor: 1 } },
+        ],
+      })
+    ).toBeNull();
+  });
+});
+
+describe("mapShopifyDeliveryProfilesToRemote", () => {
+  it("maps active domestic method definitions to import rows", () => {
+    const rows = mapShopifyDeliveryProfilesToRemote([
+      {
+        id: "gid://shopify/DeliveryProfile/1",
+        name: "General",
+        profileLocationGroups: [
+          {
+            locationGroupZones: {
+              nodes: [
+                {
+                  zone: {
+                    name: "Domestic",
+                    countries: [{ code: { countryCode: "US" } }],
+                  },
+                  methodDefinitions: {
+                    nodes: [
+                      {
+                        id: "gid://shopify/DeliveryMethodDefinition/99",
+                        name: "Standard",
+                        active: true,
+                        rateProvider: { price: { amount: "5.50", currencyCode: "USD" } },
+                      },
+                      {
+                        id: "gid://shopify/DeliveryMethodDefinition/100",
+                        name: "Inactive",
+                        active: false,
+                        rateProvider: { price: { amount: "9.00", currencyCode: "USD" } },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ]);
+    expect(rows).toEqual([
+      {
+        source: "shopify",
+        remoteProfileId: "99",
+        name: "General — Standard",
+        shippingCostCents: 550,
+      },
+    ]);
+  });
+
+  it("falls back to the profile when no methods are present", () => {
+    const rows = mapShopifyDeliveryProfilesToRemote([
+      { id: "gid://shopify/DeliveryProfile/7", name: "Custom profile", profileLocationGroups: [] },
+    ]);
+    expect(rows).toEqual([
+      {
+        source: "shopify",
+        remoteProfileId: "7",
+        name: "Custom profile",
+        shippingCostCents: null,
+      },
+    ]);
   });
 });

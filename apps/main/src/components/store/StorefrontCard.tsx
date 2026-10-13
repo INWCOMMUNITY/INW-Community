@@ -4,9 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { listingDescriptionPreview } from "@/lib/listing-description-preview";
 import { HeartSaveButton } from "@/components/HeartSaveButton";
+import { SaveToCollectionButton } from "@/components/SaveToCollectionButton";
 import { ShareButton } from "@/components/ShareButton";
 import { IonIcon } from "@/components/IonIcon";
 import { CARD_RADIUS, CARD_SHADOW } from "@/components/ui/card-styles";
+import { DelayedThoughtBubble } from "@/components/ui/DelayedThoughtBubble";
 import { listingDisplayPhoto } from "@/lib/listing-display-photo";
 import { browsePriceLabel } from "@/lib/listing-variant-matrix";
 
@@ -103,31 +105,41 @@ export function StorefrontCard({
           {item.description ? listingDescriptionPreview(item.description) : "\u00a0"}
         </p>
         <div className="flex items-center justify-evenly mt-auto pt-2 border-t border-gray-100">
-          <HeartSaveButton
-            type="store_item"
-            referenceId={item.id}
-            initialSaved={savedIds.has(item.id)}
-            className="card-action-btn card-action-btn-honey"
-            iconSize={16}
-            iconClassName="card-action-icon"
-          />
-          <ShareButton
-            type="store_item"
-            id={item.id}
-            slug={item.slug}
-            title={item.title}
-            className="card-action-btn card-action-btn-earth"
-            iconSize={16}
-            iconClassName="card-action-icon"
-          />
-          <Link
-            href={href}
-            className="card-action-btn"
-            title="View details"
-            aria-label="View details"
-          >
-            <IonIcon name="eye-outline" size={16} className="card-action-icon" />
-          </Link>
+          <DelayedThoughtBubble label="Wishlist">
+            <HeartSaveButton
+              type="store_item"
+              referenceId={item.id}
+              initialSaved={savedIds.has(item.id)}
+              className="card-action-btn card-action-btn-honey"
+              iconSize={16}
+              iconClassName="card-action-icon"
+            />
+          </DelayedThoughtBubble>
+          <DelayedThoughtBubble label="Save to collection">
+            <SaveToCollectionButton
+              storeItemId={item.id}
+              storeItemTitle={item.title}
+              className="card-action-btn card-action-btn-tan"
+              iconSize={16}
+              iconClassName="card-action-icon"
+            />
+          </DelayedThoughtBubble>
+          <DelayedThoughtBubble label="Share">
+            <ShareButton
+              type="store_item"
+              id={item.id}
+              slug={item.slug}
+              title={item.title}
+              className="card-action-btn card-action-btn-earth"
+              iconSize={16}
+              iconClassName="card-action-icon"
+            />
+          </DelayedThoughtBubble>
+          <DelayedThoughtBubble label="View item">
+            <Link href={href} className="card-action-btn" aria-label="View item">
+              <IonIcon name="eye-outline" size={16} className="card-action-icon" />
+            </Link>
+          </DelayedThoughtBubble>
         </div>
       </div>
     </div>

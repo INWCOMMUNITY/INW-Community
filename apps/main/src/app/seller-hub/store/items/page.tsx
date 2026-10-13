@@ -108,6 +108,8 @@ function MyItemsPageInner() {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [feedShareIds, setFeedShareIds] = useState<string[]>([]);
+  const [etsyReady, setEtsyReady] = useState(false);
+  const [shopifyReady, setShopifyReady] = useState(false);
 
   useEffect(() => {
     const t = searchParams.get("tab");
@@ -115,6 +117,56 @@ function MyItemsPageInner() {
       setTab(t);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([
+      fetch("/api/etsy/connection", { credentials: "include" }),
+      fetch("/api/shopify/connection", { credentials: "include" }),
+    ])
+      .then(async ([etsyRes, shopifyRes]) => {
+        if (cancelled) return;
+        if (etsyRes.ok) {
+          const body = (await etsyRes.json()) as {
+            connections?: Array<{ status?: string }>;
+          };
+          setEtsyReady(
+            Array.isArray(body.connections) &&
+              body.connections.some((c) => c.status === "ACTIVE")
+          );
+        } else {
+          setEtsyReady(false);
+        }
+        if (shopifyRes.ok) {
+          const body = (await shopifyRes.json()) as {
+            connections?: Array<{
+              status?: string;
+              inventoryReady?: boolean;
+              primaryLocationId?: string | null;
+            }>;
+          };
+          setShopifyReady(
+            Array.isArray(body.connections) &&
+              body.connections.some(
+                (c) =>
+                  c.status === "ACTIVE" &&
+                  Boolean(c.inventoryReady ?? c.primaryLocationId)
+              )
+          );
+        } else {
+          setShopifyReady(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEtsyReady(false);
+          setShopifyReady(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const setTabAndUrl = (next: ItemsTab) => {
     setTab(next);
@@ -658,7 +710,17 @@ function MyItemsPageInner() {
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500 mb-1">
                           Listed On
                         </div>
-                        <AppsAirportListedOnChannels channels={item.channels} />
+                        <AppsAirportListedOnChannels
+                          channels={item.channels}
+                          storeItemId={listingIdOf(item)}
+                          itemTitle={item.title}
+                          etsyReady={etsyReady}
+                          shopifyReady={shopifyReady}
+                          onListed={(message) => {
+                            if (message) setActionMessage(message);
+                            void load();
+                          }}
+                        />
                       </div>
                       <div className="mt-3 flex flex-wrap items-center gap-2 relative">
                         {(tab === "ended" || (tab === "sold" && item.canRelist !== false)) && (
@@ -778,7 +840,17 @@ function MyItemsPageInner() {
                       </td>
                       <td className="py-3 pr-3 whitespace-nowrap">{formatPrice(item.priceCents)}</td>
                       <td className="py-3 pr-3 whitespace-nowrap">
-                        <AppsAirportListedOnChannels channels={item.channels} />
+                        <AppsAirportListedOnChannels
+                          channels={item.channels}
+                          storeItemId={listingIdOf(item)}
+                          itemTitle={item.title}
+                          etsyReady={etsyReady}
+                          shopifyReady={shopifyReady}
+                          onListed={(message) => {
+                            if (message) setActionMessage(message);
+                            void load();
+                          }}
+                        />
                       </td>
                       <td className="py-3 pr-3 whitespace-nowrap text-neutral-700">{views}</td>
                       <td className="py-3 pr-4 sm:pr-6 relative">

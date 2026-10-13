@@ -34,7 +34,7 @@ type Props = {
 export function EtsyHowItsMadeFields({ value, onChange, madeToOrder, embedded = false }: Props) {
   const body = (
     <>
-      <p className="text-sm text-neutral-600 mb-3">
+      <p className="mb-3 break-words text-sm text-neutral-600">
         Matches Etsy’s Who made it / What is it / When was it made. Required before Sync Airport can
         publish this listing.
       </p>

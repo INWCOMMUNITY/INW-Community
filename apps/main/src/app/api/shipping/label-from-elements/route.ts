@@ -258,10 +258,11 @@ export async function POST(req: NextRequest) {
       }))
     ),
   });
-  const weightOz = weightOzRaw ?? combinedParcel?.weightOz ?? DEFAULT_WEIGHT_OZ;
-  const lengthIn = lengthInRaw ?? combinedParcel?.lengthIn ?? DEFAULT_LENGTH_IN;
-  const widthIn = widthInRaw ?? combinedParcel?.widthIn ?? DEFAULT_WIDTH_IN;
-  const heightIn = heightInRaw ?? combinedParcel?.heightIn ?? DEFAULT_HEIGHT_IN;
+  // Prefer listing shipping-option package over client placeholders so sellers don't re-enter dims.
+  const weightOz = combinedParcel?.weightOz ?? weightOzRaw ?? DEFAULT_WEIGHT_OZ;
+  const lengthIn = combinedParcel?.lengthIn ?? lengthInRaw ?? DEFAULT_LENGTH_IN;
+  const widthIn = combinedParcel?.widthIn ?? widthInRaw ?? DEFAULT_WIDTH_IN;
+  const heightIn = combinedParcel?.heightIn ?? heightInRaw ?? DEFAULT_HEIGHT_IN;
 
   const shipData = {
     carrier: carrier.trim(),

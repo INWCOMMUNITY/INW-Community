@@ -34,6 +34,20 @@ async function handle(req: NextRequest) {
   });
 
   const results: Array<{ jobId: string; finalized: boolean; outcome: string }> = [];
+  // Bulk imports should keep moving even when outbound queues are busy.
+  for (let i = 0; i < 6; i += 1) {
+    const ran = await runNextEtsySyncJob({
+      workerId: `cron-etsy-import-${i}`,
+      kind: "IMPORT_BATCH",
+      leaseMs: 55_000,
+    });
+    if (!ran.claimed) break;
+    results.push({
+      jobId: ran.jobId,
+      finalized: ran.finalized,
+      outcome: ran.result.outcome,
+    });
+  }
   // Inbound listing edits must not wait behind outbound inventory and content jobs.
   for (let i = 0; i < 4; i += 1) {
     const ran = await runNextEtsySyncJob({

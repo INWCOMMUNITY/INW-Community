@@ -153,9 +153,12 @@ export function buildBackLink(ref: ProductReferrer): { href: string; label: stri
       return { href: "/my-community/feed", label: "Back to Feed" };
     case "collection":
       if (ref.collectionId) {
-        return { href: `/feed/collections/${ref.collectionId}`, label: "Back to Collection" };
+        return {
+          href: `/my-community/collections/${ref.collectionId}`,
+          label: "Back to Collection",
+        };
       }
-      break;
+      return { href: "/my-community/collections", label: "Back to Collections" };
     case "wishlist":
       return { href: "/my-community/wantlist", label: "Back to Wishlist" };
     case "cart":

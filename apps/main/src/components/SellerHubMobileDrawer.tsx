@@ -152,7 +152,6 @@ export function SellerHubMobileDrawer({
     { href: "/seller-hub/store", label: "Storefront Info", icon: "storefront-outline" },
     { href: "/seller-hub/policies", label: "Policies", icon: "book-outline" },
     { href: "/seller-hub/shipping-setup", label: "Shipping", icon: "boat-outline" },
-    { href: "/seller-hub/shipping-options", label: "Shipping Options", icon: "cube-outline" },
     { href: "/seller-hub/time-away", label: "Time Away", icon: "calendar-outline" },
     { href: "/business-hub?from=seller-hub", label: "Business Hub", icon: "business-outline" },
   ];

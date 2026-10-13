@@ -33,13 +33,38 @@ export interface ShippoElementsLineItem {
   country_of_origin?: string;
 }
 
+/** Parcel shape accepted by Shippo Elements / Label Purchase (inches + ounces). */
+export interface ShippoElementsParcel {
+  length: string;
+  width: string;
+  height: string;
+  distance_unit: "in";
+  weight: string;
+  mass_unit: "oz";
+}
+
 export interface ShippoElementsOrderDetails {
   address_from?: ShippoElementsAddress;
   address_to: ShippoElementsAddress;
   line_items: ShippoElementsLineItem[];
+  /** Pre-fill package size/weight from listing shipping options so sellers skip re-entry. */
+  parcels?: ShippoElementsParcel[];
   order_number?: string;
   object_id?: string;
   extra?: { is_return?: boolean };
+}
+
+export function packageMeasurementsToShippoParcel(
+  pkg: PackageMeasurements
+): ShippoElementsParcel {
+  return {
+    length: String(pkg.lengthIn),
+    width: String(pkg.widthIn),
+    height: String(pkg.heightIn),
+    distance_unit: "in",
+    weight: String(pkg.weightOz),
+    mass_unit: "oz",
+  };
 }
 
 function splitStreet1Street2(street: string, aptOrSuite: string): { street1: string; street2: string } {
@@ -277,6 +302,11 @@ export function buildOrderDetailsFromOrder(
     ...(order.buyer.email?.trim() ? { email: order.buyer.email.trim().slice(0, 128) } : {}),
   };
 
+  const combinedParcel = parcelFromOrderItems(order);
+  const parcels = combinedParcel
+    ? [packageMeasurementsToShippoParcel(combinedParcel)]
+    : undefined;
+
   if (options?.isReturn) {
     const sellerAddr = options.sellerFromAddress;
     if (!sellerAddr?.street1?.trim() || !sellerAddr.city?.trim() || !sellerAddr.state?.trim() || !sellerAddr.zip?.trim()) {
@@ -294,6 +324,7 @@ export function buildOrderDetailsFromOrder(
         country: sellerAddr.country || "US",
       },
       line_items,
+      ...(parcels ? { parcels } : {}),
       order_number,
       extra: { is_return: true },
     };
@@ -302,6 +333,7 @@ export function buildOrderDetailsFromOrder(
   return {
     address_to: buyerAddress,
     line_items,
+    ...(parcels ? { parcels } : {}),
     order_number,
     ...(objectId?.trim() ? { object_id: objectId.trim() } : {}),
   };
